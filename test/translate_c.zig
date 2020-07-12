@@ -21,7 +21,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("correct semicolon after infixop",
         \\#define __ferror_unlocked_body(_fp) (((_fp)->_flags & _IO_ERR_SEEN) != 0)
     , &[_][]const u8{
-        \\pub inline fn __ferror_unlocked_body(_fp: var) @TypeOf(((_fp.*._flags) & _IO_ERR_SEEN) != 0) {
+        \\pub inline fn __ferror_unlocked_body(_fp: anytype) @TypeOf(((_fp.*._flags) & _IO_ERR_SEEN) != 0) {
         \\    return ((_fp.*._flags) & _IO_ERR_SEEN) != 0;
         \\}
     });
@@ -30,7 +30,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO(x) ((x >= 0) + (x >= 0))
         \\#define BAR 1 && 2 > 4
     , &[_][]const u8{
-        \\pub inline fn FOO(x: var) @TypeOf(@boolToInt(x >= 0) + @boolToInt(x >= 0)) {
+        \\pub inline fn FOO(x: anytype) @TypeOf(@boolToInt(x >= 0) + @boolToInt(x >= 0)) {
         \\    return @boolToInt(x >= 0) + @boolToInt(x >= 0);
         \\}
     ,
@@ -81,7 +81,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    break :blk bar;
         \\};
     ,
-        \\pub inline fn bar(x: var) @TypeOf(baz(1, 2)) {
+        \\pub inline fn bar(x: anytype) @TypeOf(baz(1, 2)) {
         \\    return blk: {
         \\        _ = &x;
         \\        _ = 3;
@@ -1483,11 +1483,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub extern var c: c_int;
     ,
-        \\pub inline fn BASIC(c_1: var) @TypeOf(c_1 * 2) {
+        \\pub inline fn BASIC(c_1: anytype) @TypeOf(c_1 * 2) {
         \\    return c_1 * 2;
         \\}
     ,
-        \\pub inline fn FOO(L: var, b: var) @TypeOf(L + b) {
+        \\pub inline fn FOO(L: anytype, b: anytype) @TypeOf(L + b) {
         \\    return L + b;
         \\}
     });
@@ -2123,7 +2123,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("macro call",
         \\#define CALL(arg) bar(arg)
     , &[_][]const u8{
-        \\pub inline fn CALL(arg: var) @TypeOf(bar(arg)) {
+        \\pub inline fn CALL(arg: anytype) @TypeOf(bar(arg)) {
         \\    return bar(arg);
         \\}
     });
@@ -2683,7 +2683,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO(bar) baz((void *)(baz))
         \\#define BAR (void*) a
     , &[_][]const u8{
-        \\pub inline fn FOO(bar: var) @TypeOf(baz((@import("std").meta.cast(?*c_void, baz)))) {
+        \\pub inline fn FOO(bar: anytype) @TypeOf(baz((@import("std").meta.cast(?*c_void, baz)))) {
         \\    return baz((@import("std").meta.cast(?*c_void, baz)));
         \\}
     ,
@@ -2713,11 +2713,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define MIN(a, b) ((b) < (a) ? (b) : (a))
         \\#define MAX(a, b) ((b) > (a) ? (b) : (a))
     , &[_][]const u8{
-        \\pub inline fn MIN(a: var, b: var) @TypeOf(if (b < a) b else a) {
+        \\pub inline fn MIN(a: anytype, b: anytype) @TypeOf(if (b < a) b else a) {
         \\    return if (b < a) b else a;
         \\}
     ,
-        \\pub inline fn MAX(a: var, b: var) @TypeOf(if (b > a) b else a) {
+        \\pub inline fn MAX(a: anytype, b: anytype) @TypeOf(if (b > a) b else a) {
         \\    return if (b > a) b else a;
         \\}
     });
@@ -2905,7 +2905,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define DefaultScreen(dpy) (((_XPrivDisplay)(dpy))->default_screen)
         \\
     , &[_][]const u8{
-        \\pub inline fn DefaultScreen(dpy: var) @TypeOf((@import("std").meta.cast(_XPrivDisplay, dpy)).*.default_screen) {
+        \\pub inline fn DefaultScreen(dpy: anytype) @TypeOf((@import("std").meta.cast(_XPrivDisplay, dpy)).*.default_screen) {
         \\    return (@import("std").meta.cast(_XPrivDisplay, dpy)).*.default_screen;
         \\}
     });

@@ -1785,7 +1785,7 @@ test "fully anonymous list literal" {
     dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi"});
 }
 
-fn dump(args: var) void {
+fn dump(args: anytype) void {
     assert(args.@"0" == 1234);
     assert(args.@"1" == 12.34);
     assert(args.@"2");
@@ -2717,7 +2717,7 @@ test "fully anonymous struct" {
     });
 }
 
-fn dump(args: var) void {
+fn dump(args: anytype) void {
     assert(args.int == 1234);
     assert(args.float == 12.34);
     assert(args.b);
@@ -4181,14 +4181,14 @@ test "pass struct to function" {
       {#header_close#}
       {#header_open|Function Parameter Type Inference#}
       <p>
-      Function parameters can be declared with {#syntax#}var{#endsyntax#} in place of the type.
+      Function parameters can be declared with {#syntax#}anytype{#endsyntax#} in place of the type.
       In this case the parameter types will be inferred when the function is called.
       Use {#link|@TypeOf#} and {#link|@typeInfo#} to get information about the inferred type.
       </p>
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
 
-fn addFortyTwo(x: var) @TypeOf(x) {
+fn addFortyTwo(x: anytype) @TypeOf(x) {
     return x + 42;
 }
 
@@ -5974,7 +5974,7 @@ pub fn main() void {
 
       {#code_begin|syntax#}
 /// Calls print and then flushes the buffer.
-pub fn printf(self: *OutStream, comptime format: []const u8, args: var) anyerror!void {
+pub fn printf(self: *OutStream, comptime format: []const u8, args: anytype) anyerror!void {
     const State = enum {
         Start,
         OpenBrace,
@@ -6060,7 +6060,7 @@ pub fn printf(self: *OutStream, arg0: i32, arg1: []const u8) !void {
       on the type:
       </p>
       {#code_begin|syntax#}
-pub fn printValue(self: *OutStream, value: var) !void {
+pub fn printValue(self: *OutStream, value: anytype) !void {
     switch (@typeInfo(@TypeOf(value))) {
         .Int => {
             return self.printInt(T, value);
@@ -6686,7 +6686,7 @@ fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
       </p>
       {#header_close#}
       {#header_open|@alignCast#}
-      <pre>{#syntax#}@alignCast(comptime alignment: u29, ptr: var) var{#endsyntax#}</pre>
+      <pre>{#syntax#}@alignCast(comptime alignment: u29, ptr: anytype) anytype{#endsyntax#}</pre>
       <p>
       {#syntax#}ptr{#endsyntax#} can be {#syntax#}*T{#endsyntax#}, {#syntax#}fn(){#endsyntax#}, {#syntax#}?*T{#endsyntax#},
                       {#syntax#}?fn(){#endsyntax#}, or {#syntax#}[]T{#endsyntax#}. It returns the same type as {#syntax#}ptr{#endsyntax#}
@@ -6723,7 +6723,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@asyncCall#}
-      <pre>{#syntax#}@asyncCall(frame_buffer: []align(@alignOf(@Frame(anyAsyncFunction))) u8, result_ptr, function_ptr, args: var) anyframe->T{#endsyntax#}</pre>
+      <pre>{#syntax#}@asyncCall(frame_buffer: []align(@alignOf(@Frame(anyAsyncFunction))) u8, result_ptr, function_ptr, args: anytype) anyframe->T{#endsyntax#}</pre>
       <p>
       {#syntax#}@asyncCall{#endsyntax#} performs an {#syntax#}async{#endsyntax#} call on a function pointer,
       which may or may not be an {#link|async function|Async Functions#}.
@@ -6811,7 +6811,7 @@ fn func(y: *i32) void {
       </p>
       {#header_close#}
       {#header_open|@bitCast#}
-      <pre>{#syntax#}@bitCast(comptime DestType: type, value: var) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@bitCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
       <p>
       Converts a value of one type to another type.
       </p>
@@ -6932,7 +6932,7 @@ fn func(y: *i32) void {
       {#header_close#}
 
       {#header_open|@call#}
-      <pre>{#syntax#}@call(options: std.builtin.CallOptions, function: var, args: var) var{#endsyntax#}</pre>
+      <pre>{#syntax#}@call(options: std.builtin.CallOptions, function: anytype, args: anytype) anytype{#endsyntax#}</pre>
       <p>
       Calls a function, in the same way that invoking an expression with parentheses does:
       </p>
@@ -7279,7 +7279,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@enumToInt#}
-      <pre>{#syntax#}@enumToInt(enum_or_tagged_union: var) var{#endsyntax#}</pre>
+      <pre>{#syntax#}@enumToInt(enum_or_tagged_union: anytype) anytype{#endsyntax#}</pre>
       <p>
       Converts an enumeration value into its integer tag type. When a tagged union is passed,
       the tag value is used as the enumeration value.
@@ -7314,7 +7314,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errorToInt#}
-      <pre>{#syntax#}@errorToInt(err: var) std.meta.IntType(false, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
+      <pre>{#syntax#}@errorToInt(err: anytype) std.meta.IntType(false, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
       <p>
       Supports the following types:
       </p>
@@ -7334,7 +7334,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errSetCast#}
-      <pre>{#syntax#}@errSetCast(comptime T: DestType, value: var) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@errSetCast(comptime T: DestType, value: anytype) DestType{#endsyntax#}</pre>
       <p>
       Converts an error value from one error set to another error set. Attempting to convert an error
       which is not in the destination error set results in safety-protected {#link|Undefined Behavior#}.
@@ -7342,7 +7342,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@export#}
-      <pre>{#syntax#}@export(target: var, comptime options: std.builtin.ExportOptions) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@export(target: anytype, comptime options: std.builtin.ExportOptions) void{#endsyntax#}</pre>
       <p>
       Creates a symbol in the output object file.
       </p>
@@ -7387,7 +7387,7 @@ export fn @"A function name that is a complete sentence."() void {}
       {#header_close#}
 
       {#header_open|@field#}
-      <pre>{#syntax#}@field(lhs: var, comptime field_name: []const u8) (field){#endsyntax#}</pre>
+      <pre>{#syntax#}@field(lhs: anytype, comptime field_name: []const u8) (field){#endsyntax#}</pre>
       <p>Performs field access by a compile-time string.
       </p>
        {#code_begin|test#}
@@ -7421,7 +7421,7 @@ test "field access by string" {
       {#header_close#}
 
       {#header_open|@floatCast#}
-      <pre>{#syntax#}@floatCast(comptime DestType: type, value: var) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@floatCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
       <p>
       Convert from one float type to another. This cast is safe, but may cause the
       numeric value to lose precision.
@@ -7429,7 +7429,7 @@ test "field access by string" {
       {#header_close#}
 
       {#header_open|@floatToInt#}
-      <pre>{#syntax#}@floatToInt(comptime DestType: type, float: var) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@floatToInt(comptime DestType: type, float: anytype) DestType{#endsyntax#}</pre>
       <p>
       Converts the integer part of a floating point number to the destination type.
       </p>
@@ -7455,7 +7455,7 @@ test "field access by string" {
       {#header_close#}
 
       {#header_open|@Frame#}
-      <pre>{#syntax#}@Frame(func: var) type{#endsyntax#}</pre>
+      <pre>{#syntax#}@Frame(func: anytype) type{#endsyntax#}</pre>
       <p>
       This function returns the frame type of a function. This works for {#link|Async Functions#}
       as well as any function without a specific calling convention.
@@ -7581,7 +7581,7 @@ test "@hasDecl" {
       {#header_close#}
 
       {#header_open|@intCast#}
-      <pre>{#syntax#}@intCast(comptime DestType: type, int: var) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@intCast(comptime DestType: type, int: anytype) DestType{#endsyntax#}</pre>
       <p>
       Converts an integer to another integer while keeping the same numerical value.
       Attempting to convert a number which is out of range of the destination type results in
@@ -7622,7 +7622,7 @@ test "@hasDecl" {
       {#header_close#}
 
       {#header_open|@intToFloat#}
-      <pre>{#syntax#}@intToFloat(comptime DestType: type, int: var) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@intToFloat(comptime DestType: type, int: anytype) DestType{#endsyntax#}</pre>
       <p>
       Converts an integer to the closest floating point representation. To convert the other way, use {#link|@floatToInt#}. This cast is always safe.
       </p>
@@ -7773,7 +7773,7 @@ test "@wasmMemoryGrow" {
       {#header_close#}
 
       {#header_open|@ptrCast#}
-      <pre>{#syntax#}@ptrCast(comptime DestType: type, value: var) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@ptrCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
       <p>
       Converts a pointer of one type to a pointer of another type.
       </p>
@@ -7784,7 +7784,7 @@ test "@wasmMemoryGrow" {
       {#header_close#}
 
       {#header_open|@ptrToInt#}
-      <pre>{#syntax#}@ptrToInt(value: var) usize{#endsyntax#}</pre>
+      <pre>{#syntax#}@ptrToInt(value: anytype) usize{#endsyntax#}</pre>
       <p>
       Converts {#syntax#}value{#endsyntax#} to a {#syntax#}usize{#endsyntax#} which is the address of the pointer. {#syntax#}value{#endsyntax#} can be one of these types:
       </p>
@@ -8042,7 +8042,7 @@ test "@setRuntimeSafety" {
       {#header_close#}
 
       {#header_open|@splat#}
-      <pre>{#syntax#}@splat(comptime len: u32, scalar: var) std.meta.Vector(len, @TypeOf(scalar)){#endsyntax#}</pre>
+      <pre>{#syntax#}@splat(comptime len: u32, scalar: anytype) std.meta.Vector(len, @TypeOf(scalar)){#endsyntax#}</pre>
       <p>
       Produces a vector of length {#syntax#}len{#endsyntax#} where each element is the value
       {#syntax#}scalar{#endsyntax#}:
@@ -8088,7 +8088,7 @@ fn doTheTest() void {
       {#code_end#}
       {#header_close#}
       {#header_open|@sqrt#}
-      <pre>{#syntax#}@sqrt(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@sqrt(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Performs the square root of a floating point number. Uses a dedicated hardware instruction
       when available.
@@ -8099,7 +8099,7 @@ fn doTheTest() void {
       </p>
       {#header_close#}
       {#header_open|@sin#}
-      <pre>{#syntax#}@sin(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@sin(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Sine trigometric function on a floating point number. Uses a dedicated hardware instruction
       when available.
@@ -8110,7 +8110,7 @@ fn doTheTest() void {
       </p>
       {#header_close#}
       {#header_open|@cos#}
-      <pre>{#syntax#}@cos(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@cos(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Cosine trigometric function on a floating point number. Uses a dedicated hardware instruction
       when available.
@@ -8121,7 +8121,7 @@ fn doTheTest() void {
       </p>
       {#header_close#}
       {#header_open|@exp#}
-      <pre>{#syntax#}@exp(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@exp(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Base-e exponential function on a floating point number. Uses a dedicated hardware instruction
       when available.
@@ -8132,7 +8132,7 @@ fn doTheTest() void {
       </p>
       {#header_close#}
       {#header_open|@exp2#}
-      <pre>{#syntax#}@exp2(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@exp2(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Base-2 exponential function on a floating point number. Uses a dedicated hardware instruction
       when available.
@@ -8143,7 +8143,7 @@ fn doTheTest() void {
       </p>
       {#header_close#}
       {#header_open|@log#}
-      <pre>{#syntax#}@log(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@log(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Returns the natural logarithm of a floating point number. Uses a dedicated hardware instruction
       when available.
@@ -8154,7 +8154,7 @@ fn doTheTest() void {
       </p>
       {#header_close#}
       {#header_open|@log2#}
-      <pre>{#syntax#}@log2(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@log2(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Returns the logarithm to the base 2 of a floating point number. Uses a dedicated hardware instruction
       when available.
@@ -8165,7 +8165,7 @@ fn doTheTest() void {
       </p>
       {#header_close#}
       {#header_open|@log10#}
-      <pre>{#syntax#}@log10(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@log10(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Returns the logarithm to the base 10 of a floating point number. Uses a dedicated hardware instruction
       when available.
@@ -8176,7 +8176,7 @@ fn doTheTest() void {
       </p>
       {#header_close#}
       {#header_open|@fabs#}
-      <pre>{#syntax#}@fabs(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@fabs(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Returns the absolute value of a floating point number. Uses a dedicated hardware instruction
       when available.
@@ -8187,7 +8187,7 @@ fn doTheTest() void {
       </p>
       {#header_close#}
       {#header_open|@floor#}
-      <pre>{#syntax#}@floor(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@floor(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Returns the largest integral value not greater than the given floating point number.
       Uses a dedicated hardware instruction when available.
@@ -8198,7 +8198,7 @@ fn doTheTest() void {
       </p>
       {#header_close#}
       {#header_open|@ceil#}
-      <pre>{#syntax#}@ceil(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@ceil(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Returns the largest integral value not less than the given floating point number.
       Uses a dedicated hardware instruction when available.
@@ -8209,7 +8209,7 @@ fn doTheTest() void {
       </p>
       {#header_close#}
       {#header_open|@trunc#}
-      <pre>{#syntax#}@trunc(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@trunc(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Rounds the given floating point number to an integer, towards zero.
       Uses a dedicated hardware instruction when available.
@@ -8220,7 +8220,7 @@ fn doTheTest() void {
       </p>
       {#header_close#}
       {#header_open|@round#}
-      <pre>{#syntax#}@round(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@round(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Rounds the given floating point number to an integer, away from zero. Uses a dedicated hardware instruction
       when available.
@@ -8241,7 +8241,7 @@ fn doTheTest() void {
       {#header_close#}
 
       {#header_open|@tagName#}
-      <pre>{#syntax#}@tagName(value: var) []const u8{#endsyntax#}</pre>
+      <pre>{#syntax#}@tagName(value: anytype) []const u8{#endsyntax#}</pre>
       <p>
       Converts an enum value or union value to a slice of bytes representing the name.</p><p>If the enum is non-exhaustive and the tag value does not map to a name, it invokes safety-checked {#link|Undefined Behavior#}.
       </p>
@@ -8292,7 +8292,7 @@ fn List(comptime T: type) type {
       {#header_close#}
 
       {#header_open|@truncate#}
-      <pre>{#syntax#}@truncate(comptime T: type, integer: var) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@truncate(comptime T: type, integer: anytype) T{#endsyntax#}</pre>
       <p>
       This function truncates bits from an integer type, resulting in a smaller
       or same-sized integer type.
@@ -10214,7 +10214,7 @@ TopLevelDecl
      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
      / KEYWORD_usingnamespace Expr SEMICOLON
 
-FnProto &lt;- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
+FnProto &lt;- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_anytype / TypeExpr)
 
 VarDecl &lt;- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? LinkSection? (EQUAL Expr)? SEMICOLON
 
@@ -10386,7 +10386,7 @@ LinkSection &lt;- KEYWORD_linksection LPAREN Expr RPAREN
 ParamDecl &lt;- (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
 
 ParamType
-    &lt;- KEYWORD_var
+    &lt;- KEYWORD_anytype
      / DOT3
      / TypeExpr
 
@@ -10624,6 +10624,7 @@ KEYWORD_align       &lt;- 'align'       end_of_word
 KEYWORD_allowzero   &lt;- 'allowzero'   end_of_word
 KEYWORD_and         &lt;- 'and'         end_of_word
 KEYWORD_anyframe    &lt;- 'anyframe'    end_of_word
+KEYWORD_anytype     &lt;- 'anytype'     end_of_word
 KEYWORD_asm         &lt;- 'asm'         end_of_word
 KEYWORD_async       &lt;- 'async'       end_of_word
 KEYWORD_await       &lt;- 'await'       end_of_word
@@ -10669,14 +10670,14 @@ KEYWORD_var         &lt;- 'var'         end_of_word
 KEYWORD_volatile    &lt;- 'volatile'    end_of_word
 KEYWORD_while       &lt;- 'while'       end_of_word
 
-keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_allowzero / KEYWORD_asm
-         / KEYWORD_async / KEYWORD_await / KEYWORD_break
+keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_anyframe / KEYWORD_anytype
+         / KEYWORD_allowzero / KEYWORD_asm / KEYWORD_async / KEYWORD_await / KEYWORD_break
          / KEYWORD_catch / KEYWORD_comptime / KEYWORD_const / KEYWORD_continue
          / KEYWORD_defer / KEYWORD_else / KEYWORD_enum / KEYWORD_errdefer
          / KEYWORD_error / KEYWORD_export / KEYWORD_extern / KEYWORD_false
          / KEYWORD_fn / KEYWORD_for / KEYWORD_if / KEYWORD_inline
          / KEYWORD_noalias / KEYWORD_null / KEYWORD_or
-         / KEYWORD_orelse / KEYWORD_packed / KEYWORD_anyframe / KEYWORD_pub
+         / KEYWORD_orelse / KEYWORD_packed / KEYWORD_pub
          / KEYWORD_resume / KEYWORD_return / KEYWORD_linksection
          / KEYWORD_struct / KEYWORD_suspend
          / KEYWORD_switch / KEYWORD_test / KEYWORD_threadlocal / KEYWORD_true / KEYWORD_try

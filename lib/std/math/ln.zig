@@ -15,7 +15,7 @@ const expect = std.testing.expect;
 ///  - ln(0)     = -inf
 ///  - ln(x)     = nan if x < 0
 ///  - ln(nan)   = nan
-pub fn ln(x: var) @TypeOf(x) {
+pub fn ln(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     switch (@typeInfo(T)) {
         .ComptimeFloat => {

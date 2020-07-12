@@ -1117,7 +1117,7 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
     return transCreateNodeIdentifier(c, name);
 }
 
-fn createAlias(c: *Context, alias: var) !void {
+fn createAlias(c: *Context, alias: anytype) !void {
     const node = try transCreateNodeVarDecl(c, true, true, alias.alias);
     node.eq_token = try appendToken(c, .Equal, "=");
     node.init_node = try transCreateNodeIdentifier(c, alias.name);
@@ -2161,7 +2161,7 @@ fn transCreateNodeArrayType(
     rp: RestorePoint,
     source_loc: ZigClangSourceLocation,
     ty: *const ZigClangType,
-    len: var,
+    len: anytype,
 ) TransError!*ast.Node {
     var node = try transCreateNodePrefixOp(
         rp.c,
@@ -4187,7 +4187,7 @@ fn transCreateNodeBoolLiteral(c: *Context, value: bool) !*ast.Node {
     return &node.base;
 }
 
-fn transCreateNodeInt(c: *Context, int: var) !*ast.Node {
+fn transCreateNodeInt(c: *Context, int: anytype) !*ast.Node {
     const token = try appendTokenFmt(c, .IntegerLiteral, "{}", .{int});
     const node = try c.arena.create(ast.Node.IntegerLiteral);
     node.* = .{
@@ -4196,7 +4196,7 @@ fn transCreateNodeInt(c: *Context, int: var) !*ast.Node {
     return &node.base;
 }
 
-fn transCreateNodeFloat(c: *Context, int: var) !*ast.Node {
+fn transCreateNodeFloat(c: *Context, int: anytype) !*ast.Node {
     const token = try appendTokenFmt(c, .FloatLiteral, "{}", .{int});
     const node = try c.arena.create(ast.Node.FloatLiteral);
     node.* = .{
@@ -4907,22 +4907,22 @@ fn finishTransFnProto(
 
 fn revertAndWarn(
     rp: RestorePoint,
-    err: var,
+    err: anytype,
     source_loc: ZigClangSourceLocation,
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) (@TypeOf(err) || error{OutOfMemory}) {
     rp.activate();
     try emitWarning(rp.c, source_loc, format, args);
     return err;
 }
 
-fn emitWarning(c: *Context, loc: ZigClangSourceLocation, comptime format: []const u8, args: var) !void {
+fn emitWarning(c: *Context, loc: ZigClangSourceLocation, comptime format: []const u8, args: anytype) !void {
     const args_prefix = .{c.locStr(loc)};
     _ = try appendTokenFmt(c, .LineComment, "// {}: warning: " ++ format, args_prefix ++ args);
 }
 
-pub fn failDecl(c: *Context, loc: ZigClangSourceLocation, name: []const u8, comptime format: []const u8, args: var) !void {
+pub fn failDecl(c: *Context, loc: ZigClangSourceLocation, name: []const u8, comptime format: []const u8, args: anytype) !void {
     // pub const name = @compileError(msg);
     const pub_tok = try appendToken(c, .Keyword_pub, "pub");
     const const_tok = try appendToken(c, .Keyword_const, "const");
@@ -4973,7 +4973,7 @@ fn appendToken(c: *Context, token_id: Token.Id, bytes: []const u8) !ast.TokenInd
     return appendTokenFmt(c, token_id, "{}", .{bytes});
 }
 
-fn appendTokenFmt(c: *Context, token_id: Token.Id, comptime format: []const u8, args: var) !ast.TokenIndex {
+fn appendTokenFmt(c: *Context, token_id: Token.Id, comptime format: []const u8, args: anytype) !ast.TokenIndex {
     assert(token_id != .Invalid);
 
     try c.token_ids.ensureCapacity(c.gpa, c.token_ids.items.len + 1);
@@ -5215,10 +5215,9 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
         const param_name_tok = try appendIdentifier(c, mangled_name);
         _ = try appendToken(c, .Colon, ":");
 
-        const token_index = try appendToken(c, .Keyword_var, "var");
-        const identifier = try c.arena.create(ast.Node.Identifier);
-        identifier.* = .{
-            .token = token_index,
+        const any_type = try c.arena.create(ast.Node.AnyType);
+        any_type.* = .{
+            .token = try appendToken(c, .Keyword_anytype, "anytype"),
         };
 
         (try fn_params.addOne()).* = .{
@@ -5226,7 +5225,7 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             .comptime_token = null,
             .noalias_token = null,
             .name_token = param_name_tok,
-            .param_type = .{ .type_expr = &identifier.base },
+            .param_type = .{ .any_type = &any_type.base },
         };
 
         if (it.peek().?.id != .Comma)

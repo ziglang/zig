@@ -19,7 +19,7 @@ pub var log_level = std.log.Level.warn;
 
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
 /// and then aborts when actual_error_union is not expected_error.
-pub fn expectError(expected_error: anyerror, actual_error_union: var) void {
+pub fn expectError(expected_error: anyerror, actual_error_union: anytype) void {
     if (actual_error_union) |actual_payload| {
         std.debug.panic("expected error.{}, found {}", .{ @errorName(expected_error), actual_payload });
     } else |actual_error| {
@@ -36,7 +36,7 @@ pub fn expectError(expected_error: anyerror, actual_error_union: var) void {
 /// equal, prints diagnostics to stderr to show exactly how they are not equal,
 /// then aborts.
 /// The types must match exactly.
-pub fn expectEqual(expected: var, actual: @TypeOf(expected)) void {
+pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) void {
     switch (@typeInfo(@TypeOf(actual))) {
         .NoReturn,
         .BoundFn,

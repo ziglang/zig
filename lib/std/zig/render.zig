@@ -12,7 +12,7 @@ pub const Error = error{
 };
 
 /// Returns whether anything changed
-pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@TypeOf(stream).Error || Error)!bool {
+pub fn render(allocator: *mem.Allocator, stream: anytype, tree: *ast.Tree) (@TypeOf(stream).Error || Error)!bool {
     // cannot render an invalid tree
     std.debug.assert(tree.errors.len == 0);
 
@@ -64,7 +64,7 @@ pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@TypeOf(
 
 fn renderRoot(
     allocator: *mem.Allocator,
-    stream: var,
+    stream: anytype,
     tree: *ast.Tree,
 ) (@TypeOf(stream).Error || Error)!void {
     // render all the line comments at the beginning of the file
@@ -191,13 +191,13 @@ fn renderRoot(
     }
 }
 
-fn renderExtraNewline(tree: *ast.Tree, stream: var, start_col: *usize, node: *ast.Node) @TypeOf(stream).Error!void {
+fn renderExtraNewline(tree: *ast.Tree, stream: anytype, start_col: *usize, node: *ast.Node) @TypeOf(stream).Error!void {
     return renderExtraNewlineToken(tree, stream, start_col, node.firstToken());
 }
 
 fn renderExtraNewlineToken(
     tree: *ast.Tree,
-    stream: var,
+    stream: anytype,
     start_col: *usize,
     first_token: ast.TokenIndex,
 ) @TypeOf(stream).Error!void {
@@ -218,11 +218,11 @@ fn renderExtraNewlineToken(
     }
 }
 
-fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, indent: usize, start_col: *usize, decl: *ast.Node) (@TypeOf(stream).Error || Error)!void {
+fn renderTopLevelDecl(allocator: *mem.Allocator, stream: anytype, tree: *ast.Tree, indent: usize, start_col: *usize, decl: *ast.Node) (@TypeOf(stream).Error || Error)!void {
     try renderContainerDecl(allocator, stream, tree, indent, start_col, decl, .Newline);
 }
 
-fn renderContainerDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, indent: usize, start_col: *usize, decl: *ast.Node, space: Space) (@TypeOf(stream).Error || Error)!void {
+fn renderContainerDecl(allocator: *mem.Allocator, stream: anytype, tree: *ast.Tree, indent: usize, start_col: *usize, decl: *ast.Node, space: Space) (@TypeOf(stream).Error || Error)!void {
     switch (decl.id) {
         .FnProto => {
             const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
@@ -358,7 +358,7 @@ fn renderContainerDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, 
 
 fn renderExpression(
     allocator: *mem.Allocator,
-    stream: var,
+    stream: anytype,
     tree: *ast.Tree,
     indent: usize,
     start_col: *usize,
@@ -1179,9 +1179,15 @@ fn renderExpression(
             const error_type = @fieldParentPtr(ast.Node.ErrorType, "base", base);
             return renderToken(tree, stream, error_type.token, indent, start_col, space);
         },
-        .VarType => {
-            const var_type = @fieldParentPtr(ast.Node.VarType, "base", base);
-            return renderToken(tree, stream, var_type.token, indent, start_col, space);
+        .AnyType => {
+            const any_type = @fieldParentPtr(ast.Node.AnyType, "base", base);
+            if (mem.eql(u8, tree.tokenSlice(any_type.token), "var")) {
+                // TODO remove in next release cycle
+                try stream.writeAll("anytype");
+                if (space == .Comma) try stream.writeAll(",\n");
+                return;
+            }
+            return renderToken(tree, stream, any_type.token, indent, start_col, space);
         },
         .ContainerDecl => {
             const container_decl = @fieldParentPtr(ast.Node.ContainerDecl, "base", base);
@@ -2053,7 +2059,7 @@ fn renderExpression(
 
 fn renderAsmOutput(
     allocator: *mem.Allocator,
-    stream: var,
+    stream: anytype,
     tree: *ast.Tree,
     indent: usize,
     start_col: *usize,
@@ -2081,7 +2087,7 @@ fn renderAsmOutput(
 
 fn renderAsmInput(
     allocator: *mem.Allocator,
-    stream: var,
+    stream: anytype,
     tree: *ast.Tree,
     indent: usize,
     start_col: *usize,
@@ -2099,7 +2105,7 @@ fn renderAsmInput(
 
 fn renderVarDecl(
     allocator: *mem.Allocator,
-    stream: var,
+    stream: anytype,
     tree: *ast.Tree,
     indent: usize,
     start_col: *usize,
@@ -2171,7 +2177,7 @@ fn renderVarDecl(
 
 fn renderParamDecl(
     allocator: *mem.Allocator,
-    stream: var,
+    stream: anytype,
     tree: *ast.Tree,
     indent: usize,
     start_col: *usize,
@@ -2192,13 +2198,13 @@ fn renderParamDecl(
     }
     switch (param_decl.param_type) {
         .var_args => |token| try renderToken(tree, stream, token, indent, start_col, space),
-        .var_type, .type_expr => |node| try renderExpression(allocator, stream, tree, indent, start_col, node, space),
+        .any_type, .type_expr => |node| try renderExpression(allocator, stream, tree, indent, start_col, node, space),
     }
 }
 
 fn renderStatement(
     allocator: *mem.Allocator,
-    stream: var,
+    stream: anytype,
     tree: *ast.Tree,
     indent: usize,
     start_col: *usize,
@@ -2236,7 +2242,7 @@ const Space = enum {
 
 fn renderTokenOffset(
     tree: *ast.Tree,
-    stream: var,
+    stream: anytype,
     token_index: ast.TokenIndex,
     indent: usize,
     start_col: *usize,
@@ -2434,7 +2440,7 @@ fn renderTokenOffset(
 
 fn renderToken(
     tree: *ast.Tree,
-    stream: var,
+    stream: anytype,
     token_index: ast.TokenIndex,
     indent: usize,
     start_col: *usize,
@@ -2445,8 +2451,8 @@ fn renderToken(
 
 fn renderDocComments(
     tree: *ast.Tree,
-    stream: var,
-    node: var,
+    stream: anytype,
+    node: anytype,
     indent: usize,
     start_col: *usize,
 ) (@TypeOf(stream).Error || Error)!void {
@@ -2456,7 +2462,7 @@ fn renderDocComments(
 
 fn renderDocCommentsToken(
     tree: *ast.Tree,
-    stream: var,
+    stream: anytype,
     comment: *ast.Node.DocComment,
     first_token: ast.TokenIndex,
     indent: usize,
@@ -2532,7 +2538,7 @@ const FindByteOutStream = struct {
     }
 };
 
-fn copyFixingWhitespace(stream: var, slice: []const u8) @TypeOf(stream).Error!void {
+fn copyFixingWhitespace(stream: anytype, slice: []const u8) @TypeOf(stream).Error!void {
     for (slice) |byte| switch (byte) {
         '\t' => try stream.writeAll("    "),
         '\r' => {},

@@ -24,7 +24,7 @@ pub fn Writer(
             }
         }
 
-        pub fn print(self: Self, comptime format: []const u8, args: var) Error!void {
+        pub fn print(self: Self, comptime format: []const u8, args: anytype) Error!void {
             return std.fmt.format(self, format, args);
         }
 

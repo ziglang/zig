@@ -17,7 +17,7 @@ const expect = std.testing.expect;
 ///  - log1p(-1)    = -inf
 ///  - log1p(x)     = nan if x < -1
 ///  - log1p(nan)   = nan
-pub fn log1p(x: var) @TypeOf(x) {
+pub fn log1p(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => log1p_32(x),

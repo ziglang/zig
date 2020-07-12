@@ -22,7 +22,7 @@ const root = @import("root");
 //!     comptime level: std.log.Level,
 //!     comptime scope: @TypeOf(.EnumLiteral),
 //!     comptime format: []const u8,
-//!     args: var,
+//!     args: anytype,
 //! ) void {
 //!     // Ignore all non-critical logging from sources other than
 //!     // .my_project and .nice_library
@@ -101,7 +101,7 @@ fn log(
     comptime message_level: Level,
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     if (@enumToInt(message_level) <= @enumToInt(level)) {
         if (@hasDecl(root, "log")) {
@@ -120,7 +120,7 @@ fn log(
 pub fn emerg(
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     @setCold(true);
     log(.emerg, scope, format, args);
@@ -131,7 +131,7 @@ pub fn emerg(
 pub fn alert(
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     @setCold(true);
     log(.alert, scope, format, args);
@@ -143,7 +143,7 @@ pub fn alert(
 pub fn crit(
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     @setCold(true);
     log(.crit, scope, format, args);
@@ -154,7 +154,7 @@ pub fn crit(
 pub fn err(
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     @setCold(true);
     log(.err, scope, format, args);
@@ -166,7 +166,7 @@ pub fn err(
 pub fn warn(
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     log(.warn, scope, format, args);
 }
@@ -176,7 +176,7 @@ pub fn warn(
 pub fn notice(
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     log(.notice, scope, format, args);
 }
@@ -186,7 +186,7 @@ pub fn notice(
 pub fn info(
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     log(.info, scope, format, args);
 }
@@ -196,7 +196,7 @@ pub fn info(
 pub fn debug(
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     log(.debug, scope, format, args);
 }

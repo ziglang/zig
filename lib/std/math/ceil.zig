@@ -15,7 +15,7 @@ const expect = std.testing.expect;
 ///  - ceil(+-0)   = +-0
 ///  - ceil(+-inf) = +-inf
 ///  - ceil(nan)   = nan
-pub fn ceil(x: var) @TypeOf(x) {
+pub fn ceil(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => ceil32(x),

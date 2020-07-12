@@ -69,16 +69,16 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 ///
 /// If a formatted user type contains a function of the type
 /// ```
-/// pub fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: var) !void
+/// pub fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void
 /// ```
 /// with `?` being the type formatted, this function will be called instead of the default implementation.
 /// This allows user types to be formatted in a logical manner instead of dumping all fields of the type.
 ///
 /// A user type may be a `struct`, `vector`, `union` or `enum` type.
 pub fn format(
-    writer: var,
+    writer: anytype,
     comptime fmt: []const u8,
-    args: var,
+    args: anytype,
 ) !void {
     const ArgSetType = u32;
     if (@typeInfo(@TypeOf(args)) != .Struct) {
@@ -311,10 +311,10 @@ pub fn format(
 }
 
 pub fn formatType(
-    value: var,
+    value: anytype,
     comptime fmt: []const u8,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
     max_depth: usize,
 ) @TypeOf(writer).Error!void {
     if (comptime std.mem.eql(u8, fmt, "*")) {
@@ -490,10 +490,10 @@ pub fn formatType(
 }
 
 fn formatValue(
-    value: var,
+    value: anytype,
     comptime fmt: []const u8,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
     if (comptime std.mem.eql(u8, fmt, "B")) {
         return formatBytes(value, options, 1000, writer);
@@ -511,10 +511,10 @@ fn formatValue(
 }
 
 pub fn formatIntValue(
-    value: var,
+    value: anytype,
     comptime fmt: []const u8,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
     comptime var radix = 10;
     comptime var uppercase = false;
@@ -551,10 +551,10 @@ pub fn formatIntValue(
 }
 
 fn formatFloatValue(
-    value: var,
+    value: anytype,
     comptime fmt: []const u8,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
         return formatFloatScientific(value, options, writer);
@@ -569,7 +569,7 @@ pub fn formatText(
     bytes: []const u8,
     comptime fmt: []const u8,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
     if (comptime std.mem.eql(u8, fmt, "s") or (fmt.len == 0)) {
         return formatBuf(bytes, options, writer);
@@ -586,7 +586,7 @@ pub fn formatText(
 pub fn formatAsciiChar(
     c: u8,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
     return writer.writeAll(@as(*const [1]u8, &c));
 }
@@ -594,7 +594,7 @@ pub fn formatAsciiChar(
 pub fn formatBuf(
     buf: []const u8,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
     const width = options.width orelse buf.len;
     var padding = if (width > buf.len) (width - buf.len) else 0;
@@ -626,9 +626,9 @@ pub fn formatBuf(
 // It should be the case that every full precision, printed value can be re-parsed back to the
 // same type unambiguously.
 pub fn formatFloatScientific(
-    value: var,
+    value: anytype,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
     var x = @floatCast(f64, value);
 
@@ -719,9 +719,9 @@ pub fn formatFloatScientific(
 // Print a float of the format x.yyyyy where the number of y is specified by the precision argument.
 // By default floats are printed at full precision (no rounding).
 pub fn formatFloatDecimal(
-    value: var,
+    value: anytype,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
     var x = @as(f64, value);
 
@@ -860,10 +860,10 @@ pub fn formatFloatDecimal(
 }
 
 pub fn formatBytes(
-    value: var,
+    value: anytype,
     options: FormatOptions,
     comptime radix: usize,
-    writer: var,
+    writer: anytype,
 ) !void {
     if (value == 0) {
         return writer.writeAll("0B");
@@ -901,11 +901,11 @@ pub fn formatBytes(
 }
 
 pub fn formatInt(
-    value: var,
+    value: anytype,
     base: u8,
     uppercase: bool,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
     const int_value = if (@TypeOf(value) == comptime_int) blk: {
         const Int = math.IntFittingRange(value, value);
@@ -921,11 +921,11 @@ pub fn formatInt(
 }
 
 fn formatIntSigned(
-    value: var,
+    value: anytype,
     base: u8,
     uppercase: bool,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
     const new_options = FormatOptions{
         .width = if (options.width) |w| (if (w == 0) 0 else w - 1) else null,
@@ -948,11 +948,11 @@ fn formatIntSigned(
 }
 
 fn formatIntUnsigned(
-    value: var,
+    value: anytype,
     base: u8,
     uppercase: bool,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
     assert(base >= 2);
     var buf: [math.max(@TypeOf(value).bit_count, 1)]u8 = undefined;
@@ -990,7 +990,7 @@ fn formatIntUnsigned(
     }
 }
 
-pub fn formatIntBuf(out_buf: []u8, value: var, base: u8, uppercase: bool, options: FormatOptions) usize {
+pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, uppercase: bool, options: FormatOptions) usize {
     var fbs = std.io.fixedBufferStream(out_buf);
     formatInt(value, base, uppercase, options, fbs.writer()) catch unreachable;
     return fbs.pos;
@@ -1050,7 +1050,7 @@ fn parseWithSign(
         .Pos => math.add,
         .Neg => math.sub,
     };
-    
+
     var x: T = 0;
 
     for (buf) |c| {
@@ -1132,14 +1132,14 @@ pub const BufPrintError = error{
     /// As much as possible was written to the buffer, but it was too small to fit all the printed bytes.
     NoSpaceLeft,
 };
-pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: var) BufPrintError![]u8 {
+pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![]u8 {
     var fbs = std.io.fixedBufferStream(buf);
     try format(fbs.writer(), fmt, args);
     return fbs.getWritten();
 }
 
 // Count the characters needed for format. Useful for preallocating memory
-pub fn count(comptime fmt: []const u8, args: var) u64 {
+pub fn count(comptime fmt: []const u8, args: anytype) u64 {
     var counting_writer = std.io.countingWriter(std.io.null_writer);
     format(counting_writer.writer(), fmt, args) catch |err| switch (err) {};
     return counting_writer.bytes_written;
@@ -1147,7 +1147,7 @@ pub fn count(comptime fmt: []const u8, args: var) u64 {
 
 pub const AllocPrintError = error{OutOfMemory};
 
-pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![]u8 {
+pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![]u8 {
     const size = math.cast(usize, count(fmt, args)) catch |err| switch (err) {
         // Output too long. Can't possibly allocate enough memory to display it.
         error.Overflow => return error.OutOfMemory,
@@ -1158,7 +1158,7 @@ pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: var
     };
 }
 
-pub fn allocPrint0(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![:0]u8 {
+pub fn allocPrint0(allocator: *mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![:0]u8 {
     const result = try allocPrint(allocator, fmt ++ "\x00", args);
     return result[0 .. result.len - 1 :0];
 }
@@ -1184,7 +1184,7 @@ test "bufPrintInt" {
     std.testing.expectEqualSlices(u8, "-42", bufPrintIntToSlice(buf, @as(i32, -42), 10, false, FormatOptions{ .width = 3 }));
 }
 
-fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, options: FormatOptions) []u8 {
+fn bufPrintIntToSlice(buf: []u8, value: anytype, base: u8, uppercase: bool, options: FormatOptions) []u8 {
     return buf[0..formatIntBuf(buf, value, base, uppercase, options)];
 }
 
@@ -1452,7 +1452,7 @@ test "custom" {
             self: SelfType,
             comptime fmt: []const u8,
             options: FormatOptions,
-            writer: var,
+            writer: anytype,
         ) !void {
             if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "p")) {
                 return std.fmt.format(writer, "({d:.3},{d:.3})", .{ self.x, self.y });
@@ -1573,7 +1573,7 @@ test "bytes.hex" {
     try testFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
 }
 
-fn testFmt(expected: []const u8, comptime template: []const u8, args: var) !void {
+fn testFmt(expected: []const u8, comptime template: []const u8, args: anytype) !void {
     var buf: [100]u8 = undefined;
     const result = try bufPrint(buf[0..], template, args);
     if (mem.eql(u8, result, expected)) return;
@@ -1669,7 +1669,7 @@ test "formatType max_depth" {
             self: SelfType,
             comptime fmt: []const u8,
             options: FormatOptions,
-            writer: var,
+            writer: anytype,
         ) !void {
             if (fmt.len == 0) {
                 return std.fmt.format(writer, "({d:.3},{d:.3})", .{ self.x, self.y });

@@ -230,7 +230,7 @@ pub fn generateSymbol(
     }
 }
 
-const InnerError = error {
+const InnerError = error{
     OutOfMemory,
     CodegenFail,
 };
@@ -673,9 +673,9 @@ const Function = struct {
                 try self.genX8664BinMathCode(inst.base.src, dst_mcv, src_mcv, 7, 0x38);
                 const info = inst.args.lhs.ty.intInfo(self.target.*);
                 if (info.signed) {
-                    return MCValue{.compare_flags_signed = inst.args.op};
+                    return MCValue{ .compare_flags_signed = inst.args.op };
                 } else {
-                    return MCValue{.compare_flags_unsigned = inst.args.op};
+                    return MCValue{ .compare_flags_unsigned = inst.args.op };
                 }
             },
             else => return self.fail(inst.base.src, "TODO implement cmp for {}", .{self.target.cpu.arch}),
@@ -721,7 +721,7 @@ const Function = struct {
     }
 
     fn genX86CondBr(self: *Function, inst: *ir.Inst.CondBr, opcode: u8, comptime arch: std.Target.Cpu.Arch) !MCValue {
-        self.code.appendSliceAssumeCapacity(&[_]u8{0x0f, opcode});
+        self.code.appendSliceAssumeCapacity(&[_]u8{ 0x0f, opcode });
         const reloc = Reloc{ .rel32 = self.code.items.len };
         self.code.items.len += 4;
         try self.genBody(inst.args.true_body, arch);
@@ -1081,10 +1081,12 @@ const Function = struct {
         switch (mcv) {
             .immediate => |imm| {
                 // This immediate is unsigned.
-                const U = @Type(.{ .Int = .{
-                    .bits = ti.bits - @boolToInt(ti.is_signed),
-                    .is_signed = false,
-                }});
+                const U = @Type(.{
+                    .Int = .{
+                        .bits = ti.bits - @boolToInt(ti.is_signed),
+                        .is_signed = false,
+                    },
+                });
                 if (imm >= std.math.maxInt(U)) {
                     return self.copyToNewRegister(inst);
                 }
@@ -1093,7 +1095,6 @@ const Function = struct {
         }
         return mcv;
     }
-
 
     fn genTypedValue(self: *Function, src: usize, typed_value: TypedValue) !MCValue {
         const ptr_bits = self.target.cpu.arch.ptrBitWidth();
@@ -1121,7 +1122,7 @@ const Function = struct {
         }
     }
 
-    fn fail(self: *Function, src: usize, comptime format: []const u8, args: var) error{ CodegenFail, OutOfMemory } {
+    fn fail(self: *Function, src: usize, comptime format: []const u8, args: anytype) error{ CodegenFail, OutOfMemory } {
         @setCold(true);
         assert(self.err_msg == null);
         self.err_msg = try ErrorMsg.create(self.bin_file.allocator, src, format, args);

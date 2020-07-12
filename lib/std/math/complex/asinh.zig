@@ -5,7 +5,7 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns the hyperbolic arc-sine of z.
-pub fn asinh(z: var) Complex(@TypeOf(z.re)) {
+pub fn asinh(z: anytype) Complex(@TypeOf(z.re)) {
     const T = @TypeOf(z.re);
     const q = Complex(T).new(-z.im, z.re);
     const r = cmath.asin(q);

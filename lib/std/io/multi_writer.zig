@@ -43,7 +43,7 @@ pub fn MultiWriter(comptime Writers: type) type {
     };
 }
 
-pub fn multiWriter(streams: var) MultiWriter(@TypeOf(streams)) {
+pub fn multiWriter(streams: anytype) MultiWriter(@TypeOf(streams)) {
     return .{ .streams = streams };
 }
 

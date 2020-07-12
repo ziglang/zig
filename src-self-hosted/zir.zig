@@ -655,7 +655,7 @@ pub const Module = struct {
 
     /// The allocator is used for temporary storage, but this function always returns
     /// with no resources allocated.
-    pub fn writeToStream(self: Module, allocator: *Allocator, stream: var) !void {
+    pub fn writeToStream(self: Module, allocator: *Allocator, stream: anytype) !void {
         var write = Writer{
             .module = &self,
             .inst_table = InstPtrTable.init(allocator),
@@ -686,7 +686,6 @@ pub const Module = struct {
             try stream.writeByte('\n');
         }
     }
-
 };
 
 const InstPtrTable = std.AutoHashMap(*Inst, struct { inst: *Inst, index: ?usize, name: []const u8 });
@@ -700,7 +699,7 @@ const Writer = struct {
 
     fn writeInstToStream(
         self: *Writer,
-        stream: var,
+        stream: anytype,
         inst: *Inst,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         // TODO I tried implementing this with an inline for loop and hit a compiler bug
@@ -746,7 +745,7 @@ const Writer = struct {
 
     fn writeInstToStreamGeneric(
         self: *Writer,
-        stream: var,
+        stream: anytype,
         comptime inst_tag: Inst.Tag,
         base: *Inst,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
@@ -783,7 +782,7 @@ const Writer = struct {
         try stream.writeByte(')');
     }
 
-    fn writeParamToStream(self: *Writer, stream: var, param: var) !void {
+    fn writeParamToStream(self: *Writer, stream: anytype, param: anytype) !void {
         if (@typeInfo(@TypeOf(param)) == .Enum) {
             return stream.writeAll(@tagName(param));
         }
@@ -829,7 +828,7 @@ const Writer = struct {
         }
     }
 
-    fn writeInstParamToStream(self: *Writer, stream: var, inst: *Inst) !void {
+    fn writeInstParamToStream(self: *Writer, stream: anytype, inst: *Inst) !void {
         if (self.inst_table.get(inst)) |info| {
             if (info.index) |i| {
                 try stream.print("%{}", .{info.index});
@@ -1062,7 +1061,7 @@ const Parser = struct {
         }
     }
 
-    fn fail(self: *Parser, comptime format: []const u8, args: var) InnerError {
+    fn fail(self: *Parser, comptime format: []const u8, args: anytype) InnerError {
         @setCold(true);
         self.error_msg = ErrorMsg{
             .byte_offset = self.i,

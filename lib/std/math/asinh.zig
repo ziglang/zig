@@ -15,7 +15,7 @@ const maxInt = std.math.maxInt;
 ///  - asinh(+-0)   = +-0
 ///  - asinh(+-inf) = +-inf
 ///  - asinh(nan)   = nan
-pub fn asinh(x: var) @TypeOf(x) {
+pub fn asinh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => asinh32(x),

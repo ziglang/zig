@@ -130,7 +130,7 @@ pub const NativePaths = struct {
         return self.appendArray(&self.include_dirs, s);
     }
 
-    pub fn addIncludeDirFmt(self: *NativePaths, comptime fmt: []const u8, args: var) !void {
+    pub fn addIncludeDirFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype) !void {
         const item = try std.fmt.allocPrint0(self.include_dirs.allocator, fmt, args);
         errdefer self.include_dirs.allocator.free(item);
         try self.include_dirs.append(item);
@@ -140,7 +140,7 @@ pub const NativePaths = struct {
         return self.appendArray(&self.lib_dirs, s);
     }
 
-    pub fn addLibDirFmt(self: *NativePaths, comptime fmt: []const u8, args: var) !void {
+    pub fn addLibDirFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype) !void {
         const item = try std.fmt.allocPrint0(self.lib_dirs.allocator, fmt, args);
         errdefer self.lib_dirs.allocator.free(item);
         try self.lib_dirs.append(item);
@@ -150,7 +150,7 @@ pub const NativePaths = struct {
         return self.appendArray(&self.warnings, s);
     }
 
-    pub fn addWarningFmt(self: *NativePaths, comptime fmt: []const u8, args: var) !void {
+    pub fn addWarningFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype) !void {
         const item = try std.fmt.allocPrint0(self.warnings.allocator, fmt, args);
         errdefer self.warnings.allocator.free(item);
         try self.warnings.append(item);
@@ -887,7 +887,7 @@ pub const NativeTargetInfo = struct {
         abi: Target.Abi,
     };
 
-    pub fn elfInt(is_64: bool, need_bswap: bool, int_32: var, int_64: var) @TypeOf(int_64) {
+    pub fn elfInt(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @TypeOf(int_64) {
         if (is_64) {
             if (need_bswap) {
                 return @byteSwap(@TypeOf(int_64), int_64);

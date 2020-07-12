@@ -125,7 +125,7 @@ test "parse" {
 }
 
 /// Writes a Zig-syntax escaped string literal to the stream. Includes the double quotes.
-pub fn render(utf8: []const u8, out_stream: var) !void {
+pub fn render(utf8: []const u8, out_stream: anytype) !void {
     try out_stream.writeByte('"');
     for (utf8) |byte| switch (byte) {
         '\n' => try out_stream.writeAll("\\n"),

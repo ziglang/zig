@@ -488,7 +488,7 @@ const Parser = struct {
         return p.parseUse();
     }
 
-    /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
+    /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (Keyword_anytype / TypeExpr)
     fn parseFnProto(p: *Parser) !?*Node {
         // TODO: Remove once extern/async fn rewriting is
         var is_async = false;
@@ -519,7 +519,7 @@ const Parser = struct {
         const callconv_expr = try p.parseCallconv();
         const exclamation_token = p.eatToken(.Bang);
 
-        const return_type_expr = (try p.parseVarType()) orelse
+        const return_type_expr = (try p.parseAnyType()) orelse
             try p.expectNodeRecoverable(parseTypeExpr, .{
             // most likely the user forgot to specify the return type.
             // Mark return type as invalid and try to continue.
@@ -618,9 +618,9 @@ const Parser = struct {
         var align_expr: ?*Node = null;
         var type_expr: ?*Node = null;
         if (p.eatToken(.Colon)) |_| {
-            if (p.eatToken(.Keyword_var)) |var_tok| {
-                const node = try p.arena.allocator.create(Node.VarType);
-                node.* = .{ .token = var_tok };
+            if (p.eatToken(.Keyword_anytype) orelse p.eatToken(.Keyword_var)) |anytype_tok| {
+                const node = try p.arena.allocator.create(Node.AnyType);
+                node.* = .{ .token = anytype_tok };
                 type_expr = &node.base;
             } else {
                 type_expr = try p.expectNode(parseTypeExpr, .{
@@ -2022,13 +2022,13 @@ const Parser = struct {
     }
 
     /// ParamType
-    ///     <- KEYWORD_var
+    ///     <- Keyword_anytype
     ///      / DOT3
     ///      / TypeExpr
     fn parseParamType(p: *Parser) !?Node.FnProto.ParamDecl.ParamType {
         // TODO cast from tuple to error union is broken
         const P = Node.FnProto.ParamDecl.ParamType;
-        if (try p.parseVarType()) |node| return P{ .var_type = node };
+        if (try p.parseAnyType()) |node| return P{ .any_type = node };
         if (p.eatToken(.Ellipsis3)) |token| return P{ .var_args = token };
         if (try p.parseTypeExpr()) |node| return P{ .type_expr = node };
         return null;
@@ -2955,7 +2955,7 @@ const Parser = struct {
 
     const NodeParseFn = fn (p: *Parser) Error!?*Node;
 
-    fn ListParseFn(comptime E: type, comptime nodeParseFn: var) ParseFn([]E) {
+    fn ListParseFn(comptime E: type, comptime nodeParseFn: anytype) ParseFn([]E) {
         return struct {
             pub fn parse(p: *Parser) ![]E {
                 var list = std.ArrayList(E).init(p.gpa);
@@ -3057,9 +3057,10 @@ const Parser = struct {
         return &node.base;
     }
 
-    fn parseVarType(p: *Parser) !?*Node {
-        const token = p.eatToken(.Keyword_var) orelse return null;
-        const node = try p.arena.allocator.create(Node.VarType);
+    fn parseAnyType(p: *Parser) !?*Node {
+        const token = p.eatToken(.Keyword_anytype) orelse
+            p.eatToken(.Keyword_var) orelse return null; // TODO remove in next release cycle
+        const node = try p.arena.allocator.create(Node.AnyType);
         node.* = .{
             .token = token,
         };

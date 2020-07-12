@@ -270,8 +270,8 @@ static const char *node_type_str(NodeType node_type) {
             return "EnumLiteral";
         case NodeTypeErrorSetField:
             return "ErrorSetField";
-        case NodeTypeVarFieldType:
-            return "VarFieldType";
+        case NodeTypeAnyTypeField:
+            return "AnyTypeField";
     }
     zig_unreachable();
 }
@@ -466,8 +466,8 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     }
                     if (param_decl->data.param_decl.is_var_args) {
                         fprintf(ar->f, "...");
-                    } else if (param_decl->data.param_decl.var_token != nullptr) {
-                        fprintf(ar->f, "var");
+                    } else if (param_decl->data.param_decl.anytype_token != nullptr) {
+                        fprintf(ar->f, "anytype");
                     } else {
                         render_node_grouped(ar, param_decl->data.param_decl.type);
                     }
@@ -496,8 +496,8 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, ")");
                 }
 
-                if (node->data.fn_proto.return_var_token != nullptr) {
-                    fprintf(ar->f, "var");
+                if (node->data.fn_proto.return_anytype_token != nullptr) {
+                    fprintf(ar->f, "anytype");
                 } else {
                     AstNode *return_type_node = node->data.fn_proto.return_type;
                     assert(return_type_node != nullptr);
@@ -1216,8 +1216,8 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, ".%s", buf_ptr(&node->data.enum_literal.identifier->data.str_lit.str));
                 break;
             }
-        case NodeTypeVarFieldType: {
-            fprintf(ar->f, "var");
+        case NodeTypeAnyTypeField: {
+            fprintf(ar->f, "anytype");
             break;
         }
         case NodeTypeParamDecl:

@@ -17,11 +17,11 @@ const S = extern struct {
 
 test "Extern function calls in @TypeOf" {
     const Test = struct {
-        fn test_fn_1(a: var, b: var) @TypeOf(printf("%d %s\n", a, b)) {
+        fn test_fn_1(a: anytype, b: anytype) @TypeOf(printf("%d %s\n", a, b)) {
             return 0;
         }
 
-        fn test_fn_2(a: var) @TypeOf((S{ .state = 0 }).s_do_thing(a)) {
+        fn test_fn_2(a: anytype) @TypeOf((S{ .state = 0 }).s_do_thing(a)) {
             return 1;
         }
 
@@ -56,7 +56,7 @@ test "Extern function calls, dereferences and field access in @TypeOf" {
             return .{ .dummy_field = 0 };
         }
 
-        fn test_fn_2(a: var) @TypeOf(fopen("test", "r").*.dummy_field) {
+        fn test_fn_2(a: anytype) @TypeOf(fopen("test", "r").*.dummy_field) {
             return 255;
         }
 

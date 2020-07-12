@@ -29,7 +29,7 @@ pub const PreopenType = union(PreopenTypeTag) {
         }
     }
 
-    pub fn format(self: Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: var) !void {
+    pub fn format(self: Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: anytype) !void {
         try out_stream.print("PreopenType{{ ", .{});
         switch (self) {
             PreopenType.Dir => |path| try out_stream.print(".Dir = '{}'", .{path}),

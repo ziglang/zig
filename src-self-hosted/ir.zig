@@ -13,7 +13,7 @@ const codegen = @import("codegen.zig");
 pub const Inst = struct {
     tag: Tag,
     /// Each bit represents the index of an `Inst` parameter in the `args` field.
-    /// If a bit is set, it marks the end of the lifetime of the corresponding 
+    /// If a bit is set, it marks the end of the lifetime of the corresponding
     /// instruction parameter. For example, 0b000_00101 means that the first and
     /// third `Inst` parameters' lifetimes end after this instruction, and will
     /// not have any more following references.

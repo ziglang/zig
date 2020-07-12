@@ -69,7 +69,7 @@ pub fn ArrayListSentineled(comptime T: type, comptime sentinel: T) type {
         }
 
         /// Only works when `T` is `u8`.
-        pub fn allocPrint(allocator: *Allocator, comptime format: []const u8, args: var) !Self {
+        pub fn allocPrint(allocator: *Allocator, comptime format: []const u8, args: anytype) !Self {
             const size = std.math.cast(usize, std.fmt.count(format, args)) catch |err| switch (err) {
                 error.Overflow => return error.OutOfMemory,
             };
@@ -82,7 +82,7 @@ pub fn ArrayListSentineled(comptime T: type, comptime sentinel: T) type {
             self.list.deinit();
         }
 
-        pub fn span(self: var) @TypeOf(self.list.items[0..:sentinel]) {
+        pub fn span(self: anytype) @TypeOf(self.list.items[0..:sentinel]) {
             return self.list.items[0..self.len() :sentinel];
         }
 

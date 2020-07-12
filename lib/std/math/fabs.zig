@@ -14,7 +14,7 @@ const maxInt = std.math.maxInt;
 /// Special Cases:
 ///  - fabs(+-inf) = +inf
 ///  - fabs(nan)   = nan
-pub fn fabs(x: var) @TypeOf(x) {
+pub fn fabs(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f16 => fabs16(x),

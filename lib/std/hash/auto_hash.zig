@@ -21,7 +21,7 @@ pub const HashStrategy = enum {
 };
 
 /// Helper function to hash a pointer and mutate the strategy if needed.
-pub fn hashPointer(hasher: var, key: var, comptime strat: HashStrategy) void {
+pub fn hashPointer(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
     const info = @typeInfo(@TypeOf(key));
 
     switch (info.Pointer.size) {
@@ -53,7 +53,7 @@ pub fn hashPointer(hasher: var, key: var, comptime strat: HashStrategy) void {
 }
 
 /// Helper function to hash a set of contiguous objects, from an array or slice.
-pub fn hashArray(hasher: var, key: var, comptime strat: HashStrategy) void {
+pub fn hashArray(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
     switch (strat) {
         .Shallow => {
             // TODO detect via a trait when Key has no padding bits to
@@ -73,7 +73,7 @@ pub fn hashArray(hasher: var, key: var, comptime strat: HashStrategy) void {
 
 /// Provides generic hashing for any eligible type.
 /// Strategy is provided to determine if pointers should be followed or not.
-pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
+pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
     const Key = @TypeOf(key);
     switch (@typeInfo(Key)) {
         .NoReturn,
@@ -161,7 +161,7 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
 /// Provides generic hashing for any eligible type.
 /// Only hashes `key` itself, pointers are not followed.
 /// Slices are rejected to avoid ambiguity on the user's intention.
-pub fn autoHash(hasher: var, key: var) void {
+pub fn autoHash(hasher: anytype, key: anytype) void {
     const Key = @TypeOf(key);
     if (comptime meta.trait.isSlice(Key)) {
         comptime assert(@hasDecl(std, "StringHashMap")); // detect when the following message needs updated
@@ -181,28 +181,28 @@ pub fn autoHash(hasher: var, key: var) void {
 const testing = std.testing;
 const Wyhash = std.hash.Wyhash;
 
-fn testHash(key: var) u64 {
+fn testHash(key: anytype) u64 {
     // Any hash could be used here, for testing autoHash.
     var hasher = Wyhash.init(0);
     hash(&hasher, key, .Shallow);
     return hasher.final();
 }
 
-fn testHashShallow(key: var) u64 {
+fn testHashShallow(key: anytype) u64 {
     // Any hash could be used here, for testing autoHash.
     var hasher = Wyhash.init(0);
     hash(&hasher, key, .Shallow);
     return hasher.final();
 }
 
-fn testHashDeep(key: var) u64 {
+fn testHashDeep(key: anytype) u64 {
     // Any hash could be used here, for testing autoHash.
     var hasher = Wyhash.init(0);
     hash(&hasher, key, .Deep);
     return hasher.final();
 }
 
-fn testHashDeepRecursive(key: var) u64 {
+fn testHashDeepRecursive(key: anytype) u64 {
     // Any hash could be used here, for testing autoHash.
     var hasher = Wyhash.init(0);
     hash(&hasher, key, .DeepRecursive);

@@ -244,7 +244,7 @@ pub const File = struct {
         need_noreturn: bool = false,
         error_msg: *Module.ErrorMsg = undefined,
 
-        pub fn fail(self: *C, src: usize, comptime format: []const u8, args: var) !void {
+        pub fn fail(self: *C, src: usize, comptime format: []const u8, args: anytype) !void {
             self.error_msg = try Module.ErrorMsg.create(self.allocator, src, format, args);
             return error.CGenFailure;
         }
@@ -1167,10 +1167,10 @@ pub const File = struct {
             try self.offset_table_free_list.ensureCapacity(self.allocator, self.local_symbols.items.len);
 
             if (self.local_symbol_free_list.popOrNull()) |i| {
-                std.log.debug(.link, "reusing symbol index {} for {}\n", .{i, decl.name});
+                std.log.debug(.link, "reusing symbol index {} for {}\n", .{ i, decl.name });
                 decl.link.local_sym_index = i;
             } else {
-                std.log.debug(.link, "allocating symbol index {} for {}\n", .{self.local_symbols.items.len, decl.name});
+                std.log.debug(.link, "allocating symbol index {} for {}\n", .{ self.local_symbols.items.len, decl.name });
                 decl.link.local_sym_index = @intCast(u32, self.local_symbols.items.len);
                 _ = self.local_symbols.addOneAssumeCapacity();
             }
@@ -1657,7 +1657,7 @@ fn openBinFileInner(allocator: *Allocator, file: fs.File, options: Options) !Fil
 }
 
 /// Saturating multiplication
-fn satMul(a: var, b: var) @TypeOf(a, b) {
+fn satMul(a: anytype, b: anytype) @TypeOf(a, b) {
     const T = @TypeOf(a, b);
     return std.math.mul(T, a, b) catch std.math.maxInt(T);
 }

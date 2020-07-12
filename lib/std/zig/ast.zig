@@ -29,7 +29,7 @@ pub const Tree = struct {
         self.arena.promote(self.gpa).deinit();
     }
 
-    pub fn renderError(self: *Tree, parse_error: *const Error, stream: var) !void {
+    pub fn renderError(self: *Tree, parse_error: *const Error, stream: anytype) !void {
         return parse_error.render(self.token_ids, stream);
     }
 
@@ -167,7 +167,7 @@ pub const Error = union(enum) {
     DeclBetweenFields: DeclBetweenFields,
     InvalidAnd: InvalidAnd,
 
-    pub fn render(self: *const Error, tokens: []const Token.Id, stream: var) !void {
+    pub fn render(self: *const Error, tokens: []const Token.Id, stream: anytype) !void {
         switch (self.*) {
             .InvalidToken => |*x| return x.render(tokens, stream),
             .ExpectedContainerMembers => |*x| return x.render(tokens, stream),
@@ -322,7 +322,7 @@ pub const Error = union(enum) {
     pub const ExpectedCall = struct {
         node: *Node,
 
-        pub fn render(self: *const ExpectedCall, tokens: []const Token.Id, stream: var) !void {
+        pub fn render(self: *const ExpectedCall, tokens: []const Token.Id, stream: anytype) !void {
             return stream.print("expected " ++ @tagName(Node.Id.Call) ++ ", found {}", .{
                 @tagName(self.node.id),
             });
@@ -332,7 +332,7 @@ pub const Error = union(enum) {
     pub const ExpectedCallOrFnProto = struct {
         node: *Node,
 
-        pub fn render(self: *const ExpectedCallOrFnProto, tokens: []const Token.Id, stream: var) !void {
+        pub fn render(self: *const ExpectedCallOrFnProto, tokens: []const Token.Id, stream: anytype) !void {
             return stream.print("expected " ++ @tagName(Node.Id.Call) ++ " or " ++
                 @tagName(Node.Id.FnProto) ++ ", found {}", .{@tagName(self.node.id)});
         }
@@ -342,7 +342,7 @@ pub const Error = union(enum) {
         token: TokenIndex,
         expected_id: Token.Id,
 
-        pub fn render(self: *const ExpectedToken, tokens: []const Token.Id, stream: var) !void {
+        pub fn render(self: *const ExpectedToken, tokens: []const Token.Id, stream: anytype) !void {
             const found_token = tokens[self.token];
             switch (found_token) {
                 .Invalid => {
@@ -360,7 +360,7 @@ pub const Error = union(enum) {
         token: TokenIndex,
         end_id: Token.Id,
 
-        pub fn render(self: *const ExpectedCommaOrEnd, tokens: []const Token.Id, stream: var) !void {
+        pub fn render(self: *const ExpectedCommaOrEnd, tokens: []const Token.Id, stream: anytype) !void {
             const actual_token = tokens[self.token];
             return stream.print("expected ',' or '{}', found '{}'", .{
                 self.end_id.symbol(),
@@ -375,7 +375,7 @@ pub const Error = union(enum) {
 
             token: TokenIndex,
 
-            pub fn render(self: *const ThisError, tokens: []const Token.Id, stream: var) !void {
+            pub fn render(self: *const ThisError, tokens: []const Token.Id, stream: anytype) !void {
                 const actual_token = tokens[self.token];
                 return stream.print(msg, .{actual_token.symbol()});
             }
@@ -388,7 +388,7 @@ pub const Error = union(enum) {
 
             token: TokenIndex,
 
-            pub fn render(self: *const ThisError, tokens: []const Token.Id, stream: var) !void {
+            pub fn render(self: *const ThisError, tokens: []const Token.Id, stream: anytype) !void {
                 return stream.writeAll(msg);
             }
         };
@@ -434,7 +434,7 @@ pub const Node = struct {
         Suspend,
 
         // Type expressions
-        VarType,
+        AnyType,
         ErrorType,
         FnProto,
         AnyFrameType,
@@ -993,7 +993,7 @@ pub const Node = struct {
             param_type: ParamType,
 
             pub const ParamType = union(enum) {
-                var_type: *Node,
+                any_type: *Node,
                 var_args: TokenIndex,
                 type_expr: *Node,
             };
@@ -1004,7 +1004,7 @@ pub const Node = struct {
                 if (i < 1) {
                     switch (self.param_type) {
                         .var_args => return null,
-                        .var_type, .type_expr => |node| return node,
+                        .any_type, .type_expr => |node| return node,
                     }
                 }
                 i -= 1;
@@ -1018,14 +1018,14 @@ pub const Node = struct {
                 if (self.name_token) |name_token| return name_token;
                 switch (self.param_type) {
                     .var_args => |tok| return tok,
-                    .var_type, .type_expr => |node| return node.firstToken(),
+                    .any_type, .type_expr => |node| return node.firstToken(),
                 }
             }
 
             pub fn lastToken(self: *const ParamDecl) TokenIndex {
                 switch (self.param_type) {
                     .var_args => |tok| return tok,
-                    .var_type, .type_expr => |node| return node.lastToken(),
+                    .any_type, .type_expr => |node| return node.lastToken(),
                 }
             }
         };
@@ -1052,12 +1052,12 @@ pub const Node = struct {
             const params_len: usize = if (self.params_len == 0)
                 0
             else switch (self.paramsConst()[self.params_len - 1].param_type) {
-                .var_type, .type_expr => self.params_len,
+                .any_type, .type_expr => self.params_len,
                 .var_args => self.params_len - 1,
             };
             if (i < params_len) {
                 switch (self.paramsConst()[i].param_type) {
-                    .var_type => |n| return n,
+                    .any_type => |n| return n,
                     .var_args => unreachable,
                     .type_expr => |n| return n,
                 }
@@ -2732,19 +2732,19 @@ pub const Node = struct {
         }
     };
 
-    pub const VarType = struct {
-        base: Node = Node{ .id = .VarType },
+    pub const AnyType = struct {
+        base: Node = Node{ .id = .AnyType },
         token: TokenIndex,
 
-        pub fn iterate(self: *const VarType, index: usize) ?*Node {
+        pub fn iterate(self: *const AnyType, index: usize) ?*Node {
             return null;
         }
 
-        pub fn firstToken(self: *const VarType) TokenIndex {
+        pub fn firstToken(self: *const AnyType) TokenIndex {
             return self.token;
         }
 
-        pub fn lastToken(self: *const VarType) TokenIndex {
+        pub fn lastToken(self: *const AnyType) TokenIndex {
             return self.token;
         }
     };

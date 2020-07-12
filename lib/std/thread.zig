@@ -143,7 +143,7 @@ pub const Thread = struct {
     /// fn startFn(@TypeOf(context)) T
     /// where T is u8, noreturn, void, or !void
     /// caller must call wait on the returned thread
-    pub fn spawn(context: var, comptime startFn: var) SpawnError!*Thread {
+    pub fn spawn(context: anytype, comptime startFn: anytype) SpawnError!*Thread {
         if (builtin.single_threaded) @compileError("cannot spawn thread when building in single-threaded mode");
         // TODO compile-time call graph analysis to determine stack upper bound
         // https://github.com/ziglang/zig/issues/157

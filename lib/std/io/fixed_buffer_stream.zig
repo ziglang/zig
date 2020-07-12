@@ -127,7 +127,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
     };
 }
 
-pub fn fixedBufferStream(buffer: var) FixedBufferStream(NonSentinelSpan(@TypeOf(buffer))) {
+pub fn fixedBufferStream(buffer: anytype) FixedBufferStream(NonSentinelSpan(@TypeOf(buffer))) {
     return .{ .buffer = mem.span(buffer), .pos = 0 };
 }
 

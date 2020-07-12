@@ -14,7 +14,7 @@ const expect = std.testing.expect;
 /// Special cases:
 ///  - acosh(x)   = snan if x < 1
 ///  - acosh(nan) = nan
-pub fn acosh(x: var) @TypeOf(x) {
+pub fn acosh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => acosh32(x),

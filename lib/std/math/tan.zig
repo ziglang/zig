@@ -14,7 +14,7 @@ const expect = std.testing.expect;
 ///  - tan(+-0)   = +-0
 ///  - tan(+-inf) = nan
 ///  - tan(nan)   = nan
-pub fn tan(x: var) @TypeOf(x) {
+pub fn tan(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => tan_(f32, x),

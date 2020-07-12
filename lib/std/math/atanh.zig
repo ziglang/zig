@@ -15,7 +15,7 @@ const maxInt = std.math.maxInt;
 ///  - atanh(+-1) = +-inf with signal
 ///  - atanh(x)   = nan if |x| > 1 with signal
 ///  - atanh(nan) = nan
-pub fn atanh(x: var) @TypeOf(x) {
+pub fn atanh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => atanh_32(x),
