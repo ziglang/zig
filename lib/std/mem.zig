@@ -8,6 +8,7 @@ const meta = std.meta;
 const trait = meta.trait;
 const testing = std.testing;
 
+// https://github.com/ziglang/zig/issues/2564
 pub const page_size = switch (builtin.arch) {
     .wasm32, .wasm64 => 64 * 1024,
     else => 4 * 1024,
@@ -518,6 +519,7 @@ pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
     }
 }
 
+/// Sets all elements of `dest` to `value`.
 pub fn set(comptime T: type, dest: []T, value: T) void {
     for (dest) |*d|
         d.* = value;
@@ -675,6 +677,8 @@ test "mem.zeroes" {
     }
 }
 
+/// Sets a slice to zeroes.
+/// Prevents the store from being optimized out.
 pub fn secureZero(comptime T: type, s: []T) void {
     // NOTE: We do not use a volatile slice cast here since LLVM cannot
     // see that it can be replaced by a memset.
@@ -767,6 +771,7 @@ test "zeroInit" {
     });
 }
 
+/// Compares two slices of numbers lexicographically. O(n).
 pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
     const n = math.min(lhs.len, rhs.len);
     var i: usize = 0;
@@ -1904,6 +1909,8 @@ fn testWriteIntImpl() void {
     }));
 }
 
+/// Returns the smallest number in a slice. O(n).
+/// `slice` must not be empty.
 pub fn min(comptime T: type, slice: []const T) T {
     var best = slice[0];
     for (slice[1..]) |item| {
@@ -1916,6 +1923,8 @@ test "mem.min" {
     testing.expect(min(u8, "abcdefg") == 'a');
 }
 
+/// Returns the largest number in a slice. O(n).
+/// `slice` must not be empty.
 pub fn max(comptime T: type, slice: []const T) T {
     var best = slice[0];
     for (slice[1..]) |item| {
@@ -2071,7 +2080,7 @@ test "asBytes" {
     testing.expect(eql(u8, asBytes(&zero), ""));
 }
 
-///Given any value, returns a copy of its bytes in an array.
+/// Given any value, returns a copy of its bytes in an array.
 pub fn toBytes(value: anytype) [@sizeOf(@TypeOf(value))]u8 {
     return asBytes(&value).*;
 }
@@ -2105,7 +2114,7 @@ fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
     return if (comptime trait.isConstPtr(B)) *align(alignment) const T else *align(alignment) T;
 }
 
-///Given a pointer to an array of bytes, returns a pointer to a value of the specified type
+/// Given a pointer to an array of bytes, returns a pointer to a value of the specified type
 /// backed by those bytes, preserving constness.
 pub fn bytesAsValue(comptime T: type, bytes: anytype) BytesAsValueReturnType(T, @TypeOf(bytes)) {
     return @ptrCast(BytesAsValueReturnType(T, @TypeOf(bytes)), bytes);
@@ -2148,7 +2157,7 @@ test "bytesAsValue" {
     testing.expect(meta.eql(inst, inst2.*));
 }
 
-///Given a pointer to an array of bytes, returns a value of the specified type backed by a
+/// Given a pointer to an array of bytes, returns a value of the specified type backed by a
 /// copy of those bytes.
 pub fn bytesToValue(comptime T: type, bytes: anytype) T {
     return bytesAsValue(T, bytes).*;
