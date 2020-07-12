@@ -98,9 +98,9 @@ test "HeaderEntry" {
     testing.expectEqualSlices(u8, "x", e.value);
 }
 
-const HeaderList = std.ArrayList(HeaderEntry);
-const HeaderIndexList = std.ArrayList(usize);
-const HeaderIndex = std.StringHashMap(HeaderIndexList);
+const HeaderList = std.ArrayListUnmanaged(HeaderEntry);
+const HeaderIndexList = std.ArrayListUnmanaged(usize);
+const HeaderIndex = std.StringHashMapUnmanaged(HeaderIndexList);
 
 pub const Headers = struct {
     // the owned header field name is stored in the index as part of the key
@@ -113,8 +113,8 @@ pub const Headers = struct {
     pub fn init(allocator: *Allocator) Self {
         return Self{
             .allocator = allocator,
-            .data = HeaderList.init(allocator),
-            .index = HeaderIndex.init(allocator),
+            .data = HeaderList{},
+            .index = HeaderIndex{},
         };
     }
 
@@ -122,16 +122,16 @@ pub const Headers = struct {
         {
             for (self.index.items()) |*entry| {
                 const dex = &entry.value;
-                dex.deinit();
+                dex.deinit(self.allocator);
                 self.allocator.free(entry.key);
             }
-            self.index.deinit();
+            self.index.deinit(self.allocator);
         }
         {
-            for (self.data.span()) |entry| {
+            for (self.data.items) |entry| {
                 entry.deinit();
             }
-            self.data.deinit();
+            self.data.deinit(self.allocator);
         }
         self.* = undefined;
     }
@@ -139,36 +139,36 @@ pub const Headers = struct {
     pub fn clone(self: Self, allocator: *Allocator) !Self {
         var other = Headers.init(allocator);
         errdefer other.deinit();
-        try other.data.ensureCapacity(self.data.items.len);
-        try other.index.initCapacity(self.index.entries.len);
-        for (self.data.span()) |entry| {
+        try other.data.ensureCapacity(allocator, self.data.items.len);
+        try other.index.initCapacity(allocator, self.index.entries.len);
+        for (self.data.items) |entry| {
             try other.append(entry.name, entry.value, entry.never_index);
         }
         return other;
     }
 
     pub fn toSlice(self: Self) []const HeaderEntry {
-        return self.data.span();
+        return self.data.items;
     }
 
     pub fn append(self: *Self, name: []const u8, value: []const u8, never_index: ?bool) !void {
         const n = self.data.items.len + 1;
-        try self.data.ensureCapacity(n);
+        try self.data.ensureCapacity(self.allocator, n);
         var entry: HeaderEntry = undefined;
         if (self.index.getEntry(name)) |kv| {
             entry = try HeaderEntry.init(self.allocator, kv.key, value, never_index);
             errdefer entry.deinit();
             const dex = &kv.value;
-            try dex.append(n - 1);
+            try dex.append(self.allocator, n - 1);
         } else {
             const name_dup = try self.allocator.dupe(u8, name);
             errdefer self.allocator.free(name_dup);
             entry = try HeaderEntry.init(self.allocator, name_dup, value, never_index);
             errdefer entry.deinit();
-            var dex = HeaderIndexList.init(self.allocator);
-            try dex.append(n - 1);
-            errdefer dex.deinit();
-            _ = try self.index.put(name_dup, dex);
+            var dex = HeaderIndexList{};
+            try dex.append(self.allocator, n - 1);
+            errdefer dex.deinit(self.allocator);
+            _ = try self.index.put(self.allocator, name_dup, dex);
         }
         self.data.appendAssumeCapacity(entry);
     }
@@ -194,7 +194,7 @@ pub const Headers = struct {
 
     /// Returns boolean indicating if something was deleted.
     pub fn delete(self: *Self, name: []const u8) bool {
-        if (self.index.remove(name)) |kv| {
+        if (self.index.remove(name)) |*kv| {
             const dex = &kv.value;
             // iterate backwards
             var i = dex.items.len;
@@ -205,7 +205,7 @@ pub const Headers = struct {
                 assert(mem.eql(u8, removed.name, name));
                 removed.deinit();
             }
-            dex.deinit();
+            dex.deinit(self.allocator);
             self.allocator.free(kv.key);
             self.rebuildIndex();
             return true;
@@ -225,13 +225,13 @@ pub const Headers = struct {
         const dex = &kv.value;
         if (dex.items.len == 1) {
             // was last item; delete the index
-            dex.deinit();
+            dex.deinit(self.allocator);
             removed.deinit();
             const key = kv.key;
             _ = self.index.remove(key); // invalidates `kv` and `dex`
             self.allocator.free(key);
         } else {
-            dex.shrink(dex.items.len - 1);
+            dex.shrink(self.allocator, dex.items.len - 1);
             removed.deinit();
         }
         // if it was the last item; no need to rebuild index
@@ -250,13 +250,13 @@ pub const Headers = struct {
         const dex = &kv.value;
         if (dex.items.len == 1) {
             // was last item; delete the index
-            dex.deinit();
+            dex.deinit(self.allocator);
             removed.deinit();
             const key = kv.key;
             _ = self.index.remove(key); // invalidates `kv` and `dex`
             self.allocator.free(key);
         } else {
-            dex.shrink(dex.items.len - 1);
+            dex.shrink(self.allocator, dex.items.len - 1);
             removed.deinit();
         }
         // if it was the last item; no need to rebuild index
@@ -282,7 +282,7 @@ pub const Headers = struct {
 
         const buf = try allocator.alloc(HeaderEntry, dex.items.len);
         var n: usize = 0;
-        for (dex.span()) |idx| {
+        for (dex.items) |idx| {
             buf[n] = self.data.items[idx];
             n += 1;
         }
@@ -305,7 +305,7 @@ pub const Headers = struct {
         // adapted from mem.join
         const total_len = blk: {
             var sum: usize = dex.items.len - 1; // space for separator(s)
-            for (dex.span()) |idx|
+            for (dex.items) |idx|
                 sum += self.data.items[idx].value.len;
             break :blk sum;
         };
@@ -493,8 +493,8 @@ test "Headers.getIndices" {
     try h.append("set-cookie", "y=2", null);
 
     testing.expect(null == h.getIndices("not-present"));
-    testing.expectEqualSlices(usize, &[_]usize{0}, h.getIndices("foo").?.span());
-    testing.expectEqualSlices(usize, &[_]usize{ 1, 2 }, h.getIndices("set-cookie").?.span());
+    testing.expectEqualSlices(usize, &[_]usize{0}, h.getIndices("foo").?.items);
+    testing.expectEqualSlices(usize, &[_]usize{ 1, 2 }, h.getIndices("set-cookie").?.items);
 }
 
 test "Headers.get" {
