@@ -3117,13 +3117,13 @@ test "zig fmt: decimal float literals with underscore separators" {
         \\pub fn main() void {
         \\    const a:f64=(10.0e-0+(10.e+0))+10_00.00_00e-2+00_00.00_10e+4;
         \\    const b:f64=010.0--0_10.+0_1_0.0_0+1e2;
-        \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
+        \\    std.debug.print("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
         \\}
     ,
         \\pub fn main() void {
         \\    const a: f64 = (10.0e-0 + (10.e+0)) + 10_00.00_00e-2 + 00_00.00_10e+4;
         \\    const b: f64 = 010.0 - -0_10. + 0_1_0.0_0 + 1e2;
-        \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
+        \\    std.debug.print("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
         \\}
         \\
     );
@@ -3134,13 +3134,13 @@ test "zig fmt: hexadeciaml float literals with underscore separators" {
         \\pub fn main() void {
         \\    const a: f64 = (0x10.0p-0+(0x10.p+0))+0x10_00.00_00p-8+0x00_00.00_10p+16;
         \\    const b: f64 = 0x0010.0--0x00_10.+0x10.00+0x1p4;
-        \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
+        \\    std.debug.print("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
         \\}
     ,
         \\pub fn main() void {
         \\    const a: f64 = (0x10.0p-0 + (0x10.p+0)) + 0x10_00.00_00p-8 + 0x00_00.00_10p+16;
         \\    const b: f64 = 0x0010.0 - -0x00_10. + 0x10.00 + 0x1p4;
-        \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
+        \\    std.debug.print("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
         \\}
         \\
     );
@@ -3198,7 +3198,7 @@ test "zig fmt: convert var to anytype" {
 
 const std = @import("std");
 const mem = std.mem;
-const warn = std.debug.warn;
+const print = std.debug.print;
 const io = std.io;
 const maxInt = std.math.maxInt;
 
@@ -3251,7 +3251,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
         std.testing.expectEqualStrings(expected_source, result_source);
         const changes_expected = source.ptr != expected_source.ptr;
         if (anything_changed != changes_expected) {
-            warn("std.zig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });
+            print("std.zig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });
             return error.TestFailed;
         }
         std.testing.expect(anything_changed == changes_expected);
@@ -3269,7 +3269,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
         } else |err| switch (err) {
             error.OutOfMemory => {
                 if (failing_allocator.allocated_bytes != failing_allocator.freed_bytes) {
-                    warn(
+                    print(
                         "\nfail_index: {}/{}\nallocated bytes: {}\nfreed bytes: {}\nallocations: {}\ndeallocations: {}\n",
                         .{
                             fail_index,

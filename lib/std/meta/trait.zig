@@ -3,7 +3,7 @@ const builtin = std.builtin;
 const mem = std.mem;
 const debug = std.debug;
 const testing = std.testing;
-const warn = debug.warn;
+const print = debug.print;
 
 const meta = @import("../meta.zig");
 

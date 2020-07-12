@@ -2,16 +2,16 @@ const __fixsfdi = @import("fixsfdi.zig").__fixsfdi;
 const std = @import("std");
 const math = std.math;
 const testing = std.testing;
-const warn = std.debug.warn;
+const print = std.debug.print;
 
 fn test__fixsfdi(a: f32, expected: i64) void {
     const x = __fixsfdi(a);
-    //warn("a={}:{x} x={}:{x} expected={}:{x}:@as(u32, {x})\n", .{a, @bitCast(u32, a), x, x, expected, expected, @bitCast(u64, expected)});
+    //print("a={}:{x} x={}:{x} expected={}:{x}:@as(u32, {x})\n", .{a, @bitCast(u32, a), x, x, expected, expected, @bitCast(u64, expected)});
     testing.expect(x == expected);
 }
 
 test "fixsfdi" {
-    //warn("\n", .{});
+    //print("\n", .{});
     test__fixsfdi(-math.f32_max, math.minInt(i64));
 
     test__fixsfdi(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i64));

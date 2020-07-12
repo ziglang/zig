@@ -44,7 +44,7 @@ pub const LeakCountAllocator = struct {
 
     pub fn validate(self: LeakCountAllocator) !void {
         if (self.count > 0) {
-            std.debug.warn("error - detected leaked allocations without matching free: {}\n", .{self.count});
+            std.debug.print("error - detected leaked allocations without matching free: {}\n", .{self.count});
             return error.Leak;
         }
     }

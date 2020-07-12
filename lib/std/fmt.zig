@@ -1578,11 +1578,11 @@ fn testFmt(expected: []const u8, comptime template: []const u8, args: anytype) !
     const result = try bufPrint(buf[0..], template, args);
     if (mem.eql(u8, result, expected)) return;
 
-    std.debug.warn("\n====== expected this output: =========\n", .{});
-    std.debug.warn("{}", .{expected});
-    std.debug.warn("\n======== instead found this: =========\n", .{});
-    std.debug.warn("{}", .{result});
-    std.debug.warn("\n======================================\n", .{});
+    std.debug.print("\n====== expected this output: =========\n", .{});
+    std.debug.print("{}", .{expected});
+    std.debug.print("\n======== instead found this: =========\n", .{});
+    std.debug.print("{}", .{result});
+    std.debug.print("\n======================================\n", .{});
     return error.TestFailed;
 }
 

@@ -9,7 +9,7 @@ const mem = std.mem;
 const process = std.process;
 const ArrayList = std.ArrayList;
 const BufMap = std.BufMap;
-const warn = std.debug.warn;
+const print = std.debug.print;
 
 const max_stdout_size = 1 * 1024 * 1024; // 1 MiB
 
@@ -166,7 +166,7 @@ pub const RunStep = struct {
         child.stderr_behavior = stdIoActionToBehavior(self.stderr_action);
 
         child.spawn() catch |err| {
-            warn("Unable to spawn {}: {}\n", .{ argv[0], @errorName(err) });
+            print("Unable to spawn {}: {}\n", .{ argv[0], @errorName(err) });
             return err;
         };
 
@@ -193,14 +193,14 @@ pub const RunStep = struct {
         }
 
         const term = child.wait() catch |err| {
-            warn("Unable to spawn {}: {}\n", .{ argv[0], @errorName(err) });
+            print("Unable to spawn {}: {}\n", .{ argv[0], @errorName(err) });
             return err;
         };
 
         switch (term) {
             .Exited => |code| {
                 if (code != self.expected_exit_code) {
-                    warn("The following command exited with error code {} (expected {}):\n", .{
+                    print("The following command exited with error code {} (expected {}):\n", .{
                         code,
                         self.expected_exit_code,
                     });
@@ -209,7 +209,7 @@ pub const RunStep = struct {
                 }
             },
             else => {
-                warn("The following command terminated unexpectedly:\n", .{});
+                print("The following command terminated unexpectedly:\n", .{});
                 printCmd(cwd, argv);
                 return error.UncleanExit;
             },
@@ -219,7 +219,7 @@ pub const RunStep = struct {
             .inherit, .ignore => {},
             .expect_exact => |expected_bytes| {
                 if (!mem.eql(u8, expected_bytes, stderr.?)) {
-                    warn(
+                    print(
                         \\
                         \\========= Expected this stderr: =========
                         \\{}
@@ -233,7 +233,7 @@ pub const RunStep = struct {
             },
             .expect_matches => |matches| for (matches) |match| {
                 if (mem.indexOf(u8, stderr.?, match) == null) {
-                    warn(
+                    print(
                         \\
                         \\========= Expected to find in stderr: =========
                         \\{}
@@ -251,7 +251,7 @@ pub const RunStep = struct {
             .inherit, .ignore => {},
             .expect_exact => |expected_bytes| {
                 if (!mem.eql(u8, expected_bytes, stdout.?)) {
-                    warn(
+                    print(
                         \\
                         \\========= Expected this stdout: =========
                         \\{}
@@ -265,7 +265,7 @@ pub const RunStep = struct {
             },
             .expect_matches => |matches| for (matches) |match| {
                 if (mem.indexOf(u8, stdout.?, match) == null) {
-                    warn(
+                    print(
                         \\
                         \\========= Expected to find in stdout: =========
                         \\{}
@@ -281,11 +281,11 @@ pub const RunStep = struct {
     }
 
     fn printCmd(cwd: ?[]const u8, argv: []const []const u8) void {
-        if (cwd) |yes_cwd| warn("cd {} && ", .{yes_cwd});
+        if (cwd) |yes_cwd| print("cd {} && ", .{yes_cwd});
         for (argv) |arg| {
-            warn("{} ", .{arg});
+            print("{} ", .{arg});
         }
-        warn("\n", .{});
+        print("\n", .{});
     }
 
     fn addPathForDynLibs(self: *RunStep, artifact: *LibExeObjStep) void {

@@ -1317,7 +1317,7 @@ pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
             null,
         );
         _ = std.unicode.utf16leToUtf8(&buf_u8, buf_u16[0..len]) catch unreachable;
-        std.debug.warn("error.Unexpected: GetLastError({}): {}\n", .{ @enumToInt(err), buf_u8[0..len] });
+        std.debug.print("error.Unexpected: GetLastError({}): {}\n", .{ @enumToInt(err), buf_u8[0..len] });
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
@@ -1331,7 +1331,7 @@ pub fn unexpectedWSAError(err: ws2_32.WinsockError) std.os.UnexpectedError {
 /// and you get an unexpected status.
 pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
-        std.debug.warn("error.Unexpected NTSTATUS=0x{x}\n", .{@enumToInt(status)});
+        std.debug.print("error.Unexpected NTSTATUS=0x{x}\n", .{@enumToInt(status)});
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;

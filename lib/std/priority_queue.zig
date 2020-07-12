@@ -211,19 +211,19 @@ pub fn PriorityQueue(comptime T: type) type {
         }
 
         fn dump(self: *Self) void {
-            warn("{{ ", .{});
-            warn("items: ", .{});
+            print("{{ ", .{});
+            print("items: ", .{});
             for (self.items) |e, i| {
                 if (i >= self.len) break;
-                warn("{}, ", .{e});
+                print("{}, ", .{e});
             }
-            warn("array: ", .{});
+            print("array: ", .{});
             for (self.items) |e, i| {
-                warn("{}, ", .{e});
+                print("{}, ", .{e});
             }
-            warn("len: {} ", .{self.len});
-            warn("capacity: {}", .{self.capacity()});
-            warn(" }}\n", .{});
+            print("len: {} ", .{self.len});
+            print("capacity: {}", .{self.capacity()});
+            print(" }}\n", .{});
         }
     };
 }

@@ -597,10 +597,10 @@ pub const Node = struct {
         {
             var i: usize = 0;
             while (i < indent) : (i += 1) {
-                std.debug.warn(" ", .{});
+                std.debug.print(" ", .{});
             }
         }
-        std.debug.warn("{}\n", .{@tagName(self.id)});
+        std.debug.print("{}\n", .{@tagName(self.id)});
 
         var child_i: usize = 0;
         while (self.iterate(child_i)) |child| : (child_i += 1) {

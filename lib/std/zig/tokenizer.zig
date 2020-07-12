@@ -324,7 +324,7 @@ pub const Tokenizer = struct {
 
     /// For debugging purposes
     pub fn dump(self: *Tokenizer, token: *const Token) void {
-        std.debug.warn("{} \"{}\"\n", .{ @tagName(token.id), self.buffer[token.start..token.end] });
+        std.debug.print("{} \"{}\"\n", .{ @tagName(token.id), self.buffer[token.start..token.end] });
     }
 
     pub fn init(buffer: []const u8) Tokenizer {

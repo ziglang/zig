@@ -4248,7 +4248,7 @@ pub const UnexpectedError = error{
 /// and you get an unexpected error.
 pub fn unexpectedErrno(err: usize) UnexpectedError {
     if (unexpected_error_tracing) {
-        std.debug.warn("unexpected errno: {}\n", .{err});
+        std.debug.print("unexpected errno: {}\n", .{err});
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;

@@ -1,5 +1,5 @@
 const std = @import("std.zig");
-const warn = std.debug.warn;
+const print = std.debug.print;
 
 pub const LeakCountAllocator = @import("testing/leak_count_allocator.zig").LeakCountAllocator;
 pub const FailingAllocator = @import("testing/failing_allocator.zig").FailingAllocator;
@@ -273,22 +273,22 @@ test "expectEqual vector" {
 
 pub fn expectEqualStrings(expected: []const u8, actual: []const u8) void {
     if (std.mem.indexOfDiff(u8, actual, expected)) |diff_index| {
-        warn("\n====== expected this output: =========\n", .{});
+        print("\n====== expected this output: =========\n", .{});
         printWithVisibleNewlines(expected);
-        warn("\n======== instead found this: =========\n", .{});
+        print("\n======== instead found this: =========\n", .{});
         printWithVisibleNewlines(actual);
-        warn("\n======================================\n", .{});
+        print("\n======================================\n", .{});
 
         var diff_line_number: usize = 1;
         for (expected[0..diff_index]) |value| {
             if (value == '\n') diff_line_number += 1;
         }
-        warn("First difference occurs on line {}:\n", .{diff_line_number});
+        print("First difference occurs on line {}:\n", .{diff_line_number});
 
-        warn("expected:\n", .{});
+        print("expected:\n", .{});
         printIndicatorLine(expected, diff_index);
 
-        warn("found:\n", .{});
+        print("found:\n", .{});
         printIndicatorLine(actual, diff_index);
 
         @panic("test failure");
@@ -309,9 +309,9 @@ fn printIndicatorLine(source: []const u8, indicator_index: usize) void {
     {
         var i: usize = line_begin_index;
         while (i < indicator_index) : (i += 1)
-            warn(" ", .{});
+            print(" ", .{});
     }
-    warn("^\n", .{});
+    print("^\n", .{});
 }
 
 fn printWithVisibleNewlines(source: []const u8) void {
@@ -319,15 +319,15 @@ fn printWithVisibleNewlines(source: []const u8) void {
     while (std.mem.indexOf(u8, source[i..], "\n")) |nl| : (i += nl + 1) {
         printLine(source[i .. i + nl]);
     }
-    warn("{}␃\n", .{source[i..]}); // End of Text symbol (ETX)
+    print("{}␃\n", .{source[i..]}); // End of Text symbol (ETX)
 }
 
 fn printLine(line: []const u8) void {
     if (line.len != 0) switch (line[line.len - 1]) {
-        ' ', '\t' => warn("{}⏎\n", .{line}), // Carriage return symbol,
+        ' ', '\t' => print("{}⏎\n", .{line}), // Carriage return symbol,
         else => {},
     };
-    warn("{}\n", .{line});
+    print("{}\n", .{line});
 }
 
 test "" {

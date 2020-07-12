@@ -6,7 +6,7 @@ const mem = std.mem;
 const debug = std.debug;
 const panic = std.debug.panic;
 const assert = debug.assert;
-const warn = std.debug.warn;
+const print = std.debug.print;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Allocator = mem.Allocator;
@@ -376,7 +376,7 @@ pub const Builder = struct {
         for (self.installed_files.span()) |installed_file| {
             const full_path = self.getInstallPath(installed_file.dir, installed_file.path);
             if (self.verbose) {
-                warn("rm {}\n", .{full_path});
+                print("rm {}\n", .{full_path});
             }
             fs.cwd().deleteTree(full_path) catch {};
         }
@@ -386,7 +386,7 @@ pub const Builder = struct {
 
     fn makeOneStep(self: *Builder, s: *Step) anyerror!void {
         if (s.loop_flag) {
-            warn("Dependency loop detected:\n  {}\n", .{s.name});
+            print("Dependency loop detected:\n  {}\n", .{s.name});
             return error.DependencyLoopDetected;
         }
         s.loop_flag = true;
@@ -394,7 +394,7 @@ pub const Builder = struct {
         for (s.dependencies.span()) |dep| {
             self.makeOneStep(dep) catch |err| {
                 if (err == error.DependencyLoopDetected) {
-                    warn("  {}\n", .{s.name});
+                    print("  {}\n", .{s.name});
                 }
                 return err;
             };
@@ -411,7 +411,7 @@ pub const Builder = struct {
                 return &top_level_step.step;
             }
         }
-        warn("Cannot run step '{}' because it does not exist\n", .{name});
+        print("Cannot run step '{}' because it does not exist\n", .{name});
         return error.InvalidStepName;
     }
 
@@ -438,13 +438,13 @@ pub const Builder = struct {
                     } else if (mem.eql(u8, s, "false")) {
                         return false;
                     } else {
-                        warn("Expected -D{} to be a boolean, but received '{}'\n", .{ name, s });
+                        print("Expected -D{} to be a boolean, but received '{}'\n", .{ name, s });
                         self.markInvalidUserInput();
                         return null;
                     }
                 },
                 UserValue.List => {
-                    warn("Expected -D{} to be a boolean, but received a list.\n", .{name});
+                    print("Expected -D{} to be a boolean, but received a list.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
@@ -453,7 +453,7 @@ pub const Builder = struct {
             TypeId.Float => panic("TODO float options to build script", .{}),
             TypeId.Enum => switch (entry.value.value) {
                 UserValue.Flag => {
-                    warn("Expected -D{} to be a string, but received a boolean.\n", .{name});
+                    print("Expected -D{} to be a string, but received a boolean.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
@@ -461,25 +461,25 @@ pub const Builder = struct {
                     if (std.meta.stringToEnum(T, s)) |enum_lit| {
                         return enum_lit;
                     } else {
-                        warn("Expected -D{} to be of type {}.\n", .{ name, @typeName(T) });
+                        print("Expected -D{} to be of type {}.\n", .{ name, @typeName(T) });
                         self.markInvalidUserInput();
                         return null;
                     }
                 },
                 UserValue.List => {
-                    warn("Expected -D{} to be a string, but received a list.\n", .{name});
+                    print("Expected -D{} to be a string, but received a list.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
             },
             TypeId.String => switch (entry.value.value) {
                 UserValue.Flag => {
-                    warn("Expected -D{} to be a string, but received a boolean.\n", .{name});
+                    print("Expected -D{} to be a string, but received a boolean.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
                 UserValue.List => {
-                    warn("Expected -D{} to be a string, but received a list.\n", .{name});
+                    print("Expected -D{} to be a string, but received a list.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
@@ -487,7 +487,7 @@ pub const Builder = struct {
             },
             TypeId.List => switch (entry.value.value) {
                 UserValue.Flag => {
-                    warn("Expected -D{} to be a list, but received a boolean.\n", .{name});
+                    print("Expected -D{} to be a list, but received a boolean.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
@@ -535,7 +535,7 @@ pub const Builder = struct {
         else if (!release_fast and !release_safe and !release_small)
             builtin.Mode.Debug
         else x: {
-            warn("Multiple release modes (of -Drelease-safe, -Drelease-fast and -Drelease-small)", .{});
+            print("Multiple release modes (of -Drelease-safe, -Drelease-fast and -Drelease-small)", .{});
             self.markInvalidUserInput();
             break :x builtin.Mode.Debug;
         };
@@ -566,17 +566,17 @@ pub const Builder = struct {
             .diagnostics = &diags,
         }) catch |err| switch (err) {
             error.UnknownCpuModel => {
-                std.debug.warn("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
+                std.debug.print("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
                     diags.cpu_name.?,
                     @tagName(diags.arch.?),
                 });
                 for (diags.arch.?.allCpuModels()) |cpu| {
-                    std.debug.warn(" {}\n", .{cpu.name});
+                    std.debug.print(" {}\n", .{cpu.name});
                 }
                 process.exit(1);
             },
             error.UnknownCpuFeature => {
-                std.debug.warn(
+                std.debug.print(
                     \\Unknown CPU feature: '{}'
                     \\Available CPU features for architecture '{}':
                     \\
@@ -585,23 +585,23 @@ pub const Builder = struct {
                     @tagName(diags.arch.?),
                 });
                 for (diags.arch.?.allFeaturesList()) |feature| {
-                    std.debug.warn(" {}: {}\n", .{ feature.name, feature.description });
+                    std.debug.print(" {}: {}\n", .{ feature.name, feature.description });
                 }
                 process.exit(1);
             },
             error.UnknownOperatingSystem => {
-                std.debug.warn(
+                std.debug.print(
                     \\Unknown OS: '{}'
                     \\Available operating systems:
                     \\
                 , .{diags.os_name});
                 inline for (std.meta.fields(std.Target.Os.Tag)) |field| {
-                    std.debug.warn(" {}\n", .{field.name});
+                    std.debug.print(" {}\n", .{field.name});
                 }
                 process.exit(1);
             },
             else => |e| {
-                std.debug.warn("Unable to parse target '{}': {}\n", .{ triple, @errorName(e) });
+                std.debug.print("Unable to parse target '{}': {}\n", .{ triple, @errorName(e) });
                 process.exit(1);
             },
         };
@@ -616,12 +616,12 @@ pub const Builder = struct {
                     break :whitelist_check;
                 }
             }
-            std.debug.warn("Chosen target '{}' does not match one of the supported targets:\n", .{
+            std.debug.print("Chosen target '{}' does not match one of the supported targets:\n", .{
                 selected_canonicalized_triple,
             });
             for (list) |t| {
                 const t_triple = t.zigTriple(self.allocator) catch unreachable;
-                std.debug.warn(" {}\n", .{t_triple});
+                std.debug.print(" {}\n", .{t_triple});
             }
             // TODO instead of process exit, return error and have a zig build flag implemented by
             // the build runner that turns process exits into error return traces
@@ -665,7 +665,7 @@ pub const Builder = struct {
                 }) catch unreachable;
             },
             UserValue.Flag => {
-                warn("Option '-D{}={}' conflicts with flag '-D{}'.\n", .{ name, value, name });
+                print("Option '-D{}={}' conflicts with flag '-D{}'.\n", .{ name, value, name });
                 return true;
             },
         }
@@ -686,11 +686,11 @@ pub const Builder = struct {
         // option already exists
         switch (gop.entry.value.value) {
             UserValue.Scalar => |s| {
-                warn("Flag '-D{}' conflicts with option '-D{}={}'.\n", .{ name, name, s });
+                print("Flag '-D{}' conflicts with option '-D{}={}'.\n", .{ name, name, s });
                 return true;
             },
             UserValue.List => {
-                warn("Flag '-D{}' conflicts with multiple options of the same name.\n", .{name});
+                print("Flag '-D{}' conflicts with multiple options of the same name.\n", .{name});
                 return true;
             },
             UserValue.Flag => {},
@@ -733,7 +733,7 @@ pub const Builder = struct {
         while (true) {
             const entry = it.next() orelse break;
             if (!entry.value.used) {
-                warn("Invalid option: -D{}\n\n", .{entry.key});
+                print("Invalid option: -D{}\n\n", .{entry.key});
                 self.markInvalidUserInput();
             }
         }
@@ -746,11 +746,11 @@ pub const Builder = struct {
     }
 
     fn printCmd(cwd: ?[]const u8, argv: []const []const u8) void {
-        if (cwd) |yes_cwd| warn("cd {} && ", .{yes_cwd});
+        if (cwd) |yes_cwd| print("cd {} && ", .{yes_cwd});
         for (argv) |arg| {
-            warn("{} ", .{arg});
+            print("{} ", .{arg});
         }
-        warn("\n", .{});
+        print("\n", .{});
     }
 
     fn spawnChildEnvMap(self: *Builder, cwd: ?[]const u8, env_map: *const BufMap, argv: []const []const u8) !void {
@@ -765,20 +765,20 @@ pub const Builder = struct {
         child.env_map = env_map;
 
         const term = child.spawnAndWait() catch |err| {
-            warn("Unable to spawn {}: {}\n", .{ argv[0], @errorName(err) });
+            print("Unable to spawn {}: {}\n", .{ argv[0], @errorName(err) });
             return err;
         };
 
         switch (term) {
             .Exited => |code| {
                 if (code != 0) {
-                    warn("The following command exited with error code {}:\n", .{code});
+                    print("The following command exited with error code {}:\n", .{code});
                     printCmd(cwd, argv);
                     return error.UncleanExit;
                 }
             },
             else => {
-                warn("The following command terminated unexpectedly:\n", .{});
+                print("The following command terminated unexpectedly:\n", .{});
                 printCmd(cwd, argv);
 
                 return error.UncleanExit;
@@ -788,7 +788,7 @@ pub const Builder = struct {
 
     pub fn makePath(self: *Builder, path: []const u8) !void {
         fs.cwd().makePath(self.pathFromRoot(path)) catch |err| {
-            warn("Unable to create path {}: {}\n", .{ path, @errorName(err) });
+            print("Unable to create path {}: {}\n", .{ path, @errorName(err) });
             return err;
         };
     }
@@ -869,13 +869,13 @@ pub const Builder = struct {
 
     pub fn updateFile(self: *Builder, source_path: []const u8, dest_path: []const u8) !void {
         if (self.verbose) {
-            warn("cp {} {} ", .{ source_path, dest_path });
+            print("cp {} {} ", .{ source_path, dest_path });
         }
         const cwd = fs.cwd();
         const prev_status = try fs.Dir.updateFile(cwd, source_path, cwd, dest_path, .{});
         if (self.verbose) switch (prev_status) {
-            .stale => warn("# installed\n", .{}),
-            .fresh => warn("# up-to-date\n", .{}),
+            .stale => print("# installed\n", .{}),
+            .fresh => print("# up-to-date\n", .{}),
         };
     }
 
@@ -980,20 +980,20 @@ pub const Builder = struct {
         var code: u8 = undefined;
         return self.execAllowFail(argv, &code, .Inherit) catch |err| switch (err) {
             error.FileNotFound => {
-                if (src_step) |s| warn("{}...", .{s.name});
-                warn("Unable to spawn the following command: file not found\n", .{});
+                if (src_step) |s| print("{}...", .{s.name});
+                print("Unable to spawn the following command: file not found\n", .{});
                 printCmd(null, argv);
                 std.os.exit(@truncate(u8, code));
             },
             error.ExitCodeFailure => {
-                if (src_step) |s| warn("{}...", .{s.name});
-                warn("The following command exited with error code {}:\n", .{code});
+                if (src_step) |s| print("{}...", .{s.name});
+                print("The following command exited with error code {}:\n", .{code});
                 printCmd(null, argv);
                 std.os.exit(@truncate(u8, code));
             },
             error.ProcessTerminated => {
-                if (src_step) |s| warn("{}...", .{s.name});
-                warn("The following command terminated unexpectedly:\n", .{});
+                if (src_step) |s| print("{}...", .{s.name});
+                print("The following command terminated unexpectedly:\n", .{});
                 printCmd(null, argv);
                 std.os.exit(@truncate(u8, code));
             },
@@ -1549,7 +1549,7 @@ pub const LibExeObjStep = struct {
             } else if (mem.eql(u8, tok, "-pthread")) {
                 self.linkLibC();
             } else if (self.builder.verbose) {
-                warn("Ignoring pkg-config flag '{}'\n", .{tok});
+                print("Ignoring pkg-config flag '{}'\n", .{tok});
             }
         }
     }
@@ -1833,7 +1833,7 @@ pub const LibExeObjStep = struct {
         const builder = self.builder;
 
         if (self.root_src == null and self.link_objects.items.len == 0) {
-            warn("{}: linker needs 1 or more objects to link\n", .{self.step.name});
+            print("{}: linker needs 1 or more objects to link\n", .{self.step.name});
             return error.NeedAnObject;
         }
 
@@ -2391,7 +2391,7 @@ pub const LogStep = struct {
 
     fn make(step: *Step) anyerror!void {
         const self = @fieldParentPtr(LogStep, "step", step);
-        warn("{}", .{self.data});
+        print("{}", .{self.data});
     }
 };
 
@@ -2413,7 +2413,7 @@ pub const RemoveDirStep = struct {
 
         const full_path = self.builder.pathFromRoot(self.dir_path);
         fs.cwd().deleteTree(full_path) catch |err| {
-            warn("Unable to remove {}: {}\n", .{ full_path, @errorName(err) });
+            print("Unable to remove {}: {}\n", .{ full_path, @errorName(err) });
             return err;
         };
     }
@@ -2501,7 +2501,7 @@ fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_maj
         &[_][]const u8{ out_dir, filename_major_only },
     ) catch unreachable;
     fs.atomicSymLink(allocator, out_basename, major_only_path) catch |err| {
-        warn("Unable to symlink {} -> {}\n", .{ major_only_path, out_basename });
+        print("Unable to symlink {} -> {}\n", .{ major_only_path, out_basename });
         return err;
     };
     // sym link for libfoo.so to libfoo.so.1
@@ -2510,7 +2510,7 @@ fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_maj
         &[_][]const u8{ out_dir, filename_name_only },
     ) catch unreachable;
     fs.atomicSymLink(allocator, filename_major_only, name_only_path) catch |err| {
-        warn("Unable to symlink {} -> {}\n", .{ name_only_path, filename_major_only });
+        print("Unable to symlink {} -> {}\n", .{ name_only_path, filename_major_only });
         return err;
     };
 }

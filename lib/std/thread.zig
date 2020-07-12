@@ -180,7 +180,7 @@ pub const Thread = struct {
                                 @compileError(bad_startfn_ret);
                             }
                             startFn(arg) catch |err| {
-                                std.debug.warn("error: {}\n", .{@errorName(err)});
+                                std.debug.print("error: {}\n", .{@errorName(err)});
                                 if (@errorReturnTrace()) |trace| {
                                     std.debug.dumpStackTrace(trace.*);
                                 }
@@ -241,7 +241,7 @@ pub const Thread = struct {
                             @compileError(bad_startfn_ret);
                         }
                         startFn(arg) catch |err| {
-                            std.debug.warn("error: {}\n", .{@errorName(err)});
+                            std.debug.print("error: {}\n", .{@errorName(err)});
                             if (@errorReturnTrace()) |trace| {
                                 std.debug.dumpStackTrace(trace.*);
                             }
@@ -275,7 +275,7 @@ pub const Thread = struct {
                             @compileError(bad_startfn_ret);
                         }
                         startFn(arg) catch |err| {
-                            std.debug.warn("error: {}\n", .{@errorName(err)});
+                            std.debug.print("error: {}\n", .{@errorName(err)});
                             if (@errorReturnTrace()) |trace| {
                                 std.debug.dumpStackTrace(trace.*);
                             }

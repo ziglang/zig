@@ -12,7 +12,7 @@ const elf = std.elf;
 const fs = std.fs;
 const io = std.io;
 const sort = std.sort;
-const warn = std.debug.warn;
+const print = std.debug.print;
 
 const BinaryElfSection = struct {
     elfOffset: u64,
@@ -204,7 +204,7 @@ pub const InstallRawStep = struct {
         const builder = self.builder;
 
         if (self.artifact.target.getObjectFormat() != .elf) {
-            warn("InstallRawStep only works with ELF format.\n", .{});
+            print("InstallRawStep only works with ELF format.\n", .{});
             return error.InvalidObjectFormat;
         }
 

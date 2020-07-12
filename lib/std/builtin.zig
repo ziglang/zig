@@ -552,7 +552,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
             }
         },
         .wasi => {
-            std.debug.warn("{}", .{msg});
+            std.debug.print("{}", .{msg});
             std.os.abort();
         },
         .uefi => {

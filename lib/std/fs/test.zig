@@ -357,7 +357,7 @@ test "open file with lock twice, make sure it wasn't open at the same time" {
     for (contexts) |context, idx| {
         if (context.err) |err| {
             was_error = true;
-            std.debug.warn("\nError in context {}: {}\n", .{ idx, err });
+            std.debug.print("\nError in context {}: {}\n", .{ idx, err });
         }
     }
     if (was_error) builtin.panic("There was an error in contexts", null);
@@ -400,7 +400,7 @@ test "create file, lock and read from multiple process at once" {
     for (contexts) |context, idx| {
         if (context.err) |err| {
             was_error = true;
-            std.debug.warn("\nError in context {}: {}\n", .{ idx, err });
+            std.debug.print("\nError in context {}: {}\n", .{ idx, err });
         }
     }
     if (was_error) builtin.panic("There was an error in contexts", null);
@@ -409,7 +409,7 @@ test "create file, lock and read from multiple process at once" {
     std.debug.assert(!contexts[2].overlaps(&contexts[0]));
     std.debug.assert(!contexts[2].overlaps(&contexts[1]));
     if (contexts[0].bytes_read.? != filedata.len) {
-        std.debug.warn("\n bytes_read: {}, expected: {} \n", .{ contexts[0].bytes_read, filedata.len });
+        std.debug.print("\n bytes_read: {}, expected: {} \n", .{ contexts[0].bytes_read, filedata.len });
     }
     std.debug.assert(contexts[0].bytes_read.? == filedata.len);
     std.debug.assert(contexts[1].bytes_read.? == filedata.len);

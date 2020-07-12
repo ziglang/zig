@@ -4,7 +4,7 @@ const Step = build.Step;
 const Builder = build.Builder;
 const fs = std.fs;
 const mem = std.mem;
-const warn = std.debug.warn;
+const print = std.debug.print;
 
 pub const CheckFileStep = struct {
     step: Step,
@@ -37,7 +37,7 @@ pub const CheckFileStep = struct {
 
         for (self.expected_matches) |expected_match| {
             if (mem.indexOf(u8, contents, expected_match) == null) {
-                warn(
+                print(
                     \\
                     \\========= Expected to find: ===================
                     \\{}

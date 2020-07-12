@@ -7,7 +7,7 @@ const Builder = std.build.Builder;
 const mem = std.mem;
 const process = std.process;
 const ArrayList = std.ArrayList;
-const warn = std.debug.warn;
+const print = std.debug.print;
 const File = std.fs.File;
 
 pub fn main() !void {
@@ -25,15 +25,15 @@ pub fn main() !void {
     var arg_idx: usize = 1;
 
     const zig_exe = nextArg(args, &arg_idx) orelse {
-        warn("Expected first argument to be path to zig compiler\n", .{});
+        print("Expected first argument to be path to zig compiler\n", .{});
         return error.InvalidArgs;
     };
     const build_root = nextArg(args, &arg_idx) orelse {
-        warn("Expected second argument to be build root directory path\n", .{});
+        print("Expected second argument to be build root directory path\n", .{});
         return error.InvalidArgs;
     };
     const cache_root = nextArg(args, &arg_idx) orelse {
-        warn("Expected third argument to be cache root directory path\n", .{});
+        print("Expected third argument to be cache root directory path\n", .{});
         return error.InvalidArgs;
     };
 
@@ -49,7 +49,7 @@ pub fn main() !void {
         if (mem.startsWith(u8, arg, "-D")) {
             const option_contents = arg[2..];
             if (option_contents.len == 0) {
-                warn("Expected option name after '-D'\n\n", .{});
+                print("Expected option name after '-D'\n\n", .{});
                 return usageAndErr(builder, false, stderr_stream);
             }
             if (mem.indexOfScalar(u8, option_contents, '=')) |name_end| {
@@ -68,18 +68,18 @@ pub fn main() !void {
                 return usage(builder, false, stdout_stream);
             } else if (mem.eql(u8, arg, "--prefix")) {
                 builder.install_prefix = nextArg(args, &arg_idx) orelse {
-                    warn("Expected argument after --prefix\n\n", .{});
+                    print("Expected argument after --prefix\n\n", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--search-prefix")) {
                 const search_prefix = nextArg(args, &arg_idx) orelse {
-                    warn("Expected argument after --search-prefix\n\n", .{});
+                    print("Expected argument after --search-prefix\n\n", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 };
                 builder.addSearchPrefix(search_prefix);
             } else if (mem.eql(u8, arg, "--override-lib-dir")) {
                 builder.override_lib_dir = nextArg(args, &arg_idx) orelse {
-                    warn("Expected argument after --override-lib-dir\n\n", .{});
+                    print("Expected argument after --override-lib-dir\n\n", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--verbose-tokenize")) {
@@ -102,7 +102,7 @@ pub fn main() !void {
                 builder.args = argsRest(args, arg_idx);
                 break;
             } else {
-                warn("Unrecognized argument: {}\n\n", .{arg});
+                print("Unrecognized argument: {}\n\n", .{arg});
                 return usageAndErr(builder, false, stderr_stream);
             }
         } else {

@@ -27,7 +27,7 @@ pub fn main() anyerror!void {
         test_node.activate();
         progress.refresh();
         if (progress.terminal == null) {
-            std.debug.warn("{}/{} {}...", .{ i + 1, test_fn_list.len, test_fn.name });
+            std.debug.print("{}/{} {}...", .{ i + 1, test_fn_list.len, test_fn.name });
         }
         const result = if (test_fn.async_frame_size) |size| switch (io_mode) {
             .evented => blk: {
@@ -42,7 +42,7 @@ pub fn main() anyerror!void {
                 skip_count += 1;
                 test_node.end();
                 progress.log("{}...SKIP (async test)\n", .{test_fn.name});
-                if (progress.terminal == null) std.debug.warn("SKIP (async test)\n", .{});
+                if (progress.terminal == null) std.debug.print("SKIP (async test)\n", .{});
                 continue;
             },
         } else test_fn.func();
@@ -53,13 +53,13 @@ pub fn main() anyerror!void {
                 error.Leak => std.debug.panic("", .{}),
                 else => std.debug.panic("error.{}", .{@errorName(err)}),
             };
-            if (progress.terminal == null) std.debug.warn("OK\n", .{});
+            if (progress.terminal == null) std.debug.print("OK\n", .{});
         } else |err| switch (err) {
             error.SkipZigTest => {
                 skip_count += 1;
                 test_node.end();
                 progress.log("{}...SKIP\n", .{test_fn.name});
-                if (progress.terminal == null) std.debug.warn("SKIP\n", .{});
+                if (progress.terminal == null) std.debug.print("SKIP\n", .{});
             },
             else => {
                 progress.log("", .{});
@@ -69,9 +69,9 @@ pub fn main() anyerror!void {
     }
     root_node.end();
     if (ok_count == test_fn_list.len) {
-        std.debug.warn("All {} tests passed.\n", .{ok_count});
+        std.debug.print("All {} tests passed.\n", .{ok_count});
     } else {
-        std.debug.warn("{} passed; {} skipped.\n", .{ ok_count, skip_count });
+        std.debug.print("{} passed; {} skipped.\n", .{ ok_count, skip_count });
     }
 }
 

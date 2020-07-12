@@ -1752,9 +1752,9 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const c_v
         else => unreachable,
     };
     switch (sig) {
-        os.SIGSEGV => std.debug.warn("Segmentation fault at address 0x{x}\n", .{addr}),
-        os.SIGILL => std.debug.warn("Illegal instruction at address 0x{x}\n", .{addr}),
-        os.SIGBUS => std.debug.warn("Bus error at address 0x{x}\n", .{addr}),
+        os.SIGSEGV => std.debug.print("Segmentation fault at address 0x{x}\n", .{addr}),
+        os.SIGILL => std.debug.print("Illegal instruction at address 0x{x}\n", .{addr}),
+        os.SIGBUS => std.debug.print("Bus error at address 0x{x}\n", .{addr}),
         else => unreachable,
     }
     switch (builtin.arch) {
@@ -1808,9 +1808,9 @@ fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, comptime msg: u
     if (@hasDecl(windows, "CONTEXT")) {
         const regs = info.ContextRecord.getRegs();
         switch (msg) {
-            0 => std.debug.warn("{}\n", .{format.?}),
-            1 => std.debug.warn("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
-            2 => std.debug.warn("Illegal instruction at address 0x{x}\n", .{regs.ip}),
+            0 => std.debug.print("{}\n", .{format.?}),
+            1 => std.debug.print("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
+            2 => std.debug.print("Illegal instruction at address 0x{x}\n", .{regs.ip}),
             else => unreachable,
         }
 
@@ -1830,7 +1830,7 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
     const sp = asm (""
         : [argc] "={rsp}" (-> usize)
     );
-    std.debug.warn("{} sp = 0x{x}\n", .{ prefix, sp });
+    std.debug.print("{} sp = 0x{x}\n", .{ prefix, sp });
 }
 
 // Reference everything so it gets tested.

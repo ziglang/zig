@@ -108,7 +108,7 @@ pub fn benchmarkKeyExchange(comptime DhKeyExchange: anytype, comptime exchange_c
 }
 
 fn usage() void {
-    std.debug.warn(
+    std.debug.print(
         \\throughput_test [options]
         \\
         \\Options:

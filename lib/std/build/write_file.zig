@@ -3,7 +3,7 @@ const build = @import("../build.zig");
 const Step = build.Step;
 const Builder = build.Builder;
 const fs = std.fs;
-const warn = std.debug.warn;
+const print = std.debug.print;
 const ArrayList = std.ArrayList;
 
 pub const WriteFileStep = struct {
@@ -75,14 +75,14 @@ pub const WriteFileStep = struct {
         });
         // TODO replace with something like fs.makePathAndOpenDir
         fs.cwd().makePath(self.output_dir) catch |err| {
-            warn("unable to make path {}: {}\n", .{ self.output_dir, @errorName(err) });
+            print("unable to make path {}: {}\n", .{ self.output_dir, @errorName(err) });
             return err;
         };
         var dir = try fs.cwd().openDir(self.output_dir, .{});
         defer dir.close();
         for (self.files.span()) |file| {
             dir.writeFile(file.basename, file.bytes) catch |err| {
-                warn("unable to write {} into {}: {}\n", .{
+                print("unable to write {} into {}: {}\n", .{
                     file.basename,
                     self.output_dir,
                     @errorName(err),

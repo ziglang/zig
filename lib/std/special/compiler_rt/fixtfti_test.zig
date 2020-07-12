@@ -2,16 +2,16 @@ const __fixtfti = @import("fixtfti.zig").__fixtfti;
 const std = @import("std");
 const math = std.math;
 const testing = std.testing;
-const warn = std.debug.warn;
+const print = std.debug.print;
 
 fn test__fixtfti(a: f128, expected: i128) void {
     const x = __fixtfti(a);
-    //warn("a={}:{x} x={}:{x} expected={}:{x}:@as(u128, {x})\n", .{a, @bitCast(u128, a), x, x, expected, expected, @bitCast(u128, expected)});
+    //print("a={}:{x} x={}:{x} expected={}:{x}:@as(u128, {x})\n", .{a, @bitCast(u128, a), x, x, expected, expected, @bitCast(u128, expected)});
     testing.expect(x == expected);
 }
 
 test "fixtfti" {
-    //warn("\n", .{});
+    //print("\n", .{});
     test__fixtfti(-math.f128_max, math.minInt(i128));
 
     test__fixtfti(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i128));
