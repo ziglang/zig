@@ -2355,6 +2355,8 @@ pub const ReadLinkError = error{
     FileNotFound,
     SystemResources,
     NotDir,
+    /// Windows-only.
+    UnsupportedSymlinkType,
 } || UnexpectedError;
 
 /// Read value of a symbolic link.
@@ -2373,9 +2375,35 @@ pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
 
 pub const readlinkC = @compileError("deprecated: renamed to readlinkZ");
 
-/// Windows-only. Same as `readlink` expecte `file_path` is null-terminated, WTF16 encoded.
-/// Seel also `readlinkZ`.
+/// Windows-only. Same as `readlink` except `file_path` is null-terminated, WTF16 encoded.
+/// See also `readlinkZ`.
 pub fn readlinkW(file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8 {
+    const handle = windows.OpenFile(file_path, .{
+        .access_mask = 0,
+        .creation = c.FILE_OPEN_REPARSE_POINT | c.FILE_LIST_DIRECTORY,
+        .io_mode = 0,
+    }) catch |err| {
+        switch (err) {
+            error.IsDir => unreachable,
+            error.NoDevice => return error.FileNotFound,
+            error.SharingViolation => return error.AccessDenied,
+            error.PipeBusy => unreachable,
+            error.PathAlreadyExists => unreachable,
+            error.WouldBlock => unreachable,
+            else => return err,
+        }
+    };
+    var reparse_buf: [windows.MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
+    _ = try windows.DeviceIoControl(handle, windows.FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..], null);
+    const reparse_struct = @bitCast(windows._REPARSE_DATA_BUFFER, reparse_buf[0..@sizeOf(windows._REPARSE_DATA_BUFFER)]);
+    switch (reparse_struct.ReparseTag) {
+        windows.IO_REPARSE_TAG_SYMLINK => {},
+        windows.IO_REPARSE_TAG_MOUNT_POINT => {},
+        else => |value| {
+            std.debug.print("unsupported symlink type: {}", value);
+            return error.UnsupportedSymlinkType;
+        },
+    }
     @compileError("TODO implement readlink for Windows");
 }
 
