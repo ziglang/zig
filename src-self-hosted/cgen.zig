@@ -126,8 +126,7 @@ pub fn generate(file: *C, decl: *Decl) !void {
                                     const target = func_val.func.owner_decl;
                                     const target_ty = target.typed_value.most_recent.typed_value.ty;
                                     const ret_ty = target_ty.fnReturnType().tag();
-                                    if (ret_ty != .void and ret_ty != .noreturn) {
-                                        // TODO: don't do this if we're actually using the value
+                                    if (target_ty.fnReturnType().hasCodeGenBits()) {
                                         try writer.print("(void)", .{});
                                     }
                                     const tname = mem.spanZ(target.name);
