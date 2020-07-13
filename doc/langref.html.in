@@ -9534,13 +9534,9 @@ pub fn build(b: *Builder) void {
     // called "add" using source from "src/main.zig".
     const lib = b.addStaticLibrary("add", "src/main.zig");
     lib.setBuildMode(mode);
-    lib.emit_h = true; // Auto-generate header file
-    lib.force_pic = true; // -fPIE
+    lib.force_pic = true;
     // Include all the safety checks in the generated library.
     lib.bundle_compiler_rt = true;
-    // Put the result in this directory, instead of the build cache.
-    lib.setOutputDir(".");
-    lib.install();
 
     var main_tests = b.addTest("src/main.zig");
     main_tests.setBuildMode(mode);
