@@ -120,7 +120,7 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.exe("adding numbers", linux_x64);
+        var case = ctx.exe("adding numbers at comptime", linux_x64);
         case.addCompareOutput(
             \\export fn _start() noreturn {
             \\    asm volatile ("syscall"
@@ -141,6 +141,33 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         ,
             "Hello, World!\n",
+        );
+    }
+
+    {
+        var case = ctx.exe("adding numbers at runtime", linux_x64);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    add(3, 4);
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn add(a: u32, b: u32) void {
+            \\    if (a + b != 7) unreachable;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
         );
     }
 }

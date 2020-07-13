@@ -62,6 +62,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\	register size_t rax_constant __asm__("rax") = 231;
         \\	register size_t rdi_constant __asm__("rdi") = 0;
         \\	__asm volatile ("syscall" :: ""(rax_constant), ""(rdi_constant));
+        \\	return;
         \\}
         \\
     );

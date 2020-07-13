@@ -1210,6 +1210,13 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
 
                 try self.astGenBlock(&gen_scope.base, body_block);
 
+                if (!fn_type.fnReturnType().isNoReturn() and (gen_scope.instructions.items.len == 0 or
+                    !gen_scope.instructions.items[gen_scope.instructions.items.len - 1].tag.isNoReturn()))
+                {
+                    const src = tree.token_locs[body_block.rbrace].start;
+                    _ = try self.addZIRInst(&gen_scope.base, src, zir.Inst.ReturnVoid, .{}, .{});
+                }
+
                 const fn_zir = try gen_scope_arena.allocator.create(Fn.ZIR);
                 fn_zir.* = .{
                     .body = .{
@@ -2686,7 +2693,7 @@ fn analyzeInstBlock(self: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerEr
 
     // Blocks must terminate with noreturn instruction.
     assert(child_block.instructions.items.len != 0);
-    assert(child_block.instructions.items[child_block.instructions.items.len - 1].tag.isNoReturn());
+    assert(child_block.instructions.items[child_block.instructions.items.len - 1].ty.isNoReturn());
 
     // Need to set the type and emit the Block instruction. This allows machine code generation
     // to emit a jump instruction to after the block when it encounters the break.
@@ -3271,7 +3278,7 @@ fn analyzeInstCondBr(self: *Module, scope: *Scope, inst: *zir.Inst.CondBr) Inner
     defer false_block.instructions.deinit(self.gpa);
     try self.analyzeBody(&false_block.base, inst.positionals.false_body);
 
-    return self.addNewInstArgs(parent_block, inst.base.src, Type.initTag(.void), Inst.CondBr, Inst.Args(Inst.CondBr){
+    return self.addNewInstArgs(parent_block, inst.base.src, Type.initTag(.noreturn), Inst.CondBr, Inst.Args(Inst.CondBr){
         .condition = cond,
         .true_body = .{ .instructions = try scope.arena().dupe(*Inst, true_block.instructions.items) },
         .false_body = .{ .instructions = try scope.arena().dupe(*Inst, false_block.instructions.items) },
@@ -3518,9 +3525,26 @@ fn makeIntType(self: *Module, scope: *Scope, signed: bool, bits: u16) !Type {
 fn resolvePeerTypes(self: *Module, scope: *Scope, instructions: []*Inst) !Type {
     if (instructions.len == 0)
         return Type.initTag(.noreturn);
+
     if (instructions.len == 1)
         return instructions[0].ty;
-    return self.fail(scope, instructions[0].src, "TODO peer type resolution", .{});
+
+    var prev_inst = instructions[0];
+    for (instructions[1..]) |next_inst| {
+        if (next_inst.ty.eql(prev_inst.ty))
+            continue;
+        if (next_inst.ty.zigTypeTag() == .NoReturn)
+            continue;
+        if (prev_inst.ty.zigTypeTag() == .NoReturn) {
+            prev_inst = next_inst;
+            continue;
+        }
+
+        // TODO error notes pointing out each type
+        return self.fail(scope, next_inst.src, "incompatible types: '{}' and '{}'", .{ prev_inst.ty, next_inst.ty });
+    }
+
+    return prev_inst.ty;
 }
 
 fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {

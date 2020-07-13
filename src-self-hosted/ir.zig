@@ -60,36 +60,6 @@ pub const Inst = struct {
         retvoid,
         sub,
         unreach,
-
-        /// Returns whether the instruction is one of the control flow "noreturn" types.
-        /// Function calls do not count. When ZIR is generated, the compiler automatically
-        /// emits an `Unreach` after a function call with the `noreturn` return type.
-        pub fn isNoReturn(tag: Tag) bool {
-            return switch (tag) {
-                .add,
-                .arg,
-                .assembly,
-                .bitcast,
-                .block,
-                .breakpoint,
-                .call,
-                .cmp,
-                .constant,
-                .isnonnull,
-                .isnull,
-                .ptrtoint,
-                .sub,
-                => false,
-
-                .br,
-                .brvoid,
-                .condbr,
-                .ret,
-                .retvoid,
-                .unreach,
-                => true,
-            };
-        }
     };
 
     pub fn cast(base: *Inst, comptime T: type) ?*T {

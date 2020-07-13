@@ -81,6 +81,52 @@ pub const Inst = struct {
         condbr,
         isnull,
         isnonnull,
+
+        /// Returns whether the instruction is one of the control flow "noreturn" types.
+        /// Function calls do not count.
+        pub fn isNoReturn(tag: Tag) bool {
+            return switch (tag) {
+                .arg,
+                .block,
+                .breakpoint,
+                .call,
+                .@"const",
+                .declref,
+                .declref_str,
+                .declval,
+                .declval_in_module,
+                .str,
+                .int,
+                .inttype,
+                .ptrtoint,
+                .fieldptr,
+                .deref,
+                .as,
+                .@"asm",
+                .@"fn",
+                .fntype,
+                .@"export",
+                .primitive,
+                .intcast,
+                .bitcast,
+                .elemptr,
+                .add,
+                .sub,
+                .cmp,
+                .isnull,
+                .isnonnull,
+                => false,
+
+                .condbr,
+                .@"unreachable",
+                .@"return",
+                .returnvoid,
+                .@"break",
+                .breakvoid,
+                .compileerror,
+                => true,
+            };
+        }
     };
 
     pub fn TagToType(tag: Tag) type {

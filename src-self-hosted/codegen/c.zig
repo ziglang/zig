@@ -1,11 +1,11 @@
-const link = @import("link.zig");
-const Module = @import("Module.zig");
-
 const std = @import("std");
 
-const Inst = @import("ir.zig").Inst;
-const Value = @import("value.zig").Value;
-const Type = @import("type.zig").Type;
+const link = @import("../link.zig");
+const Module = @import("../Module.zig");
+
+const Inst = @import("../ir.zig").Inst;
+const Value = @import("../value.zig").Value;
+const Type = @import("../type.zig").Type;
 
 const C = link.File.C;
 const Decl = Module.Decl;
@@ -95,7 +95,8 @@ fn genFn(file: *C, decl: *Decl) !void {
                 .assembly => try genAsm(file, inst.cast(Inst.Assembly).?, decl),
                 .call => try genCall(file, inst.cast(Inst.Call).?, decl),
                 .ret => try genRet(file, inst.cast(Inst.Ret).?, decl, tv.ty.fnReturnType()),
-                else => |e| return file.fail(decl.src(), "TODO {}", .{e}),
+                .retvoid => try file.main.writer().print("return;", .{}),
+                else => |e| return file.fail(decl.src(), "TODO implement C codegen for {}", .{e}),
             }
         }
         try writer.writeAll("\n");

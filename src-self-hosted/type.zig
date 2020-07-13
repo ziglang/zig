@@ -468,6 +468,10 @@ pub const Type = extern union {
         };
     }
 
+    pub fn isNoReturn(self: Type) bool {
+        return self.zigTypeTag() == .NoReturn;
+    }
+
     /// Asserts that hasCodeGenBits() is true.
     pub fn abiAlignment(self: Type, target: Target) u32 {
         return switch (self.tag()) {
