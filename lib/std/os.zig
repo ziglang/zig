@@ -1554,7 +1554,7 @@ pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!
     if (builtin.os.tag == .windows) {
         const target_path_w = try windows.sliceToPrefixedFileW(target_path);
         const sym_link_path_w = try windows.sliceToPrefixedFileW(sym_link_path);
-        return symlinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr);
+        return symlinkW(target_path_w.span().ptr, sym_link_path_w.span().ptr);
     }
     const target_path_c = try toPosixPath(target_path);
     const sym_link_path_c = try toPosixPath(sym_link_path);
@@ -1578,7 +1578,7 @@ pub fn symlinkZ(target_path: [*:0]const u8, sym_link_path: [*:0]const u8) SymLin
     if (builtin.os.tag == .windows) {
         const target_path_w = try windows.cStrToPrefixedFileW(target_path);
         const sym_link_path_w = try windows.cStrToPrefixedFileW(sym_link_path);
-        return windows.CreateSymbolicLinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr, 0);
+        return symlinkW(target_path_w.span().ptr, sym_link_path_w.span().ptr);
     }
     switch (errno(system.symlink(target_path, sym_link_path))) {
         0 => return,
@@ -2394,8 +2394,9 @@ pub const readlinkC = @compileError("deprecated: renamed to readlinkZ");
 /// See also `readlinkZ`.
 pub fn readlinkW(file_path: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
     const handle = windows.OpenFile(file_path, .{
-        .access_mask = 0,
-        .creation = windows.FILE_OPEN_REPARSE_POINT | windows.FILE_LIST_DIRECTORY,
+        .access_mask = windows.GENERIC_READ,
+        .creation = windows.FILE_OPEN,
+        .options = windows.FILE_OPEN_REPARSE_POINT,
         .io_mode = std.io.default_mode,
     }) catch |err| {
         switch (err) {

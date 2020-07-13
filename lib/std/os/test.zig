@@ -45,7 +45,8 @@ test "readlink" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    //defer tmp.cleanup();
+    std.debug.print("tmp = {}\n", .{tmp.sub_path[0..]});
 
     // create file
     try tmp.dir.writeFile("file.txt", "nonsense");
@@ -59,8 +60,8 @@ test "readlink" {
         const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..]});
         break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
     };
-    const target_path = try fs.path.join(&arena.allocator, &[_][]const u8{"file.txt"});
-    const symlink_path = try fs.path.join(&arena.allocator, &[_][]const u8{"symlinked"});
+    const target_path = try fs.path.join(&arena.allocator, &[_][]const u8{base_path, "file.txt"});
+    const symlink_path = try fs.path.join(&arena.allocator, &[_][]const u8{base_path, "symlinked"});
 
     // create symbolic link by path
     try os.symlink(target_path, symlink_path);

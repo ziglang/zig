@@ -110,6 +110,7 @@ pub const OpenFileOptions = struct {
     share_access: ULONG = FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE,
     share_access_nonblocking: bool = false,
     creation: ULONG,
+    options: ?ULONG = null,
     io_mode: std.io.ModeOverride,
 };
 
@@ -145,7 +146,15 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
 
     var delay: usize = 1;
     while (true) {
-        const blocking_flag: ULONG = if (options.io_mode == .blocking) FILE_SYNCHRONOUS_IO_NONALERT else 0;
+        var flags: ULONG = undefined;
+        if (options.options) |opt| {
+            flags = opt;
+        } else {
+            const blocking_flag: ULONG = if (options.io_mode == .blocking) FILE_SYNCHRONOUS_IO_NONALERT else 0;
+            flags = FILE_NON_DIRECTORY_FILE | blocking_flag;
+        }
+        // const blocking_flag: ULONG = if (options.io_mode == .blocking) FILE_SYNCHRONOUS_IO_NONALERT else 0;
+        // const flags = if (options.options) |opt| opt else FILE_NON_DIRECTORY_FILE;
         const rc = ntdll.NtCreateFile(
             &result,
             options.access_mask,
@@ -155,7 +164,8 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
             FILE_ATTRIBUTE_NORMAL,
             options.share_access,
             options.creation,
-            FILE_NON_DIRECTORY_FILE | blocking_flag,
+            // flags | blocking_flag,
+            flags,
             null,
             0,
         );
@@ -601,7 +611,12 @@ pub fn GetCurrentDirectory(buffer: []u8) GetCurrentDirectoryError![]u8 {
     return buffer[0..end_index];
 }
 
-pub const CreateSymbolicLinkError = error{AccessDenied, FileNotFound, Unexpected};
+pub const CreateSymbolicLinkError = error{
+    AccessDenied,
+    PathAlreadyExists,
+    FileNotFound,
+    Unexpected
+};
 
 pub const CreateSymbolicLinkFlags = enum(DWORD) {
     File = SYMBOLIC_LINK_FLAG_FILE,
@@ -638,6 +653,7 @@ pub fn CreateSymbolicLinkW(
                         .FILE_NOT_FOUND => return error.FileNotFound,
                         .PATH_NOT_FOUND => return error.FileNotFound,
                         .ACCESS_DENIED => return error.AccessDenied,
+                        .ALREADY_EXISTS => return error.PathAlreadyExists,
                         else => |err| return unexpectedError(err),
                     }
                 }
@@ -647,6 +663,7 @@ pub fn CreateSymbolicLinkW(
             .FILE_NOT_FOUND => return error.FileNotFound,
             .PATH_NOT_FOUND => return error.FileNotFound,
             .ACCESS_DENIED => return error.AccessDenied,
+            .ALREADY_EXISTS => return error.PathAlreadyExists,
             else => |err| return unexpectedError(err),
         }
     }
