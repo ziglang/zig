@@ -218,6 +218,8 @@
       </p>
       <p>
       The code samples in this document are compiled and tested as part of the main test suite of Zig.
+      </p>
+      <p>
       This HTML document depends on no external files, so you can use it offline.
       </p>
       <p>
@@ -236,10 +238,98 @@ pub fn main() !void {
 }
       {#code_end#}
       <p>
-      Usually you don't want to write to stdout. You want to write to stderr, and you
-      don't care if it fails. For that you can use a simpler API:
+        The Zig code sample above demonstrates one way to create a program that will output <code>Hello, world!</code>.
       </p>
-      {#code_begin|exe|hello#}
+      <p>
+        The code sample shows the contents of a file named <code>hello.zig</code>. Files storing Zig
+        source code are {#link|UTF-8 encoded|Source Encoding#} text files. The files storing
+        Zig source code are usually named with the <code>.zig</code> extension.
+      </p>
+      <p>
+        Following the <code>hello.zig</code> Zig code sample, the {#link|Zig Build System#} is used
+        to build an executable program from the <code>hello.zig</code> source code. Then, the 
+        <code>hello</code> program is executed showing its output <code>Hello, world!</code>. The
+        lines beginning with <code>$</code> represent command line prompts and a command.
+        Everything else is program output.
+      </p>
+      <p>
+        The code sample begins by adding Zig's Standard Library to the build using the {#link|@import#} builtin function.
+        The {#syntax#}@import("std"){#endsyntax#} function call creates a structure to represent the Standard Library.
+        The code then makes a {#link|top-level declaration|Global Variables#} of a
+        {#link|constant identifier|Assignment#}, named <code>std</code>, for easy access to
+        <a href="https://github.com/ziglang/zig/wiki/FAQ#where-is-the-documentation-for-the-zig-standard-library">Zig's standard library</a>.
+      </p>
+      <p>
+        Next, a {#link|public function|Functions#}, {#syntax#}pub fn{#endsyntax#}, named <code>main</code>
+        is declared. The <code>main</code> function is necessary because it tells the Zig compiler where the start of
+        the program exists. Programs designed to be executed will need a {#syntax#}pub fn main{#endsyntax#} function.
+        For more advanced use cases, Zig offers other features to inform the compiler where the start of
+        the program exists. Libraries, on the other hand, do not need a <code>main</code> function because
+        library code is usually called by other programs.
+      </p>
+      <p>
+        A function is a block of any number of statements and expressions that, as a whole, perform a task.
+        Functions may or may not return data after they are done performing their task. If a function
+        cannot perform its task, it might return an error. Zig makes all of this explicit.
+      </p>
+      <p>
+        In the <code>hello.zig</code> code sample, the <code>main</code> function is declared
+        with the {#syntax#}!void{#endsyntax#} return type. This return type is known as an {#link|Error Union Type#}.
+        This syntax tells the Zig compiler that the function will either return an
+        error or a value. An error union type combines an {#link|Error Set Type#} and a {#link|Primitive Type|Primitive Types#}.
+        The full form of an error union type is
+        <code>&lt;error set type&gt;</code>{#syntax#}!{#endsyntax#}<code>&lt;primitive type&gt;</code>. In the code
+        sample, the error set type is not explicitly written on the left side of the {#syntax#}!{#endsyntax#} operator.
+        When written this way, the error set type is a special kind of error union type that has an
+        {#link|inferred error set type|Inferred Error Sets#}. The {#syntax#}void{#endsyntax#} after the {#syntax#}!{#endsyntax#} operator
+        tells the compiler that the function will not return a value under normal circumstances (i.e. no errors occur).
+      </p>
+      <p>
+        Note to experienced programmers: Zig also has the boolean {#link|operator|Operators#} {#syntax#}!a{#endsyntax#}
+        where {#syntax#}a{#endsyntax#} is a value of type {#syntax#}bool{#endsyntax#}. Error union types contain the
+        name of the type in the syntax: {#syntax#}!{#endsyntax#}<code>&lt;primitive type&gt;</code>.
+      </p>
+      <p>
+        In Zig, a function's block of statements and expressions are surrounded by <code>{</code> and
+        <code>}</code> curly-braces. Inside of the <code>main</code> function are expressions that perform
+        the task of outputting <code>Hello, world!</code> to standard output. 
+      </p>
+      <p>
+        First, a constant identifier, <code>stdout</code>, is initialized to represent standard output's
+        writer. Then, the program tries to print the <code>Hello, world!</code>
+        message to standard output.
+      </p>
+      <p>
+        Functions sometimes need information to perform their task. In Zig, information is passed
+        to functions between open <code>(</code> and close <code>)</code> parenthesis placed after
+        the function's name. This information is also known as arguments. When there are
+        multiple arguments passed to a function, they are separated by commas <code>,</code>.
+      </p>
+      <p>
+        The two arguments passed to the <code>stdout.print()</code> function, <code>"Hello, {}!\n"</code>
+        and <code>.{"world"}</code>, are evaluated at {#link|compile-time|comptime#}. The code sample is
+        purposely written to show how to perform {#link|string|String Literals and Character Literals#}
+        substitution in the <code>print</code> function. The curly-braces inside of the first argument
+        are substituted with the compile-time known value inside of the second argument
+        (known as an {#link|anonymous struct literal|Anonymous Struct Literals#}). The <code>\n</code>
+        inside of the double-quotes of the first argument is the {#link|escape sequence|Escape Sequences#} for the
+        newline character. The {#link|try#} expression evaluates the result of <code>stdout.print</code>.
+        If the result is an error, then the {#syntax#}try{#endsyntax#} expression will return from
+        <code>main</code> with the error. Otherwise, the program will continue. In this case, there are no
+        more statements or expressions left to execute in the <code>main</code> function, so the program exits.
+      </p>
+      <p>
+        In Zig, the standard output writer's <code>print</code> function is allowed to fail because
+        it is actually a function defined as part of a generic Writer. Consider a generic Writer that
+        represents writing data to a file. When the disk is full, a write to the file will fail.
+        However, we typically do not expect writing text to the standard output to fail. To avoid having
+        to handle the failure case of printing to standard output, you can use alternate functions: the
+        <code>std.log</code> function for proper logging or the <code>std.debug.print</code> function.
+        This documentation will use the latter option to print to standard error (stderr) and silently return
+        on failure. The next code sample, <code>hello_again.zig</code> demonstrates the use of
+        <code>std.debug.print</code>.
+      </p>
+      {#code_begin|exe|hello_again#}
 const print = @import("std").debug.print;
 
 pub fn main() void {
@@ -247,9 +337,9 @@ pub fn main() void {
 }
       {#code_end#}
       <p>
-      Note that you can leave off the {#syntax#}!{#endsyntax#} from the return type because {#syntax#}print{#endsyntax#} cannot fail.
+      Note that you can leave off the {#syntax#}!{#endsyntax#} from the return type because <code>std.debug.print</code> cannot fail.
       </p>
-      {#see_also|Values|@import|Errors|Root Source File#}
+      {#see_also|Values|@import|Errors|Root Source File|Source Encoding#}
       {#header_close#}
       {#header_open|Comments#}
       {#code_begin|test|comments#}
