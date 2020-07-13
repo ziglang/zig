@@ -780,14 +780,22 @@ const Function = struct {
     }
 
     fn genBr(self: *Function, inst: *ir.Inst.Br, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        if (!inst.args.operand.ty.hasCodeGenBits())
+            return self.brVoid(inst.base.src, inst.args.block, arch);
+
+        const operand = try self.resolveInst(inst.args.operand);
         switch (arch) {
             else => return self.fail(inst.base.src, "TODO implement br for {}", .{self.target.cpu.arch}),
         }
     }
 
     fn genBrVoid(self: *Function, inst: *ir.Inst.BrVoid, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        return self.brVoid(inst.base.src, inst.args.block, arch);
+    }
+
+    fn brVoid(self: *Function, src: usize, block: *ir.Inst.Block, comptime arch: std.Target.Cpu.Arch) !MCValue {
         // Emit a jump with a relocation. It will be patched up after the block ends.
-        try inst.args.block.codegen.relocs.ensureCapacity(self.gpa, inst.args.block.codegen.relocs.items.len + 1);
+        try block.codegen.relocs.ensureCapacity(self.gpa, block.codegen.relocs.items.len + 1);
 
         switch (arch) {
             .i386, .x86_64 => {
@@ -796,9 +804,9 @@ const Function = struct {
                 try self.code.resize(self.code.items.len + 5);
                 self.code.items[self.code.items.len - 5] = 0xe9; // jmp rel32
                 // Leave the jump offset undefined
-                inst.args.block.codegen.relocs.appendAssumeCapacity(.{ .rel32 = self.code.items.len - 4 });
+                block.codegen.relocs.appendAssumeCapacity(.{ .rel32 = self.code.items.len - 4 });
             },
-            else => return self.fail(inst.base.src, "TODO implement brvoid for {}", .{self.target.cpu.arch}),
+            else => return self.fail(src, "TODO implement brvoid for {}", .{self.target.cpu.arch}),
         }
         return .none;
     }
