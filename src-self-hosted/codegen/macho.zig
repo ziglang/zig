@@ -113,6 +113,17 @@ pub const SG_FVMLIB: u32 = 0x2;
 pub const SG_NORELOC: u32 = 0x4;
 pub const SG_PROTECTED_VERSION_1: u32 = 0x8; 
 
+// Values for N_TYPE bits of the n_type field.
+pub const N_STAB: u32 = 0xe0; 
+pub const N_PEXT: u32 = 0x10;
+pub const N_TYPE: u32 = 0x0e;  
+pub const N_EXT: u32 = 0x01;
+pub const N_UNDF: u32 = 0x0;  
+pub const N_ABS: u32 = 0x2;   
+pub const N_SECT: u32 = 0xe;     
+pub const N_PBUD: u32 = 0xc;    
+pub const N_INDR: u32 = 0xa;    
+
 pub const Nlist_64 = struct { 
     n_strx: u32, 
     n_type: u8,
@@ -168,6 +179,58 @@ pub const Relocation = struct {
     r_length: u2,
     r_extern: u1,
     r_type: u4
+};
+
+pub const INDIRECT_SYMBOL_LOCAL: u32 = 0x80000000;
+pub const INDIRECT_SYMBOL_ABS: u32 = 0x40000000;
+
+pub const Dylib_Table_Of_Contents = struct {
+    symbol_index: u32,  
+    module_index: u32
+};  
+
+pub const Dylib_Module_32 = struct {
+    module_name: u32,   
+    iextdefsym: u32,
+    nextdefsym: u32,    
+    irefsym: u32,     
+    nrefsym: u32,       
+    ilocalsym: u32,     
+    nlocalsym: u32,     
+    iextrel: u32,       
+    nextrel: u32,       
+    iinit_iterm: u32,   
+    ninit_nterm: u32,  
+    objc_module_info_addr: u32,  
+    objc_module_info_size: u32
+};  
+
+pub const Dylib_Module_64 = struct {
+    module_name:u32,   
+    iextdefsym: u32,    
+    nextdefsym: u32,    
+    irefsym: u32,       
+    nrefsym: u32,       
+    ilocalsym: u32,     
+    nlocalsym: u32,     
+    iextrel: u32,       
+    nextrel: u32,       
+    iinit_iterm: u32,   
+    ninit_nterm: u32,     
+    objc_module_info_size: u32,  
+    objc_module_info_addr: u64
+};
+
+pub const Dylib_Reference = struct {
+    isym: u24,       
+    flags: u8;  
+};
+
+pub const Version_Min_Command = struct {
+    cmd: u32,      
+    cmdsize: u32,   
+    version: u32,  
+    reserved: u32  
 };
 
 test "sizes of headers" {
