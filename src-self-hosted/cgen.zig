@@ -120,13 +120,13 @@ pub fn generate(file: *C, decl: *Decl) !void {
                             try writer.writeAll(");");
                         },
                         .call => {
-                            const call = inst.cast(ir.Inst.Call).?.args;
-                            if (call.func.cast(ir.Inst.Constant)) |func_inst| {
+                            const call = inst.cast(ir.Inst.Call).?;
+                            if (call.args.func.cast(ir.Inst.Constant)) |func_inst| {
                                 if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
                                     const target = func_val.func.owner_decl;
                                     const target_ty = target.typed_value.most_recent.typed_value.ty;
                                     const ret_ty = target_ty.fnReturnType().tag();
-                                    if (target_ty.fnReturnType().hasCodeGenBits()) {
+                                    if (target_ty.fnReturnType().hasCodeGenBits() and call.base.isUnused()) {
                                         try writer.print("(void)", .{});
                                     }
                                     const tname = mem.spanZ(target.name);
@@ -139,7 +139,7 @@ pub fn generate(file: *C, decl: *Decl) !void {
                                 } else {
                                     return file.fail(decl.src(), "TODO non-function call target?", .{});
                                 }
-                                if (call.args.len != 0) {
+                                if (call.args.args.len != 0) {
                                     return file.fail(decl.src(), "TODO function arguments", .{});
                                 }
                             } else {
