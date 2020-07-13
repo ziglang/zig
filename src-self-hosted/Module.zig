@@ -1210,8 +1210,9 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
 
                 try self.astGenBlock(&gen_scope.base, body_block);
 
-                const last_inst = gen_scope.instructions.items[gen_scope.instructions.items.len - 1];
-                if (!last_inst.tag.isNoReturn()) {
+                if (!fn_type.fnReturnType().isNoReturn() and (gen_scope.instructions.items.len == 0 or
+                    !gen_scope.instructions.items[gen_scope.instructions.items.len - 1].tag.isNoReturn()))
+                {
                     const src = tree.token_locs[body_block.rbrace].start;
                     _ = try self.addZIRInst(&gen_scope.base, src, zir.Inst.ReturnVoid, .{}, .{});
                 }

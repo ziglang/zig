@@ -7,7 +7,7 @@ const Module = @import("Module.zig");
 const fs = std.fs;
 const elf = std.elf;
 const codegen = @import("codegen.zig");
-const cgen = @import("cgen.zig");
+const c_codegen = @import("codegen/c.zig");
 
 const default_entry_addr = 0x8000000;
 
@@ -259,7 +259,7 @@ pub const File = struct {
         }
 
         pub fn updateDecl(self: *File.C, module: *Module, decl: *Module.Decl) !void {
-            cgen.generate(self, decl) catch |err| {
+            c_codegen.generate(self, decl) catch |err| {
                 if (err == error.CGenFailure) {
                     try module.failed_decls.put(module.gpa, decl, self.error_msg);
                 }
