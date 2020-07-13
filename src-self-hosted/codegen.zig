@@ -53,10 +53,8 @@ pub fn generateSymbol(
             const param_types = try bin_file.allocator.alloc(Type, fn_type.fnParamLen());
             defer bin_file.allocator.free(param_types);
             fn_type.fnParamTypes(param_types);
-            // A parameter may be broken into multiple machine code parameters, so we don't
-            // know the size up front.
-            var mc_args = try std.ArrayList(Function.MCValue).initCapacity(bin_file.allocator, param_types.len);
-            defer mc_args.deinit();
+            var mc_args = try bin_file.allocator.alloc(MCValue, param_types.len);
+            defer bin_file.allocator.free(mc_args);
 
             var branch_stack = std.ArrayList(Function.Branch).init(bin_file.allocator);
             defer {
@@ -67,57 +65,6 @@ pub fn generateSymbol(
             const branch = try branch_stack.addOne();
             branch.* = .{};
 
-            switch (fn_type.fnCallingConvention()) {
-                .Naked => assert(mc_args.items.len == 0),
-                .Unspecified, .C => {
-                    // Prepare the function parameters
-                    switch (bin_file.options.target.cpu.arch) {
-                        .x86_64 => {
-                            const integer_registers = [_]Reg(.x86_64){ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
-                            var next_int_reg: usize = 0;
-
-                            for (param_types) |param_type, src_i| {
-                                switch (param_type.zigTypeTag()) {
-                                    .Bool, .Int => {
-                                        if (next_int_reg >= integer_registers.len) {
-                                            try mc_args.append(.{ .stack_offset = branch.next_stack_offset });
-                                            branch.next_stack_offset += @intCast(u32, param_type.abiSize(bin_file.options.target));
-                                        } else {
-                                            try mc_args.append(.{ .register = @enumToInt(integer_registers[next_int_reg]) });
-                                            next_int_reg += 1;
-                                        }
-                                    },
-                                    else => return Result{
-                                        .fail = try ErrorMsg.create(
-                                            bin_file.allocator,
-                                            src,
-                                            "TODO implement function parameters of type {}",
-                                            .{@tagName(param_type.zigTypeTag())},
-                                        ),
-                                    },
-                                }
-                            }
-                        },
-                        else => return Result{
-                            .fail = try ErrorMsg.create(
-                                bin_file.allocator,
-                                src,
-                                "TODO implement function parameters for {}",
-                                .{bin_file.options.target.cpu.arch},
-                            ),
-                        },
-                    }
-                },
-                else => return Result{
-                    .fail = try ErrorMsg.create(
-                        bin_file.allocator,
-                        src,
-                        "TODO implement {} calling convention",
-                        .{fn_type.fnCallingConvention()},
-                    ),
-                },
-            }
-
             var function = Function{
                 .gpa = bin_file.allocator,
                 .target = &bin_file.options.target,
@@ -125,11 +72,17 @@ pub fn generateSymbol(
                 .mod_fn = module_fn,
                 .code = code,
                 .err_msg = null,
-                .args = mc_args.items,
+                .args = mc_args,
                 .branch_stack = &branch_stack,
+                .src = src,
             };
 
-            branch.max_end_stack = branch.next_stack_offset;
+            const cc = fn_type.fnCallingConvention();
+            branch.max_end_stack = function.resolveParameters(src, cc, param_types, mc_args) catch |err| switch (err) {
+                error.CodegenFail => return Result{ .fail = function.err_msg.? },
+                else => |e| return e,
+            };
+
             function.gen() catch |err| switch (err) {
                 error.CodegenFail => return Result{ .fail = function.err_msg.? },
                 else => |e| return e,
@@ -235,6 +188,65 @@ const InnerError = error{
     CodegenFail,
 };
 
+const MCValue = union(enum) {
+    /// No runtime bits. `void` types, empty structs, u0, enums with 1 tag, etc.
+    none,
+    /// Control flow will not allow this value to be observed.
+    unreach,
+    /// No more references to this value remain.
+    dead,
+    /// A pointer-sized integer that fits in a register.
+    immediate: u64,
+    /// The constant was emitted into the code, at this offset.
+    embedded_in_code: usize,
+    /// The value is in a target-specific register. The value can
+    /// be @intToEnum casted to the respective Reg enum.
+    register: usize,
+    /// The value is in memory at a hard-coded address.
+    memory: u64,
+    /// The value is one of the stack variables.
+    stack_offset: u64,
+    /// The value is in the compare flags assuming an unsigned operation,
+    /// with this operator applied on top of it.
+    compare_flags_unsigned: std.math.CompareOperator,
+    /// The value is in the compare flags assuming a signed operation,
+    /// with this operator applied on top of it.
+    compare_flags_signed: std.math.CompareOperator,
+
+    fn isMemory(mcv: MCValue) bool {
+        return switch (mcv) {
+            .embedded_in_code, .memory, .stack_offset => true,
+            else => false,
+        };
+    }
+
+    fn isImmediate(mcv: MCValue) bool {
+        return switch (mcv) {
+            .immediate => true,
+            else => false,
+        };
+    }
+
+    fn isMutable(mcv: MCValue) bool {
+        return switch (mcv) {
+            .none => unreachable,
+            .unreach => unreachable,
+            .dead => unreachable,
+
+            .immediate,
+            .embedded_in_code,
+            .memory,
+            .compare_flags_unsigned,
+            .compare_flags_signed,
+            => false,
+
+            .register,
+            .stack_offset,
+            => true,
+        };
+    }
+};
+
 const Function = struct {
     gpa: *Allocator,
     bin_file: *link.File.Elf,
@@ -243,6 +255,7 @@ const Function = struct {
     code: *std.ArrayList(u8),
     err_msg: ?*ErrorMsg,
     args: []MCValue,
+    src: usize,
 
     /// Whenever there is a runtime branch, we push a Branch onto this stack,
     /// and pop it off when the runtime branch joins. This provides an "overlay"
@@ -282,65 +295,6 @@ const Function = struct {
     const StackAllocation = struct {
         inst: *ir.Inst,
         size: u32,
-    };
-
-    const MCValue = union(enum) {
-        /// No runtime bits. `void` types, empty structs, u0, enums with 1 tag, etc.
-        none,
-        /// Control flow will not allow this value to be observed.
-        unreach,
-        /// No more references to this value remain.
-        dead,
-        /// A pointer-sized integer that fits in a register.
-        immediate: u64,
-        /// The constant was emitted into the code, at this offset.
-        embedded_in_code: usize,
-        /// The value is in a target-specific register. The value can
-        /// be @intToEnum casted to the respective Reg enum.
-        register: usize,
-        /// The value is in memory at a hard-coded address.
-        memory: u64,
-        /// The value is one of the stack variables.
-        stack_offset: u64,
-        /// The value is in the compare flags assuming an unsigned operation,
-        /// with this operator applied on top of it.
-        compare_flags_unsigned: std.math.CompareOperator,
-        /// The value is in the compare flags assuming a signed operation,
-        /// with this operator applied on top of it.
-        compare_flags_signed: std.math.CompareOperator,
-
-        fn isMemory(mcv: MCValue) bool {
-            return switch (mcv) {
-                .embedded_in_code, .memory, .stack_offset => true,
-                else => false,
-            };
-        }
-
-        fn isImmediate(mcv: MCValue) bool {
-            return switch (mcv) {
-                .immediate => true,
-                else => false,
-            };
-        }
-
-        fn isMutable(mcv: MCValue) bool {
-            return switch (mcv) {
-                .none => unreachable,
-                .unreach => unreachable,
-                .dead => unreachable,
-
-                .immediate,
-                .embedded_in_code,
-                .memory,
-                .compare_flags_unsigned,
-                .compare_flags_signed,
-                => false,
-
-                .register,
-                .stack_offset,
-                => true,
-            };
-        }
     };
 
     fn gen(self: *Function) !void {
@@ -400,7 +354,28 @@ const Function = struct {
     }
 
     fn genArch(self: *Function, comptime arch: std.Target.Cpu.Arch) !void {
-        return self.genBody(self.mod_fn.analysis.success, arch);
+        try self.code.ensureCapacity(self.code.items.len + 11);
+
+        // push rbp
+        // mov rbp, rsp
+        self.code.appendSliceAssumeCapacity(&[_]u8{ 0x55, 0x48, 0x89, 0xe5 });
+
+        // sub rsp, x
+        const stack_end = self.branch_stack.items[0].max_end_stack;
+        if (stack_end > std.math.maxInt(i32)) {
+            return self.fail(self.src, "too much stack used in call parameters", .{});
+        } else if (stack_end > std.math.maxInt(i8)) {
+            // 48 83 ec xx    sub rsp,0x10
+            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x48, 0x81, 0xec });
+            const x = @intCast(u32, stack_end);
+            mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), x);
+        } else if (stack_end != 0) {
+            // 48 81 ec xx xx xx xx   sub rsp,0x80
+            const x = @intCast(u8, stack_end);
+            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x48, 0x83, 0xec, x });
+        }
+
+        try self.genBody(self.mod_fn.analysis.success, arch);
     }
 
     fn genBody(self: *Function, body: ir.Body, comptime arch: std.Target.Cpu.Arch) InnerError!void {
@@ -593,13 +568,42 @@ const Function = struct {
     }
 
     fn genCall(self: *Function, inst: *ir.Inst.Call, comptime arch: std.Target.Cpu.Arch) !MCValue {
-        switch (arch) {
-            .x86_64, .i386 => {
-                if (inst.args.func.cast(ir.Inst.Constant)) |func_inst| {
-                    if (inst.args.args.len != 0) {
-                        return self.fail(inst.base.src, "TODO implement call with more than 0 parameters", .{});
-                    }
+        const fn_ty = inst.args.func.ty;
+        const cc = fn_ty.fnCallingConvention();
+        const param_types = try self.gpa.alloc(Type, fn_ty.fnParamLen());
+        defer self.gpa.free(param_types);
+        fn_ty.fnParamTypes(param_types);
+        var mc_args = try self.gpa.alloc(MCValue, param_types.len);
+        defer self.gpa.free(mc_args);
+        const stack_byte_count = try self.resolveParameters(inst.base.src, cc, param_types, mc_args);
 
+        switch (arch) {
+            .x86_64 => {
+                for (mc_args) |mc_arg, arg_i| {
+                    const arg = inst.args.args[arg_i];
+                    const arg_mcv = try self.resolveInst(inst.args.args[arg_i]);
+                    switch (mc_arg) {
+                        .none => continue,
+                        .register => |reg| {
+                            try self.genSetReg(arg.src, arch, @intToEnum(Reg(arch), @intCast(u8, reg)), arg_mcv);
+                            // TODO interact with the register allocator to mark the instruction as moved.
+                        },
+                        .stack_offset => {
+                            // Here we need to emit instructions like this:
+                            // mov     qword ptr [rsp + stack_offset], x
+                            return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
+                        },
+                        .immediate => unreachable,
+                        .unreach => unreachable,
+                        .dead => unreachable,
+                        .embedded_in_code => unreachable,
+                        .memory => unreachable,
+                        .compare_flags_signed => unreachable,
+                        .compare_flags_unsigned => unreachable,
+                    }
+                }
+
+                if (inst.args.func.cast(ir.Inst.Constant)) |func_inst| {
                     if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
                         const func = func_val.func;
                         const got = &self.bin_file.program_headers.items[self.bin_file.phdr_got_index.?];
@@ -607,23 +611,24 @@ const Function = struct {
                         const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                         const got_addr = @intCast(u32, got.p_vaddr + func.owner_decl.link.offset_table_index * ptr_bytes);
                         // ff 14 25 xx xx xx xx    call [addr]
-                        try self.code.resize(self.code.items.len + 7);
-                        self.code.items[self.code.items.len - 7 ..][0..3].* = [3]u8{ 0xff, 0x14, 0x25 };
-                        mem.writeIntLittle(u32, self.code.items[self.code.items.len - 4 ..][0..4], got_addr);
-                        const return_type = func.owner_decl.typed_value.most_recent.typed_value.ty.fnReturnType();
-                        switch (return_type.zigTypeTag()) {
-                            .Void => return MCValue{ .none = {} },
-                            .NoReturn => return MCValue{ .unreach = {} },
-                            else => return self.fail(inst.base.src, "TODO implement fn call with non-void return value", .{}),
-                        }
+                        try self.code.ensureCapacity(self.code.items.len + 7);
+                        self.code.appendSliceAssumeCapacity(&[3]u8{ 0xff, 0x14, 0x25 });
+                        mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), got_addr);
                     } else {
-                        return self.fail(inst.base.src, "TODO implement calling weird function values", .{});
+                        return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
                     }
                 } else {
                     return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
                 }
             },
             else => return self.fail(inst.base.src, "TODO implement call for {}", .{self.target.cpu.arch}),
+        }
+
+        const return_type = fn_ty.fnReturnType();
+        switch (return_type.zigTypeTag()) {
+            .Void => return MCValue{ .none = {} },
+            .NoReturn => return MCValue{ .unreach = {} },
+            else => return self.fail(inst.base.src, "TODO implement fn call with non-void return value", .{}),
         }
     }
 
@@ -632,8 +637,14 @@ const Function = struct {
             return self.fail(src, "TODO implement return with non-void operand", .{});
         }
         switch (arch) {
-            .i386, .x86_64 => {
+            .i386 => {
                 try self.code.append(0xc3); // ret
+            },
+            .x86_64 => {
+                try self.code.appendSlice(&[_]u8{
+                    0x5d, // pop rbp
+                    0xc3, // ret
+                });
             },
             else => return self.fail(src, "TODO implement return for {}", .{self.target.cpu.arch}),
         }
@@ -1119,6 +1130,48 @@ const Function = struct {
             .ComptimeInt => unreachable, // semantic analysis prevents this
             .ComptimeFloat => unreachable, // semantic analysis prevents this
             else => return self.fail(src, "TODO implement const of type '{}'", .{typed_value.ty}),
+        }
+    }
+
+    fn resolveParameters(
+        self: *Function,
+        src: usize,
+        cc: std.builtin.CallingConvention,
+        param_types: []const Type,
+        results: []MCValue,
+    ) !u32 {
+        switch (self.target.cpu.arch) {
+            .x86_64 => {
+                switch (cc) {
+                    .Naked => {
+                        assert(results.len == 0);
+                        return 0;
+                    },
+                    .Unspecified, .C => {
+                        var next_int_reg: usize = 0;
+                        var next_stack_offset: u32 = 0;
+
+                        const integer_registers = [_]Reg(.x86_64){ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
+                        for (param_types) |ty, i| {
+                            switch (ty.zigTypeTag()) {
+                                .Bool, .Int => {
+                                    if (next_int_reg >= integer_registers.len) {
+                                        results[i] = .{ .stack_offset = next_stack_offset };
+                                        next_stack_offset += @intCast(u32, ty.abiSize(self.target.*));
+                                    } else {
+                                        results[i] = .{ .register = @enumToInt(integer_registers[next_int_reg]) };
+                                        next_int_reg += 1;
+                                    }
+                                },
+                                else => return self.fail(src, "TODO implement function parameters of type {}", .{@tagName(ty.zigTypeTag())}),
+                            }
+                        }
+                        return next_stack_offset;
+                    },
+                    else => return self.fail(src, "TODO implement function parameters for {}", .{cc}),
+                }
+            },
+            else => return self.fail(src, "TODO implement C ABI support for {}", .{self.target.cpu.arch}),
         }
     }
 
