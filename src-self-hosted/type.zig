@@ -921,6 +921,11 @@ pub const Type = extern union {
         };
     }
 
+    /// Returns true if and only if the type is a fixed-width integer.
+    pub fn isInt(self: Type) bool {
+        return self.isSignedInt() or self.isUnsignedInt();
+    }
+
     /// Returns true if and only if the type is a fixed-width, signed integer.
     pub fn isSignedInt(self: Type) bool {
         return switch (self.tag()) {
@@ -971,6 +976,60 @@ pub const Type = extern union {
             .i16,
             .i32,
             .i64,
+            => true,
+        };
+    }
+
+    /// Returns true if and only if the type is a fixed-width, unsigned integer.
+    pub fn isUnsignedInt(self: Type) bool {
+        return switch (self.tag()) {
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_longdouble,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .@"null",
+            .@"undefined",
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .function,
+            .array,
+            .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
+            .array_u8_sentinel_0,
+            .const_slice_u8,
+            .int_signed,
+            .i8,
+            .isize,
+            .c_short,
+            .c_int,
+            .c_long,
+            .c_longlong,
+            .i16,
+            .i32,
+            .i64,
+            => false,
+
+            .int_unsigned,
+            .u8,
+            .usize,
+            .c_ushort,
+            .c_uint,
+            .c_ulong,
+            .c_ulonglong,
+            .u16,
+            .u32,
+            .u64,
             => true,
         };
     }
