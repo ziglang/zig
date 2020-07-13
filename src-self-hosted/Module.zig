@@ -1210,6 +1210,12 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
 
                 try self.astGenBlock(&gen_scope.base, body_block);
 
+                const last_inst = gen_scope.instructions.items[gen_scope.instructions.items.len - 1];
+                if (!last_inst.tag.isNoReturn()) {
+                    const src = tree.token_locs[body_block.rbrace].start;
+                    _ = try self.addZIRInst(&gen_scope.base, src, zir.Inst.ReturnVoid, .{}, .{});
+                }
+
                 const fn_zir = try gen_scope_arena.allocator.create(Fn.ZIR);
                 fn_zir.* = .{
                     .body = .{
@@ -2686,7 +2692,7 @@ fn analyzeInstBlock(self: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerEr
 
     // Blocks must terminate with noreturn instruction.
     assert(child_block.instructions.items.len != 0);
-    assert(child_block.instructions.items[child_block.instructions.items.len - 1].tag.isNoReturn());
+    assert(child_block.instructions.items[child_block.instructions.items.len - 1].ty.isNoReturn());
 
     // Need to set the type and emit the Block instruction. This allows machine code generation
     // to emit a jump instruction to after the block when it encounters the break.
@@ -3271,7 +3277,7 @@ fn analyzeInstCondBr(self: *Module, scope: *Scope, inst: *zir.Inst.CondBr) Inner
     defer false_block.instructions.deinit(self.gpa);
     try self.analyzeBody(&false_block.base, inst.positionals.false_body);
 
-    return self.addNewInstArgs(parent_block, inst.base.src, Type.initTag(.void), Inst.CondBr, Inst.Args(Inst.CondBr){
+    return self.addNewInstArgs(parent_block, inst.base.src, Type.initTag(.noreturn), Inst.CondBr, Inst.Args(Inst.CondBr){
         .condition = cond,
         .true_body = .{ .instructions = try scope.arena().dupe(*Inst, true_block.instructions.items) },
         .false_body = .{ .instructions = try scope.arena().dupe(*Inst, false_block.instructions.items) },
