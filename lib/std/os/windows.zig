@@ -110,7 +110,6 @@ pub const OpenFileOptions = struct {
     share_access: ULONG = FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE,
     share_access_nonblocking: bool = false,
     creation: ULONG,
-    options: ?ULONG = null,
     io_mode: std.io.ModeOverride,
 };
 
@@ -147,14 +146,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
     var delay: usize = 1;
     while (true) {
         var flags: ULONG = undefined;
-        if (options.options) |opt| {
-            flags = opt;
-        } else {
-            const blocking_flag: ULONG = if (options.io_mode == .blocking) FILE_SYNCHRONOUS_IO_NONALERT else 0;
-            flags = FILE_NON_DIRECTORY_FILE | blocking_flag;
-        }
-        // const blocking_flag: ULONG = if (options.io_mode == .blocking) FILE_SYNCHRONOUS_IO_NONALERT else 0;
-        // const flags = if (options.options) |opt| opt else FILE_NON_DIRECTORY_FILE;
+        const blocking_flag: ULONG = if (options.io_mode == .blocking) FILE_SYNCHRONOUS_IO_NONALERT else 0;
         const rc = ntdll.NtCreateFile(
             &result,
             options.access_mask,
@@ -164,8 +156,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
             FILE_ATTRIBUTE_NORMAL,
             options.share_access,
             options.creation,
-            // flags | blocking_flag,
-            flags,
+            FILE_NON_DIRECTORY_FILE | blocking_flag,
             null,
             0,
         );
@@ -1379,4 +1370,54 @@ pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
+}
+
+pub fn ReadLink(path_w: []const u16) OpenError!HANDLE {
+    var result: HANDLE = undefined;
+
+    const path_len_bytes = math.cast(u16, path_w.len * 2) catch |err| switch (err) {
+        error.Overflow => return error.NameTooLong,
+    };
+    var nt_name = UNICODE_STRING{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        .Buffer = @intToPtr([*]u16, @ptrToInt(path_w.ptr)),
+    };
+    var attr = OBJECT_ATTRIBUTES{
+        .Length = @sizeOf(OBJECT_ATTRIBUTES),
+        .RootDirectory = null,
+        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+        .ObjectName = &nt_name,
+        .SecurityDescriptor = null,
+        .SecurityQualityOfService = null,
+    };
+    var io: IO_STATUS_BLOCK = undefined;
+    const rc = ntdll.NtCreateFile(
+        &result,
+        FILE_LIST_DIRECTORY,
+        &attr,
+        &io,
+        null,
+        FILE_ATTRIBUTE_NORMAL,
+        FILE_SHARE_READ | FILE_SHARE_DELETE,
+        FILE_OPEN,
+        FILE_OPEN_REPARSE_POINT,
+        null,
+        0,
+    );
+    switch (rc) {
+        .SUCCESS => return result,
+        .OBJECT_NAME_INVALID => unreachable,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .NO_MEDIA_IN_DEVICE => return error.NoDevice,
+        .INVALID_PARAMETER => unreachable,
+        .SHARING_VIOLATION => return error.WouldBlock,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .PIPE_BUSY => return error.PipeBusy,
+        .OBJECT_PATH_SYNTAX_BAD => unreachable,
+        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+        .FILE_IS_A_DIRECTORY => return error.IsDir,
+        else => return unexpectedStatus(rc),
+    }
 }

@@ -45,8 +45,7 @@ test "readlink" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
-    //defer tmp.cleanup();
-    std.debug.print("tmp = {}\n", .{tmp.sub_path[0..]});
+    defer tmp.cleanup();
 
     // create file
     try tmp.dir.writeFile("file.txt", "nonsense");

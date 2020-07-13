@@ -2393,12 +2393,7 @@ pub const readlinkC = @compileError("deprecated: renamed to readlinkZ");
 /// Windows-only. Same as `readlink` except `file_path` is null-terminated, WTF16 encoded.
 /// See also `readlinkZ`.
 pub fn readlinkW(file_path: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
-    const handle = windows.OpenFile(file_path, .{
-        .access_mask = windows.GENERIC_READ,
-        .creation = windows.FILE_OPEN,
-        .options = windows.FILE_OPEN_REPARSE_POINT,
-        .io_mode = std.io.default_mode,
-    }) catch |err| {
+    const handle = windows.ReadLink(file_path) catch |err| {
         switch (err) {
             error.IsDir => unreachable,
             error.NoDevice => return error.FileNotFound,
