@@ -3518,9 +3518,26 @@ fn makeIntType(self: *Module, scope: *Scope, signed: bool, bits: u16) !Type {
 fn resolvePeerTypes(self: *Module, scope: *Scope, instructions: []*Inst) !Type {
     if (instructions.len == 0)
         return Type.initTag(.noreturn);
+
     if (instructions.len == 1)
         return instructions[0].ty;
-    return self.fail(scope, instructions[0].src, "TODO peer type resolution", .{});
+
+    var prev_inst = instructions[0];
+    for (instructions[1..]) |next_inst| {
+        if (next_inst.ty.eql(prev_inst.ty))
+            continue;
+        if (next_inst.ty.zigTypeTag() == .NoReturn)
+            continue;
+        if (prev_inst.ty.zigTypeTag() == .NoReturn) {
+            prev_inst = next_inst;
+            continue;
+        }
+
+        // TODO error notes pointing out each type
+        return self.fail(scope, next_inst.src, "incompatible types: '{}' and '{}'", .{ prev_inst.ty, next_inst.ty });
+    }
+
+    return prev_inst.ty;
 }
 
 fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
