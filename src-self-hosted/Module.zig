@@ -36,7 +36,7 @@ bin_file_path: []const u8,
 decl_exports: std.AutoHashMapUnmanaged(*Decl, []*Export) = .{},
 /// We track which export is associated with the given symbol name for quick
 /// detection of symbol collisions.
-symbol_exports: std.StringHashMap(*Export),
+symbol_exports: std.StringHashMapUnmanaged(*Export) = .{},
 /// This models the Decls that perform exports, so that `decl_exports` can be updated when a Decl
 /// is modified. Note that the key of this table is not the Decl being exported, but the Decl that
 /// is performing the export of another Decl.
@@ -769,7 +769,6 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
         .bin_file_path = options.bin_file_path,
         .bin_file = bin_file,
         .optimize_mode = options.optimize_mode,
-        .symbol_exports = std.StringHashMap(*Export).init(gpa),
         .work_queue = std.fifo.LinearFifo(WorkItem, .Dynamic).init(gpa),
         .keep_source_files_loaded = options.keep_source_files_loaded,
     };
@@ -812,7 +811,7 @@ pub fn deinit(self: *Module) void {
     }
     self.export_owners.deinit(gpa);
 
-    self.symbol_exports.deinit();
+    self.symbol_exports.deinit(gpa);
     self.root_scope.destroy(gpa);
     self.* = undefined;
 }
@@ -2305,7 +2304,7 @@ fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []const 
         return;
     }
 
-    try self.symbol_exports.putNoClobber(symbol_name, new_export);
+    try self.symbol_exports.putNoClobber(self.gpa, symbol_name, new_export);
     self.bin_file.updateDeclExports(self, exported_decl, de_gop.entry.value) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => {
