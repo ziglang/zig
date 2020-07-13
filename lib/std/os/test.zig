@@ -17,6 +17,7 @@ const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 const tmpDir = std.testing.tmpDir;
 const Dir = std.fs.Dir;
+const ArenaAllocator = std.heap.ArenaAllocator;
 
 test "fstatat" {
     // enable when `fstat` and `fstatat` are implemented on Windows
@@ -38,6 +39,36 @@ test "fstatat" {
     const flags = if (builtin.os.tag == .wasi) 0x0 else os.AT_SYMLINK_NOFOLLOW;
     const statat = try os.fstatat(tmp.dir.fd, "file.txt", flags);
     expectEqual(stat, statat);
+}
+
+test "readlink" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // create file
+    try tmp.dir.writeFile("file.txt", "nonsense");
+
+    // get paths
+    // TODO: use Dir's realpath function once that exists
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const base_path = blk: {
+        const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..]});
+        break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
+    };
+    const target_path = try fs.path.join(&arena.allocator, &[_][]const u8{"file.txt"});
+    const symlink_path = try fs.path.join(&arena.allocator, &[_][]const u8{"symlinked"});
+
+    // create symbolic link by path
+    try os.symlink(target_path, symlink_path);
+
+    // now, read the link and verify
+    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const given = try os.readlink(symlink_path, buffer[0..]);
+    expect(mem.eql(u8, symlink_path, given));
 }
 
 test "readlinkat" {
