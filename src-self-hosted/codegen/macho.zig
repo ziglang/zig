@@ -82,7 +82,7 @@ pub const Symtab_Command = struct {
 const Segment_Command_64 = struct { 
     cmd: u32,       
     cmdsize: u32,   
-    segname: u8[16],
+    segname: [16]u8,
     vmaddr: u64,        
     vmsize: u64,        
     fileoff: u64,   
@@ -96,7 +96,7 @@ const Segment_Command_64 = struct {
 const Segment_Command_32 = struct { 
     cmd: u32,       
     cmdsize: u32,   
-    segname: u8[16],
+    segname: [16]u8,
     vmaddr: u32,        
     vmsize: u32,        
     fileoff: u32,   
@@ -133,8 +133,8 @@ pub const Nlist_64 = struct {
 };
 
 pub const Section_64 = struct { 
-    sectname: u8[16],  
-    segname: u8[16],   
+    sectname: [16]u8,  
+    segname: [16]u8,   
     addr: u64,       
     size: u64,       
     offset: u32,     
@@ -148,8 +148,8 @@ pub const Section_64 = struct {
 };
 
 pub const Section_32 = struct { 
-    sectname: u8[16],  
-    segname: u8[16],   
+    sectname: [16]u8,  
+    segname: [16]u8,   
     addr: u32,       
     size: u32,       
     offset: u32,     
@@ -223,7 +223,7 @@ pub const Dylib_Module_64 = struct {
 
 pub const Dylib_Reference = struct {
     isym: u24,       
-    flags: u8;  
+    flags: u8  
 };
 
 pub const Version_Min_Command = struct {
@@ -236,4 +236,17 @@ pub const Version_Min_Command = struct {
 test "sizes of headers" {
     assert(@sizeOf(Macho64_Header64) == 32);
     assert(@sizeOf(Macho64_Header32) == 28);
+    assert(@sizeOf(Load_Command) == 8);
+    assert(@sizeOf(Symtab_Command) == 24);
+    assert(@sizeOf(Segment_Command_64) == 72);
+    assert(@sizeOf(Segment_Command_32) == 56);
+    assert(@sizeOf(Nlist_64) == 16);
+    assert(@sizeOf(Section_64) == 80);
+    assert(@sizeOf(Section_32) == 72);
+    assert(@sizeOf(Relocation) == 12);
+    assert(@sizeOf(Dylib_Table_Of_Contents) == 8);
+    assert(@sizeOf(Dylib_Module_32) == 52);
+    assert(@sizeOf(Dylib_Module_64) == 56);
+    assert(@sizeOf(Dylib_Reference) == 8);
+    assert(@sizeOf(Version_Min_Command) == 16);
 }
