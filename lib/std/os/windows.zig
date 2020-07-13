@@ -601,12 +601,17 @@ pub fn GetCurrentDirectory(buffer: []u8) GetCurrentDirectoryError![]u8 {
     return buffer[0..end_index];
 }
 
-pub const CreateSymbolicLinkError = error{Unexpected};
+pub const CreateSymbolicLinkError = error{AccessDenied, FileNotFound, Unexpected};
+
+pub const CreateSymbolicLinkFlags = enum(DWORD) {
+    File = SYMBOLIC_LINK_FLAG_FILE,
+    Directory = SYMBOLIC_LINK_FLAG_DIRECTORY,
+};
 
 pub fn CreateSymbolicLink(
     sym_link_path: []const u8,
     target_path: []const u8,
-    flags: DWORD,
+    flags: CreateSymbolicLinkFlags,
 ) CreateSymbolicLinkError!void {
     const sym_link_path_w = try sliceToPrefixedFileW(sym_link_path);
     const target_path_w = try sliceToPrefixedFileW(target_path);
@@ -616,10 +621,32 @@ pub fn CreateSymbolicLink(
 pub fn CreateSymbolicLinkW(
     sym_link_path: [*:0]const u16,
     target_path: [*:0]const u16,
-    flags: DWORD,
+    flags: CreateSymbolicLinkFlags,
 ) CreateSymbolicLinkError!void {
-    if (kernel32.CreateSymbolicLinkW(sym_link_path, target_path, flags) == 0) {
+    // Previously, until Win 10 Creators Update, creating symbolic links required
+    // SeCreateSymbolicLink privilege. Currently, this is no longer required if the
+    // OS is in Developer Mode; however, SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE
+    // must be added to the input flags.
+    if (kernel32.CreateSymbolicLinkW(sym_link_path, target_path, @enumToInt(flags) | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE) == 0) {
         switch (kernel32.GetLastError()) {
+            .INVALID_PARAMETER => {
+                // If we're on Windows pre Creators Update, SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE
+                // flag is an invalid parameter, in which case repeat without the flag.
+                if (kernel32.CreateSymbolicLinkW(sym_link_path, target_path, @enumToInt(flags)) == 0) {
+                    switch (kernel32.GetLastError()) {
+                        .PRIVILEGE_NOT_HELD => return error.AccessDenied,
+                        .FILE_NOT_FOUND => return error.FileNotFound,
+                        .PATH_NOT_FOUND => return error.FileNotFound,
+                        .ACCESS_DENIED => return error.AccessDenied,
+                        else => |err| return unexpectedError(err),
+                    }
+                }
+                return;
+            },
+            .PRIVILEGE_NOT_HELD => return error.AccessDenied,
+            .FILE_NOT_FOUND => return error.FileNotFound,
+            .PATH_NOT_FOUND => return error.FileNotFound,
+            .ACCESS_DENIED => return error.AccessDenied,
             else => |err| return unexpectedError(err),
         }
     }

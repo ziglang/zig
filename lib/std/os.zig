@@ -1541,6 +1541,10 @@ pub const SymLinkError = error{
 /// Creates a symbolic link named `sym_link_path` which contains the string `target_path`.
 /// A symbolic link (also known as a soft link) may point to an existing file or to a nonexistent
 /// one; the latter case is known as a dangling link.
+/// On Windows, it is only legal to create a symbolic link to an existing resource. Furthermore,
+/// this function will by default try creating a symbolic link to a file. If you would like to
+/// create a symbolic link to a directory instead, see `symlinkW` for more information how to
+/// do that.
 /// If `sym_link_path` exists, it will not be overwritten.
 /// See also `symlinkC` and `symlinkW`.
 pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!void {
@@ -1550,7 +1554,7 @@ pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!
     if (builtin.os.tag == .windows) {
         const target_path_w = try windows.sliceToPrefixedFileW(target_path);
         const sym_link_path_w = try windows.sliceToPrefixedFileW(sym_link_path);
-        return windows.CreateSymbolicLinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr, 0);
+        return symlinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr);
     }
     const target_path_c = try toPosixPath(target_path);
     const sym_link_path_c = try toPosixPath(sym_link_path);
@@ -1558,6 +1562,15 @@ pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!
 }
 
 pub const symlinkC = @compileError("deprecated: renamed to symlinkZ");
+
+/// Windows-only. Same as `symlink` except the parameters are null-terminated, WTF16 encoded.
+/// Note that this function will by default try creating a symbolic link to a file. If you would
+/// like to create a symbolic link to a directory, use `std.os.windows.CreateSymbolicLinkW` directly
+/// specifying as flags `std.os.windows.CreateSymbolicLinkFlags.Directory`.
+pub fn symlinkW(target_path: [*:0]const u16, sym_link_path: [*:0]const u16) SymLinkError!void {
+    const flags = windows.CreateSymbolicLinkFlags.File;
+    return windows.CreateSymbolicLinkW(sym_link_path, target_path, flags);
+}
 
 /// This is the same as `symlink` except the parameters are null-terminated pointers.
 /// See also `symlink`.
