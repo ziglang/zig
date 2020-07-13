@@ -22,7 +22,6 @@ pub const Options = struct {
     /// Used for calculating how much space to reserve for executable program code in case
     /// the binary file deos not already have such a section.
     program_code_size_hint: u64 = 256 * 1024,
-    cbe: bool = false,
 };
 
 /// Attempts incremental linking, if the file already exists.
@@ -35,10 +34,11 @@ pub fn openBinFilePath(
     sub_path: []const u8,
     options: Options,
 ) !*File {
-    const file = try dir.createFile(sub_path, .{ .truncate = options.cbe, .read = true, .mode = determineMode(options) });
+    const cbe = options.object_format == .c;
+    const file = try dir.createFile(sub_path, .{ .truncate = cbe, .read = true, .mode = determineMode(options) });
     errdefer file.close();
 
-    if (options.cbe) {
+    if (cbe) {
         var bin_file = try allocator.create(File.C);
         errdefer allocator.destroy(bin_file);
         bin_file.* = try openCFile(allocator, file, options);
@@ -1573,6 +1573,7 @@ pub fn createElfFile(allocator: *Allocator, file: fs.File, options: Options) !Fi
         .Lib => return error.TODOImplementWritingLibFiles,
     }
     switch (options.object_format) {
+        .c => unreachable,
         .unknown => unreachable, // TODO remove this tag from the enum
         .coff => return error.TODOImplementWritingCOFF,
         .elf => {},
@@ -1632,6 +1633,7 @@ fn openBinFileInner(allocator: *Allocator, file: fs.File, options: Options) !Fil
     }
     switch (options.object_format) {
         .unknown => unreachable, // TODO remove this tag from the enum
+        .c => unreachable,
         .coff => return error.IncrFailed,
         .elf => {},
         .macho => return error.IncrFailed,

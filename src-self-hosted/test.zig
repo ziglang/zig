@@ -444,7 +444,7 @@ pub const TestContext = struct {
             .bin_file_path = bin_name,
             .root_pkg = root_pkg,
             .keep_source_files_loaded = true,
-            .cbe = case.cbe,
+            .object_format = if (case.cbe) .c else null,
         });
         defer module.deinit();
 

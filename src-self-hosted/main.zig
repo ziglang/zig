@@ -194,8 +194,8 @@ fn buildOutputType(
     var emit_zir: Emit = .no;
     var target_arch_os_abi: []const u8 = "native";
     var target_mcpu: ?[]const u8 = null;
-    var cbe: bool = false;
     var target_dynamic_linker: ?[]const u8 = null;
+    var object_format: ?std.builtin.ObjectFormat = null;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -283,7 +283,11 @@ fn buildOutputType(
                     i += 1;
                     target_mcpu = args[i];
                 } else if (mem.eql(u8, arg, "--c")) {
-                    cbe = true;
+                    if (object_format) |old| {
+                        std.debug.print("attempted to override object format {} with C\n", .{old});
+                        process.exit(1);
+                    }
+                    object_format = .c;
                 } else if (mem.startsWith(u8, arg, "-mcpu=")) {
                     target_mcpu = arg["-mcpu=".len..];
                 } else if (mem.eql(u8, arg, "--dynamic-linker")) {
@@ -417,7 +421,6 @@ fn buildOutputType(
         else => |e| return e,
     };
 
-    const object_format: ?std.builtin.ObjectFormat = null;
     var target_info = try std.zig.system.NativeTargetInfo.detect(gpa, cross_target);
     if (target_info.cpu_detection_unimplemented) {
         // TODO We want to just use detected_info.target but implementing
@@ -436,7 +439,7 @@ fn buildOutputType(
             std.debug.print("-fno-emit-bin not supported yet", .{});
             process.exit(1);
         },
-        .yes_default_path => if (cbe)
+        .yes_default_path => if (object_format != null and object_format.? == .c)
             try std.fmt.allocPrint(arena, "{}.c", .{root_name})
         else
             try std.zig.binNameAlloc(arena, root_name, target_info.target, output_mode, link_mode),
@@ -470,7 +473,6 @@ fn buildOutputType(
         .object_format = object_format,
         .optimize_mode = build_mode,
         .keep_source_files_loaded = zir_out_path != null,
-        .cbe = cbe,
     });
     defer module.deinit();
 

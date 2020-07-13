@@ -435,6 +435,7 @@ pub const Target = struct {
         elf,
         macho,
         wasm,
+        c,
     };
 
     pub const SubSystem = enum {
