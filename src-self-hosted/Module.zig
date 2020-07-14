@@ -2566,6 +2566,7 @@ fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*In
         .condbr => return self.analyzeInstCondBr(scope, old_inst.cast(zir.Inst.CondBr).?),
         .isnull => return self.analyzeInstIsNull(scope, old_inst.cast(zir.Inst.IsNull).?),
         .isnonnull => return self.analyzeInstIsNonNull(scope, old_inst.cast(zir.Inst.IsNonNull).?),
+        .boolnot => return self.analyzeInstBoolNot(scope, old_inst.cast(zir.Inst.BoolNot).?),
     }
 }
 
@@ -3241,6 +3242,17 @@ fn analyzeInstCmp(self: *Module, scope: *Scope, inst: *zir.Inst.Cmp) InnerError!
         return self.cmpNumeric(scope, inst.base.src, lhs, rhs, op);
     }
     return self.fail(scope, inst.base.src, "TODO implement more cmp analysis", .{});
+}
+
+fn analyzeInstBoolNot(self: *Module, scope: *Scope, inst: *zir.Inst.BoolNot) InnerError!*Inst {
+    const uncasted_operand = try self.resolveInst(scope, inst.positionals.operand);
+    const bool_type = Type.initTag(.bool);
+    const operand = try self.coerce(scope, bool_type, uncasted_operand);
+    if (try self.resolveDefinedValue(scope, operand)) |val| {
+        return self.constBool(scope, inst.base.src, !val.toBool());
+    }
+    const b = try self.requireRuntimeBlock(scope, inst.base.src);
+    return self.addNewInstArgs(b, inst.base.src, bool_type, Inst.Not, .{ .operand = operand });
 }
 
 fn analyzeInstIsNull(self: *Module, scope: *Scope, inst: *zir.Inst.IsNull) InnerError!*Inst {

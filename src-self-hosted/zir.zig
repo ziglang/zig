@@ -56,6 +56,7 @@ pub const Inst = struct {
         declval,
         /// Same as declval but the parameter is a `*Module.Decl` rather than a name.
         declval_in_module,
+        boolnot,
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
         str,
         int,
@@ -115,6 +116,7 @@ pub const Inst = struct {
                 .cmp,
                 .isnull,
                 .isnonnull,
+                .boolnot,
                 => false,
 
                 .condbr,
@@ -143,6 +145,7 @@ pub const Inst = struct {
             .declval_in_module => DeclValInModule,
             .compileerror => CompileError,
             .@"const" => Const,
+            .boolnot => BoolNot,
             .str => Str,
             .int => Int,
             .inttype => IntType,
@@ -295,6 +298,16 @@ pub const Inst = struct {
 
         positionals: struct {
             typed_value: TypedValue,
+        },
+        kw_args: struct {},
+    };
+
+    pub const BoolNot = struct {
+        pub const base_tag = Tag.boolnot;
+        base: Inst,
+
+        positionals: struct {
+            operand: *Inst,
         },
         kw_args: struct {},
     };
@@ -762,6 +775,7 @@ const Writer = struct {
             .declval_in_module => return self.writeInstToStreamGeneric(stream, .declval_in_module, inst),
             .compileerror => return self.writeInstToStreamGeneric(stream, .compileerror, inst),
             .@"const" => return self.writeInstToStreamGeneric(stream, .@"const", inst),
+            .boolnot => return self.writeInstToStreamGeneric(stream, .boolnot, inst),
             .str => return self.writeInstToStreamGeneric(stream, .str, inst),
             .int => return self.writeInstToStreamGeneric(stream, .int, inst),
             .inttype => return self.writeInstToStreamGeneric(stream, .inttype, inst),
@@ -1658,6 +1672,22 @@ const EmitZIR = struct {
         };
         for (body.instructions) |inst| {
             const new_inst = switch (inst.tag) {
+                .not => blk: {
+                    const old_inst = inst.cast(ir.Inst.Not).?;
+                    assert(inst.ty.zigTypeTag() == .Bool);
+                    const new_inst = try self.arena.allocator.create(Inst.BoolNot);
+                    new_inst.* = .{
+                        .base = .{
+                            .src = inst.src,
+                            .tag = Inst.BoolNot.base_tag,
+                        },
+                        .positionals = .{
+                            .operand = try self.resolveInst(new_body, old_inst.args.operand),
+                        },
+                        .kw_args = .{},
+                    };
+                    break :blk &new_inst.base;
+                },
                 .add => blk: {
                     const old_inst = inst.cast(ir.Inst.Add).?;
                     const new_inst = try self.arena.allocator.create(Inst.Add);

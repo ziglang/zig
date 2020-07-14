@@ -60,6 +60,7 @@ pub const Inst = struct {
         retvoid,
         sub,
         unreach,
+        not,
     };
 
     pub fn cast(base: *Inst, comptime T: type) ?*T {
@@ -192,6 +193,15 @@ pub const Inst = struct {
         deaths: [*]*Inst = undefined,
         true_death_count: u32 = 0,
         false_death_count: u32 = 0,
+    };
+
+    pub const Not = struct {
+        pub const base_tag = Tag.not;
+
+        base: Inst,
+        args: struct {
+            operand: *Inst,
+        },
     };
 
     pub const Constant = struct {

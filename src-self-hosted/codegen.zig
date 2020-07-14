@@ -407,6 +407,13 @@ const Function = struct {
             .retvoid => return self.genRetVoid(inst.cast(ir.Inst.RetVoid).?, arch),
             .sub => return self.genSub(inst.cast(ir.Inst.Sub).?, arch),
             .unreach => return MCValue{ .unreach = {} },
+            .not => return self.genNot(inst.cast(ir.Inst.Not).?, arch),
+        }
+    }
+
+    fn genNot(self: *Function, inst: *ir.Inst.Not, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        switch (arch) {
+            else => return self.fail(inst.base.src, "TODO implement NOT for {}", .{self.target.cpu.arch}),
         }
     }
 
