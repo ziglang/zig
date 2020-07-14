@@ -163,6 +163,22 @@ pub const Type = extern union {
                     return sentinel_b == null;
                 }
             },
+            .Fn => {
+                if (!a.fnReturnType().eql(b.fnReturnType()))
+                    return false;
+                if (a.fnCallingConvention() != b.fnCallingConvention())
+                    return false;
+                const a_param_len = a.fnParamLen();
+                const b_param_len = b.fnParamLen();
+                if (a_param_len != b_param_len)
+                    return false;
+                var i: usize = 0;
+                while (i < a_param_len) : (i += 1) {
+                    if (!a.fnParamType(i).eql(b.fnParamType(i)))
+                        return false;
+                }
+                return true;
+            },
             .Float,
             .Struct,
             .Optional,
@@ -170,14 +186,13 @@ pub const Type = extern union {
             .ErrorSet,
             .Enum,
             .Union,
-            .Fn,
             .BoundFn,
             .Opaque,
             .Frame,
             .AnyFrame,
             .Vector,
             .EnumLiteral,
-            => @panic("TODO implement more Type equality comparison"),
+            => std.debug.panic("TODO implement Type equality comparison of {} and {}", .{ a, b }),
         }
     }
 

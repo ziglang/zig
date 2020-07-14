@@ -1358,17 +1358,19 @@ fn astGenInfixOp(self: *Module, scope: *Scope, infix_node: *ast.Node.InfixOp) In
             const tree = scope.tree();
             const src = tree.token_locs[infix_node.op_token].start;
 
+            const op: std.math.CompareOperator = switch (infix_node.op) {
+                .BangEqual => .neq,
+                .EqualEqual => .eq,
+                .GreaterThan => .gt,
+                .GreaterOrEqual => .gte,
+                .LessThan => .lt,
+                .LessOrEqual => .lte,
+                else => unreachable,
+            };
+
             return self.addZIRInst(scope, src, zir.Inst.Cmp, .{
                 .lhs = lhs,
-                .op = @as(std.math.CompareOperator, switch (infix_node.op) {
-                    .BangEqual => .neq,
-                    .EqualEqual => .eq,
-                    .GreaterThan => .gt,
-                    .GreaterOrEqual => .gte,
-                    .LessThan => .lt,
-                    .LessOrEqual => .lte,
-                    else => unreachable,
-                }),
+                .op = op,
                 .rhs = rhs,
             }, .{});
         },
@@ -1415,11 +1417,13 @@ fn astGenIf(self: *Module, scope: *Scope, if_node: *ast.Node.If) InnerError!*zir
     defer then_scope.instructions.deinit(self.gpa);
 
     const then_result = try self.astGenExpr(&then_scope.base, if_node.body);
-    const then_src = tree.token_locs[if_node.body.lastToken()].start;
-    _ = try self.addZIRInst(&then_scope.base, then_src, zir.Inst.Break, .{
-        .block = block,
-        .operand = then_result,
-    }, .{});
+    if (!then_result.tag.isNoReturn()) {
+        const then_src = tree.token_locs[if_node.body.lastToken()].start;
+        _ = try self.addZIRInst(&then_scope.base, then_src, zir.Inst.Break, .{
+            .block = block,
+            .operand = then_result,
+        }, .{});
+    }
     condbr.positionals.true_body = .{
         .instructions = try then_scope.arena.dupe(*zir.Inst, then_scope.instructions.items),
     };
@@ -1433,11 +1437,13 @@ fn astGenIf(self: *Module, scope: *Scope, if_node: *ast.Node.If) InnerError!*zir
 
     if (if_node.@"else") |else_node| {
         const else_result = try self.astGenExpr(&else_scope.base, else_node.body);
-        const else_src = tree.token_locs[else_node.body.lastToken()].start;
-        _ = try self.addZIRInst(&else_scope.base, else_src, zir.Inst.Break, .{
-            .block = block,
-            .operand = else_result,
-        }, .{});
+        if (!else_result.tag.isNoReturn()) {
+            const else_src = tree.token_locs[else_node.body.lastToken()].start;
+            _ = try self.addZIRInst(&else_scope.base, else_src, zir.Inst.Break, .{
+                .block = block,
+                .operand = else_result,
+            }, .{});
+        }
     } else {
         // TODO Optimization opportunity: we can avoid an allocation and a memcpy here
         // by directly allocating the body for this one instruction.

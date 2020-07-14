@@ -170,4 +170,61 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
     }
+    {
+        var case = ctx.exe("assert function", linux_x64);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    add(3, 4);
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn add(a: u32, b: u32) void {
+            \\    assert(a + b == 7);
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    add(100, 200);
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn add(a: u32, b: u32) void {
+            \\    assert(a + b == 300);
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
 }
