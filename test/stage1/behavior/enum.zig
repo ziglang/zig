@@ -1150,10 +1150,15 @@ test "method call on an enum" {
             fn method(self: *E) bool {
                 return self.* == .two;
             }
+
+            fn generic_method(self: *E, foo: anytype) bool {
+                return self.* == .two and foo == bool;
+            }
         };
         fn doTheTest() void {
             var e = E.two;
             expect(e.method());
+            expect(e.generic_method(bool));
         }
     };
     S.doTheTest();

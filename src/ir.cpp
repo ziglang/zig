@@ -20317,7 +20317,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
             }
 
             IrInstGen *first_arg;
-            if (!first_arg_known_bare && handle_is_ptr(ira->codegen, first_arg_ptr->value->type->data.pointer.child_type)) {
+            if (!first_arg_known_bare) {
                 first_arg = first_arg_ptr;
             } else {
                 first_arg = ir_get_deref(ira, &first_arg_ptr->base, first_arg_ptr, nullptr);
