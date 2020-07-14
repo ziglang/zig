@@ -268,6 +268,343 @@ pub const nlist_64 = extern struct {
     n_value: u64,
 };
 
+/// Defines the attributes of a LC_TWOLEVEL_HINTS load command
+pub const twolevel_hints_command = struct { 
+    // Set to LC_TWOLEVEL_HINTS
+    cmd: u32,
+
+    // @sizeOf(twolevel_hints_command)
+    cmdsize: u32,
+
+    // offset in file
+    offset: u32,
+
+    // Number of twolevel_hint located at offset
+    nhints: u32
+};
+
+/// Specifies an entry in the two-level namespace hint table
+pub const twolevel_hint = struct { 
+    /// Subimage in which the symbol is defined  
+    /// It is an index into the list of images that make up the umbrella image
+    isub_image: u8, 
+
+    /// Symbol index into the table of contents of the image specified by the isub_image
+    itoc: u24 
+};
+
+/// Defines a variable length string
+pub const lc_str = union {
+    /// Byte offset from start of load command to start of str data
+    offset: u32, 
+
+    /// A pointer to an array of bytes / Not used in Macho-O files
+    ptr: *u8
+};
+
+/// Defines data used by the dynamic linker to match a shared 
+/// library against the files that have linked to it
+pub const dylib = struct { 
+    /// Name of the shared library
+    name: lc_str, 
+
+    /// Date and time when the shared library was built
+    timestamp: u32, 
+
+    /// Current version of the shared library
+    current_version: u32, 
+
+    /// Compatibility version of the shared library
+    compatibility_version: u32
+};
+
+/// Defines the attributes of the LC_LOAD_DYLIB and LC_ID_DYLIB load command
+pub const dylib_command = struct { 
+    /// Either LC_LOAD_DYLIB or LC_LOAD_WEAK_DYLIB or LC_ID_DYLIB
+    cmd: u32,
+
+    /// @sizeOf(dylib_command) + sizeof dylib.name data
+    cmdsize: u32, 
+
+    /// Attributes of the shared library
+    dylib: dylib 
+};
+
+/// Defines the attributes of the LC_LOAD_DYLINKER and LC_ID_DYLINKER load commands
+pub const dylinker_command = struct { 
+    /// Either LC_ID_DYLINKER or LC_LOAD_DYLINKER
+    cmd: u32,
+
+    /// sizeof(dylinker_command) + sizeof data pointed to by name field
+    cmdsize: u32, 
+
+    /// Specifies the name of the dynamic linker
+    name: lc_str
+};
+
+/// 32-bit Defines the attributes of the LC_ROUTINES load command
+/// Describes the location of the shared library initialization function, 
+/// which is a function that the dynamic linker calls before allowing any of 
+/// the routines in the library to be called
+pub const routines_command = struct { 
+    /// Set to LC_ROUTINES
+    cmd: u32,
+
+    /// @sizeOf(routines_command)
+    cmdsize: u32, 
+
+    /// Specifies virtual memory address of the initialization function
+    init_address: u32, 
+
+    /// Index into the module table of the module containing the initialization function
+    init_module: u32,
+
+    /// Reserved for future use set to 0 (1-6) 
+    reserved1: u32, 
+    reserved2: u32, 
+    reserved3: u32, 
+    reserved4: u32, 
+    reserved5: u32, 
+    reserved6: u32 
+};
+
+/// 64-bit Defines the attributes of the LC_ROUTINES_64 load command, used in 64-bit 
+/// architectures. Describes the location of the shared library initialization function, 
+/// which is a function that the dynamic linker calls before allowing any of the routines 
+/// in the library to be called
+pub const routines_command_64 = struct { 
+    /// Set to LC_ROUTINES_64
+    cmd: u32,
+
+    /// @sizeOf(routines_command_64)
+    cmdsize: u32, 
+
+    /// Specifies virtual memory address of the initialization function
+    init_address: u64, 
+
+    /// Index into the module table of the module containing the initialization function
+    init_module: u64, 
+
+    /// Reserved for future use set to 0 (1-6) 
+    reserved1: u64, 
+    reserved2: u64, 
+    reserved3: u64, 
+    reserved4: u64, 
+    reserved5: u64, 
+    reserved6: u64
+};
+
+/// Describes an entry in the table of contents of a dynamic shared library
+pub const dylib_table_of_contents = struct {
+    /// Index into the symbol table indicating the defined 
+    /// external symbol to which this entry refers
+    symbol_index: u32,  
+
+    /// Index into the module table indicating the module 
+    /// in which this defined external symbol is defined
+    module_index: u32
+};  
+
+/// 32-Bit Describes a module table entry for a dynamic shared library
+pub const dylib_module = struct {
+    /// Index to an entry in the string table indicating module name
+    module_name: u32,   
+
+    /// Index into the symbol table of the 
+    /// first defined external symbol provided by this module
+    iextdefsym: u32,
+
+    /// Number of defined external symbols provided by this module
+    nextdefsym: u32,    
+
+    /// Index into the external reference table of the first entry 
+    /// provided by this module
+    irefsym: u32,
+
+    /// Number of external reference entries provided by this module
+    nrefsym: u32,
+
+    /// Index into the symbol table of the first local symbol provided 
+    /// by this module
+    ilocalsym: u32, 
+
+    /// Number of local symbols provided by this module
+    nlocalsym: u32, 
+
+    /// Index into the external relocation table of the first entry 
+    /// provided by this module    
+    iextrel: u32,
+
+    /// Number of entries in the external relocation table that are 
+    /// provided by this module    
+    nextrel: u32,
+
+    /// Contains both the index into the module initialization section 
+    /// (the low 16 bits) and the index into the module termination section 
+    /// (the high 16 bits) to the pointers for this module
+    iinit_iterm: u32,
+
+    /// Contains both the number of pointers in the module initialization 
+    /// (the low 16 bits) and the number of pointers in the module termination 
+    /// section (the high 16 bits) for this module.
+    ninit_nterm: u32, 
+
+    /// The statically linked address of the start of the data for 
+    /// this module in the __module_info section in the __OBJC segment
+    objc_module_info_addr: u32, 
+
+    /// Number of bytes of data for this module that are used in the 
+    /// __module_info section in the __OBJC segment
+    objc_module_info_size: u32
+};  
+
+/// 64-Bit Describes a module table entry for a dynamic shared library
+pub const dylib_module_64 = struct {
+    /// Index to an entry in the string table indicating module name
+    module_name: u32,
+
+    /// Index into the symbol table of the 
+    /// first defined external symbol provided by this module 
+    iextdefsym: u32,
+
+    /// Number of defined external symbols provided by this module
+    nextdefsym: u32, 
+
+    /// Index into the external reference table of the first entry 
+    /// provided by this module   
+    irefsym: u32,
+
+    /// Number of external reference entries provided by this module       
+    nrefsym: u32,
+
+    /// Index into the symbol table of the first local symbol provided 
+    /// by this module      
+    ilocalsym: u32,
+
+    /// Number of local symbols provided by this module   
+    nlocalsym: u32,
+
+    /// Index into the external relocation table of the first entry 
+    /// provided by this module        
+    iextrel: u32,
+
+    /// Number of entries in the external relocation table that are 
+    /// provided by this module        
+    nextrel: u32, 
+
+    /// Contains both the index into the module initialization section 
+    /// (the low 16 bits) and the index into the module termination section 
+    /// (the high 16 bits) to the pointers for this module
+    iinit_iterm: u32,
+
+    /// Contains both the number of pointers in the module initialization 
+    /// (the low 16 bits) and the number of pointers in the module termination 
+    /// section (the high 16 bits) for this module.
+    ninit_nterm: u32,
+
+    /// The statically linked address of the start of the data for 
+    /// this module in the __module_info section in the __OBJC segment
+    objc_module_info_size: u32,
+
+    /// Number of bytes of data for this module that are used in the 
+    /// __module_info section in the __OBJC segment
+    objc_module_info_addr: u64
+};
+
+/// Defines the attributes of an external reference table entry for the external 
+/// reference entries provided by a module in a shared library
+pub const Dylib_Reference = struct {
+    /// Index into the symbol table for the symbol being referenced
+    isym: u24,       
+
+    /// Constant for the type of reference being made same constants as described
+    /// in nlist struct
+    flags: u8  
+};
+
+/// Describes an item in the file that uses an address that needs to be updated when the
+/// address is changed
+pub const relocation_info = struct {
+    /// In MH_OBJECT this is offset start of the section to the item containing the address 
+    /// requiring relocation
+    /// If high bit is set (R_SCATTERED) this is a (struct scattered_relocation_info)
+    r_address: i32,
+
+    /// Index into symtab if r_extern is 1 or section number if r_extern is 0
+    r_symbolnum: u24,
+
+    /// Indicates relocated items addres uses PC-relative addressing
+    r_pcrel: u1,
+
+    /// Length of the item containing the address to be relocated
+    /// Value 0 = 1 byte
+    /// Value 1 = 2 bytes
+    /// Value 2 = 4 bytes
+    /// Value 3 = 8 bytes
+    r_length: u2, 
+
+    /// Determins r_symbolnum usage
+    r_extern: u1, 
+
+    /// Contains defined type (os relative)
+    r_type: u4 
+};
+
+/// Describes an item in the file—using a nonzero constant in its relocatable expression 
+/// or two addresses in its relocatable expression—that needs to be updated if the addresses 
+/// that it uses are changed. This information is needed to reconstruct the addresses that make 
+/// up the relocatable expressions value in order to change the addresses independently of each other
+/// This both covers the big_endian and little_endian
+pub const scattered_relocation_info_big_endian = struct {
+    /// If 0 this is a relocation_info
+    r_scattered: u1,
+
+    /// Indicates whether address uses PC-relative addressing
+    r_pcrel: u1,
+
+    /// Length of item containing address to be relocated
+    /// Value of 0 = 1 byte addres
+    /// Value 1 = 2 byte address
+    /// Value 2 = 4 byte address
+    r_length: u2,
+
+    /// Contains defined type (os relative)
+    r_type: u4, 
+
+    /// In MH_OBJECT file this is the offset from the start of the section to the item 
+    /// containing the address requiring relocation
+    /// If high bit is set (R_SCATTERED) this is a (struct relocation_info)
+    r_address: u24,
+
+    /// Address of the relocatable expression for the item
+    r_value: i32
+};
+
+pub const scattered_relocation_info_little_endian = struct {
+    /// In MH_OBJECT file this is the offset from the start of the section to the item 
+    /// containing the address requiring relocation
+    /// If high bit is set (R_SCATTERED) this is a (struct relocation_info)
+    r_address: u24,
+
+    /// Contains defined type (os relative)
+    r_type: u4, 
+
+    /// Length of item containing address to be relocated
+    /// Value of 0 = 1 byte addres
+    /// Value 1 = 2 byte address
+    /// Value 2 = 4 byte address
+    r_length: u2, 
+
+    /// Indicates whether address uses PC-relative addressing
+    r_pcrel: u1,
+
+    /// If 0 this is a relocation_info
+    r_scattered: u1, 
+
+    /// Address of the relocatable expression for the item
+    r_value: i32
+};
+
 /// After MacOS X 10.1 when a new load command is added that is required to be
 /// understood by the dynamic linker for the image to execute properly the
 /// LC_REQ_DYLD bit will be or'ed into the load command constant.  If the dynamic
