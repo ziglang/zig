@@ -64,6 +64,7 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 /// - `e`: output floating point value in scientific notation
 /// - `d`: output numeric value in decimal notation
 /// - `b`: output integer value in binary notation
+/// - `o`: output integer value in octal notation
 /// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
 /// - `*`: output the address of the value instead of the value itself.
 ///
@@ -543,6 +544,9 @@ pub fn formatIntValue(
     } else if (comptime std.mem.eql(u8, fmt, "X")) {
         radix = 16;
         uppercase = true;
+    } else if (comptime std.mem.eql(u8, fmt, "o")) {
+        radix = 8;
+        uppercase = false;
     } else {
         @compileError("Unknown format string: '" ++ fmt ++ "'");
     }
@@ -1239,6 +1243,10 @@ test "int.specifier" {
     {
         const value: u8 = 0b1100;
         try testFmt("u8: 0b1100\n", "u8: 0b{b}\n", .{value});
+    }
+    {
+        const value: u16 = 0o1234;
+        try testFmt("u16: 0o1234\n", "u16: 0o{o}\n", .{value});
     }
 }
 
