@@ -1140,3 +1140,22 @@ test "tagName on enum literals" {
     expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
     comptime expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
 }
+
+test "method call on an enum" {
+    const S = struct {
+        const E = enum {
+            one,
+            two,
+
+            fn method(self: *E) bool {
+                return self.* == .two;
+            }
+        };
+        fn doTheTest() void {
+            var e = E.two;
+            expect(e.method());
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

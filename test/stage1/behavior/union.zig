@@ -669,3 +669,24 @@ test "cast from anonymous struct to union" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "method call on an empty union" {
+    const S = struct {
+        const MyUnion = union(Tag) {
+            pub const Tag = enum { X1, X2 };
+            X1: [0]u8,
+            X2: [0]u8,
+
+            pub fn useIt(self: *@This()) bool {
+                return true;
+            }
+        };
+
+        fn doTheTest() void {
+            var u = MyUnion{ .X1 = [0]u8{} };
+            expect(u.useIt());
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
