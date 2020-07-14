@@ -86,6 +86,7 @@ test "readlink" {
         // now, read the link and verify
         var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
         const given = try os.readlink(symlink_path, buffer[0..]);
+        std.debug.warn("given={}\n", .{given});
         expect(mem.eql(u8, symlink_path, given));
     }
 }

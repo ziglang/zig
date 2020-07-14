@@ -1568,8 +1568,7 @@ pub const symlinkC = @compileError("deprecated: renamed to symlinkZ");
 /// like to create a symbolic link to a directory, use `std.os.windows.CreateSymbolicLinkW` directly
 /// specifying as flags `std.os.windows.CreateSymbolicLinkFlags.Directory`.
 pub fn symlinkW(target_path: [*:0]const u16, sym_link_path: [*:0]const u16) SymLinkError!void {
-    const flags = windows.CreateSymbolicLinkFlags.File;
-    return windows.CreateSymbolicLinkW(sym_link_path, target_path, flags);
+    return windows.CreateSymbolicLinkW(sym_link_path, target_path, false);
 }
 
 /// This is the same as `symlink` except the parameters are null-terminated pointers.
@@ -2395,20 +2394,20 @@ pub const readlinkC = @compileError("deprecated: renamed to readlinkZ");
 pub fn readlinkW(file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8 {
     const w = windows;
 
-    const dir = if (std.fs.path.isAbsoluteWindowsW(file_path)) null else std.fs.cwd().fd;
-    const handle = w.OpenAsReparsePoint(dir, file_path) catch |err| {
+    const sharing = w.FILE_SHARE_DELETE | w.FILE_SHARE_READ | w.FILE_SHARE_WRITE;
+    const disposition = w.OPEN_EXISTING;
+    const flags = w.FILE_FLAG_BACKUP_SEMANTICS | w.FILE_FLAG_OPEN_REPARSE_POINT;
+    const handle = w.CreateFileW(file_path, 0, sharing, null, disposition, flags, null) catch |err| {
         switch (err) {
             error.SharingViolation => return error.AccessDenied,
             error.PipeBusy => unreachable,
             error.PathAlreadyExists => unreachable,
-            error.NoDevice => return error.FileNotFound,
             else => |e| return e,
         }
     };
 
     var reparse_buf: [w.MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
     _ = try w.DeviceIoControl(handle, w.FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..], null);
-    // std.debug.warn("\n\n{x}\n\n", .{reparse_buf});
     const reparse_struct = @ptrCast(*const w.REPARSE_DATA_BUFFER, @alignCast(@alignOf(w.REPARSE_DATA_BUFFER), &reparse_buf[0]));
     switch (reparse_struct.ReparseTag) {
         w.IO_REPARSE_TAG_SYMLINK => {
@@ -2434,9 +2433,9 @@ pub fn readlinkW(file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8
 }
 
 fn parseReadlinkPath(path: []const u16, is_relative: bool, out_buffer: []u8) []u8 {
-    const out_len = std.unicode.utf16leToUtf8(out_buffer, path) catch unreachable;
-    std.debug.warn("got symlink => utf8={}\n", .{out_buffer[0..out_len]});
-    // TODO handle absolute paths and namespace prefix '/??/'
+    const prefix = [_]u16{ '\\', '?', '?', '\\' };
+    const start_index = if (mem.startsWith(u16, path, &prefix)) prefix.len else 0;
+    const out_len = std.unicode.utf16leToUtf8(out_buffer, path[start_index..]) catch unreachable;
     return out_buffer[0..out_len];
 }
 
@@ -2502,6 +2501,18 @@ pub fn readlinkatWasi(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) Read
 /// Windows-only. Same as `readlinkat` except `file_path` is null-terminated, WTF16 encoded.
 /// See also `readlinkat`.
 pub fn readlinkatW(dirfd: fd_t, file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8 {
+    const w = windows;
+
+    const handle = w.OpenReparsePoint(dir, file_path) catch |err| {
+        switch (err) {
+            error.SharingViolation => return error.AccessDenied,
+            error.PathAlreadyExists => unreachable,
+            error.PipeBusy => unreachable,
+            error.PathAlreadyExists => unreachable,
+            error.NoDevice => return error.FileNotFound,
+            else => |e| return e,
+        }
+    };
     @compileError("TODO implement on Windows");
 }
 

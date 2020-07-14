@@ -602,43 +602,34 @@ pub fn GetCurrentDirectory(buffer: []u8) GetCurrentDirectoryError![]u8 {
     return buffer[0..end_index];
 }
 
-pub const CreateSymbolicLinkError = error{
-    AccessDenied,
-    PathAlreadyExists,
-    FileNotFound,
-    Unexpected
-};
-
-pub const CreateSymbolicLinkFlags = enum(DWORD) {
-    File = SYMBOLIC_LINK_FLAG_FILE,
-    Directory = SYMBOLIC_LINK_FLAG_DIRECTORY,
-};
+pub const CreateSymbolicLinkError = error{ AccessDenied, PathAlreadyExists, FileNotFound, Unexpected };
 
 pub fn CreateSymbolicLink(
     sym_link_path: []const u8,
     target_path: []const u8,
-    flags: CreateSymbolicLinkFlags,
+    is_directory: bool,
 ) CreateSymbolicLinkError!void {
     const sym_link_path_w = try sliceToPrefixedFileW(sym_link_path);
     const target_path_w = try sliceToPrefixedFileW(target_path);
-    return CreateSymbolicLinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr, flags);
+    return CreateSymbolicLinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr, is_directory);
 }
 
 pub fn CreateSymbolicLinkW(
     sym_link_path: [*:0]const u16,
     target_path: [*:0]const u16,
-    flags: CreateSymbolicLinkFlags,
+    is_directory: bool,
 ) CreateSymbolicLinkError!void {
     // Previously, until Win 10 Creators Update, creating symbolic links required
     // SeCreateSymbolicLink privilege. Currently, this is no longer required if the
     // OS is in Developer Mode; however, SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE
     // must be added to the input flags.
-    if (kernel32.CreateSymbolicLinkW(sym_link_path, target_path, @enumToInt(flags) | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE) == 0) {
+    const flags = if (is_directory) SYMBOLIC_LINK_FLAG_DIRECTORY else 0;
+    if (kernel32.CreateSymbolicLinkW(sym_link_path, target_path, flags | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE) == 0) {
         switch (kernel32.GetLastError()) {
             .INVALID_PARAMETER => {
                 // If we're on Windows pre Creators Update, SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE
                 // flag is an invalid parameter, in which case repeat without the flag.
-                if (kernel32.CreateSymbolicLinkW(sym_link_path, target_path, @enumToInt(flags)) == 0) {
+                if (kernel32.CreateSymbolicLinkW(sym_link_path, target_path, flags) == 0) {
                     switch (kernel32.GetLastError()) {
                         .PRIVILEGE_NOT_HELD => return error.AccessDenied,
                         .FILE_NOT_FOUND => return error.FileNotFound,
@@ -1372,7 +1363,7 @@ pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
     return error.Unexpected;
 }
 
-pub const OpenAsReparsePointError = error {
+pub const OpenReparsePointError = error{
     FileNotFound,
     NoDevice,
     SharingViolation,
@@ -1384,10 +1375,10 @@ pub const OpenAsReparsePointError = error {
 };
 
 /// Open file as a reparse point
-pub fn OpenAsReparsePoint(
+pub fn OpenReparsePoint(
     dir: ?HANDLE,
     sub_path_w: [*:0]const u16,
-) OpenAsReparsePointError!HANDLE {
+) OpenReparsePointError!HANDLE {
     const path_len_bytes = math.cast(u16, mem.lenZ(sub_path_w) * 2) catch |err| switch (err) {
         error.Overflow => return error.NameTooLong,
     };
