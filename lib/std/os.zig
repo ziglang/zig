@@ -1834,7 +1834,7 @@ pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*:0]const u16, flags: u32) UnlinkatEr
     const create_options_flags = if (want_rmdir_behavior)
         @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_DIRECTORY_FILE)
     else
-        @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_NON_DIRECTORY_FILE);
+        @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_NON_DIRECTORY_FILE | w.FILE_OPEN_REPARSE_POINT); // would we ever want to delete the target instead?
 
     const path_len_bytes = @intCast(u16, mem.lenZ(sub_path_w) * 2);
     var nt_name = w.UNICODE_STRING{
@@ -2371,7 +2371,7 @@ pub const ReadLinkError = error{
     InvalidUtf8,
     BadPathName,
     /// Windows-only.
-    UnsupportedSymlinkType,
+    UnsupportedReparsePointType,
 } || UnexpectedError;
 
 /// Read value of a symbolic link.
@@ -2412,7 +2412,7 @@ pub fn readlinkW(file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8
     const reparse_struct = @ptrCast(*const w.REPARSE_DATA_BUFFER, @alignCast(@alignOf(w.REPARSE_DATA_BUFFER), &reparse_buf[0]));
     switch (reparse_struct.ReparseTag) {
         w.IO_REPARSE_TAG_SYMLINK => {
-            const buf = @ptrCast(*const w.SymbolicLinkReparseBuffer, @alignCast(@alignOf(w.SymbolicLinkReparseBuffer), &reparse_struct.DataBuffer[0]));
+            const buf = @ptrCast(*const w.SYMBOLIC_LINK_REPARSE_BUFFER, @alignCast(@alignOf(w.SYMBOLIC_LINK_REPARSE_BUFFER), &reparse_struct.DataBuffer[0]));
             const offset = buf.SubstituteNameOffset >> 1;
             const len = buf.SubstituteNameLength >> 1;
             const path_buf = @as([*]const u16, &buf.PathBuffer);
@@ -2420,7 +2420,7 @@ pub fn readlinkW(file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8
             return parseReadlinkPath(path_buf[offset .. offset + len], is_relative, out_buffer);
         },
         w.IO_REPARSE_TAG_MOUNT_POINT => {
-            const buf = @ptrCast(*const w.MountPointReparseBuffer, @alignCast(@alignOf(w.MountPointReparseBuffer), &reparse_struct.DataBuffer[0]));
+            const buf = @ptrCast(*const w.MOUNT_POINT_REPARSE_BUFFER, @alignCast(@alignOf(w.MOUNT_POINT_REPARSE_BUFFER), &reparse_struct.DataBuffer[0]));
             const offset = buf.SubstituteNameOffset >> 1;
             const len = buf.SubstituteNameLength >> 1;
             const path_buf = @as([*]const u16, &buf.PathBuffer);
@@ -2428,7 +2428,7 @@ pub fn readlinkW(file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8
         },
         else => |value| {
             std.debug.warn("unsupported symlink type: {}", .{value});
-            return error.UnsupportedSymlinkType;
+            return error.UnsupportedReparsePointType;
         },
     }
 }

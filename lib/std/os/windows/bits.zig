@@ -1549,7 +1549,7 @@ pub const REPARSE_DATA_BUFFER = extern struct {
     Reserved: USHORT,
     DataBuffer: [1]UCHAR,
 };
-pub const SymbolicLinkReparseBuffer = extern struct {
+pub const SYMBOLIC_LINK_REPARSE_BUFFER = extern struct {
     SubstituteNameOffset: USHORT,
     SubstituteNameLength: USHORT,
     PrintNameOffset: USHORT,
@@ -1557,7 +1557,7 @@ pub const SymbolicLinkReparseBuffer = extern struct {
     Flags: ULONG,
     PathBuffer: [1]WCHAR,
 };
-pub const MountPointReparseBuffer = extern struct {
+pub const MOUNT_POINT_REPARSE_BUFFER = extern struct {
     SubstituteNameOffset: USHORT,
     SubstituteNameLength: USHORT,
     PrintNameOffset: USHORT,
