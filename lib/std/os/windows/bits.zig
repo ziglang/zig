@@ -1544,31 +1544,31 @@ pub const RTL_OSVERSIONINFOW = OSVERSIONINFOW;
 pub const PRTL_OSVERSIONINFOW = *RTL_OSVERSIONINFOW;
 
 pub const REPARSE_DATA_BUFFER = extern struct {
-    ReparseTag: ULONG, ReparseDataLength: USHORT, Reserved: USHORT, u: extern union {
-        SymbolicLinkReparseBuffer: extern struct {
-            SubstituteNameOffset: USHORT,
-            SubstituteNameLength: USHORT,
-            PrintNameOffset: USHORT,
-            PrintNameLength: USHORT,
-            Flags: ULONG,
-            PathBuffer: [1]WCHAR,
-        },
-        MountPointReparseBuffer: extern struct {
-            SubstituteNameOffset: USHORT,
-            SubstituteNameLength: USHORT,
-            PrintNameOffset: USHORT,
-            PrintNameLength: USHORT,
-            PathBuffer: [1]WCHAR,
-        },
-        GenericReparseBuffer: extern struct {
-            DataBuffer: [1]UCHAR,
-        },
-    }
+    ReparseTag: ULONG,
+    ReparseDataLength: USHORT,
+    Reserved: USHORT,
+    DataBuffer: [1]UCHAR,
 };
-pub const MAXIMUM_REPARSE_DATA_BUFFER_SIZE: usize = 16 * 1024;
+pub const SymbolicLinkReparseBuffer = extern struct {
+    SubstituteNameOffset: USHORT,
+    SubstituteNameLength: USHORT,
+    PrintNameOffset: USHORT,
+    PrintNameLength: USHORT,
+    Flags: ULONG,
+    PathBuffer: [1]WCHAR,
+};
+pub const MountPointReparseBuffer = extern struct {
+    SubstituteNameOffset: USHORT,
+    SubstituteNameLength: USHORT,
+    PrintNameOffset: USHORT,
+    PrintNameLength: USHORT,
+    PathBuffer: [1]WCHAR,
+};
+pub const MAXIMUM_REPARSE_DATA_BUFFER_SIZE: ULONG = 16 * 1024;
 pub const FSCTL_GET_REPARSE_POINT: DWORD = 0x900a8;
 pub const IO_REPARSE_TAG_SYMLINK: ULONG = 0xa000000c;
 pub const IO_REPARSE_TAG_MOUNT_POINT: ULONG = 0xa0000003;
+pub const SYMLINK_FLAG_RELATIVE: ULONG = 0x1;
 
 pub const SYMBOLIC_LINK_FLAG_FILE: DWORD = 0x0;
 pub const SYMBOLIC_LINK_FLAG_DIRECTORY: DWORD = 0x1;

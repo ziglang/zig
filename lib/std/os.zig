@@ -2394,11 +2394,10 @@ pub const readlinkC = @compileError("deprecated: renamed to readlinkZ");
 /// See also `readlinkZ`.
 pub fn readlinkW(file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8 {
     const w = windows;
-    const access_mode: w.DWORD = 0;
     const sharing = w.FILE_SHARE_DELETE | w.FILE_SHARE_READ | w.FILE_SHARE_WRITE;
     const disposition = w.OPEN_EXISTING;
     const flags = w.FILE_FLAG_BACKUP_SEMANTICS | w.FILE_FLAG_OPEN_REPARSE_POINT;
-    const handle = w.CreateFileW(file_path, access_mode, sharing, null, disposition, flags, null) catch |err| {
+    const handle = w.CreateFileW(file_path, 0, sharing, null, disposition, flags, null) catch |err| {
         switch (err) {
             error.SharingViolation => return error.AccessDenied,
             error.PathAlreadyExists => unreachable,
@@ -2406,22 +2405,31 @@ pub fn readlinkW(file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8
             else => |e| return e,
         }
     };
-    var reparse_buf: [w.MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
+    var reparse_buf align(@alignOf(w.REPARSE_DATA_BUFFER)) = [_]u8{0} ** (w.MAXIMUM_REPARSE_DATA_BUFFER_SIZE);
     _ = try w.DeviceIoControl(handle, w.FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..], null);
-    const reparse_struct = mem.bytesAsValue(w.REPARSE_DATA_BUFFER, reparse_buf[0..@sizeOf(w.REPARSE_DATA_BUFFER)]);
+    const reparse_struct = @ptrCast(*const w.REPARSE_DATA_BUFFER, &reparse_buf[0]);
     switch (reparse_struct.ReparseTag) {
         w.IO_REPARSE_TAG_SYMLINK => {
-            std.debug.warn("got symlink!", .{});
+            const alignment = @alignOf(w.SymbolicLinkReparseBuffer);
+            const buf = @ptrCast(*const w.SymbolicLinkReparseBuffer, @alignCast(alignment, &reparse_struct.DataBuffer[0]));
+            const offset = buf.SubstituteNameOffset / 2;
+            const len = buf.SubstituteNameLength / 2;
+            const f = buf.Flags;
+            const path_buf = @as([*]const u16, &buf.PathBuffer);
+            std.debug.warn("got symlink => offset={}, len={}, flags = {}, {}\n", .{ offset, len, f, w.SYMLINK_FLAG_RELATIVE });
+            // TODO handle absolute paths and namespace prefix
+            const out_len = std.unicode.utf16leToUtf8(out_buffer, path_buf[offset .. offset + len]) catch unreachable;
+            std.debug.warn("got symlink => utf8={}\n", .{out_buffer[0..out_len]});
+            return out_buffer[0..out_len];
         },
         w.IO_REPARSE_TAG_MOUNT_POINT => {
-            std.debug.warn("got mount point!", .{});
+            @panic("TODO parse mount point");
         },
         else => |value| {
             std.debug.warn("unsupported symlink type: {}", .{value});
             return error.UnsupportedSymlinkType;
         },
     }
-    @panic("Oh no!");
 }
 
 /// Same as `readlink` except `file_path` is null-terminated.
