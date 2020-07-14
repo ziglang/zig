@@ -1244,6 +1244,10 @@ test "int.specifier" {
         const value: u8 = 0b1100;
         try testFmt("u8: 0b1100\n", "u8: 0b{b}\n", .{value});
     }
+    {
+        const value: u16 = 0o1234;
+        try testFmt("u16: 0o1234\n", "u16: 0o{o}\n", .{value});
+    }
 }
 
 test "int.padded" {
