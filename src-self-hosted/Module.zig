@@ -1308,8 +1308,16 @@ fn astGenExpr(self: *Module, scope: *Scope, ast_node: *ast.Node) InnerError!*zir
         .ControlFlowExpression => return self.astGenControlFlowExpression(scope, @fieldParentPtr(ast.Node.ControlFlowExpression, "base", ast_node)),
         .If => return self.astGenIf(scope, @fieldParentPtr(ast.Node.If, "base", ast_node)),
         .InfixOp => return self.astGenInfixOp(scope, @fieldParentPtr(ast.Node.InfixOp, "base", ast_node)),
+        .BoolNot => return self.astGenBoolNot(scope, @fieldParentPtr(ast.Node.BoolNot, "base", ast_node)),
         else => return self.failNode(scope, ast_node, "TODO implement astGenExpr for {}", .{@tagName(ast_node.id)}),
     }
+}
+
+fn astGenBoolNot(self: *Module, scope: *Scope, node: *ast.Node.BoolNot) InnerError!*zir.Inst {
+    const operand = try self.astGenExpr(scope, node.rhs);
+    const tree = scope.tree();
+    const src = tree.token_locs[node.op_token].start;
+    return self.addZIRInst(scope, src, zir.Inst.BoolNot, .{ .operand = operand }, .{});
 }
 
 fn astGenInfixOp(self: *Module, scope: *Scope, infix_node: *ast.Node.InfixOp) InnerError!*zir.Inst {

@@ -410,7 +410,20 @@ pub const Node = struct {
 
         // Operators
         InfixOp,
-        PrefixOp,
+        AddressOf,
+        Await,
+        BitNot,
+        BoolNot,
+        OptionalType,
+        Negation,
+        NegationWrap,
+        Resume,
+        Try,
+        ArrayType,
+        /// ArrayType but has a sentinel node.
+        ArrayTypeSentinel,
+        PtrType,
+        SliceType,
         /// Not all suffix operations are under this tag. To save memory, some
         /// suffix operations have dedicated Node tags.
         SuffixOp,
@@ -1797,85 +1810,116 @@ pub const Node = struct {
         }
     };
 
-    pub const PrefixOp = struct {
-        base: Node = Node{ .id = .PrefixOp },
+    pub const AddressOf = SimplePrefixOp(.AddressOf);
+    pub const Await = SimplePrefixOp(.Await);
+    pub const BitNot = SimplePrefixOp(.BitNot);
+    pub const BoolNot = SimplePrefixOp(.BoolNot);
+    pub const OptionalType = SimplePrefixOp(.OptionalType);
+    pub const Negation = SimplePrefixOp(.Negation);
+    pub const NegationWrap = SimplePrefixOp(.NegationWrap);
+    pub const Resume = SimplePrefixOp(.Resume);
+    pub const Try = SimplePrefixOp(.Try);
+
+    pub fn SimplePrefixOp(comptime tag: Id) type {
+        return struct {
+            base: Node = Node{ .id = tag },
+            op_token: TokenIndex,
+            rhs: *Node,
+
+            const Self = @This();
+
+            pub fn iterate(self: *const Self, index: usize) ?*Node {
+                if (index == 0) return self.rhs;
+                return null;
+            }
+
+            pub fn firstToken(self: *const Self) TokenIndex {
+                return self.op_token;
+            }
+
+            pub fn lastToken(self: *const Self) TokenIndex {
+                return self.rhs.lastToken();
+            }
+        };
+    }
+
+    pub const ArrayType = struct {
+        base: Node = Node{ .id = .ArrayType },
         op_token: TokenIndex,
-        op: Op,
         rhs: *Node,
+        len_expr: *Node,
 
-        pub const Op = union(enum) {
-            AddressOf,
-            ArrayType: ArrayInfo,
-            Await,
-            BitNot,
-            BoolNot,
-            OptionalType,
-            Negation,
-            NegationWrap,
-            Resume,
-            PtrType: PtrInfo,
-            SliceType: PtrInfo,
-            Try,
-        };
-
-        pub const ArrayInfo = struct {
-            len_expr: *Node,
-            sentinel: ?*Node,
-        };
-
-        pub const PtrInfo = struct {
-            allowzero_token: ?TokenIndex = null,
-            align_info: ?Align = null,
-            const_token: ?TokenIndex = null,
-            volatile_token: ?TokenIndex = null,
-            sentinel: ?*Node = null,
-
-            pub const Align = struct {
-                node: *Node,
-                bit_range: ?BitRange,
-
-                pub const BitRange = struct {
-                    start: *Node,
-                    end: *Node,
-                };
-            };
-        };
-
-        pub fn iterate(self: *const PrefixOp, index: usize) ?*Node {
+        pub fn iterate(self: *const ArrayType, index: usize) ?*Node {
             var i = index;
 
-            switch (self.op) {
-                .PtrType, .SliceType => |addr_of_info| {
-                    if (addr_of_info.sentinel) |sentinel| {
-                        if (i < 1) return sentinel;
-                        i -= 1;
-                    }
+            if (i < 1) return self.len_expr;
+            i -= 1;
 
-                    if (addr_of_info.align_info) |align_info| {
-                        if (i < 1) return align_info.node;
-                        i -= 1;
-                    }
-                },
+            if (i < 1) return self.rhs;
+            i -= 1;
 
-                .ArrayType => |array_info| {
-                    if (i < 1) return array_info.len_expr;
-                    i -= 1;
-                    if (array_info.sentinel) |sentinel| {
-                        if (i < 1) return sentinel;
-                        i -= 1;
-                    }
-                },
+            return null;
+        }
 
-                .AddressOf,
-                .Await,
-                .BitNot,
-                .BoolNot,
-                .OptionalType,
-                .Negation,
-                .NegationWrap,
-                .Try,
-                .Resume,
-                => {},
+        pub fn firstToken(self: *const ArrayType) TokenIndex {
+            return self.op_token;
+        }
+
+        pub fn lastToken(self: *const ArrayType) TokenIndex {
+            return self.rhs.lastToken();
+        }
+    };
+
+    pub const ArrayTypeSentinel = struct {
+        base: Node = Node{ .id = .ArrayTypeSentinel },
+        op_token: TokenIndex,
+        rhs: *Node,
+        len_expr: *Node,
+        sentinel: *Node,
+
+        pub fn iterate(self: *const ArrayTypeSentinel, index: usize) ?*Node {
+            var i = index;
+
+            if (i < 1) return self.len_expr;
+            i -= 1;
+
+            if (i < 1) return self.sentinel;
+            i -= 1;
+
+            if (i < 1) return self.rhs;
+            i -= 1;
+
+            return null;
+        }
+
+        pub fn firstToken(self: *const ArrayTypeSentinel) TokenIndex {
+            return self.op_token;
+        }
+
+        pub fn lastToken(self: *const ArrayTypeSentinel) TokenIndex {
+            return self.rhs.lastToken();
+        }
+    };
+
+    pub const PtrType = struct {
+        base: Node = Node{ .id = .PtrType },
+        op_token: TokenIndex,
+        rhs: *Node,
+        /// TODO Add a u8 flags field to Node where it would otherwise be padding, and each bit represents
+        /// one of these possibly-null things. Then we have them directly follow the PtrType in memory.
+        ptr_info: PtrInfo = .{},
+
+        pub fn iterate(self: *const PtrType, index: usize) ?*Node {
+            var i = index;
+
+            if (self.ptr_info.sentinel) |sentinel| {
+                if (i < 1) return sentinel;
+                i -= 1;
+            }
+
+            if (self.ptr_info.align_info) |align_info| {
+                if (i < 1) return align_info.node;
+                i -= 1;
             }
 
             if (i < 1) return self.rhs;
@@ -1884,11 +1928,47 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *const PrefixOp) TokenIndex {
+        pub fn firstToken(self: *const PtrType) TokenIndex {
             return self.op_token;
         }
 
-        pub fn lastToken(self: *const PrefixOp) TokenIndex {
+        pub fn lastToken(self: *const PtrType) TokenIndex {
+            return self.rhs.lastToken();
+        }
+    };
+
+    pub const SliceType = struct {
+        base: Node = Node{ .id = .SliceType },
+        op_token: TokenIndex,
+        rhs: *Node,
+        /// TODO Add a u8 flags field to Node where it would otherwise be padding, and each bit represents
+        /// one of these possibly-null things. Then we have them directly follow the SliceType in memory.
+        ptr_info: PtrInfo = .{},
+
+        pub fn iterate(self: *const SliceType, index: usize) ?*Node {
+            var i = index;
+
+            if (self.ptr_info.sentinel) |sentinel| {
+                if (i < 1) return sentinel;
+                i -= 1;
+            }
+
+            if (self.ptr_info.align_info) |align_info| {
+                if (i < 1) return align_info.node;
+                i -= 1;
+            }
+
+            if (i < 1) return self.rhs;
+            i -= 1;
+
+            return null;
+        }
+
+        pub fn firstToken(self: *const SliceType) TokenIndex {
+            return self.op_token;
+        }
+
+        pub fn lastToken(self: *const SliceType) TokenIndex {
             return self.rhs.lastToken();
         }
     };
@@ -2794,6 +2874,24 @@ pub const Node = struct {
         pub fn lastToken(self: *const TestDecl) TokenIndex {
             return self.body_node.lastToken();
         }
+    };
+};
+
+pub const PtrInfo = struct {
+    allowzero_token: ?TokenIndex = null,
+    align_info: ?Align = null,
+    const_token: ?TokenIndex = null,
+    volatile_token: ?TokenIndex = null,
+    sentinel: ?*Node = null,
+
+    pub const Align = struct {
+        node: *Node,
+        bit_range: ?BitRange = null,
+
+        pub const BitRange = struct {
+            start: *Node,
+            end: *Node,
+        };
     };
 };
 
