@@ -427,8 +427,6 @@ pub const Value = extern union {
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
-            .bool_true,
-            .bool_false,
             .null_value,
             .function,
             .ref_val,
@@ -441,7 +439,10 @@ pub const Value = extern union {
 
             .the_one_possible_value, // An integer with one possible value is always zero.
             .zero,
+            .bool_false,
             => return BigIntMutable.init(&space.limbs, 0).toConst(),
+
+            .bool_true => return BigIntMutable.init(&space.limbs, 1).toConst(),
 
             .int_u64 => return BigIntMutable.init(&space.limbs, self.cast(Payload.Int_u64).?.int).toConst(),
             .int_i64 => return BigIntMutable.init(&space.limbs, self.cast(Payload.Int_i64).?.int).toConst(),
@@ -493,8 +494,6 @@ pub const Value = extern union {
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
-            .bool_true,
-            .bool_false,
             .null_value,
             .function,
             .ref_val,
@@ -507,7 +506,10 @@ pub const Value = extern union {
 
             .zero,
             .the_one_possible_value, // an integer with one possible value is always zero
+            .bool_false,
             => return 0,
+
+            .bool_true => return 1,
 
             .int_u64 => return self.cast(Payload.Int_u64).?.int,
             .int_i64 => return @intCast(u64, self.cast(Payload.Int_u64).?.int),
@@ -560,8 +562,6 @@ pub const Value = extern union {
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
-            .bool_true,
-            .bool_false,
             .null_value,
             .function,
             .ref_val,
@@ -574,7 +574,10 @@ pub const Value = extern union {
 
             .the_one_possible_value, // an integer with one possible value is always zero
             .zero,
+            .bool_false,
             => return 0,
+
+            .bool_true => return 1,
 
             .int_u64 => {
                 const x = self.cast(Payload.Int_u64).?.int;
@@ -632,8 +635,6 @@ pub const Value = extern union {
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
-            .bool_true,
-            .bool_false,
             .null_value,
             .function,
             .ref_val,
@@ -646,7 +647,17 @@ pub const Value = extern union {
             .zero,
             .undef,
             .the_one_possible_value, // an integer with one possible value is always zero
+            .bool_false,
             => return true,
+
+            .bool_true => {
+                const info = ty.intInfo(target);
+                if (info.signed) {
+                    return info.bits >= 2;
+                } else {
+                    return info.bits >= 1;
+                }
+            },
 
             .int_u64 => switch (ty.zigTypeTag()) {
                 .Int => {
@@ -796,8 +807,6 @@ pub const Value = extern union {
             .fn_ccc_void_no_args_type,
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
-            .bool_true,
-            .bool_false,
             .null_value,
             .function,
             .ref_val,
@@ -810,7 +819,10 @@ pub const Value = extern union {
 
             .zero,
             .the_one_possible_value, // an integer with one possible value is always zero
+            .bool_false,
             => return .eq,
+
+            .bool_true => return .gt,
 
             .int_u64 => return std.math.order(lhs.cast(Payload.Int_u64).?.int, 0),
             .int_i64 => return std.math.order(lhs.cast(Payload.Int_i64).?.int, 0),
@@ -855,7 +867,7 @@ pub const Value = extern union {
     pub fn toBool(self: Value) bool {
         return switch (self.tag()) {
             .bool_true => true,
-            .bool_false => false,
+            .bool_false, .zero => false,
             else => unreachable,
         };
     }

@@ -14,30 +14,35 @@ pub const Inst = struct {
     tag: Tag,
     /// Each bit represents the index of an `Inst` parameter in the `args` field.
     /// If a bit is set, it marks the end of the lifetime of the corresponding
-    /// instruction parameter. For example, 0b000_00101 means that the first and
+    /// instruction parameter. For example, 0b101 means that the first and
     /// third `Inst` parameters' lifetimes end after this instruction, and will
     /// not have any more following references.
     /// The most significant bit being set means that the instruction itself is
     /// never referenced, in other words its lifetime ends as soon as it finishes.
-    /// If bit 7 (0b1xxx_xxxx) is set, it means this instruction itself is unreferenced.
-    /// If bit 6 (0bx1xx_xxxx) is set, it means this is a special case and the
+    /// If bit 15 (0b1xxx_xxxx_xxxx_xxxx) is set, it means this instruction itself is unreferenced.
+    /// If bit 14 (0bx1xx_xxxx_xxxx_xxxx) is set, it means this is a special case and the
     /// lifetimes of operands are encoded elsewhere.
-    deaths: u8 = undefined,
+    deaths: DeathsInt = undefined,
     ty: Type,
     /// Byte offset into the source.
     src: usize,
 
+    pub const DeathsInt = u16;
+    pub const DeathsBitIndex = std.math.Log2Int(DeathsInt);
+    pub const unreferenced_bit_index = @typeInfo(DeathsInt).Int.bits - 1;
+    pub const deaths_bits = unreferenced_bit_index - 1;
+
     pub fn isUnused(self: Inst) bool {
-        return (self.deaths & 0b1000_0000) != 0;
+        return (self.deaths & (1 << unreferenced_bit_index)) != 0;
     }
 
-    pub fn operandDies(self: Inst, index: u3) bool {
-        assert(index < 6);
+    pub fn operandDies(self: Inst, index: DeathsBitIndex) bool {
+        assert(index < deaths_bits);
         return @truncate(u1, self.deaths << index) != 0;
     }
 
     pub fn specialOperandDeaths(self: Inst) bool {
-        return (self.deaths & 0b1000_0000) != 0;
+        return (self.deaths & (1 << deaths_bits)) != 0;
     }
 
     pub const Tag = enum {
@@ -60,6 +65,7 @@ pub const Inst = struct {
         retvoid,
         sub,
         unreach,
+        not,
     };
 
     pub fn cast(base: *Inst, comptime T: type) ?*T {
@@ -192,6 +198,15 @@ pub const Inst = struct {
         deaths: [*]*Inst = undefined,
         true_death_count: u32 = 0,
         false_death_count: u32 = 0,
+    };
+
+    pub const Not = struct {
+        pub const base_tag = Tag.not;
+
+        base: Inst,
+        args: struct {
+            operand: *Inst,
+        },
     };
 
     pub const Constant = struct {

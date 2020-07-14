@@ -407,6 +407,55 @@ const Function = struct {
             .retvoid => return self.genRetVoid(inst.cast(ir.Inst.RetVoid).?, arch),
             .sub => return self.genSub(inst.cast(ir.Inst.Sub).?, arch),
             .unreach => return MCValue{ .unreach = {} },
+            .not => return self.genNot(inst.cast(ir.Inst.Not).?, arch),
+        }
+    }
+
+    fn genNot(self: *Function, inst: *ir.Inst.Not, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        // No side effects, so if it's unreferenced, do nothing.
+        if (inst.base.isUnused())
+            return MCValue.dead;
+        const operand = try self.resolveInst(inst.args.operand);
+        switch (operand) {
+            .dead => unreachable,
+            .unreach => unreachable,
+            .compare_flags_unsigned => |op| return MCValue{
+                .compare_flags_unsigned = switch (op) {
+                    .gte => .lt,
+                    .gt => .lte,
+                    .neq => .eq,
+                    .lt => .gte,
+                    .lte => .gt,
+                    .eq => .neq,
+                },
+            },
+            .compare_flags_signed => |op| return MCValue{
+                .compare_flags_signed = switch (op) {
+                    .gte => .lt,
+                    .gt => .lte,
+                    .neq => .eq,
+                    .lt => .gte,
+                    .lte => .gt,
+                    .eq => .neq,
+                },
+            },
+            else => {},
+        }
+
+        switch (arch) {
+            .x86_64 => {
+                var imm = ir.Inst.Constant{
+                    .base = .{
+                        .tag = .constant,
+                        .deaths = 0,
+                        .ty = inst.args.operand.ty,
+                        .src = inst.args.operand.src,
+                    },
+                    .val = Value.initTag(.bool_true),
+                };
+                return try self.genX8664BinMath(&inst.base, inst.args.operand, &imm.base, 6, 0x30);
+            },
+            else => return self.fail(inst.base.src, "TODO implement NOT for {}", .{self.target.cpu.arch}),
         }
     }
 
@@ -434,7 +483,7 @@ const Function = struct {
         }
     }
 
-    /// ADD, SUB
+    /// ADD, SUB, XOR, OR, AND
     fn genX8664BinMath(self: *Function, inst: *ir.Inst, op_lhs: *ir.Inst, op_rhs: *ir.Inst, opx: u8, mr: u8) !MCValue {
         try self.code.ensureCapacity(self.code.items.len + 8);
 
@@ -695,7 +744,7 @@ const Function = struct {
 
     fn genCondBr(self: *Function, inst: *ir.Inst.CondBr, comptime arch: std.Target.Cpu.Arch) !MCValue {
         switch (arch) {
-            .i386, .x86_64 => {
+            .x86_64 => {
                 try self.code.ensureCapacity(self.code.items.len + 6);
 
                 const cond = try self.resolveInst(inst.args.condition);
@@ -724,7 +773,20 @@ const Function = struct {
                         };
                         return self.genX86CondBr(inst, opcode, arch);
                     },
-                    else => return self.fail(inst.base.src, "TODO implement condbr {} when condition not already in the compare flags", .{self.target.cpu.arch}),
+                    .register => |reg_usize| {
+                        const reg = @intToEnum(Reg(arch), @intCast(u8, reg_usize));
+                        // test reg, 1
+                        // TODO detect al, ax, eax
+                        try self.code.ensureCapacity(self.code.items.len + 4);
+                        self.rex(.{ .b = reg.isExtended(), .w = reg.size() == 64 });
+                        self.code.appendSliceAssumeCapacity(&[_]u8{
+                            0xf6,
+                            @as(u8, 0xC0) | (0 << 3) | @truncate(u3, reg.id()),
+                            0x01,
+                        });
+                        return self.genX86CondBr(inst, 0x84, arch);
+                    },
+                    else => return self.fail(inst.base.src, "TODO implement condbr {} when condition is {}", .{ self.target.cpu.arch, @tagName(cond) }),
                 }
             },
             else => return self.fail(inst.base.src, "TODO implement condbr for {}", .{self.target.cpu.arch}),
@@ -812,6 +874,8 @@ const Function = struct {
     }
 
     fn genAsm(self: *Function, inst: *ir.Inst.Assembly, comptime arch: Target.Cpu.Arch) !MCValue {
+        if (!inst.args.is_volatile and inst.base.isUnused())
+            return MCValue.dead;
         if (arch != .x86_64 and arch != .i386) {
             return self.fail(inst.base.src, "TODO implement inline asm support for more architectures", .{});
         }
@@ -880,7 +944,18 @@ const Function = struct {
                 .none => unreachable,
                 .unreach => unreachable,
                 .compare_flags_unsigned => |op| {
-                    return self.fail(src, "TODO set register with compare flags value (unsigned)", .{});
+                    try self.code.ensureCapacity(self.code.items.len + 3);
+                    self.rex(.{ .b = reg.isExtended(), .w = reg.size() == 64 });
+                    const opcode: u8 = switch (op) {
+                        .gte => 0x93,
+                        .gt => 0x97,
+                        .neq => 0x95,
+                        .lt => 0x92,
+                        .lte => 0x96,
+                        .eq => 0x94,
+                    };
+                    const id = @as(u8, reg.id() & 0b111);
+                    self.code.appendSliceAssumeCapacity(&[_]u8{ 0x0f, opcode, 0xC0 | id });
                 },
                 .compare_flags_signed => |op| {
                     return self.fail(src, "TODO set register with compare flags value (signed)", .{});
@@ -1134,6 +1209,9 @@ const Function = struct {
                     return self.fail(src, "TODO const int bigger than ptr and signed int", .{});
                 }
                 return MCValue{ .immediate = typed_value.val.toUnsignedInt() };
+            },
+            .Bool => {
+                return MCValue{ .immediate = @boolToInt(typed_value.val.toBool()) };
             },
             .ComptimeInt => unreachable, // semantic analysis prevents this
             .ComptimeFloat => unreachable, // semantic analysis prevents this

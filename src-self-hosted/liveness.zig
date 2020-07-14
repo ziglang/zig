@@ -34,7 +34,7 @@ fn analyzeInstGeneric(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Ins
     inline for (std.meta.declarations(ir.Inst)) |decl| {
         switch (decl.data) {
             .Type => |T| {
-                if (@hasDecl(T, "base_tag")) {
+                if (@typeInfo(T) == .Struct and @hasDecl(T, "base_tag")) {
                     if (T.base_tag == base.tag) {
                         return analyzeInst(arena, table, T, @fieldParentPtr(T, "base", base));
                     }
@@ -47,7 +47,13 @@ fn analyzeInstGeneric(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Ins
 }
 
 fn analyzeInst(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Inst, void), comptime T: type, inst: *T) error{OutOfMemory}!void {
-    inst.base.deaths = 0;
+    if (table.contains(&inst.base)) {
+        inst.base.deaths = 0;
+    } else {
+        // No tombstone for this instruction means it is never referenced,
+        // and its birth marks its own death. Very metal 🤘
+        inst.base.deaths = 1 << ir.Inst.unreferenced_bit_index;
+    }
 
     switch (T) {
         ir.Inst.Constant => return,
@@ -106,13 +112,26 @@ fn analyzeInst(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Inst, void
             // instruction, and the deaths flag for the CondBr instruction will indicate whether the
             // condition's lifetime ends immediately before entering any branch.
         },
+        ir.Inst.Call => {
+            // Call instructions have a runtime-known number of operands so we have to handle them ourselves here.
+            const needed_bits = 1 + inst.args.args.len;
+            if (needed_bits <= ir.Inst.deaths_bits) {
+                var bit_i: ir.Inst.DeathsBitIndex = 0;
+                {
+                    const prev = try table.fetchPut(inst.args.func, {});
+                    if (prev == null) inst.base.deaths |= @as(ir.Inst.DeathsInt, 1) << bit_i;
+                    bit_i += 1;
+                }
+                for (inst.args.args) |arg| {
+                    const prev = try table.fetchPut(arg, {});
+                    if (prev == null) inst.base.deaths |= @as(ir.Inst.DeathsInt, 1) << bit_i;
+                    bit_i += 1;
+                }
+            } else {
+                @panic("Handle liveness analysis for function calls with many parameters");
+            }
+        },
         else => {},
-    }
-
-    if (!table.contains(&inst.base)) {
-        // No tombstone for this instruction means it is never referenced,
-        // and its birth marks its own death. Very metal 🤘
-        inst.base.deaths |= 1 << 7;
     }
 
     const Args = ir.Inst.Args(T);

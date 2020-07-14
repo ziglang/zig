@@ -1120,10 +1120,9 @@ const Parser = struct {
             const expr_node = try p.expectNode(parseExpr, .{
                 .ExpectedExpr = .{ .token = p.tok_i },
             });
-            const node = try p.arena.allocator.create(Node.PrefixOp);
+            const node = try p.arena.allocator.create(Node.Resume);
             node.* = .{
                 .op_token = token,
-                .op = .Resume,
                 .rhs = expr_node,
             };
             return &node.base;
@@ -2413,24 +2412,25 @@ const Parser = struct {
     ///      / KEYWORD_await
     fn parsePrefixOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.PrefixOp.Op = switch (p.token_ids[token]) {
-            .Bang => .BoolNot,
-            .Minus => .Negation,
-            .Tilde => .BitNot,
-            .MinusPercent => .NegationWrap,
-            .Ampersand => .AddressOf,
-            .Keyword_try => .Try,
-            .Keyword_await => .Await,
+        switch (p.token_ids[token]) {
+            .Bang => return p.allocSimplePrefixOp(.BoolNot, token),
+            .Minus => return p.allocSimplePrefixOp(.Negation, token),
+            .Tilde => return p.allocSimplePrefixOp(.BitNot, token),
+            .MinusPercent => return p.allocSimplePrefixOp(.NegationWrap, token),
+            .Ampersand => return p.allocSimplePrefixOp(.AddressOf, token),
+            .Keyword_try => return p.allocSimplePrefixOp(.Try, token),
+            .Keyword_await => return p.allocSimplePrefixOp(.Await, token),
             else => {
                 p.putBackToken(token);
                 return null;
             },
-        };
+        }
+    }
 
-        const node = try p.arena.allocator.create(Node.PrefixOp);
+    fn allocSimplePrefixOp(p: *Parser, comptime tag: Node.Id, token: TokenIndex) !?*Node {
+        const node = try p.arena.allocator.create(Node.SimplePrefixOp(tag));
         node.* = .{
             .op_token = token,
-            .op = op,
             .rhs = undefined, // set by caller
         };
         return &node.base;
@@ -2450,19 +2450,14 @@ const Parser = struct {
     ///      / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
     fn parsePrefixTypeOp(p: *Parser) !?*Node {
         if (p.eatToken(.QuestionMark)) |token| {
-            const node = try p.arena.allocator.create(Node.PrefixOp);
+            const node = try p.arena.allocator.create(Node.OptionalType);
             node.* = .{
                 .op_token = token,
-                .op = .OptionalType,
                 .rhs = undefined, // set by caller
             };
             return &node.base;
         }
 
-        // TODO: Returning a AnyFrameType instead of PrefixOp makes casting and setting .rhs or
-        //       .return_type more difficult for the caller (see parsePrefixOpExpr helper).
-        //       Consider making the AnyFrameType a member of PrefixOp and add a
-        //       PrefixOp.AnyFrameType variant?
         if (p.eatToken(.Keyword_anyframe)) |token| {
             const arrow = p.eatToken(.Arrow) orelse {
                 p.putBackToken(token);
@@ -2482,11 +2477,15 @@ const Parser = struct {
         if (try p.parsePtrTypeStart()) |node| {
             // If the token encountered was **, there will be two nodes instead of one.
             // The attributes should be applied to the rightmost operator.
-            const prefix_op = node.cast(Node.PrefixOp).?;
-            var ptr_info = if (p.token_ids[prefix_op.op_token] == .AsteriskAsterisk)
-                &prefix_op.rhs.cast(Node.PrefixOp).?.op.PtrType
+            var ptr_info = if (node.cast(Node.PtrType)) |ptr_type|
+                if (p.token_ids[ptr_type.op_token] == .AsteriskAsterisk)
+                    &ptr_type.rhs.cast(Node.PtrType).?.ptr_info
+                else
+                    &ptr_type.ptr_info
+            else if (node.cast(Node.SliceType)) |slice_type|
+                &slice_type.ptr_info
             else
-                &prefix_op.op.PtrType;
+                unreachable;
 
             while (true) {
                 if (p.eatToken(.Keyword_align)) |align_token| {
@@ -2505,7 +2504,7 @@ const Parser = struct {
                             .ExpectedIntegerLiteral = .{ .token = p.tok_i },
                         });
 
-                        break :bit_range_value Node.PrefixOp.PtrInfo.Align.BitRange{
+                        break :bit_range_value ast.PtrInfo.Align.BitRange{
                             .start = range_start,
                             .end = range_end,
                         };
@@ -2519,7 +2518,7 @@ const Parser = struct {
                         continue;
                     }
 
-                    ptr_info.align_info = Node.PrefixOp.PtrInfo.Align{
+                    ptr_info.align_info = ast.PtrInfo.Align{
                         .node = expr_node,
                         .bit_range = bit_range,
                     };
@@ -2563,58 +2562,54 @@ const Parser = struct {
         }
 
         if (try p.parseArrayTypeStart()) |node| {
-            switch (node.cast(Node.PrefixOp).?.op) {
-                .ArrayType => {},
-                .SliceType => |*slice_type| {
-                    // Collect pointer qualifiers in any order, but disallow duplicates
-                    while (true) {
-                        if (try p.parseByteAlign()) |align_expr| {
-                            if (slice_type.align_info != null) {
-                                try p.errors.append(p.gpa, .{
-                                    .ExtraAlignQualifier = .{ .token = p.tok_i - 1 },
-                                });
-                                continue;
-                            }
-                            slice_type.align_info = Node.PrefixOp.PtrInfo.Align{
-                                .node = align_expr,
-                                .bit_range = null,
-                            };
+            if (node.cast(Node.SliceType)) |slice_type| {
+                // Collect pointer qualifiers in any order, but disallow duplicates
+                while (true) {
+                    if (try p.parseByteAlign()) |align_expr| {
+                        if (slice_type.ptr_info.align_info != null) {
+                            try p.errors.append(p.gpa, .{
+                                .ExtraAlignQualifier = .{ .token = p.tok_i - 1 },
+                            });
                             continue;
                         }
-                        if (p.eatToken(.Keyword_const)) |const_token| {
-                            if (slice_type.const_token != null) {
-                                try p.errors.append(p.gpa, .{
-                                    .ExtraConstQualifier = .{ .token = p.tok_i - 1 },
-                                });
-                                continue;
-                            }
-                            slice_type.const_token = const_token;
-                            continue;
-                        }
-                        if (p.eatToken(.Keyword_volatile)) |volatile_token| {
-                            if (slice_type.volatile_token != null) {
-                                try p.errors.append(p.gpa, .{
-                                    .ExtraVolatileQualifier = .{ .token = p.tok_i - 1 },
-                                });
-                                continue;
-                            }
-                            slice_type.volatile_token = volatile_token;
-                            continue;
-                        }
-                        if (p.eatToken(.Keyword_allowzero)) |allowzero_token| {
-                            if (slice_type.allowzero_token != null) {
-                                try p.errors.append(p.gpa, .{
-                                    .ExtraAllowZeroQualifier = .{ .token = p.tok_i - 1 },
-                                });
-                                continue;
-                            }
-                            slice_type.allowzero_token = allowzero_token;
-                            continue;
-                        }
-                        break;
+                        slice_type.ptr_info.align_info = ast.PtrInfo.Align{
+                            .node = align_expr,
+                            .bit_range = null,
+                        };
+                        continue;
                     }
-                },
-                else => unreachable,
+                    if (p.eatToken(.Keyword_const)) |const_token| {
+                        if (slice_type.ptr_info.const_token != null) {
+                            try p.errors.append(p.gpa, .{
+                                .ExtraConstQualifier = .{ .token = p.tok_i - 1 },
+                            });
+                            continue;
+                        }
+                        slice_type.ptr_info.const_token = const_token;
+                        continue;
+                    }
+                    if (p.eatToken(.Keyword_volatile)) |volatile_token| {
+                        if (slice_type.ptr_info.volatile_token != null) {
+                            try p.errors.append(p.gpa, .{
+                                .ExtraVolatileQualifier = .{ .token = p.tok_i - 1 },
+                            });
+                            continue;
+                        }
+                        slice_type.ptr_info.volatile_token = volatile_token;
+                        continue;
+                    }
+                    if (p.eatToken(.Keyword_allowzero)) |allowzero_token| {
+                        if (slice_type.ptr_info.allowzero_token != null) {
+                            try p.errors.append(p.gpa, .{
+                                .ExtraAllowZeroQualifier = .{ .token = p.tok_i - 1 },
+                            });
+                            continue;
+                        }
+                        slice_type.ptr_info.allowzero_token = allowzero_token;
+                        continue;
+                    }
+                    break;
+                }
             }
             return node;
         }
@@ -2728,29 +2723,32 @@ const Parser = struct {
             null;
         const rbracket = try p.expectToken(.RBracket);
 
-        const op: Node.PrefixOp.Op = if (expr) |len_expr|
-            .{
-                .ArrayType = .{
+        if (expr) |len_expr| {
+            if (sentinel) |s| {
+                const node = try p.arena.allocator.create(Node.ArrayTypeSentinel);
+                node.* = .{
+                    .op_token = lbracket,
+                    .rhs = undefined, // set by caller
                     .len_expr = len_expr,
-                    .sentinel = sentinel,
-                },
+                    .sentinel = s,
+                };
+                return &node.base;
+            } else {
+                const node = try p.arena.allocator.create(Node.ArrayType);
+                node.* = .{
+                    .op_token = lbracket,
+                    .rhs = undefined, // set by caller
+                    .len_expr = len_expr,
+                };
+                return &node.base;
             }
-        else
-            .{
-                .SliceType = Node.PrefixOp.PtrInfo{
-                    .allowzero_token = null,
-                    .align_info = null,
-                    .const_token = null,
-                    .volatile_token = null,
-                    .sentinel = sentinel,
-                },
-            };
+        }
 
-        const node = try p.arena.allocator.create(Node.PrefixOp);
+        const node = try p.arena.allocator.create(Node.SliceType);
         node.* = .{
             .op_token = lbracket,
-            .op = op,
             .rhs = undefined, // set by caller
+            .ptr_info = .{ .sentinel = sentinel },
         };
         return &node.base;
     }
@@ -2768,28 +2766,26 @@ const Parser = struct {
                 })
             else
                 null;
-            const node = try p.arena.allocator.create(Node.PrefixOp);
+            const node = try p.arena.allocator.create(Node.PtrType);
             node.* = .{
                 .op_token = asterisk,
-                .op = .{ .PtrType = .{ .sentinel = sentinel } },
                 .rhs = undefined, // set by caller
+                .ptr_info = .{ .sentinel = sentinel },
             };
             return &node.base;
         }
 
         if (p.eatToken(.AsteriskAsterisk)) |double_asterisk| {
-            const node = try p.arena.allocator.create(Node.PrefixOp);
+            const node = try p.arena.allocator.create(Node.PtrType);
             node.* = .{
                 .op_token = double_asterisk,
-                .op = .{ .PtrType = .{} },
                 .rhs = undefined, // set by caller
             };
 
             // Special case for **, which is its own token
-            const child = try p.arena.allocator.create(Node.PrefixOp);
+            const child = try p.arena.allocator.create(Node.PtrType);
             child.* = .{
                 .op_token = double_asterisk,
-                .op = .{ .PtrType = .{} },
                 .rhs = undefined, // set by caller
             };
             node.rhs = &child.base;
@@ -2808,10 +2804,9 @@ const Parser = struct {
                     p.putBackToken(ident);
                 } else {
                     _ = try p.expectToken(.RBracket);
-                    const node = try p.arena.allocator.create(Node.PrefixOp);
+                    const node = try p.arena.allocator.create(Node.PtrType);
                     node.* = .{
                         .op_token = lbracket,
-                        .op = .{ .PtrType = .{} },
                         .rhs = undefined, // set by caller
                     };
                     return &node.base;
@@ -2824,11 +2819,11 @@ const Parser = struct {
             else
                 null;
             _ = try p.expectToken(.RBracket);
-            const node = try p.arena.allocator.create(Node.PrefixOp);
+            const node = try p.arena.allocator.create(Node.PtrType);
             node.* = .{
                 .op_token = lbracket,
-                .op = .{ .PtrType = .{ .sentinel = sentinel } },
                 .rhs = undefined, // set by caller
+                .ptr_info = .{ .sentinel = sentinel },
             };
             return &node.base;
         }
@@ -3146,10 +3141,9 @@ const Parser = struct {
 
     fn parseTry(p: *Parser) !?*Node {
         const token = p.eatToken(.Keyword_try) orelse return null;
-        const node = try p.arena.allocator.create(Node.PrefixOp);
+        const node = try p.arena.allocator.create(Node.Try);
         node.* = .{
             .op_token = token,
-            .op = .Try,
             .rhs = undefined, // set by caller
         };
         return &node.base;
@@ -3228,15 +3222,87 @@ const Parser = struct {
             var rightmost_op = first_op;
             while (true) {
                 switch (rightmost_op.id) {
-                    .PrefixOp => {
-                        var prefix_op = rightmost_op.cast(Node.PrefixOp).?;
+                    .AddressOf => {
+                        if (try opParseFn(p)) |rhs| {
+                            rightmost_op.cast(Node.AddressOf).?.rhs = rhs;
+                            rightmost_op = rhs;
+                        } else break;
+                    },
+                    .Await => {
+                        if (try opParseFn(p)) |rhs| {
+                            rightmost_op.cast(Node.Await).?.rhs = rhs;
+                            rightmost_op = rhs;
+                        } else break;
+                    },
+                    .BitNot => {
+                        if (try opParseFn(p)) |rhs| {
+                            rightmost_op.cast(Node.BitNot).?.rhs = rhs;
+                            rightmost_op = rhs;
+                        } else break;
+                    },
+                    .BoolNot => {
+                        if (try opParseFn(p)) |rhs| {
+                            rightmost_op.cast(Node.BoolNot).?.rhs = rhs;
+                            rightmost_op = rhs;
+                        } else break;
+                    },
+                    .OptionalType => {
+                        if (try opParseFn(p)) |rhs| {
+                            rightmost_op.cast(Node.OptionalType).?.rhs = rhs;
+                            rightmost_op = rhs;
+                        } else break;
+                    },
+                    .Negation => {
+                        if (try opParseFn(p)) |rhs| {
+                            rightmost_op.cast(Node.Negation).?.rhs = rhs;
+                            rightmost_op = rhs;
+                        } else break;
+                    },
+                    .NegationWrap => {
+                        if (try opParseFn(p)) |rhs| {
+                            rightmost_op.cast(Node.NegationWrap).?.rhs = rhs;
+                            rightmost_op = rhs;
+                        } else break;
+                    },
+                    .Resume => {
+                        if (try opParseFn(p)) |rhs| {
+                            rightmost_op.cast(Node.Resume).?.rhs = rhs;
+                            rightmost_op = rhs;
+                        } else break;
+                    },
+                    .Try => {
+                        if (try opParseFn(p)) |rhs| {
+                            rightmost_op.cast(Node.Try).?.rhs = rhs;
+                            rightmost_op = rhs;
+                        } else break;
+                    },
+                    .ArrayType => {
+                        if (try opParseFn(p)) |rhs| {
+                            rightmost_op.cast(Node.ArrayType).?.rhs = rhs;
+                            rightmost_op = rhs;
+                        } else break;
+                    },
+                    .ArrayTypeSentinel => {
+                        if (try opParseFn(p)) |rhs| {
+                            rightmost_op.cast(Node.ArrayTypeSentinel).?.rhs = rhs;
+                            rightmost_op = rhs;
+                        } else break;
+                    },
+                    .SliceType => {
+                        if (try opParseFn(p)) |rhs| {
+                            rightmost_op.cast(Node.SliceType).?.rhs = rhs;
+                            rightmost_op = rhs;
+                        } else break;
+                    },
+                    .PtrType => {
+                        var ptr_type = rightmost_op.cast(Node.PtrType).?;
                         // If the token encountered was **, there will be two nodes
-                        if (p.token_ids[prefix_op.op_token] == .AsteriskAsterisk) {
-                            rightmost_op = prefix_op.rhs;
-                            prefix_op = rightmost_op.cast(Node.PrefixOp).?;
+                        if (p.token_ids[ptr_type.op_token] == .AsteriskAsterisk) {
+                            rightmost_op = ptr_type.rhs;
+                            ptr_type = rightmost_op.cast(Node.PtrType).?;
                         }
                         if (try opParseFn(p)) |rhs| {
-                            prefix_op.rhs = rhs;
+                            ptr_type.rhs = rhs;
                             rightmost_op = rhs;
                         } else break;
                     },
@@ -3253,8 +3319,80 @@ const Parser = struct {
 
             // If any prefix op existed, a child node on the RHS is required
             switch (rightmost_op.id) {
-                .PrefixOp => {
-                    const prefix_op = rightmost_op.cast(Node.PrefixOp).?;
+                .AddressOf => {
+                    const prefix_op = rightmost_op.cast(Node.AddressOf).?;
+                    prefix_op.rhs = try p.expectNode(childParseFn, .{
+                        .InvalidToken = .{ .token = p.tok_i },
+                    });
+                },
+                .Await => {
+                    const prefix_op = rightmost_op.cast(Node.Await).?;
+                    prefix_op.rhs = try p.expectNode(childParseFn, .{
+                        .InvalidToken = .{ .token = p.tok_i },
+                    });
+                },
+                .BitNot => {
+                    const prefix_op = rightmost_op.cast(Node.BitNot).?;
+                    prefix_op.rhs = try p.expectNode(childParseFn, .{
+                        .InvalidToken = .{ .token = p.tok_i },
+                    });
+                },
+                .BoolNot => {
+                    const prefix_op = rightmost_op.cast(Node.BoolNot).?;
+                    prefix_op.rhs = try p.expectNode(childParseFn, .{
+                        .InvalidToken = .{ .token = p.tok_i },
+                    });
+                },
+                .OptionalType => {
+                    const prefix_op = rightmost_op.cast(Node.OptionalType).?;
+                    prefix_op.rhs = try p.expectNode(childParseFn, .{
+                        .InvalidToken = .{ .token = p.tok_i },
+                    });
+                },
+                .Negation => {
+                    const prefix_op = rightmost_op.cast(Node.Negation).?;
+                    prefix_op.rhs = try p.expectNode(childParseFn, .{
+                        .InvalidToken = .{ .token = p.tok_i },
+                    });
+                },
+                .NegationWrap => {
+                    const prefix_op = rightmost_op.cast(Node.NegationWrap).?;
+                    prefix_op.rhs = try p.expectNode(childParseFn, .{
+                        .InvalidToken = .{ .token = p.tok_i },
+                    });
+                },
+                .Resume => {
+                    const prefix_op = rightmost_op.cast(Node.Resume).?;
+                    prefix_op.rhs = try p.expectNode(childParseFn, .{
+                        .InvalidToken = .{ .token = p.tok_i },
+                    });
+                },
+                .Try => {
+                    const prefix_op = rightmost_op.cast(Node.Try).?;
+                    prefix_op.rhs = try p.expectNode(childParseFn, .{
+                        .InvalidToken = .{ .token = p.tok_i },
+                    });
+                },
+                .ArrayType => {
+                    const prefix_op = rightmost_op.cast(Node.ArrayType).?;
+                    prefix_op.rhs = try p.expectNode(childParseFn, .{
+                        .InvalidToken = .{ .token = p.tok_i },
+                    });
+                },
+                .ArrayTypeSentinel => {
+                    const prefix_op = rightmost_op.cast(Node.ArrayTypeSentinel).?;
+                    prefix_op.rhs = try p.expectNode(childParseFn, .{
+                        .InvalidToken = .{ .token = p.tok_i },
+                    });
+                },
+                .PtrType => {
+                    const prefix_op = rightmost_op.cast(Node.PtrType).?;
+                    prefix_op.rhs = try p.expectNode(childParseFn, .{
+                        .InvalidToken = .{ .token = p.tok_i },
+                    });
+                },
+                .SliceType => {
+                    const prefix_op = rightmost_op.cast(Node.SliceType).?;
                     prefix_op.rhs = try p.expectNode(childParseFn, .{
                         .InvalidToken = .{ .token = p.tok_i },
                     });

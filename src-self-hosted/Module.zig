@@ -36,7 +36,7 @@ bin_file_path: []const u8,
 decl_exports: std.AutoHashMapUnmanaged(*Decl, []*Export) = .{},
 /// We track which export is associated with the given symbol name for quick
 /// detection of symbol collisions.
-symbol_exports: std.StringHashMap(*Export),
+symbol_exports: std.StringHashMapUnmanaged(*Export) = .{},
 /// This models the Decls that perform exports, so that `decl_exports` can be updated when a Decl
 /// is modified. Note that the key of this table is not the Decl being exported, but the Decl that
 /// is performing the export of another Decl.
@@ -769,7 +769,6 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
         .bin_file_path = options.bin_file_path,
         .bin_file = bin_file,
         .optimize_mode = options.optimize_mode,
-        .symbol_exports = std.StringHashMap(*Export).init(gpa),
         .work_queue = std.fifo.LinearFifo(WorkItem, .Dynamic).init(gpa),
         .keep_source_files_loaded = options.keep_source_files_loaded,
     };
@@ -812,7 +811,7 @@ pub fn deinit(self: *Module) void {
     }
     self.export_owners.deinit(gpa);
 
-    self.symbol_exports.deinit();
+    self.symbol_exports.deinit(gpa);
     self.root_scope.destroy(gpa);
     self.* = undefined;
 }
@@ -1309,8 +1308,16 @@ fn astGenExpr(self: *Module, scope: *Scope, ast_node: *ast.Node) InnerError!*zir
         .ControlFlowExpression => return self.astGenControlFlowExpression(scope, @fieldParentPtr(ast.Node.ControlFlowExpression, "base", ast_node)),
         .If => return self.astGenIf(scope, @fieldParentPtr(ast.Node.If, "base", ast_node)),
         .InfixOp => return self.astGenInfixOp(scope, @fieldParentPtr(ast.Node.InfixOp, "base", ast_node)),
+        .BoolNot => return self.astGenBoolNot(scope, @fieldParentPtr(ast.Node.BoolNot, "base", ast_node)),
         else => return self.failNode(scope, ast_node, "TODO implement astGenExpr for {}", .{@tagName(ast_node.id)}),
     }
+}
+
+fn astGenBoolNot(self: *Module, scope: *Scope, node: *ast.Node.BoolNot) InnerError!*zir.Inst {
+    const operand = try self.astGenExpr(scope, node.rhs);
+    const tree = scope.tree();
+    const src = tree.token_locs[node.op_token].start;
+    return self.addZIRInst(scope, src, zir.Inst.BoolNot, .{ .operand = operand }, .{});
 }
 
 fn astGenInfixOp(self: *Module, scope: *Scope, infix_node: *ast.Node.InfixOp) InnerError!*zir.Inst {
@@ -1351,17 +1358,19 @@ fn astGenInfixOp(self: *Module, scope: *Scope, infix_node: *ast.Node.InfixOp) In
             const tree = scope.tree();
             const src = tree.token_locs[infix_node.op_token].start;
 
+            const op: std.math.CompareOperator = switch (infix_node.op) {
+                .BangEqual => .neq,
+                .EqualEqual => .eq,
+                .GreaterThan => .gt,
+                .GreaterOrEqual => .gte,
+                .LessThan => .lt,
+                .LessOrEqual => .lte,
+                else => unreachable,
+            };
+
             return self.addZIRInst(scope, src, zir.Inst.Cmp, .{
                 .lhs = lhs,
-                .op = @as(std.math.CompareOperator, switch (infix_node.op) {
-                    .BangEqual => .neq,
-                    .EqualEqual => .eq,
-                    .GreaterThan => .gt,
-                    .GreaterOrEqual => .gte,
-                    .LessThan => .lt,
-                    .LessOrEqual => .lte,
-                    else => unreachable,
-                }),
+                .op = op,
                 .rhs = rhs,
             }, .{});
         },
@@ -1408,11 +1417,13 @@ fn astGenIf(self: *Module, scope: *Scope, if_node: *ast.Node.If) InnerError!*zir
     defer then_scope.instructions.deinit(self.gpa);
 
     const then_result = try self.astGenExpr(&then_scope.base, if_node.body);
-    const then_src = tree.token_locs[if_node.body.lastToken()].start;
-    _ = try self.addZIRInst(&then_scope.base, then_src, zir.Inst.Break, .{
-        .block = block,
-        .operand = then_result,
-    }, .{});
+    if (!then_result.tag.isNoReturn()) {
+        const then_src = tree.token_locs[if_node.body.lastToken()].start;
+        _ = try self.addZIRInst(&then_scope.base, then_src, zir.Inst.Break, .{
+            .block = block,
+            .operand = then_result,
+        }, .{});
+    }
     condbr.positionals.true_body = .{
         .instructions = try then_scope.arena.dupe(*zir.Inst, then_scope.instructions.items),
     };
@@ -1426,11 +1437,13 @@ fn astGenIf(self: *Module, scope: *Scope, if_node: *ast.Node.If) InnerError!*zir
 
     if (if_node.@"else") |else_node| {
         const else_result = try self.astGenExpr(&else_scope.base, else_node.body);
-        const else_src = tree.token_locs[else_node.body.lastToken()].start;
-        _ = try self.addZIRInst(&else_scope.base, else_src, zir.Inst.Break, .{
-            .block = block,
-            .operand = else_result,
-        }, .{});
+        if (!else_result.tag.isNoReturn()) {
+            const else_src = tree.token_locs[else_node.body.lastToken()].start;
+            _ = try self.addZIRInst(&else_scope.base, else_src, zir.Inst.Break, .{
+                .block = block,
+                .operand = else_result,
+            }, .{});
+        }
     } else {
         // TODO Optimization opportunity: we can avoid an allocation and a memcpy here
         // by directly allocating the body for this one instruction.
@@ -2305,7 +2318,7 @@ fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []const 
         return;
     }
 
-    try self.symbol_exports.putNoClobber(symbol_name, new_export);
+    try self.symbol_exports.putNoClobber(self.gpa, symbol_name, new_export);
     self.bin_file.updateDeclExports(self, exported_decl, de_gop.entry.value) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => {
@@ -2559,6 +2572,7 @@ fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*In
         .condbr => return self.analyzeInstCondBr(scope, old_inst.cast(zir.Inst.CondBr).?),
         .isnull => return self.analyzeInstIsNull(scope, old_inst.cast(zir.Inst.IsNull).?),
         .isnonnull => return self.analyzeInstIsNonNull(scope, old_inst.cast(zir.Inst.IsNonNull).?),
+        .boolnot => return self.analyzeInstBoolNot(scope, old_inst.cast(zir.Inst.BoolNot).?),
     }
 }
 
@@ -3234,6 +3248,17 @@ fn analyzeInstCmp(self: *Module, scope: *Scope, inst: *zir.Inst.Cmp) InnerError!
         return self.cmpNumeric(scope, inst.base.src, lhs, rhs, op);
     }
     return self.fail(scope, inst.base.src, "TODO implement more cmp analysis", .{});
+}
+
+fn analyzeInstBoolNot(self: *Module, scope: *Scope, inst: *zir.Inst.BoolNot) InnerError!*Inst {
+    const uncasted_operand = try self.resolveInst(scope, inst.positionals.operand);
+    const bool_type = Type.initTag(.bool);
+    const operand = try self.coerce(scope, bool_type, uncasted_operand);
+    if (try self.resolveDefinedValue(scope, operand)) |val| {
+        return self.constBool(scope, inst.base.src, !val.toBool());
+    }
+    const b = try self.requireRuntimeBlock(scope, inst.base.src);
+    return self.addNewInstArgs(b, inst.base.src, bool_type, Inst.Not, .{ .operand = operand });
 }
 
 fn analyzeInstIsNull(self: *Module, scope: *Scope, inst: *zir.Inst.IsNull) InnerError!*Inst {
