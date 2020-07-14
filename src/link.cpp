@@ -2503,6 +2503,11 @@ static void construct_linker_job_coff(LinkJob *lj) {
     bool is_library = g->out_type == OutTypeLib;
     if (is_library && g->is_dynamic) {
         lj->args.append("-DLL");
+
+        if (lj->codegen->libc_link_lib != nullptr) {
+            // Windows DLLs need to link the C runtime
+            lj->link_in_crt = true;
+        }
     }
 
     lj->args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(&g->bin_file_output_path))));
