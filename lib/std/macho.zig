@@ -269,7 +269,7 @@ pub const nlist_64 = extern struct {
 };
 
 /// Defines the attributes of a LC_TWOLEVEL_HINTS load command
-pub const twolevel_hints_command = struct { 
+pub const twolevel_hints_command = extern struct { 
     // Set to LC_TWOLEVEL_HINTS
     cmd: u32,
 
@@ -284,7 +284,7 @@ pub const twolevel_hints_command = struct {
 };
 
 /// Specifies an entry in the two-level namespace hint table
-pub const twolevel_hint = struct { 
+pub const twolevel_hint = extern struct { 
     /// Subimage in which the symbol is defined  
     /// It is an index into the list of images that make up the umbrella image
     isub_image: u8, 
@@ -294,7 +294,7 @@ pub const twolevel_hint = struct {
 };
 
 /// Defines a variable length string
-pub const lc_str = union {
+pub const lc_str = extern union {
     /// Byte offset from start of load command to start of str data
     offset: u32, 
 
@@ -304,7 +304,7 @@ pub const lc_str = union {
 
 /// Defines data used by the dynamic linker to match a shared 
 /// library against the files that have linked to it
-pub const dylib = struct { 
+pub const dylib = extern struct { 
     /// Name of the shared library
     name: lc_str, 
 
@@ -319,7 +319,7 @@ pub const dylib = struct {
 };
 
 /// Defines the attributes of the LC_LOAD_DYLIB and LC_ID_DYLIB load command
-pub const dylib_command = struct { 
+pub const dylib_command = extern struct { 
     /// Either LC_LOAD_DYLIB or LC_LOAD_WEAK_DYLIB or LC_ID_DYLIB
     cmd: u32,
 
@@ -331,7 +331,7 @@ pub const dylib_command = struct {
 };
 
 /// Defines the attributes of the LC_LOAD_DYLINKER and LC_ID_DYLINKER load commands
-pub const dylinker_command = struct { 
+pub const dylinker_command = extern struct { 
     /// Either LC_ID_DYLINKER or LC_LOAD_DYLINKER
     cmd: u32,
 
@@ -346,7 +346,7 @@ pub const dylinker_command = struct {
 /// Describes the location of the shared library initialization function, 
 /// which is a function that the dynamic linker calls before allowing any of 
 /// the routines in the library to be called
-pub const routines_command = struct { 
+pub const routines_command = extern struct { 
     /// Set to LC_ROUTINES
     cmd: u32,
 
@@ -372,7 +372,7 @@ pub const routines_command = struct {
 /// architectures. Describes the location of the shared library initialization function, 
 /// which is a function that the dynamic linker calls before allowing any of the routines 
 /// in the library to be called
-pub const routines_command_64 = struct { 
+pub const routines_command_64 = extern struct { 
     /// Set to LC_ROUTINES_64
     cmd: u32,
 
@@ -395,7 +395,7 @@ pub const routines_command_64 = struct {
 };
 
 /// Describes an entry in the table of contents of a dynamic shared library
-pub const dylib_table_of_contents = struct {
+pub const dylib_table_of_contents = extern struct {
     /// Index into the symbol table indicating the defined 
     /// external symbol to which this entry refers
     symbol_index: u32,  
@@ -406,7 +406,7 @@ pub const dylib_table_of_contents = struct {
 };  
 
 /// 32-Bit Describes a module table entry for a dynamic shared library
-pub const dylib_module = struct {
+pub const dylib_module = extern struct {
     /// Index to an entry in the string table indicating module name
     module_name: u32,   
 
@@ -459,7 +459,7 @@ pub const dylib_module = struct {
 };  
 
 /// 64-Bit Describes a module table entry for a dynamic shared library
-pub const dylib_module_64 = struct {
+pub const dylib_module_64 = extern struct {
     /// Index to an entry in the string table indicating module name
     module_name: u32,
 
@@ -513,7 +513,7 @@ pub const dylib_module_64 = struct {
 
 /// Defines the attributes of an external reference table entry for the external 
 /// reference entries provided by a module in a shared library
-pub const Dylib_Reference = struct {
+pub const Dylib_Reference = extern struct {
     /// Index into the symbol table for the symbol being referenced
     isym: u24,       
 
@@ -524,7 +524,7 @@ pub const Dylib_Reference = struct {
 
 /// Describes an item in the file that uses an address that needs to be updated when the
 /// address is changed
-pub const relocation_info = struct {
+pub const relocation_info = extern struct {
     /// In MH_OBJECT this is offset start of the section to the item containing the address 
     /// requiring relocation
     /// If high bit is set (R_SCATTERED) this is a (struct scattered_relocation_info)
@@ -555,7 +555,7 @@ pub const relocation_info = struct {
 /// that it uses are changed. This information is needed to reconstruct the addresses that make 
 /// up the relocatable expressions value in order to change the addresses independently of each other
 /// This both covers the big_endian and little_endian
-pub const scattered_relocation_info_big_endian = struct {
+pub const scattered_relocation_info_big_endian = extern struct {
     /// If 0 this is a relocation_info
     r_scattered: u1,
 
@@ -580,7 +580,7 @@ pub const scattered_relocation_info_big_endian = struct {
     r_value: i32
 };
 
-pub const scattered_relocation_info_little_endian = struct {
+pub const scattered_relocation_info_little_endian = extern struct {
     /// In MH_OBJECT file this is the offset from the start of the section to the item 
     /// containing the address requiring relocation
     /// If high bit is set (R_SCATTERED) this is a (struct relocation_info)
