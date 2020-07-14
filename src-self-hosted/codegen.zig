@@ -412,6 +412,9 @@ const Function = struct {
     }
 
     fn genNot(self: *Function, inst: *ir.Inst.Not, comptime arch: std.Target.Cpu.Arch) !MCValue {
+        // No side effects, so if it's unreferenced, do nothing.
+        if (inst.base.isUnused())
+            return MCValue.dead;
         switch (arch) {
             else => return self.fail(inst.base.src, "TODO implement NOT for {}", .{self.target.cpu.arch}),
         }
@@ -819,6 +822,8 @@ const Function = struct {
     }
 
     fn genAsm(self: *Function, inst: *ir.Inst.Assembly, comptime arch: Target.Cpu.Arch) !MCValue {
+        if (!inst.args.is_volatile and inst.base.isUnused())
+            return MCValue.dead;
         if (arch != .x86_64 and arch != .i386) {
             return self.fail(inst.base.src, "TODO implement inline asm support for more architectures", .{});
         }
