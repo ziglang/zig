@@ -2394,42 +2394,50 @@ pub const readlinkC = @compileError("deprecated: renamed to readlinkZ");
 /// See also `readlinkZ`.
 pub fn readlinkW(file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8 {
     const w = windows;
-    const sharing = w.FILE_SHARE_DELETE | w.FILE_SHARE_READ | w.FILE_SHARE_WRITE;
-    const disposition = w.OPEN_EXISTING;
-    const flags = w.FILE_FLAG_BACKUP_SEMANTICS | w.FILE_FLAG_OPEN_REPARSE_POINT;
-    const handle = w.CreateFileW(file_path, 0, sharing, null, disposition, flags, null) catch |err| {
+
+    const dir = if (std.fs.path.isAbsoluteWindowsW(file_path)) null else std.fs.cwd().fd;
+    const handle = w.OpenAsReparsePoint(dir, file_path) catch |err| {
         switch (err) {
             error.SharingViolation => return error.AccessDenied,
-            error.PathAlreadyExists => unreachable,
             error.PipeBusy => unreachable,
+            error.PathAlreadyExists => unreachable,
+            error.NoDevice => return error.FileNotFound,
             else => |e| return e,
         }
     };
-    var reparse_buf align(@alignOf(w.REPARSE_DATA_BUFFER)) = [_]u8{0} ** (w.MAXIMUM_REPARSE_DATA_BUFFER_SIZE);
+
+    var reparse_buf: [w.MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
     _ = try w.DeviceIoControl(handle, w.FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..], null);
-    const reparse_struct = @ptrCast(*const w.REPARSE_DATA_BUFFER, &reparse_buf[0]);
+    // std.debug.warn("\n\n{x}\n\n", .{reparse_buf});
+    const reparse_struct = @ptrCast(*const w.REPARSE_DATA_BUFFER, @alignCast(@alignOf(w.REPARSE_DATA_BUFFER), &reparse_buf[0]));
     switch (reparse_struct.ReparseTag) {
         w.IO_REPARSE_TAG_SYMLINK => {
-            const alignment = @alignOf(w.SymbolicLinkReparseBuffer);
-            const buf = @ptrCast(*const w.SymbolicLinkReparseBuffer, @alignCast(alignment, &reparse_struct.DataBuffer[0]));
-            const offset = buf.SubstituteNameOffset / 2;
-            const len = buf.SubstituteNameLength / 2;
-            const f = buf.Flags;
+            const buf = @ptrCast(*const w.SymbolicLinkReparseBuffer, @alignCast(@alignOf(w.SymbolicLinkReparseBuffer), &reparse_struct.DataBuffer[0]));
+            const offset = buf.SubstituteNameOffset >> 1;
+            const len = buf.SubstituteNameLength >> 1;
             const path_buf = @as([*]const u16, &buf.PathBuffer);
-            std.debug.warn("got symlink => offset={}, len={}, flags = {}, {}\n", .{ offset, len, f, w.SYMLINK_FLAG_RELATIVE });
-            // TODO handle absolute paths and namespace prefix
-            const out_len = std.unicode.utf16leToUtf8(out_buffer, path_buf[offset .. offset + len]) catch unreachable;
-            std.debug.warn("got symlink => utf8={}\n", .{out_buffer[0..out_len]});
-            return out_buffer[0..out_len];
+            const is_relative = buf.Flags & w.SYMLINK_FLAG_RELATIVE != 0;
+            return parseReadlinkPath(path_buf[offset .. offset + len], is_relative, out_buffer);
         },
         w.IO_REPARSE_TAG_MOUNT_POINT => {
-            @panic("TODO parse mount point");
+            const buf = @ptrCast(*const w.MountPointReparseBuffer, @alignCast(@alignOf(w.MountPointReparseBuffer), &reparse_struct.DataBuffer[0]));
+            const offset = buf.SubstituteNameOffset >> 1;
+            const len = buf.SubstituteNameLength >> 1;
+            const path_buf = @as([*]const u16, &buf.PathBuffer);
+            return parseReadlinkPath(path_buf[offset .. offset + len], false, out_buffer);
         },
         else => |value| {
             std.debug.warn("unsupported symlink type: {}", .{value});
             return error.UnsupportedSymlinkType;
         },
     }
+}
+
+fn parseReadlinkPath(path: []const u16, is_relative: bool, out_buffer: []u8) []u8 {
+    const out_len = std.unicode.utf16leToUtf8(out_buffer, path) catch unreachable;
+    std.debug.warn("got symlink => utf8={}\n", .{out_buffer[0..out_len]});
+    // TODO handle absolute paths and namespace prefix '/??/'
+    return out_buffer[0..out_len];
 }
 
 /// Same as `readlink` except `file_path` is null-terminated.

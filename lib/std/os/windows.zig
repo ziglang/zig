@@ -1371,3 +1371,73 @@ pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
     }
     return error.Unexpected;
 }
+
+pub const OpenAsReparsePointError = error {
+    FileNotFound,
+    NoDevice,
+    SharingViolation,
+    AccessDenied,
+    PipeBusy,
+    PathAlreadyExists,
+    Unexpected,
+    NameTooLong,
+};
+
+/// Open file as a reparse point
+pub fn OpenAsReparsePoint(
+    dir: ?HANDLE,
+    sub_path_w: [*:0]const u16,
+) OpenAsReparsePointError!HANDLE {
+    const path_len_bytes = math.cast(u16, mem.lenZ(sub_path_w) * 2) catch |err| switch (err) {
+        error.Overflow => return error.NameTooLong,
+    };
+    var nt_name = UNICODE_STRING{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
+    };
+
+    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+        // Windows does not recognize this, but it does work with empty string.
+        nt_name.Length = 0;
+    }
+
+    var attr = OBJECT_ATTRIBUTES{
+        .Length = @sizeOf(OBJECT_ATTRIBUTES),
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w)) null else dir,
+        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+        .ObjectName = &nt_name,
+        .SecurityDescriptor = null,
+        .SecurityQualityOfService = null,
+    };
+    var io: IO_STATUS_BLOCK = undefined;
+    var result_handle: HANDLE = undefined;
+    const rc = ntdll.NtCreateFile(
+        &result_handle,
+        FILE_READ_ATTRIBUTES,
+        &attr,
+        &io,
+        null,
+        FILE_ATTRIBUTE_NORMAL,
+        FILE_SHARE_READ,
+        FILE_OPEN,
+        FILE_OPEN_REPARSE_POINT,
+        null,
+        0,
+    );
+    switch (rc) {
+        .SUCCESS => return result_handle,
+        .OBJECT_NAME_INVALID => unreachable,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .NO_MEDIA_IN_DEVICE => return error.NoDevice,
+        .INVALID_PARAMETER => unreachable,
+        .SHARING_VIOLATION => return error.SharingViolation,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .PIPE_BUSY => return error.PipeBusy,
+        .OBJECT_PATH_SYNTAX_BAD => unreachable,
+        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+        .FILE_IS_A_DIRECTORY => unreachable,
+        else => return unexpectedStatus(rc),
+    }
+}
