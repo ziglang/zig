@@ -1,4 +1,4 @@
-pub const mach_header = extern struct {
+pub const MachHeader = extern struct {
     magic: u32,
     cputype: cpu_type_t,
     cpusubtype: cpu_subtype_t,
@@ -8,7 +8,7 @@ pub const mach_header = extern struct {
     flags: u32,
 };
 
-pub const mach_header_64 = extern struct {
+pub const MachHeader64 = extern struct {
     magic: u32,
     cputype: cpu_type_t,
     cpusubtype: cpu_subtype_t,
@@ -19,12 +19,12 @@ pub const mach_header_64 = extern struct {
     reserved: u32,
 };
 
-pub const load_command = extern struct {
+pub const LoadCommand = extern struct {
     cmd: u32,
     cmdsize: u32,
 };
 
-pub const uuid_command = extern struct {
+pub const UuidCommand = extern struct {
     /// LC_UUID
     cmd: u32,
 
@@ -38,7 +38,7 @@ pub const uuid_command = extern struct {
 /// The symtab_command contains the offsets and sizes of the link-edit 4.3BSD
 /// "stab" style symbol table information as described in the header files
 /// <nlist.h> and <stab.h>.
-pub const symtab_command = extern struct {
+pub const SymtabCommand = extern struct {
     /// LC_SYMTAB
     cmd: u32,
 
@@ -60,7 +60,7 @@ pub const symtab_command = extern struct {
 
 /// The linkedit_data_command contains the offsets and sizes of a blob
 /// of data in the __LINKEDIT segment.
-const linkedit_data_command = extern struct {
+const LinkeditDataCommand = extern struct {
     /// LC_CODE_SIGNATURE, LC_SEGMENT_SPLIT_INFO, LC_FUNCTION_STARTS, LC_DATA_IN_CODE, LC_DYLIB_CODE_SIGN_DRS or LC_LINKER_OPTIMIZATION_HINT.
     cmd: u32,
 
@@ -84,7 +84,7 @@ const linkedit_data_command = extern struct {
 /// by the maxprot and initprot fields.  If the segment has sections then the
 /// section structures directly follow the segment command and their size is
 /// reflected in cmdsize.
-pub const segment_command = extern struct {
+pub const SegmentCommand = extern struct {
     /// LC_SEGMENT
     cmd: u32,
 
@@ -121,7 +121,7 @@ pub const segment_command = extern struct {
 /// mapped into a 64-bit task's address space.  If the 64-bit segment has
 /// sections then section_64 structures directly follow the 64-bit segment
 /// command and their size is reflected in cmdsize.
-pub const segment_command_64 = extern struct {
+pub const SegmentCommand64 = extern struct {
     /// LC_SEGMENT_64
     cmd: u32,
 
@@ -214,7 +214,7 @@ pub const @"section" = extern struct {
     reserved2: u32,
 };
 
-pub const section_64 = extern struct {
+pub const Section64 = extern struct {
     /// name of this section
     sectname: [16]u8,
 
@@ -252,7 +252,7 @@ pub const section_64 = extern struct {
     reserved3: u32,
 };
 
-pub const nlist = extern struct {
+pub const Nlist = extern struct {
     n_strx: u32,
     n_type: u8,
     n_sect: u8,
@@ -260,7 +260,7 @@ pub const nlist = extern struct {
     n_value: u32,
 };
 
-pub const nlist_64 = extern struct {
+pub const Nlist64 = extern struct {
     n_strx: u32,
     n_type: u8,
     n_sect: u8,
@@ -269,7 +269,7 @@ pub const nlist_64 = extern struct {
 };
 
 /// Defines the attributes of a LC_TWOLEVEL_HINTS load command
-pub const twolevel_hints_command = extern struct { 
+pub const TwolevelHintsCommand = extern struct { 
     // Set to LC_TWOLEVEL_HINTS
     cmd: u32,
 
@@ -284,7 +284,7 @@ pub const twolevel_hints_command = extern struct {
 };
 
 /// Specifies an entry in the two-level namespace hint table
-pub const twolevel_hint = extern struct { 
+pub const TwolevelHint = extern struct { 
     /// Subimage in which the symbol is defined  
     /// It is an index into the list of images that make up the umbrella image
     isub_image: u8, 
@@ -294,7 +294,7 @@ pub const twolevel_hint = extern struct {
 };
 
 /// Defines a variable length string
-pub const lc_str = extern union {
+pub const LcStr = extern union {
     /// Byte offset from start of load command to start of str data
     offset: u32, 
 
@@ -304,9 +304,9 @@ pub const lc_str = extern union {
 
 /// Defines data used by the dynamic linker to match a shared 
 /// library against the files that have linked to it
-pub const dylib = extern struct { 
+pub const Dylib = extern struct { 
     /// Name of the shared library
-    name: lc_str, 
+    name: Lc_Str, 
 
     /// Date and time when the shared library was built
     timestamp: u32, 
@@ -319,7 +319,7 @@ pub const dylib = extern struct {
 };
 
 /// Defines the attributes of the LC_LOAD_DYLIB and LC_ID_DYLIB load command
-pub const dylib_command = extern struct { 
+pub const DylibCommand = extern struct { 
     /// Either LC_LOAD_DYLIB or LC_LOAD_WEAK_DYLIB or LC_ID_DYLIB
     cmd: u32,
 
@@ -327,11 +327,11 @@ pub const dylib_command = extern struct {
     cmdsize: u32, 
 
     /// Attributes of the shared library
-    dylib: dylib 
+    dylib: Dylib 
 };
 
 /// Defines the attributes of the LC_LOAD_DYLINKER and LC_ID_DYLINKER load commands
-pub const dylinker_command = extern struct { 
+pub const DylinkerCommand = extern struct { 
     /// Either LC_ID_DYLINKER or LC_LOAD_DYLINKER
     cmd: u32,
 
@@ -339,14 +339,14 @@ pub const dylinker_command = extern struct {
     cmdsize: u32, 
 
     /// Specifies the name of the dynamic linker
-    name: lc_str
+    name: Lc_Str
 };
 
 /// 32-bit Defines the attributes of the LC_ROUTINES load command
 /// Describes the location of the shared library initialization function, 
 /// which is a function that the dynamic linker calls before allowing any of 
 /// the routines in the library to be called
-pub const routines_command = extern struct { 
+pub const RoutinesCommand = extern struct { 
     /// Set to LC_ROUTINES
     cmd: u32,
 
@@ -372,7 +372,7 @@ pub const routines_command = extern struct {
 /// architectures. Describes the location of the shared library initialization function, 
 /// which is a function that the dynamic linker calls before allowing any of the routines 
 /// in the library to be called
-pub const routines_command_64 = extern struct { 
+pub const RoutinesCommand64 = extern struct { 
     /// Set to LC_ROUTINES_64
     cmd: u32,
 
@@ -395,7 +395,7 @@ pub const routines_command_64 = extern struct {
 };
 
 /// Describes an entry in the table of contents of a dynamic shared library
-pub const dylib_table_of_contents = extern struct {
+pub const DylibTableOfContents = extern struct {
     /// Index into the symbol table indicating the defined 
     /// external symbol to which this entry refers
     symbol_index: u32,  
@@ -406,7 +406,7 @@ pub const dylib_table_of_contents = extern struct {
 };  
 
 /// 32-Bit Describes a module table entry for a dynamic shared library
-pub const dylib_module = extern struct {
+pub const DylibModule = extern struct {
     /// Index to an entry in the string table indicating module name
     module_name: u32,   
 
@@ -459,7 +459,7 @@ pub const dylib_module = extern struct {
 };  
 
 /// 64-Bit Describes a module table entry for a dynamic shared library
-pub const dylib_module_64 = extern struct {
+pub const DylibModule64 = extern struct {
     /// Index to an entry in the string table indicating module name
     module_name: u32,
 
@@ -513,7 +513,7 @@ pub const dylib_module_64 = extern struct {
 
 /// Defines the attributes of an external reference table entry for the external 
 /// reference entries provided by a module in a shared library
-pub const Dylib_Reference = extern struct {
+pub const DylibReference = extern struct {
     /// Index into the symbol table for the symbol being referenced
     isym: u24,       
 
@@ -524,7 +524,7 @@ pub const Dylib_Reference = extern struct {
 
 /// Describes an item in the file that uses an address that needs to be updated when the
 /// address is changed
-pub const relocation_info = extern struct {
+pub const RelocationInfo = extern struct {
     /// In MH_OBJECT this is offset start of the section to the item containing the address 
     /// requiring relocation
     /// If high bit is set (R_SCATTERED) this is a (struct scattered_relocation_info)
@@ -555,7 +555,7 @@ pub const relocation_info = extern struct {
 /// that it uses are changed. This information is needed to reconstruct the addresses that make 
 /// up the relocatable expressions value in order to change the addresses independently of each other
 /// This both covers the big_endian and little_endian
-pub const scattered_relocation_info_big_endian = extern struct {
+pub const ScatteredRelocationInfoBigEndian = extern struct {
     /// If 0 this is a relocation_info
     r_scattered: u1,
 
@@ -580,7 +580,7 @@ pub const scattered_relocation_info_big_endian = extern struct {
     r_value: i32
 };
 
-pub const scattered_relocation_info_little_endian = extern struct {
+pub const ScatteredRelocationInfoLittleEndian = extern struct {
     /// In MH_OBJECT file this is the offset from the start of the section to the item 
     /// containing the address requiring relocation
     /// If high bit is set (R_SCATTERED) this is a (struct relocation_info)
