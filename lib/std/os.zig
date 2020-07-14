@@ -2381,7 +2381,7 @@ pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
         @compileError("readlink is not supported in WASI; use readlinkat instead");
     } else if (builtin.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
-        return readlinkW(file_path_w.span(), out_buffer);
+        return readlinkW(file_path_w.span().ptr, out_buffer);
     } else {
         const file_path_c = try toPosixPath(file_path);
         return readlinkZ(&file_path_c, out_buffer);
@@ -2392,26 +2392,28 @@ pub const readlinkC = @compileError("deprecated: renamed to readlinkZ");
 
 /// Windows-only. Same as `readlink` except `file_path` is null-terminated, WTF16 encoded.
 /// See also `readlinkZ`.
-pub fn readlinkW(file_path: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
-    const handle = windows.ReadLink(file_path) catch |err| {
+pub fn readlinkW(file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8 {
+    const w = windows;
+    const access_mode: w.DWORD = 0;
+    const sharing = w.FILE_SHARE_DELETE | w.FILE_SHARE_READ | w.FILE_SHARE_WRITE;
+    const disposition = w.OPEN_EXISTING;
+    const flags = w.FILE_FLAG_BACKUP_SEMANTICS | w.FILE_FLAG_OPEN_REPARSE_POINT;
+    const handle = w.CreateFileW(file_path, access_mode, sharing, null, disposition, flags, null) catch |err| {
         switch (err) {
-            error.IsDir => unreachable,
-            error.NoDevice => return error.FileNotFound,
             error.SharingViolation => return error.AccessDenied,
-            error.PipeBusy => unreachable,
             error.PathAlreadyExists => unreachable,
-            error.WouldBlock => unreachable,
+            error.PipeBusy => unreachable,
             else => |e| return e,
         }
     };
-    var reparse_buf: [windows.MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
-    _ = try windows.DeviceIoControl(handle, windows.FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..], null);
-    const reparse_struct = mem.bytesAsValue(windows._REPARSE_DATA_BUFFER, reparse_buf[0..@sizeOf(windows._REPARSE_DATA_BUFFER)]);
+    var reparse_buf: [w.MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
+    _ = try w.DeviceIoControl(handle, w.FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..], null);
+    const reparse_struct = mem.bytesAsValue(w.REPARSE_DATA_BUFFER, reparse_buf[0..@sizeOf(w.REPARSE_DATA_BUFFER)]);
     switch (reparse_struct.ReparseTag) {
-        windows.IO_REPARSE_TAG_SYMLINK => {
+        w.IO_REPARSE_TAG_SYMLINK => {
             std.debug.warn("got symlink!", .{});
         },
-        windows.IO_REPARSE_TAG_MOUNT_POINT => {
+        w.IO_REPARSE_TAG_MOUNT_POINT => {
             std.debug.warn("got mount point!", .{});
         },
         else => |value| {
@@ -2426,7 +2428,7 @@ pub fn readlinkW(file_path: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
 pub fn readlinkZ(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
-        return readlinkW(file_path_w.span(), out_buffer);
+        return readlinkW(file_path_w.span().ptr, out_buffer);
     }
     const rc = system.readlink(file_path, out_buffer.ptr, out_buffer.len);
     switch (errno(rc)) {

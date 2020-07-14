@@ -1543,7 +1543,7 @@ pub const LPOSVERSIONINFOW = *OSVERSIONINFOW;
 pub const RTL_OSVERSIONINFOW = OSVERSIONINFOW;
 pub const PRTL_OSVERSIONINFOW = *RTL_OSVERSIONINFOW;
 
-pub const _REPARSE_DATA_BUFFER = extern struct {
+pub const REPARSE_DATA_BUFFER = extern struct {
     ReparseTag: ULONG, ReparseDataLength: USHORT, Reserved: USHORT, u: extern union {
         SymbolicLinkReparseBuffer: extern struct {
             SubstituteNameOffset: USHORT,
