@@ -2437,7 +2437,10 @@ pub fn readlinkW(file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8
 
 fn parseReadlinkPath(path: []const u16, is_relative: bool, out_buffer: []u8) []u8 {
     const prefix = [_]u16{ '\\', '?', '?', '\\' };
-    const start_index = if (mem.startsWith(u16, path, &prefix)) prefix.len else 0;
+    var start_index: usize = 0;
+    if (!is_relative and mem.startsWith(u16, path, &prefix)) {
+        start_index = prefix.len;
+    }
     const out_len = std.unicode.utf16leToUtf8(out_buffer, path[start_index..]) catch unreachable;
     return out_buffer[0..out_len];
 }

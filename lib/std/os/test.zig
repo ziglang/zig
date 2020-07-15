@@ -70,29 +70,46 @@ test "readlink" {
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
 
+
     const base_path = blk: {
         const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
     };
+    const allocator = &arena.allocator;
 
-    try testReadlink(&arena.allocator, base_path, "file.txt", "symlink1", false);
-    try testReadlink(&arena.allocator, base_path, "subdir", "symlink2", true);
-}
-
-fn testReadlink(allocator: *mem.Allocator, base_path: []const u8, target_name: []const u8, symlink_name: []const u8, is_dir: bool) !void {
-        const target_path = try fs.path.join(allocator, &[_][]const u8{ base_path, target_name });
-        const symlink_path = try fs.path.join(allocator, &[_][]const u8{ base_path, symlink_name });
+    {
+        const target_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "file.txt" });
+        const symlink_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "symlink1" });
         std.debug.warn("\ntarget_path={}\n", .{target_path});
         std.debug.warn("symlink_path={}\n", .{symlink_path});
 
         // Create symbolic link by path
-        try os.symlink(target_path, symlink_path, .{ .is_directory = is_dir });
+        try os.symlink(target_path, symlink_path, .{ .is_directory = false });
+        try testReadlink(target_path, symlink_path);
+    }
+    {
+        const target_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "subdir" });
+        const symlink_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "symlink2" });
+        std.debug.warn("\ntarget_path={}\n", .{target_path});
+        std.debug.warn("symlink_path={}\n", .{symlink_path});
 
-        // Read the link and verify
-        var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
-        const given = try os.readlink(symlink_path, buffer[0..]);
-        std.debug.warn("given={}\n", .{given});
-        expect(mem.eql(u8, target_path, given));
+        // Create symbolic link by path
+        try os.symlink(target_path, symlink_path, .{ .is_directory = true });
+        try testReadlink(target_path, symlink_path);
+    }
+
+    if (builtin.os.tag == .windows) {
+        try testReadlink("C:\\ProgramData", "C:\\Users\\All Users");
+        try testReadlink("C:\\Users\\Default", "C:\\Users\\Default User");
+        try testReadlink("C:\\Users", "C:\\Documents and Settings");
+    }
+}
+
+fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
+    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const given = try os.readlink(symlink_path, buffer[0..]);
+    std.debug.warn("given={}\n", .{given});
+    expect(mem.eql(u8, target_path, given));
 }
 
 test "readlinkat" {
