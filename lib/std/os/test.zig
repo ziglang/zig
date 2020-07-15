@@ -80,8 +80,6 @@ test "readlink" {
     {
         const target_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "file.txt" });
         const symlink_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "symlink1" });
-        std.debug.warn("\ntarget_path={}\n", .{target_path});
-        std.debug.warn("symlink_path={}\n", .{symlink_path});
 
         // Create symbolic link by path
         try os.symlink(target_path, symlink_path, .{ .is_directory = false });
@@ -90,8 +88,6 @@ test "readlink" {
     {
         const target_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "subdir" });
         const symlink_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "symlink2" });
-        std.debug.warn("\ntarget_path={}\n", .{target_path});
-        std.debug.warn("symlink_path={}\n", .{symlink_path});
 
         // Create symbolic link by path
         try os.symlink(target_path, symlink_path, .{ .is_directory = true });
@@ -108,7 +104,6 @@ test "readlink" {
 fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
     var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
     const given = try os.readlink(symlink_path, buffer[0..]);
-    std.debug.warn("given={}\n", .{given});
     expect(mem.eql(u8, target_path, given));
 }
 

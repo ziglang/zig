@@ -1263,40 +1263,80 @@ pub const PathSpace = struct {
     pub fn span(self: PathSpace) [:0]const u16 {
         return self.data[0..self.len :0];
     }
+
+    fn ensureNtStyle(self: *PathSpace) void {
+        // > File I/O functions in the Windows API convert "/" to "\" as part of
+        // > converting the name to an NT-style name, except when using the "\\?\"
+        // > prefix as detailed in the following sections.
+        // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
+        // Because we want the larger maximum path length for absolute paths, we
+        // convert forward slashes to backward slashes here.
+        for (self.data[0..self.len]) |*elem| {
+            if (elem.* == '/') {
+                elem.* = '\\';
+            }
+        }
+        self.data[self.len] = 0;
+    }
 };
 
+/// Same as `sliceToPrefixedFileW` but accepts a pointer
+/// to a null-terminated path.
 pub fn cStrToPrefixedFileW(s: [*:0]const u8) !PathSpace {
     return sliceToPrefixedFileW(mem.spanZ(s));
 }
 
+/// Same as `sliceToWin32PrefixedFileW` but accepts a pointer
+/// to a null-terminated path.
+pub fn cStrToWin32PrefixedFileW(s: [*:0]const u8) !PathSpace {
+    return sliceToWin32PrefixedFileW(mem.spanZ(s));
+}
+
+/// Converts the path `s` to WTF16, null-terminated. If the path is absolute,
+/// it will get NT-style prefix `\??\` prepended automatically. For prepending
+/// Win32-style prefix, see `sliceToWin32PrefixedFileW` instead.
 pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
     // TODO https://github.com/ziglang/zig/issues/2765
     var path_space: PathSpace = undefined;
-    for (s) |byte| {
+    const prefix_index: usize = if (mem.startsWith(u8, s, "\\??\\")) 4 else 0;
+    for (s[prefix_index..]) |byte| {
         switch (byte) {
             '*', '?', '"', '<', '>', '|' => return error.BadPathName,
             else => {},
         }
     }
-    const start_index = if (mem.startsWith(u8, s, "\\?") or !std.fs.path.isAbsolute(s)) 0 else blk: {
+    const start_index = if (prefix_index > 0 or !std.fs.path.isAbsolute(s)) 0 else blk: {
         const prefix = [_]u16{ '\\', '?', '?', '\\' };
         mem.copy(u16, path_space.data[0..], &prefix);
         break :blk prefix.len;
     };
     path_space.len = start_index + try std.unicode.utf8ToUtf16Le(path_space.data[start_index..], s);
     if (path_space.len > path_space.data.len) return error.NameTooLong;
-    // > File I/O functions in the Windows API convert "/" to "\" as part of
-    // > converting the name to an NT-style name, except when using the "\\?\"
-    // > prefix as detailed in the following sections.
-    // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
-    // Because we want the larger maximum path length for absolute paths, we
-    // convert forward slashes to backward slashes here.
-    for (path_space.data[0..path_space.len]) |*elem| {
-        if (elem.* == '/') {
-            elem.* = '\\';
+    path_space.ensureNtStyle();
+    return path_space;
+}
+
+/// Converts the path `s` to WTF16, null-terminated. If the path is absolute,
+/// it will get Win32-style extended prefix `\\?\` prepended automatically. For prepending
+/// NT-style prefix, see `sliceToPrefixedFileW` instead.
+pub fn sliceToWin32PrefixedFileW(s: []const u8) !PathSpace {
+    // TODO https://github.com/ziglang/zig/issues/2765
+    var path_space: PathSpace = undefined;
+    const prefix_index: usize = if (mem.startsWith(u8, s, "\\\\?\\")) 4 else 0;
+    for (s[prefix_index..]) |byte| {
+        switch (byte) {
+            '*', '?', '"', '<', '>', '|' => return error.BadPathName,
+            else => {},
         }
     }
-    path_space.data[path_space.len] = 0;
+    const start_index = if (prefix_index > 0 or !std.fs.path.isAbsolute(s)) 0 else blk: {
+        const prefix = [_]u16{ '\\', '\\', '?', '\\' };
+        mem.copy(u16, path_space.data[0..], &prefix);
+        break :blk prefix.len;
+    };
+    path_space.len = start_index + try std.unicode.utf8ToUtf16Le(path_space.data[start_index..], s);
+    if (path_space.len > path_space.data.len) return error.NameTooLong;
+    path_space.ensureNtStyle();
     return path_space;
 }
 
@@ -1313,12 +1353,7 @@ pub fn wToPrefixedFileW(s: []const u16) !PathSpace {
     path_space.len = start_index + s.len;
     if (path_space.len > path_space.data.len) return error.NameTooLong;
     mem.copy(u16, path_space.data[start_index..], s);
-    for (path_space.data[0..path_space.len]) |*elem| {
-        if (elem.* == '/') {
-            elem.* = '\\';
-        }
-    }
-    path_space.data[path_space.len] = 0;
+    path_space.ensureNtStyle();
     return path_space;
 }
 

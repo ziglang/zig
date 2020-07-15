@@ -1556,8 +1556,8 @@ pub fn symlink(target_path: []const u8, sym_link_path: []const u8, flags: Symlin
         @compileError("symlink is not supported in WASI; use symlinkat instead");
     }
     if (builtin.os.tag == .windows) {
-        const target_path_w = try windows.sliceToPrefixedFileW(target_path);
-        const sym_link_path_w = try windows.sliceToPrefixedFileW(sym_link_path);
+        const target_path_w = try windows.sliceToWin32PrefixedFileW(target_path);
+        const sym_link_path_w = try windows.sliceToWin32PrefixedFileW(sym_link_path);
         return symlinkW(target_path_w.span().ptr, sym_link_path_w.span().ptr, flags);
     }
     const target_path_c = try toPosixPath(target_path);
@@ -1578,8 +1578,8 @@ pub fn symlinkW(target_path: [*:0]const u16, sym_link_path: [*:0]const u16, flag
 /// See also `symlink`.
 pub fn symlinkZ(target_path: [*:0]const u8, sym_link_path: [*:0]const u8, flags: SymlinkFlags) SymLinkError!void {
     if (builtin.os.tag == .windows) {
-        const target_path_w = try windows.cStrToPrefixedFileW(target_path);
-        const sym_link_path_w = try windows.cStrToPrefixedFileW(sym_link_path);
+        const target_path_w = try windows.cStrToWin32PrefixedFileW(target_path);
+        const sym_link_path_w = try windows.cStrToWin32PrefixedFileW(sym_link_path);
         return symlinkW(target_path_w.span().ptr, sym_link_path_w.span().ptr);
     }
     switch (errno(system.symlink(target_path, sym_link_path))) {
@@ -2382,7 +2382,7 @@ pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os.tag == .wasi) {
         @compileError("readlink is not supported in WASI; use readlinkat instead");
     } else if (builtin.os.tag == .windows) {
-        const file_path_w = try windows.sliceToPrefixedFileW(file_path);
+        const file_path_w = try windows.sliceToWin32PrefixedFileW(file_path);
         return readlinkW(file_path_w.span().ptr, out_buffer);
     } else {
         const file_path_c = try toPosixPath(file_path);
@@ -2448,7 +2448,7 @@ fn parseReadlinkPath(path: []const u16, is_relative: bool, out_buffer: []u8) []u
 /// Same as `readlink` except `file_path` is null-terminated.
 pub fn readlinkZ(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os.tag == .windows) {
-        const file_path_w = try windows.cStrToPrefixedFileW(file_path);
+        const file_path_w = try windows.cStrToWin32PrefixedFileW(file_path);
         return readlinkW(file_path_w.span().ptr, out_buffer);
     }
     const rc = system.readlink(file_path, out_buffer.ptr, out_buffer.len);
