@@ -124,7 +124,6 @@ test "TrailerFlags" {
         .b = true,
         .c = 1234,
     });
-    testing.expect(flags.sizeInBytes() == 16);
     const slice = try testing.allocator.allocAdvanced(u8, 8, flags.sizeInBytes(), .exact);
     defer testing.allocator.free(slice);
 
