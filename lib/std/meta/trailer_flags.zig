@@ -33,15 +33,28 @@ pub fn TrailerFlags(comptime Fields: type) type {
             self.bits |= 1 << field_index;
         }
 
-        pub fn init(comptime names: anytype) Self {
+        /// `fields` is a struct with each field set to an optional value.
+        /// Missing fields are assumed to be `null`.
+        /// Only the non-null bits are observed and are used to set the flag bits.
+        pub fn init(fields: anytype) Self {
             var self: Self = .{ .bits = 0 };
-            inline for (@typeInfo(@TypeOf(names)).Struct.fields) |field| {
-                if (@field(names, field.name)) {
-                    const field_index = meta.fieldIndex(Fields, field.name).?;
-                    self.bits |= 1 << field_index;
-                }
+            inline for (@typeInfo(@TypeOf(fields)).Struct.fields) |field| {
+                const opt: ?Field(field.name) = @field(fields, field.name);
+                const field_index = meta.fieldIndex(Fields, field.name).?;
+                self.bits |= @as(Int, @boolToInt(opt != null)) << field_index;
             }
             return self;
+        }
+
+        /// `fields` is a struct with each field set to an optional value (same as `init`).
+        /// Missing fields are assumed to be `null`.
+        pub fn setMany(self: Self, p: [*]align(@alignOf(Fields)) u8, fields: anytype) void {
+            inline for (@typeInfo(@TypeOf(fields)).Struct.fields) |field| {
+                const opt: ?Field(field.name) = @field(fields, field.name);
+                if (opt) |value| {
+                    self.set(p, field.name, value);
+                }
+            }
         }
 
         pub fn set(
@@ -54,11 +67,15 @@ pub fn TrailerFlags(comptime Fields: type) type {
         }
 
         pub fn ptr(self: Self, p: [*]align(@alignOf(Fields)) u8, comptime name: []const u8) *Field(name) {
+            if (@sizeOf(Field(name)) == 0)
+                return undefined;
             const off = self.offset(p, name);
             return @ptrCast(*Field(name), @alignCast(@alignOf(Field(name)), p + off));
         }
 
         pub fn ptrConst(self: Self, p: [*]align(@alignOf(Fields)) const u8, comptime name: []const u8) *const Field(name) {
+            if (@sizeOf(Field(name)) == 0)
+                return undefined;
             const off = self.offset(p, name);
             return @ptrCast(*const Field(name), @alignCast(@alignOf(Field(name)), p + off));
         }
@@ -85,6 +102,8 @@ pub fn TrailerFlags(comptime Fields: type) type {
         pub fn sizeInBytes(self: Self) usize {
             var off: usize = 0;
             inline for (@typeInfo(Fields).Struct.fields) |field, i| {
+                if (@sizeOf(field.field_type) == 0)
+                    continue;
                 if ((self.bits & (1 << i)) != 0) {
                     off = mem.alignForwardGeneric(usize, off, @alignOf(field.field_type));
                     off += @sizeOf(field.field_type);
@@ -103,7 +122,7 @@ test "TrailerFlags" {
     });
     var flags = Flags.init(.{
         .b = true,
-        .c = true,
+        .c = 1234,
     });
     testing.expect(flags.sizeInBytes() == 16);
     const slice = try testing.allocator.allocAdvanced(u8, 8, flags.sizeInBytes(), .exact);
@@ -115,4 +134,13 @@ test "TrailerFlags" {
     testing.expect(flags.get(slice.ptr, "a") == null);
     testing.expect(!flags.get(slice.ptr, "b").?);
     testing.expect(flags.get(slice.ptr, "c").? == 12345678);
+
+    flags.setMany(slice.ptr, .{
+        .b = true,
+        .c = 5678,
+    });
+
+    testing.expect(flags.get(slice.ptr, "a") == null);
+    testing.expect(flags.get(slice.ptr, "b").?);
+    testing.expect(flags.get(slice.ptr, "c").? == 5678);
 }

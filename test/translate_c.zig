@@ -2797,7 +2797,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn a() callconv(.C) void {}
         \\pub fn b() callconv(.C) void {}
         \\pub export fn c() void {}
-        \\pub fn foo() callconv(.C) void {}
+        \\pub fn foo(...) callconv(.C) void {}
     });
 
     cases.add("casting away const and volatile",

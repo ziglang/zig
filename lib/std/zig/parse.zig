@@ -150,7 +150,7 @@ const Parser = struct {
 
             const visib_token = p.eatToken(.Keyword_pub);
 
-            if (p.parseTopLevelDecl() catch |err| switch (err) {
+            if (p.parseTopLevelDecl(doc_comments, visib_token) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.ParseError => {
                     p.findNextContainerMember();
@@ -160,30 +160,7 @@ const Parser = struct {
                 if (field_state == .seen) {
                     field_state = .{ .end = visib_token orelse node.firstToken() };
                 }
-                switch (node.id) {
-                    .FnProto => {
-                        node.cast(Node.FnProto).?.doc_comments = doc_comments;
-                        node.cast(Node.FnProto).?.visib_token = visib_token;
-                    },
-                    .VarDecl => {
-                        node.cast(Node.VarDecl).?.doc_comments = doc_comments;
-                        node.cast(Node.VarDecl).?.visib_token = visib_token;
-                    },
-                    .Use => {
-                        node.cast(Node.Use).?.doc_comments = doc_comments;
-                        node.cast(Node.Use).?.visib_token = visib_token;
-                    },
-                    else => unreachable,
-                }
                 try list.append(node);
-                if (try p.parseAppendedDocComment(node.lastToken())) |appended_comment| {
-                    switch (node.id) {
-                        .FnProto => {},
-                        .VarDecl => node.cast(Node.VarDecl).?.doc_comments = appended_comment,
-                        .Use => node.cast(Node.Use).?.doc_comments = appended_comment,
-                        else => unreachable,
-                    }
-                }
                 continue;
             }
 
@@ -417,7 +394,7 @@ const Parser = struct {
     ///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
     ///      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
     ///      / KEYWORD_usingnamespace Expr SEMICOLON
-    fn parseTopLevelDecl(p: *Parser) !?*Node {
+    fn parseTopLevelDecl(p: *Parser, doc_comments: ?*Node.DocComment, visib_token: ?TokenIndex) !?*Node {
         var lib_name: ?*Node = null;
         const extern_export_inline_token = blk: {
             if (p.eatToken(.Keyword_export)) |token| break :blk token;
@@ -430,20 +407,12 @@ const Parser = struct {
             break :blk null;
         };
 
-        if (try p.parseFnProto()) |node| {
-            const fn_node = node.cast(Node.FnProto).?;
-            fn_node.*.extern_export_inline_token = extern_export_inline_token;
-            fn_node.*.lib_name = lib_name;
-            if (p.eatToken(.Semicolon)) |_| return node;
-
-            if (try p.expectNodeRecoverable(parseBlock, .{
-                // since parseBlock only return error.ParseError on
-                // a missing '}' we can assume this function was
-                // supposed to end here.
-                .ExpectedSemiOrLBrace = .{ .token = p.tok_i },
-            })) |body_node| {
-                fn_node.body_node = body_node;
-            }
+        if (try p.parseFnProto(.top_level, .{
+            .doc_comments = doc_comments,
+            .visib_token = visib_token,
+            .extern_export_inline_token = extern_export_inline_token,
+            .lib_name = lib_name,
+        })) |node| {
             return node;
         }
 
@@ -460,12 +429,13 @@ const Parser = struct {
 
         const thread_local_token = p.eatToken(.Keyword_threadlocal);
 
-        if (try p.parseVarDecl()) |node| {
-            var var_decl = node.cast(Node.VarDecl).?;
-            var_decl.*.thread_local_token = thread_local_token;
-            var_decl.*.comptime_token = null;
-            var_decl.*.extern_export_token = extern_export_inline_token;
-            var_decl.*.lib_name = lib_name;
+        if (try p.parseVarDecl(.{
+            .doc_comments = doc_comments,
+            .visib_token = visib_token,
+            .thread_local_token = thread_local_token,
+            .extern_export_token = extern_export_inline_token,
+            .lib_name = lib_name,
+        })) |node| {
             return node;
         }
 
@@ -485,21 +455,41 @@ const Parser = struct {
             return error.ParseError;
         }
 
-        return p.parseUse();
+        const use_token = p.eatToken(.Keyword_usingnamespace) orelse return null;
+        const expr = try p.expectNode(parseExpr, .{
+            .ExpectedExpr = .{ .token = p.tok_i },
+        });
+        const semicolon_token = try p.expectToken(.Semicolon);
+
+        const node = try p.arena.allocator.create(Node.Use);
+        node.* = .{
+            .doc_comments = doc_comments orelse try p.parseAppendedDocComment(semicolon_token),
+            .visib_token = visib_token,
+            .use_token = use_token,
+            .expr = expr,
+            .semicolon_token = semicolon_token,
+        };
+
+        return &node.base;
     }
 
     /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (Keyword_anytype / TypeExpr)
-    fn parseFnProto(p: *Parser) !?*Node {
+    fn parseFnProto(p: *Parser, level: enum { top_level, as_type }, fields: struct {
+        doc_comments: ?*Node.DocComment = null,
+        visib_token: ?TokenIndex = null,
+        extern_export_inline_token: ?TokenIndex = null,
+        lib_name: ?*Node = null,
+    }) !?*Node {
         // TODO: Remove once extern/async fn rewriting is
-        var is_async = false;
-        var is_extern = false;
+        var is_async: ?void = null;
+        var is_extern_prototype: ?void = null;
         const cc_token: ?TokenIndex = blk: {
             if (p.eatToken(.Keyword_extern)) |token| {
-                is_extern = true;
+                is_extern_prototype = {};
                 break :blk token;
             }
             if (p.eatToken(.Keyword_async)) |token| {
-                is_async = true;
+                is_async = {};
                 break :blk token;
             }
             break :blk null;
@@ -513,6 +503,7 @@ const Parser = struct {
         const lparen = try p.expectToken(.LParen);
         const params = try p.parseParamDeclList();
         defer p.gpa.free(params);
+        const var_args_token = p.eatToken(.Ellipsis3);
         const rparen = try p.expectToken(.RParen);
         const align_expr = try p.parseByteAlign();
         const section_expr = try p.parseLinkSection();
@@ -535,37 +526,53 @@ const Parser = struct {
         else
             R{ .Explicit = return_type_expr.? };
 
-        const var_args_token = if (params.len > 0) blk: {
-            const param_type = params[params.len - 1].param_type;
-            break :blk if (param_type == .var_args) param_type.var_args else null;
-        } else
-            null;
+        const body_node: ?*Node = switch (level) {
+            .top_level => blk: {
+                if (p.eatToken(.Semicolon)) |_| {
+                    break :blk null;
+                }
+                break :blk try p.expectNodeRecoverable(parseBlock, .{
+                    // Since parseBlock only return error.ParseError on
+                    // a missing '}' we can assume this function was
+                    // supposed to end here.
+                    .ExpectedSemiOrLBrace = .{ .token = p.tok_i },
+                });
+            },
+            .as_type => null,
+        };
 
-        const fn_proto_node = try Node.FnProto.alloc(&p.arena.allocator, params.len);
-        fn_proto_node.* = .{
-            .doc_comments = null,
-            .visib_token = null,
-            .fn_token = fn_token,
-            .name_token = name_token,
+        const fn_proto_node = try Node.FnProto.create(&p.arena.allocator, .{
             .params_len = params.len,
+            .fn_token = fn_token,
             .return_type = return_type,
+        }, .{
+            .doc_comments = fields.doc_comments,
+            .visib_token = fields.visib_token,
+            .name_token = name_token,
             .var_args_token = var_args_token,
-            .extern_export_inline_token = null,
-            .body_node = null,
-            .lib_name = null,
+            .extern_export_inline_token = fields.extern_export_inline_token,
+            .body_node = body_node,
+            .lib_name = fields.lib_name,
             .align_expr = align_expr,
             .section_expr = section_expr,
             .callconv_expr = callconv_expr,
-            .is_extern_prototype = is_extern,
+            .is_extern_prototype = is_extern_prototype,
             .is_async = is_async,
-        };
+        });
         std.mem.copy(Node.FnProto.ParamDecl, fn_proto_node.params(), params);
 
         return &fn_proto_node.base;
     }
 
     /// VarDecl <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? LinkSection? (EQUAL Expr)? SEMICOLON
-    fn parseVarDecl(p: *Parser) !?*Node {
+    fn parseVarDecl(p: *Parser, fields: struct {
+        doc_comments: ?*Node.DocComment = null,
+        visib_token: ?TokenIndex = null,
+        thread_local_token: ?TokenIndex = null,
+        extern_export_token: ?TokenIndex = null,
+        lib_name: ?*Node = null,
+        comptime_token: ?TokenIndex = null,
+    }) !?*Node {
         const mut_token = p.eatToken(.Keyword_const) orelse
             p.eatToken(.Keyword_var) orelse
             return null;
@@ -587,23 +594,25 @@ const Parser = struct {
         } else null;
         const semicolon_token = try p.expectToken(.Semicolon);
 
-        const node = try p.arena.allocator.create(Node.VarDecl);
-        node.* = .{
-            .doc_comments = null,
-            .visib_token = null,
-            .thread_local_token = null,
-            .name_token = name_token,
-            .eq_token = eq_token,
+        const doc_comments = fields.doc_comments orelse try p.parseAppendedDocComment(semicolon_token);
+
+        const node = try Node.VarDecl.create(&p.arena.allocator, .{
             .mut_token = mut_token,
-            .comptime_token = null,
-            .extern_export_token = null,
-            .lib_name = null,
+            .name_token = name_token,
+            .semicolon_token = semicolon_token,
+        }, .{
+            .doc_comments = doc_comments,
+            .visib_token = fields.visib_token,
+            .thread_local_token = fields.thread_local_token,
+            .eq_token = eq_token,
+            .comptime_token = fields.comptime_token,
+            .extern_export_token = fields.extern_export_token,
+            .lib_name = fields.lib_name,
             .type_node = type_node,
             .align_node = align_node,
             .section_node = section_node,
             .init_node = init_node,
-            .semicolon_token = semicolon_token,
-        };
+        });
         return &node.base;
     }
 
@@ -663,10 +672,9 @@ const Parser = struct {
     fn parseStatement(p: *Parser) Error!?*Node {
         const comptime_token = p.eatToken(.Keyword_comptime);
 
-        const var_decl_node = try p.parseVarDecl();
-        if (var_decl_node) |node| {
-            const var_decl = node.cast(Node.VarDecl).?;
-            var_decl.comptime_token = comptime_token;
+        if (try p.parseVarDecl(.{
+            .comptime_token = comptime_token,
+        })) |node| {
             return node;
         }
 
@@ -1527,7 +1535,7 @@ const Parser = struct {
         if (try p.parseAnonLiteral()) |node| return node;
         if (try p.parseErrorSetDecl()) |node| return node;
         if (try p.parseFloatLiteral()) |node| return node;
-        if (try p.parseFnProto()) |node| return node;
+        if (try p.parseFnProto(.as_type, .{})) |node| return node;
         if (try p.parseGroupedExpr()) |node| return node;
         if (try p.parseLabeledTypeExpr()) |node| return node;
         if (try p.parseIdentifier()) |node| return node;
@@ -2028,7 +2036,6 @@ const Parser = struct {
         // TODO cast from tuple to error union is broken
         const P = Node.FnProto.ParamDecl.ParamType;
         if (try p.parseAnyType()) |node| return P{ .any_type = node };
-        if (p.eatToken(.Ellipsis3)) |token| return P{ .var_args = token };
         if (try p.parseTypeExpr()) |node| return P{ .type_expr = node };
         return null;
     }
@@ -3145,21 +3152,6 @@ const Parser = struct {
         node.* = .{
             .op_token = token,
             .rhs = undefined, // set by caller
-        };
-        return &node.base;
-    }
-
-    fn parseUse(p: *Parser) !?*Node {
-        const token = p.eatToken(.Keyword_usingnamespace) orelse return null;
-        const node = try p.arena.allocator.create(Node.Use);
-        node.* = .{
-            .doc_comments = null,
-            .visib_token = null,
-            .use_token = token,
-            .expr = try p.expectNode(parseExpr, .{
-                .ExpectedExpr = .{ .token = p.tok_i },
-            }),
-            .semicolon_token = try p.expectToken(.Semicolon),
         };
         return &node.base;
     }
