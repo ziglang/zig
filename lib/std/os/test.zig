@@ -44,7 +44,7 @@ test "fstatat" {
 test "readlink" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    // First, try relative paths
+    // First, try relative paths in cwd
     {
         var cwd = fs.cwd();
         try cwd.writeFile("file.txt", "nonsense");
@@ -58,37 +58,41 @@ test "readlink" {
         try cwd.deleteFile("symlinked");
     }
 
-    // Next, let's try fully-qualified paths
-    {
-        var tmp = tmpDir(.{});
-        // defer tmp.cleanup();
+    // Now, let's use tempdir
+    var tmp = tmpDir(.{});
+    // defer tmp.cleanup();
 
-        // create file
-        try tmp.dir.writeFile("file.txt", "nonsense");
+    // Create some targets
+    try tmp.dir.writeFile("file.txt", "nonsense");
+    try tmp.dir.makeDir("subdir");
 
-        // get paths
-        // TODO: use Dir's realpath function once that exists
-        var arena = ArenaAllocator.init(testing.allocator);
-        defer arena.deinit();
+    // Get base abs path
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
 
-        const base_path = blk: {
-            const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
-            break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
-        };
-        const target_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "file.txt" });
-        const symlink_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "symlinked" });
+    const base_path = blk: {
+        const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
+    };
+
+    try testReadlink(&arena.allocator, base_path, "file.txt", "symlink1", false);
+    try testReadlink(&arena.allocator, base_path, "subdir", "symlink2", true);
+}
+
+fn testReadlink(allocator: *mem.Allocator, base_path: []const u8, target_name: []const u8, symlink_name: []const u8, is_dir: bool) !void {
+        const target_path = try fs.path.join(allocator, &[_][]const u8{ base_path, target_name });
+        const symlink_path = try fs.path.join(allocator, &[_][]const u8{ base_path, symlink_name });
         std.debug.warn("\ntarget_path={}\n", .{target_path});
         std.debug.warn("symlink_path={}\n", .{symlink_path});
 
-        // create symbolic link by path
-        try os.symlink(target_path, symlink_path, .{});
+        // Create symbolic link by path
+        try os.symlink(target_path, symlink_path, .{ .is_directory = is_dir });
 
-        // now, read the link and verify
+        // Read the link and verify
         var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
         const given = try os.readlink(symlink_path, buffer[0..]);
         std.debug.warn("given={}\n", .{given});
         expect(mem.eql(u8, target_path, given));
-    }
 }
 
 test "readlinkat" {
