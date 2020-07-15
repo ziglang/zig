@@ -1,4 +1,32 @@
-const builtin = @import("builtin");
+test "zig fmt: convert var to anytype" {
+    // TODO remove in next release cycle
+    try testTransform(
+        \\pub fn main(
+        \\    a: var,
+        \\    bar: var,
+        \\) void {}
+    ,
+        \\pub fn main(
+        \\    a: anytype,
+        \\    bar: anytype,
+        \\) void {}
+        \\
+    );
+}
+
+test "zig fmt: noasync to nosuspend" {
+    // TODO: remove this
+    try testTransform(
+        \\pub fn main() void {
+        \\    noasync call();
+        \\}
+    ,
+        \\pub fn main() void {
+        \\    nosuspend call();
+        \\}
+        \\
+    );
+}
 
 test "recovery: top level" {
     try testError(
@@ -3146,20 +3174,6 @@ test "zig fmt: hexadeciaml float literals with underscore separators" {
     );
 }
 
-test "zig fmt: noasync to nosuspend" {
-    // TODO: remove this
-    try testTransform(
-        \\pub fn main() void {
-        \\    noasync call();
-        \\}
-    ,
-        \\pub fn main() void {
-        \\    nosuspend call();
-        \\}
-        \\
-    );
-}
-
 test "zig fmt: convert async fn into callconv(.Async)" {
     try testTransform(
         \\async fn foo() void {}
@@ -3180,18 +3194,9 @@ test "zig fmt: convert extern fn proto into callconv(.C)" {
     );
 }
 
-test "zig fmt: convert var to anytype" {
-    // TODO remove in next release cycle
-    try testTransform(
-        \\pub fn main(
-        \\    a: var,
-        \\    bar: var,
-        \\) void {}
-    ,
-        \\pub fn main(
-        \\    a: anytype,
-        \\    bar: anytype,
-        \\) void {}
+test "zig fmt: C var args" {
+    try testCanonical(
+        \\pub extern "c" fn printf(format: [*:0]const u8, ...) c_int;
         \\
     );
 }

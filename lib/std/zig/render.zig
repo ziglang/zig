@@ -227,9 +227,9 @@ fn renderContainerDecl(allocator: *mem.Allocator, stream: anytype, tree: *ast.Tr
         .FnProto => {
             const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
 
-            try renderDocComments(tree, stream, fn_proto, indent, start_col);
+            try renderDocComments(tree, stream, fn_proto, fn_proto.getTrailer("doc_comments"), indent, start_col);
 
-            if (fn_proto.body_node) |body_node| {
+            if (fn_proto.getTrailer("body_node")) |body_node| {
                 try renderExpression(allocator, stream, tree, indent, start_col, decl, .Space);
                 try renderExpression(allocator, stream, tree, indent, start_col, body_node, space);
             } else {
@@ -252,14 +252,14 @@ fn renderContainerDecl(allocator: *mem.Allocator, stream: anytype, tree: *ast.Tr
         .VarDecl => {
             const var_decl = @fieldParentPtr(ast.Node.VarDecl, "base", decl);
 
-            try renderDocComments(tree, stream, var_decl, indent, start_col);
+            try renderDocComments(tree, stream, var_decl, var_decl.getTrailer("doc_comments"), indent, start_col);
             try renderVarDecl(allocator, stream, tree, indent, start_col, var_decl);
         },
 
         .TestDecl => {
             const test_decl = @fieldParentPtr(ast.Node.TestDecl, "base", decl);
 
-            try renderDocComments(tree, stream, test_decl, indent, start_col);
+            try renderDocComments(tree, stream, test_decl, test_decl.doc_comments, indent, start_col);
             try renderToken(tree, stream, test_decl.test_token, indent, start_col, .Space);
             try renderExpression(allocator, stream, tree, indent, start_col, test_decl.name, .Space);
             try renderExpression(allocator, stream, tree, indent, start_col, test_decl.body_node, space);
@@ -268,7 +268,7 @@ fn renderContainerDecl(allocator: *mem.Allocator, stream: anytype, tree: *ast.Tr
         .ContainerField => {
             const field = @fieldParentPtr(ast.Node.ContainerField, "base", decl);
 
-            try renderDocComments(tree, stream, field, indent, start_col);
+            try renderDocComments(tree, stream, field, field.doc_comments, indent, start_col);
             if (field.comptime_token) |t| {
                 try renderToken(tree, stream, t, indent, start_col, .Space); // comptime
             }
@@ -1409,7 +1409,7 @@ fn renderExpression(
         .ErrorTag => {
             const tag = @fieldParentPtr(ast.Node.ErrorTag, "base", base);
 
-            try renderDocComments(tree, stream, tag, indent, start_col);
+            try renderDocComments(tree, stream, tag, tag.doc_comments, indent, start_col);
             return renderToken(tree, stream, tag.name_token, indent, start_col, space); // name
         },
 
@@ -1483,23 +1483,23 @@ fn renderExpression(
         .FnProto => {
             const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", base);
 
-            if (fn_proto.visib_token) |visib_token_index| {
+            if (fn_proto.getTrailer("visib_token")) |visib_token_index| {
                 const visib_token = tree.token_ids[visib_token_index];
                 assert(visib_token == .Keyword_pub or visib_token == .Keyword_export);
 
                 try renderToken(tree, stream, visib_token_index, indent, start_col, Space.Space); // pub
             }
 
-            if (fn_proto.extern_export_inline_token) |extern_export_inline_token| {
-                if (!fn_proto.is_extern_prototype)
+            if (fn_proto.getTrailer("extern_export_inline_token")) |extern_export_inline_token| {
+                if (fn_proto.getTrailer("is_extern_prototype") == null)
                     try renderToken(tree, stream, extern_export_inline_token, indent, start_col, Space.Space); // extern/export/inline
             }
 
-            if (fn_proto.lib_name) |lib_name| {
+            if (fn_proto.getTrailer("lib_name")) |lib_name| {
                 try renderExpression(allocator, stream, tree, indent, start_col, lib_name, Space.Space);
             }
 
-            const lparen = if (fn_proto.name_token) |name_token| blk: {
+            const lparen = if (fn_proto.getTrailer("name_token")) |name_token| blk: {
                 try renderToken(tree, stream, fn_proto.fn_token, indent, start_col, Space.Space); // fn
                 try renderToken(tree, stream, name_token, indent, start_col, Space.None); // name
                 break :blk tree.nextToken(name_token);
@@ -1512,11 +1512,11 @@ fn renderExpression(
             const rparen = tree.prevToken(
             // the first token for the annotation expressions is the left
             // parenthesis, hence the need for two prevToken
-            if (fn_proto.align_expr) |align_expr|
+            if (fn_proto.getTrailer("align_expr")) |align_expr|
                 tree.prevToken(tree.prevToken(align_expr.firstToken()))
-            else if (fn_proto.section_expr) |section_expr|
+            else if (fn_proto.getTrailer("section_expr")) |section_expr|
                 tree.prevToken(tree.prevToken(section_expr.firstToken()))
-            else if (fn_proto.callconv_expr) |callconv_expr|
+            else if (fn_proto.getTrailer("callconv_expr")) |callconv_expr|
                 tree.prevToken(tree.prevToken(callconv_expr.firstToken()))
             else switch (fn_proto.return_type) {
                 .Explicit => |node| node.firstToken(),
@@ -1537,10 +1537,13 @@ fn renderExpression(
                 for (fn_proto.params()) |param_decl, i| {
                     try renderParamDecl(allocator, stream, tree, indent, start_col, param_decl, Space.None);
 
-                    if (i + 1 < fn_proto.params_len) {
+                    if (i + 1 < fn_proto.params_len or fn_proto.getTrailer("var_args_token") != null) {
                         const comma = tree.nextToken(param_decl.lastToken());
                         try renderToken(tree, stream, comma, indent, start_col, Space.Space); // ,
                     }
+                }
+                if (fn_proto.getTrailer("var_args_token")) |var_args_token| {
+                    try renderToken(tree, stream, var_args_token, indent, start_col, Space.None);
                 }
             } else {
                 // one param per line
@@ -1551,12 +1554,16 @@ fn renderExpression(
                     try stream.writeByteNTimes(' ', new_indent);
                     try renderParamDecl(allocator, stream, tree, new_indent, start_col, param_decl, Space.Comma);
                 }
+                if (fn_proto.getTrailer("var_args_token")) |var_args_token| {
+                    try stream.writeByteNTimes(' ', new_indent);
+                    try renderToken(tree, stream, var_args_token, new_indent, start_col, Space.Comma);
+                }
                 try stream.writeByteNTimes(' ', indent);
             }
 
             try renderToken(tree, stream, rparen, indent, start_col, Space.Space); // )
 
-            if (fn_proto.align_expr) |align_expr| {
+            if (fn_proto.getTrailer("align_expr")) |align_expr| {
                 const align_rparen = tree.nextToken(align_expr.lastToken());
                 const align_lparen = tree.prevToken(align_expr.firstToken());
                 const align_kw = tree.prevToken(align_lparen);
@@ -1567,7 +1574,7 @@ fn renderExpression(
                 try renderToken(tree, stream, align_rparen, indent, start_col, Space.Space); // )
             }
 
-            if (fn_proto.section_expr) |section_expr| {
+            if (fn_proto.getTrailer("section_expr")) |section_expr| {
                 const section_rparen = tree.nextToken(section_expr.lastToken());
                 const section_lparen = tree.prevToken(section_expr.firstToken());
                 const section_kw = tree.prevToken(section_lparen);
@@ -1578,7 +1585,7 @@ fn renderExpression(
                 try renderToken(tree, stream, section_rparen, indent, start_col, Space.Space); // )
             }
 
-            if (fn_proto.callconv_expr) |callconv_expr| {
+            if (fn_proto.getTrailer("callconv_expr")) |callconv_expr| {
                 const callconv_rparen = tree.nextToken(callconv_expr.lastToken());
                 const callconv_lparen = tree.prevToken(callconv_expr.firstToken());
                 const callconv_kw = tree.prevToken(callconv_lparen);
@@ -1587,9 +1594,9 @@ fn renderExpression(
                 try renderToken(tree, stream, callconv_lparen, indent, start_col, Space.None); // (
                 try renderExpression(allocator, stream, tree, indent, start_col, callconv_expr, Space.None);
                 try renderToken(tree, stream, callconv_rparen, indent, start_col, Space.Space); // )
-            } else if (fn_proto.is_extern_prototype) {
+            } else if (fn_proto.getTrailer("is_extern_prototype") != null) {
                 try stream.writeAll("callconv(.C) ");
-            } else if (fn_proto.is_async) {
+            } else if (fn_proto.getTrailer("is_async") != null) {
                 try stream.writeAll("callconv(.Async) ");
             }
 
@@ -2177,64 +2184,69 @@ fn renderVarDecl(
     start_col: *usize,
     var_decl: *ast.Node.VarDecl,
 ) (@TypeOf(stream).Error || Error)!void {
-    if (var_decl.visib_token) |visib_token| {
+    if (var_decl.getTrailer("visib_token")) |visib_token| {
         try renderToken(tree, stream, visib_token, indent, start_col, Space.Space); // pub
     }
 
-    if (var_decl.extern_export_token) |extern_export_token| {
+    if (var_decl.getTrailer("extern_export_token")) |extern_export_token| {
         try renderToken(tree, stream, extern_export_token, indent, start_col, Space.Space); // extern
 
-        if (var_decl.lib_name) |lib_name| {
+        if (var_decl.getTrailer("lib_name")) |lib_name| {
             try renderExpression(allocator, stream, tree, indent, start_col, lib_name, Space.Space); // "lib"
         }
     }
 
-    if (var_decl.comptime_token) |comptime_token| {
+    if (var_decl.getTrailer("comptime_token")) |comptime_token| {
         try renderToken(tree, stream, comptime_token, indent, start_col, Space.Space); // comptime
     }
 
-    if (var_decl.thread_local_token) |thread_local_token| {
+    if (var_decl.getTrailer("thread_local_token")) |thread_local_token| {
         try renderToken(tree, stream, thread_local_token, indent, start_col, Space.Space); // threadlocal
     }
     try renderToken(tree, stream, var_decl.mut_token, indent, start_col, Space.Space); // var
 
-    const name_space = if (var_decl.type_node == null and (var_decl.align_node != null or
-        var_decl.section_node != null or var_decl.init_node != null)) Space.Space else Space.None;
+    const name_space = if (var_decl.getTrailer("type_node") == null and
+        (var_decl.getTrailer("align_node") != null or
+        var_decl.getTrailer("section_node") != null or
+        var_decl.getTrailer("init_node") != null))
+        Space.Space
+    else
+        Space.None;
     try renderToken(tree, stream, var_decl.name_token, indent, start_col, name_space);
 
-    if (var_decl.type_node) |type_node| {
+    if (var_decl.getTrailer("type_node")) |type_node| {
         try renderToken(tree, stream, tree.nextToken(var_decl.name_token), indent, start_col, Space.Space);
-        const s = if (var_decl.align_node != null or
-            var_decl.section_node != null or
-            var_decl.init_node != null) Space.Space else Space.None;
+        const s = if (var_decl.getTrailer("align_node") != null or
+            var_decl.getTrailer("section_node") != null or
+            var_decl.getTrailer("init_node") != null) Space.Space else Space.None;
         try renderExpression(allocator, stream, tree, indent, start_col, type_node, s);
     }
 
-    if (var_decl.align_node) |align_node| {
+    if (var_decl.getTrailer("align_node")) |align_node| {
         const lparen = tree.prevToken(align_node.firstToken());
         const align_kw = tree.prevToken(lparen);
         const rparen = tree.nextToken(align_node.lastToken());
         try renderToken(tree, stream, align_kw, indent, start_col, Space.None); // align
         try renderToken(tree, stream, lparen, indent, start_col, Space.None); // (
         try renderExpression(allocator, stream, tree, indent, start_col, align_node, Space.None);
-        const s = if (var_decl.section_node != null or var_decl.init_node != null) Space.Space else Space.None;
+        const s = if (var_decl.getTrailer("section_node") != null or var_decl.getTrailer("init_node") != null) Space.Space else Space.None;
         try renderToken(tree, stream, rparen, indent, start_col, s); // )
     }
 
-    if (var_decl.section_node) |section_node| {
+    if (var_decl.getTrailer("section_node")) |section_node| {
         const lparen = tree.prevToken(section_node.firstToken());
         const section_kw = tree.prevToken(lparen);
         const rparen = tree.nextToken(section_node.lastToken());
         try renderToken(tree, stream, section_kw, indent, start_col, Space.None); // linksection
         try renderToken(tree, stream, lparen, indent, start_col, Space.None); // (
         try renderExpression(allocator, stream, tree, indent, start_col, section_node, Space.None);
-        const s = if (var_decl.init_node != null) Space.Space else Space.None;
+        const s = if (var_decl.getTrailer("init_node") != null) Space.Space else Space.None;
         try renderToken(tree, stream, rparen, indent, start_col, s); // )
     }
 
-    if (var_decl.init_node) |init_node| {
+    if (var_decl.getTrailer("init_node")) |init_node| {
         const s = if (init_node.id == .MultilineStringLiteral) Space.None else Space.Space;
-        try renderToken(tree, stream, var_decl.eq_token.?, indent, start_col, s); // =
+        try renderToken(tree, stream, var_decl.getTrailer("eq_token").?, indent, start_col, s); // =
         try renderExpression(allocator, stream, tree, indent, start_col, init_node, Space.None);
     }
 
@@ -2250,7 +2262,7 @@ fn renderParamDecl(
     param_decl: ast.Node.FnProto.ParamDecl,
     space: Space,
 ) (@TypeOf(stream).Error || Error)!void {
-    try renderDocComments(tree, stream, param_decl, indent, start_col);
+    try renderDocComments(tree, stream, param_decl, param_decl.doc_comments, indent, start_col);
 
     if (param_decl.comptime_token) |comptime_token| {
         try renderToken(tree, stream, comptime_token, indent, start_col, Space.Space);
@@ -2263,7 +2275,6 @@ fn renderParamDecl(
         try renderToken(tree, stream, tree.nextToken(name_token), indent, start_col, Space.Space); // :
     }
     switch (param_decl.param_type) {
-        .var_args => |token| try renderToken(tree, stream, token, indent, start_col, space),
         .any_type, .type_expr => |node| try renderExpression(allocator, stream, tree, indent, start_col, node, space),
     }
 }
@@ -2519,10 +2530,11 @@ fn renderDocComments(
     tree: *ast.Tree,
     stream: anytype,
     node: anytype,
+    doc_comments: ?*ast.Node.DocComment,
     indent: usize,
     start_col: *usize,
 ) (@TypeOf(stream).Error || Error)!void {
-    const comment = node.doc_comments orelse return;
+    const comment = doc_comments orelse return;
     return renderDocCommentsToken(tree, stream, comment, node.firstToken(), indent, start_col);
 }
 

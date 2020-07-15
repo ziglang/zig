@@ -675,42 +675,84 @@ pub const Node = struct {
         }
     };
 
+    /// Trailed in memory by possibly many things, with each optional thing
+    /// determined by a bit in `trailer_flags`.
     pub const VarDecl = struct {
         base: Node = Node{ .id = .VarDecl },
-        doc_comments: ?*DocComment,
-        visib_token: ?TokenIndex,
-        thread_local_token: ?TokenIndex,
-        name_token: TokenIndex,
-        eq_token: ?TokenIndex,
+        trailer_flags: TrailerFlags,
         mut_token: TokenIndex,
-        comptime_token: ?TokenIndex,
-        extern_export_token: ?TokenIndex,
-        lib_name: ?*Node,
-        type_node: ?*Node,
-        align_node: ?*Node,
-        section_node: ?*Node,
-        init_node: ?*Node,
+        name_token: TokenIndex,
         semicolon_token: TokenIndex,
+
+        pub const TrailerFlags = std.meta.TrailerFlags(struct {
+            doc_comments: *DocComment,
+            visib_token: TokenIndex,
+            thread_local_token: TokenIndex,
+            eq_token: TokenIndex,
+            comptime_token: TokenIndex,
+            extern_export_token: TokenIndex,
+            lib_name: *Node,
+            type_node: *Node,
+            align_node: *Node,
+            section_node: *Node,
+            init_node: *Node,
+        });
+
+        pub const RequiredFields = struct {
+            mut_token: TokenIndex,
+            name_token: TokenIndex,
+            semicolon_token: TokenIndex,
+        };
+
+        pub fn getTrailer(self: *const VarDecl, comptime name: []const u8) ?TrailerFlags.Field(name) {
+            const trailers_start = @ptrCast([*]const u8, self) + @sizeOf(VarDecl);
+            return self.trailer_flags.get(trailers_start, name);
+        }
+
+        pub fn setTrailer(self: *VarDecl, comptime name: []const u8, value: TrailerFlags.Field(name)) void {
+            const trailers_start = @ptrCast([*]u8, self) + @sizeOf(VarDecl);
+            self.trailer_flags.set(trailers_start, name, value);
+        }
+
+        pub fn create(allocator: *mem.Allocator, required: RequiredFields, trailers: anytype) !*VarDecl {
+            const trailer_flags = TrailerFlags.init(trailers);
+            const bytes = try allocator.alignedAlloc(u8, @alignOf(VarDecl), sizeInBytes(trailer_flags));
+            const var_decl = @ptrCast(*VarDecl, bytes.ptr);
+            var_decl.* = .{
+                .trailer_flags = trailer_flags,
+                .mut_token = required.mut_token,
+                .name_token = required.name_token,
+                .semicolon_token = required.semicolon_token,
+            };
+            const trailers_start = bytes.ptr + @sizeOf(VarDecl);
+            trailer_flags.setMany(trailers_start, trailers);
+            return var_decl;
+        }
+
+        pub fn destroy(self: *VarDecl, allocator: *mem.Allocator) void {
+            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.trailer_flags)];
+            allocator.free(bytes);
+        }
 
         pub fn iterate(self: *const VarDecl, index: usize) ?*Node {
             var i = index;
 
-            if (self.type_node) |type_node| {
+            if (self.getTrailer("type_node")) |type_node| {
                 if (i < 1) return type_node;
                 i -= 1;
             }
 
-            if (self.align_node) |align_node| {
+            if (self.getTrailer("align_node")) |align_node| {
                 if (i < 1) return align_node;
                 i -= 1;
             }
 
-            if (self.section_node) |section_node| {
+            if (self.getTrailer("section_node")) |section_node| {
                 if (i < 1) return section_node;
                 i -= 1;
             }
 
-            if (self.init_node) |init_node| {
+            if (self.getTrailer("init_node")) |init_node| {
                 if (i < 1) return init_node;
                 i -= 1;
             }
@@ -719,16 +761,20 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: *const VarDecl) TokenIndex {
-            if (self.visib_token) |visib_token| return visib_token;
-            if (self.thread_local_token) |thread_local_token| return thread_local_token;
-            if (self.comptime_token) |comptime_token| return comptime_token;
-            if (self.extern_export_token) |extern_export_token| return extern_export_token;
-            assert(self.lib_name == null);
+            if (self.getTrailer("visib_token")) |visib_token| return visib_token;
+            if (self.getTrailer("thread_local_token")) |thread_local_token| return thread_local_token;
+            if (self.getTrailer("comptime_token")) |comptime_token| return comptime_token;
+            if (self.getTrailer("extern_export_token")) |extern_export_token| return extern_export_token;
+            assert(self.getTrailer("lib_name") == null);
             return self.mut_token;
         }
 
         pub fn lastToken(self: *const VarDecl) TokenIndex {
             return self.semicolon_token;
+        }
+
+        fn sizeInBytes(trailer_flags: TrailerFlags) usize {
+            return @sizeOf(VarDecl) + trailer_flags.sizeInBytes();
         }
     };
 
@@ -972,25 +1018,34 @@ pub const Node = struct {
     };
 
     /// The params are directly after the FnProto in memory.
-    /// TODO have a flags field for the optional nodes, and have them appended
-    /// before or after the parameters in memory.
+    /// Next, each optional thing determined by a bit in `trailer_flags`.
     pub const FnProto = struct {
         base: Node = Node{ .id = .FnProto },
-        doc_comments: ?*DocComment,
-        visib_token: ?TokenIndex,
+        trailer_flags: TrailerFlags,
         fn_token: TokenIndex,
-        name_token: ?TokenIndex,
         params_len: NodeIndex,
         return_type: ReturnType,
-        var_args_token: ?TokenIndex,
-        extern_export_inline_token: ?TokenIndex,
-        body_node: ?*Node,
-        lib_name: ?*Node, // populated if this is an extern declaration
-        align_expr: ?*Node, // populated if align(A) is present
-        section_expr: ?*Node, // populated if linksection(A) is present
-        callconv_expr: ?*Node, // populated if callconv(A) is present
-        is_extern_prototype: bool = false, // TODO: Remove once extern fn rewriting is
-        is_async: bool = false, // TODO: remove once async fn rewriting is
+
+        pub const TrailerFlags = std.meta.TrailerFlags(struct {
+            doc_comments: *DocComment,
+            body_node: *Node,
+            lib_name: *Node, // populated if this is an extern declaration
+            align_expr: *Node, // populated if align(A) is present
+            section_expr: *Node, // populated if linksection(A) is present
+            callconv_expr: *Node, // populated if callconv(A) is present
+            visib_token: TokenIndex,
+            name_token: TokenIndex,
+            var_args_token: TokenIndex,
+            extern_export_inline_token: TokenIndex,
+            is_extern_prototype: void, // TODO: Remove once extern fn rewriting is
+            is_async: void, // TODO: remove once async fn rewriting is
+        });
+
+        pub const RequiredFields = struct {
+            fn_token: TokenIndex,
+            params_len: NodeIndex,
+            return_type: ReturnType,
+        };
 
         pub const ReturnType = union(enum) {
             Explicit: *Node,
@@ -1007,7 +1062,6 @@ pub const Node = struct {
 
             pub const ParamType = union(enum) {
                 any_type: *Node,
-                var_args: TokenIndex,
                 type_expr: *Node,
             };
 
@@ -1016,7 +1070,6 @@ pub const Node = struct {
 
                 if (i < 1) {
                     switch (self.param_type) {
-                        .var_args => return null,
                         .any_type, .type_expr => |node| return node,
                     }
                 }
@@ -1030,34 +1083,79 @@ pub const Node = struct {
                 if (self.noalias_token) |noalias_token| return noalias_token;
                 if (self.name_token) |name_token| return name_token;
                 switch (self.param_type) {
-                    .var_args => |tok| return tok,
                     .any_type, .type_expr => |node| return node.firstToken(),
                 }
             }
 
             pub fn lastToken(self: *const ParamDecl) TokenIndex {
                 switch (self.param_type) {
-                    .var_args => |tok| return tok,
                     .any_type, .type_expr => |node| return node.lastToken(),
                 }
             }
         };
 
-        /// After this the caller must initialize the params list.
-        pub fn alloc(allocator: *mem.Allocator, params_len: NodeIndex) !*FnProto {
-            const bytes = try allocator.alignedAlloc(u8, @alignOf(FnProto), sizeInBytes(params_len));
-            return @ptrCast(*FnProto, bytes.ptr);
+        /// For debugging purposes.
+        pub fn dump(self: *const FnProto) void {
+            const trailers_start = @alignCast(
+                @alignOf(ParamDecl),
+                @ptrCast([*]const u8, self) + @sizeOf(FnProto) + @sizeOf(ParamDecl) * self.params_len,
+            );
+            std.debug.print("{*} flags: {b} name_token: {} {*} params_len: {}\n", .{
+                self,
+                self.trailer_flags.bits,
+                self.getTrailer("name_token"),
+                self.trailer_flags.ptrConst(trailers_start, "name_token"),
+                self.params_len,
+            });
         }
 
-        pub fn free(self: *FnProto, allocator: *mem.Allocator) void {
-            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.params_len)];
+        pub fn getTrailer(self: *const FnProto, comptime name: []const u8) ?TrailerFlags.Field(name) {
+            const trailers_start = @alignCast(
+                @alignOf(ParamDecl),
+                @ptrCast([*]const u8, self) + @sizeOf(FnProto) + @sizeOf(ParamDecl) * self.params_len,
+            );
+            return self.trailer_flags.get(trailers_start, name);
+        }
+
+        pub fn setTrailer(self: *FnProto, comptime name: []const u8, value: TrailerFlags.Field(name)) void {
+            const trailers_start = @alignCast(
+                @alignOf(ParamDecl),
+                @ptrCast([*]u8, self) + @sizeOf(FnProto) + @sizeOf(ParamDecl) * self.params_len,
+            );
+            self.trailer_flags.set(trailers_start, name, value);
+        }
+
+        /// After this the caller must initialize the params list.
+        pub fn create(allocator: *mem.Allocator, required: RequiredFields, trailers: anytype) !*FnProto {
+            const trailer_flags = TrailerFlags.init(trailers);
+            const bytes = try allocator.alignedAlloc(u8, @alignOf(FnProto), sizeInBytes(
+                required.params_len,
+                trailer_flags,
+            ));
+            const fn_proto = @ptrCast(*FnProto, bytes.ptr);
+            fn_proto.* = .{
+                .trailer_flags = trailer_flags,
+                .fn_token = required.fn_token,
+                .params_len = required.params_len,
+                .return_type = required.return_type,
+            };
+            const trailers_start = @alignCast(
+                @alignOf(ParamDecl),
+                bytes.ptr + @sizeOf(FnProto) + @sizeOf(ParamDecl) * required.params_len,
+            );
+            trailer_flags.setMany(trailers_start, trailers);
+            return fn_proto;
+        }
+
+        pub fn destroy(self: *FnProto, allocator: *mem.Allocator) void {
+            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.params_len, self.trailer_flags)];
             allocator.free(bytes);
         }
 
         pub fn iterate(self: *const FnProto, index: usize) ?*Node {
             var i = index;
 
-            if (self.lib_name) |lib_name| {
+            if (self.getTrailer("lib_name")) |lib_name| {
                 if (i < 1) return lib_name;
                 i -= 1;
             }
@@ -1066,23 +1164,21 @@ pub const Node = struct {
                 0
             else switch (self.paramsConst()[self.params_len - 1].param_type) {
                 .any_type, .type_expr => self.params_len,
-                .var_args => self.params_len - 1,
             };
             if (i < params_len) {
                 switch (self.paramsConst()[i].param_type) {
                     .any_type => |n| return n,
-                    .var_args => unreachable,
                     .type_expr => |n| return n,
                 }
             }
             i -= params_len;
 
-            if (self.align_expr) |align_expr| {
+            if (self.getTrailer("align_expr")) |align_expr| {
                 if (i < 1) return align_expr;
                 i -= 1;
             }
 
-            if (self.section_expr) |section_expr| {
+            if (self.getTrailer("section_expr")) |section_expr| {
                 if (i < 1) return section_expr;
                 i -= 1;
             }
@@ -1095,7 +1191,7 @@ pub const Node = struct {
                 .Invalid => {},
             }
 
-            if (self.body_node) |body_node| {
+            if (self.getTrailer("body_node")) |body_node| {
                 if (i < 1) return body_node;
                 i -= 1;
             }
@@ -1104,14 +1200,14 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: *const FnProto) TokenIndex {
-            if (self.visib_token) |visib_token| return visib_token;
-            if (self.extern_export_inline_token) |extern_export_inline_token| return extern_export_inline_token;
-            assert(self.lib_name == null);
+            if (self.getTrailer("visib_token")) |visib_token| return visib_token;
+            if (self.getTrailer("extern_export_inline_token")) |extern_export_inline_token| return extern_export_inline_token;
+            assert(self.getTrailer("lib_name") == null);
             return self.fn_token;
         }
 
         pub fn lastToken(self: *const FnProto) TokenIndex {
-            if (self.body_node) |body_node| return body_node.lastToken();
+            if (self.getTrailer("body_node")) |body_node| return body_node.lastToken();
             switch (self.return_type) {
                 .Explicit, .InferErrorSet => |node| return node.lastToken(),
                 .Invalid => |tok| return tok,
@@ -1119,17 +1215,17 @@ pub const Node = struct {
         }
 
         pub fn params(self: *FnProto) []ParamDecl {
-            const decls_start = @ptrCast([*]u8, self) + @sizeOf(FnProto);
-            return @ptrCast([*]ParamDecl, decls_start)[0..self.params_len];
+            const params_start = @ptrCast([*]u8, self) + @sizeOf(FnProto);
+            return @ptrCast([*]ParamDecl, params_start)[0..self.params_len];
         }
 
         pub fn paramsConst(self: *const FnProto) []const ParamDecl {
-            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(FnProto);
-            return @ptrCast([*]const ParamDecl, decls_start)[0..self.params_len];
+            const params_start = @ptrCast([*]const u8, self) + @sizeOf(FnProto);
+            return @ptrCast([*]const ParamDecl, params_start)[0..self.params_len];
         }
 
-        fn sizeInBytes(params_len: NodeIndex) usize {
-            return @sizeOf(FnProto) + @sizeOf(ParamDecl) * @as(usize, params_len);
+        fn sizeInBytes(params_len: NodeIndex, trailer_flags: TrailerFlags) usize {
+            return @sizeOf(FnProto) + @sizeOf(ParamDecl) * @as(usize, params_len) + trailer_flags.sizeInBytes();
         }
     };
 
@@ -2829,6 +2925,9 @@ pub const Node = struct {
         }
     };
 
+    /// TODO remove from the Node base struct
+    /// TODO actually maybe remove entirely in favor of iterating backward from Node.firstToken()
+    /// and forwards to find same-line doc comments.
     pub const DocComment = struct {
         base: Node = Node{ .id = .DocComment },
         /// Points to the first doc comment token. API users are expected to iterate over the

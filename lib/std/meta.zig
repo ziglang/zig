@@ -6,6 +6,7 @@ const math = std.math;
 const testing = std.testing;
 
 pub const trait = @import("meta/trait.zig");
+pub const TrailerFlags = @import("meta/trailer_flags.zig").TrailerFlags;
 
 const TypeInfo = builtin.TypeInfo;
 

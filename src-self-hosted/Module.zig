@@ -1130,7 +1130,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             };
             defer fn_type_scope.instructions.deinit(self.gpa);
 
-            const body_node = fn_proto.body_node orelse
+            const body_node = fn_proto.getTrailer("body_node") orelse
                 return self.failTok(&fn_type_scope.base, fn_proto.fn_token, "TODO implement extern functions", .{});
 
             const param_decls = fn_proto.params();
@@ -1138,21 +1138,23 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             for (param_decls) |param_decl, i| {
                 const param_type_node = switch (param_decl.param_type) {
                     .any_type => |node| return self.failNode(&fn_type_scope.base, node, "TODO implement anytype parameter", .{}),
-                    .var_args => |tok| return self.failTok(&fn_type_scope.base, tok, "TODO implement var args", .{}),
                     .type_expr => |node| node,
                 };
                 param_types[i] = try self.astGenExpr(&fn_type_scope.base, param_type_node);
             }
-            if (fn_proto.lib_name) |lib_name| {
+            if (fn_proto.getTrailer("var_args_token")) |var_args_token| {
+                return self.failTok(&fn_type_scope.base, var_args_token, "TODO implement var args", .{});
+            }
+            if (fn_proto.getTrailer("lib_name")) |lib_name| {
                 return self.failNode(&fn_type_scope.base, lib_name, "TODO implement function library name", .{});
             }
-            if (fn_proto.align_expr) |align_expr| {
+            if (fn_proto.getTrailer("align_expr")) |align_expr| {
                 return self.failNode(&fn_type_scope.base, align_expr, "TODO implement function align expression", .{});
             }
-            if (fn_proto.section_expr) |sect_expr| {
+            if (fn_proto.getTrailer("section_expr")) |sect_expr| {
                 return self.failNode(&fn_type_scope.base, sect_expr, "TODO implement function section expression", .{});
             }
-            if (fn_proto.callconv_expr) |callconv_expr| {
+            if (fn_proto.getTrailer("callconv_expr")) |callconv_expr| {
                 return self.failNode(
                     &fn_type_scope.base,
                     callconv_expr,
@@ -1265,10 +1267,10 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 self.bin_file.freeDecl(decl);
             }
 
-            if (fn_proto.extern_export_inline_token) |maybe_export_token| {
+            if (fn_proto.getTrailer("extern_export_inline_token")) |maybe_export_token| {
                 if (tree.token_ids[maybe_export_token] == .Keyword_export) {
                     const export_src = tree.token_locs[maybe_export_token].start;
-                    const name_loc = tree.token_locs[fn_proto.name_token.?];
+                    const name_loc = tree.token_locs[fn_proto.getTrailer("name_token").?];
                     const name = tree.tokenSliceLoc(name_loc);
                     // The scope needs to have the decl in it.
                     try self.analyzeExport(&block_scope.base, export_src, name, decl);
@@ -1867,7 +1869,7 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
     for (decls) |src_decl, decl_i| {
         if (src_decl.cast(ast.Node.FnProto)) |fn_proto| {
             // We will create a Decl for it regardless of analysis status.
-            const name_tok = fn_proto.name_token orelse {
+            const name_tok = fn_proto.getTrailer("name_token") orelse {
                 @panic("TODO missing function name");
             };
 
@@ -1893,7 +1895,7 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
             } else {
                 const new_decl = try self.createNewDecl(&root_scope.base, name, decl_i, name_hash, contents_hash);
                 root_scope.decls.appendAssumeCapacity(new_decl);
-                if (fn_proto.extern_export_inline_token) |maybe_export_token| {
+                if (fn_proto.getTrailer("extern_export_inline_token")) |maybe_export_token| {
                     if (tree.token_ids[maybe_export_token] == .Keyword_export) {
                         self.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
                     }
