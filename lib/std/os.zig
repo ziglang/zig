@@ -1524,8 +1524,8 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
 /// or a directory. This value is ignored on all hosts except Windows where
 /// creating symlinks to different resource types, requires different flags.
 /// By default, symlink is assumed to point to a file.
-pub const SymlinkFlags = struct{
-    is_directory: bool = false, 
+pub const SymlinkFlags = struct {
+    is_directory: bool = false,
 };
 
 pub const SymLinkError = error{
@@ -2372,7 +2372,8 @@ pub const ReadLinkError = error{
     NotDir,
     InvalidUtf8,
     BadPathName,
-    /// Windows-only.
+    /// Windows-only. This error may occur if the opened reparse point is
+    /// of unsupported type.
     UnsupportedReparsePointType,
 } || UnexpectedError;
 
@@ -4075,7 +4076,13 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
         var procfs_buf: ["/proc/self/fd/-2147483648".len:0]u8 = undefined;
         const proc_path = std.fmt.bufPrint(procfs_buf[0..], "/proc/self/fd/{}\x00", .{fd}) catch unreachable;
 
-        return readlinkZ(@ptrCast([*:0]const u8, proc_path.ptr), out_buffer);
+        const target = readlinkZ(@ptrCast([*:0]const u8, proc_path.ptr), out_buffer) catch |err| {
+            switch (err) {
+                error.UnsupportedReparsePointType => unreachable, // Windows only,
+                else => |e| return e,
+            }
+        };
+        return target;
     }
     const result_path = std.c.realpath(pathname, out_buffer) orelse switch (std.c._errno().*) {
         EINVAL => unreachable,

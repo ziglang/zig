@@ -1296,33 +1296,40 @@ pub fn cStrToWin32PrefixedFileW(s: [*:0]const u8) !PathSpace {
 /// it will get NT-style prefix `\??\` prepended automatically. For prepending
 /// Win32-style prefix, see `sliceToWin32PrefixedFileW` instead.
 pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
-    // TODO https://github.com/ziglang/zig/issues/2765
-    var path_space: PathSpace = undefined;
-    const prefix_index: usize = if (mem.startsWith(u8, s, "\\??\\")) 4 else 0;
-    for (s[prefix_index..]) |byte| {
-        switch (byte) {
-            '*', '?', '"', '<', '>', '|' => return error.BadPathName,
-            else => {},
-        }
-    }
-    const start_index = if (prefix_index > 0 or !std.fs.path.isAbsolute(s)) 0 else blk: {
-        const prefix = [_]u16{ '\\', '?', '?', '\\' };
-        mem.copy(u16, path_space.data[0..], &prefix);
-        break :blk prefix.len;
-    };
-    path_space.len = start_index + try std.unicode.utf8ToUtf16Le(path_space.data[start_index..], s);
-    if (path_space.len > path_space.data.len) return error.NameTooLong;
-    path_space.ensureNtStyle();
-    return path_space;
+    return sliceToPrefixedFileWInternal(s, PathPrefix.Nt);
 }
 
 /// Converts the path `s` to WTF16, null-terminated. If the path is absolute,
 /// it will get Win32-style extended prefix `\\?\` prepended automatically. For prepending
 /// NT-style prefix, see `sliceToPrefixedFileW` instead.
 pub fn sliceToWin32PrefixedFileW(s: []const u8) !PathSpace {
+    return sliceToPrefixedFileWInternal(s, PathPrefix.Win32);
+}
+
+const PathPrefix = enum {
+    Win32,
+    Nt,
+
+    fn toUtf8(self: PathPrefix) []const u8 {
+        return switch (self) {
+            .Win32 => "\\\\?\\",
+            .Nt => "\\??\\",
+        };
+    }
+
+    fn toUtf16(self: PathPrefix) []const u16 {
+        return switch (self) {
+            .Win32 => &[_]u16{ '\\', '\\', '?', '\\' },
+            .Nt => &[_]u16{ '\\', '?', '?', '\\' },
+        };
+    }
+};
+
+fn sliceToPrefixedFileWInternal(s: []const u8, prefix: PathPrefix) !PathSpace {
     // TODO https://github.com/ziglang/zig/issues/2765
     var path_space: PathSpace = undefined;
-    const prefix_index: usize = if (mem.startsWith(u8, s, "\\\\?\\")) 4 else 0;
+    const prefix_utf8 = prefix.toUtf8();
+    const prefix_index: usize = if (mem.startsWith(u8, s, prefix_utf8)) prefix_utf8.len else 0;
     for (s[prefix_index..]) |byte| {
         switch (byte) {
             '*', '?', '"', '<', '>', '|' => return error.BadPathName,
@@ -1330,9 +1337,9 @@ pub fn sliceToWin32PrefixedFileW(s: []const u8) !PathSpace {
         }
     }
     const start_index = if (prefix_index > 0 or !std.fs.path.isAbsolute(s)) 0 else blk: {
-        const prefix = [_]u16{ '\\', '\\', '?', '\\' };
-        mem.copy(u16, path_space.data[0..], &prefix);
-        break :blk prefix.len;
+        const prefix_utf16 = prefix.toUtf16();
+        mem.copy(u16, path_space.data[0..], prefix_utf16);
+        break :blk prefix_utf16.len;
     };
     path_space.len = start_index + try std.unicode.utf8ToUtf16Le(path_space.data[start_index..], s);
     if (path_space.len > path_space.data.len) return error.NameTooLong;
