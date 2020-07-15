@@ -48,7 +48,7 @@ test "readlink" {
     {
         var cwd = fs.cwd();
         try cwd.writeFile("file.txt", "nonsense");
-        try os.symlink("file.txt", "symlinked");
+        try os.symlink("file.txt", "symlinked", .{});
 
         var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
         const given = try os.readlink("symlinked", buffer[0..]);
@@ -81,7 +81,7 @@ test "readlink" {
         std.debug.warn("symlink_path={}\n", .{symlink_path});
 
         // create symbolic link by path
-        try os.symlink(target_path, symlink_path);
+        try os.symlink(target_path, symlink_path, .{});
 
         // now, read the link and verify
         var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
