@@ -1950,7 +1950,7 @@ test "null terminated array" {
 
       {#header_open|Vectors#}
       <p>
-      A vector is a group of {#link|Integers#}, {#link|Floats#}, or {#link|Pointers#} which are operated on
+      A vector is a group of booleans, {#link|Integers#}, {#link|Floats#}, or {#link|Pointers#} which are operated on
       in parallel using a single instruction ({#link|SIMD#}). Vector types are created with the builtin function {#link|@Type#},
       or using the shorthand as {#syntax#}std.meta.Vector{#endsyntax#}.
       </p>
