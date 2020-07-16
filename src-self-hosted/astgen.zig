@@ -33,6 +33,8 @@ pub fn expr(mod: *Module, scope: *Scope, node: *ast.Node) InnerError!*zir.Inst {
         .GreaterOrEqual => return cmp(mod, scope, node.castTag(.GreaterOrEqual).?, .gte),
         .LessThan => return cmp(mod, scope, node.castTag(.LessThan).?, .lt),
         .LessOrEqual => return cmp(mod, scope, node.castTag(.LessOrEqual).?, .lte),
+        .Period => return field(mod, scope, node.castTag(.Period).?),
+        .SuffixOp => return suffixOp(mod, scope, node.castTag(.SuffixOp).?),
         .BoolNot => return boolNot(mod, scope, node.castTag(.BoolNot).?),
         else => return mod.failNode(scope, node, "TODO implement astgen.Expr for {}", .{@tagName(node.tag)}),
     }
@@ -118,6 +120,43 @@ fn assign(mod: *Module, scope: *Scope, infix_node: *ast.Node.SimpleInfixOp) Inne
         }
     } else {
         return mod.failNode(scope, &infix_node.base, "TODO implement infix operator assign", .{});
+    }
+}
+
+/// Identifier nodes -> ZIR string instruction
+pub fn identifierString(mod: *Module, scope: *Scope, node: *ast.Node.Identifier) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.token].start;
+
+    var ident_name = tree.tokenSlice(node.token);
+    if (std.mem.startsWith(u8, ident_name, "@"))
+        ident_name = ident_name[2 .. ident_name.len - 1];
+
+    return mod.addZIRInst(scope, src, zir.Inst.Str, .{ .bytes = ident_name }, .{});
+}
+
+fn field(mod: *Module, scope: *Scope, node: *ast.Node.SimpleInfixOp) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.op_token].start;
+
+    const lhs = try expr(mod, scope, node.lhs);
+    const field_name = try identifierString(mod, scope, node.rhs.castTag(.Identifier).?);
+
+    const pointer = try mod.addZIRInst(scope, src, zir.Inst.FieldPtr, .{ .object_ptr = lhs, .field_name = field_name }, .{});
+    return mod.addZIRInst(scope, src, zir.Inst.Deref, .{ .ptr = pointer }, .{});
+}
+
+fn suffixOp(mod: *Module, scope: *Scope, node: *ast.Node.SuffixOp) InnerError!*zir.Inst {
+    switch (node.op) {
+        .Deref => {
+            const tree = scope.tree();
+            const src = tree.token_locs[node.rtoken].start;
+
+            const lhs = try expr(mod, scope, node.lhs);
+
+            return mod.addZIRInst(scope, src, zir.Inst.Deref, .{ .ptr = lhs }, .{});
+        },
+        else => return mod.failNode(scope, &node.base, "TODO implement astGenExpr for suffixOp {}", .{node.op}),
     }
 }
 
