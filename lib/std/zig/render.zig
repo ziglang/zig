@@ -223,7 +223,7 @@ fn renderTopLevelDecl(allocator: *mem.Allocator, stream: anytype, tree: *ast.Tre
 }
 
 fn renderContainerDecl(allocator: *mem.Allocator, stream: anytype, tree: *ast.Tree, indent: usize, start_col: *usize, decl: *ast.Node, space: Space) (@TypeOf(stream).Error || Error)!void {
-    switch (decl.id) {
+    switch (decl.tag) {
         .FnProto => {
             const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
 
@@ -365,7 +365,7 @@ fn renderExpression(
     base: *ast.Node,
     space: Space,
 ) (@TypeOf(stream).Error || Error)!void {
-    switch (base.id) {
+    switch (base.tag) {
         .Identifier => {
             const identifier = @fieldParentPtr(ast.Node.Identifier, "base", base);
             return renderToken(tree, stream, identifier.token, indent, start_col, space);
@@ -436,11 +436,79 @@ fn renderExpression(
             }
         },
 
-        .InfixOp => {
-            const infix_op_node = @fieldParentPtr(ast.Node.InfixOp, "base", base);
+        .Catch => {
+            const infix_op_node = @fieldParentPtr(ast.Node.Catch, "base", base);
 
-            const op_space = switch (infix_op_node.op) {
-                ast.Node.InfixOp.Op.Period, ast.Node.InfixOp.Op.ErrorUnion, ast.Node.InfixOp.Op.Range => Space.None,
+            const op_space = Space.Space;
+            try renderExpression(allocator, stream, tree, indent, start_col, infix_op_node.lhs, op_space);
+
+            const after_op_space = blk: {
+                const loc = tree.tokenLocation(tree.token_locs[infix_op_node.op_token].end, tree.nextToken(infix_op_node.op_token));
+                break :blk if (loc.line == 0) op_space else Space.Newline;
+            };
+
+            try renderToken(tree, stream, infix_op_node.op_token, indent, start_col, after_op_space);
+            if (after_op_space == Space.Newline and
+                tree.token_ids[tree.nextToken(infix_op_node.op_token)] != .MultilineStringLiteralLine)
+            {
+                try stream.writeByteNTimes(' ', indent + indent_delta);
+                start_col.* = indent + indent_delta;
+            }
+
+            if (infix_op_node.payload) |payload| {
+                try renderExpression(allocator, stream, tree, indent, start_col, payload, Space.Space);
+            }
+
+            return renderExpression(allocator, stream, tree, indent, start_col, infix_op_node.rhs, space);
+        },
+
+        .Add,
+        .AddWrap,
+        .ArrayCat,
+        .ArrayMult,
+        .Assign,
+        .AssignBitAnd,
+        .AssignBitOr,
+        .AssignBitShiftLeft,
+        .AssignBitShiftRight,
+        .AssignBitXor,
+        .AssignDiv,
+        .AssignSub,
+        .AssignSubWrap,
+        .AssignMod,
+        .AssignAdd,
+        .AssignAddWrap,
+        .AssignMul,
+        .AssignMulWrap,
+        .BangEqual,
+        .BitAnd,
+        .BitOr,
+        .BitShiftLeft,
+        .BitShiftRight,
+        .BitXor,
+        .BoolAnd,
+        .BoolOr,
+        .Div,
+        .EqualEqual,
+        .ErrorUnion,
+        .GreaterOrEqual,
+        .GreaterThan,
+        .LessOrEqual,
+        .LessThan,
+        .MergeErrorSets,
+        .Mod,
+        .Mul,
+        .MulWrap,
+        .Period,
+        .Range,
+        .Sub,
+        .SubWrap,
+        .UnwrapOptional,
+        => {
+            const infix_op_node = @fieldParentPtr(ast.Node.SimpleInfixOp, "base", base);
+
+            const op_space = switch (base.tag) {
+                .Period, .ErrorUnion, .Range => Space.None,
                 else => Space.Space,
             };
             try renderExpression(allocator, stream, tree, indent, start_col, infix_op_node.lhs, op_space);
@@ -458,60 +526,28 @@ fn renderExpression(
                 start_col.* = indent + indent_delta;
             }
 
-            switch (infix_op_node.op) {
-                ast.Node.InfixOp.Op.Catch => |maybe_payload| if (maybe_payload) |payload| {
-                    try renderExpression(allocator, stream, tree, indent, start_col, payload, Space.Space);
-                },
-                else => {},
-            }
-
             return renderExpression(allocator, stream, tree, indent, start_col, infix_op_node.rhs, space);
         },
 
-        .BitNot => {
-            const bit_not = @fieldParentPtr(ast.Node.BitNot, "base", base);
-            try renderToken(tree, stream, bit_not.op_token, indent, start_col, Space.None);
-            return renderExpression(allocator, stream, tree, indent, start_col, bit_not.rhs, space);
+        .BitNot,
+        .BoolNot,
+        .Negation,
+        .NegationWrap,
+        .OptionalType,
+        .AddressOf,
+        => {
+            const casted_node = @fieldParentPtr(ast.Node.SimplePrefixOp, "base", base);
+            try renderToken(tree, stream, casted_node.op_token, indent, start_col, Space.None);
+            return renderExpression(allocator, stream, tree, indent, start_col, casted_node.rhs, space);
         },
-        .BoolNot => {
-            const bool_not = @fieldParentPtr(ast.Node.BoolNot, "base", base);
-            try renderToken(tree, stream, bool_not.op_token, indent, start_col, Space.None);
-            return renderExpression(allocator, stream, tree, indent, start_col, bool_not.rhs, space);
-        },
-        .Negation => {
-            const negation = @fieldParentPtr(ast.Node.Negation, "base", base);
-            try renderToken(tree, stream, negation.op_token, indent, start_col, Space.None);
-            return renderExpression(allocator, stream, tree, indent, start_col, negation.rhs, space);
-        },
-        .NegationWrap => {
-            const negation_wrap = @fieldParentPtr(ast.Node.NegationWrap, "base", base);
-            try renderToken(tree, stream, negation_wrap.op_token, indent, start_col, Space.None);
-            return renderExpression(allocator, stream, tree, indent, start_col, negation_wrap.rhs, space);
-        },
-        .OptionalType => {
-            const opt_type = @fieldParentPtr(ast.Node.OptionalType, "base", base);
-            try renderToken(tree, stream, opt_type.op_token, indent, start_col, Space.None);
-            return renderExpression(allocator, stream, tree, indent, start_col, opt_type.rhs, space);
-        },
-        .AddressOf => {
-            const addr_of = @fieldParentPtr(ast.Node.AddressOf, "base", base);
-            try renderToken(tree, stream, addr_of.op_token, indent, start_col, Space.None);
-            return renderExpression(allocator, stream, tree, indent, start_col, addr_of.rhs, space);
-        },
-        .Try => {
-            const try_node = @fieldParentPtr(ast.Node.Try, "base", base);
-            try renderToken(tree, stream, try_node.op_token, indent, start_col, Space.Space);
-            return renderExpression(allocator, stream, tree, indent, start_col, try_node.rhs, space);
-        },
-        .Resume => {
-            const resume_node = @fieldParentPtr(ast.Node.Resume, "base", base);
-            try renderToken(tree, stream, resume_node.op_token, indent, start_col, Space.Space);
-            return renderExpression(allocator, stream, tree, indent, start_col, resume_node.rhs, space);
-        },
-        .Await => {
-            const await_node = @fieldParentPtr(ast.Node.Await, "base", base);
-            try renderToken(tree, stream, await_node.op_token, indent, start_col, Space.Space);
-            return renderExpression(allocator, stream, tree, indent, start_col, await_node.rhs, space);
+
+        .Try,
+        .Resume,
+        .Await,
+        => {
+            const casted_node = @fieldParentPtr(ast.Node.SimplePrefixOp, "base", base);
+            try renderToken(tree, stream, casted_node.op_token, indent, start_col, Space.Space);
+            return renderExpression(allocator, stream, tree, indent, start_col, casted_node.rhs, space);
         },
 
         .ArrayType => {
@@ -659,7 +695,7 @@ fn renderExpression(
         .ArrayInitializer, .ArrayInitializerDot => {
             var rtoken: ast.TokenIndex = undefined;
             var exprs: []*ast.Node = undefined;
-            const lhs: union(enum) { dot: ast.TokenIndex, node: *ast.Node } = switch (base.id) {
+            const lhs: union(enum) { dot: ast.TokenIndex, node: *ast.Node } = switch (base.tag) {
                 .ArrayInitializerDot => blk: {
                     const casted = @fieldParentPtr(ast.Node.ArrayInitializerDot, "base", base);
                     rtoken = casted.rtoken;
@@ -793,14 +829,14 @@ fn renderExpression(
                         }
 
                         try renderExtraNewline(tree, stream, start_col, next_expr);
-                        if (next_expr.id != .MultilineStringLiteral) {
+                        if (next_expr.tag != .MultilineStringLiteral) {
                             try stream.writeByteNTimes(' ', new_indent);
                         }
                     } else {
                         try renderExpression(allocator, stream, tree, new_indent, start_col, expr, Space.Comma); // ,
                     }
                 }
-                if (exprs[exprs.len - 1].id != .MultilineStringLiteral) {
+                if (exprs[exprs.len - 1].tag != .MultilineStringLiteral) {
                     try stream.writeByteNTimes(' ', indent);
                 }
                 return renderToken(tree, stream, rtoken, indent, start_col, space);
@@ -823,7 +859,7 @@ fn renderExpression(
         .StructInitializer, .StructInitializerDot => {
             var rtoken: ast.TokenIndex = undefined;
             var field_inits: []*ast.Node = undefined;
-            const lhs: union(enum) { dot: ast.TokenIndex, node: *ast.Node } = switch (base.id) {
+            const lhs: union(enum) { dot: ast.TokenIndex, node: *ast.Node } = switch (base.tag) {
                 .StructInitializerDot => blk: {
                     const casted = @fieldParentPtr(ast.Node.StructInitializerDot, "base", base);
                     rtoken = casted.rtoken;
@@ -877,7 +913,7 @@ fn renderExpression(
             if (field_inits.len == 1) blk: {
                 const field_init = field_inits[0].cast(ast.Node.FieldInitializer).?;
 
-                switch (field_init.expr.id) {
+                switch (field_init.expr.tag) {
                     .StructInitializer,
                     .StructInitializerDot,
                     => break :blk,
@@ -974,7 +1010,7 @@ fn renderExpression(
 
                 const params = call.params();
                 for (params) |param_node, i| {
-                    const param_node_new_indent = if (param_node.id == .MultilineStringLiteral) blk: {
+                    const param_node_new_indent = if (param_node.tag == .MultilineStringLiteral) blk: {
                         break :blk indent;
                     } else blk: {
                         try stream.writeByteNTimes(' ', new_indent);
@@ -1284,7 +1320,7 @@ fn renderExpression(
             // declarations inside are fields
             const src_has_only_fields = blk: {
                 for (fields_and_decls) |decl| {
-                    if (decl.id != .ContainerField) break :blk false;
+                    if (decl.tag != .ContainerField) break :blk false;
                 }
                 break :blk true;
             };
@@ -1831,7 +1867,7 @@ fn renderExpression(
 
             const rparen = tree.nextToken(for_node.array_expr.lastToken());
 
-            const body_is_block = for_node.body.id == .Block;
+            const body_is_block = for_node.body.tag == .Block;
             const src_one_line_to_body = !body_is_block and tree.tokensOnSameLine(rparen, for_node.body.firstToken());
             const body_on_same_line = body_is_block or src_one_line_to_body;
 
@@ -1874,7 +1910,7 @@ fn renderExpression(
 
             try renderExpression(allocator, stream, tree, indent, start_col, if_node.condition, Space.None); // condition
 
-            const body_is_if_block = if_node.body.id == .If;
+            const body_is_if_block = if_node.body.tag == .If;
             const body_is_block = nodeIsBlock(if_node.body);
 
             if (body_is_if_block) {
@@ -1978,7 +2014,7 @@ fn renderExpression(
 
             const indent_once = indent + indent_delta;
 
-            if (asm_node.template.id == .MultilineStringLiteral) {
+            if (asm_node.template.tag == .MultilineStringLiteral) {
                 // After rendering a multiline string literal the cursor is
                 // already offset by indent
                 try stream.writeByteNTimes(' ', indent_delta);
@@ -2245,7 +2281,7 @@ fn renderVarDecl(
     }
 
     if (var_decl.getTrailer("init_node")) |init_node| {
-        const s = if (init_node.id == .MultilineStringLiteral) Space.None else Space.Space;
+        const s = if (init_node.tag == .MultilineStringLiteral) Space.None else Space.Space;
         try renderToken(tree, stream, var_decl.getTrailer("eq_token").?, indent, start_col, s); // =
         try renderExpression(allocator, stream, tree, indent, start_col, init_node, Space.None);
     }
@@ -2287,7 +2323,7 @@ fn renderStatement(
     start_col: *usize,
     base: *ast.Node,
 ) (@TypeOf(stream).Error || Error)!void {
-    switch (base.id) {
+    switch (base.tag) {
         .VarDecl => {
             const var_decl = @fieldParentPtr(ast.Node.VarDecl, "base", base);
             try renderVarDecl(allocator, stream, tree, indent, start_col, var_decl);
@@ -2566,7 +2602,7 @@ fn renderDocCommentsToken(
 }
 
 fn nodeIsBlock(base: *const ast.Node) bool {
-    return switch (base.id) {
+    return switch (base.tag) {
         .Block,
         .If,
         .For,
@@ -2578,10 +2614,52 @@ fn nodeIsBlock(base: *const ast.Node) bool {
 }
 
 fn nodeCausesSliceOpSpace(base: *ast.Node) bool {
-    const infix_op = base.cast(ast.Node.InfixOp) orelse return false;
-    return switch (infix_op.op) {
-        ast.Node.InfixOp.Op.Period => false,
-        else => true,
+    return switch (base.tag) {
+        .Catch,
+        .Add,
+        .AddWrap,
+        .ArrayCat,
+        .ArrayMult,
+        .Assign,
+        .AssignBitAnd,
+        .AssignBitOr,
+        .AssignBitShiftLeft,
+        .AssignBitShiftRight,
+        .AssignBitXor,
+        .AssignDiv,
+        .AssignSub,
+        .AssignSubWrap,
+        .AssignMod,
+        .AssignAdd,
+        .AssignAddWrap,
+        .AssignMul,
+        .AssignMulWrap,
+        .BangEqual,
+        .BitAnd,
+        .BitOr,
+        .BitShiftLeft,
+        .BitShiftRight,
+        .BitXor,
+        .BoolAnd,
+        .BoolOr,
+        .Div,
+        .EqualEqual,
+        .ErrorUnion,
+        .GreaterOrEqual,
+        .GreaterThan,
+        .LessOrEqual,
+        .LessThan,
+        .MergeErrorSets,
+        .Mod,
+        .Mul,
+        .MulWrap,
+        .Range,
+        .Sub,
+        .SubWrap,
+        .UnwrapOptional,
+        => true,
+
+        else => false,
     };
 }
 

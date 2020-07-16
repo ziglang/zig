@@ -34,7 +34,8 @@ pub const Inst = struct {
 
     /// These names are used directly as the instruction names in the text format.
     pub const Tag = enum {
-        /// Function parameter value.
+        /// Function parameter value. These must be first in a function's main block,
+        /// in respective order with the parameters.
         arg,
         /// A labeled block of code, which can return a value.
         block,
@@ -184,9 +185,7 @@ pub const Inst = struct {
         pub const base_tag = Tag.arg;
         base: Inst,
 
-        positionals: struct {
-            index: usize,
-        },
+        positionals: struct {},
         kw_args: struct {},
     };
 
@@ -1384,15 +1383,17 @@ const EmitZIR = struct {
         for (src_decls.items) |ir_decl| {
             switch (ir_decl.analysis) {
                 .unreferenced => continue,
+
                 .complete => {},
+                .codegen_failure => {}, // We still can emit the ZIR.
+                .codegen_failure_retryable => {}, // We still can emit the ZIR.
+
                 .in_progress => unreachable,
                 .outdated => unreachable,
 
                 .sema_failure,
                 .sema_failure_retryable,
-                .codegen_failure,
                 .dependency_failure,
-                .codegen_failure_retryable,
                 => if (self.old_module.failed_decls.get(ir_decl)) |err_msg| {
                     const fail_inst = try self.arena.allocator.create(Inst.CompileError);
                     fail_inst.* = .{
@@ -1728,7 +1729,7 @@ const EmitZIR = struct {
                             .src = inst.src,
                             .tag = Inst.Arg.base_tag,
                         },
-                        .positionals = .{ .index = old_inst.args.index },
+                        .positionals = .{},
                         .kw_args = .{},
                     };
                     break :blk &new_inst.base;
