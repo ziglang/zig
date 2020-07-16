@@ -760,46 +760,13 @@ const Writer = struct {
         stream: anytype,
         inst: *Inst,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        // TODO I tried implementing this with an inline for loop and hit a compiler bug
-        switch (inst.tag) {
-            .arg => return self.writeInstToStreamGeneric(stream, .arg, inst),
-            .block => return self.writeInstToStreamGeneric(stream, .block, inst),
-            .@"break" => return self.writeInstToStreamGeneric(stream, .@"break", inst),
-            .breakpoint => return self.writeInstToStreamGeneric(stream, .breakpoint, inst),
-            .breakvoid => return self.writeInstToStreamGeneric(stream, .breakvoid, inst),
-            .call => return self.writeInstToStreamGeneric(stream, .call, inst),
-            .declref => return self.writeInstToStreamGeneric(stream, .declref, inst),
-            .declref_str => return self.writeInstToStreamGeneric(stream, .declref_str, inst),
-            .declval => return self.writeInstToStreamGeneric(stream, .declval, inst),
-            .declval_in_module => return self.writeInstToStreamGeneric(stream, .declval_in_module, inst),
-            .compileerror => return self.writeInstToStreamGeneric(stream, .compileerror, inst),
-            .@"const" => return self.writeInstToStreamGeneric(stream, .@"const", inst),
-            .boolnot => return self.writeInstToStreamGeneric(stream, .boolnot, inst),
-            .str => return self.writeInstToStreamGeneric(stream, .str, inst),
-            .int => return self.writeInstToStreamGeneric(stream, .int, inst),
-            .inttype => return self.writeInstToStreamGeneric(stream, .inttype, inst),
-            .ptrtoint => return self.writeInstToStreamGeneric(stream, .ptrtoint, inst),
-            .fieldptr => return self.writeInstToStreamGeneric(stream, .fieldptr, inst),
-            .deref => return self.writeInstToStreamGeneric(stream, .deref, inst),
-            .as => return self.writeInstToStreamGeneric(stream, .as, inst),
-            .@"asm" => return self.writeInstToStreamGeneric(stream, .@"asm", inst),
-            .@"unreachable" => return self.writeInstToStreamGeneric(stream, .@"unreachable", inst),
-            .@"return" => return self.writeInstToStreamGeneric(stream, .@"return", inst),
-            .returnvoid => return self.writeInstToStreamGeneric(stream, .returnvoid, inst),
-            .@"fn" => return self.writeInstToStreamGeneric(stream, .@"fn", inst),
-            .@"export" => return self.writeInstToStreamGeneric(stream, .@"export", inst),
-            .primitive => return self.writeInstToStreamGeneric(stream, .primitive, inst),
-            .fntype => return self.writeInstToStreamGeneric(stream, .fntype, inst),
-            .intcast => return self.writeInstToStreamGeneric(stream, .intcast, inst),
-            .bitcast => return self.writeInstToStreamGeneric(stream, .bitcast, inst),
-            .elemptr => return self.writeInstToStreamGeneric(stream, .elemptr, inst),
-            .add => return self.writeInstToStreamGeneric(stream, .add, inst),
-            .sub => return self.writeInstToStreamGeneric(stream, .sub, inst),
-            .cmp => return self.writeInstToStreamGeneric(stream, .cmp, inst),
-            .condbr => return self.writeInstToStreamGeneric(stream, .condbr, inst),
-            .isnull => return self.writeInstToStreamGeneric(stream, .isnull, inst),
-            .isnonnull => return self.writeInstToStreamGeneric(stream, .isnonnull, inst),
+        inline for (@typeInfo(Inst.Tag).Enum.fields) |enum_field| {
+            const expected_tag = @field(Inst.Tag, enum_field.name);
+            if (inst.tag == expected_tag) {
+                return self.writeInstToStreamGeneric(stream, expected_tag, inst);
+            }
         }
+        unreachable; // all tags handled
     }
 
     fn writeInstToStreamGeneric(
