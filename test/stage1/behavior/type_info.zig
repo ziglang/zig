@@ -280,7 +280,7 @@ fn testFunction() void {
     expect(bound_fn_info.BoundFn.args[0].arg_type.? == *const TestStruct);
 }
 
-extern fn foo(a: usize, b: bool, args: ...) usize;
+extern fn foo(a: usize, b: bool, ...) usize;
 
 test "typeInfo with comptime parameter in struct fn def" {
     const S = struct {
@@ -424,4 +424,9 @@ test "Declarations are returned in declaration order" {
     expect(std.mem.eql(u8, d[2].name, "c"));
     expect(std.mem.eql(u8, d[3].name, "d"));
     expect(std.mem.eql(u8, d[4].name, "e"));
+}
+
+test "Struct.is_tuple" {
+    expect(@typeInfo(@TypeOf(.{0})).Struct.is_tuple);
+    expect(!@typeInfo(@TypeOf(.{ .a = 0 })).Struct.is_tuple);
 }

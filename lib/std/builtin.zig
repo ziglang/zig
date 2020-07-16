@@ -246,6 +246,7 @@ pub const TypeInfo = union(enum) {
         layout: ContainerLayout,
         fields: []const StructField,
         decls: []const Declaration,
+        is_tuple: bool,
     };
 
     /// This data structure is used by the Zig language code generation and

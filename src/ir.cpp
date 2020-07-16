@@ -25546,7 +25546,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Struct", nullptr);
 
-                ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 3);
+                ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 4);
                 result->data.x_struct.fields = fields;
 
                 // layout: ContainerLayout
@@ -25626,6 +25626,12 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 {
                     return err;
                 }
+
+                // is_tuple: bool
+                ensure_field_index(result->type, "is_tuple", 3);
+                fields[3]->special = ConstValSpecialStatic;
+                fields[3]->type = ira->codegen->builtin_types.entry_bool;
+                fields[3]->data.x_bool = is_tuple(type_entry);
 
                 break;
             }

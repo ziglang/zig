@@ -709,8 +709,7 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                 .Struct => |init_info| {
                     var value = std.mem.zeroes(T);
 
-                    // typeInfo won't tell us if this is a tuple
-                    if (comptime eql(u8, init_info.fields[0].name, "0")) {
+                    if (init_info.is_tuple) {
                         inline for (init_info.fields) |field, i| {
                             @field(value, struct_info.fields[i].name) = @field(init, field.name);
                         }
@@ -785,7 +784,7 @@ test "zeroInit" {
         a: u8,
     };
 
-    const c = zeroInit(Color, .{255, 255});
+    const c = zeroInit(Color, .{ 255, 255 });
     testing.expectEqual(Color{
         .r = 255,
         .g = 255,
