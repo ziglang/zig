@@ -212,6 +212,7 @@ pub const Decl = struct {
             },
             .block => unreachable,
             .gen_zir => unreachable,
+            .local_var => unreachable,
             .decl => unreachable,
         }
     }
@@ -307,6 +308,7 @@ pub const Scope = struct {
             .block => return self.cast(Block).?.arena,
             .decl => return &self.cast(DeclAnalysis).?.arena.allocator,
             .gen_zir => return self.cast(GenZIR).?.arena,
+            .local_var => return self.cast(LocalVar).?.gen_zir.arena,
             .zir_module => return &self.cast(ZIRModule).?.contents.module.arena.allocator,
             .file => unreachable,
         }
@@ -318,6 +320,7 @@ pub const Scope = struct {
         return switch (self.tag) {
             .block => self.cast(Block).?.decl,
             .gen_zir => self.cast(GenZIR).?.decl,
+            .local_var => return self.cast(LocalVar).?.gen_zir.decl,
             .decl => self.cast(DeclAnalysis).?.decl,
             .zir_module => null,
             .file => null,
@@ -330,6 +333,7 @@ pub const Scope = struct {
         switch (self.tag) {
             .block => return self.cast(Block).?.decl.scope,
             .gen_zir => return self.cast(GenZIR).?.decl.scope,
+            .local_var => return self.cast(LocalVar).?.gen_zir.decl.scope,
             .decl => return self.cast(DeclAnalysis).?.decl.scope,
             .zir_module, .file => return self,
         }
@@ -342,6 +346,7 @@ pub const Scope = struct {
         switch (self.tag) {
             .block => unreachable,
             .gen_zir => unreachable,
+            .local_var => unreachable,
             .decl => unreachable,
             .zir_module => return self.cast(ZIRModule).?.fullyQualifiedNameHash(name),
             .file => return self.cast(File).?.fullyQualifiedNameHash(name),
@@ -356,7 +361,20 @@ pub const Scope = struct {
             .decl => return self.cast(DeclAnalysis).?.decl.scope.cast(File).?.contents.tree,
             .block => return self.cast(Block).?.decl.scope.cast(File).?.contents.tree,
             .gen_zir => return self.cast(GenZIR).?.decl.scope.cast(File).?.contents.tree,
+            .local_var => return self.cast(LocalVar).?.gen_zir.decl.scope.cast(File).?.contents.tree,
         }
+    }
+
+    /// Asserts the scope is a child of a `GenZIR` and returns it.
+    pub fn getGenZIR(self: *Scope) *GenZIR {
+        return switch (self.tag) {
+            .block => unreachable,
+            .gen_zir => self.cast(GenZIR).?,
+            .local_var => return self.cast(LocalVar).?.gen_zir,
+            .decl => unreachable,
+            .zir_module => unreachable,
+            .file => unreachable,
+        };
     }
 
     pub fn dumpInst(self: *Scope, inst: *Inst) void {
@@ -379,6 +397,7 @@ pub const Scope = struct {
             .zir_module => return @fieldParentPtr(ZIRModule, "base", base).sub_file_path,
             .block => unreachable,
             .gen_zir => unreachable,
+            .local_var => unreachable,
             .decl => unreachable,
         }
     }
@@ -389,6 +408,7 @@ pub const Scope = struct {
             .zir_module => return @fieldParentPtr(ZIRModule, "base", base).unload(gpa),
             .block => unreachable,
             .gen_zir => unreachable,
+            .local_var => unreachable,
             .decl => unreachable,
         }
     }
@@ -398,6 +418,7 @@ pub const Scope = struct {
             .file => return @fieldParentPtr(File, "base", base).getSource(module),
             .zir_module => return @fieldParentPtr(ZIRModule, "base", base).getSource(module),
             .gen_zir => unreachable,
+            .local_var => unreachable,
             .block => unreachable,
             .decl => unreachable,
         }
@@ -410,6 +431,7 @@ pub const Scope = struct {
             .zir_module => return @fieldParentPtr(ZIRModule, "base", base).removeDecl(child),
             .block => unreachable,
             .gen_zir => unreachable,
+            .local_var => unreachable,
             .decl => unreachable,
         }
     }
@@ -429,6 +451,7 @@ pub const Scope = struct {
             },
             .block => unreachable,
             .gen_zir => unreachable,
+            .local_var => unreachable,
             .decl => unreachable,
         }
     }
@@ -449,6 +472,7 @@ pub const Scope = struct {
         block,
         decl,
         gen_zir,
+        local_var,
     };
 
     pub const File = struct {
@@ -679,6 +703,18 @@ pub const Scope = struct {
         decl: *Decl,
         arena: *Allocator,
         instructions: std.ArrayListUnmanaged(*zir.Inst) = .{},
+    };
+
+    /// This structure lives as long as the AST generation of the Block
+    /// node that contains the variable. This struct's parents can be
+    /// other `LocalVar` and finally a `GenZIR` at the top.
+    pub const LocalVar = struct {
+        pub const base_tag: Tag = .local_var;
+        base: Scope = Scope{ .tag = base_tag },
+        gen_zir: *GenZIR,
+        parent: *Scope,
+        name: []const u8,
+        inst: *zir.Inst,
     };
 };
 
@@ -1114,7 +1150,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
     const file_scope = decl.scope.cast(Scope.File).?;
     const tree = try self.getAstTree(file_scope);
     const ast_node = tree.root_node.decls()[decl.src_index];
-    switch (ast_node.id) {
+    switch (ast_node.tag) {
         .FnProto => {
             const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", ast_node);
 
@@ -3243,6 +3279,12 @@ fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *Err
         },
         .gen_zir => {
             const gen_zir = scope.cast(Scope.GenZIR).?;
+            gen_zir.decl.analysis = .sema_failure;
+            gen_zir.decl.generation = self.generation;
+            self.failed_decls.putAssumeCapacityNoClobber(gen_zir.decl, err_msg);
+        },
+        .local_var => {
+            const gen_zir = scope.cast(Scope.LocalVar).?.gen_zir;
             gen_zir.decl.analysis = .sema_failure;
             gen_zir.decl.generation = self.generation;
             self.failed_decls.putAssumeCapacityNoClobber(gen_zir.decl, err_msg);

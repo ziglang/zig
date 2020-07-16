@@ -1128,8 +1128,9 @@ const Parser = struct {
             const expr_node = try p.expectNode(parseExpr, .{
                 .ExpectedExpr = .{ .token = p.tok_i },
             });
-            const node = try p.arena.allocator.create(Node.Resume);
+            const node = try p.arena.allocator.create(Node.SimplePrefixOp);
             node.* = .{
+                .base = .{ .tag = .Resume },
                 .op_token = token,
                 .rhs = expr_node,
             };
@@ -1439,7 +1440,7 @@ const Parser = struct {
             });
 
             while (try p.parseSuffixOp()) |node| {
-                switch (node.id) {
+                switch (node.tag) {
                     .SuffixOp => node.cast(Node.SuffixOp).?.lhs = res,
                     .InfixOp => node.cast(Node.InfixOp).?.lhs = res,
                     else => unreachable,
@@ -1470,7 +1471,7 @@ const Parser = struct {
 
             while (true) {
                 if (try p.parseSuffixOp()) |node| {
-                    switch (node.id) {
+                    switch (node.tag) {
                         .SuffixOp => node.cast(Node.SuffixOp).?.lhs = res,
                         .InfixOp => node.cast(Node.InfixOp).?.lhs = res,
                         else => unreachable,
@@ -1660,7 +1661,7 @@ const Parser = struct {
         }
 
         if (try p.parseLoopTypeExpr()) |node| {
-            switch (node.id) {
+            switch (node.tag) {
                 .For => node.cast(Node.For).?.label = label,
                 .While => node.cast(Node.While).?.label = label,
                 else => unreachable,
@@ -2434,9 +2435,10 @@ const Parser = struct {
         }
     }
 
-    fn allocSimplePrefixOp(p: *Parser, comptime tag: Node.Id, token: TokenIndex) !?*Node {
-        const node = try p.arena.allocator.create(Node.SimplePrefixOp(tag));
+    fn allocSimplePrefixOp(p: *Parser, comptime tag: Node.Tag, token: TokenIndex) !?*Node {
+        const node = try p.arena.allocator.create(Node.SimplePrefixOp);
         node.* = .{
+            .base = .{ .tag = tag },
             .op_token = token,
             .rhs = undefined, // set by caller
         };
@@ -2457,8 +2459,9 @@ const Parser = struct {
     ///      / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
     fn parsePrefixTypeOp(p: *Parser) !?*Node {
         if (p.eatToken(.QuestionMark)) |token| {
-            const node = try p.arena.allocator.create(Node.OptionalType);
+            const node = try p.arena.allocator.create(Node.SimplePrefixOp);
             node.* = .{
+                .base = .{ .tag = .OptionalType },
                 .op_token = token,
                 .rhs = undefined, // set by caller
             };
@@ -3072,7 +3075,6 @@ const Parser = struct {
     fn createLiteral(p: *Parser, comptime T: type, token: TokenIndex) !*Node {
         const result = try p.arena.allocator.create(T);
         result.* = T{
-            .base = Node{ .id = Node.typeToId(T) },
             .token = token,
         };
         return &result.base;
@@ -3148,8 +3150,9 @@ const Parser = struct {
 
     fn parseTry(p: *Parser) !?*Node {
         const token = p.eatToken(.Keyword_try) orelse return null;
-        const node = try p.arena.allocator.create(Node.Try);
+        const node = try p.arena.allocator.create(Node.SimplePrefixOp);
         node.* = .{
+            .base = .{ .tag = .Try },
             .op_token = token,
             .rhs = undefined, // set by caller
         };
@@ -3213,58 +3216,19 @@ const Parser = struct {
         if (try opParseFn(p)) |first_op| {
             var rightmost_op = first_op;
             while (true) {
-                switch (rightmost_op.id) {
-                    .AddressOf => {
+                switch (rightmost_op.tag) {
+                    .AddressOf,
+                    .Await,
+                    .BitNot,
+                    .BoolNot,
+                    .OptionalType,
+                    .Negation,
+                    .NegationWrap,
+                    .Resume,
+                    .Try,
+                    => {
                         if (try opParseFn(p)) |rhs| {
-                            rightmost_op.cast(Node.AddressOf).?.rhs = rhs;
-                            rightmost_op = rhs;
-                        } else break;
-                    },
-                    .Await => {
-                        if (try opParseFn(p)) |rhs| {
-                            rightmost_op.cast(Node.Await).?.rhs = rhs;
-                            rightmost_op = rhs;
-                        } else break;
-                    },
-                    .BitNot => {
-                        if (try opParseFn(p)) |rhs| {
-                            rightmost_op.cast(Node.BitNot).?.rhs = rhs;
-                            rightmost_op = rhs;
-                        } else break;
-                    },
-                    .BoolNot => {
-                        if (try opParseFn(p)) |rhs| {
-                            rightmost_op.cast(Node.BoolNot).?.rhs = rhs;
-                            rightmost_op = rhs;
-                        } else break;
-                    },
-                    .OptionalType => {
-                        if (try opParseFn(p)) |rhs| {
-                            rightmost_op.cast(Node.OptionalType).?.rhs = rhs;
-                            rightmost_op = rhs;
-                        } else break;
-                    },
-                    .Negation => {
-                        if (try opParseFn(p)) |rhs| {
-                            rightmost_op.cast(Node.Negation).?.rhs = rhs;
-                            rightmost_op = rhs;
-                        } else break;
-                    },
-                    .NegationWrap => {
-                        if (try opParseFn(p)) |rhs| {
-                            rightmost_op.cast(Node.NegationWrap).?.rhs = rhs;
-                            rightmost_op = rhs;
-                        } else break;
-                    },
-                    .Resume => {
-                        if (try opParseFn(p)) |rhs| {
-                            rightmost_op.cast(Node.Resume).?.rhs = rhs;
-                            rightmost_op = rhs;
-                        } else break;
-                    },
-                    .Try => {
-                        if (try opParseFn(p)) |rhs| {
-                            rightmost_op.cast(Node.Try).?.rhs = rhs;
+                            rightmost_op.cast(Node.SimplePrefixOp).?.rhs = rhs;
                             rightmost_op = rhs;
                         } else break;
                     },
@@ -3310,57 +3274,18 @@ const Parser = struct {
             }
 
             // If any prefix op existed, a child node on the RHS is required
-            switch (rightmost_op.id) {
-                .AddressOf => {
-                    const prefix_op = rightmost_op.cast(Node.AddressOf).?;
-                    prefix_op.rhs = try p.expectNode(childParseFn, .{
-                        .InvalidToken = .{ .token = p.tok_i },
-                    });
-                },
-                .Await => {
-                    const prefix_op = rightmost_op.cast(Node.Await).?;
-                    prefix_op.rhs = try p.expectNode(childParseFn, .{
-                        .InvalidToken = .{ .token = p.tok_i },
-                    });
-                },
-                .BitNot => {
-                    const prefix_op = rightmost_op.cast(Node.BitNot).?;
-                    prefix_op.rhs = try p.expectNode(childParseFn, .{
-                        .InvalidToken = .{ .token = p.tok_i },
-                    });
-                },
-                .BoolNot => {
-                    const prefix_op = rightmost_op.cast(Node.BoolNot).?;
-                    prefix_op.rhs = try p.expectNode(childParseFn, .{
-                        .InvalidToken = .{ .token = p.tok_i },
-                    });
-                },
-                .OptionalType => {
-                    const prefix_op = rightmost_op.cast(Node.OptionalType).?;
-                    prefix_op.rhs = try p.expectNode(childParseFn, .{
-                        .InvalidToken = .{ .token = p.tok_i },
-                    });
-                },
-                .Negation => {
-                    const prefix_op = rightmost_op.cast(Node.Negation).?;
-                    prefix_op.rhs = try p.expectNode(childParseFn, .{
-                        .InvalidToken = .{ .token = p.tok_i },
-                    });
-                },
-                .NegationWrap => {
-                    const prefix_op = rightmost_op.cast(Node.NegationWrap).?;
-                    prefix_op.rhs = try p.expectNode(childParseFn, .{
-                        .InvalidToken = .{ .token = p.tok_i },
-                    });
-                },
-                .Resume => {
-                    const prefix_op = rightmost_op.cast(Node.Resume).?;
-                    prefix_op.rhs = try p.expectNode(childParseFn, .{
-                        .InvalidToken = .{ .token = p.tok_i },
-                    });
-                },
-                .Try => {
-                    const prefix_op = rightmost_op.cast(Node.Try).?;
+            switch (rightmost_op.tag) {
+                .AddressOf,
+                .Await,
+                .BitNot,
+                .BoolNot,
+                .OptionalType,
+                .Negation,
+                .NegationWrap,
+                .Resume,
+                .Try,
+                => {
+                    const prefix_op = rightmost_op.cast(Node.SimplePrefixOp).?;
                     prefix_op.rhs = try p.expectNode(childParseFn, .{
                         .InvalidToken = .{ .token = p.tok_i },
                     });

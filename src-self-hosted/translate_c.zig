@@ -1219,7 +1219,7 @@ fn transStmt(
         .StringLiteralClass => return transStringLiteral(rp, scope, @ptrCast(*const ZigClangStringLiteral, stmt), result_used),
         .ParenExprClass => {
             const expr = try transExpr(rp, scope, ZigClangParenExpr_getSubExpr(@ptrCast(*const ZigClangParenExpr, stmt)), .used, lrvalue);
-            if (expr.id == .GroupedExpression) return maybeSuppressResult(rp, scope, result_used, expr);
+            if (expr.tag == .GroupedExpression) return maybeSuppressResult(rp, scope, result_used, expr);
             const node = try rp.c.arena.create(ast.Node.GroupedExpression);
             node.* = .{
                 .lparen = try appendToken(rp.c, .LParen, "("),
@@ -1264,7 +1264,7 @@ fn transStmt(
         .OpaqueValueExprClass => {
             const source_expr = ZigClangOpaqueValueExpr_getSourceExpr(@ptrCast(*const ZigClangOpaqueValueExpr, stmt)).?;
             const expr = try transExpr(rp, scope, source_expr, .used, lrvalue);
-            if (expr.id == .GroupedExpression) return maybeSuppressResult(rp, scope, result_used, expr);
+            if (expr.tag == .GroupedExpression) return maybeSuppressResult(rp, scope, result_used, expr);
             const node = try rp.c.arena.create(ast.Node.GroupedExpression);
             node.* = .{
                 .lparen = try appendToken(rp.c, .LParen, "("),
@@ -1693,7 +1693,7 @@ fn transBoolExpr(
     var res = try transExpr(rp, scope, expr, used, lrvalue);
 
     if (isBoolRes(res)) {
-        if (!grouped and res.id == .GroupedExpression) {
+        if (!grouped and res.tag == .GroupedExpression) {
             const group = @fieldParentPtr(ast.Node.GroupedExpression, "base", res);
             res = group.expr;
             // get zig fmt to work properly
@@ -1736,7 +1736,7 @@ fn exprIsStringLiteral(expr: *const ZigClangExpr) bool {
 }
 
 fn isBoolRes(res: *ast.Node) bool {
-    switch (res.id) {
+    switch (res.tag) {
         .InfixOp => switch (@fieldParentPtr(ast.Node.InfixOp, "base", res).op) {
             .BoolOr,
             .BoolAnd,
@@ -4107,12 +4107,13 @@ fn transCreateNodeFieldAccess(c: *Context, container: *ast.Node, field_name: []c
 
 fn transCreateNodeSimplePrefixOp(
     c: *Context,
-    comptime tag: ast.Node.Id,
+    comptime tag: ast.Node.Tag,
     op_tok_id: std.zig.Token.Id,
     bytes: []const u8,
-) !*ast.Node.SimplePrefixOp(tag) {
-    const node = try c.arena.create(ast.Node.SimplePrefixOp(tag));
+) !*ast.Node.SimplePrefixOp {
+    const node = try c.arena.create(ast.Node.SimplePrefixOp);
     node.* = .{
+        .base = .{ .tag = tag },
         .op_token = try appendToken(c, op_tok_id, bytes),
         .rhs = undefined, // translate and set afterward
     };
@@ -5338,10 +5339,10 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             .{@tagName(last.id)},
         );
     _ = try appendToken(c, .Semicolon, ";");
-    const type_of_arg = if (expr.id != .Block) expr else blk: {
+    const type_of_arg = if (expr.tag != .Block) expr else blk: {
         const blk = @fieldParentPtr(ast.Node.Block, "base", expr);
         const blk_last = blk.statements()[blk.statements_len - 1];
-        std.debug.assert(blk_last.id == .ControlFlowExpression);
+        std.debug.assert(blk_last.tag == .ControlFlowExpression);
         const br = @fieldParentPtr(ast.Node.ControlFlowExpression, "base", blk_last);
         break :blk br.rhs.?;
     };
@@ -5788,7 +5789,7 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
 
 fn macroBoolToInt(c: *Context, node: *ast.Node) !*ast.Node {
     if (!isBoolRes(node)) {
-        if (node.id != .InfixOp) return node;
+        if (node.tag != .InfixOp) return node;
 
         const group_node = try c.arena.create(ast.Node.GroupedExpression);
         group_node.* = .{
@@ -5807,7 +5808,7 @@ fn macroBoolToInt(c: *Context, node: *ast.Node) !*ast.Node {
 
 fn macroIntToBool(c: *Context, node: *ast.Node) !*ast.Node {
     if (isBoolRes(node)) {
-        if (node.id != .InfixOp) return node;
+        if (node.tag != .InfixOp) return node;
 
         const group_node = try c.arena.create(ast.Node.GroupedExpression);
         group_node.* = .{
@@ -6105,7 +6106,7 @@ fn tokenSlice(c: *Context, token: ast.TokenIndex) []u8 {
 }
 
 fn getContainer(c: *Context, node: *ast.Node) ?*ast.Node {
-    switch (node.id) {
+    switch (node.tag) {
         .ContainerDecl,
         .AddressOf,
         .Await,
@@ -6182,7 +6183,7 @@ fn getContainerTypeOf(c: *Context, ref: *ast.Node) ?*ast.Node {
 fn getFnProto(c: *Context, ref: *ast.Node) ?*ast.Node.FnProto {
     const init = if (ref.cast(ast.Node.VarDecl)) |v| v.getTrailer("init_node").? else return null;
     if (getContainerTypeOf(c, init)) |ty_node| {
-        if (ty_node.cast(ast.Node.OptionalType)) |prefix| {
+        if (ty_node.castTag(.OptionalType)) |prefix| {
             if (prefix.rhs.cast(ast.Node.FnProto)) |fn_proto| {
                 return fn_proto;
             }

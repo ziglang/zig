@@ -11,8 +11,11 @@ const trace = @import("tracy.zig").trace;
 const Scope = Module.Scope;
 const InnerError = Module.InnerError;
 
+/// Turn Zig AST into untyped ZIR istructions.
 pub fn expr(mod: *Module, scope: *Scope, ast_node: *ast.Node) InnerError!*zir.Inst {
-    switch (ast_node.id) {
+    switch (ast_node.tag) {
+        .VarDecl => unreachable, // Handled in `blockExpr`.
+
         .Identifier => return identifier(mod, scope, @fieldParentPtr(ast.Node.Identifier, "base", ast_node)),
         .Asm => return assembly(mod, scope, @fieldParentPtr(ast.Node.Asm, "base", ast_node)),
         .StringLiteral => return stringLiteral(mod, scope, @fieldParentPtr(ast.Node.StringLiteral, "base", ast_node)),
@@ -23,29 +26,72 @@ pub fn expr(mod: *Module, scope: *Scope, ast_node: *ast.Node) InnerError!*zir.In
         .ControlFlowExpression => return controlFlowExpr(mod, scope, @fieldParentPtr(ast.Node.ControlFlowExpression, "base", ast_node)),
         .If => return ifExpr(mod, scope, @fieldParentPtr(ast.Node.If, "base", ast_node)),
         .InfixOp => return infixOp(mod, scope, @fieldParentPtr(ast.Node.InfixOp, "base", ast_node)),
-        .BoolNot => return boolNot(mod, scope, @fieldParentPtr(ast.Node.BoolNot, "base", ast_node)),
-        .VarDecl => return varDecl(mod, scope, @fieldParentPtr(ast.Node.VarDecl, "base", ast_node)),
-        else => return mod.failNode(scope, ast_node, "TODO implement astgen.Expr for {}", .{@tagName(ast_node.id)}),
+        .BoolNot => return boolNot(mod, scope, @fieldParentPtr(ast.Node.SimplePrefixOp, "base", ast_node)),
+        else => return mod.failNode(scope, ast_node, "TODO implement astgen.Expr for {}", .{@tagName(ast_node.tag)}),
     }
 }
 
-pub fn blockExpr(mod: *Module, scope: *Scope, block_node: *ast.Node.Block) !void {
+pub fn blockExpr(mod: *Module, parent_scope: *Scope, block_node: *ast.Node.Block) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     if (block_node.label) |label| {
-        return mod.failTok(scope, label, "TODO implement labeled blocks", .{});
+        return mod.failTok(parent_scope, label, "TODO implement labeled blocks", .{});
     }
+
+    var block_arena = std.heap.ArenaAllocator.init(mod.gpa);
+    defer block_arena.deinit();
+
+    var scope = parent_scope;
     for (block_node.statements()) |statement| {
-        _ = try expr(mod, scope, statement);
+        switch (statement.tag) {
+            .VarDecl => {
+                const sub_scope = try block_arena.allocator.create(Scope.LocalVar);
+                const var_decl_node = @fieldParentPtr(ast.Node.VarDecl, "base", statement);
+                sub_scope.* = try varDecl(mod, scope, var_decl_node);
+                scope = &sub_scope.base;
+            },
+            else => _ = try expr(mod, scope, statement),
+        }
     }
 }
 
-fn varDecl(mod: *Module, scope: *Scope, node: *ast.Node.VarDecl) InnerError!*zir.Inst {
-    return mod.failNode(scope, &node.base, "TODO implement var decls", .{});
+fn varDecl(mod: *Module, scope: *Scope, node: *ast.Node.VarDecl) InnerError!Scope.LocalVar {
+    if (node.getTrailer("comptime_token")) |comptime_token| {
+        return mod.failTok(scope, comptime_token, "TODO implement comptime locals", .{});
+    }
+    if (node.getTrailer("align_node")) |align_node| {
+        return mod.failNode(scope, align_node, "TODO implement alignment on locals", .{});
+    }
+    if (node.getTrailer("type_node")) |type_node| {
+        return mod.failNode(scope, type_node, "TODO implement typed locals", .{});
+    }
+    const tree = scope.tree();
+    switch (tree.token_ids[node.mut_token]) {
+        .Keyword_const => {},
+        .Keyword_var => {
+            return mod.failTok(scope, node.mut_token, "TODO implement mutable locals", .{});
+        },
+        else => unreachable,
+    }
+    // Depending on the type of AST the initialization expression is, we may need an lvalue
+    // or an rvalue as a result location. If it is an rvalue, we can use the instruction as
+    // the variable, no memory location needed.
+    const init_node = node.getTrailer("init_node").?;
+    if (nodeNeedsMemoryLocation(init_node)) {
+        return mod.failNode(scope, init_node, "TODO implement result locations", .{});
+    }
+    const init_inst = try expr(mod, scope, init_node);
+    const ident_name = tree.tokenSlice(node.name_token); // TODO support @"aoeu" identifiers
+    return Scope.LocalVar{
+        .parent = scope,
+        .gen_zir = scope.getGenZIR(),
+        .name = ident_name,
+        .inst = init_inst,
+    };
 }
 
-fn boolNot(mod: *Module, scope: *Scope, node: *ast.Node.BoolNot) InnerError!*zir.Inst {
+fn boolNot(mod: *Module, scope: *Scope, node: *ast.Node.SimplePrefixOp) InnerError!*zir.Inst {
     const operand = try expr(mod, scope, node.rhs);
     const tree = scope.tree();
     const src = tree.token_locs[node.op_token].start;
@@ -55,7 +101,7 @@ fn boolNot(mod: *Module, scope: *Scope, node: *ast.Node.BoolNot) InnerError!*zir
 fn infixOp(mod: *Module, scope: *Scope, infix_node: *ast.Node.InfixOp) InnerError!*zir.Inst {
     switch (infix_node.op) {
         .Assign => {
-            if (infix_node.lhs.id == .Identifier) {
+            if (infix_node.lhs.tag == .Identifier) {
                 const ident = @fieldParentPtr(ast.Node.Identifier, "base", infix_node.lhs);
                 const tree = scope.tree();
                 const ident_name = tree.tokenSlice(ident.token);
@@ -473,4 +519,80 @@ fn getSimplePrimitiveValue(name: []const u8) ?TypedValue {
         };
     }
     return null;
+}
+
+fn nodeNeedsMemoryLocation(node: *ast.Node) bool {
+    return switch (node.tag) {
+        .Root,
+        .Use,
+        .TestDecl,
+        .DocComment,
+        .SwitchCase,
+        .SwitchElse,
+        .Else,
+        .Payload,
+        .PointerPayload,
+        .PointerIndexPayload,
+        .ContainerField,
+        .ErrorTag,
+        .FieldInitializer,
+        => unreachable,
+
+        .ControlFlowExpression,
+        .BitNot,
+        .BoolNot,
+        .VarDecl,
+        .Defer,
+        .AddressOf,
+        .OptionalType,
+        .Negation,
+        .NegationWrap,
+        .Resume,
+        .ArrayType,
+        .ArrayTypeSentinel,
+        .PtrType,
+        .SliceType,
+        .Suspend,
+        .AnyType,
+        .ErrorType,
+        .FnProto,
+        .AnyFrameType,
+        .IntegerLiteral,
+        .FloatLiteral,
+        .EnumLiteral,
+        .StringLiteral,
+        .MultilineStringLiteral,
+        .CharLiteral,
+        .BoolLiteral,
+        .NullLiteral,
+        .UndefinedLiteral,
+        .Unreachable,
+        .Identifier,
+        .ErrorSetDecl,
+        .ContainerDecl,
+        .Asm,
+        => false,
+
+        .ArrayInitializer,
+        .ArrayInitializerDot,
+        .StructInitializer,
+        .StructInitializerDot,
+        => true,
+
+        .GroupedExpression => nodeNeedsMemoryLocation(node.cast(ast.Node.GroupedExpression).?.expr),
+
+        .InfixOp => @panic("TODO nodeNeedsMemoryLocation for InfixOp"),
+        .Await => @panic("TODO nodeNeedsMemoryLocation for Await"),
+        .Try => @panic("TODO nodeNeedsMemoryLocation for Try"),
+        .If => @panic("TODO nodeNeedsMemoryLocation for If"),
+        .SuffixOp => @panic("TODO nodeNeedsMemoryLocation for SuffixOp"),
+        .Call => @panic("TODO nodeNeedsMemoryLocation for Call"),
+        .Switch => @panic("TODO nodeNeedsMemoryLocation for Switch"),
+        .While => @panic("TODO nodeNeedsMemoryLocation for While"),
+        .For => @panic("TODO nodeNeedsMemoryLocation for For"),
+        .BuiltinCall => @panic("TODO nodeNeedsMemoryLocation for BuiltinCall"),
+        .Comptime => @panic("TODO nodeNeedsMemoryLocation for Comptime"),
+        .Nosuspend => @panic("TODO nodeNeedsMemoryLocation for Nosuspend"),
+        .Block => @panic("TODO nodeNeedsMemoryLocation for Block"),
+    };
 }
