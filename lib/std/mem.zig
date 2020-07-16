@@ -552,7 +552,7 @@ pub fn zeroes(comptime T: type) T {
             if (@sizeOf(T) == 0) return T{};
             if (comptime meta.containerLayout(T) == .Extern) {
                 var item: T = undefined;
-                @memset(@ptrCast([*]u8, &item), 0, @sizeOf(T));
+                set(u8, asBytes(&item), 0);
                 return item;
             } else {
                 var structure: T = undefined;
