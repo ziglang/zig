@@ -169,8 +169,38 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "",
         );
+    }
 
-        // Tests the assert() function.
+    {
+        // TODO add a test case for comptime substraction of numbers
+        var case = ctx.exe("substracting numbers at runtime", linux_x64);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    sub(7, 8);
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn sub(a: u32, b: u32) void {
+            \\    if (a - b != 3) unreachable;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+    }
+
+    {
+        var case = ctx.exe("assert function", linux_x64);
         case.addCompareOutput(
             \\export fn _start() noreturn {
             \\    add(3, 4);
