@@ -160,6 +160,7 @@ fn ifExpr(mod: *Module, scope: *Scope, if_node: *ast.Node.If) InnerError!*zir.In
         }
     }
     var block_scope: Scope.GenZIR = .{
+        .parent = scope,
         .decl = scope.decl().?,
         .arena = scope.arena(),
         .instructions = .{},
@@ -180,6 +181,7 @@ fn ifExpr(mod: *Module, scope: *Scope, if_node: *ast.Node.If) InnerError!*zir.In
         .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
     });
     var then_scope: Scope.GenZIR = .{
+        .parent = scope,
         .decl = block_scope.decl,
         .arena = block_scope.arena,
         .instructions = .{},
@@ -199,6 +201,7 @@ fn ifExpr(mod: *Module, scope: *Scope, if_node: *ast.Node.If) InnerError!*zir.In
     };
 
     var else_scope: Scope.GenZIR = .{
+        .parent = scope,
         .decl = block_scope.decl,
         .arena = block_scope.arena,
         .instructions = .{},
@@ -250,7 +253,11 @@ fn controlFlowExpr(
 }
 
 fn identifier(mod: *Module, scope: *Scope, ident: *ast.Node.Identifier) InnerError!*zir.Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const tree = scope.tree();
+    // TODO implement @"aoeu" identifiers
     const ident_name = tree.tokenSlice(ident.token);
     const src = tree.token_locs[ident.token].start;
     if (mem.eql(u8, ident_name, "_")) {
@@ -288,23 +295,27 @@ fn identifier(mod: *Module, scope: *Scope, ident: *ast.Node.Identifier) InnerErr
         }
     }
 
+    // Local variables, including function parameters.
+    {
+        var s = scope;
+        while (true) switch (s.tag) {
+            .local_var => {
+                const local_var = s.cast(Scope.LocalVar).?;
+                if (mem.eql(u8, local_var.name, ident_name)) {
+                    return local_var.inst;
+                }
+                s = local_var.parent;
+            },
+            .gen_zir => s = s.cast(Scope.GenZIR).?.parent,
+            else => break,
+        };
+    }
+
     if (mod.lookupDeclName(scope, ident_name)) |decl| {
         return try mod.addZIRInst(scope, src, zir.Inst.DeclValInModule, .{ .decl = decl }, .{});
     }
 
-    // Function parameter
-    if (scope.decl()) |decl| {
-        if (tree.root_node.decls()[decl.src_index].cast(ast.Node.FnProto)) |fn_proto| {
-            for (fn_proto.params()) |param, i| {
-                const param_name = tree.tokenSlice(param.name_token.?);
-                if (mem.eql(u8, param_name, ident_name)) {
-                    return try mod.addZIRInst(scope, src, zir.Inst.Arg, .{ .index = i }, .{});
-                }
-            }
-        }
-    }
-
-    return mod.failNode(scope, &ident.base, "TODO implement local variable identifier lookup", .{});
+    return mod.failNode(scope, &ident.base, "use of undeclared identifier '{}'", .{ident_name});
 }
 
 fn stringLiteral(mod: *Module, scope: *Scope, str_lit: *ast.Node.StringLiteral) InnerError!*zir.Inst {
@@ -434,7 +445,7 @@ fn callExpr(mod: *Module, scope: *Scope, node: *ast.Node.Call) InnerError!*zir.I
     const lhs = try expr(mod, scope, node.lhs);
 
     const param_nodes = node.params();
-    const args = try scope.cast(Scope.GenZIR).?.arena.alloc(*zir.Inst, param_nodes.len);
+    const args = try scope.getGenZIR().arena.alloc(*zir.Inst, param_nodes.len);
     for (param_nodes) |param_node, i| {
         args[i] = try expr(mod, scope, param_node);
     }

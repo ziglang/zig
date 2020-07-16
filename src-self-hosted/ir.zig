@@ -101,10 +101,7 @@ pub const Inst = struct {
     pub const Arg = struct {
         pub const base_tag = Tag.arg;
         base: Inst,
-
-        args: struct {
-            index: usize,
-        },
+        args: void,
     };
 
     pub const Assembly = struct {

@@ -73,6 +73,7 @@ pub fn generateSymbol(
                 .code = code,
                 .err_msg = null,
                 .args = mc_args,
+                .arg_index = 0,
                 .branch_stack = &branch_stack,
                 .src = src,
             };
@@ -255,6 +256,7 @@ const Function = struct {
     code: *std.ArrayList(u8),
     err_msg: ?*ErrorMsg,
     args: []MCValue,
+    arg_index: usize,
     src: usize,
 
     /// Whenever there is a runtime branch, we push a Branch onto this stack,
@@ -603,7 +605,9 @@ const Function = struct {
     }
 
     fn genArg(self: *Function, inst: *ir.Inst.Arg) !MCValue {
-        return self.args[inst.args.index];
+        const i = self.arg_index;
+        self.arg_index += 1;
+        return self.args[i];
     }
 
     fn genBreakpoint(self: *Function, src: usize, comptime arch: std.Target.Cpu.Arch) !MCValue {

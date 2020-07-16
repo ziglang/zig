@@ -700,19 +700,22 @@ pub const Scope = struct {
     pub const GenZIR = struct {
         pub const base_tag: Tag = .gen_zir;
         base: Scope = Scope{ .tag = base_tag },
+        /// Parents can be: `GenZIR`, `ZIRModule`, `File`
+        parent: *Scope,
         decl: *Decl,
         arena: *Allocator,
+        /// The first N instructions in a function body ZIR are arg instructions.
         instructions: std.ArrayListUnmanaged(*zir.Inst) = .{},
     };
 
     /// This structure lives as long as the AST generation of the Block
-    /// node that contains the variable. This struct's parents can be
-    /// other `LocalVar` and finally a `GenZIR` at the top.
+    /// node that contains the variable.
     pub const LocalVar = struct {
         pub const base_tag: Tag = .local_var;
         base: Scope = Scope{ .tag = base_tag },
-        gen_zir: *GenZIR,
+        /// Parents can be: `LocalVar`, `GenZIR`.
         parent: *Scope,
+        gen_zir: *GenZIR,
         name: []const u8,
         inst: *zir.Inst,
     };
@@ -1164,6 +1167,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             var fn_type_scope: Scope.GenZIR = .{
                 .decl = decl,
                 .arena = &fn_type_scope_arena.allocator,
+                .parent = decl.scope,
             };
             defer fn_type_scope.instructions.deinit(self.gpa);
 
@@ -1241,12 +1245,32 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 var gen_scope: Scope.GenZIR = .{
                     .decl = decl,
                     .arena = &gen_scope_arena.allocator,
+                    .parent = decl.scope,
                 };
                 defer gen_scope.instructions.deinit(self.gpa);
 
+                // We need an instruction for each parameter, and they must be first in the body.
+                try gen_scope.instructions.resize(self.gpa, fn_proto.params_len);
+                var params_scope = &gen_scope.base;
+                for (fn_proto.params()) |param, i| {
+                    const name_token = param.name_token.?;
+                    const src = tree.token_locs[name_token].start;
+                    const param_name = tree.tokenSlice(name_token);
+                    const arg = try newZIRInst(&gen_scope_arena.allocator, src, zir.Inst.Arg, .{}, .{});
+                    gen_scope.instructions.items[i] = &arg.base;
+                    const sub_scope = try gen_scope_arena.allocator.create(Scope.LocalVar);
+                    sub_scope.* = .{
+                        .parent = params_scope,
+                        .gen_zir = &gen_scope,
+                        .name = param_name,
+                        .inst = &arg.base,
+                    };
+                    params_scope = &sub_scope.base;
+                }
+
                 const body_block = body_node.cast(ast.Node.Block).?;
 
-                try astgen.blockExpr(self, &gen_scope.base, body_block);
+                try astgen.blockExpr(self, params_scope, body_block);
 
                 if (!fn_type.fnReturnType().isNoReturn() and (gen_scope.instructions.items.len == 0 or
                     !gen_scope.instructions.items[gen_scope.instructions.items.len - 1].tag.isNoReturn()))
@@ -2236,17 +2260,16 @@ fn analyzeInstCompileError(self: *Module, scope: *Scope, inst: *zir.Inst.Compile
 fn analyzeInstArg(self: *Module, scope: *Scope, inst: *zir.Inst.Arg) InnerError!*Inst {
     const b = try self.requireRuntimeBlock(scope, inst.base.src);
     const fn_ty = b.func.?.owner_decl.typed_value.most_recent.typed_value.ty;
+    const param_index = b.instructions.items.len;
     const param_count = fn_ty.fnParamLen();
-    if (inst.positionals.index >= param_count) {
+    if (param_index >= param_count) {
         return self.fail(scope, inst.base.src, "parameter index {} outside list of length {}", .{
-            inst.positionals.index,
+            param_index,
             param_count,
         });
     }
-    const param_type = fn_ty.fnParamType(inst.positionals.index);
-    return self.addNewInstArgs(b, inst.base.src, param_type, Inst.Arg, .{
-        .index = inst.positionals.index,
-    });
+    const param_type = fn_ty.fnParamType(param_index);
+    return self.addNewInstArgs(b, inst.base.src, param_type, Inst.Arg, {});
 }
 
 fn analyzeInstBlock(self: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerError!*Inst {
