@@ -6061,6 +6061,61 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                 node = &call_node.base;
                 continue;
             },
+            .LBrace => {
+                // must come immediately after `node`
+                _ = try appendToken(c, .Comma, ",");
+
+                const dot = try appendToken(c, .Period, ".");
+                _ = try appendToken(c, .LBrace, "{");
+
+                var init_vals = std.ArrayList(*ast.Node).init(c.gpa);
+                defer init_vals.deinit();
+
+                while (true) {
+                    const val = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
+                    try init_vals.append(val);
+                    const next = it.next().?;
+                    if (next.id == .Comma)
+                        _ = try appendToken(c, .Comma, ",")
+                    else if (next.id == .RBrace)
+                        break
+                    else {
+                        const first_tok = it.list.at(0);
+                        try failDecl(
+                            c,
+                            source_loc,
+                            source[first_tok.start..first_tok.end],
+                            "unable to translate C expr: expected ',' or '}}'",
+                            .{},
+                        );
+                        return error.ParseError;
+                    }
+                }
+                const tuple_node = try ast.Node.StructInitializerDot.alloc(c.arena, init_vals.items.len);
+                tuple_node.* = .{
+                    .dot = dot,
+                    .list_len = init_vals.items.len,
+                    .rtoken = try appendToken(c, .RBrace, "}"),
+                };
+                mem.copy(*ast.Node, tuple_node.list(), init_vals.items);
+
+
+                //(@import("std").mem.zeroInit(T, .{x}))
+                const import_fn_call = try c.createBuiltinCall("@import", 1);
+                const std_node = try transCreateNodeStringLiteral(c, "\"std\"");
+                import_fn_call.params()[0] = std_node;
+                import_fn_call.rparen_token = try appendToken(c, .RParen, ")");
+                const inner_field_access = try transCreateNodeFieldAccess(c, &import_fn_call.base, "mem");
+                const outer_field_access = try transCreateNodeFieldAccess(c, inner_field_access, "zeroInit");
+
+                const zero_init_call = try c.createCall(outer_field_access, 2);
+                zero_init_call.params()[0] = node;
+                zero_init_call.params()[1] = &tuple_node.base;
+                zero_init_call.rtoken = try appendToken(c, .RParen, ")");
+
+                node = &zero_init_call.base;
+                continue;
+            },
             .BangEqual => {
                 op_token = try appendToken(c, .BangEqual, "!=");
                 op_id = .BangEqual;
