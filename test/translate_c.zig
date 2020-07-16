@@ -3,6 +3,31 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("initializer list macro",
+        \\typedef struct Color {
+        \\    unsigned char r;
+        \\    unsigned char g;
+        \\    unsigned char b;
+        \\    unsigned char a;
+        \\} Color;
+        \\#define CLITERAL(type)      (type)
+        \\#define LIGHTGRAY  CLITERAL(Color){ 200, 200, 200, 255 }   // Light Gray
+    , &[_][]const u8{ // TODO properly translate this
+        \\pub const struct_Color = extern struct {
+        \\    r: u8,
+        \\    g: u8,
+        \\    b: u8,
+        \\    a: u8,
+        \\};
+        \\pub const Color = struct_Color;
+    ,
+        \\pub inline fn CLITERAL(type_1: anytype) @TypeOf(type_1) {
+        \\    return type_1;
+        \\}
+    ,
+        \\pub const LIGHTGRAY = @import("std").mem.zeroInit(CLITERAL(Color), .{ 200, 200, 200, 255 });
+    });
+
     cases.add("complex switch",
         \\int main() {
         \\    int i = 2;

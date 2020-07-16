@@ -552,7 +552,7 @@ pub fn zeroes(comptime T: type) T {
             if (@sizeOf(T) == 0) return T{};
             if (comptime meta.containerLayout(T) == .Extern) {
                 var item: T = undefined;
-                @memset(@ptrCast([*]u8, &item), 0, @sizeOf(T));
+                set(u8, asBytes(&item), 0);
                 return item;
             } else {
                 var structure: T = undefined;
@@ -709,6 +709,14 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                 .Struct => |init_info| {
                     var value = std.mem.zeroes(T);
 
+                    // typeInfo won't tell us if this is a tuple
+                    if (comptime eql(u8, init_info.fields[0].name, "0")) {
+                        inline for (init_info.fields) |field, i| {
+                            @field(value, struct_info.fields[i].name) = @field(init, field.name);
+                        }
+                        return value;
+                    }
+
                     inline for (init_info.fields) |field| {
                         if (!@hasField(T, field.name)) {
                             @compileError("Encountered an initializer for `" ++ field.name ++ "`, but it is not a field of " ++ @typeName(T));
@@ -760,7 +768,7 @@ test "zeroInit" {
         .a = 42,
     });
 
-    testing.expectEqual(s, S{
+    testing.expectEqual(S{
         .a = 42,
         .b = null,
         .c = .{
@@ -768,7 +776,22 @@ test "zeroInit" {
         },
         .e = [3]u8{ 0, 0, 0 },
         .f = -1,
-    });
+    }, s);
+
+    const Color = struct {
+        r: u8,
+        g: u8,
+        b: u8,
+        a: u8,
+    };
+
+    const c = zeroInit(Color, .{255, 255});
+    testing.expectEqual(Color{
+        .r = 255,
+        .g = 255,
+        .b = 0,
+        .a = 0,
+    }, c);
 }
 
 /// Compares two slices of numbers lexicographically. O(n).
