@@ -436,13 +436,10 @@ fn renderExpression(
             }
         },
 
-        .InfixOp => {
-            const infix_op_node = @fieldParentPtr(ast.Node.InfixOp, "base", base);
+        .Catch => {
+            const infix_op_node = @fieldParentPtr(ast.Node.Catch, "base", base);
 
-            const op_space = switch (infix_op_node.op) {
-                ast.Node.InfixOp.Op.Period, ast.Node.InfixOp.Op.ErrorUnion, ast.Node.InfixOp.Op.Range => Space.None,
-                else => Space.Space,
-            };
+            const op_space = Space.Space;
             try renderExpression(allocator, stream, tree, indent, start_col, infix_op_node.lhs, op_space);
 
             const after_op_space = blk: {
@@ -458,11 +455,75 @@ fn renderExpression(
                 start_col.* = indent + indent_delta;
             }
 
-            switch (infix_op_node.op) {
-                ast.Node.InfixOp.Op.Catch => |maybe_payload| if (maybe_payload) |payload| {
-                    try renderExpression(allocator, stream, tree, indent, start_col, payload, Space.Space);
-                },
-                else => {},
+            if (infix_op_node.payload) |payload| {
+                try renderExpression(allocator, stream, tree, indent, start_col, payload, Space.Space);
+            }
+
+            return renderExpression(allocator, stream, tree, indent, start_col, infix_op_node.rhs, space);
+        },
+
+        .Add,
+        .AddWrap,
+        .ArrayCat,
+        .ArrayMult,
+        .Assign,
+        .AssignBitAnd,
+        .AssignBitOr,
+        .AssignBitShiftLeft,
+        .AssignBitShiftRight,
+        .AssignBitXor,
+        .AssignDiv,
+        .AssignSub,
+        .AssignSubWrap,
+        .AssignMod,
+        .AssignAdd,
+        .AssignAddWrap,
+        .AssignMul,
+        .AssignMulWrap,
+        .BangEqual,
+        .BitAnd,
+        .BitOr,
+        .BitShiftLeft,
+        .BitShiftRight,
+        .BitXor,
+        .BoolAnd,
+        .BoolOr,
+        .Div,
+        .EqualEqual,
+        .ErrorUnion,
+        .GreaterOrEqual,
+        .GreaterThan,
+        .LessOrEqual,
+        .LessThan,
+        .MergeErrorSets,
+        .Mod,
+        .Mul,
+        .MulWrap,
+        .Period,
+        .Range,
+        .Sub,
+        .SubWrap,
+        .UnwrapOptional,
+        => {
+            const infix_op_node = @fieldParentPtr(ast.Node.SimpleInfixOp, "base", base);
+
+            const op_space = switch (base.tag) {
+                .Period, .ErrorUnion, .Range => Space.None,
+                else => Space.Space,
+            };
+            try renderExpression(allocator, stream, tree, indent, start_col, infix_op_node.lhs, op_space);
+
+            const after_op_space = blk: {
+                const loc = tree.tokenLocation(tree.token_locs[infix_op_node.op_token].end, tree.nextToken(infix_op_node.op_token));
+                break :blk if (loc.line == 0) op_space else Space.Newline;
+            };
+
+            try renderToken(tree, stream, infix_op_node.op_token, indent, start_col, after_op_space);
+            if (after_op_space == Space.Newline and
+                tree.token_ids[tree.nextToken(infix_op_node.op_token)] != .MultilineStringLiteralLine)
+            {
+                try stream.writeByteNTimes(' ', indent + indent_delta);
+                start_col.* = indent + indent_delta;
             }
 
             return renderExpression(allocator, stream, tree, indent, start_col, infix_op_node.rhs, space);
@@ -2553,10 +2614,52 @@ fn nodeIsBlock(base: *const ast.Node) bool {
 }
 
 fn nodeCausesSliceOpSpace(base: *ast.Node) bool {
-    const infix_op = base.cast(ast.Node.InfixOp) orelse return false;
-    return switch (infix_op.op) {
-        ast.Node.InfixOp.Op.Period => false,
-        else => true,
+    return switch (base.tag) {
+        .Catch,
+        .Add,
+        .AddWrap,
+        .ArrayCat,
+        .ArrayMult,
+        .Assign,
+        .AssignBitAnd,
+        .AssignBitOr,
+        .AssignBitShiftLeft,
+        .AssignBitShiftRight,
+        .AssignBitXor,
+        .AssignDiv,
+        .AssignSub,
+        .AssignSubWrap,
+        .AssignMod,
+        .AssignAdd,
+        .AssignAddWrap,
+        .AssignMul,
+        .AssignMulWrap,
+        .BangEqual,
+        .BitAnd,
+        .BitOr,
+        .BitShiftLeft,
+        .BitShiftRight,
+        .BitXor,
+        .BoolAnd,
+        .BoolOr,
+        .Div,
+        .EqualEqual,
+        .ErrorUnion,
+        .GreaterOrEqual,
+        .GreaterThan,
+        .LessOrEqual,
+        .LessThan,
+        .MergeErrorSets,
+        .Mod,
+        .Mul,
+        .MulWrap,
+        .Range,
+        .Sub,
+        .SubWrap,
+        .UnwrapOptional,
+        => true,
+
+        else => false,
     };
 }
 

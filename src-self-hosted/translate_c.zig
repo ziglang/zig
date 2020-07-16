@@ -1103,11 +1103,11 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
             const enum_ident = try transCreateNodeIdentifier(c, name);
             const period_tok = try appendToken(c, .Period, ".");
             const field_ident = try transCreateNodeIdentifier(c, field_name);
-            const field_access_node = try c.arena.create(ast.Node.InfixOp);
+            const field_access_node = try c.arena.create(ast.Node.SimpleInfixOp);
             field_access_node.* = .{
+                .base = .{ .tag = .Period },
                 .op_token = period_tok,
                 .lhs = enum_ident,
-                .op = .Period,
                 .rhs = field_ident,
             };
             cast_node.params()[0] = &field_access_node.base;
@@ -1294,7 +1294,7 @@ fn transBinaryOperator(
     const op = ZigClangBinaryOperator_getOpcode(stmt);
     const qt = ZigClangBinaryOperator_getType(stmt);
     var op_token: ast.TokenIndex = undefined;
-    var op_id: ast.Node.InfixOp.Op = undefined;
+    var op_id: ast.Node.Tag = undefined;
     switch (op) {
         .Assign => return try transCreateNodeAssign(rp, scope, result_used, ZigClangBinaryOperator_getLHS(stmt), ZigClangBinaryOperator_getRHS(stmt)),
         .Comma => {
@@ -1737,25 +1737,22 @@ fn exprIsStringLiteral(expr: *const ZigClangExpr) bool {
 
 fn isBoolRes(res: *ast.Node) bool {
     switch (res.tag) {
-        .InfixOp => switch (@fieldParentPtr(ast.Node.InfixOp, "base", res).op) {
-            .BoolOr,
-            .BoolAnd,
-            .EqualEqual,
-            .BangEqual,
-            .LessThan,
-            .GreaterThan,
-            .LessOrEqual,
-            .GreaterOrEqual,
-            => return true,
+        .BoolOr,
+        .BoolAnd,
+        .EqualEqual,
+        .BangEqual,
+        .LessThan,
+        .GreaterThan,
+        .LessOrEqual,
+        .GreaterOrEqual,
+        .BoolNot,
+        .BoolLiteral,
+        => return true,
 
-            else => {},
-        },
-        .BoolNot => return true,
-        .BoolLiteral => return true,
         .GroupedExpression => return isBoolRes(@fieldParentPtr(ast.Node.GroupedExpression, "base", res).expr),
-        else => {},
+
+        else => return false,
     }
-    return false;
 }
 
 fn finishBoolExpr(
@@ -2312,11 +2309,11 @@ fn transInitListExprArray(
         &filler_init_node.base
     else blk: {
         const mul_tok = try appendToken(rp.c, .AsteriskAsterisk, "**");
-        const mul_node = try rp.c.arena.create(ast.Node.InfixOp);
+        const mul_node = try rp.c.arena.create(ast.Node.SimpleInfixOp);
         mul_node.* = .{
+            .base = .{ .tag = .ArrayMult },
             .op_token = mul_tok,
             .lhs = &filler_init_node.base,
-            .op = .ArrayMult,
             .rhs = try transCreateNodeInt(rp.c, leftover_count),
         };
         break :blk &mul_node.base;
@@ -2326,11 +2323,11 @@ fn transInitListExprArray(
         return rhs_node;
     }
 
-    const cat_node = try rp.c.arena.create(ast.Node.InfixOp);
+    const cat_node = try rp.c.arena.create(ast.Node.SimpleInfixOp);
     cat_node.* = .{
+        .base = .{ .tag = .ArrayCat },
         .op_token = cat_tok,
         .lhs = &init_node.base,
-        .op = .ArrayCat,
         .rhs = rhs_node,
     };
     return &cat_node.base;
@@ -2723,11 +2720,11 @@ fn transCase(
         const ellips = try appendToken(rp.c, .Ellipsis3, "...");
         const rhs_node = try transExpr(rp, scope, rhs, .used, .r_value);
 
-        const node = try rp.c.arena.create(ast.Node.InfixOp);
+        const node = try rp.c.arena.create(ast.Node.SimpleInfixOp);
         node.* = .{
+            .base = .{ .tag = .Range },
             .op_token = ellips,
             .lhs = lhs_node,
-            .op = .Range,
             .rhs = rhs_node,
         };
         break :blk &node.base;
@@ -3153,7 +3150,7 @@ fn transCreatePreCrement(
     rp: RestorePoint,
     scope: *Scope,
     stmt: *const ZigClangUnaryOperator,
-    op: ast.Node.InfixOp.Op,
+    op: ast.Node.Tag,
     op_tok_id: std.zig.Token.Id,
     bytes: []const u8,
     used: ResultUsed,
@@ -3227,7 +3224,7 @@ fn transCreatePostCrement(
     rp: RestorePoint,
     scope: *Scope,
     stmt: *const ZigClangUnaryOperator,
-    op: ast.Node.InfixOp.Op,
+    op: ast.Node.Tag,
     op_tok_id: std.zig.Token.Id,
     bytes: []const u8,
     used: ResultUsed,
@@ -3349,10 +3346,10 @@ fn transCreateCompoundAssign(
     rp: RestorePoint,
     scope: *Scope,
     stmt: *const ZigClangCompoundAssignOperator,
-    assign_op: ast.Node.InfixOp.Op,
+    assign_op: ast.Node.Tag,
     assign_tok_id: std.zig.Token.Id,
     assign_bytes: []const u8,
-    bin_op: ast.Node.InfixOp.Op,
+    bin_op: ast.Node.Tag,
     bin_tok_id: std.zig.Token.Id,
     bin_bytes: []const u8,
     used: ResultUsed,
@@ -3377,7 +3374,7 @@ fn transCreateCompoundAssign(
         // zig: lhs += rhs
         if ((is_mod or is_div) and is_signed) {
             const op_token = try appendToken(rp.c, .Equal, "=");
-            const op_node = try rp.c.arena.create(ast.Node.InfixOp);
+            const op_node = try rp.c.arena.create(ast.Node.SimpleInfixOp);
             const builtin = if (is_mod) "@rem" else "@divTrunc";
             const builtin_node = try rp.c.createBuiltinCall(builtin, 2);
             const lhs_node = try transExpr(rp, scope, lhs, .used, .l_value);
@@ -3386,9 +3383,9 @@ fn transCreateCompoundAssign(
             builtin_node.params()[1] = try transExpr(rp, scope, rhs, .used, .r_value);
             builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
             op_node.* = .{
+                .base = .{ .tag = .Assign },
                 .op_token = op_token,
                 .lhs = lhs_node,
-                .op = .Assign,
                 .rhs = &builtin_node.base,
             };
             _ = try appendToken(rp.c, .Semicolon, ";");
@@ -3452,7 +3449,7 @@ fn transCreateCompoundAssign(
 
     if ((is_mod or is_div) and is_signed) {
         const op_token = try appendToken(rp.c, .Equal, "=");
-        const op_node = try rp.c.arena.create(ast.Node.InfixOp);
+        const op_node = try rp.c.arena.create(ast.Node.SimpleInfixOp);
         const builtin = if (is_mod) "@rem" else "@divTrunc";
         const builtin_node = try rp.c.createBuiltinCall(builtin, 2);
         builtin_node.params()[0] = try transCreateNodePtrDeref(rp.c, lhs_node);
@@ -3461,9 +3458,9 @@ fn transCreateCompoundAssign(
         builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
         _ = try appendToken(rp.c, .Semicolon, ";");
         op_node.* = .{
+            .base = .{ .tag = .Assign },
             .op_token = op_token,
             .lhs = ref_node,
-            .op = .Assign,
             .rhs = &builtin_node.base,
         };
         _ = try appendToken(rp.c, .Semicolon, ";");
@@ -3716,11 +3713,11 @@ fn maybeSuppressResult(
     }
     const lhs = try transCreateNodeIdentifier(rp.c, "_");
     const op_token = try appendToken(rp.c, .Equal, "=");
-    const op_node = try rp.c.arena.create(ast.Node.InfixOp);
+    const op_node = try rp.c.arena.create(ast.Node.SimpleInfixOp);
     op_node.* = .{
+        .base = .{ .tag = .Assign },
         .op_token = op_token,
         .lhs = lhs,
-        .op = .Assign,
         .rhs = result,
     };
     return &op_node.base;
@@ -4095,11 +4092,11 @@ fn transCreateNodeAssign(
 }
 
 fn transCreateNodeFieldAccess(c: *Context, container: *ast.Node, field_name: []const u8) !*ast.Node {
-    const field_access_node = try c.arena.create(ast.Node.InfixOp);
+    const field_access_node = try c.arena.create(ast.Node.SimpleInfixOp);
     field_access_node.* = .{
+        .base = .{ .tag = .Period },
         .op_token = try appendToken(c, .Period, "."),
         .lhs = container,
-        .op = .Period,
         .rhs = try transCreateNodeIdentifier(c, field_name),
     };
     return &field_access_node.base;
@@ -4124,7 +4121,7 @@ fn transCreateNodeInfixOp(
     rp: RestorePoint,
     scope: *Scope,
     lhs_node: *ast.Node,
-    op: ast.Node.InfixOp.Op,
+    op: ast.Node.Tag,
     op_token: ast.TokenIndex,
     rhs_node: *ast.Node,
     used: ResultUsed,
@@ -4134,11 +4131,11 @@ fn transCreateNodeInfixOp(
         try appendToken(rp.c, .LParen, "(")
     else
         null;
-    const node = try rp.c.arena.create(ast.Node.InfixOp);
+    const node = try rp.c.arena.create(ast.Node.SimpleInfixOp);
     node.* = .{
+        .base = .{ .tag = op },
         .op_token = op_token,
         .lhs = lhs_node,
-        .op = op,
         .rhs = rhs_node,
     };
     if (!grouped) return maybeSuppressResult(rp, scope, used, &node.base);
@@ -4156,7 +4153,7 @@ fn transCreateNodeBoolInfixOp(
     rp: RestorePoint,
     scope: *Scope,
     stmt: *const ZigClangBinaryOperator,
-    op: ast.Node.InfixOp.Op,
+    op: ast.Node.Tag,
     used: ResultUsed,
     grouped: bool,
 ) !*ast.Node {
@@ -4536,7 +4533,7 @@ fn transCreateNodeShiftOp(
     rp: RestorePoint,
     scope: *Scope,
     stmt: *const ZigClangBinaryOperator,
-    op: ast.Node.InfixOp.Op,
+    op: ast.Node.Tag,
     op_tok_id: std.zig.Token.Id,
     bytes: []const u8,
 ) !*ast.Node {
@@ -4558,11 +4555,11 @@ fn transCreateNodeShiftOp(
     cast_node.params()[1] = rhs;
     cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
 
-    const node = try rp.c.arena.create(ast.Node.InfixOp);
+    const node = try rp.c.arena.create(ast.Node.SimpleInfixOp);
     node.* = .{
+        .base = .{ .tag = op },
         .op_token = op_token,
         .lhs = lhs,
-        .op = op,
         .rhs = &cast_node.base,
     };
 
@@ -5404,11 +5401,11 @@ fn parseCExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, source_
                 // suppress result
                 const lhs = try transCreateNodeIdentifier(c, "_");
                 const op_token = try appendToken(c, .Equal, "=");
-                const op_node = try c.arena.create(ast.Node.InfixOp);
+                const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
                 op_node.* = .{
+                    .base = .{ .tag = .Assign },
                     .op_token = op_token,
                     .lhs = lhs,
-                    .op = .Assign,
                     .rhs = last,
                 };
                 try block_scope.statements.append(&op_node.base);
@@ -5787,9 +5784,60 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
     }
 }
 
+fn nodeIsInfixOp(tag: ast.Node.Tag) bool {
+    return switch (tag) {
+        .Add,
+        .AddWrap,
+        .ArrayCat,
+        .ArrayMult,
+        .Assign,
+        .AssignBitAnd,
+        .AssignBitOr,
+        .AssignBitShiftLeft,
+        .AssignBitShiftRight,
+        .AssignBitXor,
+        .AssignDiv,
+        .AssignSub,
+        .AssignSubWrap,
+        .AssignMod,
+        .AssignAdd,
+        .AssignAddWrap,
+        .AssignMul,
+        .AssignMulWrap,
+        .BangEqual,
+        .BitAnd,
+        .BitOr,
+        .BitShiftLeft,
+        .BitShiftRight,
+        .BitXor,
+        .BoolAnd,
+        .BoolOr,
+        .Div,
+        .EqualEqual,
+        .ErrorUnion,
+        .GreaterOrEqual,
+        .GreaterThan,
+        .LessOrEqual,
+        .LessThan,
+        .MergeErrorSets,
+        .Mod,
+        .Mul,
+        .MulWrap,
+        .Period,
+        .Range,
+        .Sub,
+        .SubWrap,
+        .UnwrapOptional,
+        .Catch,
+        => true,
+
+        else => false,
+    };
+}
+
 fn macroBoolToInt(c: *Context, node: *ast.Node) !*ast.Node {
     if (!isBoolRes(node)) {
-        if (node.tag != .InfixOp) return node;
+        if (!nodeIsInfixOp(node.tag)) return node;
 
         const group_node = try c.arena.create(ast.Node.GroupedExpression);
         group_node.* = .{
@@ -5808,7 +5856,7 @@ fn macroBoolToInt(c: *Context, node: *ast.Node) !*ast.Node {
 
 fn macroIntToBool(c: *Context, node: *ast.Node) !*ast.Node {
     if (isBoolRes(node)) {
-        if (node.tag != .InfixOp) return node;
+        if (!nodeIsInfixOp(node.tag)) return node;
 
         const group_node = try c.arena.create(ast.Node.GroupedExpression);
         group_node.* = .{
@@ -5821,11 +5869,11 @@ fn macroIntToBool(c: *Context, node: *ast.Node) !*ast.Node {
 
     const op_token = try appendToken(c, .BangEqual, "!=");
     const zero = try transCreateNodeInt(c, 0);
-    const res = try c.arena.create(ast.Node.InfixOp);
+    const res = try c.arena.create(ast.Node.SimpleInfixOp);
     res.* = .{
+        .base = .{ .tag = .BangEqual },
         .op_token = op_token,
         .lhs = node,
-        .op = .BangEqual,
         .rhs = zero,
     };
     const group_node = try c.arena.create(ast.Node.GroupedExpression);
@@ -5842,7 +5890,7 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
     while (true) {
         const tok = it.next().?;
         var op_token: ast.TokenIndex = undefined;
-        var op_id: ast.Node.InfixOp.Op = undefined;
+        var op_id: ast.Node.Tag = undefined;
         var bool_op = false;
         switch (tok.id) {
             .Period => {
@@ -6049,11 +6097,11 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
         const cast_fn = if (bool_op) macroIntToBool else macroBoolToInt;
         const lhs_node = try cast_fn(c, node);
         const rhs_node = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
-        const op_node = try c.arena.create(ast.Node.InfixOp);
+        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
         op_node.* = .{
+            .base = .{ .tag = op_id },
             .op_token = op_token,
             .lhs = lhs_node,
-            .op = op_id,
             .rhs = try cast_fn(c, rhs_node),
         };
         node = &op_node.base;
@@ -6131,10 +6179,9 @@ fn getContainer(c: *Context, node: *ast.Node) ?*ast.Node {
             }
         },
 
-        .InfixOp => {
-            const infix = node.cast(ast.Node.InfixOp).?;
-            if (infix.op != .Period)
-                return null;
+        .Period => {
+            const infix = node.castTag(.Period).?;
+
             if (getContainerTypeOf(c, infix.lhs)) |ty_node| {
                 if (ty_node.cast(ast.Node.ContainerDecl)) |container| {
                     for (container.fieldsAndDecls()) |field_ref| {
@@ -6161,9 +6208,7 @@ fn getContainerTypeOf(c: *Context, ref: *ast.Node) ?*ast.Node {
                     return getContainer(c, ty);
             }
         }
-    } else if (ref.cast(ast.Node.InfixOp)) |infix| {
-        if (infix.op != .Period)
-            return null;
+    } else if (ref.castTag(.Period)) |infix| {
         if (getContainerTypeOf(c, infix.lhs)) |ty_node| {
             if (ty_node.cast(ast.Node.ContainerDecl)) |container| {
                 for (container.fieldsAndDecls()) |field_ref| {

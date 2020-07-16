@@ -1015,7 +1015,7 @@ const Parser = struct {
     /// BoolOrExpr <- BoolAndExpr (KEYWORD_or BoolAndExpr)*
     fn parseBoolOrExpr(p: *Parser) !?*Node {
         return p.parseBinOpExpr(
-            SimpleBinOpParseFn(.Keyword_or, Node.InfixOp.Op.BoolOr),
+            SimpleBinOpParseFn(.Keyword_or, .BoolOr),
             parseBoolAndExpr,
             .Infinitely,
         );
@@ -1405,8 +1405,8 @@ const Parser = struct {
     fn parseErrorUnionExpr(p: *Parser) !?*Node {
         const suffix_expr = (try p.parseSuffixExpr()) orelse return null;
 
-        if (try SimpleBinOpParseFn(.Bang, Node.InfixOp.Op.ErrorUnion)(p)) |node| {
-            const error_union = node.cast(Node.InfixOp).?;
+        if (try SimpleBinOpParseFn(.Bang, .ErrorUnion)(p)) |node| {
+            const error_union = node.castTag(.ErrorUnion).?;
             const type_expr = try p.expectNode(parseTypeExpr, .{
                 .ExpectedTypeExpr = .{ .token = p.tok_i },
             });
@@ -1439,10 +1439,56 @@ const Parser = struct {
                 .ExpectedPrimaryTypeExpr = .{ .token = p.tok_i },
             });
 
+            // TODO pass `res` into `parseSuffixOp` rather than patching it up afterwards.
             while (try p.parseSuffixOp()) |node| {
                 switch (node.tag) {
                     .SuffixOp => node.cast(Node.SuffixOp).?.lhs = res,
-                    .InfixOp => node.cast(Node.InfixOp).?.lhs = res,
+                    .Catch => node.castTag(.Catch).?.lhs = res,
+
+                    .Add,
+                    .AddWrap,
+                    .ArrayCat,
+                    .ArrayMult,
+                    .Assign,
+                    .AssignBitAnd,
+                    .AssignBitOr,
+                    .AssignBitShiftLeft,
+                    .AssignBitShiftRight,
+                    .AssignBitXor,
+                    .AssignDiv,
+                    .AssignSub,
+                    .AssignSubWrap,
+                    .AssignMod,
+                    .AssignAdd,
+                    .AssignAddWrap,
+                    .AssignMul,
+                    .AssignMulWrap,
+                    .BangEqual,
+                    .BitAnd,
+                    .BitOr,
+                    .BitShiftLeft,
+                    .BitShiftRight,
+                    .BitXor,
+                    .BoolAnd,
+                    .BoolOr,
+                    .Div,
+                    .EqualEqual,
+                    .ErrorUnion,
+                    .GreaterOrEqual,
+                    .GreaterThan,
+                    .LessOrEqual,
+                    .LessThan,
+                    .MergeErrorSets,
+                    .Mod,
+                    .Mul,
+                    .MulWrap,
+                    .Period,
+                    .Range,
+                    .Sub,
+                    .SubWrap,
+                    .UnwrapOptional,
+                    => node.cast(Node.SimpleInfixOp).?.lhs = res,
+
                     else => unreachable,
                 }
                 res = node;
@@ -1470,10 +1516,55 @@ const Parser = struct {
             var res = expr;
 
             while (true) {
+                // TODO pass `res` into `parseSuffixOp` rather than patching it up afterwards.
                 if (try p.parseSuffixOp()) |node| {
                     switch (node.tag) {
                         .SuffixOp => node.cast(Node.SuffixOp).?.lhs = res,
-                        .InfixOp => node.cast(Node.InfixOp).?.lhs = res,
+                        .Catch => node.castTag(.Catch).?.lhs = res,
+
+                        .Add,
+                        .AddWrap,
+                        .ArrayCat,
+                        .ArrayMult,
+                        .Assign,
+                        .AssignBitAnd,
+                        .AssignBitOr,
+                        .AssignBitShiftLeft,
+                        .AssignBitShiftRight,
+                        .AssignBitXor,
+                        .AssignDiv,
+                        .AssignSub,
+                        .AssignSubWrap,
+                        .AssignMod,
+                        .AssignAdd,
+                        .AssignAddWrap,
+                        .AssignMul,
+                        .AssignMulWrap,
+                        .BangEqual,
+                        .BitAnd,
+                        .BitOr,
+                        .BitShiftLeft,
+                        .BitShiftRight,
+                        .BitXor,
+                        .BoolAnd,
+                        .BoolOr,
+                        .Div,
+                        .EqualEqual,
+                        .ErrorUnion,
+                        .GreaterOrEqual,
+                        .GreaterThan,
+                        .LessOrEqual,
+                        .LessThan,
+                        .MergeErrorSets,
+                        .Mod,
+                        .Mul,
+                        .MulWrap,
+                        .Period,
+                        .Range,
+                        .Sub,
+                        .SubWrap,
+                        .UnwrapOptional,
+                        => node.cast(Node.SimpleInfixOp).?.lhs = res,
                         else => unreachable,
                     }
                     res = node;
@@ -1560,11 +1651,11 @@ const Parser = struct {
             const global_error_set = try p.createLiteral(Node.ErrorType, token);
             if (period == null or identifier == null) return global_error_set;
 
-            const node = try p.arena.allocator.create(Node.InfixOp);
+            const node = try p.arena.allocator.create(Node.SimpleInfixOp);
             node.* = .{
+                .base = Node{ .tag = .Period },
                 .op_token = period.?,
                 .lhs = global_error_set,
-                .op = .Period,
                 .rhs = identifier.?,
             };
             return &node.base;
@@ -2237,11 +2328,11 @@ const Parser = struct {
                 .ExpectedExpr = .{ .token = p.tok_i },
             });
 
-            const node = try p.arena.allocator.create(Node.InfixOp);
+            const node = try p.arena.allocator.create(Node.SimpleInfixOp);
             node.* = .{
+                .base = Node{ .tag = .Range },
                 .op_token = token,
                 .lhs = expr,
-                .op = .Range,
                 .rhs = range_end,
             };
             return &node.base;
@@ -2266,7 +2357,7 @@ const Parser = struct {
     ///      / EQUAL
     fn parseAssignOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
+        const op: Node.Tag = switch (p.token_ids[token]) {
             .AsteriskEqual => .AssignMul,
             .SlashEqual => .AssignDiv,
             .PercentEqual => .AssignMod,
@@ -2287,11 +2378,11 @@ const Parser = struct {
             },
         };
 
-        const node = try p.arena.allocator.create(Node.InfixOp);
+        const node = try p.arena.allocator.create(Node.SimpleInfixOp);
         node.* = .{
+            .base = .{ .tag = op },
             .op_token = token,
             .lhs = undefined, // set by caller
-            .op = op,
             .rhs = undefined, // set by caller
         };
         return &node.base;
@@ -2306,7 +2397,7 @@ const Parser = struct {
     ///      / RARROWEQUAL
     fn parseCompareOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
+        const op: Node.Tag = switch (p.token_ids[token]) {
             .EqualEqual => .EqualEqual,
             .BangEqual => .BangEqual,
             .AngleBracketLeft => .LessThan,
@@ -2330,12 +2421,22 @@ const Parser = struct {
     ///      / KEYWORD_catch Payload?
     fn parseBitwiseOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
+        const op: Node.Tag = switch (p.token_ids[token]) {
             .Ampersand => .BitAnd,
             .Caret => .BitXor,
             .Pipe => .BitOr,
             .Keyword_orelse => .UnwrapOptional,
-            .Keyword_catch => .{ .Catch = try p.parsePayload() },
+            .Keyword_catch => {
+                const payload = try p.parsePayload();
+                const node = try p.arena.allocator.create(Node.Catch);
+                node.* = .{
+                    .op_token = token,
+                    .lhs = undefined, // set by caller
+                    .rhs = undefined, // set by caller
+                    .payload = payload,
+                };
+                return &node.base;
+            },
             else => {
                 p.putBackToken(token);
                 return null;
@@ -2350,7 +2451,7 @@ const Parser = struct {
     ///      / RARROW2
     fn parseBitShiftOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
+        const op: Node.Tag = switch (p.token_ids[token]) {
             .AngleBracketAngleBracketLeft => .BitShiftLeft,
             .AngleBracketAngleBracketRight => .BitShiftRight,
             else => {
@@ -2370,7 +2471,7 @@ const Parser = struct {
     ///      / MINUSPERCENT
     fn parseAdditionOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
+        const op: Node.Tag = switch (p.token_ids[token]) {
             .Plus => .Add,
             .Minus => .Sub,
             .PlusPlus => .ArrayCat,
@@ -2394,7 +2495,7 @@ const Parser = struct {
     ///      / ASTERISKPERCENT
     fn parseMultiplyOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
+        const op: Node.Tag = switch (p.token_ids[token]) {
             .PipePipe => .MergeErrorSets,
             .Asterisk => .Mul,
             .Slash => .Div,
@@ -2673,14 +2774,14 @@ const Parser = struct {
 
             if (p.eatToken(.Period)) |period| {
                 if (try p.parseIdentifier()) |identifier| {
-                    // TODO: It's a bit weird to return an InfixOp from the SuffixOp parser.
+                    // TODO: It's a bit weird to return a SimpleInfixOp from the SuffixOp parser.
                     // Should there be an Node.SuffixOp.FieldAccess variant? Or should
                     // this grammar rule be altered?
-                    const node = try p.arena.allocator.create(Node.InfixOp);
+                    const node = try p.arena.allocator.create(Node.SimpleInfixOp);
                     node.* = .{
+                        .base = Node{ .tag = .Period },
                         .op_token = period,
                         .lhs = undefined, // set by caller
-                        .op = .Period,
                         .rhs = identifier,
                     };
                     return &node.base;
@@ -2987,7 +3088,7 @@ const Parser = struct {
         }.parse;
     }
 
-    fn SimpleBinOpParseFn(comptime token: Token.Id, comptime op: Node.InfixOp.Op) NodeParseFn {
+    fn SimpleBinOpParseFn(comptime token: Token.Id, comptime op: Node.Tag) NodeParseFn {
         return struct {
             pub fn parse(p: *Parser) Error!?*Node {
                 const op_token = if (token == .Keyword_and) switch (p.token_ids[p.tok_i]) {
@@ -3001,11 +3102,11 @@ const Parser = struct {
                     else => return null,
                 } else p.eatToken(token) orelse return null;
 
-                const node = try p.arena.allocator.create(Node.InfixOp);
+                const node = try p.arena.allocator.create(Node.SimpleInfixOp);
                 node.* = .{
+                    .base = .{ .tag = op },
                     .op_token = op_token,
                     .lhs = undefined, // set by caller
-                    .op = op,
                     .rhs = undefined, // set by caller
                 };
                 return &node.base;
@@ -3350,9 +3451,13 @@ const Parser = struct {
             const left = res;
             res = node;
 
-            const op = node.cast(Node.InfixOp).?;
-            op.*.lhs = left;
-            op.*.rhs = right;
+            if (node.castTag(.Catch)) |op| {
+                op.lhs = left;
+                op.rhs = right;
+            } else if (node.cast(Node.SimpleInfixOp)) |op| {
+                op.lhs = left;
+                op.rhs = right;
+            }
 
             switch (chain) {
                 .Once => break,
@@ -3363,12 +3468,12 @@ const Parser = struct {
         return res;
     }
 
-    fn createInfixOp(p: *Parser, index: TokenIndex, op: Node.InfixOp.Op) !*Node {
-        const node = try p.arena.allocator.create(Node.InfixOp);
+    fn createInfixOp(p: *Parser, op_token: TokenIndex, tag: Node.Tag) !*Node {
+        const node = try p.arena.allocator.create(Node.SimpleInfixOp);
         node.* = .{
-            .op_token = index,
+            .base = Node{ .tag = tag },
+            .op_token = op_token,
             .lhs = undefined, // set by caller
-            .op = op,
             .rhs = undefined, // set by caller
         };
         return &node.base;

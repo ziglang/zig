@@ -12,22 +12,29 @@ const Scope = Module.Scope;
 const InnerError = Module.InnerError;
 
 /// Turn Zig AST into untyped ZIR istructions.
-pub fn expr(mod: *Module, scope: *Scope, ast_node: *ast.Node) InnerError!*zir.Inst {
-    switch (ast_node.tag) {
+pub fn expr(mod: *Module, scope: *Scope, node: *ast.Node) InnerError!*zir.Inst {
+    switch (node.tag) {
         .VarDecl => unreachable, // Handled in `blockExpr`.
 
-        .Identifier => return identifier(mod, scope, @fieldParentPtr(ast.Node.Identifier, "base", ast_node)),
-        .Asm => return assembly(mod, scope, @fieldParentPtr(ast.Node.Asm, "base", ast_node)),
-        .StringLiteral => return stringLiteral(mod, scope, @fieldParentPtr(ast.Node.StringLiteral, "base", ast_node)),
-        .IntegerLiteral => return integerLiteral(mod, scope, @fieldParentPtr(ast.Node.IntegerLiteral, "base", ast_node)),
-        .BuiltinCall => return builtinCall(mod, scope, @fieldParentPtr(ast.Node.BuiltinCall, "base", ast_node)),
-        .Call => return callExpr(mod, scope, @fieldParentPtr(ast.Node.Call, "base", ast_node)),
-        .Unreachable => return unreach(mod, scope, @fieldParentPtr(ast.Node.Unreachable, "base", ast_node)),
-        .ControlFlowExpression => return controlFlowExpr(mod, scope, @fieldParentPtr(ast.Node.ControlFlowExpression, "base", ast_node)),
-        .If => return ifExpr(mod, scope, @fieldParentPtr(ast.Node.If, "base", ast_node)),
-        .InfixOp => return infixOp(mod, scope, @fieldParentPtr(ast.Node.InfixOp, "base", ast_node)),
-        .BoolNot => return boolNot(mod, scope, @fieldParentPtr(ast.Node.SimplePrefixOp, "base", ast_node)),
-        else => return mod.failNode(scope, ast_node, "TODO implement astgen.Expr for {}", .{@tagName(ast_node.tag)}),
+        .Identifier => return identifier(mod, scope, node.castTag(.Identifier).?),
+        .Asm => return assembly(mod, scope, node.castTag(.Asm).?),
+        .StringLiteral => return stringLiteral(mod, scope, node.castTag(.StringLiteral).?),
+        .IntegerLiteral => return integerLiteral(mod, scope, node.castTag(.IntegerLiteral).?),
+        .BuiltinCall => return builtinCall(mod, scope, node.castTag(.BuiltinCall).?),
+        .Call => return callExpr(mod, scope, node.castTag(.Call).?),
+        .Unreachable => return unreach(mod, scope, node.castTag(.Unreachable).?),
+        .ControlFlowExpression => return controlFlowExpr(mod, scope, node.castTag(.ControlFlowExpression).?),
+        .If => return ifExpr(mod, scope, node.castTag(.If).?),
+        .Assign => return assign(mod, scope, node.castTag(.Assign).?),
+        .Add => return add(mod, scope, node.castTag(.Add).?),
+        .BangEqual => return cmp(mod, scope, node.castTag(.BangEqual).?, .neq),
+        .EqualEqual => return cmp(mod, scope, node.castTag(.EqualEqual).?, .eq),
+        .GreaterThan => return cmp(mod, scope, node.castTag(.GreaterThan).?, .gt),
+        .GreaterOrEqual => return cmp(mod, scope, node.castTag(.GreaterOrEqual).?, .gte),
+        .LessThan => return cmp(mod, scope, node.castTag(.LessThan).?, .lt),
+        .LessOrEqual => return cmp(mod, scope, node.castTag(.LessOrEqual).?, .lte),
+        .BoolNot => return boolNot(mod, scope, node.castTag(.BoolNot).?),
+        else => return mod.failNode(scope, node, "TODO implement astgen.Expr for {}", .{@tagName(node.tag)}),
     }
 }
 
@@ -57,6 +64,7 @@ pub fn blockExpr(mod: *Module, parent_scope: *Scope, block_node: *ast.Node.Block
 }
 
 fn varDecl(mod: *Module, scope: *Scope, node: *ast.Node.VarDecl) InnerError!Scope.LocalVar {
+    // TODO implement detection of shadowing
     if (node.getTrailer("comptime_token")) |comptime_token| {
         return mod.failTok(scope, comptime_token, "TODO implement comptime locals", .{});
     }
@@ -98,64 +106,48 @@ fn boolNot(mod: *Module, scope: *Scope, node: *ast.Node.SimplePrefixOp) InnerErr
     return mod.addZIRInst(scope, src, zir.Inst.BoolNot, .{ .operand = operand }, .{});
 }
 
-fn infixOp(mod: *Module, scope: *Scope, infix_node: *ast.Node.InfixOp) InnerError!*zir.Inst {
-    switch (infix_node.op) {
-        .Assign => {
-            if (infix_node.lhs.tag == .Identifier) {
-                const ident = @fieldParentPtr(ast.Node.Identifier, "base", infix_node.lhs);
-                const tree = scope.tree();
-                const ident_name = tree.tokenSlice(ident.token);
-                if (std.mem.eql(u8, ident_name, "_")) {
-                    return expr(mod, scope, infix_node.rhs);
-                } else {
-                    return mod.failNode(scope, &infix_node.base, "TODO implement infix operator assign", .{});
-                }
-            } else {
-                return mod.failNode(scope, &infix_node.base, "TODO implement infix operator assign", .{});
-            }
-        },
-        .Add => {
-            const lhs = try expr(mod, scope, infix_node.lhs);
-            const rhs = try expr(mod, scope, infix_node.rhs);
-
-            const tree = scope.tree();
-            const src = tree.token_locs[infix_node.op_token].start;
-
-            return mod.addZIRInst(scope, src, zir.Inst.Add, .{ .lhs = lhs, .rhs = rhs }, .{});
-        },
-        .BangEqual,
-        .EqualEqual,
-        .GreaterThan,
-        .GreaterOrEqual,
-        .LessThan,
-        .LessOrEqual,
-        => {
-            const lhs = try expr(mod, scope, infix_node.lhs);
-            const rhs = try expr(mod, scope, infix_node.rhs);
-
-            const tree = scope.tree();
-            const src = tree.token_locs[infix_node.op_token].start;
-
-            const op: std.math.CompareOperator = switch (infix_node.op) {
-                .BangEqual => .neq,
-                .EqualEqual => .eq,
-                .GreaterThan => .gt,
-                .GreaterOrEqual => .gte,
-                .LessThan => .lt,
-                .LessOrEqual => .lte,
-                else => unreachable,
-            };
-
-            return mod.addZIRInst(scope, src, zir.Inst.Cmp, .{
-                .lhs = lhs,
-                .op = op,
-                .rhs = rhs,
-            }, .{});
-        },
-        else => |op| {
-            return mod.failNode(scope, &infix_node.base, "TODO implement infix operator {}", .{op});
-        },
+fn assign(mod: *Module, scope: *Scope, infix_node: *ast.Node.SimpleInfixOp) InnerError!*zir.Inst {
+    if (infix_node.lhs.tag == .Identifier) {
+        const ident = @fieldParentPtr(ast.Node.Identifier, "base", infix_node.lhs);
+        const tree = scope.tree();
+        const ident_name = tree.tokenSlice(ident.token);
+        if (std.mem.eql(u8, ident_name, "_")) {
+            return expr(mod, scope, infix_node.rhs);
+        } else {
+            return mod.failNode(scope, &infix_node.base, "TODO implement infix operator assign", .{});
+        }
+    } else {
+        return mod.failNode(scope, &infix_node.base, "TODO implement infix operator assign", .{});
     }
+}
+
+fn add(mod: *Module, scope: *Scope, infix_node: *ast.Node.SimpleInfixOp) InnerError!*zir.Inst {
+    const lhs = try expr(mod, scope, infix_node.lhs);
+    const rhs = try expr(mod, scope, infix_node.rhs);
+
+    const tree = scope.tree();
+    const src = tree.token_locs[infix_node.op_token].start;
+
+    return mod.addZIRInst(scope, src, zir.Inst.Add, .{ .lhs = lhs, .rhs = rhs }, .{});
+}
+
+fn cmp(
+    mod: *Module,
+    scope: *Scope,
+    infix_node: *ast.Node.SimpleInfixOp,
+    op: std.math.CompareOperator,
+) InnerError!*zir.Inst {
+    const lhs = try expr(mod, scope, infix_node.lhs);
+    const rhs = try expr(mod, scope, infix_node.rhs);
+
+    const tree = scope.tree();
+    const src = tree.token_locs[infix_node.op_token].start;
+
+    return mod.addZIRInst(scope, src, zir.Inst.Cmp, .{
+        .lhs = lhs,
+        .op = op,
+        .rhs = rhs,
+    }, .{});
 }
 
 fn ifExpr(mod: *Module, scope: *Scope, if_node: *ast.Node.If) InnerError!*zir.Inst {
@@ -571,6 +563,47 @@ fn nodeNeedsMemoryLocation(node: *ast.Node) bool {
         .ErrorSetDecl,
         .ContainerDecl,
         .Asm,
+        .Add,
+        .AddWrap,
+        .ArrayCat,
+        .ArrayMult,
+        .Assign,
+        .AssignBitAnd,
+        .AssignBitOr,
+        .AssignBitShiftLeft,
+        .AssignBitShiftRight,
+        .AssignBitXor,
+        .AssignDiv,
+        .AssignSub,
+        .AssignSubWrap,
+        .AssignMod,
+        .AssignAdd,
+        .AssignAddWrap,
+        .AssignMul,
+        .AssignMulWrap,
+        .BangEqual,
+        .BitAnd,
+        .BitOr,
+        .BitShiftLeft,
+        .BitShiftRight,
+        .BitXor,
+        .BoolAnd,
+        .BoolOr,
+        .Div,
+        .EqualEqual,
+        .ErrorUnion,
+        .GreaterOrEqual,
+        .GreaterThan,
+        .LessOrEqual,
+        .LessThan,
+        .MergeErrorSets,
+        .Mod,
+        .Mul,
+        .MulWrap,
+        .Range,
+        .Period,
+        .Sub,
+        .SubWrap,
         => false,
 
         .ArrayInitializer,
@@ -579,9 +612,10 @@ fn nodeNeedsMemoryLocation(node: *ast.Node) bool {
         .StructInitializerDot,
         => true,
 
-        .GroupedExpression => nodeNeedsMemoryLocation(node.cast(ast.Node.GroupedExpression).?.expr),
+        .GroupedExpression => nodeNeedsMemoryLocation(node.castTag(.GroupedExpression).?.expr),
 
-        .InfixOp => @panic("TODO nodeNeedsMemoryLocation for InfixOp"),
+        .UnwrapOptional => @panic("TODO nodeNeedsMemoryLocation for UnwrapOptional"),
+        .Catch => @panic("TODO nodeNeedsMemoryLocation for Catch"),
         .Await => @panic("TODO nodeNeedsMemoryLocation for Await"),
         .Try => @panic("TODO nodeNeedsMemoryLocation for Try"),
         .If => @panic("TODO nodeNeedsMemoryLocation for If"),

@@ -408,8 +408,54 @@ pub const Node = struct {
         VarDecl,
         Defer,
 
-        // Operators
-        InfixOp,
+        // Infix operators
+        Catch,
+
+        // SimpleInfixOp
+        Add,
+        AddWrap,
+        ArrayCat,
+        ArrayMult,
+        Assign,
+        AssignBitAnd,
+        AssignBitOr,
+        AssignBitShiftLeft,
+        AssignBitShiftRight,
+        AssignBitXor,
+        AssignDiv,
+        AssignSub,
+        AssignSubWrap,
+        AssignMod,
+        AssignAdd,
+        AssignAddWrap,
+        AssignMul,
+        AssignMulWrap,
+        BangEqual,
+        BitAnd,
+        BitOr,
+        BitShiftLeft,
+        BitShiftRight,
+        BitXor,
+        BoolAnd,
+        BoolOr,
+        Div,
+        EqualEqual,
+        ErrorUnion,
+        GreaterOrEqual,
+        GreaterThan,
+        LessOrEqual,
+        LessThan,
+        MergeErrorSets,
+        Mod,
+        Mul,
+        MulWrap,
+        Period,
+        Range,
+        Sub,
+        SubWrap,
+        UnwrapOptional,
+
+        // SimplePrefixOp
         AddressOf,
         Await,
         BitNot,
@@ -419,6 +465,7 @@ pub const Node = struct {
         NegationWrap,
         Resume,
         Try,
+
         ArrayType,
         /// ArrayType but has a sentinel node.
         ArrayTypeSentinel,
@@ -492,7 +539,51 @@ pub const Node = struct {
                 .TestDecl => TestDecl,
                 .VarDecl => VarDecl,
                 .Defer => Defer,
-                .InfixOp => InfixOp,
+                .Catch => Catch,
+
+                .Add,
+                .AddWrap,
+                .ArrayCat,
+                .ArrayMult,
+                .Assign,
+                .AssignBitAnd,
+                .AssignBitOr,
+                .AssignBitShiftLeft,
+                .AssignBitShiftRight,
+                .AssignBitXor,
+                .AssignDiv,
+                .AssignSub,
+                .AssignSubWrap,
+                .AssignMod,
+                .AssignAdd,
+                .AssignAddWrap,
+                .AssignMul,
+                .AssignMulWrap,
+                .BangEqual,
+                .BitAnd,
+                .BitOr,
+                .BitShiftLeft,
+                .BitShiftRight,
+                .BitXor,
+                .BoolAnd,
+                .BoolOr,
+                .Div,
+                .EqualEqual,
+                .ErrorUnion,
+                .GreaterOrEqual,
+                .GreaterThan,
+                .LessOrEqual,
+                .LessThan,
+                .MergeErrorSets,
+                .Mod,
+                .Mul,
+                .MulWrap,
+                .Period,
+                .Range,
+                .Sub,
+                .SubWrap,
+                .UnwrapOptional,
+                => SimpleInfixOp,
 
                 .AddressOf,
                 .Await,
@@ -507,13 +598,17 @@ pub const Node = struct {
 
                 .ArrayType => ArrayType,
                 .ArrayTypeSentinel => ArrayTypeSentinel,
+
                 .PtrType => PtrType,
                 .SliceType => SliceType,
                 .SuffixOp => SuffixOp,
+
                 .ArrayInitializer => ArrayInitializer,
                 .ArrayInitializerDot => ArrayInitializerDot,
+
                 .StructInitializer => StructInitializer,
                 .StructInitializerDot => StructInitializerDot,
+
                 .Call => Call,
                 .Switch => Switch,
                 .While => While,
@@ -1859,117 +1954,22 @@ pub const Node = struct {
         }
     };
 
-    /// TODO split up and make every op its own AST Node tag
-    pub const InfixOp = struct {
-        base: Node = Node{ .tag = .InfixOp },
+    pub const Catch = struct {
+        base: Node = Node{ .tag = .Catch },
         op_token: TokenIndex,
         lhs: *Node,
-        op: Op,
         rhs: *Node,
+        payload: ?*Node,
 
-        pub const Op = union(enum) {
-            Add,
-            AddWrap,
-            ArrayCat,
-            ArrayMult,
-            Assign,
-            AssignBitAnd,
-            AssignBitOr,
-            AssignBitShiftLeft,
-            AssignBitShiftRight,
-            AssignBitXor,
-            AssignDiv,
-            AssignSub,
-            AssignSubWrap,
-            AssignMod,
-            AssignAdd,
-            AssignAddWrap,
-            AssignMul,
-            AssignMulWrap,
-            BangEqual,
-            BitAnd,
-            BitOr,
-            BitShiftLeft,
-            BitShiftRight,
-            BitXor,
-            BoolAnd,
-            BoolOr,
-            Catch: ?*Node,
-            Div,
-            EqualEqual,
-            ErrorUnion,
-            GreaterOrEqual,
-            GreaterThan,
-            LessOrEqual,
-            LessThan,
-            MergeErrorSets,
-            Mod,
-            Mul,
-            MulWrap,
-            Period,
-            Range,
-            Sub,
-            SubWrap,
-            UnwrapOptional,
-        };
-
-        pub fn iterate(self: *const InfixOp, index: usize) ?*Node {
+        pub fn iterate(self: *const Catch, index: usize) ?*Node {
             var i = index;
 
             if (i < 1) return self.lhs;
             i -= 1;
 
-            switch (self.op) {
-                .Catch => |maybe_payload| {
-                    if (maybe_payload) |payload| {
-                        if (i < 1) return payload;
-                        i -= 1;
-                    }
-                },
-
-                .Add,
-                .AddWrap,
-                .ArrayCat,
-                .ArrayMult,
-                .Assign,
-                .AssignBitAnd,
-                .AssignBitOr,
-                .AssignBitShiftLeft,
-                .AssignBitShiftRight,
-                .AssignBitXor,
-                .AssignDiv,
-                .AssignSub,
-                .AssignSubWrap,
-                .AssignMod,
-                .AssignAdd,
-                .AssignAddWrap,
-                .AssignMul,
-                .AssignMulWrap,
-                .BangEqual,
-                .BitAnd,
-                .BitOr,
-                .BitShiftLeft,
-                .BitShiftRight,
-                .BitXor,
-                .BoolAnd,
-                .BoolOr,
-                .Div,
-                .EqualEqual,
-                .ErrorUnion,
-                .GreaterOrEqual,
-                .GreaterThan,
-                .LessOrEqual,
-                .LessThan,
-                .MergeErrorSets,
-                .Mod,
-                .Mul,
-                .MulWrap,
-                .Period,
-                .Range,
-                .Sub,
-                .SubWrap,
-                .UnwrapOptional,
-                => {},
+            if (self.payload) |payload| {
+                if (i < 1) return payload;
+                i -= 1;
             }
 
             if (i < 1) return self.rhs;
@@ -1978,11 +1978,38 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *const InfixOp) TokenIndex {
+        pub fn firstToken(self: *const Catch) TokenIndex {
             return self.lhs.firstToken();
         }
 
-        pub fn lastToken(self: *const InfixOp) TokenIndex {
+        pub fn lastToken(self: *const Catch) TokenIndex {
+            return self.rhs.lastToken();
+        }
+    };
+
+    pub const SimpleInfixOp = struct {
+        base: Node,
+        op_token: TokenIndex,
+        lhs: *Node,
+        rhs: *Node,
+
+        pub fn iterate(self: *const SimpleInfixOp, index: usize) ?*Node {
+            var i = index;
+
+            if (i < 1) return self.lhs;
+            i -= 1;
+
+            if (i < 1) return self.rhs;
+            i -= 1;
+
+            return null;
+        }
+
+        pub fn firstToken(self: *const SimpleInfixOp) TokenIndex {
+            return self.lhs.firstToken();
+        }
+
+        pub fn lastToken(self: *const SimpleInfixOp) TokenIndex {
             return self.rhs.lastToken();
         }
     };

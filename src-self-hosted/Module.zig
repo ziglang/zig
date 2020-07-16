@@ -1954,7 +1954,7 @@ pub fn addZIRInstSpecial(
     positionals: std.meta.fieldInfo(T, "positionals").field_type,
     kw_args: std.meta.fieldInfo(T, "kw_args").field_type,
 ) !*T {
-    const gen_zir = scope.cast(Scope.GenZIR).?;
+    const gen_zir = scope.getGenZIR();
     try gen_zir.instructions.ensureCapacity(self.gpa, gen_zir.instructions.items.len + 1);
     const inst = try newZIRInst(gen_zir.arena, src, T, positionals, kw_args);
     gen_zir.instructions.appendAssumeCapacity(&inst.base);
