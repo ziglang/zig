@@ -68,3 +68,6 @@ pub const Register = enum(u8) {
 };
 
 // zig fmt: on
+
+/// These registers belong to the called function.
+pub const callee_preserved = [_]Register{ rax, rcx, rdx, rsi, rdi, r8, r9, r10, r11 };
