@@ -713,3 +713,10 @@ test "auto created variables have correct alignment" {
     expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
     comptime expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
 }
+
+extern var opaque_extern_var: @Type(.Opaque);
+var var_to_export: u32 = 42;
+test "extern variable with non-pointer opaque type" {
+    @export(var_to_export, .{ .name = "opaque_extern_var" });
+    expect(@ptrCast(*align(1) u32, &opaque_extern_var).* == 42);
+}
