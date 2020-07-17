@@ -3823,15 +3823,18 @@ static Error resolve_decl_container(CodeGen *g, TldContainer *tld_container) {
     }
 }
 
-ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry) {
+ZigType *validate_var_type(CodeGen *g, AstNodeVariableDeclaration *source_node, ZigType *type_entry) {
     switch (type_entry->id) {
         case ZigTypeIdInvalid:
             return g->builtin_types.entry_invalid;
+        case ZigTypeIdOpaque:
+            if (source_node->is_extern)
+                return type_entry;
+            ZIG_FALLTHROUGH;
         case ZigTypeIdUnreachable:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdOpaque:
-            add_node_error(g, source_node, buf_sprintf("variable of type '%s' not allowed",
+            add_node_error(g, source_node->type, buf_sprintf("variable of type '%s' not allowed",
                 buf_ptr(&type_entry->name)));
             return g->builtin_types.entry_invalid;
         case ZigTypeIdComptimeFloat:
@@ -3973,7 +3976,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
         } else {
             tld_var->analyzing_type = true;
             ZigType *proposed_type = analyze_type_expr(g, tld_var->base.parent_scope, var_decl->type);
-            explicit_type = validate_var_type(g, var_decl->type, proposed_type);
+            explicit_type = validate_var_type(g, var_decl, proposed_type);
         }
     }
 

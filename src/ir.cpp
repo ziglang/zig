@@ -18505,7 +18505,7 @@ static IrInstGen *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstSrcDeclV
     if (decl_var_instruction->var_type != nullptr) {
         var_type = decl_var_instruction->var_type->child;
         ZigType *proposed_type = ir_resolve_type(ira, var_type);
-        explicit_type = validate_var_type(ira->codegen, var_type->base.source_node, proposed_type);
+        explicit_type = validate_var_type(ira->codegen, &var->decl_node->data.variable_declaration, proposed_type);
         if (type_is_invalid(explicit_type)) {
             var->var_type = ira->codegen->builtin_types.entry_invalid;
             return ira->codegen->invalid_inst_gen;
