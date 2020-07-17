@@ -3038,7 +3038,6 @@ fn analyzeInstElemPtr(self: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) Inn
 }
 
 fn analyzeInstSub(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
-    return self.fail(scope, inst.base.src, "TODO implement analysis of sub", .{});
 }
 
 fn analyzeInstAdd(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
@@ -3048,50 +3047,82 @@ fn analyzeInstAdd(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerErro
     const lhs = try self.resolveInst(scope, inst.positionals.lhs);
     const rhs = try self.resolveInst(scope, inst.positionals.rhs);
 
-    if ((lhs.ty.zigTypeTag() == .Int or lhs.ty.zigTypeTag() == .ComptimeInt) and
-        (rhs.ty.zigTypeTag() == .Int or rhs.ty.zigTypeTag() == .ComptimeInt))
-    {
-        if (!lhs.ty.eql(rhs.ty)) {
-            return self.fail(scope, inst.base.src, "TODO implement peer type resolution", .{});
+    const instructions = &[_]*Inst{ lhs, rhs };
+    const resolved_type = try self.resolvePeerTypes(scope, instructions);
+    const resolved_tag = resolved_type.zigTypeTag();
+
+    const is_int = resolved_tag == .Int or resolved_tag == .ComptimeInt;
+
+    if (!is_int) {
+        return self.fail(scope, inst.base.src, "TODO analyze arithmetic for types {} and {}", .{ lhs.ty.zigTypeTag(), rhs.ty.zigTypeTag() });
+    }
+
+    if (lhs.value()) |lhs_val| {
+        if (rhs.value()) |rhs_val| {
+            return self.analyzeInstMath(scope, resolved_type, &inst.base, lhs_val, rhs_val);
         }
+    }
 
-        if (lhs.value()) |lhs_val| {
-            if (rhs.value()) |rhs_val| {
-                // TODO is this a performance issue? maybe we should try the operation without
-                // resorting to BigInt first.
-                var lhs_space: Value.BigIntSpace = undefined;
-                var rhs_space: Value.BigIntSpace = undefined;
-                const lhs_bigint = lhs_val.toBigInt(&lhs_space);
-                const rhs_bigint = rhs_val.toBigInt(&rhs_space);
-                const limbs = try scope.arena().alloc(
-                    std.math.big.Limb,
-                    std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
-                );
-                var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-                result_bigint.add(lhs_bigint, rhs_bigint);
-                const result_limbs = result_bigint.limbs[0..result_bigint.len];
+    const b = try self.requireRuntimeBlock(scope, inst.base.src);
 
-                const val_payload = if (result_bigint.positive) blk: {
-                    const val_payload = try scope.arena().create(Value.Payload.IntBigPositive);
-                    val_payload.* = .{ .limbs = result_limbs };
-                    break :blk &val_payload.base;
-                } else blk: {
-                    const val_payload = try scope.arena().create(Value.Payload.IntBigNegative);
-                    val_payload.* = .{ .limbs = result_limbs };
-                    break :blk &val_payload.base;
-                };
+    return switch (inst.base.tag) {
+        .add => self.addNewInstArgs(b, inst.base.src, resolved_type, Inst.Add, .{
+            .lhs = lhs,
+            .rhs = rhs,
+        }),
+        .sub => self.addNewInstArgs(b, inst.base.src, resolved_type, Inst.Sub, .{
+            .lhs = lhs,
+            .rhs = rhs,
+        }),
+        else => self.fail(scope, inst.base.src, "TODO Implement arithmetic for operand {}", .{@tagName(inst.base.tag)}),
+    };
+}
 
-                return self.constInst(scope, inst.base.src, .{
-                    .ty = lhs.ty,
-                    .val = Value.initPayload(val_payload),
-                });
-            }
-        }
-
+/// Analyzes operands that are known at comptime
+fn analyzeInstMath(self: *Module, scope: *Scope, res_type: Type, base: *zir.Inst, lhs_val: Value, rhs_val: Value) InnerError!*Inst {
+    // incase rhs is 0, simply return lhs without doing any calculations
+    // TODO Once division is implemented we should throw an error when dividing by 0.
+    if (rhs_val.tag() == .zero or rhs_val.tag() == .the_one_possible_value) {
+        return self.constInst(scope, base.src, .{
+            .ty = res_type,
+            .val = lhs_val,
+        });
         const b = try self.requireRuntimeBlock(scope, inst.base.src);
         return self.addBinOp(b, inst.base.src, lhs.ty, .add, lhs, rhs);
     }
-    return self.fail(scope, inst.base.src, "TODO analyze add for {} + {}", .{ lhs.ty.zigTypeTag(), rhs.ty.zigTypeTag() });
+
+    // TODO is this a performance issue? maybe we should try the operation without
+    // resorting to BigInt first.
+    var lhs_space: Value.BigIntSpace = undefined;
+    var rhs_space: Value.BigIntSpace = undefined;
+    const lhs_bigint = lhs_val.toBigInt(&lhs_space);
+    const rhs_bigint = rhs_val.toBigInt(&rhs_space);
+    const limbs = try scope.arena().alloc(
+        std.math.big.Limb,
+        std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
+    );
+    var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+    switch (base.tag) {
+        .add => result_bigint.add(lhs_bigint, rhs_bigint),
+        .sub => result_bigint.sub(lhs_bigint, rhs_bigint),
+        else => return error.AnalysisFail,
+    }
+    const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+    const val_payload = if (result_bigint.positive) blk: {
+        const val_payload = try scope.arena().create(Value.Payload.IntBigPositive);
+        val_payload.* = .{ .limbs = result_limbs };
+        break :blk &val_payload.base;
+    } else blk: {
+        const val_payload = try scope.arena().create(Value.Payload.IntBigNegative);
+        val_payload.* = .{ .limbs = result_limbs };
+        break :blk &val_payload.base;
+    };
+
+    return self.constInst(scope, base.src, .{
+        .ty = res_type,
+        .val = Value.initPayload(val_payload),
+    });
 }
 
 fn analyzeInstDeref(self: *Module, scope: *Scope, deref: *zir.Inst.UnOp) InnerError!*Inst {

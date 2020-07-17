@@ -172,7 +172,6 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        // TODO add a test case for comptime substraction of numbers
         var case = ctx.exe("substracting numbers at runtime", linux_x64);
         case.addCompareOutput(
             \\export fn _start() noreturn {
