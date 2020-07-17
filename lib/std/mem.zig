@@ -977,7 +977,7 @@ test "spanZ" {
 }
 
 /// Takes a pointer to an array, an array, a vector, a sentinel-terminated pointer,
-/// or a slice, and returns the length.
+/// a slice or a tuple, and returns the length.
 /// In the case of a sentinel-terminated array, it uses the array length.
 /// For C pointers it assumes it is a pointer-to-many with a 0 sentinel.
 pub fn len(value: anytype) usize {
@@ -996,6 +996,9 @@ pub fn len(value: anytype) usize {
             .C => indexOfSentinel(info.child, 0, value),
             .Slice => value.len,
         },
+        .Struct => |info| if (info.is_tuple) {
+            return info.fields.len;
+        } else @compileError("invalid type given to std.mem.len"),
         else => @compileError("invalid type given to std.mem.len"),
     };
 }
@@ -1020,6 +1023,11 @@ test "len" {
     {
         const vector: meta.Vector(2, u32) = [2]u32{ 1, 2 };
         testing.expect(len(vector) == 2);
+    }
+    {
+        const tuple = .{ 1, 2 };
+        testing.expect(len(tuple) == 2);
+        testing.expect(tuple[0] == 1);
     }
 }
 
