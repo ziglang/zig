@@ -38,7 +38,7 @@ pub const Inst = struct {
 
     pub fn operandDies(self: Inst, index: DeathsBitIndex) bool {
         assert(index < deaths_bits);
-        return @truncate(u1, self.deaths << index) != 0;
+        return @truncate(u1, self.deaths >> index) != 0;
     }
 
     pub fn specialOperandDeaths(self: Inst) bool {

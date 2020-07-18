@@ -407,6 +407,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             for (body.instructions) |inst| {
                 const new_inst = try self.genFuncInst(inst);
                 try inst_table.putNoClobber(self.gpa, inst, new_inst);
+                // TODO process operand deaths
             }
         }
 
@@ -1194,6 +1195,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             while (true) {
                 i -= 1;
                 if (self.branch_stack.items[i].inst_table.get(inst)) |mcv| {
+                    assert(mcv != .dead);
                     return mcv;
                 }
             }
