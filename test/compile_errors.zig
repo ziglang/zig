@@ -122,6 +122,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var a: u32 = 2;
         \\    _ = @floatToInt(u32, a);
         \\}
+        \\export fn qux() void {
+        \\    var a: f32 = 2;
+        \\    _ = @intCast(u32, a);
+        \\}
     , &[_][]const u8{
         "tmp.zig:3:32: error: unable to evaluate constant expression",
         "tmp.zig:3:9: note: referenced here",
@@ -129,6 +133,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:7:9: note: referenced here",
         "tmp.zig:11:26: error: expected float type, found 'u32'",
         "tmp.zig:11:9: note: referenced here",
+        "tmp.zig:15:23: error: expected integer type, found 'f32'",
+        "tmp.zig:15:9: note: referenced here",
     });
 
     cases.addTest("invalid float casts",
@@ -144,6 +150,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var a: f32 = 2;
         \\    _ = @intToFloat(f32, a);
         \\}
+        \\export fn qux() void {
+        \\    var a: u32 = 2;
+        \\    _ = @floatCast(f32, a);
+        \\}
     , &[_][]const u8{
         "tmp.zig:3:36: error: unable to evaluate constant expression",
         "tmp.zig:3:9: note: referenced here",
@@ -151,6 +161,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:7:9: note: referenced here",
         "tmp.zig:11:26: error: expected int type, found 'f32'",
         "tmp.zig:11:9: note: referenced here",
+        "tmp.zig:15:25: error: expected float type, found 'u32'",
+        "tmp.zig:15:9: note: referenced here",
     });
 
     cases.addTest("invalid assignments",

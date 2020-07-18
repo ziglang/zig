@@ -26739,6 +26739,12 @@ static IrInstGen *ir_analyze_instruction_float_cast(IrAnalyze *ira, IrInstSrcFlo
         }
     }
 
+    if (target->value->type->id != ZigTypeIdFloat) {
+        ir_add_error(ira, &instruction->target->base, buf_sprintf("expected float type, found '%s'",
+                    buf_ptr(&target->value->type->name)));
+        return ira->codegen->invalid_inst_gen;
+    }
+
     if (instr_is_comptime(target) || dest_type->id == ZigTypeIdComptimeFloat) {
         ZigValue *val = ir_resolve_const(ira, target, UndefBad);
         if (val == nullptr)
