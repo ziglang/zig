@@ -1720,12 +1720,12 @@ pub const SymlinkFlags = struct {
 /// See also `symLinkAbsoluteZ` and `symLinkAbsoluteW`.
 pub fn symLinkAbsolute(target_path: []const u8, sym_link_path: []const u8, flags: SymlinkFlags) !void {
     if (builtin.os.tag == .wasi) {
-        @compileError("symLink is not supported in WASI");
+        @compileError("symLinkAbsolute is not supported in WASI");
     }
     assert(path.isAbsolute(target_path));
     assert(path.isAbsolute(sym_link_path));
     if (builtin.os.tag == .windows) {
-        return os.windows.CreateSymbolicLink(target_path, sym_link_path, flags.is_directory);
+        return os.windows.CreateSymbolicLink(sym_link_path, target_path, flags.is_directory);
     }
     return os.symlink(target_path, sym_link_path);
 }
@@ -1737,7 +1737,7 @@ pub fn symLinkAbsolute(target_path: []const u8, sym_link_path: []const u8, flags
 pub fn symLinkAbsoluteW(target_path_w: [*:0]const u16, sym_link_path_w: [*:0]const u16, flags: SymlinkFlags) !void {
     assert(path.isAbsoluteWindowsW(target_path_w));
     assert(path.isAbsoluteWindowsW(sym_link_path_w));
-    return os.windows.CreateSymbolicLinkW(target_path_w, sym_link_path_w, flags.is_directory);
+    return os.windows.CreateSymbolicLinkW(sym_link_path_w, target_path_w, flags.is_directory);
 }
 
 /// Same as `symLinkAbsolute` except the parameters are null-terminated pointers.
@@ -1748,7 +1748,7 @@ pub fn symLinkAbsoluteZ(target_path_c: [*:0]const u8, sym_link_path_c: [*:0]cons
     if (builtin.os.tag == .windows) {
         const target_path_w = try os.windows.cStrToWin32PrefixedFileW(target_path_c);
         const sym_link_path_w = try os.windows.cStrToWin32PrefixedFileW(sym_link_path_c);
-        return os.windows.CreateSymbolicLinkW(target_path_w.span().ptr, sym_link_path_w.span().ptr, flags.is_directory);
+        return os.windows.CreateSymbolicLinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr, flags.is_directory);
     }
     return os.symlinkZ(target_path_c, sym_link_path_c);
 }

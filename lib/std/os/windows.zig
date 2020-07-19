@@ -602,7 +602,15 @@ pub fn GetCurrentDirectory(buffer: []u8) GetCurrentDirectoryError![]u8 {
     return buffer[0..end_index];
 }
 
-pub const CreateSymbolicLinkError = error{ AccessDenied, PathAlreadyExists, FileNotFound, Unexpected };
+pub const CreateSymbolicLinkError = error{
+    AccessDenied,
+    PathAlreadyExists,
+    FileNotFound,
+    NameTooLong,
+    InvalidUtf8,
+    BadPathName,
+    Unexpected
+};
 
 pub fn CreateSymbolicLink(
     sym_link_path: []const u8,
