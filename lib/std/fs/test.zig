@@ -36,7 +36,7 @@ test "readLinkAbsolute" {
 
         // Create symbolic link by path
         try fs.symLinkAbsolute(target_path, symlink_path, .{});
-        try testReadlinkAbsolute(target_path, symlink_path);
+        try testReadLinkAbsolute(target_path, symlink_path);
     }
     {
         const target_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "subdir" });
@@ -44,11 +44,11 @@ test "readLinkAbsolute" {
 
         // Create symbolic link by path
         try fs.symLinkAbsolute(target_path, symlink_path, .{ .is_directory = true });
-        try testReadlinkAbsolute(target_path, symlink_path);
+        try testReadLinkAbsolute(target_path, symlink_path);
     }
 }
 
-fn testReadlinkAbsolute(target_path: []const u8, symlink_path: []const u8) !void {
+fn testReadLinkAbsolute(target_path: []const u8, symlink_path: []const u8) !void {
     var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
     const given = try fs.readLinkAbsolute(symlink_path, buffer[0..]);
     testing.expect(mem.eql(u8, target_path, given));

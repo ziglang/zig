@@ -951,6 +951,9 @@ pub const Dir = struct {
         /// `true` means the opened directory can be scanned for the files and sub-directories
         /// of the result. It means the `iterate` function can be called.
         iterate: bool = false,
+
+        /// `true` means it won't dereference the symlink.
+        no_follow: bool = false,
     };
 
     /// Opens a directory at the given path. The directory is a system resource that remains
@@ -994,10 +997,11 @@ pub const Dir = struct {
                 w.RIGHT_PATH_REMOVE_DIRECTORY |
                 w.RIGHT_PATH_UNLINK_FILE;
         }
+        const symlink_flags: w.lookupflags_t = if (args.no_follow) 0x0 else w.LOOKUP_SYMLINK_FOLLOW;
         // TODO do we really need all the rights here?
         const inheriting: w.rights_t = w.RIGHT_ALL ^ w.RIGHT_SOCK_SHUTDOWN;
 
-        const result = os.openatWasi(self.fd, sub_path, w.O_DIRECTORY, 0x0, base, inheriting);
+        const result = os.openatWasi(self.fd, sub_path, w.O_DIRECTORY, symlink_flags, base, inheriting);
         const fd = result catch |err| switch (err) {
             error.FileTooBig => unreachable, // can't happen for directories
             error.IsDir => unreachable, // we're providing O_DIRECTORY
@@ -1014,11 +1018,13 @@ pub const Dir = struct {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
             return self.openDirW(sub_path_w.span().ptr, args);
-        } else if (!args.iterate) {
+        }
+        const symlink_flags: u32 = if (args.no_follow) os.O_NOFOLLOW else 0x0;
+        if (!args.iterate) {
             const O_PATH = if (@hasDecl(os, "O_PATH")) os.O_PATH else 0;
-            return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | os.O_CLOEXEC | O_PATH);
+            return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | os.O_CLOEXEC | O_PATH | symlink_flags);
         } else {
-            return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | os.O_CLOEXEC);
+            return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | os.O_CLOEXEC | symlink_flags);
         }
     }
 
@@ -1030,7 +1036,7 @@ pub const Dir = struct {
         const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
             w.SYNCHRONIZE | w.FILE_TRAVERSE;
         const flags: u32 = if (args.iterate) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
-        return self.openDirAccessMaskW(sub_path_w, flags);
+        return self.openDirAccessMaskW(sub_path_w, flags, args.no_follow);
     }
 
     /// `flags` must contain `os.O_DIRECTORY`.
@@ -1050,7 +1056,7 @@ pub const Dir = struct {
         return Dir{ .fd = fd };
     }
 
-    fn openDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32) OpenError!Dir {
+    fn openDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32, no_follow: bool) OpenError!Dir {
         const w = os.windows;
 
         var result = Dir{
@@ -1080,6 +1086,7 @@ pub const Dir = struct {
             // implement this: https://git.midipix.org/ntapi/tree/src/fs/ntapi_tt_open_physical_parent_directory.c
             @panic("TODO opening '..' with a relative directory handle is not yet implemented on Windows");
         }
+        const open_reparse_point: w.DWORD = if (no_follow) w.FILE_OPEN_REPARSE_POINT else 0x0;
         var io: w.IO_STATUS_BLOCK = undefined;
         const rc = w.ntdll.NtCreateFile(
             &result.fd,
@@ -1090,7 +1097,7 @@ pub const Dir = struct {
             0,
             w.FILE_SHARE_READ | w.FILE_SHARE_WRITE,
             w.FILE_OPEN,
-            w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT,
+            w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT | open_reparse_point,
             null,
             0,
         );
@@ -1277,6 +1284,7 @@ pub const Dir = struct {
     pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
         start_over: while (true) {
             var got_access_denied = false;
+
             // First, try deleting the item as a file. This way we don't follow sym links.
             if (self.deleteFile(sub_path)) {
                 return;
@@ -1297,7 +1305,8 @@ pub const Dir = struct {
                 error.Unexpected,
                 => |e| return e,
             }
-            var dir = self.openDir(sub_path, .{ .iterate = true }) catch |err| switch (err) {
+
+            var dir = self.openDir(sub_path, .{ .iterate = true, .no_follow = true }) catch |err| switch (err) {
                 error.NotDir => {
                     if (got_access_denied) {
                         return error.AccessDenied;
@@ -1364,7 +1373,7 @@ pub const Dir = struct {
                         => |e| return e,
                     }
 
-                    const new_dir = dir.openDir(entry.name, .{ .iterate = true }) catch |err| switch (err) {
+                    const new_dir = dir.openDir(entry.name, .{ .iterate = true, .no_follow = true }) catch |err| switch (err) {
                         error.NotDir => {
                             if (got_access_denied) {
                                 return error.AccessDenied;

@@ -1815,7 +1815,7 @@ pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*:0]const u16, flags: u32) UnlinkatEr
 
     const want_rmdir_behavior = (flags & AT_REMOVEDIR) != 0;
     const create_options_flags = if (want_rmdir_behavior)
-        @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_DIRECTORY_FILE)
+        @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_DIRECTORY_FILE | w.FILE_OPEN_REPARSE_POINT)
     else
         @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_NON_DIRECTORY_FILE | w.FILE_OPEN_REPARSE_POINT); // would we ever want to delete the target instead?
 
@@ -2390,9 +2390,11 @@ pub fn readlinkW(file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8
             else => |e| return e,
         }
     };
+    defer w.CloseHandle(handle);
 
     var reparse_buf: [w.MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
     _ = try w.DeviceIoControl(handle, w.FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..], null);
+
     const reparse_struct = @ptrCast(*const w.REPARSE_DATA_BUFFER, @alignCast(@alignOf(w.REPARSE_DATA_BUFFER), &reparse_buf[0]));
     switch (reparse_struct.ReparseTag) {
         w.IO_REPARSE_TAG_SYMLINK => {
