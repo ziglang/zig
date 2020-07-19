@@ -16,9 +16,6 @@ pub const wasi = @import("fs/wasi.zig");
 
 // TODO audit these APIs with respect to Dir and absolute paths
 
-pub const symLink = os.symlink;
-pub const symLinkZ = os.symlinkZ;
-pub const symLinkC = @compileError("deprecated: renamed to symlinkZ");
 pub const rename = os.rename;
 pub const renameZ = os.renameZ;
 pub const renameC = @compileError("deprecated: renamed to renameZ");
@@ -69,7 +66,7 @@ pub const need_async_thread = std.io.is_async and switch (builtin.os.tag) {
 
 /// TODO remove the allocator requirement from this API
 pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path: []const u8) !void {
-    if (symLink(existing_path, new_path, .{})) {
+    if (symLinkAbsolute(existing_path, new_path, .{})) {
         return;
     } else |err| switch (err) {
         error.PathAlreadyExists => {},
@@ -87,7 +84,7 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
         try crypto.randomBytes(rand_buf[0..]);
         base64_encoder.encode(tmp_path[dirname.len + 1 ..], &rand_buf);
 
-        if (symLink(existing_path, tmp_path, .{})) {
+        if (symLinkAbsolute(existing_path, tmp_path, .{})) {
             return rename(tmp_path, new_path);
         } else |err| switch (err) {
             error.PathAlreadyExists => continue,
@@ -1692,14 +1689,72 @@ pub fn readLinkAbsolute(pathname: []const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8
     return os.readlink(pathname, buffer);
 }
 
+/// Windows-only. Same as `readlinkW`, except the path parameter is null-terminated, WTF16
+/// encoded.
+pub fn readlinkAbsoluteW(pathname_w: [*:0]const u16, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+    assert(path.isAbsoluteWindowsW(pathname_w));
+    return os.readlinkW(pathname_w, buffer);
+}
+
 /// Same as `readLink`, except the path parameter is null-terminated.
-pub fn readLinkAbsoluteZ(pathname_c: [*]const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+pub fn readLinkAbsoluteZ(pathname_c: [*:0]const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
     assert(path.isAbsoluteZ(pathname_c));
     return os.readlinkZ(pathname_c, buffer);
 }
 
 pub const readLink = @compileError("deprecated; use Dir.readLink or readLinkAbsolute");
 pub const readLinkC = @compileError("deprecated; use Dir.readLinkZ or readLinkAbsoluteZ");
+
+/// Use with `symLinkAbsolute` to specify whether the symlink will point to a file
+/// or a directory. This value is ignored on all hosts except Windows where
+/// creating symlinks to different resource types, requires different flags.
+/// By default, `symLinkAbsolute` is assumed to point to a file.
+pub const SymlinkFlags = struct {
+    is_directory: bool = false,
+};
+
+/// Creates a symbolic link named `sym_link_path` which contains the string `target_path`.
+/// A symbolic link (also known as a soft link) may point to an existing file or to a nonexistent
+/// one; the latter case is known as a dangling link.
+/// If `sym_link_path` exists, it will not be overwritten.
+/// See also `symLinkAbsoluteZ` and `symLinkAbsoluteW`.
+pub fn symLinkAbsolute(target_path: []const u8, sym_link_path: []const u8, flags: SymlinkFlags) !void {
+    if (builtin.os.tag == .wasi) {
+        @compileError("symLink is not supported in WASI");
+    }
+    assert(path.isAbsolute(target_path));
+    assert(path.isAbsolute(sym_link_path));
+    if (builtin.os.tag == .windows) {
+        return os.windows.CreateSymbolicLink(target_path, sym_link_path, flags.is_directory);
+    }
+    return os.symlink(target_path, sym_link_path);
+}
+
+/// Windows-only. Same as `symLinkAbsolute` except the parameters are null-terminated, WTF16 encoded.
+/// Note that this function will by default try creating a symbolic link to a file. If you would
+/// like to create a symbolic link to a directory, specify this with `SymlinkFlags{ .is_directory = true }`.
+/// See also `symLinkAbsolute`, `symLinkAbsoluteZ`.
+pub fn symLinkAbsoluteW(target_path_w: [*:0]const u16, sym_link_path_w: [*:0]const u16, flags: SymlinkFlags) !void {
+    assert(path.isAbsoluteWindowsW(target_path_w));
+    assert(path.isAbsoluteWindowsW(sym_link_path_w));
+    return os.windows.CreateSymbolicLinkW(target_path_w, sym_link_path_w, flags.is_directory);
+}
+
+/// Same as `symLinkAbsolute` except the parameters are null-terminated pointers.
+/// See also `symLinkAbsolute`.
+pub fn symLinkAbsoluteZ(target_path_c: [*:0]const u8, sym_link_path_c: [*:0]const u8, flags: SymlinkFlags) !void {
+    assert(path.isAbsoluteZ(target_path_c));
+    assert(path.isAbsoluteZ(sym_link_path_c));
+    if (builtin.os.tag == .windows) {
+        const target_path_w = try os.windows.cStrToWin32PrefixedFileW(target_path_c);
+        const sym_link_path_w = try os.windows.cStrToWin32PrefixedFileW(sym_link_path_c);
+        return os.windows.CreateSymbolicLinkW(target_path_w.span().ptr, sym_link_path_w.span().ptr, flags.is_directory);
+    }
+    return os.symlinkZ(target_path_c, sym_link_path_c);
+}
+
+pub const symLink = @compileError("deprecated: use symLinkAbsolute");
+pub const symLinkC = @compileError("deprecated: use symLinkAbsoluteC");
 
 pub const Walker = struct {
     stack: std.ArrayList(StackItem),

@@ -609,8 +609,8 @@ pub fn CreateSymbolicLink(
     target_path: []const u8,
     is_directory: bool,
 ) CreateSymbolicLinkError!void {
-    const sym_link_path_w = try sliceToPrefixedFileW(sym_link_path);
-    const target_path_w = try sliceToPrefixedFileW(target_path);
+    const sym_link_path_w = try sliceToWin32PrefixedFileW(sym_link_path);
+    const target_path_w = try sliceToWin32PrefixedFileW(target_path);
     return CreateSymbolicLinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr, is_directory);
 }
 

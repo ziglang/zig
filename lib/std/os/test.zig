@@ -19,6 +19,41 @@ const tmpDir = std.testing.tmpDir;
 const Dir = std.fs.Dir;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
+test "symlink with relative paths" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    // First, try relative paths in cwd
+    var cwd = fs.cwd();
+    try cwd.writeFile("file.txt", "nonsense");
+
+    if (builtin.os.tag == .windows) {
+        try os.windows.CreateSymbolicLink("file.txt", "symlinked", false);
+    } else {
+        try os.symlink("file.txt", "symlinked");
+    }
+
+    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const given = try os.readlink("symlinked", buffer[0..]);
+    expect(mem.eql(u8, "file.txt", given));
+
+    try cwd.deleteFile("file.txt");
+    try cwd.deleteFile("symlinked");
+}
+
+test "readlink on Windows" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try testReadlink("C:\\ProgramData", "C:\\Users\\All Users");
+    try testReadlink("C:\\Users\\Default", "C:\\Users\\Default User");
+    try testReadlink("C:\\Users", "C:\\Documents and Settings");
+}
+
+fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
+    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const given = try os.readlink(symlink_path, buffer[0..]);
+    expect(mem.eql(u8, target_path, given));
+}
+
 test "fstatat" {
     // enable when `fstat` and `fstatat` are implemented on Windows
     if (builtin.os.tag == .windows) return error.SkipZigTest;
@@ -39,72 +74,6 @@ test "fstatat" {
     const flags = if (builtin.os.tag == .wasi) 0x0 else os.AT_SYMLINK_NOFOLLOW;
     const statat = try os.fstatat(tmp.dir.fd, "file.txt", flags);
     expectEqual(stat, statat);
-}
-
-test "readlink" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    // First, try relative paths in cwd
-    {
-        var cwd = fs.cwd();
-        try cwd.writeFile("file.txt", "nonsense");
-        try os.symlink("file.txt", "symlinked", .{});
-
-        var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
-        const given = try os.readlink("symlinked", buffer[0..]);
-        expect(mem.eql(u8, "file.txt", given));
-
-        try cwd.deleteFile("file.txt");
-        try cwd.deleteFile("symlinked");
-    }
-
-    // Now, let's use tempdir
-    var tmp = tmpDir(.{});
-    // defer tmp.cleanup();
-
-    // Create some targets
-    try tmp.dir.writeFile("file.txt", "nonsense");
-    try tmp.dir.makeDir("subdir");
-
-    // Get base abs path
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
-
-    const base_path = blk: {
-        const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
-        break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
-    };
-    const allocator = &arena.allocator;
-
-    {
-        const target_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "file.txt" });
-        const symlink_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "symlink1" });
-
-        // Create symbolic link by path
-        try os.symlink(target_path, symlink_path, .{ .is_directory = false });
-        try testReadlink(target_path, symlink_path);
-    }
-    {
-        const target_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "subdir" });
-        const symlink_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "symlink2" });
-
-        // Create symbolic link by path
-        try os.symlink(target_path, symlink_path, .{ .is_directory = true });
-        try testReadlink(target_path, symlink_path);
-    }
-
-    if (builtin.os.tag == .windows) {
-        try testReadlink("C:\\ProgramData", "C:\\Users\\All Users");
-        try testReadlink("C:\\Users\\Default", "C:\\Users\\Default User");
-        try testReadlink("C:\\Users", "C:\\Documents and Settings");
-    }
-}
-
-fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
-    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
-    const given = try os.readlink(symlink_path, buffer[0..]);
-    expect(mem.eql(u8, target_path, given));
 }
 
 test "readlinkat" {

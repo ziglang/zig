@@ -1520,14 +1520,6 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
     }
 }
 
-/// Use with `symlink` to specify whether the symlink will point to a file
-/// or a directory. This value is ignored on all hosts except Windows where
-/// creating symlinks to different resource types, requires different flags.
-/// By default, symlink is assumed to point to a file.
-pub const SymlinkFlags = struct {
-    is_directory: bool = false,
-};
-
 pub const SymLinkError = error{
     /// In WASI, this error may occur when the file descriptor does
     /// not hold the required rights to create a new symbolic link relative to it.
@@ -1550,37 +1542,26 @@ pub const SymLinkError = error{
 /// A symbolic link (also known as a soft link) may point to an existing file or to a nonexistent
 /// one; the latter case is known as a dangling link.
 /// If `sym_link_path` exists, it will not be overwritten.
-/// See also `symlinkC` and `symlinkW`.
-pub fn symlink(target_path: []const u8, sym_link_path: []const u8, flags: SymlinkFlags) SymLinkError!void {
+/// See also `symlinkZ.
+pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!void {
     if (builtin.os.tag == .wasi) {
         @compileError("symlink is not supported in WASI; use symlinkat instead");
     }
     if (builtin.os.tag == .windows) {
-        const target_path_w = try windows.sliceToWin32PrefixedFileW(target_path);
-        const sym_link_path_w = try windows.sliceToWin32PrefixedFileW(sym_link_path);
-        return symlinkW(target_path_w.span().ptr, sym_link_path_w.span().ptr, flags);
+        @compileError("symlink is not supported on Windows; use std.os.windows.CreateSymbolicLink instead");
     }
     const target_path_c = try toPosixPath(target_path);
     const sym_link_path_c = try toPosixPath(sym_link_path);
-    return symlinkZ(&target_path_c, &sym_link_path_c, flags);
+    return symlinkZ(&target_path_c, &sym_link_path_c);
 }
 
 pub const symlinkC = @compileError("deprecated: renamed to symlinkZ");
 
-/// Windows-only. Same as `symlink` except the parameters are null-terminated, WTF16 encoded.
-/// Note that this function will by default try creating a symbolic link to a file. If you would
-/// like to create a symbolic link to a directory, specify this with `SymlinkFlags{ .is_directory = true }`.
-pub fn symlinkW(target_path: [*:0]const u16, sym_link_path: [*:0]const u16, flags: SymlinkFlags) SymLinkError!void {
-    return windows.CreateSymbolicLinkW(sym_link_path, target_path, flags.is_directory);
-}
-
 /// This is the same as `symlink` except the parameters are null-terminated pointers.
 /// See also `symlink`.
-pub fn symlinkZ(target_path: [*:0]const u8, sym_link_path: [*:0]const u8, flags: SymlinkFlags) SymLinkError!void {
+pub fn symlinkZ(target_path: [*:0]const u8, sym_link_path: [*:0]const u8) SymLinkError!void {
     if (builtin.os.tag == .windows) {
-        const target_path_w = try windows.cStrToWin32PrefixedFileW(target_path);
-        const sym_link_path_w = try windows.cStrToWin32PrefixedFileW(sym_link_path);
-        return symlinkW(target_path_w.span().ptr, sym_link_path_w.span().ptr);
+        @compileError("symlink is not supported on Windows; use std.os.windows.CreateSymbolicLink instead");
     }
     switch (errno(system.symlink(target_path, sym_link_path))) {
         0 => return,
