@@ -1109,10 +1109,10 @@ pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: mode_t) Ope
 }
 
 /// Open and possibly create a file in WASI.
-pub fn openatWasi(dir_fd: fd_t, file_path: []const u8, oflags: oflags_t, fdflags: fdflags_t, base: rights_t, inheriting: rights_t) OpenError!fd_t {
+pub fn openatWasi(dir_fd: fd_t, file_path: []const u8, lookup_flags: lookupflags_t, oflags: oflags_t, fdflags: fdflags_t, base: rights_t, inheriting: rights_t) OpenError!fd_t {
     while (true) {
         var fd: fd_t = undefined;
-        switch (wasi.path_open(dir_fd, 0x0, file_path.ptr, file_path.len, oflags, base, inheriting, fdflags, &fd)) {
+        switch (wasi.path_open(dir_fd, lookup_flags, file_path.ptr, file_path.len, oflags, base, inheriting, fdflags, &fd)) {
             wasi.ESUCCESS => return fd,
             wasi.EINTR => continue,
 
