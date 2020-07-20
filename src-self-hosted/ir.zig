@@ -71,6 +71,7 @@ pub const Inst = struct {
         sub,
         unreach,
         not,
+        widenorshorten,
 
         /// There is one-to-one correspondence between tag and type for now,
         /// but this will not always be the case. For example, binary operations
@@ -108,6 +109,7 @@ pub const Inst = struct {
                 .call => Call,
                 .condbr => CondBr,
                 .constant => Constant,
+                .widenorshorten => WidenOrShorten,
             };
         }
 
@@ -373,6 +375,15 @@ pub const Inst = struct {
         pub fn getOperand(self: *const Constant, index: usize) ?*Inst {
             return null;
         }
+    };
+
+    pub const WidenOrShorten = struct {
+        pub const base_tag = Tag.widenorshorten;
+
+        base: Inst,
+        args: struct {
+            operand: *Inst,
+        },
     };
 };
 

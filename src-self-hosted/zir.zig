@@ -558,6 +558,7 @@ pub const Inst = struct {
 
     pub const IntCast = struct {
         pub const base_tag = Tag.intcast;
+        pub const builtin_name = "@intCast";
         base: Inst,
 
         positionals: struct {
@@ -569,6 +570,7 @@ pub const Inst = struct {
 
     pub const BitCast = struct {
         pub const base_tag = Tag.bitcast;
+        pub const builtin_name = "@bitCast";
         base: Inst,
 
         positionals: struct {
@@ -1819,6 +1821,10 @@ const EmitZIR = struct {
                         .kw_args = .{},
                     };
                     break :blk &new_inst.base;
+                },
+                .widenorshorten => blk: {
+                    const old_inst = inst.cast(ir.Inst.WidenOrShorten).?;
+                    break :blk try self.resolveInst(new_body, old_inst.args.operand);
                 },
             };
             try instructions.append(new_inst);

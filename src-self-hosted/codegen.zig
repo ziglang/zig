@@ -459,6 +459,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .sub => return self.genSub(inst.castTag(.sub).?),
                 .unreach => return MCValue{ .unreach = {} },
                 .not => return self.genNot(inst.castTag(.not).?),
+                .widenorshorten => return self.genWidenOrShorten(isnt.castTag(.widenorshorten).?),
+            }
+        }
+
+        fn genWidenOrShorten(self: *Self, inst: *ir.Inst.WidenOrShorten) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement widen or shorten for {}", .{self.target.cpu.arch}),
             }
         }
 

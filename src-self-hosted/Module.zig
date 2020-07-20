@@ -3358,6 +3358,14 @@ fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
         return self.bitcast(scope, dest_type, inst);
     }
 
+    // undefined to anything
+    if (inst.value()) |val| {
+        if (val.isUndef() or inst.ty.zigTypeTag() == .Undefined) {
+            return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
+        }
+    }
+    assert(inst.ty.zigTypeTag() != .Undefined);
+
     // *[N]T to []T
     if (inst.ty.isSinglePointer() and dest_type.isSlice() and
         (!inst.ty.pointerIsConst() or dest_type.pointerIsConst()))
@@ -3371,31 +3379,55 @@ fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
         }
     }
 
-    // comptime_int to fixed-width integer
-    if (inst.ty.zigTypeTag() == .ComptimeInt and dest_type.zigTypeTag() == .Int) {
-        // The representation is already correct; we only need to make sure it fits in the destination type.
-        const val = inst.value().?; // comptime_int always has comptime known value
-        if (!val.intFitsInType(dest_type, self.target())) {
-            return self.fail(scope, inst.src, "type {} cannot represent integer value {}", .{ inst.ty, val });
+    // comptime known number to other number
+    if (inst.value()) |val| {
+        const src_zig_tag = inst.ty.zigTypeTag();
+        const dst_zig_tag = dest_type.zigTypeTag();
+
+        if (dst_zig_tag == .ComptimeInt or dst_zig_tag == .Int) {
+            if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
+                if (val.floatHasFraction()) {
+                    return self.fail(scope, inst.src, "fractional component prevents float value {} from being casted to type '{}'", .{ val, inst.ty });
+                }
+                return self.fail(scope, inst.src, "TODO float to int", .{});
+            } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
+                if (!val.intFitsInType(dest_type, self.target())) {
+                    return self.fail(scope, inst.src, "type {} cannot represent integer value {}", .{ inst.ty, val });
+                }
+                return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
+            }
+        } else if (dst_zig_tag == .ComptimeFloat or dst_zig_tag == .Float) {
+            if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
+                return self.fail(scope, inst.src, "TODO float cast", .{});
+            } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
+                return self.fail(scope, inst.src, "TODO int to float", .{});
+            }
         }
-        return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
     }
 
     // integer widening
     if (inst.ty.zigTypeTag() == .Int and dest_type.zigTypeTag() == .Int) {
+        assert(inst.value() == null); // handled above
+
         const src_info = inst.ty.intInfo(self.target());
         const dst_info = dest_type.intInfo(self.target());
         if (src_info.signed == dst_info.signed and dst_info.bits >= src_info.bits) {
-            if (inst.value()) |val| {
-                return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
-            } else {
-                return self.fail(scope, inst.src, "TODO implement runtime integer widening ({} to {})", .{
-                    inst.ty,
-                    dest_type,
-                });
-            }
+            const b = try self.requireRuntimeBlock(scope, inst.src);
+            return self.addNewInstArgs(b, inst.src, dest_type, Inst.WidenOrShorten, .{ .operand = inst });
         } else {
             return self.fail(scope, inst.src, "TODO implement more int widening {} to {}", .{ inst.ty, dest_type });
+        }
+    }
+
+    // float widening
+    if (inst.ty.zigTypeTag() == .Float and dest_type.zigTypeTag() == .Float) {
+        assert(inst.value() == null); // handled above
+
+        const src_bits = inst.ty.floatBits(self.target());
+        const dst_bits = dest_type.floatBits(self.target());
+        if (dst_bits >= src_bits) {
+            const b = try self.requireRuntimeBlock(scope, inst.src);
+            return self.addNewInstArgs(b, inst.src, dest_type, Inst.WidenOrShorten, .{ .operand = inst });
         }
     }
 
