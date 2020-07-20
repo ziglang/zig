@@ -604,6 +604,52 @@ pub fn GetCurrentDirectory(buffer: []u8) GetCurrentDirectoryError![]u8 {
 
 pub const CreateSymbolicLinkError = error{ AccessDenied, PathAlreadyExists, FileNotFound, NameTooLong, InvalidUtf8, BadPathName, Unexpected };
 
+pub fn NtCreateSymbolicLinkW(dir: ?HANDLE, sym_link_path: []const u16, target_path: []const u16) CreateSymbolicLinkError!void {
+    const SYMLINK_DATA = extern struct {
+        ReparseTag: ULONG,
+        ReparseDataLength: USHORT,
+        Reserved: USHORT,
+        SubstituteNameOffset: USHORT,
+        SubstituteNameLength: USHORT,
+        PrintNameOffset: USHORT,
+        PrintNameLength: USHORT,
+        Flags: ULONG,
+    };
+
+    const symlink_handle = OpenFile(sym_link_path, .{
+        .access_mask = SYNCHRONIZE | GENERIC_READ | GENERIC_WRITE,
+        .dir = dir,
+        .creation = FILE_CREATE,
+        .io_mode = .blocking,
+    }) catch |err| switch (err) {
+        error.IsDir => unreachable, // TODO
+        else => |e| unreachable,
+    };
+    defer CloseHandle(symlink_handle);
+
+    // prepare reparse data buffer
+    var buffer: [MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
+    const buf_len = @sizeOf(SYMLINK_DATA) + target_path.len * 4;
+    const header_len = @sizeOf(ULONG) + @sizeOf(USHORT) * 2;
+    const symlink_data = SYMLINK_DATA{
+        .ReparseTag = IO_REPARSE_TAG_SYMLINK,
+        .ReparseDataLength = @intCast(u16, buf_len - header_len),
+        .Reserved = 0,
+        .SubstituteNameOffset = @intCast(u16, target_path.len * 2),
+        .SubstituteNameLength = @intCast(u16, target_path.len * 2),
+        .PrintNameOffset = 0,
+        .PrintNameLength = @intCast(u16, target_path.len * 2),
+        .Flags = if (dir) |_| SYMLINK_FLAG_RELATIVE else 0,
+    };
+
+    std.mem.copy(u8, buffer[0..], std.mem.asBytes(&symlink_data));
+    @memcpy(buffer[@sizeOf(SYMLINK_DATA)..], @ptrCast([*]const u8, target_path), target_path.len * 2);
+    const paths_start = @sizeOf(SYMLINK_DATA) + target_path.len * 2;
+    @memcpy(buffer[paths_start..].ptr, @ptrCast([*]const u8, target_path), target_path.len * 2);
+    // TODO replace with NtDeviceIoControl
+    _ = try DeviceIoControl(symlink_handle, FSCTL_SET_REPARSE_POINT, buffer[0..buf_len], null, null);
+}
+
 pub fn CreateSymbolicLink(
     sym_link_path: []const u8,
     target_path: []const u8,
