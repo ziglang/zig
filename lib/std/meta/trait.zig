@@ -282,6 +282,7 @@ test "std.meta.trait.isIndexable" {
     testing.expect(isIndexable(@TypeOf(&array)));
     testing.expect(isIndexable(@TypeOf(slice)));
     testing.expect(!isIndexable(meta.Child(@TypeOf(slice))));
+    testing.expect(isIndexable(@TypeOf(vector)));
     testing.expect(isIndexable(@TypeOf(tuple)));
 }
 
