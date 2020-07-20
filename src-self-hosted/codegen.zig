@@ -290,6 +290,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             next_stack_offset: u32 = 0,
 
             fn markRegUsed(self: *Branch, reg: Register) void {
+                if (FreeRegInt == u0) return;
                 const index = reg.allocIndex() orelse return;
                 const ShiftInt = std.math.Log2Int(FreeRegInt);
                 const shift = @intCast(ShiftInt, index);
@@ -297,6 +298,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
 
             fn markRegFree(self: *Branch, reg: Register) void {
+                if (FreeRegInt == u0) return;
                 const index = reg.allocIndex() orelse return;
                 const ShiftInt = std.math.Log2Int(FreeRegInt);
                 const shift = @intCast(ShiftInt, index);
@@ -407,40 +409,64 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             for (body.instructions) |inst| {
                 const new_inst = try self.genFuncInst(inst);
                 try inst_table.putNoClobber(self.gpa, inst, new_inst);
-                // TODO process operand deaths
+
+                var i: ir.Inst.DeathsBitIndex = 0;
+                while (inst.getOperand(i)) |operand| : (i += 1) {
+                    if (inst.operandDies(i))
+                        self.processDeath(operand);
+                }
+            }
+        }
+
+        fn processDeath(self: *Self, inst: *ir.Inst) void {
+            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+            const entry = branch.inst_table.getEntry(inst) orelse return;
+            const prev_value = entry.value;
+            entry.value = .dead;
+            switch (prev_value) {
+                .register => |reg| {
+                    _ = branch.registers.remove(reg);
+                    branch.markRegFree(reg);
+                },
+                else => {}, // TODO process stack allocation death
             }
         }
 
         fn genFuncInst(self: *Self, inst: *ir.Inst) !MCValue {
             switch (inst.tag) {
-                .add => return self.genAdd(inst.cast(ir.Inst.Add).?),
-                .arg => return self.genArg(inst.cast(ir.Inst.Arg).?),
-                .assembly => return self.genAsm(inst.cast(ir.Inst.Assembly).?),
-                .bitcast => return self.genBitCast(inst.cast(ir.Inst.BitCast).?),
-                .block => return self.genBlock(inst.cast(ir.Inst.Block).?),
-                .br => return self.genBr(inst.cast(ir.Inst.Br).?),
+                .add => return self.genAdd(inst.castTag(.add).?),
+                .arg => return self.genArg(inst.castTag(.arg).?),
+                .assembly => return self.genAsm(inst.castTag(.assembly).?),
+                .bitcast => return self.genBitCast(inst.castTag(.bitcast).?),
+                .block => return self.genBlock(inst.castTag(.block).?),
+                .br => return self.genBr(inst.castTag(.br).?),
                 .breakpoint => return self.genBreakpoint(inst.src),
-                .brvoid => return self.genBrVoid(inst.cast(ir.Inst.BrVoid).?),
-                .call => return self.genCall(inst.cast(ir.Inst.Call).?),
-                .cmp => return self.genCmp(inst.cast(ir.Inst.Cmp).?),
-                .condbr => return self.genCondBr(inst.cast(ir.Inst.CondBr).?),
+                .brvoid => return self.genBrVoid(inst.castTag(.brvoid).?),
+                .call => return self.genCall(inst.castTag(.call).?),
+                .cmp_lt => return self.genCmp(inst.castTag(.cmp_lt).?, .lt),
+                .cmp_lte => return self.genCmp(inst.castTag(.cmp_lte).?, .lte),
+                .cmp_eq => return self.genCmp(inst.castTag(.cmp_eq).?, .eq),
+                .cmp_gte => return self.genCmp(inst.castTag(.cmp_gte).?, .gte),
+                .cmp_gt => return self.genCmp(inst.castTag(.cmp_gt).?, .gt),
+                .cmp_neq => return self.genCmp(inst.castTag(.cmp_neq).?, .neq),
+                .condbr => return self.genCondBr(inst.castTag(.condbr).?),
                 .constant => unreachable, // excluded from function bodies
-                .isnonnull => return self.genIsNonNull(inst.cast(ir.Inst.IsNonNull).?),
-                .isnull => return self.genIsNull(inst.cast(ir.Inst.IsNull).?),
-                .ptrtoint => return self.genPtrToInt(inst.cast(ir.Inst.PtrToInt).?),
-                .ret => return self.genRet(inst.cast(ir.Inst.Ret).?),
-                .retvoid => return self.genRetVoid(inst.cast(ir.Inst.RetVoid).?),
-                .sub => return self.genSub(inst.cast(ir.Inst.Sub).?),
+                .isnonnull => return self.genIsNonNull(inst.castTag(.isnonnull).?),
+                .isnull => return self.genIsNull(inst.castTag(.isnull).?),
+                .ptrtoint => return self.genPtrToInt(inst.castTag(.ptrtoint).?),
+                .ret => return self.genRet(inst.castTag(.ret).?),
+                .retvoid => return self.genRetVoid(inst.castTag(.retvoid).?),
+                .sub => return self.genSub(inst.castTag(.sub).?),
                 .unreach => return MCValue{ .unreach = {} },
-                .not => return self.genNot(inst.cast(ir.Inst.Not).?),
+                .not => return self.genNot(inst.castTag(.not).?),
             }
         }
 
-        fn genNot(self: *Self, inst: *ir.Inst.Not) !MCValue {
+        fn genNot(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
             // No side effects, so if it's unreferenced, do nothing.
             if (inst.base.isUnused())
                 return MCValue.dead;
-            const operand = try self.resolveInst(inst.args.operand);
+            const operand = try self.resolveInst(inst.operand);
             switch (operand) {
                 .dead => unreachable,
                 .unreach => unreachable,
@@ -473,36 +499,36 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         .base = .{
                             .tag = .constant,
                             .deaths = 0,
-                            .ty = inst.args.operand.ty,
-                            .src = inst.args.operand.src,
+                            .ty = inst.operand.ty,
+                            .src = inst.operand.src,
                         },
                         .val = Value.initTag(.bool_true),
                     };
-                    return try self.genX8664BinMath(&inst.base, inst.args.operand, &imm.base, 6, 0x30);
+                    return try self.genX8664BinMath(&inst.base, inst.operand, &imm.base, 6, 0x30);
                 },
                 else => return self.fail(inst.base.src, "TODO implement NOT for {}", .{self.target.cpu.arch}),
             }
         }
 
-        fn genAdd(self: *Self, inst: *ir.Inst.Add) !MCValue {
+        fn genAdd(self: *Self, inst: *ir.Inst.BinOp) !MCValue {
             // No side effects, so if it's unreferenced, do nothing.
             if (inst.base.isUnused())
                 return MCValue.dead;
             switch (arch) {
                 .x86_64 => {
-                    return try self.genX8664BinMath(&inst.base, inst.args.lhs, inst.args.rhs, 0, 0x00);
+                    return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 0, 0x00);
                 },
                 else => return self.fail(inst.base.src, "TODO implement add for {}", .{self.target.cpu.arch}),
             }
         }
 
-        fn genSub(self: *Self, inst: *ir.Inst.Sub) !MCValue {
+        fn genSub(self: *Self, inst: *ir.Inst.BinOp) !MCValue {
             // No side effects, so if it's unreferenced, do nothing.
             if (inst.base.isUnused())
                 return MCValue.dead;
             switch (arch) {
                 .x86_64 => {
-                    return try self.genX8664BinMath(&inst.base, inst.args.lhs, inst.args.rhs, 5, 0x28);
+                    return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 5, 0x28);
                 },
                 else => return self.fail(inst.base.src, "TODO implement sub for {}", .{self.target.cpu.arch}),
             }
@@ -625,7 +651,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn genArg(self: *Self, inst: *ir.Inst.Arg) !MCValue {
+        fn genArg(self: *Self, inst: *ir.Inst.NoOp) !MCValue {
             if (FreeRegInt == u0) {
                 return self.fail(inst.base.src, "TODO implement Register enum for {}", .{self.target.cpu.arch});
             }
@@ -659,7 +685,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genCall(self: *Self, inst: *ir.Inst.Call) !MCValue {
-            const fn_ty = inst.args.func.ty;
+            const fn_ty = inst.func.ty;
             const cc = fn_ty.fnCallingConvention();
             const param_types = try self.gpa.alloc(Type, fn_ty.fnParamLen());
             defer self.gpa.free(param_types);
@@ -671,8 +697,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             switch (arch) {
                 .x86_64 => {
                     for (mc_args) |mc_arg, arg_i| {
-                        const arg = inst.args.args[arg_i];
-                        const arg_mcv = try self.resolveInst(inst.args.args[arg_i]);
+                        const arg = inst.args[arg_i];
+                        const arg_mcv = try self.resolveInst(inst.args[arg_i]);
                         switch (mc_arg) {
                             .none => continue,
                             .register => |reg| {
@@ -694,7 +720,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     }
 
-                    if (inst.args.func.cast(ir.Inst.Constant)) |func_inst| {
+                    if (inst.func.cast(ir.Inst.Constant)) |func_inst| {
                         if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
                             const func = func_val.func;
                             const got = &self.bin_file.program_headers.items[self.bin_file.phdr_got_index.?];
@@ -742,16 +768,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return .unreach;
         }
 
-        fn genRet(self: *Self, inst: *ir.Inst.Ret) !MCValue {
-            const operand = try self.resolveInst(inst.args.operand);
+        fn genRet(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            const operand = try self.resolveInst(inst.operand);
             return self.ret(inst.base.src, operand);
         }
 
-        fn genRetVoid(self: *Self, inst: *ir.Inst.RetVoid) !MCValue {
+        fn genRetVoid(self: *Self, inst: *ir.Inst.NoOp) !MCValue {
             return self.ret(inst.base.src, .none);
         }
 
-        fn genCmp(self: *Self, inst: *ir.Inst.Cmp) !MCValue {
+        fn genCmp(self: *Self, inst: *ir.Inst.BinOp, op: std.math.CompareOperator) !MCValue {
             // No side effects, so if it's unreferenced, do nothing.
             if (inst.base.isUnused())
                 return MCValue.dead;
@@ -759,25 +785,25 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .x86_64 => {
                     try self.code.ensureCapacity(self.code.items.len + 8);
 
-                    const lhs = try self.resolveInst(inst.args.lhs);
-                    const rhs = try self.resolveInst(inst.args.rhs);
+                    const lhs = try self.resolveInst(inst.lhs);
+                    const rhs = try self.resolveInst(inst.rhs);
 
                     // There are 2 operands, destination and source.
                     // Either one, but not both, can be a memory operand.
                     // Source operand can be an immediate, 8 bits or 32 bits.
                     const dst_mcv = if (lhs.isImmediate() or (lhs.isMemory() and rhs.isMemory()))
-                        try self.copyToNewRegister(inst.args.lhs)
+                        try self.copyToNewRegister(inst.lhs)
                     else
                         lhs;
                     // This instruction supports only signed 32-bit immediates at most.
-                    const src_mcv = try self.limitImmediateType(inst.args.rhs, i32);
+                    const src_mcv = try self.limitImmediateType(inst.rhs, i32);
 
                     try self.genX8664BinMathCode(inst.base.src, dst_mcv, src_mcv, 7, 0x38);
-                    const info = inst.args.lhs.ty.intInfo(self.target.*);
+                    const info = inst.lhs.ty.intInfo(self.target.*);
                     if (info.signed) {
-                        return MCValue{ .compare_flags_signed = inst.args.op };
+                        return MCValue{ .compare_flags_signed = op };
                     } else {
-                        return MCValue{ .compare_flags_unsigned = inst.args.op };
+                        return MCValue{ .compare_flags_unsigned = op };
                     }
                 },
                 else => return self.fail(inst.base.src, "TODO implement cmp for {}", .{self.target.cpu.arch}),
@@ -789,7 +815,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .x86_64 => {
                     try self.code.ensureCapacity(self.code.items.len + 6);
 
-                    const cond = try self.resolveInst(inst.args.condition);
+                    const cond = try self.resolveInst(inst.condition);
                     switch (cond) {
                         .compare_flags_signed => |cmp_op| {
                             // Here we map to the opposite opcode because the jump is to the false branch.
@@ -838,19 +864,19 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             self.code.appendSliceAssumeCapacity(&[_]u8{ 0x0f, opcode });
             const reloc = Reloc{ .rel32 = self.code.items.len };
             self.code.items.len += 4;
-            try self.genBody(inst.args.true_body);
+            try self.genBody(inst.then_body);
             try self.performReloc(inst.base.src, reloc);
-            try self.genBody(inst.args.false_body);
+            try self.genBody(inst.else_body);
             return MCValue.unreach;
         }
 
-        fn genIsNull(self: *Self, inst: *ir.Inst.IsNull) !MCValue {
+        fn genIsNull(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
             switch (arch) {
                 else => return self.fail(inst.base.src, "TODO implement isnull for {}", .{self.target.cpu.arch}),
             }
         }
 
-        fn genIsNonNull(self: *Self, inst: *ir.Inst.IsNonNull) !MCValue {
+        fn genIsNonNull(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
             // Here you can specialize this instruction if it makes sense to, otherwise the default
             // will call genIsNull and invert the result.
             switch (arch) {
@@ -864,7 +890,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
             // A block is nothing but a setup to be able to jump to the end.
             defer inst.codegen.relocs.deinit(self.gpa);
-            try self.genBody(inst.args.body);
+            try self.genBody(inst.body);
 
             for (inst.codegen.relocs.items) |reloc| try self.performReloc(inst.base.src, reloc);
 
@@ -883,17 +909,17 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genBr(self: *Self, inst: *ir.Inst.Br) !MCValue {
-            if (!inst.args.operand.ty.hasCodeGenBits())
-                return self.brVoid(inst.base.src, inst.args.block);
+            if (!inst.operand.ty.hasCodeGenBits())
+                return self.brVoid(inst.base.src, inst.block);
 
-            const operand = try self.resolveInst(inst.args.operand);
+            const operand = try self.resolveInst(inst.operand);
             switch (arch) {
                 else => return self.fail(inst.base.src, "TODO implement br for {}", .{self.target.cpu.arch}),
             }
         }
 
         fn genBrVoid(self: *Self, inst: *ir.Inst.BrVoid) !MCValue {
-            return self.brVoid(inst.base.src, inst.args.block);
+            return self.brVoid(inst.base.src, inst.block);
         }
 
         fn brVoid(self: *Self, src: usize, block: *ir.Inst.Block) !MCValue {
@@ -915,29 +941,29 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genAsm(self: *Self, inst: *ir.Inst.Assembly) !MCValue {
-            if (!inst.args.is_volatile and inst.base.isUnused())
+            if (!inst.is_volatile and inst.base.isUnused())
                 return MCValue.dead;
             if (arch != .x86_64 and arch != .i386) {
                 return self.fail(inst.base.src, "TODO implement inline asm support for more architectures", .{});
             }
-            for (inst.args.inputs) |input, i| {
+            for (inst.inputs) |input, i| {
                 if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
                     return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
                 }
                 const reg_name = input[1 .. input.len - 1];
                 const reg = parseRegName(reg_name) orelse
                     return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
-                const arg = try self.resolveInst(inst.args.args[i]);
+                const arg = try self.resolveInst(inst.args[i]);
                 try self.genSetReg(inst.base.src, reg, arg);
             }
 
-            if (mem.eql(u8, inst.args.asm_source, "syscall")) {
+            if (mem.eql(u8, inst.asm_source, "syscall")) {
                 try self.code.appendSlice(&[_]u8{ 0x0f, 0x05 });
             } else {
                 return self.fail(inst.base.src, "TODO implement support for more x86 assembly instructions", .{});
             }
 
-            if (inst.args.output) |output| {
+            if (inst.output) |output| {
                 if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
                     return self.fail(inst.base.src, "unrecognized asm output constraint: '{}'", .{output});
                 }
@@ -1169,13 +1195,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn genPtrToInt(self: *Self, inst: *ir.Inst.PtrToInt) !MCValue {
+        fn genPtrToInt(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
             // no-op
-            return self.resolveInst(inst.args.ptr);
+            return self.resolveInst(inst.operand);
         }
 
-        fn genBitCast(self: *Self, inst: *ir.Inst.BitCast) !MCValue {
-            const operand = try self.resolveInst(inst.args.operand);
+        fn genBitCast(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            const operand = try self.resolveInst(inst.operand);
             return operand;
         }
 

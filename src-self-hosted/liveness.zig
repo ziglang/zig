@@ -25,53 +25,38 @@ fn analyzeWithTable(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Inst,
     while (i != 0) {
         i -= 1;
         const base = body.instructions[i];
-        try analyzeInstGeneric(arena, table, base);
+        try analyzeInst(arena, table, base);
     }
 }
 
-fn analyzeInstGeneric(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Inst, void), base: *ir.Inst) error{OutOfMemory}!void {
-    // Obtain the corresponding instruction type based on the tag type.
-    inline for (std.meta.declarations(ir.Inst)) |decl| {
-        switch (decl.data) {
-            .Type => |T| {
-                if (@typeInfo(T) == .Struct and @hasDecl(T, "base_tag")) {
-                    if (T.base_tag == base.tag) {
-                        return analyzeInst(arena, table, T, @fieldParentPtr(T, "base", base));
-                    }
-                }
-            },
-            else => {},
-        }
-    }
-    unreachable;
-}
-
-fn analyzeInst(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Inst, void), comptime T: type, inst: *T) error{OutOfMemory}!void {
-    if (table.contains(&inst.base)) {
-        inst.base.deaths = 0;
+fn analyzeInst(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Inst, void), base: *ir.Inst) error{OutOfMemory}!void {
+    if (table.contains(base)) {
+        base.deaths = 0;
     } else {
         // No tombstone for this instruction means it is never referenced,
         // and its birth marks its own death. Very metal 🤘
-        inst.base.deaths = 1 << ir.Inst.unreferenced_bit_index;
+        base.deaths = 1 << ir.Inst.unreferenced_bit_index;
     }
 
-    switch (T) {
-        ir.Inst.Constant => return,
-        ir.Inst.Block => {
-            try analyzeWithTable(arena, table, inst.args.body);
+    switch (base.tag) {
+        .constant => return,
+        .block => {
+            const inst = base.castTag(.block).?;
+            try analyzeWithTable(arena, table, inst.body);
             // We let this continue so that it can possibly mark the block as
             // unreferenced below.
         },
-        ir.Inst.CondBr => {
+        .condbr => {
+            const inst = base.castTag(.condbr).?;
             var true_table = std.AutoHashMap(*ir.Inst, void).init(table.allocator);
             defer true_table.deinit();
-            try true_table.ensureCapacity(inst.args.true_body.instructions.len);
-            try analyzeWithTable(arena, &true_table, inst.args.true_body);
+            try true_table.ensureCapacity(inst.then_body.instructions.len);
+            try analyzeWithTable(arena, &true_table, inst.then_body);
 
             var false_table = std.AutoHashMap(*ir.Inst, void).init(table.allocator);
             defer false_table.deinit();
-            try false_table.ensureCapacity(inst.args.false_body.instructions.len);
-            try analyzeWithTable(arena, &false_table, inst.args.false_body);
+            try false_table.ensureCapacity(inst.else_body.instructions.len);
+            try analyzeWithTable(arena, &false_table, inst.else_body);
 
             // Each death that occurs inside one branch, but not the other, needs
             // to be added as a death immediately upon entering the other branch.
@@ -112,47 +97,22 @@ fn analyzeInst(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Inst, void
             // instruction, and the deaths flag for the CondBr instruction will indicate whether the
             // condition's lifetime ends immediately before entering any branch.
         },
-        ir.Inst.Call => {
-            // Call instructions have a runtime-known number of operands so we have to handle them ourselves here.
-            const needed_bits = 1 + inst.args.args.len;
-            if (needed_bits <= ir.Inst.deaths_bits) {
-                var bit_i: ir.Inst.DeathsBitIndex = 0;
-                {
-                    const prev = try table.fetchPut(inst.args.func, {});
-                    if (prev == null) inst.base.deaths |= @as(ir.Inst.DeathsInt, 1) << bit_i;
-                    bit_i += 1;
-                }
-                for (inst.args.args) |arg| {
-                    const prev = try table.fetchPut(arg, {});
-                    if (prev == null) inst.base.deaths |= @as(ir.Inst.DeathsInt, 1) << bit_i;
-                    bit_i += 1;
-                }
-            } else {
-                @panic("Handle liveness analysis for function calls with many parameters");
-            }
-        },
         else => {},
     }
 
-    const Args = ir.Inst.Args(T);
-    if (Args == void) {
-        return;
-    }
-
-    comptime var arg_index: usize = 0;
-    inline for (std.meta.fields(Args)) |field| {
-        if (field.field_type == *ir.Inst) {
-            if (arg_index >= 6) {
-                @compileError("out of bits to mark deaths of operands");
-            }
-            const prev = try table.fetchPut(@field(inst.args, field.name), {});
+    const needed_bits = base.operandCount();
+    if (needed_bits <= ir.Inst.deaths_bits) {
+        var bit_i: ir.Inst.DeathsBitIndex = 0;
+        while (base.getOperand(bit_i)) |operand| : (bit_i += 1) {
+            const prev = try table.fetchPut(operand, {});
             if (prev == null) {
                 // Death.
-                inst.base.deaths |= 1 << arg_index;
+                base.deaths |= @as(ir.Inst.DeathsInt, 1) << bit_i;
             }
-            arg_index += 1;
         }
+    } else {
+        @panic("Handle liveness analysis for instructions with many parameters");
     }
 
-    std.log.debug(.liveness, "analyze {}: 0b{b}\n", .{ inst.base.tag, inst.base.deaths });
+    std.log.debug(.liveness, "analyze {}: 0b{b}\n", .{ base.tag, base.deaths });
 }
