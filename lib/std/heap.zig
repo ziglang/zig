@@ -235,7 +235,12 @@ const PageAllocator = struct {
             return alignPageAllocLen(new_size_aligned, new_size, len_align);
         }
 
-        // TODO: call mremap
+        if (@hasDecl(os, "mremap")) {
+            if (os.mremap(@alignCast(mem.page_size, buf_unaligned), new_size_aligned, 0, null)) |_| {
+                return alignPageAllocLen(new_size_aligned, new_size, len_align);
+            } else |_| { }
+        }
+
         return error.OutOfMemory;
     }
 };

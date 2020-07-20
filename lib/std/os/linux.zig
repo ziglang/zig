@@ -219,6 +219,17 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, of
     }
 }
 
+pub fn mremap(old_address: [*]u8, old_size: usize, new_size: usize, flags: u32, new_address: ?[*]u8) usize {
+    return syscall5(
+        .mremap,
+        @ptrToInt(old_address),
+        old_size,
+        new_size,
+        flags,
+        @ptrToInt(new_address),
+    );
+}
+
 pub fn mprotect(address: [*]const u8, length: usize, protection: usize) usize {
     return syscall3(.mprotect, @ptrToInt(address), length, protection);
 }

@@ -3436,6 +3436,32 @@ pub fn munmap(memory: []align(mem.page_size) u8) void {
     }
 }
 
+pub usingnamespace if (!@hasDecl(system, "mremap")) struct { } else struct {
+    /// Remap a virtual memory address.
+    pub fn mremap(
+        old_slice: []align(mem.page_size) u8,
+        new_size: usize,
+        flags: u32,
+        new_address: ?[*]align(mem.page_size) u8,
+    ) ![]align(mem.page_size) u8 {
+        // TODO: call libc version of mremap if available.  However, note that some versions of libc
+        //       may not have the new_address argument
+        const err = blk: {
+            const rc = system.mremap(old_slice.ptr, old_slice.len, new_size, flags, new_address);
+            const err = errno(rc);
+            if (err == 0) return @intToPtr([*]align(mem.page_size) u8, rc)[0..new_size];
+            break :blk err;
+        };
+        switch (err) {
+            EAGAIN => return error.LockedMemoryLimitExceeded,
+            EFAULT => unreachable, // Invalid parameters
+            EINVAL => unreachable, // Invalid parameters
+            ENOMEM => return error.OutOfMemory,
+            else => return unexpectedErrno(err),
+        }
+    }
+};
+
 pub const AccessError = error{
     PermissionDenied,
     FileNotFound,
