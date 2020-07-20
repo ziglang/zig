@@ -434,6 +434,17 @@ fn testFloatComparisons() void {
     }
 }
 
+test "different sized float comparisons" {
+    testDifferentSizedFloatComparisons();
+    comptime testDifferentSizedFloatComparisons();
+}
+
+fn testDifferentSizedFloatComparisons() void {
+    var a: f16 = 1;
+    var b: f64 = 2;
+    expect(a < b);
+}
+
 // TODO This is waiting on library support for the Windows build (not sure why the other's don't need it)
 //test "@nearbyint" {
 //    comptime testNearbyInt();
