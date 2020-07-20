@@ -34,6 +34,7 @@ pub fn main() !void {
         testZigInitExe,
         testGodboltApi,
         testMissingOutputPath,
+        testZigFmt,
     };
     for (test_fns) |testFn| {
         try fs.cwd().deleteTree(dir_path);
@@ -142,4 +143,30 @@ fn testMissingOutputPath(zig_exe: []const u8, dir_path: []const u8) !void {
     _ = try exec(dir_path, &[_][]const u8{
         zig_exe, "build-exe", source_path, "--output-dir", output_path,
     });
+}
+
+fn testZigFmt(zig_exe: []const u8, dir_path: []const u8) !void {
+    _ = try exec(dir_path, &[_][]const u8{ zig_exe, "init-exe" });
+
+    const unformatted_code = "    // no reason for indent";
+
+    const fmt1_zig_path = try fs.path.join(a, &[_][]const u8{ dir_path, "fmt1.zig" });
+    try fs.cwd().writeFile(fmt1_zig_path, unformatted_code);
+
+    const run_result1 = try exec(dir_path, &[_][]const u8{ zig_exe, "fmt", fmt1_zig_path });
+    // stderr should be file path + \n
+    testing.expect(std.mem.startsWith(u8, run_result1.stderr, fmt1_zig_path));
+    testing.expect(run_result1.stderr.len == fmt1_zig_path.len + 1 and run_result1.stderr[run_result1.stderr.len - 1] == '\n');
+
+    const fmt2_zig_path = try fs.path.join(a, &[_][]const u8{ dir_path, "fmt2.zig" });
+    try fs.cwd().writeFile(fmt2_zig_path, unformatted_code);
+
+    const run_result2 = try exec(dir_path, &[_][]const u8{ zig_exe, "fmt", dir_path });
+    // running it on the dir, only the new file should be changed
+    testing.expect(std.mem.startsWith(u8, run_result2.stderr, fmt2_zig_path));
+    testing.expect(run_result2.stderr.len == fmt2_zig_path.len + 1 and run_result2.stderr[run_result2.stderr.len - 1] == '\n');
+
+    const run_result3 = try exec(dir_path, &[_][]const u8{ zig_exe, "fmt", dir_path });
+    // both files have been formatted, nothing should change now
+    testing.expect(run_result3.stderr.len == 0);
 }

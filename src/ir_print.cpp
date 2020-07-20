@@ -5,6 +5,7 @@
  * See http://opensource.org/licenses/MIT
  */
 
+#include "all_types.hpp"
 #include "analyze.hpp"
 #include "ir.hpp"
 #include "ir_print.hpp"
@@ -55,6 +56,36 @@ struct IrPrintGen {
 static void ir_print_other_inst_src(IrPrintSrc *irp, IrInstSrc *inst);
 static void ir_print_other_inst_gen(IrPrintGen *irp, IrInstGen *inst);
 
+static void ir_print_call_modifier(FILE *f, CallModifier modifier) {
+    switch (modifier) {
+        case CallModifierNone:
+            break;
+        case CallModifierNoSuspend:
+            fprintf(f, "nosuspend ");
+            break;
+        case CallModifierAsync:
+            fprintf(f, "async ");
+            break;
+        case CallModifierNeverTail:
+            fprintf(f, "notail ");
+            break;
+        case CallModifierNeverInline:
+            fprintf(f, "noinline ");
+            break;
+        case CallModifierAlwaysTail:
+            fprintf(f, "tail ");
+            break;
+        case CallModifierAlwaysInline:
+            fprintf(f, "inline ");
+            break;
+        case CallModifierCompileTime:
+            fprintf(f, "comptime ");
+            break;
+        case CallModifierBuiltin:
+            zig_unreachable();
+    }
+}
+
 const char* ir_inst_src_type_str(IrInstSrcId id) {
     switch (id) {
         case IrInstSrcIdInvalid:
@@ -97,6 +128,8 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcVarPtr";
         case IrInstSrcIdCallExtra:
             return "SrcCallExtra";
+        case IrInstSrcIdAsyncCallExtra:
+            return "SrcAsyncCallExtra";
         case IrInstSrcIdCall:
             return "SrcCall";
         case IrInstSrcIdCallArgs:
@@ -325,6 +358,8 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcWasmMemorySize";
         case IrInstSrcIdWasmMemoryGrow:
             return "SrcWasmMemoryGrow";
+        case IrInstSrcIdSrc:
+            return "SrcSrc";
     }
     zig_unreachable();
 }
@@ -849,6 +884,23 @@ static void ir_print_call_extra(IrPrintSrc *irp, IrInstSrcCallExtra *instruction
     ir_print_result_loc(irp, instruction->result_loc);
 }
 
+static void ir_print_async_call_extra(IrPrintSrc *irp, IrInstSrcAsyncCallExtra *instruction) {
+    fprintf(irp->f, "modifier=");
+    ir_print_call_modifier(irp->f, instruction->modifier);
+    fprintf(irp->f, ", fn=");
+    ir_print_other_inst_src(irp, instruction->fn_ref);
+    if (instruction->ret_ptr != nullptr) {
+        fprintf(irp->f, ", ret_ptr=");
+        ir_print_other_inst_src(irp, instruction->ret_ptr);
+    }
+    fprintf(irp->f, ", new_stack=");
+    ir_print_other_inst_src(irp, instruction->new_stack);
+    fprintf(irp->f, ", args=");
+    ir_print_other_inst_src(irp, instruction->args);
+    fprintf(irp->f, ", result=");
+    ir_print_result_loc(irp, instruction->result_loc);
+}
+
 static void ir_print_call_args(IrPrintSrc *irp, IrInstSrcCallArgs *instruction) {
     fprintf(irp->f, "opts=");
     ir_print_other_inst_src(irp, instruction->options);
@@ -866,33 +918,7 @@ static void ir_print_call_args(IrPrintSrc *irp, IrInstSrcCallArgs *instruction) 
 }
 
 static void ir_print_call_src(IrPrintSrc *irp, IrInstSrcCall *call_instruction) {
-    switch (call_instruction->modifier) {
-        case CallModifierNone:
-            break;
-        case CallModifierNoSuspend:
-            fprintf(irp->f, "nosuspend ");
-            break;
-        case CallModifierAsync:
-            fprintf(irp->f, "async ");
-            break;
-        case CallModifierNeverTail:
-            fprintf(irp->f, "notail ");
-            break;
-        case CallModifierNeverInline:
-            fprintf(irp->f, "noinline ");
-            break;
-        case CallModifierAlwaysTail:
-            fprintf(irp->f, "tail ");
-            break;
-        case CallModifierAlwaysInline:
-            fprintf(irp->f, "inline ");
-            break;
-        case CallModifierCompileTime:
-            fprintf(irp->f, "comptime ");
-            break;
-        case CallModifierBuiltin:
-            zig_unreachable();
-    }
+    ir_print_call_modifier(irp->f, call_instruction->modifier);
     if (call_instruction->fn_entry) {
         fprintf(irp->f, "%s", buf_ptr(&call_instruction->fn_entry->symbol_name));
     } else {
@@ -911,33 +937,7 @@ static void ir_print_call_src(IrPrintSrc *irp, IrInstSrcCall *call_instruction) 
 }
 
 static void ir_print_call_gen(IrPrintGen *irp, IrInstGenCall *call_instruction) {
-    switch (call_instruction->modifier) {
-        case CallModifierNone:
-            break;
-        case CallModifierNoSuspend:
-            fprintf(irp->f, "nosuspend ");
-            break;
-        case CallModifierAsync:
-            fprintf(irp->f, "async ");
-            break;
-        case CallModifierNeverTail:
-            fprintf(irp->f, "notail ");
-            break;
-        case CallModifierNeverInline:
-            fprintf(irp->f, "noinline ");
-            break;
-        case CallModifierAlwaysTail:
-            fprintf(irp->f, "tail ");
-            break;
-        case CallModifierAlwaysInline:
-            fprintf(irp->f, "inline ");
-            break;
-        case CallModifierCompileTime:
-            fprintf(irp->f, "comptime ");
-            break;
-        case CallModifierBuiltin:
-            zig_unreachable();
-    }
+    ir_print_call_modifier(irp->f, call_instruction->modifier);
     if (call_instruction->fn_entry) {
         fprintf(irp->f, "%s", buf_ptr(&call_instruction->fn_entry->symbol_name));
     } else {
@@ -1742,6 +1742,10 @@ static void ir_print_wasm_memory_grow(IrPrintGen *irp, IrInstGenWasmMemoryGrow *
     fprintf(irp->f, ", ");
     ir_print_other_inst_gen(irp, instruction->delta);
     fprintf(irp->f, ")");
+}
+
+static void ir_print_builtin_src(IrPrintSrc *irp, IrInstSrcSrc *instruction) {
+    fprintf(irp->f, "@src()");
 }
 
 static void ir_print_memset(IrPrintSrc *irp, IrInstSrcMemset *instruction) {
@@ -2613,6 +2617,9 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
         case IrInstSrcIdCallExtra:
             ir_print_call_extra(irp, (IrInstSrcCallExtra *)instruction);
             break;
+        case IrInstSrcIdAsyncCallExtra:
+            ir_print_async_call_extra(irp, (IrInstSrcAsyncCallExtra *)instruction);
+            break;
         case IrInstSrcIdCall:
             ir_print_call_src(irp, (IrInstSrcCall *)instruction);
             break;
@@ -2993,6 +3000,9 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
             break;
         case IrInstSrcIdWasmMemoryGrow:
             ir_print_wasm_memory_grow(irp, (IrInstSrcWasmMemoryGrow *)instruction);
+            break;
+        case IrInstSrcIdSrc:
+            ir_print_builtin_src(irp, (IrInstSrcSrc *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

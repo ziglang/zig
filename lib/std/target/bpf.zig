@@ -64,14 +64,3 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{}),
     };
 };
-
-/// All bpf CPUs, sorted alphabetically by name.
-/// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
-/// compiler has inefficient memory and CPU usage, affecting build times.
-pub const all_cpus = &[_]*const CpuModel{
-    &cpu.generic,
-    &cpu.probe,
-    &cpu.v1,
-    &cpu.v2,
-    &cpu.v3,
-};

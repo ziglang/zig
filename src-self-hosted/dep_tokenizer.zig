@@ -299,12 +299,12 @@ pub const Tokenizer = struct {
         return null;
     }
 
-    fn errorf(self: *Tokenizer, comptime fmt: []const u8, args: var) Error {
+    fn errorf(self: *Tokenizer, comptime fmt: []const u8, args: anytype) Error {
         self.error_text = try std.fmt.allocPrintZ(&self.arena.allocator, fmt, args);
         return Error.InvalidInput;
     }
 
-    fn errorPosition(self: *Tokenizer, position: usize, bytes: []const u8, comptime fmt: []const u8, args: var) Error {
+    fn errorPosition(self: *Tokenizer, position: usize, bytes: []const u8, comptime fmt: []const u8, args: anytype) Error {
         var buffer = try std.ArrayListSentineled(u8, 0).initSize(&self.arena.allocator, 0);
         try buffer.outStream().print(fmt, args);
         try buffer.appendSlice(" '");
@@ -316,7 +316,7 @@ pub const Tokenizer = struct {
         return Error.InvalidInput;
     }
 
-    fn errorIllegalChar(self: *Tokenizer, position: usize, char: u8, comptime fmt: []const u8, args: var) Error {
+    fn errorIllegalChar(self: *Tokenizer, position: usize, char: u8, comptime fmt: []const u8, args: anytype) Error {
         var buffer = try std.ArrayListSentineled(u8, 0).initSize(&self.arena.allocator, 0);
         try buffer.appendSlice("illegal char ");
         try printUnderstandableChar(&buffer, char);
@@ -883,7 +883,7 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
     testing.expect(false);
 }
 
-fn printSection(out: var, label: []const u8, bytes: []const u8) !void {
+fn printSection(out: anytype, label: []const u8, bytes: []const u8) !void {
     try printLabel(out, label, bytes);
     try hexDump(out, bytes);
     try printRuler(out);
@@ -891,7 +891,7 @@ fn printSection(out: var, label: []const u8, bytes: []const u8) !void {
     try out.write("\n");
 }
 
-fn printLabel(out: var, label: []const u8, bytes: []const u8) !void {
+fn printLabel(out: anytype, label: []const u8, bytes: []const u8) !void {
     var buf: [80]u8 = undefined;
     var text = try std.fmt.bufPrint(buf[0..], "{} {} bytes ", .{ label, bytes.len });
     try out.write(text);
@@ -903,7 +903,7 @@ fn printLabel(out: var, label: []const u8, bytes: []const u8) !void {
     try out.write("\n");
 }
 
-fn printRuler(out: var) !void {
+fn printRuler(out: anytype) !void {
     var i: usize = 0;
     const end = 79;
     while (i < 79) : (i += 1) {
@@ -912,7 +912,7 @@ fn printRuler(out: var) !void {
     try out.write("\n");
 }
 
-fn hexDump(out: var, bytes: []const u8) !void {
+fn hexDump(out: anytype, bytes: []const u8) !void {
     const n16 = bytes.len >> 4;
     var line: usize = 0;
     var offset: usize = 0;
@@ -959,7 +959,7 @@ fn hexDump(out: var, bytes: []const u8) !void {
     try out.write("\n");
 }
 
-fn hexDump16(out: var, offset: usize, bytes: []const u8) !void {
+fn hexDump16(out: anytype, offset: usize, bytes: []const u8) !void {
     try printDecValue(out, offset, 8);
     try out.write(":");
     try out.write(" ");
@@ -977,19 +977,19 @@ fn hexDump16(out: var, offset: usize, bytes: []const u8) !void {
     try out.write("|\n");
 }
 
-fn printDecValue(out: var, value: u64, width: u8) !void {
+fn printDecValue(out: anytype, value: u64, width: u8) !void {
     var buffer: [20]u8 = undefined;
     const len = std.fmt.formatIntBuf(buffer[0..], value, 10, false, width);
     try out.write(buffer[0..len]);
 }
 
-fn printHexValue(out: var, value: u64, width: u8) !void {
+fn printHexValue(out: anytype, value: u64, width: u8) !void {
     var buffer: [16]u8 = undefined;
     const len = std.fmt.formatIntBuf(buffer[0..], value, 16, false, width);
     try out.write(buffer[0..len]);
 }
 
-fn printCharValues(out: var, bytes: []const u8) !void {
+fn printCharValues(out: anytype, bytes: []const u8) !void {
     for (bytes) |b| {
         try out.write(&[_]u8{printable_char_tab[b]});
     }
@@ -1020,13 +1020,13 @@ comptime {
 // output: must be a function that takes a `self` idiom parameter
 // and a bytes parameter
 // context: must be that self
-fn makeOutput(comptime output: var, context: var) Output(output, @TypeOf(context)) {
+fn makeOutput(comptime output: anytype, context: anytype) Output(output, @TypeOf(context)) {
     return Output(output, @TypeOf(context)){
         .context = context,
     };
 }
 
-fn Output(comptime output_func: var, comptime Context: type) type {
+fn Output(comptime output_func: anytype, comptime Context: type) type {
     return struct {
         context: Context,
 

@@ -184,7 +184,7 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
         //      carry = 1;
         // }
         r_all = @ptrCast(*align(@alignOf(SingleInt)) DoubleInt, &r[0]).*; // TODO issue #421
-        const s: SignedDoubleInt = @intCast(SignedDoubleInt, b -% r_all -% 1) >> (DoubleInt.bit_count - 1);
+        const s: SignedDoubleInt = @bitCast(SignedDoubleInt, b -% r_all -% 1) >> (DoubleInt.bit_count - 1);
         carry = @intCast(u32, s & 1);
         r_all -= b & @bitCast(DoubleInt, s);
         r = @ptrCast(*[2]SingleInt, &r_all).*; // TODO issue #421

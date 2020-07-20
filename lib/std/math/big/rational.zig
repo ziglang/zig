@@ -43,7 +43,7 @@ pub const Rational = struct {
     }
 
     /// Set a Rational from a primitive integer type.
-    pub fn setInt(self: *Rational, a: var) !void {
+    pub fn setInt(self: *Rational, a: anytype) !void {
         try self.p.set(a);
         try self.q.set(1);
     }
@@ -280,7 +280,7 @@ pub const Rational = struct {
     }
 
     /// Set a rational from an integer ratio.
-    pub fn setRatio(self: *Rational, p: var, q: var) !void {
+    pub fn setRatio(self: *Rational, p: anytype, q: anytype) !void {
         try self.p.set(p);
         try self.q.set(q);
 

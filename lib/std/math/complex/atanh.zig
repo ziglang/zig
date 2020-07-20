@@ -5,7 +5,7 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns the hyperbolic arc-tangent of z.
-pub fn atanh(z: var) Complex(@TypeOf(z.re)) {
+pub fn atanh(z: anytype) Complex(@TypeOf(z.re)) {
     const T = @TypeOf(z.re);
     const q = Complex(T).new(-z.im, z.re);
     const r = cmath.atan(q);

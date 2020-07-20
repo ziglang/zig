@@ -131,6 +131,15 @@ pub const CallingConvention = enum {
     AAPCSVFP,
 };
 
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const SourceLocation = struct {
+    file: [:0]const u8,
+    fn_name: [:0]const u8,
+    line: u32,
+    column: u32,
+};
+
 pub const TypeId = @TagType(TypeInfo);
 
 /// This data structure is used by the Zig language code generation and
@@ -157,7 +166,7 @@ pub const TypeInfo = union(enum) {
     Fn: Fn,
     BoundFn: Fn,
     Opaque: void,
-    Frame: void,
+    Frame: Frame,
     AnyFrame: AnyFrame,
     Vector: Vector,
     EnumLiteral: void,
@@ -189,7 +198,7 @@ pub const TypeInfo = union(enum) {
         /// The type of the sentinel is the element type of the pointer, which is
         /// the value of the `child` field in this struct. However there is no way
         /// to refer to that type here, so we use `var`.
-        sentinel: var,
+        sentinel: anytype,
 
         /// This data structure is used by the Zig language code generation and
         /// therefore must be kept in sync with the compiler implementation.
@@ -211,7 +220,7 @@ pub const TypeInfo = union(enum) {
         /// The type of the sentinel is the element type of the array, which is
         /// the value of the `child` field in this struct. However there is no way
         /// to refer to that type here, so we use `var`.
-        sentinel: var,
+        sentinel: anytype,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -228,15 +237,16 @@ pub const TypeInfo = union(enum) {
         name: []const u8,
         offset: ?comptime_int,
         field_type: type,
-        default_value: var,
+        default_value: anytype,
     };
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Struct = struct {
         layout: ContainerLayout,
-        fields: []StructField,
-        decls: []Declaration,
+        fields: []const StructField,
+        decls: []const Declaration,
+        is_tuple: bool,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -256,12 +266,13 @@ pub const TypeInfo = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const Error = struct {
         name: []const u8,
+        /// This field is ignored when using @Type().
         value: comptime_int,
     };
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
-    pub const ErrorSet = ?[]Error;
+    pub const ErrorSet = ?[]const Error;
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
@@ -275,8 +286,8 @@ pub const TypeInfo = union(enum) {
     pub const Enum = struct {
         layout: ContainerLayout,
         tag_type: type,
-        fields: []EnumField,
-        decls: []Declaration,
+        fields: []const EnumField,
+        decls: []const Declaration,
         is_exhaustive: bool,
     };
 
@@ -293,8 +304,8 @@ pub const TypeInfo = union(enum) {
     pub const Union = struct {
         layout: ContainerLayout,
         tag_type: ?type,
-        fields: []UnionField,
-        decls: []Declaration,
+        fields: []const UnionField,
+        decls: []const Declaration,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -312,7 +323,13 @@ pub const TypeInfo = union(enum) {
         is_generic: bool,
         is_var_args: bool,
         return_type: ?type,
-        args: []FnArg,
+        args: []const FnArg,
+    };
+
+    /// This data structure is used by the Zig language code generation and
+    /// therefore must be kept in sync with the compiler implementation.
+    pub const Frame = struct {
+        function: anytype,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -352,7 +369,7 @@ pub const TypeInfo = union(enum) {
                 is_export: bool,
                 lib_name: ?[]const u8,
                 return_type: type,
-                arg_names: [][]const u8,
+                arg_names: []const []const u8,
 
                 /// This data structure is used by the Zig language code generation and
                 /// therefore must be kept in sync with the compiler implementation.
@@ -436,7 +453,7 @@ pub const Version = struct {
         self: Version,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        out_stream: var,
+        out_stream: anytype,
     ) !void {
         if (fmt.len == 0) {
             if (self.patch == 0) {

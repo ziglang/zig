@@ -713,7 +713,7 @@ test "packed struct field passed to generic function" {
             a: u1,
         };
 
-        fn genericReadPackedField(ptr: var) u5 {
+        fn genericReadPackedField(ptr: anytype) u5 {
             return ptr.*;
         }
     };
@@ -754,7 +754,7 @@ test "fully anonymous struct" {
                 .s = "hi",
             });
         }
-        fn dump(args: var) void {
+        fn dump(args: anytype) void {
             expect(args.int == 1234);
             expect(args.float == 12.34);
             expect(args.b);
@@ -771,7 +771,7 @@ test "fully anonymous list literal" {
         fn doTheTest() void {
             dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi" });
         }
-        fn dump(args: var) void {
+        fn dump(args: anytype) void {
             expect(args.@"0" == 1234);
             expect(args.@"1" == 12.34);
             expect(args.@"2");
@@ -792,8 +792,8 @@ test "anonymous struct literal assigned to variable" {
 
 test "struct with var field" {
     const Point = struct {
-        x: var,
-        y: var,
+        x: anytype,
+        y: anytype,
     };
     const pt = Point{
         .x = 1,
@@ -850,4 +850,37 @@ test "struct with union field" {
     };
     expectEqual(@as(u32, 2), True.ref);
     expectEqual(true, True.kind.Bool);
+}
+
+test "type coercion of anon struct literal to struct" {
+    const S = struct {
+        const S2 = struct {
+            A: u32,
+            B: []const u8,
+            C: void,
+            D: Foo = .{},
+        };
+
+        const Foo = struct {
+            field: i32 = 1234,
+        };
+
+        fn doTheTest() void {
+            var y: u32 = 42;
+            const t0 = .{ .A = 123, .B = "foo", .C = {} };
+            const t1 = .{ .A = y, .B = "foo", .C = {} };
+            const y0: S2 = t0;
+            var y1: S2 = t1;
+            expect(y0.A == 123);
+            expect(std.mem.eql(u8, y0.B, "foo"));
+            expect(y0.C == {});
+            expect(y0.D.field == 1234);
+            expect(y1.A == y);
+            expect(std.mem.eql(u8, y1.B, "foo"));
+            expect(y1.C == {});
+            expect(y1.D.field == 1234);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }

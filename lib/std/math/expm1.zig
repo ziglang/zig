@@ -18,7 +18,7 @@ const expect = std.testing.expect;
 ///  - expm1(+inf) = +inf
 ///  - expm1(-inf) = -1
 ///  - expm1(nan)  = nan
-pub fn expm1(x: var) @TypeOf(x) {
+pub fn expm1(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => expm1_32(x),

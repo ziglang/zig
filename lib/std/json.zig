@@ -239,7 +239,7 @@ pub const StreamingParser = struct {
         NullLiteral3,
 
         // Only call this function to generate array/object final state.
-        pub fn fromInt(x: var) State {
+        pub fn fromInt(x: anytype) State {
             debug.assert(x == 0 or x == 1);
             const T = @TagType(State);
             return @intToEnum(State, @intCast(T, x));
@@ -1236,7 +1236,7 @@ pub const Value = union(enum) {
     pub fn jsonStringify(
         value: @This(),
         options: StringifyOptions,
-        out_stream: var,
+        out_stream: anytype,
     ) @TypeOf(out_stream).Error!void {
         switch (value) {
             .Null => try stringify(null, options, out_stream),
@@ -1288,7 +1288,7 @@ pub const Value = union(enum) {
         var held = std.debug.getStderrMutex().acquire();
         defer held.release();
 
-        const stderr = std.debug.getStderrStream();
+        const stderr = io.getStdErr().writer();
         std.json.stringify(self, std.json.StringifyOptions{ .whitespace = null }, stderr) catch return;
     }
 };
@@ -1535,7 +1535,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
             const allocator = options.allocator orelse return error.AllocatorRequired;
             switch (ptrInfo.size) {
                 .One => {
-                    const r: T = allocator.create(ptrInfo.child);
+                    const r: T = try allocator.create(ptrInfo.child);
                     r.* = try parseInternal(ptrInfo.child, token, tokens, options);
                     return r;
                 },
@@ -1567,7 +1567,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                             if (ptrInfo.child != u8) return error.UnexpectedToken;
                             const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
                             switch (stringToken.escapes) {
-                                .None => return mem.dupe(allocator, u8, source_slice),
+                                .None => return allocator.dupe(u8, source_slice),
                                 .Some => |some_escapes| {
                                     const output = try allocator.alloc(u8, stringToken.decodedLength());
                                     errdefer allocator.free(output);
@@ -1629,7 +1629,7 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
             switch (ptrInfo.size) {
                 .One => {
                     parseFree(ptrInfo.child, value.*, options);
-                    allocator.destroy(v);
+                    allocator.destroy(value);
                 },
                 .Slice => {
                     for (value) |v| {
@@ -2043,7 +2043,7 @@ pub const Parser = struct {
     fn parseString(p: *Parser, allocator: *Allocator, s: std.meta.TagPayloadType(Token, Token.String), input: []const u8, i: usize) !Value {
         const slice = s.slice(input, i);
         switch (s.escapes) {
-            .None => return Value{ .String = if (p.copy_strings) try mem.dupe(allocator, u8, slice) else slice },
+            .None => return Value{ .String = if (p.copy_strings) try allocator.dupe(u8, slice) else slice },
             .Some => |some_escapes| {
                 const output = try allocator.alloc(u8, s.decodedLength());
                 errdefer allocator.free(output);
@@ -2149,27 +2149,27 @@ test "json.parser.dynamic" {
 
     var root = tree.root;
 
-    var image = root.Object.get("Image").?.value;
+    var image = root.Object.get("Image").?;
 
-    const width = image.Object.get("Width").?.value;
+    const width = image.Object.get("Width").?;
     testing.expect(width.Integer == 800);
 
-    const height = image.Object.get("Height").?.value;
+    const height = image.Object.get("Height").?;
     testing.expect(height.Integer == 600);
 
-    const title = image.Object.get("Title").?.value;
+    const title = image.Object.get("Title").?;
     testing.expect(mem.eql(u8, title.String, "View from 15th Floor"));
 
-    const animated = image.Object.get("Animated").?.value;
+    const animated = image.Object.get("Animated").?;
     testing.expect(animated.Bool == false);
 
-    const array_of_object = image.Object.get("ArrayOfObject").?.value;
+    const array_of_object = image.Object.get("ArrayOfObject").?;
     testing.expect(array_of_object.Array.items.len == 1);
 
-    const obj0 = array_of_object.Array.items[0].Object.get("n").?.value;
+    const obj0 = array_of_object.Array.items[0].Object.get("n").?;
     testing.expect(mem.eql(u8, obj0.String, "m"));
 
-    const double = image.Object.get("double").?.value;
+    const double = image.Object.get("double").?;
     testing.expect(double.Float == 1.3412);
 }
 
@@ -2217,12 +2217,12 @@ test "write json then parse it" {
     var tree = try parser.parse(fixed_buffer_stream.getWritten());
     defer tree.deinit();
 
-    testing.expect(tree.root.Object.get("f").?.value.Bool == false);
-    testing.expect(tree.root.Object.get("t").?.value.Bool == true);
-    testing.expect(tree.root.Object.get("int").?.value.Integer == 1234);
-    testing.expect(tree.root.Object.get("array").?.value.Array.items[0].Null == {});
-    testing.expect(tree.root.Object.get("array").?.value.Array.items[1].Float == 12.34);
-    testing.expect(mem.eql(u8, tree.root.Object.get("str").?.value.String, "hello"));
+    testing.expect(tree.root.Object.get("f").?.Bool == false);
+    testing.expect(tree.root.Object.get("t").?.Bool == true);
+    testing.expect(tree.root.Object.get("int").?.Integer == 1234);
+    testing.expect(tree.root.Object.get("array").?.Array.items[0].Null == {});
+    testing.expect(tree.root.Object.get("array").?.Array.items[1].Float == 12.34);
+    testing.expect(mem.eql(u8, tree.root.Object.get("str").?.String, "hello"));
 }
 
 fn test_parse(arena_allocator: *std.mem.Allocator, json_str: []const u8) !Value {
@@ -2245,7 +2245,7 @@ test "integer after float has proper type" {
         \\  "ints": [1, 2, 3]
         \\}
     );
-    std.testing.expect(json.Object.getValue("ints").?.Array.items[0] == .Integer);
+    std.testing.expect(json.Object.get("ints").?.Array.items[0] == .Integer);
 }
 
 test "escaped characters" {
@@ -2271,16 +2271,16 @@ test "escaped characters" {
 
     const obj = (try test_parse(&arena_allocator.allocator, input)).Object;
 
-    testing.expectEqualSlices(u8, obj.get("backslash").?.value.String, "\\");
-    testing.expectEqualSlices(u8, obj.get("forwardslash").?.value.String, "/");
-    testing.expectEqualSlices(u8, obj.get("newline").?.value.String, "\n");
-    testing.expectEqualSlices(u8, obj.get("carriagereturn").?.value.String, "\r");
-    testing.expectEqualSlices(u8, obj.get("tab").?.value.String, "\t");
-    testing.expectEqualSlices(u8, obj.get("formfeed").?.value.String, "\x0C");
-    testing.expectEqualSlices(u8, obj.get("backspace").?.value.String, "\x08");
-    testing.expectEqualSlices(u8, obj.get("doublequote").?.value.String, "\"");
-    testing.expectEqualSlices(u8, obj.get("unicode").?.value.String, "ą");
-    testing.expectEqualSlices(u8, obj.get("surrogatepair").?.value.String, "😂");
+    testing.expectEqualSlices(u8, obj.get("backslash").?.String, "\\");
+    testing.expectEqualSlices(u8, obj.get("forwardslash").?.String, "/");
+    testing.expectEqualSlices(u8, obj.get("newline").?.String, "\n");
+    testing.expectEqualSlices(u8, obj.get("carriagereturn").?.String, "\r");
+    testing.expectEqualSlices(u8, obj.get("tab").?.String, "\t");
+    testing.expectEqualSlices(u8, obj.get("formfeed").?.String, "\x0C");
+    testing.expectEqualSlices(u8, obj.get("backspace").?.String, "\x08");
+    testing.expectEqualSlices(u8, obj.get("doublequote").?.String, "\"");
+    testing.expectEqualSlices(u8, obj.get("unicode").?.String, "ą");
+    testing.expectEqualSlices(u8, obj.get("surrogatepair").?.String, "😂");
 }
 
 test "string copy option" {
@@ -2306,11 +2306,11 @@ test "string copy option" {
     const obj_copy = tree_copy.root.Object;
 
     for ([_][]const u8{ "noescape", "simple", "unicode", "surrogatepair" }) |field_name| {
-        testing.expectEqualSlices(u8, obj_nocopy.getValue(field_name).?.String, obj_copy.getValue(field_name).?.String);
+        testing.expectEqualSlices(u8, obj_nocopy.get(field_name).?.String, obj_copy.get(field_name).?.String);
     }
 
-    const nocopy_addr = &obj_nocopy.getValue("noescape").?.String[0];
-    const copy_addr = &obj_copy.getValue("noescape").?.String[0];
+    const nocopy_addr = &obj_nocopy.get("noescape").?.String[0];
+    const copy_addr = &obj_copy.get("noescape").?.String[0];
 
     var found_nocopy = false;
     for (input) |_, index| {
@@ -2338,7 +2338,7 @@ pub const StringifyOptions = struct {
 
         pub fn outputIndent(
             whitespace: @This(),
-            out_stream: var,
+            out_stream: anytype,
         ) @TypeOf(out_stream).Error!void {
             var char: u8 = undefined;
             var n_chars: usize = undefined;
@@ -2380,7 +2380,7 @@ pub const StringifyOptions = struct {
 
 fn outputUnicodeEscape(
     codepoint: u21,
-    out_stream: var,
+    out_stream: anytype,
 ) !void {
     if (codepoint <= 0xFFFF) {
         // If the character is in the Basic Multilingual Plane (U+0000 through U+FFFF),
@@ -2402,9 +2402,9 @@ fn outputUnicodeEscape(
 }
 
 pub fn stringify(
-    value: var,
+    value: anytype,
     options: StringifyOptions,
-    out_stream: var,
+    out_stream: anytype,
 ) @TypeOf(out_stream).Error!void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
@@ -2576,15 +2576,15 @@ pub fn stringify(
         },
         .Array => return stringify(&value, options, out_stream),
         .Vector => |info| {
-             const array: [info.len]info.child = value;
-             return stringify(&array, options, out_stream);
+            const array: [info.len]info.child = value;
+            return stringify(&array, options, out_stream);
         },
         else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
     }
     unreachable;
 }
 
-fn teststringify(expected: []const u8, value: var, options: StringifyOptions) !void {
+fn teststringify(expected: []const u8, value: anytype, options: StringifyOptions) !void {
     const ValidationOutStream = struct {
         const Self = @This();
         pub const OutStream = std.io.OutStream(*Self, Error, write);
@@ -2758,7 +2758,7 @@ test "stringify struct with custom stringifier" {
         pub fn jsonStringify(
             value: Self,
             options: StringifyOptions,
-            out_stream: var,
+            out_stream: anytype,
         ) !void {
             try out_stream.writeAll("[\"something special\",");
             try stringify(42, options, out_stream);
@@ -2770,4 +2770,3 @@ test "stringify struct with custom stringifier" {
 test "stringify vector" {
     try teststringify("[1,1]", @splat(2, @as(u32, 1)), StringifyOptions{});
 }
-

@@ -77,7 +77,7 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node, bool all
 ZigType *get_src_ptr_type(ZigType *type);
 uint32_t get_ptr_align(CodeGen *g, ZigType *type);
 bool get_ptr_const(CodeGen *g, ZigType *type);
-ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry);
+ZigType *validate_var_type(CodeGen *g, AstNodeVariableDeclaration *source_node, ZigType *type_entry);
 ZigType *container_ref_type(ZigType *type_entry);
 bool type_is_complete(ZigType *type_entry);
 bool type_is_resolved(ZigType *type_entry, ResolveStatus status);
@@ -179,6 +179,9 @@ ZigValue *create_const_slice(CodeGen *g, ZigValue *array_val, size_t start, size
 
 void init_const_null(ZigValue *const_val, ZigType *type);
 ZigValue *create_const_null(CodeGen *g, ZigType *type);
+
+void init_const_fn(ZigValue *const_val, ZigFn *fn);
+ZigValue *create_const_fn(CodeGen *g, ZigFn *fn);
 
 ZigValue **alloc_const_vals_ptrs(CodeGen *g, size_t count);
 ZigValue **realloc_const_vals_ptrs(CodeGen *g, ZigValue **ptr, size_t old_count, size_t new_count);

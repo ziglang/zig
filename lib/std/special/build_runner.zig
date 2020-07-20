@@ -135,7 +135,7 @@ fn runBuild(builder: *Builder) anyerror!void {
     }
 }
 
-fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
+fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void {
     // run the build script to collect the options
     if (!already_ran_build) {
         builder.setInstallPrefix(null);
@@ -202,7 +202,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
     );
 }
 
-fn usageAndErr(builder: *Builder, already_ran_build: bool, out_stream: var) void {
+fn usageAndErr(builder: *Builder, already_ran_build: bool, out_stream: anytype) void {
     usage(builder, already_ran_build, out_stream) catch {};
     process.exit(1);
 }

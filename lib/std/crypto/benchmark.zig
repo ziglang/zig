@@ -29,7 +29,7 @@ const hashes = [_]Crypto{
     Crypto{ .ty = crypto.Blake3, .name = "blake3" },
 };
 
-pub fn benchmarkHash(comptime Hash: var, comptime bytes: comptime_int) !u64 {
+pub fn benchmarkHash(comptime Hash: anytype, comptime bytes: comptime_int) !u64 {
     var h = Hash.init();
 
     var block: [Hash.digest_length]u8 = undefined;
@@ -56,7 +56,7 @@ const macs = [_]Crypto{
     Crypto{ .ty = crypto.HmacSha256, .name = "hmac-sha256" },
 };
 
-pub fn benchmarkMac(comptime Mac: var, comptime bytes: comptime_int) !u64 {
+pub fn benchmarkMac(comptime Mac: anytype, comptime bytes: comptime_int) !u64 {
     std.debug.assert(32 >= Mac.mac_length and 32 >= Mac.minimum_key_length);
 
     var in: [1 * MiB]u8 = undefined;
@@ -81,7 +81,7 @@ pub fn benchmarkMac(comptime Mac: var, comptime bytes: comptime_int) !u64 {
 
 const exchanges = [_]Crypto{Crypto{ .ty = crypto.X25519, .name = "x25519" }};
 
-pub fn benchmarkKeyExchange(comptime DhKeyExchange: var, comptime exchange_count: comptime_int) !u64 {
+pub fn benchmarkKeyExchange(comptime DhKeyExchange: anytype, comptime exchange_count: comptime_int) !u64 {
     std.debug.assert(DhKeyExchange.minimum_key_length >= DhKeyExchange.secret_length);
 
     var in: [DhKeyExchange.minimum_key_length]u8 = undefined;
@@ -121,15 +121,6 @@ fn usage() void {
 
 fn mode(comptime x: comptime_int) comptime_int {
     return if (builtin.mode == .Debug) x / 64 else x;
-}
-
-// TODO(#1358): Replace with builtin formatted padding when available.
-fn printPad(stdout: var, s: []const u8) !void {
-    var i: usize = 0;
-    while (i < 12 - s.len) : (i += 1) {
-        try stdout.print(" ", .{});
-    }
-    try stdout.print("{}", .{s});
 }
 
 pub fn main() !void {
@@ -175,24 +166,21 @@ pub fn main() !void {
     inline for (hashes) |H| {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
             const throughput = try benchmarkHash(H.ty, mode(32 * MiB));
-            try printPad(stdout, H.name);
-            try stdout.print(": {} MiB/s\n", .{throughput / (1 * MiB)});
+            try stdout.print("{:>11}: {:5} MiB/s\n", .{ H.name, throughput / (1 * MiB) });
         }
     }
 
     inline for (macs) |M| {
         if (filter == null or std.mem.indexOf(u8, M.name, filter.?) != null) {
             const throughput = try benchmarkMac(M.ty, mode(128 * MiB));
-            try printPad(stdout, M.name);
-            try stdout.print(": {} MiB/s\n", .{throughput / (1 * MiB)});
+            try stdout.print("{:>11}: {:5} MiB/s\n", .{ M.name, throughput / (1 * MiB) });
         }
     }
 
     inline for (exchanges) |E| {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkKeyExchange(E.ty, mode(1000));
-            try printPad(stdout, E.name);
-            try stdout.print(": {} exchanges/s\n", .{throughput});
+            try stdout.print("{:>11}: {:5} exchanges/s\n", .{ E.name, throughput });
         }
     }
 }

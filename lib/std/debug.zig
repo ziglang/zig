@@ -50,31 +50,19 @@ pub const LineInfo = struct {
     }
 };
 
-/// Tries to write to stderr, unbuffered, and ignores any error returned.
-/// Does not append a newline.
-var stderr_file: File = undefined;
-var stderr_file_writer: File.Writer = undefined;
-
-var stderr_stream: ?*File.OutStream = null;
 var stderr_mutex = std.Mutex.init();
 
-pub fn warn(comptime fmt: []const u8, args: var) void {
+/// Deprecated. Use `std.log` functions for logging or `std.debug.print` for
+/// "printf debugging".
+pub const warn = print;
+
+/// Print to stderr, unbuffered, and silently returning on failure. Intended
+/// for use in "printf debugging." Use `std.log` functions for proper logging.
+pub fn print(comptime fmt: []const u8, args: anytype) void {
     const held = stderr_mutex.acquire();
     defer held.release();
-    const stderr = getStderrStream();
+    const stderr = io.getStdErr().writer();
     nosuspend stderr.print(fmt, args) catch return;
-}
-
-pub fn getStderrStream() *File.OutStream {
-    if (stderr_stream) |st| {
-        return st;
-    } else {
-        stderr_file = io.getStdErr();
-        stderr_file_writer = stderr_file.outStream();
-        const st = &stderr_file_writer;
-        stderr_stream = st;
-        return st;
-    }
 }
 
 pub fn getStderrMutex() *std.Mutex {
@@ -99,6 +87,7 @@ pub fn detectTTYConfig() TTY.Config {
     if (process.getEnvVarOwned(allocator, "ZIG_DEBUG_COLOR")) |_| {
         return .escape_codes;
     } else |_| {
+        const stderr_file = io.getStdErr();
         if (stderr_file.supportsAnsiEscapeCodes()) {
             return .escape_codes;
         } else if (builtin.os.tag == .windows and stderr_file.isTty()) {
@@ -113,7 +102,7 @@ pub fn detectTTYConfig() TTY.Config {
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     nosuspend {
-        const stderr = getStderrStream();
+        const stderr = io.getStdErr().writer();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
             return;
@@ -134,7 +123,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 /// TODO multithreaded awareness
 pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
     nosuspend {
-        const stderr = getStderrStream();
+        const stderr = io.getStdErr().writer();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
             return;
@@ -204,7 +193,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace
 /// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
     nosuspend {
-        const stderr = getStderrStream();
+        const stderr = io.getStdErr().writer();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
             return;
@@ -234,7 +223,7 @@ pub fn assert(ok: bool) void {
     if (!ok) unreachable; // assertion failure
 }
 
-pub fn panic(comptime format: []const u8, args: var) noreturn {
+pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     @setCold(true);
     // TODO: remove conditional once wasi / LLVM defines __builtin_return_address
     const first_trace_addr = if (builtin.os.tag == .wasi) null else @returnAddress();
@@ -252,7 +241,7 @@ var panic_mutex = std.Mutex.init();
 /// This is used to catch and handle panics triggered by the panic handler.
 threadlocal var panic_stage: usize = 0;
 
-pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, comptime format: []const u8, args: var) noreturn {
+pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, comptime format: []const u8, args: anytype) noreturn {
     @setCold(true);
 
     if (enable_segfault_handler) {
@@ -272,7 +261,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
                 const held = panic_mutex.acquire();
                 defer held.release();
 
-                const stderr = getStderrStream();
+                const stderr = io.getStdErr().writer();
                 stderr.print(format ++ "\n", args) catch os.abort();
                 if (trace) |t| {
                     dumpStackTrace(t.*);
@@ -297,7 +286,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
             // A panic happened while trying to print a previous panic message,
             // we're still holding the mutex but that's fine as we're going to
             // call abort()
-            const stderr = getStderrStream();
+            const stderr = io.getStdErr().writer();
             stderr.print("Panicked during a panic. Aborting.\n", .{}) catch os.abort();
         },
         else => {
@@ -317,7 +306,7 @@ const RESET = "\x1b[0m";
 
 pub fn writeStackTrace(
     stack_trace: builtin.StackTrace,
-    out_stream: var,
+    out_stream: anytype,
     allocator: *mem.Allocator,
     debug_info: *DebugInfo,
     tty_config: TTY.Config,
@@ -395,7 +384,7 @@ pub const StackIterator = struct {
 };
 
 pub fn writeCurrentStackTrace(
-    out_stream: var,
+    out_stream: anytype,
     debug_info: *DebugInfo,
     tty_config: TTY.Config,
     start_addr: ?usize,
@@ -410,7 +399,7 @@ pub fn writeCurrentStackTrace(
 }
 
 pub fn writeCurrentStackTraceWindows(
-    out_stream: var,
+    out_stream: anytype,
     debug_info: *DebugInfo,
     tty_config: TTY.Config,
     start_addr: ?usize,
@@ -446,7 +435,7 @@ pub const TTY = struct {
         // TODO give this a payload of file handle
         windows_api,
 
-        fn setColor(conf: Config, out_stream: var, color: Color) void {
+        fn setColor(conf: Config, out_stream: anytype, color: Color) void {
             nosuspend switch (conf) {
                 .no_color => return,
                 .escape_codes => switch (color) {
@@ -458,6 +447,7 @@ pub const TTY = struct {
                     .Reset => out_stream.writeAll(RESET) catch return,
                 },
                 .windows_api => if (builtin.os.tag == .windows) {
+                    const stderr_file = io.getStdErr();
                     const S = struct {
                         var attrs: windows.WORD = undefined;
                         var init_attrs = false;
@@ -565,7 +555,7 @@ fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const Mach
 }
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
-pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: usize, tty_config: TTY.Config) !void {
+pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: anytype, address: usize, tty_config: TTY.Config) !void {
     const module = debug_info.getModuleForAddress(address) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => {
             return printLineInfo(
@@ -596,13 +586,13 @@ pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: us
 }
 
 fn printLineInfo(
-    out_stream: var,
+    out_stream: anytype,
     line_info: ?LineInfo,
     address: usize,
     symbol_name: []const u8,
     compile_unit_name: []const u8,
     tty_config: TTY.Config,
-    comptime printLineFromFile: var,
+    comptime printLineFromFile: anytype,
 ) !void {
     nosuspend {
         tty_config.setColor(out_stream, .White);
@@ -830,7 +820,7 @@ fn readCoffDebugInfo(allocator: *mem.Allocator, coff_file: File) !ModuleDebugInf
     }
 }
 
-fn readSparseBitVector(stream: var, allocator: *mem.Allocator) ![]usize {
+fn readSparseBitVector(stream: anytype, allocator: *mem.Allocator) ![]usize {
     const num_words = try stream.readIntLittle(u32);
     var word_i: usize = 0;
     var list = ArrayList(usize).init(allocator);
@@ -1014,7 +1004,7 @@ fn readMachODebugInfo(allocator: *mem.Allocator, macho_file: File) !ModuleDebugI
     };
 }
 
-fn printLineFromFileAnyOs(out_stream: var, line_info: LineInfo) !void {
+fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
     // Need this to always block even in async I/O mode, because this could potentially
     // be called from e.g. the event loop code crashing.
     var f = try fs.cwd().openFile(line_info.file_name, .{ .intended_io_mode = .blocking });
@@ -1142,7 +1132,7 @@ pub const DebugInfo = struct {
                 const seg_end = seg_start + segment_cmd.vmsize;
 
                 if (rebased_address >= seg_start and rebased_address < seg_end) {
-                    if (self.address_map.getValue(base_address)) |obj_di| {
+                    if (self.address_map.get(base_address)) |obj_di| {
                         return obj_di;
                     }
 
@@ -1214,7 +1204,7 @@ pub const DebugInfo = struct {
             const seg_end = seg_start + info.SizeOfImage;
 
             if (address >= seg_start and address < seg_end) {
-                if (self.address_map.getValue(seg_start)) |obj_di| {
+                if (self.address_map.get(seg_start)) |obj_di| {
                     return obj_di;
                 }
 
@@ -1288,7 +1278,7 @@ pub const DebugInfo = struct {
             else => return error.MissingDebugInfo,
         }
 
-        if (self.address_map.getValue(ctx.base_address)) |obj_di| {
+        if (self.address_map.get(ctx.base_address)) |obj_di| {
             return obj_di;
         }
 
@@ -1451,7 +1441,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
                 const o_file_path = mem.spanZ(self.strings[symbol.ofile.?.n_strx..]);
 
                 // Check if its debug infos are already in the cache
-                var o_file_di = self.ofiles.getValue(o_file_path) orelse
+                var o_file_di = self.ofiles.get(o_file_path) orelse
                     (self.loadOFile(o_file_path) catch |err| switch (err) {
                     error.FileNotFound,
                     error.MissingDebugInfo,

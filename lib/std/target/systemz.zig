@@ -532,22 +532,3 @@ pub const cpu = struct {
         }),
     };
 };
-
-/// All systemz CPUs, sorted alphabetically by name.
-/// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
-/// compiler has inefficient memory and CPU usage, affecting build times.
-pub const all_cpus = &[_]*const CpuModel{
-    &cpu.arch10,
-    &cpu.arch11,
-    &cpu.arch12,
-    &cpu.arch13,
-    &cpu.arch8,
-    &cpu.arch9,
-    &cpu.generic,
-    &cpu.z10,
-    &cpu.z13,
-    &cpu.z14,
-    &cpu.z15,
-    &cpu.z196,
-    &cpu.zEC12,
-};

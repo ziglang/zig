@@ -261,17 +261,7 @@ pub const Dir = struct {
         name: []const u8,
         kind: Kind,
 
-        pub const Kind = enum {
-            BlockDevice,
-            CharacterDevice,
-            Directory,
-            NamedPipe,
-            SymLink,
-            File,
-            UnixDomainSocket,
-            Whiteout,
-            Unknown,
-        };
+        pub const Kind = File.Kind;
     };
 
     const IteratorError = error{AccessDenied} || os.UnexpectedError;
@@ -463,6 +453,8 @@ pub const Dir = struct {
 
             pub const Error = IteratorError;
 
+            /// Memory such as file names referenced in this returned entry becomes invalid
+            /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
             pub fn next(self: *Self) Error!?Entry {
                 start_over: while (true) {
                     const w = os.windows;
@@ -545,14 +537,15 @@ pub const Dir = struct {
                             w.EFAULT => unreachable,
                             w.ENOTDIR => unreachable,
                             w.EINVAL => unreachable,
+                            w.ENOTCAPABLE => return error.AccessDenied,
                             else => |err| return os.unexpectedErrno(err),
                         }
                         if (bufused == 0) return null;
                         self.index = 0;
                         self.end_index = bufused;
                     }
-                    const entry = @ptrCast(*align(1) os.wasi.dirent_t, &self.buf[self.index]);
-                    const entry_size = @sizeOf(os.wasi.dirent_t);
+                    const entry = @ptrCast(*align(1) w.dirent_t, &self.buf[self.index]);
+                    const entry_size = @sizeOf(w.dirent_t);
                     const name_index = self.index + entry_size;
                     const name = mem.span(self.buf[name_index .. name_index + entry.d_namlen]);
 
@@ -566,12 +559,12 @@ pub const Dir = struct {
                     }
 
                     const entry_kind = switch (entry.d_type) {
-                        wasi.FILETYPE_BLOCK_DEVICE => Entry.Kind.BlockDevice,
-                        wasi.FILETYPE_CHARACTER_DEVICE => Entry.Kind.CharacterDevice,
-                        wasi.FILETYPE_DIRECTORY => Entry.Kind.Directory,
-                        wasi.FILETYPE_SYMBOLIC_LINK => Entry.Kind.SymLink,
-                        wasi.FILETYPE_REGULAR_FILE => Entry.Kind.File,
-                        wasi.FILETYPE_SOCKET_STREAM, wasi.FILETYPE_SOCKET_DGRAM => Entry.Kind.UnixDomainSocket,
+                        w.FILETYPE_BLOCK_DEVICE => Entry.Kind.BlockDevice,
+                        w.FILETYPE_CHARACTER_DEVICE => Entry.Kind.CharacterDevice,
+                        w.FILETYPE_DIRECTORY => Entry.Kind.Directory,
+                        w.FILETYPE_SYMBOLIC_LINK => Entry.Kind.SymLink,
+                        w.FILETYPE_REGULAR_FILE => Entry.Kind.File,
+                        w.FILETYPE_SOCKET_STREAM, wasi.FILETYPE_SOCKET_DGRAM => Entry.Kind.UnixDomainSocket,
                         else => Entry.Kind.Unknown,
                     };
                     return Entry{
@@ -1109,6 +1102,7 @@ pub const Dir = struct {
             .OBJECT_NAME_INVALID => unreachable,
             .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
             .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .NOT_A_DIRECTORY => return error.NotDir,
             .INVALID_PARAMETER => unreachable,
             else => return w.unexpectedStatus(rc),
         }
@@ -1119,10 +1113,18 @@ pub const Dir = struct {
     /// Delete a file name and possibly the file it refers to, based on an open directory handle.
     /// Asserts that the path parameter has no null bytes.
     pub fn deleteFile(self: Dir, sub_path: []const u8) DeleteFileError!void {
-        os.unlinkat(self.fd, sub_path, 0) catch |err| switch (err) {
-            error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
-            else => |e| return e,
-        };
+        if (builtin.os.tag == .windows) {
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            return self.deleteFileW(sub_path_w.span().ptr);
+        } else if (builtin.os.tag == .wasi) {
+            os.unlinkatWasi(self.fd, sub_path, 0) catch |err| switch (err) {
+                error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
+                else => |e| return e,
+            };
+        } else {
+            const sub_path_c = try os.toPosixPath(sub_path);
+            return self.deleteFileZ(&sub_path_c);
+        }
     }
 
     pub const deleteFileC = @compileError("deprecated: renamed to deleteFileZ");
@@ -1131,6 +1133,17 @@ pub const Dir = struct {
     pub fn deleteFileZ(self: Dir, sub_path_c: [*:0]const u8) DeleteFileError!void {
         os.unlinkatZ(self.fd, sub_path_c, 0) catch |err| switch (err) {
             error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
+            error.AccessDenied => |e| switch (builtin.os.tag) {
+                // non-Linux POSIX systems return EPERM when trying to delete a directory, so
+                // we need to handle that case specifically and translate the error
+                .macosx, .ios, .freebsd, .netbsd, .dragonfly => {
+                    // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
+                    const fstat = os.fstatatZ(self.fd, sub_path_c, os.AT_SYMLINK_NOFOLLOW) catch return e;
+                    const is_dir = fstat.mode & os.S_IFMT == os.S_IFDIR;
+                    return if (is_dir) error.IsDir else e;
+                },
+                else => return e,
+            },
             else => |e| return e,
         };
     }
@@ -1229,14 +1242,9 @@ pub const Dir = struct {
         var file = try self.openFile(file_path, .{});
         defer file.close();
 
-        const size = math.cast(usize, try file.getEndPos()) catch math.maxInt(usize);
-        if (size > max_bytes) return error.FileTooBig;
+        const stat_size = try file.getEndPos();
 
-        const buf = try allocator.allocWithOptions(u8, size, alignment, optional_sentinel);
-        errdefer allocator.free(buf);
-
-        try file.inStream().readNoEof(buf);
-        return buf;
+        return file.readAllAllocOptions(allocator, stat_size, max_bytes, alignment, optional_sentinel);
     }
 
     pub const DeleteTreeError = error{
@@ -1532,9 +1540,9 @@ pub const Dir = struct {
 
         var size: ?u64 = null;
         const mode = options.override_mode orelse blk: {
-            const stat = try in_file.stat();
-            size = stat.size;
-            break :blk stat.mode;
+            const st = try in_file.stat();
+            size = st.size;
+            break :blk st.mode;
         };
 
         var atomic_file = try dest_dir.atomicFile(dest_path, .{ .mode = mode });
@@ -1559,6 +1567,17 @@ pub const Dir = struct {
         } else {
             return AtomicFile.init(dest_path, options.mode, self, false);
         }
+    }
+
+    pub const Stat = File.Stat;
+    pub const StatError = File.StatError;
+
+    pub fn stat(self: Dir) StatError!Stat {
+        const file: File = .{
+            .handle = self.fd,
+            .capable_io_mode = .blocking,
+        };
+        return file.stat();
     }
 };
 
@@ -1808,7 +1827,7 @@ pub fn selfExePathAlloc(allocator: *Allocator) ![]u8 {
     // TODO(#4812): Investigate other systems and whether it is possible to get
     // this path by trying larger and larger buffers until one succeeds.
     var buf: [MAX_PATH_BYTES]u8 = undefined;
-    return mem.dupe(allocator, u8, try selfExePath(&buf));
+    return allocator.dupe(u8, try selfExePath(&buf));
 }
 
 /// Get the path to the current executable.
@@ -1871,7 +1890,7 @@ pub fn selfExeDirPathAlloc(allocator: *Allocator) ![]u8 {
     // TODO(#4812): Investigate other systems and whether it is possible to get
     // this path by trying larger and larger buffers until one succeeds.
     var buf: [MAX_PATH_BYTES]u8 = undefined;
-    return mem.dupe(allocator, u8, try selfExeDirPath(&buf));
+    return allocator.dupe(u8, try selfExeDirPath(&buf));
 }
 
 /// Get the directory path that contains the current executable.
@@ -1893,7 +1912,7 @@ pub fn realpathAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
     // paths. musl supports passing NULL but restricts the output to PATH_MAX
     // anyway.
     var buf: [MAX_PATH_BYTES]u8 = undefined;
-    return mem.dupe(allocator, u8, try os.realpath(pathname, &buf));
+    return allocator.dupe(u8, try os.realpath(pathname, &buf));
 }
 
 test "" {

@@ -101,6 +101,31 @@ pub const Target = struct {
                     return @enumToInt(ver) >= @enumToInt(self.min) and @enumToInt(ver) <= @enumToInt(self.max);
                 }
             };
+
+            /// This function is defined to serialize a Zig source code representation of this
+            /// type, that, when parsed, will deserialize into the same data.
+            pub fn format(
+                self: WindowsVersion,
+                comptime fmt: []const u8,
+                options: std.fmt.FormatOptions,
+                out_stream: anytype,
+            ) !void {
+                if (fmt.len > 0 and fmt[0] == 's') {
+                    if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.win10_19h1)) {
+                        try std.fmt.format(out_stream, ".{}", .{@tagName(self)});
+                    } else {
+                        try std.fmt.format(out_stream, "@intToEnum(Target.Os.WindowsVersion, {})", .{@enumToInt(self)});
+                    }
+                } else {
+                    if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.win10_19h1)) {
+                        try std.fmt.format(out_stream, "WindowsVersion.{}", .{@tagName(self)});
+                    } else {
+                        try std.fmt.format(out_stream, "WindowsVersion(", .{@typeName(@This())});
+                        try std.fmt.format(out_stream, "{}", .{@enumToInt(self)});
+                        try out_stream.writeAll(")");
+                    }
+                }
+            }
         };
 
         pub const LinuxVersionRange = struct {
@@ -410,6 +435,7 @@ pub const Target = struct {
         elf,
         macho,
         wasm,
+        c,
     };
 
     pub const SubSystem = enum {
@@ -871,24 +897,33 @@ pub const Target = struct {
             /// All processors Zig is aware of, sorted lexicographically by name.
             pub fn allCpuModels(arch: Arch) []const *const Cpu.Model {
                 return switch (arch) {
-                    .arm, .armeb, .thumb, .thumbeb => arm.all_cpus,
-                    .aarch64, .aarch64_be, .aarch64_32 => aarch64.all_cpus,
-                    .avr => avr.all_cpus,
-                    .bpfel, .bpfeb => bpf.all_cpus,
-                    .hexagon => hexagon.all_cpus,
-                    .mips, .mipsel, .mips64, .mips64el => mips.all_cpus,
-                    .msp430 => msp430.all_cpus,
-                    .powerpc, .powerpc64, .powerpc64le => powerpc.all_cpus,
-                    .amdgcn => amdgpu.all_cpus,
-                    .riscv32, .riscv64 => riscv.all_cpus,
-                    .sparc, .sparcv9, .sparcel => sparc.all_cpus,
-                    .s390x => systemz.all_cpus,
-                    .i386, .x86_64 => x86.all_cpus,
-                    .nvptx, .nvptx64 => nvptx.all_cpus,
-                    .wasm32, .wasm64 => wasm.all_cpus,
+                    .arm, .armeb, .thumb, .thumbeb => comptime allCpusFromDecls(arm.cpu),
+                    .aarch64, .aarch64_be, .aarch64_32 => comptime allCpusFromDecls(aarch64.cpu),
+                    .avr => comptime allCpusFromDecls(avr.cpu),
+                    .bpfel, .bpfeb => comptime allCpusFromDecls(bpf.cpu),
+                    .hexagon => comptime allCpusFromDecls(hexagon.cpu),
+                    .mips, .mipsel, .mips64, .mips64el => comptime allCpusFromDecls(mips.cpu),
+                    .msp430 => comptime allCpusFromDecls(msp430.cpu),
+                    .powerpc, .powerpc64, .powerpc64le => comptime allCpusFromDecls(powerpc.cpu),
+                    .amdgcn => comptime allCpusFromDecls(amdgpu.cpu),
+                    .riscv32, .riscv64 => comptime allCpusFromDecls(riscv.cpu),
+                    .sparc, .sparcv9, .sparcel => comptime allCpusFromDecls(sparc.cpu),
+                    .s390x => comptime allCpusFromDecls(systemz.cpu),
+                    .i386, .x86_64 => comptime allCpusFromDecls(x86.cpu),
+                    .nvptx, .nvptx64 => comptime allCpusFromDecls(nvptx.cpu),
+                    .wasm32, .wasm64 => comptime allCpusFromDecls(wasm.cpu),
 
                     else => &[0]*const Model{},
                 };
+            }
+
+            fn allCpusFromDecls(comptime cpus: type) []const *const Cpu.Model {
+                const decls = std.meta.declarations(cpus);
+                var array: [decls.len]*const Cpu.Model = undefined;
+                for (decls) |decl, i| {
+                    array[i] = &@field(cpus, decl.name);
+                }
+                return &array;
             }
         };
 
@@ -1157,7 +1192,7 @@ pub const Target = struct {
     pub fn standardDynamicLinkerPath(self: Target) DynamicLinker {
         var result: DynamicLinker = .{};
         const S = struct {
-            fn print(r: *DynamicLinker, comptime fmt: []const u8, args: var) DynamicLinker {
+            fn print(r: *DynamicLinker, comptime fmt: []const u8, args: anytype) DynamicLinker {
                 r.max_byte = @intCast(u8, (std.fmt.bufPrint(&r.buffer, fmt, args) catch unreachable).len - 1);
                 return r.*;
             }

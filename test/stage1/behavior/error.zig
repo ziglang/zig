@@ -227,7 +227,7 @@ test "error: Infer error set from literals" {
     _ = comptime intLiteral("n") catch |err| handleErrors(err);
 }
 
-fn handleErrors(err: var) noreturn {
+fn handleErrors(err: anytype) noreturn {
     switch (err) {
         error.T => {},
     }

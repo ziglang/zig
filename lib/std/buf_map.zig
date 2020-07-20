@@ -33,10 +33,10 @@ pub const BufMap = struct {
     pub fn setMove(self: *BufMap, key: []u8, value: []u8) !void {
         const get_or_put = try self.hash_map.getOrPut(key);
         if (get_or_put.found_existing) {
-            self.free(get_or_put.kv.key);
-            get_or_put.kv.key = key;
+            self.free(get_or_put.entry.key);
+            get_or_put.entry.key = key;
         }
-        get_or_put.kv.value = value;
+        get_or_put.entry.value = value;
     }
 
     /// `key` and `value` are copied into the BufMap.
@@ -45,19 +45,18 @@ pub const BufMap = struct {
         errdefer self.free(value_copy);
         const get_or_put = try self.hash_map.getOrPut(key);
         if (get_or_put.found_existing) {
-            self.free(get_or_put.kv.value);
+            self.free(get_or_put.entry.value);
         } else {
-            get_or_put.kv.key = self.copy(key) catch |err| {
+            get_or_put.entry.key = self.copy(key) catch |err| {
                 _ = self.hash_map.remove(key);
                 return err;
             };
         }
-        get_or_put.kv.value = value_copy;
+        get_or_put.entry.value = value_copy;
     }
 
     pub fn get(self: BufMap, key: []const u8) ?[]const u8 {
-        const entry = self.hash_map.get(key) orelse return null;
-        return entry.value;
+        return self.hash_map.get(key);
     }
 
     pub fn delete(self: *BufMap, key: []const u8) void {
@@ -79,7 +78,7 @@ pub const BufMap = struct {
     }
 
     fn copy(self: BufMap, value: []const u8) ![]u8 {
-        return mem.dupe(self.hash_map.allocator, u8, value);
+        return self.hash_map.allocator.dupe(u8, value);
     }
 };
 

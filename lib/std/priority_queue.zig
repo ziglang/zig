@@ -333,7 +333,7 @@ test "std.PriorityQueue: addSlice" {
 
 test "std.PriorityQueue: fromOwnedSlice" {
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
-    const heap_items = try std.mem.dupe(testing.allocator, u32, items[0..]);
+    const heap_items = try testing.allocator.dupe(u32, items[0..]);
     var queue = PQ.fromOwnedSlice(testing.allocator, lessThan, heap_items[0..]);
     defer queue.deinit();
 

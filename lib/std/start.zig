@@ -246,7 +246,7 @@ inline fn initEventLoopAndCallMain(comptime Out: type, comptime mainFunc: fn () 
 
             var result: u8 = undefined;
             var frame: @Frame(callMainAsync) = undefined;
-            _ = @asyncCall(&frame, &result, callMainAsync, u8, mainFunc, loop);
+            _ = @asyncCall(&frame, &result, callMainAsync, .{u8, mainFunc, loop});
             loop.run();
             return result;
         }

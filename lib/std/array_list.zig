@@ -53,7 +53,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Deprecated: use `items` field directly.
         /// Return contents as a slice. Only valid while the list
         /// doesn't change size.
-        pub fn span(self: var) @TypeOf(self.items) {
+        pub fn span(self: anytype) @TypeOf(self.items) {
             return self.items;
         }
 
@@ -162,19 +162,24 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             mem.copy(T, self.items[oldlen..], items);
         }
 
-        /// Same as `append` except it returns the number of bytes written, which is always the same
-        /// as `m.len`. The purpose of this function existing is to match `std.io.OutStream` API.
-        /// This function may be called only when `T` is `u8`.
-        fn appendWrite(self: *Self, m: []const u8) !usize {
-            try self.appendSlice(m);
-            return m.len;
-        }
+        pub usingnamespace if (T != u8) struct {} else struct {
+            pub const Writer = std.io.Writer(*Self, error{OutOfMemory}, appendWrite);
 
-        /// Initializes an OutStream which will append to the list.
-        /// This function may be called only when `T` is `u8`.
-        pub fn outStream(self: *Self) std.io.OutStream(*Self, error{OutOfMemory}, appendWrite) {
-            return .{ .context = self };
-        }
+            /// Initializes a Writer which will append to the list.
+            pub fn writer(self: *Self) Writer {
+                return .{ .context = self };
+            }
+
+            /// Deprecated: use `writer`
+            pub const outStream = writer;
+
+            /// Same as `append` except it returns the number of bytes written, which is always the same
+            /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
+            fn appendWrite(self: *Self, m: []const u8) !usize {
+                try self.appendSlice(m);
+                return m.len;
+            }
+        };
 
         /// Append a value to the list `n` times.
         /// Allocates more memory as necessary.
@@ -205,6 +210,14 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             self.capacity = new_len;
         }
 
+        /// Reduce length to `new_len`.
+        /// Invalidates element pointers.
+        /// Keeps capacity the same.
+        pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
+            assert(new_len <= self.items.len);
+            self.items.len = new_len;
+        }
+
         pub fn ensureCapacity(self: *Self, new_capacity: usize) !void {
             var better_capacity = self.capacity;
             if (better_capacity >= new_capacity) return;
@@ -214,7 +227,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
                 if (better_capacity >= new_capacity) break;
             }
 
-            const new_memory = try self.allocator.realloc(self.allocatedSlice(), better_capacity);
+            const new_memory = try self.allocator.reallocAtLeast(self.allocatedSlice(), better_capacity);
             self.items.ptr = new_memory.ptr;
             self.capacity = new_memory.len;
         }
@@ -242,6 +255,24 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
             self.items.len += 1;
             return &self.items[self.items.len - 1];
+        }
+
+        /// Resize the array, adding `n` new elements, which have `undefined` values.
+        /// The return value is an array pointing to the newly allocated elements.
+        pub fn addManyAsArray(self: *Self, comptime n: usize) !*[n]T {
+            const prev_len = self.items.len;
+            try self.resize(self.items.len + n);
+            return self.items[prev_len..][0..n];
+        }
+
+        /// Resize the array, adding `n` new elements, which have `undefined` values.
+        /// The return value is an array pointing to the newly allocated elements.
+        /// Asserts that there is already space for the new item without allocating more.
+        pub fn addManyAsArrayAssumeCapacity(self: *Self, comptime n: usize) *[n]T {
+            assert(self.items.len + n <= self.capacity);
+            const prev_len = self.items.len;
+            self.items.len += n;
+            return self.items[prev_len..][0..n];
         }
 
         /// Remove and return the last element from the list.
@@ -427,6 +458,14 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             self.capacity = new_len;
         }
 
+        /// Reduce length to `new_len`.
+        /// Invalidates element pointers.
+        /// Keeps capacity the same.
+        pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
+            assert(new_len <= self.items.len);
+            self.items.len = new_len;
+        }
+
         pub fn ensureCapacity(self: *Self, allocator: *Allocator, new_capacity: usize) !void {
             var better_capacity = self.capacity;
             if (better_capacity >= new_capacity) return;
@@ -436,7 +475,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
                 if (better_capacity >= new_capacity) break;
             }
 
-            const new_memory = try allocator.realloc(self.allocatedSlice(), better_capacity);
+            const new_memory = try allocator.reallocAtLeast(self.allocatedSlice(), better_capacity);
             self.items.ptr = new_memory.ptr;
             self.capacity = new_memory.len;
         }
@@ -465,6 +504,24 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
             self.items.len += 1;
             return &self.items[self.items.len - 1];
+        }
+
+        /// Resize the array, adding `n` new elements, which have `undefined` values.
+        /// The return value is an array pointing to the newly allocated elements.
+        pub fn addManyAsArray(self: *Self, allocator: *Allocator, comptime n: usize) !*[n]T {
+            const prev_len = self.items.len;
+            try self.resize(allocator, self.items.len + n);
+            return self.items[prev_len..][0..n];
+        }
+
+        /// Resize the array, adding `n` new elements, which have `undefined` values.
+        /// The return value is an array pointing to the newly allocated elements.
+        /// Asserts that there is already space for the new item without allocating more.
+        pub fn addManyAsArrayAssumeCapacity(self: *Self, comptime n: usize) *[n]T {
+            assert(self.items.len + n <= self.capacity);
+            const prev_len = self.items.len;
+            self.items.len += n;
+            return self.items[prev_len..][0..n];
         }
 
         /// Remove and return the last element from the list.
@@ -693,4 +750,40 @@ test "std.ArrayList.shrink still sets length on error.OutOfMemory" {
 
     list.shrink(1);
     testing.expect(list.items.len == 1);
+}
+
+test "std.ArrayList.writer" {
+    var list = ArrayList(u8).init(std.testing.allocator);
+    defer list.deinit();
+
+    const writer = list.writer();
+    try writer.writeAll("a");
+    try writer.writeAll("bc");
+    try writer.writeAll("d");
+    try writer.writeAll("efg");
+    testing.expectEqualSlices(u8, list.items, "abcdefg");
+}
+
+test "addManyAsArray" {
+    const a = std.testing.allocator;
+    {
+        var list = ArrayList(u8).init(a);
+        defer list.deinit();
+
+        (try list.addManyAsArray(4)).* = "aoeu".*;
+        try list.ensureCapacity(8);
+        list.addManyAsArrayAssumeCapacity(4).* = "asdf".*;
+
+        testing.expectEqualSlices(u8, list.items, "aoeuasdf");
+    }
+    {
+        var list = ArrayListUnmanaged(u8){};
+        defer list.deinit(a);
+
+        (try list.addManyAsArray(a, 4)).* = "aoeu".*;
+        try list.ensureCapacity(a, 8);
+        list.addManyAsArrayAssumeCapacity(4).* = "asdf".*;
+
+        testing.expectEqualSlices(u8, list.items, "aoeuasdf");
+    }
 }

@@ -70,7 +70,7 @@ pub const CacheHash = struct {
 
     /// Convert the input value into bytes and record it as a dependency of the
     /// process being cached
-    pub fn add(self: *CacheHash, val: var) void {
+    pub fn add(self: *CacheHash, val: anytype) void {
         assert(self.manifest_file == null);
 
         const valPtr = switch (@typeInfo(@TypeOf(val))) {
@@ -207,7 +207,7 @@ pub const CacheHash = struct {
             }
 
             if (cache_hash_file.path == null) {
-                cache_hash_file.path = try mem.dupe(self.allocator, u8, file_path);
+                cache_hash_file.path = try self.allocator.dupe(u8, file_path);
             }
 
             const this_file = fs.cwd().openFile(cache_hash_file.path.?, .{ .read = true }) catch {

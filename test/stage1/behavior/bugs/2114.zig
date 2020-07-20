@@ -2,7 +2,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 const math = std.math;
 
-fn ctz(x: var) usize {
+fn ctz(x: anytype) usize {
     return @ctz(@TypeOf(x), x);
 }
 

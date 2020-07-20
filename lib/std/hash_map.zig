@@ -9,17 +9,23 @@ const autoHash = std.hash.autoHash;
 const Wyhash = std.hash.Wyhash;
 const Allocator = mem.Allocator;
 const builtin = @import("builtin");
-
-const want_modification_safety = std.debug.runtime_safety;
-const debug_u32 = if (want_modification_safety) u32 else void;
+const hash_map = @This();
 
 pub fn AutoHashMap(comptime K: type, comptime V: type) type {
-    return HashMap(K, V, getAutoHashFn(K), getAutoEqlFn(K));
+    return HashMap(K, V, getAutoHashFn(K), getAutoEqlFn(K), autoEqlIsCheap(K));
+}
+
+pub fn AutoHashMapUnmanaged(comptime K: type, comptime V: type) type {
+    return HashMapUnmanaged(K, V, getAutoHashFn(K), getAutoEqlFn(K), autoEqlIsCheap(K));
 }
 
 /// Builtin hashmap for strings as keys.
 pub fn StringHashMap(comptime V: type) type {
-    return HashMap([]const u8, V, hashString, eqlString);
+    return HashMap([]const u8, V, hashString, eqlString, true);
+}
+
+pub fn StringHashMapUnmanaged(comptime V: type) type {
+    return HashMapUnmanaged([]const u8, V, hashString, eqlString, true);
 }
 
 pub fn eqlString(a: []const u8, b: []const u8) bool {
@@ -30,422 +36,860 @@ pub fn hashString(s: []const u8) u32 {
     return @truncate(u32, std.hash.Wyhash.hash(0, s));
 }
 
-pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u32, comptime eql: fn (a: K, b: K) bool) type {
+/// Insertion order is preserved.
+/// Deletions perform a "swap removal" on the entries list.
+/// Modifying the hash map while iterating is allowed, however one must understand
+/// the (well defined) behavior when mixing insertions and deletions with iteration.
+/// For a hash map that can be initialized directly that does not store an Allocator
+/// field, see `HashMapUnmanaged`.
+/// When `store_hash` is `false`, this data structure is biased towards cheap `eql`
+/// functions. It does not store each item's hash in the table. Setting `store_hash`
+/// to `true` incurs slightly more memory cost by storing each key's hash in the table
+/// but only has to call `eql` for hash collisions.
+pub fn HashMap(
+    comptime K: type,
+    comptime V: type,
+    comptime hash: fn (key: K) u32,
+    comptime eql: fn (a: K, b: K) bool,
+    comptime store_hash: bool,
+) type {
     return struct {
-        entries: []Entry,
-        size: usize,
-        max_distance_from_start_index: usize,
+        unmanaged: Unmanaged,
         allocator: *Allocator,
 
-        /// This is used to detect bugs where a hashtable is edited while an iterator is running.
-        modification_count: debug_u32,
+        pub const Unmanaged = HashMapUnmanaged(K, V, hash, eql, store_hash);
+        pub const Entry = Unmanaged.Entry;
+        pub const Hash = Unmanaged.Hash;
+        pub const GetOrPutResult = Unmanaged.GetOrPutResult;
 
-        const Self = @This();
-
-        /// A *KV is a mutable pointer into this HashMap's internal storage.
-        /// Modifying the key is undefined behavior.
-        /// Modifying the value is harmless.
-        /// *KV pointers become invalid whenever this HashMap is modified,
-        /// and then any access to the *KV is undefined behavior.
-        pub const KV = struct {
-            key: K,
-            value: V,
-        };
-
-        const Entry = struct {
-            used: bool,
-            distance_from_start_index: usize,
-            kv: KV,
-        };
-
-        pub const GetOrPutResult = struct {
-            kv: *KV,
-            found_existing: bool,
-        };
-
+        /// Deprecated. Iterate using `items`.
         pub const Iterator = struct {
             hm: *const Self,
-            // how many items have we returned
-            count: usize,
-            // iterator through the entry array
+            /// Iterator through the entry array.
             index: usize,
-            // used to detect concurrent modification
-            initial_modification_count: debug_u32,
 
-            pub fn next(it: *Iterator) ?*KV {
-                if (want_modification_safety) {
-                    assert(it.initial_modification_count == it.hm.modification_count); // concurrent modification
-                }
-                if (it.count >= it.hm.size) return null;
-                while (it.index < it.hm.entries.len) : (it.index += 1) {
-                    const entry = &it.hm.entries[it.index];
-                    if (entry.used) {
-                        it.index += 1;
-                        it.count += 1;
-                        return &entry.kv;
-                    }
-                }
-                unreachable; // no next item
+            pub fn next(it: *Iterator) ?*Entry {
+                if (it.index >= it.hm.unmanaged.entries.items.len) return null;
+                const result = &it.hm.unmanaged.entries.items[it.index];
+                it.index += 1;
+                return result;
             }
 
-            // Reset the iterator to the initial index
+            /// Reset the iterator to the initial index
             pub fn reset(it: *Iterator) void {
-                it.count = 0;
                 it.index = 0;
-                // Resetting the modification count too
-                it.initial_modification_count = it.hm.modification_count;
             }
         };
 
+        const Self = @This();
+        const Index = Unmanaged.Index;
+
         pub fn init(allocator: *Allocator) Self {
-            return Self{
-                .entries = &[_]Entry{},
+            return .{
+                .unmanaged = .{},
                 .allocator = allocator,
-                .size = 0,
-                .max_distance_from_start_index = 0,
-                .modification_count = if (want_modification_safety) 0 else {},
             };
         }
 
-        pub fn deinit(hm: Self) void {
-            hm.allocator.free(hm.entries);
+        pub fn deinit(self: *Self) void {
+            self.unmanaged.deinit(self.allocator);
+            self.* = undefined;
         }
 
-        pub fn clear(hm: *Self) void {
-            for (hm.entries) |*entry| {
-                entry.used = false;
-            }
-            hm.size = 0;
-            hm.max_distance_from_start_index = 0;
-            hm.incrementModificationCount();
+        pub fn clearRetainingCapacity(self: *Self) void {
+            return self.unmanaged.clearRetainingCapacity();
         }
 
+        pub fn clearAndFree(self: *Self) void {
+            return self.unmanaged.clearAndFree(self.allocator);
+        }
+
+        /// Deprecated. Use `items().len`.
         pub fn count(self: Self) usize {
-            return self.size;
+            return self.items().len;
+        }
+
+        /// Deprecated. Iterate using `items`.
+        pub fn iterator(self: *const Self) Iterator {
+            return Iterator{
+                .hm = self,
+                .index = 0,
+            };
         }
 
         /// If key exists this function cannot fail.
         /// If there is an existing item with `key`, then the result
-        /// kv pointer points to it, and found_existing is true.
+        /// `Entry` pointer points to it, and found_existing is true.
         /// Otherwise, puts a new item with undefined value, and
-        /// the kv pointer points to it. Caller should then initialize
-        /// the data.
+        /// the `Entry` pointer points to it. Caller should then initialize
+        /// the value (but not the key).
         pub fn getOrPut(self: *Self, key: K) !GetOrPutResult {
-            // TODO this implementation can be improved - we should only
-            // have to hash once and find the entry once.
-            if (self.get(key)) |kv| {
-                return GetOrPutResult{
-                    .kv = kv,
-                    .found_existing = true,
-                };
-            }
-            self.incrementModificationCount();
-            try self.autoCapacity();
-            const put_result = self.internalPut(key);
-            assert(put_result.old_kv == null);
-            return GetOrPutResult{
-                .kv = &put_result.new_entry.kv,
-                .found_existing = false,
-            };
+            return self.unmanaged.getOrPut(self.allocator, key);
         }
 
-        pub fn getOrPutValue(self: *Self, key: K, value: V) !*KV {
-            const res = try self.getOrPut(key);
-            if (!res.found_existing)
-                res.kv.value = value;
-
-            return res.kv;
+        /// If there is an existing item with `key`, then the result
+        /// `Entry` pointer points to it, and found_existing is true.
+        /// Otherwise, puts a new item with undefined value, and
+        /// the `Entry` pointer points to it. Caller should then initialize
+        /// the value (but not the key).
+        /// If a new entry needs to be stored, this function asserts there
+        /// is enough capacity to store it.
+        pub fn getOrPutAssumeCapacity(self: *Self, key: K) GetOrPutResult {
+            return self.unmanaged.getOrPutAssumeCapacity(key);
         }
 
-        fn optimizedCapacity(expected_count: usize) usize {
-            // ensure that the hash map will be at most 60% full if
-            // expected_count items are put into it
-            var optimized_capacity = expected_count * 5 / 3;
-            // an overflow here would mean the amount of memory required would not
-            // be representable in the address space
-            return math.ceilPowerOfTwo(usize, optimized_capacity) catch unreachable;
+        pub fn getOrPutValue(self: *Self, key: K, value: V) !*Entry {
+            return self.unmanaged.getOrPutValue(self.allocator, key, value);
         }
 
-        /// Increases capacity so that the hash map will be at most
-        /// 60% full when expected_count items are put into it
-        pub fn ensureCapacity(self: *Self, expected_count: usize) !void {
-            if (expected_count == 0) return;
-            const optimized_capacity = optimizedCapacity(expected_count);
-            return self.ensureCapacityExact(optimized_capacity);
+        /// Increases capacity, guaranteeing that insertions up until the
+        /// `expected_count` will not cause an allocation, and therefore cannot fail.
+        pub fn ensureCapacity(self: *Self, new_capacity: usize) !void {
+            return self.unmanaged.ensureCapacity(self.allocator, new_capacity);
         }
 
-        /// Sets the capacity to the new capacity if the new
-        /// capacity is greater than the current capacity.
-        /// New capacity must be a power of two.
-        fn ensureCapacityExact(self: *Self, new_capacity: usize) !void {
-            // capacity must always be a power of two to allow for modulo
-            // optimization in the constrainIndex fn
-            assert(math.isPowerOfTwo(new_capacity));
-
-            if (new_capacity <= self.entries.len) {
-                return;
-            }
-
-            const old_entries = self.entries;
-            try self.initCapacity(new_capacity);
-            self.incrementModificationCount();
-            if (old_entries.len > 0) {
-                // dump all of the old elements into the new table
-                for (old_entries) |*old_entry| {
-                    if (old_entry.used) {
-                        self.internalPut(old_entry.kv.key).new_entry.kv.value = old_entry.kv.value;
-                    }
-                }
-                self.allocator.free(old_entries);
-            }
+        /// Returns the number of total elements which may be present before it is
+        /// no longer guaranteed that no allocations will be performed.
+        pub fn capacity(self: *Self) usize {
+            return self.unmanaged.capacity();
         }
 
-        /// Returns the kv pair that was already there.
-        pub fn put(self: *Self, key: K, value: V) !?KV {
-            try self.autoCapacity();
-            return putAssumeCapacity(self, key, value);
+        /// Clobbers any existing data. To detect if a put would clobber
+        /// existing data, see `getOrPut`.
+        pub fn put(self: *Self, key: K, value: V) !void {
+            return self.unmanaged.put(self.allocator, key, value);
         }
 
-        /// Calls put() and asserts that no kv pair is clobbered.
+        /// Inserts a key-value pair into the hash map, asserting that no previous
+        /// entry with the same key is already present
         pub fn putNoClobber(self: *Self, key: K, value: V) !void {
-            assert((try self.put(key, value)) == null);
+            return self.unmanaged.putNoClobber(self.allocator, key, value);
         }
 
-        pub fn putAssumeCapacity(self: *Self, key: K, value: V) ?KV {
-            assert(self.count() < self.entries.len);
-            self.incrementModificationCount();
-
-            const put_result = self.internalPut(key);
-            put_result.new_entry.kv.value = value;
-            return put_result.old_kv;
+        /// Asserts there is enough capacity to store the new key-value pair.
+        /// Clobbers any existing data. To detect if a put would clobber
+        /// existing data, see `getOrPutAssumeCapacity`.
+        pub fn putAssumeCapacity(self: *Self, key: K, value: V) void {
+            return self.unmanaged.putAssumeCapacity(key, value);
         }
 
+        /// Asserts there is enough capacity to store the new key-value pair.
+        /// Asserts that it does not clobber any existing data.
+        /// To detect if a put would clobber existing data, see `getOrPutAssumeCapacity`.
         pub fn putAssumeCapacityNoClobber(self: *Self, key: K, value: V) void {
-            assert(self.putAssumeCapacity(key, value) == null);
+            return self.unmanaged.putAssumeCapacityNoClobber(key, value);
         }
 
-        pub fn get(hm: *const Self, key: K) ?*KV {
-            if (hm.entries.len == 0) {
-                return null;
-            }
-            return hm.internalGet(key);
+        /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
+        pub fn fetchPut(self: *Self, key: K, value: V) !?Entry {
+            return self.unmanaged.fetchPut(self.allocator, key, value);
         }
 
-        pub fn getValue(hm: *const Self, key: K) ?V {
-            return if (hm.get(key)) |kv| kv.value else null;
+        /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
+        /// If insertion happuns, asserts there is enough capacity without allocating.
+        pub fn fetchPutAssumeCapacity(self: *Self, key: K, value: V) ?Entry {
+            return self.unmanaged.fetchPutAssumeCapacity(key, value);
         }
 
-        pub fn contains(hm: *const Self, key: K) bool {
-            return hm.get(key) != null;
+        pub fn getEntry(self: Self, key: K) ?*Entry {
+            return self.unmanaged.getEntry(key);
         }
 
-        /// Returns any kv pair that was removed.
-        pub fn remove(hm: *Self, key: K) ?KV {
-            if (hm.entries.len == 0) return null;
-            hm.incrementModificationCount();
-            const start_index = hm.keyToIndex(key);
-            {
-                var roll_over: usize = 0;
-                while (roll_over <= hm.max_distance_from_start_index) : (roll_over += 1) {
-                    const index = hm.constrainIndex(start_index + roll_over);
-                    var entry = &hm.entries[index];
-
-                    if (!entry.used) return null;
-
-                    if (!eql(entry.kv.key, key)) continue;
-
-                    const removed_kv = entry.kv;
-                    while (roll_over < hm.entries.len) : (roll_over += 1) {
-                        const next_index = hm.constrainIndex(start_index + roll_over + 1);
-                        const next_entry = &hm.entries[next_index];
-                        if (!next_entry.used or next_entry.distance_from_start_index == 0) {
-                            entry.used = false;
-                            hm.size -= 1;
-                            return removed_kv;
-                        }
-                        entry.* = next_entry.*;
-                        entry.distance_from_start_index -= 1;
-                        entry = next_entry;
-                    }
-                    unreachable; // shifting everything in the table
-                }
-            }
-            return null;
+        pub fn get(self: Self, key: K) ?V {
+            return self.unmanaged.get(key);
         }
 
-        /// Calls remove(), asserts that a kv pair is removed, and discards it.
-        pub fn removeAssertDiscard(hm: *Self, key: K) void {
-            assert(hm.remove(key) != null);
+        pub fn contains(self: Self, key: K) bool {
+            return self.unmanaged.contains(key);
         }
 
-        pub fn iterator(hm: *const Self) Iterator {
-            return Iterator{
-                .hm = hm,
-                .count = 0,
-                .index = 0,
-                .initial_modification_count = hm.modification_count,
-            };
+        /// If there is an `Entry` with a matching key, it is deleted from
+        /// the hash map, and then returned from this function.
+        pub fn remove(self: *Self, key: K) ?Entry {
+            return self.unmanaged.remove(key);
+        }
+
+        /// Asserts there is an `Entry` with matching key, deletes it from the hash map,
+        /// and discards it.
+        pub fn removeAssertDiscard(self: *Self, key: K) void {
+            return self.unmanaged.removeAssertDiscard(key);
+        }
+
+        pub fn items(self: Self) []Entry {
+            return self.unmanaged.items();
         }
 
         pub fn clone(self: Self) !Self {
-            var other = Self.init(self.allocator);
-            try other.initCapacity(self.entries.len);
-            var it = self.iterator();
-            while (it.next()) |entry| {
-                try other.putNoClobber(entry.key, entry.value);
+            var other = try self.unmanaged.clone(self.allocator);
+            return other.promote(self.allocator);
+        }
+    };
+}
+
+/// General purpose hash table.
+/// Insertion order is preserved.
+/// Deletions perform a "swap removal" on the entries list.
+/// Modifying the hash map while iterating is allowed, however one must understand
+/// the (well defined) behavior when mixing insertions and deletions with iteration.
+/// This type does not store an Allocator field - the Allocator must be passed in
+/// with each function call that requires it. See `HashMap` for a type that stores
+/// an Allocator field for convenience.
+/// Can be initialized directly using the default field values.
+/// This type is designed to have low overhead for small numbers of entries. When
+/// `store_hash` is `false` and the number of entries in the map is less than 9,
+/// the overhead cost of using `HashMapUnmanaged` rather than `std.ArrayList` is
+/// only a single pointer-sized integer.
+/// When `store_hash` is `false`, this data structure is biased towards cheap `eql`
+/// functions. It does not store each item's hash in the table. Setting `store_hash`
+/// to `true` incurs slightly more memory cost by storing each key's hash in the table
+/// but guarantees only one call to `eql` per insertion/deletion.
+pub fn HashMapUnmanaged(
+    comptime K: type,
+    comptime V: type,
+    comptime hash: fn (key: K) u32,
+    comptime eql: fn (a: K, b: K) bool,
+    comptime store_hash: bool,
+) type {
+    return struct {
+        /// It is permitted to access this field directly.
+        entries: std.ArrayListUnmanaged(Entry) = .{},
+
+        /// When entries length is less than `linear_scan_max`, this remains `null`.
+        /// Once entries length grows big enough, this field is allocated. There is
+        /// an IndexHeader followed by an array of Index(I) structs, where I is defined
+        /// by how many total indexes there are.
+        index_header: ?*IndexHeader = null,
+
+        /// Modifying the key is illegal behavior.
+        /// Modifying the value is allowed.
+        /// Entry pointers become invalid whenever this HashMap is modified,
+        /// unless `ensureCapacity` was previously used.
+        pub const Entry = struct {
+            /// This field is `void` if `store_hash` is `false`.
+            hash: Hash,
+            key: K,
+            value: V,
+        };
+
+        pub const Hash = if (store_hash) u32 else void;
+
+        pub const GetOrPutResult = struct {
+            entry: *Entry,
+            found_existing: bool,
+        };
+
+        pub const Managed = HashMap(K, V, hash, eql, store_hash);
+
+        const Self = @This();
+
+        const linear_scan_max = 8;
+
+        pub fn promote(self: Self, allocator: *Allocator) Managed {
+            return .{
+                .unmanaged = self,
+                .allocator = allocator,
+            };
+        }
+
+        pub fn deinit(self: *Self, allocator: *Allocator) void {
+            self.entries.deinit(allocator);
+            if (self.index_header) |header| {
+                header.free(allocator);
+            }
+            self.* = undefined;
+        }
+
+        pub fn clearRetainingCapacity(self: *Self) void {
+            self.entries.items.len = 0;
+            if (self.index_header) |header| {
+                header.max_distance_from_start_index = 0;
+                switch (header.capacityIndexType()) {
+                    .u8 => mem.set(Index(u8), header.indexes(u8), Index(u8).empty),
+                    .u16 => mem.set(Index(u16), header.indexes(u16), Index(u16).empty),
+                    .u32 => mem.set(Index(u32), header.indexes(u32), Index(u32).empty),
+                    .usize => mem.set(Index(usize), header.indexes(usize), Index(usize).empty),
+                }
+            }
+        }
+
+        pub fn clearAndFree(self: *Self, allocator: *Allocator) void {
+            self.entries.shrink(allocator, 0);
+            if (self.index_header) |header| {
+                header.free(allocator);
+                self.index_header = null;
+            }
+        }
+
+        /// If key exists this function cannot fail.
+        /// If there is an existing item with `key`, then the result
+        /// `Entry` pointer points to it, and found_existing is true.
+        /// Otherwise, puts a new item with undefined value, and
+        /// the `Entry` pointer points to it. Caller should then initialize
+        /// the value (but not the key).
+        pub fn getOrPut(self: *Self, allocator: *Allocator, key: K) !GetOrPutResult {
+            self.ensureCapacity(allocator, self.entries.items.len + 1) catch |err| {
+                // "If key exists this function cannot fail."
+                return GetOrPutResult{
+                    .entry = self.getEntry(key) orelse return err,
+                    .found_existing = true,
+                };
+            };
+            return self.getOrPutAssumeCapacity(key);
+        }
+
+        /// If there is an existing item with `key`, then the result
+        /// `Entry` pointer points to it, and found_existing is true.
+        /// Otherwise, puts a new item with undefined value, and
+        /// the `Entry` pointer points to it. Caller should then initialize
+        /// the value (but not the key).
+        /// If a new entry needs to be stored, this function asserts there
+        /// is enough capacity to store it.
+        pub fn getOrPutAssumeCapacity(self: *Self, key: K) GetOrPutResult {
+            const header = self.index_header orelse {
+                // Linear scan.
+                const h = if (store_hash) hash(key) else {};
+                for (self.entries.items) |*item| {
+                    if (item.hash == h and eql(key, item.key)) {
+                        return GetOrPutResult{
+                            .entry = item,
+                            .found_existing = true,
+                        };
+                    }
+                }
+                const new_entry = self.entries.addOneAssumeCapacity();
+                new_entry.* = .{
+                    .hash = if (store_hash) h else {},
+                    .key = key,
+                    .value = undefined,
+                };
+                return GetOrPutResult{
+                    .entry = new_entry,
+                    .found_existing = false,
+                };
+            };
+
+            switch (header.capacityIndexType()) {
+                .u8 => return self.getOrPutInternal(key, header, u8),
+                .u16 => return self.getOrPutInternal(key, header, u16),
+                .u32 => return self.getOrPutInternal(key, header, u32),
+                .usize => return self.getOrPutInternal(key, header, usize),
+            }
+        }
+
+        pub fn getOrPutValue(self: *Self, allocator: *Allocator, key: K, value: V) !*Entry {
+            const res = try self.getOrPut(allocator, key);
+            if (!res.found_existing)
+                res.entry.value = value;
+
+            return res.entry;
+        }
+
+        /// Increases capacity, guaranteeing that insertions up until the
+        /// `expected_count` will not cause an allocation, and therefore cannot fail.
+        pub fn ensureCapacity(self: *Self, allocator: *Allocator, new_capacity: usize) !void {
+            try self.entries.ensureCapacity(allocator, new_capacity);
+            if (new_capacity <= linear_scan_max) return;
+
+            // Ensure that the indexes will be at most 60% full if
+            // `new_capacity` items are put into it.
+            const needed_len = new_capacity * 5 / 3;
+            if (self.index_header) |header| {
+                if (needed_len > header.indexes_len) {
+                    // An overflow here would mean the amount of memory required would not
+                    // be representable in the address space.
+                    const new_indexes_len = math.ceilPowerOfTwo(usize, needed_len) catch unreachable;
+                    const new_header = try IndexHeader.alloc(allocator, new_indexes_len);
+                    self.insertAllEntriesIntoNewHeader(new_header);
+                    header.free(allocator);
+                    self.index_header = new_header;
+                }
+            } else {
+                // An overflow here would mean the amount of memory required would not
+                // be representable in the address space.
+                const new_indexes_len = math.ceilPowerOfTwo(usize, needed_len) catch unreachable;
+                const header = try IndexHeader.alloc(allocator, new_indexes_len);
+                self.insertAllEntriesIntoNewHeader(header);
+                self.index_header = header;
+            }
+        }
+
+        /// Returns the number of total elements which may be present before it is
+        /// no longer guaranteed that no allocations will be performed.
+        pub fn capacity(self: Self) usize {
+            const entry_cap = self.entries.capacity;
+            const header = self.index_header orelse return math.min(linear_scan_max, entry_cap);
+            const indexes_cap = (header.indexes_len + 1) * 3 / 4;
+            return math.min(entry_cap, indexes_cap);
+        }
+
+        /// Clobbers any existing data. To detect if a put would clobber
+        /// existing data, see `getOrPut`.
+        pub fn put(self: *Self, allocator: *Allocator, key: K, value: V) !void {
+            const result = try self.getOrPut(allocator, key);
+            result.entry.value = value;
+        }
+
+        /// Inserts a key-value pair into the hash map, asserting that no previous
+        /// entry with the same key is already present
+        pub fn putNoClobber(self: *Self, allocator: *Allocator, key: K, value: V) !void {
+            const result = try self.getOrPut(allocator, key);
+            assert(!result.found_existing);
+            result.entry.value = value;
+        }
+
+        /// Asserts there is enough capacity to store the new key-value pair.
+        /// Clobbers any existing data. To detect if a put would clobber
+        /// existing data, see `getOrPutAssumeCapacity`.
+        pub fn putAssumeCapacity(self: *Self, key: K, value: V) void {
+            const result = self.getOrPutAssumeCapacity(key);
+            result.entry.value = value;
+        }
+
+        /// Asserts there is enough capacity to store the new key-value pair.
+        /// Asserts that it does not clobber any existing data.
+        /// To detect if a put would clobber existing data, see `getOrPutAssumeCapacity`.
+        pub fn putAssumeCapacityNoClobber(self: *Self, key: K, value: V) void {
+            const result = self.getOrPutAssumeCapacity(key);
+            assert(!result.found_existing);
+            result.entry.value = value;
+        }
+
+        /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
+        pub fn fetchPut(self: *Self, allocator: *Allocator, key: K, value: V) !?Entry {
+            const gop = try self.getOrPut(allocator, key);
+            var result: ?Entry = null;
+            if (gop.found_existing) {
+                result = gop.entry.*;
+            }
+            gop.entry.value = value;
+            return result;
+        }
+
+        /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
+        /// If insertion happens, asserts there is enough capacity without allocating.
+        pub fn fetchPutAssumeCapacity(self: *Self, key: K, value: V) ?Entry {
+            const gop = self.getOrPutAssumeCapacity(key);
+            var result: ?Entry = null;
+            if (gop.found_existing) {
+                result = gop.entry.*;
+            }
+            gop.entry.value = value;
+            return result;
+        }
+
+        pub fn getEntry(self: Self, key: K) ?*Entry {
+            const header = self.index_header orelse {
+                // Linear scan.
+                const h = if (store_hash) hash(key) else {};
+                for (self.entries.items) |*item| {
+                    if (item.hash == h and eql(key, item.key)) {
+                        return item;
+                    }
+                }
+                return null;
+            };
+
+            switch (header.capacityIndexType()) {
+                .u8 => return self.getInternal(key, header, u8),
+                .u16 => return self.getInternal(key, header, u16),
+                .u32 => return self.getInternal(key, header, u32),
+                .usize => return self.getInternal(key, header, usize),
+            }
+        }
+
+        pub fn get(self: Self, key: K) ?V {
+            return if (self.getEntry(key)) |entry| entry.value else null;
+        }
+
+        pub fn contains(self: Self, key: K) bool {
+            return self.getEntry(key) != null;
+        }
+
+        /// If there is an `Entry` with a matching key, it is deleted from
+        /// the hash map, and then returned from this function.
+        pub fn remove(self: *Self, key: K) ?Entry {
+            const header = self.index_header orelse {
+                // Linear scan.
+                const h = if (store_hash) hash(key) else {};
+                for (self.entries.items) |item, i| {
+                    if (item.hash == h and eql(key, item.key)) {
+                        return self.entries.swapRemove(i);
+                    }
+                }
+                return null;
+            };
+            switch (header.capacityIndexType()) {
+                .u8 => return self.removeInternal(key, header, u8),
+                .u16 => return self.removeInternal(key, header, u16),
+                .u32 => return self.removeInternal(key, header, u32),
+                .usize => return self.removeInternal(key, header, usize),
+            }
+        }
+
+        /// Asserts there is an `Entry` with matching key, deletes it from the hash map,
+        /// and discards it.
+        pub fn removeAssertDiscard(self: *Self, key: K) void {
+            assert(self.remove(key) != null);
+        }
+
+        pub fn items(self: Self) []Entry {
+            return self.entries.items;
+        }
+
+        pub fn clone(self: Self, allocator: *Allocator) !Self {
+            var other: Self = .{};
+            try other.entries.appendSlice(allocator, self.entries.items);
+
+            if (self.index_header) |header| {
+                const new_header = try IndexHeader.alloc(allocator, header.indexes_len);
+                other.insertAllEntriesIntoNewHeader(new_header);
+                other.index_header = new_header;
             }
             return other;
         }
 
-        fn autoCapacity(self: *Self) !void {
-            if (self.entries.len == 0) {
-                return self.ensureCapacityExact(16);
-            }
-            // if we get too full (60%), double the capacity
-            if (self.size * 5 >= self.entries.len * 3) {
-                return self.ensureCapacityExact(self.entries.len * 2);
-            }
-        }
-
-        fn initCapacity(hm: *Self, capacity: usize) !void {
-            hm.entries = try hm.allocator.alloc(Entry, capacity);
-            hm.size = 0;
-            hm.max_distance_from_start_index = 0;
-            for (hm.entries) |*entry| {
-                entry.used = false;
-            }
-        }
-
-        fn incrementModificationCount(hm: *Self) void {
-            if (want_modification_safety) {
-                hm.modification_count +%= 1;
-            }
-        }
-
-        const InternalPutResult = struct {
-            new_entry: *Entry,
-            old_kv: ?KV,
-        };
-
-        /// Returns a pointer to the new entry.
-        /// Asserts that there is enough space for the new item.
-        fn internalPut(self: *Self, orig_key: K) InternalPutResult {
-            var key = orig_key;
-            var value: V = undefined;
-            const start_index = self.keyToIndex(key);
+        fn removeInternal(self: *Self, key: K, header: *IndexHeader, comptime I: type) ?Entry {
+            const indexes = header.indexes(I);
+            const h = hash(key);
+            const start_index = header.constrainIndex(h);
             var roll_over: usize = 0;
-            var distance_from_start_index: usize = 0;
-            var got_result_entry = false;
-            var result = InternalPutResult{
-                .new_entry = undefined,
-                .old_kv = null,
-            };
-            while (roll_over < self.entries.len) : ({
-                roll_over += 1;
-                distance_from_start_index += 1;
-            }) {
-                const index = self.constrainIndex(start_index + roll_over);
-                const entry = &self.entries[index];
+            while (roll_over <= header.max_distance_from_start_index) : (roll_over += 1) {
+                const index_index = header.constrainIndex(start_index + roll_over);
+                var index = &indexes[index_index];
+                if (index.isEmpty())
+                    return null;
 
-                if (entry.used and !eql(entry.kv.key, key)) {
-                    if (entry.distance_from_start_index < distance_from_start_index) {
-                        // robin hood to the rescue
-                        const tmp = entry.*;
-                        self.max_distance_from_start_index = math.max(self.max_distance_from_start_index, distance_from_start_index);
-                        if (!got_result_entry) {
-                            got_result_entry = true;
-                            result.new_entry = entry;
-                        }
-                        entry.* = Entry{
-                            .used = true,
-                            .distance_from_start_index = distance_from_start_index,
-                            .kv = KV{
-                                .key = key,
-                                .value = value,
-                            },
-                        };
-                        key = tmp.kv.key;
-                        value = tmp.kv.value;
-                        distance_from_start_index = tmp.distance_from_start_index;
-                    }
+                const entry = &self.entries.items[index.entry_index];
+
+                const hash_match = if (store_hash) h == entry.hash else true;
+                if (!hash_match or !eql(key, entry.key))
                     continue;
+
+                const removed_entry = self.entries.swapRemove(index.entry_index);
+                if (self.entries.items.len > 0 and self.entries.items.len != index.entry_index) {
+                    // Because of the swap remove, now we need to update the index that was
+                    // pointing to the last entry and is now pointing to this removed item slot.
+                    self.updateEntryIndex(header, self.entries.items.len, index.entry_index, I, indexes);
                 }
 
-                if (entry.used) {
-                    result.old_kv = entry.kv;
-                } else {
-                    // adding an entry. otherwise overwriting old value with
-                    // same key
-                    self.size += 1;
+                // Now we have to shift over the following indexes.
+                roll_over += 1;
+                while (roll_over < header.indexes_len) : (roll_over += 1) {
+                    const next_index_index = header.constrainIndex(start_index + roll_over);
+                    const next_index = &indexes[next_index_index];
+                    if (next_index.isEmpty() or next_index.distance_from_start_index == 0) {
+                        index.setEmpty();
+                        return removed_entry;
+                    }
+                    index.* = next_index.*;
+                    index.distance_from_start_index -= 1;
+                    index = next_index;
                 }
-
-                self.max_distance_from_start_index = math.max(distance_from_start_index, self.max_distance_from_start_index);
-                if (!got_result_entry) {
-                    result.new_entry = entry;
-                }
-                entry.* = Entry{
-                    .used = true,
-                    .distance_from_start_index = distance_from_start_index,
-                    .kv = KV{
-                        .key = key,
-                        .value = value,
-                    },
-                };
-                return result;
-            }
-            unreachable; // put into a full map
-        }
-
-        fn internalGet(hm: Self, key: K) ?*KV {
-            const start_index = hm.keyToIndex(key);
-            {
-                var roll_over: usize = 0;
-                while (roll_over <= hm.max_distance_from_start_index) : (roll_over += 1) {
-                    const index = hm.constrainIndex(start_index + roll_over);
-                    const entry = &hm.entries[index];
-
-                    if (!entry.used) return null;
-                    if (eql(entry.kv.key, key)) return &entry.kv;
-                }
+                unreachable;
             }
             return null;
         }
 
-        fn keyToIndex(hm: Self, key: K) usize {
-            return hm.constrainIndex(@as(usize, hash(key)));
+        fn updateEntryIndex(
+            self: *Self,
+            header: *IndexHeader,
+            old_entry_index: usize,
+            new_entry_index: usize,
+            comptime I: type,
+            indexes: []Index(I),
+        ) void {
+            const h = if (store_hash) self.entries.items[new_entry_index].hash else hash(self.entries.items[new_entry_index].key);
+            const start_index = header.constrainIndex(h);
+            var roll_over: usize = 0;
+            while (roll_over <= header.max_distance_from_start_index) : (roll_over += 1) {
+                const index_index = header.constrainIndex(start_index + roll_over);
+                const index = &indexes[index_index];
+                if (index.entry_index == old_entry_index) {
+                    index.entry_index = @intCast(I, new_entry_index);
+                    return;
+                }
+            }
+            unreachable;
         }
 
-        fn constrainIndex(hm: Self, i: usize) usize {
-            // this is an optimization for modulo of power of two integers;
-            // it requires hm.entries.len to always be a power of two
-            return i & (hm.entries.len - 1);
+        /// Must ensureCapacity before calling this.
+        fn getOrPutInternal(self: *Self, key: K, header: *IndexHeader, comptime I: type) GetOrPutResult {
+            const indexes = header.indexes(I);
+            const h = hash(key);
+            const start_index = header.constrainIndex(h);
+            var roll_over: usize = 0;
+            var distance_from_start_index: usize = 0;
+            while (roll_over <= header.indexes_len) : ({
+                roll_over += 1;
+                distance_from_start_index += 1;
+            }) {
+                const index_index = header.constrainIndex(start_index + roll_over);
+                const index = indexes[index_index];
+                if (index.isEmpty()) {
+                    indexes[index_index] = .{
+                        .distance_from_start_index = @intCast(I, distance_from_start_index),
+                        .entry_index = @intCast(I, self.entries.items.len),
+                    };
+                    header.maybeBumpMax(distance_from_start_index);
+                    const new_entry = self.entries.addOneAssumeCapacity();
+                    new_entry.* = .{
+                        .hash = if (store_hash) h else {},
+                        .key = key,
+                        .value = undefined,
+                    };
+                    return .{
+                        .found_existing = false,
+                        .entry = new_entry,
+                    };
+                }
+
+                // This pointer survives the following append because we call
+                // entries.ensureCapacity before getOrPutInternal.
+                const entry = &self.entries.items[index.entry_index];
+                const hash_match = if (store_hash) h == entry.hash else true;
+                if (hash_match and eql(key, entry.key)) {
+                    return .{
+                        .found_existing = true,
+                        .entry = entry,
+                    };
+                }
+                if (index.distance_from_start_index < distance_from_start_index) {
+                    // In this case, we did not find the item. We will put a new entry.
+                    // However, we will use this index for the new entry, and move
+                    // the previous index down the line, to keep the max_distance_from_start_index
+                    // as small as possible.
+                    indexes[index_index] = .{
+                        .distance_from_start_index = @intCast(I, distance_from_start_index),
+                        .entry_index = @intCast(I, self.entries.items.len),
+                    };
+                    header.maybeBumpMax(distance_from_start_index);
+                    const new_entry = self.entries.addOneAssumeCapacity();
+                    new_entry.* = .{
+                        .hash = if (store_hash) h else {},
+                        .key = key,
+                        .value = undefined,
+                    };
+
+                    distance_from_start_index = index.distance_from_start_index;
+                    var prev_entry_index = index.entry_index;
+
+                    // Find somewhere to put the index we replaced by shifting
+                    // following indexes backwards.
+                    roll_over += 1;
+                    distance_from_start_index += 1;
+                    while (roll_over < header.indexes_len) : ({
+                        roll_over += 1;
+                        distance_from_start_index += 1;
+                    }) {
+                        const next_index_index = header.constrainIndex(start_index + roll_over);
+                        const next_index = indexes[next_index_index];
+                        if (next_index.isEmpty()) {
+                            header.maybeBumpMax(distance_from_start_index);
+                            indexes[next_index_index] = .{
+                                .entry_index = prev_entry_index,
+                                .distance_from_start_index = @intCast(I, distance_from_start_index),
+                            };
+                            return .{
+                                .found_existing = false,
+                                .entry = new_entry,
+                            };
+                        }
+                        if (next_index.distance_from_start_index < distance_from_start_index) {
+                            header.maybeBumpMax(distance_from_start_index);
+                            indexes[next_index_index] = .{
+                                .entry_index = prev_entry_index,
+                                .distance_from_start_index = @intCast(I, distance_from_start_index),
+                            };
+                            distance_from_start_index = next_index.distance_from_start_index;
+                            prev_entry_index = next_index.entry_index;
+                        }
+                    }
+                    unreachable;
+                }
+            }
+            unreachable;
+        }
+
+        fn getInternal(self: Self, key: K, header: *IndexHeader, comptime I: type) ?*Entry {
+            const indexes = header.indexes(I);
+            const h = hash(key);
+            const start_index = header.constrainIndex(h);
+            var roll_over: usize = 0;
+            while (roll_over <= header.max_distance_from_start_index) : (roll_over += 1) {
+                const index_index = header.constrainIndex(start_index + roll_over);
+                const index = indexes[index_index];
+                if (index.isEmpty())
+                    return null;
+
+                const entry = &self.entries.items[index.entry_index];
+                const hash_match = if (store_hash) h == entry.hash else true;
+                if (hash_match and eql(key, entry.key))
+                    return entry;
+            }
+            return null;
+        }
+
+        fn insertAllEntriesIntoNewHeader(self: *Self, header: *IndexHeader) void {
+            switch (header.capacityIndexType()) {
+                .u8 => return self.insertAllEntriesIntoNewHeaderGeneric(header, u8),
+                .u16 => return self.insertAllEntriesIntoNewHeaderGeneric(header, u16),
+                .u32 => return self.insertAllEntriesIntoNewHeaderGeneric(header, u32),
+                .usize => return self.insertAllEntriesIntoNewHeaderGeneric(header, usize),
+            }
+        }
+
+        fn insertAllEntriesIntoNewHeaderGeneric(self: *Self, header: *IndexHeader, comptime I: type) void {
+            const indexes = header.indexes(I);
+            entry_loop: for (self.entries.items) |entry, i| {
+                const h = if (store_hash) entry.hash else hash(entry.key);
+                const start_index = header.constrainIndex(h);
+                var entry_index = i;
+                var roll_over: usize = 0;
+                var distance_from_start_index: usize = 0;
+                while (roll_over < header.indexes_len) : ({
+                    roll_over += 1;
+                    distance_from_start_index += 1;
+                }) {
+                    const index_index = header.constrainIndex(start_index + roll_over);
+                    const next_index = indexes[index_index];
+                    if (next_index.isEmpty()) {
+                        header.maybeBumpMax(distance_from_start_index);
+                        indexes[index_index] = .{
+                            .distance_from_start_index = @intCast(I, distance_from_start_index),
+                            .entry_index = @intCast(I, entry_index),
+                        };
+                        continue :entry_loop;
+                    }
+                    if (next_index.distance_from_start_index < distance_from_start_index) {
+                        header.maybeBumpMax(distance_from_start_index);
+                        indexes[index_index] = .{
+                            .distance_from_start_index = @intCast(I, distance_from_start_index),
+                            .entry_index = @intCast(I, entry_index),
+                        };
+                        distance_from_start_index = next_index.distance_from_start_index;
+                        entry_index = next_index.entry_index;
+                    }
+                }
+                unreachable;
+            }
         }
     };
 }
+
+const CapacityIndexType = enum { u8, u16, u32, usize };
+
+fn capacityIndexType(indexes_len: usize) CapacityIndexType {
+    if (indexes_len < math.maxInt(u8))
+        return .u8;
+    if (indexes_len < math.maxInt(u16))
+        return .u16;
+    if (indexes_len < math.maxInt(u32))
+        return .u32;
+    return .usize;
+}
+
+fn capacityIndexSize(indexes_len: usize) usize {
+    switch (capacityIndexType(indexes_len)) {
+        .u8 => return @sizeOf(Index(u8)),
+        .u16 => return @sizeOf(Index(u16)),
+        .u32 => return @sizeOf(Index(u32)),
+        .usize => return @sizeOf(Index(usize)),
+    }
+}
+
+fn Index(comptime I: type) type {
+    return extern struct {
+        entry_index: I,
+        distance_from_start_index: I,
+
+        const Self = @This();
+
+        const empty = Self{
+            .entry_index = math.maxInt(I),
+            .distance_from_start_index = undefined,
+        };
+
+        fn isEmpty(idx: Self) bool {
+            return idx.entry_index == math.maxInt(I);
+        }
+
+        fn setEmpty(idx: *Self) void {
+            idx.entry_index = math.maxInt(I);
+        }
+    };
+}
+
+/// This struct is trailed by an array of `Index(I)`, where `I`
+/// and the array length are determined by `indexes_len`.
+const IndexHeader = struct {
+    max_distance_from_start_index: usize,
+    indexes_len: usize,
+
+    fn constrainIndex(header: IndexHeader, i: usize) usize {
+        // This is an optimization for modulo of power of two integers;
+        // it requires `indexes_len` to always be a power of two.
+        return i & (header.indexes_len - 1);
+    }
+
+    fn indexes(header: *IndexHeader, comptime I: type) []Index(I) {
+        const start = @ptrCast([*]Index(I), @ptrCast([*]u8, header) + @sizeOf(IndexHeader));
+        return start[0..header.indexes_len];
+    }
+
+    fn capacityIndexType(header: IndexHeader) CapacityIndexType {
+        return hash_map.capacityIndexType(header.indexes_len);
+    }
+
+    fn maybeBumpMax(header: *IndexHeader, distance_from_start_index: usize) void {
+        if (distance_from_start_index > header.max_distance_from_start_index) {
+            header.max_distance_from_start_index = distance_from_start_index;
+        }
+    }
+
+    fn alloc(allocator: *Allocator, len: usize) !*IndexHeader {
+        const index_size = hash_map.capacityIndexSize(len);
+        const nbytes = @sizeOf(IndexHeader) + index_size * len;
+        const bytes = try allocator.allocAdvanced(u8, @alignOf(IndexHeader), nbytes, .exact);
+        @memset(bytes.ptr + @sizeOf(IndexHeader), 0xff, bytes.len - @sizeOf(IndexHeader));
+        const result = @ptrCast(*IndexHeader, bytes.ptr);
+        result.* = .{
+            .max_distance_from_start_index = 0,
+            .indexes_len = len,
+        };
+        return result;
+    }
+
+    fn free(header: *IndexHeader, allocator: *Allocator) void {
+        const index_size = hash_map.capacityIndexSize(header.indexes_len);
+        const ptr = @ptrCast([*]u8, header);
+        const slice = ptr[0 .. @sizeOf(IndexHeader) + header.indexes_len * index_size];
+        allocator.free(slice);
+    }
+};
 
 test "basic hash map usage" {
     var map = AutoHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 
-    testing.expect((try map.put(1, 11)) == null);
-    testing.expect((try map.put(2, 22)) == null);
-    testing.expect((try map.put(3, 33)) == null);
-    testing.expect((try map.put(4, 44)) == null);
+    testing.expect((try map.fetchPut(1, 11)) == null);
+    testing.expect((try map.fetchPut(2, 22)) == null);
+    testing.expect((try map.fetchPut(3, 33)) == null);
+    testing.expect((try map.fetchPut(4, 44)) == null);
 
     try map.putNoClobber(5, 55);
-    testing.expect((try map.put(5, 66)).?.value == 55);
-    testing.expect((try map.put(5, 55)).?.value == 66);
+    testing.expect((try map.fetchPut(5, 66)).?.value == 55);
+    testing.expect((try map.fetchPut(5, 55)).?.value == 66);
 
     const gop1 = try map.getOrPut(5);
     testing.expect(gop1.found_existing == true);
-    testing.expect(gop1.kv.value == 55);
-    gop1.kv.value = 77;
-    testing.expect(map.get(5).?.value == 77);
+    testing.expect(gop1.entry.value == 55);
+    gop1.entry.value = 77;
+    testing.expect(map.getEntry(5).?.value == 77);
 
     const gop2 = try map.getOrPut(99);
     testing.expect(gop2.found_existing == false);
-    gop2.kv.value = 42;
-    testing.expect(map.get(99).?.value == 42);
+    gop2.entry.value = 42;
+    testing.expect(map.getEntry(99).?.value == 42);
 
     const gop3 = try map.getOrPutValue(5, 5);
     testing.expect(gop3.value == 77);
@@ -454,15 +898,15 @@ test "basic hash map usage" {
     testing.expect(gop4.value == 41);
 
     testing.expect(map.contains(2));
-    testing.expect(map.get(2).?.value == 22);
-    testing.expect(map.getValue(2).? == 22);
+    testing.expect(map.getEntry(2).?.value == 22);
+    testing.expect(map.get(2).? == 22);
 
     const rmv1 = map.remove(2);
     testing.expect(rmv1.?.key == 2);
     testing.expect(rmv1.?.value == 22);
     testing.expect(map.remove(2) == null);
+    testing.expect(map.getEntry(2) == null);
     testing.expect(map.get(2) == null);
-    testing.expect(map.getValue(2) == null);
 
     map.removeAssertDiscard(3);
 }
@@ -498,8 +942,8 @@ test "iterator hash map" {
     it.reset();
 
     var count: usize = 0;
-    while (it.next()) |kv| : (count += 1) {
-        buffer[@intCast(usize, kv.key)] = kv.value;
+    while (it.next()) |entry| : (count += 1) {
+        buffer[@intCast(usize, entry.key)] = entry.value;
     }
     testing.expect(count == 3);
     testing.expect(it.next() == null);
@@ -510,8 +954,8 @@ test "iterator hash map" {
 
     it.reset();
     count = 0;
-    while (it.next()) |kv| {
-        buffer[@intCast(usize, kv.key)] = kv.value;
+    while (it.next()) |entry| {
+        buffer[@intCast(usize, entry.key)] = entry.value;
         count += 1;
         if (count >= 2) break;
     }
@@ -531,14 +975,33 @@ test "ensure capacity" {
     defer map.deinit();
 
     try map.ensureCapacity(20);
-    const initialCapacity = map.entries.len;
-    testing.expect(initialCapacity >= 20);
+    const initial_capacity = map.capacity();
+    testing.expect(initial_capacity >= 20);
     var i: i32 = 0;
     while (i < 20) : (i += 1) {
-        testing.expect(map.putAssumeCapacity(i, i + 10) == null);
+        testing.expect(map.fetchPutAssumeCapacity(i, i + 10) == null);
     }
     // shouldn't resize from putAssumeCapacity
-    testing.expect(initialCapacity == map.entries.len);
+    testing.expect(initial_capacity == map.capacity());
+}
+
+test "clone" {
+    var original = AutoHashMap(i32, i32).init(std.testing.allocator);
+    defer original.deinit();
+
+    // put more than `linear_scan_max` so we can test that the index header is properly cloned
+    var i: u8 = 0;
+    while (i < 10) : (i += 1) {
+        try original.putNoClobber(i, i * 10);
+    }
+
+    var copy = try original.clone();
+    defer copy.deinit();
+
+    i = 0;
+    while (i < 10) : (i += 1) {
+        testing.expect(copy.get(i).? == i * 10);
+    }
 }
 
 pub fn getHashPtrAddrFn(comptime K: type) (fn (K) u32) {
@@ -573,6 +1036,24 @@ pub fn getAutoEqlFn(comptime K: type) (fn (K, K) bool) {
             return meta.eql(a, b);
         }
     }.eql;
+}
+
+pub fn autoEqlIsCheap(comptime K: type) bool {
+    return switch (@typeInfo(K)) {
+        .Bool,
+        .Int,
+        .Float,
+        .Pointer,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .Enum,
+        .Fn,
+        .ErrorSet,
+        .AnyFrame,
+        .EnumLiteral,
+        => true,
+        else => false,
+    };
 }
 
 pub fn getAutoHashStratFn(comptime K: type, comptime strategy: std.hash.Strategy) (fn (K) u32) {

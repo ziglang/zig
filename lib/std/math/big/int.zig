@@ -12,7 +12,7 @@ const assert = std.debug.assert;
 
 /// Returns the number of limbs needed to store `scalar`, which must be a
 /// primitive integer value.
-pub fn calcLimbLen(scalar: var) usize {
+pub fn calcLimbLen(scalar: anytype) usize {
     const T = @TypeOf(scalar);
     switch (@typeInfo(T)) {
         .Int => |info| {
@@ -110,7 +110,7 @@ pub const Mutable = struct {
     /// `value` is a primitive integer type.
     /// Asserts the value fits within the provided `limbs_buffer`.
     /// Note: `calcLimbLen` can be used to figure out how big an array to allocate for `limbs_buffer`.
-    pub fn init(limbs_buffer: []Limb, value: var) Mutable {
+    pub fn init(limbs_buffer: []Limb, value: anytype) Mutable {
         limbs_buffer[0] = 0;
         var self: Mutable = .{
             .limbs = limbs_buffer,
@@ -169,7 +169,7 @@ pub const Mutable = struct {
     /// Asserts the value fits within the limbs buffer.
     /// Note: `calcLimbLen` can be used to figure out how big the limbs buffer
     /// needs to be to store a specific value.
-    pub fn set(self: *Mutable, value: var) void {
+    pub fn set(self: *Mutable, value: anytype) void {
         const T = @TypeOf(value);
 
         switch (@typeInfo(T)) {
@@ -281,7 +281,7 @@ pub const Mutable = struct {
     ///
     /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
     /// r is `math.max(a.limbs.len, calcLimbLen(scalar)) + 1`.
-    pub fn addScalar(r: *Mutable, a: Const, scalar: var) void {
+    pub fn addScalar(r: *Mutable, a: Const, scalar: anytype) void {
         var limbs: [calcLimbLen(scalar)]Limb = undefined;
         const operand = init(&limbs, scalar).toConst();
         return add(r, a, operand);
@@ -1058,7 +1058,7 @@ pub const Const = struct {
         self: Const,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        out_stream: var,
+        out_stream: anytype,
     ) !void {
         comptime var radix = 10;
         comptime var uppercase = false;
@@ -1105,7 +1105,7 @@ pub const Const = struct {
         assert(base <= 16);
 
         if (self.eqZero()) {
-            return mem.dupe(allocator, u8, "0");
+            return allocator.dupe(u8, "0");
         }
         const string = try allocator.alloc(u8, self.sizeInBaseUpperBound(base));
         errdefer allocator.free(string);
@@ -1261,7 +1261,7 @@ pub const Const = struct {
     }
 
     /// Same as `order` but the right-hand operand is a primitive integer.
-    pub fn orderAgainstScalar(lhs: Const, scalar: var) math.Order {
+    pub fn orderAgainstScalar(lhs: Const, scalar: anytype) math.Order {
         var limbs: [calcLimbLen(scalar)]Limb = undefined;
         const rhs = Mutable.init(&limbs, scalar);
         return order(lhs, rhs.toConst());
@@ -1333,7 +1333,7 @@ pub const Managed = struct {
     /// Creates a new `Managed` with value `value`.
     ///
     /// This is identical to an `init`, followed by a `set`.
-    pub fn initSet(allocator: *Allocator, value: var) !Managed {
+    pub fn initSet(allocator: *Allocator, value: anytype) !Managed {
         var s = try Managed.init(allocator);
         try s.set(value);
         return s;
@@ -1496,7 +1496,7 @@ pub const Managed = struct {
     }
 
     /// Sets an Managed to value. Value must be an primitive integer type.
-    pub fn set(self: *Managed, value: var) Allocator.Error!void {
+    pub fn set(self: *Managed, value: anytype) Allocator.Error!void {
         try self.ensureCapacity(calcLimbLen(value));
         var m = self.toMutable();
         m.set(value);
@@ -1549,7 +1549,7 @@ pub const Managed = struct {
         self: Managed,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        out_stream: var,
+        out_stream: anytype,
     ) !void {
         return self.toConst().format(fmt, options, out_stream);
     }
@@ -1607,7 +1607,7 @@ pub const Managed = struct {
     /// scalar is a primitive integer type.
     ///
     /// Returns an error if memory could not be allocated.
-    pub fn addScalar(r: *Managed, a: Const, scalar: var) Allocator.Error!void {
+    pub fn addScalar(r: *Managed, a: Const, scalar: anytype) Allocator.Error!void {
         try r.ensureCapacity(math.max(a.limbs.len, calcLimbLen(scalar)) + 1);
         var m = r.toMutable();
         m.addScalar(a, scalar);

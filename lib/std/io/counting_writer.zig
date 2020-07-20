@@ -32,7 +32,7 @@ pub fn CountingWriter(comptime WriterType: type) type {
     };
 }
 
-pub fn countingWriter(child_stream: var) CountingWriter(@TypeOf(child_stream)) {
+pub fn countingWriter(child_stream: anytype) CountingWriter(@TypeOf(child_stream)) {
     return .{ .bytes_written = 0, .child_stream = child_stream };
 }
 

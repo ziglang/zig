@@ -80,7 +80,7 @@ pub fn PeekStream(
 
 pub fn peekStream(
     comptime lookahead: comptime_int,
-    underlying_stream: var,
+    underlying_stream: anytype,
 ) PeekStream(.{ .Static = lookahead }, @TypeOf(underlying_stream)) {
     return PeekStream(.{ .Static = lookahead }, @TypeOf(underlying_stream)).init(underlying_stream);
 }

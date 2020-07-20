@@ -212,7 +212,7 @@ const Tokenizer = struct {
     }
 };
 
-fn parseError(tokenizer: *Tokenizer, token: Token, comptime fmt: []const u8, args: var) anyerror {
+fn parseError(tokenizer: *Tokenizer, token: Token, comptime fmt: []const u8, args: anytype) anyerror {
     const loc = tokenizer.getTokenLocation(token);
     const args_prefix = .{ tokenizer.source_file_name, loc.line + 1, loc.column + 1 };
     warn("{}:{}:{}: error: " ++ fmt ++ "\n", args_prefix ++ args);
@@ -392,7 +392,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             .n = header_stack_size,
                         },
                     });
-                    if (try urls.put(urlized, tag_token)) |entry| {
+                    if (try urls.fetchPut(urlized, tag_token)) |entry| {
                         parseError(tokenizer, tag_token, "duplicate header url: #{}", .{urlized}) catch {};
                         parseError(tokenizer, entry.value, "other tag here", .{}) catch {};
                         return error.ParseError;
@@ -634,7 +634,7 @@ fn escapeHtml(allocator: *mem.Allocator, input: []const u8) ![]u8 {
     return buf.toOwnedSlice();
 }
 
-fn writeEscaped(out: var, input: []const u8) !void {
+fn writeEscaped(out: anytype, input: []const u8) !void {
     for (input) |c| {
         try switch (c) {
             '&' => out.writeAll("&amp;"),
@@ -765,7 +765,7 @@ fn isType(name: []const u8) bool {
     return false;
 }
 
-fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Token, raw_src: []const u8) !void {
+fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: anytype, source_token: Token, raw_src: []const u8) !void {
     const src = mem.trim(u8, raw_src, " \n");
     try out.writeAll("<code class=\"zig\">");
     var tokenizer = std.zig.Tokenizer.init(src);
@@ -825,6 +825,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .Keyword_volatile,
             .Keyword_allowzero,
             .Keyword_while,
+            .Keyword_anytype,
             => {
                 try out.writeAll("<span class=\"tok-kw\">");
                 try writeEscaped(out, src[token.loc.start..token.loc.end]);
@@ -977,12 +978,12 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
     try out.writeAll("</code>");
 }
 
-fn tokenizeAndPrint(docgen_tokenizer: *Tokenizer, out: var, source_token: Token) !void {
+fn tokenizeAndPrint(docgen_tokenizer: *Tokenizer, out: anytype, source_token: Token) !void {
     const raw_src = docgen_tokenizer.buffer[source_token.start..source_token.end];
     return tokenizeAndPrintRaw(docgen_tokenizer, out, source_token, raw_src);
 }
 
-fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var, zig_exe: []const u8) !void {
+fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: anytype, zig_exe: []const u8) !void {
     var code_progress_index: usize = 0;
 
     var env_map = try process.getEnvMap(allocator);

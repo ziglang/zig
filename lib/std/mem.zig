@@ -8,6 +8,7 @@ const meta = std.meta;
 const trait = meta.trait;
 const testing = std.testing;
 
+// https://github.com/ziglang/zig/issues/2564
 pub const page_size = switch (builtin.arch) {
     .wasm32, .wasm64 => 64 * 1024,
     else => 4 * 1024,
@@ -15,6 +16,52 @@ pub const page_size = switch (builtin.arch) {
 
 pub const Allocator = struct {
     pub const Error = error{OutOfMemory};
+
+    /// Attempt to allocate at least `len` bytes aligned to `ptr_align`.
+    ///
+    /// If `len_align` is `0`, then the length returned MUST be exactly `len` bytes,
+    /// otherwise, the length must be aligned to `len_align`.
+    ///
+    /// `len` must be greater than or equal to `len_align` and must be aligned by `len_align`.
+    allocFn: fn (self: *Allocator, len: usize, ptr_align: u29, len_align: u29) Error![]u8,
+
+    /// Attempt to expand or shrink memory in place. `buf.len` must equal the most recent
+    /// length returned by `allocFn` or `resizeFn`.
+    ///
+    /// Passing a `new_len` of 0 frees and invalidates the buffer such that it can no
+    /// longer be passed to `resizeFn`.
+    ///
+    /// error.OutOfMemory can only be returned if `new_len` is greater than `buf.len`.
+    /// If `buf` cannot be expanded to accomodate `new_len`, then the allocation MUST be
+    /// unmodified and error.OutOfMemory MUST be returned.
+    ///
+    /// If `len_align` is `0`, then the length returned MUST be exactly `len` bytes,
+    /// otherwise, the length must be aligned to `len_align`.
+    ///
+    /// `new_len` must be greater than or equal to `len_align` and must be aligned by `len_align`.
+    resizeFn: fn (self: *Allocator, buf: []u8, new_len: usize, len_align: u29) Error!usize,
+
+    pub fn callAllocFn(self: *Allocator, new_len: usize, alignment: u29, len_align: u29) Error![]u8 {
+        return self.allocFn(self, new_len, alignment, len_align);
+    }
+
+    pub fn callResizeFn(self: *Allocator, buf: []u8, new_len: usize, len_align: u29) Error!usize {
+        return self.resizeFn(self, buf, new_len, len_align);
+    }
+
+    /// Set to resizeFn if in-place resize is not supported.
+    pub fn noResize(self: *Allocator, buf: []u8, new_len: usize, len_align: u29) Error!usize {
+        if (new_len > buf.len)
+            return error.OutOfMemory;
+        return new_len;
+    }
+
+    /// Call `resizeFn`, but caller guarantees that `new_len` <= `buf.len` meaning
+    /// error.OutOfMemory should be impossible.
+    pub fn shrinkBytes(self: *Allocator, buf: []u8, new_len: usize, len_align: u29) usize {
+        assert(new_len <= buf.len);
+        return self.callResizeFn(buf, new_len, len_align) catch unreachable;
+    }
 
     /// Realloc is used to modify the size or alignment of an existing allocation,
     /// as well as to provide the allocator with an opportunity to move an allocation
@@ -24,7 +71,7 @@ pub const Allocator = struct {
     /// When the size/alignment is less than or equal to the previous allocation,
     /// this function returns `error.OutOfMemory` when the allocator decides the client
     /// would be better off keeping the extra alignment/size. Clients will call
-    /// `shrinkFn` when they require the allocator to track a new alignment/size,
+    /// `callResizeFn` when they require the allocator to track a new alignment/size,
     /// and so this function should only return success when the allocator considers
     /// the reallocation desirable from the allocator's perspective.
     /// As an example, `std.ArrayList` tracks a "capacity", and therefore can handle
@@ -37,16 +84,15 @@ pub const Allocator = struct {
     /// as `old_mem` was when `reallocFn` is called. The bytes of
     /// `return_value[old_mem.len..]` have undefined values.
     /// The returned slice must have its pointer aligned at least to `new_alignment` bytes.
-    reallocFn: fn (
+    fn reallocBytes(
         self: *Allocator,
         /// Guaranteed to be the same as what was returned from most recent call to
-        /// `reallocFn` or `shrinkFn`.
+        /// `allocFn` or `resizeFn`.
         /// If `old_mem.len == 0` then this is a new allocation and `new_byte_count`
         /// is guaranteed to be >= 1.
         old_mem: []u8,
         /// If `old_mem.len == 0` then this is `undefined`, otherwise:
-        /// Guaranteed to be the same as what was returned from most recent call to
-        /// `reallocFn` or `shrinkFn`.
+        /// Guaranteed to be the same as what was passed to `allocFn`.
         /// Guaranteed to be >= 1.
         /// Guaranteed to be a power of 2.
         old_alignment: u29,
@@ -57,23 +103,49 @@ pub const Allocator = struct {
         /// Guaranteed to be a power of 2.
         /// Returned slice's pointer must have this alignment.
         new_alignment: u29,
-    ) Error![]u8,
+        /// 0 indicates the length of the slice returned MUST match `new_byte_count` exactly
+        /// non-zero means the length of the returned slice must be aligned by `len_align`
+        /// `new_len` must be aligned by `len_align`
+        len_align: u29,
+    ) Error![]u8 {
+        if (old_mem.len == 0) {
+            const new_mem = try self.callAllocFn(new_byte_count, new_alignment, len_align);
+            @memset(new_mem.ptr, undefined, new_byte_count);
+            return new_mem;
+        }
 
-    /// This function deallocates memory. It must succeed.
-    shrinkFn: fn (
-        self: *Allocator,
-        /// Guaranteed to be the same as what was returned from most recent call to
-        /// `reallocFn` or `shrinkFn`.
-        old_mem: []u8,
-        /// Guaranteed to be the same as what was returned from most recent call to
-        /// `reallocFn` or `shrinkFn`.
-        old_alignment: u29,
-        /// Guaranteed to be less than or equal to `old_mem.len`.
-        new_byte_count: usize,
-        /// If `new_byte_count == 0` then this is `undefined`, otherwise:
-        /// Guaranteed to be less than or equal to `old_alignment`.
-        new_alignment: u29,
-    ) []u8,
+        if (isAligned(@ptrToInt(old_mem.ptr), new_alignment)) {
+            if (new_byte_count <= old_mem.len) {
+                const shrunk_len = self.shrinkBytes(old_mem, new_byte_count, len_align);
+                return old_mem.ptr[0..shrunk_len];
+            }
+            if (self.callResizeFn(old_mem, new_byte_count, len_align)) |resized_len| {
+                assert(resized_len >= new_byte_count);
+                @memset(old_mem.ptr + new_byte_count, undefined, resized_len - new_byte_count);
+                return old_mem.ptr[0..resized_len];
+            } else |_| {}
+        }
+        if (new_byte_count <= old_mem.len and new_alignment <= old_alignment) {
+            return error.OutOfMemory;
+        }
+        return self.moveBytes(old_mem, new_byte_count, new_alignment, len_align);
+    }
+
+    /// Move the given memory to a new location in the given allocator to accomodate a new
+    /// size and alignment.
+    fn moveBytes(self: *Allocator, old_mem: []u8, new_len: usize, new_alignment: u29, len_align: u29) Error![]u8 {
+        assert(old_mem.len > 0);
+        assert(new_len > 0);
+        const new_mem = try self.callAllocFn(new_len, new_alignment, len_align);
+        @memcpy(new_mem.ptr, old_mem.ptr, std.math.min(new_len, old_mem.len));
+        // DISABLED TO AVOID BUGS IN TRANSLATE C
+        // use './zig build test-translate-c' to reproduce, some of the symbols in the
+        // generated C code will be a sequence of 0xaa (the undefined value), meaning
+        // it is printing data that has been freed
+        //@memset(old_mem.ptr, undefined, old_mem.len);
+        _ = self.shrinkBytes(old_mem, 0, 0);
+        return new_mem;
+    }
 
     /// Returns a pointer to undefined memory.
     /// Call `destroy` with the result to free the memory.
@@ -85,12 +157,11 @@ pub const Allocator = struct {
 
     /// `ptr` should be the return value of `create`, or otherwise
     /// have the same address and alignment property.
-    pub fn destroy(self: *Allocator, ptr: var) void {
+    pub fn destroy(self: *Allocator, ptr: anytype) void {
         const T = @TypeOf(ptr).Child;
         if (@sizeOf(T) == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
-        const shrink_result = self.shrinkFn(self, non_const_ptr[0..@sizeOf(T)], @alignOf(T), 0, 1);
-        assert(shrink_result.len == 0);
+        _ = self.shrinkBytes(non_const_ptr[0..@sizeOf(T)], 0, 0);
     }
 
     /// Allocates an array of `n` items of type `T` and sets all the
@@ -144,6 +215,7 @@ pub const Allocator = struct {
         return self.allocWithOptions(Elem, n, null, sentinel);
     }
 
+    /// Deprecated: use `allocAdvanced`
     pub fn alignedAlloc(
         self: *Allocator,
         comptime T: type,
@@ -151,8 +223,20 @@ pub const Allocator = struct {
         comptime alignment: ?u29,
         n: usize,
     ) Error![]align(alignment orelse @alignOf(T)) T {
+        return self.allocAdvanced(T, alignment, n, .exact);
+    }
+
+    const Exact = enum { exact, at_least };
+    pub fn allocAdvanced(
+        self: *Allocator,
+        comptime T: type,
+        /// null means naturally aligned
+        comptime alignment: ?u29,
+        n: usize,
+        exact: Exact,
+    ) Error![]align(alignment orelse @alignOf(T)) T {
         const a = if (alignment) |a| blk: {
-            if (a == @alignOf(T)) return alignedAlloc(self, T, null, n);
+            if (a == @alignOf(T)) return allocAdvanced(self, T, null, n, exact);
             break :blk a;
         } else @alignOf(T);
 
@@ -161,15 +245,19 @@ pub const Allocator = struct {
         }
 
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
-        const byte_slice = try self.reallocFn(self, &[0]u8{}, undefined, byte_count, a);
-        assert(byte_slice.len == byte_count);
+        // TODO The `if (alignment == null)` blocks are workarounds for zig not being able to
+        // access certain type information about T without creating a circular dependency in async
+        // functions that heap-allocate their own frame with @Frame(func).
+        const sizeOfT = if (alignment == null) @intCast(u29, @divExact(byte_count, n)) else @sizeOf(T);
+        const byte_slice = try self.callAllocFn(byte_count, a, if (exact == .exact) @as(u29, 0) else sizeOfT);
+        switch (exact) {
+            .exact => assert(byte_slice.len == byte_count),
+            .at_least => assert(byte_slice.len >= byte_count),
+        }
         @memset(byte_slice.ptr, undefined, byte_slice.len);
         if (alignment == null) {
-            // TODO This is a workaround for zig not being able to successfully do
-            // @bytesToSlice(T, @alignCast(a, byte_slice)) without resolving alignment of T,
-            // which causes a circular dependency in async functions which try to heap-allocate
-            // their own frame with @Frame(func).
-            return @intToPtr([*]T, @ptrToInt(byte_slice.ptr))[0..n];
+            // This if block is a workaround (see comment above)
+            return @intToPtr([*]T, @ptrToInt(byte_slice.ptr))[0..@divExact(byte_slice.len, @sizeOf(T))];
         } else {
             return mem.bytesAsSlice(T, @alignCast(a, byte_slice));
         }
@@ -185,27 +273,46 @@ pub const Allocator = struct {
     /// in `std.ArrayList.shrink`.
     /// If you need guaranteed success, call `shrink`.
     /// If `new_n` is 0, this is the same as `free` and it always succeeds.
-    pub fn realloc(self: *Allocator, old_mem: var, new_n: usize) t: {
+    pub fn realloc(self: *Allocator, old_mem: anytype, new_n: usize) t: {
         const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
         break :t Error![]align(Slice.alignment) Slice.child;
     } {
         const old_alignment = @typeInfo(@TypeOf(old_mem)).Pointer.alignment;
-        return self.alignedRealloc(old_mem, old_alignment, new_n);
+        return self.reallocAdvanced(old_mem, old_alignment, new_n, .exact);
+    }
+
+    pub fn reallocAtLeast(self: *Allocator, old_mem: anytype, new_n: usize) t: {
+        const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
+        break :t Error![]align(Slice.alignment) Slice.child;
+    } {
+        const old_alignment = @typeInfo(@TypeOf(old_mem)).Pointer.alignment;
+        return self.reallocAdvanced(old_mem, old_alignment, new_n, .at_least);
+    }
+
+    // Deprecated: use `reallocAdvanced`
+    pub fn alignedRealloc(
+        self: *Allocator,
+        old_mem: anytype,
+        comptime new_alignment: u29,
+        new_n: usize,
+    ) Error![]align(new_alignment) @typeInfo(@TypeOf(old_mem)).Pointer.child {
+        return self.reallocAdvanced(old_mem, new_alignment, new_n, .exact);
     }
 
     /// This is the same as `realloc`, except caller may additionally request
     /// a new alignment, which can be larger, smaller, or the same as the old
     /// allocation.
-    pub fn alignedRealloc(
+    pub fn reallocAdvanced(
         self: *Allocator,
-        old_mem: var,
+        old_mem: anytype,
         comptime new_alignment: u29,
         new_n: usize,
+        exact: Exact,
     ) Error![]align(new_alignment) @typeInfo(@TypeOf(old_mem)).Pointer.child {
         const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
         const T = Slice.child;
         if (old_mem.len == 0) {
-            return self.alignedAlloc(T, new_alignment, new_n);
+            return self.allocAdvanced(T, new_alignment, new_n, exact);
         }
         if (new_n == 0) {
             self.free(old_mem);
@@ -215,12 +322,8 @@ pub const Allocator = struct {
         const old_byte_slice = mem.sliceAsBytes(old_mem);
         const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return Error.OutOfMemory;
         // Note: can't set shrunk memory to undefined as memory shouldn't be modified on realloc failure
-        const byte_slice = try self.reallocFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
-        assert(byte_slice.len == byte_count);
-        if (new_n > old_mem.len) {
-            @memset(byte_slice.ptr + old_byte_slice.len, undefined, byte_slice.len - old_byte_slice.len);
-        }
-        return mem.bytesAsSlice(T, @alignCast(new_alignment, byte_slice));
+        const new_byte_slice = try self.reallocBytes(old_byte_slice, Slice.alignment, byte_count, new_alignment, if (exact == .exact) @as(u29, 0) else @sizeOf(T));
+        return mem.bytesAsSlice(T, @alignCast(new_alignment, new_byte_slice));
     }
 
     /// Prefer calling realloc to shrink if you can tolerate failure, such as
@@ -228,7 +331,7 @@ pub const Allocator = struct {
     /// Shrink always succeeds, and `new_n` must be <= `old_mem.len`.
     /// Returned slice has same alignment as old_mem.
     /// Shrinking to 0 is the same as calling `free`.
-    pub fn shrink(self: *Allocator, old_mem: var, new_n: usize) t: {
+    pub fn shrink(self: *Allocator, old_mem: anytype, new_n: usize) t: {
         const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
         break :t []align(Slice.alignment) Slice.child;
     } {
@@ -241,19 +344,16 @@ pub const Allocator = struct {
     /// allocation.
     pub fn alignedShrink(
         self: *Allocator,
-        old_mem: var,
+        old_mem: anytype,
         comptime new_alignment: u29,
         new_n: usize,
     ) []align(new_alignment) @typeInfo(@TypeOf(old_mem)).Pointer.child {
         const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
         const T = Slice.child;
 
-        if (new_n == 0) {
-            self.free(old_mem);
-            return old_mem[0..0];
-        }
-
-        assert(new_n <= old_mem.len);
+        if (new_n == old_mem.len)
+            return old_mem;
+        assert(new_n < old_mem.len);
         assert(new_alignment <= Slice.alignment);
 
         // Here we skip the overflow checking on the multiplication because
@@ -262,22 +362,20 @@ pub const Allocator = struct {
 
         const old_byte_slice = mem.sliceAsBytes(old_mem);
         @memset(old_byte_slice.ptr + byte_count, undefined, old_byte_slice.len - byte_count);
-        const byte_slice = self.shrinkFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
-        assert(byte_slice.len == byte_count);
-        return mem.bytesAsSlice(T, @alignCast(new_alignment, byte_slice));
+        _ = self.shrinkBytes(old_byte_slice, byte_count, 0);
+        return old_mem[0..new_n];
     }
 
     /// Free an array allocated with `alloc`. To free a single item,
     /// see `destroy`.
-    pub fn free(self: *Allocator, memory: var) void {
+    pub fn free(self: *Allocator, memory: anytype) void {
         const Slice = @typeInfo(@TypeOf(memory)).Pointer;
         const bytes = mem.sliceAsBytes(memory);
         const bytes_len = bytes.len + if (Slice.sentinel != null) @sizeOf(Slice.child) else 0;
         if (bytes_len == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
         @memset(non_const_ptr, undefined, bytes_len);
-        const shrink_result = self.shrinkFn(self, non_const_ptr[0..bytes_len], Slice.alignment, 0, 1);
-        assert(shrink_result.len == 0);
+        _ = self.shrinkBytes(non_const_ptr[0..bytes_len], 0, 0);
     }
 
     /// Copies `m` to newly allocated memory. Caller owns the memory.
@@ -296,15 +394,95 @@ pub const Allocator = struct {
     }
 };
 
-var failAllocator = Allocator{
-    .reallocFn = failAllocatorRealloc,
-    .shrinkFn = failAllocatorShrink,
-};
-fn failAllocatorRealloc(self: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
-    return error.OutOfMemory;
+/// Detects and asserts if the std.mem.Allocator interface is violated by the caller
+/// or the allocator.
+pub fn ValidationAllocator(comptime T: type) type {
+    return struct {
+        const Self = @This();
+        allocator: Allocator,
+        underlying_allocator: T,
+        pub fn init(allocator: T) @This() {
+            return .{
+                .allocator = .{
+                    .allocFn = alloc,
+                    .resizeFn = resize,
+                },
+                .underlying_allocator = allocator,
+            };
+        }
+        fn getUnderlyingAllocatorPtr(self: *@This()) *Allocator {
+            if (T == *Allocator) return self.underlying_allocator;
+            if (*T == *Allocator) return &self.underlying_allocator;
+            return &self.underlying_allocator.allocator;
+        }
+        pub fn alloc(allocator: *Allocator, n: usize, ptr_align: u29, len_align: u29) Allocator.Error![]u8 {
+            assert(n > 0);
+            assert(mem.isValidAlign(ptr_align));
+            if (len_align != 0) {
+                assert(mem.isAlignedAnyAlign(n, len_align));
+                assert(n >= len_align);
+            }
+
+            const self = @fieldParentPtr(@This(), "allocator", allocator);
+            const result = try self.getUnderlyingAllocatorPtr().callAllocFn(n, ptr_align, len_align);
+            assert(mem.isAligned(@ptrToInt(result.ptr), ptr_align));
+            if (len_align == 0) {
+                assert(result.len == n);
+            } else {
+                assert(result.len >= n);
+                assert(mem.isAlignedAnyAlign(result.len, len_align));
+            }
+            return result;
+        }
+        pub fn resize(allocator: *Allocator, buf: []u8, new_len: usize, len_align: u29) Allocator.Error!usize {
+            assert(buf.len > 0);
+            if (len_align != 0) {
+                assert(mem.isAlignedAnyAlign(new_len, len_align));
+                assert(new_len >= len_align);
+            }
+            const self = @fieldParentPtr(@This(), "allocator", allocator);
+            const result = try self.getUnderlyingAllocatorPtr().callResizeFn(buf, new_len, len_align);
+            if (len_align == 0) {
+                assert(result == new_len);
+            } else {
+                assert(result >= new_len);
+                assert(mem.isAlignedAnyAlign(result, len_align));
+            }
+            return result;
+        }
+        pub usingnamespace if (T == *Allocator or !@hasDecl(T, "reset")) struct {} else struct {
+            pub fn reset(self: *Self) void {
+                self.underlying_allocator.reset();
+            }
+        };
+    };
 }
-fn failAllocatorShrink(self: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
-    @panic("failAllocatorShrink should never be called because it cannot allocate");
+
+pub fn validationWrap(allocator: anytype) ValidationAllocator(@TypeOf(allocator)) {
+    return ValidationAllocator(@TypeOf(allocator)).init(allocator);
+}
+
+/// An allocator helper function.  Adjusts an allocation length satisfy `len_align`.
+/// `full_len` should be the full capacity of the allocation which may be greater
+/// than the `len` that was requsted.  This function should only be used by allocators
+/// that are unaffected by `len_align`.
+pub fn alignAllocLen(full_len: usize, alloc_len: usize, len_align: u29) usize {
+    assert(alloc_len > 0);
+    assert(alloc_len >= len_align);
+    assert(full_len >= alloc_len);
+    if (len_align == 0)
+        return alloc_len;
+    const adjusted = alignBackwardAnyAlign(full_len, len_align);
+    assert(adjusted >= alloc_len);
+    return adjusted;
+}
+
+var failAllocator = Allocator{
+    .allocFn = failAllocatorAlloc,
+    .resizeFn = Allocator.noResize,
+};
+fn failAllocatorAlloc(self: *Allocator, n: usize, alignment: u29, len_align: u29) Allocator.Error![]u8 {
+    return error.OutOfMemory;
 }
 
 test "mem.Allocator basics" {
@@ -341,6 +519,7 @@ pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
     }
 }
 
+/// Sets all elements of `dest` to `value`.
 pub fn set(comptime T: type, dest: []T, value: T) void {
     for (dest) |*d|
         d.* = value;
@@ -373,7 +552,7 @@ pub fn zeroes(comptime T: type) T {
             if (@sizeOf(T) == 0) return T{};
             if (comptime meta.containerLayout(T) == .Extern) {
                 var item: T = undefined;
-                @memset(@ptrCast([*]u8, &item), 0, @sizeOf(T));
+                set(u8, asBytes(&item), 0);
                 return item;
             } else {
                 var structure: T = undefined;
@@ -498,6 +677,8 @@ test "mem.zeroes" {
     }
 }
 
+/// Sets a slice to zeroes.
+/// Prevents the store from being optimized out.
 pub fn secureZero(comptime T: type, s: []T) void {
     // NOTE: We do not use a volatile slice cast here since LLVM cannot
     // see that it can be replaced by a memset.
@@ -519,7 +700,7 @@ test "mem.secureZero" {
 /// Initializes all fields of the struct with their default value, or zero values if no default value is present.
 /// If the field is present in the provided initial values, it will have that value instead.
 /// Structs are initialized recursively.
-pub fn zeroInit(comptime T: type, init: var) T {
+pub fn zeroInit(comptime T: type, init: anytype) T {
     comptime const Init = @TypeOf(init);
 
     switch (@typeInfo(T)) {
@@ -527,6 +708,13 @@ pub fn zeroInit(comptime T: type, init: var) T {
             switch (@typeInfo(Init)) {
                 .Struct => |init_info| {
                     var value = std.mem.zeroes(T);
+
+                    if (init_info.is_tuple) {
+                        inline for (init_info.fields) |field, i| {
+                            @field(value, struct_info.fields[i].name) = @field(init, field.name);
+                        }
+                        return value;
+                    }
 
                     inline for (init_info.fields) |field| {
                         if (!@hasField(T, field.name)) {
@@ -544,8 +732,8 @@ pub fn zeroInit(comptime T: type, init: var) T {
                                     @field(value, field.name) = @field(init, field.name);
                                 },
                             }
-                        } else if (field.default_value != null) {
-                            @field(value, field.name) = field.default_value;
+                        } else if (field.default_value) |default_value| {
+                            @field(value, field.name) = default_value;
                         }
                     }
 
@@ -572,24 +760,40 @@ test "zeroInit" {
         b: ?bool,
         c: I,
         e: [3]u8,
-        f: i64,
+        f: i64 = -1,
     };
 
     const s = zeroInit(S, .{
         .a = 42,
     });
 
-    testing.expectEqual(s, S{
+    testing.expectEqual(S{
         .a = 42,
         .b = null,
         .c = .{
             .d = 0,
         },
         .e = [3]u8{ 0, 0, 0 },
-        .f = 0,
-    });
+        .f = -1,
+    }, s);
+
+    const Color = struct {
+        r: u8,
+        g: u8,
+        b: u8,
+        a: u8,
+    };
+
+    const c = zeroInit(Color, .{ 255, 255 });
+    testing.expectEqual(Color{
+        .r = 255,
+        .g = 255,
+        .b = 0,
+        .a = 0,
+    }, c);
 }
 
+/// Compares two slices of numbers lexicographically. O(n).
 pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
     const n = math.min(lhs.len, rhs.len);
     var i: usize = 0;
@@ -719,7 +923,7 @@ test "Span" {
 ///
 /// When there is both a sentinel and an array length or slice length, the
 /// length value is used instead of the sentinel.
-pub fn span(ptr: var) Span(@TypeOf(ptr)) {
+pub fn span(ptr: anytype) Span(@TypeOf(ptr)) {
     if (@typeInfo(@TypeOf(ptr)) == .Optional) {
         if (ptr) |non_null| {
             return span(non_null);
@@ -747,7 +951,7 @@ test "span" {
 /// Same as `span`, except when there is both a sentinel and an array
 /// length or slice length, scans the memory for the sentinel value
 /// rather than using the length.
-pub fn spanZ(ptr: var) Span(@TypeOf(ptr)) {
+pub fn spanZ(ptr: anytype) Span(@TypeOf(ptr)) {
     if (@typeInfo(@TypeOf(ptr)) == .Optional) {
         if (ptr) |non_null| {
             return spanZ(non_null);
@@ -776,7 +980,7 @@ test "spanZ" {
 /// or a slice, and returns the length.
 /// In the case of a sentinel-terminated array, it uses the array length.
 /// For C pointers it assumes it is a pointer-to-many with a 0 sentinel.
-pub fn len(value: var) usize {
+pub fn len(value: anytype) usize {
     return switch (@typeInfo(@TypeOf(value))) {
         .Array => |info| info.len,
         .Vector => |info| info.len,
@@ -824,7 +1028,7 @@ test "len" {
 /// In the case of a sentinel-terminated array, it scans the array
 /// for a sentinel and uses that for the length, rather than using the array length.
 /// For C pointers it assumes it is a pointer-to-many with a 0 sentinel.
-pub fn lenZ(ptr: var) usize {
+pub fn lenZ(ptr: anytype) usize {
     return switch (@typeInfo(@TypeOf(ptr))) {
         .Array => |info| if (info.sentinel) |sentinel|
             indexOfSentinel(info.child, sentinel, &ptr)
@@ -1492,12 +1696,23 @@ pub const SplitIterator = struct {
 /// Naively combines a series of slices with a separator.
 /// Allocates memory for the result, which must be freed by the caller.
 pub fn join(allocator: *Allocator, separator: []const u8, slices: []const []const u8) ![]u8 {
+    return joinMaybeZ(allocator, separator, slices, false);
+}
+
+/// Naively combines a series of slices with a separator and null terminator.
+/// Allocates memory for the result, which must be freed by the caller.
+pub fn joinZ(allocator: *Allocator, separator: []const u8, slices: []const []const u8) ![:0]u8 {
+    const out = try joinMaybeZ(allocator, separator, slices, true);
+    return out[0 .. out.len - 1 :0];
+}
+
+fn joinMaybeZ(allocator: *Allocator, separator: []const u8, slices: []const []const u8, zero: bool) ![]u8 {
     if (slices.len == 0) return &[0]u8{};
 
     const total_len = blk: {
         var sum: usize = separator.len * (slices.len - 1);
-        for (slices) |slice|
-            sum += slice.len;
+        for (slices) |slice| sum += slice.len;
+        if (zero) sum += 1;
         break :blk sum;
     };
 
@@ -1512,6 +1727,8 @@ pub fn join(allocator: *Allocator, separator: []const u8, slices: []const []cons
         copy(u8, buf[buf_index..], slice);
         buf_index += slice.len;
     }
+
+    if (zero) buf[buf.len - 1] = 0;
 
     // No need for shrink since buf is exactly the correct size.
     return buf;
@@ -1532,6 +1749,27 @@ test "mem.join" {
         const str = try join(testing.allocator, ",", &[_][]const u8{ "a", "", "b", "", "c" });
         defer testing.allocator.free(str);
         testing.expect(eql(u8, str, "a,,b,,c"));
+    }
+}
+
+test "mem.joinZ" {
+    {
+        const str = try joinZ(testing.allocator, ",", &[_][]const u8{ "a", "b", "c" });
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, "a,b,c"));
+        testing.expectEqual(str[str.len], 0);
+    }
+    {
+        const str = try joinZ(testing.allocator, ",", &[_][]const u8{"a"});
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, "a"));
+        testing.expectEqual(str[str.len], 0);
+    }
+    {
+        const str = try joinZ(testing.allocator, ",", &[_][]const u8{ "a", "", "b", "", "c" });
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, "a,,b,,c"));
+        testing.expectEqual(str[str.len], 0);
     }
 }
 
@@ -1727,6 +1965,8 @@ fn testWriteIntImpl() void {
     }));
 }
 
+/// Returns the smallest number in a slice. O(n).
+/// `slice` must not be empty.
 pub fn min(comptime T: type, slice: []const T) T {
     var best = slice[0];
     for (slice[1..]) |item| {
@@ -1739,6 +1979,8 @@ test "mem.min" {
     testing.expect(min(u8, "abcdefg") == 'a');
 }
 
+/// Returns the largest number in a slice. O(n).
+/// `slice` must not be empty.
 pub fn max(comptime T: type, slice: []const T) T {
     var best = slice[0];
     for (slice[1..]) |item| {
@@ -1855,7 +2097,7 @@ fn AsBytesReturnType(comptime P: type) type {
 }
 
 /// Given a pointer to a single item, returns a slice of the underlying bytes, preserving constness.
-pub fn asBytes(ptr: var) AsBytesReturnType(@TypeOf(ptr)) {
+pub fn asBytes(ptr: anytype) AsBytesReturnType(@TypeOf(ptr)) {
     const P = @TypeOf(ptr);
     return @ptrCast(AsBytesReturnType(P), ptr);
 }
@@ -1894,8 +2136,8 @@ test "asBytes" {
     testing.expect(eql(u8, asBytes(&zero), ""));
 }
 
-///Given any value, returns a copy of its bytes in an array.
-pub fn toBytes(value: var) [@sizeOf(@TypeOf(value))]u8 {
+/// Given any value, returns a copy of its bytes in an array.
+pub fn toBytes(value: anytype) [@sizeOf(@TypeOf(value))]u8 {
     return asBytes(&value).*;
 }
 
@@ -1928,9 +2170,9 @@ fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
     return if (comptime trait.isConstPtr(B)) *align(alignment) const T else *align(alignment) T;
 }
 
-///Given a pointer to an array of bytes, returns a pointer to a value of the specified type
+/// Given a pointer to an array of bytes, returns a pointer to a value of the specified type
 /// backed by those bytes, preserving constness.
-pub fn bytesAsValue(comptime T: type, bytes: var) BytesAsValueReturnType(T, @TypeOf(bytes)) {
+pub fn bytesAsValue(comptime T: type, bytes: anytype) BytesAsValueReturnType(T, @TypeOf(bytes)) {
     return @ptrCast(BytesAsValueReturnType(T, @TypeOf(bytes)), bytes);
 }
 
@@ -1971,9 +2213,9 @@ test "bytesAsValue" {
     testing.expect(meta.eql(inst, inst2.*));
 }
 
-///Given a pointer to an array of bytes, returns a value of the specified type backed by a
+/// Given a pointer to an array of bytes, returns a value of the specified type backed by a
 /// copy of those bytes.
-pub fn bytesToValue(comptime T: type, bytes: var) T {
+pub fn bytesToValue(comptime T: type, bytes: anytype) T {
     return bytesAsValue(T, bytes).*;
 }
 test "bytesToValue" {
@@ -2001,7 +2243,7 @@ fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type) type {
     return if (trait.isConstPtr(bytesType)) []align(alignment) const T else []align(alignment) T;
 }
 
-pub fn bytesAsSlice(comptime T: type, bytes: var) BytesAsSliceReturnType(T, @TypeOf(bytes)) {
+pub fn bytesAsSlice(comptime T: type, bytes: anytype) BytesAsSliceReturnType(T, @TypeOf(bytes)) {
     // let's not give an undefined pointer to @ptrCast
     // it may be equal to zero and fail a null check
     if (bytes.len == 0) {
@@ -2080,7 +2322,7 @@ fn SliceAsBytesReturnType(comptime sliceType: type) type {
     return if (trait.isConstPtr(sliceType)) []align(alignment) const u8 else []align(alignment) u8;
 }
 
-pub fn sliceAsBytes(slice: var) SliceAsBytesReturnType(@TypeOf(slice)) {
+pub fn sliceAsBytes(slice: anytype) SliceAsBytesReturnType(@TypeOf(slice)) {
     const Slice = @TypeOf(slice);
 
     // let's not give an undefined pointer to @ptrCast
@@ -2191,6 +2433,15 @@ test "alignForward" {
 }
 
 /// Round an address up to the previous aligned address
+/// Unlike `alignBackward`, `alignment` can be any positive number, not just a power of 2.
+pub fn alignBackwardAnyAlign(i: usize, alignment: usize) usize {
+    if (@popCount(usize, alignment) == 1)
+        return alignBackward(i, alignment);
+    assert(alignment != 0);
+    return i - @mod(i, alignment);
+}
+
+/// Round an address up to the previous aligned address
 /// The alignment must be a power of 2 and greater than 0.
 pub fn alignBackward(addr: usize, alignment: usize) usize {
     return alignBackwardGeneric(usize, addr, alignment);
@@ -2204,6 +2455,19 @@ pub fn alignBackwardGeneric(comptime T: type, addr: T, alignment: T) T {
     // 000001111 // subtract 1
     // 111110000 // binary not
     return addr & ~(alignment - 1);
+}
+
+/// Returns whether `alignment` is a valid alignment, meaning it is
+/// a positive power of 2.
+pub fn isValidAlign(alignment: u29) bool {
+    return @popCount(u29, alignment) == 1;
+}
+
+pub fn isAlignedAnyAlign(i: usize, alignment: usize) bool {
+    if (@popCount(usize, alignment) == 1)
+        return isAligned(i, alignment);
+    assert(alignment != 0);
+    return 0 == @mod(i, alignment);
 }
 
 /// Given an address and an alignment, return true if the address is a multiple of the alignment

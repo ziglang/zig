@@ -286,7 +286,7 @@ pub const Builder = struct {
     }
 
     pub fn dupe(self: *Builder, bytes: []const u8) []u8 {
-        return mem.dupe(self.allocator, u8, bytes) catch unreachable;
+        return self.allocator.dupe(u8, bytes) catch unreachable;
     }
 
     pub fn dupePath(self: *Builder, bytes: []const u8) []u8 {
@@ -312,7 +312,7 @@ pub const Builder = struct {
         return write_file_step;
     }
 
-    pub fn addLog(self: *Builder, comptime format: []const u8, args: var) *LogStep {
+    pub fn addLog(self: *Builder, comptime format: []const u8, args: anytype) *LogStep {
         const data = self.fmt(format, args);
         const log_step = self.allocator.create(LogStep) catch unreachable;
         log_step.* = LogStep.init(self, data);
@@ -422,12 +422,12 @@ pub const Builder = struct {
             .type_id = type_id,
             .description = description,
         };
-        if ((self.available_options_map.put(name, available_option) catch unreachable) != null) {
+        if ((self.available_options_map.fetchPut(name, available_option) catch unreachable) != null) {
             panic("Option '{}' declared twice", .{name});
         }
         self.available_options_list.append(available_option) catch unreachable;
 
-        const entry = self.user_input_options.get(name) orelse return null;
+        const entry = self.user_input_options.getEntry(name) orelse return null;
         entry.value.used = true;
         switch (type_id) {
             TypeId.Bool => switch (entry.value.value) {
@@ -512,7 +512,7 @@ pub const Builder = struct {
         if (self.release_mode != null) {
             @panic("setPreferredReleaseMode must be called before standardReleaseOptions and may not be called twice");
         }
-        const description = self.fmt("create a release build ({})", .{@tagName(mode)});
+        const description = self.fmt("Create a release build ({})", .{@tagName(mode)});
         self.is_release = self.option(bool, "release", description) orelse false;
         self.release_mode = if (self.is_release) mode else builtin.Mode.Debug;
     }
@@ -522,9 +522,9 @@ pub const Builder = struct {
     pub fn standardReleaseOptions(self: *Builder) builtin.Mode {
         if (self.release_mode) |mode| return mode;
 
-        const release_safe = self.option(bool, "release-safe", "optimizations on and safety on") orelse false;
-        const release_fast = self.option(bool, "release-fast", "optimizations on and safety off") orelse false;
-        const release_small = self.option(bool, "release-small", "size optimizations on and safety off") orelse false;
+        const release_safe = self.option(bool, "release-safe", "Optimizations on and safety on") orelse false;
+        const release_fast = self.option(bool, "release-fast", "Optimizations on and safety off") orelse false;
+        const release_small = self.option(bool, "release-small", "Size optimizations on and safety off") orelse false;
 
         const mode = if (release_safe and !release_fast and !release_small)
             builtin.Mode.ReleaseSafe
@@ -555,7 +555,7 @@ pub const Builder = struct {
         const triple = self.option(
             []const u8,
             "target",
-            "The CPU architecture, OS, and ABI to build for.",
+            "The CPU architecture, OS, and ABI to build for",
         ) orelse return args.default_target;
 
         // TODO add cpu and features as part of the target triple
@@ -634,7 +634,7 @@ pub const Builder = struct {
     pub fn addUserInputOption(self: *Builder, name: []const u8, value: []const u8) !bool {
         const gop = try self.user_input_options.getOrPut(name);
         if (!gop.found_existing) {
-            gop.kv.value = UserInputOption{
+            gop.entry.value = UserInputOption{
                 .name = name,
                 .value = UserValue{ .Scalar = value },
                 .used = false,
@@ -643,7 +643,7 @@ pub const Builder = struct {
         }
 
         // option already exists
-        switch (gop.kv.value.value) {
+        switch (gop.entry.value.value) {
             UserValue.Scalar => |s| {
                 // turn it into a list
                 var list = ArrayList([]const u8).init(self.allocator);
@@ -675,7 +675,7 @@ pub const Builder = struct {
     pub fn addUserInputFlag(self: *Builder, name: []const u8) !bool {
         const gop = try self.user_input_options.getOrPut(name);
         if (!gop.found_existing) {
-            gop.kv.value = UserInputOption{
+            gop.entry.value = UserInputOption{
                 .name = name,
                 .value = UserValue{ .Flag = {} },
                 .used = false,
@@ -684,7 +684,7 @@ pub const Builder = struct {
         }
 
         // option already exists
-        switch (gop.kv.value.value) {
+        switch (gop.entry.value.value) {
             UserValue.Scalar => |s| {
                 warn("Flag '-D{}' conflicts with option '-D{}={}'.\n", .{ name, name, s });
                 return true;
@@ -883,7 +883,7 @@ pub const Builder = struct {
         return fs.path.resolve(self.allocator, &[_][]const u8{ self.build_root, rel_path }) catch unreachable;
     }
 
-    pub fn fmt(self: *Builder, comptime format: []const u8, args: var) []u8 {
+    pub fn fmt(self: *Builder, comptime format: []const u8, args: anytype) []u8 {
         return fmt_lib.allocPrint(self.allocator, format, args) catch unreachable;
     }
 
@@ -1905,10 +1905,11 @@ pub const LibExeObjStep = struct {
                 builder.allocator,
                 &[_][]const u8{ builder.cache_root, builder.fmt("{}_build_options.zig", .{self.name}) },
             );
-            try fs.cwd().writeFile(build_options_file, self.build_options_contents.span());
+            const path_from_root = builder.pathFromRoot(build_options_file);
+            try fs.cwd().writeFile(path_from_root, self.build_options_contents.span());
             try zig_args.append("--pkg-begin");
             try zig_args.append("build_options");
-            try zig_args.append(builder.pathFromRoot(build_options_file));
+            try zig_args.append(path_from_root);
             try zig_args.append("--pkg-end");
         }
 
@@ -2558,3 +2559,10 @@ pub const InstalledFile = struct {
     dir: InstallDir,
     path: []const u8,
 };
+
+test "" {
+    // The only purpose of this test is to get all these untested functions
+    // to be referenced to avoid regression so it is okay to skip some targets.
+    if (comptime std.Target.current.cpu.arch.ptrBitWidth() == 64)
+        std.meta.refAllDecls(@This());
+}

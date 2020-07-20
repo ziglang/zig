@@ -1034,7 +1034,7 @@ pub fn relativeWindows(allocator: *Allocator, from: []const u8, to: []const u8) 
     var from_it = mem.tokenize(resolved_from, "/\\");
     var to_it = mem.tokenize(resolved_to, "/\\");
     while (true) {
-        const from_component = from_it.next() orelse return mem.dupe(allocator, u8, to_it.rest());
+        const from_component = from_it.next() orelse return allocator.dupe(u8, to_it.rest());
         const to_rest = to_it.rest();
         if (to_it.next()) |to_component| {
             // TODO ASCII is wrong, we actually need full unicode support to compare paths.
@@ -1085,7 +1085,7 @@ pub fn relativePosix(allocator: *Allocator, from: []const u8, to: []const u8) ![
     var from_it = mem.tokenize(resolved_from, "/");
     var to_it = mem.tokenize(resolved_to, "/");
     while (true) {
-        const from_component = from_it.next() orelse return mem.dupe(allocator, u8, to_it.rest());
+        const from_component = from_it.next() orelse return allocator.dupe(u8, to_it.rest());
         const to_rest = to_it.rest();
         if (to_it.next()) |to_component| {
             if (mem.eql(u8, from_component, to_component))

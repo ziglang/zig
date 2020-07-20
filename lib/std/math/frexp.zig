@@ -24,7 +24,7 @@ pub const frexp64_result = frexp_result(f64);
 ///  - frexp(+-0)   = +-0, 0
 ///  - frexp(+-inf) = +-inf, 0
 ///  - frexp(nan)   = nan, undefined
-pub fn frexp(x: var) frexp_result(@TypeOf(x)) {
+pub fn frexp(x: anytype) frexp_result(@TypeOf(x)) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => frexp32(x),

@@ -3,7 +3,7 @@ const math = std.math;
 const expect = std.testing.expect;
 
 /// Returns whether x is negative or negative 0.
-pub fn signbit(x: var) bool {
+pub fn signbit(x: anytype) bool {
     const T = @TypeOf(x);
     return switch (T) {
         f16 => signbit16(x),

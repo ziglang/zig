@@ -224,7 +224,7 @@ pub const Progress = struct {
         self.prev_refresh_timestamp = self.timer.read();
     }
 
-    pub fn log(self: *Progress, comptime format: []const u8, args: var) void {
+    pub fn log(self: *Progress, comptime format: []const u8, args: anytype) void {
         const file = self.terminal orelse return;
         self.refresh();
         file.outStream().print(format, args) catch {
@@ -234,7 +234,7 @@ pub const Progress = struct {
         self.columns_written = 0;
     }
 
-    fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: var) void {
+    fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: anytype) void {
         if (std.fmt.bufPrint(self.output_buffer[end.*..], format, args)) |written| {
             const amt = written.len;
             end.* += amt;

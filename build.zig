@@ -34,25 +34,11 @@ pub fn build(b: *Builder) !void {
 
     const test_step = b.step("test", "Run all the tests");
 
-    const config_h_text = if (b.option(
-        []const u8,
-        "config_h",
-        "Path to the generated config.h",
-    )) |config_h_path|
-        try std.fs.cwd().readFileAlloc(b.allocator, toNativePathSep(b, config_h_path), max_config_h_bytes)
-    else
-        try findAndReadConfigH(b);
-
     var test_stage2 = b.addTest("src-self-hosted/test.zig");
     test_stage2.setBuildMode(.Debug); // note this is only the mode of the test harness
     test_stage2.addPackagePath("stage2_tests", "test/stage2/test.zig");
 
     const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});
-
-    var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
-    exe.setBuildMode(mode);
-    test_step.dependOn(&exe.step);
-    b.default_step.dependOn(&exe.step);
 
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
@@ -63,17 +49,44 @@ pub fn build(b: *Builder) !void {
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
     const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse false;
-    if (enable_llvm) {
-        var ctx = parseConfigH(b, config_h_text);
-        ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
+    const config_h_path_option = b.option([]const u8, "config_h", "Path to the generated config.h");
 
-        try configureStage2(b, exe, ctx);
-    }
     if (!only_install_lib_files) {
-        exe.install();
+        var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
+        exe.setBuildMode(mode);
+        test_step.dependOn(&exe.step);
+        b.default_step.dependOn(&exe.step);
+
+        if (enable_llvm) {
+            const config_h_text = if (config_h_path_option) |config_h_path|
+                try std.fs.cwd().readFileAlloc(b.allocator, toNativePathSep(b, config_h_path), max_config_h_bytes)
+            else
+                try findAndReadConfigH(b);
+
+            var ctx = parseConfigH(b, config_h_text);
+            ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
+
+            try configureStage2(b, exe, ctx);
+        }
+        if (!only_install_lib_files) {
+            exe.install();
+        }
+        const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
+        const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse false;
+        if (link_libc) exe.linkLibC();
+
+        exe.addBuildOption(bool, "enable_tracy", tracy != null);
+        if (tracy) |tracy_path| {
+            const client_cpp = fs.path.join(
+                b.allocator,
+                &[_][]const u8{ tracy_path, "TracyClient.cpp" },
+            ) catch unreachable;
+            exe.addIncludeDir(tracy_path);
+            exe.addCSourceFile(client_cpp, &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" });
+            exe.linkSystemLibraryName("c++");
+            exe.linkLibC();
+        }
     }
-    const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse false;
-    if (link_libc) exe.linkLibC();
 
     b.installDirectory(InstallDirectoryOptions{
         .source_dir = "lib",
@@ -126,7 +139,10 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
     test_step.dependOn(tests.addStandaloneTests(b, test_filter, modes));
     test_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
-    test_step.dependOn(tests.addCliTests(b, test_filter, modes));
+    const test_cli = tests.addCliTests(b, test_filter, modes);
+    const test_cli_step = b.step("test-cli", "Run zig cli tests");
+    test_cli_step.dependOn(test_cli);
+    test_step.dependOn(test_cli);
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
     test_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter, modes));
     test_step.dependOn(tests.addTranslateCTests(b, test_filter));
@@ -137,7 +153,7 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(docs_step);
 }
 
-fn dependOnLib(b: *Builder, lib_exe_obj: var, dep: LibraryDep) void {
+fn dependOnLib(b: *Builder, lib_exe_obj: anytype, dep: LibraryDep) void {
     for (dep.libdirs.items) |lib_dir| {
         lib_exe_obj.addLibPath(lib_dir);
     }
@@ -177,7 +193,7 @@ fn fileExists(filename: []const u8) !bool {
     return true;
 }
 
-fn addCppLib(b: *Builder, lib_exe_obj: var, cmake_binary_dir: []const u8, lib_name: []const u8) void {
+fn addCppLib(b: *Builder, lib_exe_obj: anytype, cmake_binary_dir: []const u8, lib_name: []const u8) void {
     lib_exe_obj.addObjectFile(fs.path.join(b.allocator, &[_][]const u8{
         cmake_binary_dir,
         "zig_cpp",
@@ -259,7 +275,7 @@ fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
     return result;
 }
 
-fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
+fn configureStage2(b: *Builder, exe: anytype, ctx: Context) !void {
     exe.addIncludeDir("src");
     exe.addIncludeDir(ctx.cmake_binary_dir);
     addCppLib(b, exe, ctx.cmake_binary_dir, "zig_cpp");
@@ -324,7 +340,7 @@ fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
 fn addCxxKnownPath(
     b: *Builder,
     ctx: Context,
-    exe: var,
+    exe: anytype,
     objname: []const u8,
     errtxt: ?[]const u8,
 ) !void {

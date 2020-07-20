@@ -27,7 +27,6 @@ fn never_index_default(name: []const u8) bool {
 }
 
 const HeaderEntry = struct {
-    allocator: *Allocator,
     name: []const u8,
     value: []u8,
     never_index: bool,
@@ -36,23 +35,22 @@ const HeaderEntry = struct {
 
     fn init(allocator: *Allocator, name: []const u8, value: []const u8, never_index: ?bool) !Self {
         return Self{
-            .allocator = allocator,
             .name = name, // takes reference
-            .value = try mem.dupe(allocator, u8, value),
+            .value = try allocator.dupe(u8, value),
             .never_index = never_index orelse never_index_default(name),
         };
     }
 
-    fn deinit(self: Self) void {
-        self.allocator.free(self.value);
+    fn deinit(self: Self, allocator: *Allocator) void {
+        allocator.free(self.value);
     }
 
-    pub fn modify(self: *Self, value: []const u8, never_index: ?bool) !void {
+    pub fn modify(self: *Self, allocator: *Allocator, value: []const u8, never_index: ?bool) !void {
         const old_len = self.value.len;
         if (value.len > old_len) {
-            self.value = try self.allocator.realloc(self.value, value.len);
+            self.value = try allocator.realloc(self.value, value.len);
         } else if (value.len < old_len) {
-            self.value = self.allocator.shrink(self.value, value.len);
+            self.value = allocator.shrink(self.value, value.len);
         }
         mem.copy(u8, self.value, value);
         self.never_index = never_index orelse never_index_default(self.name);
@@ -85,22 +83,22 @@ const HeaderEntry = struct {
 
 test "HeaderEntry" {
     var e = try HeaderEntry.init(testing.allocator, "foo", "bar", null);
-    defer e.deinit();
+    defer e.deinit(testing.allocator);
     testing.expectEqualSlices(u8, "foo", e.name);
     testing.expectEqualSlices(u8, "bar", e.value);
     testing.expectEqual(false, e.never_index);
 
-    try e.modify("longer value", null);
+    try e.modify(testing.allocator, "longer value", null);
     testing.expectEqualSlices(u8, "longer value", e.value);
 
     // shorter value
-    try e.modify("x", null);
+    try e.modify(testing.allocator, "x", null);
     testing.expectEqualSlices(u8, "x", e.value);
 }
 
-const HeaderList = std.ArrayList(HeaderEntry);
-const HeaderIndexList = std.ArrayList(usize);
-const HeaderIndex = std.StringHashMap(HeaderIndexList);
+const HeaderList = std.ArrayListUnmanaged(HeaderEntry);
+const HeaderIndexList = std.ArrayListUnmanaged(usize);
+const HeaderIndex = std.StringHashMapUnmanaged(HeaderIndexList);
 
 pub const Headers = struct {
     // the owned header field name is stored in the index as part of the key
@@ -113,62 +111,62 @@ pub const Headers = struct {
     pub fn init(allocator: *Allocator) Self {
         return Self{
             .allocator = allocator,
-            .data = HeaderList.init(allocator),
-            .index = HeaderIndex.init(allocator),
+            .data = HeaderList{},
+            .index = HeaderIndex{},
         };
     }
 
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: *Self) void {
         {
-            var it = self.index.iterator();
-            while (it.next()) |kv| {
-                var dex = &kv.value;
-                dex.deinit();
-                self.allocator.free(kv.key);
+            for (self.index.items()) |*entry| {
+                const dex = &entry.value;
+                dex.deinit(self.allocator);
+                self.allocator.free(entry.key);
             }
-            self.index.deinit();
+            self.index.deinit(self.allocator);
         }
         {
-            for (self.data.span()) |entry| {
-                entry.deinit();
+            for (self.data.items) |entry| {
+                entry.deinit(self.allocator);
             }
-            self.data.deinit();
+            self.data.deinit(self.allocator);
         }
+        self.* = undefined;
     }
 
     pub fn clone(self: Self, allocator: *Allocator) !Self {
         var other = Headers.init(allocator);
         errdefer other.deinit();
-        try other.data.ensureCapacity(self.data.items.len);
-        try other.index.initCapacity(self.index.entries.len);
-        for (self.data.span()) |entry| {
+        try other.data.ensureCapacity(allocator, self.data.items.len);
+        try other.index.initCapacity(allocator, self.index.entries.len);
+        for (self.data.items) |entry| {
             try other.append(entry.name, entry.value, entry.never_index);
         }
         return other;
     }
 
     pub fn toSlice(self: Self) []const HeaderEntry {
-        return self.data.span();
+        return self.data.items;
     }
 
     pub fn append(self: *Self, name: []const u8, value: []const u8, never_index: ?bool) !void {
         const n = self.data.items.len + 1;
-        try self.data.ensureCapacity(n);
+        try self.data.ensureCapacity(self.allocator, n);
         var entry: HeaderEntry = undefined;
-        if (self.index.get(name)) |kv| {
+        if (self.index.getEntry(name)) |kv| {
             entry = try HeaderEntry.init(self.allocator, kv.key, value, never_index);
-            errdefer entry.deinit();
-            var dex = &kv.value;
-            try dex.append(n - 1);
+            errdefer entry.deinit(self.allocator);
+            const dex = &kv.value;
+            try dex.append(self.allocator, n - 1);
         } else {
-            const name_dup = try mem.dupe(self.allocator, u8, name);
+            const name_dup = try self.allocator.dupe(u8, name);
             errdefer self.allocator.free(name_dup);
             entry = try HeaderEntry.init(self.allocator, name_dup, value, never_index);
-            errdefer entry.deinit();
-            var dex = HeaderIndexList.init(self.allocator);
-            try dex.append(n - 1);
-            errdefer dex.deinit();
-            _ = try self.index.put(name_dup, dex);
+            errdefer entry.deinit(self.allocator);
+            var dex = HeaderIndexList{};
+            try dex.append(self.allocator, n - 1);
+            errdefer dex.deinit(self.allocator);
+            _ = try self.index.put(self.allocator, name_dup, dex);
         }
         self.data.appendAssumeCapacity(entry);
     }
@@ -194,8 +192,8 @@ pub const Headers = struct {
 
     /// Returns boolean indicating if something was deleted.
     pub fn delete(self: *Self, name: []const u8) bool {
-        if (self.index.remove(name)) |kv| {
-            var dex = &kv.value;
+        if (self.index.remove(name)) |*kv| {
+            const dex = &kv.value;
             // iterate backwards
             var i = dex.items.len;
             while (i > 0) {
@@ -203,11 +201,11 @@ pub const Headers = struct {
                 const data_index = dex.items[i];
                 const removed = self.data.orderedRemove(data_index);
                 assert(mem.eql(u8, removed.name, name));
-                removed.deinit();
+                removed.deinit(self.allocator);
             }
-            dex.deinit();
+            dex.deinit(self.allocator);
             self.allocator.free(kv.key);
-            self.rebuild_index();
+            self.rebuildIndex();
             return true;
         } else {
             return false;
@@ -216,45 +214,52 @@ pub const Headers = struct {
 
     /// Removes the element at the specified index.
     /// Moves items down to fill the empty space.
+    /// TODO this implementation can be replaced by adding
+    /// orderedRemove to the new hash table implementation as an
+    /// alternative to swapRemove.
     pub fn orderedRemove(self: *Self, i: usize) void {
         const removed = self.data.orderedRemove(i);
-        const kv = self.index.get(removed.name).?;
-        var dex = &kv.value;
+        const kv = self.index.getEntry(removed.name).?;
+        const dex = &kv.value;
         if (dex.items.len == 1) {
             // was last item; delete the index
-            _ = self.index.remove(kv.key);
-            dex.deinit();
-            removed.deinit();
-            self.allocator.free(kv.key);
+            dex.deinit(self.allocator);
+            removed.deinit(self.allocator);
+            const key = kv.key;
+            _ = self.index.remove(key); // invalidates `kv` and `dex`
+            self.allocator.free(key);
         } else {
-            dex.shrink(dex.items.len - 1);
-            removed.deinit();
+            dex.shrink(self.allocator, dex.items.len - 1);
+            removed.deinit(self.allocator);
         }
         // if it was the last item; no need to rebuild index
         if (i != self.data.items.len) {
-            self.rebuild_index();
+            self.rebuildIndex();
         }
     }
 
     /// Removes the element at the specified index.
     /// The empty slot is filled from the end of the list.
+    /// TODO this implementation can be replaced by simply using the
+    /// new hash table which does swap removal.
     pub fn swapRemove(self: *Self, i: usize) void {
         const removed = self.data.swapRemove(i);
-        const kv = self.index.get(removed.name).?;
-        var dex = &kv.value;
+        const kv = self.index.getEntry(removed.name).?;
+        const dex = &kv.value;
         if (dex.items.len == 1) {
             // was last item; delete the index
-            _ = self.index.remove(kv.key);
-            dex.deinit();
-            removed.deinit();
-            self.allocator.free(kv.key);
+            dex.deinit(self.allocator);
+            removed.deinit(self.allocator);
+            const key = kv.key;
+            _ = self.index.remove(key); // invalidates `kv` and `dex`
+            self.allocator.free(key);
         } else {
-            dex.shrink(dex.items.len - 1);
-            removed.deinit();
+            dex.shrink(self.allocator, dex.items.len - 1);
+            removed.deinit(self.allocator);
         }
         // if it was the last item; no need to rebuild index
         if (i != self.data.items.len) {
-            self.rebuild_index();
+            self.rebuildIndex();
         }
     }
 
@@ -266,11 +271,7 @@ pub const Headers = struct {
     /// Returns a list of indices containing headers with the given name.
     /// The returned list should not be modified by the caller.
     pub fn getIndices(self: Self, name: []const u8) ?HeaderIndexList {
-        if (self.index.get(name)) |kv| {
-            return kv.value;
-        } else {
-            return null;
-        }
+        return self.index.get(name);
     }
 
     /// Returns a slice containing each header with the given name.
@@ -279,7 +280,7 @@ pub const Headers = struct {
 
         const buf = try allocator.alloc(HeaderEntry, dex.items.len);
         var n: usize = 0;
-        for (dex.span()) |idx| {
+        for (dex.items) |idx| {
             buf[n] = self.data.items[idx];
             n += 1;
         }
@@ -302,7 +303,7 @@ pub const Headers = struct {
         // adapted from mem.join
         const total_len = blk: {
             var sum: usize = dex.items.len - 1; // space for separator(s)
-            for (dex.span()) |idx|
+            for (dex.items) |idx|
                 sum += self.data.items[idx].value.len;
             break :blk sum;
         };
@@ -325,32 +326,27 @@ pub const Headers = struct {
         return buf;
     }
 
-    fn rebuild_index(self: *Self) void {
-        { // clear out the indexes
-            var it = self.index.iterator();
-            while (it.next()) |kv| {
-                var dex = &kv.value;
-                dex.items.len = 0; // keeps capacity available
-            }
+    fn rebuildIndex(self: *Self) void {
+        // clear out the indexes
+        for (self.index.items()) |*entry| {
+            entry.value.shrinkRetainingCapacity(0);
         }
-        { // fill up indexes again; we know capacity is fine from before
-            for (self.data.span()) |entry, i| {
-                var dex = &self.index.get(entry.name).?.value;
-                dex.appendAssumeCapacity(i);
-            }
+        // fill up indexes again; we know capacity is fine from before
+        for (self.data.items) |entry, i| {
+            self.index.getEntry(entry.name).?.value.appendAssumeCapacity(i);
         }
     }
 
     pub fn sort(self: *Self) void {
         std.sort.sort(HeaderEntry, self.data.items, {}, HeaderEntry.compare);
-        self.rebuild_index();
+        self.rebuildIndex();
     }
 
     pub fn format(
         self: Self,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        out_stream: var,
+        out_stream: anytype,
     ) !void {
         for (self.toSlice()) |entry| {
             try out_stream.writeAll(entry.name);
@@ -495,8 +491,8 @@ test "Headers.getIndices" {
     try h.append("set-cookie", "y=2", null);
 
     testing.expect(null == h.getIndices("not-present"));
-    testing.expectEqualSlices(usize, &[_]usize{0}, h.getIndices("foo").?.span());
-    testing.expectEqualSlices(usize, &[_]usize{ 1, 2 }, h.getIndices("set-cookie").?.span());
+    testing.expectEqualSlices(usize, &[_]usize{0}, h.getIndices("foo").?.items);
+    testing.expectEqualSlices(usize, &[_]usize{ 1, 2 }, h.getIndices("set-cookie").?.items);
 }
 
 test "Headers.get" {

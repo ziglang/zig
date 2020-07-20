@@ -51,6 +51,8 @@ cmake ..
 make install
 ```
 
+Need help? [Troubleshooting Build Issues](https://github.com/ziglang/zig/wiki/Troubleshooting-Build-Issues)
+
 ##### MacOS
 
 ```
@@ -64,9 +66,11 @@ make install
 
 You will now run into this issue:
 [homebrew and llvm 10 packages in apt.llvm.org are broken with undefined reference to getPollyPluginInfo](https://github.com/ziglang/zig/issues/4799)
+or
+[error: unable to create target: 'Unable to find target for this triple (no targets are registered)'](https://github.com/ziglang/zig/issues/5055),
+in which case try `-DZIG_WORKAROUND_4799=ON`
 
-Please help upstream LLVM and Homebrew solve this issue, there is nothing Zig
-can do about it. See that issue for a workaround you can do in the meantime.
+Hopefully this will be fixed upstream with LLVM 10.0.1.
 
 ##### Windows
 

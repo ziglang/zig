@@ -27,7 +27,7 @@ pub usingnamespace switch (std.Target.current.os.tag) {
     else => struct {},
 };
 
-pub fn getErrno(rc: var) u16 {
+pub fn getErrno(rc: anytype) u16 {
     if (rc == -1) {
         return @intCast(u16, _errno().*);
     } else {
@@ -73,7 +73,6 @@ pub extern "c" fn abort() noreturn;
 pub extern "c" fn exit(code: c_int) noreturn;
 pub extern "c" fn isatty(fd: fd_t) c_int;
 pub extern "c" fn close(fd: fd_t) c_int;
-pub extern "c" fn fstatat(dirfd: fd_t, path: [*:0]const u8, stat_buf: *Stat, flags: u32) c_int;
 pub extern "c" fn lseek(fd: fd_t, offset: off_t, whence: c_int) off_t;
 pub extern "c" fn open(path: [*:0]const u8, oflag: c_uint, ...) c_int;
 pub extern "c" fn openat(fd: c_int, path: [*:0]const u8, oflag: c_uint, ...) c_int;
@@ -102,6 +101,7 @@ pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 pub extern "c" fn mkdir(path: [*:0]const u8, mode: c_uint) c_int;
 pub extern "c" fn mkdirat(dirfd: fd_t, path: [*:0]const u8, mode: u32) c_int;
 pub extern "c" fn symlink(existing: [*:0]const u8, new: [*:0]const u8) c_int;
+pub extern "c" fn symlinkat(oldpath: [*:0]const u8, newdirfd: fd_t, newpath: [*:0]const u8) c_int;
 pub extern "c" fn rename(old: [*:0]const u8, new: [*:0]const u8) c_int;
 pub extern "c" fn renameat(olddirfd: fd_t, old: [*:0]const u8, newdirfd: fd_t, new: [*:0]const u8) c_int;
 pub extern "c" fn chdir(path: [*:0]const u8) c_int;
@@ -115,9 +115,11 @@ pub extern "c" fn readlinkat(dirfd: fd_t, noalias path: [*:0]const u8, noalias b
 pub usingnamespace switch (builtin.os.tag) {
     .macosx, .ios, .watchos, .tvos => struct {
         pub const realpath = @"realpath$DARWIN_EXTSN";
+        pub const fstatat = @"fstatat$INODE64";
     },
     else => struct {
         pub extern "c" fn realpath(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
+        pub extern "c" fn fstatat(dirfd: fd_t, path: [*:0]const u8, stat_buf: *Stat, flags: u32) c_int;
     },
 };
 
@@ -231,6 +233,17 @@ pub extern "c" fn setuid(uid: c_uint) c_int;
 
 pub extern "c" fn aligned_alloc(alignment: usize, size: usize) ?*c_void;
 pub extern "c" fn malloc(usize) ?*c_void;
+
+pub usingnamespace switch (builtin.os.tag) {
+    .linux, .freebsd, .kfreebsd, .netbsd, .openbsd => struct {
+        pub extern "c" fn malloc_usable_size(?*const c_void) usize;
+    },
+    .macosx, .ios, .watchos, .tvos => struct {
+        pub extern "c" fn malloc_size(?*const c_void) usize;
+    },
+    else => struct {},
+};
+
 pub extern "c" fn realloc(?*c_void, usize) ?*c_void;
 pub extern "c" fn free(*c_void) void;
 pub extern "c" fn posix_memalign(memptr: **c_void, alignment: usize, size: usize) c_int;

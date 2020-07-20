@@ -17,7 +17,7 @@ const maxInt = std.math.maxInt;
 ///  - sinh(+-0)   = +-0
 ///  - sinh(+-inf) = +-inf
 ///  - sinh(nan)   = nan
-pub fn sinh(x: var) @TypeOf(x) {
+pub fn sinh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => sinh32(x),

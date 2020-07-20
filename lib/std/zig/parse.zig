@@ -150,7 +150,7 @@ const Parser = struct {
 
             const visib_token = p.eatToken(.Keyword_pub);
 
-            if (p.parseTopLevelDecl() catch |err| switch (err) {
+            if (p.parseTopLevelDecl(doc_comments, visib_token) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.ParseError => {
                     p.findNextContainerMember();
@@ -160,30 +160,7 @@ const Parser = struct {
                 if (field_state == .seen) {
                     field_state = .{ .end = visib_token orelse node.firstToken() };
                 }
-                switch (node.id) {
-                    .FnProto => {
-                        node.cast(Node.FnProto).?.doc_comments = doc_comments;
-                        node.cast(Node.FnProto).?.visib_token = visib_token;
-                    },
-                    .VarDecl => {
-                        node.cast(Node.VarDecl).?.doc_comments = doc_comments;
-                        node.cast(Node.VarDecl).?.visib_token = visib_token;
-                    },
-                    .Use => {
-                        node.cast(Node.Use).?.doc_comments = doc_comments;
-                        node.cast(Node.Use).?.visib_token = visib_token;
-                    },
-                    else => unreachable,
-                }
                 try list.append(node);
-                if (try p.parseAppendedDocComment(node.lastToken())) |appended_comment| {
-                    switch (node.id) {
-                        .FnProto => {},
-                        .VarDecl => node.cast(Node.VarDecl).?.doc_comments = appended_comment,
-                        .Use => node.cast(Node.Use).?.doc_comments = appended_comment,
-                        else => unreachable,
-                    }
-                }
                 continue;
             }
 
@@ -417,7 +394,7 @@ const Parser = struct {
     ///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
     ///      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
     ///      / KEYWORD_usingnamespace Expr SEMICOLON
-    fn parseTopLevelDecl(p: *Parser) !?*Node {
+    fn parseTopLevelDecl(p: *Parser, doc_comments: ?*Node.DocComment, visib_token: ?TokenIndex) !?*Node {
         var lib_name: ?*Node = null;
         const extern_export_inline_token = blk: {
             if (p.eatToken(.Keyword_export)) |token| break :blk token;
@@ -430,20 +407,12 @@ const Parser = struct {
             break :blk null;
         };
 
-        if (try p.parseFnProto()) |node| {
-            const fn_node = node.cast(Node.FnProto).?;
-            fn_node.*.extern_export_inline_token = extern_export_inline_token;
-            fn_node.*.lib_name = lib_name;
-            if (p.eatToken(.Semicolon)) |_| return node;
-
-            if (try p.expectNodeRecoverable(parseBlock, .{
-                // since parseBlock only return error.ParseError on
-                // a missing '}' we can assume this function was
-                // supposed to end here.
-                .ExpectedSemiOrLBrace = .{ .token = p.tok_i },
-            })) |body_node| {
-                fn_node.body_node = body_node;
-            }
+        if (try p.parseFnProto(.top_level, .{
+            .doc_comments = doc_comments,
+            .visib_token = visib_token,
+            .extern_export_inline_token = extern_export_inline_token,
+            .lib_name = lib_name,
+        })) |node| {
             return node;
         }
 
@@ -460,12 +429,13 @@ const Parser = struct {
 
         const thread_local_token = p.eatToken(.Keyword_threadlocal);
 
-        if (try p.parseVarDecl()) |node| {
-            var var_decl = node.cast(Node.VarDecl).?;
-            var_decl.*.thread_local_token = thread_local_token;
-            var_decl.*.comptime_token = null;
-            var_decl.*.extern_export_token = extern_export_inline_token;
-            var_decl.*.lib_name = lib_name;
+        if (try p.parseVarDecl(.{
+            .doc_comments = doc_comments,
+            .visib_token = visib_token,
+            .thread_local_token = thread_local_token,
+            .extern_export_token = extern_export_inline_token,
+            .lib_name = lib_name,
+        })) |node| {
             return node;
         }
 
@@ -485,21 +455,41 @@ const Parser = struct {
             return error.ParseError;
         }
 
-        return p.parseUse();
+        const use_token = p.eatToken(.Keyword_usingnamespace) orelse return null;
+        const expr = try p.expectNode(parseExpr, .{
+            .ExpectedExpr = .{ .token = p.tok_i },
+        });
+        const semicolon_token = try p.expectToken(.Semicolon);
+
+        const node = try p.arena.allocator.create(Node.Use);
+        node.* = .{
+            .doc_comments = doc_comments orelse try p.parseAppendedDocComment(semicolon_token),
+            .visib_token = visib_token,
+            .use_token = use_token,
+            .expr = expr,
+            .semicolon_token = semicolon_token,
+        };
+
+        return &node.base;
     }
 
-    /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
-    fn parseFnProto(p: *Parser) !?*Node {
+    /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (Keyword_anytype / TypeExpr)
+    fn parseFnProto(p: *Parser, level: enum { top_level, as_type }, fields: struct {
+        doc_comments: ?*Node.DocComment = null,
+        visib_token: ?TokenIndex = null,
+        extern_export_inline_token: ?TokenIndex = null,
+        lib_name: ?*Node = null,
+    }) !?*Node {
         // TODO: Remove once extern/async fn rewriting is
-        var is_async = false;
-        var is_extern = false;
+        var is_async: ?void = null;
+        var is_extern_prototype: ?void = null;
         const cc_token: ?TokenIndex = blk: {
             if (p.eatToken(.Keyword_extern)) |token| {
-                is_extern = true;
+                is_extern_prototype = {};
                 break :blk token;
             }
             if (p.eatToken(.Keyword_async)) |token| {
-                is_async = true;
+                is_async = {};
                 break :blk token;
             }
             break :blk null;
@@ -513,13 +503,14 @@ const Parser = struct {
         const lparen = try p.expectToken(.LParen);
         const params = try p.parseParamDeclList();
         defer p.gpa.free(params);
+        const var_args_token = p.eatToken(.Ellipsis3);
         const rparen = try p.expectToken(.RParen);
         const align_expr = try p.parseByteAlign();
         const section_expr = try p.parseLinkSection();
         const callconv_expr = try p.parseCallconv();
         const exclamation_token = p.eatToken(.Bang);
 
-        const return_type_expr = (try p.parseVarType()) orelse
+        const return_type_expr = (try p.parseAnyType()) orelse
             try p.expectNodeRecoverable(parseTypeExpr, .{
             // most likely the user forgot to specify the return type.
             // Mark return type as invalid and try to continue.
@@ -535,37 +526,53 @@ const Parser = struct {
         else
             R{ .Explicit = return_type_expr.? };
 
-        const var_args_token = if (params.len > 0) blk: {
-            const param_type = params[params.len - 1].param_type;
-            break :blk if (param_type == .var_args) param_type.var_args else null;
-        } else
-            null;
+        const body_node: ?*Node = switch (level) {
+            .top_level => blk: {
+                if (p.eatToken(.Semicolon)) |_| {
+                    break :blk null;
+                }
+                break :blk try p.expectNodeRecoverable(parseBlock, .{
+                    // Since parseBlock only return error.ParseError on
+                    // a missing '}' we can assume this function was
+                    // supposed to end here.
+                    .ExpectedSemiOrLBrace = .{ .token = p.tok_i },
+                });
+            },
+            .as_type => null,
+        };
 
-        const fn_proto_node = try Node.FnProto.alloc(&p.arena.allocator, params.len);
-        fn_proto_node.* = .{
-            .doc_comments = null,
-            .visib_token = null,
-            .fn_token = fn_token,
-            .name_token = name_token,
+        const fn_proto_node = try Node.FnProto.create(&p.arena.allocator, .{
             .params_len = params.len,
+            .fn_token = fn_token,
             .return_type = return_type,
+        }, .{
+            .doc_comments = fields.doc_comments,
+            .visib_token = fields.visib_token,
+            .name_token = name_token,
             .var_args_token = var_args_token,
-            .extern_export_inline_token = null,
-            .body_node = null,
-            .lib_name = null,
+            .extern_export_inline_token = fields.extern_export_inline_token,
+            .body_node = body_node,
+            .lib_name = fields.lib_name,
             .align_expr = align_expr,
             .section_expr = section_expr,
             .callconv_expr = callconv_expr,
-            .is_extern_prototype = is_extern,
+            .is_extern_prototype = is_extern_prototype,
             .is_async = is_async,
-        };
+        });
         std.mem.copy(Node.FnProto.ParamDecl, fn_proto_node.params(), params);
 
         return &fn_proto_node.base;
     }
 
     /// VarDecl <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? LinkSection? (EQUAL Expr)? SEMICOLON
-    fn parseVarDecl(p: *Parser) !?*Node {
+    fn parseVarDecl(p: *Parser, fields: struct {
+        doc_comments: ?*Node.DocComment = null,
+        visib_token: ?TokenIndex = null,
+        thread_local_token: ?TokenIndex = null,
+        extern_export_token: ?TokenIndex = null,
+        lib_name: ?*Node = null,
+        comptime_token: ?TokenIndex = null,
+    }) !?*Node {
         const mut_token = p.eatToken(.Keyword_const) orelse
             p.eatToken(.Keyword_var) orelse
             return null;
@@ -587,23 +594,25 @@ const Parser = struct {
         } else null;
         const semicolon_token = try p.expectToken(.Semicolon);
 
-        const node = try p.arena.allocator.create(Node.VarDecl);
-        node.* = .{
-            .doc_comments = null,
-            .visib_token = null,
-            .thread_local_token = null,
-            .name_token = name_token,
-            .eq_token = eq_token,
+        const doc_comments = fields.doc_comments orelse try p.parseAppendedDocComment(semicolon_token);
+
+        const node = try Node.VarDecl.create(&p.arena.allocator, .{
             .mut_token = mut_token,
-            .comptime_token = null,
-            .extern_export_token = null,
-            .lib_name = null,
+            .name_token = name_token,
+            .semicolon_token = semicolon_token,
+        }, .{
+            .doc_comments = doc_comments,
+            .visib_token = fields.visib_token,
+            .thread_local_token = fields.thread_local_token,
+            .eq_token = eq_token,
+            .comptime_token = fields.comptime_token,
+            .extern_export_token = fields.extern_export_token,
+            .lib_name = fields.lib_name,
             .type_node = type_node,
             .align_node = align_node,
             .section_node = section_node,
             .init_node = init_node,
-            .semicolon_token = semicolon_token,
-        };
+        });
         return &node.base;
     }
 
@@ -618,9 +627,9 @@ const Parser = struct {
         var align_expr: ?*Node = null;
         var type_expr: ?*Node = null;
         if (p.eatToken(.Colon)) |_| {
-            if (p.eatToken(.Keyword_var)) |var_tok| {
-                const node = try p.arena.allocator.create(Node.VarType);
-                node.* = .{ .token = var_tok };
+            if (p.eatToken(.Keyword_anytype) orelse p.eatToken(.Keyword_var)) |anytype_tok| {
+                const node = try p.arena.allocator.create(Node.AnyType);
+                node.* = .{ .token = anytype_tok };
                 type_expr = &node.base;
             } else {
                 type_expr = try p.expectNode(parseTypeExpr, .{
@@ -663,10 +672,9 @@ const Parser = struct {
     fn parseStatement(p: *Parser) Error!?*Node {
         const comptime_token = p.eatToken(.Keyword_comptime);
 
-        const var_decl_node = try p.parseVarDecl();
-        if (var_decl_node) |node| {
-            const var_decl = node.cast(Node.VarDecl).?;
-            var_decl.comptime_token = comptime_token;
+        if (try p.parseVarDecl(.{
+            .comptime_token = comptime_token,
+        })) |node| {
             return node;
         }
 
@@ -937,7 +945,6 @@ const Parser = struct {
             return node;
         }
 
-
         while_prefix.body = try p.expectNode(parseAssignExpr, .{
             .ExpectedBlockOrAssignment = .{ .token = p.tok_i },
         });
@@ -1008,7 +1015,7 @@ const Parser = struct {
     /// BoolOrExpr <- BoolAndExpr (KEYWORD_or BoolAndExpr)*
     fn parseBoolOrExpr(p: *Parser) !?*Node {
         return p.parseBinOpExpr(
-            SimpleBinOpParseFn(.Keyword_or, Node.InfixOp.Op.BoolOr),
+            SimpleBinOpParseFn(.Keyword_or, .BoolOr),
             parseBoolAndExpr,
             .Infinitely,
         );
@@ -1121,10 +1128,10 @@ const Parser = struct {
             const expr_node = try p.expectNode(parseExpr, .{
                 .ExpectedExpr = .{ .token = p.tok_i },
             });
-            const node = try p.arena.allocator.create(Node.PrefixOp);
+            const node = try p.arena.allocator.create(Node.SimplePrefixOp);
             node.* = .{
+                .base = .{ .tag = .Resume },
                 .op_token = token,
-                .op = .Resume,
                 .rhs = expr_node,
             };
             return &node.base;
@@ -1398,8 +1405,8 @@ const Parser = struct {
     fn parseErrorUnionExpr(p: *Parser) !?*Node {
         const suffix_expr = (try p.parseSuffixExpr()) orelse return null;
 
-        if (try SimpleBinOpParseFn(.Bang, Node.InfixOp.Op.ErrorUnion)(p)) |node| {
-            const error_union = node.cast(Node.InfixOp).?;
+        if (try SimpleBinOpParseFn(.Bang, .ErrorUnion)(p)) |node| {
+            const error_union = node.castTag(.ErrorUnion).?;
             const type_expr = try p.expectNode(parseTypeExpr, .{
                 .ExpectedTypeExpr = .{ .token = p.tok_i },
             });
@@ -1432,10 +1439,56 @@ const Parser = struct {
                 .ExpectedPrimaryTypeExpr = .{ .token = p.tok_i },
             });
 
+            // TODO pass `res` into `parseSuffixOp` rather than patching it up afterwards.
             while (try p.parseSuffixOp()) |node| {
-                switch (node.id) {
+                switch (node.tag) {
                     .SuffixOp => node.cast(Node.SuffixOp).?.lhs = res,
-                    .InfixOp => node.cast(Node.InfixOp).?.lhs = res,
+                    .Catch => node.castTag(.Catch).?.lhs = res,
+
+                    .Add,
+                    .AddWrap,
+                    .ArrayCat,
+                    .ArrayMult,
+                    .Assign,
+                    .AssignBitAnd,
+                    .AssignBitOr,
+                    .AssignBitShiftLeft,
+                    .AssignBitShiftRight,
+                    .AssignBitXor,
+                    .AssignDiv,
+                    .AssignSub,
+                    .AssignSubWrap,
+                    .AssignMod,
+                    .AssignAdd,
+                    .AssignAddWrap,
+                    .AssignMul,
+                    .AssignMulWrap,
+                    .BangEqual,
+                    .BitAnd,
+                    .BitOr,
+                    .BitShiftLeft,
+                    .BitShiftRight,
+                    .BitXor,
+                    .BoolAnd,
+                    .BoolOr,
+                    .Div,
+                    .EqualEqual,
+                    .ErrorUnion,
+                    .GreaterOrEqual,
+                    .GreaterThan,
+                    .LessOrEqual,
+                    .LessThan,
+                    .MergeErrorSets,
+                    .Mod,
+                    .Mul,
+                    .MulWrap,
+                    .Period,
+                    .Range,
+                    .Sub,
+                    .SubWrap,
+                    .UnwrapOptional,
+                    => node.cast(Node.SimpleInfixOp).?.lhs = res,
+
                     else => unreachable,
                 }
                 res = node;
@@ -1463,10 +1516,55 @@ const Parser = struct {
             var res = expr;
 
             while (true) {
+                // TODO pass `res` into `parseSuffixOp` rather than patching it up afterwards.
                 if (try p.parseSuffixOp()) |node| {
-                    switch (node.id) {
+                    switch (node.tag) {
                         .SuffixOp => node.cast(Node.SuffixOp).?.lhs = res,
-                        .InfixOp => node.cast(Node.InfixOp).?.lhs = res,
+                        .Catch => node.castTag(.Catch).?.lhs = res,
+
+                        .Add,
+                        .AddWrap,
+                        .ArrayCat,
+                        .ArrayMult,
+                        .Assign,
+                        .AssignBitAnd,
+                        .AssignBitOr,
+                        .AssignBitShiftLeft,
+                        .AssignBitShiftRight,
+                        .AssignBitXor,
+                        .AssignDiv,
+                        .AssignSub,
+                        .AssignSubWrap,
+                        .AssignMod,
+                        .AssignAdd,
+                        .AssignAddWrap,
+                        .AssignMul,
+                        .AssignMulWrap,
+                        .BangEqual,
+                        .BitAnd,
+                        .BitOr,
+                        .BitShiftLeft,
+                        .BitShiftRight,
+                        .BitXor,
+                        .BoolAnd,
+                        .BoolOr,
+                        .Div,
+                        .EqualEqual,
+                        .ErrorUnion,
+                        .GreaterOrEqual,
+                        .GreaterThan,
+                        .LessOrEqual,
+                        .LessThan,
+                        .MergeErrorSets,
+                        .Mod,
+                        .Mul,
+                        .MulWrap,
+                        .Period,
+                        .Range,
+                        .Sub,
+                        .SubWrap,
+                        .UnwrapOptional,
+                        => node.cast(Node.SimpleInfixOp).?.lhs = res,
                         else => unreachable,
                     }
                     res = node;
@@ -1529,7 +1627,7 @@ const Parser = struct {
         if (try p.parseAnonLiteral()) |node| return node;
         if (try p.parseErrorSetDecl()) |node| return node;
         if (try p.parseFloatLiteral()) |node| return node;
-        if (try p.parseFnProto()) |node| return node;
+        if (try p.parseFnProto(.as_type, .{})) |node| return node;
         if (try p.parseGroupedExpr()) |node| return node;
         if (try p.parseLabeledTypeExpr()) |node| return node;
         if (try p.parseIdentifier()) |node| return node;
@@ -1553,11 +1651,11 @@ const Parser = struct {
             const global_error_set = try p.createLiteral(Node.ErrorType, token);
             if (period == null or identifier == null) return global_error_set;
 
-            const node = try p.arena.allocator.create(Node.InfixOp);
+            const node = try p.arena.allocator.create(Node.SimpleInfixOp);
             node.* = .{
+                .base = Node{ .tag = .Period },
                 .op_token = period.?,
                 .lhs = global_error_set,
-                .op = .Period,
                 .rhs = identifier.?,
             };
             return &node.base;
@@ -1654,7 +1752,7 @@ const Parser = struct {
         }
 
         if (try p.parseLoopTypeExpr()) |node| {
-            switch (node.id) {
+            switch (node.tag) {
                 .For => node.cast(Node.For).?.label = label,
                 .While => node.cast(Node.While).?.label = label,
                 else => unreachable,
@@ -2023,14 +2121,13 @@ const Parser = struct {
     }
 
     /// ParamType
-    ///     <- KEYWORD_var
+    ///     <- Keyword_anytype
     ///      / DOT3
     ///      / TypeExpr
     fn parseParamType(p: *Parser) !?Node.FnProto.ParamDecl.ParamType {
         // TODO cast from tuple to error union is broken
         const P = Node.FnProto.ParamDecl.ParamType;
-        if (try p.parseVarType()) |node| return P{ .var_type = node };
-        if (p.eatToken(.Ellipsis3)) |token| return P{ .var_args = token };
+        if (try p.parseAnyType()) |node| return P{ .any_type = node };
         if (try p.parseTypeExpr()) |node| return P{ .type_expr = node };
         return null;
     }
@@ -2231,11 +2328,11 @@ const Parser = struct {
                 .ExpectedExpr = .{ .token = p.tok_i },
             });
 
-            const node = try p.arena.allocator.create(Node.InfixOp);
+            const node = try p.arena.allocator.create(Node.SimpleInfixOp);
             node.* = .{
+                .base = Node{ .tag = .Range },
                 .op_token = token,
                 .lhs = expr,
-                .op = .Range,
                 .rhs = range_end,
             };
             return &node.base;
@@ -2260,7 +2357,7 @@ const Parser = struct {
     ///      / EQUAL
     fn parseAssignOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
+        const op: Node.Tag = switch (p.token_ids[token]) {
             .AsteriskEqual => .AssignMul,
             .SlashEqual => .AssignDiv,
             .PercentEqual => .AssignMod,
@@ -2281,11 +2378,11 @@ const Parser = struct {
             },
         };
 
-        const node = try p.arena.allocator.create(Node.InfixOp);
+        const node = try p.arena.allocator.create(Node.SimpleInfixOp);
         node.* = .{
+            .base = .{ .tag = op },
             .op_token = token,
             .lhs = undefined, // set by caller
-            .op = op,
             .rhs = undefined, // set by caller
         };
         return &node.base;
@@ -2300,7 +2397,7 @@ const Parser = struct {
     ///      / RARROWEQUAL
     fn parseCompareOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
+        const op: Node.Tag = switch (p.token_ids[token]) {
             .EqualEqual => .EqualEqual,
             .BangEqual => .BangEqual,
             .AngleBracketLeft => .LessThan,
@@ -2324,12 +2421,22 @@ const Parser = struct {
     ///      / KEYWORD_catch Payload?
     fn parseBitwiseOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
+        const op: Node.Tag = switch (p.token_ids[token]) {
             .Ampersand => .BitAnd,
             .Caret => .BitXor,
             .Pipe => .BitOr,
             .Keyword_orelse => .UnwrapOptional,
-            .Keyword_catch => .{ .Catch = try p.parsePayload() },
+            .Keyword_catch => {
+                const payload = try p.parsePayload();
+                const node = try p.arena.allocator.create(Node.Catch);
+                node.* = .{
+                    .op_token = token,
+                    .lhs = undefined, // set by caller
+                    .rhs = undefined, // set by caller
+                    .payload = payload,
+                };
+                return &node.base;
+            },
             else => {
                 p.putBackToken(token);
                 return null;
@@ -2344,7 +2451,7 @@ const Parser = struct {
     ///      / RARROW2
     fn parseBitShiftOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
+        const op: Node.Tag = switch (p.token_ids[token]) {
             .AngleBracketAngleBracketLeft => .BitShiftLeft,
             .AngleBracketAngleBracketRight => .BitShiftRight,
             else => {
@@ -2364,7 +2471,7 @@ const Parser = struct {
     ///      / MINUSPERCENT
     fn parseAdditionOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
+        const op: Node.Tag = switch (p.token_ids[token]) {
             .Plus => .Add,
             .Minus => .Sub,
             .PlusPlus => .ArrayCat,
@@ -2388,7 +2495,7 @@ const Parser = struct {
     ///      / ASTERISKPERCENT
     fn parseMultiplyOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.InfixOp.Op = switch (p.token_ids[token]) {
+        const op: Node.Tag = switch (p.token_ids[token]) {
             .PipePipe => .MergeErrorSets,
             .Asterisk => .Mul,
             .Slash => .Div,
@@ -2414,24 +2521,26 @@ const Parser = struct {
     ///      / KEYWORD_await
     fn parsePrefixOp(p: *Parser) !?*Node {
         const token = p.nextToken();
-        const op: Node.PrefixOp.Op = switch (p.token_ids[token]) {
-            .Bang => .BoolNot,
-            .Minus => .Negation,
-            .Tilde => .BitNot,
-            .MinusPercent => .NegationWrap,
-            .Ampersand => .AddressOf,
-            .Keyword_try => .Try,
-            .Keyword_await => .Await,
+        switch (p.token_ids[token]) {
+            .Bang => return p.allocSimplePrefixOp(.BoolNot, token),
+            .Minus => return p.allocSimplePrefixOp(.Negation, token),
+            .Tilde => return p.allocSimplePrefixOp(.BitNot, token),
+            .MinusPercent => return p.allocSimplePrefixOp(.NegationWrap, token),
+            .Ampersand => return p.allocSimplePrefixOp(.AddressOf, token),
+            .Keyword_try => return p.allocSimplePrefixOp(.Try, token),
+            .Keyword_await => return p.allocSimplePrefixOp(.Await, token),
             else => {
                 p.putBackToken(token);
                 return null;
             },
-        };
+        }
+    }
 
-        const node = try p.arena.allocator.create(Node.PrefixOp);
+    fn allocSimplePrefixOp(p: *Parser, comptime tag: Node.Tag, token: TokenIndex) !?*Node {
+        const node = try p.arena.allocator.create(Node.SimplePrefixOp);
         node.* = .{
+            .base = .{ .tag = tag },
             .op_token = token,
-            .op = op,
             .rhs = undefined, // set by caller
         };
         return &node.base;
@@ -2451,19 +2560,15 @@ const Parser = struct {
     ///      / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
     fn parsePrefixTypeOp(p: *Parser) !?*Node {
         if (p.eatToken(.QuestionMark)) |token| {
-            const node = try p.arena.allocator.create(Node.PrefixOp);
+            const node = try p.arena.allocator.create(Node.SimplePrefixOp);
             node.* = .{
+                .base = .{ .tag = .OptionalType },
                 .op_token = token,
-                .op = .OptionalType,
                 .rhs = undefined, // set by caller
             };
             return &node.base;
         }
 
-        // TODO: Returning a AnyFrameType instead of PrefixOp makes casting and setting .rhs or
-        //       .return_type more difficult for the caller (see parsePrefixOpExpr helper).
-        //       Consider making the AnyFrameType a member of PrefixOp and add a
-        //       PrefixOp.AnyFrameType variant?
         if (p.eatToken(.Keyword_anyframe)) |token| {
             const arrow = p.eatToken(.Arrow) orelse {
                 p.putBackToken(token);
@@ -2483,11 +2588,15 @@ const Parser = struct {
         if (try p.parsePtrTypeStart()) |node| {
             // If the token encountered was **, there will be two nodes instead of one.
             // The attributes should be applied to the rightmost operator.
-            const prefix_op = node.cast(Node.PrefixOp).?;
-            var ptr_info = if (p.token_ids[prefix_op.op_token] == .AsteriskAsterisk)
-                &prefix_op.rhs.cast(Node.PrefixOp).?.op.PtrType
+            var ptr_info = if (node.cast(Node.PtrType)) |ptr_type|
+                if (p.token_ids[ptr_type.op_token] == .AsteriskAsterisk)
+                    &ptr_type.rhs.cast(Node.PtrType).?.ptr_info
+                else
+                    &ptr_type.ptr_info
+            else if (node.cast(Node.SliceType)) |slice_type|
+                &slice_type.ptr_info
             else
-                &prefix_op.op.PtrType;
+                unreachable;
 
             while (true) {
                 if (p.eatToken(.Keyword_align)) |align_token| {
@@ -2506,7 +2615,7 @@ const Parser = struct {
                             .ExpectedIntegerLiteral = .{ .token = p.tok_i },
                         });
 
-                        break :bit_range_value Node.PrefixOp.PtrInfo.Align.BitRange{
+                        break :bit_range_value ast.PtrInfo.Align.BitRange{
                             .start = range_start,
                             .end = range_end,
                         };
@@ -2520,7 +2629,7 @@ const Parser = struct {
                         continue;
                     }
 
-                    ptr_info.align_info = Node.PrefixOp.PtrInfo.Align{
+                    ptr_info.align_info = ast.PtrInfo.Align{
                         .node = expr_node,
                         .bit_range = bit_range,
                     };
@@ -2564,58 +2673,54 @@ const Parser = struct {
         }
 
         if (try p.parseArrayTypeStart()) |node| {
-            switch (node.cast(Node.PrefixOp).?.op) {
-                .ArrayType => {},
-                .SliceType => |*slice_type| {
-                    // Collect pointer qualifiers in any order, but disallow duplicates
-                    while (true) {
-                        if (try p.parseByteAlign()) |align_expr| {
-                            if (slice_type.align_info != null) {
-                                try p.errors.append(p.gpa, .{
-                                    .ExtraAlignQualifier = .{ .token = p.tok_i - 1 },
-                                });
-                                continue;
-                            }
-                            slice_type.align_info = Node.PrefixOp.PtrInfo.Align{
-                                .node = align_expr,
-                                .bit_range = null,
-                            };
+            if (node.cast(Node.SliceType)) |slice_type| {
+                // Collect pointer qualifiers in any order, but disallow duplicates
+                while (true) {
+                    if (try p.parseByteAlign()) |align_expr| {
+                        if (slice_type.ptr_info.align_info != null) {
+                            try p.errors.append(p.gpa, .{
+                                .ExtraAlignQualifier = .{ .token = p.tok_i - 1 },
+                            });
                             continue;
                         }
-                        if (p.eatToken(.Keyword_const)) |const_token| {
-                            if (slice_type.const_token != null) {
-                                try p.errors.append(p.gpa, .{
-                                    .ExtraConstQualifier = .{ .token = p.tok_i - 1 },
-                                });
-                                continue;
-                            }
-                            slice_type.const_token = const_token;
-                            continue;
-                        }
-                        if (p.eatToken(.Keyword_volatile)) |volatile_token| {
-                            if (slice_type.volatile_token != null) {
-                                try p.errors.append(p.gpa, .{
-                                    .ExtraVolatileQualifier = .{ .token = p.tok_i - 1 },
-                                });
-                                continue;
-                            }
-                            slice_type.volatile_token = volatile_token;
-                            continue;
-                        }
-                        if (p.eatToken(.Keyword_allowzero)) |allowzero_token| {
-                            if (slice_type.allowzero_token != null) {
-                                try p.errors.append(p.gpa, .{
-                                    .ExtraAllowZeroQualifier = .{ .token = p.tok_i - 1 },
-                                });
-                                continue;
-                            }
-                            slice_type.allowzero_token = allowzero_token;
-                            continue;
-                        }
-                        break;
+                        slice_type.ptr_info.align_info = ast.PtrInfo.Align{
+                            .node = align_expr,
+                            .bit_range = null,
+                        };
+                        continue;
                     }
-                },
-                else => unreachable,
+                    if (p.eatToken(.Keyword_const)) |const_token| {
+                        if (slice_type.ptr_info.const_token != null) {
+                            try p.errors.append(p.gpa, .{
+                                .ExtraConstQualifier = .{ .token = p.tok_i - 1 },
+                            });
+                            continue;
+                        }
+                        slice_type.ptr_info.const_token = const_token;
+                        continue;
+                    }
+                    if (p.eatToken(.Keyword_volatile)) |volatile_token| {
+                        if (slice_type.ptr_info.volatile_token != null) {
+                            try p.errors.append(p.gpa, .{
+                                .ExtraVolatileQualifier = .{ .token = p.tok_i - 1 },
+                            });
+                            continue;
+                        }
+                        slice_type.ptr_info.volatile_token = volatile_token;
+                        continue;
+                    }
+                    if (p.eatToken(.Keyword_allowzero)) |allowzero_token| {
+                        if (slice_type.ptr_info.allowzero_token != null) {
+                            try p.errors.append(p.gpa, .{
+                                .ExtraAllowZeroQualifier = .{ .token = p.tok_i - 1 },
+                            });
+                            continue;
+                        }
+                        slice_type.ptr_info.allowzero_token = allowzero_token;
+                        continue;
+                    }
+                    break;
+                }
             }
             return node;
         }
@@ -2669,14 +2774,14 @@ const Parser = struct {
 
             if (p.eatToken(.Period)) |period| {
                 if (try p.parseIdentifier()) |identifier| {
-                    // TODO: It's a bit weird to return an InfixOp from the SuffixOp parser.
+                    // TODO: It's a bit weird to return a SimpleInfixOp from the SuffixOp parser.
                     // Should there be an Node.SuffixOp.FieldAccess variant? Or should
                     // this grammar rule be altered?
-                    const node = try p.arena.allocator.create(Node.InfixOp);
+                    const node = try p.arena.allocator.create(Node.SimpleInfixOp);
                     node.* = .{
+                        .base = Node{ .tag = .Period },
                         .op_token = period,
                         .lhs = undefined, // set by caller
-                        .op = .Period,
                         .rhs = identifier,
                     };
                     return &node.base;
@@ -2729,29 +2834,32 @@ const Parser = struct {
             null;
         const rbracket = try p.expectToken(.RBracket);
 
-        const op: Node.PrefixOp.Op = if (expr) |len_expr|
-            .{
-                .ArrayType = .{
+        if (expr) |len_expr| {
+            if (sentinel) |s| {
+                const node = try p.arena.allocator.create(Node.ArrayTypeSentinel);
+                node.* = .{
+                    .op_token = lbracket,
+                    .rhs = undefined, // set by caller
                     .len_expr = len_expr,
-                    .sentinel = sentinel,
-                },
+                    .sentinel = s,
+                };
+                return &node.base;
+            } else {
+                const node = try p.arena.allocator.create(Node.ArrayType);
+                node.* = .{
+                    .op_token = lbracket,
+                    .rhs = undefined, // set by caller
+                    .len_expr = len_expr,
+                };
+                return &node.base;
             }
-        else
-            .{
-                .SliceType = Node.PrefixOp.PtrInfo{
-                    .allowzero_token = null,
-                    .align_info = null,
-                    .const_token = null,
-                    .volatile_token = null,
-                    .sentinel = sentinel,
-                },
-            };
+        }
 
-        const node = try p.arena.allocator.create(Node.PrefixOp);
+        const node = try p.arena.allocator.create(Node.SliceType);
         node.* = .{
             .op_token = lbracket,
-            .op = op,
             .rhs = undefined, // set by caller
+            .ptr_info = .{ .sentinel = sentinel },
         };
         return &node.base;
     }
@@ -2769,28 +2877,26 @@ const Parser = struct {
                 })
             else
                 null;
-            const node = try p.arena.allocator.create(Node.PrefixOp);
+            const node = try p.arena.allocator.create(Node.PtrType);
             node.* = .{
                 .op_token = asterisk,
-                .op = .{ .PtrType = .{ .sentinel = sentinel } },
                 .rhs = undefined, // set by caller
+                .ptr_info = .{ .sentinel = sentinel },
             };
             return &node.base;
         }
 
         if (p.eatToken(.AsteriskAsterisk)) |double_asterisk| {
-            const node = try p.arena.allocator.create(Node.PrefixOp);
+            const node = try p.arena.allocator.create(Node.PtrType);
             node.* = .{
                 .op_token = double_asterisk,
-                .op = .{ .PtrType = .{} },
                 .rhs = undefined, // set by caller
             };
 
             // Special case for **, which is its own token
-            const child = try p.arena.allocator.create(Node.PrefixOp);
+            const child = try p.arena.allocator.create(Node.PtrType);
             child.* = .{
                 .op_token = double_asterisk,
-                .op = .{ .PtrType = .{} },
                 .rhs = undefined, // set by caller
             };
             node.rhs = &child.base;
@@ -2809,10 +2915,9 @@ const Parser = struct {
                     p.putBackToken(ident);
                 } else {
                     _ = try p.expectToken(.RBracket);
-                    const node = try p.arena.allocator.create(Node.PrefixOp);
+                    const node = try p.arena.allocator.create(Node.PtrType);
                     node.* = .{
                         .op_token = lbracket,
-                        .op = .{ .PtrType = .{} },
                         .rhs = undefined, // set by caller
                     };
                     return &node.base;
@@ -2825,11 +2930,11 @@ const Parser = struct {
             else
                 null;
             _ = try p.expectToken(.RBracket);
-            const node = try p.arena.allocator.create(Node.PrefixOp);
+            const node = try p.arena.allocator.create(Node.PtrType);
             node.* = .{
                 .op_token = lbracket,
-                .op = .{ .PtrType = .{ .sentinel = sentinel } },
                 .rhs = undefined, // set by caller
+                .ptr_info = .{ .sentinel = sentinel },
             };
             return &node.base;
         }
@@ -2956,7 +3061,7 @@ const Parser = struct {
 
     const NodeParseFn = fn (p: *Parser) Error!?*Node;
 
-    fn ListParseFn(comptime E: type, comptime nodeParseFn: var) ParseFn([]E) {
+    fn ListParseFn(comptime E: type, comptime nodeParseFn: anytype) ParseFn([]E) {
         return struct {
             pub fn parse(p: *Parser) ![]E {
                 var list = std.ArrayList(E).init(p.gpa);
@@ -2983,7 +3088,7 @@ const Parser = struct {
         }.parse;
     }
 
-    fn SimpleBinOpParseFn(comptime token: Token.Id, comptime op: Node.InfixOp.Op) NodeParseFn {
+    fn SimpleBinOpParseFn(comptime token: Token.Id, comptime op: Node.Tag) NodeParseFn {
         return struct {
             pub fn parse(p: *Parser) Error!?*Node {
                 const op_token = if (token == .Keyword_and) switch (p.token_ids[p.tok_i]) {
@@ -2997,11 +3102,11 @@ const Parser = struct {
                     else => return null,
                 } else p.eatToken(token) orelse return null;
 
-                const node = try p.arena.allocator.create(Node.InfixOp);
+                const node = try p.arena.allocator.create(Node.SimpleInfixOp);
                 node.* = .{
+                    .base = .{ .tag = op },
                     .op_token = op_token,
                     .lhs = undefined, // set by caller
-                    .op = op,
                     .rhs = undefined, // set by caller
                 };
                 return &node.base;
@@ -3058,9 +3163,10 @@ const Parser = struct {
         return &node.base;
     }
 
-    fn parseVarType(p: *Parser) !?*Node {
-        const token = p.eatToken(.Keyword_var) orelse return null;
-        const node = try p.arena.allocator.create(Node.VarType);
+    fn parseAnyType(p: *Parser) !?*Node {
+        const token = p.eatToken(.Keyword_anytype) orelse
+            p.eatToken(.Keyword_var) orelse return null; // TODO remove in next release cycle
+        const node = try p.arena.allocator.create(Node.AnyType);
         node.* = .{
             .token = token,
         };
@@ -3070,7 +3176,6 @@ const Parser = struct {
     fn createLiteral(p: *Parser, comptime T: type, token: TokenIndex) !*Node {
         const result = try p.arena.allocator.create(T);
         result.* = T{
-            .base = Node{ .id = Node.typeToId(T) },
             .token = token,
         };
         return &result.base;
@@ -3146,26 +3251,11 @@ const Parser = struct {
 
     fn parseTry(p: *Parser) !?*Node {
         const token = p.eatToken(.Keyword_try) orelse return null;
-        const node = try p.arena.allocator.create(Node.PrefixOp);
+        const node = try p.arena.allocator.create(Node.SimplePrefixOp);
         node.* = .{
+            .base = .{ .tag = .Try },
             .op_token = token,
-            .op = .Try,
             .rhs = undefined, // set by caller
-        };
-        return &node.base;
-    }
-
-    fn parseUse(p: *Parser) !?*Node {
-        const token = p.eatToken(.Keyword_usingnamespace) orelse return null;
-        const node = try p.arena.allocator.create(Node.Use);
-        node.* = .{
-            .doc_comments = null,
-            .visib_token = null,
-            .use_token = token,
-            .expr = try p.expectNode(parseExpr, .{
-                .ExpectedExpr = .{ .token = p.tok_i },
-            }),
-            .semicolon_token = try p.expectToken(.Semicolon),
         };
         return &node.base;
     }
@@ -3223,20 +3313,53 @@ const Parser = struct {
     }
 
     /// Op* Child
-    fn parsePrefixOpExpr(p: *Parser, opParseFn: NodeParseFn, childParseFn: NodeParseFn) Error!?*Node {
+    fn parsePrefixOpExpr(p: *Parser, comptime opParseFn: NodeParseFn, comptime childParseFn: NodeParseFn) Error!?*Node {
         if (try opParseFn(p)) |first_op| {
             var rightmost_op = first_op;
             while (true) {
-                switch (rightmost_op.id) {
-                    .PrefixOp => {
-                        var prefix_op = rightmost_op.cast(Node.PrefixOp).?;
+                switch (rightmost_op.tag) {
+                    .AddressOf,
+                    .Await,
+                    .BitNot,
+                    .BoolNot,
+                    .OptionalType,
+                    .Negation,
+                    .NegationWrap,
+                    .Resume,
+                    .Try,
+                    => {
+                        if (try opParseFn(p)) |rhs| {
+                            rightmost_op.cast(Node.SimplePrefixOp).?.rhs = rhs;
+                            rightmost_op = rhs;
+                        } else break;
+                    },
+                    .ArrayType => {
+                        if (try opParseFn(p)) |rhs| {
+                            rightmost_op.cast(Node.ArrayType).?.rhs = rhs;
+                            rightmost_op = rhs;
+                        } else break;
+                    },
+                    .ArrayTypeSentinel => {
+                        if (try opParseFn(p)) |rhs| {
+                            rightmost_op.cast(Node.ArrayTypeSentinel).?.rhs = rhs;
+                            rightmost_op = rhs;
+                        } else break;
+                    },
+                    .SliceType => {
+                        if (try opParseFn(p)) |rhs| {
+                            rightmost_op.cast(Node.SliceType).?.rhs = rhs;
+                            rightmost_op = rhs;
+                        } else break;
+                    },
+                    .PtrType => {
+                        var ptr_type = rightmost_op.cast(Node.PtrType).?;
                         // If the token encountered was **, there will be two nodes
-                        if (p.token_ids[prefix_op.op_token] == .AsteriskAsterisk) {
-                            rightmost_op = prefix_op.rhs;
-                            prefix_op = rightmost_op.cast(Node.PrefixOp).?;
+                        if (p.token_ids[ptr_type.op_token] == .AsteriskAsterisk) {
+                            rightmost_op = ptr_type.rhs;
+                            ptr_type = rightmost_op.cast(Node.PtrType).?;
                         }
                         if (try opParseFn(p)) |rhs| {
-                            prefix_op.rhs = rhs;
+                            ptr_type.rhs = rhs;
                             rightmost_op = rhs;
                         } else break;
                     },
@@ -3252,9 +3375,42 @@ const Parser = struct {
             }
 
             // If any prefix op existed, a child node on the RHS is required
-            switch (rightmost_op.id) {
-                .PrefixOp => {
-                    const prefix_op = rightmost_op.cast(Node.PrefixOp).?;
+            switch (rightmost_op.tag) {
+                .AddressOf,
+                .Await,
+                .BitNot,
+                .BoolNot,
+                .OptionalType,
+                .Negation,
+                .NegationWrap,
+                .Resume,
+                .Try,
+                => {
+                    const prefix_op = rightmost_op.cast(Node.SimplePrefixOp).?;
+                    prefix_op.rhs = try p.expectNode(childParseFn, .{
+                        .InvalidToken = .{ .token = p.tok_i },
+                    });
+                },
+                .ArrayType => {
+                    const prefix_op = rightmost_op.cast(Node.ArrayType).?;
+                    prefix_op.rhs = try p.expectNode(childParseFn, .{
+                        .InvalidToken = .{ .token = p.tok_i },
+                    });
+                },
+                .ArrayTypeSentinel => {
+                    const prefix_op = rightmost_op.cast(Node.ArrayTypeSentinel).?;
+                    prefix_op.rhs = try p.expectNode(childParseFn, .{
+                        .InvalidToken = .{ .token = p.tok_i },
+                    });
+                },
+                .PtrType => {
+                    const prefix_op = rightmost_op.cast(Node.PtrType).?;
+                    prefix_op.rhs = try p.expectNode(childParseFn, .{
+                        .InvalidToken = .{ .token = p.tok_i },
+                    });
+                },
+                .SliceType => {
+                    const prefix_op = rightmost_op.cast(Node.SliceType).?;
                     prefix_op.rhs = try p.expectNode(childParseFn, .{
                         .InvalidToken = .{ .token = p.tok_i },
                     });
@@ -3295,9 +3451,13 @@ const Parser = struct {
             const left = res;
             res = node;
 
-            const op = node.cast(Node.InfixOp).?;
-            op.*.lhs = left;
-            op.*.rhs = right;
+            if (node.castTag(.Catch)) |op| {
+                op.lhs = left;
+                op.rhs = right;
+            } else if (node.cast(Node.SimpleInfixOp)) |op| {
+                op.lhs = left;
+                op.rhs = right;
+            }
 
             switch (chain) {
                 .Once => break,
@@ -3308,12 +3468,12 @@ const Parser = struct {
         return res;
     }
 
-    fn createInfixOp(p: *Parser, index: TokenIndex, op: Node.InfixOp.Op) !*Node {
-        const node = try p.arena.allocator.create(Node.InfixOp);
+    fn createInfixOp(p: *Parser, op_token: TokenIndex, tag: Node.Tag) !*Node {
+        const node = try p.arena.allocator.create(Node.SimpleInfixOp);
         node.* = .{
-            .op_token = index,
+            .base = Node{ .tag = tag },
+            .op_token = op_token,
             .lhs = undefined, // set by caller
-            .op = op,
             .rhs = undefined, // set by caller
         };
         return &node.base;

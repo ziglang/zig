@@ -5,7 +5,7 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns the cosine of z.
-pub fn cos(z: var) Complex(@TypeOf(z.re)) {
+pub fn cos(z: anytype) Complex(@TypeOf(z.re)) {
     const T = @TypeOf(z.re);
     const p = Complex(T).new(-z.im, z.re);
     return cmath.cosh(p);
