@@ -554,13 +554,20 @@ pub const Value = extern union {
         };
     }
 
-    /// Asserts that the value is a float.
+    /// Asserts that the value is a float or an integer.
     pub fn toF128(self: Value) f128 {
         return switch (self.tag()) {
             .float_16 => self.cast(Payload.Float_16).?.val,
             .float_32 => self.cast(Payload.Float_32).?.val,
             .float_64 => self.cast(Payload.Float_64).?.val,
             .float_128, .float => self.cast(Payload.Float_128).?.val,
+
+            .zero, .the_one_possible_value => 0,
+            .int_u64 => @intToFloat(f128, self.cast(Payload.Int_u64).?.int),
+            // .int_i64 => @intToFloat(f128, self.cast(Payload.Int_i64).?.int),
+            .int_i64 => @panic("TODO lld: error: undefined symbol: __floatditf"),
+
+            .int_big_positive, .int_big_negative => @panic("big int to f128"),
             else => unreachable,
         };
     }

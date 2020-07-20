@@ -38,6 +38,8 @@ pub fn expr(mod: *Module, scope: *Scope, node: *ast.Node) InnerError!*zir.Inst {
         .Period => return field(mod, scope, node.castTag(.Period).?),
         .Deref => return deref(mod, scope, node.castTag(.Deref).?),
         .BoolNot => return boolNot(mod, scope, node.castTag(.BoolNot).?),
+        .FloatLiteral => return floatLiteral(mod, scope, node.castTag(.FloatLiteral).?),
+        .UndefinedLiteral, .BoolLiteral, .NullLiteral => return primitiveLiteral(mod, scope, node),
         else => return mod.failNode(scope, node, "TODO implement astgen.Expr for {}", .{@tagName(node.tag)}),
     }
 }
@@ -403,6 +405,52 @@ fn integerLiteral(mod: *Module, scope: *Scope, int_lit: *ast.Node.IntegerLiteral
     } else |err| {
         return mod.failTok(scope, int_lit.token, "TODO implement int literals that don't fit in a u64", .{});
     }
+}
+
+fn floatLiteral(mod: *Module, scope: *Scope, float_lit: *ast.Node.FloatLiteral) InnerError!*zir.Inst {
+    const arena = scope.arena();
+    const tree = scope.tree();
+    const bytes = tree.tokenSlice(float_lit.token);
+    if (bytes.len > 2 and bytes[1] == 'x') {
+        return mod.failTok(scope, float_lit.token, "TODO hex floats", .{});
+    }
+
+    const val = std.fmt.parseFloat(f128, bytes) catch |e| switch (e) {
+        error.InvalidCharacter => unreachable, // validated by tokenizer
+    };
+    const float_payload = try arena.create(Value.Payload.Float_128);
+    float_payload.* = .{ .val = val };
+    const src = tree.token_locs[float_lit.token].start;
+    return mod.addZIRInstConst(scope, src, .{
+        .ty = Type.initTag(.comptime_float),
+        .val = Value.initPayload(&float_payload.base),
+    });
+}
+
+fn primitiveLiteral(mod: *Module, scope: *Scope, node: *ast.Node) InnerError!*zir.Inst {
+    const arena = scope.arena();
+    const tree = scope.tree();
+    const src = tree.token_locs[node.firstToken()].start;
+
+    if (node.cast(ast.Node.BoolLiteral)) |bool_node| {
+        return mod.addZIRInstConst(scope, src, .{
+            .ty = Type.initTag(.bool),
+            .val = if (tree.token_ids[bool_node.token] == .Keyword_true)
+                Value.initTag(.bool_true)
+            else
+                Value.initTag(.bool_false),
+        });
+    } else if (node.tag == .UndefinedLiteral) {
+        return mod.addZIRInstConst(scope, src, .{
+            .ty = Type.initTag(.@"undefined"),
+            .val = Value.initTag(.undef),
+        });
+    } else if (node.tag == .NullLiteral) {
+        return mod.addZIRInstConst(scope, src, .{
+            .ty = Type.initTag(.@"null"),
+            .val = Value.initTag(.null_value),
+        });
+    } else unreachable;
 }
 
 fn assembly(mod: *Module, scope: *Scope, asm_node: *ast.Node.Asm) InnerError!*zir.Inst {
