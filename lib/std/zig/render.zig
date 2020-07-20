@@ -503,7 +503,7 @@ fn renderExpression(
         .Range,
         .Sub,
         .SubWrap,
-        .UnwrapOptional,
+        .OrElse,
         => {
             const infix_op_node = @fieldParentPtr(ast.Node.SimpleInfixOp, "base", base);
 
@@ -2656,7 +2656,7 @@ fn nodeCausesSliceOpSpace(base: *ast.Node) bool {
         .Range,
         .Sub,
         .SubWrap,
-        .UnwrapOptional,
+        .OrElse,
         => true,
 
         else => false,

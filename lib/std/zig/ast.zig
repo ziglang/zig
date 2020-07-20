@@ -453,7 +453,7 @@ pub const Node = struct {
         Range,
         Sub,
         SubWrap,
-        UnwrapOptional,
+        OrElse,
 
         // SimplePrefixOp
         AddressOf,
@@ -582,7 +582,7 @@ pub const Node = struct {
                 .Range,
                 .Sub,
                 .SubWrap,
-                .UnwrapOptional,
+                .OrElse,
                 => SimpleInfixOp,
 
                 .AddressOf,

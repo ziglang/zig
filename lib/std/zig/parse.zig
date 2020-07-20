@@ -1486,7 +1486,7 @@ const Parser = struct {
                     .Range,
                     .Sub,
                     .SubWrap,
-                    .UnwrapOptional,
+                    .OrElse,
                     => node.cast(Node.SimpleInfixOp).?.lhs = res,
 
                     else => unreachable,
@@ -1563,7 +1563,7 @@ const Parser = struct {
                         .Range,
                         .Sub,
                         .SubWrap,
-                        .UnwrapOptional,
+                        .OrElse,
                         => node.cast(Node.SimpleInfixOp).?.lhs = res,
                         else => unreachable,
                     }
@@ -2425,7 +2425,7 @@ const Parser = struct {
             .Ampersand => .BitAnd,
             .Caret => .BitXor,
             .Pipe => .BitOr,
-            .Keyword_orelse => .UnwrapOptional,
+            .Keyword_orelse => .OrElse,
             .Keyword_catch => {
                 const payload = try p.parsePayload();
                 const node = try p.arena.allocator.create(Node.Catch);
