@@ -34,7 +34,7 @@ pub fn expr(mod: *Module, scope: *Scope, node: *ast.Node) InnerError!*zir.Inst {
         .LessThan => return cmp(mod, scope, node.castTag(.LessThan).?, .lt),
         .LessOrEqual => return cmp(mod, scope, node.castTag(.LessOrEqual).?, .lte),
         .Period => return field(mod, scope, node.castTag(.Period).?),
-        .SuffixOp => return suffixOp(mod, scope, node.castTag(.SuffixOp).?),
+        .Deref => return deref(mod, scope, node.castTag(.Deref).?),
         .BoolNot => return boolNot(mod, scope, node.castTag(.BoolNot).?),
         else => return mod.failNode(scope, node, "TODO implement astgen.Expr for {}", .{@tagName(node.tag)}),
     }
@@ -73,32 +73,41 @@ fn varDecl(mod: *Module, scope: *Scope, node: *ast.Node.VarDecl) InnerError!Scop
     if (node.getTrailer("align_node")) |align_node| {
         return mod.failNode(scope, align_node, "TODO implement alignment on locals", .{});
     }
-    if (node.getTrailer("type_node")) |type_node| {
-        return mod.failNode(scope, type_node, "TODO implement typed locals", .{});
-    }
     const tree = scope.tree();
     switch (tree.token_ids[node.mut_token]) {
-        .Keyword_const => {},
+        .Keyword_const => {
+            if (node.getTrailer("type_node")) |type_node| {
+                return mod.failNode(scope, type_node, "TODO implement typed const locals", .{});
+            }
+            // Depending on the type of AST the initialization expression is, we may need an lvalue
+            // or an rvalue as a result location. If it is an rvalue, we can use the instruction as
+            // the variable, no memory location needed.
+            const init_node = node.getTrailer("init_node").?;
+            if (nodeMayNeedMemoryLocation(init_node)) {
+                return mod.failNode(scope, init_node, "TODO implement result locations", .{});
+            }
+            const init_inst = try expr(mod, scope, init_node);
+            const ident_name = try identifierTokenString(mod, scope, node.name_token);
+            return Scope.LocalVar{
+                .parent = scope,
+                .gen_zir = scope.getGenZIR(),
+                .name = ident_name,
+                .inst = init_inst,
+            };
+        },
         .Keyword_var => {
-            return mod.failTok(scope, node.mut_token, "TODO implement mutable locals", .{});
+            return mod.failNode(scope, &node.base, "TODO implement local vars", .{});
+            //const src = tree.token_locs[node.name_token].start;
+            //const alloc = mod.addZIRInst(scope, src, zir.Inst.Alloc, .{}, .{});
+            //if (node.getTrailer("type_node")) |type_node| {
+            //    const type_inst = try expr(mod, scope, type_node);
+            //    return mod.failNode(scope, type_node, "TODO implement typed var locals", .{});
+            //} else {
+            //    return mod.failTok(scope, node.mut_token, "TODO implement mutable type-inferred locals", .{});
+            //}
         },
         else => unreachable,
     }
-    // Depending on the type of AST the initialization expression is, we may need an lvalue
-    // or an rvalue as a result location. If it is an rvalue, we can use the instruction as
-    // the variable, no memory location needed.
-    const init_node = node.getTrailer("init_node").?;
-    if (nodeMayNeedMemoryLocation(init_node)) {
-        return mod.failNode(scope, init_node, "TODO implement result locations", .{});
-    }
-    const init_inst = try expr(mod, scope, init_node);
-    const ident_name = try identifierTokenString(mod, scope, node.name_token);
-    return Scope.LocalVar{
-        .parent = scope,
-        .gen_zir = scope.getGenZIR(),
-        .name = ident_name,
-        .inst = init_inst,
-    };
 }
 
 fn boolNot(mod: *Module, scope: *Scope, node: *ast.Node.SimplePrefixOp) InnerError!*zir.Inst {
@@ -163,18 +172,13 @@ fn field(mod: *Module, scope: *Scope, node: *ast.Node.SimpleInfixOp) InnerError!
     return mod.addZIRInst(scope, src, zir.Inst.Deref, .{ .ptr = pointer }, .{});
 }
 
-fn suffixOp(mod: *Module, scope: *Scope, node: *ast.Node.SuffixOp) InnerError!*zir.Inst {
-    switch (node.op) {
-        .Deref => {
-            const tree = scope.tree();
-            const src = tree.token_locs[node.rtoken].start;
+fn deref(mod: *Module, scope: *Scope, node: *ast.Node.SimpleSuffixOp) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.rtoken].start;
 
-            const lhs = try expr(mod, scope, node.lhs);
+    const lhs = try expr(mod, scope, node.lhs);
 
-            return mod.addZIRInst(scope, src, zir.Inst.Deref, .{ .ptr = lhs }, .{});
-        },
-        else => return mod.failNode(scope, &node.base, "TODO implement astGenExpr for suffixOp {}", .{node.op}),
-    }
+    return mod.addZIRInst(scope, src, zir.Inst.Deref, .{ .ptr = lhs }, .{});
 }
 
 fn add(mod: *Module, scope: *Scope, infix_node: *ast.Node.SimpleInfixOp) InnerError!*zir.Inst {
@@ -672,6 +676,9 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node) bool {
             .Period,
             .Sub,
             .SubWrap,
+            .Slice,
+            .Deref,
+            .ArrayAccess,
             => return false,
 
             // Forward the question to a sub-expression.
@@ -682,6 +689,7 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node) bool {
             .OrElse => node = node.castTag(.OrElse).?.rhs,
             .Comptime => node = node.castTag(.Comptime).?.expr,
             .Nosuspend => node = node.castTag(.Nosuspend).?.expr,
+            .UnwrapOptional => node = node.castTag(.UnwrapOptional).?.lhs,
 
             // True because these are exactly the expressions we need memory locations for.
             .ArrayInitializer,
@@ -697,7 +705,6 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node) bool {
             .Switch,
             .Call,
             .BuiltinCall, // TODO some of these can return false
-            .SuffixOp, // TODO this should be split up
             => return true,
 
             // Depending on AST properties, they may need memory locations.

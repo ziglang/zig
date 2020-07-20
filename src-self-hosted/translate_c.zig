@@ -2962,9 +2962,9 @@ fn transArrayAccess(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangArrayS
         cast_node.params()[1] = try transExpr(rp, scope, subscr_expr, .used, .r_value);
         cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
         node.rtoken = try appendToken(rp.c, .RBrace, "]");
-        node.op.ArrayAccess = &cast_node.base;
+        node.index_expr = &cast_node.base;
     } else {
-        node.op.ArrayAccess = try transExpr(rp, scope, subscr_expr, .used, .r_value);
+        node.index_expr = try transExpr(rp, scope, subscr_expr, .used, .r_value);
         node.rtoken = try appendToken(rp.c, .RBrace, "]");
     }
     return maybeSuppressResult(rp, scope, result_used, &node.base);
@@ -4405,9 +4405,9 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
 fn transCreateNodeUnwrapNull(c: *Context, wrapped: *ast.Node) !*ast.Node {
     _ = try appendToken(c, .Period, ".");
     const qm = try appendToken(c, .QuestionMark, "?");
-    const node = try c.arena.create(ast.Node.SuffixOp);
+    const node = try c.arena.create(ast.Node.SimpleSuffixOp);
     node.* = .{
-        .op = .UnwrapOptional,
+        .base = .{ .tag = .UnwrapOptional },
         .lhs = wrapped,
         .rtoken = qm,
     };
@@ -4567,23 +4567,21 @@ fn transCreateNodeShiftOp(
 }
 
 fn transCreateNodePtrDeref(c: *Context, lhs: *ast.Node) !*ast.Node {
-    const node = try c.arena.create(ast.Node.SuffixOp);
+    const node = try c.arena.create(ast.Node.SimpleSuffixOp);
     node.* = .{
+        .base = .{ .tag = .Deref },
         .lhs = lhs,
-        .op = .Deref,
         .rtoken = try appendToken(c, .PeriodAsterisk, ".*"),
     };
     return &node.base;
 }
 
-fn transCreateNodeArrayAccess(c: *Context, lhs: *ast.Node) !*ast.Node.SuffixOp {
+fn transCreateNodeArrayAccess(c: *Context, lhs: *ast.Node) !*ast.Node.ArrayAccess {
     _ = try appendToken(c, .LBrace, "[");
-    const node = try c.arena.create(ast.Node.SuffixOp);
+    const node = try c.arena.create(ast.Node.ArrayAccess);
     node.* = .{
         .lhs = lhs,
-        .op = .{
-            .ArrayAccess = undefined,
-        },
+        .index_expr = undefined,
         .rtoken = undefined,
     };
     return node;
@@ -6010,7 +6008,7 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             },
             .LBracket => {
                 const arr_node = try transCreateNodeArrayAccess(c, node);
-                arr_node.op.ArrayAccess = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
+                arr_node.index_expr = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
                 arr_node.rtoken = try appendToken(c, .RBracket, "]");
                 node = &arr_node.base;
                 if (it.next().?.id != .RBracket) {
@@ -6098,7 +6096,6 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                     .rtoken = try appendToken(c, .RBrace, "}"),
                 };
                 mem.copy(*ast.Node, tuple_node.list(), init_vals.items);
-
 
                 //(@import("std").mem.zeroInit(T, .{x}))
                 const import_fn_call = try c.createBuiltinCall("@import", 1);

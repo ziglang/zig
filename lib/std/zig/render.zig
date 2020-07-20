@@ -1044,68 +1044,67 @@ fn renderExpression(
             return renderToken(tree, stream, call.rtoken, indent, start_col, space);
         },
 
-        .SuffixOp => {
-            const suffix_op = @fieldParentPtr(ast.Node.SuffixOp, "base", base);
+        .ArrayAccess => {
+            const suffix_op = base.castTag(.ArrayAccess).?;
 
-            switch (suffix_op.op) {
-                .ArrayAccess => |index_expr| {
-                    const lbracket = tree.nextToken(suffix_op.lhs.lastToken());
-                    const rbracket = tree.nextToken(index_expr.lastToken());
+            const lbracket = tree.nextToken(suffix_op.lhs.lastToken());
+            const rbracket = tree.nextToken(suffix_op.index_expr.lastToken());
 
-                    try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
-                    try renderToken(tree, stream, lbracket, indent, start_col, Space.None); // [
+            try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
+            try renderToken(tree, stream, lbracket, indent, start_col, Space.None); // [
 
-                    const starts_with_comment = tree.token_ids[lbracket + 1] == .LineComment;
-                    const ends_with_comment = tree.token_ids[rbracket - 1] == .LineComment;
-                    const new_indent = if (ends_with_comment) indent + indent_delta else indent;
-                    const new_space = if (ends_with_comment) Space.Newline else Space.None;
-                    try renderExpression(allocator, stream, tree, new_indent, start_col, index_expr, new_space);
-                    if (starts_with_comment) {
-                        try stream.writeByte('\n');
-                    }
-                    if (ends_with_comment or starts_with_comment) {
-                        try stream.writeByteNTimes(' ', indent);
-                    }
-                    return renderToken(tree, stream, rbracket, indent, start_col, space); // ]
-                },
-
-                .Deref => {
-                    try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
-                    return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space); // .*
-                },
-
-                .UnwrapOptional => {
-                    try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
-                    try renderToken(tree, stream, tree.prevToken(suffix_op.rtoken), indent, start_col, Space.None); // .
-                    return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space); // ?
-                },
-
-                .Slice => |range| {
-                    try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
-
-                    const lbracket = tree.prevToken(range.start.firstToken());
-                    const dotdot = tree.nextToken(range.start.lastToken());
-
-                    const after_start_space_bool = nodeCausesSliceOpSpace(range.start) or
-                        (if (range.end) |end| nodeCausesSliceOpSpace(end) else false);
-                    const after_start_space = if (after_start_space_bool) Space.Space else Space.None;
-                    const after_op_space = if (range.end != null) after_start_space else Space.None;
-
-                    try renderToken(tree, stream, lbracket, indent, start_col, Space.None); // [
-                    try renderExpression(allocator, stream, tree, indent, start_col, range.start, after_start_space);
-                    try renderToken(tree, stream, dotdot, indent, start_col, after_op_space); // ..
-                    if (range.end) |end| {
-                        const after_end_space = if (range.sentinel != null) Space.Space else Space.None;
-                        try renderExpression(allocator, stream, tree, indent, start_col, end, after_end_space);
-                    }
-                    if (range.sentinel) |sentinel| {
-                        const colon = tree.prevToken(sentinel.firstToken());
-                        try renderToken(tree, stream, colon, indent, start_col, Space.None); // :
-                        try renderExpression(allocator, stream, tree, indent, start_col, sentinel, Space.None);
-                    }
-                    return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space); // ]
-                },
+            const starts_with_comment = tree.token_ids[lbracket + 1] == .LineComment;
+            const ends_with_comment = tree.token_ids[rbracket - 1] == .LineComment;
+            const new_indent = if (ends_with_comment) indent + indent_delta else indent;
+            const new_space = if (ends_with_comment) Space.Newline else Space.None;
+            try renderExpression(allocator, stream, tree, new_indent, start_col, suffix_op.index_expr, new_space);
+            if (starts_with_comment) {
+                try stream.writeByte('\n');
             }
+            if (ends_with_comment or starts_with_comment) {
+                try stream.writeByteNTimes(' ', indent);
+            }
+            return renderToken(tree, stream, rbracket, indent, start_col, space); // ]
+        },
+        .Slice => {
+            const suffix_op = base.castTag(.Slice).?;
+
+            try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
+
+            const lbracket = tree.prevToken(suffix_op.start.firstToken());
+            const dotdot = tree.nextToken(suffix_op.start.lastToken());
+
+            const after_start_space_bool = nodeCausesSliceOpSpace(suffix_op.start) or
+                (if (suffix_op.end) |end| nodeCausesSliceOpSpace(end) else false);
+            const after_start_space = if (after_start_space_bool) Space.Space else Space.None;
+            const after_op_space = if (suffix_op.end != null) after_start_space else Space.None;
+
+            try renderToken(tree, stream, lbracket, indent, start_col, Space.None); // [
+            try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.start, after_start_space);
+            try renderToken(tree, stream, dotdot, indent, start_col, after_op_space); // ..
+            if (suffix_op.end) |end| {
+                const after_end_space = if (suffix_op.sentinel != null) Space.Space else Space.None;
+                try renderExpression(allocator, stream, tree, indent, start_col, end, after_end_space);
+            }
+            if (suffix_op.sentinel) |sentinel| {
+                const colon = tree.prevToken(sentinel.firstToken());
+                try renderToken(tree, stream, colon, indent, start_col, Space.None); // :
+                try renderExpression(allocator, stream, tree, indent, start_col, sentinel, Space.None);
+            }
+            return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space); // ]
+        },
+        .Deref => {
+            const suffix_op = base.castTag(.Deref).?;
+
+            try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
+            return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space); // .*
+        },
+        .UnwrapOptional => {
+            const suffix_op = base.castTag(.UnwrapOptional).?;
+
+            try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
+            try renderToken(tree, stream, tree.prevToken(suffix_op.rtoken), indent, start_col, Space.None); // .
+            return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space); // ?
         },
 
         .ControlFlowExpression => {

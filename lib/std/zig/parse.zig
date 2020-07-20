@@ -1439,58 +1439,7 @@ const Parser = struct {
                 .ExpectedPrimaryTypeExpr = .{ .token = p.tok_i },
             });
 
-            // TODO pass `res` into `parseSuffixOp` rather than patching it up afterwards.
-            while (try p.parseSuffixOp()) |node| {
-                switch (node.tag) {
-                    .SuffixOp => node.cast(Node.SuffixOp).?.lhs = res,
-                    .Catch => node.castTag(.Catch).?.lhs = res,
-
-                    .Add,
-                    .AddWrap,
-                    .ArrayCat,
-                    .ArrayMult,
-                    .Assign,
-                    .AssignBitAnd,
-                    .AssignBitOr,
-                    .AssignBitShiftLeft,
-                    .AssignBitShiftRight,
-                    .AssignBitXor,
-                    .AssignDiv,
-                    .AssignSub,
-                    .AssignSubWrap,
-                    .AssignMod,
-                    .AssignAdd,
-                    .AssignAddWrap,
-                    .AssignMul,
-                    .AssignMulWrap,
-                    .BangEqual,
-                    .BitAnd,
-                    .BitOr,
-                    .BitShiftLeft,
-                    .BitShiftRight,
-                    .BitXor,
-                    .BoolAnd,
-                    .BoolOr,
-                    .Div,
-                    .EqualEqual,
-                    .ErrorUnion,
-                    .GreaterOrEqual,
-                    .GreaterThan,
-                    .LessOrEqual,
-                    .LessThan,
-                    .MergeErrorSets,
-                    .Mod,
-                    .Mul,
-                    .MulWrap,
-                    .Period,
-                    .Range,
-                    .Sub,
-                    .SubWrap,
-                    .OrElse,
-                    => node.cast(Node.SimpleInfixOp).?.lhs = res,
-
-                    else => unreachable,
-                }
+            while (try p.parseSuffixOp(res)) |node| {
                 res = node;
             }
 
@@ -1516,57 +1465,7 @@ const Parser = struct {
             var res = expr;
 
             while (true) {
-                // TODO pass `res` into `parseSuffixOp` rather than patching it up afterwards.
-                if (try p.parseSuffixOp()) |node| {
-                    switch (node.tag) {
-                        .SuffixOp => node.cast(Node.SuffixOp).?.lhs = res,
-                        .Catch => node.castTag(.Catch).?.lhs = res,
-
-                        .Add,
-                        .AddWrap,
-                        .ArrayCat,
-                        .ArrayMult,
-                        .Assign,
-                        .AssignBitAnd,
-                        .AssignBitOr,
-                        .AssignBitShiftLeft,
-                        .AssignBitShiftRight,
-                        .AssignBitXor,
-                        .AssignDiv,
-                        .AssignSub,
-                        .AssignSubWrap,
-                        .AssignMod,
-                        .AssignAdd,
-                        .AssignAddWrap,
-                        .AssignMul,
-                        .AssignMulWrap,
-                        .BangEqual,
-                        .BitAnd,
-                        .BitOr,
-                        .BitShiftLeft,
-                        .BitShiftRight,
-                        .BitXor,
-                        .BoolAnd,
-                        .BoolOr,
-                        .Div,
-                        .EqualEqual,
-                        .ErrorUnion,
-                        .GreaterOrEqual,
-                        .GreaterThan,
-                        .LessOrEqual,
-                        .LessThan,
-                        .MergeErrorSets,
-                        .Mod,
-                        .Mul,
-                        .MulWrap,
-                        .Period,
-                        .Range,
-                        .Sub,
-                        .SubWrap,
-                        .OrElse,
-                        => node.cast(Node.SimpleInfixOp).?.lhs = res,
-                        else => unreachable,
-                    }
+                if (try p.parseSuffixOp(res)) |node| {
                     res = node;
                     continue;
                 }
@@ -2733,78 +2632,77 @@ const Parser = struct {
     ///      / DOT IDENTIFIER
     ///      / DOTASTERISK
     ///      / DOTQUESTIONMARK
-    fn parseSuffixOp(p: *Parser) !?*Node {
-        const OpAndToken = struct {
-            op: Node.SuffixOp.Op,
-            token: TokenIndex,
-        };
-        const op_and_token: OpAndToken = blk: {
-            if (p.eatToken(.LBracket)) |_| {
-                const index_expr = try p.expectNode(parseExpr, .{
-                    .ExpectedExpr = .{ .token = p.tok_i },
-                });
+    fn parseSuffixOp(p: *Parser, lhs: *Node) !?*Node {
+        if (p.eatToken(.LBracket)) |_| {
+            const index_expr = try p.expectNode(parseExpr, .{
+                .ExpectedExpr = .{ .token = p.tok_i },
+            });
 
-                if (p.eatToken(.Ellipsis2) != null) {
-                    const end_expr = try p.parseExpr();
-                    const sentinel: ?*Node = if (p.eatToken(.Colon) != null)
-                        try p.parseExpr()
-                    else
-                        null;
-                    break :blk .{
-                        .op = .{
-                            .Slice = .{
-                                .start = index_expr,
-                                .end = end_expr,
-                                .sentinel = sentinel,
-                            },
-                        },
-                        .token = try p.expectToken(.RBracket),
-                    };
-                }
-
-                break :blk .{
-                    .op = .{ .ArrayAccess = index_expr },
-                    .token = try p.expectToken(.RBracket),
+            if (p.eatToken(.Ellipsis2) != null) {
+                const end_expr = try p.parseExpr();
+                const sentinel: ?*Node = if (p.eatToken(.Colon) != null)
+                    try p.parseExpr()
+                else
+                    null;
+                const rtoken = try p.expectToken(.RBracket);
+                const node = try p.arena.allocator.create(Node.Slice);
+                node.* = .{
+                    .lhs = lhs,
+                    .rtoken = rtoken,
+                    .start = index_expr,
+                    .end = end_expr,
+                    .sentinel = sentinel,
                 };
+                return &node.base;
             }
 
-            if (p.eatToken(.PeriodAsterisk)) |period_asterisk| {
-                break :blk .{ .op = .Deref, .token = period_asterisk };
-            }
+            const rtoken = try p.expectToken(.RBracket);
+            const node = try p.arena.allocator.create(Node.ArrayAccess);
+            node.* = .{
+                .lhs = lhs,
+                .rtoken = rtoken,
+                .index_expr = index_expr,
+            };
+            return &node.base;
+        }
 
-            if (p.eatToken(.Period)) |period| {
-                if (try p.parseIdentifier()) |identifier| {
-                    // TODO: It's a bit weird to return a SimpleInfixOp from the SuffixOp parser.
-                    // Should there be an Node.SuffixOp.FieldAccess variant? Or should
-                    // this grammar rule be altered?
-                    const node = try p.arena.allocator.create(Node.SimpleInfixOp);
-                    node.* = .{
-                        .base = Node{ .tag = .Period },
-                        .op_token = period,
-                        .lhs = undefined, // set by caller
-                        .rhs = identifier,
-                    };
-                    return &node.base;
-                }
-                if (p.eatToken(.QuestionMark)) |question_mark| {
-                    break :blk .{ .op = .UnwrapOptional, .token = question_mark };
-                }
-                try p.errors.append(p.gpa, .{
-                    .ExpectedSuffixOp = .{ .token = p.tok_i },
-                });
-                return null;
-            }
+        if (p.eatToken(.PeriodAsterisk)) |period_asterisk| {
+            const node = try p.arena.allocator.create(Node.SimpleSuffixOp);
+            node.* = .{
+                .base = .{ .tag = .Deref },
+                .lhs = lhs,
+                .rtoken = period_asterisk,
+            };
+            return &node.base;
+        }
 
+        if (p.eatToken(.Period)) |period| {
+            if (try p.parseIdentifier()) |identifier| {
+                const node = try p.arena.allocator.create(Node.SimpleInfixOp);
+                node.* = .{
+                    .base = Node{ .tag = .Period },
+                    .op_token = period,
+                    .lhs = lhs,
+                    .rhs = identifier,
+                };
+                return &node.base;
+            }
+            if (p.eatToken(.QuestionMark)) |question_mark| {
+                const node = try p.arena.allocator.create(Node.SimpleSuffixOp);
+                node.* = .{
+                    .base = .{ .tag = .UnwrapOptional },
+                    .lhs = lhs,
+                    .rtoken = question_mark,
+                };
+                return &node.base;
+            }
+            try p.errors.append(p.gpa, .{
+                .ExpectedSuffixOp = .{ .token = p.tok_i },
+            });
             return null;
-        };
+        }
 
-        const node = try p.arena.allocator.create(Node.SuffixOp);
-        node.* = .{
-            .lhs = undefined, // set by caller
-            .op = op_and_token.op,
-            .rtoken = op_and_token.token,
-        };
-        return &node.base;
+        return null;
     }
 
     /// FnCallArguments <- LPAREN ExprList RPAREN

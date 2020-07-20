@@ -471,9 +471,14 @@ pub const Node = struct {
         ArrayTypeSentinel,
         PtrType,
         SliceType,
-        /// Not all suffix operations are under this tag. To save memory, some
-        /// suffix operations have dedicated Node tags.
-        SuffixOp,
+        /// `a[b..c]`
+        Slice,
+        /// `a.*`
+        Deref,
+        /// `a.?`
+        UnwrapOptional,
+        /// `a[b]`
+        ArrayAccess,
         /// `T{a, b}`
         ArrayInitializer,
         /// ArrayInitializer but with `.` instead of a left-hand-side operand.
@@ -601,7 +606,9 @@ pub const Node = struct {
 
                 .PtrType => PtrType,
                 .SliceType => SliceType,
-                .SuffixOp => SuffixOp,
+                .Slice => Slice,
+                .Deref, .UnwrapOptional => SimpleSuffixOp,
+                .ArrayAccess => ArrayAccess,
 
                 .ArrayInitializer => ArrayInitializer,
                 .ArrayInitializerDot => ArrayInitializerDot,
@@ -2398,8 +2405,8 @@ pub const Node = struct {
     /// Parameter nodes directly follow Call in memory.
     pub const Call = struct {
         base: Node = Node{ .tag = .Call },
-        lhs: *Node,
         rtoken: TokenIndex,
+        lhs: *Node,
         params_len: NodeIndex,
         async_token: ?TokenIndex,
 
@@ -2450,62 +2457,90 @@ pub const Node = struct {
         }
     };
 
-    pub const SuffixOp = struct {
-        base: Node = Node{ .tag = .SuffixOp },
-        op: Op,
-        lhs: *Node,
+    pub const ArrayAccess = struct {
+        base: Node = Node{ .tag = .ArrayAccess },
         rtoken: TokenIndex,
+        lhs: *Node,
+        index_expr: *Node,
 
-        pub const Op = union(enum) {
-            ArrayAccess: *Node,
-            Slice: Slice,
-            Deref,
-            UnwrapOptional,
-
-            pub const Slice = struct {
-                start: *Node,
-                end: ?*Node,
-                sentinel: ?*Node,
-            };
-        };
-
-        pub fn iterate(self: *const SuffixOp, index: usize) ?*Node {
+        pub fn iterate(self: *const ArrayAccess, index: usize) ?*Node {
             var i = index;
 
-            if (i == 0) return self.lhs;
+            if (i < 1) return self.lhs;
             i -= 1;
 
-            switch (self.op) {
-                .ArrayAccess => |index_expr| {
-                    if (i < 1) return index_expr;
-                    i -= 1;
-                },
-                .Slice => |range| {
-                    if (i < 1) return range.start;
-                    i -= 1;
+            if (i < 1) return self.index_expr;
+            i -= 1;
 
-                    if (range.end) |end| {
-                        if (i < 1) return end;
-                        i -= 1;
-                    }
-                    if (range.sentinel) |sentinel| {
-                        if (i < 1) return sentinel;
-                        i -= 1;
-                    }
-                },
-                .UnwrapOptional,
-                .Deref,
-                => {},
+            return null;
+        }
+
+        pub fn firstToken(self: *const ArrayAccess) TokenIndex {
+            return self.lhs.firstToken();
+        }
+
+        pub fn lastToken(self: *const ArrayAccess) TokenIndex {
+            return self.rtoken;
+        }
+    };
+
+    pub const SimpleSuffixOp = struct {
+        base: Node,
+        rtoken: TokenIndex,
+        lhs: *Node,
+
+        pub fn iterate(self: *const SimpleSuffixOp, index: usize) ?*Node {
+            var i = index;
+
+            if (i < 1) return self.lhs;
+            i -= 1;
+
+            return null;
+        }
+
+        pub fn firstToken(self: *const SimpleSuffixOp) TokenIndex {
+            return self.lhs.firstToken();
+        }
+
+        pub fn lastToken(self: *const SimpleSuffixOp) TokenIndex {
+            return self.rtoken;
+        }
+    };
+
+    pub const Slice = struct {
+        base: Node = Node{ .tag = .Slice },
+        rtoken: TokenIndex,
+        lhs: *Node,
+        start: *Node,
+        end: ?*Node,
+        sentinel: ?*Node,
+
+        pub fn iterate(self: *const Slice, index: usize) ?*Node {
+            var i = index;
+
+            if (i < 1) return self.lhs;
+            i -= 1;
+
+            if (i < 1) return self.start;
+            i -= 1;
+
+            if (self.end) |end| {
+                if (i < 1) return end;
+                i -= 1;
+            }
+            if (self.sentinel) |sentinel| {
+                if (i < 1) return sentinel;
+                i -= 1;
             }
 
             return null;
         }
 
-        pub fn firstToken(self: *const SuffixOp) TokenIndex {
+        pub fn firstToken(self: *const Slice) TokenIndex {
             return self.lhs.firstToken();
         }
 
-        pub fn lastToken(self: *const SuffixOp) TokenIndex {
+        pub fn lastToken(self: *const Slice) TokenIndex {
             return self.rtoken;
         }
     };
