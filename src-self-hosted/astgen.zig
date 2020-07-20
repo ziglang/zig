@@ -173,8 +173,8 @@ fn ifExpr(mod: *Module, scope: *Scope, if_node: *ast.Node.If) InnerError!*zir.In
     const if_src = tree.token_locs[if_node.if_token].start;
     const condbr = try mod.addZIRInstSpecial(&block_scope.base, if_src, zir.Inst.CondBr, .{
         .condition = cond,
-        .true_body = undefined, // populated below
-        .false_body = undefined, // populated below
+        .then_body = undefined, // populated below
+        .else_body = undefined, // populated below
     }, .{});
 
     const block = try mod.addZIRInstBlock(scope, if_src, .{
@@ -196,7 +196,7 @@ fn ifExpr(mod: *Module, scope: *Scope, if_node: *ast.Node.If) InnerError!*zir.In
             .operand = then_result,
         }, .{});
     }
-    condbr.positionals.true_body = .{
+    condbr.positionals.then_body = .{
         .instructions = try then_scope.arena.dupe(*zir.Inst, then_scope.instructions.items),
     };
 
@@ -225,7 +225,7 @@ fn ifExpr(mod: *Module, scope: *Scope, if_node: *ast.Node.If) InnerError!*zir.In
             .block = block,
         }, .{});
     }
-    condbr.positionals.false_body = .{
+    condbr.positionals.else_body = .{
         .instructions = try else_scope.arena.dupe(*zir.Inst, else_scope.instructions.items),
     };
 

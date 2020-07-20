@@ -169,9 +169,8 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "",
         );
-    }
-    {
-        var case = ctx.exe("assert function", linux_x64);
+
+        // Tests the assert() function.
         case.addCompareOutput(
             \\export fn _start() noreturn {
             \\    add(3, 4);
@@ -199,15 +198,94 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "",
         );
+
+        // Tests copying a register. For the `c = a + b`, it has to
+        // preserve both a and b, because they are both used later.
         case.addCompareOutput(
             \\export fn _start() noreturn {
-            \\    add(100, 200);
+            \\    add(3, 4);
             \\
             \\    exit();
             \\}
             \\
             \\fn add(a: u32, b: u32) void {
-            \\    assert(a + b == 300);
+            \\    const c = a + b; // 7
+            \\    const d = a + c; // 10
+            \\    const e = d + b; // 14
+            \\    assert(e == 14);
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+
+        // More stress on the liveness detection.
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    add(3, 4);
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn add(a: u32, b: u32) void {
+            \\    const c = a + b; // 7
+            \\    const d = a + c; // 10
+            \\    const e = d + b; // 14
+            \\    const f = d + e; // 24
+            \\    const g = e + f; // 38
+            \\    const h = f + g; // 62
+            \\    const i = g + h; // 100
+            \\    assert(i == 100);
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+
+        // Requires a second move. The register allocator should figure out to re-use rax.
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    add(3, 4);
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn add(a: u32, b: u32) void {
+            \\    const c = a + b; // 7
+            \\    const d = a + c; // 10
+            \\    const e = d + b; // 14
+            \\    const f = d + e; // 24
+            \\    const g = e + f; // 38
+            \\    const h = f + g; // 62
+            \\    const i = g + h; // 100
+            \\    const j = i + d; // 110
+            \\    assert(j == 110);
             \\}
             \\
             \\pub fn assert(ok: bool) void {

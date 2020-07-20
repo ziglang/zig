@@ -38,7 +38,7 @@ pub const Register = enum(u8) {
     r8b, r9b, r10b, r11b, r12b, r13b, r14b, r15b,
 
     /// Returns the bit-width of the register.
-    pub fn size(self: @This()) u7 {
+    pub fn size(self: Register) u7 {
         return switch (@enumToInt(self)) {
             0...15 => 64,
             16...31 => 32,
@@ -53,7 +53,7 @@ pub const Register = enum(u8) {
     /// other variant of access to those registers, such as r8b, r15d, and so
     /// on. This is needed because access to these registers requires special
     /// handling via the REX prefix, via the B or R bits, depending on context.
-    pub fn isExtended(self: @This()) bool {
+    pub fn isExtended(self: Register) bool {
         return @enumToInt(self) & 0x08 != 0;
     }
 
@@ -62,9 +62,29 @@ pub const Register = enum(u8) {
     /// an instruction (@see isExtended), and requires special handling. The
     /// lower three bits are often embedded directly in instructions (such as
     /// the B8 variant of moves), or used in R/M bytes.
-    pub fn id(self: @This()) u4 {
+    pub fn id(self: Register) u4 {
         return @truncate(u4, @enumToInt(self));
+    }
+
+    /// Returns the index into `callee_preserved_regs`.
+    pub fn allocIndex(self: Register) ?u4 {
+        return switch (self) {
+            .rax, .eax, .ax, .al => 0,
+            .rcx, .ecx, .cx, .cl => 1,
+            .rdx, .edx, .dx, .dl => 2,
+            .rsi, .esi, .si  => 3,
+            .rdi, .edi, .di => 4,
+            .r8, .r8d, .r8w, .r8b => 5,
+            .r9, .r9d, .r9w, .r9b => 6,
+            .r10, .r10d, .r10w, .r10b => 7,
+            .r11, .r11d, .r11w, .r11b => 8,
+            else => null,
+        };
     }
 };
 
 // zig fmt: on
+
+/// These registers belong to the called function.
+pub const callee_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
+pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };

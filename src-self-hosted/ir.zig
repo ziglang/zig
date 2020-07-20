@@ -38,7 +38,7 @@ pub const Inst = struct {
 
     pub fn operandDies(self: Inst, index: DeathsBitIndex) bool {
         assert(index < deaths_bits);
-        return @truncate(u1, self.deaths << index) != 0;
+        return @truncate(u1, self.deaths >> index) != 0;
     }
 
     pub fn specialOperandDeaths(self: Inst) bool {
@@ -55,7 +55,12 @@ pub const Inst = struct {
         breakpoint,
         brvoid,
         call,
-        cmp,
+        cmp_lt,
+        cmp_lte,
+        cmp_eq,
+        cmp_gte,
+        cmp_gt,
+        cmp_neq,
         condbr,
         constant,
         isnonnull,
@@ -66,13 +71,80 @@ pub const Inst = struct {
         sub,
         unreach,
         not,
+
+        /// There is one-to-one correspondence between tag and type for now,
+        /// but this will not always be the case. For example, binary operations
+        /// such as + and - will have different tags but the same type.
+        pub fn Type(tag: Tag) type {
+            return switch (tag) {
+                .retvoid,
+                .unreach,
+                .arg,
+                .breakpoint,
+                => NoOp,
+
+                .ret,
+                .bitcast,
+                .not,
+                .isnonnull,
+                .isnull,
+                .ptrtoint,
+                => UnOp,
+
+                .add,
+                .sub,
+                .cmp_lt,
+                .cmp_lte,
+                .cmp_eq,
+                .cmp_gte,
+                .cmp_gt,
+                .cmp_neq,
+                => BinOp,
+
+                .assembly => Assembly,
+                .block => Block,
+                .br => Br,
+                .brvoid => BrVoid,
+                .call => Call,
+                .condbr => CondBr,
+                .constant => Constant,
+            };
+        }
+
+        pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
+            return switch (op) {
+                .lt => .cmp_lt,
+                .lte => .cmp_lte,
+                .eq => .cmp_eq,
+                .gte => .cmp_gte,
+                .gt => .cmp_gt,
+                .neq => .cmp_neq,
+            };
+        }
     };
 
+    /// Prefer `castTag` to this.
     pub fn cast(base: *Inst, comptime T: type) ?*T {
-        if (base.tag != T.base_tag)
-            return null;
+        if (@hasField(T, "base_tag")) {
+            return base.castTag(T.base_tag);
+        }
+        inline for (@typeInfo(Tag).Enum.fields) |field| {
+            const tag = @intToEnum(Tag, field.value);
+            if (base.tag == tag) {
+                if (T == tag.Type()) {
+                    return @fieldParentPtr(T, "base", base);
+                }
+                return null;
+            }
+        }
+        unreachable;
+    }
 
-        return @fieldParentPtr(T, "base", base);
+    pub fn castTag(base: *Inst, comptime tag: Tag) ?*tag.Type() {
+        if (base.tag == tag) {
+            return @fieldParentPtr(tag.Type(), "base", base);
+        }
+        return null;
     }
 
     pub fn Args(comptime T: type) type {
@@ -88,186 +160,219 @@ pub const Inst = struct {
         return inst.val;
     }
 
-    pub const Add = struct {
-        pub const base_tag = Tag.add;
+    pub fn cmpOperator(base: *Inst) ?std.math.CompareOperator {
+        return switch (self.base.tag) {
+            .cmp_lt => .lt,
+            .cmp_lte => .lte,
+            .cmp_eq => .eq,
+            .cmp_gte => .gte,
+            .cmp_gt => .gt,
+            .cmp_neq => .neq,
+            else => null,
+        };
+    }
+
+    pub fn operandCount(base: *Inst) usize {
+        inline for (@typeInfo(Tag).Enum.fields) |field| {
+            const tag = @intToEnum(Tag, field.value);
+            if (tag == base.tag) {
+                return @fieldParentPtr(tag.Type(), "base", base).operandCount();
+            }
+        }
+        unreachable;
+    }
+
+    pub fn getOperand(base: *Inst, index: usize) ?*Inst {
+        inline for (@typeInfo(Tag).Enum.fields) |field| {
+            const tag = @intToEnum(Tag, field.value);
+            if (tag == base.tag) {
+                return @fieldParentPtr(tag.Type(), "base", base).getOperand(index);
+            }
+        }
+        unreachable;
+    }
+
+    pub const NoOp = struct {
         base: Inst,
 
-        args: struct {
-            lhs: *Inst,
-            rhs: *Inst,
-        },
+        pub fn operandCount(self: *const NoOp) usize {
+            return 0;
+        }
+        pub fn getOperand(self: *const NoOp, index: usize) ?*Inst {
+            return null;
+        }
     };
 
-    pub const Arg = struct {
-        pub const base_tag = Tag.arg;
+    pub const UnOp = struct {
         base: Inst,
-        args: void,
+        operand: *Inst,
+
+        pub fn operandCount(self: *const UnOp) usize {
+            return 1;
+        }
+        pub fn getOperand(self: *const UnOp, index: usize) ?*Inst {
+            if (index == 0)
+                return self.operand;
+            return null;
+        }
+    };
+
+    pub const BinOp = struct {
+        base: Inst,
+        lhs: *Inst,
+        rhs: *Inst,
+
+        pub fn operandCount(self: *const BinOp) usize {
+            return 2;
+        }
+        pub fn getOperand(self: *const BinOp, index: usize) ?*Inst {
+            var i = index;
+
+            if (i < 1)
+                return self.lhs;
+            i -= 1;
+
+            if (i < 1)
+                return self.rhs;
+            i -= 1;
+
+            return null;
+        }
     };
 
     pub const Assembly = struct {
         pub const base_tag = Tag.assembly;
-        base: Inst,
-
-        args: struct {
-            asm_source: []const u8,
-            is_volatile: bool,
-            output: ?[]const u8,
-            inputs: []const []const u8,
-            clobbers: []const []const u8,
-            args: []const *Inst,
-        },
-    };
-
-    pub const BitCast = struct {
-        pub const base_tag = Tag.bitcast;
 
         base: Inst,
-        args: struct {
-            operand: *Inst,
-        },
+        asm_source: []const u8,
+        is_volatile: bool,
+        output: ?[]const u8,
+        inputs: []const []const u8,
+        clobbers: []const []const u8,
+        args: []const *Inst,
+
+        pub fn operandCount(self: *const Assembly) usize {
+            return self.args.len;
+        }
+        pub fn getOperand(self: *const Assembly, index: usize) ?*Inst {
+            if (index < self.args.len)
+                return self.args[index];
+            return null;
+        }
     };
 
     pub const Block = struct {
         pub const base_tag = Tag.block;
+
         base: Inst,
-        args: struct {
-            body: Body,
-        },
+        body: Body,
         /// This memory is reserved for codegen code to do whatever it needs to here.
         codegen: codegen.BlockData = .{},
+
+        pub fn operandCount(self: *const Block) usize {
+            return 0;
+        }
+        pub fn getOperand(self: *const Block, index: usize) ?*Inst {
+            return null;
+        }
     };
 
     pub const Br = struct {
         pub const base_tag = Tag.br;
-        base: Inst,
-        args: struct {
-            block: *Block,
-            operand: *Inst,
-        },
-    };
 
-    pub const Breakpoint = struct {
-        pub const base_tag = Tag.breakpoint;
         base: Inst,
-        args: void,
+        block: *Block,
+        operand: *Inst,
+
+        pub fn operandCount(self: *const Br) usize {
+            return 0;
+        }
+        pub fn getOperand(self: *const Br, index: usize) ?*Inst {
+            if (index == 0)
+                return self.operand;
+            return null;
+        }
     };
 
     pub const BrVoid = struct {
         pub const base_tag = Tag.brvoid;
+
         base: Inst,
-        args: struct {
-            block: *Block,
-        },
+        block: *Block,
+
+        pub fn operandCount(self: *const BrVoid) usize {
+            return 0;
+        }
+        pub fn getOperand(self: *const BrVoid, index: usize) ?*Inst {
+            return null;
+        }
     };
 
     pub const Call = struct {
         pub const base_tag = Tag.call;
-        base: Inst,
-        args: struct {
-            func: *Inst,
-            args: []const *Inst,
-        },
-    };
-
-    pub const Cmp = struct {
-        pub const base_tag = Tag.cmp;
 
         base: Inst,
-        args: struct {
-            lhs: *Inst,
-            op: std.math.CompareOperator,
-            rhs: *Inst,
-        },
+        func: *Inst,
+        args: []const *Inst,
+
+        pub fn operandCount(self: *const Call) usize {
+            return self.args.len + 1;
+        }
+        pub fn getOperand(self: *const Call, index: usize) ?*Inst {
+            var i = index;
+
+            if (i < 1)
+                return self.func;
+            i -= 1;
+
+            if (i < self.args.len)
+                return self.args[i];
+            i -= self.args.len;
+
+            return null;
+        }
     };
 
     pub const CondBr = struct {
         pub const base_tag = Tag.condbr;
 
         base: Inst,
-        args: struct {
-            condition: *Inst,
-            true_body: Body,
-            false_body: Body,
-        },
+        condition: *Inst,
+        then_body: Body,
+        else_body: Body,
         /// Set of instructions whose lifetimes end at the start of one of the branches.
         /// The `true` branch is first: `deaths[0..true_death_count]`.
         /// The `false` branch is next: `(deaths + true_death_count)[..false_death_count]`.
         deaths: [*]*Inst = undefined,
         true_death_count: u32 = 0,
         false_death_count: u32 = 0,
-    };
 
-    pub const Not = struct {
-        pub const base_tag = Tag.not;
+        pub fn operandCount(self: *const CondBr) usize {
+            return 1;
+        }
+        pub fn getOperand(self: *const CondBr, index: usize) ?*Inst {
+            var i = index;
 
-        base: Inst,
-        args: struct {
-            operand: *Inst,
-        },
+            if (i < 1)
+                return self.condition;
+            i -= 1;
+
+            return null;
+        }
     };
 
     pub const Constant = struct {
         pub const base_tag = Tag.constant;
-        base: Inst,
 
+        base: Inst,
         val: Value,
-    };
 
-    pub const IsNonNull = struct {
-        pub const base_tag = Tag.isnonnull;
-
-        base: Inst,
-        args: struct {
-            operand: *Inst,
-        },
-    };
-
-    pub const IsNull = struct {
-        pub const base_tag = Tag.isnull;
-
-        base: Inst,
-        args: struct {
-            operand: *Inst,
-        },
-    };
-
-    pub const PtrToInt = struct {
-        pub const base_tag = Tag.ptrtoint;
-
-        base: Inst,
-        args: struct {
-            ptr: *Inst,
-        },
-    };
-
-    pub const Ret = struct {
-        pub const base_tag = Tag.ret;
-        base: Inst,
-        args: struct {
-            operand: *Inst,
-        },
-    };
-
-    pub const RetVoid = struct {
-        pub const base_tag = Tag.retvoid;
-        base: Inst,
-        args: void,
-    };
-
-    pub const Sub = struct {
-        pub const base_tag = Tag.sub;
-        base: Inst,
-
-        args: struct {
-            lhs: *Inst,
-            rhs: *Inst,
-        },
-    };
-
-    pub const Unreach = struct {
-        pub const base_tag = Tag.unreach;
-        base: Inst,
-        args: void,
+        pub fn operandCount(self: *const Constant) usize {
+            return 0;
+        }
+        pub fn getOperand(self: *const Constant, index: usize) ?*Inst {
+            return null;
+        }
     };
 };
 

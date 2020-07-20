@@ -1349,8 +1349,8 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
 fn analyzeBodyValueAsType(self: *Module, block_scope: *Scope.Block, body: zir.Module.Body) !Type {
     try self.analyzeBody(&block_scope.base, body);
     for (block_scope.instructions.items) |inst| {
-        if (inst.cast(Inst.Ret)) |ret| {
-            const val = try self.resolveConstValue(&block_scope.base, ret.args.operand);
+        if (inst.castTag(.ret)) |ret| {
+            const val = try self.resolveConstValue(&block_scope.base, ret.operand);
             return val.toType();
         } else {
             return self.fail(&block_scope.base, inst.src, "unable to resolve comptime value", .{});
@@ -1938,16 +1938,132 @@ fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []const 
     };
 }
 
-fn addNewInstArgs(
+fn addNoOp(
     self: *Module,
     block: *Scope.Block,
     src: usize,
     ty: Type,
-    comptime T: type,
-    args: Inst.Args(T),
+    comptime tag: Inst.Tag,
 ) !*Inst {
-    const inst = try self.addNewInst(block, src, ty, T);
-    inst.args = args;
+    const inst = try block.arena.create(tag.Type());
+    inst.* = .{
+        .base = .{
+            .tag = tag,
+            .ty = ty,
+            .src = src,
+        },
+    };
+    try block.instructions.append(self.gpa, &inst.base);
+    return &inst.base;
+}
+
+fn addUnOp(
+    self: *Module,
+    block: *Scope.Block,
+    src: usize,
+    ty: Type,
+    tag: Inst.Tag,
+    operand: *Inst,
+) !*Inst {
+    const inst = try block.arena.create(Inst.UnOp);
+    inst.* = .{
+        .base = .{
+            .tag = tag,
+            .ty = ty,
+            .src = src,
+        },
+        .operand = operand,
+    };
+    try block.instructions.append(self.gpa, &inst.base);
+    return &inst.base;
+}
+
+fn addBinOp(
+    self: *Module,
+    block: *Scope.Block,
+    src: usize,
+    ty: Type,
+    tag: Inst.Tag,
+    lhs: *Inst,
+    rhs: *Inst,
+) !*Inst {
+    const inst = try block.arena.create(Inst.BinOp);
+    inst.* = .{
+        .base = .{
+            .tag = tag,
+            .ty = ty,
+            .src = src,
+        },
+        .lhs = lhs,
+        .rhs = rhs,
+    };
+    try block.instructions.append(self.gpa, &inst.base);
+    return &inst.base;
+}
+
+fn addBr(
+    self: *Module,
+    scope_block: *Scope.Block,
+    src: usize,
+    target_block: *Inst.Block,
+    operand: *Inst,
+) !*Inst {
+    const inst = try scope_block.arena.create(Inst.Br);
+    inst.* = .{
+        .base = .{
+            .tag = .br,
+            .ty = Type.initTag(.noreturn),
+            .src = src,
+        },
+        .operand = operand,
+        .block = target_block,
+    };
+    try scope_block.instructions.append(self.gpa, &inst.base);
+    return &inst.base;
+}
+
+fn addCondBr(
+    self: *Module,
+    block: *Scope.Block,
+    src: usize,
+    condition: *Inst,
+    then_body: ir.Body,
+    else_body: ir.Body,
+) !*Inst {
+    const inst = try block.arena.create(Inst.CondBr);
+    inst.* = .{
+        .base = .{
+            .tag = .condbr,
+            .ty = Type.initTag(.noreturn),
+            .src = src,
+        },
+        .condition = condition,
+        .then_body = then_body,
+        .else_body = else_body,
+    };
+    try block.instructions.append(self.gpa, &inst.base);
+    return &inst.base;
+}
+
+fn addCall(
+    self: *Module,
+    block: *Scope.Block,
+    src: usize,
+    ty: Type,
+    func: *Inst,
+    args: []const *Inst,
+) !*Inst {
+    const inst = try block.arena.create(Inst.Call);
+    inst.* = .{
+        .base = .{
+            .tag = .call,
+            .ty = ty,
+            .src = src,
+        },
+        .func = func,
+        .args = args,
+    };
+    try block.instructions.append(self.gpa, &inst.base);
     return &inst.base;
 }
 
@@ -2017,7 +2133,6 @@ fn addNewInst(self: *Module, block: *Scope.Block, src: usize, ty: Type, comptime
             .ty = ty,
             .src = src,
         },
-        .args = undefined,
     };
     try block.instructions.append(self.gpa, &inst.base);
     return inst;
@@ -2269,7 +2384,7 @@ fn analyzeInstArg(self: *Module, scope: *Scope, inst: *zir.Inst.Arg) InnerError!
         });
     }
     const param_type = fn_ty.fnParamType(param_index);
-    return self.addNewInstArgs(b, inst.base.src, param_type, Inst.Arg, {});
+    return self.addNoOp(b, inst.base.src, param_type, .arg);
 }
 
 fn analyzeInstBlock(self: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerError!*Inst {
@@ -2285,7 +2400,7 @@ fn analyzeInstBlock(self: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerEr
             .ty = undefined, // Set after analysis.
             .src = inst.base.src,
         },
-        .args = undefined,
+        .body = undefined,
     };
 
     var child_block: Scope.Block = .{
@@ -2316,13 +2431,13 @@ fn analyzeInstBlock(self: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerEr
     // to emit a jump instruction to after the block when it encounters the break.
     try parent_block.instructions.append(self.gpa, &block_inst.base);
     block_inst.base.ty = try self.resolvePeerTypes(scope, label.results.items);
-    block_inst.args.body = .{ .instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items) };
+    block_inst.body = .{ .instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items) };
     return &block_inst.base;
 }
 
 fn analyzeInstBreakpoint(self: *Module, scope: *Scope, inst: *zir.Inst.Breakpoint) InnerError!*Inst {
     const b = try self.requireRuntimeBlock(scope, inst.base.src);
-    return self.addNewInstArgs(b, inst.base.src, Type.initTag(.void), Inst.Breakpoint, {});
+    return self.addNoOp(b, inst.base.src, Type.initTag(.void), .breakpoint);
 }
 
 fn analyzeInstBreak(self: *Module, scope: *Scope, inst: *zir.Inst.Break) InnerError!*Inst {
@@ -2350,10 +2465,7 @@ fn analyzeBreak(
             if (label.zir_block == zir_block) {
                 try label.results.append(self.gpa, operand);
                 const b = try self.requireRuntimeBlock(scope, src);
-                return self.addNewInstArgs(b, src, Type.initTag(.noreturn), Inst.Br, .{
-                    .block = label.block_inst,
-                    .operand = operand,
-                });
+                return self.addBr(b, src, label.block_inst, operand);
             }
         }
         opt_block = block.parent;
@@ -2484,10 +2596,7 @@ fn analyzeInstCall(self: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerErro
     }
 
     const b = try self.requireRuntimeBlock(scope, inst.base.src);
-    return self.addNewInstArgs(b, inst.base.src, Type.initTag(.void), Inst.Call, .{
-        .func = func,
-        .args = casted_args,
-    });
+    return self.addCall(b, inst.base.src, Type.initTag(.void), func, casted_args);
 }
 
 fn analyzeInstFn(self: *Module, scope: *Scope, fn_inst: *zir.Inst.Fn) InnerError!*Inst {
@@ -2570,14 +2679,14 @@ fn analyzeInstAs(self: *Module, scope: *Scope, as: *zir.Inst.As) InnerError!*Ins
 }
 
 fn analyzeInstPtrToInt(self: *Module, scope: *Scope, ptrtoint: *zir.Inst.PtrToInt) InnerError!*Inst {
-    const ptr = try self.resolveInst(scope, ptrtoint.positionals.ptr);
+    const ptr = try self.resolveInst(scope, ptrtoint.positionals.operand);
     if (ptr.ty.zigTypeTag() != .Pointer) {
-        return self.fail(scope, ptrtoint.positionals.ptr.src, "expected pointer, found '{}'", .{ptr.ty});
+        return self.fail(scope, ptrtoint.positionals.operand.src, "expected pointer, found '{}'", .{ptr.ty});
     }
     // TODO handle known-pointer-address
     const b = try self.requireRuntimeBlock(scope, ptrtoint.base.src);
     const ty = Type.initTag(.usize);
-    return self.addNewInstArgs(b, ptrtoint.base.src, ty, Inst.PtrToInt, .{ .ptr = ptr });
+    return self.addUnOp(b, ptrtoint.base.src, ty, .ptrtoint, ptr);
 }
 
 fn analyzeInstFieldPtr(self: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr) InnerError!*Inst {
@@ -2734,10 +2843,7 @@ fn analyzeInstAdd(self: *Module, scope: *Scope, inst: *zir.Inst.Add) InnerError!
         }
 
         const b = try self.requireRuntimeBlock(scope, inst.base.src);
-        return self.addNewInstArgs(b, inst.base.src, lhs.ty, Inst.Add, .{
-            .lhs = lhs,
-            .rhs = rhs,
-        });
+        return self.addBinOp(b, inst.base.src, lhs.ty, .add, lhs, rhs);
     }
     return self.fail(scope, inst.base.src, "TODO analyze add for {} + {}", .{ lhs.ty.zigTypeTag(), rhs.ty.zigTypeTag() });
 }
@@ -2783,14 +2889,22 @@ fn analyzeInstAsm(self: *Module, scope: *Scope, assembly: *zir.Inst.Asm) InnerEr
     }
 
     const b = try self.requireRuntimeBlock(scope, assembly.base.src);
-    return self.addNewInstArgs(b, assembly.base.src, return_type, Inst.Assembly, .{
+    const inst = try b.arena.create(Inst.Assembly);
+    inst.* = .{
+        .base = .{
+            .tag = .assembly,
+            .ty = return_type,
+            .src = assembly.base.src,
+        },
         .asm_source = asm_source,
         .is_volatile = assembly.kw_args.@"volatile",
         .output = output,
         .inputs = inputs,
         .clobbers = clobbers,
         .args = args,
-    });
+    };
+    try b.instructions.append(self.gpa, &inst.base);
+    return &inst.base;
 }
 
 fn analyzeInstCmp(self: *Module, scope: *Scope, inst: *zir.Inst.Cmp) InnerError!*Inst {
@@ -2818,15 +2932,12 @@ fn analyzeInstCmp(self: *Module, scope: *Scope, inst: *zir.Inst.Cmp) InnerError!
             return self.constBool(scope, inst.base.src, if (op == .eq) is_null else !is_null);
         }
         const b = try self.requireRuntimeBlock(scope, inst.base.src);
-        switch (op) {
-            .eq => return self.addNewInstArgs(b, inst.base.src, Type.initTag(.bool), Inst.IsNull, .{
-                .operand = opt_operand,
-            }),
-            .neq => return self.addNewInstArgs(b, inst.base.src, Type.initTag(.bool), Inst.IsNonNull, .{
-                .operand = opt_operand,
-            }),
+        const inst_tag: Inst.Tag = switch (op) {
+            .eq => .isnull,
+            .neq => .isnonnull,
             else => unreachable,
-        }
+        };
+        return self.addUnOp(b, inst.base.src, Type.initTag(.bool), inst_tag, opt_operand);
     } else if (is_equality_cmp and
         ((lhs_ty_tag == .Null and rhs.ty.isCPtr()) or (rhs_ty_tag == .Null and lhs.ty.isCPtr())))
     {
@@ -2861,7 +2972,7 @@ fn analyzeInstBoolNot(self: *Module, scope: *Scope, inst: *zir.Inst.BoolNot) Inn
         return self.constBool(scope, inst.base.src, !val.toBool());
     }
     const b = try self.requireRuntimeBlock(scope, inst.base.src);
-    return self.addNewInstArgs(b, inst.base.src, bool_type, Inst.Not, .{ .operand = operand });
+    return self.addUnOp(b, inst.base.src, bool_type, .not, operand);
 }
 
 fn analyzeInstIsNull(self: *Module, scope: *Scope, inst: *zir.Inst.IsNull) InnerError!*Inst {
@@ -2879,7 +2990,7 @@ fn analyzeInstCondBr(self: *Module, scope: *Scope, inst: *zir.Inst.CondBr) Inner
     const cond = try self.coerce(scope, Type.initTag(.bool), uncasted_cond);
 
     if (try self.resolveDefinedValue(scope, cond)) |cond_val| {
-        const body = if (cond_val.toBool()) &inst.positionals.true_body else &inst.positionals.false_body;
+        const body = if (cond_val.toBool()) &inst.positionals.then_body else &inst.positionals.else_body;
         try self.analyzeBody(scope, body.*);
         return self.constVoid(scope, inst.base.src);
     }
@@ -2894,7 +3005,7 @@ fn analyzeInstCondBr(self: *Module, scope: *Scope, inst: *zir.Inst.CondBr) Inner
         .arena = parent_block.arena,
     };
     defer true_block.instructions.deinit(self.gpa);
-    try self.analyzeBody(&true_block.base, inst.positionals.true_body);
+    try self.analyzeBody(&true_block.base, inst.positionals.then_body);
 
     var false_block: Scope.Block = .{
         .parent = parent_block,
@@ -2904,13 +3015,11 @@ fn analyzeInstCondBr(self: *Module, scope: *Scope, inst: *zir.Inst.CondBr) Inner
         .arena = parent_block.arena,
     };
     defer false_block.instructions.deinit(self.gpa);
-    try self.analyzeBody(&false_block.base, inst.positionals.false_body);
+    try self.analyzeBody(&false_block.base, inst.positionals.else_body);
 
-    return self.addNewInstArgs(parent_block, inst.base.src, Type.initTag(.noreturn), Inst.CondBr, Inst.Args(Inst.CondBr){
-        .condition = cond,
-        .true_body = .{ .instructions = try scope.arena().dupe(*Inst, true_block.instructions.items) },
-        .false_body = .{ .instructions = try scope.arena().dupe(*Inst, false_block.instructions.items) },
-    });
+    const then_body: ir.Body = .{ .instructions = try scope.arena().dupe(*Inst, true_block.instructions.items) };
+    const else_body: ir.Body = .{ .instructions = try scope.arena().dupe(*Inst, false_block.instructions.items) };
+    return self.addCondBr(parent_block, inst.base.src, cond, then_body, else_body);
 }
 
 fn wantSafety(self: *Module, scope: *Scope) bool {
@@ -2926,20 +3035,20 @@ fn analyzeInstUnreachable(self: *Module, scope: *Scope, unreach: *zir.Inst.Unrea
     const b = try self.requireRuntimeBlock(scope, unreach.base.src);
     if (self.wantSafety(scope)) {
         // TODO Once we have a panic function to call, call it here instead of this.
-        _ = try self.addNewInstArgs(b, unreach.base.src, Type.initTag(.void), Inst.Breakpoint, {});
+        _ = try self.addNoOp(b, unreach.base.src, Type.initTag(.void), .breakpoint);
     }
-    return self.addNewInstArgs(b, unreach.base.src, Type.initTag(.noreturn), Inst.Unreach, {});
+    return self.addNoOp(b, unreach.base.src, Type.initTag(.noreturn), .unreach);
 }
 
 fn analyzeInstRet(self: *Module, scope: *Scope, inst: *zir.Inst.Return) InnerError!*Inst {
     const operand = try self.resolveInst(scope, inst.positionals.operand);
     const b = try self.requireRuntimeBlock(scope, inst.base.src);
-    return self.addNewInstArgs(b, inst.base.src, Type.initTag(.noreturn), Inst.Ret, .{ .operand = operand });
+    return self.addUnOp(b, inst.base.src, Type.initTag(.noreturn), .ret, operand);
 }
 
 fn analyzeInstRetVoid(self: *Module, scope: *Scope, inst: *zir.Inst.ReturnVoid) InnerError!*Inst {
     const b = try self.requireRuntimeBlock(scope, inst.base.src);
-    return self.addNewInstArgs(b, inst.base.src, Type.initTag(.noreturn), Inst.RetVoid, {});
+    return self.addNoOp(b, inst.base.src, Type.initTag(.noreturn), .retvoid);
 }
 
 fn analyzeBody(self: *Module, scope: *Scope, body: zir.Module.Body) !void {
@@ -3027,11 +3136,7 @@ fn cmpNumeric(
         };
         const casted_lhs = try self.coerce(scope, dest_type, lhs);
         const casted_rhs = try self.coerce(scope, dest_type, rhs);
-        return self.addNewInstArgs(b, src, dest_type, Inst.Cmp, .{
-            .lhs = casted_lhs,
-            .rhs = casted_rhs,
-            .op = op,
-        });
+        return self.addBinOp(b, src, dest_type, Inst.Tag.fromCmpOp(op), casted_lhs, casted_rhs);
     }
     // For mixed unsigned integer sizes, implicit cast both operands to the larger integer.
     // For mixed signed and unsigned integers, implicit cast both operands to a signed
@@ -3131,11 +3236,7 @@ fn cmpNumeric(
     const casted_lhs = try self.coerce(scope, dest_type, lhs);
     const casted_rhs = try self.coerce(scope, dest_type, rhs);
 
-    return self.addNewInstArgs(b, src, Type.initTag(.bool), Inst.Cmp, .{
-        .lhs = casted_lhs,
-        .rhs = casted_rhs,
-        .op = op,
-    });
+    return self.addBinOp(b, src, Type.initTag(.bool), Inst.Tag.fromCmpOp(op), casted_lhs, casted_rhs);
 }
 
 fn makeIntType(self: *Module, scope: *Scope, signed: bool, bits: u16) !Type {
@@ -3236,7 +3337,7 @@ fn bitcast(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
     }
     // TODO validate the type size and other compile errors
     const b = try self.requireRuntimeBlock(scope, inst.src);
-    return self.addNewInstArgs(b, inst.src, dest_type, Inst.BitCast, .{ .operand = inst });
+    return self.addUnOp(b, inst.src, dest_type, .bitcast, inst);
 }
 
 fn coerceArrayPtrToSlice(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {

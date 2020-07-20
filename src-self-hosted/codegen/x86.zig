@@ -25,6 +25,20 @@ pub const Register = enum(u8) {
     pub fn id(self: @This()) u3 {
         return @truncate(u3, @enumToInt(self));
     }
+
+    /// Returns the index into `callee_preserved_regs`.
+    pub fn allocIndex(self: Register) ?u4 {
+        return switch (self) {
+            .eax, .ax, .al => 0,
+            .ecx, .cx, .cl => 1,
+            .edx, .dx, .dl => 2,
+            .esi, .si  => 3,
+            .edi, .di => 4,
+            else => null,
+        };
+    }
 };
 
 // zig fmt: on
+
+pub const callee_preserved_regs = [_]Register{ .eax, .ecx, .edx, .esi, .edi };
