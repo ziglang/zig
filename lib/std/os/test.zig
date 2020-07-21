@@ -27,7 +27,7 @@ test "symlink with relative paths" {
     try cwd.writeFile("file.txt", "nonsense");
 
     if (builtin.os.tag == .windows) {
-        try os.windows.CreateSymbolicLink("symlinked", "file.txt", false);
+        try os.windows.CreateSymbolicLink(cwd.fd, "symlinked", "file.txt", false);
     } else {
         try os.symlink("file.txt", "symlinked");
     }

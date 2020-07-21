@@ -66,15 +66,7 @@ pub const need_async_thread = std.io.is_async and switch (builtin.os.tag) {
 
 /// TODO remove the allocator requirement from this API
 pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path: []const u8) !void {
-    const res = blk: {
-        // TODO this is just a temporary until Dir.symLink is implemented on Windows
-        if (builtin.os.tag == .windows) {
-            break :blk os.windows.CreateSymbolicLink(new_path, existing_path, false);
-        } else {
-            break :blk cwd().symLink(existing_path, new_path, .{});
-        }
-    };
-    if (res) {
+    if (cwd().symLink(existing_path, new_path, .{})) {
         return;
     } else |err| switch (err) {
         error.PathAlreadyExists => {},
@@ -92,15 +84,7 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
         try crypto.randomBytes(rand_buf[0..]);
         base64_encoder.encode(tmp_path[dirname.len + 1 ..], &rand_buf);
 
-        const res2 = blk: {
-            // TODO this is just a temporary until Dir.symLink is implemented on Windows
-            if (builtin.os.tag == .windows) {
-                break :blk os.windows.CreateSymbolicLink(tmp_path, existing_path, false);
-            } else {
-                break :blk cwd().symLink(existing_path, new_path, .{});
-            }
-        };
-        if (res2) {
+        if (cwd().symLink(existing_path, new_path, .{})) {
             return rename(tmp_path, new_path);
         } else |err| switch (err) {
             error.PathAlreadyExists => continue,
@@ -1239,10 +1223,12 @@ pub const Dir = struct {
         flags: SymLinkFlags,
     ) !void {
         if (builtin.os.tag == .wasi) {
-            return self.symLinkWasi(target_path, sym_link_path);
+            return self.symLinkWasi(target_path, sym_link_path, flags);
         }
         if (builtin.os.tag == .windows) {
-            @compileError("TODO implement Dir.symLink on Windows");
+            const target_path_w = try os.windows.sliceToPrefixedFileW(target_path);
+            const sym_link_path_w = try os.windows.sliceToPrefixedFileW(sym_link_path);
+            return self.symLinkW(target_path_w.span(), sym_link_path_w.span(), flags);
         }
         const target_path_c = try os.toPosixPath(target_path);
         const sym_link_path_c = try os.toPosixPath(sym_link_path);
@@ -1250,13 +1236,39 @@ pub const Dir = struct {
     }
 
     /// WASI-only. Same as `symLink` except targeting WASI.
-    pub fn symLinkWasi(self: Dir, target_path: []const u8, sym_link_path: []const u8, flags: SymLinkFlags) !void {
+    pub fn symLinkWasi(
+        self: Dir,
+        target_path: []const u8,
+        sym_link_path: []const u8,
+        flags: SymLinkFlags,
+    ) !void {
         return os.symlinkatWasi(target_path, self.fd, sym_link_path);
     }
 
     /// Same as `symLink`, except the pathname parameters are null-terminated.
-    pub fn symLinkZ(self: Dir, target_path_c: [*:0]const u8, sym_link_path_c: [*:0]const u8, flags: SymLinkFlags) !void {
+    pub fn symLinkZ(
+        self: Dir,
+        target_path_c: [*:0]const u8,
+        sym_link_path_c: [*:0]const u8,
+        flags: SymLinkFlags,
+    ) !void {
+        if (builtin.os.tag == .windows) {
+            const target_path_w = try os.windows.cStrToPrefixedFileW(target_path_c);
+            const sym_link_path_w = try os.windows.cStrToPrefixedFileW(sym_link_path_c);
+            return self.symLinkW(target_path_w.span(), sym_link_path_w.span(), flags);
+        }
         return os.symlinkatZ(target_path_c, self.fd, sym_link_path_c);
+    }
+
+    /// Windows-only. Same as `symLink` except the pathname parameters
+    /// are null-terminated, WTF16 encoded.
+    pub fn symLinkW(
+        self: Dir,
+        target_path_w: [:0]const u16,
+        sym_link_path_w: [:0]const u16,
+        flags: SymLinkFlags,
+    ) !void {
+        return os.windows.CreateSymbolicLinkW(self.fd, sym_link_path_w, target_path_w, flags.is_directory);
     }
 
     /// Read value of a symbolic link.
@@ -1761,10 +1773,10 @@ pub fn readLinkAbsoluteZ(pathname_c: [*:0]const u8, buffer: *[MAX_PATH_BYTES]u8)
 pub const readLink = @compileError("deprecated; use Dir.readLink or readLinkAbsolute");
 pub const readLinkC = @compileError("deprecated; use Dir.readLinkZ or readLinkAbsoluteZ");
 
-/// Use with `symLinkAbsolute` to specify whether the symlink will point to a file
-/// or a directory. This value is ignored on all hosts except Windows where
-/// creating symlinks to different resource types, requires different flags.
-/// By default, `symLinkAbsolute` is assumed to point to a file.
+/// Use with `Dir.symLink` and `symLinkAbsolute` to specify whether the symlink
+/// will point to a file or a directory. This value is ignored on all hosts
+/// except Windows where creating symlinks to different resource types, requires
+/// different flags. By default, `symLinkAbsolute` is assumed to point to a file.
 pub const SymLinkFlags = struct {
     is_directory: bool = false,
 };
@@ -1781,7 +1793,7 @@ pub fn symLinkAbsolute(target_path: []const u8, sym_link_path: []const u8, flags
     assert(path.isAbsolute(target_path));
     assert(path.isAbsolute(sym_link_path));
     if (builtin.os.tag == .windows) {
-        return os.windows.CreateSymbolicLink(sym_link_path, target_path, flags.is_directory);
+        return os.windows.CreateSymbolicLink(null, sym_link_path, target_path, flags.is_directory);
     }
     return os.symlink(target_path, sym_link_path);
 }
@@ -1790,10 +1802,10 @@ pub fn symLinkAbsolute(target_path: []const u8, sym_link_path: []const u8, flags
 /// Note that this function will by default try creating a symbolic link to a file. If you would
 /// like to create a symbolic link to a directory, specify this with `SymLinkFlags{ .is_directory = true }`.
 /// See also `symLinkAbsolute`, `symLinkAbsoluteZ`.
-pub fn symLinkAbsoluteW(target_path_w: [*:0]const u16, sym_link_path_w: [*:0]const u16, flags: SymLinkFlags) !void {
+pub fn symLinkAbsoluteW(target_path_w: [:0]const u16, sym_link_path_w: [:0]const u16, flags: SymLinkFlags) !void {
     assert(path.isAbsoluteWindowsW(target_path_w));
     assert(path.isAbsoluteWindowsW(sym_link_path_w));
-    return os.windows.CreateSymbolicLinkW(sym_link_path_w, target_path_w, flags.is_directory);
+    return os.windows.CreateSymbolicLinkW(null, sym_link_path_w, target_path_w, flags.is_directory);
 }
 
 /// Same as `symLinkAbsolute` except the parameters are null-terminated pointers.

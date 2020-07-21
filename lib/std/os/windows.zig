@@ -602,9 +602,34 @@ pub fn GetCurrentDirectory(buffer: []u8) GetCurrentDirectoryError![]u8 {
     return buffer[0..end_index];
 }
 
-pub const CreateSymbolicLinkError = error{ AccessDenied, PathAlreadyExists, FileNotFound, NameTooLong, InvalidUtf8, BadPathName, Unexpected };
+pub const CreateSymbolicLinkError = error{
+    AccessDenied,
+    PathAlreadyExists,
+    FileNotFound,
+    NameTooLong,
+    InvalidUtf8,
+    BadPathName,
+    NoDevice,
+    Unexpected,
+};
 
-pub fn NtCreateSymbolicLinkW(dir: ?HANDLE, sym_link_path: [:0]const u16, target_path: [:0]const u16, is_directory: bool) CreateSymbolicLinkError!void {
+pub fn CreateSymbolicLink(
+    dir: ?HANDLE,
+    sym_link_path: []const u8,
+    target_path: []const u8,
+    is_directory: bool,
+) CreateSymbolicLinkError!void {
+    const sym_link_path_w = try sliceToPrefixedFileW(sym_link_path);
+    const target_path_w = try sliceToPrefixedFileW(target_path);
+    return CreateSymbolicLinkW(dir, sym_link_path_w.span(), target_path_w.span(), is_directory);
+}
+
+pub fn CreateSymbolicLinkW(
+    dir: ?HANDLE,
+    sym_link_path: [:0]const u16,
+    target_path: [:0]const u16,
+    is_directory: bool,
+) CreateSymbolicLinkError!void {
     const SYMLINK_DATA = extern struct {
         ReparseTag: ULONG,
         ReparseDataLength: USHORT,
@@ -660,7 +685,7 @@ pub fn NtCreateSymbolicLinkW(dir: ?HANDLE, sym_link_path: [:0]const u16, target_
             .OBJECT_NAME_INVALID => unreachable,
             .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
             .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-            // .NO_MEDIA_IN_DEVICE => return error.NoDevice,
+            .NO_MEDIA_IN_DEVICE => return error.NoDevice,
             .INVALID_PARAMETER => unreachable,
             .ACCESS_DENIED => return error.AccessDenied,
             .OBJECT_PATH_SYNTAX_BAD => unreachable,
@@ -674,7 +699,11 @@ pub fn NtCreateSymbolicLinkW(dir: ?HANDLE, sym_link_path: [:0]const u16, target_
             .creation = FILE_CREATE,
             .io_mode = .blocking,
         }) catch |err| switch (err) {
-            else => |e| unreachable,
+            error.WouldBlock => unreachable,
+            error.IsDir => return error.PathAlreadyExists,
+            error.PipeBusy => unreachable,
+            error.SharingViolation => return error.AccessDenied,
+            else => |e| return e,
         };
     }
     defer CloseHandle(symlink_handle);
@@ -700,53 +729,6 @@ pub fn NtCreateSymbolicLinkW(dir: ?HANDLE, sym_link_path: [:0]const u16, target_
     @memcpy(buffer[paths_start..].ptr, @ptrCast([*]const u8, target_path), target_path.len * 2);
     // TODO replace with NtDeviceIoControl
     _ = try DeviceIoControl(symlink_handle, FSCTL_SET_REPARSE_POINT, buffer[0..buf_len], null, null);
-}
-
-pub fn CreateSymbolicLink(
-    sym_link_path: []const u8,
-    target_path: []const u8,
-    is_directory: bool,
-) CreateSymbolicLinkError!void {
-    const sym_link_path_w = try sliceToWin32PrefixedFileW(sym_link_path);
-    const target_path_w = try sliceToWin32PrefixedFileW(target_path);
-    return CreateSymbolicLinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr, is_directory);
-}
-
-pub fn CreateSymbolicLinkW(
-    sym_link_path: [*:0]const u16,
-    target_path: [*:0]const u16,
-    is_directory: bool,
-) CreateSymbolicLinkError!void {
-    // Previously, until Win 10 Creators Update, creating symbolic links required
-    // SeCreateSymbolicLink privilege. Currently, this is no longer required if the
-    // OS is in Developer Mode; however, SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE
-    // must be added to the input flags.
-    const flags = if (is_directory) SYMBOLIC_LINK_FLAG_DIRECTORY else 0;
-    if (kernel32.CreateSymbolicLinkW(sym_link_path, target_path, flags | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE) == 0) {
-        switch (kernel32.GetLastError()) {
-            .INVALID_PARAMETER => {
-                // If we're on Windows pre Creators Update, SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE
-                // flag is an invalid parameter, in which case repeat without the flag.
-                if (kernel32.CreateSymbolicLinkW(sym_link_path, target_path, flags) == 0) {
-                    switch (kernel32.GetLastError()) {
-                        .PRIVILEGE_NOT_HELD => return error.AccessDenied,
-                        .FILE_NOT_FOUND => return error.FileNotFound,
-                        .PATH_NOT_FOUND => return error.FileNotFound,
-                        .ACCESS_DENIED => return error.AccessDenied,
-                        .ALREADY_EXISTS => return error.PathAlreadyExists,
-                        else => |err| return unexpectedError(err),
-                    }
-                }
-                return;
-            },
-            .PRIVILEGE_NOT_HELD => return error.AccessDenied,
-            .FILE_NOT_FOUND => return error.FileNotFound,
-            .PATH_NOT_FOUND => return error.FileNotFound,
-            .ACCESS_DENIED => return error.AccessDenied,
-            .ALREADY_EXISTS => return error.PathAlreadyExists,
-            else => |err| return unexpectedError(err),
-        }
-    }
 }
 
 pub const DeleteFileError = error{
