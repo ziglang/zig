@@ -77,9 +77,6 @@ test "fstatat" {
 }
 
 test "readlinkat" {
-    // enable when `readlinkat` and `symlinkat` are implemented on Windows
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -87,7 +84,11 @@ test "readlinkat" {
     try tmp.dir.writeFile("file.txt", "nonsense");
 
     // create a symbolic link
-    try os.symlinkat("file.txt", tmp.dir.fd, "link");
+    if (builtin.os.tag == .windows) {
+        try os.windows.CreateSymbolicLink(tmp.dir.fd, "link", "file.txt", false);
+    } else {
+        try os.symlinkat("file.txt", tmp.dir.fd, "link");
+    }
 
     // read the link
     var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
