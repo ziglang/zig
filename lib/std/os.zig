@@ -3437,17 +3437,31 @@ pub fn munmap(memory: []align(mem.page_size) u8) void {
 }
 
 pub usingnamespace if (!@hasDecl(system, "mremap")) struct { } else struct {
+    //
+    // compiler bug? why do I have to include @hasDecl(system, "mremap") if this block
+    // doesn't get analyzed unless it is already true?
+    //
+    const supports_new_address = @hasDecl(system, "mremap") and @typeInfo(@TypeOf(system.mremap)).Fn.args.len == 5;
+
+    pub const MremapOptions = struct {
+        may_move: bool = false,
+    };
+
     /// Remap a virtual memory address.
     pub fn mremap(
         old_slice: []align(mem.page_size) u8,
         new_size: usize,
-        flags: u32,
-        new_address: ?[*]align(mem.page_size) u8,
+        args: MremapOptions,
     ) ![]align(mem.page_size) u8 {
+        if (supports_new_address) {
+            return mremapAddr(old_slice, new_size, null, args);
+        }
+
         // TODO: call libc version of mremap if available.  However, note that some versions of libc
         //       may not have the new_address argument
         const err = blk: {
-            const rc = system.mremap(old_slice.ptr, old_slice.len, new_size, flags, new_address);
+            const rc = system.mremap(old_slice.ptr, old_slice.len, new_size,
+                if (@hasDecl(system, "MREMAP_MAYMOVE") and args.may_move) system.MREMAP_MAYMOVE else 0);
             const err = errno(rc);
             if (err == 0) return @intToPtr([*]align(mem.page_size) u8, rc)[0..new_size];
             break :blk err;
@@ -3460,6 +3474,33 @@ pub usingnamespace if (!@hasDecl(system, "mremap")) struct { } else struct {
             else => return unexpectedErrno(err),
         }
     }
+
+    pub usingnamespace if (!supports_new_address) struct { } else struct {
+        /// Remap a virtual memory address.
+        pub fn mremapAddr(
+            old_slice: []align(mem.page_size) u8,
+            new_size: usize,
+            new_address: ?[*]align(mem.page_size) u8,
+            args: MremapOptions,
+        ) ![]align(mem.page_size) u8 {
+            const err = blk: {
+                const rc = system.mremap(old_slice.ptr, old_slice.len, new_size,
+                    if (@hasDecl(system, "MREMAP_MAYMOVE") and args.may_move) system.MREMAP_MAYMOVE else 0,
+                    new_address);
+                const err = errno(rc);
+                if (err == 0) return @intToPtr([*]align(mem.page_size) u8, rc)[0..new_size];
+                break :blk err;
+            };
+            switch (err) {
+                EAGAIN => return error.LockedMemoryLimitExceeded,
+                EFAULT => unreachable, // Invalid parameters
+                EINVAL => unreachable, // Invalid parameters
+                ENOMEM => return error.OutOfMemory,
+                else => return unexpectedErrno(err),
+            }
+        }
+    };
+
 };
 
 pub const AccessError = error{

@@ -236,7 +236,7 @@ const PageAllocator = struct {
         }
 
         if (@hasDecl(os, "mremap")) {
-            if (os.mremap(@alignCast(mem.page_size, buf_unaligned), new_size_aligned, 0, null)) |_| {
+            if (os.mremap(@alignCast(mem.page_size, buf_unaligned), new_size_aligned, .{})) |_| {
                 return alignPageAllocLen(new_size_aligned, new_size, len_align);
             } else |_| { }
         }
