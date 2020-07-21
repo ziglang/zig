@@ -3437,7 +3437,16 @@ fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
             }
         } else if (dst_zig_tag == .ComptimeFloat or dst_zig_tag == .Float) {
             if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
-                return self.fail(scope, inst.src, "TODO float cast", .{});
+                const res = val.floatCast(scope.arena(), dest_type, self.target()) catch |err| switch (err) {
+                    error.Overflow => return self.fail(
+                        scope,
+                        inst.src,
+                        "cast of value {} to type '{}' loses information",
+                        .{ val, dest_type },
+                    ),
+                    error.OutOfMemory => return error.OutOfMemory,
+                };
+                return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = res });
             } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
                 return self.fail(scope, inst.src, "TODO int to float", .{});
             }

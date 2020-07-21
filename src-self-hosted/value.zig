@@ -563,15 +563,15 @@ pub const Value = extern union {
     }
 
     /// Asserts that the value is a float or an integer.
-    pub fn toF128(self: Value) f128 {
+    pub fn toFloat(self: Value, comptime T: type) T {
         return switch (self.tag()) {
             .float_16 => @panic("TODO soft float"),
-            .float_32 => self.cast(Payload.Float_32).?.val,
-            .float_64 => self.cast(Payload.Float_64).?.val,
-            .float_128 => self.cast(Payload.Float_128).?.val,
+            .float_32 => @floatCast(T, self.cast(Payload.Float_32).?.val),
+            .float_64 => @floatCast(T, self.cast(Payload.Float_64).?.val),
+            .float_128 => @floatCast(T, self.cast(Payload.Float_128).?.val),
 
             .zero, .the_one_possible_value => 0,
-            .int_u64 => @intToFloat(f128, self.cast(Payload.Int_u64).?.int),
+            .int_u64 => @intToFloat(T, self.cast(Payload.Int_u64).?.int),
             // .int_i64 => @intToFloat(f128, self.cast(Payload.Int_i64).?.int),
             .int_i64 => @panic("TODO lld: error: undefined symbol: __floatditf"),
 
@@ -773,6 +773,50 @@ pub const Value = extern union {
         }
     }
 
+    /// Converts an integer or a float to a float.
+    /// Returns `error.Overflow` if the value does not fit in the new type.
+    pub fn floatCast(self: Value, allocator: *Allocator, ty: Type, target: Target) !Value {
+        const dest_bit_count = switch (ty.tag()) {
+            .comptime_float => 128,
+            else => ty.floatBits(target),
+        };
+        switch (dest_bit_count) {
+            16, 32, 64, 128 => {},
+            else => std.debug.panic("TODO float cast bit count {}\n", .{dest_bit_count}),
+        }
+        if (ty.isInt()) {
+            @panic("TODO int to float");
+        }
+
+        switch (dest_bit_count) {
+            16 => {
+                @panic("TODO soft float");
+                // var res_payload = Value.Payload.Float_16{.val = self.toFloat(f16)};
+                // if (!self.eql(Value.initPayload(&res_payload.base)))
+                //     return error.Overflow;
+                // return Value.initPayload(&res_payload.base).copy(allocator);
+            },
+            32 => {
+                var res_payload = Value.Payload.Float_32{.val = self.toFloat(f32)};
+                if (!self.eql(Value.initPayload(&res_payload.base)))
+                    return error.Overflow;
+                return Value.initPayload(&res_payload.base).copy(allocator);
+            },
+            64 => {
+                var res_payload = Value.Payload.Float_64{.val = self.toFloat(f64)};
+                if (!self.eql(Value.initPayload(&res_payload.base)))
+                    return error.Overflow;
+                return Value.initPayload(&res_payload.base).copy(allocator);
+            },
+            128 => {
+                const float_payload = try allocator.create(Value.Payload.Float_128);
+                float_payload.* = .{ .val = self.toFloat(f128) };
+                return Value.initPayload(&float_payload.base);
+            },
+            else => unreachable,
+        }
+    }
+
     /// Asserts the value is a float
     pub fn floatHasFraction(self: Value) bool {
         return switch (self.tag()) {
@@ -919,7 +963,7 @@ pub const Value = extern union {
     /// Asserts the value is comparable.
     pub fn order(lhs: Value, rhs: Value) std.math.Order {
         const lhs_tag = lhs.tag();
-        const rhs_tag = lhs.tag();
+        const rhs_tag = rhs.tag();
         const lhs_is_zero = lhs_tag == .zero or lhs_tag == .the_one_possible_value;
         const rhs_is_zero = rhs_tag == .zero or rhs_tag == .the_one_possible_value;
         if (lhs_is_zero) return rhs.orderAgainstZero().invert();
@@ -939,8 +983,8 @@ pub const Value = extern union {
             }
         }
         if (lhs_float or rhs_float) {
-            const lhs_f128 = lhs.toF128();
-            const rhs_f128 = rhs.toF128();
+            const lhs_f128 = lhs.toFloat(f128);
+            const rhs_f128 = rhs.toFloat(f128);
             return std.math.order(lhs_f128, rhs_f128);
         }
 
