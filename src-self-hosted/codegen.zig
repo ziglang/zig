@@ -459,6 +459,26 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .sub => return self.genSub(inst.castTag(.sub).?),
                 .unreach => return MCValue{ .unreach = {} },
                 .not => return self.genNot(inst.castTag(.not).?),
+                .floatcast => return self.genFloatCast(inst.castTag(.floatcast).?),
+                .intcast => return self.genIntCast(inst.castTag(.intcast).?),
+            }
+        }
+
+        fn genFloatCast(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement floatCast for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        fn genIntCast(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement intCast for {}", .{self.target.cpu.arch}),
             }
         }
 

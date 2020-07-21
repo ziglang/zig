@@ -2352,6 +2352,7 @@ fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*In
         .fntype => return self.analyzeInstFnType(scope, old_inst.castTag(.fntype).?),
         .intcast => return self.analyzeInstIntCast(scope, old_inst.castTag(.intcast).?),
         .bitcast => return self.analyzeInstBitCast(scope, old_inst.castTag(.bitcast).?),
+        .floatcast => return self.analyzeInstFloatCast(scope, old_inst.castTag(.floatcast).?),
         .elemptr => return self.analyzeInstElemPtr(scope, old_inst.castTag(.elemptr).?),
         .add => return self.analyzeInstAdd(scope, old_inst.castTag(.add).?),
         .sub => return self.analyzeInstSub(scope, old_inst.castTag(.sub).?),
@@ -2796,16 +2797,16 @@ fn analyzeInstFieldPtr(self: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPt
     }
 }
 
-fn analyzeInstIntCast(self: *Module, scope: *Scope, intcast: *zir.Inst.IntCast) InnerError!*Inst {
-    const dest_type = try self.resolveType(scope, intcast.positionals.dest_type);
-    const new_inst = try self.resolveInst(scope, intcast.positionals.value);
+fn analyzeInstIntCast(self: *Module, scope: *Scope, inst: *zir.Inst.IntCast) InnerError!*Inst {
+    const dest_type = try self.resolveType(scope, inst.positionals.dest_type);
+    const operand = try self.resolveInst(scope, inst.positionals.operand);
 
     const dest_is_comptime_int = switch (dest_type.zigTypeTag()) {
         .ComptimeInt => true,
         .Int => false,
         else => return self.fail(
             scope,
-            intcast.positionals.dest_type.src,
+            inst.positionals.dest_type.src,
             "expected integer type, found '{}'",
             .{
                 dest_type,
@@ -2813,27 +2814,65 @@ fn analyzeInstIntCast(self: *Module, scope: *Scope, intcast: *zir.Inst.IntCast) 
         ),
     };
 
-    switch (new_inst.ty.zigTypeTag()) {
+    switch (operand.ty.zigTypeTag()) {
         .ComptimeInt, .Int => {},
         else => return self.fail(
             scope,
-            intcast.positionals.value.src,
+            inst.positionals.operand.src,
             "expected integer type, found '{}'",
-            .{new_inst.ty},
+            .{operand.ty},
         ),
     }
 
-    if (dest_is_comptime_int or new_inst.value() != null) {
-        return self.coerce(scope, dest_type, new_inst);
+    if (operand.value() != null) {
+        return self.coerce(scope, dest_type, operand);
+    } else if (dest_is_comptime_int) {
+        return self.fail(scope, inst.base.src, "unable to cast runtime value to 'comptime_int'", .{});
     }
 
-    return self.fail(scope, intcast.base.src, "TODO implement analyze widen or shorten int", .{});
+    return self.fail(scope, inst.base.src, "TODO implement analyze widen or shorten int", .{});
 }
 
 fn analyzeInstBitCast(self: *Module, scope: *Scope, inst: *zir.Inst.BitCast) InnerError!*Inst {
     const dest_type = try self.resolveType(scope, inst.positionals.dest_type);
     const operand = try self.resolveInst(scope, inst.positionals.operand);
     return self.bitcast(scope, dest_type, operand);
+}
+
+fn analyzeInstFloatCast(self: *Module, scope: *Scope, inst: *zir.Inst.FloatCast) InnerError!*Inst {
+    const dest_type = try self.resolveType(scope, inst.positionals.dest_type);
+    const operand = try self.resolveInst(scope, inst.positionals.operand);
+
+    const dest_is_comptime_float = switch (dest_type.zigTypeTag()) {
+        .ComptimeFloat => true,
+        .Float => false,
+        else => return self.fail(
+            scope,
+            inst.positionals.dest_type.src,
+            "expected float type, found '{}'",
+            .{
+                dest_type,
+            },
+        ),
+    };
+
+    switch (operand.ty.zigTypeTag()) {
+        .ComptimeFloat, .Float, .ComptimeInt => {},
+        else => return self.fail(
+            scope,
+            inst.positionals.operand.src,
+            "expected float type, found '{}'",
+            .{operand.ty},
+        ),
+    }
+
+    if (operand.value() != null) {
+        return self.coerce(scope, dest_type, operand);
+    } else if (dest_is_comptime_float) {
+        return self.fail(scope, inst.base.src, "unable to cast runtime value to 'comptime_float'", .{});
+    }
+
+    return self.fail(scope, inst.base.src, "TODO implement analyze widen or shorten float", .{});
 }
 
 fn analyzeInstElemPtr(self: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) InnerError!*Inst {
@@ -3358,6 +3397,14 @@ fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
         return self.bitcast(scope, dest_type, inst);
     }
 
+    // undefined to anything
+    if (inst.value()) |val| {
+        if (val.isUndef() or inst.ty.zigTypeTag() == .Undefined) {
+            return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
+        }
+    }
+    assert(inst.ty.zigTypeTag() != .Undefined);
+
     // *[N]T to []T
     if (inst.ty.isSinglePointer() and dest_type.isSlice() and
         (!inst.ty.pointerIsConst() or dest_type.pointerIsConst()))
@@ -3371,31 +3418,65 @@ fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
         }
     }
 
-    // comptime_int to fixed-width integer
-    if (inst.ty.zigTypeTag() == .ComptimeInt and dest_type.zigTypeTag() == .Int) {
-        // The representation is already correct; we only need to make sure it fits in the destination type.
-        const val = inst.value().?; // comptime_int always has comptime known value
-        if (!val.intFitsInType(dest_type, self.target())) {
-            return self.fail(scope, inst.src, "type {} cannot represent integer value {}", .{ inst.ty, val });
+    // comptime known number to other number
+    if (inst.value()) |val| {
+        const src_zig_tag = inst.ty.zigTypeTag();
+        const dst_zig_tag = dest_type.zigTypeTag();
+
+        if (dst_zig_tag == .ComptimeInt or dst_zig_tag == .Int) {
+            if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
+                if (val.floatHasFraction()) {
+                    return self.fail(scope, inst.src, "fractional component prevents float value {} from being casted to type '{}'", .{ val, inst.ty });
+                }
+                return self.fail(scope, inst.src, "TODO float to int", .{});
+            } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
+                if (!val.intFitsInType(dest_type, self.target())) {
+                    return self.fail(scope, inst.src, "type {} cannot represent integer value {}", .{ inst.ty, val });
+                }
+                return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
+            }
+        } else if (dst_zig_tag == .ComptimeFloat or dst_zig_tag == .Float) {
+            if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
+                const res = val.floatCast(scope.arena(), dest_type, self.target()) catch |err| switch (err) {
+                    error.Overflow => return self.fail(
+                        scope,
+                        inst.src,
+                        "cast of value {} to type '{}' loses information",
+                        .{ val, dest_type },
+                    ),
+                    error.OutOfMemory => return error.OutOfMemory,
+                };
+                return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = res });
+            } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
+                return self.fail(scope, inst.src, "TODO int to float", .{});
+            }
         }
-        return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
     }
 
     // integer widening
     if (inst.ty.zigTypeTag() == .Int and dest_type.zigTypeTag() == .Int) {
+        assert(inst.value() == null); // handled above
+
         const src_info = inst.ty.intInfo(self.target());
         const dst_info = dest_type.intInfo(self.target());
-        if (src_info.signed == dst_info.signed and dst_info.bits >= src_info.bits) {
-            if (inst.value()) |val| {
-                return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
-            } else {
-                return self.fail(scope, inst.src, "TODO implement runtime integer widening ({} to {})", .{
-                    inst.ty,
-                    dest_type,
-                });
-            }
-        } else {
-            return self.fail(scope, inst.src, "TODO implement more int widening {} to {}", .{ inst.ty, dest_type });
+        if ((src_info.signed == dst_info.signed and dst_info.bits >= src_info.bits) or
+        // small enough unsigned ints can get casted to large enough signed ints
+            (src_info.signed and !dst_info.signed and dst_info.bits > src_info.bits))
+        {
+            const b = try self.requireRuntimeBlock(scope, inst.src);
+            return self.addUnOp(b, inst.src, dest_type, .intcast, inst);
+        }
+    }
+
+    // float widening
+    if (inst.ty.zigTypeTag() == .Float and dest_type.zigTypeTag() == .Float) {
+        assert(inst.value() == null); // handled above
+
+        const src_bits = inst.ty.floatBits(self.target());
+        const dst_bits = dest_type.floatBits(self.target());
+        if (dst_bits >= src_bits) {
+            const b = try self.requireRuntimeBlock(scope, inst.src);
+            return self.addUnOp(b, inst.src, dest_type, .floatcast, inst);
         }
     }
 

@@ -13,6 +13,7 @@ const InstallDirectoryOptions = std.build.InstallDirectoryOptions;
 pub fn build(b: *Builder) !void {
     b.setPreferredReleaseMode(.ReleaseFast);
     const mode = b.standardReleaseOptions();
+    const target = b.standardTargetOptions(.{});
 
     var docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
 
@@ -54,6 +55,7 @@ pub fn build(b: *Builder) !void {
     if (!only_install_lib_files) {
         var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
         exe.setBuildMode(mode);
+        exe.setTarget(target);
         test_step.dependOn(&exe.step);
         b.default_step.dependOn(&exe.step);
 

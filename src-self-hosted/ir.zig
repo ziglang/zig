@@ -71,6 +71,8 @@ pub const Inst = struct {
         sub,
         unreach,
         not,
+        floatcast,
+        intcast,
 
         /// There is one-to-one correspondence between tag and type for now,
         /// but this will not always be the case. For example, binary operations
@@ -89,6 +91,8 @@ pub const Inst = struct {
                 .isnonnull,
                 .isnull,
                 .ptrtoint,
+                .floatcast,
+                .intcast,
                 => UnOp,
 
                 .add,

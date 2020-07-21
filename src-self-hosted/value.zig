@@ -70,6 +70,7 @@ pub const Value = extern union {
         // After this, the tag requires a payload.
 
         ty,
+        int_type,
         int_u64,
         int_i64,
         int_big_positive,
@@ -80,6 +81,10 @@ pub const Value = extern union {
         elem_ptr,
         bytes,
         repeated, // the value is a value repeated some number of times
+        float_16,
+        float_32,
+        float_64,
+        float_128,
 
         pub const last_no_payload_tag = Tag.bool_false;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -174,6 +179,7 @@ pub const Value = extern union {
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
+            .int_type => return self.copyPayloadShallow(allocator, Payload.IntType),
             .int_u64 => return self.copyPayloadShallow(allocator, Payload.Int_u64),
             .int_i64 => return self.copyPayloadShallow(allocator, Payload.Int_i64),
             .int_big_positive => {
@@ -213,6 +219,10 @@ pub const Value = extern union {
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
+            .float_16 => return self.copyPayloadShallow(allocator, Payload.Float_16),
+            .float_32 => return self.copyPayloadShallow(allocator, Payload.Float_32),
+            .float_64 => return self.copyPayloadShallow(allocator, Payload.Float_64),
+            .float_128 => return self.copyPayloadShallow(allocator, Payload.Float_128),
         }
     }
 
@@ -279,6 +289,13 @@ pub const Value = extern union {
             .bool_true => return out_stream.writeAll("true"),
             .bool_false => return out_stream.writeAll("false"),
             .ty => return val.cast(Payload.Ty).?.ty.format("", options, out_stream),
+            .int_type => {
+                const int_type = val.cast(Payload.IntType).?;
+                return out_stream.print("{}{}", .{
+                    if (int_type.signed) "s" else "u",
+                    int_type.bits,
+                });
+            },
             .int_u64 => return std.fmt.formatIntValue(val.cast(Payload.Int_u64).?.int, "", options, out_stream),
             .int_i64 => return std.fmt.formatIntValue(val.cast(Payload.Int_i64).?.int, "", options, out_stream),
             .int_big_positive => return out_stream.print("{}", .{val.cast(Payload.IntBigPositive).?.asBigInt()}),
@@ -300,6 +317,10 @@ pub const Value = extern union {
                 try out_stream.writeAll("(repeated) ");
                 val = val.cast(Payload.Repeated).?.val;
             },
+            .float_16 => return out_stream.print("{}", .{val.cast(Payload.Float_16).?.val}),
+            .float_32 => return out_stream.print("{}", .{val.cast(Payload.Float_32).?.val}),
+            .float_64 => return out_stream.print("{}", .{val.cast(Payload.Float_64).?.val}),
+            .float_128 => return out_stream.print("{}", .{val.cast(Payload.Float_128).?.val}),
         };
     }
 
@@ -323,6 +344,7 @@ pub const Value = extern union {
     pub fn toType(self: Value) Type {
         return switch (self.tag()) {
             .ty => self.cast(Payload.Ty).?.ty,
+            .int_type => @panic("TODO int type to type"),
 
             .u8_type => Type.initTag(.u8),
             .i8_type => Type.initTag(.i8),
@@ -380,6 +402,10 @@ pub const Value = extern union {
             .elem_ptr,
             .bytes,
             .repeated,
+            .float_16,
+            .float_32,
+            .float_64,
+            .float_128,
             => unreachable,
         };
     }
@@ -388,6 +414,7 @@ pub const Value = extern union {
     pub fn toBigInt(self: Value, space: *BigIntSpace) BigIntConst {
         switch (self.tag()) {
             .ty,
+            .int_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -435,6 +462,10 @@ pub const Value = extern union {
             .bytes,
             .undef,
             .repeated,
+            .float_16,
+            .float_32,
+            .float_64,
+            .float_128,
             => unreachable,
 
             .the_one_possible_value, // An integer with one possible value is always zero.
@@ -455,6 +486,7 @@ pub const Value = extern union {
     pub fn toUnsignedInt(self: Value) u64 {
         switch (self.tag()) {
             .ty,
+            .int_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -502,6 +534,10 @@ pub const Value = extern union {
             .bytes,
             .undef,
             .repeated,
+            .float_16,
+            .float_32,
+            .float_64,
+            .float_128,
             => unreachable,
 
             .zero,
@@ -518,11 +554,38 @@ pub const Value = extern union {
         }
     }
 
+    pub fn toBool(self: Value) bool {
+        return switch (self.tag()) {
+            .bool_true => true,
+            .bool_false, .zero => false,
+            else => unreachable,
+        };
+    }
+
+    /// Asserts that the value is a float or an integer.
+    pub fn toFloat(self: Value, comptime T: type) T {
+        return switch (self.tag()) {
+            .float_16 => @panic("TODO soft float"),
+            .float_32 => @floatCast(T, self.cast(Payload.Float_32).?.val),
+            .float_64 => @floatCast(T, self.cast(Payload.Float_64).?.val),
+            .float_128 => @floatCast(T, self.cast(Payload.Float_128).?.val),
+
+            .zero, .the_one_possible_value => 0,
+            .int_u64 => @intToFloat(T, self.cast(Payload.Int_u64).?.int),
+            // .int_i64 => @intToFloat(f128, self.cast(Payload.Int_i64).?.int),
+            .int_i64 => @panic("TODO lld: error: undefined symbol: __floatditf"),
+
+            .int_big_positive, .int_big_negative => @panic("big int to f128"),
+            else => unreachable,
+        };
+    }
+
     /// Asserts the value is an integer and not undefined.
     /// Returns the number of bits the value requires to represent stored in twos complement form.
     pub fn intBitCountTwosComp(self: Value) usize {
         switch (self.tag()) {
             .ty,
+            .int_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -570,6 +633,10 @@ pub const Value = extern union {
             .bytes,
             .undef,
             .repeated,
+            .float_16,
+            .float_32,
+            .float_64,
+            .float_128,
             => unreachable,
 
             .the_one_possible_value, // an integer with one possible value is always zero
@@ -596,6 +663,7 @@ pub const Value = extern union {
     pub fn intFitsInType(self: Value, ty: Type, target: Target) bool {
         switch (self.tag()) {
             .ty,
+            .int_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -642,6 +710,10 @@ pub const Value = extern union {
             .elem_ptr,
             .bytes,
             .repeated,
+            .float_16,
+            .float_32,
+            .float_64,
+            .float_128,
             => unreachable,
 
             .zero,
@@ -701,10 +773,55 @@ pub const Value = extern union {
         }
     }
 
+    /// Converts an integer or a float to a float.
+    /// Returns `error.Overflow` if the value does not fit in the new type.
+    pub fn floatCast(self: Value, allocator: *Allocator, ty: Type, target: Target) !Value {
+        const dest_bit_count = switch (ty.tag()) {
+            .comptime_float => 128,
+            else => ty.floatBits(target),
+        };
+        switch (dest_bit_count) {
+            16, 32, 64, 128 => {},
+            else => std.debug.panic("TODO float cast bit count {}\n", .{dest_bit_count}),
+        }
+        if (ty.isInt()) {
+            @panic("TODO int to float");
+        }
+
+        switch (dest_bit_count) {
+            16 => {
+                @panic("TODO soft float");
+                // var res_payload = Value.Payload.Float_16{.val = self.toFloat(f16)};
+                // if (!self.eql(Value.initPayload(&res_payload.base)))
+                //     return error.Overflow;
+                // return Value.initPayload(&res_payload.base).copy(allocator);
+            },
+            32 => {
+                var res_payload = Value.Payload.Float_32{.val = self.toFloat(f32)};
+                if (!self.eql(Value.initPayload(&res_payload.base)))
+                    return error.Overflow;
+                return Value.initPayload(&res_payload.base).copy(allocator);
+            },
+            64 => {
+                var res_payload = Value.Payload.Float_64{.val = self.toFloat(f64)};
+                if (!self.eql(Value.initPayload(&res_payload.base)))
+                    return error.Overflow;
+                return Value.initPayload(&res_payload.base).copy(allocator);
+            },
+            128 => {
+                const float_payload = try allocator.create(Value.Payload.Float_128);
+                float_payload.* = .{ .val = self.toFloat(f128) };
+                return Value.initPayload(&float_payload.base);
+            },
+            else => unreachable,
+        }
+    }
+
     /// Asserts the value is a float
     pub fn floatHasFraction(self: Value) bool {
         return switch (self.tag()) {
             .ty,
+            .int_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -762,12 +879,19 @@ pub const Value = extern union {
             => unreachable,
 
             .zero => false,
+
+            .float_16 => @rem(self.cast(Payload.Float_16).?.val, 1) != 0,
+            .float_32 => @rem(self.cast(Payload.Float_32).?.val, 1) != 0,
+            .float_64 => @rem(self.cast(Payload.Float_64).?.val, 1) != 0,
+            // .float_128 => @rem(self.cast(Payload.Float_128).?.val, 1) != 0,
+            .float_128 => @panic("TODO lld: error: undefined symbol: fmodl"),
         };
     }
 
     pub fn orderAgainstZero(lhs: Value) std.math.Order {
-        switch (lhs.tag()) {
+        return switch (lhs.tag()) {
             .ty,
+            .int_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -820,27 +944,49 @@ pub const Value = extern union {
             .zero,
             .the_one_possible_value, // an integer with one possible value is always zero
             .bool_false,
-            => return .eq,
+            => .eq,
 
-            .bool_true => return .gt,
+            .bool_true => .gt,
 
-            .int_u64 => return std.math.order(lhs.cast(Payload.Int_u64).?.int, 0),
-            .int_i64 => return std.math.order(lhs.cast(Payload.Int_i64).?.int, 0),
-            .int_big_positive => return lhs.cast(Payload.IntBigPositive).?.asBigInt().orderAgainstScalar(0),
-            .int_big_negative => return lhs.cast(Payload.IntBigNegative).?.asBigInt().orderAgainstScalar(0),
-        }
+            .int_u64 => std.math.order(lhs.cast(Payload.Int_u64).?.int, 0),
+            .int_i64 => std.math.order(lhs.cast(Payload.Int_i64).?.int, 0),
+            .int_big_positive => lhs.cast(Payload.IntBigPositive).?.asBigInt().orderAgainstScalar(0),
+            .int_big_negative => lhs.cast(Payload.IntBigNegative).?.asBigInt().orderAgainstScalar(0),
+
+            .float_16 => std.math.order(lhs.cast(Payload.Float_16).?.val, 0),
+            .float_32 => std.math.order(lhs.cast(Payload.Float_32).?.val, 0),
+            .float_64 => std.math.order(lhs.cast(Payload.Float_64).?.val, 0),
+            .float_128 => std.math.order(lhs.cast(Payload.Float_128).?.val, 0),
+        };
     }
 
     /// Asserts the value is comparable.
     pub fn order(lhs: Value, rhs: Value) std.math.Order {
         const lhs_tag = lhs.tag();
-        const rhs_tag = lhs.tag();
+        const rhs_tag = rhs.tag();
         const lhs_is_zero = lhs_tag == .zero or lhs_tag == .the_one_possible_value;
         const rhs_is_zero = rhs_tag == .zero or rhs_tag == .the_one_possible_value;
         if (lhs_is_zero) return rhs.orderAgainstZero().invert();
         if (rhs_is_zero) return lhs.orderAgainstZero();
 
-        // TODO floats
+        const lhs_float = lhs.isFloat();
+        const rhs_float = rhs.isFloat();
+        if (lhs_float and rhs_float) {
+            if (lhs_tag == rhs_tag) {
+                return switch (lhs.tag()) {
+                    .float_16 => return std.math.order(lhs.cast(Payload.Float_16).?.val, rhs.cast(Payload.Float_16).?.val),
+                    .float_32 => return std.math.order(lhs.cast(Payload.Float_32).?.val, rhs.cast(Payload.Float_32).?.val),
+                    .float_64 => return std.math.order(lhs.cast(Payload.Float_64).?.val, rhs.cast(Payload.Float_64).?.val),
+                    .float_128 => return std.math.order(lhs.cast(Payload.Float_128).?.val, rhs.cast(Payload.Float_128).?.val),
+                    else => unreachable,
+                };
+            }
+        }
+        if (lhs_float or rhs_float) {
+            const lhs_f128 = lhs.toFloat(f128);
+            const rhs_f128 = rhs.toFloat(f128);
+            return std.math.order(lhs_f128, rhs_f128);
+        }
 
         var lhs_bigint_space: BigIntSpace = undefined;
         var rhs_bigint_space: BigIntSpace = undefined;
@@ -864,19 +1010,12 @@ pub const Value = extern union {
         return compare(a, .eq, b);
     }
 
-    pub fn toBool(self: Value) bool {
-        return switch (self.tag()) {
-            .bool_true => true,
-            .bool_false, .zero => false,
-            else => unreachable,
-        };
-    }
-
     /// Asserts the value is a pointer and dereferences it.
     /// Returns error.AnalysisFail if the pointer points to a Decl that failed semantic analysis.
     pub fn pointerDeref(self: Value, allocator: *Allocator) error{ AnalysisFail, OutOfMemory }!Value {
         return switch (self.tag()) {
             .ty,
+            .int_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -928,6 +1067,10 @@ pub const Value = extern union {
             .bytes,
             .undef,
             .repeated,
+            .float_16,
+            .float_32,
+            .float_64,
+            .float_128,
             => unreachable,
 
             .the_one_possible_value => Value.initTag(.the_one_possible_value),
@@ -946,6 +1089,7 @@ pub const Value = extern union {
     pub fn elemValue(self: Value, allocator: *Allocator, index: usize) error{OutOfMemory}!Value {
         switch (self.tag()) {
             .ty,
+            .int_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -999,6 +1143,10 @@ pub const Value = extern union {
             .elem_ptr,
             .ref_val,
             .decl_ref,
+            .float_16,
+            .float_32,
+            .float_64,
+            .float_128,
             => unreachable,
 
             .bytes => {
@@ -1032,6 +1180,7 @@ pub const Value = extern union {
     pub fn isNull(self: Value) bool {
         return switch (self.tag()) {
             .ty,
+            .int_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -1085,10 +1234,28 @@ pub const Value = extern union {
             .elem_ptr,
             .bytes,
             .repeated,
+            .float_16,
+            .float_32,
+            .float_64,
+            .float_128,
             => false,
 
             .undef => unreachable,
             .null_value => true,
+        };
+    }
+
+    /// Valid for all types. Asserts the value is not undefined.
+    pub fn isFloat(self: Value) bool {
+        return switch (self.tag()) {
+            .undef => unreachable,
+
+            .float_16,
+            .float_32,
+            .float_64,
+            .float_128,
+            => true,
+            else => false,
         };
     }
 
@@ -1162,11 +1329,37 @@ pub const Value = extern union {
             ty: Type,
         };
 
+        pub const IntType = struct {
+            base: Payload = Payload{ .tag = .int_type },
+            bits: u16,
+            signed: bool,
+        };
+
         pub const Repeated = struct {
             base: Payload = Payload{ .tag = .ty },
             /// This value is repeated some number of times. The amount of times to repeat
             /// is stored externally.
             val: Value,
+        };
+
+        pub const Float_16 = struct {
+            base: Payload = .{ .tag = .float_16 },
+            val: f16,
+        };
+
+        pub const Float_32 = struct {
+            base: Payload = .{ .tag = .float_32 },
+            val: f32,
+        };
+
+        pub const Float_64 = struct {
+            base: Payload = .{ .tag = .float_64 },
+            val: f64,
+        };
+
+        pub const Float_128 = struct {
+            base: Payload = .{ .tag = .float_128 },
+            val: f128,
         };
     };
 

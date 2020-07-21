@@ -288,6 +288,7 @@ static IrInstGen *ir_analyze_struct_value_field_value(IrAnalyze *ira, IrInst* so
 static bool value_cmp_numeric_val_any(ZigValue *left, Cmp predicate, ZigValue *right);
 static bool value_cmp_numeric_val_all(ZigValue *left, Cmp predicate, ZigValue *right);
 static void memoize_field_init_val(CodeGen *codegen, ZigType *container_type, TypeStructField *field);
+static void value_to_bigfloat(BigFloat *out, ZigValue *val);
 
 #define ir_assert(OK, SOURCE_INSTRUCTION) ir_assert_impl((OK), (SOURCE_INSTRUCTION), __FILE__, __LINE__)
 #define ir_assert_gen(OK, SOURCE_INSTRUCTION) ir_assert_gen_impl((OK), (SOURCE_INSTRUCTION), __FILE__, __LINE__)
@@ -10930,8 +10931,8 @@ static Cmp float_cmp(ZigValue *op1, ZigValue *op2) {
     }
     BigFloat op1_big;
     BigFloat op2_big;
-    float_init_bigfloat(op1, &op1_big);
-    float_init_bigfloat(op2, &op2_big);
+    value_to_bigfloat(&op1_big, op1);
+    value_to_bigfloat(&op2_big, op2);
     return bigfloat_cmp(&op1_big, &op2_big);
 }
 
