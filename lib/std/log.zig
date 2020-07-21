@@ -39,7 +39,7 @@ const root = @import("root");
 //!     // Print the message to stderr, silently ignoring any errors
 //!     const held = std.debug.getStderrMutex().acquire();
 //!     defer held.release();
-//!     const stderr = std.debug.getStderrStream();
+//!     const stderr = std.io.getStdErr().writer();
 //!     nosuspend stderr.print(prefix ++ format, args) catch return;
 //! }
 //!
