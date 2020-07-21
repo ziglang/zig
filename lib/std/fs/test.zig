@@ -10,6 +10,32 @@ const Dir = std.fs.Dir;
 const File = std.fs.File;
 const tmpDir = testing.tmpDir;
 
+test "Dir.readLink" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Create some targets
+    try tmp.dir.writeFile("file.txt", "nonsense");
+    try tmp.dir.makeDir("subdir");
+
+    {
+        // Create symbolic link by path
+        try tmp.dir.symLink("file.txt", "symlink1", .{});
+        try testReadLink(tmp.dir, "file.txt", "symlink1");
+    }
+    {
+        // Create symbolic link by path
+        try tmp.dir.symLink("subdir", "symlink2", .{ .is_directory = true });
+        try testReadLink(tmp.dir, "subdir", "symlink2");
+    }
+}
+
+fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !void {
+    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const given = try dir.readLink(symlink_path, buffer[0..]);
+    testing.expect(mem.eql(u8, target_path, given));
+}
+
 test "readLinkAbsolute" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 

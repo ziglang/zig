@@ -1594,9 +1594,7 @@ pub fn symlinkat(target_path: []const u8, newdirfd: fd_t, sym_link_path: []const
         return symlinkatWasi(target_path, newdirfd, sym_link_path);
     }
     if (builtin.os.tag == .windows) {
-        const target_path_w = try windows.sliceToPrefixedFileW(target_path);
-        const sym_link_path_w = try windows.sliceToPrefixedFileW(sym_link_path);
-        return symlinkatW(target_path_w.span().ptr, newdirfd, sym_link_path_w.span().ptr);
+        @compileError("symlinkat is not supported on Windows; use std.os.windows.CreateSymbolicLink instead");
     }
     const target_path_c = try toPosixPath(target_path);
     const sym_link_path_c = try toPosixPath(sym_link_path);
@@ -1629,19 +1627,11 @@ pub fn symlinkatWasi(target_path: []const u8, newdirfd: fd_t, sym_link_path: []c
     }
 }
 
-/// Windows-only. The same as `symlinkat` except the paths are null-terminated, WTF-16 encoded.
-/// See also `symlinkat`.
-pub fn symlinkatW(target_path: [*:0]const u16, newdirfd: fd_t, sym_link_path: [*:0]const u16) SymLinkError!void {
-    @compileError("TODO implement on Windows");
-}
-
 /// The same as `symlinkat` except the parameters are null-terminated pointers.
 /// See also `symlinkat`.
 pub fn symlinkatZ(target_path: [*:0]const u8, newdirfd: fd_t, sym_link_path: [*:0]const u8) SymLinkError!void {
     if (builtin.os.tag == .windows) {
-        const target_path_w = try windows.cStrToPrefixedFileW(target_path);
-        const sym_link_path_w = try windows.cStrToPrefixedFileW(sym_link_path);
-        return symlinkatW(target_path_w.span().ptr, newdirfd, sym_link_path.span().ptr);
+        @compileError("symlinkat is not supported on Windows; use std.os.windows.CreateSymbolicLink instead");
     }
     switch (errno(system.symlinkat(target_path, newdirfd, sym_link_path))) {
         0 => return,

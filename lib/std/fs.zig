@@ -1215,7 +1215,6 @@ pub const Dir = struct {
     /// A symbolic link (also known as a soft link) may point to an existing file or to a nonexistent
     /// one; the latter case is known as a dangling link.
     /// If `sym_link_path` exists, it will not be overwritten.
-    /// TODO add Windows support
     pub fn symLink(
         self: Dir,
         target_path: []const u8,
@@ -1275,15 +1274,36 @@ pub const Dir = struct {
     /// The return value is a slice of `buffer`, from index `0`.
     /// Asserts that the path parameter has no null bytes.
     pub fn readLink(self: Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
+        if (builtin.os.tag == .wasi) {
+            return self.readLinkWasi(sub_path, buffer);
+        }
+        if (builtin.os.tag == .windows) {
+            return os.windows.ReadLink(self.fd, sub_path, buffer);
+        }
         const sub_path_c = try os.toPosixPath(sub_path);
         return self.readLinkZ(&sub_path_c, buffer);
     }
 
     pub const readLinkC = @compileError("deprecated: renamed to readLinkZ");
 
+    /// WASI-only. Same as `readLink` except targeting WASI.
+    pub fn readLinkWasi(self: Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
+        return os.readlinkatWasi(self.fd, sub_path, buffer);
+    }
+
     /// Same as `readLink`, except the `pathname` parameter is null-terminated.
     pub fn readLinkZ(self: Dir, sub_path_c: [*:0]const u8, buffer: []u8) ![]u8 {
+        if (builtin.os.tag == .windows) {
+            const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
+            return self.readLinkW(sub_path_w, buffer);
+        }
         return os.readlinkatZ(self.fd, sub_path_c, buffer);
+    }
+
+    /// Windows-only. Same as `readLink` except the pathname parameter
+    /// is null-terminated, WTF16 encoded.
+    pub fn readLinkW(self: Dir, sub_path_w: [*:0]const u16, buffer: []u8) ![]u8 {
+        return os.windows.ReadLinkW(self.fd, sub_path_w, buffer);
     }
 
     /// On success, caller owns returned buffer.
