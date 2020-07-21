@@ -33,6 +33,8 @@ pub fn expr(mod: *Module, scope: *Scope, node: *ast.Node) InnerError!*zir.Inst {
         .GreaterOrEqual => return cmp(mod, scope, node.castTag(.GreaterOrEqual).?, .gte),
         .LessThan => return cmp(mod, scope, node.castTag(.LessThan).?, .lt),
         .LessOrEqual => return cmp(mod, scope, node.castTag(.LessOrEqual).?, .lte),
+        .Period => return field(mod, scope, node.castTag(.Period).?),
+        .SuffixOp => return suffixOp(mod, scope, node.castTag(.SuffixOp).?),
         .BoolNot => return boolNot(mod, scope, node.castTag(.BoolNot).?),
         else => return mod.failNode(scope, node, "TODO implement astgen.Expr for {}", .{@tagName(node.tag)}),
     }
@@ -90,7 +92,7 @@ fn varDecl(mod: *Module, scope: *Scope, node: *ast.Node.VarDecl) InnerError!Scop
         return mod.failNode(scope, init_node, "TODO implement result locations", .{});
     }
     const init_inst = try expr(mod, scope, init_node);
-    const ident_name = tree.tokenSlice(node.name_token); // TODO support @"aoeu" identifiers
+    const ident_name = try identifierTokenString(mod, scope, node.name_token);
     return Scope.LocalVar{
         .parent = scope,
         .gen_zir = scope.getGenZIR(),
@@ -110,7 +112,7 @@ fn assign(mod: *Module, scope: *Scope, infix_node: *ast.Node.SimpleInfixOp) Inne
     if (infix_node.lhs.tag == .Identifier) {
         const ident = @fieldParentPtr(ast.Node.Identifier, "base", infix_node.lhs);
         const tree = scope.tree();
-        const ident_name = tree.tokenSlice(ident.token);
+        const ident_name = try identifierTokenString(mod, scope, ident.token);
         if (std.mem.eql(u8, ident_name, "_")) {
             return expr(mod, scope, infix_node.rhs);
         } else {
@@ -118,6 +120,60 @@ fn assign(mod: *Module, scope: *Scope, infix_node: *ast.Node.SimpleInfixOp) Inne
         }
     } else {
         return mod.failNode(scope, &infix_node.base, "TODO implement infix operator assign", .{});
+    }
+}
+
+/// Identifier token -> String (allocated in scope.arena())
+pub fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex) InnerError![]const u8 {
+    const tree = scope.tree();
+
+    const ident_name = tree.tokenSlice(token);
+    if (std.mem.startsWith(u8, ident_name, "@")) {
+        const raw_string = ident_name[1..];
+        var bad_index: usize = undefined;
+        return std.zig.parseStringLiteral(scope.arena(), raw_string, &bad_index) catch |err| switch (err) {
+            error.InvalidCharacter => {
+                const bad_byte = raw_string[bad_index];
+                const src = tree.token_locs[token].start;
+                return mod.fail(scope, src + 1 + bad_index, "invalid string literal character: '{c}'\n", .{bad_byte});
+            },
+            else => |e| return e,
+        };
+    }
+    return ident_name;
+}
+
+pub fn identifierStringInst(mod: *Module, scope: *Scope, node: *ast.Node.Identifier) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.token].start;
+
+    const ident_name = try identifierTokenString(mod, scope, node.token);
+
+    return mod.addZIRInst(scope, src, zir.Inst.Str, .{ .bytes = ident_name }, .{});
+}
+
+fn field(mod: *Module, scope: *Scope, node: *ast.Node.SimpleInfixOp) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.op_token].start;
+
+    const lhs = try expr(mod, scope, node.lhs);
+    const field_name = try identifierStringInst(mod, scope, node.rhs.castTag(.Identifier).?);
+
+    const pointer = try mod.addZIRInst(scope, src, zir.Inst.FieldPtr, .{ .object_ptr = lhs, .field_name = field_name }, .{});
+    return mod.addZIRInst(scope, src, zir.Inst.Deref, .{ .ptr = pointer }, .{});
+}
+
+fn suffixOp(mod: *Module, scope: *Scope, node: *ast.Node.SuffixOp) InnerError!*zir.Inst {
+    switch (node.op) {
+        .Deref => {
+            const tree = scope.tree();
+            const src = tree.token_locs[node.rtoken].start;
+
+            const lhs = try expr(mod, scope, node.lhs);
+
+            return mod.addZIRInst(scope, src, zir.Inst.Deref, .{ .ptr = lhs }, .{});
+        },
+        else => return mod.failNode(scope, &node.base, "TODO implement astGenExpr for suffixOp {}", .{node.op}),
     }
 }
 
@@ -257,8 +313,7 @@ fn identifier(mod: *Module, scope: *Scope, ident: *ast.Node.Identifier) InnerErr
     defer tracy.end();
 
     const tree = scope.tree();
-    // TODO implement @"aoeu" identifiers
-    const ident_name = tree.tokenSlice(ident.token);
+    const ident_name = try identifierTokenString(mod, scope, ident.token);
     const src = tree.token_locs[ident.token].start;
     if (mem.eql(u8, ident_name, "_")) {
         return mod.failNode(scope, &ident.base, "TODO implement '_' identifier", .{});
