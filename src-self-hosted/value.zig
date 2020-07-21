@@ -70,6 +70,7 @@ pub const Value = extern union {
         // After this, the tag requires a payload.
 
         ty,
+        int_type,
         int_u64,
         int_i64,
         int_big_positive,
@@ -178,6 +179,7 @@ pub const Value = extern union {
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
+            .int_type => return self.copyPayloadShallow(allocator, Payload.IntType),
             .int_u64 => return self.copyPayloadShallow(allocator, Payload.Int_u64),
             .int_i64 => return self.copyPayloadShallow(allocator, Payload.Int_i64),
             .int_big_positive => {
@@ -287,6 +289,13 @@ pub const Value = extern union {
             .bool_true => return out_stream.writeAll("true"),
             .bool_false => return out_stream.writeAll("false"),
             .ty => return val.cast(Payload.Ty).?.ty.format("", options, out_stream),
+            .int_type => {
+                const int_type = val.cast(Payload.IntType).?;
+                return out_stream.print("{}{}", .{
+                    if (int_type.signed) "s" else "u",
+                    int_type.bits,
+                });
+            },
             .int_u64 => return std.fmt.formatIntValue(val.cast(Payload.Int_u64).?.int, "", options, out_stream),
             .int_i64 => return std.fmt.formatIntValue(val.cast(Payload.Int_i64).?.int, "", options, out_stream),
             .int_big_positive => return out_stream.print("{}", .{val.cast(Payload.IntBigPositive).?.asBigInt()}),
@@ -335,6 +344,7 @@ pub const Value = extern union {
     pub fn toType(self: Value) Type {
         return switch (self.tag()) {
             .ty => self.cast(Payload.Ty).?.ty,
+            .int_type => @panic("TODO int type to type"),
 
             .u8_type => Type.initTag(.u8),
             .i8_type => Type.initTag(.i8),
@@ -404,6 +414,7 @@ pub const Value = extern union {
     pub fn toBigInt(self: Value, space: *BigIntSpace) BigIntConst {
         switch (self.tag()) {
             .ty,
+            .int_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -475,6 +486,7 @@ pub const Value = extern union {
     pub fn toUnsignedInt(self: Value) u64 {
         switch (self.tag()) {
             .ty,
+            .int_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -553,7 +565,7 @@ pub const Value = extern union {
     /// Asserts that the value is a float or an integer.
     pub fn toF128(self: Value) f128 {
         return switch (self.tag()) {
-            .float_16 => self.cast(Payload.Float_16).?.val,
+            .float_16 => @panic("TODO soft float"),
             .float_32 => self.cast(Payload.Float_32).?.val,
             .float_64 => self.cast(Payload.Float_64).?.val,
             .float_128 => self.cast(Payload.Float_128).?.val,
@@ -573,6 +585,7 @@ pub const Value = extern union {
     pub fn intBitCountTwosComp(self: Value) usize {
         switch (self.tag()) {
             .ty,
+            .int_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -650,6 +663,7 @@ pub const Value = extern union {
     pub fn intFitsInType(self: Value, ty: Type, target: Target) bool {
         switch (self.tag()) {
             .ty,
+            .int_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -763,6 +777,7 @@ pub const Value = extern union {
     pub fn floatHasFraction(self: Value) bool {
         return switch (self.tag()) {
             .ty,
+            .int_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -832,6 +847,7 @@ pub const Value = extern union {
     pub fn orderAgainstZero(lhs: Value) std.math.Order {
         return switch (lhs.tag()) {
             .ty,
+            .int_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -955,6 +971,7 @@ pub const Value = extern union {
     pub fn pointerDeref(self: Value, allocator: *Allocator) error{ AnalysisFail, OutOfMemory }!Value {
         return switch (self.tag()) {
             .ty,
+            .int_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -1028,6 +1045,7 @@ pub const Value = extern union {
     pub fn elemValue(self: Value, allocator: *Allocator, index: usize) error{OutOfMemory}!Value {
         switch (self.tag()) {
             .ty,
+            .int_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -1118,6 +1136,7 @@ pub const Value = extern union {
     pub fn isNull(self: Value) bool {
         return switch (self.tag()) {
             .ty,
+            .int_type,
             .u8_type,
             .i8_type,
             .u16_type,
@@ -1264,6 +1283,12 @@ pub const Value = extern union {
         pub const Ty = struct {
             base: Payload = Payload{ .tag = .ty },
             ty: Type,
+        };
+
+        pub const IntType = struct {
+            base: Payload = Payload{ .tag = .int_type },
+            bits: u16,
+            signed: bool,
         };
 
         pub const Repeated = struct {

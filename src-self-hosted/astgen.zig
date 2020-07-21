@@ -325,7 +325,14 @@ fn identifier(mod: *Module, scope: *Scope, ident: *ast.Node.Identifier) InnerErr
                 16 => if (is_signed) Value.initTag(.i16_type) else Value.initTag(.u16_type),
                 32 => if (is_signed) Value.initTag(.i32_type) else Value.initTag(.u32_type),
                 64 => if (is_signed) Value.initTag(.i64_type) else Value.initTag(.u64_type),
-                else => return mod.failNode(scope, &ident.base, "TODO implement arbitrary integer bitwidth types", .{}),
+                else => {
+                    const int_type_payload = try scope.arena().create(Value.Payload.IntType);
+                    int_type_payload.* = .{ .signed = is_signed, .bits = bit_count };
+                    return mod.addZIRInstConst(scope, src, .{
+                        .ty = Type.initTag(.comptime_int),
+                        .val = Value.initPayload(&int_type_payload.base),
+                    });
+                },
             };
             return mod.addZIRInstConst(scope, src, .{
                 .ty = Type.initTag(.type),
@@ -580,30 +587,6 @@ fn getSimplePrimitiveValue(name: []const u8) ?TypedValue {
         return TypedValue{
             .ty = Type.initTag(.type),
             .val = Value.initTag(tag),
-        };
-    }
-    if (mem.eql(u8, name, "null")) {
-        return TypedValue{
-            .ty = Type.initTag(.@"null"),
-            .val = Value.initTag(.null_value),
-        };
-    }
-    if (mem.eql(u8, name, "undefined")) {
-        return TypedValue{
-            .ty = Type.initTag(.@"undefined"),
-            .val = Value.initTag(.undef),
-        };
-    }
-    if (mem.eql(u8, name, "true")) {
-        return TypedValue{
-            .ty = Type.initTag(.bool),
-            .val = Value.initTag(.bool_true),
-        };
-    }
-    if (mem.eql(u8, name, "false")) {
-        return TypedValue{
-            .ty = Type.initTag(.bool),
-            .val = Value.initTag(.bool_false),
         };
     }
     return null;
