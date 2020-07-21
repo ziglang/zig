@@ -1215,7 +1215,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .return_type = return_type_inst,
                 .param_types = param_types,
             }, .{});
-            _ = try self.addZIRInst(&fn_type_scope.base, fn_src, zir.Inst.Return, .{ .operand = fn_type_inst }, .{});
+            _ = try self.addZIRUnOp(&fn_type_scope.base, fn_src, .@"return", fn_type_inst);
 
             // We need the memory for the Type to go into the arena for the Decl
             var decl_arena = std.heap.ArenaAllocator.init(self.gpa);
@@ -1256,7 +1256,15 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     const name_token = param.name_token.?;
                     const src = tree.token_locs[name_token].start;
                     const param_name = tree.tokenSlice(name_token);
-                    const arg = try newZIRInst(&gen_scope_arena.allocator, src, zir.Inst.Arg, .{}, .{});
+                    const arg = try gen_scope_arena.allocator.create(zir.Inst.NoOp);
+                    arg.* = .{
+                        .base = .{
+                            .tag = .arg,
+                            .src = src,
+                        },
+                        .positionals = .{},
+                        .kw_args = .{},
+                    };
                     gen_scope.instructions.items[i] = &arg.base;
                     const sub_scope = try gen_scope_arena.allocator.create(Scope.LocalVar);
                     sub_scope.* = .{
@@ -1276,7 +1284,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     !gen_scope.instructions.items[gen_scope.instructions.items.len - 1].tag.isNoReturn()))
                 {
                     const src = tree.token_locs[body_block.rbrace].start;
-                    _ = try self.addZIRInst(&gen_scope.base, src, zir.Inst.ReturnVoid, .{}, .{});
+                    _ = try self.addZIRNoOp(&gen_scope.base, src, .returnvoid);
                 }
 
                 const fn_zir = try gen_scope_arena.allocator.create(Fn.ZIR);
@@ -2067,25 +2075,6 @@ fn addCall(
     return &inst.base;
 }
 
-fn newZIRInst(
-    gpa: *Allocator,
-    src: usize,
-    comptime T: type,
-    positionals: std.meta.fieldInfo(T, "positionals").field_type,
-    kw_args: std.meta.fieldInfo(T, "kw_args").field_type,
-) !*T {
-    const inst = try gpa.create(T);
-    inst.* = .{
-        .base = .{
-            .tag = T.base_tag,
-            .src = src,
-        },
-        .positionals = positionals,
-        .kw_args = kw_args,
-    };
-    return inst;
-}
-
 pub fn addZIRInstSpecial(
     self: *Module,
     scope: *Scope,
@@ -2096,9 +2085,88 @@ pub fn addZIRInstSpecial(
 ) !*T {
     const gen_zir = scope.getGenZIR();
     try gen_zir.instructions.ensureCapacity(self.gpa, gen_zir.instructions.items.len + 1);
-    const inst = try newZIRInst(gen_zir.arena, src, T, positionals, kw_args);
+    const inst = try gen_zir.arena.create(T);
+    inst.* = .{
+        .base = .{
+            .tag = T.base_tag,
+            .src = src,
+        },
+        .positionals = positionals,
+        .kw_args = kw_args,
+    };
     gen_zir.instructions.appendAssumeCapacity(&inst.base);
     return inst;
+}
+
+pub fn addZIRNoOp(
+    self: *Module,
+    scope: *Scope,
+    src: usize,
+    tag: zir.Inst.Tag,
+) !*zir.Inst {
+    const gen_zir = scope.getGenZIR();
+    try gen_zir.instructions.ensureCapacity(self.gpa, gen_zir.instructions.items.len + 1);
+    const inst = try gen_zir.arena.create(zir.Inst.NoOp);
+    inst.* = .{
+        .base = .{
+            .tag = tag,
+            .src = src,
+        },
+        .positionals = .{},
+        .kw_args = .{},
+    };
+    gen_zir.instructions.appendAssumeCapacity(&inst.base);
+    return &inst.base;
+}
+
+pub fn addZIRUnOp(
+    self: *Module,
+    scope: *Scope,
+    src: usize,
+    tag: zir.Inst.Tag,
+    operand: *zir.Inst,
+) !*zir.Inst {
+    const gen_zir = scope.getGenZIR();
+    try gen_zir.instructions.ensureCapacity(self.gpa, gen_zir.instructions.items.len + 1);
+    const inst = try gen_zir.arena.create(zir.Inst.UnOp);
+    inst.* = .{
+        .base = .{
+            .tag = tag,
+            .src = src,
+        },
+        .positionals = .{
+            .operand = operand,
+        },
+        .kw_args = .{},
+    };
+    gen_zir.instructions.appendAssumeCapacity(&inst.base);
+    return &inst.base;
+}
+
+pub fn addZIRBinOp(
+    self: *Module,
+    scope: *Scope,
+    src: usize,
+    tag: zir.Inst.Tag,
+    lhs: *zir.Inst,
+    rhs: *zir.Inst,
+) !*zir.Inst {
+    const gen_zir = scope.getGenZIR();
+    try gen_zir.instructions.ensureCapacity(self.gpa, gen_zir.instructions.items.len + 1);
+    const inst = try gen_zir.arena.create(zir.Inst.BinOp);
+    inst.* = .{
+        .base = .{
+            .tag = tag,
+            .src = src,
+        },
+        .positionals = .{
+            .lhs = lhs,
+            .rhs = rhs,
+        },
+        .kw_args = .{},
+    };
+    gen_zir.instructions.appendAssumeCapacity(&inst.base);
+    return &inst.base;
 }
 
 pub fn addZIRInst(
@@ -2252,46 +2320,51 @@ fn analyzeInstConst(self: *Module, scope: *Scope, const_inst: *zir.Inst.Const) I
 
 fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*Inst {
     switch (old_inst.tag) {
-        .arg => return self.analyzeInstArg(scope, old_inst.cast(zir.Inst.Arg).?),
-        .block => return self.analyzeInstBlock(scope, old_inst.cast(zir.Inst.Block).?),
-        .@"break" => return self.analyzeInstBreak(scope, old_inst.cast(zir.Inst.Break).?),
-        .breakpoint => return self.analyzeInstBreakpoint(scope, old_inst.cast(zir.Inst.Breakpoint).?),
-        .breakvoid => return self.analyzeInstBreakVoid(scope, old_inst.cast(zir.Inst.BreakVoid).?),
-        .call => return self.analyzeInstCall(scope, old_inst.cast(zir.Inst.Call).?),
-        .compileerror => return self.analyzeInstCompileError(scope, old_inst.cast(zir.Inst.CompileError).?),
-        .@"const" => return self.analyzeInstConst(scope, old_inst.cast(zir.Inst.Const).?),
-        .declref => return self.analyzeInstDeclRef(scope, old_inst.cast(zir.Inst.DeclRef).?),
-        .declref_str => return self.analyzeInstDeclRefStr(scope, old_inst.cast(zir.Inst.DeclRefStr).?),
-        .declval => return self.analyzeInstDeclVal(scope, old_inst.cast(zir.Inst.DeclVal).?),
-        .declval_in_module => return self.analyzeInstDeclValInModule(scope, old_inst.cast(zir.Inst.DeclValInModule).?),
-        .str => return self.analyzeInstStr(scope, old_inst.cast(zir.Inst.Str).?),
+        .arg => return self.analyzeInstArg(scope, old_inst.castTag(.arg).?),
+        .block => return self.analyzeInstBlock(scope, old_inst.castTag(.block).?),
+        .@"break" => return self.analyzeInstBreak(scope, old_inst.castTag(.@"break").?),
+        .breakpoint => return self.analyzeInstBreakpoint(scope, old_inst.castTag(.breakpoint).?),
+        .breakvoid => return self.analyzeInstBreakVoid(scope, old_inst.castTag(.breakvoid).?),
+        .call => return self.analyzeInstCall(scope, old_inst.castTag(.call).?),
+        .compileerror => return self.analyzeInstCompileError(scope, old_inst.castTag(.compileerror).?),
+        .@"const" => return self.analyzeInstConst(scope, old_inst.castTag(.@"const").?),
+        .declref => return self.analyzeInstDeclRef(scope, old_inst.castTag(.declref).?),
+        .declref_str => return self.analyzeInstDeclRefStr(scope, old_inst.castTag(.declref_str).?),
+        .declval => return self.analyzeInstDeclVal(scope, old_inst.castTag(.declval).?),
+        .declval_in_module => return self.analyzeInstDeclValInModule(scope, old_inst.castTag(.declval_in_module).?),
+        .str => return self.analyzeInstStr(scope, old_inst.castTag(.str).?),
         .int => {
-            const big_int = old_inst.cast(zir.Inst.Int).?.positionals.int;
+            const big_int = old_inst.castTag(.int).?.positionals.int;
             return self.constIntBig(scope, old_inst.src, Type.initTag(.comptime_int), big_int);
         },
-        .inttype => return self.analyzeInstIntType(scope, old_inst.cast(zir.Inst.IntType).?),
-        .ptrtoint => return self.analyzeInstPtrToInt(scope, old_inst.cast(zir.Inst.PtrToInt).?),
-        .fieldptr => return self.analyzeInstFieldPtr(scope, old_inst.cast(zir.Inst.FieldPtr).?),
-        .deref => return self.analyzeInstDeref(scope, old_inst.cast(zir.Inst.Deref).?),
-        .as => return self.analyzeInstAs(scope, old_inst.cast(zir.Inst.As).?),
-        .@"asm" => return self.analyzeInstAsm(scope, old_inst.cast(zir.Inst.Asm).?),
-        .@"unreachable" => return self.analyzeInstUnreachable(scope, old_inst.cast(zir.Inst.Unreachable).?),
-        .@"return" => return self.analyzeInstRet(scope, old_inst.cast(zir.Inst.Return).?),
-        .returnvoid => return self.analyzeInstRetVoid(scope, old_inst.cast(zir.Inst.ReturnVoid).?),
-        .@"fn" => return self.analyzeInstFn(scope, old_inst.cast(zir.Inst.Fn).?),
-        .@"export" => return self.analyzeInstExport(scope, old_inst.cast(zir.Inst.Export).?),
-        .primitive => return self.analyzeInstPrimitive(scope, old_inst.cast(zir.Inst.Primitive).?),
-        .fntype => return self.analyzeInstFnType(scope, old_inst.cast(zir.Inst.FnType).?),
-        .intcast => return self.analyzeInstIntCast(scope, old_inst.cast(zir.Inst.IntCast).?),
-        .bitcast => return self.analyzeInstBitCast(scope, old_inst.cast(zir.Inst.BitCast).?),
-        .elemptr => return self.analyzeInstElemPtr(scope, old_inst.cast(zir.Inst.ElemPtr).?),
-        .add => return self.analyzeInstAdd(scope, old_inst.cast(zir.Inst.Add).?),
-        .sub => return self.analyzeInstSub(scope, old_inst.cast(zir.Inst.Sub).?),
-        .cmp => return self.analyzeInstCmp(scope, old_inst.cast(zir.Inst.Cmp).?),
-        .condbr => return self.analyzeInstCondBr(scope, old_inst.cast(zir.Inst.CondBr).?),
-        .isnull => return self.analyzeInstIsNull(scope, old_inst.cast(zir.Inst.IsNull).?),
-        .isnonnull => return self.analyzeInstIsNonNull(scope, old_inst.cast(zir.Inst.IsNonNull).?),
-        .boolnot => return self.analyzeInstBoolNot(scope, old_inst.cast(zir.Inst.BoolNot).?),
+        .inttype => return self.analyzeInstIntType(scope, old_inst.castTag(.inttype).?),
+        .ptrtoint => return self.analyzeInstPtrToInt(scope, old_inst.castTag(.ptrtoint).?),
+        .fieldptr => return self.analyzeInstFieldPtr(scope, old_inst.castTag(.fieldptr).?),
+        .deref => return self.analyzeInstDeref(scope, old_inst.castTag(.deref).?),
+        .as => return self.analyzeInstAs(scope, old_inst.castTag(.as).?),
+        .@"asm" => return self.analyzeInstAsm(scope, old_inst.castTag(.@"asm").?),
+        .@"unreachable" => return self.analyzeInstUnreachable(scope, old_inst.castTag(.@"unreachable").?),
+        .@"return" => return self.analyzeInstRet(scope, old_inst.castTag(.@"return").?),
+        .returnvoid => return self.analyzeInstRetVoid(scope, old_inst.castTag(.returnvoid).?),
+        .@"fn" => return self.analyzeInstFn(scope, old_inst.castTag(.@"fn").?),
+        .@"export" => return self.analyzeInstExport(scope, old_inst.castTag(.@"export").?),
+        .primitive => return self.analyzeInstPrimitive(scope, old_inst.castTag(.primitive).?),
+        .fntype => return self.analyzeInstFnType(scope, old_inst.castTag(.fntype).?),
+        .intcast => return self.analyzeInstIntCast(scope, old_inst.castTag(.intcast).?),
+        .bitcast => return self.analyzeInstBitCast(scope, old_inst.castTag(.bitcast).?),
+        .elemptr => return self.analyzeInstElemPtr(scope, old_inst.castTag(.elemptr).?),
+        .add => return self.analyzeInstAdd(scope, old_inst.castTag(.add).?),
+        .sub => return self.analyzeInstSub(scope, old_inst.castTag(.sub).?),
+        .cmp_lt => return self.analyzeInstCmp(scope, old_inst.castTag(.cmp_lt).?, .lt),
+        .cmp_lte => return self.analyzeInstCmp(scope, old_inst.castTag(.cmp_lte).?, .lte),
+        .cmp_eq => return self.analyzeInstCmp(scope, old_inst.castTag(.cmp_eq).?, .eq),
+        .cmp_gte => return self.analyzeInstCmp(scope, old_inst.castTag(.cmp_gte).?, .gte),
+        .cmp_gt => return self.analyzeInstCmp(scope, old_inst.castTag(.cmp_gt).?, .gt),
+        .cmp_neq => return self.analyzeInstCmp(scope, old_inst.castTag(.cmp_neq).?, .neq),
+        .condbr => return self.analyzeInstCondBr(scope, old_inst.castTag(.condbr).?),
+        .isnull => return self.analyzeInstIsNonNull(scope, old_inst.castTag(.isnull).?, true),
+        .isnonnull => return self.analyzeInstIsNonNull(scope, old_inst.castTag(.isnonnull).?, false),
+        .boolnot => return self.analyzeInstBoolNot(scope, old_inst.castTag(.boolnot).?),
     }
 }
 
@@ -2372,7 +2445,7 @@ fn analyzeInstCompileError(self: *Module, scope: *Scope, inst: *zir.Inst.Compile
     return self.fail(scope, inst.base.src, "{}", .{inst.positionals.msg});
 }
 
-fn analyzeInstArg(self: *Module, scope: *Scope, inst: *zir.Inst.Arg) InnerError!*Inst {
+fn analyzeInstArg(self: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
     const b = try self.requireRuntimeBlock(scope, inst.base.src);
     const fn_ty = b.func.?.owner_decl.typed_value.most_recent.typed_value.ty;
     const param_index = b.instructions.items.len;
@@ -2435,7 +2508,7 @@ fn analyzeInstBlock(self: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerEr
     return &block_inst.base;
 }
 
-fn analyzeInstBreakpoint(self: *Module, scope: *Scope, inst: *zir.Inst.Breakpoint) InnerError!*Inst {
+fn analyzeInstBreakpoint(self: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
     const b = try self.requireRuntimeBlock(scope, inst.base.src);
     return self.addNoOp(b, inst.base.src, Type.initTag(.void), .breakpoint);
 }
@@ -2791,11 +2864,11 @@ fn analyzeInstElemPtr(self: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) Inn
     return self.fail(scope, inst.base.src, "TODO implement more analyze elemptr", .{});
 }
 
-fn analyzeInstSub(self: *Module, scope: *Scope, inst: *zir.Inst.Sub) InnerError!*Inst {
+fn analyzeInstSub(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
     return self.fail(scope, inst.base.src, "TODO implement analysis of sub", .{});
 }
 
-fn analyzeInstAdd(self: *Module, scope: *Scope, inst: *zir.Inst.Add) InnerError!*Inst {
+fn analyzeInstAdd(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2848,9 +2921,9 @@ fn analyzeInstAdd(self: *Module, scope: *Scope, inst: *zir.Inst.Add) InnerError!
     return self.fail(scope, inst.base.src, "TODO analyze add for {} + {}", .{ lhs.ty.zigTypeTag(), rhs.ty.zigTypeTag() });
 }
 
-fn analyzeInstDeref(self: *Module, scope: *Scope, deref: *zir.Inst.Deref) InnerError!*Inst {
-    const ptr = try self.resolveInst(scope, deref.positionals.ptr);
-    return self.analyzeDeref(scope, deref.base.src, ptr, deref.positionals.ptr.src);
+fn analyzeInstDeref(self: *Module, scope: *Scope, deref: *zir.Inst.UnOp) InnerError!*Inst {
+    const ptr = try self.resolveInst(scope, deref.positionals.operand);
+    return self.analyzeDeref(scope, deref.base.src, ptr, deref.positionals.operand.src);
 }
 
 fn analyzeDeref(self: *Module, scope: *Scope, src: usize, ptr: *Inst, ptr_src: usize) InnerError!*Inst {
@@ -2907,10 +2980,14 @@ fn analyzeInstAsm(self: *Module, scope: *Scope, assembly: *zir.Inst.Asm) InnerEr
     return &inst.base;
 }
 
-fn analyzeInstCmp(self: *Module, scope: *Scope, inst: *zir.Inst.Cmp) InnerError!*Inst {
+fn analyzeInstCmp(
+    self: *Module,
+    scope: *Scope,
+    inst: *zir.Inst.BinOp,
+    op: std.math.CompareOperator,
+) InnerError!*Inst {
     const lhs = try self.resolveInst(scope, inst.positionals.lhs);
     const rhs = try self.resolveInst(scope, inst.positionals.rhs);
-    const op = inst.positionals.op;
 
     const is_equality_cmp = switch (op) {
         .eq, .neq => true,
@@ -2964,7 +3041,7 @@ fn analyzeInstCmp(self: *Module, scope: *Scope, inst: *zir.Inst.Cmp) InnerError!
     return self.fail(scope, inst.base.src, "TODO implement more cmp analysis", .{});
 }
 
-fn analyzeInstBoolNot(self: *Module, scope: *Scope, inst: *zir.Inst.BoolNot) InnerError!*Inst {
+fn analyzeInstBoolNot(self: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const uncasted_operand = try self.resolveInst(scope, inst.positionals.operand);
     const bool_type = Type.initTag(.bool);
     const operand = try self.coerce(scope, bool_type, uncasted_operand);
@@ -2975,14 +3052,9 @@ fn analyzeInstBoolNot(self: *Module, scope: *Scope, inst: *zir.Inst.BoolNot) Inn
     return self.addUnOp(b, inst.base.src, bool_type, .not, operand);
 }
 
-fn analyzeInstIsNull(self: *Module, scope: *Scope, inst: *zir.Inst.IsNull) InnerError!*Inst {
+fn analyzeInstIsNonNull(self: *Module, scope: *Scope, inst: *zir.Inst.UnOp, invert_logic: bool) InnerError!*Inst {
     const operand = try self.resolveInst(scope, inst.positionals.operand);
-    return self.analyzeIsNull(scope, inst.base.src, operand, true);
-}
-
-fn analyzeInstIsNonNull(self: *Module, scope: *Scope, inst: *zir.Inst.IsNonNull) InnerError!*Inst {
-    const operand = try self.resolveInst(scope, inst.positionals.operand);
-    return self.analyzeIsNull(scope, inst.base.src, operand, false);
+    return self.analyzeIsNull(scope, inst.base.src, operand, invert_logic);
 }
 
 fn analyzeInstCondBr(self: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerError!*Inst {
@@ -3031,7 +3103,7 @@ fn wantSafety(self: *Module, scope: *Scope) bool {
     };
 }
 
-fn analyzeInstUnreachable(self: *Module, scope: *Scope, unreach: *zir.Inst.Unreachable) InnerError!*Inst {
+fn analyzeInstUnreachable(self: *Module, scope: *Scope, unreach: *zir.Inst.NoOp) InnerError!*Inst {
     const b = try self.requireRuntimeBlock(scope, unreach.base.src);
     if (self.wantSafety(scope)) {
         // TODO Once we have a panic function to call, call it here instead of this.
@@ -3040,13 +3112,13 @@ fn analyzeInstUnreachable(self: *Module, scope: *Scope, unreach: *zir.Inst.Unrea
     return self.addNoOp(b, unreach.base.src, Type.initTag(.noreturn), .unreach);
 }
 
-fn analyzeInstRet(self: *Module, scope: *Scope, inst: *zir.Inst.Return) InnerError!*Inst {
+fn analyzeInstRet(self: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const operand = try self.resolveInst(scope, inst.positionals.operand);
     const b = try self.requireRuntimeBlock(scope, inst.base.src);
     return self.addUnOp(b, inst.base.src, Type.initTag(.noreturn), .ret, operand);
 }
 
-fn analyzeInstRetVoid(self: *Module, scope: *Scope, inst: *zir.Inst.ReturnVoid) InnerError!*Inst {
+fn analyzeInstRetVoid(self: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
     const b = try self.requireRuntimeBlock(scope, inst.base.src);
     return self.addNoOp(b, inst.base.src, Type.initTag(.noreturn), .retvoid);
 }

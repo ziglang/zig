@@ -56,7 +56,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\  %result = add(%x0, %x1)
         \\
         \\  %expected = int(69)
-        \\  %ok = cmp(%result, eq, %expected)
+        \\  %ok = cmp_eq(%result, %expected)
         \\  %10 = condbr(%ok, {
         \\    %11 = returnvoid()
         \\  }, {

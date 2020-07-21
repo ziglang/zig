@@ -16,6 +16,15 @@ pub fn expr(mod: *Module, scope: *Scope, node: *ast.Node) InnerError!*zir.Inst {
     switch (node.tag) {
         .VarDecl => unreachable, // Handled in `blockExpr`.
 
+        .Add => return simpleInfixOp(mod, scope, node.castTag(.Add).?, .add),
+        .Sub => return simpleInfixOp(mod, scope, node.castTag(.Sub).?, .sub),
+        .BangEqual => return simpleInfixOp(mod, scope, node.castTag(.BangEqual).?, .cmp_neq),
+        .EqualEqual => return simpleInfixOp(mod, scope, node.castTag(.EqualEqual).?, .cmp_eq),
+        .GreaterThan => return simpleInfixOp(mod, scope, node.castTag(.GreaterThan).?, .cmp_gt),
+        .GreaterOrEqual => return simpleInfixOp(mod, scope, node.castTag(.GreaterOrEqual).?, .cmp_gte),
+        .LessThan => return simpleInfixOp(mod, scope, node.castTag(.LessThan).?, .cmp_lt),
+        .LessOrEqual => return simpleInfixOp(mod, scope, node.castTag(.LessOrEqual).?, .cmp_lte),
+
         .Identifier => return identifier(mod, scope, node.castTag(.Identifier).?),
         .Asm => return assembly(mod, scope, node.castTag(.Asm).?),
         .StringLiteral => return stringLiteral(mod, scope, node.castTag(.StringLiteral).?),
@@ -26,13 +35,6 @@ pub fn expr(mod: *Module, scope: *Scope, node: *ast.Node) InnerError!*zir.Inst {
         .ControlFlowExpression => return controlFlowExpr(mod, scope, node.castTag(.ControlFlowExpression).?),
         .If => return ifExpr(mod, scope, node.castTag(.If).?),
         .Assign => return assign(mod, scope, node.castTag(.Assign).?),
-        .Add => return add(mod, scope, node.castTag(.Add).?),
-        .BangEqual => return cmp(mod, scope, node.castTag(.BangEqual).?, .neq),
-        .EqualEqual => return cmp(mod, scope, node.castTag(.EqualEqual).?, .eq),
-        .GreaterThan => return cmp(mod, scope, node.castTag(.GreaterThan).?, .gt),
-        .GreaterOrEqual => return cmp(mod, scope, node.castTag(.GreaterOrEqual).?, .gte),
-        .LessThan => return cmp(mod, scope, node.castTag(.LessThan).?, .lt),
-        .LessOrEqual => return cmp(mod, scope, node.castTag(.LessOrEqual).?, .lte),
         .Period => return field(mod, scope, node.castTag(.Period).?),
         .Deref => return deref(mod, scope, node.castTag(.Deref).?),
         .BoolNot => return boolNot(mod, scope, node.castTag(.BoolNot).?),
@@ -97,14 +99,6 @@ fn varDecl(mod: *Module, scope: *Scope, node: *ast.Node.VarDecl) InnerError!Scop
         },
         .Keyword_var => {
             return mod.failNode(scope, &node.base, "TODO implement local vars", .{});
-            //const src = tree.token_locs[node.name_token].start;
-            //const alloc = mod.addZIRInst(scope, src, zir.Inst.Alloc, .{}, .{});
-            //if (node.getTrailer("type_node")) |type_node| {
-            //    const type_inst = try expr(mod, scope, type_node);
-            //    return mod.failNode(scope, type_node, "TODO implement typed var locals", .{});
-            //} else {
-            //    return mod.failTok(scope, node.mut_token, "TODO implement mutable type-inferred locals", .{});
-            //}
         },
         else => unreachable,
     }
@@ -114,7 +108,7 @@ fn boolNot(mod: *Module, scope: *Scope, node: *ast.Node.SimplePrefixOp) InnerErr
     const operand = try expr(mod, scope, node.rhs);
     const tree = scope.tree();
     const src = tree.token_locs[node.op_token].start;
-    return mod.addZIRInst(scope, src, zir.Inst.BoolNot, .{ .operand = operand }, .{});
+    return mod.addZIRUnOp(scope, src, .boolnot, operand);
 }
 
 fn assign(mod: *Module, scope: *Scope, infix_node: *ast.Node.SimpleInfixOp) InnerError!*zir.Inst {
@@ -169,33 +163,21 @@ fn field(mod: *Module, scope: *Scope, node: *ast.Node.SimpleInfixOp) InnerError!
     const field_name = try identifierStringInst(mod, scope, node.rhs.castTag(.Identifier).?);
 
     const pointer = try mod.addZIRInst(scope, src, zir.Inst.FieldPtr, .{ .object_ptr = lhs, .field_name = field_name }, .{});
-    return mod.addZIRInst(scope, src, zir.Inst.Deref, .{ .ptr = pointer }, .{});
+    return mod.addZIRUnOp(scope, src, .deref, pointer);
 }
 
 fn deref(mod: *Module, scope: *Scope, node: *ast.Node.SimpleSuffixOp) InnerError!*zir.Inst {
     const tree = scope.tree();
     const src = tree.token_locs[node.rtoken].start;
-
     const lhs = try expr(mod, scope, node.lhs);
-
-    return mod.addZIRInst(scope, src, zir.Inst.Deref, .{ .ptr = lhs }, .{});
+    return mod.addZIRUnOp(scope, src, .deref, lhs);
 }
 
-fn add(mod: *Module, scope: *Scope, infix_node: *ast.Node.SimpleInfixOp) InnerError!*zir.Inst {
-    const lhs = try expr(mod, scope, infix_node.lhs);
-    const rhs = try expr(mod, scope, infix_node.rhs);
-
-    const tree = scope.tree();
-    const src = tree.token_locs[infix_node.op_token].start;
-
-    return mod.addZIRInst(scope, src, zir.Inst.Add, .{ .lhs = lhs, .rhs = rhs }, .{});
-}
-
-fn cmp(
+fn simpleInfixOp(
     mod: *Module,
     scope: *Scope,
     infix_node: *ast.Node.SimpleInfixOp,
-    op: std.math.CompareOperator,
+    op_inst_tag: zir.Inst.Tag,
 ) InnerError!*zir.Inst {
     const lhs = try expr(mod, scope, infix_node.lhs);
     const rhs = try expr(mod, scope, infix_node.rhs);
@@ -203,11 +185,7 @@ fn cmp(
     const tree = scope.tree();
     const src = tree.token_locs[infix_node.op_token].start;
 
-    return mod.addZIRInst(scope, src, zir.Inst.Cmp, .{
-        .lhs = lhs,
-        .op = op,
-        .rhs = rhs,
-    }, .{});
+    return mod.addZIRBinOp(scope, src, op_inst_tag, lhs, rhs);
 }
 
 fn ifExpr(mod: *Module, scope: *Scope, if_node: *ast.Node.If) InnerError!*zir.Inst {
@@ -306,9 +284,9 @@ fn controlFlowExpr(
     const src = tree.token_locs[cfe.ltoken].start;
     if (cfe.rhs) |rhs_node| {
         const operand = try expr(mod, scope, rhs_node);
-        return mod.addZIRInst(scope, src, zir.Inst.Return, .{ .operand = operand }, .{});
+        return mod.addZIRUnOp(scope, src, .@"return", operand);
     } else {
-        return mod.addZIRInst(scope, src, zir.Inst.ReturnVoid, .{}, .{});
+        return mod.addZIRNoOp(scope, src, .returnvoid);
     }
 }
 
@@ -519,7 +497,7 @@ fn callExpr(mod: *Module, scope: *Scope, node: *ast.Node.Call) InnerError!*zir.I
 fn unreach(mod: *Module, scope: *Scope, unreach_node: *ast.Node.Unreachable) InnerError!*zir.Inst {
     const tree = scope.tree();
     const src = tree.token_locs[unreach_node.token].start;
-    return mod.addZIRInst(scope, src, zir.Inst.Unreachable, .{}, .{});
+    return mod.addZIRNoOp(scope, src, .@"unreachable");
 }
 
 fn getSimplePrimitiveValue(name: []const u8) ?TypedValue {

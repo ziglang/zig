@@ -79,10 +79,68 @@ pub const Inst = struct {
         elemptr,
         add,
         sub,
-        cmp,
+        cmp_lt,
+        cmp_lte,
+        cmp_eq,
+        cmp_gte,
+        cmp_gt,
+        cmp_neq,
         condbr,
         isnull,
         isnonnull,
+
+        pub fn Type(tag: Tag) type {
+            return switch (tag) {
+                .arg,
+                .breakpoint,
+                .@"unreachable",
+                .returnvoid,
+                => NoOp,
+
+                .boolnot,
+                .deref,
+                .@"return",
+                .isnull,
+                .isnonnull,
+                => UnOp,
+
+                .add,
+                .sub,
+                .cmp_lt,
+                .cmp_lte,
+                .cmp_eq,
+                .cmp_gte,
+                .cmp_gt,
+                .cmp_neq,
+                => BinOp,
+
+                .block => Block,
+                .@"break" => Break,
+                .breakvoid => BreakVoid,
+                .call => Call,
+                .declref => DeclRef,
+                .declref_str => DeclRefStr,
+                .declval => DeclVal,
+                .declval_in_module => DeclValInModule,
+                .compileerror => CompileError,
+                .@"const" => Const,
+                .str => Str,
+                .int => Int,
+                .inttype => IntType,
+                .ptrtoint => PtrToInt,
+                .fieldptr => FieldPtr,
+                .as => As,
+                .@"asm" => Asm,
+                .@"fn" => Fn,
+                .@"export" => Export,
+                .primitive => Primitive,
+                .fntype => FnType,
+                .intcast => IntCast,
+                .bitcast => BitCast,
+                .elemptr => ElemPtr,
+                .condbr => CondBr,
+            };
+        }
 
         /// Returns whether the instruction is one of the control flow "noreturn" types.
         /// Function calls do not count.
@@ -114,7 +172,12 @@ pub const Inst = struct {
                 .elemptr,
                 .add,
                 .sub,
-                .cmp,
+                .cmp_lt,
+                .cmp_lte,
+                .cmp_eq,
+                .cmp_gte,
+                .cmp_gt,
+                .cmp_neq,
                 .isnull,
                 .isnonnull,
                 .boolnot,
@@ -132,60 +195,53 @@ pub const Inst = struct {
         }
     };
 
-    pub fn TagToType(tag: Tag) type {
-        return switch (tag) {
-            .arg => Arg,
-            .block => Block,
-            .@"break" => Break,
-            .breakpoint => Breakpoint,
-            .breakvoid => BreakVoid,
-            .call => Call,
-            .declref => DeclRef,
-            .declref_str => DeclRefStr,
-            .declval => DeclVal,
-            .declval_in_module => DeclValInModule,
-            .compileerror => CompileError,
-            .@"const" => Const,
-            .boolnot => BoolNot,
-            .str => Str,
-            .int => Int,
-            .inttype => IntType,
-            .ptrtoint => PtrToInt,
-            .fieldptr => FieldPtr,
-            .deref => Deref,
-            .as => As,
-            .@"asm" => Asm,
-            .@"unreachable" => Unreachable,
-            .@"return" => Return,
-            .returnvoid => ReturnVoid,
-            .@"fn" => Fn,
-            .@"export" => Export,
-            .primitive => Primitive,
-            .fntype => FnType,
-            .intcast => IntCast,
-            .bitcast => BitCast,
-            .elemptr => ElemPtr,
-            .add => Add,
-            .sub => Sub,
-            .cmp => Cmp,
-            .condbr => CondBr,
-            .isnull => IsNull,
-            .isnonnull => IsNonNull,
-        };
-    }
-
+    /// Prefer `castTag` to this.
     pub fn cast(base: *Inst, comptime T: type) ?*T {
-        if (base.tag != T.base_tag)
-            return null;
-
-        return @fieldParentPtr(T, "base", base);
+        if (@hasField(T, "base_tag")) {
+            return base.castTag(T.base_tag);
+        }
+        inline for (@typeInfo(Tag).Enum.fields) |field| {
+            const tag = @intToEnum(Tag, field.value);
+            if (base.tag == tag) {
+                if (T == tag.Type()) {
+                    return @fieldParentPtr(T, "base", base);
+                }
+                return null;
+            }
+        }
+        unreachable;
     }
 
-    pub const Arg = struct {
-        pub const base_tag = Tag.arg;
+    pub fn castTag(base: *Inst, comptime tag: Tag) ?*tag.Type() {
+        if (base.tag == tag) {
+            return @fieldParentPtr(tag.Type(), "base", base);
+        }
+        return null;
+    }
+
+    pub const NoOp = struct {
         base: Inst,
 
         positionals: struct {},
+        kw_args: struct {},
+    };
+
+    pub const UnOp = struct {
+        base: Inst,
+
+        positionals: struct {
+            operand: *Inst,
+        },
+        kw_args: struct {},
+    };
+
+    pub const BinOp = struct {
+        base: Inst,
+
+        positionals: struct {
+            lhs: *Inst,
+            rhs: *Inst,
+        },
         kw_args: struct {},
     };
 
@@ -207,14 +263,6 @@ pub const Inst = struct {
             block: *Block,
             operand: *Inst,
         },
-        kw_args: struct {},
-    };
-
-    pub const Breakpoint = struct {
-        pub const base_tag = Tag.breakpoint;
-        base: Inst,
-
-        positionals: struct {},
         kw_args: struct {},
     };
 
@@ -301,16 +349,6 @@ pub const Inst = struct {
         kw_args: struct {},
     };
 
-    pub const BoolNot = struct {
-        pub const base_tag = Tag.boolnot;
-        base: Inst,
-
-        positionals: struct {
-            operand: *Inst,
-        },
-        kw_args: struct {},
-    };
-
     pub const Str = struct {
         pub const base_tag = Tag.str;
         base: Inst,
@@ -353,16 +391,6 @@ pub const Inst = struct {
         kw_args: struct {},
     };
 
-    pub const Deref = struct {
-        pub const base_tag = Tag.deref;
-        base: Inst,
-
-        positionals: struct {
-            ptr: *Inst,
-        },
-        kw_args: struct {},
-    };
-
     pub const As = struct {
         pub const base_tag = Tag.as;
         pub const builtin_name = "@as";
@@ -390,32 +418,6 @@ pub const Inst = struct {
             clobbers: []*Inst = &[0]*Inst{},
             args: []*Inst = &[0]*Inst{},
         },
-    };
-
-    pub const Unreachable = struct {
-        pub const base_tag = Tag.@"unreachable";
-        base: Inst,
-
-        positionals: struct {},
-        kw_args: struct {},
-    };
-
-    pub const Return = struct {
-        pub const base_tag = Tag.@"return";
-        base: Inst,
-
-        positionals: struct {
-            operand: *Inst,
-        },
-        kw_args: struct {},
-    };
-
-    pub const ReturnVoid = struct {
-        pub const base_tag = Tag.returnvoid;
-        base: Inst,
-
-        positionals: struct {},
-        kw_args: struct {},
     };
 
     pub const Fn = struct {
@@ -587,42 +589,6 @@ pub const Inst = struct {
         kw_args: struct {},
     };
 
-    pub const Add = struct {
-        pub const base_tag = Tag.add;
-        base: Inst,
-
-        positionals: struct {
-            lhs: *Inst,
-            rhs: *Inst,
-        },
-        kw_args: struct {},
-    };
-
-    pub const Sub = struct {
-        pub const base_tag = Tag.sub;
-        base: Inst,
-
-        positionals: struct {
-            lhs: *Inst,
-            rhs: *Inst,
-        },
-        kw_args: struct {},
-    };
-
-    /// TODO get rid of the op positional arg and make that data part of
-    /// the base Inst tag.
-    pub const Cmp = struct {
-        pub const base_tag = Tag.cmp;
-        base: Inst,
-
-        positionals: struct {
-            lhs: *Inst,
-            op: std.math.CompareOperator,
-            rhs: *Inst,
-        },
-        kw_args: struct {},
-    };
-
     pub const CondBr = struct {
         pub const base_tag = Tag.condbr;
         base: Inst,
@@ -631,26 +597,6 @@ pub const Inst = struct {
             condition: *Inst,
             then_body: Module.Body,
             else_body: Module.Body,
-        },
-        kw_args: struct {},
-    };
-
-    pub const IsNull = struct {
-        pub const base_tag = Tag.isnull;
-        base: Inst,
-
-        positionals: struct {
-            operand: *Inst,
-        },
-        kw_args: struct {},
-    };
-
-    pub const IsNonNull = struct {
-        pub const base_tag = Tag.isnonnull;
-        base: Inst,
-
-        positionals: struct {
-            operand: *Inst,
         },
         kw_args: struct {},
     };
@@ -775,7 +721,7 @@ const Writer = struct {
         comptime inst_tag: Inst.Tag,
         base: *Inst,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const SpecificInst = Inst.TagToType(inst_tag);
+        const SpecificInst = inst_tag.Type();
         const inst = @fieldParentPtr(SpecificInst, "base", base);
         const Positionals = @TypeOf(inst.positionals);
         try stream.writeAll("= " ++ @tagName(inst_tag) ++ "(");
@@ -1102,7 +1048,7 @@ const Parser = struct {
         inline for (@typeInfo(Inst.Tag).Enum.fields) |field| {
             if (mem.eql(u8, field.name, fn_name)) {
                 const tag = @field(Inst.Tag, field.name);
-                return parseInstructionGeneric(self, field.name, Inst.TagToType(tag), body_ctx, name, contents_start);
+                return parseInstructionGeneric(self, field.name, tag.Type(), tag, body_ctx, name, contents_start);
             }
         }
         return self.fail("unknown instruction '{}'", .{fn_name});
@@ -1112,6 +1058,7 @@ const Parser = struct {
         self: *Parser,
         comptime fn_name: []const u8,
         comptime InstType: type,
+        tag: Inst.Tag,
         body_ctx: ?*Body,
         inst_name: []const u8,
         contents_start: usize,
@@ -1119,7 +1066,7 @@ const Parser = struct {
         const inst_specific = try self.arena.allocator.create(InstType);
         inst_specific.base = .{
             .src = self.i,
-            .tag = InstType.base_tag,
+            .tag = tag,
         };
 
         if (InstType == Inst.Block) {
@@ -1615,37 +1562,14 @@ const EmitZIR = struct {
         }
     }
 
-    fn emitNoOp(self: *EmitZIR, src: usize, comptime T: type) Allocator.Error!*Inst {
-        const new_inst = try self.arena.allocator.create(T);
+    fn emitNoOp(self: *EmitZIR, src: usize, tag: Inst.Tag) Allocator.Error!*Inst {
+        const new_inst = try self.arena.allocator.create(Inst.NoOp);
         new_inst.* = .{
             .base = .{
                 .src = src,
-                .tag = T.base_tag,
+                .tag = tag,
             },
             .positionals = .{},
-            .kw_args = .{},
-        };
-        return &new_inst.base;
-    }
-
-    fn emitCmp(
-        self: *EmitZIR,
-        src: usize,
-        new_body: ZirBody,
-        old_inst: *ir.Inst.BinOp,
-        op: std.math.CompareOperator,
-    ) Allocator.Error!*Inst {
-        const new_inst = try self.arena.allocator.create(Inst.Cmp);
-        new_inst.* = .{
-            .base = .{
-                .src = src,
-                .tag = Inst.Cmp.base_tag,
-            },
-            .positionals = .{
-                .lhs = try self.resolveInst(new_body, old_inst.lhs),
-                .rhs = try self.resolveInst(new_body, old_inst.rhs),
-                .op = op,
-            },
             .kw_args = .{},
         };
         return &new_inst.base;
@@ -1656,13 +1580,13 @@ const EmitZIR = struct {
         src: usize,
         new_body: ZirBody,
         old_inst: *ir.Inst.UnOp,
-        comptime I: type,
+        tag: Inst.Tag,
     ) Allocator.Error!*Inst {
-        const new_inst = try self.arena.allocator.create(I);
+        const new_inst = try self.arena.allocator.create(Inst.UnOp);
         new_inst.* = .{
             .base = .{
                 .src = src,
-                .tag = I.base_tag,
+                .tag = tag,
             },
             .positionals = .{
                 .operand = try self.resolveInst(new_body, old_inst.operand),
@@ -1677,13 +1601,13 @@ const EmitZIR = struct {
         src: usize,
         new_body: ZirBody,
         old_inst: *ir.Inst.BinOp,
-        comptime I: type,
+        tag: Inst.Tag,
     ) Allocator.Error!*Inst {
-        const new_inst = try self.arena.allocator.create(I);
+        const new_inst = try self.arena.allocator.create(Inst.BinOp);
         new_inst.* = .{
             .base = .{
                 .src = src,
-                .tag = I.base_tag,
+                .tag = tag,
             },
             .positionals = .{
                 .lhs = try self.resolveInst(new_body, old_inst.lhs),
@@ -1708,26 +1632,25 @@ const EmitZIR = struct {
             const new_inst = switch (inst.tag) {
                 .constant => unreachable, // excluded from function bodies
 
-                .arg => try self.emitNoOp(inst.src, Inst.Arg),
-                .breakpoint => try self.emitNoOp(inst.src, Inst.Breakpoint),
-                .unreach => try self.emitNoOp(inst.src, Inst.Unreachable),
-                .retvoid => try self.emitNoOp(inst.src, Inst.ReturnVoid),
+                .arg => try self.emitNoOp(inst.src, .arg),
+                .breakpoint => try self.emitNoOp(inst.src, .breakpoint),
+                .unreach => try self.emitNoOp(inst.src, .@"unreachable"),
+                .retvoid => try self.emitNoOp(inst.src, .returnvoid),
 
-                .not => try self.emitUnOp(inst.src, new_body, inst.castTag(.not).?, Inst.BoolNot),
-                .ret => try self.emitUnOp(inst.src, new_body, inst.castTag(.ret).?, Inst.Return),
-                .ptrtoint => try self.emitUnOp(inst.src, new_body, inst.castTag(.ptrtoint).?, Inst.PtrToInt),
-                .isnull => try self.emitUnOp(inst.src, new_body, inst.castTag(.isnull).?, Inst.IsNull),
-                .isnonnull => try self.emitUnOp(inst.src, new_body, inst.castTag(.isnonnull).?, Inst.IsNonNull),
+                .not => try self.emitUnOp(inst.src, new_body, inst.castTag(.not).?, .boolnot),
+                .ret => try self.emitUnOp(inst.src, new_body, inst.castTag(.ret).?, .@"return"),
+                .ptrtoint => try self.emitUnOp(inst.src, new_body, inst.castTag(.ptrtoint).?, .ptrtoint),
+                .isnull => try self.emitUnOp(inst.src, new_body, inst.castTag(.isnull).?, .isnull),
+                .isnonnull => try self.emitUnOp(inst.src, new_body, inst.castTag(.isnonnull).?, .isnonnull),
 
-                .add => try self.emitBinOp(inst.src, new_body, inst.castTag(.add).?, Inst.Add),
-                .sub => try self.emitBinOp(inst.src, new_body, inst.castTag(.sub).?, Inst.Sub),
-
-                .cmp_lt => try self.emitCmp(inst.src, new_body, inst.castTag(.cmp_lt).?, .lt),
-                .cmp_lte => try self.emitCmp(inst.src, new_body, inst.castTag(.cmp_lte).?, .lte),
-                .cmp_eq => try self.emitCmp(inst.src, new_body, inst.castTag(.cmp_eq).?, .eq),
-                .cmp_gte => try self.emitCmp(inst.src, new_body, inst.castTag(.cmp_gte).?, .gte),
-                .cmp_gt => try self.emitCmp(inst.src, new_body, inst.castTag(.cmp_gt).?, .gt),
-                .cmp_neq => try self.emitCmp(inst.src, new_body, inst.castTag(.cmp_neq).?, .neq),
+                .add => try self.emitBinOp(inst.src, new_body, inst.castTag(.add).?, .add),
+                .sub => try self.emitBinOp(inst.src, new_body, inst.castTag(.sub).?, .sub),
+                .cmp_lt => try self.emitBinOp(inst.src, new_body, inst.castTag(.cmp_lt).?, .cmp_lt),
+                .cmp_lte => try self.emitBinOp(inst.src, new_body, inst.castTag(.cmp_lte).?, .cmp_lte),
+                .cmp_eq => try self.emitBinOp(inst.src, new_body, inst.castTag(.cmp_eq).?, .cmp_eq),
+                .cmp_gte => try self.emitBinOp(inst.src, new_body, inst.castTag(.cmp_gte).?, .cmp_gte),
+                .cmp_gt => try self.emitBinOp(inst.src, new_body, inst.castTag(.cmp_gt).?, .cmp_gt),
+                .cmp_neq => try self.emitBinOp(inst.src, new_body, inst.castTag(.cmp_neq).?, .cmp_neq),
 
                 .bitcast => blk: {
                     const old_inst = inst.castTag(.bitcast).?;
