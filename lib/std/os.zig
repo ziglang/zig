@@ -2364,8 +2364,7 @@ pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os.tag == .wasi) {
         @compileError("readlink is not supported in WASI; use readlinkat instead");
     } else if (builtin.os.tag == .windows) {
-        const file_path_w = try windows.sliceToWin32PrefixedFileW(file_path);
-        return readlinkW(file_path_w.span().ptr, out_buffer);
+        return windows.ReadLink(std.fs.cwd().fd, file_path, out_buffer);
     } else {
         const file_path_c = try toPosixPath(file_path);
         return readlinkZ(&file_path_c, out_buffer);
@@ -2377,56 +2376,7 @@ pub const readlinkC = @compileError("deprecated: renamed to readlinkZ");
 /// Windows-only. Same as `readlink` except `file_path` is null-terminated, WTF16 encoded.
 /// See also `readlinkZ`.
 pub fn readlinkW(file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8 {
-    const w = windows;
-
-    const sharing = w.FILE_SHARE_DELETE | w.FILE_SHARE_READ | w.FILE_SHARE_WRITE;
-    const disposition = w.OPEN_EXISTING;
-    const flags = w.FILE_FLAG_BACKUP_SEMANTICS | w.FILE_FLAG_OPEN_REPARSE_POINT;
-    const handle = w.CreateFileW(file_path, 0, sharing, null, disposition, flags, null) catch |err| {
-        switch (err) {
-            error.SharingViolation => return error.AccessDenied,
-            error.PipeBusy => unreachable,
-            error.PathAlreadyExists => unreachable,
-            else => |e| return e,
-        }
-    };
-    defer w.CloseHandle(handle);
-
-    var reparse_buf: [w.MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
-    _ = try w.DeviceIoControl(handle, w.FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..], null);
-
-    const reparse_struct = @ptrCast(*const w.REPARSE_DATA_BUFFER, @alignCast(@alignOf(w.REPARSE_DATA_BUFFER), &reparse_buf[0]));
-    switch (reparse_struct.ReparseTag) {
-        w.IO_REPARSE_TAG_SYMLINK => {
-            const buf = @ptrCast(*const w.SYMBOLIC_LINK_REPARSE_BUFFER, @alignCast(@alignOf(w.SYMBOLIC_LINK_REPARSE_BUFFER), &reparse_struct.DataBuffer[0]));
-            const offset = buf.SubstituteNameOffset >> 1;
-            const len = buf.SubstituteNameLength >> 1;
-            const path_buf = @as([*]const u16, &buf.PathBuffer);
-            const is_relative = buf.Flags & w.SYMLINK_FLAG_RELATIVE != 0;
-            return parseReadlinkPath(path_buf[offset .. offset + len], is_relative, out_buffer);
-        },
-        w.IO_REPARSE_TAG_MOUNT_POINT => {
-            const buf = @ptrCast(*const w.MOUNT_POINT_REPARSE_BUFFER, @alignCast(@alignOf(w.MOUNT_POINT_REPARSE_BUFFER), &reparse_struct.DataBuffer[0]));
-            const offset = buf.SubstituteNameOffset >> 1;
-            const len = buf.SubstituteNameLength >> 1;
-            const path_buf = @as([*]const u16, &buf.PathBuffer);
-            return parseReadlinkPath(path_buf[offset .. offset + len], false, out_buffer);
-        },
-        else => |value| {
-            std.debug.warn("unsupported symlink type: {}", .{value});
-            return error.UnsupportedReparsePointType;
-        },
-    }
-}
-
-fn parseReadlinkPath(path: []const u16, is_relative: bool, out_buffer: []u8) []u8 {
-    const prefix = [_]u16{ '\\', '?', '?', '\\' };
-    var start_index: usize = 0;
-    if (!is_relative and mem.startsWith(u16, path, &prefix)) {
-        start_index = prefix.len;
-    }
-    const out_len = std.unicode.utf16leToUtf8(out_buffer, path[start_index..]) catch unreachable;
-    return out_buffer[0..out_len];
+    return windows.ReadLinkW(std.fs.cwd().fd, file_path, out_buffer);
 }
 
 /// Same as `readlink` except `file_path` is null-terminated.
@@ -2459,8 +2409,7 @@ pub fn readlinkat(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) ReadLink
         return readlinkatWasi(dirfd, file_path, out_buffer);
     }
     if (builtin.os.tag == .windows) {
-        const file_path_w = try windows.cStrToPrefixedFileW(file_path);
-        return readlinkatW(dirfd, file_path.span().ptr, out_buffer);
+        return windows.ReadLink(dirfd, file_path, out_buffer);
     }
     const file_path_c = try toPosixPath(file_path);
     return readlinkatZ(dirfd, &file_path_c, out_buffer);
@@ -2491,19 +2440,7 @@ pub fn readlinkatWasi(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) Read
 /// Windows-only. Same as `readlinkat` except `file_path` is null-terminated, WTF16 encoded.
 /// See also `readlinkat`.
 pub fn readlinkatW(dirfd: fd_t, file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8 {
-    const w = windows;
-
-    const handle = w.OpenReparsePoint(dir, file_path) catch |err| {
-        switch (err) {
-            error.SharingViolation => return error.AccessDenied,
-            error.PathAlreadyExists => unreachable,
-            error.PipeBusy => unreachable,
-            error.PathAlreadyExists => unreachable,
-            error.NoDevice => return error.FileNotFound,
-            else => |e| return e,
-        }
-    };
-    @compileError("TODO implement on Windows");
+    return windows.ReadLinkW(dirfd, file_path, out_buffer);
 }
 
 /// Same as `readlinkat` except `file_path` is null-terminated.

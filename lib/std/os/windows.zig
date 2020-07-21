@@ -731,6 +731,117 @@ pub fn CreateSymbolicLinkW(
     _ = try DeviceIoControl(symlink_handle, FSCTL_SET_REPARSE_POINT, buffer[0..buf_len], null, null);
 }
 
+pub const ReadLinkError = error{
+    FileNotFound,
+    AccessDenied,
+    Unexpected,
+    NameTooLong,
+    UnsupportedReparsePointType,
+    InvalidUtf8,
+    BadPathName,
+};
+
+pub fn ReadLink(
+    dir: ?HANDLE,
+    sub_path: []const u8,
+    out_buffer: []u8,
+) ReadLinkError![]u8 {
+    const sub_path_w = try sliceToPrefixedFileW(sub_path);
+    return ReadLinkW(dir, sub_path_w.span().ptr, out_buffer);
+}
+
+pub fn ReadLinkW(dir: ?HANDLE, sub_path_w: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8 {
+    const path_len_bytes = math.cast(u16, mem.lenZ(sub_path_w) * 2) catch |err| switch (err) {
+        error.Overflow => return error.NameTooLong,
+    };
+    var nt_name = UNICODE_STRING{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
+    };
+
+    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+        // Windows does not recognize this, but it does work with empty string.
+        nt_name.Length = 0;
+    }
+
+    var attr = OBJECT_ATTRIBUTES{
+        .Length = @sizeOf(OBJECT_ATTRIBUTES),
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w)) null else dir,
+        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+        .ObjectName = &nt_name,
+        .SecurityDescriptor = null,
+        .SecurityQualityOfService = null,
+    };
+    var io: IO_STATUS_BLOCK = undefined;
+    var result_handle: HANDLE = undefined;
+    const rc = ntdll.NtCreateFile(
+        &result_handle,
+        FILE_READ_ATTRIBUTES,
+        &attr,
+        &io,
+        null,
+        FILE_ATTRIBUTE_NORMAL,
+        FILE_SHARE_READ,
+        FILE_OPEN,
+        FILE_OPEN_REPARSE_POINT,
+        null,
+        0,
+    );
+    switch (rc) {
+        .SUCCESS => {},
+        .OBJECT_NAME_INVALID => unreachable,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .NO_MEDIA_IN_DEVICE => return error.FileNotFound,
+        .INVALID_PARAMETER => unreachable,
+        .SHARING_VIOLATION => return error.AccessDenied,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .PIPE_BUSY => return error.AccessDenied,
+        .OBJECT_PATH_SYNTAX_BAD => unreachable,
+        .OBJECT_NAME_COLLISION => unreachable,
+        .FILE_IS_A_DIRECTORY => unreachable,
+        else => return unexpectedStatus(rc),
+    }
+    defer CloseHandle(result_handle);
+
+    var reparse_buf: [MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
+    _ = try DeviceIoControl(result_handle, FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..], null);
+
+    const reparse_struct = @ptrCast(*const REPARSE_DATA_BUFFER, @alignCast(@alignOf(REPARSE_DATA_BUFFER), &reparse_buf[0]));
+    switch (reparse_struct.ReparseTag) {
+        IO_REPARSE_TAG_SYMLINK => {
+            const buf = @ptrCast(*const SYMBOLIC_LINK_REPARSE_BUFFER, @alignCast(@alignOf(SYMBOLIC_LINK_REPARSE_BUFFER), &reparse_struct.DataBuffer[0]));
+            const offset = buf.SubstituteNameOffset >> 1;
+            const len = buf.SubstituteNameLength >> 1;
+            const path_buf = @as([*]const u16, &buf.PathBuffer);
+            const is_relative = buf.Flags & SYMLINK_FLAG_RELATIVE != 0;
+            return parseReadlinkPath(path_buf[offset .. offset + len], is_relative, out_buffer);
+        },
+        IO_REPARSE_TAG_MOUNT_POINT => {
+            const buf = @ptrCast(*const MOUNT_POINT_REPARSE_BUFFER, @alignCast(@alignOf(MOUNT_POINT_REPARSE_BUFFER), &reparse_struct.DataBuffer[0]));
+            const offset = buf.SubstituteNameOffset >> 1;
+            const len = buf.SubstituteNameLength >> 1;
+            const path_buf = @as([*]const u16, &buf.PathBuffer);
+            return parseReadlinkPath(path_buf[offset .. offset + len], false, out_buffer);
+        },
+        else => |value| {
+            std.debug.warn("unsupported symlink type: {}", .{value});
+            return error.UnsupportedReparsePointType;
+        },
+    }
+}
+
+fn parseReadlinkPath(path: []const u16, is_relative: bool, out_buffer: []u8) []u8 {
+    const prefix = [_]u16{ '\\', '?', '?', '\\' };
+    var start_index: usize = 0;
+    if (!is_relative and std.mem.startsWith(u16, path, &prefix)) {
+        start_index = prefix.len;
+    }
+    const out_len = std.unicode.utf16leToUtf8(out_buffer, path[start_index..]) catch unreachable;
+    return out_buffer[0..out_len];
+}
+
 pub const DeleteFileError = error{
     FileNotFound,
     AccessDenied,
@@ -1343,21 +1454,6 @@ pub const PathSpace = struct {
     pub fn span(self: PathSpace) [:0]const u16 {
         return self.data[0..self.len :0];
     }
-
-    fn ensureNtStyle(self: *PathSpace) void {
-        // > File I/O functions in the Windows API convert "/" to "\" as part of
-        // > converting the name to an NT-style name, except when using the "\\?\"
-        // > prefix as detailed in the following sections.
-        // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
-        // Because we want the larger maximum path length for absolute paths, we
-        // convert forward slashes to backward slashes here.
-        for (self.data[0..self.len]) |*elem| {
-            if (elem.* == '/') {
-                elem.* = '\\';
-            }
-        }
-        self.data[self.len] = 0;
-    }
 };
 
 /// Same as `sliceToPrefixedFileW` but accepts a pointer
@@ -1366,50 +1462,14 @@ pub fn cStrToPrefixedFileW(s: [*:0]const u8) !PathSpace {
     return sliceToPrefixedFileW(mem.spanZ(s));
 }
 
-/// Same as `sliceToWin32PrefixedFileW` but accepts a pointer
-/// to a null-terminated path.
-pub fn cStrToWin32PrefixedFileW(s: [*:0]const u8) !PathSpace {
-    return sliceToWin32PrefixedFileW(mem.spanZ(s));
-}
-
 /// Converts the path `s` to WTF16, null-terminated. If the path is absolute,
 /// it will get NT-style prefix `\??\` prepended automatically. For prepending
 /// Win32-style prefix, see `sliceToWin32PrefixedFileW` instead.
 pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
-    return sliceToPrefixedFileWInternal(s, PathPrefix.Nt);
-}
-
-/// Converts the path `s` to WTF16, null-terminated. If the path is absolute,
-/// it will get Win32-style extended prefix `\\?\` prepended automatically. For prepending
-/// NT-style prefix, see `sliceToPrefixedFileW` instead.
-pub fn sliceToWin32PrefixedFileW(s: []const u8) !PathSpace {
-    return sliceToPrefixedFileWInternal(s, PathPrefix.Win32);
-}
-
-const PathPrefix = enum {
-    Win32,
-    Nt,
-
-    fn toUtf8(self: PathPrefix) []const u8 {
-        return switch (self) {
-            .Win32 => "\\\\?\\",
-            .Nt => "\\??\\",
-        };
-    }
-
-    fn toUtf16(self: PathPrefix) []const u16 {
-        return switch (self) {
-            .Win32 => &[_]u16{ '\\', '\\', '?', '\\' },
-            .Nt => &[_]u16{ '\\', '?', '?', '\\' },
-        };
-    }
-};
-
-fn sliceToPrefixedFileWInternal(s: []const u8, prefix: PathPrefix) !PathSpace {
     // TODO https://github.com/ziglang/zig/issues/2765
     var path_space: PathSpace = undefined;
-    const prefix_utf8 = prefix.toUtf8();
-    const prefix_index: usize = if (mem.startsWith(u8, s, prefix_utf8)) prefix_utf8.len else 0;
+    const prefix = "\\??\\";
+    const prefix_index: usize = if (mem.startsWith(u8, s, prefix)) prefix.len else 0;
     for (s[prefix_index..]) |byte| {
         switch (byte) {
             '*', '?', '"', '<', '>', '|' => return error.BadPathName,
@@ -1417,13 +1477,24 @@ fn sliceToPrefixedFileWInternal(s: []const u8, prefix: PathPrefix) !PathSpace {
         }
     }
     const start_index = if (prefix_index > 0 or !std.fs.path.isAbsolute(s)) 0 else blk: {
-        const prefix_utf16 = prefix.toUtf16();
-        mem.copy(u16, path_space.data[0..], prefix_utf16);
-        break :blk prefix_utf16.len;
+        const prefix_u16 = [_]u16{ '\\', '?', '?', '\\' };
+        mem.copy(u16, path_space.data[0..], prefix_u16[0..]);
+        break :blk prefix_u16.len;
     };
     path_space.len = start_index + try std.unicode.utf8ToUtf16Le(path_space.data[start_index..], s);
     if (path_space.len > path_space.data.len) return error.NameTooLong;
-    path_space.ensureNtStyle();
+    // > File I/O functions in the Windows API convert "/" to "\" as part of
+    // > converting the name to an NT-style name, except when using the "\\?\"
+    // > prefix as detailed in the following sections.
+    // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
+    // Because we want the larger maximum path length for absolute paths, we
+    // convert forward slashes to backward slashes here.
+    for (path_space.data[0..path_space.len]) |*elem| {
+        if (elem.* == '/') {
+            elem.* = '\\';
+        }
+    }
+    path_space.data[path_space.len] = 0;
     return path_space;
 }
 
@@ -1440,7 +1511,18 @@ pub fn wToPrefixedFileW(s: []const u16) !PathSpace {
     path_space.len = start_index + s.len;
     if (path_space.len > path_space.data.len) return error.NameTooLong;
     mem.copy(u16, path_space.data[start_index..], s);
-    path_space.ensureNtStyle();
+    // > File I/O functions in the Windows API convert "/" to "\" as part of
+    // > converting the name to an NT-style name, except when using the "\\?\"
+    // > prefix as detailed in the following sections.
+    // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
+    // Because we want the larger maximum path length for absolute paths, we
+    // convert forward slashes to backward slashes here.
+    for (path_space.data[0..path_space.len]) |*elem| {
+        if (elem.* == '/') {
+            elem.* = '\\';
+        }
+    }
+    path_space.data[path_space.len] = 0;
     return path_space;
 }
 
@@ -1483,74 +1565,4 @@ pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
-}
-
-pub const OpenReparsePointError = error{
-    FileNotFound,
-    NoDevice,
-    SharingViolation,
-    AccessDenied,
-    PipeBusy,
-    PathAlreadyExists,
-    Unexpected,
-    NameTooLong,
-};
-
-/// Open file as a reparse point
-pub fn OpenReparsePoint(
-    dir: ?HANDLE,
-    sub_path_w: [*:0]const u16,
-) OpenReparsePointError!HANDLE {
-    const path_len_bytes = math.cast(u16, mem.lenZ(sub_path_w) * 2) catch |err| switch (err) {
-        error.Overflow => return error.NameTooLong,
-    };
-    var nt_name = UNICODE_STRING{
-        .Length = path_len_bytes,
-        .MaximumLength = path_len_bytes,
-        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
-    };
-
-    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
-        // Windows does not recognize this, but it does work with empty string.
-        nt_name.Length = 0;
-    }
-
-    var attr = OBJECT_ATTRIBUTES{
-        .Length = @sizeOf(OBJECT_ATTRIBUTES),
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w)) null else dir,
-        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
-        .ObjectName = &nt_name,
-        .SecurityDescriptor = null,
-        .SecurityQualityOfService = null,
-    };
-    var io: IO_STATUS_BLOCK = undefined;
-    var result_handle: HANDLE = undefined;
-    const rc = ntdll.NtCreateFile(
-        &result_handle,
-        FILE_READ_ATTRIBUTES,
-        &attr,
-        &io,
-        null,
-        FILE_ATTRIBUTE_NORMAL,
-        FILE_SHARE_READ,
-        FILE_OPEN,
-        FILE_OPEN_REPARSE_POINT,
-        null,
-        0,
-    );
-    switch (rc) {
-        .SUCCESS => return result_handle,
-        .OBJECT_NAME_INVALID => unreachable,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .NO_MEDIA_IN_DEVICE => return error.NoDevice,
-        .INVALID_PARAMETER => unreachable,
-        .SHARING_VIOLATION => return error.SharingViolation,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .PIPE_BUSY => return error.PipeBusy,
-        .OBJECT_PATH_SYNTAX_BAD => unreachable,
-        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-        .FILE_IS_A_DIRECTORY => unreachable,
-        else => return unexpectedStatus(rc),
-    }
 }
