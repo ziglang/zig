@@ -2352,6 +2352,7 @@ fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*In
         .fntype => return self.analyzeInstFnType(scope, old_inst.castTag(.fntype).?),
         .intcast => return self.analyzeInstIntCast(scope, old_inst.castTag(.intcast).?),
         .bitcast => return self.analyzeInstBitCast(scope, old_inst.castTag(.bitcast).?),
+        .floatcast => return self.analyzeInstFloatCast(scope, old_inst.castTag(.floatcast).?),
         .elemptr => return self.analyzeInstElemPtr(scope, old_inst.castTag(.elemptr).?),
         .add => return self.analyzeInstAdd(scope, old_inst.castTag(.add).?),
         .sub => return self.analyzeInstSub(scope, old_inst.castTag(.sub).?),
@@ -2796,16 +2797,16 @@ fn analyzeInstFieldPtr(self: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPt
     }
 }
 
-fn analyzeInstIntCast(self: *Module, scope: *Scope, intcast: *zir.Inst.IntCast) InnerError!*Inst {
-    const dest_type = try self.resolveType(scope, intcast.positionals.dest_type);
-    const new_inst = try self.resolveInst(scope, intcast.positionals.value);
+fn analyzeInstIntCast(self: *Module, scope: *Scope, inst: *zir.Inst.IntCast) InnerError!*Inst {
+    const dest_type = try self.resolveType(scope, inst.positionals.dest_type);
+    const operand = try self.resolveInst(scope, inst.positionals.operand);
 
     const dest_is_comptime_int = switch (dest_type.zigTypeTag()) {
         .ComptimeInt => true,
         .Int => false,
         else => return self.fail(
             scope,
-            intcast.positionals.dest_type.src,
+            inst.positionals.dest_type.src,
             "expected integer type, found '{}'",
             .{
                 dest_type,
@@ -2813,27 +2814,65 @@ fn analyzeInstIntCast(self: *Module, scope: *Scope, intcast: *zir.Inst.IntCast) 
         ),
     };
 
-    switch (new_inst.ty.zigTypeTag()) {
+    switch (operand.ty.zigTypeTag()) {
         .ComptimeInt, .Int => {},
         else => return self.fail(
             scope,
-            intcast.positionals.value.src,
+            inst.positionals.operand.src,
             "expected integer type, found '{}'",
-            .{new_inst.ty},
+            .{operand.ty},
         ),
     }
 
-    if (dest_is_comptime_int or new_inst.value() != null) {
-        return self.coerce(scope, dest_type, new_inst);
+    if (operand.value() != null) {
+        return self.coerce(scope, dest_type, operand);
+    } else if (dest_is_comptime_int) {
+        return self.fail(scope, inst.base.src, "unable to cast runtime value to 'comptime_int'", .{});
     }
 
-    return self.fail(scope, intcast.base.src, "TODO implement analyze widen or shorten int", .{});
+    return self.fail(scope, inst.base.src, "TODO implement analyze widen or shorten int", .{});
 }
 
 fn analyzeInstBitCast(self: *Module, scope: *Scope, inst: *zir.Inst.BitCast) InnerError!*Inst {
     const dest_type = try self.resolveType(scope, inst.positionals.dest_type);
     const operand = try self.resolveInst(scope, inst.positionals.operand);
     return self.bitcast(scope, dest_type, operand);
+}
+
+fn analyzeInstFloatCast(self: *Module, scope: *Scope, inst: *zir.Inst.FloatCast) InnerError!*Inst {
+    const dest_type = try self.resolveType(scope, inst.positionals.dest_type);
+    const operand = try self.resolveInst(scope, inst.positionals.operand);
+
+    const dest_is_comptime_float = switch (dest_type.zigTypeTag()) {
+        .ComptimeFloat => true,
+        .Float => false,
+        else => return self.fail(
+            scope,
+            inst.positionals.dest_type.src,
+            "expected float type, found '{}'",
+            .{
+                dest_type,
+            },
+        ),
+    };
+
+    switch (operand.ty.zigTypeTag()) {
+        .ComptimeFloat, .Float, .ComptimeInt => {},
+        else => return self.fail(
+            scope,
+            inst.positionals.operand.src,
+            "expected float type, found '{}'",
+            .{operand.ty},
+        ),
+    }
+
+    if (operand.value() != null) {
+        return self.coerce(scope, dest_type, operand);
+    } else if (dest_is_comptime_float) {
+        return self.fail(scope, inst.base.src, "unable to cast runtime value to 'comptime_float'", .{});
+    }
+
+    return self.fail(scope, inst.base.src, "TODO implement analyze widen or shorten float", .{});
 }
 
 fn analyzeInstElemPtr(self: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) InnerError!*Inst {
@@ -3411,11 +3450,12 @@ fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
 
         const src_info = inst.ty.intInfo(self.target());
         const dst_info = dest_type.intInfo(self.target());
-        if (src_info.signed == dst_info.signed and dst_info.bits >= src_info.bits) {
+        if ((src_info.signed == dst_info.signed and dst_info.bits >= src_info.bits) or
+        // small enough unsigned ints can get casted to large enough signed ints
+            (src_info.signed and !dst_info.signed and dst_info.bits > src_info.bits))
+        {
             const b = try self.requireRuntimeBlock(scope, inst.src);
-            return self.addNewInstArgs(b, inst.src, dest_type, Inst.WidenOrShorten, .{ .operand = inst });
-        } else {
-            return self.fail(scope, inst.src, "TODO implement more int widening {} to {}", .{ inst.ty, dest_type });
+            return self.addUnOp(b, inst.src, dest_type, .intcast, inst);
         }
     }
 
@@ -3427,7 +3467,7 @@ fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
         const dst_bits = dest_type.floatBits(self.target());
         if (dst_bits >= src_bits) {
             const b = try self.requireRuntimeBlock(scope, inst.src);
-            return self.addNewInstArgs(b, inst.src, dest_type, Inst.WidenOrShorten, .{ .operand = inst });
+            return self.addUnOp(b, inst.src, dest_type, .floatcast, inst);
         }
     }
 

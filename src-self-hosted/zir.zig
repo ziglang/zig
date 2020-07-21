@@ -76,6 +76,7 @@ pub const Inst = struct {
         primitive,
         intcast,
         bitcast,
+        floatcast,
         elemptr,
         add,
         sub,
@@ -137,6 +138,7 @@ pub const Inst = struct {
                 .fntype => FnType,
                 .intcast => IntCast,
                 .bitcast => BitCast,
+                .floatcast => FloatCast,
                 .elemptr => ElemPtr,
                 .condbr => CondBr,
             };
@@ -169,6 +171,7 @@ pub const Inst = struct {
                 .primitive,
                 .intcast,
                 .bitcast,
+                .floatcast,
                 .elemptr,
                 .add,
                 .sub,
@@ -556,6 +559,18 @@ pub const Inst = struct {
         };
     };
 
+    pub const FloatCast = struct {
+        pub const base_tag = Tag.floatcast;
+        pub const builtin_name = "@floatCast";
+        base: Inst,
+
+        positionals: struct {
+            dest_type: *Inst,
+            operand: *Inst,
+        },
+        kw_args: struct {},
+    };
+
     pub const IntCast = struct {
         pub const base_tag = Tag.intcast;
         pub const builtin_name = "@intCast";
@@ -563,7 +578,7 @@ pub const Inst = struct {
 
         positionals: struct {
             dest_type: *Inst,
-            value: *Inst,
+            operand: *Inst,
         },
         kw_args: struct {},
     };
@@ -1620,6 +1635,28 @@ const EmitZIR = struct {
         return &new_inst.base;
     }
 
+    fn emitCast(
+        self: *EmitZIR,
+        src: usize,
+        new_body: ZirBody,
+        old_inst: *ir.Inst.UnOp,
+        comptime I: type,
+    ) Allocator.Error!*Inst {
+        const new_inst = try self.arena.allocator.create(I);
+        new_inst.* = .{
+            .base = .{
+                .src = src,
+                .tag = I.base_tag,
+            },
+            .positionals = .{
+                .dest_type = (try self.emitType(src, old_inst.base.ty)).inst,
+                .operand = try self.resolveInst(new_body, old_inst.operand),
+            },
+            .kw_args = .{},
+        };
+        return &new_inst.base;
+    }
+
     fn emitBody(
         self: *EmitZIR,
         body: ir.Body,
@@ -1654,22 +1691,9 @@ const EmitZIR = struct {
                 .cmp_gt => try self.emitBinOp(inst.src, new_body, inst.castTag(.cmp_gt).?, .cmp_gt),
                 .cmp_neq => try self.emitBinOp(inst.src, new_body, inst.castTag(.cmp_neq).?, .cmp_neq),
 
-                .bitcast => blk: {
-                    const old_inst = inst.castTag(.bitcast).?;
-                    const new_inst = try self.arena.allocator.create(Inst.BitCast);
-                    new_inst.* = .{
-                        .base = .{
-                            .src = inst.src,
-                            .tag = Inst.BitCast.base_tag,
-                        },
-                        .positionals = .{
-                            .dest_type = (try self.emitType(inst.src, inst.ty)).inst,
-                            .operand = try self.resolveInst(new_body, old_inst.operand),
-                        },
-                        .kw_args = .{},
-                    };
-                    break :blk &new_inst.base;
-                },
+                .bitcast => try self.emitCast(inst.src, new_body, inst.castTag(.bitcast).?, Inst.BitCast),
+                .intcast => try self.emitCast(inst.src, new_body, inst.castTag(.intcast).?, Inst.IntCast),
+                .floatcast => try self.emitCast(inst.src, new_body, inst.castTag(.floatcast).?, Inst.FloatCast),
 
                 .block => blk: {
                     const old_inst = inst.castTag(.block).?;
@@ -1821,10 +1845,6 @@ const EmitZIR = struct {
                         .kw_args = .{},
                     };
                     break :blk &new_inst.base;
-                },
-                .widenorshorten => blk: {
-                    const old_inst = inst.cast(ir.Inst.WidenOrShorten).?;
-                    break :blk try self.resolveInst(new_body, old_inst.args.operand);
                 },
             };
             try instructions.append(new_inst);

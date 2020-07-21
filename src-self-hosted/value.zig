@@ -80,7 +80,6 @@ pub const Value = extern union {
         elem_ptr,
         bytes,
         repeated, // the value is a value repeated some number of times
-        float,
         float_16,
         float_32,
         float_64,
@@ -221,7 +220,7 @@ pub const Value = extern union {
             .float_16 => return self.copyPayloadShallow(allocator, Payload.Float_16),
             .float_32 => return self.copyPayloadShallow(allocator, Payload.Float_32),
             .float_64 => return self.copyPayloadShallow(allocator, Payload.Float_64),
-            .float_128, .float => return self.copyPayloadShallow(allocator, Payload.Float_128),
+            .float_128 => return self.copyPayloadShallow(allocator, Payload.Float_128),
         }
     }
 
@@ -312,7 +311,7 @@ pub const Value = extern union {
             .float_16 => return out_stream.print("{}", .{val.cast(Payload.Float_16).?.val}),
             .float_32 => return out_stream.print("{}", .{val.cast(Payload.Float_32).?.val}),
             .float_64 => return out_stream.print("{}", .{val.cast(Payload.Float_64).?.val}),
-            .float_128, .float => return out_stream.print("{}", .{val.cast(Payload.Float_128).?.val}),
+            .float_128 => return out_stream.print("{}", .{val.cast(Payload.Float_128).?.val}),
         };
     }
 
@@ -393,7 +392,6 @@ pub const Value = extern union {
             .elem_ptr,
             .bytes,
             .repeated,
-            .float,
             .float_16,
             .float_32,
             .float_64,
@@ -453,7 +451,6 @@ pub const Value = extern union {
             .bytes,
             .undef,
             .repeated,
-            .float,
             .float_16,
             .float_32,
             .float_64,
@@ -525,7 +522,6 @@ pub const Value = extern union {
             .bytes,
             .undef,
             .repeated,
-            .float,
             .float_16,
             .float_32,
             .float_64,
@@ -560,7 +556,7 @@ pub const Value = extern union {
             .float_16 => self.cast(Payload.Float_16).?.val,
             .float_32 => self.cast(Payload.Float_32).?.val,
             .float_64 => self.cast(Payload.Float_64).?.val,
-            .float_128, .float => self.cast(Payload.Float_128).?.val,
+            .float_128 => self.cast(Payload.Float_128).?.val,
 
             .zero, .the_one_possible_value => 0,
             .int_u64 => @intToFloat(f128, self.cast(Payload.Int_u64).?.int),
@@ -624,7 +620,6 @@ pub const Value = extern union {
             .bytes,
             .undef,
             .repeated,
-            .float,
             .float_16,
             .float_32,
             .float_64,
@@ -701,7 +696,6 @@ pub const Value = extern union {
             .elem_ptr,
             .bytes,
             .repeated,
-            .float,
             .float_16,
             .float_32,
             .float_64,
@@ -830,8 +824,8 @@ pub const Value = extern union {
             .float_16 => @rem(self.cast(Payload.Float_16).?.val, 1) != 0,
             .float_32 => @rem(self.cast(Payload.Float_32).?.val, 1) != 0,
             .float_64 => @rem(self.cast(Payload.Float_64).?.val, 1) != 0,
-            // .float_128, .float => @rem(self.cast(Payload.Float_128).?.val, 1) != 0,
-            .float_128, .float => @panic("TODO lld: error: undefined symbol: fmodl"),
+            // .float_128 => @rem(self.cast(Payload.Float_128).?.val, 1) != 0,
+            .float_128 => @panic("TODO lld: error: undefined symbol: fmodl"),
         };
     }
 
@@ -902,7 +896,7 @@ pub const Value = extern union {
             .float_16 => std.math.order(lhs.cast(Payload.Float_16).?.val, 0),
             .float_32 => std.math.order(lhs.cast(Payload.Float_32).?.val, 0),
             .float_64 => std.math.order(lhs.cast(Payload.Float_64).?.val, 0),
-            .float_128, .float => std.math.order(lhs.cast(Payload.Float_128).?.val, 0),
+            .float_128 => std.math.order(lhs.cast(Payload.Float_128).?.val, 0),
         };
     }
 
@@ -923,7 +917,7 @@ pub const Value = extern union {
                     .float_16 => return std.math.order(lhs.cast(Payload.Float_16).?.val, rhs.cast(Payload.Float_16).?.val),
                     .float_32 => return std.math.order(lhs.cast(Payload.Float_32).?.val, rhs.cast(Payload.Float_32).?.val),
                     .float_64 => return std.math.order(lhs.cast(Payload.Float_64).?.val, rhs.cast(Payload.Float_64).?.val),
-                    .float_128, .float => return std.math.order(lhs.cast(Payload.Float_128).?.val, rhs.cast(Payload.Float_128).?.val),
+                    .float_128 => return std.math.order(lhs.cast(Payload.Float_128).?.val, rhs.cast(Payload.Float_128).?.val),
                     else => unreachable,
                 };
             }
@@ -1012,7 +1006,6 @@ pub const Value = extern union {
             .bytes,
             .undef,
             .repeated,
-            .float,
             .float_16,
             .float_32,
             .float_64,
@@ -1088,7 +1081,6 @@ pub const Value = extern union {
             .elem_ptr,
             .ref_val,
             .decl_ref,
-            .float,
             .float_16,
             .float_32,
             .float_64,
@@ -1179,7 +1171,6 @@ pub const Value = extern union {
             .elem_ptr,
             .bytes,
             .repeated,
-            .float,
             .float_16,
             .float_32,
             .float_64,
@@ -1196,7 +1187,6 @@ pub const Value = extern union {
         return switch (self.tag()) {
             .undef => unreachable,
 
-            .float,
             .float_16,
             .float_32,
             .float_64,
