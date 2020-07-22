@@ -2400,8 +2400,7 @@ fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*In
         .bitcast => return self.analyzeInstBitCast(scope, old_inst.castTag(.bitcast).?),
         .floatcast => return self.analyzeInstFloatCast(scope, old_inst.castTag(.floatcast).?),
         .elemptr => return self.analyzeInstElemPtr(scope, old_inst.castTag(.elemptr).?),
-        .add => return self.analyzeInstAdd(scope, old_inst.castTag(.add).?),
-        .sub => return self.analyzeInstSub(scope, old_inst.castTag(.sub).?),
+        .add, .sub => return self.analyzeInstArithmetic(scope, old_inst.cast(zir.Inst.BinOp).?),
         .cmp_lt => return self.analyzeInstCmp(scope, old_inst.castTag(.cmp_lt).?, .lt),
         .cmp_lte => return self.analyzeInstCmp(scope, old_inst.castTag(.cmp_lte).?, .lte),
         .cmp_eq => return self.analyzeInstCmp(scope, old_inst.castTag(.cmp_eq).?, .eq),
@@ -3037,10 +3036,15 @@ fn analyzeInstElemPtr(self: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) Inn
     return self.fail(scope, inst.base.src, "TODO implement more analyze elemptr", .{});
 }
 
-fn analyzeInstSub(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+fn floatOpAllowed(tag: zir.Inst.Tag) bool {
+    // extend this swich as additional operators are implemented
+    return switch (tag) {
+        .add, .sub => true,
+        else => false,
+    };
 }
 
-fn analyzeInstAdd(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+fn analyzeInstArithmetic(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3049,80 +3053,118 @@ fn analyzeInstAdd(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerErro
 
     const instructions = &[_]*Inst{ lhs, rhs };
     const resolved_type = try self.resolvePeerTypes(scope, instructions);
-    const resolved_tag = resolved_type.zigTypeTag();
 
-    const is_int = resolved_tag == .Int or resolved_tag == .ComptimeInt;
+    const scalar_type = if (resolved_type.zigTypeTag() == .Vector)
+        resolved_type.elemType()
+    else
+        resolved_type;
 
-    if (!is_int) {
-        return self.fail(scope, inst.base.src, "TODO analyze arithmetic for types {} and {}", .{ lhs.ty.zigTypeTag(), rhs.ty.zigTypeTag() });
+    const scalar_tag = scalar_type.zigTypeTag();
+
+    if (lhs.ty.zigTypeTag() == .Vector and rhs.ty.zigTypeTag() == .Vector) {
+        if (lhs.ty.arrayLen() != rhs.ty.arrayLen()) {
+            return self.fail(scope, inst.base.src, "vector length mismatch: {} and {}", .{
+                lhs.ty.arrayLen(),
+                rhs.ty.arrayLen(),
+            });
+        }
+        return self.fail(scope, inst.base.src, "TODO implement support for vectors in analyzeInstBinOp", .{});
+    } else if (lhs.ty.zigTypeTag() == .Vector or rhs.ty.zigTypeTag() == .Vector) {
+        return self.fail(scope, inst.base.src, "mixed scalar and vector operands to comparison operator: '{}' and '{}'", .{
+            lhs.ty,
+            rhs.ty,
+        });
+    }
+
+    const is_int = scalar_tag == .Int or scalar_tag == .ComptimeInt;
+    const is_float = scalar_tag == .Float or scalar_tag == .ComptimeFloat;
+
+    if (!is_int and !(is_float and floatOpAllowed(inst.base.tag))) {
+        return self.fail(scope, inst.base.src, "invalid operands to binary expression: '{}' and '{}'", .{ @tagName(lhs.ty.zigTypeTag()), @tagName(rhs.ty.zigTypeTag()) });
     }
 
     if (lhs.value()) |lhs_val| {
         if (rhs.value()) |rhs_val| {
-            return self.analyzeInstMath(scope, resolved_type, &inst.base, lhs_val, rhs_val);
+            return self.analyzeInstScalar(scope, scalar_type, inst, lhs_val, rhs_val);
         }
     }
 
     const b = try self.requireRuntimeBlock(scope, inst.base.src);
-
-    return switch (inst.base.tag) {
-        .add => self.addNewInstArgs(b, inst.base.src, resolved_type, Inst.Add, .{
-            .lhs = lhs,
-            .rhs = rhs,
-        }),
-        .sub => self.addNewInstArgs(b, inst.base.src, resolved_type, Inst.Sub, .{
-            .lhs = lhs,
-            .rhs = rhs,
-        }),
-        else => self.fail(scope, inst.base.src, "TODO Implement arithmetic for operand {}", .{@tagName(inst.base.tag)}),
+    const ir_tag = switch (inst.base.tag) {
+        .add => Inst.Tag.add,
+        .sub => Inst.Tag.sub,
+        else => return self.fail(scope, inst.base.src, "TODO implement arithmetic for operand '{}''", .{@tagName(inst.base.tag)}),
     };
+
+    if (is_float) {
+        // Implicit cast the smaller one to the larger one.
+        const dest_type = x: {
+            if (lhs.ty.zigTypeTag() == .ComptimeFloat) {
+                break :x rhs.ty;
+            } else if (rhs.ty.zigTypeTag() == .ComptimeFloat) {
+                break :x lhs.ty;
+            }
+            if (lhs.ty.floatBits(self.target()) >= rhs.ty.floatBits(self.target())) {
+                break :x lhs.ty;
+            } else {
+                break :x rhs.ty;
+            }
+        };
+        const casted_lhs = try self.coerce(scope, dest_type, lhs);
+        const casted_rhs = try self.coerce(scope, dest_type, rhs);
+        return self.addBinOp(b, inst.base.src, dest_type, ir_tag, casted_lhs, casted_rhs);
+    }
+
+    return self.addBinOp(b, inst.base.src, resolved_type, ir_tag, lhs, rhs);
 }
 
 /// Analyzes operands that are known at comptime
-fn analyzeInstMath(self: *Module, scope: *Scope, res_type: Type, base: *zir.Inst, lhs_val: Value, rhs_val: Value) InnerError!*Inst {
+fn analyzeInstScalar(self: *Module, scope: *Scope, res_type: Type, inst: *zir.Inst.BinOp, lhs_val: Value, rhs_val: Value) InnerError!*Inst {
     // incase rhs is 0, simply return lhs without doing any calculations
     // TODO Once division is implemented we should throw an error when dividing by 0.
     if (rhs_val.tag() == .zero or rhs_val.tag() == .the_one_possible_value) {
-        return self.constInst(scope, base.src, .{
+        return self.constInst(scope, inst.base.src, .{
             .ty = res_type,
             .val = lhs_val,
         });
-        const b = try self.requireRuntimeBlock(scope, inst.base.src);
-        return self.addBinOp(b, inst.base.src, lhs.ty, .add, lhs, rhs);
     }
 
-    // TODO is this a performance issue? maybe we should try the operation without
-    // resorting to BigInt first.
-    var lhs_space: Value.BigIntSpace = undefined;
-    var rhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = lhs_val.toBigInt(&lhs_space);
-    const rhs_bigint = rhs_val.toBigInt(&rhs_space);
-    const limbs = try scope.arena().alloc(
-        std.math.big.Limb,
-        std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
-    );
-    var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-    switch (base.tag) {
-        .add => result_bigint.add(lhs_bigint, rhs_bigint),
-        .sub => result_bigint.sub(lhs_bigint, rhs_bigint),
-        else => return error.AnalysisFail,
+    if (lhs_val.isFloat() or res_type.tag() == .comptime_float) {
+        return self.fail(scope, inst.base.src, "TODO implement arithmetic for floats", .{});
+    } else {
+        // TODO is this a performance issue? maybe we should try the operation without
+        // resorting to BigInt first.
+        var lhs_space: Value.BigIntSpace = undefined;
+        var rhs_space: Value.BigIntSpace = undefined;
+        const lhs_bigint = lhs_val.toBigInt(&lhs_space);
+        const rhs_bigint = rhs_val.toBigInt(&rhs_space);
+        const limbs = try scope.arena().alloc(
+            std.math.big.Limb,
+            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
+        );
+        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+        switch (inst.base.tag) {
+            .add => result_bigint.add(lhs_bigint, rhs_bigint),
+            .sub => result_bigint.sub(lhs_bigint, rhs_bigint),
+            else => return error.AnalysisFail,
+        }
+        const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+        const val_payload = if (result_bigint.positive) blk: {
+            const val_payload = try scope.arena().create(Value.Payload.IntBigPositive);
+            val_payload.* = .{ .limbs = result_limbs };
+            break :blk &val_payload.base;
+        } else blk: {
+            const val_payload = try scope.arena().create(Value.Payload.IntBigNegative);
+            val_payload.* = .{ .limbs = result_limbs };
+            break :blk &val_payload.base;
+        };
+
+        return self.constInst(scope, inst.base.src, .{
+            .ty = res_type,
+            .val = Value.initPayload(val_payload),
+        });
     }
-    const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-    const val_payload = if (result_bigint.positive) blk: {
-        const val_payload = try scope.arena().create(Value.Payload.IntBigPositive);
-        val_payload.* = .{ .limbs = result_limbs };
-        break :blk &val_payload.base;
-    } else blk: {
-        const val_payload = try scope.arena().create(Value.Payload.IntBigNegative);
-        val_payload.* = .{ .limbs = result_limbs };
-        break :blk &val_payload.base;
-    };
-
-    return self.constInst(scope, base.src, .{
-        .ty = res_type,
-        .val = Value.initPayload(val_payload),
-    });
 }
 
 fn analyzeInstDeref(self: *Module, scope: *Scope, deref: *zir.Inst.UnOp) InnerError!*Inst {
