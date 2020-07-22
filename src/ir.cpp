@@ -11763,8 +11763,14 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             result.data.bad_ptr_sentinel->actual_type = actual_ptr_type;
             return result;
         }
-        bool ptr_lens_equal = actual_ptr_type->data.pointer.ptr_len == wanted_ptr_type->data.pointer.ptr_len;
-        if (!(ptr_lens_equal || wanted_is_c_ptr || actual_is_c_ptr)) {
+        bool ok_ptr_lens =
+            actual_ptr_type->data.pointer.ptr_len == wanted_ptr_type->data.pointer.ptr_len ||
+            (actual_ptr_type->data.pointer.ptr_len == PtrLenSingle &&
+                wanted_ptr_type->data.pointer.ptr_len == PtrLenUnknown) ||
+            wanted_is_c_ptr ||
+            actual_is_c_ptr;
+
+        if (!ok_ptr_lens) {
             result.id = ConstCastResultIdPtrLens;
             return result;
         }

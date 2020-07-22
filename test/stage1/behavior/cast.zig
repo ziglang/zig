@@ -849,3 +849,16 @@ test "comptime float casts" {
     expect(b == 2);
     expect(@TypeOf(b) == comptime_int);
 }
+
+test "implicitly cast single-item pointer to pointer of unknown length" {
+    testCastSinglePtrToManyPtr();
+    comptime testCastSinglePtrToManyPtr();
+}
+
+fn testCastSinglePtrToManyPtr() void {
+    var a: u64 = 123666946355054;
+    const b: [*]u64 = &a;
+    expect(b[0] == 123666946355054);
+    b[0] = 12345;
+    expect(a == 12345);
+}
