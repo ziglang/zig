@@ -16,9 +16,6 @@ pub const wasi = @import("fs/wasi.zig");
 
 // TODO audit these APIs with respect to Dir and absolute paths
 
-pub const symLink = os.symlink;
-pub const symLinkZ = os.symlinkZ;
-pub const symLinkC = @compileError("deprecated: renamed to symlinkZ");
 pub const rename = os.rename;
 pub const renameZ = os.renameZ;
 pub const renameC = @compileError("deprecated: renamed to renameZ");
@@ -69,7 +66,7 @@ pub const need_async_thread = std.io.is_async and switch (builtin.os.tag) {
 
 /// TODO remove the allocator requirement from this API
 pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path: []const u8) !void {
-    if (symLink(existing_path, new_path)) {
+    if (cwd().symLink(existing_path, new_path, .{})) {
         return;
     } else |err| switch (err) {
         error.PathAlreadyExists => {},
@@ -87,7 +84,7 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
         try crypto.randomBytes(rand_buf[0..]);
         base64_encoder.encode(tmp_path[dirname.len + 1 ..], &rand_buf);
 
-        if (symLink(existing_path, tmp_path)) {
+        if (cwd().symLink(existing_path, new_path, .{})) {
             return rename(tmp_path, new_path);
         } else |err| switch (err) {
             error.PathAlreadyExists => continue,
@@ -672,7 +669,7 @@ pub const Dir = struct {
                 w.RIGHT_FD_FILESTAT_SET_TIMES |
                 w.RIGHT_FD_FILESTAT_SET_SIZE;
         }
-        const fd = try os.openatWasi(self.fd, sub_path, 0x0, fdflags, base, 0x0);
+        const fd = try os.openatWasi(self.fd, sub_path, 0x0, 0x0, fdflags, base, 0x0);
         return File{ .handle = fd };
     }
 
@@ -792,7 +789,7 @@ pub const Dir = struct {
         if (flags.exclusive) {
             oflags |= w.O_EXCL;
         }
-        const fd = try os.openatWasi(self.fd, sub_path, oflags, 0x0, base, 0x0);
+        const fd = try os.openatWasi(self.fd, sub_path, 0x0, oflags, 0x0, base, 0x0);
         return File{ .handle = fd };
     }
 
@@ -954,6 +951,9 @@ pub const Dir = struct {
         /// `true` means the opened directory can be scanned for the files and sub-directories
         /// of the result. It means the `iterate` function can be called.
         iterate: bool = false,
+
+        /// `true` means it won't dereference the symlinks.
+        no_follow: bool = false,
     };
 
     /// Opens a directory at the given path. The directory is a system resource that remains
@@ -997,10 +997,11 @@ pub const Dir = struct {
                 w.RIGHT_PATH_REMOVE_DIRECTORY |
                 w.RIGHT_PATH_UNLINK_FILE;
         }
+        const symlink_flags: w.lookupflags_t = if (args.no_follow) 0x0 else w.LOOKUP_SYMLINK_FOLLOW;
         // TODO do we really need all the rights here?
         const inheriting: w.rights_t = w.RIGHT_ALL ^ w.RIGHT_SOCK_SHUTDOWN;
 
-        const result = os.openatWasi(self.fd, sub_path, w.O_DIRECTORY, 0x0, base, inheriting);
+        const result = os.openatWasi(self.fd, sub_path, symlink_flags, w.O_DIRECTORY, 0x0, base, inheriting);
         const fd = result catch |err| switch (err) {
             error.FileTooBig => unreachable, // can't happen for directories
             error.IsDir => unreachable, // we're providing O_DIRECTORY
@@ -1017,11 +1018,13 @@ pub const Dir = struct {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
             return self.openDirW(sub_path_w.span().ptr, args);
-        } else if (!args.iterate) {
+        }
+        const symlink_flags: u32 = if (args.no_follow) os.O_NOFOLLOW else 0x0;
+        if (!args.iterate) {
             const O_PATH = if (@hasDecl(os, "O_PATH")) os.O_PATH else 0;
-            return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | os.O_CLOEXEC | O_PATH);
+            return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | os.O_CLOEXEC | O_PATH | symlink_flags);
         } else {
-            return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | os.O_CLOEXEC);
+            return self.openDirFlagsZ(sub_path_c, os.O_DIRECTORY | os.O_RDONLY | os.O_CLOEXEC | symlink_flags);
         }
     }
 
@@ -1033,7 +1036,7 @@ pub const Dir = struct {
         const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
             w.SYNCHRONIZE | w.FILE_TRAVERSE;
         const flags: u32 = if (args.iterate) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
-        return self.openDirAccessMaskW(sub_path_w, flags);
+        return self.openDirAccessMaskW(sub_path_w, flags, args.no_follow);
     }
 
     /// `flags` must contain `os.O_DIRECTORY`.
@@ -1053,7 +1056,7 @@ pub const Dir = struct {
         return Dir{ .fd = fd };
     }
 
-    fn openDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32) OpenError!Dir {
+    fn openDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32, no_follow: bool) OpenError!Dir {
         const w = os.windows;
 
         var result = Dir{
@@ -1083,6 +1086,7 @@ pub const Dir = struct {
             // implement this: https://git.midipix.org/ntapi/tree/src/fs/ntapi_tt_open_physical_parent_directory.c
             @panic("TODO opening '..' with a relative directory handle is not yet implemented on Windows");
         }
+        const open_reparse_point: w.DWORD = if (no_follow) w.FILE_OPEN_REPARSE_POINT else 0x0;
         var io: w.IO_STATUS_BLOCK = undefined;
         const rc = w.ntdll.NtCreateFile(
             &result.fd,
@@ -1093,7 +1097,7 @@ pub const Dir = struct {
             0,
             w.FILE_SHARE_READ | w.FILE_SHARE_WRITE,
             w.FILE_OPEN,
-            w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT,
+            w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT | open_reparse_point,
             null,
             0,
         );
@@ -1207,19 +1211,99 @@ pub const Dir = struct {
         };
     }
 
+    /// Creates a symbolic link named `sym_link_path` which contains the string `target_path`.
+    /// A symbolic link (also known as a soft link) may point to an existing file or to a nonexistent
+    /// one; the latter case is known as a dangling link.
+    /// If `sym_link_path` exists, it will not be overwritten.
+    pub fn symLink(
+        self: Dir,
+        target_path: []const u8,
+        sym_link_path: []const u8,
+        flags: SymLinkFlags,
+    ) !void {
+        if (builtin.os.tag == .wasi) {
+            return self.symLinkWasi(target_path, sym_link_path, flags);
+        }
+        if (builtin.os.tag == .windows) {
+            const target_path_w = try os.windows.sliceToPrefixedFileW(target_path);
+            const sym_link_path_w = try os.windows.sliceToPrefixedFileW(sym_link_path);
+            return self.symLinkW(target_path_w.span(), sym_link_path_w.span(), flags);
+        }
+        const target_path_c = try os.toPosixPath(target_path);
+        const sym_link_path_c = try os.toPosixPath(sym_link_path);
+        return self.symLinkZ(&target_path_c, &sym_link_path_c, flags);
+    }
+
+    /// WASI-only. Same as `symLink` except targeting WASI.
+    pub fn symLinkWasi(
+        self: Dir,
+        target_path: []const u8,
+        sym_link_path: []const u8,
+        flags: SymLinkFlags,
+    ) !void {
+        return os.symlinkatWasi(target_path, self.fd, sym_link_path);
+    }
+
+    /// Same as `symLink`, except the pathname parameters are null-terminated.
+    pub fn symLinkZ(
+        self: Dir,
+        target_path_c: [*:0]const u8,
+        sym_link_path_c: [*:0]const u8,
+        flags: SymLinkFlags,
+    ) !void {
+        if (builtin.os.tag == .windows) {
+            const target_path_w = try os.windows.cStrToPrefixedFileW(target_path_c);
+            const sym_link_path_w = try os.windows.cStrToPrefixedFileW(sym_link_path_c);
+            return self.symLinkW(target_path_w.span(), sym_link_path_w.span(), flags);
+        }
+        return os.symlinkatZ(target_path_c, self.fd, sym_link_path_c);
+    }
+
+    /// Windows-only. Same as `symLink` except the pathname parameters
+    /// are null-terminated, WTF16 encoded.
+    pub fn symLinkW(
+        self: Dir,
+        target_path_w: [:0]const u16,
+        sym_link_path_w: [:0]const u16,
+        flags: SymLinkFlags,
+    ) !void {
+        return os.windows.CreateSymbolicLinkW(self.fd, sym_link_path_w, target_path_w, flags.is_directory);
+    }
+
     /// Read value of a symbolic link.
     /// The return value is a slice of `buffer`, from index `0`.
     /// Asserts that the path parameter has no null bytes.
     pub fn readLink(self: Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
+        if (builtin.os.tag == .wasi) {
+            return self.readLinkWasi(sub_path, buffer);
+        }
+        if (builtin.os.tag == .windows) {
+            return os.windows.ReadLink(self.fd, sub_path, buffer);
+        }
         const sub_path_c = try os.toPosixPath(sub_path);
         return self.readLinkZ(&sub_path_c, buffer);
     }
 
     pub const readLinkC = @compileError("deprecated: renamed to readLinkZ");
 
+    /// WASI-only. Same as `readLink` except targeting WASI.
+    pub fn readLinkWasi(self: Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
+        return os.readlinkatWasi(self.fd, sub_path, buffer);
+    }
+
     /// Same as `readLink`, except the `pathname` parameter is null-terminated.
     pub fn readLinkZ(self: Dir, sub_path_c: [*:0]const u8, buffer: []u8) ![]u8 {
+        if (builtin.os.tag == .windows) {
+            const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
+            return self.readLinkW(sub_path_w, buffer);
+        }
         return os.readlinkatZ(self.fd, sub_path_c, buffer);
+    }
+
+    /// Windows-only. Same as `readLink` except the pathname parameter
+    /// is null-terminated, WTF16 encoded.
+    pub fn readLinkW(self: Dir, sub_path_w: [*:0]const u16, buffer: []u8) ![]u8 {
+        return os.windows.ReadLinkW(self.fd, sub_path_w, buffer);
     }
 
     /// On success, caller owns returned buffer.
@@ -1280,6 +1364,7 @@ pub const Dir = struct {
     pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
         start_over: while (true) {
             var got_access_denied = false;
+
             // First, try deleting the item as a file. This way we don't follow sym links.
             if (self.deleteFile(sub_path)) {
                 return;
@@ -1300,7 +1385,7 @@ pub const Dir = struct {
                 error.Unexpected,
                 => |e| return e,
             }
-            var dir = self.openDir(sub_path, .{ .iterate = true }) catch |err| switch (err) {
+            var dir = self.openDir(sub_path, .{ .iterate = true, .no_follow = true }) catch |err| switch (err) {
                 error.NotDir => {
                     if (got_access_denied) {
                         return error.AccessDenied;
@@ -1367,7 +1452,7 @@ pub const Dir = struct {
                         => |e| return e,
                     }
 
-                    const new_dir = dir.openDir(entry.name, .{ .iterate = true }) catch |err| switch (err) {
+                    const new_dir = dir.openDir(entry.name, .{ .iterate = true, .no_follow = true }) catch |err| switch (err) {
                         error.NotDir => {
                             if (got_access_denied) {
                                 return error.AccessDenied;
@@ -1692,14 +1777,72 @@ pub fn readLinkAbsolute(pathname: []const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8
     return os.readlink(pathname, buffer);
 }
 
+/// Windows-only. Same as `readlinkW`, except the path parameter is null-terminated, WTF16
+/// encoded.
+pub fn readlinkAbsoluteW(pathname_w: [*:0]const u16, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+    assert(path.isAbsoluteWindowsW(pathname_w));
+    return os.readlinkW(pathname_w, buffer);
+}
+
 /// Same as `readLink`, except the path parameter is null-terminated.
-pub fn readLinkAbsoluteZ(pathname_c: [*]const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+pub fn readLinkAbsoluteZ(pathname_c: [*:0]const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
     assert(path.isAbsoluteZ(pathname_c));
     return os.readlinkZ(pathname_c, buffer);
 }
 
 pub const readLink = @compileError("deprecated; use Dir.readLink or readLinkAbsolute");
 pub const readLinkC = @compileError("deprecated; use Dir.readLinkZ or readLinkAbsoluteZ");
+
+/// Use with `Dir.symLink` and `symLinkAbsolute` to specify whether the symlink
+/// will point to a file or a directory. This value is ignored on all hosts
+/// except Windows where creating symlinks to different resource types, requires
+/// different flags. By default, `symLinkAbsolute` is assumed to point to a file.
+pub const SymLinkFlags = struct {
+    is_directory: bool = false,
+};
+
+/// Creates a symbolic link named `sym_link_path` which contains the string `target_path`.
+/// A symbolic link (also known as a soft link) may point to an existing file or to a nonexistent
+/// one; the latter case is known as a dangling link.
+/// If `sym_link_path` exists, it will not be overwritten.
+/// See also `symLinkAbsoluteZ` and `symLinkAbsoluteW`.
+pub fn symLinkAbsolute(target_path: []const u8, sym_link_path: []const u8, flags: SymLinkFlags) !void {
+    if (builtin.os.tag == .wasi) {
+        @compileError("symLinkAbsolute is not supported in WASI; use Dir.symLinkWasi instead");
+    }
+    assert(path.isAbsolute(target_path));
+    assert(path.isAbsolute(sym_link_path));
+    if (builtin.os.tag == .windows) {
+        return os.windows.CreateSymbolicLink(null, sym_link_path, target_path, flags.is_directory);
+    }
+    return os.symlink(target_path, sym_link_path);
+}
+
+/// Windows-only. Same as `symLinkAbsolute` except the parameters are null-terminated, WTF16 encoded.
+/// Note that this function will by default try creating a symbolic link to a file. If you would
+/// like to create a symbolic link to a directory, specify this with `SymLinkFlags{ .is_directory = true }`.
+/// See also `symLinkAbsolute`, `symLinkAbsoluteZ`.
+pub fn symLinkAbsoluteW(target_path_w: [:0]const u16, sym_link_path_w: [:0]const u16, flags: SymLinkFlags) !void {
+    assert(path.isAbsoluteWindowsW(target_path_w));
+    assert(path.isAbsoluteWindowsW(sym_link_path_w));
+    return os.windows.CreateSymbolicLinkW(null, sym_link_path_w, target_path_w, flags.is_directory);
+}
+
+/// Same as `symLinkAbsolute` except the parameters are null-terminated pointers.
+/// See also `symLinkAbsolute`.
+pub fn symLinkAbsoluteZ(target_path_c: [*:0]const u8, sym_link_path_c: [*:0]const u8, flags: SymLinkFlags) !void {
+    assert(path.isAbsoluteZ(target_path_c));
+    assert(path.isAbsoluteZ(sym_link_path_c));
+    if (builtin.os.tag == .windows) {
+        const target_path_w = try os.windows.cStrToWin32PrefixedFileW(target_path_c);
+        const sym_link_path_w = try os.windows.cStrToWin32PrefixedFileW(sym_link_path_c);
+        return os.windows.CreateSymbolicLinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr, flags.is_directory);
+    }
+    return os.symlinkZ(target_path_c, sym_link_path_c);
+}
+
+pub const symLink = @compileError("deprecated: use Dir.symLink or symLinkAbsolute");
+pub const symLinkC = @compileError("deprecated: use Dir.symLinkZ or symLinkAbsoluteZ");
 
 pub const Walker = struct {
     stack: std.ArrayList(StackItem),

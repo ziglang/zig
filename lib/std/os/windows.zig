@@ -145,6 +145,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
 
     var delay: usize = 1;
     while (true) {
+        var flags: ULONG = undefined;
         const blocking_flag: ULONG = if (options.io_mode == .blocking) FILE_SYNCHRONOUS_IO_NONALERT else 0;
         const rc = ntdll.NtCreateFile(
             &result,
@@ -601,28 +602,244 @@ pub fn GetCurrentDirectory(buffer: []u8) GetCurrentDirectoryError![]u8 {
     return buffer[0..end_index];
 }
 
-pub const CreateSymbolicLinkError = error{Unexpected};
+pub const CreateSymbolicLinkError = error{
+    AccessDenied,
+    PathAlreadyExists,
+    FileNotFound,
+    NameTooLong,
+    InvalidUtf8,
+    BadPathName,
+    NoDevice,
+    Unexpected,
+};
 
 pub fn CreateSymbolicLink(
+    dir: ?HANDLE,
     sym_link_path: []const u8,
     target_path: []const u8,
-    flags: DWORD,
+    is_directory: bool,
 ) CreateSymbolicLinkError!void {
     const sym_link_path_w = try sliceToPrefixedFileW(sym_link_path);
     const target_path_w = try sliceToPrefixedFileW(target_path);
-    return CreateSymbolicLinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr, flags);
+    return CreateSymbolicLinkW(dir, sym_link_path_w.span(), target_path_w.span(), is_directory);
 }
 
 pub fn CreateSymbolicLinkW(
-    sym_link_path: [*:0]const u16,
-    target_path: [*:0]const u16,
-    flags: DWORD,
+    dir: ?HANDLE,
+    sym_link_path: [:0]const u16,
+    target_path: [:0]const u16,
+    is_directory: bool,
 ) CreateSymbolicLinkError!void {
-    if (kernel32.CreateSymbolicLinkW(sym_link_path, target_path, flags) == 0) {
-        switch (kernel32.GetLastError()) {
-            else => |err| return unexpectedError(err),
+    const SYMLINK_DATA = extern struct {
+        ReparseTag: ULONG,
+        ReparseDataLength: USHORT,
+        Reserved: USHORT,
+        SubstituteNameOffset: USHORT,
+        SubstituteNameLength: USHORT,
+        PrintNameOffset: USHORT,
+        PrintNameLength: USHORT,
+        Flags: ULONG,
+    };
+
+    var symlink_handle: HANDLE = undefined;
+    if (is_directory) {
+        const sym_link_len_bytes = math.cast(u16, sym_link_path.len * 2) catch |err| switch (err) {
+            error.Overflow => return error.NameTooLong,
+        };
+        var nt_name = UNICODE_STRING{
+            .Length = sym_link_len_bytes,
+            .MaximumLength = sym_link_len_bytes,
+            .Buffer = @intToPtr([*]u16, @ptrToInt(sym_link_path.ptr)),
+        };
+
+        if (sym_link_path[0] == '.' and sym_link_path[1] == 0) {
+            // Windows does not recognize this, but it does work with empty string.
+            nt_name.Length = 0;
         }
+
+        var attr = OBJECT_ATTRIBUTES{
+            .Length = @sizeOf(OBJECT_ATTRIBUTES),
+            .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sym_link_path)) null else dir,
+            .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+            .ObjectName = &nt_name,
+            .SecurityDescriptor = null,
+            .SecurityQualityOfService = null,
+        };
+
+        var io: IO_STATUS_BLOCK = undefined;
+        const rc = ntdll.NtCreateFile(
+            &symlink_handle,
+            GENERIC_READ | SYNCHRONIZE | FILE_WRITE_ATTRIBUTES,
+            &attr,
+            &io,
+            null,
+            FILE_ATTRIBUTE_NORMAL,
+            FILE_SHARE_READ,
+            FILE_CREATE,
+            FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_FOR_BACKUP_INTENT,
+            null,
+            0,
+        );
+        switch (rc) {
+            .SUCCESS => {},
+            .OBJECT_NAME_INVALID => unreachable,
+            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .NO_MEDIA_IN_DEVICE => return error.NoDevice,
+            .INVALID_PARAMETER => unreachable,
+            .ACCESS_DENIED => return error.AccessDenied,
+            .OBJECT_PATH_SYNTAX_BAD => unreachable,
+            .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+            else => return unexpectedStatus(rc),
+        }
+    } else {
+        symlink_handle = OpenFile(sym_link_path, .{
+            .access_mask = SYNCHRONIZE | GENERIC_READ | GENERIC_WRITE,
+            .dir = dir,
+            .creation = FILE_CREATE,
+            .io_mode = .blocking,
+        }) catch |err| switch (err) {
+            error.WouldBlock => unreachable,
+            error.IsDir => return error.PathAlreadyExists,
+            error.PipeBusy => unreachable,
+            error.SharingViolation => return error.AccessDenied,
+            else => |e| return e,
+        };
     }
+    defer CloseHandle(symlink_handle);
+
+    // prepare reparse data buffer
+    var buffer: [MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
+    const buf_len = @sizeOf(SYMLINK_DATA) + target_path.len * 4;
+    const header_len = @sizeOf(ULONG) + @sizeOf(USHORT) * 2;
+    const symlink_data = SYMLINK_DATA{
+        .ReparseTag = IO_REPARSE_TAG_SYMLINK,
+        .ReparseDataLength = @intCast(u16, buf_len - header_len),
+        .Reserved = 0,
+        .SubstituteNameOffset = @intCast(u16, target_path.len * 2),
+        .SubstituteNameLength = @intCast(u16, target_path.len * 2),
+        .PrintNameOffset = 0,
+        .PrintNameLength = @intCast(u16, target_path.len * 2),
+        .Flags = if (dir) |_| SYMLINK_FLAG_RELATIVE else 0,
+    };
+
+    std.mem.copy(u8, buffer[0..], std.mem.asBytes(&symlink_data));
+    @memcpy(buffer[@sizeOf(SYMLINK_DATA)..], @ptrCast([*]const u8, target_path), target_path.len * 2);
+    const paths_start = @sizeOf(SYMLINK_DATA) + target_path.len * 2;
+    @memcpy(buffer[paths_start..].ptr, @ptrCast([*]const u8, target_path), target_path.len * 2);
+    // TODO replace with NtDeviceIoControl
+    _ = try DeviceIoControl(symlink_handle, FSCTL_SET_REPARSE_POINT, buffer[0..buf_len], null, null);
+}
+
+pub const ReadLinkError = error{
+    FileNotFound,
+    AccessDenied,
+    Unexpected,
+    NameTooLong,
+    UnsupportedReparsePointType,
+    InvalidUtf8,
+    BadPathName,
+};
+
+pub fn ReadLink(
+    dir: ?HANDLE,
+    sub_path: []const u8,
+    out_buffer: []u8,
+) ReadLinkError![]u8 {
+    const sub_path_w = try sliceToPrefixedFileW(sub_path);
+    return ReadLinkW(dir, sub_path_w.span().ptr, out_buffer);
+}
+
+pub fn ReadLinkW(dir: ?HANDLE, sub_path_w: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8 {
+    const path_len_bytes = math.cast(u16, mem.lenZ(sub_path_w) * 2) catch |err| switch (err) {
+        error.Overflow => return error.NameTooLong,
+    };
+    var nt_name = UNICODE_STRING{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
+    };
+
+    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+        // Windows does not recognize this, but it does work with empty string.
+        nt_name.Length = 0;
+    }
+
+    var attr = OBJECT_ATTRIBUTES{
+        .Length = @sizeOf(OBJECT_ATTRIBUTES),
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w)) null else dir,
+        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+        .ObjectName = &nt_name,
+        .SecurityDescriptor = null,
+        .SecurityQualityOfService = null,
+    };
+    var io: IO_STATUS_BLOCK = undefined;
+    var result_handle: HANDLE = undefined;
+    const rc = ntdll.NtCreateFile(
+        &result_handle,
+        FILE_READ_ATTRIBUTES,
+        &attr,
+        &io,
+        null,
+        FILE_ATTRIBUTE_NORMAL,
+        FILE_SHARE_READ,
+        FILE_OPEN,
+        FILE_OPEN_REPARSE_POINT,
+        null,
+        0,
+    );
+    switch (rc) {
+        .SUCCESS => {},
+        .OBJECT_NAME_INVALID => unreachable,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .NO_MEDIA_IN_DEVICE => return error.FileNotFound,
+        .INVALID_PARAMETER => unreachable,
+        .SHARING_VIOLATION => return error.AccessDenied,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .PIPE_BUSY => return error.AccessDenied,
+        .OBJECT_PATH_SYNTAX_BAD => unreachable,
+        .OBJECT_NAME_COLLISION => unreachable,
+        .FILE_IS_A_DIRECTORY => unreachable,
+        else => return unexpectedStatus(rc),
+    }
+    defer CloseHandle(result_handle);
+
+    var reparse_buf: [MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
+    _ = try DeviceIoControl(result_handle, FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..], null);
+
+    const reparse_struct = @ptrCast(*const REPARSE_DATA_BUFFER, @alignCast(@alignOf(REPARSE_DATA_BUFFER), &reparse_buf[0]));
+    switch (reparse_struct.ReparseTag) {
+        IO_REPARSE_TAG_SYMLINK => {
+            const buf = @ptrCast(*const SYMBOLIC_LINK_REPARSE_BUFFER, @alignCast(@alignOf(SYMBOLIC_LINK_REPARSE_BUFFER), &reparse_struct.DataBuffer[0]));
+            const offset = buf.SubstituteNameOffset >> 1;
+            const len = buf.SubstituteNameLength >> 1;
+            const path_buf = @as([*]const u16, &buf.PathBuffer);
+            const is_relative = buf.Flags & SYMLINK_FLAG_RELATIVE != 0;
+            return parseReadlinkPath(path_buf[offset .. offset + len], is_relative, out_buffer);
+        },
+        IO_REPARSE_TAG_MOUNT_POINT => {
+            const buf = @ptrCast(*const MOUNT_POINT_REPARSE_BUFFER, @alignCast(@alignOf(MOUNT_POINT_REPARSE_BUFFER), &reparse_struct.DataBuffer[0]));
+            const offset = buf.SubstituteNameOffset >> 1;
+            const len = buf.SubstituteNameLength >> 1;
+            const path_buf = @as([*]const u16, &buf.PathBuffer);
+            return parseReadlinkPath(path_buf[offset .. offset + len], false, out_buffer);
+        },
+        else => |value| {
+            std.debug.warn("unsupported symlink type: {}", .{value});
+            return error.UnsupportedReparsePointType;
+        },
+    }
+}
+
+fn parseReadlinkPath(path: []const u16, is_relative: bool, out_buffer: []u8) []u8 {
+    const prefix = [_]u16{ '\\', '?', '?', '\\' };
+    var start_index: usize = 0;
+    if (!is_relative and std.mem.startsWith(u16, path, &prefix)) {
+        start_index = prefix.len;
+    }
+    const out_len = std.unicode.utf16leToUtf8(out_buffer, path[start_index..]) catch unreachable;
+    return out_buffer[0..out_len];
 }
 
 pub const DeleteFileError = error{
@@ -1239,23 +1456,30 @@ pub const PathSpace = struct {
     }
 };
 
+/// Same as `sliceToPrefixedFileW` but accepts a pointer
+/// to a null-terminated path.
 pub fn cStrToPrefixedFileW(s: [*:0]const u8) !PathSpace {
     return sliceToPrefixedFileW(mem.spanZ(s));
 }
 
+/// Converts the path `s` to WTF16, null-terminated. If the path is absolute,
+/// it will get NT-style prefix `\??\` prepended automatically. For prepending
+/// Win32-style prefix, see `sliceToWin32PrefixedFileW` instead.
 pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
     // TODO https://github.com/ziglang/zig/issues/2765
     var path_space: PathSpace = undefined;
-    for (s) |byte| {
+    const prefix = "\\??\\";
+    const prefix_index: usize = if (mem.startsWith(u8, s, prefix)) prefix.len else 0;
+    for (s[prefix_index..]) |byte| {
         switch (byte) {
             '*', '?', '"', '<', '>', '|' => return error.BadPathName,
             else => {},
         }
     }
-    const start_index = if (mem.startsWith(u8, s, "\\?") or !std.fs.path.isAbsolute(s)) 0 else blk: {
-        const prefix = [_]u16{ '\\', '?', '?', '\\' };
-        mem.copy(u16, path_space.data[0..], &prefix);
-        break :blk prefix.len;
+    const start_index = if (prefix_index > 0 or !std.fs.path.isAbsolute(s)) 0 else blk: {
+        const prefix_u16 = [_]u16{ '\\', '?', '?', '\\' };
+        mem.copy(u16, path_space.data[0..], prefix_u16[0..]);
+        break :blk prefix_u16.len;
     };
     path_space.len = start_index + try std.unicode.utf8ToUtf16Le(path_space.data[start_index..], s);
     if (path_space.len > path_space.data.len) return error.NameTooLong;
@@ -1287,6 +1511,12 @@ pub fn wToPrefixedFileW(s: []const u16) !PathSpace {
     path_space.len = start_index + s.len;
     if (path_space.len > path_space.data.len) return error.NameTooLong;
     mem.copy(u16, path_space.data[start_index..], s);
+    // > File I/O functions in the Windows API convert "/" to "\" as part of
+    // > converting the name to an NT-style name, except when using the "\\?\"
+    // > prefix as detailed in the following sections.
+    // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
+    // Because we want the larger maximum path length for absolute paths, we
+    // convert forward slashes to backward slashes here.
     for (path_space.data[0..path_space.len]) |*elem| {
         if (elem.* == '/') {
             elem.* = '\\';

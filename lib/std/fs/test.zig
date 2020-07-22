@@ -10,6 +10,76 @@ const Dir = std.fs.Dir;
 const File = std.fs.File;
 const tmpDir = testing.tmpDir;
 
+test "Dir.readLink" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Create some targets
+    try tmp.dir.writeFile("file.txt", "nonsense");
+    try tmp.dir.makeDir("subdir");
+
+    {
+        // Create symbolic link by path
+        try tmp.dir.symLink("file.txt", "symlink1", .{});
+        try testReadLink(tmp.dir, "file.txt", "symlink1");
+    }
+    {
+        // Create symbolic link by path
+        try tmp.dir.symLink("subdir", "symlink2", .{ .is_directory = true });
+        try testReadLink(tmp.dir, "subdir", "symlink2");
+    }
+}
+
+fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !void {
+    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const given = try dir.readLink(symlink_path, buffer[0..]);
+    testing.expect(mem.eql(u8, target_path, given));
+}
+
+test "readLinkAbsolute" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Create some targets
+    try tmp.dir.writeFile("file.txt", "nonsense");
+    try tmp.dir.makeDir("subdir");
+
+    // Get base abs path
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const base_path = blk: {
+        const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
+    };
+    const allocator = &arena.allocator;
+
+    {
+        const target_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "file.txt" });
+        const symlink_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "symlink1" });
+
+        // Create symbolic link by path
+        try fs.symLinkAbsolute(target_path, symlink_path, .{});
+        try testReadLinkAbsolute(target_path, symlink_path);
+    }
+    {
+        const target_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "subdir" });
+        const symlink_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "symlink2" });
+
+        // Create symbolic link by path
+        try fs.symLinkAbsolute(target_path, symlink_path, .{ .is_directory = true });
+        try testReadLinkAbsolute(target_path, symlink_path);
+    }
+}
+
+fn testReadLinkAbsolute(target_path: []const u8, symlink_path: []const u8) !void {
+    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const given = try fs.readLinkAbsolute(symlink_path, buffer[0..]);
+    testing.expect(mem.eql(u8, target_path, given));
+}
+
 test "Dir.Iterator" {
     var tmp_dir = tmpDir(.{ .iterate = true });
     defer tmp_dir.cleanup();

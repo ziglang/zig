@@ -1109,10 +1109,10 @@ pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: mode_t) Ope
 }
 
 /// Open and possibly create a file in WASI.
-pub fn openatWasi(dir_fd: fd_t, file_path: []const u8, oflags: oflags_t, fdflags: fdflags_t, base: rights_t, inheriting: rights_t) OpenError!fd_t {
+pub fn openatWasi(dir_fd: fd_t, file_path: []const u8, lookup_flags: lookupflags_t, oflags: oflags_t, fdflags: fdflags_t, base: rights_t, inheriting: rights_t) OpenError!fd_t {
     while (true) {
         var fd: fd_t = undefined;
-        switch (wasi.path_open(dir_fd, 0x0, file_path.ptr, file_path.len, oflags, base, inheriting, fdflags, &fd)) {
+        switch (wasi.path_open(dir_fd, lookup_flags, file_path.ptr, file_path.len, oflags, base, inheriting, fdflags, &fd)) {
             wasi.ESUCCESS => return fd,
             wasi.EINTR => continue,
 
@@ -1542,15 +1542,13 @@ pub const SymLinkError = error{
 /// A symbolic link (also known as a soft link) may point to an existing file or to a nonexistent
 /// one; the latter case is known as a dangling link.
 /// If `sym_link_path` exists, it will not be overwritten.
-/// See also `symlinkC` and `symlinkW`.
+/// See also `symlinkZ.
 pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!void {
     if (builtin.os.tag == .wasi) {
         @compileError("symlink is not supported in WASI; use symlinkat instead");
     }
     if (builtin.os.tag == .windows) {
-        const target_path_w = try windows.sliceToPrefixedFileW(target_path);
-        const sym_link_path_w = try windows.sliceToPrefixedFileW(sym_link_path);
-        return windows.CreateSymbolicLinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr, 0);
+        @compileError("symlink is not supported on Windows; use std.os.windows.CreateSymbolicLink instead");
     }
     const target_path_c = try toPosixPath(target_path);
     const sym_link_path_c = try toPosixPath(sym_link_path);
@@ -1563,9 +1561,7 @@ pub const symlinkC = @compileError("deprecated: renamed to symlinkZ");
 /// See also `symlink`.
 pub fn symlinkZ(target_path: [*:0]const u8, sym_link_path: [*:0]const u8) SymLinkError!void {
     if (builtin.os.tag == .windows) {
-        const target_path_w = try windows.cStrToPrefixedFileW(target_path);
-        const sym_link_path_w = try windows.cStrToPrefixedFileW(sym_link_path);
-        return windows.CreateSymbolicLinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr, 0);
+        @compileError("symlink is not supported on Windows; use std.os.windows.CreateSymbolicLink instead");
     }
     switch (errno(system.symlink(target_path, sym_link_path))) {
         0 => return,
@@ -1598,9 +1594,7 @@ pub fn symlinkat(target_path: []const u8, newdirfd: fd_t, sym_link_path: []const
         return symlinkatWasi(target_path, newdirfd, sym_link_path);
     }
     if (builtin.os.tag == .windows) {
-        const target_path_w = try windows.sliceToPrefixedFileW(target_path);
-        const sym_link_path_w = try windows.sliceToPrefixedFileW(sym_link_path);
-        return symlinkatW(target_path_w.span().ptr, newdirfd, sym_link_path_w.span().ptr);
+        @compileError("symlinkat is not supported on Windows; use std.os.windows.CreateSymbolicLink instead");
     }
     const target_path_c = try toPosixPath(target_path);
     const sym_link_path_c = try toPosixPath(sym_link_path);
@@ -1633,19 +1627,11 @@ pub fn symlinkatWasi(target_path: []const u8, newdirfd: fd_t, sym_link_path: []c
     }
 }
 
-/// Windows-only. The same as `symlinkat` except the paths are null-terminated, WTF-16 encoded.
-/// See also `symlinkat`.
-pub fn symlinkatW(target_path: [*:0]const u16, newdirfd: fd_t, sym_link_path: [*:0]const u16) SymLinkError!void {
-    @compileError("TODO implement on Windows");
-}
-
 /// The same as `symlinkat` except the parameters are null-terminated pointers.
 /// See also `symlinkat`.
 pub fn symlinkatZ(target_path: [*:0]const u8, newdirfd: fd_t, sym_link_path: [*:0]const u8) SymLinkError!void {
     if (builtin.os.tag == .windows) {
-        const target_path_w = try windows.cStrToPrefixedFileW(target_path);
-        const sym_link_path_w = try windows.cStrToPrefixedFileW(sym_link_path);
-        return symlinkatW(target_path_w.span().ptr, newdirfd, sym_link_path.span().ptr);
+        @compileError("symlinkat is not supported on Windows; use std.os.windows.CreateSymbolicLink instead");
     }
     switch (errno(system.symlinkat(target_path, newdirfd, sym_link_path))) {
         0 => return,
@@ -1819,9 +1805,9 @@ pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*:0]const u16, flags: u32) UnlinkatEr
 
     const want_rmdir_behavior = (flags & AT_REMOVEDIR) != 0;
     const create_options_flags = if (want_rmdir_behavior)
-        @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_DIRECTORY_FILE)
+        @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_DIRECTORY_FILE | w.FILE_OPEN_REPARSE_POINT)
     else
-        @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_NON_DIRECTORY_FILE);
+        @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_NON_DIRECTORY_FILE | w.FILE_OPEN_REPARSE_POINT); // would we ever want to delete the target instead?
 
     const path_len_bytes = @intCast(u16, mem.lenZ(sub_path_w) * 2);
     var nt_name = w.UNICODE_STRING{
@@ -2355,6 +2341,11 @@ pub const ReadLinkError = error{
     FileNotFound,
     SystemResources,
     NotDir,
+    InvalidUtf8,
+    BadPathName,
+    /// Windows-only. This error may occur if the opened reparse point is
+    /// of unsupported type.
+    UnsupportedReparsePointType,
 } || UnexpectedError;
 
 /// Read value of a symbolic link.
@@ -2363,8 +2354,7 @@ pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os.tag == .wasi) {
         @compileError("readlink is not supported in WASI; use readlinkat instead");
     } else if (builtin.os.tag == .windows) {
-        const file_path_w = try windows.sliceToPrefixedFileW(file_path);
-        return readlinkW(file_path_w.span().ptr, out_buffer);
+        return windows.ReadLink(std.fs.cwd().fd, file_path, out_buffer);
     } else {
         const file_path_c = try toPosixPath(file_path);
         return readlinkZ(&file_path_c, out_buffer);
@@ -2373,16 +2363,16 @@ pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
 
 pub const readlinkC = @compileError("deprecated: renamed to readlinkZ");
 
-/// Windows-only. Same as `readlink` expecte `file_path` is null-terminated, WTF16 encoded.
-/// Seel also `readlinkZ`.
+/// Windows-only. Same as `readlink` except `file_path` is null-terminated, WTF16 encoded.
+/// See also `readlinkZ`.
 pub fn readlinkW(file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8 {
-    @compileError("TODO implement readlink for Windows");
+    return windows.ReadLinkW(std.fs.cwd().fd, file_path, out_buffer);
 }
 
 /// Same as `readlink` except `file_path` is null-terminated.
 pub fn readlinkZ(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os.tag == .windows) {
-        const file_path_w = try windows.cStrToPrefixedFileW(file_path);
+        const file_path_w = try windows.cStrToWin32PrefixedFileW(file_path);
         return readlinkW(file_path_w.span().ptr, out_buffer);
     }
     const rc = system.readlink(file_path, out_buffer.ptr, out_buffer.len);
@@ -2409,8 +2399,7 @@ pub fn readlinkat(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) ReadLink
         return readlinkatWasi(dirfd, file_path, out_buffer);
     }
     if (builtin.os.tag == .windows) {
-        const file_path_w = try windows.cStrToPrefixedFileW(file_path);
-        return readlinkatW(dirfd, file_path.span().ptr, out_buffer);
+        return windows.ReadLink(dirfd, file_path, out_buffer);
     }
     const file_path_c = try toPosixPath(file_path);
     return readlinkatZ(dirfd, &file_path_c, out_buffer);
@@ -2441,7 +2430,7 @@ pub fn readlinkatWasi(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) Read
 /// Windows-only. Same as `readlinkat` except `file_path` is null-terminated, WTF16 encoded.
 /// See also `readlinkat`.
 pub fn readlinkatW(dirfd: fd_t, file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8 {
-    @compileError("TODO implement on Windows");
+    return windows.ReadLinkW(dirfd, file_path, out_buffer);
 }
 
 /// Same as `readlinkat` except `file_path` is null-terminated.
@@ -3997,7 +3986,13 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
         var procfs_buf: ["/proc/self/fd/-2147483648".len:0]u8 = undefined;
         const proc_path = std.fmt.bufPrint(procfs_buf[0..], "/proc/self/fd/{}\x00", .{fd}) catch unreachable;
 
-        return readlinkZ(@ptrCast([*:0]const u8, proc_path.ptr), out_buffer);
+        const target = readlinkZ(@ptrCast([*:0]const u8, proc_path.ptr), out_buffer) catch |err| {
+            switch (err) {
+                error.UnsupportedReparsePointType => unreachable, // Windows only,
+                else => |e| return e,
+            }
+        };
+        return target;
     }
     const result_path = std.c.realpath(pathname, out_buffer) orelse switch (std.c._errno().*) {
         EINVAL => unreachable,

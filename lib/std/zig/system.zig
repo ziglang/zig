@@ -552,6 +552,9 @@ pub const NativeTargetInfo = struct {
             error.SystemResources => return error.SystemResources,
             error.NotDir => return error.GnuLibCVersionUnavailable,
             error.Unexpected => return error.GnuLibCVersionUnavailable,
+            error.InvalidUtf8 => unreachable, // Windows only
+            error.BadPathName => unreachable, // Windows only
+            error.UnsupportedReparsePointType => unreachable, // Windows only
         };
         return glibcVerFromLinkName(link_name);
     }
@@ -817,6 +820,9 @@ pub const NativeTargetInfo = struct {
                             &link_buf,
                         ) catch |err| switch (err) {
                             error.NameTooLong => unreachable,
+                            error.InvalidUtf8 => unreachable, // Windows only
+                            error.BadPathName => unreachable, // Windows only
+                            error.UnsupportedReparsePointType => unreachable, // Windows only
 
                             error.AccessDenied,
                             error.FileNotFound,

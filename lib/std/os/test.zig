@@ -17,6 +17,42 @@ const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 const tmpDir = std.testing.tmpDir;
 const Dir = std.fs.Dir;
+const ArenaAllocator = std.heap.ArenaAllocator;
+
+test "symlink with relative paths" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    // First, try relative paths in cwd
+    var cwd = fs.cwd();
+    try cwd.writeFile("file.txt", "nonsense");
+
+    if (builtin.os.tag == .windows) {
+        try os.windows.CreateSymbolicLink(cwd.fd, "symlinked", "file.txt", false);
+    } else {
+        try os.symlink("file.txt", "symlinked");
+    }
+
+    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const given = try os.readlink("symlinked", buffer[0..]);
+    expect(mem.eql(u8, "file.txt", given));
+
+    try cwd.deleteFile("file.txt");
+    try cwd.deleteFile("symlinked");
+}
+
+test "readlink on Windows" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try testReadlink("C:\\ProgramData", "C:\\Users\\All Users");
+    try testReadlink("C:\\Users\\Default", "C:\\Users\\Default User");
+    try testReadlink("C:\\Users", "C:\\Documents and Settings");
+}
+
+fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
+    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const given = try os.readlink(symlink_path, buffer[0..]);
+    expect(mem.eql(u8, target_path, given));
+}
 
 test "fstatat" {
     // enable when `fstat` and `fstatat` are implemented on Windows
@@ -41,9 +77,6 @@ test "fstatat" {
 }
 
 test "readlinkat" {
-    // enable when `readlinkat` and `symlinkat` are implemented on Windows
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -51,7 +84,11 @@ test "readlinkat" {
     try tmp.dir.writeFile("file.txt", "nonsense");
 
     // create a symbolic link
-    try os.symlinkat("file.txt", tmp.dir.fd, "link");
+    if (builtin.os.tag == .windows) {
+        try os.windows.CreateSymbolicLink(tmp.dir.fd, "link", "file.txt", false);
+    } else {
+        try os.symlinkat("file.txt", tmp.dir.fd, "link");
+    }
 
     // read the link
     var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
