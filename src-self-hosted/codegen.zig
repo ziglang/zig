@@ -102,6 +102,7 @@ pub fn generateSymbol(
                 //.sparcv9 => return Function(.sparcv9).generateSymbol(bin_file, src, typed_value, code, dbg_line, dbg_info, dbg_info_type_relocs),
                 //.sparcel => return Function(.sparcel).generateSymbol(bin_file, src, typed_value, code, dbg_line, dbg_info, dbg_info_type_relocs),
                 //.s390x => return Function(.s390x).generateSymbol(bin_file, src, typed_value, code, dbg_line, dbg_info, dbg_info_type_relocs),
+                .spu_2 => return Function(.spu_2).generateSymbol(bin_file, src, typed_value, code, dbg_line, dbg_info, dbg_info_type_relocs),
                 //.tce => return Function(.tce).generateSymbol(bin_file, src, typed_value, code, dbg_line, dbg_info, dbg_info_type_relocs),
                 //.tcele => return Function(.tcele).generateSymbol(bin_file, src, typed_value, code, dbg_line, dbg_info, dbg_info_type_relocs),
                 //.thumb => return Function(.thumb).generateSymbol(bin_file, src, typed_value, code, dbg_line, dbg_info, dbg_info_type_relocs),
@@ -1349,6 +1350,44 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
                         }
                     },
+                    .spu_2 => {
+                        if (inst.func.cast(ir.Inst.Constant)) |func_inst| {
+                            if (info.args.len != 0) {
+                                return self.fail(inst.base.src, "TODO implement call with more than 0 parameters", .{});
+                            }
+                            if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
+                                const func = func_val.func;
+                                const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
+                                const got_addr = @intCast(u16, got.p_vaddr + func.owner_decl.link.elf.offset_table_index * 2);
+                                const return_type = func.owner_decl.typed_value.most_recent.typed_value.ty.fnReturnType();
+                                // First, push the return address, then jump; if noreturn, don't bother with the first step
+                                // TODO: implement packed struct -> u16 at comptime and move the bitcast here
+                                var instr = Instruction{ .condition = .always, .input0 = .immediate, .input1 = .zero, .modify_flags = false, .output = .jump, .command = .load16 };
+                                if (return_type.zigTypeTag() == .NoReturn) {
+                                    try self.code.resize(self.code.items.len + 4);
+                                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 4 ..][0..2], @bitCast(u16, instr));
+                                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 2 ..][0..2], got_addr);
+                                    return MCValue.unreach;
+                                } else {
+                                    try self.code.resize(self.code.items.len + 8);
+                                    var push = Instruction{ .condition = .always, .input0 = .immediate, .input1 = .zero, .modify_flags = false, .output = .push, .command = .ipget };
+                                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 8 ..][0..2], @bitCast(u16, push));
+                                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 6 ..][0..2], @as(u16, 4));
+                                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 4 ..][0..2], @bitCast(u16, instr));
+                                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 2 ..][0..2], got_addr);
+                                    switch (return_type.zigTypeTag()) {
+                                        .Void => return MCValue{ .none = {} },
+                                        .NoReturn => unreachable,
+                                        else => return self.fail(inst.base.src, "TODO implement fn call with non-void return value", .{}),
+                                    }
+                                }
+                            } else {
+                                return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
+                            }
+                        } else {
+                            return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
+                        }
+                    },
                     else => return self.fail(inst.base.src, "TODO implement call for {}", .{self.target.cpu.arch}),
                 }
             } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
@@ -1647,19 +1686,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(inst.base.src, "TODO implement inline asm inputs / outputs for SPU Mark II", .{});
                     }
                     if (mem.eql(u8, inst.asm_source, "undefined0")) {
-                        // Instructions are 16-bits, plus up to two sixteen bit immediates.
-                        // Upper three bits of first byte are the execution
-                        // condition; for now, only always (0b000) is supported.
-                        // Next, there are two two-bit sequences indicating inputs;
-                        // we only care to use zero (0b00).
-                        // The lowest bit of byte one indicates whether flags
-                        // should be updated; TODO: support that somehow.
-                        // In all, we use a zero byte for the first half of the
-                        // instruction.
-                        // The second byte is 0bOOCCCCCR; OO is output behavior (we
-                        // use zero, which discards the output), CCCCC is the
-                        // command (8 for undefined0), R is reserved.
-                        try self.code.appendSlice(&[_]u8{ 0x00, 0b00010000 });
+                        try self.code.resize(self.code.items.len + 2);
+                        var instr = Instruction{ .condition = .always, .input0 = .zero, .input1 = .zero, .modify_flags = false, .output = .discard, .command = .undefined0 };
+                        mem.writeIntLittle(u16, self.code.items[self.code.items.len - 2 ..][0..2], @bitCast(u16, instr));
                         return MCValue.none;
                     } else {
                         return self.fail(inst.base.src, "TODO implement support for more SPU II assembly instructions", .{});
@@ -1742,6 +1771,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// X => extension to the SIB.index field
         /// B => extension to the MODRM.rm field or the SIB.base field
         fn rex(self: *Self, arg: struct { b: bool = false, w: bool = false, x: bool = false, r: bool = false }) void {
+            std.debug.assert(arch == .x86_64);
             //  From section 2.2.1.2 of the manual, REX is encoded as b0100WRXB.
             var value: u8 = 0x40;
             if (arg.b) {
@@ -2289,7 +2319,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             result.stack_byte_count = next_stack_offset;
                             result.stack_align = 16;
                         },
-                        else => return self.fail(src, "TODO implement function parameters for {}", .{cc}),
+                        else => return self.fail(src, "TODO implement function parameters for {} on x86_64", .{cc}),
                     }
                 },
                 else => if (param_types.len != 0)
@@ -2336,6 +2366,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             .i386 => @import("codegen/x86.zig"),
             .x86_64 => @import("codegen/x86_64.zig"),
             .riscv64 => @import("codegen/riscv64.zig"),
+            .spu_2 => @import("codegen/spu-mk2.zig"),
             else => struct {
                 pub const Register = enum {
                     dummy,
