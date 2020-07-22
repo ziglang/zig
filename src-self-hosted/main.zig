@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
@@ -46,15 +47,13 @@ pub fn log(
 ) void {
     if (@enumToInt(level) > @enumToInt(std.log.level))
         return;
-
     const scope_prefix = "(" ++ switch (scope) {
         // Uncomment to hide logs
         //.compiler,
-        .module,
-        .liveness,
-        .link,
-        => return,
-
+        //        .module,
+        //        .liveness,
+        //        .link,
+        //      => return,
         else => @tagName(scope),
     } ++ "): ";
 

@@ -1016,6 +1016,46 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
                     }
                 },
+                .spu_2 => {
+                    if (inst.args.func.cast(ir.Inst.Constant)) |func_inst| {
+                        if (inst.args.args.len != 0) {
+                            return self.fail(inst.base.src, "TODO implement call with more than 0 parameters", .{});
+                        }
+
+                        if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
+                            const func = func_val.func;
+                            const got = &self.bin_file.program_headers.items[self.bin_file.phdr_got_index.?];
+                            const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+                            const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+                            const got_addr = @intCast(u16, got.p_vaddr + func.owner_decl.link.offset_table_index * ptr_bytes);
+                            const return_type = func.owner_decl.typed_value.most_recent.typed_value.ty.fnReturnType();
+                            // First, push the return address, then jump; if noreturn, don't bother with the first step
+                            if (return_type.zigTypeTag() == .NoReturn) {
+                                try self.code.resize(self.code.items.len + 4);
+                                // always imm 0 no_modify jump load16, imm = got_addr
+                                self.code.items[self.code.items.len - 4 ..][0..2].* = [2]u8{ 0x08, 0x8E };
+                                mem.writeIntLittle(u16, self.code.items[self.code.items.len - 2 ..][0..2], got_addr);
+                                return MCValue.unreach;
+                            } else {
+                                try self.code.resize(self.code.items.len + 8);
+                                // always imm 0 no_modify push ipget, imm = 4
+                                self.code.items[self.code.items.len - 8 ..][0..4].* = [4]u8{ 0x08, 0x42, 0x04, 0x00 };
+                                // always imm 0 no_modify jump load16, imm = got_addr
+                                self.code.items[self.code.items.len - 4 ..][0..2].* = [2]u8{ 0x08, 0x8E };
+                                mem.writeIntLittle(u16, self.code.items[self.code.items.len - 2 ..][0..2], got_addr);
+                                switch (return_type.zigTypeTag()) {
+                                    .Void => return MCValue{ .none = {} },
+                                    .NoReturn => unreachable,
+                                    else => return self.fail(inst.base.src, "TODO implement fn call with non-void return value", .{}),
+                                }
+                            }
+                        } else {
+                            return self.fail(inst.base.src, "TODO implement calling weird function values", .{});
+                        }
+                    } else {
+                        return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
+                    }
+                },
                 else => return self.fail(inst.base.src, "TODO implement call for {}", .{self.target.cpu.arch}),
             }
 
