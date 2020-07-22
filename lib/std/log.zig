@@ -40,15 +40,15 @@ const root = @import("root");
 //!     const held = std.debug.getStderrMutex().acquire();
 //!     defer held.release();
 //!     const stderr = std.io.getStdErr().writer();
-//!     nosuspend stderr.print(prefix ++ format, args) catch return;
+//!     nosuspend stderr.print(prefix ++ format ++ "\n", args) catch return;
 //! }
 //!
 //! pub fn main() void {
 //!     // Won't be printed as log_level is .warn
-//!     std.log.info(.my_project, "Starting up.\n", .{});
-//!     std.log.err(.nice_library, "Something went very wrong, sorry.\n", .{});
+//!     std.log.info(.my_project, "Starting up.", .{});
+//!     std.log.err(.nice_library, "Something went very wrong, sorry.", .{});
 //!     // Won't be printed as it gets filtered out by our log function
-//!     std.log.err(.lib_that_logs_too_much, "Added 1 + 1\n", .{});
+//!     std.log.err(.lib_that_logs_too_much, "Added 1 + 1", .{});
 //! }
 //! ```
 //! Which produces the following output:
