@@ -110,7 +110,7 @@ fn log(
             const held = std.debug.getStderrMutex().acquire();
             defer held.release();
             const stderr = std.io.getStdErr().writer();
-            nosuspend stderr.print(format, args) catch return;
+            nosuspend stderr.print(format ++ "\n", args) catch return;
         }
     }
 }
