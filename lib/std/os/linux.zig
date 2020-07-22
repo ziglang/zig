@@ -811,7 +811,10 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
 
 pub fn sigaddset(set: *sigset_t, sig: u6) void {
     const s = sig - 1;
-    (set.*)[@intCast(usize, s) / usize.bit_count] |= @intCast(usize, 1) << (s & (usize.bit_count - 1));
+    // shift in musl: s&8*sizeof *set->__bits-1
+    const shift = @intCast(u5, s & (usize.bit_count - 1));
+    const val = @intCast(u32, 1) << shift;
+    (set.*)[@intCast(usize, s) / usize.bit_count] |= val;
 }
 
 pub fn sigismember(set: *const sigset_t, sig: u6) bool {
@@ -1195,6 +1198,16 @@ pub fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) usi
 
 pub fn ioctl(fd: fd_t, request: u32, arg: usize) usize {
     return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), request, arg);
+}
+
+pub fn signalfd4(fd: fd_t, mask: *const sigset_t, flags: i32) usize {
+    return syscall4(
+        .signalfd4,
+        @bitCast(usize, @as(isize, fd)),
+        @ptrToInt(mask),
+        @bitCast(usize, @as(usize, NSIG / 8)),
+        @intCast(usize, flags),
+    );
 }
 
 test "" {
