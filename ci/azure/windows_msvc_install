@@ -4,7 +4,11 @@ set -x
 set -e
 
 pacman -Su --needed --noconfirm
-pacman -S --needed --noconfirm wget p7zip python3-pip tar xz
+# Uncomment when https://github.com/msys2/MSYS2-packages/issues/2050 is fixed
+#pacman -S --needed --noconfirm wget p7zip python3-pip tar xz
+pacman -S --needed --noconfirm wget p7zip tar xz
+pacman -U --noconfirm http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-python-3.8.4-1-any.pkg.tar.zst
+pacman -U --noconfirm http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-python-pip-20.0.2-1-any.pkg.tar.xz
 pip install s3cmd
 wget -nv "https://ziglang.org/deps/llvm%2bclang%2blld-10.0.0-x86_64-windows-msvc-release-mt.tar.xz"
 tar xf llvm+clang+lld-10.0.0-x86_64-windows-msvc-release-mt.tar.xz
