@@ -92,6 +92,7 @@ comptime {
     @export(@import("compiler_rt/floatunsidf.zig").__floatunsidf, .{ .name = "__floatunsidf", .linkage = linkage });
     @export(@import("compiler_rt/floatundidf.zig").__floatundidf, .{ .name = "__floatundidf", .linkage = linkage });
 
+    @export(@import("compiler_rt/floatditf.zig").__floatditf, .{ .name = "__floatditf", .linkage = linkage });
     @export(@import("compiler_rt/floattitf.zig").__floattitf, .{ .name = "__floattitf", .linkage = linkage });
     @export(@import("compiler_rt/floattidf.zig").__floattidf, .{ .name = "__floattidf", .linkage = linkage });
     @export(@import("compiler_rt/floattisf.zig").__floattisf, .{ .name = "__floattisf", .linkage = linkage });
