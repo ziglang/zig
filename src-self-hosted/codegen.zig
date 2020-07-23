@@ -1032,8 +1032,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             const return_type = func.owner_decl.typed_value.most_recent.typed_value.ty.fnReturnType();
                             // First, push the return address, then jump; if noreturn, don't bother with the first step
                             //TODO: fix
-                            //const jump = @bitCast(u16, SPU.Instruction{ .condition = .always, .input0 = .immediate, .input1 = .zero, .modify_flags = false, .output = .jump, .command = .load16 });
-                            const jump: u16 = 0x8E08;
+                            var instr = Instruction{ .condition = .always, .input0 = .immediate, .input1 = .zero, .modify_flags = false, .output = .jump, .command = .load16 };
+                            const jump = @bitCast(u16, instr);
+                            //const jump: u16 = 0x8E08;
                             if (return_type.zigTypeTag() == .NoReturn) {
                                 try self.code.resize(self.code.items.len + 4);
                                 // always imm 0 no_modify jump load16, imm = got_addr
@@ -1301,19 +1302,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(inst.base.src, "TODO implement inline asm inputs / outputs for SPU Mark II", .{});
                     }
                     if (mem.eql(u8, inst.asm_source, "undefined0")) {
-                        // Instructions are 16-bits, plus up to two sixteen bit immediates.
-                        // Upper three bits of first byte are the execution
-                        // condition; for now, only always (0b000) is supported.
-                        // Next, there are two two-bit sequences indicating inputs;
-                        // we only care to use zero (0b00).
-                        // The lowest bit of byte one indicates whether flags
-                        // should be updated; TODO: support that somehow.
-                        // In all, we use a zero byte for the first half of the
-                        // instruction.
-                        // The second byte is 0bOOCCCCCR; OO is output behavior (we
-                        // use zero, which discards the output), CCCCC is the
-                        // command (8 for undefined0), R is reserved.
-                        try self.code.appendSlice(&[_]u8{ 0x00, 0b00010000 });
+                        try self.code.resize(self.code.items.len + 2);
+                        var instr = Instruction{ .condition = .always, .input0 = .zero, .input1 = .zero, .modify_flags = false, .output = .discard, .command = .undefined0 };
+                        mem.writeIntLittle(u16, self.code.items[self.code.items.len - 2 ..][0..2], @bitCast(u16, instr));
                         return MCValue.none;
                     } else {
                         return self.fail(inst.base.src, "TODO implement support for more SPU II assembly instructions", .{});
