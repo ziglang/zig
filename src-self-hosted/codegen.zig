@@ -1021,7 +1021,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         if (inst.args.args.len != 0) {
                             return self.fail(inst.base.src, "TODO implement call with more than 0 parameters", .{});
                         }
-
                         if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
                             const func = func_val.func;
                             const got = &self.bin_file.program_headers.items[self.bin_file.phdr_got_index.?];
@@ -1030,10 +1029,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             const got_addr = @intCast(u16, got.p_vaddr + func.owner_decl.link.offset_table_index * ptr_bytes);
                             const return_type = func.owner_decl.typed_value.most_recent.typed_value.ty.fnReturnType();
                             // First, push the return address, then jump; if noreturn, don't bother with the first step
+                            //TODO: fix
+                            //const jump = @bitCast(u16, SPU.Instruction{ .condition = .always, .input0 = .immediate, .input1 = .zero, .modify_flags = false, .output = .jump, .command = .load16 });
+                            const jump: u16 = 0x8E08;
                             if (return_type.zigTypeTag() == .NoReturn) {
                                 try self.code.resize(self.code.items.len + 4);
                                 // always imm 0 no_modify jump load16, imm = got_addr
-                                self.code.items[self.code.items.len - 4 ..][0..2].* = [2]u8{ 0x08, 0x8E };
+                                mem.writeIntLittle(u16, self.code.items[self.code.items.len - 4 ..][0..2], @bitCast(u16, jump));
                                 mem.writeIntLittle(u16, self.code.items[self.code.items.len - 2 ..][0..2], got_addr);
                                 return MCValue.unreach;
                             } else {
@@ -1041,7 +1043,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 // always imm 0 no_modify push ipget, imm = 4
                                 self.code.items[self.code.items.len - 8 ..][0..4].* = [4]u8{ 0x08, 0x42, 0x04, 0x00 };
                                 // always imm 0 no_modify jump load16, imm = got_addr
-                                self.code.items[self.code.items.len - 4 ..][0..2].* = [2]u8{ 0x08, 0x8E };
+                                mem.writeIntLittle(u16, self.code.items[self.code.items.len - 4 ..][0..2], @bitCast(u16, jump));
                                 mem.writeIntLittle(u16, self.code.items[self.code.items.len - 2 ..][0..2], got_addr);
                                 switch (return_type.zigTypeTag()) {
                                     .Void => return MCValue{ .none = {} },
@@ -1906,6 +1908,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         usingnamespace switch (arch) {
             .i386 => @import("codegen/x86.zig"),
             .x86_64 => @import("codegen/x86_64.zig"),
+            .spu_2 => @import("codegen/spu-mk2.zig"),
             else => struct {
                 pub const Register = enum {
                     dummy,
