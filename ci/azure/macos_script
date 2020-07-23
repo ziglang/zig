@@ -46,7 +46,7 @@ else
   rm $PREFIX/lib/libz*dylib
 
   cd $TMPDIR
-  wget https://releases.llvm.org/$LLVMVER/llvm-$LLVMVER.src.tar.xz
+  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVMVER/llvm-$LLVMVER.src.tar.xz
   tar xf llvm-$LLVMVER.src.tar.xz
   cd llvm-$LLVMVER.src/
   mkdir build
@@ -64,7 +64,7 @@ else
   make $JOBS install
 
   cd $TMPDIR
-  wget https://releases.llvm.org/$LLVMVER/clang-$LLVMVER.src.tar.xz
+  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVMVER/clang-$LLVMVER.src.tar.xz
   tar xf clang-$LLVMVER.src.tar.xz
   cd clang-$LLVMVER.src/
   mkdir build
