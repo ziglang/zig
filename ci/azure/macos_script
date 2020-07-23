@@ -25,15 +25,15 @@ rm -rf $TMPDIR
 mkdir $TMPDIR
 
 cd $HOME
-HAVE_CACHE="true"
+HAVE_CACHE=
 wget -nv "https://ziglang.org/builds/$CACHE_BASENAME.tar.xz" || HAVE_CACHE="false"
 if [ "${HAVE_CACHE}" = "true" ]; then
   tar xf "$CACHE_BASENAME.tar.xz"
 else
-  if [ "${BUILD_REASON}" == "PullRequest" ]; then
-      echo "Need cached llvm+clang for pull request builds."
-      exit 1
-  fi
+  # if [ "${BUILD_REASON}" == "PullRequest" ]; then
+  #     echo "Need cached llvm+clang for pull request builds."
+  #     exit 1
+  # fi
 
   cd $TMPDIR
   wget https://zlib.net/zlib-1.2.11.tar.xz
