@@ -77,6 +77,7 @@ pub fn generateSymbol(
                 //.sparcv9 => return Function(.sparcv9).generateSymbol(bin_file, src, typed_value, code),
                 //.sparcel => return Function(.sparcel).generateSymbol(bin_file, src, typed_value, code),
                 //.s390x => return Function(.s390x).generateSymbol(bin_file, src, typed_value, code),
+                .spu_2 => return Function(.spu_2).generateSymbol(bin_file, src, typed_value, code),
                 //.tce => return Function(.tce).generateSymbol(bin_file, src, typed_value, code),
                 //.tcele => return Function(.tcele).generateSymbol(bin_file, src, typed_value, code),
                 //.thumb => return Function(.thumb).generateSymbol(bin_file, src, typed_value, code),
@@ -502,6 +503,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn genBody(self: *Self, body: ir.Body) InnerError!void {
             const inst_table = &self.branch_stack.items[0].inst_table;
             for (body.instructions) |inst| {
+                std.debug.warn("Generating {}, code len: {}\n", .{ inst, self.code.items.len });
                 const new_inst = try self.genFuncInst(inst);
                 try inst_table.putNoClobber(self.gpa, inst, new_inst);
 
@@ -1017,8 +1019,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     }
                 },
                 .spu_2 => {
-                    if (inst.args.func.cast(ir.Inst.Constant)) |func_inst| {
-                        if (inst.args.args.len != 0) {
+                    if (inst.func.cast(ir.Inst.Constant)) |func_inst| {
+                        if (inst.args.len != 0) {
                             return self.fail(inst.base.src, "TODO implement call with more than 0 parameters", .{});
                         }
                         if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
@@ -1360,6 +1362,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// * Deliberately inserting a "meaningless REX" requires explicit usage of
         /// 0x40, and cannot be done via this function.
         fn rex(self: *Self, arg: struct { b: bool = false, w: bool = false, x: bool = false, r: bool = false }) void {
+            std.debug.assert(arch == .x86_64);
             //  From section 2.2.1.2 of the manual, REX is encoded as b0100WRXB.
             var value: u8 = 0x40;
             if (arg.b) {
@@ -1863,10 +1866,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             result.stack_byte_count = next_stack_offset;
                             result.stack_align = 16;
                         },
-                        else => return self.fail(src, "TODO implement function parameters for {}", .{cc}),
+                        else => return self.fail(src, "TODO implement function parameters for {} on x86_64", .{cc}),
                     }
                 },
-                else => return self.fail(src, "TODO implement codegen parameters for {}", .{self.target.cpu.arch}),
+                else => if (param_types.len != 0)
+                    return self.fail(src, "TODO implement codegen parameters for {}", .{self.target.cpu.arch}),
             }
 
             if (ret_ty.zigTypeTag() == .NoReturn) {
