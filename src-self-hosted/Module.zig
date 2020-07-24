@@ -2400,8 +2400,7 @@ fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*In
         .bitcast => return self.analyzeInstBitCast(scope, old_inst.castTag(.bitcast).?),
         .floatcast => return self.analyzeInstFloatCast(scope, old_inst.castTag(.floatcast).?),
         .elemptr => return self.analyzeInstElemPtr(scope, old_inst.castTag(.elemptr).?),
-        .add => return self.analyzeInstAdd(scope, old_inst.castTag(.add).?),
-        .sub => return self.analyzeInstSub(scope, old_inst.castTag(.sub).?),
+        .add, .sub => return self.analyzeInstArithmetic(scope, old_inst.cast(zir.Inst.BinOp).?),
         .cmp_lt => return self.analyzeInstCmp(scope, old_inst.castTag(.cmp_lt).?, .lt),
         .cmp_lte => return self.analyzeInstCmp(scope, old_inst.castTag(.cmp_lte).?, .lte),
         .cmp_eq => return self.analyzeInstCmp(scope, old_inst.castTag(.cmp_eq).?, .eq),
@@ -3037,61 +3036,105 @@ fn analyzeInstElemPtr(self: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) Inn
     return self.fail(scope, inst.base.src, "TODO implement more analyze elemptr", .{});
 }
 
-fn analyzeInstSub(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
-    return self.fail(scope, inst.base.src, "TODO implement analysis of sub", .{});
+fn floatOpAllowed(tag: zir.Inst.Tag) bool {
+    // extend this swich as additional operators are implemented
+    return switch (tag) {
+        .add, .sub => true,
+        else => false,
+    };
 }
 
-fn analyzeInstAdd(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+fn analyzeInstArithmetic(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
     const lhs = try self.resolveInst(scope, inst.positionals.lhs);
     const rhs = try self.resolveInst(scope, inst.positionals.rhs);
 
-    if ((lhs.ty.zigTypeTag() == .Int or lhs.ty.zigTypeTag() == .ComptimeInt) and
-        (rhs.ty.zigTypeTag() == .Int or rhs.ty.zigTypeTag() == .ComptimeInt))
-    {
-        if (!lhs.ty.eql(rhs.ty)) {
-            return self.fail(scope, inst.base.src, "TODO implement peer type resolution", .{});
+    const instructions = &[_]*Inst{ lhs, rhs };
+    const resolved_type = try self.resolvePeerTypes(scope, instructions);
+    const casted_lhs = try self.coerce(scope, resolved_type, lhs);
+    const casted_rhs = try self.coerce(scope, resolved_type, rhs);
+
+    const scalar_type = if (resolved_type.zigTypeTag() == .Vector)
+        resolved_type.elemType()
+    else
+        resolved_type;
+
+    const scalar_tag = scalar_type.zigTypeTag();
+
+    if (lhs.ty.zigTypeTag() == .Vector and rhs.ty.zigTypeTag() == .Vector) {
+        if (lhs.ty.arrayLen() != rhs.ty.arrayLen()) {
+            return self.fail(scope, inst.base.src, "vector length mismatch: {} and {}", .{
+                lhs.ty.arrayLen(),
+                rhs.ty.arrayLen(),
+            });
         }
-
-        if (lhs.value()) |lhs_val| {
-            if (rhs.value()) |rhs_val| {
-                // TODO is this a performance issue? maybe we should try the operation without
-                // resorting to BigInt first.
-                var lhs_space: Value.BigIntSpace = undefined;
-                var rhs_space: Value.BigIntSpace = undefined;
-                const lhs_bigint = lhs_val.toBigInt(&lhs_space);
-                const rhs_bigint = rhs_val.toBigInt(&rhs_space);
-                const limbs = try scope.arena().alloc(
-                    std.math.big.Limb,
-                    std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
-                );
-                var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-                result_bigint.add(lhs_bigint, rhs_bigint);
-                const result_limbs = result_bigint.limbs[0..result_bigint.len];
-
-                const val_payload = if (result_bigint.positive) blk: {
-                    const val_payload = try scope.arena().create(Value.Payload.IntBigPositive);
-                    val_payload.* = .{ .limbs = result_limbs };
-                    break :blk &val_payload.base;
-                } else blk: {
-                    const val_payload = try scope.arena().create(Value.Payload.IntBigNegative);
-                    val_payload.* = .{ .limbs = result_limbs };
-                    break :blk &val_payload.base;
-                };
-
-                return self.constInst(scope, inst.base.src, .{
-                    .ty = lhs.ty,
-                    .val = Value.initPayload(val_payload),
-                });
-            }
-        }
-
-        const b = try self.requireRuntimeBlock(scope, inst.base.src);
-        return self.addBinOp(b, inst.base.src, lhs.ty, .add, lhs, rhs);
+        return self.fail(scope, inst.base.src, "TODO implement support for vectors in analyzeInstBinOp", .{});
+    } else if (lhs.ty.zigTypeTag() == .Vector or rhs.ty.zigTypeTag() == .Vector) {
+        return self.fail(scope, inst.base.src, "mixed scalar and vector operands to comparison operator: '{}' and '{}'", .{
+            lhs.ty,
+            rhs.ty,
+        });
     }
-    return self.fail(scope, inst.base.src, "TODO analyze add for {} + {}", .{ lhs.ty.zigTypeTag(), rhs.ty.zigTypeTag() });
+
+    const is_int = scalar_tag == .Int or scalar_tag == .ComptimeInt;
+    const is_float = scalar_tag == .Float or scalar_tag == .ComptimeFloat;
+
+    if (!is_int and !(is_float and floatOpAllowed(inst.base.tag))) {
+        return self.fail(scope, inst.base.src, "invalid operands to binary expression: '{}' and '{}'", .{ @tagName(lhs.ty.zigTypeTag()), @tagName(rhs.ty.zigTypeTag()) });
+    }
+
+    if (casted_lhs.value()) |lhs_val| {
+        if (casted_rhs.value()) |rhs_val| {
+            return self.analyzeInstComptimeOp(scope, scalar_type, inst, lhs_val, rhs_val);
+        }
+    }
+
+    const b = try self.requireRuntimeBlock(scope, inst.base.src);
+    const ir_tag = switch (inst.base.tag) {
+        .add => Inst.Tag.add,
+        .sub => Inst.Tag.sub,
+        else => return self.fail(scope, inst.base.src, "TODO implement arithmetic for operand '{}''", .{@tagName(inst.base.tag)}),
+    };
+
+    return self.addBinOp(b, inst.base.src, scalar_type, ir_tag, casted_lhs, casted_rhs);
+}
+
+/// Analyzes operands that are known at comptime
+fn analyzeInstComptimeOp(self: *Module, scope: *Scope, res_type: Type, inst: *zir.Inst.BinOp, lhs_val: Value, rhs_val: Value) InnerError!*Inst {
+    // incase rhs is 0, simply return lhs without doing any calculations
+    // TODO Once division is implemented we should throw an error when dividing by 0.
+    if (rhs_val.tag() == .zero or rhs_val.tag() == .the_one_possible_value) {
+        return self.constInst(scope, inst.base.src, .{
+            .ty = res_type,
+            .val = lhs_val,
+        });
+    }
+    const is_int = res_type.isInt() or res_type.zigTypeTag() == .ComptimeInt;
+
+    const value = try switch (inst.base.tag) {
+        .add => blk: {
+            const val = if (is_int)
+                intAdd(scope.arena(), lhs_val, rhs_val)
+            else
+                self.floatAdd(scope, res_type, inst, lhs_val, rhs_val);
+            break :blk val;
+        },
+        .sub => blk: {
+            const val = if (is_int)
+                intSub(scope.arena(), lhs_val, rhs_val)
+            else
+                self.floatSub(scope, res_type, inst, lhs_val, rhs_val);
+            break :blk val;
+        },
+        else => return self.fail(scope, inst.base.src, "TODO Implement arithmetic operand '{}'", .{@tagName(inst.base.tag)}),
+    };
+
+    return self.constInst(scope, inst.base.src, .{
+        .ty = res_type,
+        .val = value,
+    });
 }
 
 fn analyzeInstDeref(self: *Module, scope: *Scope, deref: *zir.Inst.UnOp) InnerError!*Inst {
@@ -3513,6 +3556,21 @@ fn resolvePeerTypes(self: *Module, scope: *Scope, instructions: []*Inst) !Type {
             prev_inst = next_inst;
             continue;
         }
+        if (prev_inst.ty.isInt() and
+            next_inst.ty.isInt() and
+            prev_inst.ty.isSignedInt() == next_inst.ty.isSignedInt())
+        {
+            if (prev_inst.ty.intInfo(self.target()).bits < next_inst.ty.intInfo(self.target()).bits) {
+                prev_inst = next_inst;
+            }
+            continue;
+        }
+        if (prev_inst.ty.isFloat() and next_inst.ty.isFloat()) {
+            if (prev_inst.ty.floatBits(self.target()) < next_inst.ty.floatBits(self.target())) {
+                prev_inst = next_inst;
+            }
+            continue;
+        }
 
         // TODO error notes pointing out each type
         return self.fail(scope, next_inst.src, "incompatible types: '{}' and '{}'", .{ prev_inst.ty, next_inst.ty });
@@ -3762,4 +3820,128 @@ pub const ErrorMsg = struct {
 
 fn srcHashEql(a: std.zig.SrcHash, b: std.zig.SrcHash) bool {
     return @bitCast(u128, a) == @bitCast(u128, b);
+}
+
+fn intAdd(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
+    // TODO is this a performance issue? maybe we should try the operation without
+    // resorting to BigInt first.
+    var lhs_space: Value.BigIntSpace = undefined;
+    var rhs_space: Value.BigIntSpace = undefined;
+    const lhs_bigint = lhs.toBigInt(&lhs_space);
+    const rhs_bigint = rhs.toBigInt(&rhs_space);
+    const limbs = try allocator.alloc(
+        std.math.big.Limb,
+        std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
+    );
+    var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+    result_bigint.add(lhs_bigint, rhs_bigint);
+    const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+    const val_payload = if (result_bigint.positive) blk: {
+        const val_payload = try allocator.create(Value.Payload.IntBigPositive);
+        val_payload.* = .{ .limbs = result_limbs };
+        break :blk &val_payload.base;
+    } else blk: {
+        const val_payload = try allocator.create(Value.Payload.IntBigNegative);
+        val_payload.* = .{ .limbs = result_limbs };
+        break :blk &val_payload.base;
+    };
+
+    return Value.initPayload(val_payload);
+}
+
+fn intSub(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
+    // TODO is this a performance issue? maybe we should try the operation without
+    // resorting to BigInt first.
+    var lhs_space: Value.BigIntSpace = undefined;
+    var rhs_space: Value.BigIntSpace = undefined;
+    const lhs_bigint = lhs.toBigInt(&lhs_space);
+    const rhs_bigint = rhs.toBigInt(&rhs_space);
+    const limbs = try allocator.alloc(
+        std.math.big.Limb,
+        std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
+    );
+    var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+    result_bigint.sub(lhs_bigint, rhs_bigint);
+    const result_limbs = result_bigint.limbs[0..result_bigint.len];
+
+    const val_payload = if (result_bigint.positive) blk: {
+        const val_payload = try allocator.create(Value.Payload.IntBigPositive);
+        val_payload.* = .{ .limbs = result_limbs };
+        break :blk &val_payload.base;
+    } else blk: {
+        const val_payload = try allocator.create(Value.Payload.IntBigNegative);
+        val_payload.* = .{ .limbs = result_limbs };
+        break :blk &val_payload.base;
+    };
+
+    return Value.initPayload(val_payload);
+}
+
+fn floatAdd(self: *Module, scope: *Scope, float_type: Type, inst: *zir.Inst.BinOp, lhs: Value, rhs: Value) !Value {
+    var bit_count = switch (float_type.tag()) {
+        .comptime_float => 128,
+        else => float_type.floatBits(self.target()),
+    };
+
+    const allocator = scope.arena();
+    const val_payload = switch (bit_count) {
+        16 => {
+            return self.fail(scope, inst.base.src, "TODO Implement addition for soft floats", .{});
+        },
+        32 => blk: {
+            const lhs_val = lhs.toFloat(f32);
+            const rhs_val = rhs.toFloat(f32);
+            const val_payload = try allocator.create(Value.Payload.Float_32);
+            val_payload.* = .{ .val = lhs_val + rhs_val };
+            break :blk &val_payload.base;
+        },
+        64 => blk: {
+            const lhs_val = lhs.toFloat(f64);
+            const rhs_val = rhs.toFloat(f64);
+            const val_payload = try allocator.create(Value.Payload.Float_64);
+            val_payload.* = .{ .val = lhs_val + rhs_val };
+            break :blk &val_payload.base;
+        },
+        128 => blk: {
+            return self.fail(scope, inst.base.src, "TODO Implement addition for big floats", .{});
+        },
+        else => unreachable,
+    };
+
+    return Value.initPayload(val_payload);
+}
+
+fn floatSub(self: *Module, scope: *Scope, float_type: Type, inst: *zir.Inst.BinOp, lhs: Value, rhs: Value) !Value {
+    var bit_count = switch (float_type.tag()) {
+        .comptime_float => 128,
+        else => float_type.floatBits(self.target()),
+    };
+
+    const allocator = scope.arena();
+    const val_payload = switch (bit_count) {
+        16 => {
+            return self.fail(scope, inst.base.src, "TODO Implement substraction for soft floats", .{});
+        },
+        32 => blk: {
+            const lhs_val = lhs.toFloat(f32);
+            const rhs_val = rhs.toFloat(f32);
+            const val_payload = try allocator.create(Value.Payload.Float_32);
+            val_payload.* = .{ .val = lhs_val - rhs_val };
+            break :blk &val_payload.base;
+        },
+        64 => blk: {
+            const lhs_val = lhs.toFloat(f64);
+            const rhs_val = rhs.toFloat(f64);
+            const val_payload = try allocator.create(Value.Payload.Float_64);
+            val_payload.* = .{ .val = lhs_val - rhs_val };
+            break :blk &val_payload.base;
+        },
+        128 => blk: {
+            return self.fail(scope, inst.base.src, "TODO Implement substraction for big floats", .{});
+        },
+        else => unreachable,
+    };
+
+    return Value.initPayload(val_payload);
 }
