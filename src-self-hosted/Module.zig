@@ -3087,7 +3087,7 @@ fn analyzeInstArithmetic(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) In
 
     if (casted_lhs.value()) |lhs_val| {
         if (casted_rhs.value()) |rhs_val| {
-            return self.analyzeInstScalar(scope, scalar_type, inst, lhs_val, rhs_val);
+            return self.analyzeInstComptimeOp(scope, scalar_type, inst, lhs_val, rhs_val);
         }
     }
 
@@ -3102,7 +3102,7 @@ fn analyzeInstArithmetic(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) In
 }
 
 /// Analyzes operands that are known at comptime
-fn analyzeInstScalar(self: *Module, scope: *Scope, res_type: Type, inst: *zir.Inst.BinOp, lhs_val: Value, rhs_val: Value) InnerError!*Inst {
+fn analyzeInstComptimeOp(self: *Module, scope: *Scope, res_type: Type, inst: *zir.Inst.BinOp, lhs_val: Value, rhs_val: Value) InnerError!*Inst {
     // incase rhs is 0, simply return lhs without doing any calculations
     // TODO Once division is implemented we should throw an error when dividing by 0.
     if (rhs_val.tag() == .zero or rhs_val.tag() == .the_one_possible_value) {
@@ -3116,16 +3116,16 @@ fn analyzeInstScalar(self: *Module, scope: *Scope, res_type: Type, inst: *zir.In
     const value = try switch (inst.base.tag) {
         .add => blk: {
             const val = if (is_int)
-                bigIntAdd(scope.arena(), lhs_val, rhs_val)
+                intAdd(scope.arena(), lhs_val, rhs_val)
             else
-                floatAdd(self.target(), scope.arena(), res_type, lhs_val, rhs_val);
+                self.floatAdd(scope, res_type, inst, lhs_val, rhs_val);
             break :blk val;
         },
         .sub => blk: {
             const val = if (is_int)
-                bigIntSub(scope.arena(), lhs_val, rhs_val)
+                intSub(scope.arena(), lhs_val, rhs_val)
             else
-                floatSub(self.target(), scope.arena(), res_type, lhs_val, rhs_val);
+                self.floatSub(scope, res_type, inst, lhs_val, rhs_val);
             break :blk val;
         },
         else => return self.fail(scope, inst.base.src, "TODO Implement arithmetic operand '{}'", .{@tagName(inst.base.tag)}),
@@ -3556,7 +3556,10 @@ fn resolvePeerTypes(self: *Module, scope: *Scope, instructions: []*Inst) !Type {
             prev_inst = next_inst;
             continue;
         }
-        if (prev_inst.ty.isInt() and next_inst.ty.isInt()) {
+        if (prev_inst.ty.isInt() and
+            next_inst.ty.isInt() and
+            prev_inst.ty.isSignedInt() == next_inst.ty.isSignedInt())
+        {
             if (prev_inst.ty.intInfo(self.target()).bits < next_inst.ty.intInfo(self.target()).bits) {
                 prev_inst = next_inst;
             }
@@ -3819,7 +3822,7 @@ fn srcHashEql(a: std.zig.SrcHash, b: std.zig.SrcHash) bool {
     return @bitCast(u128, a) == @bitCast(u128, b);
 }
 
-fn bigIntAdd(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
+fn intAdd(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
     // TODO is this a performance issue? maybe we should try the operation without
     // resorting to BigInt first.
     var lhs_space: Value.BigIntSpace = undefined;
@@ -3847,7 +3850,7 @@ fn bigIntAdd(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
     return Value.initPayload(val_payload);
 }
 
-fn bigIntSub(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
+fn intSub(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
     // TODO is this a performance issue? maybe we should try the operation without
     // resorting to BigInt first.
     var lhs_space: Value.BigIntSpace = undefined;
@@ -3875,15 +3878,16 @@ fn bigIntSub(allocator: *Allocator, lhs: Value, rhs: Value) !Value {
     return Value.initPayload(val_payload);
 }
 
-fn floatAdd(cur_target: Target, allocator: *Allocator, float_type: Type, lhs: Value, rhs: Value) !Value {
+fn floatAdd(self: *Module, scope: *Scope, float_type: Type, inst: *zir.Inst.BinOp, lhs: Value, rhs: Value) !Value {
     var bit_count = switch (float_type.tag()) {
         .comptime_float => 128,
-        else => float_type.floatBits(cur_target),
+        else => float_type.floatBits(self.target()),
     };
 
+    const allocator = scope.arena();
     const val_payload = switch (bit_count) {
         16 => {
-            @panic("TODO soft float");
+            return self.fail(scope, inst.base.src, "TODO Implement addition for soft floats", .{});
         },
         32 => blk: {
             const lhs_val = lhs.toFloat(f32);
@@ -3900,7 +3904,7 @@ fn floatAdd(cur_target: Target, allocator: *Allocator, float_type: Type, lhs: Va
             break :blk &val_payload.base;
         },
         128 => blk: {
-            @panic("TODO Big float");
+            return self.fail(scope, inst.base.src, "TODO Implement addition for big floats", .{});
         },
         else => unreachable,
     };
@@ -3908,15 +3912,16 @@ fn floatAdd(cur_target: Target, allocator: *Allocator, float_type: Type, lhs: Va
     return Value.initPayload(val_payload);
 }
 
-fn floatSub(cur_target: Target, allocator: *Allocator, float_type: Type, lhs: Value, rhs: Value) !Value {
+fn floatSub(self: *Module, scope: *Scope, float_type: Type, inst: *zir.Inst.BinOp, lhs: Value, rhs: Value) !Value {
     var bit_count = switch (float_type.tag()) {
         .comptime_float => 128,
-        else => float_type.floatBits(cur_target),
+        else => float_type.floatBits(self.target()),
     };
 
+    const allocator = scope.arena();
     const val_payload = switch (bit_count) {
         16 => {
-            @panic("TODO soft float");
+            return self.fail(scope, inst.base.src, "TODO Implement substraction for soft floats", .{});
         },
         32 => blk: {
             const lhs_val = lhs.toFloat(f32);
@@ -3933,7 +3938,7 @@ fn floatSub(cur_target: Target, allocator: *Allocator, float_type: Type, lhs: Va
             break :blk &val_payload.base;
         },
         128 => blk: {
-            @panic("TODO Big float");
+            return self.fail(scope, inst.base.src, "TODO Implement substraction for big floats", .{});
         },
         else => unreachable,
     };
