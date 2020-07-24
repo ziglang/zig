@@ -17,8 +17,7 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   mv dist "$DIRNAME"
   7z a "$TARBALL" "$DIRNAME"
 
-  cp "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
-  cp "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/AppData/Roaming/s3cmd.ini"
+  mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
   s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$TARBALL" s3://ziglang.org/builds/
 
   SHASUM=$(sha256sum $TARBALL | cut '-d ' -f1)
