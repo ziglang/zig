@@ -9,35 +9,35 @@
 
 find_path(LLVM_INCLUDE_DIRS NAMES llvm/IR/IRBuilder.h
   PATHS
-    /usr/lib/llvm/10/include
-    /usr/lib/llvm-10/include
-    /usr/lib/llvm-10.0/include
-    /usr/local/llvm10/include
-    /usr/local/llvm100/include
+    /usr/lib/llvm/11/include
+    /usr/lib/llvm-11/include
+    /usr/lib/llvm-11.0/include
+    /usr/local/llvm11/include
+    /usr/local/llvm110/include
     /mingw64/include
 )
 
 if(ZIG_PREFER_CLANG_CPP_DYLIB)
   find_library(LLVM_LIBRARIES
     NAMES
-      LLVM-10.0
-      LLVM-10
-      LLVM-100
+      LLVM-11.0
+      LLVM-11
+      LLVM-110
       LLVM
     PATHS
       ${LLVM_LIBDIRS}
-      /usr/lib/llvm-10/lib
-      /usr/local/llvm10/lib
-      /usr/local/llvm100/lib
+      /usr/lib/llvm-11/lib
+      /usr/local/llvm11/lib
+      /usr/local/llvm110/lib
   )
 elseif("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
   find_program(LLVM_CONFIG_EXE
-      NAMES llvm-config-10 llvm-config-10.0 llvm-config100 llvm-config10 llvm-config
+      NAMES llvm-config-11 llvm-config-11.0 llvm-config110 llvm-config11 llvm-config
       PATHS
           "/mingw64/bin"
           "/c/msys64/mingw64/bin"
           "c:/msys64/mingw64/bin"
-          "C:/Libraries/llvm-10.0.0/bin")
+          "C:/Libraries/llvm-11.0.0/bin")
 
   if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
     message(FATAL_ERROR "unable to find llvm-config")
@@ -52,14 +52,14 @@ elseif("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
     OUTPUT_VARIABLE LLVM_CONFIG_VERSION
     OUTPUT_STRIP_TRAILING_WHITESPACE)
 
-  if("${LLVM_CONFIG_VERSION}" VERSION_LESS 10)
-    message(FATAL_ERROR "expected LLVM 10.x but found ${LLVM_CONFIG_VERSION}")
+  if("${LLVM_CONFIG_VERSION}" VERSION_LESS 11)
+    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION}")
   endif()
-  if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 11)
-    message(FATAL_ERROR "expected LLVM 10.x but found ${LLVM_CONFIG_VERSION}")
+  if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 12)
+    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION}")
   endif()
   if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 11)
-    message(FATAL_ERROR "expected LLVM 10.x but found ${LLVM_CONFIG_VERSION}")
+    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION}")
   endif()
 
   execute_process(
@@ -132,7 +132,7 @@ elseif("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
   set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS})
 
   if(NOT LLVM_LIBRARIES)
-    find_library(LLVM_LIBRARIES NAMES LLVM LLVM-10 LLVM-10.0)
+    find_library(LLVM_LIBRARIES NAMES LLVM LLVM-11 LLVM-11.0)
   endif()
 
   link_directories("${CMAKE_PREFIX_PATH}/lib")
@@ -147,11 +147,11 @@ else()
     find_library(LLVM_${_prettylibname_}_LIB NAMES ${_libname_}
       PATHS
       ${LLVM_LIBDIRS}
-      /usr/lib/llvm/10/lib
-      /usr/lib/llvm-10/lib
-      /usr/lib/llvm-10.0/lib
-      /usr/local/llvm100/lib
-      /usr/local/llvm10/lib
+      /usr/lib/llvm/11/lib
+      /usr/lib/llvm-11/lib
+      /usr/lib/llvm-11.0/lib
+      /usr/local/llvm110/lib
+      /usr/local/llvm11/lib
       /mingw64/lib
       /c/msys64/mingw64/lib
       c:\\msys64\\mingw64\\lib)
