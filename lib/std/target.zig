@@ -436,6 +436,8 @@ pub const Target = struct {
         macho,
         wasm,
         c,
+        hex,
+        raw,
     };
 
     pub const SubSystem = enum {

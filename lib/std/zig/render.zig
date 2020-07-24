@@ -366,10 +366,32 @@ fn renderExpression(
     space: Space,
 ) (@TypeOf(stream).Error || Error)!void {
     switch (base.tag) {
-        .Identifier => {
-            const identifier = @fieldParentPtr(ast.Node.Identifier, "base", base);
-            return renderToken(tree, stream, identifier.token, indent, start_col, space);
+        .Identifier,
+        .IntegerLiteral,
+        .FloatLiteral,
+        .StringLiteral,
+        .CharLiteral,
+        .BoolLiteral,
+        .NullLiteral,
+        .Unreachable,
+        .ErrorType,
+        .UndefinedLiteral,
+        => {
+            const casted_node = base.cast(ast.Node.OneToken).?;
+            return renderToken(tree, stream, casted_node.token, indent, start_col, space);
         },
+
+        .AnyType => {
+            const any_type = base.castTag(.AnyType).?;
+            if (mem.eql(u8, tree.tokenSlice(any_type.token), "var")) {
+                // TODO remove in next release cycle
+                try stream.writeAll("anytype");
+                if (space == .Comma) try stream.writeAll(",\n");
+                return;
+            }
+            return renderToken(tree, stream, any_type.token, indent, start_col, space);
+        },
+
         .Block => {
             const block = @fieldParentPtr(ast.Node.Block, "base", base);
 
@@ -399,6 +421,7 @@ fn renderExpression(
                 return renderToken(tree, stream, block.rbrace, indent, start_col, space);
             }
         },
+
         .Defer => {
             const defer_node = @fieldParentPtr(ast.Node.Defer, "base", base);
 
@@ -1107,50 +1130,48 @@ fn renderExpression(
             return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space); // ?
         },
 
-        .ControlFlowExpression => {
-            const flow_expr = @fieldParentPtr(ast.Node.ControlFlowExpression, "base", base);
+        .Break => {
+            const flow_expr = base.castTag(.Break).?;
+            const maybe_rhs = flow_expr.getRHS();
+            const maybe_label = flow_expr.getLabel();
 
-            switch (flow_expr.kind) {
-                .Break => |maybe_label| {
-                    if (maybe_label == null and flow_expr.rhs == null) {
-                        return renderToken(tree, stream, flow_expr.ltoken, indent, start_col, space); // break
-                    }
-
-                    try renderToken(tree, stream, flow_expr.ltoken, indent, start_col, Space.Space); // break
-                    if (maybe_label) |label| {
-                        const colon = tree.nextToken(flow_expr.ltoken);
-                        try renderToken(tree, stream, colon, indent, start_col, Space.None); // :
-
-                        if (flow_expr.rhs == null) {
-                            return renderExpression(allocator, stream, tree, indent, start_col, label, space); // label
-                        }
-                        try renderExpression(allocator, stream, tree, indent, start_col, label, Space.Space); // label
-                    }
-                },
-                .Continue => |maybe_label| {
-                    assert(flow_expr.rhs == null);
-
-                    if (maybe_label == null and flow_expr.rhs == null) {
-                        return renderToken(tree, stream, flow_expr.ltoken, indent, start_col, space); // continue
-                    }
-
-                    try renderToken(tree, stream, flow_expr.ltoken, indent, start_col, Space.Space); // continue
-                    if (maybe_label) |label| {
-                        const colon = tree.nextToken(flow_expr.ltoken);
-                        try renderToken(tree, stream, colon, indent, start_col, Space.None); // :
-
-                        return renderExpression(allocator, stream, tree, indent, start_col, label, space);
-                    }
-                },
-                .Return => {
-                    if (flow_expr.rhs == null) {
-                        return renderToken(tree, stream, flow_expr.ltoken, indent, start_col, space);
-                    }
-                    try renderToken(tree, stream, flow_expr.ltoken, indent, start_col, Space.Space);
-                },
+            if (maybe_label == null and maybe_rhs == null) {
+                return renderToken(tree, stream, flow_expr.ltoken, indent, start_col, space); // break
             }
 
-            return renderExpression(allocator, stream, tree, indent, start_col, flow_expr.rhs.?, space);
+            try renderToken(tree, stream, flow_expr.ltoken, indent, start_col, Space.Space); // break
+            if (maybe_label) |label| {
+                const colon = tree.nextToken(flow_expr.ltoken);
+                try renderToken(tree, stream, colon, indent, start_col, Space.None); // :
+
+                if (maybe_rhs == null) {
+                    return renderToken(tree, stream, label, indent, start_col, space); // label
+                }
+                try renderToken(tree, stream, label, indent, start_col, Space.Space); // label
+            }
+            return renderExpression(allocator, stream, tree, indent, start_col, maybe_rhs.?, space);
+        },
+
+        .Continue => {
+            const flow_expr = base.castTag(.Continue).?;
+            if (flow_expr.getLabel()) |label| {
+                try renderToken(tree, stream, flow_expr.ltoken, indent, start_col, Space.Space); // continue
+                const colon = tree.nextToken(flow_expr.ltoken);
+                try renderToken(tree, stream, colon, indent, start_col, Space.None); // :
+                return renderToken(tree, stream, label, indent, start_col, space); // label
+            } else {
+                return renderToken(tree, stream, flow_expr.ltoken, indent, start_col, space); // continue
+            }
+        },
+
+        .Return => {
+            const flow_expr = base.castTag(.Return).?;
+            if (flow_expr.getRHS()) |rhs| {
+                try renderToken(tree, stream, flow_expr.ltoken, indent, start_col, Space.Space);
+                return renderExpression(allocator, stream, tree, indent, start_col, rhs, space);
+            } else {
+                return renderToken(tree, stream, flow_expr.ltoken, indent, start_col, space);
+            }
         },
 
         .Payload => {
@@ -1208,48 +1229,6 @@ fn renderExpression(
             return renderExpression(allocator, stream, tree, indent, start_col, field_init.expr, space);
         },
 
-        .IntegerLiteral => {
-            const integer_literal = @fieldParentPtr(ast.Node.IntegerLiteral, "base", base);
-            return renderToken(tree, stream, integer_literal.token, indent, start_col, space);
-        },
-        .FloatLiteral => {
-            const float_literal = @fieldParentPtr(ast.Node.FloatLiteral, "base", base);
-            return renderToken(tree, stream, float_literal.token, indent, start_col, space);
-        },
-        .StringLiteral => {
-            const string_literal = @fieldParentPtr(ast.Node.StringLiteral, "base", base);
-            return renderToken(tree, stream, string_literal.token, indent, start_col, space);
-        },
-        .CharLiteral => {
-            const char_literal = @fieldParentPtr(ast.Node.CharLiteral, "base", base);
-            return renderToken(tree, stream, char_literal.token, indent, start_col, space);
-        },
-        .BoolLiteral => {
-            const bool_literal = @fieldParentPtr(ast.Node.CharLiteral, "base", base);
-            return renderToken(tree, stream, bool_literal.token, indent, start_col, space);
-        },
-        .NullLiteral => {
-            const null_literal = @fieldParentPtr(ast.Node.NullLiteral, "base", base);
-            return renderToken(tree, stream, null_literal.token, indent, start_col, space);
-        },
-        .Unreachable => {
-            const unreachable_node = @fieldParentPtr(ast.Node.Unreachable, "base", base);
-            return renderToken(tree, stream, unreachable_node.token, indent, start_col, space);
-        },
-        .ErrorType => {
-            const error_type = @fieldParentPtr(ast.Node.ErrorType, "base", base);
-            return renderToken(tree, stream, error_type.token, indent, start_col, space);
-        },
-        .AnyType => {
-            const any_type = @fieldParentPtr(ast.Node.AnyType, "base", base);
-            if (mem.eql(u8, tree.tokenSlice(any_type.token), "var")) {
-                // TODO remove in next release cycle
-                try stream.writeAll("anytype");
-                if (space == .Comma) try stream.writeAll(",\n");
-                return;
-            }
-            return renderToken(tree, stream, any_type.token, indent, start_col, space);
-        },
         .ContainerDecl => {
             const container_decl = @fieldParentPtr(ast.Node.ContainerDecl, "base", base);
 
@@ -1467,10 +1446,6 @@ fn renderExpression(
                 skip_first_indent = false;
             }
             try stream.writeByteNTimes(' ', indent);
-        },
-        .UndefinedLiteral => {
-            const undefined_literal = @fieldParentPtr(ast.Node.UndefinedLiteral, "base", base);
-            return renderToken(tree, stream, undefined_literal.token, indent, start_col, space);
         },
 
         .BuiltinCall => {

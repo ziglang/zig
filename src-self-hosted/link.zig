@@ -1579,6 +1579,8 @@ pub fn createElfFile(allocator: *Allocator, file: fs.File, options: Options) !Fi
         .elf => {},
         .macho => return error.TODOImplementWritingMachO,
         .wasm => return error.TODOImplementWritingWasmObjects,
+        .hex => return error.TODOImplementWritingHex,
+        .raw => return error.TODOImplementWritingRaw,
     }
 
     var self: File.Elf = .{
@@ -1638,6 +1640,8 @@ fn openBinFileInner(allocator: *Allocator, file: fs.File, options: Options) !Fil
         .elf => {},
         .macho => return error.IncrFailed,
         .wasm => return error.IncrFailed,
+        .hex => return error.IncrFailed,
+        .raw => return error.IncrFailed,
     }
     var self: File.Elf = .{
         .allocator = allocator,

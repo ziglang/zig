@@ -90,7 +90,7 @@ fn genFn(file: *C, decl: *Decl) !void {
     const instructions = func.analysis.success.instructions;
     if (instructions.len > 0) {
         for (instructions) |inst| {
-            try writer.writeAll("\n\t");
+            try writer.writeAll("\n    ");
             switch (inst.tag) {
                 .assembly => try genAsm(file, inst.castTag(.assembly).?, decl),
                 .call => try genCall(file, inst.castTag(.call).?, decl),
@@ -106,21 +106,7 @@ fn genFn(file: *C, decl: *Decl) !void {
 }
 
 fn genRet(file: *C, inst: *Inst.UnOp, decl: *Decl, expected_return_type: Type) !void {
-    const writer = file.main.writer();
-    const ret_value = inst.operand;
-    const value = ret_value.value().?;
-    if (expected_return_type.eql(ret_value.ty))
-        return file.fail(decl.src(), "TODO return {}", .{expected_return_type})
-    else if (expected_return_type.isInt() and ret_value.ty.tag() == .comptime_int)
-        if (value.intFitsInType(expected_return_type, file.options.target))
-            if (expected_return_type.intInfo(file.options.target).bits <= 64)
-                try writer.print("return {};", .{value.toUnsignedInt()})
-            else
-                return file.fail(decl.src(), "TODO return ints > 64 bits", .{})
-        else
-            return file.fail(decl.src(), "comptime int {} does not fit in {}", .{ value.toUnsignedInt(), expected_return_type })
-    else
-        return file.fail(decl.src(), "return type mismatch: expected {}, found {}", .{ expected_return_type, ret_value.ty });
+    return file.fail(decl.src(), "TODO return {}", .{expected_return_type});
 }
 
 fn genCall(file: *C, inst: *Inst.Call, decl: *Decl) !void {
@@ -162,7 +148,7 @@ fn genAsm(file: *C, as: *Inst.Assembly, decl: *Decl) !void {
                 if (c.val.tag() == .int_u64) {
                     try writer.writeAll("register ");
                     try renderType(file, writer, arg.ty, decl.src());
-                    try writer.print(" {}_constant __asm__(\"{}\") = {};\n\t", .{ reg, reg, c.val.toUnsignedInt() });
+                    try writer.print(" {}_constant __asm__(\"{}\") = {};\n    ", .{ reg, reg, c.val.toUnsignedInt() });
                 } else {
                     return file.fail(decl.src(), "TODO inline asm {} args", .{c.val.tag()});
                 }

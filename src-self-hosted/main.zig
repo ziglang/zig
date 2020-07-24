@@ -141,11 +141,19 @@ const usage_build_generic =
     \\  --name [name]             Override output name
     \\  --mode [mode]             Set the build mode
     \\    Debug                   (default) optimizations off, safety on
-    \\    ReleaseFast             optimizations on, safety off
-    \\    ReleaseSafe             optimizations on, safety on
-    \\    ReleaseSmall            optimize for small binary, safety off
+    \\    ReleaseFast             Optimizations on, safety off
+    \\    ReleaseSafe             Optimizations on, safety on
+    \\    ReleaseSmall            Optimize for small binary, safety off
     \\  --dynamic                 Force output to be dynamically linked
     \\  --strip                   Exclude debug symbols
+    \\  -ofmt=[mode]              Override target object format
+    \\    elf                     Executable and Linking Format
+    \\    c                       Compile to C source code
+    \\    coff   (planned)        Common Object File Format (Windows)
+    \\    pe     (planned)        Portable Executable (Windows)
+    \\    macho  (planned)        macOS relocatables
+    \\    hex    (planned)        Intel IHEX
+    \\    raw    (planned)        Dump machine code directly
     \\
     \\Link Options:
     \\  -l[lib], --library [lib]  Link against system library
@@ -195,7 +203,7 @@ fn buildOutputType(
     var target_arch_os_abi: []const u8 = "native";
     var target_mcpu: ?[]const u8 = null;
     var target_dynamic_linker: ?[]const u8 = null;
-    var object_format: ?std.builtin.ObjectFormat = null;
+    var target_ofmt: ?[]const u8 = null;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -282,12 +290,8 @@ fn buildOutputType(
                     }
                     i += 1;
                     target_mcpu = args[i];
-                } else if (mem.eql(u8, arg, "--c")) {
-                    if (object_format) |old| {
-                        std.debug.print("attempted to override object format {} with C\n", .{old});
-                        process.exit(1);
-                    }
-                    object_format = .c;
+                } else if (mem.startsWith(u8, arg, "-ofmt=")) {
+                    target_ofmt = arg["-ofmt=".len..];
                 } else if (mem.startsWith(u8, arg, "-mcpu=")) {
                     target_mcpu = arg["-mcpu=".len..];
                 } else if (mem.eql(u8, arg, "--dynamic-linker")) {
@@ -432,6 +436,30 @@ fn buildOutputType(
     const src_path = root_src_file orelse {
         std.debug.print("expected at least one file argument", .{});
         process.exit(1);
+    };
+
+    const object_format: ?std.Target.ObjectFormat = blk: {
+        const ofmt = target_ofmt orelse break :blk null;
+        if (mem.eql(u8, ofmt, "elf")) {
+            break :blk .elf;
+        } else if (mem.eql(u8, ofmt, "c")) {
+            break :blk .c;
+        } else if (mem.eql(u8, ofmt, "coff")) {
+            break :blk .coff;
+        } else if (mem.eql(u8, ofmt, "pe")) {
+            break :blk .coff;
+        } else if (mem.eql(u8, ofmt, "macho")) {
+            break :blk .macho;
+        } else if (mem.eql(u8, ofmt, "wasm")) {
+            break :blk .wasm;
+        } else if (mem.eql(u8, ofmt, "hex")) {
+            break :blk .hex;
+        } else if (mem.eql(u8, ofmt, "raw")) {
+            break :blk .raw;
+        } else {
+            std.debug.print("unsupported object format: {}", .{ofmt});
+            process.exit(1);
+        }
     };
 
     const bin_path = switch (emit_bin) {

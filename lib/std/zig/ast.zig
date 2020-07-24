@@ -495,8 +495,10 @@ pub const Node = struct {
         While,
         For,
         If,
-        ControlFlowExpression,
         Suspend,
+        Continue,
+        Break,
+        Return,
 
         // Type expressions
         AnyType,
@@ -601,6 +603,24 @@ pub const Node = struct {
                 .Try,
                 => SimplePrefixOp,
 
+                .Identifier,
+                .BoolLiteral,
+                .NullLiteral,
+                .UndefinedLiteral,
+                .Unreachable,
+                .AnyType,
+                .ErrorType,
+                .IntegerLiteral,
+                .FloatLiteral,
+                .StringLiteral,
+                .CharLiteral,
+                => OneToken,
+
+                .Continue,
+                .Break,
+                .Return,
+                => ControlFlowExpression,
+
                 .ArrayType => ArrayType,
                 .ArrayTypeSentinel => ArrayTypeSentinel,
 
@@ -621,23 +641,11 @@ pub const Node = struct {
                 .While => While,
                 .For => For,
                 .If => If,
-                .ControlFlowExpression => ControlFlowExpression,
                 .Suspend => Suspend,
-                .AnyType => AnyType,
-                .ErrorType => ErrorType,
                 .FnProto => FnProto,
                 .AnyFrameType => AnyFrameType,
-                .IntegerLiteral => IntegerLiteral,
-                .FloatLiteral => FloatLiteral,
                 .EnumLiteral => EnumLiteral,
-                .StringLiteral => StringLiteral,
                 .MultilineStringLiteral => MultilineStringLiteral,
-                .CharLiteral => CharLiteral,
-                .BoolLiteral => BoolLiteral,
-                .NullLiteral => NullLiteral,
-                .UndefinedLiteral => UndefinedLiteral,
-                .Unreachable => Unreachable,
-                .Identifier => Identifier,
                 .GroupedExpression => GroupedExpression,
                 .BuiltinCall => BuiltinCall,
                 .ErrorSetDecl => ErrorSetDecl,
@@ -1182,19 +1190,19 @@ pub const Node = struct {
         }
     };
 
-    pub const Identifier = struct {
-        base: Node = Node{ .tag = .Identifier },
+    pub const OneToken = struct {
+        base: Node,
         token: TokenIndex,
 
-        pub fn iterate(self: *const Identifier, index: usize) ?*Node {
+        pub fn iterate(self: *const OneToken, index: usize) ?*Node {
             return null;
         }
 
-        pub fn firstToken(self: *const Identifier) TokenIndex {
+        pub fn firstToken(self: *const OneToken) TokenIndex {
             return self.token;
         }
 
-        pub fn lastToken(self: *const Identifier) TokenIndex {
+        pub fn lastToken(self: *const OneToken) TokenIndex {
             return self.token;
         }
     };
@@ -2569,34 +2577,65 @@ pub const Node = struct {
         }
     };
 
-    /// TODO break this into separate Break, Continue, Return AST Nodes to save memory.
-    /// Could be further broken into LabeledBreak, LabeledContinue, and ReturnVoid to save even more.
+    /// Trailed in memory by possibly many things, with each optional thing
+    /// determined by a bit in `trailer_flags`.
+    /// Can be: return, break, continue
     pub const ControlFlowExpression = struct {
-        base: Node = Node{ .tag = .ControlFlowExpression },
+        base: Node,
+        trailer_flags: TrailerFlags,
         ltoken: TokenIndex,
-        kind: Kind,
-        rhs: ?*Node,
 
-        pub const Kind = union(enum) {
-            Break: ?*Node,
-            Continue: ?*Node,
-            Return,
+        pub const TrailerFlags = std.meta.TrailerFlags(struct {
+            rhs: *Node,
+            label: TokenIndex,
+        });
+
+        pub const RequiredFields = struct {
+            tag: Tag,
+            ltoken: TokenIndex,
         };
+
+        pub fn getRHS(self: *const ControlFlowExpression) ?*Node {
+            return self.getTrailer("rhs");
+        }
+
+        pub fn getLabel(self: *const ControlFlowExpression) ?TokenIndex {
+            return self.getTrailer("label");
+        }
+
+        pub fn getTrailer(self: *const ControlFlowExpression, comptime name: []const u8) ?TrailerFlags.Field(name) {
+            const trailers_start = @ptrCast([*]const u8, self) + @sizeOf(ControlFlowExpression);
+            return self.trailer_flags.get(trailers_start, name);
+        }
+
+        pub fn setTrailer(self: *ControlFlowExpression, comptime name: []const u8, value: TrailerFlags.Field(name)) void {
+            const trailers_start = @ptrCast([*]u8, self) + @sizeOf(ControlFlowExpression);
+            self.trailer_flags.set(trailers_start, name, value);
+        }
+
+        pub fn create(allocator: *mem.Allocator, required: RequiredFields, trailers: anytype) !*ControlFlowExpression {
+            const trailer_flags = TrailerFlags.init(trailers);
+            const bytes = try allocator.alignedAlloc(u8, @alignOf(ControlFlowExpression), sizeInBytes(trailer_flags));
+            const ctrl_flow_expr = @ptrCast(*ControlFlowExpression, bytes.ptr);
+            ctrl_flow_expr.* = .{
+                .base = .{ .tag = required.tag },
+                .trailer_flags = trailer_flags,
+                .ltoken = required.ltoken,
+            };
+            const trailers_start = bytes.ptr + @sizeOf(ControlFlowExpression);
+            trailer_flags.setMany(trailers_start, trailers);
+            return ctrl_flow_expr;
+        }
+
+        pub fn destroy(self: *ControlFlowExpression, allocator: *mem.Allocator) void {
+            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.trailer_flags)];
+            allocator.free(bytes);
+        }
 
         pub fn iterate(self: *const ControlFlowExpression, index: usize) ?*Node {
             var i = index;
 
-            switch (self.kind) {
-                .Break, .Continue => |maybe_label| {
-                    if (maybe_label) |label| {
-                        if (i < 1) return label;
-                        i -= 1;
-                    }
-                },
-                .Return => {},
-            }
-
-            if (self.rhs) |rhs| {
+            if (self.getRHS()) |rhs| {
                 if (i < 1) return rhs;
                 i -= 1;
             }
@@ -2609,20 +2648,19 @@ pub const Node = struct {
         }
 
         pub fn lastToken(self: *const ControlFlowExpression) TokenIndex {
-            if (self.rhs) |rhs| {
+            if (self.getRHS()) |rhs| {
                 return rhs.lastToken();
             }
 
-            switch (self.kind) {
-                .Break, .Continue => |maybe_label| {
-                    if (maybe_label) |label| {
-                        return label.lastToken();
-                    }
-                },
-                .Return => return self.ltoken,
+            if (self.getLabel()) |label| {
+                return label;
             }
 
             return self.ltoken;
+        }
+
+        fn sizeInBytes(trailer_flags: TrailerFlags) usize {
+            return @sizeOf(ControlFlowExpression) + trailer_flags.sizeInBytes();
         }
     };
 
@@ -2655,23 +2693,6 @@ pub const Node = struct {
         }
     };
 
-    pub const IntegerLiteral = struct {
-        base: Node = Node{ .tag = .IntegerLiteral },
-        token: TokenIndex,
-
-        pub fn iterate(self: *const IntegerLiteral, index: usize) ?*Node {
-            return null;
-        }
-
-        pub fn firstToken(self: *const IntegerLiteral) TokenIndex {
-            return self.token;
-        }
-
-        pub fn lastToken(self: *const IntegerLiteral) TokenIndex {
-            return self.token;
-        }
-    };
-
     pub const EnumLiteral = struct {
         base: Node = Node{ .tag = .EnumLiteral },
         dot: TokenIndex,
@@ -2687,23 +2708,6 @@ pub const Node = struct {
 
         pub fn lastToken(self: *const EnumLiteral) TokenIndex {
             return self.name;
-        }
-    };
-
-    pub const FloatLiteral = struct {
-        base: Node = Node{ .tag = .FloatLiteral },
-        token: TokenIndex,
-
-        pub fn iterate(self: *const FloatLiteral, index: usize) ?*Node {
-            return null;
-        }
-
-        pub fn firstToken(self: *const FloatLiteral) TokenIndex {
-            return self.token;
-        }
-
-        pub fn lastToken(self: *const FloatLiteral) TokenIndex {
-            return self.token;
         }
     };
 
@@ -2757,23 +2761,6 @@ pub const Node = struct {
         }
     };
 
-    pub const StringLiteral = struct {
-        base: Node = Node{ .tag = .StringLiteral },
-        token: TokenIndex,
-
-        pub fn iterate(self: *const StringLiteral, index: usize) ?*Node {
-            return null;
-        }
-
-        pub fn firstToken(self: *const StringLiteral) TokenIndex {
-            return self.token;
-        }
-
-        pub fn lastToken(self: *const StringLiteral) TokenIndex {
-            return self.token;
-        }
-    };
-
     /// The string literal tokens appear directly in memory after MultilineStringLiteral.
     pub const MultilineStringLiteral = struct {
         base: Node = Node{ .tag = .MultilineStringLiteral },
@@ -2817,74 +2804,6 @@ pub const Node = struct {
         }
     };
 
-    pub const CharLiteral = struct {
-        base: Node = Node{ .tag = .CharLiteral },
-        token: TokenIndex,
-
-        pub fn iterate(self: *const CharLiteral, index: usize) ?*Node {
-            return null;
-        }
-
-        pub fn firstToken(self: *const CharLiteral) TokenIndex {
-            return self.token;
-        }
-
-        pub fn lastToken(self: *const CharLiteral) TokenIndex {
-            return self.token;
-        }
-    };
-
-    pub const BoolLiteral = struct {
-        base: Node = Node{ .tag = .BoolLiteral },
-        token: TokenIndex,
-
-        pub fn iterate(self: *const BoolLiteral, index: usize) ?*Node {
-            return null;
-        }
-
-        pub fn firstToken(self: *const BoolLiteral) TokenIndex {
-            return self.token;
-        }
-
-        pub fn lastToken(self: *const BoolLiteral) TokenIndex {
-            return self.token;
-        }
-    };
-
-    pub const NullLiteral = struct {
-        base: Node = Node{ .tag = .NullLiteral },
-        token: TokenIndex,
-
-        pub fn iterate(self: *const NullLiteral, index: usize) ?*Node {
-            return null;
-        }
-
-        pub fn firstToken(self: *const NullLiteral) TokenIndex {
-            return self.token;
-        }
-
-        pub fn lastToken(self: *const NullLiteral) TokenIndex {
-            return self.token;
-        }
-    };
-
-    pub const UndefinedLiteral = struct {
-        base: Node = Node{ .tag = .UndefinedLiteral },
-        token: TokenIndex,
-
-        pub fn iterate(self: *const UndefinedLiteral, index: usize) ?*Node {
-            return null;
-        }
-
-        pub fn firstToken(self: *const UndefinedLiteral) TokenIndex {
-            return self.token;
-        }
-
-        pub fn lastToken(self: *const UndefinedLiteral) TokenIndex {
-            return self.token;
-        }
-    };
-
     pub const Asm = struct {
         base: Node = Node{ .tag = .Asm },
         asm_token: TokenIndex,
@@ -2904,7 +2823,7 @@ pub const Node = struct {
             rparen: TokenIndex,
 
             pub const Kind = union(enum) {
-                Variable: *Identifier,
+                Variable: *OneToken,
                 Return: *Node,
             };
 
@@ -3002,57 +2921,6 @@ pub const Node = struct {
 
         pub fn lastToken(self: *const Asm) TokenIndex {
             return self.rparen;
-        }
-    };
-
-    pub const Unreachable = struct {
-        base: Node = Node{ .tag = .Unreachable },
-        token: TokenIndex,
-
-        pub fn iterate(self: *const Unreachable, index: usize) ?*Node {
-            return null;
-        }
-
-        pub fn firstToken(self: *const Unreachable) TokenIndex {
-            return self.token;
-        }
-
-        pub fn lastToken(self: *const Unreachable) TokenIndex {
-            return self.token;
-        }
-    };
-
-    pub const ErrorType = struct {
-        base: Node = Node{ .tag = .ErrorType },
-        token: TokenIndex,
-
-        pub fn iterate(self: *const ErrorType, index: usize) ?*Node {
-            return null;
-        }
-
-        pub fn firstToken(self: *const ErrorType) TokenIndex {
-            return self.token;
-        }
-
-        pub fn lastToken(self: *const ErrorType) TokenIndex {
-            return self.token;
-        }
-    };
-
-    pub const AnyType = struct {
-        base: Node = Node{ .tag = .AnyType },
-        token: TokenIndex,
-
-        pub fn iterate(self: *const AnyType, index: usize) ?*Node {
-            return null;
-        }
-
-        pub fn firstToken(self: *const AnyType) TokenIndex {
-            return self.token;
-        }
-
-        pub fn lastToken(self: *const AnyType) TokenIndex {
-            return self.token;
         }
     };
 

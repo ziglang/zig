@@ -628,8 +628,11 @@ const Parser = struct {
         var type_expr: ?*Node = null;
         if (p.eatToken(.Colon)) |_| {
             if (p.eatToken(.Keyword_anytype) orelse p.eatToken(.Keyword_var)) |anytype_tok| {
-                const node = try p.arena.allocator.create(Node.AnyType);
-                node.* = .{ .token = anytype_tok };
+                const node = try p.arena.allocator.create(Node.OneToken);
+                node.* = .{
+                    .base = .{ .tag = .AnyType },
+                    .token = anytype_tok,
+                };
                 type_expr = &node.base;
             } else {
                 type_expr = try p.expectNode(parseTypeExpr, .{
@@ -1079,12 +1082,13 @@ const Parser = struct {
         if (p.eatToken(.Keyword_break)) |token| {
             const label = try p.parseBreakLabel();
             const expr_node = try p.parseExpr();
-            const node = try p.arena.allocator.create(Node.ControlFlowExpression);
-            node.* = .{
+            const node = try Node.ControlFlowExpression.create(&p.arena.allocator, .{
+                .tag = .Break,
                 .ltoken = token,
-                .kind = .{ .Break = label },
+            }, .{
+                .label = label,
                 .rhs = expr_node,
-            };
+            });
             return &node.base;
         }
 
@@ -1115,12 +1119,13 @@ const Parser = struct {
 
         if (p.eatToken(.Keyword_continue)) |token| {
             const label = try p.parseBreakLabel();
-            const node = try p.arena.allocator.create(Node.ControlFlowExpression);
-            node.* = .{
+            const node = try Node.ControlFlowExpression.create(&p.arena.allocator, .{
+                .tag = .Continue,
                 .ltoken = token,
-                .kind = .{ .Continue = label },
+            }, .{
+                .label = label,
                 .rhs = null,
-            };
+            });
             return &node.base;
         }
 
@@ -1139,12 +1144,12 @@ const Parser = struct {
 
         if (p.eatToken(.Keyword_return)) |token| {
             const expr_node = try p.parseExpr();
-            const node = try p.arena.allocator.create(Node.ControlFlowExpression);
-            node.* = .{
+            const node = try Node.ControlFlowExpression.create(&p.arena.allocator, .{
+                .tag = .Return,
                 .ltoken = token,
-                .kind = .Return,
+            }, .{
                 .rhs = expr_node,
-            };
+            });
             return &node.base;
         }
 
@@ -1516,8 +1521,9 @@ const Parser = struct {
     fn parsePrimaryTypeExpr(p: *Parser) !?*Node {
         if (try p.parseBuiltinCall()) |node| return node;
         if (p.eatToken(.CharLiteral)) |token| {
-            const node = try p.arena.allocator.create(Node.CharLiteral);
+            const node = try p.arena.allocator.create(Node.OneToken);
             node.* = .{
+                .base = .{ .tag = .CharLiteral },
                 .token = token,
             };
             return &node.base;
@@ -1547,7 +1553,7 @@ const Parser = struct {
             const identifier = try p.expectNodeRecoverable(parseIdentifier, .{
                 .ExpectedIdentifier = .{ .token = p.tok_i },
             });
-            const global_error_set = try p.createLiteral(Node.ErrorType, token);
+            const global_error_set = try p.createLiteral(.ErrorType, token);
             if (period == null or identifier == null) return global_error_set;
 
             const node = try p.arena.allocator.create(Node.SimpleInfixOp);
@@ -1559,8 +1565,8 @@ const Parser = struct {
             };
             return &node.base;
         }
-        if (p.eatToken(.Keyword_false)) |token| return p.createLiteral(Node.BoolLiteral, token);
-        if (p.eatToken(.Keyword_null)) |token| return p.createLiteral(Node.NullLiteral, token);
+        if (p.eatToken(.Keyword_false)) |token| return p.createLiteral(.BoolLiteral, token);
+        if (p.eatToken(.Keyword_null)) |token| return p.createLiteral(.NullLiteral, token);
         if (p.eatToken(.Keyword_anyframe)) |token| {
             const node = try p.arena.allocator.create(Node.AnyFrameType);
             node.* = .{
@@ -1569,9 +1575,9 @@ const Parser = struct {
             };
             return &node.base;
         }
-        if (p.eatToken(.Keyword_true)) |token| return p.createLiteral(Node.BoolLiteral, token);
-        if (p.eatToken(.Keyword_undefined)) |token| return p.createLiteral(Node.UndefinedLiteral, token);
-        if (p.eatToken(.Keyword_unreachable)) |token| return p.createLiteral(Node.Unreachable, token);
+        if (p.eatToken(.Keyword_true)) |token| return p.createLiteral(.BoolLiteral, token);
+        if (p.eatToken(.Keyword_undefined)) |token| return p.createLiteral(.UndefinedLiteral, token);
+        if (p.eatToken(.Keyword_unreachable)) |token| return p.createLiteral(.Unreachable, token);
         if (try p.parseStringLiteral()) |node| return node;
         if (try p.parseSwitchExpr()) |node| return node;
 
@@ -1865,7 +1871,7 @@ const Parser = struct {
             const variable = try p.expectNode(parseIdentifier, .{
                 .ExpectedIdentifier = .{ .token = p.tok_i },
             });
-            break :blk .{ .Variable = variable.cast(Node.Identifier).? };
+            break :blk .{ .Variable = variable.castTag(.Identifier).? };
         };
         const rparen = try p.expectToken(.RParen);
 
@@ -1906,11 +1912,10 @@ const Parser = struct {
     }
 
     /// BreakLabel <- COLON IDENTIFIER
-    fn parseBreakLabel(p: *Parser) !?*Node {
+    fn parseBreakLabel(p: *Parser) !?TokenIndex {
         _ = p.eatToken(.Colon) orelse return null;
-        return try p.expectNode(parseIdentifier, .{
-            .ExpectedIdentifier = .{ .token = p.tok_i },
-        });
+        const ident = try p.expectToken(.Identifier);
+        return ident;
     }
 
     /// BlockLabel <- IDENTIFIER COLON
@@ -3022,8 +3027,9 @@ const Parser = struct {
             });
 
             // lets pretend this was an identifier so we can continue parsing
-            const node = try p.arena.allocator.create(Node.Identifier);
+            const node = try p.arena.allocator.create(Node.OneToken);
             node.* = .{
+                .base = .{ .tag = .Identifier },
                 .token = token,
             };
             return &node.base;
@@ -3054,8 +3060,9 @@ const Parser = struct {
 
     fn parseIdentifier(p: *Parser) !?*Node {
         const token = p.eatToken(.Identifier) orelse return null;
-        const node = try p.arena.allocator.create(Node.Identifier);
+        const node = try p.arena.allocator.create(Node.OneToken);
         node.* = .{
+            .base = .{ .tag = .Identifier },
             .token = token,
         };
         return &node.base;
@@ -3064,16 +3071,18 @@ const Parser = struct {
     fn parseAnyType(p: *Parser) !?*Node {
         const token = p.eatToken(.Keyword_anytype) orelse
             p.eatToken(.Keyword_var) orelse return null; // TODO remove in next release cycle
-        const node = try p.arena.allocator.create(Node.AnyType);
+        const node = try p.arena.allocator.create(Node.OneToken);
         node.* = .{
+            .base = .{ .tag = .AnyType },
             .token = token,
         };
         return &node.base;
     }
 
-    fn createLiteral(p: *Parser, comptime T: type, token: TokenIndex) !*Node {
-        const result = try p.arena.allocator.create(T);
-        result.* = T{
+    fn createLiteral(p: *Parser, tag: ast.Node.Tag, token: TokenIndex) !*Node {
+        const result = try p.arena.allocator.create(Node.OneToken);
+        result.* = .{
+            .base = .{ .tag = tag },
             .token = token,
         };
         return &result.base;
@@ -3081,8 +3090,9 @@ const Parser = struct {
 
     fn parseStringLiteralSingle(p: *Parser) !?*Node {
         if (p.eatToken(.StringLiteral)) |token| {
-            const node = try p.arena.allocator.create(Node.StringLiteral);
+            const node = try p.arena.allocator.create(Node.OneToken);
             node.* = .{
+                .base = .{ .tag = .StringLiteral },
                 .token = token,
             };
             return &node.base;
@@ -3131,8 +3141,9 @@ const Parser = struct {
 
     fn parseIntegerLiteral(p: *Parser) !?*Node {
         const token = p.eatToken(.IntegerLiteral) orelse return null;
-        const node = try p.arena.allocator.create(Node.IntegerLiteral);
+        const node = try p.arena.allocator.create(Node.OneToken);
         node.* = .{
+            .base = .{ .tag = .IntegerLiteral },
             .token = token,
         };
         return &node.base;
@@ -3140,8 +3151,9 @@ const Parser = struct {
 
     fn parseFloatLiteral(p: *Parser) !?*Node {
         const token = p.eatToken(.FloatLiteral) orelse return null;
-        const node = try p.arena.allocator.create(Node.FloatLiteral);
+        const node = try p.arena.allocator.create(Node.OneToken);
         node.* = .{
+            .base = .{ .tag = .FloatLiteral },
             .token = token,
         };
         return &node.base;

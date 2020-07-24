@@ -19,13 +19,13 @@ pub fn addCases(ctx: *TestContext) !void {
         \\fn main() noreturn {}
         \\
         \\export fn _start() noreturn {
-        \\	main();
+        \\    main();
         \\}
     ,
         \\noreturn void main(void);
         \\
         \\noreturn void _start(void) {
-        \\	main();
+        \\    main();
         \\}
         \\
         \\noreturn void main(void) {}
@@ -35,15 +35,15 @@ pub fn addCases(ctx: *TestContext) !void {
     // TODO: figure out a way to prevent asm constants from being generated
     ctx.c("inline asm", linux_x64,
         \\fn exitGood() void {
-        \\	asm volatile ("syscall"
-        \\ 		:
-        \\		: [number] "{rax}" (231),
-        \\		  [arg1] "{rdi}" (0)
-        \\	);
+        \\    asm volatile ("syscall"
+        \\        :
+        \\        : [number] "{rax}" (231),
+        \\          [arg1] "{rdi}" (0)
+        \\    );
         \\}
         \\
         \\export fn _start() noreturn {
-        \\	exitGood();
+        \\    exitGood();
         \\}
     ,
         \\#include <stddef.h>
@@ -55,36 +55,14 @@ pub fn addCases(ctx: *TestContext) !void {
         \\const char *const exitGood__anon_2 = "syscall";
         \\
         \\noreturn void _start(void) {
-        \\	exitGood();
+        \\    exitGood();
         \\}
         \\
         \\void exitGood(void) {
-        \\	register size_t rax_constant __asm__("rax") = 231;
-        \\	register size_t rdi_constant __asm__("rdi") = 0;
-        \\	__asm volatile ("syscall" :: ""(rax_constant), ""(rdi_constant));
-        \\	return;
-        \\}
-        \\
-    );
-    ctx.c("basic return", linux_x64,
-        \\fn main() u8 {
-        \\	return 103;
-        \\}
-        \\
-        \\export fn _start() noreturn {
-        \\	_ = main();
-        \\}
-    ,
-        \\#include <stdint.h>
-        \\
-        \\uint8_t main(void);
-        \\
-        \\noreturn void _start(void) {
-        \\	(void)main();
-        \\}
-        \\
-        \\uint8_t main(void) {
-        \\	return 103;
+        \\    register size_t rax_constant __asm__("rax") = 231;
+        \\    register size_t rdi_constant __asm__("rdi") = 0;
+        \\    __asm volatile ("syscall" :: ""(rax_constant), ""(rdi_constant));
+        \\    return;
         \\}
         \\
     );
