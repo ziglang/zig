@@ -2030,6 +2030,79 @@ test "rotate" {
     testing.expect(eql(i32, &arr, &[_]i32{ 1, 2, 4, 5, 3 }));
 }
 
+/// Replace needle with replacement as many times as possible, writing to an output buffer which is assumed to be of
+/// appropriate size. Use replacementSize to calculate an appropriate buffer size.
+pub fn replace(comptime T: type, input: []const T, needle: []const T, replacement: []const T, output: []T) usize {
+    var i: usize = 0;
+    var slide: usize = 0;
+    var replacements: usize = 0;
+    while (slide < input.len) {
+        if (mem.indexOf(T, input[slide..], needle) == @as(usize, 0)) {
+            mem.copy(T, output[i..i + replacement.len], replacement);
+            i += replacement.len;
+            slide += needle.len;
+            replacements += 1;
+        } else {
+            output[i] = input[slide];
+            i += 1;
+            slide += 1;
+        }
+    }
+
+    return replacements;
+}
+
+test "replace" {
+    var output: [29]u8 = undefined;
+    var replacements = replace(u8, "All your base are belong to us", "base", "Zig", output[0..]);
+    testing.expect(replacements == 1);
+    testing.expect(eql(u8, output[0..], "All your Zig are belong to us"));
+
+    replacements = replace(u8, "Favor reading code over writing code.", "code", "", output[0..]);
+    testing.expect(replacements == 2);
+    testing.expect(eql(u8, output[0..], "Favor reading  over writing ."));
+}
+
+/// Calculate the size needed in an output buffer to perform a replacement.
+pub fn replacementSize(comptime T: type, input: []const T, needle: []const T, replacement: []const T) usize {
+    var i: usize = 0;
+    var size: usize = input.len;
+    while (i < input.len) : (i += 1) {
+        if (mem.indexOf(T, input[i..], needle) == @as(usize, 0)) {
+            size = size - needle.len + replacement.len;
+            i += needle.len;
+        }
+    }
+
+    return size;
+}
+
+test "replacementSize" {
+    testing.expect(replacementSize(u8, "All your base are belong to us", "base", "Zig") == 29);
+    testing.expect(replacementSize(u8, "", "", "") == 0);
+    testing.expect(replacementSize(u8, "Favor reading code over writing code.", "code", "") == 29);
+    testing.expect(replacementSize(u8, "Only one obvious way to do things.", "things.", "things in Zig.") == 41);
+}
+
+/// Perform a replacement on an allocated buffer of pre-determined size. Caller must free returned memory.
+pub fn replaceOwned(comptime T: type, allocator: *Allocator, input: []const T, needle: []const T, replacement: []const T) Allocator.Error![]T {
+    var output = try allocator.alloc(T, replacementSize(T, input, needle, replacement));
+    _ = replace(T, input, needle, replacement, output);
+    return output;
+}
+
+test "replaceOwned" {
+    const allocator = std.heap.page_allocator;
+
+    const base_replace = replaceOwned(u8, allocator, "All your base are belong to us", "base", "Zig") catch unreachable;
+    defer allocator.free(base_replace);
+    testing.expect(eql(u8, base_replace, "All your Zig are belong to us"));
+
+    const zen_replace = replaceOwned(u8, allocator, "Favor reading code over writing code.", " code", "") catch unreachable;
+    defer allocator.free(zen_replace);
+    testing.expect(eql(u8, zen_replace, "Favor reading over writing."));
+}
+
 /// Converts a little-endian integer to host endianness.
 pub fn littleToNative(comptime T: type, x: T) T {
     return switch (builtin.endian) {
