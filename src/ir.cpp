@@ -19,6 +19,7 @@
 #include "all_types.hpp"
 
 #include <errno.h>
+#include <math.h>
 
 struct IrBuilderSrc {
     CodeGen *codegen;
