@@ -73,6 +73,7 @@ if(NOT CLANG_LIBRARIES)
   FIND_AND_ADD_CLANG_LIB(clangRewrite)
   FIND_AND_ADD_CLANG_LIB(clangCrossTU)
   FIND_AND_ADD_CLANG_LIB(clangIndex)
+  FIND_AND_ADD_CLANG_LIB(clangToolingCore)
 endif()
 
 include(FindPackageHandleStandardArgs)
