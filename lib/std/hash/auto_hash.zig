@@ -81,24 +81,22 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
         .Undefined,
         .Void,
         .Null,
-        .BoundFn,
         .ComptimeFloat,
         .ComptimeInt,
         .Type,
         .EnumLiteral,
         .Frame,
+        .Float,
         => @compileError("cannot hash this type"),
 
         // Help the optimizer see that hashing an int is easy by inlining!
         // TODO Check if the situation is better after #561 is resolved.
         .Int => @call(.{ .modifier = .always_inline }, hasher.update, .{std.mem.asBytes(&key)}),
 
-        .Float => |info| hash(hasher, @bitCast(std.meta.Int(false, info.bits), key), strat),
-
         .Bool => hash(hasher, @boolToInt(key), strat),
         .Enum => hash(hasher, @enumToInt(key), strat),
         .ErrorSet => hash(hasher, @errorToInt(key), strat),
-        .AnyFrame, .Fn => hash(hasher, @ptrToInt(key), strat),
+        .AnyFrame, .BoundFn, .Fn => hash(hasher, @ptrToInt(key), strat),
 
         .Pointer => @call(.{ .modifier = .always_inline }, hashPointer, .{ hasher, key, strat }),
 
@@ -266,12 +264,12 @@ test "hash slice deep" {
 test "hash struct deep" {
     const Foo = struct {
         a: u32,
-        b: f64,
+        b: u16,
         c: *bool,
 
         const Self = @This();
 
-        pub fn init(allocator: *mem.Allocator, a_: u32, b_: f64, c_: bool) !Self {
+        pub fn init(allocator: *mem.Allocator, a_: u32, b_: u16, c_: bool) !Self {
             const ptr = try allocator.create(bool);
             ptr.* = c_;
             return Self{ .a = a_, .b = b_, .c = ptr };
@@ -279,9 +277,9 @@ test "hash struct deep" {
     };
 
     const allocator = std.testing.allocator;
-    const foo = try Foo.init(allocator, 123, 1.0, true);
-    const bar = try Foo.init(allocator, 123, 1.0, true);
-    const baz = try Foo.init(allocator, 123, 1.0, false);
+    const foo = try Foo.init(allocator, 123, 10, true);
+    const bar = try Foo.init(allocator, 123, 10, true);
+    const baz = try Foo.init(allocator, 123, 10, false);
     defer allocator.destroy(foo.c);
     defer allocator.destroy(bar.c);
     defer allocator.destroy(baz.c);
@@ -338,12 +336,12 @@ test "testHash struct" {
 test "testHash union" {
     const Foo = union(enum) {
         A: u32,
-        B: f32,
+        B: bool,
         C: u32,
     };
 
     const a = Foo{ .A = 18 };
-    var b = Foo{ .B = 12.34 };
+    var b = Foo{ .B = true };
     const c = Foo{ .C = 18 };
     testing.expect(testHash(a) == testHash(a));
     testing.expect(testHash(a) != testHash(b));
