@@ -509,6 +509,102 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:12:5: error: switch on non-exhaustive enum must include `else` or `_` prong",
     });
 
+    cases.add("switch expression - unreachable else prong (bool)",
+        \\fn foo(x: bool) void {
+        \\    switch (x) {
+        \\        true => {},
+        \\        false => {},
+        \\        else => {},
+        \\    }
+        \\}
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
+    , &[_][]const u8{
+        "tmp.zig:5:9: error: unreachable else prong, all cases already handled",
+    });
+
+    cases.add("switch expression - unreachable else prong (u1)",
+        \\fn foo(x: u1) void {
+        \\    switch (x) {
+        \\        0 => {},
+        \\        1 => {},
+        \\        else => {},
+        \\    }
+        \\}
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
+    , &[_][]const u8{
+        "tmp.zig:5:9: error: unreachable else prong, all cases already handled",
+    });
+
+    cases.add("switch expression - unreachable else prong (u2)",
+        \\fn foo(x: u2) void {
+        \\    switch (x) {
+        \\        0 => {},
+        \\        1 => {},
+        \\        2 => {},
+        \\        3 => {},
+        \\        else => {},
+        \\    }
+        \\}
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
+    , &[_][]const u8{
+        "tmp.zig:7:9: error: unreachable else prong, all cases already handled",
+    });
+
+    cases.add("switch expression - unreachable else prong (range u8)",
+        \\fn foo(x: u8) void {
+        \\    switch (x) {
+        \\        0 => {},
+        \\        1 => {},
+        \\        2 => {},
+        \\        3 => {},
+        \\        4...255 => {},
+        \\        else => {},
+        \\    }
+        \\}
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
+    , &[_][]const u8{
+        "tmp.zig:8:9: error: unreachable else prong, all cases already handled",
+    });
+
+    cases.add("switch expression - unreachable else prong (range i8)",
+        \\fn foo(x: i8) void {
+        \\    switch (x) {
+        \\        -128...0 => {},
+        \\        1 => {},
+        \\        2 => {},
+        \\        3 => {},
+        \\        4...127 => {},
+        \\        else => {},
+        \\    }
+        \\}
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
+    , &[_][]const u8{
+        "tmp.zig:8:9: error: unreachable else prong, all cases already handled",
+    });
+
+    cases.add("switch expression - unreachable else prong (enum)",
+        \\const TestEnum = enum{ T1, T2 };
+        \\
+        \\fn err(x: u8) TestEnum {
+        \\    switch (x) {
+        \\        0 => return TestEnum.T1,
+        \\        else => return TestEnum.T2,
+        \\    }
+        \\}
+        \\
+        \\fn foo(x: u8) void {
+        \\    switch (err(x)) {
+        \\        TestEnum.T1 => {},
+        \\        TestEnum.T2 => {},
+        \\        else => {},
+        \\    }
+        \\}
+        \\
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
+    , &[_][]const u8{
+        "tmp.zig:14:9: error: unreachable else prong, all cases already handled",
+    });
+
     cases.addTest("@export with empty name string",
         \\pub export fn entry() void { }
         \\comptime {

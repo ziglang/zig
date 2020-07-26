@@ -2175,7 +2175,7 @@ static void ir_print_check_switch_prongs(IrPrintSrc *irp, IrInstSrcCheckSwitchPr
         fprintf(irp->f, "...");
         ir_print_other_inst_src(irp, instruction->ranges[i].end);
     }
-    const char *have_else_str = instruction->have_else_prong ? "yes" : "no";
+    const char *have_else_str = instruction->else_prong != nullptr ? "yes" : "no";
     fprintf(irp->f, ")else:%s", have_else_str);
 }
 

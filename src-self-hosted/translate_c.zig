@@ -2864,7 +2864,6 @@ fn transCharLiteral(
             "TODO: support character literal kind {}",
             .{kind},
         ),
-        else => unreachable,
     };
     if (suppress_as == .no_as) {
         return maybeSuppressResult(rp, scope, result_used, int_lit_node);
