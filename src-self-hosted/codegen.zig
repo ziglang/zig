@@ -503,7 +503,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn genBody(self: *Self, body: ir.Body) InnerError!void {
             const inst_table = &self.branch_stack.items[0].inst_table;
             for (body.instructions) |inst| {
-                std.debug.warn("Generating {}, code len: {}\n", .{ inst, self.code.items.len });
                 const new_inst = try self.genFuncInst(inst);
                 try inst_table.putNoClobber(self.gpa, inst, new_inst);
 
