@@ -1,7 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Target = std.Target;
+const ascii = std.ascii;
 const fs = std.fs;
+const mem = std.mem;
+const process = std.process;
 const Allocator = std.mem.Allocator;
 const Batch = std.event.Batch;
 
@@ -33,6 +36,47 @@ pub const LibCInstallation = struct {
         WindowsSdkNotFound,
         ZigIsTheCCompiler,
     };
+
+    fn envSubstitution(allocator: *Allocator, input: []const u8, stderr: anytype) ![:0]u8 {
+        var replace_dest: []u8 = undefined;
+        var replace_src = try std.mem.dupe(allocator, u8, input);
+        errdefer allocator.free(replace_src);
+
+        var i: usize = 0;
+        outer: while (i < input.len) : (i += 1) {
+            if (input[i] == '$') {
+                for (input[i + 1..]) |c, j| {
+                    if (!ascii.isAlNum(c) and c != '_') {
+                        const needle = input[i..i + j + 1];
+                        const name = needle[1..];
+
+                        const value = process.getEnvVarOwned(allocator, name) catch |err| switch (err) {
+                            error.EnvironmentVariableNotFound => {
+                                try stderr.print("environment variable ${} specified but not found\n", .{name});
+                                return error.ParseError;
+                            },
+                            error.InvalidUtf8 => {
+                                try stderr.print("environment variable ${} contains invalid utf-8\n", .{name});
+                                return error.ParseError;
+                            },
+                            error.OutOfMemory => |e| return e,
+                        };
+
+                        replace_dest = try mem.replaceOwned(u8, allocator, replace_src, needle, value);
+                        allocator.free(replace_src);
+                        allocator.free(value);
+                        replace_src = replace_dest;
+
+                        continue :outer;
+                    }
+                }
+            }
+        }
+
+        var replace_srcz = try std.mem.dupeZ(allocator, u8, replace_src);
+        allocator.free(replace_src);
+        return replace_srcz;
+    }
 
     pub fn parse(
         allocator: *Allocator,
@@ -72,7 +116,9 @@ pub const LibCInstallation = struct {
                     if (value.len == 0) {
                         @field(self, field.name) = null;
                     } else {
-                        found_keys[i].allocated = try std.mem.dupeZ(allocator, u8, value);
+                        const valuez = try std.mem.dupeZ(allocator, u8, value);
+                        found_keys[i].allocated = try envSubstitution(allocator, valuez, stderr);
+                        allocator.free(valuez);
                         @field(self, field.name) = found_keys[i].allocated;
                     }
                     break;
