@@ -4514,7 +4514,7 @@ const CtrlFlow = struct {
         const ltoken = try appendToken(c, kw, kw_text);
         const label_token = if (label) |l| blk: {
             _ = try appendToken(c, .Colon, ":");
-            break :blk try appendToken(c, .Identifier, l);
+            break :blk try appendIdentifier(c, l);
         } else null;
         return CtrlFlow{
             .c = c,
