@@ -56,9 +56,6 @@ pub fn hashPointer(hasher: anytype, key: anytype, comptime strat: HashStrategy) 
 pub fn hashArray(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
     switch (strat) {
         .Shallow => {
-            // TODO detect via a trait when Key has no padding bits to
-            // hash it as an array of bytes.
-            // Otherwise, hash every element.
             for (key) |element| {
                 hash(hasher, element, .Shallow);
             }
@@ -75,6 +72,12 @@ pub fn hashArray(hasher: anytype, key: anytype, comptime strat: HashStrategy) vo
 /// Strategy is provided to determine if pointers should be followed or not.
 pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
     const Key = @TypeOf(key);
+
+    if (strat == .Shallow and comptime meta.trait.hasUniqueRepresentation(Key)) {
+        @call(.{ .modifier = .always_inline }, hasher.update, .{mem.asBytes(&key)});
+        return;
+    }
+
     switch (@typeInfo(Key)) {
         .NoReturn,
         .Opaque,
@@ -119,9 +122,6 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
         },
 
         .Struct => |info| {
-            // TODO detect via a trait when Key has no padding bits to
-            // hash it as an array of bytes.
-            // Otherwise, hash every field.
             inline for (info.fields) |field| {
                 // We reuse the hash of the previous field as the seed for the
                 // next one so that they're dependant.

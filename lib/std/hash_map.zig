@@ -5,6 +5,7 @@ const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
+const trait = meta.trait;
 const autoHash = std.hash.autoHash;
 const Wyhash = std.hash.Wyhash;
 const Allocator = mem.Allocator;
@@ -1023,9 +1024,13 @@ pub fn getTrivialEqlFn(comptime K: type) (fn (K, K) bool) {
 pub fn getAutoHashFn(comptime K: type) (fn (K) u32) {
     return struct {
         fn hash(key: K) u32 {
-            var hasher = Wyhash.init(0);
-            autoHash(&hasher, key);
-            return @truncate(u32, hasher.final());
+            if (comptime trait.hasUniqueRepresentation(K)) {
+                return @truncate(u32, Wyhash.hash(0, std.mem.asBytes(&key)));
+            } else {
+                var hasher = Wyhash.init(0);
+                autoHash(&hasher, key);
+                return @truncate(u32, hasher.final());
+            }
         }
     }.hash;
 }
