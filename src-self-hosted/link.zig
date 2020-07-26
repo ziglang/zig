@@ -125,14 +125,13 @@ pub const File = struct {
         switch (base.tag) {
             .Elf => return @fieldParentPtr(Elf, "base", base).makeWritable(dir, sub_path),
             .C => {},
-            else => unreachable,
         }
     }
 
     pub fn makeExecutable(base: *File) !void {
         switch (base.tag) {
             .Elf => return @fieldParentPtr(Elf, "base", base).makeExecutable(),
-            else => unreachable,
+            .C => unreachable,
         }
     }
 
@@ -140,7 +139,6 @@ pub const File = struct {
         switch (base.tag) {
             .Elf => return @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
             .C => return @fieldParentPtr(C, "base", base).updateDecl(module, decl),
-            else => unreachable,
         }
     }
 
@@ -148,7 +146,6 @@ pub const File = struct {
         switch (base.tag) {
             .Elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
             .C => {},
-            else => unreachable,
         }
     }
 
@@ -156,7 +153,6 @@ pub const File = struct {
         switch (base.tag) {
             .Elf => @fieldParentPtr(Elf, "base", base).deinit(),
             .C => @fieldParentPtr(C, "base", base).deinit(),
-            else => unreachable,
         }
     }
 
@@ -172,7 +168,6 @@ pub const File = struct {
                 parent.deinit();
                 parent.allocator.destroy(parent);
             },
-            else => unreachable,
         }
     }
 
@@ -180,14 +175,13 @@ pub const File = struct {
         try switch (base.tag) {
             .Elf => @fieldParentPtr(Elf, "base", base).flush(),
             .C => @fieldParentPtr(C, "base", base).flush(),
-            else => unreachable,
         };
     }
 
     pub fn freeDecl(base: *File, decl: *Module.Decl) void {
         switch (base.tag) {
             .Elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl),
-            else => unreachable,
+            .C => unreachable,
         }
     }
 
@@ -195,7 +189,6 @@ pub const File = struct {
         return switch (base.tag) {
             .Elf => @fieldParentPtr(Elf, "base", base).error_flags,
             .C => return .{ .no_entry_point_found = false },
-            else => unreachable,
         };
     }
 
