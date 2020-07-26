@@ -5764,7 +5764,22 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
         .Keyword_float => return transCreateNodeIdentifierUnchecked(c, "f32"),
         .Keyword_short => return transCreateNodeIdentifierUnchecked(c, "c_short"),
         .Keyword_char => return transCreateNodeIdentifierUnchecked(c, "c_char"),
-        .Keyword_unsigned => return transCreateNodeIdentifierUnchecked(c, "c_uint"),
+        .Keyword_unsigned => if (it.next()) |t| {
+            switch (t.id) {
+                .Keyword_short => return transCreateNodeIdentifierUnchecked(c, "c_ushort"),
+                .Keyword_int => return transCreateNodeIdentifierUnchecked(c, "c_uint"),
+                .Keyword_long => if (it.peek() != null and it.peek().?.id == .Keyword_long) {
+                    _ = it.next();
+                    return transCreateNodeIdentifierUnchecked(c, "c_ulonglong");
+                } else return transCreateNodeIdentifierUnchecked(c, "c_ulong"),
+                else => {
+                    _ = it.prev();
+                    return transCreateNodeIdentifierUnchecked(c, "c_uint");
+                },
+            }
+        } else {
+            return transCreateNodeIdentifierUnchecked(c, "c_uint");
+        },
         .Identifier => {
             const mangled_name = scope.getAlias(source[tok.start..tok.end]);
             return transCreateNodeIdentifier(c, mangled_name);
