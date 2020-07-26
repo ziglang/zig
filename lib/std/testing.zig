@@ -175,7 +175,7 @@ test "expectEqual.union(enum)" {
 /// within the margin of the expected value,
 /// prints diagnostics to stderr to show exactly how they are not equal, then aborts.
 /// The types must be floating point
-pub fn expectWithinMargin(expected: var, actual: @TypeOf(expected), margin: @TypeOf(expected)) void {
+pub fn expectWithinMargin(expected: anytype, actual: @TypeOf(expected), margin: @TypeOf(expected)) void {
     std.debug.assert(margin >= 0.0);
 
     switch (@typeInfo(@TypeOf(actual))) {
@@ -201,7 +201,7 @@ test "expectWithinMargin.f32" {
 /// within the epsilon of the expected value,
 /// prints diagnostics to stderr to show exactly how they are not equal, then aborts.
 /// The types must be floating point
-pub fn expectWithinEpsilon(expected: var, actual: @TypeOf(expected), epsilon: @TypeOf(expected)) void {
+pub fn expectWithinEpsilon(expected: anytype, actual: @TypeOf(expected), epsilon: @TypeOf(expected)) void {
     std.debug.assert(epsilon >= 0.0 and epsilon <= 1.0);
 
     const margin = epsilon * expected;
