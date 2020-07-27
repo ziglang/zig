@@ -840,6 +840,31 @@ pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
 
 pub const empty_sigset = [_]u32{0} ** sigset_t.len;
 
+pub const signalfd_siginfo = extern struct {
+    signo: u32,
+    errno: i32,
+    code: i32,
+    pid: u32,
+    uid: u32,
+    fd: i32,
+    tid: u32,
+    band: u32,
+    overrun: u32,
+    trapno: u32,
+    status: i32,
+    int: i32,
+    ptr: u64,
+    utime: u64,
+    stime: u64,
+    addr: u64,
+    addr_lsb: u16,
+    __pad2: u16,
+    syscall: i32,
+    call_addr: u64,
+    arch: u32,
+    __pad: [28]u8,
+};
+
 pub const in_port_t = u16;
 pub const sa_family_t = u16;
 pub const socklen_t = u32;

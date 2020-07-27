@@ -104,7 +104,7 @@ pub fn approxEq(comptime T: type, x: T, y: T, epsilon: T) bool {
 }
 
 // TODO: Hide the following in an internal module.
-pub fn forceEval(value: var) void {
+pub fn forceEval(value: anytype) void {
     const T = @TypeOf(value);
     switch (T) {
         f16 => {
@@ -259,7 +259,7 @@ pub fn Min(comptime A: type, comptime B: type) type {
 
 /// Returns the smaller number. When one of the parameter's type's full range fits in the other,
 /// the return type is the smaller type.
-pub fn min(x: var, y: var) Min(@TypeOf(x), @TypeOf(y)) {
+pub fn min(x: anytype, y: anytype) Min(@TypeOf(x), @TypeOf(y)) {
     const Result = Min(@TypeOf(x), @TypeOf(y));
     if (x < y) {
         // TODO Zig should allow this as an implicit cast because x is immutable and in this
@@ -310,7 +310,7 @@ test "math.min" {
     }
 }
 
-pub fn max(x: var, y: var) @TypeOf(x, y) {
+pub fn max(x: anytype, y: anytype) @TypeOf(x, y) {
     return if (x > y) x else y;
 }
 
@@ -318,7 +318,7 @@ test "math.max" {
     testing.expect(max(@as(i32, -1), @as(i32, 2)) == 2);
 }
 
-pub fn clamp(val: var, lower: var, upper: var) @TypeOf(val, lower, upper) {
+pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, upper) {
     assert(lower <= upper);
     return max(lower, min(val, upper));
 }
@@ -354,7 +354,7 @@ pub fn sub(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     return if (@subWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
-pub fn negate(x: var) !@TypeOf(x) {
+pub fn negate(x: anytype) !@TypeOf(x) {
     return sub(@TypeOf(x), 0, x);
 }
 
@@ -365,7 +365,7 @@ pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) !T {
 
 /// Shifts left. Overflowed bits are truncated.
 /// A negative shift amount results in a right shift.
-pub fn shl(comptime T: type, a: T, shift_amt: var) T {
+pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
     const abs_shift_amt = absCast(shift_amt);
     const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else @intCast(Log2Int(T), abs_shift_amt);
 
@@ -391,7 +391,7 @@ test "math.shl" {
 
 /// Shifts right. Overflowed bits are truncated.
 /// A negative shift amount results in a left shift.
-pub fn shr(comptime T: type, a: T, shift_amt: var) T {
+pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
     const abs_shift_amt = absCast(shift_amt);
     const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else @intCast(Log2Int(T), abs_shift_amt);
 
@@ -419,7 +419,7 @@ test "math.shr" {
 
 /// Rotates right. Only unsigned values can be rotated.
 /// Negative shift values results in shift modulo the bit count.
-pub fn rotr(comptime T: type, x: T, r: var) T {
+pub fn rotr(comptime T: type, x: T, r: anytype) T {
     if (T.is_signed) {
         @compileError("cannot rotate signed integer");
     } else {
@@ -438,7 +438,7 @@ test "math.rotr" {
 
 /// Rotates left. Only unsigned values can be rotated.
 /// Negative shift values results in shift modulo the bit count.
-pub fn rotl(comptime T: type, x: T, r: var) T {
+pub fn rotl(comptime T: type, x: T, r: anytype) T {
     if (T.is_signed) {
         @compileError("cannot rotate signed integer");
     } else {
@@ -541,7 +541,7 @@ fn testOverflow() void {
     testing.expect((shlExact(i32, 0b11, 4) catch unreachable) == 0b110000);
 }
 
-pub fn absInt(x: var) !@TypeOf(x) {
+pub fn absInt(x: anytype) !@TypeOf(x) {
     const T = @TypeOf(x);
     comptime assert(@typeInfo(T) == .Int); // must pass an integer to absInt
     comptime assert(T.is_signed); // must pass a signed integer to absInt
@@ -689,7 +689,7 @@ fn testRem() void {
 
 /// Returns the absolute value of the integer parameter.
 /// Result is an unsigned integer.
-pub fn absCast(x: var) switch (@typeInfo(@TypeOf(x))) {
+pub fn absCast(x: anytype) switch (@typeInfo(@TypeOf(x))) {
     .ComptimeInt => comptime_int,
     .Int => |intInfo| std.meta.Int(false, intInfo.bits),
     else => @compileError("absCast only accepts integers"),
@@ -724,7 +724,7 @@ test "math.absCast" {
 
 /// Returns the negation of the integer parameter.
 /// Result is a signed integer.
-pub fn negateCast(x: var) !std.meta.Int(true, @TypeOf(x).bit_count) {
+pub fn negateCast(x: anytype) !std.meta.Int(true, @TypeOf(x).bit_count) {
     if (@TypeOf(x).is_signed) return negate(x);
 
     const int = std.meta.Int(true, @TypeOf(x).bit_count);
@@ -747,7 +747,7 @@ test "math.negateCast" {
 
 /// Cast an integer to a different integer type. If the value doesn't fit,
 /// return an error.
-pub fn cast(comptime T: type, x: var) (error{Overflow}!T) {
+pub fn cast(comptime T: type, x: anytype) (error{Overflow}!T) {
     comptime assert(@typeInfo(T) == .Int); // must pass an integer
     comptime assert(@typeInfo(@TypeOf(x)) == .Int); // must pass an integer
     if (maxInt(@TypeOf(x)) > maxInt(T) and x > maxInt(T)) {
@@ -772,7 +772,7 @@ test "math.cast" {
 pub const AlignCastError = error{UnalignedMemory};
 
 /// Align cast a pointer but return an error if it's the wrong alignment
-pub fn alignCast(comptime alignment: u29, ptr: var) AlignCastError!@TypeOf(@alignCast(alignment, ptr)) {
+pub fn alignCast(comptime alignment: u29, ptr: anytype) AlignCastError!@TypeOf(@alignCast(alignment, ptr)) {
     const addr = @ptrToInt(ptr);
     if (addr % alignment != 0) {
         return error.UnalignedMemory;
@@ -780,7 +780,7 @@ pub fn alignCast(comptime alignment: u29, ptr: var) AlignCastError!@TypeOf(@alig
     return @alignCast(alignment, ptr);
 }
 
-pub fn isPowerOfTwo(v: var) bool {
+pub fn isPowerOfTwo(v: anytype) bool {
     assert(v != 0);
     return (v & (v - 1)) == 0;
 }
@@ -897,7 +897,7 @@ test "std.math.log2_int_ceil" {
     testing.expect(log2_int_ceil(u32, 10) == 4);
 }
 
-pub fn lossyCast(comptime T: type, value: var) T {
+pub fn lossyCast(comptime T: type, value: anytype) T {
     switch (@typeInfo(@TypeOf(value))) {
         .Int => return @intToFloat(T, value),
         .Float => return @floatCast(T, value),
@@ -1031,7 +1031,7 @@ pub const Order = enum {
 };
 
 /// Given two numbers, this function returns the order they are with respect to each other.
-pub fn order(a: var, b: var) Order {
+pub fn order(a: anytype, b: anytype) Order {
     if (a == b) {
         return .eq;
     } else if (a < b) {
@@ -1047,19 +1047,14 @@ pub fn order(a: var, b: var) Order {
 pub const CompareOperator = enum {
     /// Less than (`<`)
     lt,
-
     /// Less than or equal (`<=`)
     lte,
-
     /// Equal (`==`)
     eq,
-
     /// Greater than or equal (`>=`)
     gte,
-
     /// Greater than (`>`)
     gt,
-
     /// Not equal (`!=`)
     neq,
 };
@@ -1067,7 +1062,7 @@ pub const CompareOperator = enum {
 /// This function does the same thing as comparison operators, however the
 /// operator is a runtime-known enum value. Works on any operands that
 /// support comparison operators.
-pub fn compare(a: var, op: CompareOperator, b: var) bool {
+pub fn compare(a: anytype, op: CompareOperator, b: anytype) bool {
     return switch (op) {
         .lt => a < b,
         .lte => a <= b,

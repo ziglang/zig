@@ -48,7 +48,7 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
     };
 }
 
-pub fn bufferedReader(underlying_stream: var) BufferedReader(4096, @TypeOf(underlying_stream)) {
+pub fn bufferedReader(underlying_stream: anytype) BufferedReader(4096, @TypeOf(underlying_stream)) {
     return .{ .unbuffered_reader = underlying_stream };
 }
 

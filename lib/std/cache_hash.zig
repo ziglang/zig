@@ -70,7 +70,7 @@ pub const CacheHash = struct {
 
     /// Convert the input value into bytes and record it as a dependency of the
     /// process being cached
-    pub fn add(self: *CacheHash, val: var) void {
+    pub fn add(self: *CacheHash, val: anytype) void {
         assert(self.manifest_file == null);
 
         const valPtr = switch (@typeInfo(@TypeOf(val))) {

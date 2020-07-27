@@ -6,10 +6,11 @@ const math = std.math;
 const testing = std.testing;
 
 pub const trait = @import("meta/trait.zig");
+pub const TrailerFlags = @import("meta/trailer_flags.zig").TrailerFlags;
 
 const TypeInfo = builtin.TypeInfo;
 
-pub fn tagName(v: var) []const u8 {
+pub fn tagName(v: anytype) []const u8 {
     const T = @TypeOf(v);
     switch (@typeInfo(T)) {
         .ErrorSet => return @errorName(v),
@@ -430,7 +431,7 @@ test "std.meta.TagType" {
 }
 
 ///Returns the active tag of a tagged union
-pub fn activeTag(u: var) @TagType(@TypeOf(u)) {
+pub fn activeTag(u: anytype) @TagType(@TypeOf(u)) {
     const T = @TypeOf(u);
     return @as(@TagType(T), u);
 }
@@ -480,7 +481,7 @@ test "std.meta.TagPayloadType" {
 
 /// Compares two of any type for equality. Containers are compared on a field-by-field basis,
 /// where possible. Pointers are not followed.
-pub fn eql(a: var, b: @TypeOf(a)) bool {
+pub fn eql(a: anytype, b: @TypeOf(a)) bool {
     const T = @TypeOf(a);
 
     switch (@typeInfo(T)) {
@@ -627,7 +628,7 @@ test "intToEnum with error return" {
 
 pub const IntToEnumError = error{InvalidEnumTag};
 
-pub fn intToEnum(comptime Tag: type, tag_int: var) IntToEnumError!Tag {
+pub fn intToEnum(comptime Tag: type, tag_int: anytype) IntToEnumError!Tag {
     inline for (@typeInfo(Tag).Enum.fields) |f| {
         const this_tag_value = @field(Tag, f.name);
         if (tag_int == @enumToInt(this_tag_value)) {
@@ -696,7 +697,7 @@ pub fn Vector(comptime len: u32, comptime child: type) type {
 
 /// Given a type and value, cast the value to the type as c would.
 /// This is for translate-c and is not intended for general use.
-pub fn cast(comptime DestType: type, target: var) DestType {
+pub fn cast(comptime DestType: type, target: anytype) DestType {
     const TargetType = @TypeOf(target);
     switch (@typeInfo(DestType)) {
         .Pointer => {

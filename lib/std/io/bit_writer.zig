@@ -34,7 +34,7 @@ pub fn BitWriter(endian: builtin.Endian, comptime WriterType: type) type {
         /// Write the specified number of bits to the stream from the least significant bits of
         ///  the specified unsigned int value. Bits will only be written to the stream when there
         ///  are enough to fill a byte.
-        pub fn writeBits(self: *Self, value: var, bits: usize) Error!void {
+        pub fn writeBits(self: *Self, value: anytype, bits: usize) Error!void {
             if (bits == 0) return;
 
             const U = @TypeOf(value);
@@ -145,7 +145,7 @@ pub fn BitWriter(endian: builtin.Endian, comptime WriterType: type) type {
 
 pub fn bitWriter(
     comptime endian: builtin.Endian,
-    underlying_stream: var,
+    underlying_stream: anytype,
 ) BitWriter(endian, @TypeOf(underlying_stream)) {
     return BitWriter(endian, @TypeOf(underlying_stream)).init(underlying_stream);
 }

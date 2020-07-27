@@ -21,6 +21,7 @@ pub fn main() anyerror!void {
 
     for (test_fn_list) |test_fn, i| {
         std.testing.base_allocator_instance.reset();
+        std.testing.log_level = .warn;
 
         var test_node = root_node.start(test_fn.name, null);
         test_node.activate();
@@ -71,5 +72,16 @@ pub fn main() anyerror!void {
         std.debug.warn("All {} tests passed.\n", .{ok_count});
     } else {
         std.debug.warn("{} passed; {} skipped.\n", .{ ok_count, skip_count });
+    }
+}
+
+pub fn log(
+    comptime message_level: std.log.Level,
+    comptime scope: @Type(.EnumLiteral),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    if (@enumToInt(message_level) <= @enumToInt(std.testing.log_level)) {
+        std.debug.print("[{}] ({}): " ++ format, .{ @tagName(scope), @tagName(message_level) } ++ args);
     }
 }

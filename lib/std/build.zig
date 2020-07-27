@@ -312,7 +312,7 @@ pub const Builder = struct {
         return write_file_step;
     }
 
-    pub fn addLog(self: *Builder, comptime format: []const u8, args: var) *LogStep {
+    pub fn addLog(self: *Builder, comptime format: []const u8, args: anytype) *LogStep {
         const data = self.fmt(format, args);
         const log_step = self.allocator.create(LogStep) catch unreachable;
         log_step.* = LogStep.init(self, data);
@@ -883,7 +883,7 @@ pub const Builder = struct {
         return fs.path.resolve(self.allocator, &[_][]const u8{ self.build_root, rel_path }) catch unreachable;
     }
 
-    pub fn fmt(self: *Builder, comptime format: []const u8, args: var) []u8 {
+    pub fn fmt(self: *Builder, comptime format: []const u8, args: anytype) []u8 {
         return fmt_lib.allocPrint(self.allocator, format, args) catch unreachable;
     }
 

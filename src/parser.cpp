@@ -786,7 +786,7 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod, B
     return nullptr;
 }
 
-// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
+// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_anytype / TypeExpr)
 static AstNode *ast_parse_fn_proto(ParseContext *pc) {
     Token *first = eat_token_if(pc, TokenIdKeywordFn);
     if (first == nullptr) {
@@ -801,10 +801,10 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
     AstNode *align_expr = ast_parse_byte_align(pc);
     AstNode *section_expr = ast_parse_link_section(pc);
     AstNode *callconv_expr = ast_parse_callconv(pc);
-    Token *var = eat_token_if(pc, TokenIdKeywordVar);
+    Token *anytype = eat_token_if(pc, TokenIdKeywordAnyType);
     Token *exmark = nullptr;
     AstNode *return_type = nullptr;
-    if (var == nullptr) {
+    if (anytype == nullptr) {
         exmark = eat_token_if(pc, TokenIdBang);
         return_type = ast_expect(pc, ast_parse_type_expr);
     }
@@ -816,7 +816,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
     res->data.fn_proto.align_expr = align_expr;
     res->data.fn_proto.section_expr = section_expr;
     res->data.fn_proto.callconv_expr = callconv_expr;
-    res->data.fn_proto.return_var_token = var;
+    res->data.fn_proto.return_anytype_token = anytype;
     res->data.fn_proto.auto_err_set = exmark != nullptr;
     res->data.fn_proto.return_type = return_type;
 
@@ -870,9 +870,9 @@ static AstNode *ast_parse_container_field(ParseContext *pc) {
 
     AstNode *type_expr = nullptr;
     if (eat_token_if(pc, TokenIdColon) != nullptr) {
-        Token *var_tok = eat_token_if(pc, TokenIdKeywordVar);
-        if (var_tok != nullptr) {
-            type_expr = ast_create_node(pc, NodeTypeVarFieldType, var_tok);
+        Token *anytype_tok = eat_token_if(pc, TokenIdKeywordAnyType);
+        if (anytype_tok != nullptr) {
+            type_expr = ast_create_node(pc, NodeTypeAnyTypeField, anytype_tok);
         } else {
             type_expr = ast_expect(pc, ast_parse_type_expr);
         }
@@ -2191,14 +2191,14 @@ static AstNode *ast_parse_param_decl(ParseContext *pc) {
 }
 
 // ParamType
-//     <- KEYWORD_var
+//     <- KEYWORD_anytype
 //      / DOT3
 //      / TypeExpr
 static AstNode *ast_parse_param_type(ParseContext *pc) {
-    Token *var_token = eat_token_if(pc, TokenIdKeywordVar);
-    if (var_token != nullptr) {
-        AstNode *res = ast_create_node(pc, NodeTypeParamDecl, var_token);
-        res->data.param_decl.var_token = var_token;
+    Token *anytype_token = eat_token_if(pc, TokenIdKeywordAnyType);
+    if (anytype_token != nullptr) {
+        AstNode *res = ast_create_node(pc, NodeTypeParamDecl, anytype_token);
+        res->data.param_decl.anytype_token = anytype_token;
         return res;
     }
 
@@ -2679,7 +2679,7 @@ static AstNode *ast_parse_prefix_type_op(ParseContext *pc) {
 
             if (eat_token_if(pc, TokenIdKeywordAlign) != nullptr) {
                 expect_token(pc, TokenIdLParen);
-                AstNode *align_expr = ast_parse_expr(pc);
+                AstNode *align_expr = ast_expect(pc, ast_parse_expr);
                 child->data.pointer_type.align_expr = align_expr;
                 if (eat_token_if(pc, TokenIdColon) != nullptr) {
                     Token *bit_offset_start = expect_token(pc, TokenIdIntLiteral);
@@ -3207,7 +3207,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.suspend.block, visit, context);
             break;
         case NodeTypeEnumLiteral:
-        case NodeTypeVarFieldType:
+        case NodeTypeAnyTypeField:
             break;
     }
 }

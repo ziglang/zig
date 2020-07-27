@@ -236,7 +236,7 @@ const LineNumberProgram = struct {
     }
 };
 
-fn readUnitLength(in_stream: var, endian: builtin.Endian, is_64: *bool) !u64 {
+fn readUnitLength(in_stream: anytype, endian: builtin.Endian, is_64: *bool) !u64 {
     const first_32_bits = try in_stream.readInt(u32, endian);
     is_64.* = (first_32_bits == 0xffffffff);
     if (is_64.*) {
@@ -249,7 +249,7 @@ fn readUnitLength(in_stream: var, endian: builtin.Endian, is_64: *bool) !u64 {
 }
 
 // TODO the nosuspends here are workarounds
-fn readAllocBytes(allocator: *mem.Allocator, in_stream: var, size: usize) ![]u8 {
+fn readAllocBytes(allocator: *mem.Allocator, in_stream: anytype, size: usize) ![]u8 {
     const buf = try allocator.alloc(u8, size);
     errdefer allocator.free(buf);
     if ((try nosuspend in_stream.read(buf)) < size) return error.EndOfFile;
@@ -257,25 +257,25 @@ fn readAllocBytes(allocator: *mem.Allocator, in_stream: var, size: usize) ![]u8 
 }
 
 // TODO the nosuspends here are workarounds
-fn readAddress(in_stream: var, endian: builtin.Endian, is_64: bool) !u64 {
+fn readAddress(in_stream: anytype, endian: builtin.Endian, is_64: bool) !u64 {
     return nosuspend if (is_64)
         try in_stream.readInt(u64, endian)
     else
         @as(u64, try in_stream.readInt(u32, endian));
 }
 
-fn parseFormValueBlockLen(allocator: *mem.Allocator, in_stream: var, size: usize) !FormValue {
+fn parseFormValueBlockLen(allocator: *mem.Allocator, in_stream: anytype, size: usize) !FormValue {
     const buf = try readAllocBytes(allocator, in_stream, size);
     return FormValue{ .Block = buf };
 }
 
 // TODO the nosuspends here are workarounds
-fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: var, endian: builtin.Endian, size: usize) !FormValue {
+fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: anytype, endian: builtin.Endian, size: usize) !FormValue {
     const block_len = try nosuspend in_stream.readVarInt(usize, endian, size);
     return parseFormValueBlockLen(allocator, in_stream, block_len);
 }
 
-fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: bool, endian: builtin.Endian, comptime size: i32) !FormValue {
+fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: anytype, signed: bool, endian: builtin.Endian, comptime size: i32) !FormValue {
     // TODO: Please forgive me, I've worked around zig not properly spilling some intermediate values here.
     // `nosuspend` should be removed from all the function calls once it is fixed.
     return FormValue{
@@ -302,7 +302,7 @@ fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: boo
 }
 
 // TODO the nosuspends here are workarounds
-fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, endian: builtin.Endian, size: i32) !FormValue {
+fn parseFormValueRef(allocator: *mem.Allocator, in_stream: anytype, endian: builtin.Endian, size: i32) !FormValue {
     return FormValue{
         .Ref = switch (size) {
             1 => try nosuspend in_stream.readInt(u8, endian),
@@ -316,7 +316,7 @@ fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, endian: builtin.
 }
 
 // TODO the nosuspends here are workarounds
-fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, endian: builtin.Endian, is_64: bool) anyerror!FormValue {
+fn parseFormValue(allocator: *mem.Allocator, in_stream: anytype, form_id: u64, endian: builtin.Endian, is_64: bool) anyerror!FormValue {
     return switch (form_id) {
         FORM_addr => FormValue{ .Address = try readAddress(in_stream, endian, @sizeOf(usize) == 8) },
         FORM_block1 => parseFormValueBlock(allocator, in_stream, endian, 1),
@@ -670,7 +670,7 @@ pub const DwarfInfo = struct {
         }
     }
 
-    fn parseDie(di: *DwarfInfo, in_stream: var, abbrev_table: *const AbbrevTable, is_64: bool) !?Die {
+    fn parseDie(di: *DwarfInfo, in_stream: anytype, abbrev_table: *const AbbrevTable, is_64: bool) !?Die {
         const abbrev_code = try leb.readULEB128(u64, in_stream);
         if (abbrev_code == 0) return null;
         const table_entry = getAbbrevTableEntry(abbrev_table, abbrev_code) orelse return error.InvalidDebugInfo;

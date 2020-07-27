@@ -16,14 +16,16 @@ pub const Packing = enum {
 };
 
 /// Creates a deserializer that deserializes types from any stream.
-///  If `is_packed` is true, the data stream is treated as bit-packed,
-///  otherwise data is expected to be packed to the smallest byte.
-///  Types may implement a custom deserialization routine with a
-///  function named `deserialize` in the form of:
-///    pub fn deserialize(self: *Self, deserializer: var) !void
-///  which will be called when the deserializer is used to deserialize
-///  that type. It will pass a pointer to the type instance to deserialize
-///  into and a pointer to the deserializer struct.
+/// If `is_packed` is true, the data stream is treated as bit-packed,
+/// otherwise data is expected to be packed to the smallest byte.
+/// Types may implement a custom deserialization routine with a
+/// function named `deserialize` in the form of:
+/// ```
+/// pub fn deserialize(self: *Self, deserializer: anytype) !void
+/// ```
+/// which will be called when the deserializer is used to deserialize
+/// that type. It will pass a pointer to the type instance to deserialize
+/// into and a pointer to the deserializer struct.
 pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, comptime ReaderType: type) type {
     return struct {
         in_stream: if (packing == .Bit) io.BitReader(endian, ReaderType) else ReaderType,
@@ -93,7 +95,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
         }
 
         /// Deserializes data into the type pointed to by `ptr`
-        pub fn deserializeInto(self: *Self, ptr: var) !void {
+        pub fn deserializeInto(self: *Self, ptr: anytype) !void {
             const T = @TypeOf(ptr);
             comptime assert(trait.is(.Pointer)(T));
 
@@ -108,7 +110,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
             const C = comptime meta.Child(T);
             const child_type_id = @typeInfo(C);
 
-            //custom deserializer: fn(self: *Self, deserializer: var) !void
+            //custom deserializer: fn(self: *Self, deserializer: anytype) !void
             if (comptime trait.hasFn("deserialize")(C)) return C.deserialize(ptr, self);
 
             if (comptime trait.isPacked(C) and packing != .Bit) {
@@ -190,24 +192,26 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
 pub fn deserializer(
     comptime endian: builtin.Endian,
     comptime packing: Packing,
-    in_stream: var,
+    in_stream: anytype,
 ) Deserializer(endian, packing, @TypeOf(in_stream)) {
     return Deserializer(endian, packing, @TypeOf(in_stream)).init(in_stream);
 }
 
 /// Creates a serializer that serializes types to any stream.
-///  If `is_packed` is true, the data will be bit-packed into the stream.
-///  Note that the you must call `serializer.flush()` when you are done
-///  writing bit-packed data in order ensure any unwritten bits are committed.
-///  If `is_packed` is false, data is packed to the smallest byte. In the case
-///  of packed structs, the struct will written bit-packed and with the specified
-///  endianess, after which data will resume being written at the next byte boundary.
-///  Types may implement a custom serialization routine with a
-///  function named `serialize` in the form of:
-///    pub fn serialize(self: Self, serializer: var) !void
-///  which will be called when the serializer is used to serialize that type. It will
-///  pass a const pointer to the type instance to be serialized and a pointer
-///  to the serializer struct.
+/// If `is_packed` is true, the data will be bit-packed into the stream.
+/// Note that the you must call `serializer.flush()` when you are done
+/// writing bit-packed data in order ensure any unwritten bits are committed.
+/// If `is_packed` is false, data is packed to the smallest byte. In the case
+/// of packed structs, the struct will written bit-packed and with the specified
+/// endianess, after which data will resume being written at the next byte boundary.
+/// Types may implement a custom serialization routine with a
+/// function named `serialize` in the form of:
+/// ```
+/// pub fn serialize(self: Self, serializer: anytype) !void
+/// ```
+/// which will be called when the serializer is used to serialize that type. It will
+/// pass a const pointer to the type instance to be serialized and a pointer
+/// to the serializer struct.
 pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, comptime OutStreamType: type) type {
     return struct {
         out_stream: if (packing == .Bit) io.BitOutStream(endian, OutStreamType) else OutStreamType,
@@ -229,7 +233,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
             if (packing == .Bit) return self.out_stream.flushBits();
         }
 
-        fn serializeInt(self: *Self, value: var) Error!void {
+        fn serializeInt(self: *Self, value: anytype) Error!void {
             const T = @TypeOf(value);
             comptime assert(trait.is(.Int)(T) or trait.is(.Float)(T));
 
@@ -261,7 +265,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
         }
 
         /// Serializes the passed value into the stream
-        pub fn serialize(self: *Self, value: var) Error!void {
+        pub fn serialize(self: *Self, value: anytype) Error!void {
             const T = comptime @TypeOf(value);
 
             if (comptime trait.isIndexable(T)) {
@@ -270,7 +274,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
                 return;
             }
 
-            //custom serializer: fn(self: Self, serializer: var) !void
+            //custom serializer: fn(self: Self, serializer: anytype) !void
             if (comptime trait.hasFn("serialize")(T)) return T.serialize(value, self);
 
             if (comptime trait.isPacked(T) and packing != .Bit) {
@@ -346,7 +350,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
 pub fn serializer(
     comptime endian: builtin.Endian,
     comptime packing: Packing,
-    out_stream: var,
+    out_stream: anytype,
 ) Serializer(endian, packing, @TypeOf(out_stream)) {
     return Serializer(endian, packing, @TypeOf(out_stream)).init(out_stream);
 }
@@ -462,7 +466,7 @@ test "Serializer/Deserializer Int: Inf/NaN" {
     try testIntSerializerDeserializerInfNaN(.Little, .Bit);
 }
 
-fn testAlternateSerializer(self: var, _serializer: var) !void {
+fn testAlternateSerializer(self: anytype, _serializer: anytype) !void {
     try _serializer.serialize(self.f_f16);
 }
 
@@ -503,7 +507,7 @@ fn testSerializerDeserializer(comptime endian: builtin.Endian, comptime packing:
         f_f16: f16,
         f_unused_u32: u32,
 
-        pub fn deserialize(self: *@This(), _deserializer: var) !void {
+        pub fn deserialize(self: *@This(), _deserializer: anytype) !void {
             try _deserializer.deserializeInto(&self.f_f16);
             self.f_unused_u32 = 47;
         }

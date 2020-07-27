@@ -5,6 +5,7 @@ const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
+const trait = meta.trait;
 const autoHash = std.hash.autoHash;
 const Wyhash = std.hash.Wyhash;
 const Allocator = mem.Allocator;
@@ -15,9 +16,17 @@ pub fn AutoHashMap(comptime K: type, comptime V: type) type {
     return HashMap(K, V, getAutoHashFn(K), getAutoEqlFn(K), autoEqlIsCheap(K));
 }
 
+pub fn AutoHashMapUnmanaged(comptime K: type, comptime V: type) type {
+    return HashMapUnmanaged(K, V, getAutoHashFn(K), getAutoEqlFn(K), autoEqlIsCheap(K));
+}
+
 /// Builtin hashmap for strings as keys.
 pub fn StringHashMap(comptime V: type) type {
     return HashMap([]const u8, V, hashString, eqlString, true);
+}
+
+pub fn StringHashMapUnmanaged(comptime V: type) type {
+    return HashMapUnmanaged([]const u8, V, hashString, eqlString, true);
 }
 
 pub fn eqlString(a: []const u8, b: []const u8) bool {
@@ -92,7 +101,7 @@ pub fn HashMap(
             return self.unmanaged.clearRetainingCapacity();
         }
 
-        pub fn clearAndFree(self: *Self, allocator: *Allocator) void {
+        pub fn clearAndFree(self: *Self) void {
             return self.unmanaged.clearAndFree(self.allocator);
         }
 
@@ -529,12 +538,13 @@ pub fn HashMapUnmanaged(
         }
 
         pub fn clone(self: Self, allocator: *Allocator) !Self {
-            // TODO this can be made more efficient by directly allocating
-            // the memory slices and memcpying the elements.
-            var other = Self.init();
-            try other.initCapacity(allocator, self.entries.len);
-            for (self.entries.items) |entry| {
-                other.putAssumeCapacityNoClobber(entry.key, entry.value);
+            var other: Self = .{};
+            try other.entries.appendSlice(allocator, self.entries.items);
+
+            if (self.index_header) |header| {
+                const new_header = try IndexHeader.alloc(allocator, header.indexes_len);
+                other.insertAllEntriesIntoNewHeader(new_header);
+                other.index_header = new_header;
             }
             return other;
         }
@@ -976,6 +986,25 @@ test "ensure capacity" {
     testing.expect(initial_capacity == map.capacity());
 }
 
+test "clone" {
+    var original = AutoHashMap(i32, i32).init(std.testing.allocator);
+    defer original.deinit();
+
+    // put more than `linear_scan_max` so we can test that the index header is properly cloned
+    var i: u8 = 0;
+    while (i < 10) : (i += 1) {
+        try original.putNoClobber(i, i * 10);
+    }
+
+    var copy = try original.clone();
+    defer copy.deinit();
+
+    i = 0;
+    while (i < 10) : (i += 1) {
+        testing.expect(copy.get(i).? == i * 10);
+    }
+}
+
 pub fn getHashPtrAddrFn(comptime K: type) (fn (K) u32) {
     return struct {
         fn hash(key: K) u32 {
@@ -995,9 +1024,13 @@ pub fn getTrivialEqlFn(comptime K: type) (fn (K, K) bool) {
 pub fn getAutoHashFn(comptime K: type) (fn (K) u32) {
     return struct {
         fn hash(key: K) u32 {
-            var hasher = Wyhash.init(0);
-            autoHash(&hasher, key);
-            return @truncate(u32, hasher.final());
+            if (comptime trait.hasUniqueRepresentation(K)) {
+                return @truncate(u32, Wyhash.hash(0, std.mem.asBytes(&key)));
+            } else {
+                var hasher = Wyhash.init(0);
+                autoHash(&hasher, key);
+                return @truncate(u32, hasher.final());
+            }
         }
     }.hash;
 }

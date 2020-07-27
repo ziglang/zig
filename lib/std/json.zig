@@ -239,7 +239,7 @@ pub const StreamingParser = struct {
         NullLiteral3,
 
         // Only call this function to generate array/object final state.
-        pub fn fromInt(x: var) State {
+        pub fn fromInt(x: anytype) State {
             debug.assert(x == 0 or x == 1);
             const T = @TagType(State);
             return @intToEnum(State, @intCast(T, x));
@@ -1236,7 +1236,7 @@ pub const Value = union(enum) {
     pub fn jsonStringify(
         value: @This(),
         options: StringifyOptions,
-        out_stream: var,
+        out_stream: anytype,
     ) @TypeOf(out_stream).Error!void {
         switch (value) {
             .Null => try stringify(null, options, out_stream),
@@ -1418,7 +1418,10 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
             if (unionInfo.tag_type) |_| {
                 // try each of the union fields until we find one that matches
                 inline for (unionInfo.fields) |u_field| {
-                    if (parseInternal(u_field.field_type, token, tokens, options)) |value| {
+                    // take a copy of tokens so we can withhold mutations until success
+                    var tokens_copy = tokens.*;
+                    if (parseInternal(u_field.field_type, token, &tokens_copy, options)) |value| {
+                        tokens.* = tokens_copy;
                         return @unionInit(T, u_field.name, value);
                     } else |err| {
                         // Bubble up error.OutOfMemory
@@ -1732,6 +1735,14 @@ test "parse into tagged union" {
             y: u8,
         };
         testing.expectEqual(T{ .x = 42 }, try parse(T, &TokenStream.init("42"), ParseOptions{}));
+    }
+
+    { // needs to back out when first union member doesn't match
+        const T = union(enum) {
+            A: struct { x: u32 },
+            B: struct { y: u32 },
+        };
+        testing.expectEqual(T{ .B = .{.y = 42} }, try parse(T, &TokenStream.init("{\"y\":42}"), ParseOptions{}));
     }
 }
 
@@ -2338,7 +2349,7 @@ pub const StringifyOptions = struct {
 
         pub fn outputIndent(
             whitespace: @This(),
-            out_stream: var,
+            out_stream: anytype,
         ) @TypeOf(out_stream).Error!void {
             var char: u8 = undefined;
             var n_chars: usize = undefined;
@@ -2380,7 +2391,7 @@ pub const StringifyOptions = struct {
 
 fn outputUnicodeEscape(
     codepoint: u21,
-    out_stream: var,
+    out_stream: anytype,
 ) !void {
     if (codepoint <= 0xFFFF) {
         // If the character is in the Basic Multilingual Plane (U+0000 through U+FFFF),
@@ -2402,9 +2413,9 @@ fn outputUnicodeEscape(
 }
 
 pub fn stringify(
-    value: var,
+    value: anytype,
     options: StringifyOptions,
-    out_stream: var,
+    out_stream: anytype,
 ) @TypeOf(out_stream).Error!void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
@@ -2584,7 +2595,7 @@ pub fn stringify(
     unreachable;
 }
 
-fn teststringify(expected: []const u8, value: var, options: StringifyOptions) !void {
+fn teststringify(expected: []const u8, value: anytype, options: StringifyOptions) !void {
     const ValidationOutStream = struct {
         const Self = @This();
         pub const OutStream = std.io.OutStream(*Self, Error, write);
@@ -2758,7 +2769,7 @@ test "stringify struct with custom stringifier" {
         pub fn jsonStringify(
             value: Self,
             options: StringifyOptions,
-            out_stream: var,
+            out_stream: anytype,
         ) !void {
             try out_stream.writeAll("[\"something special\",");
             try stringify(42, options, out_stream);

@@ -537,6 +537,7 @@ pub fn addPkgTests(
         these_tests.enable_qemu = is_qemu_enabled;
         these_tests.enable_wasmtime = is_wasmtime_enabled;
         these_tests.glibc_multi_install_dir = glibc_dir;
+        these_tests.addIncludeDir("test");
 
         step.dependOn(&these_tests.step);
     }

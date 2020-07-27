@@ -8,6 +8,10 @@ pub const Tokenizer = tokenizer.Tokenizer;
 pub const parse = @import("c/parse.zig").parse;
 pub const ast = @import("c/ast.zig");
 
+test "" {
+    _ = tokenizer;
+}
+
 pub usingnamespace @import("os/bits.zig");
 
 pub usingnamespace switch (std.Target.current.os.tag) {
@@ -27,7 +31,7 @@ pub usingnamespace switch (std.Target.current.os.tag) {
     else => struct {},
 };
 
-pub fn getErrno(rc: var) u16 {
+pub fn getErrno(rc: anytype) u16 {
     if (rc == -1) {
         return @intCast(u16, _errno().*);
     } else {

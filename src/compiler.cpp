@@ -38,11 +38,19 @@ Error get_compiler_id(Buf **result) {
     ZigList<Buf *> lib_paths = {};
     if ((err = os_self_exe_shared_libs(lib_paths)))
         return err;
+    #if defined(ZIG_OS_DARWIN)
+    // only add the self exe path on mac os
+    Buf *lib_path = lib_paths.at(0);
+    if ((err = cache_add_file(ch, lib_path)))
+        return err;
+    #else 
     for (size_t i = 0; i < lib_paths.length; i += 1) {
         Buf *lib_path = lib_paths.at(i);
         if ((err = cache_add_file(ch, lib_path)))
             return err;
     }
+    #endif
+
     if ((err = cache_final(ch, &saved_compiler_id)))
         return err;
 

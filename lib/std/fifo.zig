@@ -224,6 +224,7 @@ pub fn LinearFifo(
         pub fn reader(self: *Self) std.io.Reader(*Self, error{}, readFn) {
             return .{ .context = self };
         }
+
         /// Deprecated: `use reader`
         pub fn inStream(self: *Self) std.io.InStream(*Self, error{}, readFn) {
             return .{ .context = self };
@@ -315,6 +316,11 @@ pub fn LinearFifo(
             return bytes.len;
         }
 
+        pub fn writer(self: *Self) std.io.Writer(*Self, error{OutOfMemory}, appendWrite) {
+            return .{ .context = self };
+        }
+
+        /// Deprecated: `use writer`
         pub fn outStream(self: *Self) std.io.OutStream(*Self, error{OutOfMemory}, appendWrite) {
             return .{ .context = self };
         }
@@ -426,14 +432,14 @@ test "LinearFifo(u8, .Dynamic)" {
     fifo.shrink(0);
 
     {
-        try fifo.outStream().print("{}, {}!", .{ "Hello", "World" });
+        try fifo.writer().print("{}, {}!", .{ "Hello", "World" });
         var result: [30]u8 = undefined;
         testing.expectEqualSlices(u8, "Hello, World!", result[0..fifo.read(&result)]);
         testing.expectEqual(@as(usize, 0), fifo.readableLength());
     }
 
     {
-        try fifo.outStream().writeAll("This is a test");
+        try fifo.writer().writeAll("This is a test");
         var result: [30]u8 = undefined;
         testing.expectEqualSlices(u8, "This", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);
         testing.expectEqualSlices(u8, "is", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);

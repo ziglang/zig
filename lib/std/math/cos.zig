@@ -13,7 +13,7 @@ const expect = std.testing.expect;
 /// Special Cases:
 ///  - cos(+-inf) = nan
 ///  - cos(nan)   = nan
-pub fn cos(x: var) @TypeOf(x) {
+pub fn cos(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => cos_(f32, x),

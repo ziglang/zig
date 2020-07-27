@@ -22,7 +22,7 @@ const root = @import("root");
 //!     comptime level: std.log.Level,
 //!     comptime scope: @TypeOf(.EnumLiteral),
 //!     comptime format: []const u8,
-//!     args: var,
+//!     args: anytype,
 //! ) void {
 //!     // Ignore all non-critical logging from sources other than
 //!     // .my_project and .nice_library
@@ -39,16 +39,16 @@ const root = @import("root");
 //!     // Print the message to stderr, silently ignoring any errors
 //!     const held = std.debug.getStderrMutex().acquire();
 //!     defer held.release();
-//!     const stderr = std.debug.getStderrStream();
-//!     nosuspend stderr.print(prefix ++ format, args) catch return;
+//!     const stderr = std.io.getStdErr().writer();
+//!     nosuspend stderr.print(prefix ++ format ++ "\n", args) catch return;
 //! }
 //!
 //! pub fn main() void {
 //!     // Won't be printed as log_level is .warn
-//!     std.log.info(.my_project, "Starting up.\n", .{});
-//!     std.log.err(.nice_library, "Something went very wrong, sorry.\n", .{});
+//!     std.log.info(.my_project, "Starting up.", .{});
+//!     std.log.err(.nice_library, "Something went very wrong, sorry.", .{});
 //!     // Won't be printed as it gets filtered out by our log function
-//!     std.log.err(.lib_that_logs_too_much, "Added 1 + 1\n", .{});
+//!     std.log.err(.lib_that_logs_too_much, "Added 1 + 1", .{});
 //! }
 //! ```
 //! Which produces the following output:
@@ -101,7 +101,7 @@ fn log(
     comptime message_level: Level,
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     if (@enumToInt(message_level) <= @enumToInt(level)) {
         if (@hasDecl(root, "log")) {
@@ -110,7 +110,7 @@ fn log(
             const held = std.debug.getStderrMutex().acquire();
             defer held.release();
             const stderr = std.io.getStdErr().writer();
-            nosuspend stderr.print(format, args) catch return;
+            nosuspend stderr.print(format ++ "\n", args) catch return;
         }
     }
 }
@@ -120,7 +120,7 @@ fn log(
 pub fn emerg(
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     @setCold(true);
     log(.emerg, scope, format, args);
@@ -131,7 +131,7 @@ pub fn emerg(
 pub fn alert(
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     @setCold(true);
     log(.alert, scope, format, args);
@@ -143,7 +143,7 @@ pub fn alert(
 pub fn crit(
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     @setCold(true);
     log(.crit, scope, format, args);
@@ -154,7 +154,7 @@ pub fn crit(
 pub fn err(
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     @setCold(true);
     log(.err, scope, format, args);
@@ -166,7 +166,7 @@ pub fn err(
 pub fn warn(
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     log(.warn, scope, format, args);
 }
@@ -176,7 +176,7 @@ pub fn warn(
 pub fn notice(
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     log(.notice, scope, format, args);
 }
@@ -186,7 +186,7 @@ pub fn notice(
 pub fn info(
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     log(.info, scope, format, args);
 }
@@ -196,7 +196,7 @@ pub fn info(
 pub fn debug(
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
-    args: var,
+    args: anytype,
 ) void {
     log(.debug, scope, format, args);
 }

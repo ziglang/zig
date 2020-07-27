@@ -88,7 +88,7 @@ const Result = struct {
 
 const block_size: usize = 8 * 8192;
 
-pub fn benchmarkHash(comptime H: var, bytes: usize) !Result {
+pub fn benchmarkHash(comptime H: anytype, bytes: usize) !Result {
     var h = blk: {
         if (H.init_u8s) |init| {
             break :blk H.ty.init(init);
@@ -119,7 +119,7 @@ pub fn benchmarkHash(comptime H: var, bytes: usize) !Result {
     };
 }
 
-pub fn benchmarkHashSmallKeys(comptime H: var, key_size: usize, bytes: usize) !Result {
+pub fn benchmarkHashSmallKeys(comptime H: anytype, key_size: usize, bytes: usize) !Result {
     const key_count = bytes / key_size;
     var block: [block_size]u8 = undefined;
     prng.random.bytes(block[0..]);

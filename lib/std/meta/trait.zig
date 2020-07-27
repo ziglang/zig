@@ -9,7 +9,7 @@ const meta = @import("../meta.zig");
 
 pub const TraitFn = fn (type) bool;
 
-pub fn multiTrait(comptime traits: var) TraitFn {
+pub fn multiTrait(comptime traits: anytype) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
             inline for (traits) |t|
@@ -342,7 +342,20 @@ test "std.meta.trait.isContainer" {
     testing.expect(!isContainer(u8));
 }
 
-pub fn hasDecls(comptime T: type, comptime names: var) bool {
+pub fn isTuple(comptime T: type) bool {
+    return is(.Struct)(T) and @typeInfo(T).Struct.is_tuple;
+}
+
+test "std.meta.trait.isTuple" {
+    const t1 = struct {};
+    const t2 = .{ .a = 0 };
+    const t3 = .{ 1, 2, 3 };
+    testing.expect(!isTuple(t1));
+    testing.expect(!isTuple(@TypeOf(t2)));
+    testing.expect(isTuple(@TypeOf(t3)));
+}
+
+pub fn hasDecls(comptime T: type, comptime names: anytype) bool {
     inline for (names) |name| {
         if (!@hasDecl(T, name))
             return false;
@@ -368,7 +381,7 @@ test "std.meta.trait.hasDecls" {
     testing.expect(!hasDecls(TestStruct2, tuple));
 }
 
-pub fn hasFields(comptime T: type, comptime names: var) bool {
+pub fn hasFields(comptime T: type, comptime names: anytype) bool {
     inline for (names) |name| {
         if (!@hasField(T, name))
             return false;
@@ -394,7 +407,7 @@ test "std.meta.trait.hasFields" {
     testing.expect(!hasFields(TestStruct2, .{ "a", "b", "useless" }));
 }
 
-pub fn hasFunctions(comptime T: type, comptime names: var) bool {
+pub fn hasFunctions(comptime T: type, comptime names: anytype) bool {
     inline for (names) |name| {
         if (!hasFn(name)(T))
             return false;
@@ -415,4 +428,72 @@ test "std.meta.trait.hasFunctions" {
     testing.expect(hasFunctions(TestStruct2, .{ "a", "b" }));
     testing.expect(!hasFunctions(TestStruct2, .{ "a", "b", "c" }));
     testing.expect(!hasFunctions(TestStruct2, tuple));
+}
+
+/// True if every value of the type `T` has a unique bit pattern representing it.
+/// In other words, `T` has no unused bits and no padding.
+pub fn hasUniqueRepresentation(comptime T: type) bool {
+    switch (@typeInfo(T)) {
+        else => return false, // TODO can we know if it's true for some of these types ?
+
+        .AnyFrame,
+        .Bool,
+        .BoundFn,
+        .Enum,
+        .ErrorSet,
+        .Fn,
+        .Int, // TODO check that it is still true
+        .Pointer,
+        => return true,
+
+        .Array => |info| return comptime hasUniqueRepresentation(info.child),
+
+        .Struct => |info| {
+            var sum_size = @as(usize, 0);
+
+            inline for (info.fields) |field| {
+                const FieldType = field.field_type;
+                if (comptime !hasUniqueRepresentation(FieldType)) return false;
+                sum_size += @sizeOf(FieldType);
+            }
+
+            return @sizeOf(T) == sum_size;
+        },
+
+        .Vector => |info| return comptime hasUniqueRepresentation(info.child),
+    }
+}
+
+test "std.meta.trait.hasUniqueRepresentation" {
+    const TestStruct1 = struct {
+        a: u32,
+        b: u32,
+    };
+
+    testing.expect(hasUniqueRepresentation(TestStruct1));
+
+    const TestStruct2 = struct {
+        a: u32,
+        b: u16,
+    };
+
+    testing.expect(!hasUniqueRepresentation(TestStruct2));
+
+    const TestStruct3 = struct {
+        a: u32,
+        b: u32,
+    };
+
+    testing.expect(hasUniqueRepresentation(TestStruct3));
+
+    testing.expect(hasUniqueRepresentation(i1));
+    testing.expect(hasUniqueRepresentation(u2));
+    testing.expect(hasUniqueRepresentation(i3));
+    testing.expect(hasUniqueRepresentation(u4));
+    testing.expect(hasUniqueRepresentation(i5));
+    testing.expect(hasUniqueRepresentation(u6));
+    testing.expect(hasUniqueRepresentation(i7));
+    testing.expect(hasUniqueRepresentation(u8));
+    testing.expect(hasUniqueRepresentation(i9));
+    testing.expect(hasUniqueRepresentation(u10));
 }

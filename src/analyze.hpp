@@ -77,7 +77,7 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node, bool all
 ZigType *get_src_ptr_type(ZigType *type);
 uint32_t get_ptr_align(CodeGen *g, ZigType *type);
 bool get_ptr_const(CodeGen *g, ZigType *type);
-ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry);
+ZigType *validate_var_type(CodeGen *g, AstNodeVariableDeclaration *source_node, ZigType *type_entry);
 ZigType *container_ref_type(ZigType *type_entry);
 bool type_is_complete(ZigType *type_entry);
 bool type_is_resolved(ZigType *type_entry, ResolveStatus status);

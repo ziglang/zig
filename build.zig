@@ -13,6 +13,7 @@ const InstallDirectoryOptions = std.build.InstallDirectoryOptions;
 pub fn build(b: *Builder) !void {
     b.setPreferredReleaseMode(.ReleaseFast);
     const mode = b.standardReleaseOptions();
+    const target = b.standardTargetOptions(.{});
 
     var docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
 
@@ -54,6 +55,7 @@ pub fn build(b: *Builder) !void {
     if (!only_install_lib_files) {
         var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
         exe.setBuildMode(mode);
+        exe.setTarget(target);
         test_step.dependOn(&exe.step);
         b.default_step.dependOn(&exe.step);
 
@@ -153,7 +155,7 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(docs_step);
 }
 
-fn dependOnLib(b: *Builder, lib_exe_obj: var, dep: LibraryDep) void {
+fn dependOnLib(b: *Builder, lib_exe_obj: anytype, dep: LibraryDep) void {
     for (dep.libdirs.items) |lib_dir| {
         lib_exe_obj.addLibPath(lib_dir);
     }
@@ -193,7 +195,7 @@ fn fileExists(filename: []const u8) !bool {
     return true;
 }
 
-fn addCppLib(b: *Builder, lib_exe_obj: var, cmake_binary_dir: []const u8, lib_name: []const u8) void {
+fn addCppLib(b: *Builder, lib_exe_obj: anytype, cmake_binary_dir: []const u8, lib_name: []const u8) void {
     lib_exe_obj.addObjectFile(fs.path.join(b.allocator, &[_][]const u8{
         cmake_binary_dir,
         "zig_cpp",
@@ -275,7 +277,7 @@ fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
     return result;
 }
 
-fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
+fn configureStage2(b: *Builder, exe: anytype, ctx: Context) !void {
     exe.addIncludeDir("src");
     exe.addIncludeDir(ctx.cmake_binary_dir);
     addCppLib(b, exe, ctx.cmake_binary_dir, "zig_cpp");
@@ -340,7 +342,7 @@ fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
 fn addCxxKnownPath(
     b: *Builder,
     ctx: Context,
-    exe: var,
+    exe: anytype,
     objname: []const u8,
     errtxt: ?[]const u8,
 ) !void {

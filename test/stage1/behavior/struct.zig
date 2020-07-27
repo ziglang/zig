@@ -713,7 +713,7 @@ test "packed struct field passed to generic function" {
             a: u1,
         };
 
-        fn genericReadPackedField(ptr: var) u5 {
+        fn genericReadPackedField(ptr: anytype) u5 {
             return ptr.*;
         }
     };
@@ -754,7 +754,7 @@ test "fully anonymous struct" {
                 .s = "hi",
             });
         }
-        fn dump(args: var) void {
+        fn dump(args: anytype) void {
             expect(args.int == 1234);
             expect(args.float == 12.34);
             expect(args.b);
@@ -771,7 +771,7 @@ test "fully anonymous list literal" {
         fn doTheTest() void {
             dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi" });
         }
-        fn dump(args: var) void {
+        fn dump(args: anytype) void {
             expect(args.@"0" == 1234);
             expect(args.@"1" == 12.34);
             expect(args.@"2");
@@ -792,8 +792,8 @@ test "anonymous struct literal assigned to variable" {
 
 test "struct with var field" {
     const Point = struct {
-        x: var,
-        y: var,
+        x: anytype,
+        y: anytype,
     };
     const pt = Point{
         .x = 1,

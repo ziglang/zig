@@ -123,10 +123,10 @@ pub fn Queue(comptime T: type) type {
         /// Dumps the contents of the queue to `stream`.
         /// Up to 4 elements from the head are dumped and the tail of the queue is
         /// dumped as well.
-        pub fn dumpToStream(self: *Self, stream: var) !void {
+        pub fn dumpToStream(self: *Self, stream: anytype) !void {
             const S = struct {
                 fn dumpRecursive(
-                    s: var,
+                    s: anytype,
                     optional_node: ?*Node,
                     indent: usize,
                     comptime depth: comptime_int,

@@ -16,7 +16,7 @@ const minInt = std.math.minInt;
 ///  - ilogb(+-inf) = maxInt(i32)
 ///  - ilogb(0)     = maxInt(i32)
 ///  - ilogb(nan)   = maxInt(i32)
-pub fn ilogb(x: var) i32 {
+pub fn ilogb(x: anytype) i32 {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => ilogb32(x),

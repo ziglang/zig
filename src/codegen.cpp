@@ -2301,9 +2301,8 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
 
     addLLVMArgAttr(fn_val, (unsigned)1, "noalias");
     addLLVMArgAttr(fn_val, (unsigned)1, "readonly");
-    if (g->build_mode == BuildModeDebug) {
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
+    if (codegen_have_frame_pointer(g)) {
+        ZigLLVMAddFunctionAttr(fn_val, "frame-pointer", "all");
     }
 
     // this is above the ZigLLVMClearCurrentDebugLocation
@@ -8448,8 +8447,8 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         ZigType *entry = new_type_table_entry(ZigTypeIdOpaque);
-        buf_init_from_str(&entry->name, "(var)");
-        g->builtin_types.entry_var = entry;
+        buf_init_from_str(&entry->name, "(anytype)");
+        g->builtin_types.entry_anytype = entry;
     }
 
     for (size_t i = 0; i < array_length(c_int_type_infos); i += 1) {

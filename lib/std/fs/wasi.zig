@@ -1,6 +1,7 @@
 const std = @import("std");
 const os = std.os;
 const mem = std.mem;
+const math = std.math;
 const Allocator = mem.Allocator;
 
 usingnamespace std.os.wasi;
@@ -29,7 +30,7 @@ pub const PreopenType = union(PreopenTypeTag) {
         }
     }
 
-    pub fn format(self: Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: var) !void {
+    pub fn format(self: Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: anytype) !void {
         try out_stream.print("PreopenType{{ ", .{});
         switch (self) {
             PreopenType.Dir => |path| try out_stream.print(".Dir = '{}'", .{path}),
@@ -72,7 +73,7 @@ pub const PreopenList = struct {
 
     const Self = @This();
 
-    pub const Error = os.UnexpectedError || Allocator.Error;
+    pub const Error = error{ OutOfMemory, Overflow } || os.UnexpectedError;
 
     /// Deinitialize with `deinit`.
     pub fn init(allocator: *Allocator) Self {
@@ -94,6 +95,12 @@ pub const PreopenList = struct {
     ///
     /// If called more than once, it will clear its contents every time before
     /// issuing the syscalls.
+    ///
+    /// In the unlinkely event of overflowing the number of available file descriptors,
+    /// returns `error.Overflow`. In this case, even though an error condition was reached
+    /// the preopen list still contains all valid preopened file descriptors that are valid
+    /// for use. Therefore, it is fine to call `find`, `asSlice`, or `toOwnedSlice`. Finally,
+    /// `deinit` still must be called!
     pub fn populate(self: *Self) Error!void {
         // Clear contents if we're being called again
         for (self.toOwnedSlice()) |preopen| {
@@ -110,6 +117,7 @@ pub const PreopenList = struct {
                 ESUCCESS => {},
                 ENOTSUP => {
                     // not a preopen, so keep going
+                    fd = try math.add(fd_t, fd, 1);
                     continue;
                 },
                 EBADF => {
@@ -127,7 +135,7 @@ pub const PreopenList = struct {
             }
             const preopen = Preopen.new(fd, PreopenType{ .Dir = path_buf });
             try self.buffer.append(preopen);
-            fd += 1;
+            fd = try math.add(fd_t, fd, 1);
         }
     }
 

@@ -104,7 +104,7 @@ test "number literal as an argument" {
     comptime numberLiteralArg(3);
 }
 
-fn numberLiteralArg(a: var) void {
+fn numberLiteralArg(a: anytype) void {
     expect(a == 3);
 }
 
@@ -132,7 +132,7 @@ test "pass by non-copying value through var arg" {
     expect(addPointCoordsVar(Point{ .x = 1, .y = 2 }) == 3);
 }
 
-fn addPointCoordsVar(pt: var) i32 {
+fn addPointCoordsVar(pt: anytype) i32 {
     comptime expect(@TypeOf(pt) == Point);
     return pt.x + pt.y;
 }
@@ -267,7 +267,7 @@ test "ability to give comptime types and non comptime types to same parameter" {
             expect(foo(i32) == 20);
         }
 
-        fn foo(arg: var) i32 {
+        fn foo(arg: anytype) i32 {
             if (@typeInfo(@TypeOf(arg)) == .Type and arg == i32) return 20;
             return 9 + arg;
         }

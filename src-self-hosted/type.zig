@@ -163,6 +163,22 @@ pub const Type = extern union {
                     return sentinel_b == null;
                 }
             },
+            .Fn => {
+                if (!a.fnReturnType().eql(b.fnReturnType()))
+                    return false;
+                if (a.fnCallingConvention() != b.fnCallingConvention())
+                    return false;
+                const a_param_len = a.fnParamLen();
+                const b_param_len = b.fnParamLen();
+                if (a_param_len != b_param_len)
+                    return false;
+                var i: usize = 0;
+                while (i < a_param_len) : (i += 1) {
+                    if (!a.fnParamType(i).eql(b.fnParamType(i)))
+                        return false;
+                }
+                return true;
+            },
             .Float,
             .Struct,
             .Optional,
@@ -170,14 +186,13 @@ pub const Type = extern union {
             .ErrorSet,
             .Enum,
             .Union,
-            .Fn,
             .BoundFn,
             .Opaque,
             .Frame,
             .AnyFrame,
             .Vector,
             .EnumLiteral,
-            => @panic("TODO implement more Type equality comparison"),
+            => std.debug.panic("TODO implement Type equality comparison of {} and {}", .{ a, b }),
         }
     }
 
@@ -277,7 +292,7 @@ pub const Type = extern union {
         self: Type,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        out_stream: var,
+        out_stream: anytype,
     ) @TypeOf(out_stream).Error!void {
         comptime assert(fmt.len == 0);
         var ty = self;
@@ -468,6 +483,10 @@ pub const Type = extern union {
         };
     }
 
+    pub fn isNoReturn(self: Type) bool {
+        return self.zigTypeTag() == .NoReturn;
+    }
+
     /// Asserts that hasCodeGenBits() is true.
     pub fn abiAlignment(self: Type, target: Target) u32 {
         return switch (self.tag()) {
@@ -590,7 +609,6 @@ pub const Type = extern union {
             .c_longdouble => return 16,
 
             .anyerror => return 2, // TODO revisit this when we have the concept of the error tag type
-
 
             .int_signed, .int_unsigned => {
                 const bits: u16 = if (self.cast(Payload.IntSigned)) |pl|
@@ -922,6 +940,11 @@ pub const Type = extern union {
         };
     }
 
+    /// Returns true if and only if the type is a fixed-width integer.
+    pub fn isInt(self: Type) bool {
+        return self.isSignedInt() or self.isUnsignedInt();
+    }
+
     /// Returns true if and only if the type is a fixed-width, signed integer.
     pub fn isSignedInt(self: Type) bool {
         return switch (self.tag()) {
@@ -972,6 +995,60 @@ pub const Type = extern union {
             .i16,
             .i32,
             .i64,
+            => true,
+        };
+    }
+
+    /// Returns true if and only if the type is a fixed-width, unsigned integer.
+    pub fn isUnsignedInt(self: Type) bool {
+        return switch (self.tag()) {
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_longdouble,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .@"null",
+            .@"undefined",
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .function,
+            .array,
+            .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
+            .array_u8_sentinel_0,
+            .const_slice_u8,
+            .int_signed,
+            .i8,
+            .isize,
+            .c_short,
+            .c_int,
+            .c_long,
+            .c_longlong,
+            .i16,
+            .i32,
+            .i64,
+            => false,
+
+            .int_unsigned,
+            .u8,
+            .usize,
+            .c_ushort,
+            .c_uint,
+            .c_ulong,
+            .c_ulonglong,
+            .u16,
+            .u32,
+            .u64,
             => true,
         };
     }

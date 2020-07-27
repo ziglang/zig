@@ -524,28 +524,3 @@ pub const cpu = struct {
         }),
     };
 };
-
-/// All mips CPUs, sorted alphabetically by name.
-/// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
-/// compiler has inefficient memory and CPU usage, affecting build times.
-pub const all_cpus = &[_]*const CpuModel{
-    &cpu.generic,
-    &cpu.mips1,
-    &cpu.mips2,
-    &cpu.mips3,
-    &cpu.mips32,
-    &cpu.mips32r2,
-    &cpu.mips32r3,
-    &cpu.mips32r5,
-    &cpu.mips32r6,
-    &cpu.mips4,
-    &cpu.mips5,
-    &cpu.mips64,
-    &cpu.mips64r2,
-    &cpu.mips64r3,
-    &cpu.mips64r5,
-    &cpu.mips64r6,
-    &cpu.octeon,
-    &cpu.@"octeon+",
-    &cpu.p5600,
-};

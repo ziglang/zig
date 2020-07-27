@@ -198,7 +198,7 @@ pub const TypeInfo = union(enum) {
         /// The type of the sentinel is the element type of the pointer, which is
         /// the value of the `child` field in this struct. However there is no way
         /// to refer to that type here, so we use `var`.
-        sentinel: var,
+        sentinel: anytype,
 
         /// This data structure is used by the Zig language code generation and
         /// therefore must be kept in sync with the compiler implementation.
@@ -220,7 +220,7 @@ pub const TypeInfo = union(enum) {
         /// The type of the sentinel is the element type of the array, which is
         /// the value of the `child` field in this struct. However there is no way
         /// to refer to that type here, so we use `var`.
-        sentinel: var,
+        sentinel: anytype,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -237,7 +237,7 @@ pub const TypeInfo = union(enum) {
         name: []const u8,
         offset: ?comptime_int,
         field_type: type,
-        default_value: var,
+        default_value: anytype,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -246,6 +246,7 @@ pub const TypeInfo = union(enum) {
         layout: ContainerLayout,
         fields: []const StructField,
         decls: []const Declaration,
+        is_tuple: bool,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -328,7 +329,7 @@ pub const TypeInfo = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Frame = struct {
-        function: var,
+        function: anytype,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -452,7 +453,7 @@ pub const Version = struct {
         self: Version,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        out_stream: var,
+        out_stream: anytype,
     ) !void {
         if (fmt.len == 0) {
             if (self.patch == 0) {

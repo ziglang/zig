@@ -5,6 +5,8 @@ const Allocator = std.mem.Allocator;
 const zir = @import("zir.zig");
 const Package = @import("Package.zig");
 
+const cheader = @embedFile("cbe.h");
+
 test "self-hosted" {
     var ctx = TestContext.init();
     defer ctx.deinit();
@@ -68,6 +70,7 @@ pub const TestContext = struct {
         output_mode: std.builtin.OutputMode,
         updates: std.ArrayList(Update),
         extension: TestType,
+        cbe: bool = false,
 
         /// Adds a subcase in which the module is updated with `src`, and the
         /// resulting ZIR is validated against `result`.
@@ -185,6 +188,22 @@ pub const TestContext = struct {
     /// Adds a test case for ZIR input, producing an object file
     pub fn objZIR(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget) *Case {
         return ctx.addObj(name, target, .ZIR);
+    }
+
+    pub fn addC(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget, T: TestType) *Case {
+        ctx.cases.append(Case{
+            .name = name,
+            .target = target,
+            .updates = std.ArrayList(Update).init(ctx.cases.allocator),
+            .output_mode = .Obj,
+            .extension = T,
+            .cbe = true,
+        }) catch unreachable;
+        return &ctx.cases.items[ctx.cases.items.len - 1];
+    }
+
+    pub fn c(ctx: *TestContext, name: []const u8, target: std.zig.CrossTarget, src: [:0]const u8, comptime out: [:0]const u8) void {
+        ctx.addC(name, target, .Zig).addTransform(src, cheader ++ out);
     }
 
     pub fn addCompareOutput(
@@ -365,13 +384,13 @@ pub const TestContext = struct {
     }
 
     fn deinit(self: *TestContext) void {
-        for (self.cases.items) |c| {
-            for (c.updates.items) |u| {
+        for (self.cases.items) |case| {
+            for (case.updates.items) |u| {
                 if (u.case == .Error) {
-                    c.updates.allocator.free(u.case.Error);
+                    case.updates.allocator.free(u.case.Error);
                 }
             }
-            c.updates.deinit();
+            case.updates.deinit();
         }
         self.cases.deinit();
         self.* = undefined;
@@ -415,9 +434,6 @@ pub const TestContext = struct {
 
         var module = try Module.init(allocator, .{
             .target = target,
-            // This is an Executable, as opposed to e.g. a *library*. This does
-            // not mean no ZIR is generated.
-            //
             // TODO: support tests for object file building, and library builds
             // and linking. This will require a rework to support multi-file
             // tests.
@@ -428,6 +444,7 @@ pub const TestContext = struct {
             .bin_file_path = bin_name,
             .root_pkg = root_pkg,
             .keep_source_files_loaded = true,
+            .object_format = if (case.cbe) .c else null,
         });
         defer module.deinit();
 
@@ -447,33 +464,65 @@ pub const TestContext = struct {
             try module.update();
             module_node.end();
 
+            if (update.case != .Error) {
+                var all_errors = try module.getAllErrorsAlloc();
+                defer all_errors.deinit(allocator);
+                if (all_errors.list.len != 0) {
+                    std.debug.warn("\nErrors occurred updating the module:\n================\n", .{});
+                    for (all_errors.list) |err| {
+                        std.debug.warn(":{}:{}: error: {}\n================\n", .{ err.line + 1, err.column + 1, err.msg });
+                    }
+                    std.debug.warn("Test failed.\n", .{});
+                    std.process.exit(1);
+                }
+            }
+
             switch (update.case) {
                 .Transformation => |expected_output| {
-                    update_node.estimated_total_items = 5;
-                    var emit_node = update_node.start("emit", null);
-                    emit_node.activate();
-                    var new_zir_module = try zir.emit(allocator, module);
-                    defer new_zir_module.deinit(allocator);
-                    emit_node.end();
+                    if (case.cbe) {
+                        // The C file is always closed after an update, because we don't support
+                        // incremental updates
+                        var file = try tmp.dir.openFile(bin_name, .{ .read = true });
+                        defer file.close();
+                        var out = file.reader().readAllAlloc(allocator, 1024 * 1024) catch @panic("Unable to read C output!");
+                        defer allocator.free(out);
 
-                    var write_node = update_node.start("write", null);
-                    write_node.activate();
-                    var out_zir = std.ArrayList(u8).init(allocator);
-                    defer out_zir.deinit();
-                    try new_zir_module.writeToStream(allocator, out_zir.outStream());
-                    write_node.end();
+                        if (expected_output.len != out.len) {
+                            std.debug.warn("\nTransformed C length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
+                            std.process.exit(1);
+                        }
+                        for (expected_output) |e, i| {
+                            if (out[i] != e) {
+                                std.debug.warn("\nTransformed C differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
+                                std.process.exit(1);
+                            }
+                        }
+                    } else {
+                        update_node.estimated_total_items = 5;
+                        var emit_node = update_node.start("emit", null);
+                        emit_node.activate();
+                        var new_zir_module = try zir.emit(allocator, module);
+                        defer new_zir_module.deinit(allocator);
+                        emit_node.end();
 
-                    var test_node = update_node.start("assert", null);
-                    test_node.activate();
-                    defer test_node.end();
-                    if (expected_output.len != out_zir.items.len) {
-                        std.debug.warn("{}\nTransformed ZIR length differs:\n================\nExpected:\n================\n{}\n================\nFound: {}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
-                        std.process.exit(1);
-                    }
-                    for (expected_output) |e, i| {
-                        if (out_zir.items[i] != e) {
-                            if (expected_output.len != out_zir.items.len) {
-                                std.debug.warn("{}\nTransformed ZIR differs:\n================\nExpected:\n================\n{}\n================\nFound: {}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
+                        var write_node = update_node.start("write", null);
+                        write_node.activate();
+                        var out_zir = std.ArrayList(u8).init(allocator);
+                        defer out_zir.deinit();
+                        try new_zir_module.writeToStream(allocator, out_zir.outStream());
+                        write_node.end();
+
+                        var test_node = update_node.start("assert", null);
+                        test_node.activate();
+                        defer test_node.end();
+
+                        if (expected_output.len != out_zir.items.len) {
+                            std.debug.warn("{}\nTransformed ZIR length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
+                            std.process.exit(1);
+                        }
+                        for (expected_output) |e, i| {
+                            if (out_zir.items[i] != e) {
+                                std.debug.warn("{}\nTransformed ZIR differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
                                 std.process.exit(1);
                             }
                         }
@@ -511,6 +560,8 @@ pub const TestContext = struct {
                     }
                 },
                 .Execution => |expected_stdout| {
+                    std.debug.assert(!case.cbe);
+
                     update_node.estimated_total_items = 4;
                     var exec_result = x: {
                         var exec_node = update_node.start("execute", null);

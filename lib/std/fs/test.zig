@@ -3,9 +3,122 @@ const testing = std.testing;
 const builtin = std.builtin;
 const fs = std.fs;
 const mem = std.mem;
+const wasi = std.os.wasi;
 
+const ArenaAllocator = std.heap.ArenaAllocator;
+const Dir = std.fs.Dir;
 const File = std.fs.File;
 const tmpDir = testing.tmpDir;
+
+test "Dir.readLink" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Create some targets
+    try tmp.dir.writeFile("file.txt", "nonsense");
+    try tmp.dir.makeDir("subdir");
+
+    {
+        // Create symbolic link by path
+        try tmp.dir.symLink("file.txt", "symlink1", .{});
+        try testReadLink(tmp.dir, "file.txt", "symlink1");
+    }
+    {
+        // Create symbolic link by path
+        try tmp.dir.symLink("subdir", "symlink2", .{ .is_directory = true });
+        try testReadLink(tmp.dir, "subdir", "symlink2");
+    }
+}
+
+fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !void {
+    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const given = try dir.readLink(symlink_path, buffer[0..]);
+    testing.expect(mem.eql(u8, target_path, given));
+}
+
+test "readLinkAbsolute" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Create some targets
+    try tmp.dir.writeFile("file.txt", "nonsense");
+    try tmp.dir.makeDir("subdir");
+
+    // Get base abs path
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const base_path = blk: {
+        const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
+    };
+    const allocator = &arena.allocator;
+
+    {
+        const target_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "file.txt" });
+        const symlink_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "symlink1" });
+
+        // Create symbolic link by path
+        try fs.symLinkAbsolute(target_path, symlink_path, .{});
+        try testReadLinkAbsolute(target_path, symlink_path);
+    }
+    {
+        const target_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "subdir" });
+        const symlink_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "symlink2" });
+
+        // Create symbolic link by path
+        try fs.symLinkAbsolute(target_path, symlink_path, .{ .is_directory = true });
+        try testReadLinkAbsolute(target_path, symlink_path);
+    }
+}
+
+fn testReadLinkAbsolute(target_path: []const u8, symlink_path: []const u8) !void {
+    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const given = try fs.readLinkAbsolute(symlink_path, buffer[0..]);
+    testing.expect(mem.eql(u8, target_path, given));
+}
+
+test "Dir.Iterator" {
+    var tmp_dir = tmpDir(.{ .iterate = true });
+    defer tmp_dir.cleanup();
+
+    // First, create a couple of entries to iterate over.
+    const file = try tmp_dir.dir.createFile("some_file", .{});
+    file.close();
+
+    try tmp_dir.dir.makeDir("some_dir");
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    var entries = std.ArrayList(Dir.Entry).init(&arena.allocator);
+
+    // Create iterator.
+    var iter = tmp_dir.dir.iterate();
+    while (try iter.next()) |entry| {
+        // We cannot just store `entry` as on Windows, we're re-using the name buffer
+        // which means we'll actually share the `name` pointer between entries!
+        const name = try arena.allocator.dupe(u8, entry.name);
+        try entries.append(Dir.Entry{ .name = name, .kind = entry.kind });
+    }
+
+    testing.expect(entries.items.len == 2); // note that the Iterator skips '.' and '..'
+    testing.expect(contains(&entries, Dir.Entry{ .name = "some_file", .kind = Dir.Entry.Kind.File }));
+    testing.expect(contains(&entries, Dir.Entry{ .name = "some_dir", .kind = Dir.Entry.Kind.Directory }));
+}
+
+fn entry_eql(lhs: Dir.Entry, rhs: Dir.Entry) bool {
+    return mem.eql(u8, lhs.name, rhs.name) and lhs.kind == rhs.kind;
+}
+
+fn contains(entries: *const std.ArrayList(Dir.Entry), el: Dir.Entry) bool {
+    for (entries.items) |entry| {
+        if (entry_eql(entry, el)) return true;
+    }
+    return false;
+}
 
 test "readAllAlloc" {
     var tmp_dir = tmpDir(.{});
@@ -237,7 +350,7 @@ test "fs.copyFile" {
     try expectFileContents(tmp.dir, dest_file2, data);
 }
 
-fn expectFileContents(dir: fs.Dir, file_path: []const u8, data: []const u8) !void {
+fn expectFileContents(dir: Dir, file_path: []const u8, data: []const u8) !void {
     const contents = try dir.readFileAlloc(testing.allocator, file_path, 1000);
     defer testing.allocator.free(contents);
 

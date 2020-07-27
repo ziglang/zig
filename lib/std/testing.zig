@@ -14,9 +14,12 @@ pub var failing_allocator_instance = FailingAllocator.init(&base_allocator_insta
 pub var base_allocator_instance = std.mem.validationWrap(std.heap.ThreadSafeFixedBufferAllocator.init(allocator_mem[0..]));
 var allocator_mem: [2 * 1024 * 1024]u8 = undefined;
 
+/// TODO https://github.com/ziglang/zig/issues/5738
+pub var log_level = std.log.Level.warn;
+
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
 /// and then aborts when actual_error_union is not expected_error.
-pub fn expectError(expected_error: anyerror, actual_error_union: var) void {
+pub fn expectError(expected_error: anyerror, actual_error_union: anytype) void {
     if (actual_error_union) |actual_payload| {
         std.debug.panic("expected error.{}, found {}", .{ @errorName(expected_error), actual_payload });
     } else |actual_error| {
@@ -33,7 +36,7 @@ pub fn expectError(expected_error: anyerror, actual_error_union: var) void {
 /// equal, prints diagnostics to stderr to show exactly how they are not equal,
 /// then aborts.
 /// The types must match exactly.
-pub fn expectEqual(expected: var, actual: @TypeOf(expected)) void {
+pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) void {
     switch (@typeInfo(@TypeOf(actual))) {
         .NoReturn,
         .BoundFn,
@@ -166,6 +169,59 @@ test "expectEqual.union(enum)" {
     const a20 = T{ .a = 20 };
 
     expectEqual(a10, a10);
+}
+
+/// This function is intended to be used only in tests. When the actual value is not
+/// within the margin of the expected value,
+/// prints diagnostics to stderr to show exactly how they are not equal, then aborts.
+/// The types must be floating point
+pub fn expectWithinMargin(expected: anytype, actual: @TypeOf(expected), margin: @TypeOf(expected)) void {
+    std.debug.assert(margin >= 0.0);
+
+    switch (@typeInfo(@TypeOf(actual))) {
+        .Float,
+        .ComptimeFloat,
+        => {
+            if (@fabs(expected - actual) > margin) {
+                std.debug.panic("actual {}, not within margin {} of expected {}", .{ actual, margin, expected });
+            }
+        },
+        else => @compileError("Unable to compare non floating point values"),
+    }
+}
+
+test "expectWithinMargin.f32" {
+    const x: f32 = 12.0;
+    const y: f32 = 12.06;
+
+    expectWithinMargin(x, y, 0.1);
+}
+
+/// This function is intended to be used only in tests. When the actual value is not
+/// within the epsilon of the expected value,
+/// prints diagnostics to stderr to show exactly how they are not equal, then aborts.
+/// The types must be floating point
+pub fn expectWithinEpsilon(expected: anytype, actual: @TypeOf(expected), epsilon: @TypeOf(expected)) void {
+    std.debug.assert(epsilon >= 0.0 and epsilon <= 1.0);
+
+    const margin = epsilon * expected;
+    switch (@typeInfo(@TypeOf(actual))) {
+        .Float,
+        .ComptimeFloat,
+        => {
+            if (@fabs(expected - actual) > margin) {
+                std.debug.panic("actual {}, not within epsilon {}, of expected {}", .{ actual, epsilon, expected });
+            }
+        },
+        else => @compileError("Unable to compare non floating point values"),
+    }
+}
+
+test "expectWithinEpsilon.f32" {
+    const x: f32 = 12.0;
+    const y: f32 = 13.2;
+
+    expectWithinEpsilon(x, y, 0.1);
 }
 
 /// This function is intended to be used only in tests. When the two slices are not

@@ -296,7 +296,7 @@ const TaggedUnionWithAVoid = union(enum) {
     B: i32,
 };
 
-fn testTaggedUnionInit(x: var) bool {
+fn testTaggedUnionInit(x: anytype) bool {
     const y = TaggedUnionWithAVoid{ .A = x };
     return @as(@TagType(TaggedUnionWithAVoid), y) == TaggedUnionWithAVoid.A;
 }
@@ -664,6 +664,27 @@ test "cast from anonymous struct to union" {
             expect(std.mem.eql(u8, x1.B, "foo"));
             expect(x2 == .C);
             expect(x3.A == y);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "method call on an empty union" {
+    const S = struct {
+        const MyUnion = union(Tag) {
+            pub const Tag = enum { X1, X2 };
+            X1: [0]u8,
+            X2: [0]u8,
+
+            pub fn useIt(self: *@This()) bool {
+                return true;
+            }
+        };
+
+        fn doTheTest() void {
+            var u = MyUnion{ .X1 = [0]u8{} };
+            expect(u.useIt());
         }
     };
     S.doTheTest();
