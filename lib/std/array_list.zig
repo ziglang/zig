@@ -108,6 +108,33 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             mem.copy(T, self.items[i .. i + items.len], items);
         }
 
+        /// Replace range of elements `list[start..start+len]` with `new_items`
+        /// grows list if `len < new_items.len`. may allocate
+        /// shrinks list if `len > new_items.len`
+        pub fn replaceRange(self: *Self, start: usize, len: usize, new_items: SliceConst) !void {
+            const after_range = start + len;
+            const range = self.items[start..after_range];
+
+            if (range.len == new_items.len)
+                mem.copy(T, range, new_items)
+            else if (range.len < new_items.len) {
+                const first = new_items[0..range.len];
+                const rest = new_items[range.len..];
+
+                mem.copy(T, range, first);
+                try self.insertSlice(after_range, rest);
+            } else {
+                mem.copy(T, range, new_items);
+                const after_subrange = start + new_items.len;
+
+                for (self.items[after_range..]) |item, i| {
+                    self.items[after_subrange..][i] = item;
+                }
+
+                self.items.len -= len - new_items.len;
+            }
+        }
+
         /// Extend the list by 1 element. Allocates more memory as necessary.
         pub fn append(self: *Self, item: T) !void {
             const new_item_ptr = try self.addOne();
@@ -364,6 +391,15 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
             mem.copyBackwards(T, self.items[i + items.len .. self.items.len], self.items[i .. self.items.len - items.len]);
             mem.copy(T, self.items[i .. i + items.len], items);
+        }
+
+        /// Replace range of elements `list[start..start+len]` with `new_items`
+        /// grows list if `len < new_items.len`. may allocate
+        /// shrinks list if `len > new_items.len`
+        pub fn replaceRange(self: *Self, start: usize, len: usize, new_items: SliceConst) !void {
+            var managed = self.toManaged(allocator);
+            try managed.replaceRange(start, len, new_items);
+            self.* = managed.toUnmanaged();
         }
 
         /// Extend the list by 1 element. Allocates more memory as necessary.
@@ -712,6 +748,38 @@ test "std.ArrayList.insertSlice" {
     try list.insertSlice(0, items[0..0]);
     testing.expect(list.items.len == 6);
     testing.expect(list.items[0] == 1);
+}
+
+test "std.ArrayList.replaceRange" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const alloc = &arena.allocator;
+    const init = [_]i32{ 1, 2, 3, 4, 5 };
+    const new = [_]i32{ 0, 0, 0 };
+
+    var list_zero = ArrayList(i32).init(alloc);
+    var list_eq = ArrayList(i32).init(alloc);
+    var list_lt = ArrayList(i32).init(alloc);
+    var list_gt = ArrayList(i32).init(alloc);
+
+    try list_zero.appendSlice(&init);
+    try list_eq.appendSlice(&init);
+    try list_lt.appendSlice(&init);
+    try list_gt.appendSlice(&init);
+
+    try list_zero.replaceRange(1, 0, &new);
+    try list_eq.replaceRange(1, 3, &new);
+    try list_lt.replaceRange(1, 2, &new);
+
+    // after_range > new_items.len in function body
+    testing.expect(1 + 4 > new.len);
+    try list_gt.replaceRange(1, 4, &new);
+
+    testing.expectEqualSlices(i32, list_zero.items, &[_]i32{ 1, 0, 0, 0, 2, 3, 4, 5 });
+    testing.expectEqualSlices(i32, list_eq.items, &[_]i32{ 1, 0, 0, 0, 5 });
+    testing.expectEqualSlices(i32, list_lt.items, &[_]i32{ 1, 0, 0, 0, 4, 5 });
+    testing.expectEqualSlices(i32, list_gt.items, &[_]i32{ 1, 0, 0, 0 });
 }
 
 const Item = struct {
