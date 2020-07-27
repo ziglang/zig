@@ -7474,7 +7474,7 @@ export fn @"A function name that is a complete sentence."() void {}
       <p>
       When looking at the resulting object, you can see the symbol is used verbatim:
       </p>
-      <pre>00000000000001f0 T A function name that is a complete sentence.</pre>
+      <pre><code>00000000000001f0 T A function name that is a complete sentence.</code></pre>
       {#see_also|Exporting a C Library#}
       {#header_close#}
 
