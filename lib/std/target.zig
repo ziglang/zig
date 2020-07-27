@@ -639,6 +639,7 @@ pub const Target = struct {
             renderscript32,
             renderscript64,
             ve,
+            spu_2,
 
             // Non-LLVM targets
             spu_2,
