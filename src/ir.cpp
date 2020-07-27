@@ -14177,7 +14177,14 @@ static IrInstGen *ir_analyze_enum_to_union(IrAnalyze *ira, IrInst* source_instr,
         if (!val)
             return ira->codegen->invalid_inst_gen;
         TypeUnionField *union_field = find_union_field_by_tag(wanted_type, &val->data.x_enum_tag);
-        assert(union_field != nullptr);
+        if (union_field == nullptr) {
+            Buf *int_buf = buf_alloc();
+            bigint_append_buf(int_buf, &target->value->data.x_enum_tag, 10);
+
+            ir_add_error(ira, &target->base,
+                buf_sprintf("no tag by value %s", buf_ptr(int_buf)));
+            return ira->codegen->invalid_inst_gen;
+        }
         ZigType *field_type = resolve_union_field_type(ira->codegen, union_field);
         if (field_type == nullptr)
             return ira->codegen->invalid_inst_gen;
@@ -14211,6 +14218,13 @@ static IrInstGen *ir_analyze_enum_to_union(IrAnalyze *ira, IrInst* source_instr,
         result->value->data.x_union.payload->special = ConstValSpecialStatic;
         result->value->data.x_union.payload->type = field_type;
         return result;
+    }
+
+    if (target->value->type->data.enumeration.non_exhaustive) {
+        ir_add_error(ira, source_instr,
+                buf_sprintf("runtime cast to union '%s' from non-exhustive enum",
+                    buf_ptr(&wanted_type->name)));
+        return ira->codegen->invalid_inst_gen;
     }
 
     // if the union has all fields 0 bits, we can do it
