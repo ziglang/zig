@@ -20603,17 +20603,25 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
                 return ira->codegen->invalid_inst_gen;
             }
 
+            ZigType *expected_return_type = result_loc->value->type->data.pointer.child_type;
+
             IrInstGen *dummy_value = ir_const(ira, source_instr, return_type);
             dummy_value->value->special = ConstValSpecialRuntime;
             IrInstGen *dummy_result = ir_implicit_cast2(ira, source_instr,
-                    dummy_value, result_loc->value->type->data.pointer.child_type);
-            if (type_is_invalid(dummy_result->value->type))
+                    dummy_value, expected_return_type);
+            if (type_is_invalid(dummy_result->value->type)) {
+                if ((return_type->id == ZigTypeIdErrorUnion || return_type->id == ZigTypeIdErrorSet) &&
+                    expected_return_type->id != ZigTypeIdErrorUnion && expected_return_type->id != ZigTypeIdErrorSet)
+                {
+                    add_error_note(ira->codegen, ira->new_irb.exec->first_err_trace_msg,
+                        ira->explicit_return_type_source_node, buf_create_from_str("function cannot return an error"));
+                }
                 return ira->codegen->invalid_inst_gen;
-            ZigType *res_child_type = result_loc->value->type->data.pointer.child_type;
-            if (res_child_type == ira->codegen->builtin_types.entry_anytype) {
-                res_child_type = return_type;
             }
-            if (!handle_is_ptr(ira->codegen, res_child_type)) {
+            if (expected_return_type == ira->codegen->builtin_types.entry_anytype) {
+                expected_return_type = return_type;
+            }
+            if (!handle_is_ptr(ira->codegen, expected_return_type)) {
                 ir_reset_result(call_result_loc);
                 result_loc = nullptr;
             }
@@ -30907,6 +30915,13 @@ static IrInstGen *ir_analyze_instruction_end_expr(IrAnalyze *ira, IrInstSrcEndEx
             IrInstGen *store_ptr = ir_analyze_store_ptr(ira, &instruction->base.base, result_loc, value,
                     instruction->result_loc->allow_write_through_const);
             if (type_is_invalid(store_ptr->value->type)) {
+                if (instruction->result_loc->id == ResultLocIdReturn &&
+                    (value->value->type->id == ZigTypeIdErrorUnion || value->value->type->id == ZigTypeIdErrorSet) &&
+                    ira->explicit_return_type->id != ZigTypeIdErrorUnion && ira->explicit_return_type->id != ZigTypeIdErrorSet)
+                {
+                    add_error_note(ira->codegen, ira->new_irb.exec->first_err_trace_msg,
+                        ira->explicit_return_type_source_node, buf_create_from_str("function cannot return an error"));
+                }
                 return ira->codegen->invalid_inst_gen;
             }
         }
