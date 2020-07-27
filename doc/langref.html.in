@@ -8393,7 +8393,7 @@ fn foo(comptime T: type, ptr: *T) T {
       {#header_close#}
 
       {#header_open|Opaque Types#}
-      {#syntax#}@Type(.Opaque){#endsyntax#} creates a new type with an unknown (but non-zero) size and alignment.
+      <p>{#syntax#}@Type(.Opaque){#endsyntax#} creates a new type with an unknown (but non-zero) size and alignment.
       </p>
       <p>
       This is typically used for type safety when interacting with C code that does not expose struct details.
@@ -9472,7 +9472,7 @@ test "assert in release fast mode" {
       dependencies, so Zig code can be built on any platform without
       installing more programs.</p>
       <p>To use the build system, run 
-      <pre><code class="shell">$ zig build [command]</code></pre>
+      <code class="shell">$ zig build [command]</code>
       where {#syntax#}[command]{#endsyntax#} is an optional target,
       configured by your build.zig file. There is more detail
       on <a href="https://github.com/ziglang/zig/wiki/Zig-Build-System">the
