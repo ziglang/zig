@@ -215,30 +215,34 @@ pub fn CreateEventExW(attributes: ?*SECURITY_ATTRIBUTES, nameW: [*:0]const u16, 
     }
 }
 
-pub fn DeviceIoControl(
+pub const FsControlFileError = error{Unexpected};
+
+// TODO work out if we need to expose other arguments to the underlying
+// NtFsControlFile syscall
+pub fn FsControlFile(
     h: HANDLE,
-    ioControlCode: DWORD,
+    fsControlCode: ULONG,
     in: ?[]const u8,
     out: ?[]u8,
-    overlapped: ?*OVERLAPPED,
-) !DWORD {
-    var bytes: DWORD = undefined;
-    if (kernel32.DeviceIoControl(
+) FsControlFileError!void {
+    var io: IO_STATUS_BLOCK = undefined;
+    const rc = ntdll.NtFsControlFile(
         h,
-        ioControlCode,
+        null,
+        null,
+        null,
+        &io,
+        fsControlCode,
         if (in) |i| i.ptr else null,
-        if (in) |i| @intCast(u32, i.len) else 0,
+        if (in) |i| @intCast(ULONG, i.len) else 0,
         if (out) |o| o.ptr else null,
-        if (out) |o| @intCast(u32, o.len) else 0,
-        &bytes,
-        overlapped,
-    ) == 0) {
-        switch (kernel32.GetLastError()) {
-            .IO_PENDING => if (overlapped == null) unreachable,
-            else => |err| return unexpectedError(err),
-        }
+        if (out) |o| @intCast(ULONG, o.len) else 0,
+    );
+    switch (rc) {
+        .SUCCESS => {},
+        .INVALID_PARAMETER => unreachable,
+        else => return unexpectedStatus(rc),
     }
-    return bytes;
 }
 
 pub fn GetOverlappedResult(h: HANDLE, overlapped: *OVERLAPPED, wait: bool) !DWORD {
@@ -727,8 +731,7 @@ pub fn CreateSymbolicLinkW(
     @memcpy(buffer[@sizeOf(SYMLINK_DATA)..], @ptrCast([*]const u8, target_path), target_path.len * 2);
     const paths_start = @sizeOf(SYMLINK_DATA) + target_path.len * 2;
     @memcpy(buffer[paths_start..].ptr, @ptrCast([*]const u8, target_path), target_path.len * 2);
-    // TODO replace with NtDeviceIoControl
-    _ = try DeviceIoControl(symlink_handle, FSCTL_SET_REPARSE_POINT, buffer[0..buf_len], null, null);
+    _ = try FsControlFile(symlink_handle, FSCTL_SET_REPARSE_POINT, buffer[0..buf_len], null);
 }
 
 pub const ReadLinkError = error{
@@ -806,7 +809,7 @@ pub fn ReadLinkW(dir: ?HANDLE, sub_path_w: [*:0]const u16, out_buffer: []u8) Rea
     defer CloseHandle(result_handle);
 
     var reparse_buf: [MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
-    _ = try DeviceIoControl(result_handle, FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..], null);
+    _ = try FsControlFile(result_handle, FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..]);
 
     const reparse_struct = @ptrCast(*const REPARSE_DATA_BUFFER, @alignCast(@alignOf(REPARSE_DATA_BUFFER), &reparse_buf[0]));
     switch (reparse_struct.ReparseTag) {
