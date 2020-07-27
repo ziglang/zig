@@ -538,7 +538,7 @@ pub fn int32(need_bswap: bool, int_32: anytype, comptime Int64: anytype) Int64 {
 }
 
 fn preadNoEof(file: std.fs.File, buf: []u8, offset: u64) !void {
-    var i: u64 = 0;
+    var i: usize = 0;
     while (i < buf.len) {
         const len = file.pread(buf[i .. buf.len - i], offset + i) catch |err| switch (err) {
             error.SystemResources => return error.SystemResources,
