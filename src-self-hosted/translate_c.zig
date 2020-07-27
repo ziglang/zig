@@ -8,7 +8,6 @@ const Token = std.zig.Token;
 usingnamespace @import("clang.zig");
 const ctok = std.c.tokenizer;
 const CToken = std.c.Token;
-const CTokenList = std.c.tokenizer.Source.TokenList;
 const mem = std.mem;
 const math = std.math;
 
@@ -5196,16 +5195,39 @@ pub fn freeErrors(errors: []ClangErrMsg) void {
     ZigClangErrorMsg_delete(errors.ptr, errors.len);
 }
 
+const CTokIterator = struct {
+    source: []const u8,
+    list: []const CToken,
+    i: usize = 0,
+
+    fn peek(self: *CTokIterator) ?CToken.Id {
+        if (self.i >= self.list.len) return null;
+        return self.list[self.i + 1].id;
+    }
+
+    fn next(self: *CTokIterator) ?CToken.Id {
+        if (self.i >= self.list.len) return null;
+        self.i += 1;
+        return self.list[self.i].id;
+    }
+
+    fn slice(self: *CTokIterator, index: usize) []const u8 {
+        const tok = self.list[index];
+        return self.source[tok.start..tok.end];
+    }
+};
+
 fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
     // TODO if we see #undef, delete it from the table
     var it = ZigClangASTUnit_getLocalPreprocessingEntities_begin(unit);
     const it_end = ZigClangASTUnit_getLocalPreprocessingEntities_end(unit);
-    var tok_list = CTokenList.init(c.arena);
+    var tok_list = std.ArrayList(CToken).init(c.gpa);
+    defer tok_list.deinit();
     const scope = c.global_scope;
 
     while (it.I != it_end.I) : (it.I += 1) {
         const entity = ZigClangPreprocessingRecord_iterator_deref(it);
-        tok_list.shrink(0);
+        tok_list.items.len = 0;
         switch (ZigClangPreprocessedEntity_getKind(entity)) {
             .MacroDefinitionKind => {
                 const macro = @ptrCast(*ZigClangMacroDefinitionRecord, entity);
@@ -5223,38 +5245,34 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
                 const begin_c = ZigClangSourceManager_getCharacterData(c.source_manager, begin_loc);
                 const slice = begin_c[0..mem.len(begin_c)];
 
-                tok_list.shrink(0);
                 var tokenizer = std.c.Tokenizer{
-                    .source = &std.c.tokenizer.Source{
-                        .buffer = slice,
-                        .file_name = undefined,
-                        .tokens = undefined,
-                    },
+                    .buffer = slice,
                 };
                 while (true) {
                     const tok = tokenizer.next();
                     switch (tok.id) {
                         .Nl, .Eof => {
-                            try tok_list.push(tok);
+                            try tok_list.append(tok);
                             break;
                         },
                         .LineComment, .MultiLineComment => continue,
                         else => {},
                     }
-                    try tok_list.push(tok);
+                    try tok_list.append(tok);
                 }
 
-                var tok_it = tok_list.iterator(0);
-                const first_tok = tok_it.next().?;
-                assert(mem.eql(u8, slice[first_tok.start..first_tok.end], name));
+                var tok_it = CTokIterator{
+                    .source = slice,
+                    .list = tok_list.items,
+                };
+                assert(mem.eql(u8, tok_it.slice(0), name));
 
                 var macro_fn = false;
-                const next = tok_it.peek().?;
-                switch (next.id) {
+                switch (tok_it.peek().?) {
                     .Identifier => {
                         // if it equals itself, ignore. for example, from stdio.h:
                         // #define stdin stdin
-                        if (mem.eql(u8, name, slice[next.start..next.end])) {
+                        if (mem.eql(u8, name, tok_it.slice(1))) {
                             continue;
                         }
                     },
@@ -5265,15 +5283,15 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
                     },
                     .LParen => {
                         // if the name is immediately followed by a '(' then it is a function
-                        macro_fn = first_tok.end == next.start;
+                        macro_fn = tok_it.list[0].end == tok_it.list[1].start;
                     },
                     else => {},
                 }
 
                 (if (macro_fn)
-                    transMacroFnDefine(c, &tok_it, slice, mangled_name, begin_loc)
+                    transMacroFnDefine(c, &tok_it, mangled_name, begin_loc)
                 else
-                    transMacroDefine(c, &tok_it, slice, mangled_name, begin_loc)) catch |err| switch (err) {
+                    transMacroDefine(c, &tok_it, mangled_name, begin_loc)) catch |err| switch (err) {
                     error.ParseError => continue,
                     error.OutOfMemory => |e| return e,
                 };
@@ -5283,7 +5301,7 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
     }
 }
 
-fn transMacroDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8, name: []const u8, source_loc: ZigClangSourceLocation) ParseError!void {
+fn transMacroDefine(c: *Context, it: *CTokIterator, name: []const u8, source_loc: ZigClangSourceLocation) ParseError!void {
     const scope = &c.global_scope.base;
 
     const visib_tok = try appendToken(c, .Keyword_pub, "pub");
@@ -5291,15 +5309,15 @@ fn transMacroDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8, n
     const name_tok = try appendIdentifier(c, name);
     const eq_token = try appendToken(c, .Equal, "=");
 
-    const init_node = try parseCExpr(c, it, source, source_loc, scope);
+    const init_node = try parseCExpr(c, it, source_loc, scope);
     const last = it.next().?;
-    if (last.id != .Eof and last.id != .Nl)
+    if (last != .Eof and last != .Nl)
         return failDecl(
             c,
             source_loc,
             name,
             "unable to translate C expr: unexpected token .{}",
-            .{@tagName(last.id)},
+            .{@tagName(last)},
         );
 
     const semicolon_token = try appendToken(c, .Semicolon, ";");
@@ -5315,7 +5333,7 @@ fn transMacroDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8, n
     _ = try c.global_scope.macro_table.put(name, &node.base);
 }
 
-fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8, name: []const u8, source_loc: ZigClangSourceLocation) ParseError!void {
+fn transMacroFnDefine(c: *Context, it: *CTokIterator, name: []const u8, source_loc: ZigClangSourceLocation) ParseError!void {
     var block_scope = try Scope.Block.init(c, &c.global_scope.base, null);
     defer block_scope.deinit();
     const scope = &block_scope.base;
@@ -5326,7 +5344,7 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
     const name_tok = try appendIdentifier(c, name);
     _ = try appendToken(c, .LParen, "(");
 
-    if (it.next().?.id != .LParen) {
+    if (it.next().? != .LParen) {
         return failDecl(
             c,
             source_loc,
@@ -5340,8 +5358,7 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
     defer fn_params.deinit();
 
     while (true) {
-        const param_tok = it.next().?;
-        if (param_tok.id != .Identifier) {
+        if (it.next().? != .Identifier) {
             return failDecl(
                 c,
                 source_loc,
@@ -5351,7 +5368,7 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             );
         }
 
-        const mangled_name = try block_scope.makeMangledName(c, source[param_tok.start..param_tok.end]);
+        const mangled_name = try block_scope.makeMangledName(c, it.slice(it.i));
         const param_name_tok = try appendIdentifier(c, mangled_name);
         _ = try appendToken(c, .Colon, ":");
 
@@ -5369,13 +5386,13 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             .param_type = .{ .any_type = &any_type.base },
         };
 
-        if (it.peek().?.id != .Comma)
+        if (it.peek().? != .Comma)
             break;
         _ = it.next();
         _ = try appendToken(c, .Comma, ",");
     }
 
-    if (it.next().?.id != .RParen) {
+    if (it.next().? != .RParen) {
         return failDecl(
             c,
             source_loc,
@@ -5390,15 +5407,15 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
     const type_of = try c.createBuiltinCall("@TypeOf", 1);
 
     const return_kw = try appendToken(c, .Keyword_return, "return");
-    const expr = try parseCExpr(c, it, source, source_loc, scope);
+    const expr = try parseCExpr(c, it, source_loc, scope);
     const last = it.next().?;
-    if (last.id != .Eof and last.id != .Nl)
+    if (last != .Eof and last != .Nl)
         return failDecl(
             c,
             source_loc,
             name,
             "unable to translate C expr: unexpected token .{}",
-            .{@tagName(last.id)},
+            .{@tagName(last)},
         );
     _ = try appendToken(c, .Semicolon, ";");
     const type_of_arg = if (expr.tag != .Block) expr else blk: {
@@ -5435,28 +5452,27 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
 
 const ParseError = Error || error{ParseError};
 
-fn parseCExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, source_loc: ZigClangSourceLocation, scope: *Scope) ParseError!*ast.Node {
-    const node = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
-    switch (it.next().?.id) {
+fn parseCExpr(c: *Context, it: *CTokIterator, source_loc: ZigClangSourceLocation, scope: *Scope) ParseError!*ast.Node {
+    const node = try parseCPrefixOpExpr(c, it, source_loc, scope);
+    switch (it.next().?) {
         .QuestionMark => {
             // must come immediately after expr
             _ = try appendToken(c, .RParen, ")");
             const if_node = try transCreateNodeIf(c);
             if_node.condition = node;
-            if_node.body = try parseCPrimaryExpr(c, it, source, source_loc, scope);
-            if (it.next().?.id != .Colon) {
-                const first_tok = it.list.at(0);
+            if_node.body = try parseCPrimaryExpr(c, it, source_loc, scope);
+            if (it.next().? != .Colon) {
                 try failDecl(
                     c,
                     source_loc,
-                    source[first_tok.start..first_tok.end],
+                    it.slice(0),
                     "unable to translate C expr: expected ':'",
                     .{},
                 );
                 return error.ParseError;
             }
             if_node.@"else" = try transCreateNodeElse(c);
-            if_node.@"else".?.body = try parseCPrimaryExpr(c, it, source, source_loc, scope);
+            if_node.@"else".?.body = try parseCPrimaryExpr(c, it, source_loc, scope);
             return &if_node.base;
         },
         .Comma => {
@@ -5479,10 +5495,10 @@ fn parseCExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, source_
                 };
                 try block_scope.statements.append(&op_node.base);
 
-                last = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
+                last = try parseCPrefixOpExpr(c, it, source_loc, scope);
                 _ = try appendToken(c, .Semicolon, ";");
-                if (it.next().?.id != .Comma) {
-                    _ = it.prev();
+                if (it.next().? != .Comma) {
+                    it.i -= 1;
                     break;
                 }
             }
@@ -5493,70 +5509,74 @@ fn parseCExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, source_
             return &block_node.base;
         },
         else => {
-            _ = it.prev();
+            it.i -= 1;
             return node;
         },
     }
 }
 
-fn parseCNumLit(c: *Context, tok: *CToken, source: []const u8, source_loc: ZigClangSourceLocation) ParseError!*ast.Node {
-    var lit_bytes = source[tok.start..tok.end];
+fn parseCNumLit(c: *Context, it: *CTokIterator, source_loc: ZigClangSourceLocation) ParseError!*ast.Node {
+    var lit_bytes = it.slice(it.i);
 
-    if (tok.id == .IntegerLiteral) {
-        if (lit_bytes.len > 2 and lit_bytes[0] == '0') {
-            switch (lit_bytes[1]) {
-                '0'...'7' => {
-                    // Octal
-                    lit_bytes = try std.fmt.allocPrint(c.arena, "0o{}", .{lit_bytes});
-                },
-                'X' => {
-                    // Hexadecimal with capital X, valid in C but not in Zig
-                    lit_bytes = try std.fmt.allocPrint(c.arena, "0x{}", .{lit_bytes[2..]});
-                },
-                else => {},
+    switch (it.list[it.i].id) {
+        .IntegerLiteral => |suffix| {
+            if (lit_bytes.len > 2 and lit_bytes[0] == '0') {
+                switch (lit_bytes[1]) {
+                    '0'...'7' => {
+                        // Octal
+                        lit_bytes = try std.fmt.allocPrint(c.arena, "0o{}", .{lit_bytes});
+                    },
+                    'X' => {
+                        // Hexadecimal with capital X, valid in C but not in Zig
+                        lit_bytes = try std.fmt.allocPrint(c.arena, "0x{}", .{lit_bytes[2..]});
+                    },
+                    else => {},
+                }
             }
-        }
 
-        if (tok.id.IntegerLiteral == .None) {
-            return transCreateNodeInt(c, lit_bytes);
-        }
+            if (suffix == .none) {
+                return transCreateNodeInt(c, lit_bytes);
+            }
 
-        const cast_node = try c.createBuiltinCall("@as", 2);
-        cast_node.params()[0] = try transCreateNodeIdentifier(c, switch (tok.id.IntegerLiteral) {
-            .U => "c_uint",
-            .L => "c_long",
-            .LU => "c_ulong",
-            .LL => "c_longlong",
-            .LLU => "c_ulonglong",
-            else => unreachable,
-        });
-        lit_bytes = lit_bytes[0 .. lit_bytes.len - switch (tok.id.IntegerLiteral) {
-            .U, .L => @as(u8, 1),
-            .LU, .LL => 2,
-            .LLU => 3,
-            else => unreachable,
-        }];
-        _ = try appendToken(c, .Comma, ",");
-        cast_node.params()[1] = try transCreateNodeInt(c, lit_bytes);
-        cast_node.rparen_token = try appendToken(c, .RParen, ")");
-        return &cast_node.base;
-    } else if (tok.id == .FloatLiteral) {
-        if (lit_bytes[0] == '.')
-            lit_bytes = try std.fmt.allocPrint(c.arena, "0{}", .{lit_bytes});
-        if (tok.id.FloatLiteral == .None) {
-            return transCreateNodeFloat(c, lit_bytes);
-        }
-        const cast_node = try c.createBuiltinCall("@as", 2);
-        cast_node.params()[0] = try transCreateNodeIdentifier(c, switch (tok.id.FloatLiteral) {
-            .F => "f32",
-            .L => "c_longdouble",
-            else => unreachable,
-        });
-        _ = try appendToken(c, .Comma, ",");
-        cast_node.params()[1] = try transCreateNodeFloat(c, lit_bytes[0 .. lit_bytes.len - 1]);
-        cast_node.rparen_token = try appendToken(c, .RParen, ")");
-        return &cast_node.base;
-    } else unreachable;
+            const cast_node = try c.createBuiltinCall("@as", 2);
+            cast_node.params()[0] = try transCreateNodeIdentifier(c, switch (suffix) {
+                .u => "c_uint",
+                .l => "c_long",
+                .lu => "c_ulong",
+                .ll => "c_longlong",
+                .llu => "c_ulonglong",
+                else => unreachable,
+            });
+            lit_bytes = lit_bytes[0 .. lit_bytes.len - switch (suffix) {
+                .u, .l => @as(u8, 1),
+                .lu, .ll => 2,
+                .llu => 3,
+                else => unreachable,
+            }];
+            _ = try appendToken(c, .Comma, ",");
+            cast_node.params()[1] = try transCreateNodeInt(c, lit_bytes);
+            cast_node.rparen_token = try appendToken(c, .RParen, ")");
+            return &cast_node.base;
+        },
+        .FloatLiteral => |suffix| {
+            if (lit_bytes[0] == '.')
+                lit_bytes = try std.fmt.allocPrint(c.arena, "0{}", .{lit_bytes});
+            if (suffix == .none) {
+                return transCreateNodeFloat(c, lit_bytes);
+            }
+            const cast_node = try c.createBuiltinCall("@as", 2);
+            cast_node.params()[0] = try transCreateNodeIdentifier(c, switch (suffix) {
+                .f => "f32",
+                .l => "c_longdouble",
+                else => unreachable,
+            });
+            _ = try appendToken(c, .Comma, ",");
+            cast_node.params()[1] = try transCreateNodeFloat(c, lit_bytes[0 .. lit_bytes.len - 1]);
+            cast_node.rparen_token = try appendToken(c, .RParen, ")");
+            return &cast_node.base;
+        },
+        else => unreachable,
+    }
 }
 
 fn zigifyEscapeSequences(ctx: *Context, source_bytes: []const u8, name: []const u8, source_loc: ZigClangSourceLocation) ![]const u8 {
@@ -5719,13 +5739,13 @@ fn zigifyEscapeSequences(ctx: *Context, source_bytes: []const u8, name: []const 
     return bytes[0..i];
 }
 
-fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, source_loc: ZigClangSourceLocation, scope: *Scope) ParseError!*ast.Node {
+fn parseCPrimaryExpr(c: *Context, it: *CTokIterator, source_loc: ZigClangSourceLocation, scope: *Scope) ParseError!*ast.Node {
     const tok = it.next().?;
-    switch (tok.id) {
+    const slice = it.slice(it.i);
+    switch (tok) {
         .CharLiteral => {
-            const first_tok = it.list.at(0);
-            if (source[tok.start] != '\'' or source[tok.start + 1] == '\\' or tok.end - tok.start == 3) {
-                const token = try appendToken(c, .CharLiteral, try zigifyEscapeSequences(c, source[tok.start..tok.end], source[first_tok.start..first_tok.end], source_loc));
+            if (slice[0] != '\'' or slice[1] == '\\' or slice.len == 3) {
+                const token = try appendToken(c, .CharLiteral, try zigifyEscapeSequences(c, slice, it.slice(0), source_loc));
                 const node = try c.arena.create(ast.Node.OneToken);
                 node.* = .{
                     .base = .{ .tag = .CharLiteral },
@@ -5733,7 +5753,7 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
                 };
                 return &node.base;
             } else {
-                const token = try appendTokenFmt(c, .IntegerLiteral, "0x{x}", .{source[tok.start + 1 .. tok.end - 1]});
+                const token = try appendTokenFmt(c, .IntegerLiteral, "0x{x}", .{slice[1 .. slice.len - 1]});
                 const node = try c.arena.create(ast.Node.OneToken);
                 node.* = .{
                     .base = .{ .tag = .IntegerLiteral },
@@ -5743,8 +5763,7 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             }
         },
         .StringLiteral => {
-            const first_tok = it.list.at(0);
-            const token = try appendToken(c, .StringLiteral, try zigifyEscapeSequences(c, source[tok.start..tok.end], source[first_tok.start..first_tok.end], source_loc));
+            const token = try appendToken(c, .StringLiteral, try zigifyEscapeSequences(c, slice, it.slice(0), source_loc));
             const node = try c.arena.create(ast.Node.OneToken);
             node.* = .{
                 .base = .{ .tag = .StringLiteral },
@@ -5753,7 +5772,7 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             return &node.base;
         },
         .IntegerLiteral, .FloatLiteral => {
-            return parseCNumLit(c, tok, source, source_loc);
+            return parseCNumLit(c, it, source_loc);
         },
         // eventually this will be replaced by std.c.parse which will handle these correctly
         .Keyword_void => return transCreateNodeIdentifierUnchecked(c, "c_void"),
@@ -5763,37 +5782,50 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
         .Keyword_int => return transCreateNodeIdentifierUnchecked(c, "c_int"),
         .Keyword_float => return transCreateNodeIdentifierUnchecked(c, "f32"),
         .Keyword_short => return transCreateNodeIdentifierUnchecked(c, "c_short"),
-        .Keyword_char => return transCreateNodeIdentifierUnchecked(c, "c_char"),
-        .Keyword_unsigned => if (it.next()) |t| {
-            switch (t.id) {
-                .Keyword_short => return transCreateNodeIdentifierUnchecked(c, "c_ushort"),
-                .Keyword_int => return transCreateNodeIdentifierUnchecked(c, "c_uint"),
-                .Keyword_long => if (it.peek() != null and it.peek().?.id == .Keyword_long) {
-                    _ = it.next();
-                    return transCreateNodeIdentifierUnchecked(c, "c_ulonglong");
-                } else return transCreateNodeIdentifierUnchecked(c, "c_ulong"),
-                else => {
-                    _ = it.prev();
-                    return transCreateNodeIdentifierUnchecked(c, "c_uint");
-                },
-            }
+        .Keyword_char => return transCreateNodeIdentifierUnchecked(c, "u8"),
+        .Keyword_unsigned => if (it.next()) |t| switch (t) {
+            .Keyword_char => return transCreateNodeIdentifierUnchecked(c, "u8"),
+            .Keyword_short => return transCreateNodeIdentifierUnchecked(c, "c_ushort"),
+            .Keyword_int => return transCreateNodeIdentifierUnchecked(c, "c_uint"),
+            .Keyword_long => if (it.peek() != null and it.peek().? == .Keyword_long) {
+                _ = it.next();
+                return transCreateNodeIdentifierUnchecked(c, "c_ulonglong");
+            } else return transCreateNodeIdentifierUnchecked(c, "c_ulong"),
+            else => {
+                it.i -= 1;
+                return transCreateNodeIdentifierUnchecked(c, "c_uint");
+            },
         } else {
             return transCreateNodeIdentifierUnchecked(c, "c_uint");
         },
+        .Keyword_signed => if (it.next()) |t| switch (t) {
+            .Keyword_char => return transCreateNodeIdentifierUnchecked(c, "i8"),
+            .Keyword_short => return transCreateNodeIdentifierUnchecked(c, "c_short"),
+            .Keyword_int => return transCreateNodeIdentifierUnchecked(c, "c_int"),
+            .Keyword_long => if (it.peek() != null and it.peek().? == .Keyword_long) {
+                _ = it.next();
+                return transCreateNodeIdentifierUnchecked(c, "c_longlong");
+            } else return transCreateNodeIdentifierUnchecked(c, "c_long"),
+            else => {
+                it.i -= 1;
+                return transCreateNodeIdentifierUnchecked(c, "c_int");
+            },
+        } else {
+            return transCreateNodeIdentifierUnchecked(c, "c_int");
+        },
         .Identifier => {
-            const mangled_name = scope.getAlias(source[tok.start..tok.end]);
+            const mangled_name = scope.getAlias(it.slice(it.i));
             return transCreateNodeIdentifier(c, mangled_name);
         },
         .LParen => {
-            const inner_node = try parseCExpr(c, it, source, source_loc, scope);
+            const inner_node = try parseCExpr(c, it, source_loc, scope);
 
-            const next_id = it.next().?.id;
+            const next_id = it.next().?;
             if (next_id != .RParen) {
-                const first_tok = it.list.at(0);
                 try failDecl(
                     c,
                     source_loc,
-                    source[first_tok.start..first_tok.end],
+                    it.slice(0),
                     "unable to translate C expr: expected ')'' instead got: {}",
                     .{@tagName(next_id)},
                 );
@@ -5801,7 +5833,7 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             }
             var saw_l_paren = false;
             var saw_integer_literal = false;
-            switch (it.peek().?.id) {
+            switch (it.peek().?) {
                 // (type)(to_cast)
                 .LParen => {
                     saw_l_paren = true;
@@ -5819,14 +5851,13 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             // hack to get zig fmt to render a comma in builtin calls
             _ = try appendToken(c, .Comma, ",");
 
-            const node_to_cast = try parseCExpr(c, it, source, source_loc, scope);
+            const node_to_cast = try parseCExpr(c, it, source_loc, scope);
 
-            if (saw_l_paren and it.next().?.id != .RParen) {
-                const first_tok = it.list.at(0);
+            if (saw_l_paren and it.next().? != .RParen) {
                 try failDecl(
                     c,
                     source_loc,
-                    source[first_tok.start..first_tok.end],
+                    it.slice(0),
                     "unable to translate C expr: expected ')''",
                     .{},
                 );
@@ -5857,13 +5888,12 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             return &group_node.base;
         },
         else => {
-            const first_tok = it.list.at(0);
             try failDecl(
                 c,
                 source_loc,
-                source[first_tok.start..first_tok.end],
+                it.slice(0),
                 "unable to translate C expr: unexpected token .{}",
-                .{@tagName(tok.id)},
+                .{@tagName(tok)},
             );
             return error.ParseError;
         },
@@ -5971,61 +6001,52 @@ fn macroIntToBool(c: *Context, node: *ast.Node) !*ast.Node {
     return &group_node.base;
 }
 
-fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, source_loc: ZigClangSourceLocation, scope: *Scope) ParseError!*ast.Node {
-    var node = try parseCPrimaryExpr(c, it, source, source_loc, scope);
+fn parseCSuffixOpExpr(c: *Context, it: *CTokIterator, source_loc: ZigClangSourceLocation, scope: *Scope) ParseError!*ast.Node {
+    var node = try parseCPrimaryExpr(c, it, source_loc, scope);
     while (true) {
-        const tok = it.next().?;
         var op_token: ast.TokenIndex = undefined;
         var op_id: ast.Node.Tag = undefined;
         var bool_op = false;
-        switch (tok.id) {
+        switch (it.next().?) {
             .Period => {
-                const name_tok = it.next().?;
-                if (name_tok.id != .Identifier) {
-                    const first_tok = it.list.at(0);
+                if (it.next().? != .Identifier) {
                     try failDecl(
                         c,
                         source_loc,
-                        source[first_tok.start..first_tok.end],
+                        it.slice(0),
                         "unable to translate C expr: expected identifier",
                         .{},
                     );
                     return error.ParseError;
                 }
 
-                node = try transCreateNodeFieldAccess(c, node, source[name_tok.start..name_tok.end]);
+                node = try transCreateNodeFieldAccess(c, node, it.slice(it.i));
                 continue;
             },
             .Arrow => {
-                const name_tok = it.next().?;
-                if (name_tok.id != .Identifier) {
-                    const first_tok = it.list.at(0);
+                if (it.next().? != .Identifier) {
                     try failDecl(
                         c,
                         source_loc,
-                        source[first_tok.start..first_tok.end],
+                        it.slice(0),
                         "unable to translate C expr: expected identifier",
                         .{},
                     );
                     return error.ParseError;
                 }
                 const deref = try transCreateNodePtrDeref(c, node);
-                node = try transCreateNodeFieldAccess(c, deref, source[name_tok.start..name_tok.end]);
+                node = try transCreateNodeFieldAccess(c, deref, it.slice(it.i));
                 continue;
             },
             .Asterisk => {
-                if (it.peek().?.id == .RParen) {
+                if (it.peek().? == .RParen) {
                     // type *)
 
                     // hack to get zig fmt to render a comma in builtin calls
                     _ = try appendToken(c, .Comma, ",");
 
-                    // * token
-                    _ = it.prev();
                     // last token of `node`
-                    const prev_id = it.prev().?.id;
-                    _ = it.next();
-                    _ = it.next();
+                    const prev_id = it.list[it.i - 1].id;
 
                     if (prev_id == .Keyword_void) {
                         const ptr = try transCreateNodePtrType(c, false, false, .Asterisk);
@@ -6096,15 +6117,14 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
             },
             .LBracket => {
                 const arr_node = try transCreateNodeArrayAccess(c, node);
-                arr_node.index_expr = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
+                arr_node.index_expr = try parseCPrefixOpExpr(c, it, source_loc, scope);
                 arr_node.rtoken = try appendToken(c, .RBracket, "]");
                 node = &arr_node.base;
-                if (it.next().?.id != .RBracket) {
-                    const first_tok = it.list.at(0);
+                if (it.next().? != .RBracket) {
                     try failDecl(
                         c,
                         source_loc,
-                        source[first_tok.start..first_tok.end],
+                        it.slice(0),
                         "unable to translate C expr: expected ']'",
                         .{},
                     );
@@ -6117,23 +6137,21 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                 var call_params = std.ArrayList(*ast.Node).init(c.gpa);
                 defer call_params.deinit();
                 while (true) {
-                    const arg = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
+                    const arg = try parseCPrefixOpExpr(c, it, source_loc, scope);
                     try call_params.append(arg);
-                    const next = it.next().?;
-                    if (next.id == .Comma)
-                        _ = try appendToken(c, .Comma, ",")
-                    else if (next.id == .RParen)
-                        break
-                    else {
-                        const first_tok = it.list.at(0);
-                        try failDecl(
-                            c,
-                            source_loc,
-                            source[first_tok.start..first_tok.end],
-                            "unable to translate C expr: expected ',' or ')'",
-                            .{},
-                        );
-                        return error.ParseError;
+                    switch (it.next().?) {
+                        .Comma => _ = try appendToken(c, .Comma, ","),
+                        .RParen => break,
+                        else => {
+                            try failDecl(
+                                c,
+                                source_loc,
+                                it.slice(0),
+                                "unable to translate C expr: expected ',' or ')'",
+                                .{},
+                            );
+                            return error.ParseError;
+                        },
                     }
                 }
                 const call_node = try ast.Node.Call.alloc(c.arena, call_params.items.len);
@@ -6158,23 +6176,21 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                 defer init_vals.deinit();
 
                 while (true) {
-                    const val = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
+                    const val = try parseCPrefixOpExpr(c, it, source_loc, scope);
                     try init_vals.append(val);
-                    const next = it.next().?;
-                    if (next.id == .Comma)
-                        _ = try appendToken(c, .Comma, ",")
-                    else if (next.id == .RBrace)
-                        break
-                    else {
-                        const first_tok = it.list.at(0);
-                        try failDecl(
-                            c,
-                            source_loc,
-                            source[first_tok.start..first_tok.end],
-                            "unable to translate C expr: expected ',' or '}}'",
-                            .{},
-                        );
-                        return error.ParseError;
+                    switch (it.next().?) {
+                        .Comma => _ = try appendToken(c, .Comma, ","),
+                        .RBrace => break,
+                        else => {
+                            try failDecl(
+                                c,
+                                source_loc,
+                                it.slice(0),
+                                "unable to translate C expr: expected ',' or '}}'",
+                                .{},
+                            );
+                            return error.ParseError;
+                        },
                     }
                 }
                 const tuple_node = try ast.Node.StructInitializerDot.alloc(c.arena, init_vals.items.len);
@@ -6221,22 +6237,22 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                 op_id = .ArrayCat;
                 op_token = try appendToken(c, .PlusPlus, "++");
 
-                _ = it.prev();
+                it.i -= 1;
             },
             .Identifier => {
                 op_id = .ArrayCat;
                 op_token = try appendToken(c, .PlusPlus, "++");
 
-                _ = it.prev();
+                it.i -= 1;
             },
             else => {
-                _ = it.prev();
+                it.i -= 1;
                 return node;
             },
         }
         const cast_fn = if (bool_op) macroIntToBool else macroBoolToInt;
         const lhs_node = try cast_fn(c, node);
-        const rhs_node = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
+        const rhs_node = try parseCPrefixOpExpr(c, it, source_loc, scope);
         const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
         op_node.* = .{
             .base = .{ .tag = op_id },
@@ -6248,38 +6264,36 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
     }
 }
 
-fn parseCPrefixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, source_loc: ZigClangSourceLocation, scope: *Scope) ParseError!*ast.Node {
-    const op_tok = it.next().?;
-
-    switch (op_tok.id) {
+fn parseCPrefixOpExpr(c: *Context, it: *CTokIterator, source_loc: ZigClangSourceLocation, scope: *Scope) ParseError!*ast.Node {
+    switch (it.next().?) {
         .Bang => {
             const node = try transCreateNodeSimplePrefixOp(c, .BoolNot, .Bang, "!");
-            node.rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
+            node.rhs = try parseCPrefixOpExpr(c, it, source_loc, scope);
             return &node.base;
         },
         .Minus => {
             const node = try transCreateNodeSimplePrefixOp(c, .Negation, .Minus, "-");
-            node.rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
+            node.rhs = try parseCPrefixOpExpr(c, it, source_loc, scope);
             return &node.base;
         },
-        .Plus => return try parseCPrefixOpExpr(c, it, source, source_loc, scope),
+        .Plus => return try parseCPrefixOpExpr(c, it, source_loc, scope),
         .Tilde => {
             const node = try transCreateNodeSimplePrefixOp(c, .BitNot, .Tilde, "~");
-            node.rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
+            node.rhs = try parseCPrefixOpExpr(c, it, source_loc, scope);
             return &node.base;
         },
         .Asterisk => {
-            const node = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
+            const node = try parseCPrefixOpExpr(c, it, source_loc, scope);
             return try transCreateNodePtrDeref(c, node);
         },
         .Ampersand => {
             const node = try transCreateNodeSimplePrefixOp(c, .AddressOf, .Ampersand, "&");
-            node.rhs = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
+            node.rhs = try parseCPrefixOpExpr(c, it, source_loc, scope);
             return &node.base;
         },
         else => {
-            _ = it.prev();
-            return try parseCSuffixOpExpr(c, it, source, source_loc, scope);
+            it.i -= 1;
+            return try parseCSuffixOpExpr(c, it, source_loc, scope);
         },
     }
 }
