@@ -16,16 +16,11 @@ pub fn Interpreter(comptime Bus: type) type {
             var count: usize = 0;
             while (size == null or count < size.?) {
                 count += 1;
-                var instruction: Instruction = try self.bus.read(Instruction, self.ip);
-                while (@bitCast(u16, instruction) == 0) {
-                    // Skip no-ops
-                    self.ip += 2;
-                    instruction = try self.bus.read(Instruction, self.ip);
-                }
+                var instruction = @bitCast(Instruction, self.bus.read16(self.ip));
 
                 std.log.debug(.SPU_2_Interpreter, "Executing {}\n", .{instruction});
 
-                self.ip += 2;
+                self.ip +%= 2;
 
                 const execute = switch (instruction.condition) {
                     .always => true,
@@ -40,13 +35,13 @@ pub fn Interpreter(comptime Bus: type) type {
                     const val0 = switch (instruction.input0) {
                         .zero => @as(u16, 0),
                         .immediate => i: {
-                            const val = try self.bus.read(u16, @intCast(u16, self.ip));
+                            const val = self.bus.read16(@intCast(u16, self.ip));
                             self.ip +%= 2;
                             break :i val;
                         },
                         else => |e| e: {
                             // peek or pop; show value at current SP, and if pop, increment sp
-                            const val = try self.bus.read(u16, self.sp);
+                            const val = self.bus.read16(self.sp);
                             if (e == .pop) {
                                 self.sp +%= 2;
                             }
@@ -56,13 +51,13 @@ pub fn Interpreter(comptime Bus: type) type {
                     const val1 = switch (instruction.input1) {
                         .zero => @as(u16, 0),
                         .immediate => i: {
-                            const val = try self.bus.read(u16, @intCast(u16, self.ip));
-                            self.ip += 2;
+                            const val = self.bus.read16(@intCast(u16, self.ip));
+                            self.ip +%= 2;
                             break :i val;
                         },
                         else => |e| e: {
                             // peek or pop; show value at current SP, and if pop, increment sp
-                            const val = try self.bus.read(u16, self.sp);
+                            const val = self.bus.read16(self.sp);
                             if (e == .pop) {
                                 self.sp +%= 2;
                             }
@@ -71,20 +66,20 @@ pub fn Interpreter(comptime Bus: type) type {
                     };
 
                     const output: u16 = switch (instruction.command) {
-                        .get => try self.bus.read(u16, self.bp +% (2 *% val0)),
+                        .get => self.bus.read16(self.bp +% (2 *% val0)),
                         .set => a: {
-                            try self.bus.write(u16, self.bp +% 2 *% val0, val1);
+                            self.bus.write16(self.bp +% 2 *% val0, val1);
                             break :a val1;
                         },
-                        .load8 => try self.bus.read(u8, val0),
-                        .load16 => try self.bus.read(u16, val0),
+                        .load8 => self.bus.read8(val0),
+                        .load16 => self.bus.read16(val0),
                         .store8 => a: {
                             const val = @truncate(u8, val1);
-                            try self.bus.write(u8, val0, @intCast(u8, val));
+                            self.bus.write8(val0, val);
                             break :a val;
                         },
                         .store16 => a: {
-                            try self.bus.write(u16, val0, val1);
+                            self.bus.write16(val0, val1);
                             break :a val1;
                         },
                         .copy => val0,
@@ -138,7 +133,7 @@ pub fn Interpreter(comptime Bus: type) type {
                         .discard => {},
                         .push => {
                             self.sp -%= 2;
-                            try self.bus.write(u16, self.sp, output);
+                            self.bus.write16(self.sp, output);
                         },
                         .jump => {
                             self.ip = output;

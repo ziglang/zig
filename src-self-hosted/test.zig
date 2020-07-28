@@ -621,18 +621,20 @@ pub const TestContext = struct {
                                 var interpreter = std.spu.interpreter(struct {
                                         RAM: [0x10000]u8 = undefined,
 
-                                        pub fn read(self: @This(), comptime T: type, addr: u16) !T {
-                                            if (@intCast(usize, addr) + @sizeOf(T) - 1 > 0xFFFF) {
-                                                return error.BusError;
-                                            }
-                                            return @ptrCast(*align(1) T, &self.RAM[addr]).*;
+                                        pub fn read8(bus: @This(), addr: u16) u8 {
+                                            return bus.RAM[addr];
                                         }
 
-                                        pub fn write(self: *@This(), comptime T: type, addr: u16, val: T) !void {
-                                            if (@intCast(usize, addr) + @sizeOf(T) - 1 > 0xFFFF) {
-                                                return error.BusError;
-                                            }
-                                            @ptrCast(*align(2) T, @alignCast(2, &self.RAM[addr])).* = val;
+                                        pub fn read16(bus: @This(), addr: u16) u16 {
+                                            return std.mem.readIntLittle(u16, bus.RAM[addr..][0..2]);
+                                        }
+
+                                        pub fn write8(bus: *@This(), addr: u16, val: u8) void {
+                                            bus.RAM[addr] = val;
+                                        }
+
+                                        pub fn write16(bus: *@This(), addr: u16, val: u16) void {
+                                            std.mem.writeIntLittle(u16, bus.RAM[addr..][0..2], val);
                                         }
                                     }){
                                     .bus = .{},
@@ -641,9 +643,9 @@ pub const TestContext = struct {
                                 std.process.exit(1);
                                 // TODO: loop detection? Solve the halting problem? fork() and limit by wall clock?
                                 // Limit by emulated cycles?
-                                //                                while (!interpreter.undefined0) {
-                                //                                    try interpreter.ExecuteBlock(100);
-                                //                                }
+                                //while (!interpreter.undefined0) {
+                                //    try interpreter.ExecuteBlock(100);
+                                //}
                             },
                             else => |e| {
                                 std.debug.print("TODO implement non-native tests for target arch {}\n", .{e});
