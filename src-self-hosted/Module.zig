@@ -2828,8 +2828,10 @@ fn analyzeInstCall(self: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerErro
         casted_args[i] = try self.coerce(scope, fn_param_types[i], uncasted_arg);
     }
 
+    const ret_type = func.ty.fnReturnType();
+
     const b = try self.requireRuntimeBlock(scope, inst.base.src);
-    return self.addCall(b, inst.base.src, Type.initTag(.void), func, casted_args);
+    return self.addCall(b, inst.base.src, ret_type, func, casted_args);
 }
 
 fn analyzeInstFn(self: *Module, scope: *Scope, fn_inst: *zir.Inst.Fn) InnerError!*Inst {
