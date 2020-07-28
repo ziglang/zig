@@ -2357,6 +2357,7 @@ fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*In
         .alloc => return self.analyzeInstAlloc(scope, old_inst.castTag(.alloc).?),
         .alloc_inferred => return self.analyzeInstAllocInferred(scope, old_inst.castTag(.alloc_inferred).?),
         .arg => return self.analyzeInstArg(scope, old_inst.castTag(.arg).?),
+        .bitcast_lvalue => return self.analyzeInstBitCastLValue(scope, old_inst.castTag(.bitcast_lvalue).?),
         .bitcast_result_ptr => return self.analyzeInstBitCastResultPtr(scope, old_inst.castTag(.bitcast_result_ptr).?),
         .block => return self.analyzeInstBlock(scope, old_inst.castTag(.block).?),
         .@"break" => return self.analyzeInstBreak(scope, old_inst.castTag(.@"break").?),
@@ -2374,6 +2375,7 @@ fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*In
         .declval_in_module => return self.analyzeInstDeclValInModule(scope, old_inst.castTag(.declval_in_module).?),
         .ensure_result_used => return self.analyzeInstEnsureResultUsed(scope, old_inst.castTag(.ensure_result_used).?),
         .ensure_result_non_error => return self.analyzeInstEnsureResultNonError(scope, old_inst.castTag(.ensure_result_non_error).?),
+        .ref => return self.analyzeInstRef(scope, old_inst.castTag(.ref).?),
         .ret_ptr => return self.analyzeInstRetPtr(scope, old_inst.castTag(.ret_ptr).?),
         .ret_type => return self.analyzeInstRetType(scope, old_inst.castTag(.ret_type).?),
         .store => return self.analyzeInstStore(scope, old_inst.castTag(.store).?),
@@ -2390,6 +2392,7 @@ fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*In
         .as => return self.analyzeInstAs(scope, old_inst.castTag(.as).?),
         .@"asm" => return self.analyzeInstAsm(scope, old_inst.castTag(.@"asm").?),
         .@"unreachable" => return self.analyzeInstUnreachable(scope, old_inst.castTag(.@"unreachable").?),
+        .unreach_nocheck => return self.analyzeInstUnreachNoChk(scope, old_inst.castTag(.unreach_nocheck).?),
         .@"return" => return self.analyzeInstRet(scope, old_inst.castTag(.@"return").?),
         .returnvoid => return self.analyzeInstRetVoid(scope, old_inst.castTag(.returnvoid).?),
         .@"fn" => return self.analyzeInstFn(scope, old_inst.castTag(.@"fn").?),
@@ -2400,7 +2403,21 @@ fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*In
         .bitcast => return self.analyzeInstBitCast(scope, old_inst.castTag(.bitcast).?),
         .floatcast => return self.analyzeInstFloatCast(scope, old_inst.castTag(.floatcast).?),
         .elemptr => return self.analyzeInstElemPtr(scope, old_inst.castTag(.elemptr).?),
-        .add, .sub => return self.analyzeInstArithmetic(scope, old_inst.cast(zir.Inst.BinOp).?),
+        .add => return self.analyzeInstArithmetic(scope, old_inst.castTag(.add).?),
+        .addwrap => return self.analyzeInstArithmetic(scope, old_inst.castTag(.addwrap).?),
+        .sub => return self.analyzeInstArithmetic(scope, old_inst.castTag(.sub).?),
+        .subwrap => return self.analyzeInstArithmetic(scope, old_inst.castTag(.subwrap).?),
+        .mul => return self.analyzeInstArithmetic(scope, old_inst.castTag(.mul).?),
+        .mulwrap => return self.analyzeInstArithmetic(scope, old_inst.castTag(.mulwrap).?),
+        .div => return self.analyzeInstArithmetic(scope, old_inst.castTag(.div).?),
+        .mod_rem => return self.analyzeInstArithmetic(scope, old_inst.castTag(.mod_rem).?),
+        .array_cat => return self.analyzeInstArrayCat(scope, old_inst.castTag(.array_cat).?),
+        .array_mul => return self.analyzeInstArrayMul(scope, old_inst.castTag(.array_mul).?),
+        .bitand => return self.analyzeInstBitwise(scope, old_inst.castTag(.bitand).?),
+        .bitor => return self.analyzeInstBitwise(scope, old_inst.castTag(.bitor).?),
+        .xor => return self.analyzeInstBitwise(scope, old_inst.castTag(.xor).?),
+        .shl => return self.analyzeInstShl(scope, old_inst.castTag(.shl).?),
+        .shr => return self.analyzeInstShr(scope, old_inst.castTag(.shr).?),
         .cmp_lt => return self.analyzeInstCmp(scope, old_inst.castTag(.cmp_lt).?, .lt),
         .cmp_lte => return self.analyzeInstCmp(scope, old_inst.castTag(.cmp_lte).?, .lte),
         .cmp_eq => return self.analyzeInstCmp(scope, old_inst.castTag(.cmp_eq).?, .eq),
@@ -2411,6 +2428,7 @@ fn analyzeInst(self: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!*In
         .isnull => return self.analyzeInstIsNonNull(scope, old_inst.castTag(.isnull).?, true),
         .isnonnull => return self.analyzeInstIsNonNull(scope, old_inst.castTag(.isnonnull).?, false),
         .boolnot => return self.analyzeInstBoolNot(scope, old_inst.castTag(.boolnot).?),
+        .typeof => return self.analyzeInstTypeOf(scope, old_inst.castTag(.typeof).?),
     }
 }
 
@@ -2420,6 +2438,10 @@ fn analyzeInstCoerceResultBlockPtr(
     inst: *zir.Inst.CoerceResultBlockPtr,
 ) InnerError!*Inst {
     return self.fail(scope, inst.base.src, "TODO implement analyzeInstCoerceResultBlockPtr", .{});
+}
+
+fn analyzeInstBitCastLValue(self: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    return self.fail(scope, inst.base.src, "TODO implement analyzeInstBitCastLValue", .{});
 }
 
 fn analyzeInstBitCastResultPtr(self: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
@@ -2436,6 +2458,10 @@ fn analyzeInstCoerceToPtrElem(self: *Module, scope: *Scope, inst: *zir.Inst.Coer
 
 fn analyzeInstRetPtr(self: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
     return self.fail(scope, inst.base.src, "TODO implement analyzeInstRetPtr", .{});
+}
+
+fn analyzeInstRef(self: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    return self.fail(scope, inst.base.src, "TODO implement analyzeInstRef", .{});
 }
 
 fn analyzeInstRetType(self: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
@@ -3044,6 +3070,26 @@ fn floatOpAllowed(tag: zir.Inst.Tag) bool {
     };
 }
 
+fn analyzeInstShl(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    return self.fail(scope, inst.base.src, "TODO implement analyzeInstShl", .{});
+}
+
+fn analyzeInstShr(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    return self.fail(scope, inst.base.src, "TODO implement analyzeInstShr", .{});
+}
+
+fn analyzeInstBitwise(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    return self.fail(scope, inst.base.src, "TODO implement analyzeInstBitwise", .{});
+}
+
+fn analyzeInstArrayCat(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    return self.fail(scope, inst.base.src, "TODO implement analyzeInstArrayCat", .{});
+}
+
+fn analyzeInstArrayMul(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    return self.fail(scope, inst.base.src, "TODO implement analyzeInstArrayMul", .{});
+}
+
 fn analyzeInstArithmetic(self: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
     const tracy = trace(@src());
     defer tracy.end();
@@ -3257,6 +3303,11 @@ fn analyzeInstCmp(
     return self.fail(scope, inst.base.src, "TODO implement more cmp analysis", .{});
 }
 
+fn analyzeInstTypeOf(self: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const operand = try self.resolveInst(scope, inst.positionals.operand);
+    return self.constType(scope, inst.base.src, operand.ty);
+}
+
 fn analyzeInstBoolNot(self: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const uncasted_operand = try self.resolveInst(scope, inst.positionals.operand);
     const bool_type = Type.initTag(.bool);
@@ -3319,13 +3370,22 @@ fn wantSafety(self: *Module, scope: *Scope) bool {
     };
 }
 
+fn analyzeUnreach(self: *Module, scope: *Scope, src: usize) InnerError!*Inst {
+    const b = try self.requireRuntimeBlock(scope, src);
+    return self.addNoOp(b, src, Type.initTag(.noreturn), .unreach);
+}
+
+fn analyzeInstUnreachNoChk(self: *Module, scope: *Scope, unreach: *zir.Inst.NoOp) InnerError!*Inst {
+    return self.analyzeUnreach(scope, unreach.base.src);
+}
+
 fn analyzeInstUnreachable(self: *Module, scope: *Scope, unreach: *zir.Inst.NoOp) InnerError!*Inst {
     const b = try self.requireRuntimeBlock(scope, unreach.base.src);
     if (self.wantSafety(scope)) {
         // TODO Once we have a panic function to call, call it here instead of this.
         _ = try self.addNoOp(b, unreach.base.src, Type.initTag(.void), .breakpoint);
     }
-    return self.addNoOp(b, unreach.base.src, Type.initTag(.noreturn), .unreach);
+    return self.analyzeUnreach(scope, unreach.base.src);
 }
 
 fn analyzeInstRet(self: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {

@@ -34,25 +34,63 @@ pub const Inst = struct {
 
     /// These names are used directly as the instruction names in the text format.
     pub const Tag = enum {
+        /// Arithmetic addition, asserts no integer overflow.
+        add,
+        /// Twos complement wrapping integer addition.
+        addwrap,
         /// Allocates stack local memory. Its lifetime ends when the block ends that contains
         /// this instruction.
         alloc,
         /// Same as `alloc` except the type is inferred.
         alloc_inferred,
+        /// Array concatenation. `a ++ b`
+        array_cat,
+        /// Array multiplication `a ** b`
+        array_mul,
         /// Function parameter value. These must be first in a function's main block,
         /// in respective order with the parameters.
         arg,
+        /// Type coercion.
+        as,
+        /// Inline assembly.
+        @"asm",
+        /// Bitwise AND. `&`
+        bitand,
+        /// TODO delete this instruction, it has no purpose.
+        bitcast,
+        /// An arbitrary typed pointer, which is to be used as an L-Value, is pointer-casted
+        /// to a new L-Value. The destination type is given by LHS. The cast is to be evaluated
+        /// as if it were a bit-cast operation from the operand pointer element type to the
+        /// provided destination type.
+        bitcast_lvalue,
         /// A typed result location pointer is bitcasted to a new result location pointer.
         /// The new result location pointer has an inferred type.
         bitcast_result_ptr,
+        /// Bitwise OR. `|`
+        bitor,
         /// A labeled block of code, which can return a value.
         block,
+        /// Boolean NOT. See also `bitnot`.
+        boolnot,
         /// Return a value from a `Block`.
         @"break",
         breakpoint,
         /// Same as `break` but without an operand; the operand is assumed to be the void value.
         breakvoid,
+        /// Function call.
         call,
+        /// `<`
+        cmp_lt,
+        /// `<=`
+        cmp_lte,
+        /// `==`
+        cmp_eq,
+        /// `>=`
+        cmp_gte,
+        /// `>`
+        cmp_gt,
+        /// `!=`
+        cmp_neq,
         /// Coerces a result location pointer to a new element type. It is evaluated "backwards"-
         /// as type coercion from the new element type to the old element type.
         /// LHS is destination element type, RHS is result pointer.
@@ -65,6 +103,8 @@ pub const Inst = struct {
         coerce_to_ptr_elem,
         /// Emit an error message and fail compilation.
         compileerror,
+        /// Conditional branch. Splits control flow based on a boolean condition value.
+        condbr,
         /// Special case, has no textual representation.
         @"const",
         /// Represents a pointer to a global decl by name.
@@ -76,61 +116,103 @@ pub const Inst = struct {
         declval,
         /// Same as declval but the parameter is a `*Module.Decl` rather than a name.
         declval_in_module,
+        /// Load the value from a pointer.
+        deref,
+        /// Arithmetic division. Asserts no integer overflow.
+        div,
+        /// Given a pointer to an array, slice, or pointer, returns a pointer to the element at
+        /// the provided index.
+        elemptr,
         /// Emits a compile error if the operand is not `void`.
         ensure_result_used,
         /// Emits a compile error if an error is ignored.
         ensure_result_non_error,
-        boolnot,
+        /// Export the provided Decl as the provided name in the compilation's output object file.
+        @"export",
+        /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
+        /// to the named field.
+        fieldptr,
+        /// Convert a larger float type to any other float type, possibly causing a loss of precision.
+        floatcast,
+        /// Declare a function body.
+        @"fn",
+        /// Returns a function type.
+        fntype,
+        /// Integer literal.
+        int,
+        /// Convert an integer value to another integer type, asserting that the destination type
+        /// can hold the same mathematical value.
+        intcast,
+        /// Make an integer type out of signedness and bit count.
+        inttype,
+        /// Return a boolean false if an optional is null. `x != null`
+        isnonnull,
+        /// Return a boolean true if an optional is null. `x == null`
+        isnull,
+        /// Ambiguously remainder division or modulus. If the computation would possibly have
+        /// a different value depending on whether the operation is remainder division or modulus,
+        /// a compile error is emitted. Otherwise the computation is performed.
+        mod_rem,
+        /// Arithmetic multiplication. Asserts no integer overflow.
+        mul,
+        /// Twos complement wrapping integer multiplication.
+        mulwrap,
+        /// Given a reference to a function and a parameter index, returns the
+        /// type of the parameter. TODO what happens when the parameter is `anytype`?
+        param_type,
+        /// An alternative to using `const` for simple primitive values such as `true` or `u8`.
+        /// TODO flatten so that each primitive has its own ZIR Inst Tag.
+        primitive,
+        /// Convert a pointer to a `usize` integer.
+        ptrtoint,
+        /// Turns an R-Value into a const L-Value. In other words, it takes a value,
+        /// stores it in a memory location, and returns a const pointer to it. If the value
+        /// is `comptime`, the memory location is global static constant data. Otherwise,
+        /// the memory location is in the stack frame, local to the scope containing the
+        /// instruction.
+        ref,
         /// Obtains a pointer to the return value.
         ret_ptr,
         /// Obtains the return type of the in-scope function.
         ret_type,
-        /// Write a value to a pointer.
+        /// Sends control flow back to the function's callee. Takes an operand as the return value.
+        @"return",
+        /// Same as `return` but there is no operand; the operand is implicitly the void value.
+        returnvoid,
+        /// Integer shift-left. Zeroes are shifted in from the right hand side.
+        shl,
+        /// Integer shift-right. Arithmetic or logical depending on the signedness of the integer type.
+        shr,
+        /// Write a value to a pointer. For loading, see `deref`.
         store,
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
         str,
-        int,
-        inttype,
-        ptrtoint,
-        fieldptr,
-        deref,
-        as,
-        @"asm",
-        @"unreachable",
-        @"return",
-        returnvoid,
-        @"fn",
-        fntype,
-        @"export",
-        /// Given a reference to a function and a parameter index, returns the
-        /// type of the parameter. TODO what happens when the parameter is `anytype`?
-        param_type,
-        primitive,
-        intcast,
-        bitcast,
-        floatcast,
-        elemptr,
-        add,
+        /// Arithmetic subtraction. Asserts no integer overflow.
         sub,
-        cmp_lt,
-        cmp_lte,
-        cmp_eq,
-        cmp_gte,
-        cmp_gt,
-        cmp_neq,
-        condbr,
-        isnull,
-        isnonnull,
+        /// Twos complement wrapping integer subtraction.
+        subwrap,
+        /// Returns the type of a value.
+        typeof,
+        /// Asserts control-flow will not reach this instruction. Not safety checked - the compiler
+        /// will assume the correctness of this instruction.
+        unreach_nocheck,
+        /// Asserts control-flow will not reach this instruction. In safety-checked modes,
+        /// this will generate a call to the panic function unless it can be proven unreachable
+        /// by the compiler.
+        @"unreachable",
+        /// Bitwise XOR. `^`
+        xor,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
                 .arg,
                 .breakpoint,
-                .@"unreachable",
                 .returnvoid,
                 .alloc_inferred,
                 .ret_ptr,
                 .ret_type,
+                .unreach_nocheck,
+                .@"unreachable",
                 => NoOp,
 
                 .boolnot,
@@ -143,10 +225,25 @@ pub const Inst = struct {
                 .ensure_result_used,
                 .ensure_result_non_error,
                 .bitcast_result_ptr,
+                .ref,
+                .bitcast_lvalue,
+                .typeof,
                 => UnOp,
 
                 .add,
+                .addwrap,
+                .array_cat,
+                .array_mul,
+                .bitand,
+                .bitor,
+                .div,
+                .mod_rem,
+                .mul,
+                .mulwrap,
+                .shl,
+                .shr,
                 .sub,
+                .subwrap,
                 .cmp_lt,
                 .cmp_lte,
                 .cmp_eq,
@@ -158,6 +255,7 @@ pub const Inst = struct {
                 .intcast,
                 .bitcast,
                 .coerce_result_ptr,
+                .xor,
                 => BinOp,
 
                 .block => Block,
@@ -192,13 +290,30 @@ pub const Inst = struct {
         /// Function calls do not count.
         pub fn isNoReturn(tag: Tag) bool {
             return switch (tag) {
+                .add,
+                .addwrap,
                 .alloc,
                 .alloc_inferred,
+                .array_cat,
+                .array_mul,
                 .arg,
+                .as,
+                .@"asm",
+                .bitand,
+                .bitcast,
+                .bitcast_lvalue,
                 .bitcast_result_ptr,
+                .bitor,
                 .block,
+                .boolnot,
                 .breakpoint,
                 .call,
+                .cmp_lt,
+                .cmp_lte,
+                .cmp_eq,
+                .cmp_gte,
+                .cmp_gt,
+                .cmp_neq,
                 .coerce_result_ptr,
                 .coerce_result_block_ptr,
                 .coerce_to_ptr_elem,
@@ -207,48 +322,48 @@ pub const Inst = struct {
                 .declref_str,
                 .declval,
                 .declval_in_module,
+                .deref,
+                .div,
+                .elemptr,
                 .ensure_result_used,
                 .ensure_result_non_error,
-                .ret_ptr,
-                .ret_type,
-                .store,
-                .str,
-                .int,
-                .inttype,
-                .ptrtoint,
+                .@"export",
+                .floatcast,
                 .fieldptr,
-                .deref,
-                .as,
-                .@"asm",
                 .@"fn",
                 .fntype,
-                .@"export",
+                .int,
+                .intcast,
+                .inttype,
+                .isnonnull,
+                .isnull,
+                .mod_rem,
+                .mul,
+                .mulwrap,
                 .param_type,
                 .primitive,
-                .intcast,
-                .bitcast,
-                .floatcast,
-                .elemptr,
-                .add,
+                .ptrtoint,
+                .ref,
+                .ret_ptr,
+                .ret_type,
+                .shl,
+                .shr,
+                .store,
+                .str,
                 .sub,
-                .cmp_lt,
-                .cmp_lte,
-                .cmp_eq,
-                .cmp_gte,
-                .cmp_gt,
-                .cmp_neq,
-                .isnull,
-                .isnonnull,
-                .boolnot,
+                .subwrap,
+                .typeof,
+                .xor,
                 => false,
 
-                .condbr,
-                .@"unreachable",
-                .@"return",
-                .returnvoid,
                 .@"break",
                 .breakvoid,
+                .condbr,
                 .compileerror,
+                .@"return",
+                .returnvoid,
+                .unreach_nocheck,
+                .@"unreachable",
                 => true,
             };
         }

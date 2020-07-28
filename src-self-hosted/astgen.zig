@@ -17,6 +17,9 @@ pub const ResultLoc = union(enum) {
     discard,
     /// The expression has an inferred type, and it will be evaluated as an rvalue.
     none,
+    /// The expression must generate a pointer rather than a value. For example, the left hand side
+    /// of an assignment uses an "LValue" result location.
+    lvalue,
     /// The expression will be type coerced into this type, but it will be evaluated as an rvalue.
     ty: *zir.Inst,
     /// The expression must store its result into this typed pointer.
@@ -46,16 +49,43 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
     switch (node.tag) {
         .VarDecl => unreachable, // Handled in `blockExpr`.
         .Assign => unreachable, // Handled in `blockExpr`.
+        .AssignBitAnd => unreachable, // Handled in `blockExpr`.
+        .AssignBitOr => unreachable, // Handled in `blockExpr`.
+        .AssignBitShiftLeft => unreachable, // Handled in `blockExpr`.
+        .AssignBitShiftRight => unreachable, // Handled in `blockExpr`.
+        .AssignBitXor => unreachable, // Handled in `blockExpr`.
+        .AssignDiv => unreachable, // Handled in `blockExpr`.
+        .AssignSub => unreachable, // Handled in `blockExpr`.
+        .AssignSubWrap => unreachable, // Handled in `blockExpr`.
+        .AssignMod => unreachable, // Handled in `blockExpr`.
+        .AssignAdd => unreachable, // Handled in `blockExpr`.
+        .AssignAddWrap => unreachable, // Handled in `blockExpr`.
+        .AssignMul => unreachable, // Handled in `blockExpr`.
+        .AssignMulWrap => unreachable, // Handled in `blockExpr`.
 
-        .Add => return arithmetic(mod, scope, rl, node.castTag(.Add).?, .add),
-        .Sub => return arithmetic(mod, scope, rl, node.castTag(.Sub).?, .sub),
+        .Add => return simpleBinOp(mod, scope, rl, node.castTag(.Add).?, .add),
+        .AddWrap => return simpleBinOp(mod, scope, rl, node.castTag(.AddWrap).?, .addwrap),
+        .Sub => return simpleBinOp(mod, scope, rl, node.castTag(.Sub).?, .sub),
+        .SubWrap => return simpleBinOp(mod, scope, rl, node.castTag(.SubWrap).?, .subwrap),
+        .Mul => return simpleBinOp(mod, scope, rl, node.castTag(.Mul).?, .mul),
+        .MulWrap => return simpleBinOp(mod, scope, rl, node.castTag(.MulWrap).?, .mulwrap),
+        .Div => return simpleBinOp(mod, scope, rl, node.castTag(.Div).?, .div),
+        .Mod => return simpleBinOp(mod, scope, rl, node.castTag(.Mod).?, .mod_rem),
+        .BitAnd => return simpleBinOp(mod, scope, rl, node.castTag(.BitAnd).?, .bitand),
+        .BitOr => return simpleBinOp(mod, scope, rl, node.castTag(.BitOr).?, .bitor),
+        .BitShiftLeft => return simpleBinOp(mod, scope, rl, node.castTag(.BitShiftLeft).?, .shl),
+        .BitShiftRight => return simpleBinOp(mod, scope, rl, node.castTag(.BitShiftRight).?, .shr),
+        .BitXor => return simpleBinOp(mod, scope, rl, node.castTag(.BitXor).?, .xor),
 
-        .BangEqual => return cmp(mod, scope, rl, node.castTag(.BangEqual).?, .cmp_neq),
-        .EqualEqual => return cmp(mod, scope, rl, node.castTag(.EqualEqual).?, .cmp_eq),
-        .GreaterThan => return cmp(mod, scope, rl, node.castTag(.GreaterThan).?, .cmp_gt),
-        .GreaterOrEqual => return cmp(mod, scope, rl, node.castTag(.GreaterOrEqual).?, .cmp_gte),
-        .LessThan => return cmp(mod, scope, rl, node.castTag(.LessThan).?, .cmp_lt),
-        .LessOrEqual => return cmp(mod, scope, rl, node.castTag(.LessOrEqual).?, .cmp_lte),
+        .BangEqual => return simpleBinOp(mod, scope, rl, node.castTag(.BangEqual).?, .cmp_neq),
+        .EqualEqual => return simpleBinOp(mod, scope, rl, node.castTag(.EqualEqual).?, .cmp_eq),
+        .GreaterThan => return simpleBinOp(mod, scope, rl, node.castTag(.GreaterThan).?, .cmp_gt),
+        .GreaterOrEqual => return simpleBinOp(mod, scope, rl, node.castTag(.GreaterOrEqual).?, .cmp_gte),
+        .LessThan => return simpleBinOp(mod, scope, rl, node.castTag(.LessThan).?, .cmp_lt),
+        .LessOrEqual => return simpleBinOp(mod, scope, rl, node.castTag(.LessOrEqual).?, .cmp_lte),
+
+        .ArrayCat => return simpleBinOp(mod, scope, rl, node.castTag(.ArrayCat).?, .array_cat),
+        .ArrayMult => return simpleBinOp(mod, scope, rl, node.castTag(.ArrayMult).?, .array_mul),
 
         .Identifier => return rlWrap(mod, scope, rl, try identifier(mod, scope, node.castTag(.Identifier).?)),
         .Asm => return rlWrap(mod, scope, rl, try assembly(mod, scope, node.castTag(.Asm).?)),
@@ -99,6 +129,20 @@ pub fn blockExpr(mod: *Module, parent_scope: *Scope, block_node: *ast.Node.Block
                 const ass = statement.castTag(.Assign).?;
                 try assign(mod, scope, ass);
             },
+            .AssignBitAnd => try assignOp(mod, scope, statement.castTag(.AssignBitAnd).?, .bitand),
+            .AssignBitOr => try assignOp(mod, scope, statement.castTag(.AssignBitOr).?, .bitor),
+            .AssignBitShiftLeft => try assignOp(mod, scope, statement.castTag(.AssignBitShiftLeft).?, .shl),
+            .AssignBitShiftRight => try assignOp(mod, scope, statement.castTag(.AssignBitShiftRight).?, .shr),
+            .AssignBitXor => try assignOp(mod, scope, statement.castTag(.AssignBitXor).?, .xor),
+            .AssignDiv => try assignOp(mod, scope, statement.castTag(.AssignDiv).?, .div),
+            .AssignSub => try assignOp(mod, scope, statement.castTag(.AssignSub).?, .sub),
+            .AssignSubWrap => try assignOp(mod, scope, statement.castTag(.AssignSubWrap).?, .subwrap),
+            .AssignMod => try assignOp(mod, scope, statement.castTag(.AssignMod).?, .mod_rem),
+            .AssignAdd => try assignOp(mod, scope, statement.castTag(.AssignAdd).?, .add),
+            .AssignAddWrap => try assignOp(mod, scope, statement.castTag(.AssignAddWrap).?, .addwrap),
+            .AssignMul => try assignOp(mod, scope, statement.castTag(.AssignMul).?, .mul),
+            .AssignMulWrap => try assignOp(mod, scope, statement.castTag(.AssignMulWrap).?, .mulwrap),
+
             else => {
                 const possibly_unused_result = try expr(mod, scope, .none, statement);
                 const src = scope.tree().token_locs[statement.firstToken()].start;
@@ -207,17 +251,33 @@ fn varDecl(
 
 fn assign(mod: *Module, scope: *Scope, infix_node: *ast.Node.SimpleInfixOp) InnerError!void {
     if (infix_node.lhs.castTag(.Identifier)) |ident| {
-        const tree = scope.tree();
-        const ident_name = try identifierTokenString(mod, scope, ident.token);
+        // This intentionally does not support @"_" syntax.
+        const ident_name = scope.tree().tokenSlice(ident.token);
         if (std.mem.eql(u8, ident_name, "_")) {
             _ = try expr(mod, scope, .discard, infix_node.rhs);
             return;
-        } else {
-            return mod.failNode(scope, &infix_node.base, "TODO implement infix operator assign", .{});
         }
-    } else {
-        return mod.failNode(scope, &infix_node.base, "TODO implement infix operator assign", .{});
     }
+    const lvalue = try expr(mod, scope, .lvalue, infix_node.lhs);
+    _ = try expr(mod, scope, .{ .ptr = lvalue }, infix_node.rhs);
+}
+
+fn assignOp(
+    mod: *Module,
+    scope: *Scope,
+    infix_node: *ast.Node.SimpleInfixOp,
+    op_inst_tag: zir.Inst.Tag,
+) InnerError!void {
+    const lhs_ptr = try expr(mod, scope, .lvalue, infix_node.lhs);
+    const lhs = try mod.addZIRUnOp(scope, lhs_ptr.src, .deref, lhs_ptr);
+    const lhs_type = try mod.addZIRUnOp(scope, lhs_ptr.src, .typeof, lhs);
+    const rhs = try expr(mod, scope, .{ .ty = lhs_type }, infix_node.rhs);
+
+    const tree = scope.tree();
+    const src = tree.token_locs[infix_node.op_token].start;
+
+    const result = try mod.addZIRBinOp(scope, src, op_inst_tag, lhs, rhs);
+    _ = try mod.addZIRBinOp(scope, src, .store, lhs_ptr, result);
 }
 
 fn boolNot(mod: *Module, scope: *Scope, node: *ast.Node.SimplePrefixOp) InnerError!*zir.Inst {
@@ -279,34 +339,18 @@ fn deref(mod: *Module, scope: *Scope, node: *ast.Node.SimpleSuffixOp) InnerError
     return mod.addZIRUnOp(scope, src, .deref, lhs);
 }
 
-fn cmp(
-    mod: *Module,
-    scope: *Scope,
-    rl: ResultLoc,
-    infix_node: *ast.Node.SimpleInfixOp,
-    cmp_inst_tag: zir.Inst.Tag,
-) InnerError!*zir.Inst {
-    const tree = scope.tree();
-    const src = tree.token_locs[infix_node.op_token].start;
-
-    const lhs = try expr(mod, scope, .none, infix_node.lhs);
-    const rhs = try expr(mod, scope, .none, infix_node.rhs);
-    const result = try mod.addZIRBinOp(scope, src, cmp_inst_tag, lhs, rhs);
-    return rlWrap(mod, scope, rl, result);
-}
-
-fn arithmetic(
+fn simpleBinOp(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
     infix_node: *ast.Node.SimpleInfixOp,
     op_inst_tag: zir.Inst.Tag,
 ) InnerError!*zir.Inst {
-    const lhs = try expr(mod, scope, .none, infix_node.lhs);
-    const rhs = try expr(mod, scope, .none, infix_node.rhs);
-
     const tree = scope.tree();
     const src = tree.token_locs[infix_node.op_token].start;
+
+    const lhs = try expr(mod, scope, .none, infix_node.lhs);
+    const rhs = try expr(mod, scope, .none, infix_node.rhs);
 
     const result = try mod.addZIRBinOp(scope, src, op_inst_tag, lhs, rhs);
     return rlWrap(mod, scope, rl, result);
@@ -359,7 +403,7 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
     // proper type inference requires peer type resolution on the if's
     // branches.
     const branch_rl: ResultLoc = switch (rl) {
-        .discard, .none, .ty, .ptr => rl,
+        .discard, .none, .ty, .ptr, .lvalue => rl,
         .inferred_ptr, .bitcasted_ptr, .block_ptr => .{ .block_ptr = block },
     };
 
@@ -698,6 +742,10 @@ fn as(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCall) I
             _ = try mod.addZIRUnOp(scope, result.src, .ensure_result_non_error, result);
             return result;
         },
+        .lvalue => {
+            const result = try expr(mod, scope, .{ .ty = dest_type }, params[1]);
+            return mod.addZIRUnOp(scope, result.src, .ref, result);
+        },
         .ty => |result_ty| {
             const result = try expr(mod, scope, .{ .ty = dest_type }, params[1]);
             return mod.addZIRBinOp(scope, src, .as, result_ty, result);
@@ -743,6 +791,11 @@ fn bitCast(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCa
             const operand = try expr(mod, scope, .none, params[1]);
             const result = try mod.addZIRBinOp(scope, src, .bitcast, dest_type, operand);
             _ = try mod.addZIRUnOp(scope, result.src, .ensure_result_non_error, result);
+            return result;
+        },
+        .lvalue => {
+            const operand = try expr(mod, scope, .lvalue, params[1]);
+            const result = try mod.addZIRBinOp(scope, src, .bitcast_lvalue, dest_type, operand);
             return result;
         },
         .ty => |result_ty| {
@@ -1002,6 +1055,10 @@ fn rlWrap(mod: *Module, scope: *Scope, rl: ResultLoc, result: *zir.Inst) InnerEr
             // Emit a compile error for discarding error values.
             _ = try mod.addZIRUnOp(scope, result.src, .ensure_result_non_error, result);
             return result;
+        },
+        .lvalue => {
+            // We need a pointer but we have a value.
+            return mod.addZIRUnOp(scope, result.src, .ref, result);
         },
         .ty => |ty_inst| return mod.addZIRBinOp(scope, result.src, .as, ty_inst, result),
         .ptr => |ptr_inst| {
