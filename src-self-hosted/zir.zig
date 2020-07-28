@@ -39,7 +39,7 @@ pub const Inst = struct {
         /// Twos complement wrapping integer addition.
         addwrap,
         /// Allocates stack local memory. Its lifetime ends when the block ends that contains
-        /// this instruction.
+        /// this instruction. The operand is the type of the allocated object.
         alloc,
         /// Same as `alloc` except the type is inferred.
         alloc_inferred,
@@ -1850,6 +1850,21 @@ const EmitZIR = struct {
                 .bitcast => try self.emitCast(inst.src, new_body, inst.castTag(.bitcast).?, .bitcast),
                 .intcast => try self.emitCast(inst.src, new_body, inst.castTag(.intcast).?, .intcast),
                 .floatcast => try self.emitCast(inst.src, new_body, inst.castTag(.floatcast).?, .floatcast),
+
+                .alloc => blk: {
+                    const new_inst = try self.arena.allocator.create(Inst.UnOp);
+                    new_inst.* = .{
+                        .base = .{
+                            .src = inst.src,
+                            .tag = .alloc,
+                        },
+                        .positionals = .{
+                            .operand = (try self.emitType(inst.src, inst.ty)).inst,
+                        },
+                        .kw_args = .{},
+                    };
+                    break :blk &new_inst.base;
+                },
 
                 .block => blk: {
                     const old_inst = inst.castTag(.block).?;

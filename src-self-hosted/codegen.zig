@@ -1,5 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
+const math = std.math;
 const assert = std.debug.assert;
 const ir = @import("ir.zig");
 const Type = @import("type.zig").Type;
@@ -50,57 +51,58 @@ pub fn generateSymbol(
     switch (typed_value.ty.zigTypeTag()) {
         .Fn => {
             switch (bin_file.options.target.cpu.arch) {
-                .arm => return Function(.arm).generateSymbol(bin_file, src, typed_value, code),
-                .armeb => return Function(.armeb).generateSymbol(bin_file, src, typed_value, code),
-                .aarch64 => return Function(.aarch64).generateSymbol(bin_file, src, typed_value, code),
-                .aarch64_be => return Function(.aarch64_be).generateSymbol(bin_file, src, typed_value, code),
-                .aarch64_32 => return Function(.aarch64_32).generateSymbol(bin_file, src, typed_value, code),
-                .arc => return Function(.arc).generateSymbol(bin_file, src, typed_value, code),
-                .avr => return Function(.avr).generateSymbol(bin_file, src, typed_value, code),
-                .bpfel => return Function(.bpfel).generateSymbol(bin_file, src, typed_value, code),
-                .bpfeb => return Function(.bpfeb).generateSymbol(bin_file, src, typed_value, code),
-                .hexagon => return Function(.hexagon).generateSymbol(bin_file, src, typed_value, code),
-                .mips => return Function(.mips).generateSymbol(bin_file, src, typed_value, code),
-                .mipsel => return Function(.mipsel).generateSymbol(bin_file, src, typed_value, code),
-                .mips64 => return Function(.mips64).generateSymbol(bin_file, src, typed_value, code),
-                .mips64el => return Function(.mips64el).generateSymbol(bin_file, src, typed_value, code),
-                .msp430 => return Function(.msp430).generateSymbol(bin_file, src, typed_value, code),
-                .powerpc => return Function(.powerpc).generateSymbol(bin_file, src, typed_value, code),
-                .powerpc64 => return Function(.powerpc64).generateSymbol(bin_file, src, typed_value, code),
-                .powerpc64le => return Function(.powerpc64le).generateSymbol(bin_file, src, typed_value, code),
-                .r600 => return Function(.r600).generateSymbol(bin_file, src, typed_value, code),
-                .amdgcn => return Function(.amdgcn).generateSymbol(bin_file, src, typed_value, code),
-                .riscv32 => return Function(.riscv32).generateSymbol(bin_file, src, typed_value, code),
-                .riscv64 => return Function(.riscv64).generateSymbol(bin_file, src, typed_value, code),
-                .sparc => return Function(.sparc).generateSymbol(bin_file, src, typed_value, code),
-                .sparcv9 => return Function(.sparcv9).generateSymbol(bin_file, src, typed_value, code),
-                .sparcel => return Function(.sparcel).generateSymbol(bin_file, src, typed_value, code),
-                .s390x => return Function(.s390x).generateSymbol(bin_file, src, typed_value, code),
-                .tce => return Function(.tce).generateSymbol(bin_file, src, typed_value, code),
-                .tcele => return Function(.tcele).generateSymbol(bin_file, src, typed_value, code),
-                .thumb => return Function(.thumb).generateSymbol(bin_file, src, typed_value, code),
-                .thumbeb => return Function(.thumbeb).generateSymbol(bin_file, src, typed_value, code),
-                .i386 => return Function(.i386).generateSymbol(bin_file, src, typed_value, code),
+                //.arm => return Function(.arm).generateSymbol(bin_file, src, typed_value, code),
+                //.armeb => return Function(.armeb).generateSymbol(bin_file, src, typed_value, code),
+                //.aarch64 => return Function(.aarch64).generateSymbol(bin_file, src, typed_value, code),
+                //.aarch64_be => return Function(.aarch64_be).generateSymbol(bin_file, src, typed_value, code),
+                //.aarch64_32 => return Function(.aarch64_32).generateSymbol(bin_file, src, typed_value, code),
+                //.arc => return Function(.arc).generateSymbol(bin_file, src, typed_value, code),
+                //.avr => return Function(.avr).generateSymbol(bin_file, src, typed_value, code),
+                //.bpfel => return Function(.bpfel).generateSymbol(bin_file, src, typed_value, code),
+                //.bpfeb => return Function(.bpfeb).generateSymbol(bin_file, src, typed_value, code),
+                //.hexagon => return Function(.hexagon).generateSymbol(bin_file, src, typed_value, code),
+                //.mips => return Function(.mips).generateSymbol(bin_file, src, typed_value, code),
+                //.mipsel => return Function(.mipsel).generateSymbol(bin_file, src, typed_value, code),
+                //.mips64 => return Function(.mips64).generateSymbol(bin_file, src, typed_value, code),
+                //.mips64el => return Function(.mips64el).generateSymbol(bin_file, src, typed_value, code),
+                //.msp430 => return Function(.msp430).generateSymbol(bin_file, src, typed_value, code),
+                //.powerpc => return Function(.powerpc).generateSymbol(bin_file, src, typed_value, code),
+                //.powerpc64 => return Function(.powerpc64).generateSymbol(bin_file, src, typed_value, code),
+                //.powerpc64le => return Function(.powerpc64le).generateSymbol(bin_file, src, typed_value, code),
+                //.r600 => return Function(.r600).generateSymbol(bin_file, src, typed_value, code),
+                //.amdgcn => return Function(.amdgcn).generateSymbol(bin_file, src, typed_value, code),
+                //.riscv32 => return Function(.riscv32).generateSymbol(bin_file, src, typed_value, code),
+                //.riscv64 => return Function(.riscv64).generateSymbol(bin_file, src, typed_value, code),
+                //.sparc => return Function(.sparc).generateSymbol(bin_file, src, typed_value, code),
+                //.sparcv9 => return Function(.sparcv9).generateSymbol(bin_file, src, typed_value, code),
+                //.sparcel => return Function(.sparcel).generateSymbol(bin_file, src, typed_value, code),
+                //.s390x => return Function(.s390x).generateSymbol(bin_file, src, typed_value, code),
+                //.tce => return Function(.tce).generateSymbol(bin_file, src, typed_value, code),
+                //.tcele => return Function(.tcele).generateSymbol(bin_file, src, typed_value, code),
+                //.thumb => return Function(.thumb).generateSymbol(bin_file, src, typed_value, code),
+                //.thumbeb => return Function(.thumbeb).generateSymbol(bin_file, src, typed_value, code),
+                //.i386 => return Function(.i386).generateSymbol(bin_file, src, typed_value, code),
                 .x86_64 => return Function(.x86_64).generateSymbol(bin_file, src, typed_value, code),
-                .xcore => return Function(.xcore).generateSymbol(bin_file, src, typed_value, code),
-                .nvptx => return Function(.nvptx).generateSymbol(bin_file, src, typed_value, code),
-                .nvptx64 => return Function(.nvptx64).generateSymbol(bin_file, src, typed_value, code),
-                .le32 => return Function(.le32).generateSymbol(bin_file, src, typed_value, code),
-                .le64 => return Function(.le64).generateSymbol(bin_file, src, typed_value, code),
-                .amdil => return Function(.amdil).generateSymbol(bin_file, src, typed_value, code),
-                .amdil64 => return Function(.amdil64).generateSymbol(bin_file, src, typed_value, code),
-                .hsail => return Function(.hsail).generateSymbol(bin_file, src, typed_value, code),
-                .hsail64 => return Function(.hsail64).generateSymbol(bin_file, src, typed_value, code),
-                .spir => return Function(.spir).generateSymbol(bin_file, src, typed_value, code),
-                .spir64 => return Function(.spir64).generateSymbol(bin_file, src, typed_value, code),
-                .kalimba => return Function(.kalimba).generateSymbol(bin_file, src, typed_value, code),
-                .shave => return Function(.shave).generateSymbol(bin_file, src, typed_value, code),
-                .lanai => return Function(.lanai).generateSymbol(bin_file, src, typed_value, code),
-                .wasm32 => return Function(.wasm32).generateSymbol(bin_file, src, typed_value, code),
-                .wasm64 => return Function(.wasm64).generateSymbol(bin_file, src, typed_value, code),
-                .renderscript32 => return Function(.renderscript32).generateSymbol(bin_file, src, typed_value, code),
-                .renderscript64 => return Function(.renderscript64).generateSymbol(bin_file, src, typed_value, code),
-                .ve => return Function(.ve).generateSymbol(bin_file, src, typed_value, code),
+                //.xcore => return Function(.xcore).generateSymbol(bin_file, src, typed_value, code),
+                //.nvptx => return Function(.nvptx).generateSymbol(bin_file, src, typed_value, code),
+                //.nvptx64 => return Function(.nvptx64).generateSymbol(bin_file, src, typed_value, code),
+                //.le32 => return Function(.le32).generateSymbol(bin_file, src, typed_value, code),
+                //.le64 => return Function(.le64).generateSymbol(bin_file, src, typed_value, code),
+                //.amdil => return Function(.amdil).generateSymbol(bin_file, src, typed_value, code),
+                //.amdil64 => return Function(.amdil64).generateSymbol(bin_file, src, typed_value, code),
+                //.hsail => return Function(.hsail).generateSymbol(bin_file, src, typed_value, code),
+                //.hsail64 => return Function(.hsail64).generateSymbol(bin_file, src, typed_value, code),
+                //.spir => return Function(.spir).generateSymbol(bin_file, src, typed_value, code),
+                //.spir64 => return Function(.spir64).generateSymbol(bin_file, src, typed_value, code),
+                //.kalimba => return Function(.kalimba).generateSymbol(bin_file, src, typed_value, code),
+                //.shave => return Function(.shave).generateSymbol(bin_file, src, typed_value, code),
+                //.lanai => return Function(.lanai).generateSymbol(bin_file, src, typed_value, code),
+                //.wasm32 => return Function(.wasm32).generateSymbol(bin_file, src, typed_value, code),
+                //.wasm64 => return Function(.wasm64).generateSymbol(bin_file, src, typed_value, code),
+                //.renderscript32 => return Function(.renderscript32).generateSymbol(bin_file, src, typed_value, code),
+                //.renderscript64 => return Function(.renderscript64).generateSymbol(bin_file, src, typed_value, code),
+                //.ve => return Function(.ve).generateSymbol(bin_file, src, typed_value, code),
+                else => @panic("Backend architectures that don't have good support yet are commented out, to improve compilation performance. If you are interested in one of these other backends feel free to uncomment them. Eventually these will be completed, but stage1 is slow and a memory hog."),
             }
         },
         .Array => {
@@ -209,6 +211,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         ret_mcv: MCValue,
         arg_index: usize,
         src: usize,
+        stack_align: u32,
 
         /// Whenever there is a runtime branch, we push a Branch onto this stack,
         /// and pop it off when the runtime branch joins. This provides an "overlay"
@@ -238,10 +241,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             stack_offset: u64,
             /// The value is in the compare flags assuming an unsigned operation,
             /// with this operator applied on top of it.
-            compare_flags_unsigned: std.math.CompareOperator,
+            compare_flags_unsigned: math.CompareOperator,
             /// The value is in the compare flags assuming a signed operation,
             /// with this operator applied on top of it.
-            compare_flags_signed: std.math.CompareOperator,
+            compare_flags_signed: math.CompareOperator,
 
             fn isMemory(mcv: MCValue) bool {
                 return switch (mcv) {
@@ -280,10 +283,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         const Branch = struct {
             inst_table: std.AutoHashMapUnmanaged(*ir.Inst, MCValue) = .{},
             registers: std.AutoHashMapUnmanaged(Register, RegisterAllocation) = .{},
-            free_registers: FreeRegInt = std.math.maxInt(FreeRegInt),
+            free_registers: FreeRegInt = math.maxInt(FreeRegInt),
 
             /// Maps offset to what is stored there.
-            stack: std.AutoHashMapUnmanaged(usize, StackAllocation) = .{},
+            stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .{},
             /// Offset from the stack base, representing the end of the stack frame.
             max_end_stack: u32 = 0,
             /// Represents the current end stack offset. If there is no existing slot
@@ -293,7 +296,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             fn markRegUsed(self: *Branch, reg: Register) void {
                 if (FreeRegInt == u0) return;
                 const index = reg.allocIndex() orelse return;
-                const ShiftInt = std.math.Log2Int(FreeRegInt);
+                const ShiftInt = math.Log2Int(FreeRegInt);
                 const shift = @intCast(ShiftInt, index);
                 self.free_registers &= ~(@as(FreeRegInt, 1) << shift);
             }
@@ -301,7 +304,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             fn markRegFree(self: *Branch, reg: Register) void {
                 if (FreeRegInt == u0) return;
                 const index = reg.allocIndex() orelse return;
-                const ShiftInt = std.math.Log2Int(FreeRegInt);
+                const ShiftInt = math.Log2Int(FreeRegInt);
                 const shift = @intCast(ShiftInt, index);
                 self.free_registers |= @as(FreeRegInt, 1) << shift;
             }
@@ -356,6 +359,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .arg_index = 0,
                 .branch_stack = &branch_stack,
                 .src = src,
+                .stack_align = undefined,
             };
 
             var call_info = function.resolveCallingConventionValues(src, fn_type) catch |err| switch (err) {
@@ -366,6 +370,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             function.args = call_info.args;
             function.ret_mcv = call_info.return_value;
+            function.stack_align = call_info.stack_align;
             branch.max_end_stack = call_info.stack_byte_count;
 
             function.gen() catch |err| switch (err) {
@@ -383,15 +388,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn gen(self: *Self) !void {
             try self.code.ensureCapacity(self.code.items.len + 11);
 
+            // TODO omit this for naked functions
             // push rbp
             // mov rbp, rsp
             self.code.appendSliceAssumeCapacity(&[_]u8{ 0x55, 0x48, 0x89, 0xe5 });
 
             // sub rsp, x
             const stack_end = self.branch_stack.items[0].max_end_stack;
-            if (stack_end > std.math.maxInt(i32)) {
+            if (stack_end > math.maxInt(i32)) {
                 return self.fail(self.src, "too much stack used in call parameters", .{});
-            } else if (stack_end > std.math.maxInt(i8)) {
+            } else if (stack_end > math.maxInt(i8)) {
                 // 48 83 ec xx    sub rsp,0x10
                 self.code.appendSliceAssumeCapacity(&[_]u8{ 0x48, 0x81, 0xec });
                 const x = @intCast(u32, stack_end);
@@ -436,6 +442,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn genFuncInst(self: *Self, inst: *ir.Inst) !MCValue {
             switch (inst.tag) {
                 .add => return self.genAdd(inst.castTag(.add).?),
+                .alloc => return self.genAlloc(inst.castTag(.alloc).?),
                 .arg => return self.genArg(inst.castTag(.arg).?),
                 .assembly => return self.genAsm(inst.castTag(.assembly).?),
                 .bitcast => return self.genBitCast(inst.castTag(.bitcast).?),
@@ -463,6 +470,28 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .floatcast => return self.genFloatCast(inst.castTag(.floatcast).?),
                 .intcast => return self.genIntCast(inst.castTag(.intcast).?),
             }
+        }
+
+        fn genAlloc(self: *Self, inst: *ir.Inst.NoOp) !MCValue {
+            const elem_ty = inst.base.ty.elemType();
+            const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
+                return self.fail(inst.base.src, "type '{}' too big to fit into stack frame", .{elem_ty});
+            };
+            // TODO swap this for inst.base.ty.ptrAlign
+            const abi_align = elem_ty.abiAlignment(self.target.*);
+            if (abi_align > self.stack_align)
+                self.stack_align = abi_align;
+            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+            // TODO find a free slot instead of always appending
+            const offset = mem.alignForwardGeneric(u32, branch.next_stack_offset, abi_align);
+            branch.next_stack_offset = offset + abi_size;
+            if (branch.next_stack_offset > branch.max_end_stack)
+                branch.max_end_stack = branch.next_stack_offset;
+            try branch.stack.putNoClobber(self.gpa, offset, .{
+                .inst = &inst.base,
+                .size = abi_size,
+            });
+            return MCValue{ .stack_offset = offset };
         }
 
         fn genFloatCast(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
@@ -610,7 +639,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             // and as a register.
             switch (src_mcv) {
                 .immediate => |imm| {
-                    if (imm > std.math.maxInt(u31)) {
+                    if (imm > math.maxInt(u31)) {
                         src_mcv = try self.copyToNewRegister(src_inst);
                     }
                 },
@@ -639,7 +668,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         .immediate => |imm| {
                             const imm32 = @intCast(u31, imm); // This case must be handled before calling genX8664BinMathCode.
                             // 81 /opx id
-                            if (imm32 <= std.math.maxInt(u7)) {
+                            if (imm32 <= math.maxInt(u7)) {
                                 self.rex(.{ .b = dst_reg.isExtended(), .w = dst_reg.size() == 64 });
                                 self.code.appendSliceAssumeCapacity(&[_]u8{
                                     0x83,
@@ -785,7 +814,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return self.ret(inst.base.src, .none);
         }
 
-        fn genCmp(self: *Self, inst: *ir.Inst.BinOp, op: std.math.CompareOperator) !MCValue {
+        fn genCmp(self: *Self, inst: *ir.Inst.BinOp, op: math.CompareOperator) !MCValue {
             // No side effects, so if it's unreferenced, do nothing.
             if (inst.base.isUnused())
                 return MCValue.dead;
@@ -909,7 +938,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             switch (reloc) {
                 .rel32 => |pos| {
                     const amt = self.code.items.len - (pos + 4);
-                    const s32_amt = std.math.cast(i32, amt) catch
+                    const s32_amt = math.cast(i32, amt) catch
                         return self.fail(src, "unable to perform relocation: jump too far", .{});
                     mem.writeIntLittle(i32, self.code.items[pos..][0..4], s32_amt);
                 },
@@ -1070,7 +1099,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             self.code.appendSliceAssumeCapacity(&[_]u8{ 0x31, 0xC0 | id << 3 | id });
                             return;
                         }
-                        if (x <= std.math.maxInt(u32)) {
+                        if (x <= math.maxInt(u32)) {
                             // Next best case: if we set the lower four bytes, the upper four will be zeroed.
                             //
                             // The encoding for `mov IMM32 -> REG` is (0xB8 + R) IMM.
@@ -1152,7 +1181,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         if (reg.size() != 64) {
                             return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
                         }
-                        if (x <= std.math.maxInt(u32)) {
+                        if (x <= math.maxInt(u32)) {
                             // Moving from memory to a register is a variant of `8B /r`.
                             // Since we're using 64-bit moves, we require a REX.
                             // This variant also requires a SIB, as it would otherwise be RIP-relative.
@@ -1285,7 +1314,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             .is_signed = false,
                         },
                     });
-                    if (imm >= std.math.maxInt(U)) {
+                    if (imm >= math.maxInt(U)) {
                         return self.copyToNewRegister(inst);
                     }
                 },
@@ -1327,6 +1356,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             args: []MCValue,
             return_value: MCValue,
             stack_byte_count: u32,
+            stack_align: u32,
 
             fn deinit(self: *CallMCValues, func: *Self) void {
                 func.gpa.free(self.args);
@@ -1342,8 +1372,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             fn_ty.fnParamTypes(param_types);
             var result: CallMCValues = .{
                 .args = try self.gpa.alloc(MCValue, param_types.len),
+                // These undefined values must be populated before returning from this function.
                 .return_value = undefined,
                 .stack_byte_count = undefined,
+                .stack_align = undefined,
             };
             errdefer self.gpa.free(result.args);
 
@@ -1356,6 +1388,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             assert(result.args.len == 0);
                             result.return_value = .{ .unreach = {} };
                             result.stack_byte_count = 0;
+                            result.stack_align = 1;
                             return result;
                         },
                         .Unspecified, .C => {
@@ -1377,6 +1410,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 }
                             }
                             result.stack_byte_count = next_stack_offset;
+                            result.stack_align = 16;
                         },
                         else => return self.fail(src, "TODO implement function parameters for {}", .{cc}),
                     }

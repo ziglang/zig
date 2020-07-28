@@ -4,6 +4,7 @@ const Type = @import("type.zig").Type;
 const Module = @import("Module.zig");
 const assert = std.debug.assert;
 const codegen = @import("codegen.zig");
+const ast = std.zig.ast;
 
 /// These are in-memory, analyzed instructions. See `zir.Inst` for the representation
 /// of instructions that correspond to the ZIR text format.
@@ -47,6 +48,7 @@ pub const Inst = struct {
 
     pub const Tag = enum {
         add,
+        alloc,
         arg,
         assembly,
         bitcast,
@@ -74,11 +76,9 @@ pub const Inst = struct {
         floatcast,
         intcast,
 
-        /// There is one-to-one correspondence between tag and type for now,
-        /// but this will not always be the case. For example, binary operations
-        /// such as + and - will have different tags but the same type.
         pub fn Type(tag: Tag) type {
             return switch (tag) {
+                .alloc,
                 .retvoid,
                 .unreach,
                 .arg,

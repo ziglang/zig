@@ -323,7 +323,10 @@ fn analyzeInstEnsureResultNonError(mod: *Module, scope: *Scope, inst: *zir.Inst.
 }
 
 fn analyzeInstAlloc(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstAlloc", .{});
+    const var_type = try resolveType(mod, scope, inst.positionals.operand);
+    const ptr_type = try mod.singleMutPtrType(scope, inst.base.src, var_type);
+    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    return mod.addNoOp(b, inst.base.src, ptr_type, .alloc);
 }
 
 fn analyzeInstAllocInferred(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {

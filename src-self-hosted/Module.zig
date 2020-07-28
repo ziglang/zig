@@ -2428,7 +2428,7 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
 
     // *[N]T to []T
     if (inst.ty.isSinglePointer() and dest_type.isSlice() and
-        (!inst.ty.pointerIsConst() or dest_type.pointerIsConst()))
+        (!inst.ty.isConstPtr() or dest_type.isConstPtr()))
     {
         const array_type = inst.ty.elemType();
         const dst_elem_type = dest_type.elemType();
@@ -2773,4 +2773,10 @@ pub fn floatSub(self: *Module, scope: *Scope, float_type: Type, src: usize, lhs:
     };
 
     return Value.initPayload(val_payload);
+}
+
+pub fn singleMutPtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type) error{OutOfMemory}!Type {
+    const type_payload = try scope.arena().create(Type.Payload.SingleMutPointer);
+    type_payload.* = .{ .pointee_type = elem_ty };
+    return Type.initPayload(&type_payload.base);
 }
