@@ -4,8 +4,8 @@ usingnamespace @import("defines.zig");
 pub fn Interpreter(comptime Bus: type) type {
     return struct {
         ip: u16 = 0,
-        sp: u16 = 0,
-        bp: u16 = 0,
+        sp: u16 = undefined,
+        bp: u16 = undefined,
         fr: FlagRegister = @bitCast(FlagRegister, @as(u16, 0)),
         /// This is set to true when we hit an undefined0 instruction, allowing it to
         /// be used as a trap for testing purposes
