@@ -206,6 +206,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         code: *std.ArrayList(u8),
         err_msg: ?*ErrorMsg,
         args: []MCValue,
+        ret_mcv: MCValue,
         arg_index: usize,
         src: usize,
 
@@ -333,11 +334,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const module_fn = typed_value.val.cast(Value.Payload.Function).?.func;
 
             const fn_type = module_fn.owner_decl.typed_value.most_recent.typed_value.ty;
-            const param_types = try bin_file.allocator.alloc(Type, fn_type.fnParamLen());
-            defer bin_file.allocator.free(param_types);
-            fn_type.fnParamTypes(param_types);
-            var mc_args = try bin_file.allocator.alloc(MCValue, param_types.len);
-            defer bin_file.allocator.free(mc_args);
 
             var branch_stack = std.ArrayList(Branch).init(bin_file.allocator);
             defer {
@@ -355,17 +351,22 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .mod_fn = module_fn,
                 .code = code,
                 .err_msg = null,
-                .args = mc_args,
+                .args = undefined, // populated after `resolveCallingConventionValues`
+                .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
                 .arg_index = 0,
                 .branch_stack = &branch_stack,
                 .src = src,
             };
 
-            const cc = fn_type.fnCallingConvention();
-            branch.max_end_stack = function.resolveParameters(src, cc, param_types, mc_args) catch |err| switch (err) {
+            var call_info = function.resolveCallingConventionValues(src, fn_type) catch |err| switch (err) {
                 error.CodegenFail => return Result{ .fail = function.err_msg.? },
                 else => |e| return e,
             };
+            defer call_info.deinit(&function);
+
+            function.args = call_info.args;
+            function.ret_mcv = call_info.return_value;
+            branch.max_end_stack = call_info.stack_byte_count;
 
             function.gen() catch |err| switch (err) {
                 error.CodegenFail => return Result{ .fail = function.err_msg.? },
@@ -705,18 +706,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genCall(self: *Self, inst: *ir.Inst.Call) !MCValue {
-            const fn_ty = inst.func.ty;
-            const cc = fn_ty.fnCallingConvention();
-            const param_types = try self.gpa.alloc(Type, fn_ty.fnParamLen());
-            defer self.gpa.free(param_types);
-            fn_ty.fnParamTypes(param_types);
-            var mc_args = try self.gpa.alloc(MCValue, param_types.len);
-            defer self.gpa.free(mc_args);
-            const stack_byte_count = try self.resolveParameters(inst.base.src, cc, param_types, mc_args);
+            var info = try self.resolveCallingConventionValues(inst.base.src, inst.func.ty);
+            defer info.deinit(self);
 
             switch (arch) {
                 .x86_64 => {
-                    for (mc_args) |mc_arg, arg_i| {
+                    for (info.args) |mc_arg, arg_i| {
                         const arg = inst.args[arg_i];
                         const arg_mcv = try self.resolveInst(inst.args[arg_i]);
                         switch (mc_arg) {
@@ -761,18 +756,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 else => return self.fail(inst.base.src, "TODO implement call for {}", .{self.target.cpu.arch}),
             }
 
-            const return_type = fn_ty.fnReturnType();
-            switch (return_type.zigTypeTag()) {
-                .Void => return MCValue{ .none = {} },
-                .NoReturn => return MCValue{ .unreach = {} },
-                else => return self.fail(inst.base.src, "TODO implement fn call with non-void return value", .{}),
-            }
+            return info.return_value;
         }
 
         fn ret(self: *Self, src: usize, mcv: MCValue) !MCValue {
-            if (mcv != .none) {
-                return self.fail(src, "TODO implement return with non-void operand", .{});
-            }
+            try self.setRegOrStack(src, self.ret_mcv, mcv);
             switch (arch) {
                 .i386 => {
                     try self.code.append(0xc3); // ret
@@ -1024,12 +1012,23 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
+        /// Sets the value without any modifications to register allocation metadata or stack allocation metadata.
+        fn setRegOrStack(self: *Self, src: usize, loc: MCValue, val: MCValue) !void {
+            switch (loc) {
+                .none => return,
+                .register => |reg| return self.genSetReg(src, reg, val),
+                .stack_offset => {
+                    return self.fail(src, "TODO implement setRegOrStack for stack offset", .{});
+                },
+                else => unreachable,
+            }
+        }
+
         fn genSetReg(self: *Self, src: usize, reg: Register, mcv: MCValue) error{ CodegenFail, OutOfMemory }!void {
             switch (arch) {
                 .x86_64 => switch (mcv) {
                     .dead => unreachable,
-                    .none => unreachable,
-                    .unreach => unreachable,
+                    .unreach, .none => return, // Nothing to do.
                     .compare_flags_unsigned => |op| {
                         try self.code.ensureCapacity(self.code.items.len + 3);
                         self.rex(.{ .b = reg.isExtended(), .w = reg.size() == 64 });
@@ -1131,6 +1130,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         mem.writeIntLittle(i32, imm_ptr, offset);
                     },
                     .register => |src_reg| {
+                        // If the registers are the same, nothing to do.
+                        if (src_reg == reg)
+                            return;
+
                         if (reg.size() != 64) {
                             return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
                         }
@@ -1211,7 +1214,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(src, "TODO implement genSetReg for stack variables", .{});
                     },
                 },
-                else => return self.fail(src, "TODO implement genSetReg for more architectures", .{}),
+                else => return self.fail(src, "TODO implement getSetReg for {}", .{self.target.cpu.arch}),
             }
         }
 
@@ -1320,19 +1323,40 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn resolveParameters(
-            self: *Self,
-            src: usize,
-            cc: std.builtin.CallingConvention,
-            param_types: []const Type,
-            results: []MCValue,
-        ) !u32 {
+        const CallMCValues = struct {
+            args: []MCValue,
+            return_value: MCValue,
+            stack_byte_count: u32,
+
+            fn deinit(self: *CallMCValues, func: *Self) void {
+                func.gpa.free(self.args);
+                self.* = undefined;
+            }
+        };
+
+        /// Caller must call `CallMCValues.deinit`.
+        fn resolveCallingConventionValues(self: *Self, src: usize, fn_ty: Type) !CallMCValues {
+            const cc = fn_ty.fnCallingConvention();
+            const param_types = try self.gpa.alloc(Type, fn_ty.fnParamLen());
+            defer self.gpa.free(param_types);
+            fn_ty.fnParamTypes(param_types);
+            var result: CallMCValues = .{
+                .args = try self.gpa.alloc(MCValue, param_types.len),
+                .return_value = undefined,
+                .stack_byte_count = undefined,
+            };
+            errdefer self.gpa.free(result.args);
+
+            const ret_ty = fn_ty.fnReturnType();
+
             switch (arch) {
                 .x86_64 => {
                     switch (cc) {
                         .Naked => {
-                            assert(results.len == 0);
-                            return 0;
+                            assert(result.args.len == 0);
+                            result.return_value = .{ .unreach = {} };
+                            result.stack_byte_count = 0;
+                            return result;
                         },
                         .Unspecified, .C => {
                             var next_int_reg: usize = 0;
@@ -1342,23 +1366,39 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 switch (ty.zigTypeTag()) {
                                     .Bool, .Int => {
                                         if (next_int_reg >= c_abi_int_param_regs.len) {
-                                            results[i] = .{ .stack_offset = next_stack_offset };
+                                            result.args[i] = .{ .stack_offset = next_stack_offset };
                                             next_stack_offset += @intCast(u32, ty.abiSize(self.target.*));
                                         } else {
-                                            results[i] = .{ .register = c_abi_int_param_regs[next_int_reg] };
+                                            result.args[i] = .{ .register = c_abi_int_param_regs[next_int_reg] };
                                             next_int_reg += 1;
                                         }
                                     },
                                     else => return self.fail(src, "TODO implement function parameters of type {}", .{@tagName(ty.zigTypeTag())}),
                                 }
                             }
-                            return next_stack_offset;
+                            result.stack_byte_count = next_stack_offset;
                         },
                         else => return self.fail(src, "TODO implement function parameters for {}", .{cc}),
                     }
                 },
-                else => return self.fail(src, "TODO implement C ABI support for {}", .{self.target.cpu.arch}),
+                else => return self.fail(src, "TODO implement codegen parameters for {}", .{self.target.cpu.arch}),
             }
+
+            if (ret_ty.zigTypeTag() == .NoReturn) {
+                result.return_value = .{ .unreach = {} };
+            } else if (!ret_ty.hasCodeGenBits()) {
+                result.return_value = .{ .none = {} };
+            } else switch (arch) {
+                .x86_64 => switch (cc) {
+                    .Naked => unreachable,
+                    .Unspecified, .C => {
+                        result.return_value = .{ .register = c_abi_int_return_regs[0] };
+                    },
+                    else => return self.fail(src, "TODO implement function return values for {}", .{cc}),
+                },
+                else => return self.fail(src, "TODO implement codegen return values for {}", .{self.target.cpu.arch}),
+            }
+            return result;
         }
 
         fn fail(self: *Self, src: usize, comptime format: []const u8, args: anytype) error{ CodegenFail, OutOfMemory } {
