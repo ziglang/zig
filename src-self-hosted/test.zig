@@ -618,8 +618,25 @@ pub const TestContext = struct {
                                         try @intToPtr(*std.ArrayList(u8), _output).append(val);
                                     }
                                 };
-                                var interpreter = try std.spu.interpreter.init(allocator, @ptrToInt(&output), uart.in, uart.out);
-                                //defer interpreter.deinit(allocator);
+                                var interpreter = std.spu.interpreter(struct {
+                                        RAM: [0x10000]u8 = undefined,
+
+                                        pub fn read(self: @This(), comptime T: type, addr: u16) !T {
+                                            if (@intCast(usize, addr) + @sizeOf(T) - 1 > 0xFFFF) {
+                                                return error.BusError;
+                                            }
+                                            return @ptrCast(*align(1) T, &self.RAM[addr]).*;
+                                        }
+
+                                        pub fn write(self: *@This(), comptime T: type, addr: u16, val: T) !void {
+                                            if (@intCast(usize, addr) + @sizeOf(T) - 1 > 0xFFFF) {
+                                                return error.BusError;
+                                            }
+                                            @ptrCast(*align(2) T, @alignCast(2, &self.RAM[addr])).* = val;
+                                        }
+                                    }){
+                                    .bus = .{},
+                                };
                                 std.debug.print("TODO implement ihex backend\n", .{});
                                 std.process.exit(1);
                                 // TODO: loop detection? Solve the halting problem? fork() and limit by wall clock?

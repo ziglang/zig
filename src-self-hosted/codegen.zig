@@ -1030,10 +1030,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             const got_addr = @intCast(u16, got.p_vaddr + func.owner_decl.link.offset_table_index * ptr_bytes);
                             const return_type = func.owner_decl.typed_value.most_recent.typed_value.ty.fnReturnType();
                             // First, push the return address, then jump; if noreturn, don't bother with the first step
-                            //TODO: fix
+                            // TODO: implement packed struct -> u16 at comptime and combine these
                             var instr = Instruction{ .condition = .always, .input0 = .immediate, .input1 = .zero, .modify_flags = false, .output = .jump, .command = .load16 };
                             const jump = @bitCast(u16, instr);
-                            //const jump: u16 = 0x8E08;
                             if (return_type.zigTypeTag() == .NoReturn) {
                                 try self.code.resize(self.code.items.len + 4);
                                 // always imm 0 no_modify jump load16, imm = got_addr
