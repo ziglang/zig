@@ -5,4 +5,5 @@ pub fn addCases(ctx: *TestContext) !void {
     try @import("compare_output.zig").addCases(ctx);
     try @import("zir.zig").addCases(ctx);
     try @import("cbe.zig").addCases(ctx);
+    try @import("spu-ii.zig").addCases(ctx);
 }

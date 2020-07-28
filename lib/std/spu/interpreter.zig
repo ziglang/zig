@@ -1,14 +1,15 @@
 const std = @import("std");
 usingnamespace @import("defines.zig");
 
-const Bus = struct {
+pub const Bus = struct {
     ROM: []u8,
     RAM0: []u8,
     RAM1: []u8,
-    serialIn: fn () u8,
-    serialOut: fn (value: u8) void,
+    userval: usize,
+    serialIn: fn (userval: usize) anyerror!u8,
+    serialOut: fn (userval: usize, value: u8) anyerror!void,
 
-    pub fn init(allocator: *std.mem.Allocator, serialIn: fn () u8, serialOut: fn (value: u8) void) !Bus {
+    pub fn init(allocator: *std.mem.Allocator, userval: usize, serialIn: fn (userval: usize) anyerror!u8, serialOut: fn (userval: usize, value: u8) anyerror!void) !Bus {
         const ROM = try allocator.alloc(u8, 0x4000);
         errdefer allocator.free(ROM);
         const RAM0 = try allocator.alloc(u8, 0x1000);
@@ -21,6 +22,7 @@ const Bus = struct {
             .RAM1 = RAM1,
             .serialIn = serialIn,
             .serialOut = serialOut,
+            .userval = userval,
         };
     }
 
@@ -38,8 +40,9 @@ const Bus = struct {
             return @ptrCast(*align(1) T, &self.RAM0[addr - 0x6000]).*;
         } else if (addr >= 0x8000 and addr < 0x10000) {
             return @ptrCast(*align(1) T, &self.RAM1[addr - 0x8000]).*;
-        } else if (addr >= 0x4000 and addr < 0x5000 and @typeInfo(T) == .Int) {
-            return @intCast(T, self.serialIn());
+        } else if (addr >= 0x4000 and addr < 0x5000) {
+            if (@typeInfo(T) == .Int)
+                return @intCast(T, try self.serialIn(self.userval));
         }
         return error.BusError;
     }
@@ -55,32 +58,30 @@ const Bus = struct {
             @ptrCast(*align(2) T, @alignCast(2, &self.RAM1[addr - 0x8000])).* = val;
         } else if (addr >= 0x4000 and addr < 0x5000) {
             // Serial
-            self.serialOut(val);
+            try self.serialOut(self.userval, @intCast(u8, val));
         } else {
             return error.BusError;
         }
     }
 };
 
-allocator: *std.mem.Allocator,
 ip: u16 = 0,
 sp: u16 = 0,
 bp: u16 = 0,
 fr: FlagRegister = @bitCast(FlagRegister, @as(u16, 0)),
-bus: *Bus,
+bus: Bus,
 /// This is set to true when we hit an undefined0 instruction, allowing it to
 /// be used as a trap for testing purposes
 undefined0: bool = false,
 
-pub fn init(allocator: *std.mem.Allocator, serialIn: fn () u8, serialOut: fn (value: u8) void) !@This() {
+pub fn init(allocator: *std.mem.Allocator, userval: usize, serialIn: fn (userval: usize) anyerror!u8, serialOut: fn (userval: usize, value: u8) anyerror!void) !@This() {
     return @This(){
-        .bus = try Bus.init(allocator, serialIn, serialOut),
-        .allocator = args.allocator,
+        .bus = try Bus.init(allocator, userval, serialIn, serialOut),
     };
 }
 
-pub fn deinit(self: *@This()) void {
-    self.bus.deinit(self.allocator);
+pub fn deinit(self: *@This(), allocator: *std.mem.Allocator) void {
+    self.bus.deinit(allocator);
     self.* = undefined;
 }
 
@@ -94,6 +95,8 @@ pub fn ExecuteBlock(self: *@This(), comptime size: ?u32) !void {
             self.ip += 2;
             instruction = try self.bus.read(Instruction, self.ip);
         }
+
+        std.log.debug(.SPU_2_Interpreter, "Executing {}\n", .{instruction});
 
         self.ip += 2;
 

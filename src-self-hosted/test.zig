@@ -601,6 +601,33 @@ pub const TestContext = struct {
                         }
                     } else {
                         switch (case.target.cpu_arch.?) {
+                            .spu_2 => {
+                                const os = case.target.os_tag;
+                                if (os == null) {
+                                    std.debug.panic("SPU_2 has no native OS, check the test!", .{});
+                                } else if (os.? != .freestanding) {
+                                    std.debug.panic("Only freestanding makes sense for SPU-II tests!", .{});
+                                }
+                                var output = std.ArrayList(u8).init(allocator);
+                                //                                defer output.deinit();
+                                const uart = struct {
+                                    fn in(_out: usize) !u8 {
+                                        return error.not_implemented;
+                                    }
+                                    fn out(_output: usize, val: u8) !void {
+                                        try @intToPtr(*std.ArrayList(u8), _output).append(val);
+                                    }
+                                };
+                                var interpreter = try std.spu.interpreter.init(allocator, @ptrToInt(&output), uart.in, uart.out);
+                                //defer interpreter.deinit(allocator);
+                                std.debug.print("TODO implement ihex backend\n", .{});
+                                std.process.exit(1);
+                                // TODO: loop detection? Solve the halting problem? fork() and limit by wall clock?
+                                // Limit by emulated cycles?
+                                //                                while (!interpreter.undefined0) {
+                                //                                    try interpreter.ExecuteBlock(100);
+                                //                                }
+                            },
                             else => |e| {
                                 std.debug.print("TODO implement non-native tests for target arch {}\n", .{e});
                                 std.process.exit(1);
