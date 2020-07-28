@@ -215,24 +215,28 @@ pub fn CreateEventExW(attributes: ?*SECURITY_ATTRIBUTES, nameW: [*:0]const u16, 
     }
 }
 
-pub const FsControlFileError = error{Unexpected};
+pub const DeviceIoControlError = error{Unexpected};
 
-// TODO work out if we need to expose other arguments to the underlying
-// NtFsControlFile syscall
-pub fn FsControlFile(
+/// A Zig wrapper around `NtDeviceIoControlFile` and `NtFsControlFile` syscalls.
+/// It implements similar behavior to `DeviceIoControl` and is meant to serve
+/// as a direct substitute for that call.
+/// TODO work out if we need to expose other arguments to the underlying syscalls.
+pub fn DeviceIoControl(
     h: HANDLE,
-    fsControlCode: ULONG,
+    ioControlCode: ULONG,
     in: ?[]const u8,
     out: ?[]u8,
-) FsControlFileError!void {
+) DeviceIoControlError!void {
+    // Logic from: https://doxygen.reactos.org/d3/d74/deviceio_8c.html
+    const syscall = if ((ioControlCode >> 16) == FILE_DEVICE_FILE_SYSTEM) ntdll.NtFsControlFile else ntdll.NtDeviceIoControlFile;
     var io: IO_STATUS_BLOCK = undefined;
-    const rc = ntdll.NtFsControlFile(
+    const rc = syscall(
         h,
         null,
         null,
         null,
         &io,
-        fsControlCode,
+        ioControlCode,
         if (in) |i| i.ptr else null,
         if (in) |i| @intCast(ULONG, i.len) else 0,
         if (out) |o| o.ptr else null,
@@ -731,7 +735,7 @@ pub fn CreateSymbolicLinkW(
     @memcpy(buffer[@sizeOf(SYMLINK_DATA)..], @ptrCast([*]const u8, target_path), target_path.len * 2);
     const paths_start = @sizeOf(SYMLINK_DATA) + target_path.len * 2;
     @memcpy(buffer[paths_start..].ptr, @ptrCast([*]const u8, target_path), target_path.len * 2);
-    _ = try FsControlFile(symlink_handle, FSCTL_SET_REPARSE_POINT, buffer[0..buf_len], null);
+    _ = try DeviceIoControl(symlink_handle, FSCTL_SET_REPARSE_POINT, buffer[0..buf_len], null);
 }
 
 pub const ReadLinkError = error{
@@ -809,7 +813,7 @@ pub fn ReadLinkW(dir: ?HANDLE, sub_path_w: [*:0]const u16, out_buffer: []u8) Rea
     defer CloseHandle(result_handle);
 
     var reparse_buf: [MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
-    _ = try FsControlFile(result_handle, FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..]);
+    _ = try DeviceIoControl(result_handle, FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..]);
 
     const reparse_struct = @ptrCast(*const REPARSE_DATA_BUFFER, @alignCast(@alignOf(REPARSE_DATA_BUFFER), &reparse_buf[0]));
     switch (reparse_struct.ReparseTag) {
