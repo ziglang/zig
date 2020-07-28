@@ -84,7 +84,7 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
         try crypto.randomBytes(rand_buf[0..]);
         base64_encoder.encode(tmp_path[dirname.len + 1 ..], &rand_buf);
 
-        if (cwd().symLink(existing_path, new_path, .{})) {
+        if (cwd().symLink(existing_path, tmp_path, .{})) {
             return rename(tmp_path, new_path);
         } else |err| switch (err) {
             error.PathAlreadyExists => continue,
