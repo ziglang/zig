@@ -328,6 +328,19 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 self.free_registers |= @as(FreeRegInt, 1) << shift;
             }
 
+            /// Before calling, must ensureCapacity + 1 on branch.registers.
+            /// Returns `null` if all registers are allocated.
+            fn allocReg(self: *Branch, inst: *ir.Inst) ?Register {
+                const free_index = @ctz(FreeRegInt, self.free_registers);
+                if (free_index >= callee_preserved_regs.len) {
+                    return null;
+                }
+                self.free_registers &= ~(@as(FreeRegInt, 1) << free_index);
+                const reg = callee_preserved_regs[free_index];
+                self.registers.putAssumeCapacityNoClobber(reg, .{ .inst = inst });
+                return reg;
+            }
+
             fn deinit(self: *Branch, gpa: *Allocator) void {
                 self.inst_table.deinit(gpa);
                 self.registers.deinit(gpa);
@@ -502,8 +515,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             entry.value = .dead;
             switch (prev_value) {
                 .register => |reg| {
-                    _ = branch.registers.remove(reg);
-                    branch.markRegFree(reg);
+                    const reg64 = reg.to64();
+                    _ = branch.registers.remove(reg64);
+                    branch.markRegFree(reg64);
                 },
                 else => {}, // TODO process stack allocation death
             }
@@ -582,30 +596,26 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 self.stack_align = abi_align;
             const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
 
-            // TODO Make sure the type can fit in a register before we try to allocate one.
-            const free_index = @ctz(FreeRegInt, branch.free_registers);
-            if (free_index >= callee_preserved_regs.len) {
-                const stack_offset = try self.allocMem(inst, abi_size, abi_align);
-                return MCValue{ .stack_offset = stack_offset };
+            // Make sure the type can fit in a register before we try to allocate one.
+            const ptr_bits = arch.ptrBitWidth();
+            const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+            if (abi_size <= ptr_bytes) {
+                try branch.registers.ensureCapacity(self.gpa, branch.registers.items().len + 1);
+                if (branch.allocReg(inst)) |reg| {
+                    return MCValue{ .register = registerAlias(reg, abi_size) };
+                }
             }
-            branch.free_registers &= ~(@as(FreeRegInt, 1) << free_index);
-            const reg = callee_preserved_regs[free_index];
-            try branch.registers.putNoClobber(self.gpa, reg, .{ .inst = inst });
-            return MCValue{ .register = reg };
+            const stack_offset = try self.allocMem(inst, abi_size, abi_align);
+            return MCValue{ .stack_offset = stack_offset };
         }
 
         /// Does not "move" the instruction.
         fn copyToNewRegister(self: *Self, inst: *ir.Inst) !MCValue {
             const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
             try branch.registers.ensureCapacity(self.gpa, branch.registers.items().len + 1);
-            try branch.inst_table.ensureCapacity(self.gpa, branch.inst_table.items().len + 1);
 
-            const free_index = @ctz(FreeRegInt, branch.free_registers);
-            if (free_index >= callee_preserved_regs.len)
+            const reg = branch.allocReg(inst) orelse
                 return self.fail(inst.src, "TODO implement spilling register to stack", .{});
-            branch.free_registers &= ~(@as(FreeRegInt, 1) << free_index);
-            const reg = callee_preserved_regs[free_index];
-            branch.registers.putAssumeCapacityNoClobber(reg, .{ .inst = inst });
             const old_mcv = branch.inst_table.get(inst).?;
             const new_mcv: MCValue = .{ .register = reg };
             try self.genSetReg(inst.src, reg, old_mcv);
@@ -1131,7 +1141,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             // test reg, 1
                             // TODO detect al, ax, eax
                             try self.code.ensureCapacity(self.code.items.len + 4);
-                            self.rex(.{ .b = reg.isExtended(), .w = reg.size() == 64 });
+                            // TODO audit this codegen: we force w = true here to make
+                            // the value affect the big register
+                            self.rex(.{ .b = reg.isExtended(), .w = true });
                             self.code.appendSliceAssumeCapacity(&[_]u8{
                                 0xf6,
                                 @as(u8, 0xC0) | (0 << 3) | @truncate(u3, reg.id()),
@@ -1319,7 +1331,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         if (!self.wantSafety())
                             return; // The already existing value will do just fine.
                         // TODO Upgrade this to a memset call when we have that available.
-                        return self.genSetStack(src, ty, stack_offset, .{ .immediate = 0xaaaaaaaa });
+                        switch (ty.abiSize(self.target.*)) {
+                            1 => return self.genSetStack(src, ty, stack_offset, .{ .immediate = 0xaa }),
+                            2 => return self.genSetStack(src, ty, stack_offset, .{ .immediate = 0xaaaa }),
+                            4 => return self.genSetStack(src, ty, stack_offset, .{ .immediate = 0xaaaaaaaa }),
+                            8 => return self.genSetStack(src, ty, stack_offset, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
+                            else => return self.fail(src, "TODO implement memset", .{}),
+                        }
                     },
                     .compare_flags_unsigned => |op| {
                         return self.fail(src, "TODO implement set stack variable with compare flags value (unsigned)", .{});
@@ -1328,24 +1346,35 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(src, "TODO implement set stack variable with compare flags value (signed)", .{});
                     },
                     .immediate => |x_big| {
-                        if (ty.abiSize(self.target.*) != 4) {
-                            // TODO after fixing this, need to update the undef case above
-                            return self.fail(src, "TODO implement set non 4 abi size stack variable with immediate", .{});
+                        if (stack_offset > 128) {
+                            return self.fail(src, "TODO implement set stack variable with large stack offset", .{});
                         }
-                        try self.code.ensureCapacity(self.code.items.len + 7);
-                        if (x_big <= math.maxInt(u32)) {
-                            const x = @intCast(u32, x_big);
-                            if (stack_offset > 128) {
-                                return self.fail(src, "TODO implement set stack variable with large stack offset", .{});
-                            }
-                            // We have a positive stack offset value but we want a twos complement negative
-                            // offset from rbp, which is at the top of the stack frame.
-                            const negative_offset = @intCast(i8, -@intCast(i32, stack_offset));
-                            const twos_comp = @bitCast(u8, negative_offset);
-                            // mov    DWORD PTR [rbp+offset], immediate
-                            self.code.appendSliceAssumeCapacity(&[_]u8{ 0xc7, 0x45, twos_comp });
-                            mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), x);
-                        } else {
+                        try self.code.ensureCapacity(self.code.items.len + 8);
+                        switch (ty.abiSize(self.target.*)) {
+                            1 => {
+                                return self.fail(src, "TODO implement set abi_size=1 stack variable with immediate", .{});
+                            },
+                            2 => {
+                                return self.fail(src, "TODO implement set abi_size=2 stack variable with immediate", .{});
+                            },
+                            4 => {
+                                const x = @intCast(u32, x_big);
+                                // We have a positive stack offset value but we want a twos complement negative
+                                // offset from rbp, which is at the top of the stack frame.
+                                const negative_offset = @intCast(i8, -@intCast(i32, stack_offset));
+                                const twos_comp = @bitCast(u8, negative_offset);
+                                // mov    DWORD PTR [rbp+offset], immediate
+                                self.code.appendSliceAssumeCapacity(&[_]u8{ 0xc7, 0x45, twos_comp });
+                                mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), x);
+                            },
+                            8 => {
+                                return self.fail(src, "TODO implement set abi_size=8 stack variable with immediate", .{});
+                            },
+                            else => {
+                                return self.fail(src, "TODO implement set abi_size=large stack variable with immediate", .{});
+                            },
+                        }
+                        if (x_big <= math.maxInt(u32)) {} else {
                             return self.fail(src, "TODO implement set stack variable with large immediate", .{});
                         }
                     },
@@ -1407,7 +1436,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     },
                     .compare_flags_unsigned => |op| {
                         try self.code.ensureCapacity(self.code.items.len + 3);
-                        self.rex(.{ .b = reg.isExtended(), .w = reg.size() == 64 });
+                        // TODO audit this codegen: we force w = true here to make
+                        // the value affect the big register
+                        self.rex(.{ .b = reg.isExtended(), .w = true });
                         const opcode: u8 = switch (op) {
                             .gte => 0x93,
                             .gt => 0x97,
@@ -1423,9 +1454,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(src, "TODO set register with compare flags value (signed)", .{});
                     },
                     .immediate => |x| {
-                        if (reg.size() != 64) {
-                            return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
-                        }
                         // 32-bit moves zero-extend to 64-bit, so xoring the 32-bit
                         // register is the fastest way to zero a register.
                         if (x == 0) {
@@ -1478,16 +1506,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         //
                         // In this case, the encoding of the REX byte is 0b0100100B
                         try self.code.ensureCapacity(self.code.items.len + 10);
-                        self.rex(.{ .w = true, .b = reg.isExtended() });
+                        self.rex(.{ .w = reg.size() == 64, .b = reg.isExtended() });
                         self.code.items.len += 9;
                         self.code.items[self.code.items.len - 9] = 0xB8 | @as(u8, reg.id() & 0b111);
                         const imm_ptr = self.code.items[self.code.items.len - 8 ..][0..8];
                         mem.writeIntLittle(u64, imm_ptr, x);
                     },
                     .embedded_in_code => |code_offset| {
-                        if (reg.size() != 64) {
-                            return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
-                        }
                         // We need the offset from RIP in a signed i32 twos complement.
                         // The instruction is 7 bytes long and RIP points to the next instruction.
                         try self.code.ensureCapacity(self.code.items.len + 7);
@@ -1495,7 +1520,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // but the operation size is unchanged. Since we're using a disp32, we want mode 0 and lower three
                         // bits as five.
                         // REX 0x8D 0b00RRR101, where RRR is the lower three bits of the id.
-                        self.rex(.{ .w = true, .b = reg.isExtended() });
+                        self.rex(.{ .w = reg.size() == 64, .b = reg.isExtended() });
                         self.code.items.len += 6;
                         const rip = self.code.items.len;
                         const big_offset = @intCast(i64, code_offset) - @intCast(i64, rip);
@@ -1507,12 +1532,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     },
                     .register => |src_reg| {
                         // If the registers are the same, nothing to do.
-                        if (src_reg == reg)
+                        if (src_reg.id() == reg.id())
                             return;
 
-                        if (reg.size() != 64) {
-                            return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
-                        }
                         // This is a variant of 8B /r. Since we're using 64-bit moves, we require a REX.
                         // This is thus three bytes: REX 0x8B R/M.
                         // If the destination is extended, the R field must be 1.
@@ -1520,14 +1542,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // Since the register is being accessed directly, the R/M mode is three. The reg field (the middle
                         // three bits) contain the destination, and the R/M field (the lower three bits) contain the source.
                         try self.code.ensureCapacity(self.code.items.len + 3);
-                        self.rex(.{ .w = true, .r = reg.isExtended(), .b = src_reg.isExtended() });
+                        self.rex(.{ .w = reg.size() == 64, .r = reg.isExtended(), .b = src_reg.isExtended() });
                         const R = 0xC0 | (@as(u8, reg.id() & 0b111) << 3) | @as(u8, src_reg.id() & 0b111);
                         self.code.appendSliceAssumeCapacity(&[_]u8{ 0x8B, R });
                     },
                     .memory => |x| {
-                        if (reg.size() != 64) {
-                            return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
-                        }
                         if (x <= math.maxInt(u32)) {
                             // Moving from memory to a register is a variant of `8B /r`.
                             // Since we're using 64-bit moves, we require a REX.
@@ -1537,7 +1556,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             // 0b00RRR100, where RRR is the lower three bits of the register ID.
                             // The instruction is thus eight bytes; REX 0x8B 0b00RRR100 0x25 followed by a four-byte disp32.
                             try self.code.ensureCapacity(self.code.items.len + 8);
-                            self.rex(.{ .w = true, .b = reg.isExtended() });
+                            self.rex(.{ .w = reg.size() == 64, .b = reg.isExtended() });
                             self.code.appendSliceAssumeCapacity(&[_]u8{
                                 0x8B,
                                 0x04 | (@as(u8, reg.id() & 0b111) << 3), // R
@@ -1580,18 +1599,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 //
                                 // Furthermore, if this is an extended register, both B and R must be set in the REX byte, as *both*
                                 // register operands need to be marked as extended.
-                                self.rex(.{ .w = true, .b = reg.isExtended(), .r = reg.isExtended() });
+                                self.rex(.{ .w = reg.size() == 64, .b = reg.isExtended(), .r = reg.isExtended() });
                                 const RM = (@as(u8, reg.id() & 0b111) << 3) | @truncate(u3, reg.id());
                                 self.code.appendSliceAssumeCapacity(&[_]u8{ 0x8B, RM });
                             }
                         }
                     },
                     .stack_offset => |off| {
-                        if (reg.size() != 64) {
-                            return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
-                        }
                         try self.code.ensureCapacity(self.code.items.len + 7);
-                        self.rex(.{ .w = true, .r = reg.isExtended() });
+                        self.rex(.{ .w = reg.size() == 64, .r = reg.isExtended() });
                         const reg_id: u8 = @truncate(u3, reg.id());
                         if (off <= 128) {
                             // Example: 48 8b 4d 7f           mov    rcx,QWORD PTR [rbp+0x7f]
@@ -1750,11 +1766,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             for (param_types) |ty, i| {
                                 switch (ty.zigTypeTag()) {
                                     .Bool, .Int => {
+                                        const param_size = @intCast(u32, ty.abiSize(self.target.*));
                                         if (next_int_reg >= c_abi_int_param_regs.len) {
                                             result.args[i] = .{ .stack_offset = next_stack_offset };
-                                            next_stack_offset += @intCast(u32, ty.abiSize(self.target.*));
+                                            next_stack_offset += param_size;
                                         } else {
-                                            result.args[i] = .{ .register = c_abi_int_param_regs[next_int_reg] };
+                                            const aliased_reg = registerAlias(
+                                                c_abi_int_param_regs[next_int_reg],
+                                                param_size,
+                                            );
+                                            result.args[i] = .{ .register = aliased_reg };
                                             next_int_reg += 1;
                                         }
                                     },
@@ -1778,7 +1799,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .x86_64 => switch (cc) {
                     .Naked => unreachable,
                     .Unspecified, .C => {
-                        result.return_value = .{ .register = c_abi_int_return_regs[0] };
+                        const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
+                        const aliased_reg = registerAlias(c_abi_int_return_regs[0], ret_ty_size);
+                        result.return_value = .{ .register = aliased_reg };
                     },
                     else => return self.fail(src, "TODO implement function return values for {}", .{cc}),
                 },
@@ -1824,6 +1847,20 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         fn parseRegName(name: []const u8) ?Register {
             return std.meta.stringToEnum(Register, name);
+        }
+
+        fn registerAlias(reg: Register, size_bytes: u32) Register {
+            switch (arch) {
+                // For x86_64 we have to pick a smaller register alias depending on abi size.
+                .x86_64 => switch (size_bytes) {
+                    1 => return reg.to8(),
+                    2 => return reg.to16(),
+                    4 => return reg.to32(),
+                    8 => return reg.to64(),
+                    else => unreachable,
+                },
+                else => return reg,
+            }
         }
     };
 }
