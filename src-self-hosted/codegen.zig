@@ -214,6 +214,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         src: usize,
         stack_align: u32,
 
+        /// The value is an offset into the `Function` `code` from the beginning.
+        /// To perform the reloc, write 32-bit signed little-endian integer
+        /// which is a relative jump, based on the address following the reloc.
+        exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .{},
+
         /// Whenever there is a runtime branch, we push a Branch onto this stack,
         /// and pop it off when the runtime branch joins. This provides an "overlay"
         /// of the table of mappings from instructions to `MCValue` from within the branch.
@@ -376,6 +381,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .src = src,
                 .stack_align = undefined,
             };
+            defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
 
             var call_info = function.resolveCallingConventionValues(src, fn_type) catch |err| switch (err) {
                 error.CodegenFail => return Result{ .fail = function.err_msg.? },
@@ -401,29 +407,78 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn gen(self: *Self) !void {
-            try self.code.ensureCapacity(self.code.items.len + 11);
+            switch (arch) {
+                .x86_64 => {
+                    try self.code.ensureCapacity(self.code.items.len + 11);
 
-            // TODO omit this for naked functions
-            // push rbp
-            // mov rbp, rsp
-            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x55, 0x48, 0x89, 0xe5 });
+                    const cc = self.fn_type.fnCallingConvention();
+                    if (cc != .Naked) {
+                        // We want to subtract the aligned stack frame size from rsp here, but we don't
+                        // yet know how big it will be, so we leave room for a 4-byte stack size.
+                        // TODO During semantic analysis, check if there are no function calls. If there
+                        // are none, here we can omit the part where we subtract and then add rsp.
+                        self.code.appendSliceAssumeCapacity(&[_]u8{
+                            // push rbp
+                            0x55,
+                            // mov rbp, rsp
+                            0x48,
+                            0x89,
+                            0xe5,
+                            // sub rsp, imm32 (with reloc)
+                            0x48,
+                            0x81,
+                            0xec,
+                        });
+                        const reloc_index = self.code.items.len;
+                        self.code.items.len += 4;
 
-            // sub rsp, x
-            const stack_end = self.branch_stack.items[0].max_end_stack;
-            if (stack_end > math.maxInt(i32)) {
-                return self.fail(self.src, "too much stack used in call parameters", .{});
-            } else if (stack_end > math.maxInt(i8)) {
-                // 48 83 ec xx    sub rsp,0x10
-                self.code.appendSliceAssumeCapacity(&[_]u8{ 0x48, 0x81, 0xec });
-                const x = @intCast(u32, stack_end);
-                mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), x);
-            } else if (stack_end != 0) {
-                // 48 81 ec xx xx xx xx   sub rsp,0x80
-                const x = @intCast(u8, stack_end);
-                self.code.appendSliceAssumeCapacity(&[_]u8{ 0x48, 0x83, 0xec, x });
+                        try self.genBody(self.mod_fn.analysis.success);
+
+                        const stack_end = self.branch_stack.items[0].max_end_stack;
+                        if (stack_end > math.maxInt(i32))
+                            return self.fail(self.src, "too much stack used in call parameters", .{});
+                        const aligned_stack_end = mem.alignForward(stack_end, self.stack_align);
+                        mem.writeIntLittle(u32, self.code.items[reloc_index..][0..4], @intCast(u32, aligned_stack_end));
+
+                        if (self.code.items.len >= math.maxInt(i32)) {
+                            return self.fail(self.src, "unable to perform relocation: jump too far", .{});
+                        }
+                        for (self.exitlude_jump_relocs.items) |jmp_reloc| {
+                            const amt = self.code.items.len - (jmp_reloc + 4);
+                            // If it wouldn't jump at all, elide it.
+                            if (amt == 0) {
+                                self.code.items.len -= 5;
+                                continue;
+                            }
+                            const s32_amt = @intCast(i32, amt);
+                            mem.writeIntLittle(i32, self.code.items[jmp_reloc..][0..4], s32_amt);
+                        }
+
+                        try self.code.ensureCapacity(self.code.items.len + 9);
+                        // add rsp, x
+                        if (aligned_stack_end > math.maxInt(i8)) {
+                            // example: 48 81 c4 ff ff ff 7f  add    rsp,0x7fffffff
+                            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x48, 0x81, 0xc4 });
+                            const x = @intCast(u32, aligned_stack_end);
+                            mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), x);
+                        } else if (aligned_stack_end != 0) {
+                            // example: 48 83 c4 7f           add    rsp,0x7f
+                            const x = @intCast(u8, aligned_stack_end);
+                            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x48, 0x83, 0xc4, x });
+                        }
+
+                        self.code.appendSliceAssumeCapacity(&[_]u8{
+                            0x5d, // pop rbp
+                            0xc3, // ret
+                        });
+                    } else {
+                        try self.genBody(self.mod_fn.analysis.success);
+                    }
+                },
+                else => {
+                    try self.genBody(self.mod_fn.analysis.success);
+                },
             }
-
-            try self.genBody(self.mod_fn.analysis.success);
         }
 
         fn genBody(self: *Self, body: ir.Body) InnerError!void {
@@ -987,10 +1042,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     try self.code.append(0xc3); // ret
                 },
                 .x86_64 => {
-                    try self.code.appendSlice(&[_]u8{
-                        0x5d, // pop rbp
-                        0xc3, // ret
-                    });
+                    // TODO when implementing defer, this will need to jump to the appropriate defer expression.
+                    // TODO optimization opportunity: figure out when we can emit this as a 2 byte instruction
+                    // which is available if the jump is 127 bytes or less forward.
+                    try self.code.resize(self.code.items.len + 5);
+                    self.code.items[self.code.items.len - 5] = 0xe9; // jmp rel32
+                    try self.exitlude_jump_relocs.append(self.gpa, self.code.items.len - 4);
                 },
                 else => return self.fail(src, "TODO implement return for {}", .{self.target.cpu.arch}),
             }
@@ -1130,6 +1187,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             switch (reloc) {
                 .rel32 => |pos| {
                     const amt = self.code.items.len - (pos + 4);
+                    // If it wouldn't jump at all, elide it.
+                    if (amt == 0) {
+                        self.code.items.len -= 5;
+                        return;
+                    }
                     const s32_amt = math.cast(i32, amt) catch
                         return self.fail(src, "unable to perform relocation: jump too far", .{});
                     mem.writeIntLittle(i32, self.code.items[pos..][0..4], s32_amt);
@@ -1296,13 +1358,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const reg_id: u8 = @truncate(u3, reg.id());
                         if (stack_offset <= 128) {
                             // example: 48 89 55 7f           mov    QWORD PTR [rbp+0x7f],rdx
-                            const RM = @as(u8, 0b01_101_000) | reg_id;
+                            const RM = @as(u8, 0b01_000_101) | (reg_id << 3);
                             const negative_offset = @intCast(i8, -@intCast(i32, stack_offset));
                             const twos_comp = @bitCast(u8, negative_offset);
                             self.code.appendSliceAssumeCapacity(&[_]u8{ 0x89, RM, twos_comp });
                         } else if (stack_offset <= 2147483648) {
                             // example: 48 89 95 80 00 00 00  mov    QWORD PTR [rbp+0x80],rdx
-                            const RM = @as(u8, 0b10_101_000) | reg_id;
+                            const RM = @as(u8, 0b10_000_101) | (reg_id << 3);
                             const negative_offset = @intCast(i32, -@intCast(i33, stack_offset));
                             const twos_comp = @bitCast(u32, negative_offset);
                             self.code.appendSliceAssumeCapacity(&[_]u8{ 0x89, RM });
