@@ -1271,7 +1271,25 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(src, "TODO implement set stack variable from embedded_in_code", .{});
                     },
                     .register => |reg| {
-                        return self.fail(src, "TODO implement set stack variable from register", .{});
+                        try self.code.ensureCapacity(self.code.items.len + 7);
+                        self.rex(.{ .w = reg.size() == 64, .b = reg.isExtended() });
+                        const reg_id: u8 = @truncate(u3, reg.id());
+                        if (stack_offset <= 128) {
+                            // example: 48 89 55 7f           mov    QWORD PTR [rbp+0x7f],rdx
+                            const RM = @as(u8, 0b01_101_000) | reg_id;
+                            const negative_offset = @intCast(i8, -@intCast(i32, stack_offset));
+                            const twos_comp = @bitCast(u8, negative_offset);
+                            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x89, RM, twos_comp });
+                        } else if (stack_offset <= 2147483648) {
+                            // example: 48 89 95 80 00 00 00  mov    QWORD PTR [rbp+0x80],rdx
+                            const RM = @as(u8, 0b10_101_000) | reg_id;
+                            const negative_offset = @intCast(i32, -@intCast(i33, stack_offset));
+                            const twos_comp = @bitCast(u32, negative_offset);
+                            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x89, RM });
+                            mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), twos_comp);
+                        } else {
+                            return self.fail(src, "stack offset too large", .{});
+                        }
                     },
                     .memory => |vaddr| {
                         return self.fail(src, "TODO implement set stack variable from memory vaddr", .{});
@@ -1475,7 +1493,28 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     },
                     .stack_offset => |off| {
-                        return self.fail(src, "TODO implement genSetReg for stack variables", .{});
+                        if (reg.size() != 64) {
+                            return self.fail(src, "TODO decide whether to implement non-64-bit loads", .{});
+                        }
+                        try self.code.ensureCapacity(self.code.items.len + 7);
+                        self.rex(.{ .w = true, .r = reg.isExtended() });
+                        const reg_id: u8 = @truncate(u3, reg.id());
+                        if (off <= 128) {
+                            // Example: 48 8b 4d 7f           mov    rcx,QWORD PTR [rbp+0x7f]
+                            const RM = @as(u8, 0b01_000_101) | (reg_id << 3);
+                            const negative_offset = @intCast(i8, -@intCast(i32, off));
+                            const twos_comp = @bitCast(u8, negative_offset);
+                            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x8b, RM, twos_comp });
+                        } else if (off <= 2147483648) {
+                            // Example: 48 8b 8d 80 00 00 00  mov    rcx,QWORD PTR [rbp+0x80]
+                            const RM = @as(u8, 0b10_000_101) | (reg_id << 3);
+                            const negative_offset = @intCast(i32, -@intCast(i33, off));
+                            const twos_comp = @bitCast(u32, negative_offset);
+                            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x8b, RM });
+                            mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), twos_comp);
+                        } else {
+                            return self.fail(src, "stack offset too large", .{});
+                        }
                     },
                 },
                 else => return self.fail(src, "TODO implement getSetReg for {}", .{self.target.cpu.arch}),
