@@ -242,6 +242,7 @@ pub const Inst = struct {
                 .mulwrap,
                 .shl,
                 .shr,
+                .store,
                 .sub,
                 .subwrap,
                 .cmp_lt,
@@ -270,7 +271,6 @@ pub const Inst = struct {
                 .coerce_result_block_ptr => CoerceResultBlockPtr,
                 .compileerror => CompileError,
                 .@"const" => Const,
-                .store => Store,
                 .str => Str,
                 .int => Int,
                 .inttype => IntType,
@@ -541,17 +541,6 @@ pub const Inst = struct {
 
         positionals: struct {
             typed_value: TypedValue,
-        },
-        kw_args: struct {},
-    };
-
-    pub const Store = struct {
-        pub const base_tag = Tag.store;
-        base: Inst,
-
-        positionals: struct {
-            ptr: *Inst,
-            value: *Inst,
         },
         kw_args: struct {},
     };
@@ -1837,9 +1826,12 @@ const EmitZIR = struct {
                 .ptrtoint => try self.emitUnOp(inst.src, new_body, inst.castTag(.ptrtoint).?, .ptrtoint),
                 .isnull => try self.emitUnOp(inst.src, new_body, inst.castTag(.isnull).?, .isnull),
                 .isnonnull => try self.emitUnOp(inst.src, new_body, inst.castTag(.isnonnull).?, .isnonnull),
+                .load => try self.emitUnOp(inst.src, new_body, inst.castTag(.load).?, .deref),
+                .ref => try self.emitUnOp(inst.src, new_body, inst.castTag(.ref).?, .ref),
 
                 .add => try self.emitBinOp(inst.src, new_body, inst.castTag(.add).?, .add),
                 .sub => try self.emitBinOp(inst.src, new_body, inst.castTag(.sub).?, .sub),
+                .store => try self.emitBinOp(inst.src, new_body, inst.castTag(.store).?, .store),
                 .cmp_lt => try self.emitBinOp(inst.src, new_body, inst.castTag(.cmp_lt).?, .cmp_lt),
                 .cmp_lte => try self.emitBinOp(inst.src, new_body, inst.castTag(.cmp_lte).?, .cmp_lte),
                 .cmp_eq => try self.emitBinOp(inst.src, new_body, inst.castTag(.cmp_eq).?, .cmp_eq),

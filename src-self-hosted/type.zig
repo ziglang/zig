@@ -803,6 +803,58 @@ pub const Type = extern union {
         };
     }
 
+    pub fn isVolatilePtr(self: Type) bool {
+        return switch (self.tag()) {
+            .u8,
+            .i8,
+            .u16,
+            .i16,
+            .u32,
+            .i32,
+            .u64,
+            .i64,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .@"null",
+            .@"undefined",
+            .array,
+            .array_u8_sentinel_0,
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .function,
+            .int_unsigned,
+            .int_signed,
+            .single_mut_pointer,
+            .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
+            .const_slice_u8,
+            => false,
+        };
+    }
+
     /// Asserts the type is a pointer or array type.
     pub fn elemType(self: Type) Type {
         return switch (self.tag()) {

@@ -287,8 +287,11 @@ fn analyzeInstCoerceResultPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstCoerceResultPtr", .{});
 }
 
+/// Equivalent to `as(ptr_child_type(typeof(ptr)), value)`.
 fn analyzeInstCoerceToPtrElem(mod: *Module, scope: *Scope, inst: *zir.Inst.CoerceToPtrElem) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstCoerceToPtrElem", .{});
+    const ptr = try resolveInst(mod, scope, inst.positionals.ptr);
+    const operand = try resolveInst(mod, scope, inst.positionals.value);
+    return mod.coerce(scope, ptr.ty.elemType(), operand);
 }
 
 fn analyzeInstRetPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
@@ -296,7 +299,10 @@ fn analyzeInstRetPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerErr
 }
 
 fn analyzeInstRef(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstRef", .{});
+    const operand = try resolveInst(mod, scope, inst.positionals.operand);
+    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    const ptr_type = try mod.singleConstPtrType(scope, inst.base.src, operand.ty);
+    return mod.addUnOp(b, inst.base.src, ptr_type, .ref, operand);
 }
 
 fn analyzeInstRetType(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
@@ -333,8 +339,10 @@ fn analyzeInstAllocInferred(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) I
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstAllocInferred", .{});
 }
 
-fn analyzeInstStore(mod: *Module, scope: *Scope, inst: *zir.Inst.Store) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstStore", .{});
+fn analyzeInstStore(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const ptr = try resolveInst(mod, scope, inst.positionals.lhs);
+    const value = try resolveInst(mod, scope, inst.positionals.rhs);
+    return mod.storePtr(scope, inst.base.src, ptr, value);
 }
 
 fn analyzeInstParamType(mod: *Module, scope: *Scope, inst: *zir.Inst.ParamType) InnerError!*Inst {

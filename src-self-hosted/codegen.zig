@@ -209,6 +209,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         err_msg: ?*ErrorMsg,
         args: []MCValue,
         ret_mcv: MCValue,
+        fn_type: Type,
         arg_index: usize,
         src: usize,
         stack_align: u32,
@@ -230,15 +231,23 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             /// No more references to this value remain.
             dead,
             /// A pointer-sized integer that fits in a register.
+            /// If the type is a pointer, this is the pointer address in virtual address space.
             immediate: u64,
             /// The constant was emitted into the code, at this offset.
+            /// If the type is a pointer, it means the pointer address is embedded in the code.
             embedded_in_code: usize,
+            /// The value is a pointer to a constant which was emitted into the code, at this offset.
+            ptr_embedded_in_code: usize,
             /// The value is in a target-specific register.
             register: Register,
             /// The value is in memory at a hard-coded address.
+            /// If the type is a pointer, it means the pointer address is at this memory location.
             memory: u64,
             /// The value is one of the stack variables.
-            stack_offset: u64,
+            /// If the type is a pointer, it means the pointer address is in the stack at this offset.
+            stack_offset: u32,
+            /// The value is a pointer to one of the stack variables (payload is stack offset).
+            ptr_stack_offset: u32,
             /// The value is in the compare flags assuming an unsigned operation,
             /// with this operator applied on top of it.
             compare_flags_unsigned: math.CompareOperator,
@@ -271,6 +280,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .memory,
                     .compare_flags_unsigned,
                     .compare_flags_signed,
+                    .ptr_stack_offset,
+                    .ptr_embedded_in_code,
                     => false,
 
                     .register,
@@ -356,6 +367,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .err_msg = null,
                 .args = undefined, // populated after `resolveCallingConventionValues`
                 .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
+                .fn_type = fn_type,
                 .arg_index = 0,
                 .branch_stack = &branch_stack,
                 .src = src,
@@ -459,26 +471,23 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .cmp_neq => return self.genCmp(inst.castTag(.cmp_neq).?, .neq),
                 .condbr => return self.genCondBr(inst.castTag(.condbr).?),
                 .constant => unreachable, // excluded from function bodies
-                .isnonnull => return self.genIsNonNull(inst.castTag(.isnonnull).?),
-                .isnull => return self.genIsNull(inst.castTag(.isnull).?),
-                .ptrtoint => return self.genPtrToInt(inst.castTag(.ptrtoint).?),
-                .ret => return self.genRet(inst.castTag(.ret).?),
-                .retvoid => return self.genRetVoid(inst.castTag(.retvoid).?),
-                .sub => return self.genSub(inst.castTag(.sub).?),
-                .unreach => return MCValue{ .unreach = {} },
-                .not => return self.genNot(inst.castTag(.not).?),
                 .floatcast => return self.genFloatCast(inst.castTag(.floatcast).?),
                 .intcast => return self.genIntCast(inst.castTag(.intcast).?),
+                .isnonnull => return self.genIsNonNull(inst.castTag(.isnonnull).?),
+                .isnull => return self.genIsNull(inst.castTag(.isnull).?),
+                .load => return self.genLoad(inst.castTag(.load).?),
+                .not => return self.genNot(inst.castTag(.not).?),
+                .ptrtoint => return self.genPtrToInt(inst.castTag(.ptrtoint).?),
+                .ref => return self.genRef(inst.castTag(.ref).?),
+                .ret => return self.genRet(inst.castTag(.ret).?),
+                .retvoid => return self.genRetVoid(inst.castTag(.retvoid).?),
+                .store => return self.genStore(inst.castTag(.store).?),
+                .sub => return self.genSub(inst.castTag(.sub).?),
+                .unreach => return MCValue{ .unreach = {} },
             }
         }
 
-        fn genAlloc(self: *Self, inst: *ir.Inst.NoOp) !MCValue {
-            const elem_ty = inst.base.ty.elemType();
-            const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
-                return self.fail(inst.base.src, "type '{}' too big to fit into stack frame", .{elem_ty});
-            };
-            // TODO swap this for inst.base.ty.ptrAlign
-            const abi_align = elem_ty.abiAlignment(self.target.*);
+        fn allocMem(self: *Self, inst: *ir.Inst, abi_size: u32, abi_align: u32) !u32 {
             if (abi_align > self.stack_align)
                 self.stack_align = abi_align;
             const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
@@ -488,10 +497,66 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             if (branch.next_stack_offset > branch.max_end_stack)
                 branch.max_end_stack = branch.next_stack_offset;
             try branch.stack.putNoClobber(self.gpa, offset, .{
-                .inst = &inst.base,
+                .inst = inst,
                 .size = abi_size,
             });
-            return MCValue{ .stack_offset = offset };
+            return offset;
+        }
+
+        /// Use a pointer instruction as the basis for allocating stack memory.
+        fn allocMemPtr(self: *Self, inst: *ir.Inst) !u32 {
+            const elem_ty = inst.ty.elemType();
+            const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
+                return self.fail(inst.src, "type '{}' too big to fit into stack frame", .{elem_ty});
+            };
+            // TODO swap this for inst.ty.ptrAlign
+            const abi_align = elem_ty.abiAlignment(self.target.*);
+            return self.allocMem(inst, abi_size, abi_align);
+        }
+
+        fn allocRegOrMem(self: *Self, inst: *ir.Inst) !MCValue {
+            const elem_ty = inst.ty;
+            const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
+                return self.fail(inst.src, "type '{}' too big to fit into stack frame", .{elem_ty});
+            };
+            const abi_align = elem_ty.abiAlignment(self.target.*);
+            if (abi_align > self.stack_align)
+                self.stack_align = abi_align;
+            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+
+            // TODO Make sure the type can fit in a register before we try to allocate one.
+            const free_index = @ctz(FreeRegInt, branch.free_registers);
+            if (free_index >= callee_preserved_regs.len) {
+                const stack_offset = try self.allocMem(inst, abi_size, abi_align);
+                return MCValue{ .stack_offset = stack_offset };
+            }
+            branch.free_registers &= ~(@as(FreeRegInt, 1) << free_index);
+            const reg = callee_preserved_regs[free_index];
+            try branch.registers.putNoClobber(self.gpa, reg, .{ .inst = inst });
+            return MCValue{ .register = reg };
+        }
+
+        /// Does not "move" the instruction.
+        fn copyToNewRegister(self: *Self, inst: *ir.Inst) !MCValue {
+            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+            try branch.registers.ensureCapacity(self.gpa, branch.registers.items().len + 1);
+            try branch.inst_table.ensureCapacity(self.gpa, branch.inst_table.items().len + 1);
+
+            const free_index = @ctz(FreeRegInt, branch.free_registers);
+            if (free_index >= callee_preserved_regs.len)
+                return self.fail(inst.src, "TODO implement spilling register to stack", .{});
+            branch.free_registers &= ~(@as(FreeRegInt, 1) << free_index);
+            const reg = callee_preserved_regs[free_index];
+            branch.registers.putAssumeCapacityNoClobber(reg, .{ .inst = inst });
+            const old_mcv = branch.inst_table.get(inst).?;
+            const new_mcv: MCValue = .{ .register = reg };
+            try self.genSetReg(inst.src, reg, old_mcv);
+            return new_mcv;
+        }
+
+        fn genAlloc(self: *Self, inst: *ir.Inst.NoOp) !MCValue {
+            const stack_offset = try self.allocMemPtr(&inst.base);
+            return MCValue{ .ptr_stack_offset = stack_offset };
         }
 
         fn genFloatCast(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
@@ -570,6 +635,85 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 else => return self.fail(inst.base.src, "TODO implement add for {}", .{self.target.cpu.arch}),
             }
+        }
+
+        fn genLoad(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            const elem_ty = inst.base.ty;
+            if (!elem_ty.hasCodeGenBits())
+                return MCValue.none;
+            const ptr = try self.resolveInst(inst.operand);
+            const is_volatile = inst.operand.ty.isVolatilePtr();
+            if (inst.base.isUnused() and !is_volatile)
+                return MCValue.dead;
+            const dst_mcv: MCValue = blk: {
+                if (inst.base.operandDies(0) and ptr.isMutable()) {
+                    // The MCValue that holds the pointer can be re-used as the value.
+                    // TODO track this in the register/stack allocation metadata.
+                    break :blk ptr;
+                } else {
+                    break :blk try self.allocRegOrMem(&inst.base);
+                }
+            };
+            switch (ptr) {
+                .none => unreachable,
+                .unreach => unreachable,
+                .dead => unreachable,
+                .compare_flags_unsigned => unreachable,
+                .compare_flags_signed => unreachable,
+                .immediate => |imm| try self.setRegOrMem(inst.base.src, elem_ty, dst_mcv, .{ .memory = imm }),
+                .ptr_stack_offset => |off| try self.setRegOrMem(inst.base.src, elem_ty, dst_mcv, .{ .stack_offset = off }),
+                .ptr_embedded_in_code => |off| {
+                    try self.setRegOrMem(inst.base.src, elem_ty, dst_mcv, .{ .embedded_in_code = off });
+                },
+                .embedded_in_code => {
+                    return self.fail(inst.base.src, "TODO implement loading from MCValue.embedded_in_code", .{});
+                },
+                .register => {
+                    return self.fail(inst.base.src, "TODO implement loading from MCValue.register", .{});
+                },
+                .memory => {
+                    return self.fail(inst.base.src, "TODO implement loading from MCValue.memory", .{});
+                },
+                .stack_offset => {
+                    return self.fail(inst.base.src, "TODO implement loading from MCValue.stack_offset", .{});
+                },
+            }
+            return dst_mcv;
+        }
+
+        fn genStore(self: *Self, inst: *ir.Inst.BinOp) !MCValue {
+            const ptr = try self.resolveInst(inst.lhs);
+            const value = try self.resolveInst(inst.rhs);
+            const elem_ty = inst.rhs.ty;
+            switch (ptr) {
+                .none => unreachable,
+                .unreach => unreachable,
+                .dead => unreachable,
+                .compare_flags_unsigned => unreachable,
+                .compare_flags_signed => unreachable,
+                .immediate => |imm| {
+                    try self.setRegOrMem(inst.base.src, elem_ty, .{ .memory = imm }, value);
+                },
+                .ptr_stack_offset => |off| {
+                    try self.genSetStack(inst.base.src, elem_ty, off, value);
+                },
+                .ptr_embedded_in_code => |off| {
+                    try self.setRegOrMem(inst.base.src, elem_ty, .{ .embedded_in_code = off }, value);
+                },
+                .embedded_in_code => {
+                    return self.fail(inst.base.src, "TODO implement storing to MCValue.embedded_in_code", .{});
+                },
+                .register => {
+                    return self.fail(inst.base.src, "TODO implement storing to MCValue.register", .{});
+                },
+                .memory => {
+                    return self.fail(inst.base.src, "TODO implement storing to MCValue.memory", .{});
+                },
+                .stack_offset => {
+                    return self.fail(inst.base.src, "TODO implement storing to MCValue.stack_offset", .{});
+                },
+            }
+            return .none;
         }
 
         fn genSub(self: *Self, inst: *ir.Inst.BinOp) !MCValue {
@@ -657,10 +801,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .dead, .unreach, .immediate => unreachable,
                 .compare_flags_unsigned => unreachable,
                 .compare_flags_signed => unreachable,
+                .ptr_stack_offset => unreachable,
+                .ptr_embedded_in_code => unreachable,
                 .register => |dst_reg| {
                     switch (src_mcv) {
                         .none => unreachable,
                         .dead, .unreach => unreachable,
+                        .ptr_stack_offset => unreachable,
+                        .ptr_embedded_in_code => unreachable,
                         .register => |src_reg| {
                             self.rex(.{ .b = dst_reg.isExtended(), .r = src_reg.isExtended(), .w = dst_reg.size() == 64 });
                             self.code.appendSliceAssumeCapacity(&[_]u8{ mr + 0x1, 0xC0 | (@as(u8, src_reg.id() & 0b111) << 3) | @as(u8, dst_reg.id() & 0b111) });
@@ -743,6 +891,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     for (info.args) |mc_arg, arg_i| {
                         const arg = inst.args[arg_i];
                         const arg_mcv = try self.resolveInst(inst.args[arg_i]);
+                        // Here we do not use setRegOrMem even though the logic is similar, because
+                        // the function call will move the stack pointer, so the offsets are different.
                         switch (mc_arg) {
                             .none => continue,
                             .register => |reg| {
@@ -753,6 +903,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 // Here we need to emit instructions like this:
                                 // mov     qword ptr [rsp + stack_offset], x
                                 return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
+                            },
+                            .ptr_stack_offset => {
+                                return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_stack_offset", .{});
+                            },
+                            .ptr_embedded_in_code => {
+                                return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_embedded_in_code", .{});
                             },
                             .immediate => unreachable,
                             .unreach => unreachable,
@@ -788,8 +944,34 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return info.return_value;
         }
 
+        fn genRef(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            const operand = try self.resolveInst(inst.operand);
+            switch (operand) {
+                .unreach => unreachable,
+                .dead => unreachable,
+                .none => return .none,
+
+                .immediate,
+                .register,
+                .ptr_stack_offset,
+                .ptr_embedded_in_code,
+                .compare_flags_unsigned,
+                .compare_flags_signed,
+                => {
+                    const stack_offset = try self.allocMemPtr(&inst.base);
+                    try self.genSetStack(inst.base.src, inst.operand.ty, stack_offset, operand);
+                    return MCValue{ .ptr_stack_offset = stack_offset };
+                },
+
+                .stack_offset => |offset| return MCValue{ .ptr_stack_offset = offset },
+                .embedded_in_code => |offset| return MCValue{ .ptr_embedded_in_code = offset },
+                .memory => |vaddr| return MCValue{ .immediate = vaddr },
+            }
+        }
+
         fn ret(self: *Self, src: usize, mcv: MCValue) !MCValue {
-            try self.setRegOrStack(src, self.ret_mcv, mcv);
+            const ret_ty = self.fn_type.fnReturnType();
+            try self.setRegOrMem(src, ret_ty, self.ret_mcv, mcv);
             switch (arch) {
                 .i386 => {
                     try self.code.append(0xc3); // ret
@@ -1042,21 +1224,74 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         /// Sets the value without any modifications to register allocation metadata or stack allocation metadata.
-        fn setRegOrStack(self: *Self, src: usize, loc: MCValue, val: MCValue) !void {
+        fn setRegOrMem(self: *Self, src: usize, ty: Type, loc: MCValue, val: MCValue) !void {
             switch (loc) {
                 .none => return,
                 .register => |reg| return self.genSetReg(src, reg, val),
-                .stack_offset => {
-                    return self.fail(src, "TODO implement setRegOrStack for stack offset", .{});
+                .stack_offset => |off| return self.genSetStack(src, ty, off, val),
+                .memory => {
+                    return self.fail(src, "TODO implement setRegOrMem for memory", .{});
                 },
                 else => unreachable,
             }
         }
 
-        fn genSetReg(self: *Self, src: usize, reg: Register, mcv: MCValue) error{ CodegenFail, OutOfMemory }!void {
+        fn genSetStack(self: *Self, src: usize, ty: Type, stack_offset: u32, mcv: MCValue) InnerError!void {
             switch (arch) {
                 .x86_64 => switch (mcv) {
                     .dead => unreachable,
+                    .ptr_stack_offset => unreachable,
+                    .ptr_embedded_in_code => unreachable,
+                    .unreach, .none => return, // Nothing to do.
+                    .compare_flags_unsigned => |op| {
+                        return self.fail(src, "TODO implement set stack variable with compare flags value (unsigned)", .{});
+                    },
+                    .compare_flags_signed => |op| {
+                        return self.fail(src, "TODO implement set stack variable with compare flags value (signed)", .{});
+                    },
+                    .immediate => |x_big| {
+                        try self.code.ensureCapacity(self.code.items.len + 7);
+                        if (x_big <= math.maxInt(u32)) {
+                            const x = @intCast(u32, x_big);
+                            if (stack_offset > 128) {
+                                return self.fail(src, "TODO implement set stack variable with large stack offset", .{});
+                            }
+                            // We have a positive stack offset value but we want a twos complement negative
+                            // offset from rbp, which is at the top of the stack frame.
+                            const negative_offset = @intCast(i8, -@intCast(i32, stack_offset));
+                            const twos_comp = @bitCast(u8, negative_offset);
+                            // mov    DWORD PTR [rbp+offset], immediate
+                            self.code.appendSliceAssumeCapacity(&[_]u8{ 0xc7, 0x45, twos_comp });
+                            mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), x);
+                        } else {
+                            return self.fail(src, "TODO implement set stack variable with large immediate", .{});
+                        }
+                    },
+                    .embedded_in_code => |code_offset| {
+                        return self.fail(src, "TODO implement set stack variable from embedded_in_code", .{});
+                    },
+                    .register => |reg| {
+                        return self.fail(src, "TODO implement set stack variable from register", .{});
+                    },
+                    .memory => |vaddr| {
+                        return self.fail(src, "TODO implement set stack variable from memory vaddr", .{});
+                    },
+                    .stack_offset => |off| {
+                        if (stack_offset == off)
+                            return; // Copy stack variable to itself; nothing to do.
+                        return self.fail(src, "TODO implement copy stack variable to stack variable", .{});
+                    },
+                },
+                else => return self.fail(src, "TODO implement getSetStack for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        fn genSetReg(self: *Self, src: usize, reg: Register, mcv: MCValue) InnerError!void {
+            switch (arch) {
+                .x86_64 => switch (mcv) {
+                    .dead => unreachable,
+                    .ptr_stack_offset => unreachable,
+                    .ptr_embedded_in_code => unreachable,
                     .unreach, .none => return, // Nothing to do.
                     .compare_flags_unsigned => |op| {
                         try self.code.ensureCapacity(self.code.items.len + 3);
@@ -1277,24 +1512,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     return mcv;
                 }
             }
-        }
-
-        /// Does not "move" the instruction.
-        fn copyToNewRegister(self: *Self, inst: *ir.Inst) !MCValue {
-            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-            try branch.registers.ensureCapacity(self.gpa, branch.registers.items().len + 1);
-            try branch.inst_table.ensureCapacity(self.gpa, branch.inst_table.items().len + 1);
-
-            const free_index = @ctz(FreeRegInt, branch.free_registers);
-            if (free_index >= callee_preserved_regs.len)
-                return self.fail(inst.src, "TODO implement spilling register to stack", .{});
-            branch.free_registers &= ~(@as(FreeRegInt, 1) << free_index);
-            const reg = callee_preserved_regs[free_index];
-            branch.registers.putAssumeCapacityNoClobber(reg, .{ .inst = inst });
-            const old_mcv = branch.inst_table.get(inst).?;
-            const new_mcv: MCValue = .{ .register = reg };
-            try self.genSetReg(inst.src, reg, old_mcv);
-            return new_mcv;
         }
 
         /// If the MCValue is an immediate, and it does not fit within this type,

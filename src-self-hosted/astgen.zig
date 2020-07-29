@@ -87,7 +87,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .ArrayCat => return simpleBinOp(mod, scope, rl, node.castTag(.ArrayCat).?, .array_cat),
         .ArrayMult => return simpleBinOp(mod, scope, rl, node.castTag(.ArrayMult).?, .array_mul),
 
-        .Identifier => return rlWrap(mod, scope, rl, try identifier(mod, scope, node.castTag(.Identifier).?)),
+        .Identifier => return try identifier(mod, scope, rl, node.castTag(.Identifier).?),
         .Asm => return rlWrap(mod, scope, rl, try assembly(mod, scope, node.castTag(.Asm).?)),
         .StringLiteral => return rlWrap(mod, scope, rl, try stringLiteral(mod, scope, node.castTag(.StringLiteral).?)),
         .IntegerLiteral => return rlWrap(mod, scope, rl, try integerLiteral(mod, scope, node.castTag(.IntegerLiteral).?)),
@@ -469,7 +469,7 @@ fn ret(mod: *Module, scope: *Scope, cfe: *ast.Node.ControlFlowExpression) InnerE
     }
 }
 
-fn identifier(mod: *Module, scope: *Scope, ident: *ast.Node.OneToken) InnerError!*zir.Inst {
+fn identifier(mod: *Module, scope: *Scope, rl: ResultLoc, ident: *ast.Node.OneToken) InnerError!*zir.Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -481,7 +481,8 @@ fn identifier(mod: *Module, scope: *Scope, ident: *ast.Node.OneToken) InnerError
     }
 
     if (getSimplePrimitiveValue(ident_name)) |typed_value| {
-        return addZIRInstConst(mod, scope, src, typed_value);
+        const result = try addZIRInstConst(mod, scope, src, typed_value);
+        return rlWrap(mod, scope, rl, result);
     }
 
     if (ident_name.len >= 2) integer: {
@@ -505,16 +506,18 @@ fn identifier(mod: *Module, scope: *Scope, ident: *ast.Node.OneToken) InnerError
                 else => {
                     const int_type_payload = try scope.arena().create(Value.Payload.IntType);
                     int_type_payload.* = .{ .signed = is_signed, .bits = bit_count };
-                    return addZIRInstConst(mod, scope, src, .{
+                    const result = try addZIRInstConst(mod, scope, src, .{
                         .ty = Type.initTag(.comptime_int),
                         .val = Value.initPayload(&int_type_payload.base),
                     });
+                    return rlWrap(mod, scope, rl, result);
                 },
             };
-            return addZIRInstConst(mod, scope, src, .{
+            const result = try addZIRInstConst(mod, scope, src, .{
                 .ty = Type.initTag(.type),
                 .val = val,
             });
+            return rlWrap(mod, scope, rl, result);
         }
     }
 
@@ -525,14 +528,19 @@ fn identifier(mod: *Module, scope: *Scope, ident: *ast.Node.OneToken) InnerError
             .local_val => {
                 const local_val = s.cast(Scope.LocalVal).?;
                 if (mem.eql(u8, local_val.name, ident_name)) {
-                    return local_val.inst;
+                    return rlWrap(mod, scope, rl, local_val.inst);
                 }
                 s = local_val.parent;
             },
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
                 if (mem.eql(u8, local_ptr.name, ident_name)) {
-                    return try addZIRUnOp(mod, scope, src, .deref, local_ptr.ptr);
+                    if (rl == .lvalue) {
+                        return local_ptr.ptr;
+                    } else {
+                        const result = try addZIRUnOp(mod, scope, src, .deref, local_ptr.ptr);
+                        return rlWrap(mod, scope, rl, result);
+                    }
                 }
                 s = local_ptr.parent;
             },
@@ -542,7 +550,9 @@ fn identifier(mod: *Module, scope: *Scope, ident: *ast.Node.OneToken) InnerError
     }
 
     if (mod.lookupDeclName(scope, ident_name)) |decl| {
-        return try addZIRInst(mod, scope, src, zir.Inst.DeclValInModule, .{ .decl = decl }, .{});
+        // TODO handle lvalues
+        const result = try addZIRInst(mod, scope, src, zir.Inst.DeclValInModule, .{ .decl = decl }, .{});
+        return rlWrap(mod, scope, rl, result);
     }
 
     return mod.failNode(scope, &ident.base, "use of undeclared identifier '{}'", .{ident_name});
@@ -1066,10 +1076,7 @@ fn rlWrap(mod: *Module, scope: *Scope, rl: ResultLoc, result: *zir.Inst) InnerEr
                 .ptr = ptr_inst,
                 .value = result,
             }, .{});
-            _ = try addZIRInst(mod, scope, result.src, zir.Inst.Store, .{
-                .ptr = ptr_inst,
-                .value = casted_result,
-            }, .{});
+            _ = try addZIRBinOp(mod, scope, result.src, .store, ptr_inst, casted_result);
             return casted_result;
         },
         .bitcasted_ptr => |bitcasted_ptr| {

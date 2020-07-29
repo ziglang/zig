@@ -67,9 +67,14 @@ pub const Inst = struct {
         constant,
         isnonnull,
         isnull,
+        /// Read a value from a pointer.
+        load,
         ptrtoint,
+        ref,
         ret,
         retvoid,
+        /// Write a value to a pointer. LHS is pointer, RHS is value.
+        store,
         sub,
         unreach,
         not,
@@ -85,6 +90,7 @@ pub const Inst = struct {
                 .breakpoint,
                 => NoOp,
 
+                .ref,
                 .ret,
                 .bitcast,
                 .not,
@@ -93,6 +99,7 @@ pub const Inst = struct {
                 .ptrtoint,
                 .floatcast,
                 .intcast,
+                .load,
                 => UnOp,
 
                 .add,
@@ -103,6 +110,7 @@ pub const Inst = struct {
                 .cmp_gte,
                 .cmp_gt,
                 .cmp_neq,
+                .store,
                 => BinOp,
 
                 .assembly => Assembly,

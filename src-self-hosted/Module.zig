@@ -2151,7 +2151,8 @@ pub fn analyzeDeref(self: *Module, scope: *Scope, src: usize, ptr: *Inst, ptr_sr
         });
     }
 
-    return self.fail(scope, src, "TODO implement runtime deref", .{});
+    const b = try self.requireRuntimeBlock(scope, src);
+    return self.addUnOp(b, src, elem_ty, .load, ptr);
 }
 
 pub fn analyzeDeclRefByName(self: *Module, scope: *Scope, src: usize, decl_name: []const u8) InnerError!*Inst {
@@ -2504,6 +2505,22 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
     return self.fail(scope, inst.src, "TODO implement type coercion from {} to {}", .{ inst.ty, dest_type });
 }
 
+pub fn storePtr(self: *Module, scope: *Scope, src: usize, ptr: *Inst, uncasted_value: *Inst) !*Inst {
+    if (ptr.ty.isConstPtr())
+        return self.fail(scope, src, "cannot assign to constant", .{});
+
+    const elem_ty = ptr.ty.elemType();
+    const value = try self.coerce(scope, elem_ty, uncasted_value);
+    if (elem_ty.onePossibleValue())
+        return self.constVoid(scope, src);
+
+    // TODO handle comptime pointer writes
+    // TODO handle if the element type requires comptime
+
+    const b = try self.requireRuntimeBlock(scope, src);
+    return self.addBinOp(b, src, Type.initTag(.void), .store, ptr, value);
+}
+
 pub fn bitcast(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
     if (inst.value()) |val| {
         // Keep the comptime Value representation; take the new type.
@@ -2777,6 +2794,12 @@ pub fn floatSub(self: *Module, scope: *Scope, float_type: Type, src: usize, lhs:
 
 pub fn singleMutPtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type) error{OutOfMemory}!Type {
     const type_payload = try scope.arena().create(Type.Payload.SingleMutPointer);
+    type_payload.* = .{ .pointee_type = elem_ty };
+    return Type.initPayload(&type_payload.base);
+}
+
+pub fn singleConstPtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type) error{OutOfMemory}!Type {
+    const type_payload = try scope.arena().create(Type.Payload.SingleConstPointer);
     type_payload.* = .{ .pointee_type = elem_ty };
     return Type.initPayload(&type_payload.base);
 }
