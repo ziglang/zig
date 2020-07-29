@@ -1346,11 +1346,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(src, "TODO implement set stack variable with compare flags value (signed)", .{});
                     },
                     .immediate => |x_big| {
-                        if (stack_offset > 128) {
+                        const abi_size = ty.abiSize(self.target.*);
+                        const adj_off = stack_offset + abi_size;
+                        if (adj_off > 128) {
                             return self.fail(src, "TODO implement set stack variable with large stack offset", .{});
                         }
                         try self.code.ensureCapacity(self.code.items.len + 8);
-                        switch (ty.abiSize(self.target.*)) {
+                        switch (abi_size) {
                             1 => {
                                 return self.fail(src, "TODO implement set abi_size=1 stack variable with immediate", .{});
                             },
@@ -1361,7 +1363,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 const x = @intCast(u32, x_big);
                                 // We have a positive stack offset value but we want a twos complement negative
                                 // offset from rbp, which is at the top of the stack frame.
-                                const negative_offset = @intCast(i8, -@intCast(i32, stack_offset));
+                                const negative_offset = @intCast(i8, -@intCast(i32, adj_off));
                                 const twos_comp = @bitCast(u8, negative_offset);
                                 // mov    DWORD PTR [rbp+offset], immediate
                                 self.code.appendSliceAssumeCapacity(&[_]u8{ 0xc7, 0x45, twos_comp });
@@ -1382,19 +1384,21 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(src, "TODO implement set stack variable from embedded_in_code", .{});
                     },
                     .register => |reg| {
+                        const abi_size = ty.abiSize(self.target.*);
+                        const adj_off = stack_offset + abi_size;
                         try self.code.ensureCapacity(self.code.items.len + 7);
                         self.rex(.{ .w = reg.size() == 64, .b = reg.isExtended() });
                         const reg_id: u8 = @truncate(u3, reg.id());
-                        if (stack_offset <= 128) {
+                        if (adj_off <= 128) {
                             // example: 48 89 55 7f           mov    QWORD PTR [rbp+0x7f],rdx
                             const RM = @as(u8, 0b01_000_101) | (reg_id << 3);
-                            const negative_offset = @intCast(i8, -@intCast(i32, stack_offset));
+                            const negative_offset = @intCast(i8, -@intCast(i32, adj_off));
                             const twos_comp = @bitCast(u8, negative_offset);
                             self.code.appendSliceAssumeCapacity(&[_]u8{ 0x89, RM, twos_comp });
-                        } else if (stack_offset <= 2147483648) {
+                        } else if (adj_off <= 2147483648) {
                             // example: 48 89 95 80 00 00 00  mov    QWORD PTR [rbp+0x80],rdx
                             const RM = @as(u8, 0b10_000_101) | (reg_id << 3);
-                            const negative_offset = @intCast(i32, -@intCast(i33, stack_offset));
+                            const negative_offset = @intCast(i32, -@intCast(i33, adj_off));
                             const twos_comp = @bitCast(u32, negative_offset);
                             self.code.appendSliceAssumeCapacity(&[_]u8{ 0x89, RM });
                             mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), twos_comp);
@@ -1605,8 +1609,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             }
                         }
                     },
-                    .stack_offset => |off| {
+                    .stack_offset => |unadjusted_off| {
                         try self.code.ensureCapacity(self.code.items.len + 7);
+                        const size_bytes = @divExact(reg.size(), 8);
+                        const off = unadjusted_off + size_bytes;
                         self.rex(.{ .w = reg.size() == 64, .r = reg.isExtended() });
                         const reg_id: u8 = @truncate(u3, reg.id());
                         if (off <= 128) {
