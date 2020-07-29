@@ -882,7 +882,7 @@ fn analyzeInstArithmetic(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) Inn
 fn analyzeInstComptimeOp(mod: *Module, scope: *Scope, res_type: Type, inst: *zir.Inst.BinOp, lhs_val: Value, rhs_val: Value) InnerError!*Inst {
     // incase rhs is 0, simply return lhs without doing any calculations
     // TODO Once division is implemented we should throw an error when dividing by 0.
-    if (rhs_val.tag() == .zero or rhs_val.tag() == .the_one_possible_value) {
+    if (rhs_val.compareWithZero(.eq)) {
         return mod.constInst(scope, inst.base.src, .{
             .ty = res_type,
             .val = lhs_val,
@@ -1083,6 +1083,7 @@ fn analyzeInstUnreachNoChk(mod: *Module, scope: *Scope, unreach: *zir.Inst.NoOp)
 
 fn analyzeInstUnreachable(mod: *Module, scope: *Scope, unreach: *zir.Inst.NoOp) InnerError!*Inst {
     const b = try mod.requireRuntimeBlock(scope, unreach.base.src);
+    // TODO Add compile error for @optimizeFor occurring too late in a scope.
     if (mod.wantSafety(scope)) {
         // TODO Once we have a panic function to call, call it here instead of this.
         _ = try mod.addNoOp(b, unreach.base.src, Type.initTag(.void), .breakpoint);

@@ -50,7 +50,7 @@ pub fn generateSymbol(
 
     switch (typed_value.ty.zigTypeTag()) {
         .Fn => {
-            switch (bin_file.options.target.cpu.arch) {
+            switch (bin_file.base.options.target.cpu.arch) {
                 //.arm => return Function(.arm).generateSymbol(bin_file, src, typed_value, code),
                 //.armeb => return Function(.armeb).generateSymbol(bin_file, src, typed_value, code),
                 //.aarch64 => return Function(.aarch64).generateSymbol(bin_file, src, typed_value, code),
@@ -143,7 +143,7 @@ pub fn generateSymbol(
                 // TODO handle the dependency of this symbol on the decl's vaddr.
                 // If the decl changes vaddr, then this symbol needs to get regenerated.
                 const vaddr = bin_file.local_symbols.items[decl.link.local_sym_index].st_value;
-                const endian = bin_file.options.target.cpu.arch.endian();
+                const endian = bin_file.base.options.target.cpu.arch.endian();
                 switch (bin_file.ptr_width) {
                     .p32 => {
                         try code.resize(4);
@@ -166,7 +166,7 @@ pub fn generateSymbol(
             };
         },
         .Int => {
-            const info = typed_value.ty.intInfo(bin_file.options.target);
+            const info = typed_value.ty.intInfo(bin_file.base.options.target);
             if (info.bits == 8 and !info.signed) {
                 const x = typed_value.val.toUnsignedInt();
                 try code.append(@intCast(u8, x));
@@ -230,6 +230,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             unreach,
             /// No more references to this value remain.
             dead,
+            /// The value is undefined.
+            undef,
             /// A pointer-sized integer that fits in a register.
             /// If the type is a pointer, this is the pointer address in virtual address space.
             immediate: u64,
@@ -282,6 +284,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .compare_flags_signed,
                     .ptr_stack_offset,
                     .ptr_embedded_in_code,
+                    .undef,
                     => false,
 
                     .register,
@@ -360,7 +363,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             var function = Self{
                 .gpa = bin_file.allocator,
-                .target = &bin_file.options.target,
+                .target = &bin_file.base.options.target,
                 .bin_file = bin_file,
                 .mod_fn = module_fn,
                 .code = code,
@@ -656,6 +659,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             };
             switch (ptr) {
                 .none => unreachable,
+                .undef => unreachable,
                 .unreach => unreachable,
                 .dead => unreachable,
                 .compare_flags_unsigned => unreachable,
@@ -687,6 +691,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const elem_ty = inst.rhs.ty;
             switch (ptr) {
                 .none => unreachable,
+                .undef => unreachable,
                 .unreach => unreachable,
                 .dead => unreachable,
                 .compare_flags_unsigned => unreachable,
@@ -798,6 +803,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn genX8664BinMathCode(self: *Self, src: usize, dst_mcv: MCValue, src_mcv: MCValue, opx: u8, mr: u8) !void {
             switch (dst_mcv) {
                 .none => unreachable,
+                .undef => unreachable,
                 .dead, .unreach, .immediate => unreachable,
                 .compare_flags_unsigned => unreachable,
                 .compare_flags_signed => unreachable,
@@ -806,6 +812,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .register => |dst_reg| {
                     switch (src_mcv) {
                         .none => unreachable,
+                        .undef => try self.genSetReg(src, dst_reg, .undef),
                         .dead, .unreach => unreachable,
                         .ptr_stack_offset => unreachable,
                         .ptr_embedded_in_code => unreachable,
@@ -905,11 +912,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
                             },
                             .ptr_stack_offset => {
-                                return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_stack_offset", .{});
+                                return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_stack_offset arg", .{});
                             },
                             .ptr_embedded_in_code => {
-                                return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_embedded_in_code", .{});
+                                return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
                             },
+                            .undef => unreachable,
                             .immediate => unreachable,
                             .unreach => unreachable,
                             .dead => unreachable,
@@ -966,6 +974,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .stack_offset => |offset| return MCValue{ .ptr_stack_offset = offset },
                 .embedded_in_code => |offset| return MCValue{ .ptr_embedded_in_code = offset },
                 .memory => |vaddr| return MCValue{ .immediate = vaddr },
+
+                .undef => return self.fail(inst.base.src, "TODO implement ref on an undefined value", .{}),
             }
         }
 
@@ -1243,6 +1253,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .ptr_stack_offset => unreachable,
                     .ptr_embedded_in_code => unreachable,
                     .unreach, .none => return, // Nothing to do.
+                    .undef => {
+                        if (!self.wantSafety())
+                            return; // The already existing value will do just fine.
+                        // TODO Upgrade this to a memset call when we have that available.
+                        return self.genSetStack(src, ty, stack_offset, .{ .immediate = 0xaaaaaaaa });
+                    },
                     .compare_flags_unsigned => |op| {
                         return self.fail(src, "TODO implement set stack variable with compare flags value (unsigned)", .{});
                     },
@@ -1250,6 +1266,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(src, "TODO implement set stack variable with compare flags value (signed)", .{});
                     },
                     .immediate => |x_big| {
+                        if (ty.abiSize(self.target.*) != 4) {
+                            // TODO after fixing this, need to update the undef case above
+                            return self.fail(src, "TODO implement set non 4 abi size stack variable with immediate", .{});
+                        }
                         try self.code.ensureCapacity(self.code.items.len + 7);
                         if (x_big <= math.maxInt(u32)) {
                             const x = @intCast(u32, x_big);
@@ -1311,6 +1331,18 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .ptr_stack_offset => unreachable,
                     .ptr_embedded_in_code => unreachable,
                     .unreach, .none => return, // Nothing to do.
+                    .undef => {
+                        if (!self.wantSafety())
+                            return; // The already existing value will do just fine.
+                        // Write the debug undefined value.
+                        switch (reg.size()) {
+                            8 => return self.genSetReg(src, reg, .{ .immediate = 0xaa }),
+                            16 => return self.genSetReg(src, reg, .{ .immediate = 0xaaaa }),
+                            32 => return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaa }),
+                            64 => return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
+                            else => unreachable,
+                        }
+                    },
                     .compare_flags_unsigned => |op| {
                         try self.code.ensureCapacity(self.code.items.len + 3);
                         self.rex(.{ .b = reg.isExtended(), .w = reg.size() == 64 });
@@ -1471,7 +1503,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 // is no way to possibly encode it. This means that RSP, RBP, R12, and R13 cannot be used with
                                 // this instruction.
                                 const id3 = @truncate(u3, reg.id());
-                                std.debug.assert(id3 != 4 and id3 != 5);
+                                assert(id3 != 4 and id3 != 5);
 
                                 // Rather than duplicate the logic used for the move, we just use a self-call with a new MCValue.
                                 try self.genSetReg(src, reg, MCValue{ .immediate = x });
@@ -1580,6 +1612,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genTypedValue(self: *Self, src: usize, typed_value: TypedValue) !MCValue {
+            if (typed_value.val.isUndef())
+                return MCValue.undef;
             const ptr_bits = self.target.cpu.arch.ptrBitWidth();
             const ptr_bytes: u64 = @divExact(ptr_bits, 8);
             switch (typed_value.ty.zigTypeTag()) {
@@ -1689,6 +1723,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 else => return self.fail(src, "TODO implement codegen return values for {}", .{self.target.cpu.arch}),
             }
             return result;
+        }
+
+        /// TODO support scope overrides. Also note this logic is duplicated with `Module.wantSafety`.
+        fn wantSafety(self: *Self) bool {
+            return switch (self.bin_file.base.options.optimize_mode) {
+                .Debug => true,
+                .ReleaseSafe => true,
+                .ReleaseFast => false,
+                .ReleaseSmall => false,
+            };
         }
 
         fn fail(self: *Self, src: usize, comptime format: []const u8, args: anytype) error{ CodegenFail, OutOfMemory } {

@@ -165,8 +165,7 @@ pub const Inst = struct {
 
     /// Returns `null` if runtime-known.
     pub fn value(base: *Inst) ?Value {
-        if (base.ty.onePossibleValue())
-            return Value.initTag(.the_one_possible_value);
+        if (base.ty.onePossibleValue()) |opv| return opv;
 
         const inst = base.cast(Constant) orelse return null;
         return inst.val;

@@ -16,6 +16,7 @@ pub const Options = struct {
     output_mode: std.builtin.OutputMode,
     link_mode: std.builtin.LinkMode,
     object_format: std.builtin.ObjectFormat,
+    optimize_mode: std.builtin.Mode,
     /// Used for calculating how much space to reserve for symbols in case the binary file
     /// does not already have a symbol table.
     symbol_count_hint: u64 = 32,
@@ -66,6 +67,7 @@ pub fn writeFilePath(
         .link_mode = module.link_mode,
         .object_format = module.object_format,
         .symbol_count_hint = module.decls.items.len,
+        .optimize_mode = module.optimize_mode,
     };
     const af = try dir.atomicFile(sub_path, .{ .mode = determineMode(options) });
     defer af.deinit();
@@ -88,9 +90,12 @@ pub fn writeFilePath(
 
 fn openCFile(allocator: *Allocator, file: fs.File, options: Options) !File.C {
     return File.C{
+        .base = .{
+            .tag = .c,
+            .options = options,
+        },
         .allocator = allocator,
         .file = file,
-        .options = options,
         .main = std.ArrayList(u8).init(allocator),
         .header = std.ArrayList(u8).init(allocator),
         .constants = std.ArrayList(u8).init(allocator),
@@ -114,6 +119,8 @@ pub fn openBinFile(allocator: *Allocator, file: fs.File, options: Options) !File
 
 pub const File = struct {
     tag: Tag,
+    options: Options,
+
     pub fn cast(base: *File, comptime T: type) ?*T {
         if (base.tag != T.base_tag)
             return null;
@@ -123,47 +130,47 @@ pub const File = struct {
 
     pub fn makeWritable(base: *File, dir: fs.Dir, sub_path: []const u8) !void {
         switch (base.tag) {
-            .Elf => return @fieldParentPtr(Elf, "base", base).makeWritable(dir, sub_path),
-            .C => {},
+            .elf => return @fieldParentPtr(Elf, "base", base).makeWritable(dir, sub_path),
+            .c => {},
         }
     }
 
     pub fn makeExecutable(base: *File) !void {
         switch (base.tag) {
-            .Elf => return @fieldParentPtr(Elf, "base", base).makeExecutable(),
-            .C => unreachable,
+            .elf => return @fieldParentPtr(Elf, "base", base).makeExecutable(),
+            .c => unreachable,
         }
     }
 
     pub fn updateDecl(base: *File, module: *Module, decl: *Module.Decl) !void {
         switch (base.tag) {
-            .Elf => return @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
-            .C => return @fieldParentPtr(C, "base", base).updateDecl(module, decl),
+            .elf => return @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
+            .c => return @fieldParentPtr(C, "base", base).updateDecl(module, decl),
         }
     }
 
     pub fn allocateDeclIndexes(base: *File, decl: *Module.Decl) !void {
         switch (base.tag) {
-            .Elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
-            .C => {},
+            .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
+            .c => {},
         }
     }
 
     pub fn deinit(base: *File) void {
         switch (base.tag) {
-            .Elf => @fieldParentPtr(Elf, "base", base).deinit(),
-            .C => @fieldParentPtr(C, "base", base).deinit(),
+            .elf => @fieldParentPtr(Elf, "base", base).deinit(),
+            .c => @fieldParentPtr(C, "base", base).deinit(),
         }
     }
 
     pub fn destroy(base: *File) void {
         switch (base.tag) {
-            .Elf => {
+            .elf => {
                 const parent = @fieldParentPtr(Elf, "base", base);
                 parent.deinit();
                 parent.allocator.destroy(parent);
             },
-            .C => {
+            .c => {
                 const parent = @fieldParentPtr(C, "base", base);
                 parent.deinit();
                 parent.allocator.destroy(parent);
@@ -173,29 +180,22 @@ pub const File = struct {
 
     pub fn flush(base: *File) !void {
         try switch (base.tag) {
-            .Elf => @fieldParentPtr(Elf, "base", base).flush(),
-            .C => @fieldParentPtr(C, "base", base).flush(),
+            .elf => @fieldParentPtr(Elf, "base", base).flush(),
+            .c => @fieldParentPtr(C, "base", base).flush(),
         };
     }
 
     pub fn freeDecl(base: *File, decl: *Module.Decl) void {
         switch (base.tag) {
-            .Elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl),
-            .C => unreachable,
+            .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl),
+            .c => unreachable,
         }
     }
 
     pub fn errorFlags(base: *File) ErrorFlags {
         return switch (base.tag) {
-            .Elf => @fieldParentPtr(Elf, "base", base).error_flags,
-            .C => return .{ .no_entry_point_found = false },
-        };
-    }
-
-    pub fn options(base: *File) Options {
-        return switch (base.tag) {
-            .Elf => @fieldParentPtr(Elf, "base", base).options,
-            .C => @fieldParentPtr(C, "base", base).options,
+            .elf => @fieldParentPtr(Elf, "base", base).error_flags,
+            .c => return .{ .no_entry_point_found = false },
         };
     }
 
@@ -207,14 +207,14 @@ pub const File = struct {
         exports: []const *Module.Export,
     ) !void {
         switch (base.tag) {
-            .Elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl, exports),
-            .C => return {},
+            .elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl, exports),
+            .c => return {},
         }
     }
 
     pub const Tag = enum {
-        Elf,
-        C,
+        elf,
+        c,
     };
 
     pub const ErrorFlags = struct {
@@ -222,15 +222,15 @@ pub const File = struct {
     };
 
     pub const C = struct {
-        pub const base_tag: Tag = .C;
-        base: File = File{ .tag = base_tag },
+        pub const base_tag: Tag = .c;
+
+        base: File,
 
         allocator: *Allocator,
         header: std.ArrayList(u8),
         constants: std.ArrayList(u8),
         main: std.ArrayList(u8),
         file: ?fs.File,
-        options: Options,
         called: std.StringHashMap(void),
         need_stddef: bool = false,
         need_stdint: bool = false,
@@ -294,13 +294,13 @@ pub const File = struct {
     };
 
     pub const Elf = struct {
-        pub const base_tag: Tag = .Elf;
-        base: File = File{ .tag = base_tag },
+        pub const base_tag: Tag = .elf;
+
+        base: File,
 
         allocator: *Allocator,
         file: ?fs.File,
         owns_file_handle: bool,
-        options: Options,
         ptr_width: enum { p32, p64 },
 
         /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
@@ -460,13 +460,13 @@ pub const File = struct {
             self.file = try dir.createFile(sub_path, .{
                 .truncate = false,
                 .read = true,
-                .mode = determineMode(self.options),
+                .mode = determineMode(self.base.options),
             });
         }
 
         /// Returns end pos of collision, if any.
         fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
-            const small_ptr = self.options.target.cpu.arch.ptrBitWidth() == 32;
+            const small_ptr = self.base.options.target.cpu.arch.ptrBitWidth() == 32;
             const ehdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Ehdr) else @sizeOf(elf.Elf64_Ehdr);
             if (start < ehdr_size)
                 return ehdr_size;
@@ -569,7 +569,7 @@ pub const File = struct {
             };
             if (self.phdr_load_re_index == null) {
                 self.phdr_load_re_index = @intCast(u16, self.program_headers.items.len);
-                const file_size = self.options.program_code_size_hint;
+                const file_size = self.base.options.program_code_size_hint;
                 const p_align = 0x1000;
                 const off = self.findFreeSpace(file_size, p_align);
                 std.log.debug(.link, "found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
@@ -588,7 +588,7 @@ pub const File = struct {
             }
             if (self.phdr_got_index == null) {
                 self.phdr_got_index = @intCast(u16, self.program_headers.items.len);
-                const file_size = @as(u64, ptr_size) * self.options.symbol_count_hint;
+                const file_size = @as(u64, ptr_size) * self.base.options.symbol_count_hint;
                 // We really only need ptr alignment but since we are using PROGBITS, linux requires
                 // page align.
                 const p_align = 0x1000;
@@ -671,7 +671,7 @@ pub const File = struct {
                 self.symtab_section_index = @intCast(u16, self.sections.items.len);
                 const min_align: u16 = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym);
                 const each_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym);
-                const file_size = self.options.symbol_count_hint * each_size;
+                const file_size = self.base.options.symbol_count_hint * each_size;
                 const off = self.findFreeSpace(file_size, min_align);
                 std.log.debug(.link, "found symtab free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
 
@@ -726,7 +726,7 @@ pub const File = struct {
 
         /// Commit pending changes and write headers.
         pub fn flush(self: *Elf) !void {
-            const foreign_endian = self.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
+            const foreign_endian = self.base.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
 
             // Unfortunately these have to be buffered and done at the end because ELF does not allow
             // mixing local and global symbols within a symbol table.
@@ -845,7 +845,7 @@ pub const File = struct {
                 }
                 self.shdr_table_dirty = false;
             }
-            if (self.entry_addr == null and self.options.output_mode == .Exe) {
+            if (self.entry_addr == null and self.base.options.output_mode == .Exe) {
                 std.log.debug(.link, "no_entry_point_found = true\n", .{});
                 self.error_flags.no_entry_point_found = true;
             } else {
@@ -875,7 +875,7 @@ pub const File = struct {
             };
             index += 1;
 
-            const endian = self.options.target.cpu.arch.endian();
+            const endian = self.base.options.target.cpu.arch.endian();
             hdr_buf[index] = switch (endian) {
                 .Little => elf.ELFDATA2LSB,
                 .Big => elf.ELFDATA2MSB,
@@ -893,10 +893,10 @@ pub const File = struct {
 
             assert(index == 16);
 
-            const elf_type = switch (self.options.output_mode) {
+            const elf_type = switch (self.base.options.output_mode) {
                 .Exe => elf.ET.EXEC,
                 .Obj => elf.ET.REL,
-                .Lib => switch (self.options.link_mode) {
+                .Lib => switch (self.base.options.link_mode) {
                     .Static => elf.ET.REL,
                     .Dynamic => elf.ET.DYN,
                 },
@@ -904,7 +904,7 @@ pub const File = struct {
             mem.writeInt(u16, hdr_buf[index..][0..2], @enumToInt(elf_type), endian);
             index += 2;
 
-            const machine = self.options.target.cpu.arch.toElfMachine();
+            const machine = self.base.options.target.cpu.arch.toElfMachine();
             mem.writeInt(u16, hdr_buf[index..][0..2], @enumToInt(machine), endian);
             index += 2;
 
@@ -1216,7 +1216,7 @@ pub const File = struct {
                 },
             };
 
-            const required_alignment = typed_value.ty.abiAlignment(self.options.target);
+            const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
 
             const stt_bits: u8 = switch (typed_value.ty.zigTypeTag()) {
                 .Fn => elf.STT_FUNC,
@@ -1361,9 +1361,9 @@ pub const File = struct {
         }
 
         fn writeProgHeader(self: *Elf, index: usize) !void {
-            const foreign_endian = self.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
+            const foreign_endian = self.base.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
             const offset = self.program_headers.items[index].p_offset;
-            switch (self.options.target.cpu.arch.ptrBitWidth()) {
+            switch (self.base.options.target.cpu.arch.ptrBitWidth()) {
                 32 => {
                     var phdr = [1]elf.Elf32_Phdr{progHeaderTo32(self.program_headers.items[index])};
                     if (foreign_endian) {
@@ -1383,9 +1383,9 @@ pub const File = struct {
         }
 
         fn writeSectHeader(self: *Elf, index: usize) !void {
-            const foreign_endian = self.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
+            const foreign_endian = self.base.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
             const offset = self.sections.items[index].sh_offset;
-            switch (self.options.target.cpu.arch.ptrBitWidth()) {
+            switch (self.base.options.target.cpu.arch.ptrBitWidth()) {
                 32 => {
                     var shdr: [1]elf.Elf32_Shdr = undefined;
                     shdr[0] = sectHeaderTo32(self.sections.items[index]);
@@ -1433,7 +1433,7 @@ pub const File = struct {
 
                 self.offset_table_count_dirty = false;
             }
-            const endian = self.options.target.cpu.arch.endian();
+            const endian = self.base.options.target.cpu.arch.endian();
             const off = shdr.sh_offset + @as(u64, entry_size) * index;
             switch (self.ptr_width) {
                 .p32 => {
@@ -1475,7 +1475,7 @@ pub const File = struct {
                 syms_sect.sh_size = needed_size; // anticipating adding the global symbols later
                 self.shdr_table_dirty = true; // TODO look into only writing one section
             }
-            const foreign_endian = self.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
+            const foreign_endian = self.base.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
             switch (self.ptr_width) {
                 .p32 => {
                     var sym = [1]elf.Elf32_Sym{
@@ -1511,7 +1511,7 @@ pub const File = struct {
                 .p32 => @sizeOf(elf.Elf32_Sym),
                 .p64 => @sizeOf(elf.Elf64_Sym),
             };
-            const foreign_endian = self.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
+            const foreign_endian = self.base.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
             const global_syms_off = syms_sect.sh_offset + self.local_symbols.items.len * sym_size;
             switch (self.ptr_width) {
                 .p32 => {
@@ -1577,9 +1577,12 @@ pub fn createElfFile(allocator: *Allocator, file: fs.File, options: Options) !Fi
     }
 
     var self: File.Elf = .{
+        .base = .{
+            .tag = .elf,
+            .options = options,
+        },
         .allocator = allocator,
         .file = file,
-        .options = options,
         .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
             32 => .p32,
             64 => .p64,
@@ -1637,10 +1640,13 @@ fn openBinFileInner(allocator: *Allocator, file: fs.File, options: Options) !Fil
         .raw => return error.IncrFailed,
     }
     var self: File.Elf = .{
+        .base = .{
+            .tag = .elf,
+            .options = options,
+        },
         .allocator = allocator,
         .file = file,
         .owns_file_handle = false,
-        .options = options,
         .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
             32 => .p32,
             64 => .p64,

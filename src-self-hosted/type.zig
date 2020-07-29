@@ -1653,7 +1653,7 @@ pub const Type = extern union {
         };
     }
 
-    pub fn onePossibleValue(self: Type) bool {
+    pub fn onePossibleValue(self: Type) ?Value {
         var ty = self;
         while (true) switch (ty.tag()) {
             .f16,
@@ -1692,21 +1692,32 @@ pub const Type = extern union {
             .single_const_pointer_to_comptime_int,
             .array_u8_sentinel_0,
             .const_slice_u8,
-            => return false,
-
             .c_void,
-            .void,
-            .noreturn,
-            .@"null",
-            .@"undefined",
-            => return true,
+            => return null,
 
-            .int_unsigned => return ty.cast(Payload.IntUnsigned).?.bits == 0,
-            .int_signed => return ty.cast(Payload.IntSigned).?.bits == 0,
+            .void => return Value.initTag(.void_value),
+            .noreturn => return Value.initTag(.unreachable_value),
+            .@"null" => return Value.initTag(.null_value),
+            .@"undefined" => return Value.initTag(.undef),
+
+            .int_unsigned => {
+                if (ty.cast(Payload.IntUnsigned).?.bits == 0) {
+                    return Value.initTag(.zero);
+                } else {
+                    return null;
+                }
+            },
+            .int_signed => {
+                if (ty.cast(Payload.IntSigned).?.bits == 0) {
+                    return Value.initTag(.zero);
+                } else {
+                    return null;
+                }
+            },
             .array => {
                 const array = ty.cast(Payload.Array).?;
                 if (array.len == 0)
-                    return true;
+                    return Value.initTag(.empty_array);
                 ty = array.elem_type;
                 continue;
             },

@@ -742,7 +742,7 @@ pub const Inst = struct {
                     .@"false" => .{ .ty = Type.initTag(.bool), .val = Value.initTag(.bool_false) },
                     .@"null" => .{ .ty = Type.initTag(.@"null"), .val = Value.initTag(.null_value) },
                     .@"undefined" => .{ .ty = Type.initTag(.@"undefined"), .val = Value.initTag(.undef) },
-                    .void_value => .{ .ty = Type.initTag(.void), .val = Value.initTag(.the_one_possible_value) },
+                    .void_value => .{ .ty = Type.initTag(.void), .val = Value.initTag(.void_value) },
                 };
             }
         };
@@ -1597,6 +1597,21 @@ const EmitZIR = struct {
         if (typed_value.val.cast(Value.Payload.DeclRef)) |decl_ref| {
             const decl = decl_ref.decl;
             return try self.emitUnnamedDecl(try self.emitDeclRef(src, decl));
+        }
+        if (typed_value.val.isUndef()) {
+            const as_inst = try self.arena.allocator.create(Inst.BinOp);
+            as_inst.* = .{
+                .base = .{
+                    .tag = .as,
+                    .src = src,
+                },
+                .positionals = .{
+                    .lhs = (try self.emitType(src, typed_value.ty)).inst,
+                    .rhs = (try self.emitPrimitive(src, .@"undefined")).inst,
+                },
+                .kw_args = .{},
+            };
+            return self.emitUnnamedDecl(&as_inst.base);
         }
         switch (typed_value.ty.zigTypeTag()) {
             .Pointer => {
