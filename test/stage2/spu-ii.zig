@@ -9,8 +9,6 @@ const spu = std.zig.CrossTarget{
 pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("SPU-II Basic Test", spu);
-        // TODO: detect that this isn't noreturn, and implement astGenExpr
-        // for the while(true){}
         case.addCompareOutput(
             \\fn killEmulator() noreturn {
             \\    // Probably kills the emulator, but no guarantee, so loop forever if it
@@ -21,6 +19,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\
             \\export fn _start() noreturn {
             \\    killEmulator();
+            \\    unreachable;
             \\}
         , "");
     }
