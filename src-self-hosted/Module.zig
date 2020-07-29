@@ -47,7 +47,6 @@ export_owners: std.AutoHashMapUnmanaged(*Decl, []*Export) = .{},
 /// Maps fully qualified namespaced names to the Decl struct for them.
 decl_table: std.HashMapUnmanaged(Scope.NameHash, *Decl, Scope.name_hash_hash, Scope.name_hash_eql, false) = .{},
 
-optimize_mode: std.builtin.Mode,
 link_error_flags: link.File.ErrorFlags = .{},
 
 work_queue: std.fifo.LinearFifo(WorkItem, .Dynamic),
@@ -383,18 +382,6 @@ pub const Scope = struct {
             .zir_module => unreachable,
             .file => unreachable,
         };
-    }
-
-    pub fn dumpInst(self: *Scope, inst: *Inst) void {
-        const zir_module = self.namespace();
-        const loc = std.zig.findLineColumn(zir_module.source.bytes, inst.src);
-        std.debug.warn("{}:{}:{}: {}: ty={}\n", .{
-            zir_module.sub_file_path,
-            loc.line + 1,
-            loc.column + 1,
-            @tagName(inst.tag),
-            inst.ty,
-        });
     }
 
     /// Asserts the scope has a parent which is a ZIRModule or File and
@@ -802,6 +789,7 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
         .output_mode = options.output_mode,
         .link_mode = options.link_mode orelse .Static,
         .object_format = options.object_format orelse options.target.getObjectFormat(),
+        .optimize_mode = options.optimize_mode,
     });
     errdefer bin_file.destroy();
 
@@ -838,7 +826,6 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
         .bin_file_dir = bin_file_dir,
         .bin_file_path = options.bin_file_path,
         .bin_file = bin_file,
-        .optimize_mode = options.optimize_mode,
         .work_queue = std.fifo.LinearFifo(WorkItem, .Dynamic).init(gpa),
         .keep_source_files_loaded = options.keep_source_files_loaded,
     };
@@ -894,7 +881,11 @@ fn freeExportList(gpa: *Allocator, export_list: []*Export) void {
 }
 
 pub fn target(self: Module) std.Target {
-    return self.bin_file.options().target;
+    return self.bin_file.options.target;
+}
+
+pub fn optimizeMode(self: Module) std.builtin.Mode {
+    return self.bin_file.options.optimize_mode;
 }
 
 /// Detect changes to source files, perform semantic analysis, and update the output files.
@@ -1991,14 +1982,14 @@ pub fn constType(self: *Module, scope: *Scope, src: usize, ty: Type) !*Inst {
 pub fn constVoid(self: *Module, scope: *Scope, src: usize) !*Inst {
     return self.constInst(scope, src, .{
         .ty = Type.initTag(.void),
-        .val = Value.initTag(.the_one_possible_value),
+        .val = Value.initTag(.void_value),
     });
 }
 
 pub fn constNoReturn(self: *Module, scope: *Scope, src: usize) !*Inst {
     return self.constInst(scope, src, .{
         .ty = Type.initTag(.noreturn),
-        .val = Value.initTag(.the_one_possible_value),
+        .val = Value.initTag(.unreachable_value),
     });
 }
 
@@ -2151,7 +2142,8 @@ pub fn analyzeDeref(self: *Module, scope: *Scope, src: usize, ptr: *Inst, ptr_sr
         });
     }
 
-    return self.fail(scope, src, "TODO implement runtime deref", .{});
+    const b = try self.requireRuntimeBlock(scope, src);
+    return self.addUnOp(b, src, elem_ty, .load, ptr);
 }
 
 pub fn analyzeDeclRefByName(self: *Module, scope: *Scope, src: usize, decl_name: []const u8) InnerError!*Inst {
@@ -2161,7 +2153,8 @@ pub fn analyzeDeclRefByName(self: *Module, scope: *Scope, src: usize, decl_name:
 }
 
 pub fn wantSafety(self: *Module, scope: *Scope) bool {
-    return switch (self.optimize_mode) {
+    // TODO take into account scope's safety overrides
+    return switch (self.optimizeMode()) {
         .Debug => true,
         .ReleaseSafe => true,
         .ReleaseFast => false,
@@ -2504,6 +2497,22 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
     return self.fail(scope, inst.src, "TODO implement type coercion from {} to {}", .{ inst.ty, dest_type });
 }
 
+pub fn storePtr(self: *Module, scope: *Scope, src: usize, ptr: *Inst, uncasted_value: *Inst) !*Inst {
+    if (ptr.ty.isConstPtr())
+        return self.fail(scope, src, "cannot assign to constant", .{});
+
+    const elem_ty = ptr.ty.elemType();
+    const value = try self.coerce(scope, elem_ty, uncasted_value);
+    if (elem_ty.onePossibleValue() != null)
+        return self.constVoid(scope, src);
+
+    // TODO handle comptime pointer writes
+    // TODO handle if the element type requires comptime
+
+    const b = try self.requireRuntimeBlock(scope, src);
+    return self.addBinOp(b, src, Type.initTag(.void), .store, ptr, value);
+}
+
 pub fn bitcast(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
     if (inst.value()) |val| {
         // Keep the comptime Value representation; take the new type.
@@ -2779,4 +2788,42 @@ pub fn singleMutPtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type)
     const type_payload = try scope.arena().create(Type.Payload.SingleMutPointer);
     type_payload.* = .{ .pointee_type = elem_ty };
     return Type.initPayload(&type_payload.base);
+}
+
+pub fn singleConstPtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type) error{OutOfMemory}!Type {
+    const type_payload = try scope.arena().create(Type.Payload.SingleConstPointer);
+    type_payload.* = .{ .pointee_type = elem_ty };
+    return Type.initPayload(&type_payload.base);
+}
+
+pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
+    const zir_module = scope.namespace();
+    const source = zir_module.getSource(self) catch @panic("dumpInst failed to get source");
+    const loc = std.zig.findLineColumn(source, inst.src);
+    if (inst.tag == .constant) {
+        std.debug.warn("constant ty={} val={} src={}:{}:{}\n", .{
+            inst.ty,
+            inst.castTag(.constant).?.val,
+            zir_module.subFilePath(),
+            loc.line + 1,
+            loc.column + 1,
+        });
+    } else if (inst.deaths == 0) {
+        std.debug.warn("{} ty={} src={}:{}:{}\n", .{
+            @tagName(inst.tag),
+            inst.ty,
+            zir_module.subFilePath(),
+            loc.line + 1,
+            loc.column + 1,
+        });
+    } else {
+        std.debug.warn("{} ty={} deaths={b} src={}:{}:{}\n", .{
+            @tagName(inst.tag),
+            inst.ty,
+            inst.deaths,
+            zir_module.subFilePath(),
+            loc.line + 1,
+            loc.column + 1,
+        });
+    }
 }

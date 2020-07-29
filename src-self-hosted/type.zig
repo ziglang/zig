@@ -380,7 +380,7 @@ pub const Type = extern union {
                 },
                 .single_mut_pointer => {
                     const payload = @fieldParentPtr(Payload.SingleMutPointer, "base", ty.ptr_otherwise);
-                    try out_stream.writeAll("* ");
+                    try out_stream.writeAll("*");
                     ty = payload.pointee_type;
                     continue;
                 },
@@ -800,6 +800,58 @@ pub const Type = extern union {
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
             => true,
+        };
+    }
+
+    pub fn isVolatilePtr(self: Type) bool {
+        return switch (self.tag()) {
+            .u8,
+            .i8,
+            .u16,
+            .i16,
+            .u32,
+            .i32,
+            .u64,
+            .i64,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .@"null",
+            .@"undefined",
+            .array,
+            .array_u8_sentinel_0,
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .function,
+            .int_unsigned,
+            .int_signed,
+            .single_mut_pointer,
+            .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
+            .const_slice_u8,
+            => false,
         };
     }
 
@@ -1601,7 +1653,7 @@ pub const Type = extern union {
         };
     }
 
-    pub fn onePossibleValue(self: Type) bool {
+    pub fn onePossibleValue(self: Type) ?Value {
         var ty = self;
         while (true) switch (ty.tag()) {
             .f16,
@@ -1640,21 +1692,32 @@ pub const Type = extern union {
             .single_const_pointer_to_comptime_int,
             .array_u8_sentinel_0,
             .const_slice_u8,
-            => return false,
-
             .c_void,
-            .void,
-            .noreturn,
-            .@"null",
-            .@"undefined",
-            => return true,
+            => return null,
 
-            .int_unsigned => return ty.cast(Payload.IntUnsigned).?.bits == 0,
-            .int_signed => return ty.cast(Payload.IntSigned).?.bits == 0,
+            .void => return Value.initTag(.void_value),
+            .noreturn => return Value.initTag(.unreachable_value),
+            .@"null" => return Value.initTag(.null_value),
+            .@"undefined" => return Value.initTag(.undef),
+
+            .int_unsigned => {
+                if (ty.cast(Payload.IntUnsigned).?.bits == 0) {
+                    return Value.initTag(.zero);
+                } else {
+                    return null;
+                }
+            },
+            .int_signed => {
+                if (ty.cast(Payload.IntSigned).?.bits == 0) {
+                    return Value.initTag(.zero);
+                } else {
+                    return null;
+                }
+            },
             .array => {
                 const array = ty.cast(Payload.Array).?;
                 if (array.len == 0)
-                    return true;
+                    return Value.initTag(.empty_array);
                 ty = array.elem_type;
                 continue;
             },

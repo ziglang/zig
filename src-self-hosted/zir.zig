@@ -183,6 +183,10 @@ pub const Inst = struct {
         shl,
         /// Integer shift-right. Arithmetic or logical depending on the signedness of the integer type.
         shr,
+        /// Create a const pointer type based on the element type. `*const T`
+        single_const_ptr_type,
+        /// Create a mutable pointer type based on the element type. `*T`
+        single_mut_ptr_type,
         /// Write a value to a pointer. For loading, see `deref`.
         store,
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
@@ -228,6 +232,8 @@ pub const Inst = struct {
                 .ref,
                 .bitcast_lvalue,
                 .typeof,
+                .single_const_ptr_type,
+                .single_mut_ptr_type,
                 => UnOp,
 
                 .add,
@@ -242,6 +248,7 @@ pub const Inst = struct {
                 .mulwrap,
                 .shl,
                 .shr,
+                .store,
                 .sub,
                 .subwrap,
                 .cmp_lt,
@@ -270,7 +277,6 @@ pub const Inst = struct {
                 .coerce_result_block_ptr => CoerceResultBlockPtr,
                 .compileerror => CompileError,
                 .@"const" => Const,
-                .store => Store,
                 .str => Str,
                 .int => Int,
                 .inttype => IntType,
@@ -348,6 +354,8 @@ pub const Inst = struct {
                 .ret_type,
                 .shl,
                 .shr,
+                .single_const_ptr_type,
+                .single_mut_ptr_type,
                 .store,
                 .str,
                 .sub,
@@ -545,17 +553,6 @@ pub const Inst = struct {
         kw_args: struct {},
     };
 
-    pub const Store = struct {
-        pub const base_tag = Tag.store;
-        base: Inst,
-
-        positionals: struct {
-            ptr: *Inst,
-            value: *Inst,
-        },
-        kw_args: struct {},
-    };
-
     pub const Str = struct {
         pub const base_tag = Tag.str;
         base: Inst,
@@ -745,7 +742,7 @@ pub const Inst = struct {
                     .@"false" => .{ .ty = Type.initTag(.bool), .val = Value.initTag(.bool_false) },
                     .@"null" => .{ .ty = Type.initTag(.@"null"), .val = Value.initTag(.null_value) },
                     .@"undefined" => .{ .ty = Type.initTag(.@"undefined"), .val = Value.initTag(.undef) },
-                    .void_value => .{ .ty = Type.initTag(.void), .val = Value.initTag(.the_one_possible_value) },
+                    .void_value => .{ .ty = Type.initTag(.void), .val = Value.initTag(.void_value) },
                 };
             }
         };
@@ -1601,6 +1598,21 @@ const EmitZIR = struct {
             const decl = decl_ref.decl;
             return try self.emitUnnamedDecl(try self.emitDeclRef(src, decl));
         }
+        if (typed_value.val.isUndef()) {
+            const as_inst = try self.arena.allocator.create(Inst.BinOp);
+            as_inst.* = .{
+                .base = .{
+                    .tag = .as,
+                    .src = src,
+                },
+                .positionals = .{
+                    .lhs = (try self.emitType(src, typed_value.ty)).inst,
+                    .rhs = (try self.emitPrimitive(src, .@"undefined")).inst,
+                },
+                .kw_args = .{},
+            };
+            return self.emitUnnamedDecl(&as_inst.base);
+        }
         switch (typed_value.ty.zigTypeTag()) {
             .Pointer => {
                 const ptr_elem_type = typed_value.ty.elemType();
@@ -1837,9 +1849,12 @@ const EmitZIR = struct {
                 .ptrtoint => try self.emitUnOp(inst.src, new_body, inst.castTag(.ptrtoint).?, .ptrtoint),
                 .isnull => try self.emitUnOp(inst.src, new_body, inst.castTag(.isnull).?, .isnull),
                 .isnonnull => try self.emitUnOp(inst.src, new_body, inst.castTag(.isnonnull).?, .isnonnull),
+                .load => try self.emitUnOp(inst.src, new_body, inst.castTag(.load).?, .deref),
+                .ref => try self.emitUnOp(inst.src, new_body, inst.castTag(.ref).?, .ref),
 
                 .add => try self.emitBinOp(inst.src, new_body, inst.castTag(.add).?, .add),
                 .sub => try self.emitBinOp(inst.src, new_body, inst.castTag(.sub).?, .sub),
+                .store => try self.emitBinOp(inst.src, new_body, inst.castTag(.store).?, .store),
                 .cmp_lt => try self.emitBinOp(inst.src, new_body, inst.castTag(.cmp_lt).?, .cmp_lt),
                 .cmp_lte => try self.emitBinOp(inst.src, new_body, inst.castTag(.cmp_lte).?, .cmp_lte),
                 .cmp_eq => try self.emitBinOp(inst.src, new_body, inst.castTag(.cmp_eq).?, .cmp_eq),
@@ -2102,6 +2117,25 @@ const EmitZIR = struct {
                         .kw_args = .{},
                     };
                     return self.emitUnnamedDecl(&inttype_inst.base);
+                },
+                .Pointer => {
+                    if (ty.isSinglePointer()) {
+                        const inst = try self.arena.allocator.create(Inst.UnOp);
+                        const tag: Inst.Tag = if (ty.isConstPtr()) .single_const_ptr_type else .single_mut_ptr_type;
+                        inst.* = .{
+                            .base = .{
+                                .src = src,
+                                .tag = tag,
+                            },
+                            .positionals = .{
+                                .operand = (try self.emitType(src, ty.elemType())).inst,
+                            },
+                            .kw_args = .{},
+                        };
+                        return self.emitUnnamedDecl(&inst.base);
+                    } else {
+                        std.debug.panic("TODO implement emitType for {}", .{ty});
+                    }
                 },
                 else => std.debug.panic("TODO implement emitType for {}", .{ty}),
             },

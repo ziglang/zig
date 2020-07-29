@@ -50,6 +50,8 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .ref => return analyzeInstRef(mod, scope, old_inst.castTag(.ref).?),
         .ret_ptr => return analyzeInstRetPtr(mod, scope, old_inst.castTag(.ret_ptr).?),
         .ret_type => return analyzeInstRetType(mod, scope, old_inst.castTag(.ret_type).?),
+        .single_const_ptr_type => return analyzeInstSingleConstPtrType(mod, scope, old_inst.castTag(.single_const_ptr_type).?),
+        .single_mut_ptr_type => return analyzeInstSingleMutPtrType(mod, scope, old_inst.castTag(.single_mut_ptr_type).?),
         .store => return analyzeInstStore(mod, scope, old_inst.castTag(.store).?),
         .str => return analyzeInstStr(mod, scope, old_inst.castTag(.str).?),
         .int => {
@@ -287,8 +289,11 @@ fn analyzeInstCoerceResultPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstCoerceResultPtr", .{});
 }
 
+/// Equivalent to `as(ptr_child_type(typeof(ptr)), value)`.
 fn analyzeInstCoerceToPtrElem(mod: *Module, scope: *Scope, inst: *zir.Inst.CoerceToPtrElem) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstCoerceToPtrElem", .{});
+    const ptr = try resolveInst(mod, scope, inst.positionals.ptr);
+    const operand = try resolveInst(mod, scope, inst.positionals.value);
+    return mod.coerce(scope, ptr.ty.elemType(), operand);
 }
 
 fn analyzeInstRetPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
@@ -296,7 +301,10 @@ fn analyzeInstRetPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerErr
 }
 
 fn analyzeInstRef(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstRef", .{});
+    const operand = try resolveInst(mod, scope, inst.positionals.operand);
+    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    const ptr_type = try mod.singleConstPtrType(scope, inst.base.src, operand.ty);
+    return mod.addUnOp(b, inst.base.src, ptr_type, .ref, operand);
 }
 
 fn analyzeInstRetType(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
@@ -333,8 +341,10 @@ fn analyzeInstAllocInferred(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) I
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstAllocInferred", .{});
 }
 
-fn analyzeInstStore(mod: *Module, scope: *Scope, inst: *zir.Inst.Store) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstStore", .{});
+fn analyzeInstStore(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const ptr = try resolveInst(mod, scope, inst.positionals.lhs);
+    const value = try resolveInst(mod, scope, inst.positionals.rhs);
+    return mod.storePtr(scope, inst.base.src, ptr, value);
 }
 
 fn analyzeInstParamType(mod: *Module, scope: *Scope, inst: *zir.Inst.ParamType) InnerError!*Inst {
@@ -872,7 +882,7 @@ fn analyzeInstArithmetic(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) Inn
 fn analyzeInstComptimeOp(mod: *Module, scope: *Scope, res_type: Type, inst: *zir.Inst.BinOp, lhs_val: Value, rhs_val: Value) InnerError!*Inst {
     // incase rhs is 0, simply return lhs without doing any calculations
     // TODO Once division is implemented we should throw an error when dividing by 0.
-    if (rhs_val.tag() == .zero or rhs_val.tag() == .the_one_possible_value) {
+    if (rhs_val.compareWithZero(.eq)) {
         return mod.constInst(scope, inst.base.src, .{
             .ty = res_type,
             .val = lhs_val,
@@ -1073,6 +1083,7 @@ fn analyzeInstUnreachNoChk(mod: *Module, scope: *Scope, unreach: *zir.Inst.NoOp)
 
 fn analyzeInstUnreachable(mod: *Module, scope: *Scope, unreach: *zir.Inst.NoOp) InnerError!*Inst {
     const b = try mod.requireRuntimeBlock(scope, unreach.base.src);
+    // TODO Add compile error for @optimizeFor occurring too late in a scope.
     if (mod.wantSafety(scope)) {
         // TODO Once we have a panic function to call, call it here instead of this.
         _ = try mod.addNoOp(b, unreach.base.src, Type.initTag(.void), .breakpoint);
@@ -1128,4 +1139,16 @@ fn analyzeDeclVal(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclVal) InnerErr
     const decl = try resolveCompleteZirDecl(mod, scope, src_decl.decl);
 
     return decl;
+}
+
+fn analyzeInstSingleConstPtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const elem_type = try resolveType(mod, scope, inst.positionals.operand);
+    const ty = try mod.singleConstPtrType(scope, inst.base.src, elem_type);
+    return mod.constType(scope, inst.base.src, ty);
+}
+
+fn analyzeInstSingleMutPtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const elem_type = try resolveType(mod, scope, inst.positionals.operand);
+    const ty = try mod.singleMutPtrType(scope, inst.base.src, elem_type);
+    return mod.constType(scope, inst.base.src, ty);
 }
