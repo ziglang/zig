@@ -183,6 +183,10 @@ pub const Inst = struct {
         shl,
         /// Integer shift-right. Arithmetic or logical depending on the signedness of the integer type.
         shr,
+        /// Create a const pointer type based on the element type. `*const T`
+        single_const_ptr_type,
+        /// Create a mutable pointer type based on the element type. `*T`
+        single_mut_ptr_type,
         /// Write a value to a pointer. For loading, see `deref`.
         store,
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
@@ -228,6 +232,8 @@ pub const Inst = struct {
                 .ref,
                 .bitcast_lvalue,
                 .typeof,
+                .single_const_ptr_type,
+                .single_mut_ptr_type,
                 => UnOp,
 
                 .add,
@@ -348,6 +354,8 @@ pub const Inst = struct {
                 .ret_type,
                 .shl,
                 .shr,
+                .single_const_ptr_type,
+                .single_mut_ptr_type,
                 .store,
                 .str,
                 .sub,
@@ -2094,6 +2102,25 @@ const EmitZIR = struct {
                         .kw_args = .{},
                     };
                     return self.emitUnnamedDecl(&inttype_inst.base);
+                },
+                .Pointer => {
+                    if (ty.isSinglePointer()) {
+                        const inst = try self.arena.allocator.create(Inst.UnOp);
+                        const tag: Inst.Tag = if (ty.isConstPtr()) .single_const_ptr_type else .single_mut_ptr_type;
+                        inst.* = .{
+                            .base = .{
+                                .src = src,
+                                .tag = tag,
+                            },
+                            .positionals = .{
+                                .operand = (try self.emitType(src, ty.elemType())).inst,
+                            },
+                            .kw_args = .{},
+                        };
+                        return self.emitUnnamedDecl(&inst.base);
+                    } else {
+                        std.debug.panic("TODO implement emitType for {}", .{ty});
+                    }
                 },
                 else => std.debug.panic("TODO implement emitType for {}", .{ty}),
             },

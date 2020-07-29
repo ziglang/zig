@@ -50,6 +50,8 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .ref => return analyzeInstRef(mod, scope, old_inst.castTag(.ref).?),
         .ret_ptr => return analyzeInstRetPtr(mod, scope, old_inst.castTag(.ret_ptr).?),
         .ret_type => return analyzeInstRetType(mod, scope, old_inst.castTag(.ret_type).?),
+        .single_const_ptr_type => return analyzeInstSingleConstPtrType(mod, scope, old_inst.castTag(.single_const_ptr_type).?),
+        .single_mut_ptr_type => return analyzeInstSingleMutPtrType(mod, scope, old_inst.castTag(.single_mut_ptr_type).?),
         .store => return analyzeInstStore(mod, scope, old_inst.castTag(.store).?),
         .str => return analyzeInstStr(mod, scope, old_inst.castTag(.str).?),
         .int => {
@@ -1136,4 +1138,16 @@ fn analyzeDeclVal(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclVal) InnerErr
     const decl = try resolveCompleteZirDecl(mod, scope, src_decl.decl);
 
     return decl;
+}
+
+fn analyzeInstSingleConstPtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const elem_type = try resolveType(mod, scope, inst.positionals.operand);
+    const ty = try mod.singleConstPtrType(scope, inst.base.src, elem_type);
+    return mod.constType(scope, inst.base.src, ty);
+}
+
+fn analyzeInstSingleMutPtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const elem_type = try resolveType(mod, scope, inst.positionals.operand);
+    const ty = try mod.singleMutPtrType(scope, inst.base.src, elem_type);
+    return mod.constType(scope, inst.base.src, ty);
 }
