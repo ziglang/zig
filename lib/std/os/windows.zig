@@ -228,20 +228,43 @@ pub fn DeviceIoControl(
     out: ?[]u8,
 ) DeviceIoControlError!void {
     // Logic from: https://doxygen.reactos.org/d3/d74/deviceio_8c.html
-    const syscall = if ((ioControlCode >> 16) == FILE_DEVICE_FILE_SYSTEM) ntdll.NtFsControlFile else ntdll.NtDeviceIoControlFile;
+    const is_fsctl = (ioControlCode >> 16) == FILE_DEVICE_FILE_SYSTEM;
+
     var io: IO_STATUS_BLOCK = undefined;
-    const rc = syscall(
-        h,
-        null,
-        null,
-        null,
-        &io,
-        ioControlCode,
-        if (in) |i| i.ptr else null,
-        if (in) |i| @intCast(ULONG, i.len) else 0,
-        if (out) |o| o.ptr else null,
-        if (out) |o| @intCast(ULONG, o.len) else 0,
-    );
+    const in_ptr = if (in) |i| i.ptr else null;
+    const in_len = if (in) |i| @intCast(ULONG, i.len) else 0;
+    const out_ptr = if (out) |o| o.ptr else null;
+    const out_len = if (out) |o| @intCast(ULONG, o.len) else 0;
+
+    const rc = blk: {
+        if (is_fsctl) {
+            break :blk ntdll.NtFsControlFile(
+                h,
+                null,
+                null,
+                null,
+                &io,
+                ioControlCode,
+                in_ptr,
+                in_len,
+                out_ptr,
+                out_len,
+            );
+        } else {
+            break :blk ntdll.NtDeviceIoControlFile(
+                h,
+                null,
+                null,
+                null,
+                &io,
+                ioControlCode,
+                in_ptr,
+                in_len,
+                out_ptr,
+                out_len,
+            );
+        }
+    };
     switch (rc) {
         .SUCCESS => {},
         .INVALID_PARAMETER => unreachable,
