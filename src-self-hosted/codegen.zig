@@ -552,7 +552,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .ptrtoint => return self.genPtrToInt(inst.castTag(.ptrtoint).?),
                 .ref => return self.genRef(inst.castTag(.ref).?),
                 .ret => return self.genRet(inst.castTag(.ret).?),
-                .retvoid => return self.genRetVoid(inst.castTag(.retvoid).?),
+                .ret_value => return self.genRetVal(inst.castTag(.ret_value).?),
                 .store => return self.genStore(inst.castTag(.store).?),
                 .sub => return self.genSub(inst.castTag(.sub).?),
                 .unreach => return MCValue{ .unreach = {} },
@@ -1044,9 +1044,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn ret(self: *Self, src: usize, mcv: MCValue) !MCValue {
-            const ret_ty = self.fn_type.fnReturnType();
-            try self.setRegOrMem(src, ret_ty, self.ret_mcv, mcv);
+        fn genRet(self: *Self, inst: *ir.Inst.NoOp) !MCValue {
             switch (arch) {
                 .i386 => {
                     try self.code.append(0xc3); // ret
@@ -1059,18 +1057,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     self.code.items[self.code.items.len - 5] = 0xe9; // jmp rel32
                     try self.exitlude_jump_relocs.append(self.gpa, self.code.items.len - 4);
                 },
-                else => return self.fail(src, "TODO implement return for {}", .{self.target.cpu.arch}),
+                else => return self.fail(inst.base.src, "TODO implement return for {}", .{self.target.cpu.arch}),
             }
             return .unreach;
         }
 
-        fn genRet(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+        fn genRetVal(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
             const operand = try self.resolveInst(inst.operand);
-            return self.ret(inst.base.src, operand);
-        }
-
-        fn genRetVoid(self: *Self, inst: *ir.Inst.NoOp) !MCValue {
-            return self.ret(inst.base.src, .none);
+            const ret_ty = self.fn_type.fnReturnType();
+            try self.setRegOrMem(inst.base.src, ret_ty, self.ret_mcv, operand);
+            return .unreach;
         }
 
         fn genCmp(self: *Self, inst: *ir.Inst.BinOp, op: math.CompareOperator) !MCValue {

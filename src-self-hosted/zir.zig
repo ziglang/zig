@@ -171,14 +171,12 @@ pub const Inst = struct {
         /// the memory location is in the stack frame, local to the scope containing the
         /// instruction.
         ref,
-        /// Obtains a pointer to the return value.
-        ret_ptr,
         /// Obtains the return type of the in-scope function.
         ret_type,
-        /// Sends control flow back to the function's callee. Takes an operand as the return value.
+        /// Sets the return value.
+        ret_value,
+        /// Sends control flow back to the function's callee.
         @"return",
-        /// Same as `return` but there is no operand; the operand is implicitly the void value.
-        returnvoid,
         /// Integer shift-left. Zeroes are shifted in from the right hand side.
         shl,
         /// Integer shift-right. Arithmetic or logical depending on the signedness of the integer type.
@@ -211,17 +209,15 @@ pub const Inst = struct {
             return switch (tag) {
                 .arg,
                 .breakpoint,
-                .returnvoid,
                 .alloc_inferred,
-                .ret_ptr,
                 .ret_type,
                 .unreach_nocheck,
                 .@"unreachable",
+                .@"return",
                 => NoOp,
 
                 .boolnot,
                 .deref,
-                .@"return",
                 .isnull,
                 .isnonnull,
                 .ptrtoint,
@@ -234,6 +230,7 @@ pub const Inst = struct {
                 .typeof,
                 .single_const_ptr_type,
                 .single_mut_ptr_type,
+                .ret_value,
                 => UnOp,
 
                 .add,
@@ -350,7 +347,7 @@ pub const Inst = struct {
                 .primitive,
                 .ptrtoint,
                 .ref,
-                .ret_ptr,
+                .ret_value,
                 .ret_type,
                 .shl,
                 .shr,
@@ -369,7 +366,6 @@ pub const Inst = struct {
                 .condbr,
                 .compileerror,
                 .@"return",
-                .returnvoid,
                 .unreach_nocheck,
                 .@"unreachable",
                 => true,
@@ -1842,10 +1838,10 @@ const EmitZIR = struct {
                 .arg => try self.emitNoOp(inst.src, .arg),
                 .breakpoint => try self.emitNoOp(inst.src, .breakpoint),
                 .unreach => try self.emitNoOp(inst.src, .@"unreachable"),
-                .retvoid => try self.emitNoOp(inst.src, .returnvoid),
+                .ret => try self.emitNoOp(inst.src, .@"return"),
 
+                .ret_value => try self.emitUnOp(inst.src, new_body, inst.castTag(.ret_value).?, .ret_value),
                 .not => try self.emitUnOp(inst.src, new_body, inst.castTag(.not).?, .boolnot),
-                .ret => try self.emitUnOp(inst.src, new_body, inst.castTag(.ret).?, .@"return"),
                 .ptrtoint => try self.emitUnOp(inst.src, new_body, inst.castTag(.ptrtoint).?, .ptrtoint),
                 .isnull => try self.emitUnOp(inst.src, new_body, inst.castTag(.isnull).?, .isnull),
                 .isnonnull => try self.emitUnOp(inst.src, new_body, inst.castTag(.isnonnull).?, .isnonnull),

@@ -48,7 +48,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .ensure_result_used => return analyzeInstEnsureResultUsed(mod, scope, old_inst.castTag(.ensure_result_used).?),
         .ensure_result_non_error => return analyzeInstEnsureResultNonError(mod, scope, old_inst.castTag(.ensure_result_non_error).?),
         .ref => return analyzeInstRef(mod, scope, old_inst.castTag(.ref).?),
-        .ret_ptr => return analyzeInstRetPtr(mod, scope, old_inst.castTag(.ret_ptr).?),
+        .ret_value => return analyzeInstRetVal(mod, scope, old_inst.castTag(.ret_value).?),
         .ret_type => return analyzeInstRetType(mod, scope, old_inst.castTag(.ret_type).?),
         .single_const_ptr_type => return analyzeInstSingleConstPtrType(mod, scope, old_inst.castTag(.single_const_ptr_type).?),
         .single_mut_ptr_type => return analyzeInstSingleMutPtrType(mod, scope, old_inst.castTag(.single_mut_ptr_type).?),
@@ -68,7 +68,6 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .@"unreachable" => return analyzeInstUnreachable(mod, scope, old_inst.castTag(.@"unreachable").?),
         .unreach_nocheck => return analyzeInstUnreachNoChk(mod, scope, old_inst.castTag(.unreach_nocheck).?),
         .@"return" => return analyzeInstRet(mod, scope, old_inst.castTag(.@"return").?),
-        .returnvoid => return analyzeInstRetVoid(mod, scope, old_inst.castTag(.returnvoid).?),
         .@"fn" => return analyzeInstFn(mod, scope, old_inst.castTag(.@"fn").?),
         .@"export" => return analyzeInstExport(mod, scope, old_inst.castTag(.@"export").?),
         .primitive => return analyzeInstPrimitive(mod, scope, old_inst.castTag(.primitive).?),
@@ -115,7 +114,7 @@ pub fn analyzeBody(mod: *Module, scope: *Scope, body: zir.Module.Body) !void {
 pub fn analyzeBodyValueAsType(mod: *Module, block_scope: *Scope.Block, body: zir.Module.Body) !Type {
     try analyzeBody(mod, &block_scope.base, body);
     for (block_scope.instructions.items) |inst| {
-        if (inst.castTag(.ret)) |ret| {
+        if (inst.castTag(.ret_value)) |ret| {
             const val = try mod.resolveConstValue(&block_scope.base, ret.operand);
             return val.toType();
         } else {
@@ -296,8 +295,13 @@ fn analyzeInstCoerceToPtrElem(mod: *Module, scope: *Scope, inst: *zir.Inst.Coerc
     return mod.coerce(scope, ptr.ty.elemType(), operand);
 }
 
-fn analyzeInstRetPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstRetPtr", .{});
+fn analyzeInstRetVal(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    const operand = try resolveInst(mod, scope, inst.positionals.operand);
+
+    // TODO analyze this into a store to .ret_ptr in callconv(.Unspecified)
+    // if the value is larger than pointer sized
+    return mod.addUnOp(b, inst.base.src, Type.initTag(.noreturn), .ret_value, operand);
 }
 
 fn analyzeInstRef(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
@@ -1091,15 +1095,9 @@ fn analyzeInstUnreachable(mod: *Module, scope: *Scope, unreach: *zir.Inst.NoOp) 
     return mod.analyzeUnreach(scope, unreach.base.src);
 }
 
-fn analyzeInstRet(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
-    const operand = try resolveInst(mod, scope, inst.positionals.operand);
+fn analyzeInstRet(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
     const b = try mod.requireRuntimeBlock(scope, inst.base.src);
-    return mod.addUnOp(b, inst.base.src, Type.initTag(.noreturn), .ret, operand);
-}
-
-fn analyzeInstRetVoid(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
-    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
-    return mod.addNoOp(b, inst.base.src, Type.initTag(.noreturn), .retvoid);
+    return try mod.addNoOp(b, inst.base.src, Type.initTag(.noreturn), .ret);
 }
 
 fn floatOpAllowed(tag: zir.Inst.Tag) bool {

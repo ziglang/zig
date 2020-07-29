@@ -94,8 +94,7 @@ fn genFn(file: *C, decl: *Decl) !void {
             switch (inst.tag) {
                 .assembly => try genAsm(file, inst.castTag(.assembly).?, decl),
                 .call => try genCall(file, inst.castTag(.call).?, decl),
-                .ret => try genRet(file, inst.castTag(.ret).?, decl, tv.ty.fnReturnType()),
-                .retvoid => try file.main.writer().print("return;", .{}),
+                .ret => try file.main.writer().print("return;", .{}),
                 else => |e| return file.fail(decl.src(), "TODO implement C codegen for {}", .{e}),
             }
         }
@@ -103,10 +102,6 @@ fn genFn(file: *C, decl: *Decl) !void {
     }
 
     try writer.writeAll("}\n\n");
-}
-
-fn genRet(file: *C, inst: *Inst.UnOp, decl: *Decl, expected_return_type: Type) !void {
-    return file.fail(decl.src(), "TODO return {}", .{expected_return_type});
 }
 
 fn genCall(file: *C, inst: *Inst.Call, decl: *Decl) !void {

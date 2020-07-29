@@ -1240,7 +1240,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .return_type = return_type_inst,
                 .param_types = param_types,
             }, .{});
-            _ = try astgen.addZIRUnOp(self, &fn_type_scope.base, fn_src, .@"return", fn_type_inst);
+            _ = try astgen.addZIRUnOp(self, &fn_type_scope.base, fn_src, .ret_value, fn_type_inst);
 
             // We need the memory for the Type to go into the arena for the Decl
             var decl_arena = std.heap.ArenaAllocator.init(self.gpa);
@@ -1309,7 +1309,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     !gen_scope.instructions.items[gen_scope.instructions.items.len - 1].tag.isNoReturn()))
                 {
                     const src = tree.token_locs[body_block.rbrace].start;
-                    _ = try astgen.addZIRNoOp(self, &gen_scope.base, src, .returnvoid);
+                    _ = try astgen.addZIRNoOp(self, &gen_scope.base, src, .@"return");
                 }
 
                 const fn_zir = try gen_scope_arena.allocator.create(Fn.ZIR);

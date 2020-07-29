@@ -457,18 +457,10 @@ fn ret(mod: *Module, scope: *Scope, cfe: *ast.Node.ControlFlowExpression) InnerE
     const tree = scope.tree();
     const src = tree.token_locs[cfe.ltoken].start;
     if (cfe.getRHS()) |rhs_node| {
-        if (nodeMayNeedMemoryLocation(rhs_node)) {
-            const ret_ptr = try addZIRNoOp(mod, scope, src, .ret_ptr);
-            const operand = try expr(mod, scope, .{ .ptr = ret_ptr }, rhs_node);
-            return addZIRUnOp(mod, scope, src, .@"return", operand);
-        } else {
-            const fn_ret_ty = try addZIRNoOp(mod, scope, src, .ret_type);
-            const operand = try expr(mod, scope, .{ .ty = fn_ret_ty }, rhs_node);
-            return addZIRUnOp(mod, scope, src, .@"return", operand);
-        }
-    } else {
-        return addZIRNoOp(mod, scope, src, .returnvoid);
+        const result = try expr(mod, scope, .none, rhs_node);
+        _ = try addZIRUnOp(mod, scope, src, .ret_value, result);
     }
+    return addZIRNoOp(mod, scope, src, .@"return");
 }
 
 fn identifier(mod: *Module, scope: *Scope, rl: ResultLoc, ident: *ast.Node.OneToken) InnerError!*zir.Inst {

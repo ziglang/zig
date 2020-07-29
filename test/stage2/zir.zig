@@ -17,7 +17,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\@11 = export(@9, "entry")
         \\
         \\@entry = fn(@fnty, {
-        \\  %11 = returnvoid()
+        \\  %11 = return()
         \\})
     ,
         \\@void = primitive(void)
@@ -28,7 +28,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\@unnamed$5 = export(@unnamed$4, "entry")
         \\@unnamed$6 = fntype([], @void, cc=C)
         \\@entry = fn(@unnamed$6, {
-        \\  %0 = returnvoid()
+        \\  %0 = return()
         \\})
         \\
     );
@@ -58,7 +58,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\  %expected = int(69)
         \\  %ok = cmp_eq(%result, %expected)
         \\  %10 = condbr(%ok, {
-        \\    %11 = returnvoid()
+        \\    %11 = return()
         \\  }, {
         \\    %12 = breakpoint()
         \\  })
@@ -75,7 +75,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\@3 = int(3)
         \\@unnamed$6 = fntype([], @void, cc=C)
         \\@entry = fn(@unnamed$6, {
-        \\  %0 = returnvoid()
+        \\  %0 = return()
         \\})
         \\@entry__anon_1 = str("2\x08\x01\n")
         \\@9 = declref("9__anon_0")
@@ -96,17 +96,17 @@ pub fn addCases(ctx: *TestContext) !void {
             \\
             \\@entry = fn(@fnty, {
             \\  %0 = call(@a, [])
-            \\  %1 = returnvoid()
+            \\  %1 = return()
             \\})
             \\
             \\@a = fn(@fnty, {
             \\  %0 = call(@b, [])
-            \\  %1 = returnvoid()
+            \\  %1 = return()
             \\})
             \\
             \\@b = fn(@fnty, {
             \\  %0 = call(@a, [])
-            \\  %1 = returnvoid()
+            \\  %1 = return()
             \\})
         ,
             \\@void = primitive(void)
@@ -118,17 +118,17 @@ pub fn addCases(ctx: *TestContext) !void {
             \\@unnamed$6 = fntype([], @void, cc=C)
             \\@entry = fn(@unnamed$6, {
             \\  %0 = call(@a, [], modifier=auto)
-            \\  %1 = returnvoid()
+            \\  %1 = return()
             \\})
             \\@unnamed$8 = fntype([], @void, cc=C)
             \\@a = fn(@unnamed$8, {
             \\  %0 = call(@b, [], modifier=auto)
-            \\  %1 = returnvoid()
+            \\  %1 = return()
             \\})
             \\@unnamed$10 = fntype([], @void, cc=C)
             \\@b = fn(@unnamed$10, {
             \\  %0 = call(@a, [], modifier=auto)
-            \\  %1 = returnvoid()
+            \\  %1 = return()
             \\})
             \\
         );
@@ -142,18 +142,18 @@ pub fn addCases(ctx: *TestContext) !void {
             \\
             \\@entry = fn(@fnty, {
             \\  %0 = call(@a, [])
-            \\  %1 = returnvoid()
+            \\  %1 = return()
             \\})
             \\
             \\@a = fn(@fnty, {
             \\  %0 = call(@b, [])
-            \\  %1 = returnvoid()
+            \\  %1 = return()
             \\})
             \\
             \\@b = fn(@fnty, {
             \\  %9 = compileerror("message")
             \\  %0 = call(@a, [])
-            \\  %1 = returnvoid()
+            \\  %1 = return()
             \\})
         ,
             &[_][]const u8{
@@ -171,18 +171,18 @@ pub fn addCases(ctx: *TestContext) !void {
             \\@11 = export(@9, "entry")
             \\
             \\@entry = fn(@fnty, {
-            \\  %0 = returnvoid()
+            \\  %0 = return()
             \\})
             \\
             \\@a = fn(@fnty, {
             \\  %0 = call(@b, [])
-            \\  %1 = returnvoid()
+            \\  %1 = return()
             \\})
             \\
             \\@b = fn(@fnty, {
             \\  %9 = compileerror("message")
             \\  %0 = call(@a, [])
-            \\  %1 = returnvoid()
+            \\  %1 = return()
             \\})
         ,
             \\@void = primitive(void)
@@ -193,7 +193,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\@unnamed$5 = export(@unnamed$4, "entry")
             \\@unnamed$6 = fntype([], @void, cc=C)
             \\@entry = fn(@unnamed$6, {
-            \\  %0 = returnvoid()
+            \\  %0 = return()
             \\})
             \\
         );

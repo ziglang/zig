@@ -72,7 +72,7 @@ pub const Inst = struct {
         ptrtoint,
         ref,
         ret,
-        retvoid,
+        ret_value,
         /// Write a value to a pointer. LHS is pointer, RHS is value.
         store,
         sub,
@@ -84,14 +84,13 @@ pub const Inst = struct {
         pub fn Type(tag: Tag) type {
             return switch (tag) {
                 .alloc,
-                .retvoid,
                 .unreach,
                 .arg,
                 .breakpoint,
+                .ret,
                 => NoOp,
 
                 .ref,
-                .ret,
                 .bitcast,
                 .not,
                 .isnonnull,
@@ -100,6 +99,7 @@ pub const Inst = struct {
                 .floatcast,
                 .intcast,
                 .load,
+                .ret_value,
                 => UnOp,
 
                 .add,
