@@ -494,7 +494,7 @@ pub const File = struct {
                 m.deinit();
             }
         }
-
+        
         /// Returns end pos of collision, if any.
         fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
             const small_ptr = self.base.options.target.cpu.arch.ptrBitWidth() == 32;
