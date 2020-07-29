@@ -380,7 +380,7 @@ pub const Type = extern union {
                 },
                 .single_mut_pointer => {
                     const payload = @fieldParentPtr(Payload.SingleMutPointer, "base", ty.ptr_otherwise);
-                    try out_stream.writeAll("* ");
+                    try out_stream.writeAll("*");
                     ty = payload.pointee_type;
                     continue;
                 },
