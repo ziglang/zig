@@ -293,6 +293,14 @@ test "zig fmt: decl between fields" {
     });
 }
 
+test "zig fmt: eof after missing comma" {
+    try testError(
+        \\foo()
+    , &[_]Error{
+        .ExpectedToken,
+    });
+}
+
 test "zig fmt: errdefer with payload" {
     try testCanonical(
         \\pub fn main() anyerror!void {
