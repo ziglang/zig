@@ -56,10 +56,10 @@ pub const OpenFileOptions = struct {
 /// TODO when share_access_nonblocking is false, this implementation uses
 /// untinterruptible sleep() to block. This is not the final iteration of the API.
 pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HANDLE {
-    if (mem.eql(u16, sub_path_w, &[_]u16{'.'}) and !options.open_dir and options.follow_symlinks) {
+    if (mem.eql(u16, sub_path_w, &[_]u16{'.'}) and !options.open_dir) {
         return error.IsDir;
     }
-    if (mem.eql(u16, sub_path_w, &[_]u16{ '.', '.' }) and !options.open_dir and options.follow_symlinks) {
+    if (mem.eql(u16, sub_path_w, &[_]u16{ '.', '.' }) and !options.open_dir) {
         return error.IsDir;
     }
 
@@ -82,12 +82,13 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
         .SecurityQualityOfService = null,
     };
     var io: IO_STATUS_BLOCK = undefined;
+    const blocking_flag: ULONG = if (options.io_mode == .blocking) FILE_SYNCHRONOUS_IO_NONALERT else 0;
+    const file_or_dir_flag: ULONG = if (options.open_dir) FILE_DIRECTORY_FILE else FILE_NON_DIRECTORY_FILE;
+    // If we're not following symlinks, we need to ensure we don't pass in any synchronization flags such as FILE_SYNCHRONOUS_IO_NONALERT.
+    const flags: ULONG = if (options.follow_symlinks) file_or_dir_flag | blocking_flag else file_or_dir_flag | FILE_OPEN_REPARSE_POINT;
 
     var delay: usize = 1;
     while (true) {
-        const blocking_flag: ULONG = if (options.io_mode == .blocking) FILE_SYNCHRONOUS_IO_NONALERT else 0;
-        const file_or_dir_flag: ULONG = if (options.open_dir) FILE_DIRECTORY_FILE | FILE_OPEN_FOR_BACKUP_INTENT else FILE_NON_DIRECTORY_FILE;
-        const flags: ULONG = if (options.follow_symlinks) file_or_dir_flag | blocking_flag else FILE_OPEN_REPARSE_POINT;
         const rc = ntdll.NtCreateFile(
             &result,
             options.access_mask,
@@ -645,21 +646,57 @@ pub const ReadLinkError = error{
 };
 
 pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
-    const result_handle = OpenFile(sub_path_w, .{
-        .dir = dir,
-        .access_mask = FILE_READ_ATTRIBUTES,
-        .share_access = FILE_SHARE_READ,
-        .creation = FILE_OPEN,
-        .io_mode = .blocking,
-        .follow_symlinks = false,
-    }) catch |err| switch (err) {
-        error.WouldBlock => unreachable,
-        error.PipeBusy => unreachable,
-        error.IsDir => unreachable,
-        error.NoDevice => unreachable,
-        error.PathAlreadyExists => unreachable,
-        else => |e| return e,
+    // Here, we use `NtCreateFile` to shave off one syscall if we were to use `OpenFile` wrapper.
+    // With the latter, we'd need to call `NtCreateFile` twice, once for file symlink, and if that
+    // failed, again for dir symlink. Omitting any mention of file/dir flags makes it possible
+    // to open the symlink there and then.
+    const path_len_bytes = math.cast(u16, sub_path_w.len * 2) catch |err| switch (err) {
+        error.Overflow => return error.NameTooLong,
     };
+    var nt_name = UNICODE_STRING{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w.ptr)),
+    };
+    var attr = OBJECT_ATTRIBUTES{
+        .Length = @sizeOf(OBJECT_ATTRIBUTES),
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(sub_path_w)) null else dir,
+        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+        .ObjectName = &nt_name,
+        .SecurityDescriptor = null,
+        .SecurityQualityOfService = null,
+    };
+    var result_handle: HANDLE = undefined;
+    var io: IO_STATUS_BLOCK = undefined;
+
+    const rc = ntdll.NtCreateFile(
+        &result_handle,
+        FILE_READ_ATTRIBUTES,
+        &attr,
+        &io,
+        null,
+        FILE_ATTRIBUTE_NORMAL,
+        FILE_SHARE_READ,
+        FILE_OPEN,
+        FILE_OPEN_REPARSE_POINT,
+        null,
+        0,
+    );
+    switch (rc) {
+        .SUCCESS => {},
+        .OBJECT_NAME_INVALID => unreachable,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .NO_MEDIA_IN_DEVICE => return error.FileNotFound,
+        .INVALID_PARAMETER => unreachable,
+        .SHARING_VIOLATION => return error.AccessDenied,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .PIPE_BUSY => return error.AccessDenied,
+        .OBJECT_PATH_SYNTAX_BAD => unreachable,
+        .OBJECT_NAME_COLLISION => unreachable,
+        .FILE_IS_A_DIRECTORY => unreachable,
+        else => return unexpectedStatus(rc),
+    }
     defer CloseHandle(result_handle);
 
     var reparse_buf: [MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
