@@ -1261,11 +1261,11 @@ pub const Dir = struct {
     /// are null-terminated, WTF16 encoded.
     pub fn symLinkW(
         self: Dir,
-        target_path_w: [:0]const u16,
-        sym_link_path_w: [:0]const u16,
+        target_path_w: []const u16,
+        sym_link_path_w: []const u16,
         flags: SymLinkFlags,
     ) !void {
-        return os.windows.CreateSymbolicLinkW(self.fd, sym_link_path_w, target_path_w, flags.is_directory);
+        return os.windows.CreateSymbolicLink(self.fd, sym_link_path_w, target_path_w, flags.is_directory);
     }
 
     /// Read value of a symbolic link.
@@ -1276,7 +1276,8 @@ pub const Dir = struct {
             return self.readLinkWasi(sub_path, buffer);
         }
         if (builtin.os.tag == .windows) {
-            return os.windows.ReadLink(self.fd, sub_path, buffer);
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            return self.readLinkW(sub_path_w.span(), buffer);
         }
         const sub_path_c = try os.toPosixPath(sub_path);
         return self.readLinkZ(&sub_path_c, buffer);
@@ -1293,15 +1294,15 @@ pub const Dir = struct {
     pub fn readLinkZ(self: Dir, sub_path_c: [*:0]const u8, buffer: []u8) ![]u8 {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
-            return self.readLinkW(sub_path_w, buffer);
+            return self.readLinkW(sub_path_w.span(), buffer);
         }
         return os.readlinkatZ(self.fd, sub_path_c, buffer);
     }
 
     /// Windows-only. Same as `readLink` except the pathname parameter
     /// is null-terminated, WTF16 encoded.
-    pub fn readLinkW(self: Dir, sub_path_w: [*:0]const u16, buffer: []u8) ![]u8 {
-        return os.windows.ReadLinkW(self.fd, sub_path_w, buffer);
+    pub fn readLinkW(self: Dir, sub_path_w: []const u16, buffer: []u8) ![]u8 {
+        return os.windows.ReadLink(self.fd, sub_path_w, buffer);
     }
 
     /// On success, caller owns returned buffer.
@@ -1811,7 +1812,9 @@ pub fn symLinkAbsolute(target_path: []const u8, sym_link_path: []const u8, flags
     assert(path.isAbsolute(target_path));
     assert(path.isAbsolute(sym_link_path));
     if (builtin.os.tag == .windows) {
-        return os.windows.CreateSymbolicLink(null, sym_link_path, target_path, flags.is_directory);
+        const target_path_w = try os.windows.sliceToPrefixedFileW(target_path);
+        const sym_link_path_w = try os.windows.sliceToPrefixedFileW(sym_link_path);
+        return os.windows.CreateSymbolicLink(null, sym_link_path_w.span(), target_path_w.span(), flags.is_directory);
     }
     return os.symlink(target_path, sym_link_path);
 }
@@ -1820,10 +1823,10 @@ pub fn symLinkAbsolute(target_path: []const u8, sym_link_path: []const u8, flags
 /// Note that this function will by default try creating a symbolic link to a file. If you would
 /// like to create a symbolic link to a directory, specify this with `SymLinkFlags{ .is_directory = true }`.
 /// See also `symLinkAbsolute`, `symLinkAbsoluteZ`.
-pub fn symLinkAbsoluteW(target_path_w: [:0]const u16, sym_link_path_w: [:0]const u16, flags: SymLinkFlags) !void {
-    assert(path.isAbsoluteWindowsW(target_path_w));
-    assert(path.isAbsoluteWindowsW(sym_link_path_w));
-    return os.windows.CreateSymbolicLinkW(null, sym_link_path_w, target_path_w, flags.is_directory);
+pub fn symLinkAbsoluteW(target_path_w: []const u16, sym_link_path_w: []const u16, flags: SymLinkFlags) !void {
+    assert(path.isAbsoluteWindowsWTF16(target_path_w));
+    assert(path.isAbsoluteWindowsWTF16(sym_link_path_w));
+    return os.windows.CreateSymbolicLink(null, sym_link_path_w, target_path_w, flags.is_directory);
 }
 
 /// Same as `symLinkAbsolute` except the parameters are null-terminated pointers.
@@ -1834,7 +1837,7 @@ pub fn symLinkAbsoluteZ(target_path_c: [*:0]const u8, sym_link_path_c: [*:0]cons
     if (builtin.os.tag == .windows) {
         const target_path_w = try os.windows.cStrToWin32PrefixedFileW(target_path_c);
         const sym_link_path_w = try os.windows.cStrToWin32PrefixedFileW(sym_link_path_c);
-        return os.windows.CreateSymbolicLinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr, flags.is_directory);
+        return os.windows.CreateSymbolicLink(sym_link_path_w.span(), target_path_w.span(), flags.is_directory);
     }
     return os.symlinkZ(target_path_c, sym_link_path_c);
 }

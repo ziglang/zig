@@ -69,16 +69,21 @@ pub const OpenFileOptions = struct {
     share_access_nonblocking: bool = false,
     creation: ULONG,
     io_mode: std.io.ModeOverride,
-    expect_dir: bool = false,
+    /// If true, tries to open path as a directory.
+    /// Defaults to false.
+    open_dir: bool = false,
+    /// If false, tries to open path as a reparse point without dereferencing it.
+    /// Defaults to true.
+    follow_symlinks: bool = true, 
 };
 
 /// TODO when share_access_nonblocking is false, this implementation uses
 /// untinterruptible sleep() to block. This is not the final iteration of the API.
 pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HANDLE {
-    if (mem.eql(u16, sub_path_w, &[_]u16{'.'}) and !options.expect_dir) {
+    if (mem.eql(u16, sub_path_w, &[_]u16{'.'}) and !options.open_dir and options.follow_symlinks) {
         return error.IsDir;
     }
-    if (mem.eql(u16, sub_path_w, &[_]u16{ '.', '.' }) and !options.expect_dir) {
+    if (mem.eql(u16, sub_path_w, &[_]u16{ '.', '.' }) and !options.open_dir and options.follow_symlinks) {
         return error.IsDir;
     }
 
@@ -105,8 +110,8 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
     var delay: usize = 1;
     while (true) {
         const blocking_flag: ULONG = if (options.io_mode == .blocking) FILE_SYNCHRONOUS_IO_NONALERT else 0;
-        const file_or_dir_flag: ULONG = if (options.expect_dir) FILE_DIRECTORY_FILE | FILE_OPEN_FOR_BACKUP_INTENT else FILE_NON_DIRECTORY_FILE;
-        const flags: ULONG = file_or_dir_flag | blocking_flag;
+        const file_or_dir_flag: ULONG = if (options.open_dir) FILE_DIRECTORY_FILE | FILE_OPEN_FOR_BACKUP_INTENT else FILE_NON_DIRECTORY_FILE;
+        const flags: ULONG = if (options.follow_symlinks) file_or_dir_flag | blocking_flag else FILE_OPEN_REPARSE_POINT;
         const rc = ntdll.NtCreateFile(
             &result,
             options.access_mask,
@@ -143,7 +148,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
             .PIPE_BUSY => return error.PipeBusy,
             .OBJECT_PATH_SYNTAX_BAD => unreachable,
             .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-            .FILE_IS_A_DIRECTORY => if (options.expect_dir) unreachable else return error.IsDir,
+            .FILE_IS_A_DIRECTORY => if (options.open_dir) unreachable else return error.IsDir,
             else => return unexpectedStatus(rc),
         }
     }
@@ -598,27 +603,14 @@ pub const CreateSymbolicLinkError = error{
     PathAlreadyExists,
     FileNotFound,
     NameTooLong,
-    InvalidUtf8,
-    BadPathName,
     NoDevice,
     Unexpected,
 };
 
 pub fn CreateSymbolicLink(
     dir: ?HANDLE,
-    sym_link_path: []const u8,
-    target_path: []const u8,
-    is_directory: bool,
-) CreateSymbolicLinkError!void {
-    const sym_link_path_w = try sliceToPrefixedFileW(sym_link_path);
-    const target_path_w = try sliceToPrefixedFileW(target_path);
-    return CreateSymbolicLinkW(dir, sym_link_path_w.span(), target_path_w.span(), is_directory);
-}
-
-pub fn CreateSymbolicLinkW(
-    dir: ?HANDLE,
-    sym_link_path: [:0]const u16,
-    target_path: [:0]const u16,
+    sym_link_path: []const u16,
+    target_path: []const u16,
     is_directory: bool,
 ) CreateSymbolicLinkError!void {
     const SYMLINK_DATA = extern struct {
@@ -632,70 +624,18 @@ pub fn CreateSymbolicLinkW(
         Flags: ULONG,
     };
 
-    var symlink_handle: HANDLE = undefined;
-    if (is_directory) {
-        const sym_link_len_bytes = math.cast(u16, sym_link_path.len * 2) catch |err| switch (err) {
-            error.Overflow => return error.NameTooLong,
-        };
-        var nt_name = UNICODE_STRING{
-            .Length = sym_link_len_bytes,
-            .MaximumLength = sym_link_len_bytes,
-            .Buffer = @intToPtr([*]u16, @ptrToInt(sym_link_path.ptr)),
-        };
-
-        if (sym_link_path[0] == '.' and sym_link_path[1] == 0) {
-            // Windows does not recognize this, but it does work with empty string.
-            nt_name.Length = 0;
-        }
-
-        var attr = OBJECT_ATTRIBUTES{
-            .Length = @sizeOf(OBJECT_ATTRIBUTES),
-            .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sym_link_path)) null else dir,
-            .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
-            .ObjectName = &nt_name,
-            .SecurityDescriptor = null,
-            .SecurityQualityOfService = null,
-        };
-
-        var io: IO_STATUS_BLOCK = undefined;
-        const rc = ntdll.NtCreateFile(
-            &symlink_handle,
-            GENERIC_READ | SYNCHRONIZE | FILE_WRITE_ATTRIBUTES,
-            &attr,
-            &io,
-            null,
-            FILE_ATTRIBUTE_NORMAL,
-            FILE_SHARE_READ,
-            FILE_CREATE,
-            FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_FOR_BACKUP_INTENT,
-            null,
-            0,
-        );
-        switch (rc) {
-            .SUCCESS => {},
-            .OBJECT_NAME_INVALID => unreachable,
-            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-            .NO_MEDIA_IN_DEVICE => return error.NoDevice,
-            .INVALID_PARAMETER => unreachable,
-            .ACCESS_DENIED => return error.AccessDenied,
-            .OBJECT_PATH_SYNTAX_BAD => unreachable,
-            .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-            else => return unexpectedStatus(rc),
-        }
-    } else {
-        symlink_handle = OpenFile(sym_link_path, .{
-            .access_mask = SYNCHRONIZE | GENERIC_READ | GENERIC_WRITE,
-            .dir = dir,
-            .creation = FILE_CREATE,
-            .io_mode = .blocking,
-        }) catch |err| switch (err) {
-            error.WouldBlock => unreachable,
-            error.IsDir => return error.PathAlreadyExists,
-            error.PipeBusy => unreachable,
-            else => |e| return e,
-        };
-    }
+    const symlink_handle = OpenFile(sym_link_path, .{
+        .access_mask = SYNCHRONIZE | GENERIC_READ | GENERIC_WRITE,
+        .dir = dir,
+        .creation = FILE_CREATE,
+        .io_mode = .blocking,
+        .open_dir = is_directory,
+    }) catch |err| switch (err) {
+        error.IsDir => return error.PathAlreadyExists,
+        error.WouldBlock => unreachable,
+        error.PipeBusy => unreachable,
+        else => |e| return e,
+    };
     defer CloseHandle(symlink_handle);
 
     // prepare reparse data buffer
@@ -726,72 +666,24 @@ pub const ReadLinkError = error{
     Unexpected,
     NameTooLong,
     UnsupportedReparsePointType,
-    InvalidUtf8,
-    BadPathName,
 };
 
-pub fn ReadLink(
-    dir: ?HANDLE,
-    sub_path: []const u8,
-    out_buffer: []u8,
-) ReadLinkError![]u8 {
-    const sub_path_w = try sliceToPrefixedFileW(sub_path);
-    return ReadLinkW(dir, sub_path_w.span().ptr, out_buffer);
-}
-
-pub fn ReadLinkW(dir: ?HANDLE, sub_path_w: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8 {
-    const path_len_bytes = math.cast(u16, mem.lenZ(sub_path_w) * 2) catch |err| switch (err) {
-        error.Overflow => return error.NameTooLong,
+pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
+    const result_handle = OpenFile(sub_path_w, .{
+        .dir = dir,
+        .access_mask = FILE_READ_ATTRIBUTES,
+        .share_access = FILE_SHARE_READ,
+        .creation = FILE_OPEN,
+        .io_mode = .blocking,
+        .follow_symlinks = false,
+    }) catch |err| switch (err) {
+        error.WouldBlock => unreachable,
+        error.PipeBusy => unreachable,
+        error.IsDir => unreachable,
+        error.NoDevice => unreachable,
+        error.PathAlreadyExists => unreachable,
+        else => |e| return e,
     };
-    var nt_name = UNICODE_STRING{
-        .Length = path_len_bytes,
-        .MaximumLength = path_len_bytes,
-        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
-    };
-
-    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
-        // Windows does not recognize this, but it does work with empty string.
-        nt_name.Length = 0;
-    }
-
-    var attr = OBJECT_ATTRIBUTES{
-        .Length = @sizeOf(OBJECT_ATTRIBUTES),
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w)) null else dir,
-        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
-        .ObjectName = &nt_name,
-        .SecurityDescriptor = null,
-        .SecurityQualityOfService = null,
-    };
-    var io: IO_STATUS_BLOCK = undefined;
-    var result_handle: HANDLE = undefined;
-    const rc = ntdll.NtCreateFile(
-        &result_handle,
-        FILE_READ_ATTRIBUTES,
-        &attr,
-        &io,
-        null,
-        FILE_ATTRIBUTE_NORMAL,
-        FILE_SHARE_READ,
-        FILE_OPEN,
-        FILE_OPEN_REPARSE_POINT,
-        null,
-        0,
-    );
-    switch (rc) {
-        .SUCCESS => {},
-        .OBJECT_NAME_INVALID => unreachable,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .NO_MEDIA_IN_DEVICE => return error.FileNotFound,
-        .INVALID_PARAMETER => unreachable,
-        .SHARING_VIOLATION => return error.AccessDenied,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .PIPE_BUSY => return error.AccessDenied,
-        .OBJECT_PATH_SYNTAX_BAD => unreachable,
-        .OBJECT_NAME_COLLISION => unreachable,
-        .FILE_IS_A_DIRECTORY => unreachable,
-        else => return unexpectedStatus(rc),
-    }
     defer CloseHandle(result_handle);
 
     var reparse_buf: [MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;

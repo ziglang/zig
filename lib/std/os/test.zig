@@ -27,7 +27,7 @@ test "symlink with relative paths" {
     try cwd.writeFile("file.txt", "nonsense");
 
     if (builtin.os.tag == .windows) {
-        try os.windows.CreateSymbolicLink(cwd.fd, "symlinked", "file.txt", false);
+        try os.windows.CreateSymbolicLink(cwd.fd, &[_]u16{ 's', 'y', 'm', 'l', 'i', 'n', 'k', 'e', 'd' }, &[_]u16{ 'f', 'i', 'l', 'e', '.', 't', 'x', 't' }, false);
     } else {
         try os.symlink("file.txt", "symlinked");
     }
@@ -85,7 +85,7 @@ test "readlinkat" {
 
     // create a symbolic link
     if (builtin.os.tag == .windows) {
-        try os.windows.CreateSymbolicLink(tmp.dir.fd, "link", "file.txt", false);
+        try os.windows.CreateSymbolicLink(tmp.dir.fd, &[_]u16{ 'l', 'i', 'n', 'k' }, &[_]u16{ 'f', 'i', 'l', 'e', '.', 't', 'x', 't' }, false);
     } else {
         try os.symlinkat("file.txt", tmp.dir.fd, "link");
     }
