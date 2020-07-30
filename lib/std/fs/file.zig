@@ -47,7 +47,20 @@ pub const File = struct {
         else => 0o666,
     };
 
-    pub const OpenError = windows.CreateFileError || os.OpenError || os.FlockError;
+    pub const OpenError = error{
+        SharingViolation,
+        PathAlreadyExists,
+        FileNotFound,
+        AccessDenied,
+        PipeBusy,
+        NameTooLong,
+        /// On Windows, file paths must be valid Unicode.
+        InvalidUtf8,
+        /// On Windows, file paths cannot contain these characters:
+        /// '/', '*', '?', '"', '<', '>', '|'
+        BadPathName,
+        Unexpected,
+    } || os.OpenError || os.FlockError;
 
     pub const Lock = enum { None, Shared, Exclusive };
 

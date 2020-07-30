@@ -25,30 +25,6 @@ pub usingnamespace @import("windows/bits.zig");
 
 pub const self_process_handle = @intToPtr(HANDLE, maxInt(usize));
 
-pub const CreateFileError = error{
-    SharingViolation,
-    PathAlreadyExists,
-
-    /// When any of the path components can not be found or the file component can not
-    /// be found. Some operating systems distinguish between path components not found and
-    /// file components not found, but they are collapsed into FileNotFound to gain
-    /// consistency across operating systems.
-    FileNotFound,
-
-    AccessDenied,
-    PipeBusy,
-    NameTooLong,
-
-    /// On Windows, file paths must be valid Unicode.
-    InvalidUtf8,
-
-    /// On Windows, file paths cannot contain these characters:
-    /// '/', '*', '?', '"', '<', '>', '|'
-    BadPathName,
-
-    Unexpected,
-};
-
 pub const OpenError = error{
     IsDir,
     FileNotFound,
@@ -729,24 +705,69 @@ pub const DeleteFileError = error{
     NameTooLong,
     FileBusy,
     Unexpected,
+    NotDir,
+    IsDir,
 };
 
-pub fn DeleteFile(filename: []const u8) DeleteFileError!void {
-    const filename_w = try sliceToPrefixedFileW(filename);
-    return DeleteFileW(filename_w.span().ptr);
-}
+pub const DeleteFileOptions = struct {
+    dir: ?HANDLE,
+    remove_dir: bool = false,
+};
 
-pub fn DeleteFileW(filename: [*:0]const u16) DeleteFileError!void {
-    if (kernel32.DeleteFileW(filename) == 0) {
-        switch (kernel32.GetLastError()) {
-            .FILE_NOT_FOUND => return error.FileNotFound,
-            .PATH_NOT_FOUND => return error.FileNotFound,
-            .ACCESS_DENIED => return error.AccessDenied,
-            .FILENAME_EXCED_RANGE => return error.NameTooLong,
-            .INVALID_PARAMETER => return error.NameTooLong,
-            .SHARING_VIOLATION => return error.FileBusy,
-            else => |err| return unexpectedError(err),
-        }
+pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFileError!void {
+    const create_options_flags: ULONG = if (options.remove_dir)
+        FILE_DELETE_ON_CLOSE | FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT
+    else
+        FILE_DELETE_ON_CLOSE | FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT; // would we ever want to delete the target instead?
+
+    const path_len_bytes = @intCast(u16, sub_path_w.len * 2);
+    var nt_name = UNICODE_STRING{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        // The Windows API makes this mutable, but it will not mutate here.
+        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w.ptr)),
+    };
+
+    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+        // Windows does not recognize this, but it does work with empty string.
+        nt_name.Length = 0;
+    }
+    if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
+        // Can't remove the parent directory with an open handle.
+        return error.FileBusy;
+    }
+
+    var attr = OBJECT_ATTRIBUTES{
+        .Length = @sizeOf(OBJECT_ATTRIBUTES),
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(sub_path_w)) null else options.dir,
+        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+        .ObjectName = &nt_name,
+        .SecurityDescriptor = null,
+        .SecurityQualityOfService = null,
+    };
+    var io: IO_STATUS_BLOCK = undefined;
+    var tmp_handle: HANDLE = undefined;
+    var rc = ntdll.NtCreateFile(
+        &tmp_handle,
+        SYNCHRONIZE | DELETE,
+        &attr,
+        &io,
+        null,
+        0,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        FILE_OPEN,
+        create_options_flags,
+        null,
+        0,
+    );
+    switch (rc) {
+        .SUCCESS => return CloseHandle(tmp_handle),
+        .OBJECT_NAME_INVALID => unreachable,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .INVALID_PARAMETER => unreachable,
+        .FILE_IS_A_DIRECTORY => return error.IsDir,
+        .NOT_A_DIRECTORY => return error.NotDir,
+        else => return unexpectedStatus(rc),
     }
 }
 
@@ -761,29 +782,6 @@ pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) Move
 pub fn MoveFileExW(old_path: [*:0]const u16, new_path: [*:0]const u16, flags: DWORD) MoveFileError!void {
     if (kernel32.MoveFileExW(old_path, new_path, flags) == 0) {
         switch (kernel32.GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-}
-
-pub const RemoveDirectoryError = error{
-    FileNotFound,
-    DirNotEmpty,
-    Unexpected,
-    NotDir,
-};
-
-pub fn RemoveDirectory(dir_path: []const u8) RemoveDirectoryError!void {
-    const dir_path_w = try sliceToPrefixedFileW(dir_path);
-    return RemoveDirectoryW(dir_path_w.span().ptr);
-}
-
-pub fn RemoveDirectoryW(dir_path_w: [*:0]const u16) RemoveDirectoryError!void {
-    if (kernel32.RemoveDirectoryW(dir_path_w) == 0) {
-        switch (kernel32.GetLastError()) {
-            .PATH_NOT_FOUND => return error.FileNotFound,
-            .DIR_NOT_EMPTY => return error.DirNotEmpty,
-            .DIRECTORY => return error.NotDir,
             else => |err| return unexpectedError(err),
         }
     }

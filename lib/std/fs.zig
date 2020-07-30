@@ -1117,7 +1117,7 @@ pub const Dir = struct {
     pub fn deleteFile(self: Dir, sub_path: []const u8) DeleteFileError!void {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
-            return self.deleteFileW(sub_path_w.span().ptr);
+            return self.deleteFileW(sub_path_w.span());
         } else if (builtin.os.tag == .wasi) {
             os.unlinkatWasi(self.fd, sub_path, 0) catch |err| switch (err) {
                 error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
@@ -1151,7 +1151,7 @@ pub const Dir = struct {
     }
 
     /// Same as `deleteFile` except the parameter is WTF-16 encoded.
-    pub fn deleteFileW(self: Dir, sub_path_w: [*:0]const u16) DeleteFileError!void {
+    pub fn deleteFileW(self: Dir, sub_path_w: []const u16) DeleteFileError!void {
         os.unlinkatW(self.fd, sub_path_w, 0) catch |err| switch (err) {
             error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
             else => |e| return e,
@@ -1180,7 +1180,7 @@ pub const Dir = struct {
     pub fn deleteDir(self: Dir, sub_path: []const u8) DeleteDirError!void {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
-            return self.deleteDirW(sub_path_w.span().ptr);
+            return self.deleteDirW(sub_path_w.span());
         } else if (builtin.os.tag == .wasi) {
             os.unlinkat(self.fd, sub_path, os.AT_REMOVEDIR) catch |err| switch (err) {
                 error.IsDir => unreachable, // not possible since we pass AT_REMOVEDIR
@@ -1202,7 +1202,7 @@ pub const Dir = struct {
 
     /// Same as `deleteDir` except the parameter is UTF16LE, NT prefixed.
     /// This function is Windows-only.
-    pub fn deleteDirW(self: Dir, sub_path_w: [*:0]const u16) DeleteDirError!void {
+    pub fn deleteDirW(self: Dir, sub_path_w: []const u16) DeleteDirError!void {
         os.unlinkatW(self.fd, sub_path_w, os.AT_REMOVEDIR) catch |err| switch (err) {
             error.IsDir => unreachable, // not possible since we pass AT_REMOVEDIR
             else => |e| return e,
@@ -1939,7 +1939,20 @@ pub fn walkPath(allocator: *Allocator, dir_path: []const u8) !Walker {
     return walker;
 }
 
-pub const OpenSelfExeError = os.OpenError || os.windows.CreateFileError || SelfExePathError || os.FlockError;
+pub const OpenSelfExeError = error{
+    SharingViolation,
+    PathAlreadyExists,
+    FileNotFound,
+    AccessDenied,
+    PipeBusy,
+    NameTooLong,
+    /// On Windows, file paths must be valid Unicode.
+    InvalidUtf8,
+    /// On Windows, file paths cannot contain these characters:
+    /// '/', '*', '?', '"', '<', '>', '|'
+    BadPathName,
+    Unexpected,
+} || os.OpenError || SelfExePathError || os.FlockError;
 
 pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
     if (builtin.os.tag == .linux) {

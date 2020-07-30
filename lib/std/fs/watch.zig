@@ -379,7 +379,7 @@ pub fn Watch(comptime V: type) type {
                 .access_mask = windows.FILE_LIST_DIRECTORY,
                 .creation = windows.FILE_OPEN,
                 .io_mode = .blocking,
-                .expect_dir = true,
+                .open_dir = true,
             });
             var dir_handle_consumed = false;
             defer if (!dir_handle_consumed) windows.CloseHandle(dir_handle);

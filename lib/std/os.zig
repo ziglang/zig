@@ -1683,7 +1683,7 @@ pub fn unlink(file_path: []const u8) UnlinkError!void {
         @compileError("unlink is not supported in WASI; use unlinkat instead");
     } else if (builtin.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
-        return windows.DeleteFileW(file_path_w.span().ptr);
+        return unlinkW(file_path_w.span());
     } else {
         const file_path_c = try toPosixPath(file_path);
         return unlinkZ(&file_path_c);
@@ -1696,7 +1696,7 @@ pub const unlinkC = @compileError("deprecated: renamed to unlinkZ");
 pub fn unlinkZ(file_path: [*:0]const u8) UnlinkError!void {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
-        return windows.DeleteFileW(file_path_w.span().ptr);
+        return unlinkW(file_path_w.span());
     }
     switch (errno(system.unlink(file_path))) {
         0 => return,
@@ -1717,6 +1717,11 @@ pub fn unlinkZ(file_path: [*:0]const u8) UnlinkError!void {
     }
 }
 
+/// Windows-only. Same as `unlink` except the parameter is null-terminated, WTF16 encoded.
+pub fn unlinkW(file_path_w: []const u16) UnlinkError!void {
+    return windows.DeleteFile(file_path_w, .{ .dir = std.fs.cwd().fd });
+}
+
 pub const UnlinkatError = UnlinkError || error{
     /// When passing `AT_REMOVEDIR`, this error occurs when the named directory is not empty.
     DirNotEmpty,
@@ -1727,7 +1732,7 @@ pub const UnlinkatError = UnlinkError || error{
 pub fn unlinkat(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!void {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
-        return unlinkatW(dirfd, file_path_w.span().ptr, flags);
+        return unlinkatW(dirfd, file_path_w.span(), flags);
     } else if (builtin.os.tag == .wasi) {
         return unlinkatWasi(dirfd, file_path, flags);
     } else {
@@ -1774,7 +1779,7 @@ pub fn unlinkatWasi(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatErro
 pub fn unlinkatZ(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatError!void {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path_c);
-        return unlinkatW(dirfd, file_path_w.span().ptr, flags);
+        return unlinkatW(dirfd, file_path_w.span(), flags);
     }
     switch (errno(system.unlinkat(dirfd, file_path_c, flags))) {
         0 => return,
@@ -1800,67 +1805,9 @@ pub fn unlinkatZ(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatEr
 }
 
 /// Same as `unlinkat` but `sub_path_w` is UTF16LE, NT prefixed. Windows only.
-pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*:0]const u16, flags: u32) UnlinkatError!void {
-    const w = windows;
-
-    const want_rmdir_behavior = (flags & AT_REMOVEDIR) != 0;
-    const create_options_flags = if (want_rmdir_behavior)
-        @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_DIRECTORY_FILE | w.FILE_OPEN_REPARSE_POINT)
-    else
-        @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_NON_DIRECTORY_FILE | w.FILE_OPEN_REPARSE_POINT); // would we ever want to delete the target instead?
-
-    const path_len_bytes = @intCast(u16, mem.lenZ(sub_path_w) * 2);
-    var nt_name = w.UNICODE_STRING{
-        .Length = path_len_bytes,
-        .MaximumLength = path_len_bytes,
-        // The Windows API makes this mutable, but it will not mutate here.
-        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
-    };
-
-    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
-        // Windows does not recognize this, but it does work with empty string.
-        nt_name.Length = 0;
-    }
-    if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
-        // Can't remove the parent directory with an open handle.
-        return error.FileBusy;
-    }
-
-    var attr = w.OBJECT_ATTRIBUTES{
-        .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w)) null else dirfd,
-        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
-        .ObjectName = &nt_name,
-        .SecurityDescriptor = null,
-        .SecurityQualityOfService = null,
-    };
-    var io: w.IO_STATUS_BLOCK = undefined;
-    var tmp_handle: w.HANDLE = undefined;
-    var rc = w.ntdll.NtCreateFile(
-        &tmp_handle,
-        w.SYNCHRONIZE | w.DELETE,
-        &attr,
-        &io,
-        null,
-        0,
-        w.FILE_SHARE_READ | w.FILE_SHARE_WRITE | w.FILE_SHARE_DELETE,
-        w.FILE_OPEN,
-        create_options_flags,
-        null,
-        0,
-    );
-    if (rc == .SUCCESS) {
-        rc = w.ntdll.NtClose(tmp_handle);
-    }
-    switch (rc) {
-        .SUCCESS => return,
-        .OBJECT_NAME_INVALID => unreachable,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .INVALID_PARAMETER => unreachable,
-        .FILE_IS_A_DIRECTORY => return error.IsDir,
-        .NOT_A_DIRECTORY => return error.NotDir,
-        else => return w.unexpectedStatus(rc),
-    }
+pub fn unlinkatW(dirfd: fd_t, sub_path_w: []const u16, flags: u32) UnlinkatError!void {
+    const remove_dir = (flags & AT_REMOVEDIR) != 0;
+    return windows.DeleteFile(sub_path_w, .{ .dir = dirfd, .remove_dir = remove_dir });
 }
 
 const RenameError = error{
@@ -2256,7 +2203,7 @@ pub fn rmdir(dir_path: []const u8) DeleteDirError!void {
         @compileError("rmdir is not supported in WASI; use unlinkat instead");
     } else if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.sliceToPrefixedFileW(dir_path);
-        return windows.RemoveDirectoryW(dir_path_w.span().ptr);
+        return rmdirW(dir_path_w.span());
     } else {
         const dir_path_c = try toPosixPath(dir_path);
         return rmdirZ(&dir_path_c);
@@ -2269,7 +2216,7 @@ pub const rmdirC = @compileError("deprecated: renamed to rmdirZ");
 pub fn rmdirZ(dir_path: [*:0]const u8) DeleteDirError!void {
     if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
-        return windows.RemoveDirectoryW(dir_path_w.span().ptr);
+        return rmdirW(dir_path_w.span());
     }
     switch (errno(system.rmdir(dir_path))) {
         0 => return,
@@ -2288,6 +2235,14 @@ pub fn rmdirZ(dir_path: [*:0]const u8) DeleteDirError!void {
         EROFS => return error.ReadOnlyFileSystem,
         else => |err| return unexpectedErrno(err),
     }
+}
+
+/// Windows-only. Same as `rmdir` except the parameter is null-terminated, WTF16 encoded.
+pub fn rmdirW(dir_path_w: []const u16) DeleteDirError!void {
+    return windows.DeleteFile(dir_path_w, .{ .dir = std.fs.cwd().fd, .remove_dir = true }) catch |err| switch (err) {
+        error.IsDir => unreachable,
+        else => |e| return e,
+    };
 }
 
 pub const ChangeCurDirError = error{
