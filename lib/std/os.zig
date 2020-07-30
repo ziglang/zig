@@ -2146,7 +2146,18 @@ pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirErr
 }
 
 pub fn mkdiratW(dir_fd: fd_t, sub_path_w: [*:0]const u16, mode: u32) MakeDirError!void {
-    const sub_dir_handle = try windows.CreateDirectoryW(dir_fd, sub_path_w, null);
+    const sub_dir_handle = windows.OpenFile(std.mem.spanZ(sub_path_w), .{
+        .dir = dir_fd,
+        .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
+        .creation = windows.FILE_CREATE,
+        .io_mode = .blocking,
+        .expect_dir = true,
+    }) catch |err| switch (err) {
+        error.IsDir => unreachable,
+        error.PipeBusy => unreachable,
+        error.WouldBlock => unreachable,
+        else => |e| return e,
+    };
     windows.CloseHandle(sub_dir_handle);
 }
 
@@ -2175,9 +2186,8 @@ pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .wasi) {
         @compileError("mkdir is not supported in WASI; use mkdirat instead");
     } else if (builtin.os.tag == .windows) {
-        const sub_dir_handle = try windows.CreateDirectory(null, dir_path, null);
-        windows.CloseHandle(sub_dir_handle);
-        return;
+        const dir_path_w = try windows.sliceToPrefixedFileW(dir_path);
+        return mkdirW(dir_path_w.span().ptr, mode);
     } else {
         const dir_path_c = try toPosixPath(dir_path);
         return mkdirZ(&dir_path_c, mode);
@@ -2188,9 +2198,7 @@ pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
 pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
-        const sub_dir_handle = try windows.CreateDirectoryW(null, dir_path_w.span().ptr, null);
-        windows.CloseHandle(sub_dir_handle);
-        return;
+        return mkdirW(dir_path_w.span().ptr, mode);
     }
     switch (errno(system.mkdir(dir_path, mode))) {
         0 => return,
@@ -2209,6 +2217,23 @@ pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
         EROFS => return error.ReadOnlyFileSystem,
         else => |err| return unexpectedErrno(err),
     }
+}
+
+/// Windows-only. Same as `mkdir` but the parameters is null-terminated, WTF16 encoded.
+pub fn mkdirW(dir_path_w: [*:0]const u16, mode: u32) MakeDirError!void {
+    const sub_dir_handle = windows.OpenFile(std.mem.spanZ(dir_path_w), .{
+        .dir = std.fs.cwd().fd,
+        .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
+        .creation = windows.FILE_CREATE,
+        .io_mode = .blocking,
+        .expect_dir = true,
+    }) catch |err| switch (err) {
+        error.IsDir => unreachable,
+        error.PipeBusy => unreachable,
+        error.WouldBlock => unreachable,
+        else => |e| return e,
+    };
+    windows.CloseHandle(sub_dir_handle);
 }
 
 pub const DeleteDirError = error{
@@ -4013,19 +4038,40 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
 /// Same as `realpath` except `pathname` is null-terminated and UTF16LE-encoded.
 /// TODO use ntdll for better semantics
 pub fn realpathW(pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
-    const h_file = try windows.CreateFileW(
-        pathname,
-        windows.GENERIC_READ,
-        windows.FILE_SHARE_READ,
-        null,
-        windows.OPEN_EXISTING,
-        windows.FILE_FLAG_BACKUP_SEMANTICS,
-        null,
-    );
-    defer windows.CloseHandle(h_file);
+    const w = windows;
 
-    var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
-    const wide_slice = try windows.GetFinalPathNameByHandleW(h_file, &wide_buf, wide_buf.len, windows.VOLUME_NAME_DOS);
+    const dir = std.fs.cwd().fd;
+    const access_mask = w.GENERIC_READ | w.SYNCHRONIZE;
+    const share_access = w.FILE_SHARE_READ;
+    const creation = w.FILE_OPEN;
+    const h_file = blk: {
+        const res = w.OpenFile(std.mem.spanZ(pathname), .{
+            .dir = dir,
+            .access_mask = access_mask,
+            .share_access = share_access,
+            .creation = creation,
+            .io_mode = .blocking,
+        }) catch |err| switch (err) {
+            error.IsDir => break :blk w.OpenFile(std.mem.spanZ(pathname), .{
+                .dir = dir,
+                .access_mask = access_mask,
+                .share_access = share_access,
+                .creation = creation,
+                .io_mode = .blocking,
+                .expect_dir = true,
+            }) catch |er| switch (er) {
+                error.WouldBlock => unreachable,
+                else => |e2| return e2,
+            },
+            error.WouldBlock => unreachable,
+            else => |e| return e,
+        };
+        break :blk res;
+    };
+    defer w.CloseHandle(h_file);
+
+    var wide_buf: [w.PATH_MAX_WIDE]u16 = undefined;
+    const wide_slice = try w.GetFinalPathNameByHandleW(h_file, &wide_buf, wide_buf.len, w.VOLUME_NAME_DOS);
 
     // Windows returns \\?\ prepended to the path.
     // We strip it to make this function consistent across platforms.

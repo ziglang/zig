@@ -225,8 +225,7 @@ pub fn makeDirAbsoluteZ(absolute_path_z: [*:0]const u8) !void {
 /// Same as `makeDirAbsolute` except the parameter is a null-terminated WTF-16 encoded string.
 pub fn makeDirAbsoluteW(absolute_path_w: [*:0]const u16) !void {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
-    const handle = try os.windows.CreateDirectoryW(null, absolute_path_w, null);
-    os.windows.CloseHandle(handle);
+    return os.mkdirW(absolute_path_w, default_new_dir_mode);
 }
 
 pub const deleteDir = @compileError("deprecated; use dir.deleteDir or deleteDirAbsolute");
@@ -881,8 +880,7 @@ pub const Dir = struct {
     }
 
     pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) !void {
-        const handle = try os.windows.CreateDirectoryW(self.fd, sub_path, null);
-        os.windows.CloseHandle(handle);
+        try os.mkdiratW(self.fd, sub_path, default_new_dir_mode);
     }
 
     /// Calls makeDir recursively to make an entire path. Returns success if the path
