@@ -38,7 +38,7 @@ pub const LibCInstallation = struct {
         ZigIsTheCCompiler,
     };
 
-    fn envSubstitution(allocator: *Allocator, input: [:0]const u8, stderr: anytype) ![:0]u8 {
+    fn envSubstitution(allocator: *Allocator, input: []const u8, stderr: anytype) ![:0]u8 {
         var result = try ArrayList(u8).initCapacity(allocator, input.len + 1);
         errdefer result.deinit();
 
@@ -66,6 +66,8 @@ pub const LibCInstallation = struct {
                             },
                             error.OutOfMemory => |e| return e,
                         };
+
+                        defer allocator.free(value);
 
                         try result.appendSlice(value);
                         i += needle.len;
@@ -120,9 +122,7 @@ pub const LibCInstallation = struct {
                     if (value.len == 0) {
                         @field(self, field.name) = null;
                     } else {
-                        const valuez = try std.mem.dupeZ(allocator, u8, value);
-                        found_keys[i].allocated = try envSubstitution(allocator, valuez, stderr);
-                        allocator.free(valuez);
+                        found_keys[i].allocated = try envSubstitution(allocator, value, stderr);
                         @field(self, field.name) = found_keys[i].allocated;
                     }
                     break;
