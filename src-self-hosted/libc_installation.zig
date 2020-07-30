@@ -6,6 +6,7 @@ const fs = std.fs;
 const mem = std.mem;
 const process = std.process;
 const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 const Batch = std.event.Batch;
 
 const is_darwin = Target.current.isDarwin();
@@ -37,17 +38,21 @@ pub const LibCInstallation = struct {
         ZigIsTheCCompiler,
     };
 
-    fn envSubstitution(allocator: *Allocator, input: []const u8, stderr: anytype) ![:0]u8 {
-        var replace_dest: []u8 = undefined;
-        var replace_src = try std.mem.dupe(allocator, u8, input);
-        errdefer allocator.free(replace_src);
+    fn envSubstitution(allocator: *Allocator, input: [:0]const u8, stderr: anytype) ![:0]u8 {
+        var result = try ArrayList(u8).initCapacity(allocator, input.len + 1);
+        errdefer result.deinit();
 
         var i: usize = 0;
         outer: while (i < input.len) : (i += 1) {
             if (input[i] == '$') {
                 for (input[i + 1..]) |c, j| {
-                    if (!ascii.isAlNum(c) and c != '_') {
-                        const needle = input[i..i + j + 1];
+                    const input_offset = i + j + 1;
+                    if ((!ascii.isAlNum(c) and c != '_') or input_offset == input.len - 1) {
+                        const needle = if (input_offset == input.len - 1)
+                            input[i..input_offset + 1]
+                        else
+                            input[i..input_offset];
+
                         const name = needle[1..];
 
                         const value = process.getEnvVarOwned(allocator, name) catch |err| switch (err) {
@@ -62,20 +67,19 @@ pub const LibCInstallation = struct {
                             error.OutOfMemory => |e| return e,
                         };
 
-                        replace_dest = try mem.replaceOwned(u8, allocator, replace_src, needle, value);
-                        allocator.free(replace_src);
-                        allocator.free(value);
-                        replace_src = replace_dest;
-
+                        try result.appendSlice(value);
+                        i += needle.len;
                         continue :outer;
                     }
                 }
+            } else {
+                try result.append(input[i]);
             }
         }
 
-        var replace_srcz = try std.mem.dupeZ(allocator, u8, replace_src);
-        allocator.free(replace_src);
-        return replace_srcz;
+        try result.append(0);
+        const result_size = result.items.len - 1;
+        return result.toOwnedSlice()[0..result_size:0];
     }
 
     pub fn parse(
