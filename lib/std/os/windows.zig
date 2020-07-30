@@ -27,6 +27,7 @@ pub const self_process_handle = @intToPtr(HANDLE, maxInt(usize));
 
 pub const OpenError = error{
     IsDir,
+    NotDir,
     FileNotFound,
     NoDevice,
     AccessDenied,
@@ -125,7 +126,8 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
             .PIPE_BUSY => return error.PipeBusy,
             .OBJECT_PATH_SYNTAX_BAD => unreachable,
             .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-            .FILE_IS_A_DIRECTORY => if (options.open_dir) unreachable else return error.IsDir,
+            .FILE_IS_A_DIRECTORY => return error.IsDir,
+            .NOT_A_DIRECTORY => return error.NotDir,
             else => return unexpectedStatus(rc),
         }
     }
@@ -609,6 +611,7 @@ pub fn CreateSymbolicLink(
         .open_dir = is_directory,
     }) catch |err| switch (err) {
         error.IsDir => return error.PathAlreadyExists,
+        error.NotDir => unreachable,
         error.WouldBlock => unreachable,
         error.PipeBusy => unreachable,
         else => |e| return e,

@@ -21,7 +21,6 @@ const Dir = std.fs.Dir;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
 test "open smoke test" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     // TODO verify file attributes using `fstat`
@@ -40,41 +39,41 @@ test "open smoke test" {
 
     var file_path: []u8 = undefined;
     var fd: os.fd_t = undefined;
+    const mode: os.mode_t = if (builtin.os.tag == .windows) 0 else 0o666;
 
     // Create some file using `open`.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
-    fd = try os.open(file_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o666);
+    fd = try os.open(file_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, mode);
     os.close(fd);
 
     // Try this again with the same flags. This op should fail with error.PathAlreadyExists.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
-    expectError(error.PathAlreadyExists, os.open(file_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o666));
+    expectError(error.PathAlreadyExists, os.open(file_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, mode));
 
     // Try opening without `O_EXCL` flag.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
-    fd = try os.open(file_path, os.O_RDWR | os.O_CREAT, 0o666);
+    fd = try os.open(file_path, os.O_RDWR | os.O_CREAT, mode);
     os.close(fd);
 
     // Try opening as a directory which should fail.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
-    expectError(error.NotDir, os.open(file_path, os.O_RDWR | os.O_DIRECTORY, 0o666));
+    expectError(error.NotDir, os.open(file_path, os.O_RDWR | os.O_DIRECTORY, mode));
 
     // Create some directory
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_dir" });
-    try os.mkdir(file_path, 0o666);
+    try os.mkdir(file_path, mode);
 
     // Open dir using `open`
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_dir" });
-    fd = try os.open(file_path, os.O_RDONLY | os.O_DIRECTORY, 0o666);
+    fd = try os.open(file_path, os.O_RDONLY | os.O_DIRECTORY, mode);
     os.close(fd);
 
     // Try opening as file which should fail.
     file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_dir" });
-    expectError(error.IsDir, os.open(file_path, os.O_RDWR, 0o666));
+    expectError(error.IsDir, os.open(file_path, os.O_RDWR, mode));
 }
 
 test "openat smoke test" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     // TODO verify file attributes using `fstatat`
@@ -83,30 +82,31 @@ test "openat smoke test" {
     defer tmp.cleanup();
 
     var fd: os.fd_t = undefined;
+    const mode: os.mode_t = if (builtin.os.tag == .windows) 0 else 0o666;
 
     // Create some file using `openat`.
-    fd = try os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o666);
+    fd = try os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT | os.O_EXCL, mode);
     os.close(fd);
 
     // Try this again with the same flags. This op should fail with error.PathAlreadyExists.
-    expectError(error.PathAlreadyExists, os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o666));
+    expectError(error.PathAlreadyExists, os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT | os.O_EXCL, mode));
 
     // Try opening without `O_EXCL` flag.
-    fd = try os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT, 0o666);
+    fd = try os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT, mode);
     os.close(fd);
 
     // Try opening as a directory which should fail.
-    expectError(error.NotDir, os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_DIRECTORY, 0o666));
+    expectError(error.NotDir, os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_DIRECTORY, mode));
 
     // Create some directory
-    try os.mkdirat(tmp.dir.fd, "some_dir", 0o666);
+    try os.mkdirat(tmp.dir.fd, "some_dir", mode);
 
     // Open dir using `open`
-    fd = try os.openat(tmp.dir.fd, "some_dir", os.O_RDONLY | os.O_DIRECTORY, 0o666);
+    fd = try os.openat(tmp.dir.fd, "some_dir", os.O_RDONLY | os.O_DIRECTORY, mode);
     os.close(fd);
 
     // Try opening as file which should fail.
-    expectError(error.IsDir, os.openat(tmp.dir.fd, "some_dir", os.O_RDWR, 0o666));
+    expectError(error.IsDir, os.openat(tmp.dir.fd, "some_dir", os.O_RDWR, mode));
 }
 
 test "symlink with relative paths" {

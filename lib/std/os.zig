@@ -1041,6 +1041,9 @@ pub const OpenError = error{
 
     /// The underlying filesystem does not support file locks
     FileLocksNotSupported,
+
+    BadPathName,
+    InvalidUtf8,
 } || UnexpectedError;
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
@@ -1092,18 +1095,65 @@ pub fn openZ(file_path: [*:0]const u8, flags: u32, perm: mode_t) OpenError!fd_t 
     }
 }
 
+fn openOptionsFromFlags(flags: u32) windows.OpenFileOptions {
+    const w = windows;
+
+    var access_mask: w.ULONG = w.READ_CONTROL | w.FILE_WRITE_ATTRIBUTES | w.SYNCHRONIZE;
+    if (flags & O_RDWR != 0) {
+        access_mask |= w.GENERIC_READ | w.GENERIC_WRITE;
+    } else if (flags & O_WRONLY != 0) {
+        access_mask |= w.GENERIC_WRITE;
+    } else {
+        access_mask |= w.GENERIC_READ | w.GENERIC_WRITE;
+    }
+
+    const open_dir: bool = flags & O_DIRECTORY != 0;
+    const follow_symlinks: bool = flags & O_NOFOLLOW == 0;
+
+    const creation: w.ULONG = blk: {
+        if (flags & O_CREAT != 0) {
+            if (flags & O_EXCL != 0) {
+                break :blk w.FILE_CREATE;
+            }
+        }
+        break :blk w.FILE_OPEN;
+    };
+
+    return .{
+        .access_mask = access_mask,
+        .io_mode = .blocking,
+        .creation = creation,
+        .open_dir = open_dir,
+        .follow_symlinks = follow_symlinks,
+    };
+}
+
 /// Windows-only. The path parameter is
 /// [WTF-16](https://simonsapin.github.io/wtf-8/#potentially-ill-formed-utf-16) encoded.
 /// Translates the POSIX open API call to a Windows API call.
-pub fn openW(file_path_w: []const u16, flags: u32, perm: usize) OpenError!fd_t {
-    @compileError("TODO implement openW for windows");
+/// TODO currently, this function does not handle all flag combinations
+/// or makes use of perm argument.
+pub fn openW(file_path_w: []const u16, flags: u32, perm: mode_t) OpenError!fd_t {
+    var options = openOptionsFromFlags(flags);
+    options.dir = std.fs.cwd().fd;
+    return windows.OpenFile(file_path_w, options) catch |err| switch (err) {
+        error.WouldBlock => unreachable,
+        error.PipeBusy => unreachable,
+        else => |e| return e,
+    };
 }
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// `file_path` is relative to the open directory handle `dir_fd`.
 /// See also `openatC`.
-/// TODO support windows
 pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: mode_t) OpenError!fd_t {
+    if (builtin.os.tag == .wasi) {
+        @compileError("use openatWasi instead");
+    }
+    if (builtin.os.tag == .windows) {
+        const file_path_w = try windows.sliceToPrefixedFileW(file_path);
+        return openatW(dir_fd, file_path_w.span(), flags, mode);
+    }
     const file_path_c = try toPosixPath(file_path);
     return openatZ(dir_fd, &file_path_c, flags, mode);
 }
@@ -1145,8 +1195,11 @@ pub const openatC = @compileError("deprecated: renamed to openatZ");
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// `file_path` is relative to the open directory handle `dir_fd`.
 /// See also `openat`.
-/// TODO support windows
 pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t) OpenError!fd_t {
+    if (builtin.os.tag == .windows) {
+        const file_path_w = try windows.cStrToPrefixedFileW(file_path);
+        return openatW(dir_fd, file_path_w.span(), flags, mode);
+    }
     while (true) {
         const rc = system.openat(dir_fd, file_path, flags, mode);
         switch (errno(rc)) {
@@ -1175,6 +1228,20 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t)
             else => |err| return unexpectedErrno(err),
         }
     }
+}
+
+/// Windows-only. Similar to `openat` but with pathname argument null-terminated
+/// WTF16 encoded.
+/// TODO currently, this function does not handle all flag combinations
+/// or makes use of perm argument.
+pub fn openatW(dir_fd: fd_t, file_path_w: []const u16, flags: u32, mode: mode_t) OpenError!fd_t {
+    var options = openOptionsFromFlags(flags);
+    options.dir = dir_fd;
+    return windows.OpenFile(file_path_w, options) catch |err| switch (err) {
+        error.WouldBlock => unreachable,
+        error.PipeBusy => unreachable,
+        else => |e| return e,
+    };
 }
 
 pub fn dup2(old_fd: fd_t, new_fd: fd_t) !void {
