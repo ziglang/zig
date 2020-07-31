@@ -10,6 +10,15 @@ pub const Target = struct {
     cpu: Cpu,
     os: Os,
     abi: Abi,
+    address_space: ?std.ArrayList(AddressSpaceEntry) = null,
+
+    pub const AddressSpaceEntry = struct {
+        readable: bool,
+        writable: bool,
+        executable: bool,
+        start: u64,
+        end: u64,
+    };
 
     pub const Os = struct {
         tag: Tag,
@@ -631,6 +640,9 @@ pub const Target = struct {
             renderscript64,
             ve,
 
+            // Non-LLVM targets
+            spu_2,
+
             pub fn isARM(arch: Arch) bool {
                 return switch (arch) {
                     .arm, .armeb => true,
@@ -728,6 +740,7 @@ pub const Target = struct {
                     .sparcv9 => ._SPARCV9,
                     .s390x => ._S390,
                     .ve => ._NONE,
+                    .spu_2 => ._SPU_2,
                 };
             }
 
@@ -766,6 +779,7 @@ pub const Target = struct {
                     .thumb,
                     .spir,
                     .spir64,
+                    .spu_2,
                     .renderscript32,
                     .renderscript64,
                     .shave,
@@ -792,6 +806,7 @@ pub const Target = struct {
 
             pub fn ptrBitWidth(arch: Arch) u16 {
                 switch (arch) {
+                    .spu_2,
                     .avr,
                     .msp430,
                     => return 16,
@@ -1286,10 +1301,14 @@ pub const Target = struct {
                 .nvptx64,
                 => return result,
 
-                // TODO go over each item in this list and either move it to the above list, or
+                // These architectures have been confirmed as not supporting Linux.
+                .avr,
+                .spu_2,
+                => unreachable,
+
+                // TODO go over each item in this list and either move it to the above two lists, or
                 // implement the standard dynamic linker path code for it.
                 .arc,
-                .avr,
                 .hexagon,
                 .msp430,
                 .r600,

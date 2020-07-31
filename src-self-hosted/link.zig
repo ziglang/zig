@@ -15,8 +15,6 @@ const trace = @import("tracy.zig").trace;
 // TODO Turn back on zig fmt when https://github.com/ziglang/zig/issues/5948 is implemented.
 // zig fmt: off
 
-const default_entry_addr = 0x8000000;
-
 pub const Options = struct {
     target: std.Target,
     output_mode: std.builtin.OutputMode,
@@ -31,6 +29,7 @@ pub const Options = struct {
     /// Used for calculating how much space to reserve for executable program code in case
     /// the binary file deos not already have such a section.
     program_code_size_hint: u64 = 256 * 1024,
+    default_entry_addr: u64 = 0x8000000,
 };
 
 /// Attempts incremental linking, if the file already exists.
@@ -43,21 +42,43 @@ pub fn openBinFilePath(
     sub_path: []const u8,
     options: Options,
 ) !*File {
-    const cbe = options.object_format == .c;
-    const file = try dir.createFile(sub_path, .{ .truncate = cbe, .read = true, .mode = determineMode(options) });
+    const file = try dir.createFile(sub_path, .{ .truncate = options.object_format == .c, .read = true, .mode = determineMode(options) });
     errdefer file.close();
 
-    if (cbe) {
-        var bin_file = try allocator.create(File.C);
-        errdefer allocator.destroy(bin_file);
-        bin_file.* = try openCFile(allocator, file, options);
-        return &bin_file.base;
-    } else {
-        var bin_file = try allocator.create(File.Elf);
-        errdefer allocator.destroy(bin_file);
-        bin_file.* = try openBinFile(allocator, file, options);
-        bin_file.owns_file_handle = true;
-        return &bin_file.base;
+    switch (options.object_format) {
+        .c => {
+            var bin_file = try allocator.create(File.C);
+            errdefer allocator.destroy(bin_file);
+            bin_file.* = File.C{
+                .base = .{
+                    .file = file,
+                    .tag = .c,
+                    .options = options,
+                },
+                .allocator = allocator,
+                .main = std.ArrayList(u8).init(allocator),
+                .header = std.ArrayList(u8).init(allocator),
+                .constants = std.ArrayList(u8).init(allocator),
+                .called = std.StringHashMap(void).init(allocator),
+            };
+            return &bin_file.base;
+        },
+        .elf => {
+            var bin_file = try allocator.create(File.Elf);
+            errdefer allocator.destroy(bin_file);
+            bin_file.* = try openBinFile(allocator, file, options);
+            return &bin_file.base;
+        },
+        //        .hex => {
+        //            var bin_file = try allocator.create(File.Hex);
+        //            errdefer allocator.destroy(bin_file);
+        //            bin_file.* = try openHexFile(allocator, file, options);
+        //            return &bin_file.base;
+        //        },
+        else => |e| {
+            std.debug.print("TODO openBinFilePath object_format {}\n", .{e});
+            std.process.exit(1);
+        },
     }
 }
 
@@ -96,38 +117,26 @@ pub fn writeFilePath(
     return result;
 }
 
-fn openCFile(allocator: *Allocator, file: fs.File, options: Options) !File.C {
-    return File.C{
-        .base = .{
-            .tag = .c,
-            .options = options,
-        },
-        .allocator = allocator,
-        .file = file,
-        .main = std.ArrayList(u8).init(allocator),
-        .header = std.ArrayList(u8).init(allocator),
-        .constants = std.ArrayList(u8).init(allocator),
-        .called = std.StringHashMap(void).init(allocator),
-    };
-}
-
 /// Attempts incremental linking, if the file already exists.
 /// If incremental linking fails, falls back to truncating the file and rewriting it.
 /// Returns an error if `file` is not already open with +read +write +seek abilities.
 /// A malicious file is detected as incremental link failure and does not cause Illegal Behavior.
 /// This operation is not atomic.
 pub fn openBinFile(allocator: *Allocator, file: fs.File, options: Options) !File.Elf {
-    return openBinFileInner(allocator, file, options) catch |err| switch (err) {
-        error.IncrFailed => {
-            return createElfFile(allocator, file, options);
-        },
-        else => |e| return e,
-    };
+    return createElfFile(allocator, file, options);
+    // TODO: implement ELF reading
+    //    return openBinFileInner(allocator, file, options) catch |err| switch (err) {
+    //        error.IncrFailed => {
+    //            return createElfFile(allocator, file, options);
+    //        },
+    //        else => |e| return e,
+    //    };
 }
 
 pub const File = struct {
     tag: Tag,
     options: Options,
+    file: ?fs.File,
 
     pub fn cast(base: *File, comptime T: type) ?*T {
         if (base.tag != T.base_tag)
@@ -138,14 +147,26 @@ pub const File = struct {
 
     pub fn makeWritable(base: *File, dir: fs.Dir, sub_path: []const u8) !void {
         switch (base.tag) {
-            .elf => return @fieldParentPtr(Elf, "base", base).makeWritable(dir, sub_path),
+            .elf => {
+                if (base.file != null) return;
+                base.file = try dir.createFile(sub_path, .{
+                    .truncate = false,
+                    .read = true,
+                    .mode = determineMode(base.options),
+                });
+            },
             .c => {},
         }
     }
 
     pub fn makeExecutable(base: *File) !void {
         switch (base.tag) {
-            .elf => return @fieldParentPtr(Elf, "base", base).makeExecutable(),
+            .elf => {
+                if (base.file) |f| {
+                    f.close();
+                    base.file = null;
+                }
+            },
             .c => unreachable,
         }
     }
@@ -165,6 +186,7 @@ pub const File = struct {
     }
 
     pub fn deinit(base: *File) void {
+        if (base.file) |f| f.close();
         switch (base.tag) {
             .elf => @fieldParentPtr(Elf, "base", base).deinit(),
             .c => @fieldParentPtr(C, "base", base).deinit(),
@@ -226,10 +248,16 @@ pub const File = struct {
     pub const Tag = enum {
         elf,
         c,
+        //        Hex,
     };
 
     pub const ErrorFlags = struct {
         no_entry_point_found: bool = false,
+    };
+
+    pub const Hex = struct {
+        pub const base_tag: Tag = .Hex;
+        base: File = File{ .tag = base_tag },
     };
 
     pub const C = struct {
@@ -241,7 +269,7 @@ pub const File = struct {
         header: std.ArrayList(u8),
         constants: std.ArrayList(u8),
         main: std.ArrayList(u8),
-        file: ?fs.File,
+
         called: std.StringHashMap(void),
         need_stddef: bool = false,
         need_stdint: bool = false,
@@ -258,8 +286,6 @@ pub const File = struct {
             self.header.deinit();
             self.constants.deinit();
             self.called.deinit();
-            if (self.file) |f|
-                f.close();
         }
 
         pub fn updateDecl(self: *File.C, module: *Module, decl: *Module.Decl) !void {
@@ -272,7 +298,7 @@ pub const File = struct {
         }
 
         pub fn flush(self: *File.C) !void {
-            const writer = self.file.?.writer();
+            const writer = self.base.file.?.writer();
             try writer.writeAll(@embedFile("cbe.h"));
             var includes = false;
             if (self.need_stddef) {
@@ -299,8 +325,8 @@ pub const File = struct {
                 }
             }
             try writer.writeAll(self.main.items);
-            self.file.?.close();
-            self.file = null;
+            self.base.file.?.close();
+            self.base.file = null;
         }
     };
 
@@ -310,8 +336,7 @@ pub const File = struct {
         base: File,
 
         allocator: *Allocator,
-        file: ?fs.File,
-        owns_file_handle: bool,
+
         ptr_width: enum { p32, p64 },
 
         /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
@@ -464,27 +489,10 @@ pub const File = struct {
             self.offset_table_free_list.deinit(self.allocator);
             self.text_block_free_list.deinit(self.allocator);
             self.offset_table.deinit(self.allocator);
-            if (self.owns_file_handle) {
-                if (self.file) |f| f.close();
-            }
-        }
 
-        pub fn makeExecutable(self: *Elf) !void {
-            assert(self.owns_file_handle);
-            if (self.file) |f| {
-                f.close();
-                self.file = null;
+            if (self.base.options.target.address_space) |m| {
+                m.deinit();
             }
-        }
-
-        pub fn makeWritable(self: *Elf, dir: fs.Dir, sub_path: []const u8) !void {
-            assert(self.owns_file_handle);
-            if (self.file != null) return;
-            self.file = try dir.createFile(sub_path, .{
-                .truncate = false,
-                .read = true,
-                .mode = determineMode(self.base.options),
-            });
         }
 
         /// Returns end pos of collision, if any.
@@ -552,10 +560,49 @@ pub const File = struct {
             return min_pos - start;
         }
 
-        fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u16) u64 {
+        fn inRange(self: Elf, start: u64) ?std.Target.AddressSpaceEntry {
+            if (self.base.options.target.address_space) |address_space| {
+                for (address_space.items) |a| {
+                    // Start is inclusive, end is exclusive
+                    if (start >= a.start and start < a.end) {
+                        return a;
+                    }
+                }
+            }
+            return null;
+        }
+
+        fn rangeAfter(self: Elf, addr: u64) ?u64 {
+            if (self.base.options.target.address_space) |address_space| {
+                for (address_space.items) |a| {
+                    if (addr < a.start) {
+                        return a.start;
+                    }
+                }
+            }
+            return null;
+        }
+
+        fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u16) ?u64 {
             var start: u64 = 0;
-            while (self.detectAllocCollision(start, object_size)) |item_end| {
-                start = mem.alignForwardGeneric(u64, item_end, min_alignment);
+            var done = false;
+            while (!done) {
+                const before = start;
+                // TODO: expose custom address definitions to all targets
+                if (self.base.options.target.address_space != null) {
+                    if (self.inRange(start)) |range| {
+                        if (range.end - start < object_size) {
+                            // Range too small
+                            start = range.end;
+                        }
+                    } else {
+                        start = self.rangeAfter(start) orelse return null;
+                    }
+                }
+                while (self.detectAllocCollision(start, object_size)) |item_end| {
+                    start = mem.alignForwardGeneric(u64, item_end, min_alignment);
+                }
+                done = before == start;
             }
             return start;
         }
@@ -602,14 +649,14 @@ pub const File = struct {
                 self.phdr_load_re_index = @intCast(u16, self.program_headers.items.len);
                 const file_size = self.base.options.program_code_size_hint;
                 const p_align = 0x1000;
-                const off = self.findFreeSpace(file_size, p_align);
+                const off = self.findFreeSpace(file_size, p_align) orelse return error.NoFreeSpace;
                 log.debug(.link, "found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
                 try self.program_headers.append(self.allocator, .{
                     .p_type = elf.PT_LOAD,
                     .p_offset = off,
                     .p_filesz = file_size,
-                    .p_vaddr = default_entry_addr,
-                    .p_paddr = default_entry_addr,
+                    .p_vaddr = self.base.options.default_entry_addr,
+                    .p_paddr = self.base.options.default_entry_addr,
                     .p_memsz = file_size,
                     .p_align = p_align,
                     .p_flags = elf.PF_X | elf.PF_R,
@@ -622,13 +669,13 @@ pub const File = struct {
                 const file_size = @as(u64, ptr_size) * self.base.options.symbol_count_hint;
                 // We really only need ptr alignment but since we are using PROGBITS, linux requires
                 // page align.
-                const p_align = 0x1000;
-                const off = self.findFreeSpace(file_size, p_align);
+                const p_align = if (self.base.options.target.os.tag == .linux) 0x1000 else @as(u16, ptr_size);
+                const off = self.findFreeSpace(file_size, p_align) orelse return error.NoFreeSpace;
                 log.debug(.link, "found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
                 // TODO instead of hard coding the vaddr, make a function to find a vaddr to put things at.
                 // we'll need to re-use that function anyway, in case the GOT grows and overlaps something
                 // else in virtual memory.
-                const default_got_addr = 0x4000000;
+                const default_got_addr = if (ptr_size == 2) @as(u32, 0x8000) else 0x4000000;
                 try self.program_headers.append(self.allocator, .{
                     .p_type = elf.PT_LOAD,
                     .p_offset = off,
@@ -645,7 +692,7 @@ pub const File = struct {
                 self.shstrtab_index = @intCast(u16, self.sections.items.len);
                 assert(self.shstrtab.items.len == 0);
                 try self.shstrtab.append(self.allocator, 0); // need a 0 at position 0
-                const off = self.findFreeSpace(self.shstrtab.items.len, 1);
+                const off = self.findFreeSpace(self.shstrtab.items.len, 1) orelse return error.NoFreeSpace;
                 log.debug(.link, "found shstrtab free space 0x{x} to 0x{x}\n", .{ off, off + self.shstrtab.items.len });
                 try self.sections.append(self.allocator, .{
                     .sh_name = try self.makeString(".shstrtab"),
@@ -666,8 +713,8 @@ pub const File = struct {
                 self.debug_str_section_index = @intCast(u16, self.sections.items.len);
                 assert(self.debug_strtab.items.len == 0);
                 try self.debug_strtab.append(self.allocator, 0); // need a 0 at position 0
-                const off = self.findFreeSpace(self.debug_strtab.items.len, 1);
-                log.debug(.link, "found debug_strtab free space 0x{x} to 0x{x}\n", .{ off, off + self.debug_strtab.items.len });
+                const off = self.findFreeSpace(self.debug_strtab.items.len, 1) orelse return error.NoFreeSpace;
+log.debug(.link, "found debug_strtab free space 0x{x} to 0x{x}\n", .{ off, off + self.debug_strtab.items.len });
                 try self.sections.append(self.allocator, .{
                     .sh_name = try self.makeString(".debug_str"),
                     .sh_type = elf.SHT_PROGBITS,
@@ -724,7 +771,7 @@ pub const File = struct {
                 const min_align: u16 = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym);
                 const each_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym);
                 const file_size = self.base.options.symbol_count_hint * each_size;
-                const off = self.findFreeSpace(file_size, min_align);
+                const off = self.findFreeSpace(file_size, min_align) orelse return error.NoFreeSpace;
                 log.debug(.link, "found symtab free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
 
                 try self.sections.append(self.allocator, .{
@@ -748,7 +795,7 @@ pub const File = struct {
 
                 const file_size_hint = 200;
                 const p_align = 1;
-                const off = self.findFreeSpace(file_size_hint, p_align);
+                const off = self.findFreeSpace(file_size_hint, p_align) orelse return error.NoFreeSpace;
                 log.debug(.link, "found .debug_info free space 0x{x} to 0x{x}\n", .{
                     off,
                     off + file_size_hint,
@@ -773,7 +820,7 @@ pub const File = struct {
 
                 const file_size_hint = 128;
                 const p_align = 1;
-                const off = self.findFreeSpace(file_size_hint, p_align);
+                const off = self.findFreeSpace(file_size_hint, p_align)orelse return error.NoFreeSpace;
                 log.debug(.link, "found .debug_abbrev free space 0x{x} to 0x{x}\n", .{
                     off,
                     off + file_size_hint,
@@ -798,7 +845,7 @@ pub const File = struct {
 
                 const file_size_hint = 160;
                 const p_align = 16;
-                const off = self.findFreeSpace(file_size_hint, p_align);
+                const off = self.findFreeSpace(file_size_hint, p_align)orelse return error.NoFreeSpace;
                 log.debug(.link, "found .debug_aranges free space 0x{x} to 0x{x}\n", .{
                     off,
                     off + file_size_hint,
@@ -827,7 +874,7 @@ pub const File = struct {
                 .p64 => @alignOf(elf.Elf64_Shdr),
             };
             if (self.shdr_table_offset == null) {
-                self.shdr_table_offset = self.findFreeSpace(self.sections.items.len * shsize, shalign);
+                self.shdr_table_offset = self.findFreeSpace(self.sections.items.len * shsize, shalign) orelse return error.NoFreeSpace;
                 self.shdr_table_dirty = true;
             }
             const phsize: u64 = switch (self.ptr_width) {
@@ -839,7 +886,7 @@ pub const File = struct {
                 .p64 => @alignOf(elf.Elf64_Phdr),
             };
             if (self.phdr_table_offset == null) {
-                self.phdr_table_offset = self.findFreeSpace(self.program_headers.items.len * phsize, phalign);
+                self.phdr_table_offset = self.findFreeSpace(self.program_headers.items.len * phsize, phalign) orelse return error.NoFreeSpace;
                 self.phdr_table_dirty = true;
             }
             {
@@ -887,7 +934,7 @@ pub const File = struct {
                 const allocated_size = self.allocatedSize(debug_abbrev_sect.sh_offset);
                 if (needed_size > allocated_size) {
                     debug_abbrev_sect.sh_size = 0; // free the space
-                    debug_abbrev_sect.sh_offset = self.findFreeSpace(needed_size, 1);
+                    debug_abbrev_sect.sh_offset = self.findFreeSpace(needed_size, 1)orelse return error.NoFreeSpace;
                 }
                 debug_abbrev_sect.sh_size = needed_size;
                 log.debug(.link, ".debug_abbrev start=0x{x} end=0x{x}\n", .{
@@ -897,7 +944,7 @@ pub const File = struct {
 
                 const abbrev_offset = 0;
                 self.debug_abbrev_table_offset = abbrev_offset;
-                try self.file.?.pwriteAll(&abbrev_buf, debug_abbrev_sect.sh_offset + abbrev_offset);
+                try self.base.file.?.pwriteAll(&abbrev_buf, debug_abbrev_sect.sh_offset + abbrev_offset);
                 if (!self.shdr_table_dirty) {
                     // Then it won't get written with the others and we need to do it.
                     try self.writeSectHeader(self.debug_abbrev_section_index.?);
@@ -975,7 +1022,7 @@ pub const File = struct {
                 const allocated_size = self.allocatedSize(debug_info_sect.sh_offset);
                 if (needed_size > allocated_size) {
                     debug_info_sect.sh_size = 0; // free the space
-                    debug_info_sect.sh_offset = self.findFreeSpace(needed_size, 1);
+                    debug_info_sect.sh_offset = self.findFreeSpace(needed_size, 1)orelse return error.NoFreeSpace;
                 }
                 debug_info_sect.sh_size = needed_size;
                 log.debug(.link, ".debug_info start=0x{x} end=0x{x}\n", .{
@@ -983,7 +1030,7 @@ pub const File = struct {
                     debug_info_sect.sh_offset + needed_size,
                 });
 
-                try self.file.?.pwriteAll(di_buf.items, debug_info_sect.sh_offset);
+                try self.base.file.?.pwriteAll(di_buf.items, debug_info_sect.sh_offset);
                 if (!self.shdr_table_dirty) {
                     // Then it won't get written with the others and we need to do it.
                     try self.writeSectHeader(self.debug_info_section_index.?);
@@ -1049,7 +1096,7 @@ pub const File = struct {
                 const allocated_size = self.allocatedSize(debug_aranges_sect.sh_offset);
                 if (needed_size > allocated_size) {
                     debug_aranges_sect.sh_size = 0; // free the space
-                    debug_aranges_sect.sh_offset = self.findFreeSpace(needed_size, 16);
+                    debug_aranges_sect.sh_offset = self.findFreeSpace(needed_size, 16)orelse return error.NoFreeSpace;
                 }
                 debug_aranges_sect.sh_size = needed_size;
                 log.debug(.link, ".debug_aranges start=0x{x} end=0x{x}\n", .{
@@ -1057,7 +1104,7 @@ pub const File = struct {
                     debug_aranges_sect.sh_offset + needed_size,
                 });
 
-                try self.file.?.pwriteAll(di_buf.items, debug_aranges_sect.sh_offset);
+                try self.base.file.?.pwriteAll(di_buf.items, debug_aranges_sect.sh_offset);
                 if (!self.shdr_table_dirty) {
                     // Then it won't get written with the others and we need to do it.
                     try self.writeSectHeader(self.debug_aranges_section_index.?);
@@ -1080,7 +1127,7 @@ pub const File = struct {
 
                 if (needed_size > allocated_size) {
                     self.phdr_table_offset = null; // free the space
-                    self.phdr_table_offset = self.findFreeSpace(needed_size, phalign);
+                    self.phdr_table_offset = self.findFreeSpace(needed_size, phalign) orelse return error.NoFreeSpace;
                 }
 
                 switch (self.ptr_width) {
@@ -1094,7 +1141,7 @@ pub const File = struct {
                                 bswapAllFields(elf.Elf32_Phdr, phdr);
                             }
                         }
-                        try self.file.?.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
+                        try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
                     },
                     .p64 => {
                         const buf = try self.allocator.alloc(elf.Elf64_Phdr, self.program_headers.items.len);
@@ -1106,7 +1153,7 @@ pub const File = struct {
                                 bswapAllFields(elf.Elf64_Phdr, phdr);
                             }
                         }
-                        try self.file.?.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
+                        try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
                     },
                 }
                 self.phdr_table_dirty = false;
@@ -1120,12 +1167,12 @@ pub const File = struct {
 
                     if (needed_size > allocated_size) {
                         shstrtab_sect.sh_size = 0; // free the space
-                        shstrtab_sect.sh_offset = self.findFreeSpace(needed_size, 1);
+                        shstrtab_sect.sh_offset = self.findFreeSpace(needed_size, 1) orelse return error.NoFreeSpace;
                     }
                     shstrtab_sect.sh_size = needed_size;
                     log.debug(.link, "shstrtab start=0x{x} end=0x{x}\n", .{ shstrtab_sect.sh_offset, shstrtab_sect.sh_offset + needed_size });
 
-                    try self.file.?.pwriteAll(self.shstrtab.items, shstrtab_sect.sh_offset);
+                    try self.base.file.?.pwriteAll(self.shstrtab.items, shstrtab_sect.sh_offset);
                     if (!self.shdr_table_dirty) {
                         // Then it won't get written with the others and we need to do it.
                         try self.writeSectHeader(self.shstrtab_index.?);
@@ -1141,12 +1188,12 @@ pub const File = struct {
 
                     if (needed_size > allocated_size) {
                         debug_strtab_sect.sh_size = 0; // free the space
-                        debug_strtab_sect.sh_offset = self.findFreeSpace(needed_size, 1);
+                        debug_strtab_sect.sh_offset = self.findFreeSpace(needed_size, 1)orelse return error.NoFreeSpace;
                     }
                     debug_strtab_sect.sh_size = needed_size;
                     log.debug(.link, "debug_strtab start=0x{x} end=0x{x}\n", .{ debug_strtab_sect.sh_offset, debug_strtab_sect.sh_offset + needed_size });
 
-                    try self.file.?.pwriteAll(self.debug_strtab.items, debug_strtab_sect.sh_offset);
+                    try self.base.file.?.pwriteAll(self.debug_strtab.items, debug_strtab_sect.sh_offset);
                     if (!self.shdr_table_dirty) {
                         // Then it won't get written with the others and we need to do it.
                         try self.writeSectHeader(self.debug_str_section_index.?);
@@ -1168,7 +1215,7 @@ pub const File = struct {
 
                 if (needed_size > allocated_size) {
                     self.shdr_table_offset = null; // free the space
-                    self.shdr_table_offset = self.findFreeSpace(needed_size, shalign);
+                    self.shdr_table_offset = self.findFreeSpace(needed_size, shalign) orelse return error.NoFreeSpace;
                 }
 
                 switch (self.ptr_width) {
@@ -1178,11 +1225,12 @@ pub const File = struct {
 
                         for (buf) |*shdr, i| {
                             shdr.* = sectHeaderTo32(self.sections.items[i]);
+                            std.log.debug(.link, "writing section {}\n", .{shdr.*});
                             if (foreign_endian) {
                                 bswapAllFields(elf.Elf32_Shdr, shdr);
                             }
                         }
-                        try self.file.?.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
+                        try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
                     },
                     .p64 => {
                         const buf = try self.allocator.alloc(elf.Elf64_Shdr, self.sections.items.len);
@@ -1195,7 +1243,7 @@ pub const File = struct {
                                 bswapAllFields(elf.Elf64_Shdr, shdr);
                             }
                         }
-                        try self.file.?.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
+                        try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.shdr_table_offset.?);
                     },
                 }
                 self.shdr_table_dirty = false;
@@ -1347,7 +1395,7 @@ pub const File = struct {
 
             assert(index == e_ehsize);
 
-            try self.file.?.pwriteAll(hdr_buf[0..index], 0);
+            try self.base.file.?.pwriteAll(hdr_buf[0..index], 0);
         }
 
         fn freeTextBlock(self: *Elf, text_block: *TextBlock) void {
@@ -1473,12 +1521,12 @@ pub const File = struct {
                 const needed_size = (vaddr + new_block_size) - phdr.p_vaddr;
                 if (needed_size > text_capacity) {
                     // Must move the entire text section.
-                    const new_offset = self.findFreeSpace(needed_size, 0x1000);
+                    const new_offset = self.findFreeSpace(needed_size, 0x1000) orelse return error.NoFreeSpace;
                     const text_size = if (self.last_text_block) |last| blk: {
                         const sym = self.local_symbols.items[last.local_sym_index];
                         break :blk (sym.st_value + sym.st_size) - phdr.p_vaddr;
                     } else 0;
-                    const amt = try self.file.?.copyRangeAll(shdr.sh_offset, self.file.?, new_offset, text_size);
+                    const amt = try self.base.file.?.copyRangeAll(shdr.sh_offset, self.base.file.?, new_offset, text_size);
                     if (amt != text_size) return error.InputOutput;
                     shdr.sh_offset = new_offset;
                     phdr.p_offset = new_offset;
@@ -1651,7 +1699,7 @@ pub const File = struct {
 
             const section_offset = local_sym.st_value - self.program_headers.items[self.phdr_load_re_index.?].p_vaddr;
             const file_offset = self.sections.items[self.text_section_index.?].sh_offset + section_offset;
-            try self.file.?.pwriteAll(code, file_offset);
+            try self.base.file.?.pwriteAll(code, file_offset);
 
             // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
             const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
@@ -1751,14 +1799,14 @@ pub const File = struct {
                     if (foreign_endian) {
                         bswapAllFields(elf.Elf32_Phdr, &phdr[0]);
                     }
-                    return self.file.?.pwriteAll(mem.sliceAsBytes(&phdr), offset);
+                    return self.base.file.?.pwriteAll(mem.sliceAsBytes(&phdr), offset);
                 },
                 64 => {
                     var phdr = [1]elf.Elf64_Phdr{self.program_headers.items[index]};
                     if (foreign_endian) {
                         bswapAllFields(elf.Elf64_Phdr, &phdr[0]);
                     }
-                    return self.file.?.pwriteAll(mem.sliceAsBytes(&phdr), offset);
+                    return self.base.file.?.pwriteAll(mem.sliceAsBytes(&phdr), offset);
                 },
                 else => return error.UnsupportedArchitecture,
             }
@@ -1774,14 +1822,14 @@ pub const File = struct {
                     if (foreign_endian) {
                         bswapAllFields(elf.Elf32_Shdr, &shdr[0]);
                     }
-                    return self.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
+                    return self.base.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
                 },
                 64 => {
                     var shdr = [1]elf.Elf64_Shdr{self.sections.items[index]};
                     if (foreign_endian) {
                         bswapAllFields(elf.Elf64_Shdr, &shdr[0]);
                     }
-                    return self.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
+                    return self.base.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
                 },
                 else => return error.UnsupportedArchitecture,
             }
@@ -1800,8 +1848,8 @@ pub const File = struct {
                 const needed_size = self.local_symbols.items.len * entry_size;
                 if (needed_size > allocated_size) {
                     // Must move the entire got section.
-                    const new_offset = self.findFreeSpace(needed_size, entry_size);
-                    const amt = try self.file.?.copyRangeAll(shdr.sh_offset, self.file.?, new_offset, shdr.sh_size);
+                    const new_offset = self.findFreeSpace(needed_size, entry_size) orelse return error.NoFreeSpace;
+                    const amt = try self.base.file.?.copyRangeAll(shdr.sh_offset, self.base.file.?, new_offset, shdr.sh_size);
                     if (amt != shdr.sh_size) return error.InputOutput;
                     shdr.sh_offset = new_offset;
                     phdr.p_offset = new_offset;
@@ -1821,12 +1869,12 @@ pub const File = struct {
                 .p32 => {
                     var buf: [4]u8 = undefined;
                     mem.writeInt(u32, &buf, @intCast(u32, self.offset_table.items[index]), endian);
-                    try self.file.?.pwriteAll(&buf, off);
+                    try self.base.file.?.pwriteAll(&buf, off);
                 },
                 .p64 => {
                     var buf: [8]u8 = undefined;
                     mem.writeInt(u64, &buf, self.offset_table.items[index], endian);
-                    try self.file.?.pwriteAll(&buf, off);
+                    try self.base.file.?.pwriteAll(&buf, off);
                 },
             }
         }
@@ -1847,9 +1895,9 @@ pub const File = struct {
                 const needed_size = (self.local_symbols.items.len + self.global_symbols.items.len) * sym_size;
                 if (needed_size > self.allocatedSize(syms_sect.sh_offset)) {
                     // Move all the symbols to a new file location.
-                    const new_offset = self.findFreeSpace(needed_size, sym_align);
+                    const new_offset = self.findFreeSpace(needed_size, sym_align) orelse return error.NoFreeSpace;
                     const existing_size = @as(u64, syms_sect.sh_info) * sym_size;
-                    const amt = try self.file.?.copyRangeAll(syms_sect.sh_offset, self.file.?, new_offset, existing_size);
+                    const amt = try self.base.file.?.copyRangeAll(syms_sect.sh_offset, self.base.file.?, new_offset, existing_size);
                     if (amt != existing_size) return error.InputOutput;
                     syms_sect.sh_offset = new_offset;
                 }
@@ -1874,7 +1922,7 @@ pub const File = struct {
                         bswapAllFields(elf.Elf32_Sym, &sym[0]);
                     }
                     const off = syms_sect.sh_offset + @sizeOf(elf.Elf32_Sym) * index;
-                    try self.file.?.pwriteAll(mem.sliceAsBytes(sym[0..1]), off);
+                    try self.base.file.?.pwriteAll(mem.sliceAsBytes(sym[0..1]), off);
                 },
                 .p64 => {
                     var sym = [1]elf.Elf64_Sym{self.local_symbols.items[index]};
@@ -1882,7 +1930,7 @@ pub const File = struct {
                         bswapAllFields(elf.Elf64_Sym, &sym[0]);
                     }
                     const off = syms_sect.sh_offset + @sizeOf(elf.Elf64_Sym) * index;
-                    try self.file.?.pwriteAll(mem.sliceAsBytes(sym[0..1]), off);
+                    try self.base.file.?.pwriteAll(mem.sliceAsBytes(sym[0..1]), off);
                 },
             }
         }
@@ -1913,7 +1961,7 @@ pub const File = struct {
                             bswapAllFields(elf.Elf32_Sym, sym);
                         }
                     }
-                    try self.file.?.pwriteAll(mem.sliceAsBytes(buf), global_syms_off);
+                    try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), global_syms_off);
                 },
                 .p64 => {
                     const buf = try self.allocator.alloc(elf.Elf64_Sym, self.global_symbols.items.len);
@@ -1932,7 +1980,7 @@ pub const File = struct {
                             bswapAllFields(elf.Elf64_Sym, sym);
                         }
                     }
-                    try self.file.?.pwriteAll(mem.sliceAsBytes(buf), global_syms_off);
+                    try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), global_syms_off);
                 },
             }
         }
@@ -1947,33 +1995,32 @@ pub fn createElfFile(allocator: *Allocator, file: fs.File, options: Options) !Fi
         .Obj => {},
         .Lib => return error.TODOImplementWritingLibFiles,
     }
-    switch (options.object_format) {
-        .c => unreachable,
-        .unknown => unreachable, // TODO remove this tag from the enum
-        .coff => return error.TODOImplementWritingCOFF,
-        .elf => {},
-        .macho => return error.TODOImplementWritingMachO,
-        .wasm => return error.TODOImplementWritingWasmObjects,
-        .hex => return error.TODOImplementWritingHex,
-        .raw => return error.TODOImplementWritingRaw,
-    }
+
+    std.debug.assert(options.object_format == .elf);
 
     var self: File.Elf = .{
         .base = .{
             .tag = .elf,
             .options = options,
+            .file = file,
         },
         .allocator = allocator,
-        .file = file,
         .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
             32 => .p32,
             64 => .p64,
             else => return error.UnsupportedELFArchitecture,
         },
         .shdr_table_dirty = true,
-        .owns_file_handle = false,
     };
     errdefer self.deinit();
+
+    // TODO: expose this better
+    if (self.base.options.target.cpu.arch == .spu_2) {
+        self.base.options.target.address_space = std.ArrayList(std.Target.AddressSpaceEntry).init(allocator);
+        try self.base.options.target.address_space.?.append(std.Target.AddressSpaceEntry{ .readable = true, .writable = true, .executable = true, .start = 0x0, .end = 0x10000 });
+        self.base.options.program_code_size_hint = 0x800;
+        self.base.options.default_entry_addr = 0;
+    }
 
     // Index 0 is always a null symbol.
     try self.local_symbols.append(allocator, .{
@@ -2011,26 +2058,18 @@ fn openBinFileInner(allocator: *Allocator, file: fs.File, options: Options) !Fil
         .Obj => {},
         .Lib => return error.IncrFailed,
     }
-    switch (options.object_format) {
-        .unknown => unreachable, // TODO remove this tag from the enum
-        .c => unreachable,
-        .coff => return error.IncrFailed,
-        .elf => {},
-        .macho => return error.IncrFailed,
-        .wasm => return error.IncrFailed,
-        .hex => return error.IncrFailed,
-        .raw => return error.IncrFailed,
-    }
+
+    std.debug.assert(options.object_format == .elf);
+
     var self: File.Elf = .{
         .base = .{
             .tag = .elf,
             .options = options,
+            .file = file,
         },
         .allocator = allocator,
-        .file = file,
-        .owns_file_handle = false,
         .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
-            32 => .p32,
+16,            32 => .p32,
             64 => .p64,
             else => return error.UnsupportedELFArchitecture,
         },

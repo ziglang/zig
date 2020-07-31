@@ -144,15 +144,20 @@ pub fn generateSymbol(
                 // If the decl changes vaddr, then this symbol needs to get regenerated.
                 const vaddr = bin_file.local_symbols.items[decl.link.local_sym_index].st_value;
                 const endian = bin_file.base.options.target.cpu.arch.endian();
-                switch (bin_file.ptr_width) {
-                    .p32 => {
+                switch (bin_file.base.options.target.cpu.arch.ptrBitWidth()) {
+                    16 => {
+                        try code.resize(2);
+                        mem.writeInt(u16, code.items[0..2], @intCast(u16, vaddr), endian);
+                    },
+                    32 => {
                         try code.resize(4);
                         mem.writeInt(u32, code.items[0..4], @intCast(u32, vaddr), endian);
                     },
-                    .p64 => {
+                    64 => {
                         try code.resize(8);
                         mem.writeInt(u64, code.items[0..8], vaddr, endian);
                     },
+                    else => unreachable,
                 }
                 return Result{ .appended = {} };
             }
@@ -515,9 +520,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             entry.value = .dead;
             switch (prev_value) {
                 .register => |reg| {
-                    const reg64 = reg.to64();
-                    _ = branch.registers.remove(reg64);
-                    branch.markRegFree(reg64);
+                    const allocated = if (arch == .x86_64) reg.to64() else reg;
+                    _ = branch.registers.remove(allocated);
+                    branch.markRegFree(allocated);
                 },
                 else => {}, // TODO process stack allocation death
             }

@@ -970,6 +970,9 @@ pub const EM = extern enum(u16) {
     /// MIPS RS3000 Little-endian
     _MIPS_RS3_LE = 10,
 
+    /// SPU Mark II. This is not a legitimate number. Don't rely on it.
+    _SPU_2 = 13,
+
     /// Hewlett-Packard PA-RISC
     _PARISC = 15,
 

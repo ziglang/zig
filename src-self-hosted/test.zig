@@ -401,8 +401,6 @@ pub const TestContext = struct {
         const root_node = try progress.start("tests", self.cases.items.len);
         defer root_node.end();
 
-        const native_info = try std.zig.system.NativeTargetInfo.detect(std.heap.page_allocator, .{});
-
         for (self.cases.items) |case| {
             std.testing.base_allocator_instance.reset();
 
@@ -415,13 +413,12 @@ pub const TestContext = struct {
             progress.initial_delay_ns = 0;
             progress.refresh_rate_ns = 0;
 
-            const info = try std.zig.system.NativeTargetInfo.detect(std.testing.allocator, case.target);
-            try self.runOneCase(std.testing.allocator, &prg_node, case, info.target);
+            try self.runOneCase(std.testing.allocator, &prg_node, case);
             try std.testing.allocator_instance.validate();
         }
     }
 
-    fn runOneCase(self: *TestContext, allocator: *Allocator, root_node: *std.Progress.Node, case: Case, target: std.Target) !void {
+    fn runOneCase(self: *TestContext, allocator: *Allocator, root_node: *std.Progress.Node, case: Case) !void {
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();
 
@@ -429,12 +426,12 @@ pub const TestContext = struct {
         const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
         defer root_pkg.destroy();
 
-        const bin_name = try std.zig.binNameAlloc(allocator, "test_case", target, case.output_mode, null);
+        const bin_name = try std.zig.binNameAlloc(allocator, "test_case", case.target.toTarget(), case.output_mode, null);
         defer allocator.free(bin_name);
 
         var module = try Module.init(allocator, .{
             .root_name = "test_case",
-            .target = target,
+            .target = case.target.toTarget(),
             // TODO: support tests for object file building, and library builds
             // and linking. This will require a rework to support multi-file
             // tests.
@@ -469,11 +466,11 @@ pub const TestContext = struct {
                 var all_errors = try module.getAllErrorsAlloc();
                 defer all_errors.deinit(allocator);
                 if (all_errors.list.len != 0) {
-                    std.debug.warn("\nErrors occurred updating the module:\n================\n", .{});
+                    std.debug.print("\nErrors occurred updating the module:\n================\n", .{});
                     for (all_errors.list) |err| {
-                        std.debug.warn(":{}:{}: error: {}\n================\n", .{ err.line + 1, err.column + 1, err.msg });
+                        std.debug.print(":{}:{}: error: {}\n================\n", .{ err.line + 1, err.column + 1, err.msg });
                     }
-                    std.debug.warn("Test failed.\n", .{});
+                    std.debug.print("Test failed.\n", .{});
                     std.process.exit(1);
                 }
             }
@@ -489,12 +486,12 @@ pub const TestContext = struct {
                         defer allocator.free(out);
 
                         if (expected_output.len != out.len) {
-                            std.debug.warn("\nTransformed C length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
+                            std.debug.print("\nTransformed C length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
                             std.process.exit(1);
                         }
                         for (expected_output) |e, i| {
                             if (out[i] != e) {
-                                std.debug.warn("\nTransformed C differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
+                                std.debug.print("\nTransformed C differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
                                 std.process.exit(1);
                             }
                         }
@@ -518,12 +515,12 @@ pub const TestContext = struct {
                         defer test_node.end();
 
                         if (expected_output.len != out_zir.items.len) {
-                            std.debug.warn("{}\nTransformed ZIR length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
+                            std.debug.print("{}\nTransformed ZIR length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
                             std.process.exit(1);
                         }
                         for (expected_output) |e, i| {
                             if (out_zir.items[i] != e) {
-                                std.debug.warn("{}\nTransformed ZIR differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
+                                std.debug.print("{}\nTransformed ZIR differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
                                 std.process.exit(1);
                             }
                         }
@@ -547,7 +544,7 @@ pub const TestContext = struct {
                                 break;
                             }
                         } else {
-                            std.debug.warn("{}\nUnexpected error:\n================\n:{}:{}: error: {}\n================\nTest failed.\n", .{ case.name, a.line + 1, a.column + 1, a.msg });
+                            std.debug.print("{}\nUnexpected error:\n================\n:{}:{}: error: {}\n================\nTest failed.\n", .{ case.name, a.line + 1, a.column + 1, a.msg });
                             std.process.exit(1);
                         }
                     }
@@ -555,7 +552,7 @@ pub const TestContext = struct {
                     for (handled_errors) |h, i| {
                         if (!h) {
                             const er = e[i];
-                            std.debug.warn("{}\nDid not receive error:\n================\n{}:{}: {}\n================\nTest failed.\n", .{ case.name, er.line, er.column, er.msg });
+                            std.debug.print("{}\nDid not receive error:\n================\n{}:{}: {}\n================\nTest failed.\n", .{ case.name, er.line, er.column, er.msg });
                             std.process.exit(1);
                         }
                     }
@@ -563,43 +560,52 @@ pub const TestContext = struct {
                 .Execution => |expected_stdout| {
                     std.debug.assert(!case.cbe);
 
-                    update_node.estimated_total_items = 4;
-                    var exec_result = x: {
-                        var exec_node = update_node.start("execute", null);
-                        exec_node.activate();
-                        defer exec_node.end();
+                    if (case.target.isNative() or (case.target.cpu_arch.? == std.builtin.cpu.arch and case.target.os_tag.? == std.builtin.os.tag)) {
+                        update_node.estimated_total_items = 4;
+                        var exec_result = x: {
+                            var exec_node = update_node.start("execute", null);
+                            exec_node.activate();
+                            defer exec_node.end();
 
-                        try module.makeBinFileExecutable();
+                            try module.makeBinFileExecutable();
 
-                        const exe_path = try std.fmt.allocPrint(allocator, "." ++ std.fs.path.sep_str ++ "{}", .{bin_name});
-                        defer allocator.free(exe_path);
+                            const exe_path = try std.fmt.allocPrint(allocator, "." ++ std.fs.path.sep_str ++ "{}", .{bin_name});
+                            defer allocator.free(exe_path);
 
-                        break :x try std.ChildProcess.exec(.{
-                            .allocator = allocator,
-                            .argv = &[_][]const u8{exe_path},
-                            .cwd_dir = tmp.dir,
-                        });
-                    };
-                    var test_node = update_node.start("test", null);
-                    test_node.activate();
-                    defer test_node.end();
+                            break :x try std.ChildProcess.exec(.{
+                                .allocator = allocator,
+                                .argv = &[_][]const u8{exe_path},
+                                .cwd_dir = tmp.dir,
+                            });
+                        };
+                        var test_node = update_node.start("test", null);
+                        test_node.activate();
+                        defer test_node.end();
 
-                    defer allocator.free(exec_result.stdout);
-                    defer allocator.free(exec_result.stderr);
-                    switch (exec_result.term) {
-                        .Exited => |code| {
-                            if (code != 0) {
-                                std.debug.warn("elf file exited with code {}\n", .{code});
-                                return error.BinaryBadExitCode;
-                            }
-                        },
-                        else => return error.BinaryCrashed,
-                    }
-                    if (!std.mem.eql(u8, expected_stdout, exec_result.stdout)) {
-                        std.debug.panic(
-                            "update index {}, mismatched stdout\n====Expected (len={}):====\n{}\n====Actual (len={}):====\n{}\n========\n",
-                            .{ update_index, expected_stdout.len, expected_stdout, exec_result.stdout.len, exec_result.stdout },
-                        );
+                        defer allocator.free(exec_result.stdout);
+                        defer allocator.free(exec_result.stderr);
+                        switch (exec_result.term) {
+                            .Exited => |code| {
+                                if (code != 0) {
+                                    std.debug.print("elf file exited with code {}\n", .{code});
+                                    return error.BinaryBadExitCode;
+                                }
+                            },
+                            else => return error.BinaryCrashed,
+                        }
+                        if (!std.mem.eql(u8, expected_stdout, exec_result.stdout)) {
+                            std.debug.panic(
+                                "update index {}, mismatched stdout\n====Expected (len={}):====\n{}\n====Actual (len={}):====\n{}\n========\n",
+                                .{ update_index, expected_stdout.len, expected_stdout, exec_result.stdout.len, exec_result.stdout },
+                            );
+                        }
+                    } else {
+                        switch (case.target.cpu_arch.?) {
+                            else => |e| {
+                                std.debug.print("TODO implement non-native tests for target arch {}\n", .{e});
+                                std.process.exit(1);
+                            },
+                        }
                     }
                 },
             }
