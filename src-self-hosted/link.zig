@@ -10,6 +10,7 @@ const codegen = @import("codegen.zig");
 const c_codegen = @import("codegen/c.zig");
 const log = std.log;
 const DW = std.dwarf;
+const trace = @import("tracy.zig").trace;
 
 // TODO Turn back on zig fmt when https://github.com/ziglang/zig/issues/5948 is implemented.
 // zig fmt: off
@@ -186,6 +187,9 @@ pub const File = struct {
     }
 
     pub fn flush(base: *File) !void {
+        const tracy = trace(@src());
+        defer tracy.end();
+
         try switch (base.tag) {
             .elf => @fieldParentPtr(Elf, "base", base).flush(),
             .c => @fieldParentPtr(C, "base", base).flush(),
@@ -1464,6 +1468,9 @@ pub const File = struct {
         }
 
         pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
+            const tracy = trace(@src());
+            defer tracy.end();
+
             var code_buffer = std.ArrayList(u8).init(self.allocator);
             defer code_buffer.deinit();
 
@@ -1548,6 +1555,9 @@ pub const File = struct {
             decl: *const Module.Decl,
             exports: []const *Module.Export,
         ) !void {
+            const tracy = trace(@src());
+            defer tracy.end();
+
             // In addition to ensuring capacity for global_symbols, we also ensure capacity for freeing all of
             // them, so that deleting exports is guaranteed to succeed.
             try self.global_symbols.ensureCapacity(self.allocator, self.global_symbols.items.len + exports.len);
