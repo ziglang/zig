@@ -94,6 +94,8 @@ pub fn main() !void {
         return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, info.target);
     } else if (mem.eql(u8, cmd, "version")) {
         // Need to set up the build script to give the version as a comptime value.
+        // TODO when you solve this, also take a look at link.zig, there is a placeholder
+        // that says "TODO version here".
         std.debug.print("TODO version command not implemented yet\n", .{});
         return error.Unimplemented;
     } else if (mem.eql(u8, cmd, "zen")) {
@@ -492,6 +494,7 @@ fn buildOutputType(
     defer root_pkg.destroy();
 
     var module = try Module.init(gpa, .{
+        .root_name = root_name,
         .target = target_info.target,
         .output_mode = output_mode,
         .root_pkg = root_pkg,

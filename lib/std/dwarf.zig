@@ -9,7 +9,7 @@ const leb = @import("debug/leb128.zig");
 
 const ArrayList = std.ArrayList;
 
-usingnamespace @import("dwarf_bits.zig");
+pub usingnamespace @import("dwarf_bits.zig");
 
 const PcRange = struct {
     start: u64,
