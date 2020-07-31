@@ -1710,7 +1710,7 @@ pub const LibExeObjStep = struct {
                 inline for (enum_info.fields) |field| {
                     out.print("    {},\n", .{field.name}) catch unreachable;
                 }
-                out.print("}};\n", .{}) catch unreachable;
+                out.writeAll("};\n") catch unreachable;
             },
             else => {},
         }
