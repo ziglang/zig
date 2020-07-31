@@ -340,6 +340,7 @@ pub const File = struct {
         debug_info_section_index: ?u16 = null,
         debug_abbrev_section_index: ?u16 = null,
         debug_str_section_index: ?u16 = null,
+        debug_aranges_section_index: ?u16 = null,
 
         debug_abbrev_table_offset: ?u64 = null,
 
@@ -366,6 +367,7 @@ pub const File = struct {
         offset_table_count_dirty: bool = false,
         debug_info_section_dirty: bool = false,
         debug_abbrev_section_dirty: bool = false,
+        debug_aranges_section_dirty: bool = false,
 
         error_flags: ErrorFlags = ErrorFlags{},
 
@@ -791,6 +793,31 @@ pub const File = struct {
                 self.shdr_table_dirty = true;
                 self.debug_abbrev_section_dirty = true;
             }
+            if (self.debug_aranges_section_index == null) {
+                self.debug_aranges_section_index = @intCast(u16, self.sections.items.len);
+
+                const file_size_hint = 160;
+                const p_align = 16;
+                const off = self.findFreeSpace(file_size_hint, p_align);
+                log.debug(.link, "found .debug_aranges free space 0x{x} to 0x{x}\n", .{
+                    off,
+                    off + file_size_hint,
+                });
+                try self.sections.append(self.allocator, .{
+                    .sh_name = try self.makeString(".debug_aranges"),
+                    .sh_type = elf.SHT_PROGBITS,
+                    .sh_flags = 0,
+                    .sh_addr = 0,
+                    .sh_offset = off,
+                    .sh_size = file_size_hint,
+                    .sh_link = 0,
+                    .sh_info = 0,
+                    .sh_addralign = p_align,
+                    .sh_entsize = 0,
+                });
+                self.shdr_table_dirty = true;
+                self.debug_aranges_section_dirty = true;
+            }
             const shsize: u64 = switch (self.ptr_width) {
                 .p32 => @sizeOf(elf.Elf32_Shdr),
                 .p64 => @sizeOf(elf.Elf64_Shdr),
@@ -828,6 +855,10 @@ pub const File = struct {
         pub fn flush(self: *Elf) !void {
             const target_endian = self.base.options.target.cpu.arch.endian();
             const foreign_endian = target_endian != std.Target.current.cpu.arch.endian();
+            const ptr_width_bytes: u8 = switch (self.ptr_width) {
+                .p32 => 4,
+                .p64 => 8,
+            };
 
             // Unfortunately these have to be buffered and done at the end because ELF does not allow
             // mixing local and global symbols within a symbol table.
@@ -959,6 +990,80 @@ pub const File = struct {
                 }
 
                 self.debug_info_section_dirty = false;
+            }
+            if (self.debug_aranges_section_dirty) {
+                const debug_aranges_sect = &self.sections.items[self.debug_aranges_section_index.?];
+
+                var di_buf = std.ArrayList(u8).init(self.allocator);
+                defer di_buf.deinit();
+
+                // Enough for all the data without resizing. When support for more compilation units
+                // is added, the size of this section will become more variable.
+                try di_buf.ensureCapacity(100);
+
+                // initial length - length of the .debug_aranges contribution for this compilation unit,
+                // not including the initial length itself.
+                // We have to come back and write it later after we know the size.
+                const init_len_index = di_buf.items.len;
+                switch (self.ptr_width) {
+                    .p32 => di_buf.items.len += 4,
+                    .p64 => di_buf.items.len += 12,
+                }
+                const after_init_len = di_buf.items.len;
+                mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), 2, target_endian); // version
+                // When more than one compilation unit is supported, this will be the offset to it.
+                // For now it is always at offset 0 in .debug_info.
+                self.writeDwarfAddrAssumeCapacity(&di_buf, 0); // .debug_info offset
+                di_buf.appendAssumeCapacity(ptr_width_bytes); // address_size
+                di_buf.appendAssumeCapacity(0); // segment_selector_size
+
+                const end_header_offset = di_buf.items.len;
+                const begin_entries_offset = mem.alignForward(end_header_offset, ptr_width_bytes * 2);
+                di_buf.appendNTimesAssumeCapacity(0, begin_entries_offset - end_header_offset);
+
+                // Currently only one compilation unit is supported, so the address range is simply
+                // identical to the main program header virtual address and memory size.
+                const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
+                self.writeDwarfAddrAssumeCapacity(&di_buf, text_phdr.p_vaddr);
+                self.writeDwarfAddrAssumeCapacity(&di_buf, text_phdr.p_memsz);
+
+                // Sentinel.
+                self.writeDwarfAddrAssumeCapacity(&di_buf, 0);
+                self.writeDwarfAddrAssumeCapacity(&di_buf, 0);
+
+                // Go back and populate the initial length.
+                const init_len = di_buf.items.len - after_init_len;
+                switch (self.ptr_width) {
+                    .p32 => {
+                        mem.writeInt(u32, di_buf.items[init_len_index..][0..4], @intCast(u32, init_len), target_endian);
+                    },
+                    .p64 => {
+                        // initial length - length of the .debug_aranges contribution for this compilation unit,
+                        // not including the initial length itself.
+                        di_buf.items[init_len_index..][0..4].* = [_]u8{ 0xff, 0xff, 0xff, 0xff };
+                        mem.writeInt(u64, di_buf.items[init_len_index + 4..][0..8], init_len, target_endian);
+                    },
+                }
+
+                const needed_size = di_buf.items.len;
+                const allocated_size = self.allocatedSize(debug_aranges_sect.sh_offset);
+                if (needed_size > allocated_size) {
+                    debug_aranges_sect.sh_size = 0; // free the space
+                    debug_aranges_sect.sh_offset = self.findFreeSpace(needed_size, 16);
+                }
+                debug_aranges_sect.sh_size = needed_size;
+                log.debug(.link, ".debug_aranges start=0x{x} end=0x{x}\n", .{
+                    debug_aranges_sect.sh_offset,
+                    debug_aranges_sect.sh_offset + needed_size,
+                });
+
+                try self.file.?.pwriteAll(di_buf.items, debug_aranges_sect.sh_offset);
+                if (!self.shdr_table_dirty) {
+                    // Then it won't get written with the others and we need to do it.
+                    try self.writeSectHeader(self.debug_aranges_section_index.?);
+                }
+
+                self.debug_aranges_section_dirty = false;
             }
 
             if (self.phdr_table_dirty) {
@@ -1106,6 +1211,7 @@ pub const File = struct {
             // The point of flush() is to commit changes, so nothing should be dirty after this.
             assert(!self.debug_info_section_dirty);
             assert(!self.debug_abbrev_section_dirty);
+            assert(!self.debug_aranges_section_dirty);
             assert(!self.phdr_table_dirty);
             assert(!self.shdr_table_dirty);
             assert(!self.shstrtab_dirty);
@@ -1387,6 +1493,10 @@ pub const File = struct {
                 // range of the compilation unit. When we expand the text section, this range changes,
                 // so the .debug_info section becomes dirty.
                 self.debug_info_section_dirty = true;
+                // This becomes dirty for the same reason. We could potentially make this more
+                // fine-grained with the addition of support for more compilation units. It is planned to
+                // model each package as a different compilation unit.
+                self.debug_aranges_section_dirty = true;
 
                 self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
                 self.shdr_table_dirty = true; // TODO look into making only the one section dirty
