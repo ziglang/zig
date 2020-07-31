@@ -53,7 +53,7 @@ pub const Record = union(enum) {
 
 /// Parses intel hex records from the stream, using `mode` as parser configuration.
 /// For each record, `loader` is called with `context` as the first parameter.
-pub fn parseRaw(stream: var, mode: ParseMode, context: var, Errors: type, loader: fn (@TypeOf(context), record: Record) Errors!void) !void {
+pub fn parseRaw(stream: anytype, mode: ParseMode, context: anytype, Errors: type, loader: fn (@TypeOf(context), record: Record) Errors!void) !void {
     while (true) {
         var b = stream.readByte() catch |err| {
             if (err == error.EndOfStream and !mode.pedantic)
@@ -150,7 +150,7 @@ pub fn parseRaw(stream: var, mode: ParseMode, context: var, Errors: type, loader
 
 /// Parses intel hex data segments from the stream, using `mode` as parser configuration.
 /// For each data record, `loader` is called with `context` as the first parameter.
-pub fn parseData(stream: var, mode: ParseMode, context: var, Errors: type, loader: fn (@TypeOf(context), offset: u32, record: []const u8) Errors!void) !?u32 {
+pub fn parseData(stream: anytype, mode: ParseMode, context: anytype, Errors: type, loader: fn (@TypeOf(context), offset: u32, record: []const u8) Errors!void) !?u32 {
     const Parser = struct {
         entry_point: ?u32,
         current_offset: u32,
@@ -245,23 +245,7 @@ test "ihex lax" {
     try parseRaw(stream, ParseMode{ .pedantic = false }, &verifier, error{}, TestVerifier.process);
 }
 
-test "huge file parseRaw" {
-    var file = try std.fs.cwd().openFile("data/huge.ihex", .{ .read = true, .write = false });
-    defer file.close();
-
-    try parseRaw(file.inStream(), ParseMode{ .pedantic = true }, {}, error{}, struct {
-        fn parse(x: void, record: Record) !void {}
-    }.parse);
-}
-
 fn ignoreRecords(x: void, offset: u32, data: []const u8) !void {}
-
-test "huge file parseData" {
-    var file = try std.fs.cwd().openFile("data/huge.ihex", .{ .read = true, .write = false });
-    defer file.close();
-
-    _ = try parseData(file.inStream(), ParseMode{ .pedantic = true }, {}, error{}, ignoreRecords);
-}
 
 test "parseData" {
     var stream = std.io.fixedBufferStream(pedanticTestData).inStream();
