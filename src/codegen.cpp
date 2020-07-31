@@ -5,6 +5,7 @@
  * See http://opensource.org/licenses/MIT
  */
 
+#include "all_types.hpp"
 #include "analyze.hpp"
 #include "ast_render.hpp"
 #include "codegen.hpp"
@@ -8337,7 +8338,7 @@ static void zig_llvm_emit_output(CodeGen *g) {
     // pipeline multiple times if this is requested.
     if (asm_filename != nullptr && bin_filename != nullptr) {
         if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, &err_msg, g->build_mode == BuildModeDebug,
-            is_small, g->enable_time_report, nullptr, bin_filename, llvm_ir_filename))
+            is_small, g->want_sanitize == WantSanitizeEnabled, g->enable_time_report, nullptr, bin_filename, llvm_ir_filename))
         {
             fprintf(stderr, "LLVM failed to emit file: %s\n", err_msg);
             exit(1);
@@ -8347,7 +8348,7 @@ static void zig_llvm_emit_output(CodeGen *g) {
     }
 
     if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, &err_msg, g->build_mode == BuildModeDebug,
-        is_small, g->enable_time_report, asm_filename, bin_filename, llvm_ir_filename))
+        is_small, g->want_sanitize == WantSanitizeEnabled, g->enable_time_report, asm_filename, bin_filename, llvm_ir_filename))
     {
         fprintf(stderr, "LLVM failed to emit file: %s\n", err_msg);
         exit(1);
@@ -9024,6 +9025,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     }
     buf_appendf(contents, "pub const object_format = ObjectFormat.%s;\n", cur_obj_fmt);
     buf_appendf(contents, "pub const mode = %s;\n", build_mode_to_str(g->build_mode));
+    buf_appendf(contents, "pub const sanitized = %s;\n", bool_to_str(g->want_sanitize == WantSanitizeEnabled));
     buf_appendf(contents, "pub const link_libc = %s;\n", bool_to_str(g->libc_link_lib != nullptr));
     buf_appendf(contents, "pub const link_libcpp = %s;\n", bool_to_str(g->libcpp_link_lib != nullptr));
     buf_appendf(contents, "pub const have_error_return_tracing = %s;\n", bool_to_str(g->have_err_ret_tracing));

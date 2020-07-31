@@ -62,6 +62,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -fno-stack-check             disable stack probing in safe builds\n"
         "  -fsanitize-c                 enable C undefined behavior detection in unsafe builds\n"
         "  -fno-sanitize-c              disable C undefined behavior detection in safe builds\n"
+        "  --sanitize                   enable ASan\n"
         "  --emit [asm|bin|llvm-ir]     (deprecated) emit a specific file format as compilation output\n"
         "  -fPIC                        enable Position Independent Code\n"
         "  -fno-PIC                     disable Position Independent Code\n"
@@ -442,6 +443,7 @@ static int main0(int argc, char **argv) {
     WantPIC want_pic = WantPICAuto;
     WantStackCheck want_stack_check = WantStackCheckAuto;
     WantCSanitize want_sanitize_c = WantCSanitizeAuto;
+    WantSanitize want_sanitize = WantSanitizeDisabled;
     bool function_sections = false;
     const char *mcpu = nullptr;
     CodeModel code_model = CodeModelDefault;
@@ -1012,6 +1014,8 @@ static int main0(int argc, char **argv) {
                 want_sanitize_c = WantCSanitizeEnabled;
             } else if (strcmp(arg, "-fno-sanitize-c") == 0) {
                 want_sanitize_c = WantCSanitizeDisabled;
+            } else if (strcmp(arg, "--sanitize") == 0) {
+                want_sanitize = WantSanitizeEnabled;
             } else if (strcmp(arg, "--system-linker-hack") == 0) {
                 system_linker_hack = true;
             } else if (strcmp(arg, "--single-threaded") == 0) {
@@ -1576,6 +1580,7 @@ static int main0(int argc, char **argv) {
             g->want_pic = want_pic;
             g->want_stack_check = want_stack_check;
             g->want_sanitize_c = want_sanitize_c;
+            g->want_sanitize = want_sanitize;
             g->subsystem = subsystem;
 
             g->enable_time_report = timing_info;

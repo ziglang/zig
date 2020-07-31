@@ -2023,6 +2023,11 @@ enum WantCSanitize {
     WantCSanitizeEnabled,
 };
 
+enum WantSanitize {
+    WantSanitizeDisabled,
+    WantSanitizeEnabled,
+};
+
 enum OptionalBool {
     OptionalBoolNull,
     OptionalBoolFalse,
@@ -2209,6 +2214,7 @@ struct CodeGen {
     WantPIC want_pic;
     WantStackCheck want_stack_check;
     WantCSanitize want_sanitize_c;
+    WantSanitize want_sanitize;
     CacheHash cache_hash;
     ErrColor err_color;
     uint32_t next_unresolved_index;

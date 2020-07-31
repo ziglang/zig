@@ -51,6 +51,7 @@
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Utils.h>
+#include <llvm/Transforms/Instrumentation/AddressSanitizer.h>
 
 #include <lld/Common/Driver.h>
 
@@ -90,6 +91,11 @@ char *ZigLLVMGetNativeFeatures(void) {
 
 static void addDiscriminatorsPass(const PassManagerBuilder &Builder, legacy::PassManagerBase &PM) {
     PM.add(createAddDiscriminatorsPass());
+}
+
+static void addAddressSanitizerPasses(const PassManagerBuilder &Builder, legacy::PassManagerBase &PM) {
+    PM.add(createAddressSanitizerFunctionPass());
+    PM.add(createModuleAddressSanitizerLegacyPassPass());
 }
 
 #ifndef NDEBUG
@@ -178,7 +184,7 @@ unsigned ZigLLVMDataLayoutGetProgramAddressSpace(LLVMTargetDataRef TD) {
 
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         char **error_message, bool is_debug,
-        bool is_small, bool time_report,
+        bool is_small, bool sanitize, bool time_report,
         const char *asm_filename, const char *bin_filename, const char *llvm_ir_filename)
 {
     TimePassesIsEnabled = time_report;
@@ -241,6 +247,13 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 
         PMBuilder->addExtension(PassManagerBuilder::EP_EarlyAsPossible, addDiscriminatorsPass);
         PMBuilder->Inliner = createFunctionInliningPass(PMBuilder->OptLevel, PMBuilder->SizeLevel, false);
+    }
+
+    if (sanitize) {
+        PMBuilder->addExtension(PassManagerBuilder::EP_OptimizerLast,
+                               addAddressSanitizerPasses);
+        PMBuilder->addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0,
+                               addAddressSanitizerPasses);
     }
 
     // Set up the per-function pass manager.

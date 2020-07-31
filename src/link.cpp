@@ -2066,6 +2066,10 @@ static void construct_linker_job_elf(LinkJob *lj) {
         }
     }
 
+    if (g->want_sanitize) {
+        lj->args.append("/usr/lib/clang/10.0.0/lib/linux/libclang_rt.asan-x86_64.a");
+    }
+
     // crt end
     if (lj->link_in_crt) {
         if (target_is_android(g->zig_target)) {

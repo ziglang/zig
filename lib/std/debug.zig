@@ -1695,7 +1695,7 @@ else
     runtime_safety and have_segfault_handling_support;
 
 pub fn maybeEnableSegfaultHandler() void {
-    if (enable_segfault_handler) {
+    if (enable_segfault_handler and !builtin.sanitized) {
         std.debug.attachSegfaultHandler();
     }
 }
