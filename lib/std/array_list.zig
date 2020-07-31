@@ -216,6 +216,15 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             mem.set(T, self.items[old_len..self.items.len], value);
         }
 
+        /// Append a value to the list `n` times.
+        /// Asserts the capacity is enough.
+        pub fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
+            const new_len = self.items.len + n;
+            assert(new_len <= self.capacity);
+            mem.set(T, self.items.ptr[self.items.len..new_len], value);
+            self.items.len = new_len;
+        }
+
         /// Adjust the list's length to `new_len`.
         /// Does not initialize added items if any.
         pub fn resize(self: *Self, new_len: usize) !void {
@@ -471,6 +480,15 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             const old_len = self.items.len;
             try self.resize(allocator, self.items.len + n);
             mem.set(T, self.items[old_len..self.items.len], value);
+        }
+
+        /// Append a value to the list `n` times.
+        /// Asserts the capacity is enough.
+        pub fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
+            const new_len = self.items.len + n;
+            assert(new_len <= self.capacity);
+            mem.set(T, self.items.ptr[self.items.len..new_len], value);
+            self.items.len = new_len;
         }
 
         /// Adjust the list's length to `new_len`.
