@@ -75,6 +75,8 @@ next_anon_name_index: usize = 0,
 /// contains Decls that need to be deleted if they end up having no references to them.
 deletion_set: std.ArrayListUnmanaged(*Decl) = .{},
 
+/// Owned by Module.
+root_name: []u8,
 keep_source_files_loaded: bool,
 
 pub const InnerError = error{ OutOfMemory, AnalysisFail };
@@ -772,6 +774,7 @@ pub const AllErrors = struct {
 
 pub const InitOptions = struct {
     target: std.Target,
+    root_name: []const u8,
     root_pkg: *Package,
     output_mode: std.builtin.OutputMode,
     bin_file_dir: ?std.fs.Dir = null,
@@ -783,8 +786,13 @@ pub const InitOptions = struct {
 };
 
 pub fn init(gpa: *Allocator, options: InitOptions) !Module {
+    const root_name = try gpa.dupe(u8, options.root_name);
+    errdefer gpa.free(root_name);
+
     const bin_file_dir = options.bin_file_dir orelse std.fs.cwd();
     const bin_file = try link.openBinFilePath(gpa, bin_file_dir, options.bin_file_path, .{
+        .root_name = root_name,
+        .root_src_dir_path = options.root_pkg.root_src_dir_path,
         .target = options.target,
         .output_mode = options.output_mode,
         .link_mode = options.link_mode orelse .Static,
@@ -821,6 +829,7 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
 
     return Module{
         .gpa = gpa,
+        .root_name = root_name,
         .root_pkg = options.root_pkg,
         .root_scope = root_scope,
         .bin_file_dir = bin_file_dir,
@@ -834,6 +843,7 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
 pub fn deinit(self: *Module) void {
     self.bin_file.destroy();
     const gpa = self.gpa;
+    self.gpa.free(self.root_name);
     self.deletion_set.deinit(gpa);
     self.work_queue.deinit();
 

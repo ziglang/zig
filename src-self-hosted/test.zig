@@ -433,6 +433,7 @@ pub const TestContext = struct {
         defer allocator.free(bin_name);
 
         var module = try Module.init(allocator, .{
+            .root_name = "test_case",
             .target = target,
             // TODO: support tests for object file building, and library builds
             // and linking. This will require a rework to support multi-file

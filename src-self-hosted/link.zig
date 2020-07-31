@@ -8,6 +8,11 @@ const fs = std.fs;
 const elf = std.elf;
 const codegen = @import("codegen.zig");
 const c_codegen = @import("codegen/c.zig");
+const log = std.log;
+const DW = std.dwarf;
+
+// TODO Turn back on zig fmt when https://github.com/ziglang/zig/issues/5948 is implemented.
+// zig fmt: off
 
 const default_entry_addr = 0x8000000;
 
@@ -17,6 +22,8 @@ pub const Options = struct {
     link_mode: std.builtin.LinkMode,
     object_format: std.builtin.ObjectFormat,
     optimize_mode: std.builtin.Mode,
+    root_name: []const u8,
+    root_src_dir_path: []const u8,
     /// Used for calculating how much space to reserve for symbols in case the binary file
     /// does not already have a symbol table.
     symbol_count_hint: u64 = 32,
@@ -319,12 +326,18 @@ pub const File = struct {
         phdr_got_index: ?u16 = null,
         entry_addr: ?u64 = null,
 
+        debug_strtab: std.ArrayListUnmanaged(u8) = std.ArrayListUnmanaged(u8){},
         shstrtab: std.ArrayListUnmanaged(u8) = std.ArrayListUnmanaged(u8){},
         shstrtab_index: ?u16 = null,
 
         text_section_index: ?u16 = null,
         symtab_section_index: ?u16 = null,
         got_section_index: ?u16 = null,
+        debug_info_section_index: ?u16 = null,
+        debug_abbrev_section_index: ?u16 = null,
+        debug_str_section_index: ?u16 = null,
+
+        debug_abbrev_table_offset: ?u64 = null,
 
         /// The same order as in the file. ELF requires global symbols to all be after the
         /// local symbols, they cannot be mixed. So we must buffer all the global symbols and
@@ -345,7 +358,10 @@ pub const File = struct {
         phdr_table_dirty: bool = false,
         shdr_table_dirty: bool = false,
         shstrtab_dirty: bool = false,
+        debug_strtab_dirty: bool = false,
         offset_table_count_dirty: bool = false,
+        debug_info_section_dirty: bool = false,
+        debug_abbrev_section_dirty: bool = false,
 
         error_flags: ErrorFlags = ErrorFlags{},
 
@@ -434,6 +450,7 @@ pub const File = struct {
             self.sections.deinit(self.allocator);
             self.program_headers.deinit(self.allocator);
             self.shstrtab.deinit(self.allocator);
+            self.debug_strtab.deinit(self.allocator);
             self.local_symbols.deinit(self.allocator);
             self.global_symbols.deinit(self.allocator);
             self.global_symbol_free_list.deinit(self.allocator);
@@ -545,6 +562,14 @@ pub const File = struct {
             return @intCast(u32, result);
         }
 
+        fn makeDebugString(self: *Elf, bytes: []const u8) !u32 {
+            try self.debug_strtab.ensureCapacity(self.allocator, self.debug_strtab.items.len + bytes.len + 1);
+            const result = self.debug_strtab.items.len;
+            self.debug_strtab.appendSliceAssumeCapacity(bytes);
+            self.debug_strtab.appendAssumeCapacity(0);
+            return @intCast(u32, result);
+        }
+
         fn getString(self: *Elf, str_off: u32) []const u8 {
             assert(str_off < self.shstrtab.items.len);
             return mem.spanZ(@ptrCast([*:0]const u8, self.shstrtab.items.ptr + str_off));
@@ -572,7 +597,7 @@ pub const File = struct {
                 const file_size = self.base.options.program_code_size_hint;
                 const p_align = 0x1000;
                 const off = self.findFreeSpace(file_size, p_align);
-                std.log.debug(.link, "found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+                log.debug(.link, "found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
                 try self.program_headers.append(self.allocator, .{
                     .p_type = elf.PT_LOAD,
                     .p_offset = off,
@@ -593,7 +618,7 @@ pub const File = struct {
                 // page align.
                 const p_align = 0x1000;
                 const off = self.findFreeSpace(file_size, p_align);
-                std.log.debug(.link, "found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+                log.debug(.link, "found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
                 // TODO instead of hard coding the vaddr, make a function to find a vaddr to put things at.
                 // we'll need to re-use that function anyway, in case the GOT grows and overlaps something
                 // else in virtual memory.
@@ -615,7 +640,7 @@ pub const File = struct {
                 assert(self.shstrtab.items.len == 0);
                 try self.shstrtab.append(self.allocator, 0); // need a 0 at position 0
                 const off = self.findFreeSpace(self.shstrtab.items.len, 1);
-                std.log.debug(.link, "found shstrtab free space 0x{x} to 0x{x}\n", .{ off, off + self.shstrtab.items.len });
+                log.debug(.link, "found shstrtab free space 0x{x} to 0x{x}\n", .{ off, off + self.shstrtab.items.len });
                 try self.sections.append(self.allocator, .{
                     .sh_name = try self.makeString(".shstrtab"),
                     .sh_type = elf.SHT_STRTAB,
@@ -629,6 +654,27 @@ pub const File = struct {
                     .sh_entsize = 0,
                 });
                 self.shstrtab_dirty = true;
+                self.shdr_table_dirty = true;
+            }
+            if (self.debug_str_section_index == null) {
+                self.debug_str_section_index = @intCast(u16, self.sections.items.len);
+                assert(self.debug_strtab.items.len == 0);
+                try self.debug_strtab.append(self.allocator, 0); // need a 0 at position 0
+                const off = self.findFreeSpace(self.debug_strtab.items.len, 1);
+                log.debug(.link, "found debug_strtab free space 0x{x} to 0x{x}\n", .{ off, off + self.debug_strtab.items.len });
+                try self.sections.append(self.allocator, .{
+                    .sh_name = try self.makeString(".debug_str"),
+                    .sh_type = elf.SHT_PROGBITS,
+                    .sh_flags = elf.SHF_MERGE | elf.SHF_STRINGS,
+                    .sh_addr = 0,
+                    .sh_offset = off,
+                    .sh_size = self.debug_strtab.items.len,
+                    .sh_link = 0,
+                    .sh_info = 0,
+                    .sh_addralign = 1,
+                    .sh_entsize = 1,
+                });
+                self.debug_strtab_dirty = true;
                 self.shdr_table_dirty = true;
             }
             if (self.text_section_index == null) {
@@ -673,7 +719,7 @@ pub const File = struct {
                 const each_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym);
                 const file_size = self.base.options.symbol_count_hint * each_size;
                 const off = self.findFreeSpace(file_size, min_align);
-                std.log.debug(.link, "found symtab free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+                log.debug(.link, "found symtab free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
 
                 try self.sections.append(self.allocator, .{
                     .sh_name = try self.makeString(".symtab"),
@@ -690,6 +736,56 @@ pub const File = struct {
                 });
                 self.shdr_table_dirty = true;
                 try self.writeSymbol(0);
+            }
+            if (self.debug_info_section_index == null) {
+                self.debug_info_section_index = @intCast(u16, self.sections.items.len);
+
+                const file_size_hint = 200;
+                const p_align = 1;
+                const off = self.findFreeSpace(file_size_hint, p_align);
+                log.debug(.link, "found .debug_info free space 0x{x} to 0x{x}\n", .{
+                    off,
+                    off + file_size_hint,
+                });
+                try self.sections.append(self.allocator, .{
+                    .sh_name = try self.makeString(".debug_info"),
+                    .sh_type = elf.SHT_PROGBITS,
+                    .sh_flags = 0,
+                    .sh_addr = 0,
+                    .sh_offset = off,
+                    .sh_size = file_size_hint,
+                    .sh_link = 0,
+                    .sh_info = 0,
+                    .sh_addralign = p_align,
+                    .sh_entsize = 0,
+                });
+                self.shdr_table_dirty = true;
+                self.debug_info_section_dirty = true;
+            }
+            if (self.debug_abbrev_section_index == null) {
+                self.debug_abbrev_section_index = @intCast(u16, self.sections.items.len);
+
+                const file_size_hint = 128;
+                const p_align = 1;
+                const off = self.findFreeSpace(file_size_hint, p_align);
+                log.debug(.link, "found .debug_abbrev free space 0x{x} to 0x{x}\n", .{
+                    off,
+                    off + file_size_hint,
+                });
+                try self.sections.append(self.allocator, .{
+                    .sh_name = try self.makeString(".debug_abbrev"),
+                    .sh_type = elf.SHT_PROGBITS,
+                    .sh_flags = 0,
+                    .sh_addr = 0,
+                    .sh_offset = off,
+                    .sh_size = file_size_hint,
+                    .sh_link = 0,
+                    .sh_info = 0,
+                    .sh_addralign = p_align,
+                    .sh_entsize = 0,
+                });
+                self.shdr_table_dirty = true;
+                self.debug_abbrev_section_dirty = true;
             }
             const shsize: u64 = switch (self.ptr_width) {
                 .p32 => @sizeOf(elf.Elf32_Shdr),
@@ -726,11 +822,140 @@ pub const File = struct {
 
         /// Commit pending changes and write headers.
         pub fn flush(self: *Elf) !void {
-            const foreign_endian = self.base.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
+            const target_endian = self.base.options.target.cpu.arch.endian();
+            const foreign_endian = target_endian != std.Target.current.cpu.arch.endian();
 
             // Unfortunately these have to be buffered and done at the end because ELF does not allow
             // mixing local and global symbols within a symbol table.
             try self.writeAllGlobalSymbols();
+
+            if (self.debug_abbrev_section_dirty) {
+                const debug_abbrev_sect = &self.sections.items[self.debug_abbrev_section_index.?];
+
+                // These are LEB encoded but since the values are all less than 127
+                // we can simply append these bytes.
+                const abbrev_buf = [_]u8{
+                    1, DW.TAG_compile_unit, DW.CHILDREN_no, // header
+                    //DW.AT_stmt_list,  DW.FORM_data4, TODO
+                    DW.AT_low_pc   ,  DW.FORM_addr,
+                    DW.AT_high_pc  ,  DW.FORM_addr,
+                    DW.AT_name     ,  DW.FORM_strp,
+                    DW.AT_comp_dir ,  DW.FORM_strp,
+                    DW.AT_producer ,  DW.FORM_strp,
+                    DW.AT_language ,  DW.FORM_data2,
+                    0, 0, // table sentinel
+
+                    0, 0, 0, // section sentinel
+                };
+
+                const needed_size = abbrev_buf.len;
+                const allocated_size = self.allocatedSize(debug_abbrev_sect.sh_offset);
+                if (needed_size > allocated_size) {
+                    debug_abbrev_sect.sh_size = 0; // free the space
+                    debug_abbrev_sect.sh_offset = self.findFreeSpace(needed_size, 1);
+                }
+                debug_abbrev_sect.sh_size = needed_size;
+                log.debug(.link, ".debug_abbrev start=0x{x} end=0x{x}\n", .{
+                    debug_abbrev_sect.sh_offset,
+                    debug_abbrev_sect.sh_offset + needed_size,
+                });
+
+                const abbrev_offset = 0;
+                self.debug_abbrev_table_offset = abbrev_offset;
+                try self.file.?.pwriteAll(&abbrev_buf, debug_abbrev_sect.sh_offset + abbrev_offset);
+                if (!self.shdr_table_dirty) {
+                    // Then it won't get written with the others and we need to do it.
+                    try self.writeSectHeader(self.debug_abbrev_section_index.?);
+                }
+
+                self.debug_abbrev_section_dirty = false;
+            }
+            if (self.debug_info_section_dirty) {
+                const debug_info_sect = &self.sections.items[self.debug_info_section_index.?];
+
+                var di_buf = std.ArrayList(u8).init(self.allocator);
+                defer di_buf.deinit();
+
+                // Enough for a 64-bit header and main compilation unit without resizing.
+                try di_buf.ensureCapacity(100);
+
+                // initial length - length of the .debug_info contribution for this compilation unit,
+                // not including the initial length itself.
+                // We have to come back and write it later after we know the size.
+                const init_len_index = di_buf.items.len;
+                switch (self.ptr_width) {
+                    .p32 => di_buf.items.len += 4,
+                    .p64 => di_buf.items.len += 12,
+                }
+                const after_init_len = di_buf.items.len;
+                mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), 5, target_endian); // DWARF version
+                di_buf.appendAssumeCapacity(DW.UT_compile);
+                const abbrev_offset = self.debug_abbrev_table_offset.?;
+                switch (self.ptr_width) {
+                    .p32 => {
+                        di_buf.appendAssumeCapacity(4); // address size
+                        mem.writeInt(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, abbrev_offset), target_endian);
+                    },
+                    .p64 => {
+                        di_buf.appendAssumeCapacity(8); // address size
+                        mem.writeInt(u64, di_buf.addManyAsArrayAssumeCapacity(8), abbrev_offset, target_endian);
+                    },
+                }
+                // Write the form for the compile unit, which must match the abbrev table above.
+                const name_strp = try self.makeDebugString(self.base.options.root_name);
+                const comp_dir_strp = try self.makeDebugString(self.base.options.root_src_dir_path);
+                const producer_strp = try self.makeDebugString("zig (TODO version here)");
+                // Currently only one compilation unit is supported, so the address range is simply
+                // identical to the main program header virtual address and memory size.
+                const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
+                const low_pc = text_phdr.p_vaddr;
+                const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
+
+                di_buf.appendAssumeCapacity(1); // abbrev tag, matching the value from the abbrev table header
+                //DW.AT_stmt_list,  DW.FORM_data4, TODO line information
+                self.writeDwarfAddrAssumeCapacity(&di_buf, low_pc);
+                self.writeDwarfAddrAssumeCapacity(&di_buf, high_pc);
+                self.writeDwarfAddrAssumeCapacity(&di_buf, name_strp);
+                self.writeDwarfAddrAssumeCapacity(&di_buf, comp_dir_strp);
+                self.writeDwarfAddrAssumeCapacity(&di_buf, producer_strp);
+                // We are still waiting on dwarf-std.org to assign DW_LANG_Zig a number:
+                // http://dwarfstd.org/ShowIssue.php?issue=171115.1
+                // Until then we say it is C99.
+                mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), DW.LANG_C99, target_endian);
+
+                const init_len = di_buf.items.len - after_init_len;
+                switch (self.ptr_width) {
+                    .p32 => {
+                        mem.writeInt(u32, di_buf.items[init_len_index..][0..4], @intCast(u32, init_len), target_endian);
+                    },
+                    .p64 => {
+                        // initial length - length of the .debug_info contribution for this compilation unit,
+                        // not including the initial length itself.
+                        di_buf.items[init_len_index..][0..4].* = [_]u8{ 0xff, 0xff, 0xff, 0xff };
+                        mem.writeInt(u64, di_buf.items[init_len_index + 4..][0..8], init_len, target_endian);
+                    },
+                }
+
+                const needed_size = di_buf.items.len;
+                const allocated_size = self.allocatedSize(debug_info_sect.sh_offset);
+                if (needed_size > allocated_size) {
+                    debug_info_sect.sh_size = 0; // free the space
+                    debug_info_sect.sh_offset = self.findFreeSpace(needed_size, 1);
+                }
+                debug_info_sect.sh_size = needed_size;
+                log.debug(.link, ".debug_info start=0x{x} end=0x{x}\n", .{
+                    debug_info_sect.sh_offset,
+                    debug_info_sect.sh_offset + needed_size,
+                });
+
+                try self.file.?.pwriteAll(di_buf.items, debug_info_sect.sh_offset);
+                if (!self.shdr_table_dirty) {
+                    // Then it won't get written with the others and we need to do it.
+                    try self.writeSectHeader(self.debug_info_section_index.?);
+                }
+
+                self.debug_info_section_dirty = false;
+            }
 
             if (self.phdr_table_dirty) {
                 const phsize: u64 = switch (self.ptr_width) {
@@ -789,7 +1014,7 @@ pub const File = struct {
                         shstrtab_sect.sh_offset = self.findFreeSpace(needed_size, 1);
                     }
                     shstrtab_sect.sh_size = needed_size;
-                    std.log.debug(.link, "shstrtab start=0x{x} end=0x{x}\n", .{ shstrtab_sect.sh_offset, shstrtab_sect.sh_offset + needed_size });
+                    log.debug(.link, "shstrtab start=0x{x} end=0x{x}\n", .{ shstrtab_sect.sh_offset, shstrtab_sect.sh_offset + needed_size });
 
                     try self.file.?.pwriteAll(self.shstrtab.items, shstrtab_sect.sh_offset);
                     if (!self.shdr_table_dirty) {
@@ -797,6 +1022,27 @@ pub const File = struct {
                         try self.writeSectHeader(self.shstrtab_index.?);
                     }
                     self.shstrtab_dirty = false;
+                }
+            }
+            {
+                const debug_strtab_sect = &self.sections.items[self.debug_str_section_index.?];
+                if (self.debug_strtab_dirty or self.debug_strtab.items.len != debug_strtab_sect.sh_size) {
+                    const allocated_size = self.allocatedSize(debug_strtab_sect.sh_offset);
+                    const needed_size = self.debug_strtab.items.len;
+
+                    if (needed_size > allocated_size) {
+                        debug_strtab_sect.sh_size = 0; // free the space
+                        debug_strtab_sect.sh_offset = self.findFreeSpace(needed_size, 1);
+                    }
+                    debug_strtab_sect.sh_size = needed_size;
+                    log.debug(.link, "debug_strtab start=0x{x} end=0x{x}\n", .{ debug_strtab_sect.sh_offset, debug_strtab_sect.sh_offset + needed_size });
+
+                    try self.file.?.pwriteAll(self.debug_strtab.items, debug_strtab_sect.sh_offset);
+                    if (!self.shdr_table_dirty) {
+                        // Then it won't get written with the others and we need to do it.
+                        try self.writeSectHeader(self.debug_str_section_index.?);
+                    }
+                    self.debug_strtab_dirty = false;
                 }
             }
             if (self.shdr_table_dirty) {
@@ -835,7 +1081,7 @@ pub const File = struct {
 
                         for (buf) |*shdr, i| {
                             shdr.* = self.sections.items[i];
-                            std.log.debug(.link, "writing section {}\n", .{shdr.*});
+                            log.debug(.link, "writing section {}\n", .{shdr.*});
                             if (foreign_endian) {
                                 bswapAllFields(elf.Elf64_Shdr, shdr);
                             }
@@ -846,7 +1092,7 @@ pub const File = struct {
                 self.shdr_table_dirty = false;
             }
             if (self.entry_addr == null and self.base.options.output_mode == .Exe) {
-                std.log.debug(.link, "no_entry_point_found = true\n", .{});
+                log.debug(.link, "no_entry_point_found = true\n", .{});
                 self.error_flags.no_entry_point_found = true;
             } else {
                 self.error_flags.no_entry_point_found = false;
@@ -854,12 +1100,23 @@ pub const File = struct {
             }
 
             // The point of flush() is to commit changes, so nothing should be dirty after this.
+            assert(!self.debug_info_section_dirty);
+            assert(!self.debug_abbrev_section_dirty);
             assert(!self.phdr_table_dirty);
             assert(!self.shdr_table_dirty);
             assert(!self.shstrtab_dirty);
+            assert(!self.debug_strtab_dirty);
             assert(!self.offset_table_count_dirty);
             const syms_sect = &self.sections.items[self.symtab_section_index.?];
             assert(syms_sect.sh_info == self.local_symbols.items.len);
+        }
+
+        fn writeDwarfAddrAssumeCapacity(self: *Elf, buf: *std.ArrayList(u8), addr: u64) void {
+            const target_endian = self.base.options.target.cpu.arch.endian();
+            switch (self.ptr_width) {
+                .p32 => mem.writeInt(u32, buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, addr), target_endian),
+                .p64 => mem.writeInt(u64, buf.addManyAsArrayAssumeCapacity(8), addr, target_endian),
+            }
         }
 
         fn writeElfHeader(self: *Elf) !void {
@@ -1122,6 +1379,11 @@ pub const File = struct {
                 phdr.p_memsz = needed_size;
                 phdr.p_filesz = needed_size;
 
+                // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
+                // range of the compilation unit. When we expand the text section, this range changes,
+                // so the .debug_info section becomes dirty.
+                self.debug_info_section_dirty = true;
+
                 self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
                 self.shdr_table_dirty = true; // TODO look into making only the one section dirty
             }
@@ -1160,10 +1422,10 @@ pub const File = struct {
             try self.offset_table_free_list.ensureCapacity(self.allocator, self.local_symbols.items.len);
 
             if (self.local_symbol_free_list.popOrNull()) |i| {
-                std.log.debug(.link, "reusing symbol index {} for {}\n", .{ i, decl.name });
+                log.debug(.link, "reusing symbol index {} for {}\n", .{ i, decl.name });
                 decl.link.local_sym_index = i;
             } else {
-                std.log.debug(.link, "allocating symbol index {} for {}\n", .{ self.local_symbols.items.len, decl.name });
+                log.debug(.link, "allocating symbol index {} for {}\n", .{ self.local_symbols.items.len, decl.name });
                 decl.link.local_sym_index = @intCast(u32, self.local_symbols.items.len);
                 _ = self.local_symbols.addOneAssumeCapacity();
             }
@@ -1231,11 +1493,11 @@ pub const File = struct {
                     !mem.isAlignedGeneric(u64, local_sym.st_value, required_alignment);
                 if (need_realloc) {
                     const vaddr = try self.growTextBlock(&decl.link, code.len, required_alignment);
-                    std.log.debug(.link, "growing {} from 0x{x} to 0x{x}\n", .{ decl.name, local_sym.st_value, vaddr });
+                    log.debug(.link, "growing {} from 0x{x} to 0x{x}\n", .{ decl.name, local_sym.st_value, vaddr });
                     if (vaddr != local_sym.st_value) {
                         local_sym.st_value = vaddr;
 
-                        std.log.debug(.link, "  (writing new offset table entry)\n", .{});
+                        log.debug(.link, "  (writing new offset table entry)\n", .{});
                         self.offset_table.items[decl.link.offset_table_index] = vaddr;
                         try self.writeOffsetTableEntry(decl.link.offset_table_index);
                     }
@@ -1253,7 +1515,7 @@ pub const File = struct {
                 const decl_name = mem.spanZ(decl.name);
                 const name_str_index = try self.makeString(decl_name);
                 const vaddr = try self.allocateTextBlock(&decl.link, code.len, required_alignment);
-                std.log.debug(.link, "allocated text block for {} at 0x{x}\n", .{ decl_name, vaddr });
+                log.debug(.link, "allocated text block for {} at 0x{x}\n", .{ decl_name, vaddr });
                 errdefer self.freeTextBlock(&decl.link);
 
                 local_sym.* = .{

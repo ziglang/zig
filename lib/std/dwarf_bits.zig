@@ -680,3 +680,12 @@ pub const LANG_HP_Basic91 = 0x8004;
 pub const LANG_HP_Pascal91 = 0x8005;
 pub const LANG_HP_IMacro = 0x8006;
 pub const LANG_HP_Assembler = 0x8007;
+
+pub const UT_compile = 0x01;
+pub const UT_type = 0x02;
+pub const UT_partial = 0x03;
+pub const UT_skeleton = 0x04;
+pub const UT_split_compile = 0x05;
+pub const UT_split_type = 0x06;
+pub const UT_lo_user = 0x80;
+pub const UT_hi_user = 0xff;
