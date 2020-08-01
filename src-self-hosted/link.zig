@@ -675,7 +675,7 @@ pub const File = struct {
                 // TODO instead of hard coding the vaddr, make a function to find a vaddr to put things at.
                 // we'll need to re-use that function anyway, in case the GOT grows and overlaps something
                 // else in virtual memory.
-                const default_got_addr = if (ptr_size == 2) @as(u32, 0x8000) else 0x4000000;
+                const default_got_addr = if (self.base.options.target.address_space != null) @as(u32, 0x8000) else 0x4000000;
                 try self.program_headers.append(self.allocator, .{
                     .p_type = elf.PT_LOAD,
                     .p_offset = off,

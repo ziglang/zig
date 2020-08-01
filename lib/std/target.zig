@@ -643,9 +643,6 @@ pub const Target = struct {
             // Non-LLVM targets
             spu_2,
 
-            // Non-LLVM targets
-            spu_2,
-
             pub fn isARM(arch: Arch) bool {
                 return switch (arch) {
                     .arm, .armeb => true,
