@@ -1,8 +1,7 @@
 const mem = @import("../mem.zig");
-const math = @import("../math.zig");
-const endian = @import("../endian.zig");
-const debug = @import("../debug.zig");
 const builtin = @import("builtin");
+const debug = @import("../debug.zig");
+const math = @import("../math.zig");
 const htest = @import("test.zig");
 
 const RoundParam = struct {
@@ -67,10 +66,17 @@ pub fn Blake2s(comptime out_len: usize) type {
         buf: [64]u8,
         buf_len: u8,
 
+        key: []const u8,
+
         pub fn init() Self {
+            return init_keyed("");
+        }
+
+        pub fn init_keyed(key: []const u8) Self {
             debug.assert(8 <= out_len and out_len <= 512);
 
             var s: Self = undefined;
+            s.key = key;
             s.reset();
             return s;
         }
@@ -78,14 +84,24 @@ pub fn Blake2s(comptime out_len: usize) type {
         pub fn reset(d: *Self) void {
             mem.copy(u32, d.h[0..], iv[0..]);
 
-            // No key plus default parameters
-            d.h[0] ^= 0x01010000 ^ @intCast(u32, out_len >> 3);
+            // default parameters
+            d.h[0] ^= 0x01010000 ^ @truncate(u32, d.key.len << 8) ^ @intCast(u32, out_len >> 3);
             d.t = 0;
             d.buf_len = 0;
+
+            if (d.key.len > 0) {
+                mem.set(u8, d.buf[d.key.len..], 0);
+                d.update(d.key);
+                d.buf_len = 64;
+            }
         }
 
         pub fn hash(b: []const u8, out: []u8) void {
-            var d = Self.init();
+            Self.hash_keyed("", b, out);
+        }
+
+        pub fn hash_keyed(key: []const u8, b: []const u8, out: []u8) void {
+            var d = Self.init_keyed(key);
             d.update(b);
             d.final(out);
         }
@@ -230,19 +246,22 @@ test "blake2s224 streaming" {
     htest.assertEqual(h3, out[0..]);
 }
 
-test "blake2s224 aligned final" {
-    var block = [_]u8{0} ** Blake2s224.block_length;
-    var out: [Blake2s224.digest_length]u8 = undefined;
+test "comptime blake2s224" {
+    comptime {
+        @setEvalBranchQuota(6000);
+        var block = [_]u8{0} ** Blake2s224.block_length;
+        var out: [Blake2s224.digest_length]u8 = undefined;
 
-    const h1 = "86b7611563293f8c73627df7a6d6ba25ca0548c2a6481f7d116ee576";
+        const h1 = "86b7611563293f8c73627df7a6d6ba25ca0548c2a6481f7d116ee576";
 
-    htest.assertEqualHash(Blake2s224, h1, block[0..]);
+        htest.assertEqualHash(Blake2s224, h1, block[0..]);
 
-    var h = Blake2s224.init();
-    h.update(&block);
-    h.final(out[0..]);
+        var h = Blake2s224.init();
+        h.update(&block);
+        h.final(out[0..]);
 
-    htest.assertEqual(h1, out[0..]);
+        htest.assertEqual(h1, out[0..]);
+    }
 }
 
 test "blake2s256 single" {
@@ -296,9 +315,32 @@ test "blake2s256 streaming" {
     htest.assertEqual(h3, out[0..]);
 }
 
+test "blake2s256 keyed" {
+    var out: [32]u8 = undefined;
+
+    const h1 = "10f918da4d74fab3302e48a5d67d03804b1ec95372a62a0f33b7c9fa28ba1ae6";
+    const key = "secret_key";
+
+    Blake2s256.hash_keyed(key, "a" ** 64 ++ "b" ** 64, &out);
+    htest.assertEqual(h1, out[0..]);
+
+    var h = Blake2s256.init_keyed(key);
+    h.update("a" ** 64 ++ "b" ** 64);
+    h.final(out[0..]);
+
+    htest.assertEqual(h1, out[0..]);
+
+    h.reset();
+    h.update("a" ** 64);
+    h.update("b" ** 64);
+    h.final(out[0..]);
+
+    htest.assertEqual(h1, out[0..]);
+}
+
 test "comptime blake2s256" {
     comptime {
-        @setEvalBranchQuota(8000);
+        @setEvalBranchQuota(6000);
         var block = [_]u8{0} ** Blake2s256.block_length;
         var out: [Blake2s256.digest_length]u8 = undefined;
 
@@ -358,10 +400,17 @@ pub fn Blake2b(comptime out_len: usize) type {
         buf: [128]u8,
         buf_len: u8,
 
+        key: []const u8,
+
         pub fn init() Self {
+            return init_keyed("");
+        }
+
+        pub fn init_keyed(key: []const u8) Self {
             debug.assert(8 <= out_len and out_len <= 512);
 
             var s: Self = undefined;
+            s.key = key;
             s.reset();
             return s;
         }
@@ -369,14 +418,24 @@ pub fn Blake2b(comptime out_len: usize) type {
         pub fn reset(d: *Self) void {
             mem.copy(u64, d.h[0..], iv[0..]);
 
-            // No key plus default parameters
-            d.h[0] ^= 0x01010000 ^ (out_len >> 3);
+            // default parameters
+            d.h[0] ^= 0x01010000 ^ @truncate(u32, d.key.len << 8) ^ @intCast(u32, out_len >> 3);
             d.t = 0;
             d.buf_len = 0;
+
+            if (d.key.len > 0) {
+                mem.set(u8, d.buf[d.key.len..], 0);
+                d.update(d.key);
+                d.buf_len = 128;
+            }
         }
 
         pub fn hash(b: []const u8, out: []u8) void {
-            var d = Self.init();
+            Self.hash_keyed("", b, out);
+        }
+
+        pub fn hash_keyed(key: []const u8, b: []const u8, out: []u8) void {
+            var d = Self.init_keyed(key);
             d.update(b);
             d.final(out);
         }
@@ -519,19 +578,22 @@ test "blake2b384 streaming" {
     htest.assertEqual(h3, out[0..]);
 }
 
-test "blake2b384 aligned final" {
-    var block = [_]u8{0} ** Blake2b384.block_length;
-    var out: [Blake2b384.digest_length]u8 = undefined;
+test "comptime blake2b384" {
+    comptime {
+        @setEvalBranchQuota(7000);
+        var block = [_]u8{0} ** Blake2b384.block_length;
+        var out: [Blake2b384.digest_length]u8 = undefined;
 
-    const h1 = "e8aa1931ea0422e4446fecdd25c16cf35c240b10cb4659dd5c776eddcaa4d922397a589404b46eb2e53d78132d05fd7d";
+        const h1 = "e8aa1931ea0422e4446fecdd25c16cf35c240b10cb4659dd5c776eddcaa4d922397a589404b46eb2e53d78132d05fd7d";
 
-    htest.assertEqualHash(Blake2b384, h1, block[0..]);
+        htest.assertEqualHash(Blake2b384, h1, block[0..]);
 
-    var h = Blake2b384.init();
-    h.update(&block);
-    h.final(out[0..]);
+        var h = Blake2b384.init();
+        h.update(&block);
+        h.final(out[0..]);
 
-    htest.assertEqual(h1, out[0..]);
+        htest.assertEqual(h1, out[0..]);
+    }
 }
 
 test "blake2b512 single" {
@@ -583,6 +645,29 @@ test "blake2b512 streaming" {
     h.update("b" ** 64);
     h.final(out[0..]);
     htest.assertEqual(h3, out[0..]);
+}
+
+test "blake2b512 keyed" {
+    var out: [64]u8 = undefined;
+
+    const h1 = "8a978060ccaf582f388f37454363071ac9a67e3a704585fd879fb8a419a447e389c7c6de790faa20a7a7dccf197de736bc5b40b98a930b36df5bee7555750c4d";
+    const key = "secret_key";
+
+    Blake2b512.hash_keyed(key, "a" ** 64 ++ "b" ** 64, &out);
+    htest.assertEqual(h1, out[0..]);
+
+    var h = Blake2b512.init_keyed(key);
+    h.update("a" ** 64 ++ "b" ** 64);
+    h.final(out[0..]);
+
+    htest.assertEqual(h1, out[0..]);
+
+    h.reset();
+    h.update("a" ** 64);
+    h.update("b" ** 64);
+    h.final(out[0..]);
+
+    htest.assertEqual(h1, out[0..]);
 }
 
 test "comptime blake2b512" {
