@@ -29098,6 +29098,19 @@ static IrInstGen *ir_align_cast(IrAnalyze *ira, IrInstGen *target, uint32_t alig
     ZigType *result_type;
     uint32_t old_align_bytes;
 
+    ZigType *actual_ptr = target_type;
+    if (actual_ptr->id == ZigTypeIdOptional) {
+        actual_ptr = actual_ptr->data.maybe.child_type;
+    } else if (is_slice(actual_ptr)) {
+        actual_ptr = actual_ptr->data.structure.fields[slice_ptr_index]->type_entry;
+    }
+
+    if (safety_check_on && !type_has_bits(ira->codegen, actual_ptr)) {
+        ir_add_error(ira, &target->base,
+            buf_sprintf("cannot adjust alignment of zero sized type '%s'", buf_ptr(&target_type->name)));
+        return ira->codegen->invalid_inst_gen;
+    }
+
     if (target_type->id == ZigTypeIdPointer) {
         result_type = adjust_ptr_align(ira->codegen, target_type, align_bytes);
         if ((err = resolve_ptr_align(ira, target_type, &old_align_bytes)))
