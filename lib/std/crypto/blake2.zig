@@ -188,6 +188,9 @@ test "blake2s224 single" {
 
     const h3 = "e4e5cb6c7cae41982b397bf7b7d2d9d1949823ae78435326e8db4912";
     htest.assertEqualHash(Blake2s224, h3, "The quick brown fox jumps over the lazy dog");
+
+    const h4 = "557381a78facd2b298640f4e32113e58967d61420af1aa939d0cfe01";
+    htest.assertEqualHash(Blake2s224, h4, "a" ** 32 ++ "b" ** 32);
 }
 
 test "blake2s224 streaming" {
@@ -212,6 +215,34 @@ test "blake2s224 streaming" {
     h.update("c");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
+
+    const h3 = "557381a78facd2b298640f4e32113e58967d61420af1aa939d0cfe01";
+
+    h.reset();
+    h.update("a" ** 32);
+    h.update("b" ** 32);
+    h.final(out[0..]);
+    htest.assertEqual(h3, out[0..]);
+
+    h.reset();
+    h.update("a" ** 32 ++ "b" ** 32);
+    h.final(out[0..]);
+    htest.assertEqual(h3, out[0..]);
+}
+
+test "blake2s224 aligned final" {
+    var block = [_]u8{0} ** Blake2s224.block_length;
+    var out: [Blake2s224.digest_length]u8 = undefined;
+
+    const h1 = "86b7611563293f8c73627df7a6d6ba25ca0548c2a6481f7d116ee576";
+
+    htest.assertEqualHash(Blake2s224, h1, block[0..]);
+
+    var h = Blake2s224.init();
+    h.update(&block);
+    h.final(out[0..]);
+
+    htest.assertEqual(h1, out[0..]);
 }
 
 test "blake2s256 single" {
@@ -223,6 +254,9 @@ test "blake2s256 single" {
 
     const h3 = "606beeec743ccbeff6cbcdf5d5302aa855c256c29b88c8ed331ea1a6bf3c8812";
     htest.assertEqualHash(Blake2s256, h3, "The quick brown fox jumps over the lazy dog");
+
+    const h4 = "8d8711dade07a6b92b9a3ea1f40bee9b2c53ff3edd2a273dec170b0163568977";
+    htest.assertEqualHash(Blake2s256, h4, "a" ** 32 ++ "b" ** 32);
 }
 
 test "blake2s256 streaming" {
@@ -247,15 +281,34 @@ test "blake2s256 streaming" {
     h.update("c");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
+
+    const h3 = "8d8711dade07a6b92b9a3ea1f40bee9b2c53ff3edd2a273dec170b0163568977";
+
+    h.reset();
+    h.update("a" ** 32);
+    h.update("b" ** 32);
+    h.final(out[0..]);
+    htest.assertEqual(h3, out[0..]);
+
+    h.reset();
+    h.update("a" ** 32 ++ "b" ** 32);
+    h.final(out[0..]);
+    htest.assertEqual(h3, out[0..]);
 }
 
 test "blake2s256 aligned final" {
     var block = [_]u8{0} ** Blake2s256.block_length;
     var out: [Blake2s256.digest_length]u8 = undefined;
 
+    const h1 = "ae09db7cd54f42b490ef09b6bc541af688e4959bb8c53f359a6f56e38ab454a3";
+
+    htest.assertEqualHash(Blake2s256, h1, block[0..]);
+
     var h = Blake2s256.init();
     h.update(&block);
     h.final(out[0..]);
+
+    htest.assertEqual(h1, out[0..]);
 }
 
 /////////////////////
