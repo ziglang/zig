@@ -474,6 +474,9 @@ test "blake2b384 single" {
 
     const h3 = "b7c81b228b6bd912930e8f0b5387989691c1cee1e65aade4da3b86a3c9f678fc8018f6ed9e2906720c8d2a3aeda9c03d";
     htest.assertEqualHash(Blake2b384, h3, "The quick brown fox jumps over the lazy dog");
+
+    const h4 = "b7283f0172fecbbd7eca32ce10d8a6c06b453cb3cf675b33eb4246f0da2bb94a6c0bdd6eec0b5fd71ec4fd51be80bf4c";
+    htest.assertEqualHash(Blake2b384, h4, "a" ** 64 ++ "b" ** 64);
 }
 
 test "blake2b384 streaming" {
@@ -498,6 +501,34 @@ test "blake2b384 streaming" {
     h.update("c");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
+
+    const h3 = "b7283f0172fecbbd7eca32ce10d8a6c06b453cb3cf675b33eb4246f0da2bb94a6c0bdd6eec0b5fd71ec4fd51be80bf4c";
+
+    h.reset();
+    h.update("a" ** 64 ++ "b" ** 64);
+    h.final(out[0..]);
+    htest.assertEqual(h3, out[0..]);
+
+    h.reset();
+    h.update("a" ** 64);
+    h.update("b" ** 64);
+    h.final(out[0..]);
+    htest.assertEqual(h3, out[0..]);
+}
+
+test "blake2b384 aligned final" {
+    var block = [_]u8{0} ** Blake2b384.block_length;
+    var out: [Blake2b384.digest_length]u8 = undefined;
+
+    const h1 = "e8aa1931ea0422e4446fecdd25c16cf35c240b10cb4659dd5c776eddcaa4d922397a589404b46eb2e53d78132d05fd7d";
+
+    htest.assertEqualHash(Blake2b384, h1, block[0..]);
+
+    var h = Blake2b384.init();
+    h.update(&block);
+    h.final(out[0..]);
+
+    htest.assertEqual(h1, out[0..]);
 }
 
 test "blake2b512 single" {
@@ -509,6 +540,9 @@ test "blake2b512 single" {
 
     const h3 = "a8add4bdddfd93e4877d2746e62817b116364a1fa7bc148d95090bc7333b3673f82401cf7aa2e4cb1ecd90296e3f14cb5413f8ed77be73045b13914cdcd6a918";
     htest.assertEqualHash(Blake2b512, h3, "The quick brown fox jumps over the lazy dog");
+
+    const h4 = "049980af04d6a2cf16b4b49793c3ed7e40732073788806f2c989ebe9547bda0541d63abe298ec8955d08af48ae731f2e8a0bd6d201655a5473b4aa79d211b920";
+    htest.assertEqualHash(Blake2b512, h4, "a" ** 64 ++ "b" ** 64);
 }
 
 test "blake2b512 streaming" {
@@ -533,13 +567,32 @@ test "blake2b512 streaming" {
     h.update("c");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
+
+    const h3 = "049980af04d6a2cf16b4b49793c3ed7e40732073788806f2c989ebe9547bda0541d63abe298ec8955d08af48ae731f2e8a0bd6d201655a5473b4aa79d211b920";
+
+    h.reset();
+    h.update("a" ** 64 ++ "b" ** 64);
+    h.final(out[0..]);
+    htest.assertEqual(h3, out[0..]);
+
+    h.reset();
+    h.update("a" ** 64);
+    h.update("b" ** 64);
+    h.final(out[0..]);
+    htest.assertEqual(h3, out[0..]);
 }
 
 test "blake2b512 aligned final" {
     var block = [_]u8{0} ** Blake2b512.block_length;
     var out: [Blake2b512.digest_length]u8 = undefined;
 
+    const h1 = "865939e120e6805438478841afb739ae4250cf372653078a065cdcfffca4caf798e6d462b65d658fc165782640eded70963449ae1500fb0f24981d7727e22c41";
+
+    htest.assertEqualHash(Blake2b512, h1, block[0..]);
+
     var h = Blake2b512.init();
     h.update(&block);
     h.final(out[0..]);
+
+    htest.assertEqual(h1, out[0..]);
 }
