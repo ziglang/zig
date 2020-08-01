@@ -44,8 +44,8 @@ fn renderType(file: *C, writer: std.ArrayList(u8).Writer, T: Type, src: usize) !
 fn renderFunctionSignature(file: *C, writer: std.ArrayList(u8).Writer, decl: *Decl) !void {
     const tv = decl.typed_value.most_recent.typed_value;
     try renderType(file, writer, tv.ty.fnReturnType(), decl.src());
-    const name = try map(file.allocator, mem.spanZ(decl.name));
-    defer file.allocator.free(name);
+    const name = try map(file.base.allocator, mem.spanZ(decl.name));
+    defer file.base.allocator.free(name);
     try writer.print(" {}(", .{name});
     if (tv.ty.fnParamLen() == 0)
         try writer.writeAll("void)")
@@ -64,8 +64,8 @@ pub fn generate(file: *C, decl: *Decl) !void {
 fn genArray(file: *C, decl: *Decl) !void {
     const tv = decl.typed_value.most_recent.typed_value;
     // TODO: prevent inline asm constants from being emitted
-    const name = try map(file.allocator, mem.span(decl.name));
-    defer file.allocator.free(name);
+    const name = try map(file.base.allocator, mem.span(decl.name));
+    defer file.base.allocator.free(name);
     if (tv.val.cast(Value.Payload.Bytes)) |payload|
         if (tv.ty.arraySentinel()) |sentinel|
             if (sentinel.toUnsignedInt() == 0)

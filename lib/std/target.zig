@@ -10,6 +10,15 @@ pub const Target = struct {
     cpu: Cpu,
     os: Os,
     abi: Abi,
+    address_space: ?std.ArrayList(AddressSpaceEntry) = null,
+
+    pub const AddressSpaceEntry = struct {
+        readable: bool,
+        writable: bool,
+        executable: bool,
+        start: u64,
+        end: u64,
+    };
 
     pub const Os = struct {
         tag: Tag,
@@ -630,6 +639,8 @@ pub const Target = struct {
             renderscript32,
             renderscript64,
             ve,
+
+            // Non-LLVM targets go here
 
             pub fn isARM(arch: Arch) bool {
                 return switch (arch) {
