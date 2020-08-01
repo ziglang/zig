@@ -31,7 +31,7 @@ fn Rp(a: usize, b: usize, c: usize, d: usize, x: usize, y: usize) RoundParam {
 pub const Blake2s224 = Blake2s(224);
 pub const Blake2s256 = Blake2s(256);
 
-fn Blake2s(comptime out_len: usize) type {
+pub fn Blake2s(comptime out_len: usize) type {
     return struct {
         const Self = @This();
         pub const block_length = 64;
@@ -320,7 +320,7 @@ test "comptime blake2s256" {
 pub const Blake2b384 = Blake2b(384);
 pub const Blake2b512 = Blake2b(512);
 
-fn Blake2b(comptime out_len: usize) type {
+pub fn Blake2b(comptime out_len: usize) type {
     return struct {
         const Self = @This();
         pub const block_length = 128;
