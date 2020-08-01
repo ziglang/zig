@@ -30,6 +30,17 @@ pub const Options = struct {
     /// the binary file deos not already have such a section.
     program_code_size_hint: u64 = 256 * 1024,
     default_entry_addr: u64 = 0x8000000,
+    /// Tracks usable sections of the address space; this is used to determine
+    /// where to place code and data.
+    address_space: ?std.ArrayList(AddressSpaceEntry) = null,
+
+    pub const AddressSpaceEntry = struct {
+        readable: bool,
+        writable: bool,
+        executable: bool,
+        start: u64,
+        end: u64,
+    };
 };
 
 
@@ -522,7 +533,7 @@ pub const File = struct {
             self.text_block_free_list.deinit(self.base.allocator);
             self.offset_table.deinit(self.base.allocator);
 
-            if (self.base.options.target.address_space) |m| {
+            if (self.base.options.address_space) |m| {
                 m.deinit();
             }
         }
@@ -592,8 +603,8 @@ pub const File = struct {
             return min_pos - start;
         }
 
-        fn inRange(self: Elf, start: u64) ?std.Target.AddressSpaceEntry {
-            if (self.base.options.target.address_space) |address_space| {
+        fn inRange(self: Elf, start: u64) ?Options.AddressSpaceEntry {
+            if (self.base.options.address_space) |address_space| {
                 for (address_space.items) |a| {
                     // Start is inclusive, end is exclusive
                     if (start >= a.start and start < a.end) {
@@ -605,7 +616,7 @@ pub const File = struct {
         }
 
         fn rangeAfter(self: Elf, addr: u64) ?u64 {
-            if (self.base.options.target.address_space) |address_space| {
+            if (self.base.options.address_space) |address_space| {
                 for (address_space.items) |a| {
                     if (addr < a.start) {
                         return a.start;
@@ -620,7 +631,7 @@ pub const File = struct {
             var done = false;
             while (!done) {
                 const before = start;
-                if (self.base.options.target.address_space != null) {
+                if (self.base.options.address_space != null) {
                     if (self.inRange(start)) |range| {
                         if (range.end - start < object_size) {
                             // Range too small
