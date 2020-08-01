@@ -44,6 +44,7 @@ pub fn generateSymbol(
     src: usize,
     typed_value: TypedValue,
     code: *std.ArrayList(u8),
+    dbg_line: *std.ArrayList(u8),
 ) GenerateSymbolError!Result {
     const tracy = trace(@src());
     defer tracy.end();
@@ -114,7 +115,7 @@ pub fn generateSymbol(
                     switch (try generateSymbol(bin_file, src, .{
                         .ty = typed_value.ty.elemType(),
                         .val = sentinel,
-                    }, code)) {
+                    }, code, dbg_line)) {
                         .appended => return Result{ .appended = {} },
                         .externally_managed => |slice| {
                             code.appendSliceAssumeCapacity(slice);

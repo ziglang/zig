@@ -279,6 +279,9 @@ pub const Fn = struct {
     },
     owner_decl: *Decl,
 
+    /// Represents the function in the linked output file.
+    link: link.File.Elf.SrcFn = link.File.Elf.SrcFn.empty,
+
     /// This memory is temporary and points to stack memory for the duration
     /// of Fn analysis.
     pub const Analysis = struct {
@@ -502,6 +505,10 @@ pub const Scope = struct {
 
         /// Direct children of the file.
         decls: ArrayListUnmanaged(*Decl),
+
+        /// Represents the file in the linker code. The linker code
+        /// uses this field to store data relevant to its purposes.
+        link: link.File.Elf.SrcFile = link.File.Elf.SrcFile.empty,
 
         pub fn unload(self: *File, gpa: *Allocator) void {
             switch (self.status) {
@@ -792,7 +799,7 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
     const bin_file_dir = options.bin_file_dir orelse std.fs.cwd();
     const bin_file = try link.File.openPath(gpa, bin_file_dir, options.bin_file_path, .{
         .root_name = root_name,
-        .root_src_dir_path = options.root_pkg.root_src_dir_path,
+        .root_pkg = options.root_pkg,
         .target = options.target,
         .output_mode = options.output_mode,
         .link_mode = options.link_mode orelse .Static,

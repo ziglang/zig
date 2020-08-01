@@ -11,6 +11,9 @@ const c_codegen = @import("codegen/c.zig");
 const log = std.log;
 const DW = std.dwarf;
 const trace = @import("tracy.zig").trace;
+const leb128 = std.debug.leb;
+const Package = @import("Package.zig");
+const Value = @import("value.zig").Value;
 
 // TODO Turn back on zig fmt when https://github.com/ziglang/zig/issues/5948 is implemented.
 // zig fmt: off
@@ -24,7 +27,7 @@ pub const Options = struct {
     object_format: std.builtin.ObjectFormat,
     optimize_mode: std.builtin.Mode,
     root_name: []const u8,
-    root_src_dir_path: []const u8,
+    root_pkg: *const Package,
     /// Used for calculating how much space to reserve for symbols in case the binary file
     /// does not already have a symbol table.
     symbol_count_hint: u64 = 32,
@@ -291,6 +294,7 @@ pub const File = struct {
         debug_abbrev_section_index: ?u16 = null,
         debug_str_section_index: ?u16 = null,
         debug_aranges_section_index: ?u16 = null,
+        debug_line_section_index: ?u16 = null,
 
         debug_abbrev_table_offset: ?u64 = null,
 
@@ -318,6 +322,7 @@ pub const File = struct {
         debug_info_section_dirty: bool = false,
         debug_abbrev_section_dirty: bool = false,
         debug_aranges_section_dirty: bool = false,
+        debug_line_header_dirty: bool = false,
 
         error_flags: ErrorFlags = ErrorFlags{},
 
@@ -338,6 +343,9 @@ pub const File = struct {
         /// by 1 byte. It will then have -1 overcapacity.
         text_block_free_list: std.ArrayListUnmanaged(*TextBlock) = std.ArrayListUnmanaged(*TextBlock){},
         last_text_block: ?*TextBlock = null,
+
+        first_dbg_line_file: ?*SrcFile = null,
+        last_dbg_line_file: ?*SrcFile = null,
 
         /// `alloc_num / alloc_den` is the factor of padding when allocating.
         const alloc_num = 4;
@@ -400,6 +408,45 @@ pub const File = struct {
 
         pub const Export = struct {
             sym_index: ?u32 = null,
+        };
+
+        pub const SrcFn = struct {
+            /// Offset from the `SrcFile` that contains this function.
+            dbg_line_off: u32,
+            /// Size of the line number program component belonging to this function, not
+            /// including padding.
+            dbg_line_len: u32,
+
+            pub const empty: SrcFn = .{
+                .dbg_line_off = 0,
+                .dbg_line_len = 0,
+            };
+        };
+
+        pub const SrcFile = struct {
+            /// Byte offset from the start of the Line Number Program that contains this file.
+            off: u32,
+            /// Length in bytes, not including padding, of this file component within the
+            /// Line Number Program that contains it.
+            len: u32,
+
+            /// A list of `SrcFn` that have surplus capacity.
+            /// This is the same concept as `text_block_free_list` (see the doc comments there)
+            /// but it's for the function's component of the Line Number program.
+            free_list: std.ArrayListUnmanaged(*SrcFn),
+
+            /// Points to the previous and next neighbors, based on the offset from .debug_line.
+            /// This can be used to find, for example, the capacity of this `SrcFile`.
+            prev: ?*SrcFile,
+            next: ?*SrcFile,
+
+            pub const empty: SrcFile = .{
+                .off = 0,
+                .len = 0,
+                .free_list = .{},
+                .prev = null,
+                .next = null,
+            };
         };
 
         pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: Options) !*File {
@@ -538,6 +585,14 @@ pub const File = struct {
             });
         }
 
+        fn getDebugLineProgramOff(self: Elf) u32 {
+            return self.first_dbg_line_file.?.off;
+        }
+
+        fn getDebugLineProgramLen(self: Elf) u32 {
+            return self.last_dbg_line_file.?.off + self.last_dbg_line_file.?.len;
+        }
+
         /// Returns end pos of collision, if any.
         fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
             const small_ptr = self.base.options.target.cpu.arch.ptrBitWidth() == 32;
@@ -611,6 +666,7 @@ pub const File = struct {
             return start;
         }
 
+        /// TODO Improve this to use a table.
         fn makeString(self: *Elf, bytes: []const u8) !u32 {
             try self.shstrtab.ensureCapacity(self.allocator, self.shstrtab.items.len + bytes.len + 1);
             const result = self.shstrtab.items.len;
@@ -619,6 +675,7 @@ pub const File = struct {
             return @intCast(u32, result);
         }
 
+        /// TODO Improve this to use a table.
         fn makeDebugString(self: *Elf, bytes: []const u8) !u32 {
             try self.debug_strtab.ensureCapacity(self.allocator, self.debug_strtab.items.len + bytes.len + 1);
             const result = self.debug_strtab.items.len;
@@ -645,10 +702,7 @@ pub const File = struct {
                 .p32 => true,
                 .p64 => false,
             };
-            const ptr_size: u8 = switch (self.ptr_width) {
-                .p32 => 4,
-                .p64 => 8,
-            };
+            const ptr_size: u8 = self.ptrWidthBytes();
             if (self.phdr_load_re_index == null) {
                 self.phdr_load_re_index = @intCast(u16, self.program_headers.items.len);
                 const file_size = self.base.options.program_code_size_hint;
@@ -869,6 +923,31 @@ pub const File = struct {
                 self.shdr_table_dirty = true;
                 self.debug_aranges_section_dirty = true;
             }
+            if (self.debug_line_section_index == null) {
+                self.debug_line_section_index = @intCast(u16, self.sections.items.len);
+
+                const file_size_hint = 250;
+                const p_align = 1;
+                const off = self.findFreeSpace(file_size_hint, p_align);
+                log.debug(.link, "found .debug_line free space 0x{x} to 0x{x}\n", .{
+                    off,
+                    off + file_size_hint,
+                });
+                try self.sections.append(self.allocator, .{
+                    .sh_name = try self.makeString(".debug_line"),
+                    .sh_type = elf.SHT_PROGBITS,
+                    .sh_flags = 0,
+                    .sh_addr = 0,
+                    .sh_offset = off,
+                    .sh_size = file_size_hint,
+                    .sh_link = 0,
+                    .sh_info = 0,
+                    .sh_addralign = p_align,
+                    .sh_entsize = 0,
+                });
+                self.shdr_table_dirty = true;
+                self.debug_line_header_dirty = true;
+            }
             const shsize: u64 = switch (self.ptr_width) {
                 .p32 => @sizeOf(elf.Elf32_Shdr),
                 .p64 => @sizeOf(elf.Elf64_Shdr),
@@ -906,9 +985,10 @@ pub const File = struct {
         pub fn flush(self: *Elf) !void {
             const target_endian = self.base.options.target.cpu.arch.endian();
             const foreign_endian = target_endian != std.Target.current.cpu.arch.endian();
-            const ptr_width_bytes: u8 = switch (self.ptr_width) {
+            const ptr_width_bytes: u8 = self.ptrWidthBytes();
+            const init_len_size: usize = switch (self.ptr_width) {
                 .p32 => 4,
-                .p64 => 8,
+                .p64 => 12,
             };
 
             // Unfortunately these have to be buffered and done at the end because ELF does not allow
@@ -922,7 +1002,7 @@ pub const File = struct {
                 // we can simply append these bytes.
                 const abbrev_buf = [_]u8{
                     1, DW.TAG_compile_unit, DW.CHILDREN_no, // header
-                    //DW.AT_stmt_list,  DW.FORM_data4, TODO
+                    DW.AT_stmt_list,  DW.FORM_data1,
                     DW.AT_low_pc   ,  DW.FORM_addr,
                     DW.AT_high_pc  ,  DW.FORM_addr,
                     DW.AT_name     ,  DW.FORM_strp,
@@ -969,10 +1049,7 @@ pub const File = struct {
                 // not including the initial length itself.
                 // We have to come back and write it later after we know the size.
                 const init_len_index = di_buf.items.len;
-                switch (self.ptr_width) {
-                    .p32 => di_buf.items.len += 4,
-                    .p64 => di_buf.items.len += 12,
-                }
+                di_buf.items.len += init_len_size;
                 const after_init_len = di_buf.items.len;
                 mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), 5, target_endian); // DWARF version
                 di_buf.appendAssumeCapacity(DW.UT_compile);
@@ -989,7 +1066,7 @@ pub const File = struct {
                 }
                 // Write the form for the compile unit, which must match the abbrev table above.
                 const name_strp = try self.makeDebugString(self.base.options.root_name);
-                const comp_dir_strp = try self.makeDebugString(self.base.options.root_src_dir_path);
+                const comp_dir_strp = try self.makeDebugString(self.base.options.root_pkg.root_src_dir_path);
                 const producer_strp = try self.makeDebugString("zig (TODO version here)");
                 // Currently only one compilation unit is supported, so the address range is simply
                 // identical to the main program header virtual address and memory size.
@@ -997,8 +1074,10 @@ pub const File = struct {
                 const low_pc = text_phdr.p_vaddr;
                 const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
 
-                di_buf.appendAssumeCapacity(1); // abbrev tag, matching the value from the abbrev table header
-                //DW.AT_stmt_list,  DW.FORM_data4, TODO line information
+                di_buf.appendSliceAssumeCapacity(&[_]u8{
+                    1, // abbrev tag, matching the value from the abbrev table header
+                    0, // DW.AT_stmt_list,  DW.FORM_data1: offset to corresponding .debug_line header
+                });
                 self.writeDwarfAddrAssumeCapacity(&di_buf, low_pc);
                 self.writeDwarfAddrAssumeCapacity(&di_buf, high_pc);
                 self.writeDwarfAddrAssumeCapacity(&di_buf, name_strp);
@@ -1056,10 +1135,7 @@ pub const File = struct {
                 // not including the initial length itself.
                 // We have to come back and write it later after we know the size.
                 const init_len_index = di_buf.items.len;
-                switch (self.ptr_width) {
-                    .p32 => di_buf.items.len += 4,
-                    .p64 => di_buf.items.len += 12,
-                }
+                di_buf.items.len += init_len_size;
                 const after_init_len = di_buf.items.len;
                 mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), 2, target_endian); // version
                 // When more than one compilation unit is supported, this will be the offset to it.
@@ -1115,6 +1191,99 @@ pub const File = struct {
                 }
 
                 self.debug_aranges_section_dirty = false;
+            }
+            if (self.debug_line_header_dirty) {
+                const dbg_line_prg_off = self.getDebugLineProgramOff();
+                const dbg_line_prg_len = self.getDebugLineProgramLen();
+                assert(dbg_line_prg_len != 0);
+
+                const debug_line_sect = &self.sections.items[self.debug_line_section_index.?];
+
+                var di_buf = std.ArrayList(u8).init(self.allocator);
+                defer di_buf.deinit();
+
+                // This is a heuristic. The size of this header is variable, depending on
+                // the number of directories, files, and padding.
+                try di_buf.ensureCapacity(100);
+
+                // initial length - length of the .debug_line contribution for this compilation unit,
+                // not including the initial length itself.
+                const after_init_len = di_buf.items.len + init_len_size;
+                const init_len = (dbg_line_prg_off + dbg_line_prg_len) - after_init_len;
+                switch (self.ptr_width) {
+                    .p32 => {
+                        mem.writeInt(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, init_len), target_endian);
+                    },
+                    .p64 => {
+                        di_buf.appendNTimesAssumeCapacity(0xff, 4);
+                        mem.writeInt(u64, di_buf.addManyAsArrayAssumeCapacity(8), init_len, target_endian);
+                    },
+                }
+
+                mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), 5, target_endian); // version
+                di_buf.appendSliceAssumeCapacity(&[_]u8{
+                    ptr_width_bytes, // address_size
+                    0, // segment_selector_size
+                });
+
+                const header_length = dbg_line_prg_off - (di_buf.items.len + ptr_width_bytes);
+                self.writeDwarfAddrAssumeCapacity(&di_buf, header_length);
+
+                const opcode_base = DW.LNS_set_isa + 1;
+                di_buf.appendSliceAssumeCapacity(&[_]u8{
+                    1, // minimum_instruction_length
+                    1, // maximum_operations_per_instruction
+                    1, // default_is_stmt
+                    1, // line_base (signed)
+                    1, // line_range
+                    opcode_base,
+
+                    // Standard opcode lengths. The number of items here is based on `opcode_base`.
+                    // The value is the number of LEB128 operands the instruction takes.
+                    0, // `DW.LNS_copy`
+                    1, // `DW.LNS_advance_pc`
+                    1, // `DW.LNS_advance_line`
+                    1, // `DW.LNS_set_file`
+                    1, // `DW.LNS_set_column`
+                    0, // `DW.LNS_negate_stmt`
+                    0, // `DW.LNS_set_basic_block`
+                    0, // `DW.LNS_const_add_pc`
+                    0, // `DW.LNS_fixed_advance_pc`
+                    0, // `DW.LNS_set_prologue_end`
+                    0, // `DW.LNS_set_epilogue_begin`
+                    1, // `DW.LNS_set_isa`
+
+                    1, // directory_entry_format_count
+                    DW.LNCT_path, DW.FORM_strp, // directory_entry_format
+
+                    // For now we only support one compilation unit, which has one directory.
+                    1, // directories_count (this is a ULEB128)
+                });
+                const comp_dir_strp = try self.makeDebugString(self.base.options.root_pkg.root_src_dir_path);
+                self.writeDwarfAddrAssumeCapacity(&di_buf, comp_dir_strp);
+
+                di_buf.appendSliceAssumeCapacity(&[_]u8{
+                    2, // file_name_entry_format_count
+                    DW.LNCT_path, DW.FORM_strp, // file_name_entry_format[0]
+                    DW.LNCT_directory_index, DW.FORM_data1, // file_name_entry_format[1]
+                    // TODO Look into adding the file size here. Maybe even the mtime and MD5.
+                    //DW.LNCT_size, DW.FORM_udata, // file_name_entry_format[2]
+
+                    // For now we only put the root file name here. Once more source files
+                    // are supported, this will need to be improved.
+                    1, // file_names_count (this is a ULEB128)
+                });
+                const root_src_file_strp = try self.makeDebugString(self.base.options.root_pkg.root_src_path);
+                self.writeDwarfAddrAssumeCapacity(&di_buf, root_src_file_strp); // DW.LNCT_path, DW.FORM_strp
+                di_buf.appendAssumeCapacity(0); // LNCT_directory_index, FORM_data1
+
+                if (di_buf.items.len > dbg_line_prg_off) {
+                    // Move the first N files to the end to make more padding for the header.
+                    @panic("TODO: handle .debug_line header exceeding its padding");
+                }
+
+                try self.file.?.pwriteAll(di_buf.items, debug_line_sect.sh_offset);
+                self.debug_line_header_dirty = false;
             }
 
             if (self.phdr_table_dirty) {
@@ -1263,6 +1432,7 @@ pub const File = struct {
             assert(!self.debug_info_section_dirty);
             assert(!self.debug_abbrev_section_dirty);
             assert(!self.debug_aranges_section_dirty);
+            assert(!self.debug_line_header_dirty);
             assert(!self.phdr_table_dirty);
             assert(!self.shdr_table_dirty);
             assert(!self.shstrtab_dirty);
@@ -1635,8 +1805,52 @@ pub const File = struct {
             var code_buffer = std.ArrayList(u8).init(self.allocator);
             defer code_buffer.deinit();
 
+            var dbg_line_buffer = std.ArrayList(u8).init(self.allocator);
+            defer dbg_line_buffer.deinit();
+
             const typed_value = decl.typed_value.most_recent.typed_value;
-            const code = switch (try codegen.generateSymbol(self, decl.src(), typed_value, &code_buffer)) {
+            const is_fn: bool = switch (typed_value.ty.zigTypeTag()) {
+                .Fn => true,
+                else => false,
+            };
+            const dbg_line_vaddr_reloc_index = 1;
+            if (is_fn) {
+                const scope_file = decl.scope.cast(Module.Scope.File).?;
+                const line_off: u28 = blk: {
+                    const file_ast_decls = scope_file.contents.tree.root_node.decls();
+                    if (decl.src_index == 0) {
+                        // Then it's the line number of the open curly.
+                        const block = file_ast_decls[decl.src_index].castTag(.Block).?;
+                        @panic("TODO implement this");
+                    } else {
+                        const prev_decl = file_ast_decls[decl.src_index - 1];
+                        // Find the difference between prev decl end curly and this decl begin curly.
+                        @panic("TODO implement this");
+                    }
+                };
+
+                // For functions we need to add a prologue to the debug line program.
+                try dbg_line_buffer.ensureCapacity(24);
+
+                dbg_line_buffer.appendAssumeCapacity(DW.LNE_set_address);
+                // This is the "relocatable" vaddr, corresponding to `code_buffer` index `0`.
+                assert(dbg_line_vaddr_reloc_index == dbg_line_buffer.items.len);
+                dbg_line_buffer.items.len += self.ptrWidthBytes();
+
+                dbg_line_buffer.appendAssumeCapacity(DW.LNS_advance_line);
+                // This is the "relocatable" relative line offset from the previous function's end curly
+                // to this function's begin curly.
+                assert(self.getRelocDbgLineOff() == dbg_line_buffer.items.len);
+                // Here we use a ULEB128 but we write 4 bytes regardless (possibly wasting space)
+                // so that we can patch this later as a fixed width field.
+                leb128.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), line_off);
+
+                // Emit a line for the begin curly with prologue_end=false. The codegen will
+                // do the work of setting prologue_end=true and epilogue_begin=true.
+                dbg_line_buffer.appendAssumeCapacity(DW.LNS_copy);
+            }
+            const res = try codegen.generateSymbol(self, decl.src(), typed_value, &code_buffer, &dbg_line_buffer);
+            const code = switch (res) {
                 .externally_managed => |x| x,
                 .appended => code_buffer.items,
                 .fail => |em| {
@@ -1648,10 +1862,7 @@ pub const File = struct {
 
             const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
 
-            const stt_bits: u8 = switch (typed_value.ty.zigTypeTag()) {
-                .Fn => elf.STT_FUNC,
-                else => elf.STT_OBJECT,
-            };
+            const stt_bits: u8 = if (is_fn) elf.STT_FUNC else elf.STT_OBJECT;
 
             assert(decl.link.local_sym_index != 0); // Caller forgot to allocateDeclIndexes()
             const local_sym = &self.local_symbols.items[decl.link.local_sym_index];
@@ -1703,6 +1914,30 @@ pub const File = struct {
             const section_offset = local_sym.st_value - self.program_headers.items[self.phdr_load_re_index.?].p_vaddr;
             const file_offset = self.sections.items[self.text_section_index.?].sh_offset + section_offset;
             try self.file.?.pwriteAll(code, file_offset);
+
+            // If the Decl is a function, we need to update the .debug_line program.
+            if (is_fn) {
+                // Perform the relocation based on vaddr.
+                const target_endian = self.base.options.target.cpu.arch.endian();
+                switch (self.ptr_width) {
+                    .p32 => {
+                        const ptr = dbg_line_buffer.items[dbg_line_vaddr_reloc_index..][0..4];
+                        mem.writeInt(u32, ptr, @intCast(u32, local_sym.st_value), target_endian);
+                    },
+                    .p64 => {
+                        const ptr = dbg_line_buffer.items[dbg_line_vaddr_reloc_index..][0..8];
+                        mem.writeInt(u64, ptr, local_sym.st_value, target_endian);
+                    },
+                }
+
+                const src_file = &decl.scope.cast(Module.Scope.File).?.link;
+                const src_fn = &typed_value.val.cast(Value.Payload.Function).?.func.link;
+                if (src_file.next == null and src_file.prev == null) {
+                    @panic("TODO updateDecl for .debug_line: add new SrcFile");
+                } else {
+                    @panic("TODO updateDecl for .debug_line: update existing SrcFile");
+                }
+            }
 
             // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
             const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
@@ -1841,10 +2076,7 @@ pub const File = struct {
         fn writeOffsetTableEntry(self: *Elf, index: usize) !void {
             const shdr = &self.sections.items[self.got_section_index.?];
             const phdr = &self.program_headers.items[self.phdr_got_index.?];
-            const entry_size: u16 = switch (self.ptr_width) {
-                .p32 => 4,
-                .p64 => 8,
-            };
+            const entry_size: u16 = self.ptrWidthBytes();
             if (self.offset_table_count_dirty) {
                 // TODO Also detect virtual address collisions.
                 const allocated_size = self.allocatedSize(shdr.sh_offset);
@@ -1987,6 +2219,14 @@ pub const File = struct {
                 },
             }
         }
+
+        fn ptrWidthBytes(self: Elf) u8 {
+            return switch (self.ptr_width) {
+                .p32 => 4,
+                .p64 => 8,
+            };
+        }
+
     };
 };
 
