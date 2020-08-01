@@ -419,7 +419,7 @@ pub fn Blake2b(comptime out_len: usize) type {
             mem.copy(u64, d.h[0..], iv[0..]);
 
             // default parameters
-            d.h[0] ^= 0x01010000 ^ @truncate(u32, d.key.len << 8) ^ @intCast(u32, out_len >> 3);
+            d.h[0] ^= 0x01010000 ^ (d.key.len << 8) ^ (out_len >> 3);
             d.t = 0;
             d.buf_len = 0;
 
