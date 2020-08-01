@@ -382,7 +382,7 @@ fn Blake2b(comptime out_len: usize) type {
             var off: usize = 0;
 
             // Partial buffer exists from previous update. Copy into buffer then hash.
-            if (d.buf_len != 0 and d.buf_len + b.len >= 128) {
+            if (d.buf_len != 0 and d.buf_len + b.len > 128) {
                 off += 128 - d.buf_len;
                 mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
                 d.t += 128;
@@ -391,7 +391,7 @@ fn Blake2b(comptime out_len: usize) type {
             }
 
             // Full middle blocks.
-            while (off + 128 <= b.len) : (off += 128) {
+            while (off + 128 < b.len) : (off += 128) {
                 d.t += 128;
                 d.round(b[off .. off + 128], false);
             }
