@@ -689,3 +689,11 @@ pub const UT_split_compile = 0x05;
 pub const UT_split_type = 0x06;
 pub const UT_lo_user = 0x80;
 pub const UT_hi_user = 0xff;
+
+pub const LNCT_path = 0x1;
+pub const LNCT_directory_index = 0x2;
+pub const LNCT_timestamp = 0x3;
+pub const LNCT_size = 0x4;
+pub const LNCT_MD5 = 0x5;
+pub const LNCT_lo_user = 0x2000;
+pub const LNCT_hi_user = 0x3fff;
