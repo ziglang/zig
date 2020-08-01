@@ -123,7 +123,7 @@ fn Blake2s(comptime out_len: usize) type {
             const rr = d.h[0 .. out_len / 32];
 
             for (rr) |s, j| {
-                mem.writeIntLittle(u32, out[4 * j ..][0..4], s);
+                mem.writeIntSliceLittle(u32, out[4 * j ..], s);
             }
         }
 
@@ -296,19 +296,22 @@ test "blake2s256 streaming" {
     htest.assertEqual(h3, out[0..]);
 }
 
-test "blake2s256 aligned final" {
-    var block = [_]u8{0} ** Blake2s256.block_length;
-    var out: [Blake2s256.digest_length]u8 = undefined;
+test "comptime blake2s256" {
+    comptime {
+        @setEvalBranchQuota(8000);
+        var block = [_]u8{0} ** Blake2s256.block_length;
+        var out: [Blake2s256.digest_length]u8 = undefined;
 
-    const h1 = "ae09db7cd54f42b490ef09b6bc541af688e4959bb8c53f359a6f56e38ab454a3";
+        const h1 = "ae09db7cd54f42b490ef09b6bc541af688e4959bb8c53f359a6f56e38ab454a3";
 
-    htest.assertEqualHash(Blake2s256, h1, block[0..]);
+        htest.assertEqualHash(Blake2s256, h1, block[0..]);
 
-    var h = Blake2s256.init();
-    h.update(&block);
-    h.final(out[0..]);
+        var h = Blake2s256.init();
+        h.update(&block);
+        h.final(out[0..]);
 
-    htest.assertEqual(h1, out[0..]);
+        htest.assertEqual(h1, out[0..]);
+    }
 }
 
 /////////////////////
@@ -409,7 +412,7 @@ fn Blake2b(comptime out_len: usize) type {
             const rr = d.h[0 .. out_len / 64];
 
             for (rr) |s, j| {
-                mem.writeIntLittle(u64, out[8 * j ..][0..8], s);
+                mem.writeIntSliceLittle(u64, out[8 * j ..], s);
             }
         }
 
@@ -582,17 +585,20 @@ test "blake2b512 streaming" {
     htest.assertEqual(h3, out[0..]);
 }
 
-test "blake2b512 aligned final" {
-    var block = [_]u8{0} ** Blake2b512.block_length;
-    var out: [Blake2b512.digest_length]u8 = undefined;
+test "comptime blake2b512" {
+    comptime {
+        @setEvalBranchQuota(8000);
+        var block = [_]u8{0} ** Blake2b512.block_length;
+        var out: [Blake2b512.digest_length]u8 = undefined;
 
-    const h1 = "865939e120e6805438478841afb739ae4250cf372653078a065cdcfffca4caf798e6d462b65d658fc165782640eded70963449ae1500fb0f24981d7727e22c41";
+        const h1 = "865939e120e6805438478841afb739ae4250cf372653078a065cdcfffca4caf798e6d462b65d658fc165782640eded70963449ae1500fb0f24981d7727e22c41";
 
-    htest.assertEqualHash(Blake2b512, h1, block[0..]);
+        htest.assertEqualHash(Blake2b512, h1, block[0..]);
 
-    var h = Blake2b512.init();
-    h.update(&block);
-    h.final(out[0..]);
+        var h = Blake2b512.init();
+        h.update(&block);
+        h.final(out[0..]);
 
-    htest.assertEqual(h1, out[0..]);
+        htest.assertEqual(h1, out[0..]);
+    }
 }
