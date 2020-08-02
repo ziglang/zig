@@ -563,43 +563,52 @@ pub const TestContext = struct {
                 .Execution => |expected_stdout| {
                     std.debug.assert(!case.cbe);
 
-                    update_node.estimated_total_items = 4;
-                    var exec_result = x: {
-                        var exec_node = update_node.start("execute", null);
-                        exec_node.activate();
-                        defer exec_node.end();
+                    if (case.target.isNative() or (case.target.cpu_arch.? == std.builtin.cpu.arch and case.target.os_tag.? == std.builtin.os.tag)) {
+                        update_node.estimated_total_items = 4;
+                        var exec_result = x: {
+                            var exec_node = update_node.start("execute", null);
+                            exec_node.activate();
+                            defer exec_node.end();
 
-                        try module.makeBinFileExecutable();
+                            try module.makeBinFileExecutable();
 
-                        const exe_path = try std.fmt.allocPrint(allocator, "." ++ std.fs.path.sep_str ++ "{}", .{bin_name});
-                        defer allocator.free(exe_path);
+                            const exe_path = try std.fmt.allocPrint(allocator, "." ++ std.fs.path.sep_str ++ "{}", .{bin_name});
+                            defer allocator.free(exe_path);
 
-                        break :x try std.ChildProcess.exec(.{
-                            .allocator = allocator,
-                            .argv = &[_][]const u8{exe_path},
-                            .cwd_dir = tmp.dir,
-                        });
-                    };
-                    var test_node = update_node.start("test", null);
-                    test_node.activate();
-                    defer test_node.end();
+                            break :x try std.ChildProcess.exec(.{
+                                .allocator = allocator,
+                                .argv = &[_][]const u8{exe_path},
+                                .cwd_dir = tmp.dir,
+                            });
+                        };
+                        var test_node = update_node.start("test", null);
+                        test_node.activate();
+                        defer test_node.end();
 
-                    defer allocator.free(exec_result.stdout);
-                    defer allocator.free(exec_result.stderr);
-                    switch (exec_result.term) {
-                        .Exited => |code| {
-                            if (code != 0) {
-                                std.debug.print("elf file exited with code {}\n", .{code});
-                                return error.BinaryBadExitCode;
-                            }
-                        },
-                        else => return error.BinaryCrashed,
-                    }
-                    if (!std.mem.eql(u8, expected_stdout, exec_result.stdout)) {
-                        std.debug.panic(
-                            "update index {}, mismatched stdout\n====Expected (len={}):====\n{}\n====Actual (len={}):====\n{}\n========\n",
-                            .{ update_index, expected_stdout.len, expected_stdout, exec_result.stdout.len, exec_result.stdout },
-                        );
+                        defer allocator.free(exec_result.stdout);
+                        defer allocator.free(exec_result.stderr);
+                        switch (exec_result.term) {
+                            .Exited => |code| {
+                                if (code != 0) {
+                                    std.debug.print("elf file exited with code {}\n", .{code});
+                                    return error.BinaryBadExitCode;
+                                }
+                            },
+                            else => return error.BinaryCrashed,
+                        }
+                        if (!std.mem.eql(u8, expected_stdout, exec_result.stdout)) {
+                            std.debug.panic(
+                                "update index {}, mismatched stdout\n====Expected (len={}):====\n{}\n====Actual (len={}):====\n{}\n========\n",
+                                .{ update_index, expected_stdout.len, expected_stdout, exec_result.stdout.len, exec_result.stdout },
+                            );
+                        }
+                    } else {
+                        switch (case.target.cpu_arch.?) {
+                            else => |e| {
+                                std.debug.print("TODO implement non-native tests for target arch {}\n", .{e});
+                                std.process.exit(1);
+                            },
+                        }
                     }
                 },
             }
