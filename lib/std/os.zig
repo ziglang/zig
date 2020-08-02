@@ -2233,7 +2233,7 @@ pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
     }
 }
 
-/// Windows-only. Same as `mkdir` but the parameters is null-terminated, WTF16 encoded.
+/// Windows-only. Same as `mkdir` but the parameters is  WTF16 encoded.
 pub fn mkdirW(dir_path_w: []const u16, mode: u32) MakeDirError!void {
     const sub_dir_handle = windows.OpenFile(dir_path_w, .{
         .dir = std.fs.cwd().fd,
@@ -2304,7 +2304,7 @@ pub fn rmdirZ(dir_path: [*:0]const u8) DeleteDirError!void {
     }
 }
 
-/// Windows-only. Same as `rmdir` except the parameter is null-terminated, WTF16 encoded.
+/// Windows-only. Same as `rmdir` except the parameter is WTF16 encoded.
 pub fn rmdirW(dir_path_w: []const u16) DeleteDirError!void {
     return windows.DeleteFile(dir_path_w, .{ .dir = std.fs.cwd().fd, .remove_dir = true }) catch |err| switch (err) {
         error.IsDir => unreachable,
@@ -2411,7 +2411,7 @@ pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
 
 pub const readlinkC = @compileError("deprecated: renamed to readlinkZ");
 
-/// Windows-only. Same as `readlink` except `file_path` is null-terminated, WTF16 encoded.
+/// Windows-only. Same as `readlink` except `file_path` is WTF16 encoded.
 /// See also `readlinkZ`.
 pub fn readlinkW(file_path: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
     return windows.ReadLink(std.fs.cwd().fd, file_path, out_buffer);
@@ -4059,8 +4059,8 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
     return mem.spanZ(result_path);
 }
 
-/// Same as `realpath` except `pathname` is null-terminated and UTF16LE-encoded.
-/// TODO use ntdll for better semantics
+/// Same as `realpath` except `pathname` is UTF16LE-encoded.
+/// TODO use ntdll to emulate `GetFinalPathNameByHandleW` routine
 pub fn realpathW(pathname: []const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     const w = windows;
 
