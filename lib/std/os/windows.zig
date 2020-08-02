@@ -25,76 +25,11 @@ pub usingnamespace @import("windows/bits.zig");
 
 pub const self_process_handle = @intToPtr(HANDLE, maxInt(usize));
 
-pub const CreateFileError = error{
-    SharingViolation,
-    PathAlreadyExists,
-
-    /// When any of the path components can not be found or the file component can not
-    /// be found. Some operating systems distinguish between path components not found and
-    /// file components not found, but they are collapsed into FileNotFound to gain
-    /// consistency across operating systems.
-    FileNotFound,
-
-    AccessDenied,
-    PipeBusy,
-    NameTooLong,
-
-    /// On Windows, file paths must be valid Unicode.
-    InvalidUtf8,
-
-    /// On Windows, file paths cannot contain these characters:
-    /// '/', '*', '?', '"', '<', '>', '|'
-    BadPathName,
-
-    Unexpected,
-};
-
-pub fn CreateFile(
-    file_path: []const u8,
-    desired_access: DWORD,
-    share_mode: DWORD,
-    lpSecurityAttributes: ?LPSECURITY_ATTRIBUTES,
-    creation_disposition: DWORD,
-    flags_and_attrs: DWORD,
-    hTemplateFile: ?HANDLE,
-) CreateFileError!HANDLE {
-    const file_path_w = try sliceToPrefixedFileW(file_path);
-    return CreateFileW(file_path_w.span().ptr, desired_access, share_mode, lpSecurityAttributes, creation_disposition, flags_and_attrs, hTemplateFile);
-}
-
-pub fn CreateFileW(
-    file_path_w: [*:0]const u16,
-    desired_access: DWORD,
-    share_mode: DWORD,
-    lpSecurityAttributes: ?LPSECURITY_ATTRIBUTES,
-    creation_disposition: DWORD,
-    flags_and_attrs: DWORD,
-    hTemplateFile: ?HANDLE,
-) CreateFileError!HANDLE {
-    const result = kernel32.CreateFileW(file_path_w, desired_access, share_mode, lpSecurityAttributes, creation_disposition, flags_and_attrs, hTemplateFile);
-
-    if (result == INVALID_HANDLE_VALUE) {
-        switch (kernel32.GetLastError()) {
-            .SHARING_VIOLATION => return error.SharingViolation,
-            .ALREADY_EXISTS => return error.PathAlreadyExists,
-            .FILE_EXISTS => return error.PathAlreadyExists,
-            .FILE_NOT_FOUND => return error.FileNotFound,
-            .PATH_NOT_FOUND => return error.FileNotFound,
-            .ACCESS_DENIED => return error.AccessDenied,
-            .PIPE_BUSY => return error.PipeBusy,
-            .FILENAME_EXCED_RANGE => return error.NameTooLong,
-            else => |err| return unexpectedError(err),
-        }
-    }
-
-    return result;
-}
-
 pub const OpenError = error{
     IsDir,
+    NotDir,
     FileNotFound,
     NoDevice,
-    SharingViolation,
     AccessDenied,
     PipeBusy,
     PathAlreadyExists,
@@ -111,15 +46,21 @@ pub const OpenFileOptions = struct {
     share_access_nonblocking: bool = false,
     creation: ULONG,
     io_mode: std.io.ModeOverride,
+    /// If true, tries to open path as a directory.
+    /// Defaults to false.
+    open_dir: bool = false,
+    /// If false, tries to open path as a reparse point without dereferencing it.
+    /// Defaults to true.
+    follow_symlinks: bool = true, 
 };
 
 /// TODO when share_access_nonblocking is false, this implementation uses
 /// untinterruptible sleep() to block. This is not the final iteration of the API.
 pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HANDLE {
-    if (mem.eql(u16, sub_path_w, &[_]u16{'.'})) {
+    if (mem.eql(u16, sub_path_w, &[_]u16{'.'}) and !options.open_dir) {
         return error.IsDir;
     }
-    if (mem.eql(u16, sub_path_w, &[_]u16{ '.', '.' })) {
+    if (mem.eql(u16, sub_path_w, &[_]u16{ '.', '.' }) and !options.open_dir) {
         return error.IsDir;
     }
 
@@ -142,11 +83,13 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
         .SecurityQualityOfService = null,
     };
     var io: IO_STATUS_BLOCK = undefined;
+    const blocking_flag: ULONG = if (options.io_mode == .blocking) FILE_SYNCHRONOUS_IO_NONALERT else 0;
+    const file_or_dir_flag: ULONG = if (options.open_dir) FILE_DIRECTORY_FILE else FILE_NON_DIRECTORY_FILE;
+    // If we're not following symlinks, we need to ensure we don't pass in any synchronization flags such as FILE_SYNCHRONOUS_IO_NONALERT.
+    const flags: ULONG = if (options.follow_symlinks) file_or_dir_flag | blocking_flag else file_or_dir_flag | FILE_OPEN_REPARSE_POINT;
 
     var delay: usize = 1;
     while (true) {
-        var flags: ULONG = undefined;
-        const blocking_flag: ULONG = if (options.io_mode == .blocking) FILE_SYNCHRONOUS_IO_NONALERT else 0;
         const rc = ntdll.NtCreateFile(
             &result,
             options.access_mask,
@@ -156,7 +99,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
             FILE_ATTRIBUTE_NORMAL,
             options.share_access,
             options.creation,
-            FILE_NON_DIRECTORY_FILE | blocking_flag,
+            flags,
             null,
             0,
         );
@@ -184,6 +127,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
             .OBJECT_PATH_SYNTAX_BAD => unreachable,
             .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
             .FILE_IS_A_DIRECTORY => return error.IsDir,
+            .NOT_A_DIRECTORY => return error.NotDir,
             else => return unexpectedStatus(rc),
         }
     }
@@ -638,27 +582,14 @@ pub const CreateSymbolicLinkError = error{
     PathAlreadyExists,
     FileNotFound,
     NameTooLong,
-    InvalidUtf8,
-    BadPathName,
     NoDevice,
     Unexpected,
 };
 
 pub fn CreateSymbolicLink(
     dir: ?HANDLE,
-    sym_link_path: []const u8,
-    target_path: []const u8,
-    is_directory: bool,
-) CreateSymbolicLinkError!void {
-    const sym_link_path_w = try sliceToPrefixedFileW(sym_link_path);
-    const target_path_w = try sliceToPrefixedFileW(target_path);
-    return CreateSymbolicLinkW(dir, sym_link_path_w.span(), target_path_w.span(), is_directory);
-}
-
-pub fn CreateSymbolicLinkW(
-    dir: ?HANDLE,
-    sym_link_path: [:0]const u16,
-    target_path: [:0]const u16,
+    sym_link_path: []const u16,
+    target_path: []const u16,
     is_directory: bool,
 ) CreateSymbolicLinkError!void {
     const SYMLINK_DATA = extern struct {
@@ -672,71 +603,19 @@ pub fn CreateSymbolicLinkW(
         Flags: ULONG,
     };
 
-    var symlink_handle: HANDLE = undefined;
-    if (is_directory) {
-        const sym_link_len_bytes = math.cast(u16, sym_link_path.len * 2) catch |err| switch (err) {
-            error.Overflow => return error.NameTooLong,
-        };
-        var nt_name = UNICODE_STRING{
-            .Length = sym_link_len_bytes,
-            .MaximumLength = sym_link_len_bytes,
-            .Buffer = @intToPtr([*]u16, @ptrToInt(sym_link_path.ptr)),
-        };
-
-        if (sym_link_path[0] == '.' and sym_link_path[1] == 0) {
-            // Windows does not recognize this, but it does work with empty string.
-            nt_name.Length = 0;
-        }
-
-        var attr = OBJECT_ATTRIBUTES{
-            .Length = @sizeOf(OBJECT_ATTRIBUTES),
-            .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sym_link_path)) null else dir,
-            .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
-            .ObjectName = &nt_name,
-            .SecurityDescriptor = null,
-            .SecurityQualityOfService = null,
-        };
-
-        var io: IO_STATUS_BLOCK = undefined;
-        const rc = ntdll.NtCreateFile(
-            &symlink_handle,
-            GENERIC_READ | SYNCHRONIZE | FILE_WRITE_ATTRIBUTES,
-            &attr,
-            &io,
-            null,
-            FILE_ATTRIBUTE_NORMAL,
-            FILE_SHARE_READ,
-            FILE_CREATE,
-            FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_FOR_BACKUP_INTENT,
-            null,
-            0,
-        );
-        switch (rc) {
-            .SUCCESS => {},
-            .OBJECT_NAME_INVALID => unreachable,
-            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-            .NO_MEDIA_IN_DEVICE => return error.NoDevice,
-            .INVALID_PARAMETER => unreachable,
-            .ACCESS_DENIED => return error.AccessDenied,
-            .OBJECT_PATH_SYNTAX_BAD => unreachable,
-            .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-            else => return unexpectedStatus(rc),
-        }
-    } else {
-        symlink_handle = OpenFile(sym_link_path, .{
-            .access_mask = SYNCHRONIZE | GENERIC_READ | GENERIC_WRITE,
-            .dir = dir,
-            .creation = FILE_CREATE,
-            .io_mode = .blocking,
-        }) catch |err| switch (err) {
-            error.WouldBlock => unreachable,
-            error.IsDir => return error.PathAlreadyExists,
-            error.PipeBusy => unreachable,
-            error.SharingViolation => return error.AccessDenied,
-            else => |e| return e,
-        };
-    }
+    const symlink_handle = OpenFile(sym_link_path, .{
+        .access_mask = SYNCHRONIZE | GENERIC_READ | GENERIC_WRITE,
+        .dir = dir,
+        .creation = FILE_CREATE,
+        .io_mode = .blocking,
+        .open_dir = is_directory,
+    }) catch |err| switch (err) {
+        error.IsDir => return error.PathAlreadyExists,
+        error.NotDir => unreachable,
+        error.WouldBlock => unreachable,
+        error.PipeBusy => unreachable,
+        else => |e| return e,
+    };
     defer CloseHandle(symlink_handle);
 
     // prepare reparse data buffer
@@ -767,44 +646,32 @@ pub const ReadLinkError = error{
     Unexpected,
     NameTooLong,
     UnsupportedReparsePointType,
-    InvalidUtf8,
-    BadPathName,
 };
 
-pub fn ReadLink(
-    dir: ?HANDLE,
-    sub_path: []const u8,
-    out_buffer: []u8,
-) ReadLinkError![]u8 {
-    const sub_path_w = try sliceToPrefixedFileW(sub_path);
-    return ReadLinkW(dir, sub_path_w.span().ptr, out_buffer);
-}
-
-pub fn ReadLinkW(dir: ?HANDLE, sub_path_w: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8 {
-    const path_len_bytes = math.cast(u16, mem.lenZ(sub_path_w) * 2) catch |err| switch (err) {
+pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
+    // Here, we use `NtCreateFile` to shave off one syscall if we were to use `OpenFile` wrapper.
+    // With the latter, we'd need to call `NtCreateFile` twice, once for file symlink, and if that
+    // failed, again for dir symlink. Omitting any mention of file/dir flags makes it possible
+    // to open the symlink there and then.
+    const path_len_bytes = math.cast(u16, sub_path_w.len * 2) catch |err| switch (err) {
         error.Overflow => return error.NameTooLong,
     };
     var nt_name = UNICODE_STRING{
         .Length = path_len_bytes,
         .MaximumLength = path_len_bytes,
-        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
+        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w.ptr)),
     };
-
-    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
-        // Windows does not recognize this, but it does work with empty string.
-        nt_name.Length = 0;
-    }
-
     var attr = OBJECT_ATTRIBUTES{
         .Length = @sizeOf(OBJECT_ATTRIBUTES),
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w)) null else dir,
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(sub_path_w)) null else dir,
         .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
         .ObjectName = &nt_name,
         .SecurityDescriptor = null,
         .SecurityQualityOfService = null,
     };
-    var io: IO_STATUS_BLOCK = undefined;
     var result_handle: HANDLE = undefined;
+    var io: IO_STATUS_BLOCK = undefined;
+
     const rc = ntdll.NtCreateFile(
         &result_handle,
         FILE_READ_ATTRIBUTES,
@@ -878,24 +745,69 @@ pub const DeleteFileError = error{
     NameTooLong,
     FileBusy,
     Unexpected,
+    NotDir,
+    IsDir,
 };
 
-pub fn DeleteFile(filename: []const u8) DeleteFileError!void {
-    const filename_w = try sliceToPrefixedFileW(filename);
-    return DeleteFileW(filename_w.span().ptr);
-}
+pub const DeleteFileOptions = struct {
+    dir: ?HANDLE,
+    remove_dir: bool = false,
+};
 
-pub fn DeleteFileW(filename: [*:0]const u16) DeleteFileError!void {
-    if (kernel32.DeleteFileW(filename) == 0) {
-        switch (kernel32.GetLastError()) {
-            .FILE_NOT_FOUND => return error.FileNotFound,
-            .PATH_NOT_FOUND => return error.FileNotFound,
-            .ACCESS_DENIED => return error.AccessDenied,
-            .FILENAME_EXCED_RANGE => return error.NameTooLong,
-            .INVALID_PARAMETER => return error.NameTooLong,
-            .SHARING_VIOLATION => return error.FileBusy,
-            else => |err| return unexpectedError(err),
-        }
+pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFileError!void {
+    const create_options_flags: ULONG = if (options.remove_dir)
+        FILE_DELETE_ON_CLOSE | FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT
+    else
+        FILE_DELETE_ON_CLOSE | FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT; // would we ever want to delete the target instead?
+
+    const path_len_bytes = @intCast(u16, sub_path_w.len * 2);
+    var nt_name = UNICODE_STRING{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        // The Windows API makes this mutable, but it will not mutate here.
+        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w.ptr)),
+    };
+
+    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+        // Windows does not recognize this, but it does work with empty string.
+        nt_name.Length = 0;
+    }
+    if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
+        // Can't remove the parent directory with an open handle.
+        return error.FileBusy;
+    }
+
+    var attr = OBJECT_ATTRIBUTES{
+        .Length = @sizeOf(OBJECT_ATTRIBUTES),
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(sub_path_w)) null else options.dir,
+        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+        .ObjectName = &nt_name,
+        .SecurityDescriptor = null,
+        .SecurityQualityOfService = null,
+    };
+    var io: IO_STATUS_BLOCK = undefined;
+    var tmp_handle: HANDLE = undefined;
+    var rc = ntdll.NtCreateFile(
+        &tmp_handle,
+        SYNCHRONIZE | DELETE,
+        &attr,
+        &io,
+        null,
+        0,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        FILE_OPEN,
+        create_options_flags,
+        null,
+        0,
+    );
+    switch (rc) {
+        .SUCCESS => return CloseHandle(tmp_handle),
+        .OBJECT_NAME_INVALID => unreachable,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .INVALID_PARAMETER => unreachable,
+        .FILE_IS_A_DIRECTORY => return error.IsDir,
+        .NOT_A_DIRECTORY => return error.NotDir,
+        else => return unexpectedStatus(rc),
     }
 }
 
@@ -910,103 +822,6 @@ pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) Move
 pub fn MoveFileExW(old_path: [*:0]const u16, new_path: [*:0]const u16, flags: DWORD) MoveFileError!void {
     if (kernel32.MoveFileExW(old_path, new_path, flags) == 0) {
         switch (kernel32.GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-}
-
-pub const CreateDirectoryError = error{
-    NameTooLong,
-    PathAlreadyExists,
-    FileNotFound,
-    NoDevice,
-    AccessDenied,
-    InvalidUtf8,
-    BadPathName,
-    Unexpected,
-};
-
-/// Returns an open directory handle which the caller is responsible for closing with `CloseHandle`.
-pub fn CreateDirectory(dir: ?HANDLE, pathname: []const u8, sa: ?*SECURITY_ATTRIBUTES) CreateDirectoryError!HANDLE {
-    const pathname_w = try sliceToPrefixedFileW(pathname);
-    return CreateDirectoryW(dir, pathname_w.span().ptr, sa);
-}
-
-/// Same as `CreateDirectory` except takes a WTF-16 encoded path.
-pub fn CreateDirectoryW(
-    dir: ?HANDLE,
-    sub_path_w: [*:0]const u16,
-    sa: ?*SECURITY_ATTRIBUTES,
-) CreateDirectoryError!HANDLE {
-    const path_len_bytes = math.cast(u16, mem.lenZ(sub_path_w) * 2) catch |err| switch (err) {
-        error.Overflow => return error.NameTooLong,
-    };
-    var nt_name = UNICODE_STRING{
-        .Length = path_len_bytes,
-        .MaximumLength = path_len_bytes,
-        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
-    };
-
-    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
-        // Windows does not recognize this, but it does work with empty string.
-        nt_name.Length = 0;
-    }
-
-    var attr = OBJECT_ATTRIBUTES{
-        .Length = @sizeOf(OBJECT_ATTRIBUTES),
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w)) null else dir,
-        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
-        .ObjectName = &nt_name,
-        .SecurityDescriptor = if (sa) |ptr| ptr.lpSecurityDescriptor else null,
-        .SecurityQualityOfService = null,
-    };
-    var io: IO_STATUS_BLOCK = undefined;
-    var result_handle: HANDLE = undefined;
-    const rc = ntdll.NtCreateFile(
-        &result_handle,
-        GENERIC_READ | SYNCHRONIZE,
-        &attr,
-        &io,
-        null,
-        FILE_ATTRIBUTE_NORMAL,
-        FILE_SHARE_READ,
-        FILE_CREATE,
-        FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
-        null,
-        0,
-    );
-    switch (rc) {
-        .SUCCESS => return result_handle,
-        .OBJECT_NAME_INVALID => unreachable,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .NO_MEDIA_IN_DEVICE => return error.NoDevice,
-        .INVALID_PARAMETER => unreachable,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .OBJECT_PATH_SYNTAX_BAD => unreachable,
-        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-        else => return unexpectedStatus(rc),
-    }
-}
-
-pub const RemoveDirectoryError = error{
-    FileNotFound,
-    DirNotEmpty,
-    Unexpected,
-    NotDir,
-};
-
-pub fn RemoveDirectory(dir_path: []const u8) RemoveDirectoryError!void {
-    const dir_path_w = try sliceToPrefixedFileW(dir_path);
-    return RemoveDirectoryW(dir_path_w.span().ptr);
-}
-
-pub fn RemoveDirectoryW(dir_path_w: [*:0]const u16) RemoveDirectoryError!void {
-    if (kernel32.RemoveDirectoryW(dir_path_w) == 0) {
-        switch (kernel32.GetLastError()) {
-            .PATH_NOT_FOUND => return error.FileNotFound,
-            .DIR_NOT_EMPTY => return error.DirNotEmpty,
-            .DIRECTORY => return error.NotDir,
             else => |err| return unexpectedError(err),
         }
     }
@@ -1493,8 +1308,7 @@ pub fn cStrToPrefixedFileW(s: [*:0]const u8) !PathSpace {
 }
 
 /// Converts the path `s` to WTF16, null-terminated. If the path is absolute,
-/// it will get NT-style prefix `\??\` prepended automatically. For prepending
-/// Win32-style prefix, see `sliceToWin32PrefixedFileW` instead.
+/// it will get NT-style prefix `\??\` prepended automatically.
 pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
     // TODO https://github.com/ziglang/zig/issues/2765
     var path_space: PathSpace = undefined;

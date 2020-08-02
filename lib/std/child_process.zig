@@ -364,6 +364,7 @@ pub const ChildProcess = struct {
                 error.FileTooBig => unreachable,
                 error.DeviceBusy => unreachable,
                 error.FileLocksNotSupported => unreachable,
+                error.BadPathName => unreachable, // Windows-only
                 else => |e| return e,
             }
         else
@@ -480,25 +481,20 @@ pub const ChildProcess = struct {
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
 
-        // TODO use CreateFileW here since we are using a string literal for the path
         const nul_handle = if (any_ignore)
-            windows.CreateFile(
-                "NUL",
-                windows.GENERIC_READ,
-                windows.FILE_SHARE_READ,
-                null,
-                windows.OPEN_EXISTING,
-                windows.FILE_ATTRIBUTE_NORMAL,
-                null,
-            ) catch |err| switch (err) {
-                error.SharingViolation => unreachable, // not possible for "NUL"
+            windows.OpenFile(&[_]u16{ 'N', 'U', 'L' }, .{
+                .dir = std.fs.cwd().fd,
+                .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
+                .share_access = windows.FILE_SHARE_READ,
+                .creation = windows.OPEN_EXISTING,
+                .io_mode = .blocking,
+            }) catch |err| switch (err) {
                 error.PathAlreadyExists => unreachable, // not possible for "NUL"
                 error.PipeBusy => unreachable, // not possible for "NUL"
-                error.InvalidUtf8 => unreachable, // not possible for "NUL"
-                error.BadPathName => unreachable, // not possible for "NUL"
                 error.FileNotFound => unreachable, // not possible for "NUL"
                 error.AccessDenied => unreachable, // not possible for "NUL"
                 error.NameTooLong => unreachable, // not possible for "NUL"
+                error.WouldBlock => unreachable, // not possible for "NUL"
                 else => |e| return e,
             }
         else
