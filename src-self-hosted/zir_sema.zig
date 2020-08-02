@@ -812,7 +812,7 @@ fn analyzeInstErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) In
         .fields = .{},
         .decl = undefined, // populated below
     };
-    try payload.fields.ensureCapacity(&new_decl_arena.allocator, inst.positionals.fields.len);
+    try payload.fields.ensureCapacity(&new_decl_arena.allocator, @intCast(u32, inst.positionals.fields.len));
 
     for (inst.positionals.fields) |field_name| {
         const entry = try mod.getErrorValue(field_name);

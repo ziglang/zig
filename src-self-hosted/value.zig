@@ -358,7 +358,8 @@ pub const Value = extern union {
             .error_set => {
                 const error_set = val.cast(Payload.ErrorSet).?;
                 try out_stream.writeAll("error{");
-                for (error_set.fields.items()) |entry| {
+                var it = error_set.fields.iterator();
+                while (it.next()) |entry| {
                     try out_stream.print("{},", .{entry.value});
                 }
                 return out_stream.writeAll("}");
