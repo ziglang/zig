@@ -469,11 +469,11 @@ pub const TestContext = struct {
                 var all_errors = try module.getAllErrorsAlloc();
                 defer all_errors.deinit(allocator);
                 if (all_errors.list.len != 0) {
-                    std.debug.warn("\nErrors occurred updating the module:\n================\n", .{});
+                    std.debug.print("\nErrors occurred updating the module:\n================\n", .{});
                     for (all_errors.list) |err| {
-                        std.debug.warn(":{}:{}: error: {}\n================\n", .{ err.line + 1, err.column + 1, err.msg });
+                        std.debug.print(":{}:{}: error: {}\n================\n", .{ err.line + 1, err.column + 1, err.msg });
                     }
-                    std.debug.warn("Test failed.\n", .{});
+                    std.debug.print("Test failed.\n", .{});
                     std.process.exit(1);
                 }
             }
@@ -489,12 +489,12 @@ pub const TestContext = struct {
                         defer allocator.free(out);
 
                         if (expected_output.len != out.len) {
-                            std.debug.warn("\nTransformed C length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
+                            std.debug.print("\nTransformed C length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
                             std.process.exit(1);
                         }
                         for (expected_output) |e, i| {
                             if (out[i] != e) {
-                                std.debug.warn("\nTransformed C differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
+                                std.debug.print("\nTransformed C differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
                                 std.process.exit(1);
                             }
                         }
@@ -518,12 +518,12 @@ pub const TestContext = struct {
                         defer test_node.end();
 
                         if (expected_output.len != out_zir.items.len) {
-                            std.debug.warn("{}\nTransformed ZIR length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
+                            std.debug.print("{}\nTransformed ZIR length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
                             std.process.exit(1);
                         }
                         for (expected_output) |e, i| {
                             if (out_zir.items[i] != e) {
-                                std.debug.warn("{}\nTransformed ZIR differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
+                                std.debug.print("{}\nTransformed ZIR differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ case.name, expected_output, out_zir.items });
                                 std.process.exit(1);
                             }
                         }
@@ -547,7 +547,7 @@ pub const TestContext = struct {
                                 break;
                             }
                         } else {
-                            std.debug.warn("{}\nUnexpected error:\n================\n:{}:{}: error: {}\n================\nTest failed.\n", .{ case.name, a.line + 1, a.column + 1, a.msg });
+                            std.debug.print("{}\nUnexpected error:\n================\n:{}:{}: error: {}\n================\nTest failed.\n", .{ case.name, a.line + 1, a.column + 1, a.msg });
                             std.process.exit(1);
                         }
                     }
@@ -555,7 +555,7 @@ pub const TestContext = struct {
                     for (handled_errors) |h, i| {
                         if (!h) {
                             const er = e[i];
-                            std.debug.warn("{}\nDid not receive error:\n================\n{}:{}: {}\n================\nTest failed.\n", .{ case.name, er.line, er.column, er.msg });
+                            std.debug.print("{}\nDid not receive error:\n================\n{}:{}: {}\n================\nTest failed.\n", .{ case.name, er.line, er.column, er.msg });
                             std.process.exit(1);
                         }
                     }
@@ -589,7 +589,7 @@ pub const TestContext = struct {
                     switch (exec_result.term) {
                         .Exited => |code| {
                             if (code != 0) {
-                                std.debug.warn("elf file exited with code {}\n", .{code});
+                                std.debug.print("elf file exited with code {}\n", .{code});
                                 return error.BinaryBadExitCode;
                             }
                         },
