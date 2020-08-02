@@ -33,101 +33,26 @@ pub const Options = struct {
     program_code_size_hint: u64 = 256 * 1024,
 };
 
-/// Attempts incremental linking, if the file already exists.
-/// If incremental linking fails, falls back to truncating the file and rewriting it.
-/// A malicious file is detected as incremental link failure and does not cause Illegal Behavior.
-/// This operation is not atomic.
-pub fn openBinFilePath(
-    allocator: *Allocator,
-    dir: fs.Dir,
-    sub_path: []const u8,
-    options: Options,
-) !*File {
-    const cbe = options.object_format == .c;
-    const file = try dir.createFile(sub_path, .{ .truncate = cbe, .read = true, .mode = determineMode(options) });
-    errdefer file.close();
-
-    if (cbe) {
-        var bin_file = try allocator.create(File.C);
-        errdefer allocator.destroy(bin_file);
-        bin_file.* = try openCFile(allocator, file, options);
-        return &bin_file.base;
-    } else {
-        var bin_file = try allocator.create(File.Elf);
-        errdefer allocator.destroy(bin_file);
-        bin_file.* = try openBinFile(allocator, file, options);
-        bin_file.owns_file_handle = true;
-        return &bin_file.base;
-    }
-}
-
-/// Atomically overwrites the old file, if present.
-pub fn writeFilePath(
-    allocator: *Allocator,
-    dir: fs.Dir,
-    sub_path: []const u8,
-    module: Module,
-    errors: *std.ArrayList(Module.ErrorMsg),
-) !void {
-    const options: Options = .{
-        .target = module.target,
-        .output_mode = module.output_mode,
-        .link_mode = module.link_mode,
-        .object_format = module.object_format,
-        .symbol_count_hint = module.decls.items.len,
-        .optimize_mode = module.optimize_mode,
-    };
-    const af = try dir.atomicFile(sub_path, .{ .mode = determineMode(options) });
-    defer af.deinit();
-
-    const elf_file = try createElfFile(allocator, af.file, options);
-    for (module.decls.items) |decl| {
-        try elf_file.updateDecl(module, decl, errors);
-    }
-    try elf_file.flush();
-    if (elf_file.error_flags.no_entry_point_found) {
-        try errors.ensureCapacity(errors.items.len + 1);
-        errors.appendAssumeCapacity(.{
-            .byte_offset = 0,
-            .msg = try std.fmt.allocPrint(errors.allocator, "no entry point found", .{}),
-        });
-    }
-    try af.finish();
-    return result;
-}
-
-fn openCFile(allocator: *Allocator, file: fs.File, options: Options) !File.C {
-    return File.C{
-        .base = .{
-            .tag = .c,
-            .options = options,
-        },
-        .allocator = allocator,
-        .file = file,
-        .main = std.ArrayList(u8).init(allocator),
-        .header = std.ArrayList(u8).init(allocator),
-        .constants = std.ArrayList(u8).init(allocator),
-        .called = std.StringHashMap(void).init(allocator),
-    };
-}
-
-/// Attempts incremental linking, if the file already exists.
-/// If incremental linking fails, falls back to truncating the file and rewriting it.
-/// Returns an error if `file` is not already open with +read +write +seek abilities.
-/// A malicious file is detected as incremental link failure and does not cause Illegal Behavior.
-/// This operation is not atomic.
-pub fn openBinFile(allocator: *Allocator, file: fs.File, options: Options) !File.Elf {
-    return openBinFileInner(allocator, file, options) catch |err| switch (err) {
-        error.IncrFailed => {
-            return createElfFile(allocator, file, options);
-        },
-        else => |e| return e,
-    };
-}
-
 pub const File = struct {
     tag: Tag,
     options: Options,
+
+    /// Attempts incremental linking, if the file already exists. If
+    /// incremental linking fails, falls back to truncating the file and
+    /// rewriting it. A malicious file is detected as incremental link failure
+    /// and does not cause Illegal Behavior. This operation is not atomic.
+    pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: Options)  !*File {
+        switch (options.object_format) {
+            .unknown => unreachable,
+            .coff => return error.TODOImplementCoff,
+            .elf => return Elf.openPath(allocator, dir, sub_path, options),
+            .macho => return error.TODOImplementMacho,
+            .wasm => return error.TODOImplementWasm,
+            .c => return C.openPath(allocator, dir, sub_path, options),
+            .hex => return error.TODOImplementHex,
+            .raw => return error.TODOImplementRaw,
+        }
+    }
 
     pub fn cast(base: *File, comptime T: type) ?*T {
         if (base.tag != T.base_tag)
@@ -247,6 +172,31 @@ pub const File = struct {
         need_stdint: bool = false,
         need_noreturn: bool = false,
         error_msg: *Module.ErrorMsg = undefined,
+
+        pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: Options) !*File {
+            assert(options.object_format == .c);
+
+            const file = try dir.createFile(sub_path, .{ .truncate = true, .read = true, .mode = determineMode(options) });
+            errdefer file.close();
+
+            var c_file = try allocator.create(C);
+            errdefer allocator.destroy(c_file);
+
+            c_file.* = File.C{
+                .base = .{
+                    .tag = .c,
+                    .options = options,
+                },
+                .allocator = allocator,
+                .file = file,
+                .main = std.ArrayList(u8).init(allocator),
+                .header = std.ArrayList(u8).init(allocator),
+                .constants = std.ArrayList(u8).init(allocator),
+                .called = std.StringHashMap(void).init(allocator),
+            };
+
+            return &c_file.base;
+        }
 
         pub fn fail(self: *C, src: usize, comptime format: []const u8, args: anytype) !void {
             self.error_msg = try Module.ErrorMsg.create(self.allocator, src, format, args);
@@ -451,6 +401,107 @@ pub const File = struct {
         pub const Export = struct {
             sym_index: ?u32 = null,
         };
+
+        pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: Options) !*File {
+            assert(options.object_format == .elf);
+
+            const file = try dir.createFile(sub_path, .{ .truncate = false, .read = true, .mode = determineMode(options) });
+            errdefer file.close();
+
+            var elf_file = try allocator.create(Elf);
+            errdefer allocator.destroy(elf_file);
+
+            elf_file.* = openFile(allocator, file, options) catch |err| switch (err) {
+                error.IncrFailed => try createFile(allocator, file, options),
+                else => |e| return e,
+            };
+
+            elf_file.owns_file_handle = true;
+            return &elf_file.base;
+        }
+
+        /// Returns error.IncrFailed if incremental update could not be performed.
+        fn openFile(allocator: *Allocator, file: fs.File, options: Options) !Elf {
+            switch (options.output_mode) {
+                .Exe => {},
+                .Obj => {},
+                .Lib => return error.IncrFailed,
+            }
+            var self: Elf = .{
+                .base = .{
+                    .tag = .elf,
+                    .options = options,
+                },
+                .allocator = allocator,
+                .file = file,
+                .owns_file_handle = false,
+                .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
+                    32 => .p32,
+                    64 => .p64,
+                    else => return error.UnsupportedELFArchitecture,
+                },
+            };
+            errdefer self.deinit();
+
+            // TODO implement reading the elf file
+            return error.IncrFailed;
+            //try self.populateMissingMetadata();
+            //return self;
+        }
+
+        /// Truncates the existing file contents and overwrites the contents.
+        /// Returns an error if `file` is not already open with +read +write +seek abilities.
+        fn createFile(allocator: *Allocator, file: fs.File, options: Options) !Elf {
+            switch (options.output_mode) {
+                .Exe => {},
+                .Obj => {},
+                .Lib => return error.TODOImplementWritingLibFiles,
+            }
+            var self: Elf = .{
+                .base = .{
+                    .tag = .elf,
+                    .options = options,
+                },
+                .allocator = allocator,
+                .file = file,
+                .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
+                    32 => .p32,
+                    64 => .p64,
+                    else => return error.UnsupportedELFArchitecture,
+                },
+                .shdr_table_dirty = true,
+                .owns_file_handle = false,
+            };
+            errdefer self.deinit();
+
+            // Index 0 is always a null symbol.
+            try self.local_symbols.append(allocator, .{
+                .st_name = 0,
+                .st_info = 0,
+                .st_other = 0,
+                .st_shndx = 0,
+                .st_value = 0,
+                .st_size = 0,
+            });
+
+            // There must always be a null section in index 0
+            try self.sections.append(allocator, .{
+                .sh_name = 0,
+                .sh_type = elf.SHT_NULL,
+                .sh_flags = 0,
+                .sh_addr = 0,
+                .sh_offset = 0,
+                .sh_size = 0,
+                .sh_link = 0,
+                .sh_info = 0,
+                .sh_addralign = 0,
+                .sh_entsize = 0,
+            });
+
+            try self.populateMissingMetadata();
+
+            return self;
+        }
 
         pub fn deinit(self: *Elf) void {
             self.sections.deinit(self.allocator);
@@ -1938,110 +1989,6 @@ pub const File = struct {
         }
     };
 };
-
-/// Truncates the existing file contents and overwrites the contents.
-/// Returns an error if `file` is not already open with +read +write +seek abilities.
-pub fn createElfFile(allocator: *Allocator, file: fs.File, options: Options) !File.Elf {
-    switch (options.output_mode) {
-        .Exe => {},
-        .Obj => {},
-        .Lib => return error.TODOImplementWritingLibFiles,
-    }
-    switch (options.object_format) {
-        .c => unreachable,
-        .unknown => unreachable, // TODO remove this tag from the enum
-        .coff => return error.TODOImplementWritingCOFF,
-        .elf => {},
-        .macho => return error.TODOImplementWritingMachO,
-        .wasm => return error.TODOImplementWritingWasmObjects,
-        .hex => return error.TODOImplementWritingHex,
-        .raw => return error.TODOImplementWritingRaw,
-    }
-
-    var self: File.Elf = .{
-        .base = .{
-            .tag = .elf,
-            .options = options,
-        },
-        .allocator = allocator,
-        .file = file,
-        .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
-            32 => .p32,
-            64 => .p64,
-            else => return error.UnsupportedELFArchitecture,
-        },
-        .shdr_table_dirty = true,
-        .owns_file_handle = false,
-    };
-    errdefer self.deinit();
-
-    // Index 0 is always a null symbol.
-    try self.local_symbols.append(allocator, .{
-        .st_name = 0,
-        .st_info = 0,
-        .st_other = 0,
-        .st_shndx = 0,
-        .st_value = 0,
-        .st_size = 0,
-    });
-
-    // There must always be a null section in index 0
-    try self.sections.append(allocator, .{
-        .sh_name = 0,
-        .sh_type = elf.SHT_NULL,
-        .sh_flags = 0,
-        .sh_addr = 0,
-        .sh_offset = 0,
-        .sh_size = 0,
-        .sh_link = 0,
-        .sh_info = 0,
-        .sh_addralign = 0,
-        .sh_entsize = 0,
-    });
-
-    try self.populateMissingMetadata();
-
-    return self;
-}
-
-/// Returns error.IncrFailed if incremental update could not be performed.
-fn openBinFileInner(allocator: *Allocator, file: fs.File, options: Options) !File.Elf {
-    switch (options.output_mode) {
-        .Exe => {},
-        .Obj => {},
-        .Lib => return error.IncrFailed,
-    }
-    switch (options.object_format) {
-        .unknown => unreachable, // TODO remove this tag from the enum
-        .c => unreachable,
-        .coff => return error.IncrFailed,
-        .elf => {},
-        .macho => return error.IncrFailed,
-        .wasm => return error.IncrFailed,
-        .hex => return error.IncrFailed,
-        .raw => return error.IncrFailed,
-    }
-    var self: File.Elf = .{
-        .base = .{
-            .tag = .elf,
-            .options = options,
-        },
-        .allocator = allocator,
-        .file = file,
-        .owns_file_handle = false,
-        .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
-            32 => .p32,
-            64 => .p64,
-            else => return error.UnsupportedELFArchitecture,
-        },
-    };
-    errdefer self.deinit();
-
-    // TODO implement reading the elf file
-    return error.IncrFailed;
-    //try self.populateMissingMetadata();
-    //return self;
-}
 
 /// Saturating multiplication
 fn satMul(a: anytype, b: anytype) @TypeOf(a, b) {

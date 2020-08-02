@@ -790,7 +790,7 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
     errdefer gpa.free(root_name);
 
     const bin_file_dir = options.bin_file_dir orelse std.fs.cwd();
-    const bin_file = try link.openBinFilePath(gpa, bin_file_dir, options.bin_file_path, .{
+    const bin_file = try link.File.openPath(gpa, bin_file_dir, options.bin_file_path, .{
         .root_name = root_name,
         .root_src_dir_path = options.root_pkg.root_src_dir_path,
         .target = options.target,
