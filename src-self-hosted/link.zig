@@ -2024,9 +2024,9 @@ pub const File = struct {
                         // line number of the open curly from the beginning of the file.
                         const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
                         const block = fn_proto.body().?.castTag(.Block).?;
-                        const loc = tree.tokenLocation(0, block.lbrace);
+                        const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
                         // No need to add one; this is a delta from DWARF's starting line number (1).
-                        break :blk @intCast(u28, loc.line);
+                        break :blk @intCast(u28, line_delta);
                     } else {
                         const prev_src_fn = src_file.fns.entries.items[src_fn_index - 1].key;
                         const mod_fn = @fieldParentPtr(Module.Fn, "link", prev_src_fn);
@@ -2035,9 +2035,12 @@ pub const File = struct {
                         const prev_block = prev_fn_proto.body().?.castTag(.Block).?;
                         const this_block = this_fn_proto.body().?.castTag(.Block).?;
                         // Find the difference between prev decl end curly and this decl begin curly.
-                        const loc = tree.tokenLocation(tree.token_locs[prev_block.rbrace].start, this_block.lbrace);
+                        const line_delta = std.zig.lineDelta(tree.source,
+                            tree.token_locs[prev_block.rbrace].start,
+                            tree.token_locs[this_block.lbrace].start,
+                        );
                         // No need to add one; this is a delta from the previous line number.
-                        break :blk @intCast(u28, loc.line);
+                        break :blk @intCast(u28, line_delta);
                     }
                 };
 

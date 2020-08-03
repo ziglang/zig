@@ -65,6 +65,7 @@ pub const Inst = struct {
         cmp_neq,
         condbr,
         constant,
+        dbg_stmt,
         isnonnull,
         isnull,
         /// Read a value from a pointer.
@@ -88,6 +89,7 @@ pub const Inst = struct {
                 .unreach,
                 .arg,
                 .breakpoint,
+                .dbg_stmt,
                 => NoOp,
 
                 .ref,
