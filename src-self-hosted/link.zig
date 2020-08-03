@@ -1264,27 +1264,37 @@ pub const File = struct {
                     1, // `DW.LNS_set_isa`
 
                     1, // directory_entry_format_count
-                    DW.LNCT_path, DW.FORM_strp, // directory_entry_format
+                    DW.LNCT_path, DW.FORM_string, // directory_entry_format
 
                     // For now we only support one compilation unit, which has one directory.
                     1, // directories_count (this is a ULEB128)
                 });
-                const comp_dir_strp = try self.makeDebugString(self.base.options.root_pkg.root_src_dir_path);
-                self.writeDwarfAddrAssumeCapacity(&di_buf, comp_dir_strp);
+                // Empirically, some tools do not understand DW.FORM_strp yet. readelf 2.31.1 gives the bogus
+                // error <no .debug_str section> and gdb 8.3.1 crashes. Both programs seem to work fine with
+                // DW.FORM_string however.
+                di_buf.appendSliceAssumeCapacity(self.base.options.root_pkg.root_src_dir_path);
+                di_buf.appendAssumeCapacity(0);
 
                 di_buf.appendSliceAssumeCapacity(&[_]u8{
                     2, // file_name_entry_format_count
-                    DW.LNCT_path, DW.FORM_strp, // file_name_entry_format[0]
+                    DW.LNCT_path, DW.FORM_string, // file_name_entry_format[0]
                     DW.LNCT_directory_index, DW.FORM_data1, // file_name_entry_format[1]
                     // TODO Look into adding the file size here. Maybe even the mtime and MD5.
                     //DW.LNCT_size, DW.FORM_udata, // file_name_entry_format[2]
 
                     // For now we only put the root file name here. Once more source files
                     // are supported, this will need to be improved.
-                    1, // file_names_count (this is a ULEB128)
+                    2, // file_names_count (this is a ULEB128)
                 });
-                const root_src_file_strp = try self.makeDebugString(self.base.options.root_pkg.root_src_path);
-                self.writeDwarfAddrAssumeCapacity(&di_buf, root_src_file_strp); // DW.LNCT_path, DW.FORM_strp
+                // See note above with directories about why we use DW.FORM_string here.
+                di_buf.appendSliceAssumeCapacity(self.base.options.root_pkg.root_src_path);
+                di_buf.appendAssumeCapacity(0);
+                di_buf.appendAssumeCapacity(0); // LNCT_directory_index, FORM_data1
+
+                // We add the root file twice because according to DWARF, the state machine
+                // starts out with file index 1.
+                di_buf.appendSliceAssumeCapacity(self.base.options.root_pkg.root_src_path);
+                di_buf.appendAssumeCapacity(0);
                 di_buf.appendAssumeCapacity(0); // LNCT_directory_index, FORM_data1
 
                 const header_len = di_buf.items.len - after_header_len;
@@ -2140,8 +2150,9 @@ pub const File = struct {
             {
                 var header: [dbg_line_file_header_len]u8 = undefined;
                 header[0] = DW.LNS_set_file;
-                // Once we support more than one source file, this will have the ability to be non-zero.
-                const file_index = 0;
+                // Once we support more than one source file, this will have the ability to be more
+                // than one possible value.
+                const file_index = 1;
                 leb128.writeUnsignedFixed(4, header[1..5], file_index);
                 try self.file.?.pwriteAll(&header, header_off);
             }
@@ -2384,8 +2395,13 @@ pub const File = struct {
             const file_name_entry_format_count = 1;
             const directory_count = 1;
             const file_name_count = 1;
-            return 53 + directory_entry_format_count * 2 + file_name_entry_format_count * 2 +
-                directory_count * 8 + file_name_count * 8;
+            return @intCast(u32, 53 + directory_entry_format_count * 2 + file_name_entry_format_count * 2 +
+                directory_count * 8 + file_name_count * 8 +
+                // These are encoded as DW.FORM_string rather than DW.FORM_strp as we would like
+                // because of a workaround for readelf and gdb failing to understand DWARFv5 correctly.
+                self.base.options.root_pkg.root_src_dir_path.len +
+                self.base.options.root_pkg.root_src_path.len * 2);
+
         }
     };
 };
