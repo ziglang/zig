@@ -1057,17 +1057,16 @@ pub const File = struct {
                 const init_len_index = di_buf.items.len;
                 di_buf.items.len += init_len_size;
                 const after_init_len = di_buf.items.len;
-                mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), 5, target_endian); // DWARF version
-                di_buf.appendAssumeCapacity(DW.UT_compile);
+                mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), 4, target_endian); // DWARF version
                 const abbrev_offset = self.debug_abbrev_table_offset.?;
                 switch (self.ptr_width) {
                     .p32 => {
-                        di_buf.appendAssumeCapacity(4); // address size
                         mem.writeInt(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, abbrev_offset), target_endian);
+                        di_buf.appendAssumeCapacity(4); // address size
                     },
                     .p64 => {
-                        di_buf.appendAssumeCapacity(8); // address size
                         mem.writeInt(u64, di_buf.addManyAsArrayAssumeCapacity(8), abbrev_offset, target_endian);
+                        di_buf.appendAssumeCapacity(8); // address size
                     },
                 }
                 // Write the form for the compile unit, which must match the abbrev table above.
