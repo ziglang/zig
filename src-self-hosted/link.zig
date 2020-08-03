@@ -1071,7 +1071,7 @@ pub const File = struct {
                     },
                 }
                 // Write the form for the compile unit, which must match the abbrev table above.
-                const name_strp = try self.makeDebugString(self.base.options.root_name);
+                const name_strp = try self.makeDebugString(self.base.options.root_pkg.root_src_path);
                 const comp_dir_strp = try self.makeDebugString(self.base.options.root_pkg.root_src_dir_path);
                 const producer_strp = try self.makeDebugString("zig (TODO version here)");
                 // Currently only one compilation unit is supported, so the address range is simply
@@ -1225,11 +1225,7 @@ pub const File = struct {
                     },
                 }
 
-                mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), 5, target_endian); // version
-                di_buf.appendSliceAssumeCapacity(&[_]u8{
-                    ptr_width_bytes, // address_size
-                    0, // segment_selector_size
-                });
+                mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), 4, target_endian); // version
 
                 // Empirically, debug info consumers do not respect this field, or otherwise
                 // consider it to be an error when it does not point exactly to the end of the header.
@@ -1263,39 +1259,17 @@ pub const File = struct {
                     0, // `DW.LNS_set_epilogue_begin`
                     1, // `DW.LNS_set_isa`
 
-                    1, // directory_entry_format_count
-                    DW.LNCT_path, DW.FORM_string, // directory_entry_format
-
-                    // For now we only support one compilation unit, which has one directory.
-                    1, // directories_count (this is a ULEB128)
+                    0, // include_directories (none except the compilation unit cwd)
                 });
-                // Empirically, some tools do not understand DW.FORM_strp yet. readelf 2.31.1 gives the bogus
-                // error <no .debug_str section> and gdb 8.3.1 crashes. Both programs seem to work fine with
-                // DW.FORM_string however.
-                di_buf.appendSliceAssumeCapacity(self.base.options.root_pkg.root_src_dir_path);
-                di_buf.appendAssumeCapacity(0);
-
+                // file_names[0]
+                di_buf.appendSliceAssumeCapacity(self.base.options.root_pkg.root_src_path); // relative path name
                 di_buf.appendSliceAssumeCapacity(&[_]u8{
-                    2, // file_name_entry_format_count
-                    DW.LNCT_path, DW.FORM_string, // file_name_entry_format[0]
-                    DW.LNCT_directory_index, DW.FORM_data1, // file_name_entry_format[1]
-                    // TODO Look into adding the file size here. Maybe even the mtime and MD5.
-                    //DW.LNCT_size, DW.FORM_udata, // file_name_entry_format[2]
-
-                    // For now we only put the root file name here. Once more source files
-                    // are supported, this will need to be improved.
-                    2, // file_names_count (this is a ULEB128)
+                    0, // null byte for the relative path name
+                    0, // directory_index
+                    0, // mtime (TODO supply this)
+                    0, // file size bytes (TODO supply this)
+                    0, // file_names sentinel
                 });
-                // See note above with directories about why we use DW.FORM_string here.
-                di_buf.appendSliceAssumeCapacity(self.base.options.root_pkg.root_src_path);
-                di_buf.appendAssumeCapacity(0);
-                di_buf.appendAssumeCapacity(0); // LNCT_directory_index, FORM_data1
-
-                // We add the root file twice because according to DWARF, the state machine
-                // starts out with file index 1.
-                di_buf.appendSliceAssumeCapacity(self.base.options.root_pkg.root_src_path);
-                di_buf.appendAssumeCapacity(0);
-                di_buf.appendAssumeCapacity(0); // LNCT_directory_index, FORM_data1
 
                 const header_len = di_buf.items.len - after_header_len;
                 switch (self.ptr_width) {
