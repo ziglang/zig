@@ -1253,7 +1253,7 @@ pub const File = struct {
                     0, // `DW.LNS_negate_stmt`
                     0, // `DW.LNS_set_basic_block`
                     0, // `DW.LNS_const_add_pc`
-                    0, // `DW.LNS_fixed_advance_pc`
+                    1, // `DW.LNS_fixed_advance_pc`
                     0, // `DW.LNS_set_prologue_end`
                     0, // `DW.LNS_set_epilogue_begin`
                     1, // `DW.LNS_set_isa`
