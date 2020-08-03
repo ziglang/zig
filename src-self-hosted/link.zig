@@ -412,14 +412,14 @@ pub const File = struct {
 
         pub const SrcFn = struct {
             /// Offset from the `SrcFile` that contains this function.
-            dbg_line_off: u32,
+            off: u32,
             /// Size of the line number program component belonging to this function, not
             /// including padding.
-            dbg_line_len: u32,
+            len: u32,
 
             pub const empty: SrcFn = .{
-                .dbg_line_off = 0,
-                .dbg_line_len = 0,
+                .off = 0,
+                .len = 0,
             };
         };
 
@@ -430,10 +430,17 @@ pub const File = struct {
             /// Line Number Program that contains it.
             len: u32,
 
-            /// A list of `SrcFn` that have surplus capacity.
-            /// This is the same concept as `text_block_free_list` (see the doc comments there)
-            /// but it's for the function's component of the Line Number program.
-            free_list: std.ArrayListUnmanaged(*SrcFn),
+            /// An ordered list of all the `SrcFn` in this file. This list is not redundant with
+            /// the source Decl list, for two reasons:
+            /// * Lazy decl analysis: some source functions do not correspond to any compiled functions.
+            /// * Generic functions: some source functions correspond to many compiled functions.
+            /// This list corresponds to the file data in the Line Number Program. When a new `SrcFn`
+            /// is inserted, the list must be shifted to accomodate it, and likewise the Line
+            /// Number Program data must be shifted within the ELF file to accomodate (if there is
+            /// not enough padding).
+            /// It is a hash map so that we can look up the index based on the `*SrcFn` and therefore
+            /// find the next and previous functions.
+            fns: std.AutoHashMapUnmanaged(*SrcFn, void),
 
             /// Points to the previous and next neighbors, based on the offset from .debug_line.
             /// This can be used to find, for example, the capacity of this `SrcFile`.
@@ -443,7 +450,7 @@ pub const File = struct {
             pub const empty: SrcFile = .{
                 .off = 0,
                 .len = 0,
-                .free_list = .{},
+                .fns = .{},
                 .prev = null,
                 .next = null,
             };
@@ -589,7 +596,7 @@ pub const File = struct {
             return self.first_dbg_line_file.?.off;
         }
 
-        fn getDebugLineProgramLen(self: Elf) u32 {
+        fn getDebugLineProgramEnd(self: Elf) u32 {
             return self.last_dbg_line_file.?.off + self.last_dbg_line_file.?.len;
         }
 
@@ -767,27 +774,6 @@ pub const File = struct {
                 self.shstrtab_dirty = true;
                 self.shdr_table_dirty = true;
             }
-            if (self.debug_str_section_index == null) {
-                self.debug_str_section_index = @intCast(u16, self.sections.items.len);
-                assert(self.debug_strtab.items.len == 0);
-                try self.debug_strtab.append(self.allocator, 0); // need a 0 at position 0
-                const off = self.findFreeSpace(self.debug_strtab.items.len, 1);
-                log.debug(.link, "found debug_strtab free space 0x{x} to 0x{x}\n", .{ off, off + self.debug_strtab.items.len });
-                try self.sections.append(self.allocator, .{
-                    .sh_name = try self.makeString(".debug_str"),
-                    .sh_type = elf.SHT_PROGBITS,
-                    .sh_flags = elf.SHF_MERGE | elf.SHF_STRINGS,
-                    .sh_addr = 0,
-                    .sh_offset = off,
-                    .sh_size = self.debug_strtab.items.len,
-                    .sh_link = 0,
-                    .sh_info = 0,
-                    .sh_addralign = 1,
-                    .sh_entsize = 1,
-                });
-                self.debug_strtab_dirty = true;
-                self.shdr_table_dirty = true;
-            }
             if (self.text_section_index == null) {
                 self.text_section_index = @intCast(u16, self.sections.items.len);
                 const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
@@ -847,6 +833,24 @@ pub const File = struct {
                 });
                 self.shdr_table_dirty = true;
                 try self.writeSymbol(0);
+            }
+            if (self.debug_str_section_index == null) {
+                self.debug_str_section_index = @intCast(u16, self.sections.items.len);
+                assert(self.debug_strtab.items.len == 0);
+                try self.sections.append(self.allocator, .{
+                    .sh_name = try self.makeString(".debug_str"),
+                    .sh_type = elf.SHT_PROGBITS,
+                    .sh_flags = elf.SHF_MERGE | elf.SHF_STRINGS,
+                    .sh_addr = 0,
+                    .sh_offset = 0,
+                    .sh_size = self.debug_strtab.items.len,
+                    .sh_link = 0,
+                    .sh_info = 0,
+                    .sh_addralign = 1,
+                    .sh_entsize = 1,
+                });
+                self.debug_strtab_dirty = true;
+                self.shdr_table_dirty = true;
             }
             if (self.debug_info_section_index == null) {
                 self.debug_info_section_index = @intCast(u16, self.sections.items.len);
@@ -1002,7 +1006,7 @@ pub const File = struct {
                 // we can simply append these bytes.
                 const abbrev_buf = [_]u8{
                     1, DW.TAG_compile_unit, DW.CHILDREN_no, // header
-                    DW.AT_stmt_list,  DW.FORM_data1,
+                    DW.AT_stmt_list,  DW.FORM_sec_offset,
                     DW.AT_low_pc   ,  DW.FORM_addr,
                     DW.AT_high_pc  ,  DW.FORM_addr,
                     DW.AT_name     ,  DW.FORM_strp,
@@ -1074,10 +1078,8 @@ pub const File = struct {
                 const low_pc = text_phdr.p_vaddr;
                 const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
 
-                di_buf.appendSliceAssumeCapacity(&[_]u8{
-                    1, // abbrev tag, matching the value from the abbrev table header
-                    0, // DW.AT_stmt_list,  DW.FORM_data1: offset to corresponding .debug_line header
-                });
+                di_buf.appendAssumeCapacity(1); // abbrev tag, matching the value from the abbrev table header
+                self.writeDwarfAddrAssumeCapacity(&di_buf, 0); // DW.AT_stmt_list, DW.FORM_sec_offset
                 self.writeDwarfAddrAssumeCapacity(&di_buf, low_pc);
                 self.writeDwarfAddrAssumeCapacity(&di_buf, high_pc);
                 self.writeDwarfAddrAssumeCapacity(&di_buf, name_strp);
@@ -1194,22 +1196,23 @@ pub const File = struct {
             }
             if (self.debug_line_header_dirty) {
                 const dbg_line_prg_off = self.getDebugLineProgramOff();
-                const dbg_line_prg_len = self.getDebugLineProgramLen();
-                assert(dbg_line_prg_len != 0);
+                const dbg_line_prg_end = self.getDebugLineProgramEnd();
+                assert(dbg_line_prg_end != 0);
 
                 const debug_line_sect = &self.sections.items[self.debug_line_section_index.?];
 
                 var di_buf = std.ArrayList(u8).init(self.allocator);
                 defer di_buf.deinit();
 
-                // This is a heuristic. The size of this header is variable, depending on
-                // the number of directories, files, and padding.
-                try di_buf.ensureCapacity(100);
+                // The size of this header is variable, depending on the number of directories,
+                // files, and padding. We have a function to compute the upper bound size, however,
+                // because it's needed for determining where to put the offset of the first `SrcFile`.
+                try di_buf.ensureCapacity(self.dbgLineNeededHeaderBytes());
 
                 // initial length - length of the .debug_line contribution for this compilation unit,
                 // not including the initial length itself.
                 const after_init_len = di_buf.items.len + init_len_size;
-                const init_len = (dbg_line_prg_off + dbg_line_prg_len) - after_init_len;
+                const init_len = dbg_line_prg_end - after_init_len;
                 switch (self.ptr_width) {
                     .p32 => {
                         mem.writeInt(u32, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u32, init_len), target_endian);
@@ -1277,10 +1280,16 @@ pub const File = struct {
                 self.writeDwarfAddrAssumeCapacity(&di_buf, root_src_file_strp); // DW.LNCT_path, DW.FORM_strp
                 di_buf.appendAssumeCapacity(0); // LNCT_directory_index, FORM_data1
 
-                if (di_buf.items.len > dbg_line_prg_off) {
+                // Add a redundant NOP in case the consumer ignores header_length.
+                const after_jmp = di_buf.items.len + 6;
+                if (after_jmp > dbg_line_prg_off) {
                     // Move the first N files to the end to make more padding for the header.
                     @panic("TODO: handle .debug_line header exceeding its padding");
                 }
+                const jmp_amt = dbg_line_prg_off - after_jmp + 1;
+                di_buf.appendAssumeCapacity(DW.LNS_extended_op);
+                leb128.writeUnsignedFixed(4, di_buf.addManyAsArrayAssumeCapacity(4), @intCast(u28, jmp_amt));
+                di_buf.appendAssumeCapacity(DW.LNE_hi_user);
 
                 try self.file.?.pwriteAll(di_buf.items, debug_line_sect.sh_offset);
                 self.debug_line_header_dirty = false;
@@ -1813,37 +1822,27 @@ pub const File = struct {
                 .Fn => true,
                 else => false,
             };
-            const dbg_line_vaddr_reloc_index = 1;
             if (is_fn) {
-                const scope_file = decl.scope.cast(Module.Scope.File).?;
-                const line_off: u28 = blk: {
-                    const file_ast_decls = scope_file.contents.tree.root_node.decls();
-                    if (decl.src_index == 0) {
-                        // Then it's the line number of the open curly.
-                        const block = file_ast_decls[decl.src_index].castTag(.Block).?;
-                        @panic("TODO implement this");
-                    } else {
-                        const prev_decl = file_ast_decls[decl.src_index - 1];
-                        // Find the difference between prev decl end curly and this decl begin curly.
-                        @panic("TODO implement this");
-                    }
-                };
-
                 // For functions we need to add a prologue to the debug line program.
-                try dbg_line_buffer.ensureCapacity(24);
+                try dbg_line_buffer.ensureCapacity(26);
 
-                dbg_line_buffer.appendAssumeCapacity(DW.LNE_set_address);
+                const ptr_width_bytes = self.ptrWidthBytes();
+                dbg_line_buffer.appendSliceAssumeCapacity(&[_]u8{
+                    DW.LNS_extended_op,
+                    ptr_width_bytes + 1,
+                    DW.LNE_set_address,
+                });
                 // This is the "relocatable" vaddr, corresponding to `code_buffer` index `0`.
                 assert(dbg_line_vaddr_reloc_index == dbg_line_buffer.items.len);
-                dbg_line_buffer.items.len += self.ptrWidthBytes();
+                dbg_line_buffer.items.len += ptr_width_bytes;
 
                 dbg_line_buffer.appendAssumeCapacity(DW.LNS_advance_line);
                 // This is the "relocatable" relative line offset from the previous function's end curly
                 // to this function's begin curly.
                 assert(self.getRelocDbgLineOff() == dbg_line_buffer.items.len);
-                // Here we use a ULEB128 but we write 4 bytes regardless (possibly wasting space)
-                // so that we can patch this later as a fixed width field.
-                leb128.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), line_off);
+                // Here we allocate 4 bytes for the relocation. This field is a ULEB128, however,
+                // it is possible to encode small values as still taking up 4 bytes.
+                dbg_line_buffer.items.len += 4;
 
                 // Emit a line for the begin curly with prologue_end=false. The codegen will
                 // do the work of setting prologue_end=true and epilogue_begin=true.
@@ -1917,6 +1916,14 @@ pub const File = struct {
 
             // If the Decl is a function, we need to update the .debug_line program.
             if (is_fn) {
+                // For padding between functions, we terminate with `LNS_extended_op` with sub-op
+                // `LNE_hi_user`, using a fixed 4-byte ULEB128 for the opcode size. This is always
+                // found at the very end of the SrcFile's Line Number Program component.
+                try dbg_line_buffer.ensureCapacity(dbg_line_buffer.items.len + 6);
+                dbg_line_buffer.appendAssumeCapacity(DW.LNS_extended_op);
+                leb128.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), 1);
+                dbg_line_buffer.appendAssumeCapacity(DW.LNE_hi_user);
+
                 // Perform the relocation based on vaddr.
                 const target_endian = self.base.options.target.cpu.arch.endian();
                 switch (self.ptr_width) {
@@ -1930,13 +1937,91 @@ pub const File = struct {
                     },
                 }
 
-                const src_file = &decl.scope.cast(Module.Scope.File).?.link;
+                // Now we want to write the line offset relocation, however, first we must
+                // "plug in" the SrcFn into its parent SrcFile, so that we know what function the line
+                // number is offset from. It must go in the same order as the functions are found
+                // in the Zig source. When we insert a function before another one, the latter one
+                // must have its line offset relocation updated.
+
+                const debug_line_sect = &self.sections.items[self.debug_line_section_index.?];
+                const scope_file = decl.scope.cast(Module.Scope.File).?;
+                const src_file = &scope_file.link;
                 const src_fn = &typed_value.val.cast(Value.Payload.Function).?.func.link;
-                if (src_file.next == null and src_file.prev == null) {
-                    @panic("TODO updateDecl for .debug_line: add new SrcFile");
+                var src_fn_index: usize = undefined;
+                if (src_file.len == 0) {
+                    // This is the first function of the SrcFile.
+                    assert(src_file.fns.entries.items.len == 0);
+                    src_fn_index = 0;
+                    try src_file.fns.put(self.allocator, src_fn, {});
+
+                    if (self.last_dbg_line_file) |last| {
+                        src_file.prev = last;
+                        self.last_dbg_line_file = src_file;
+
+                        // Update the previous last SrcFile's terminating NOP to skip to the start
+                        // of the new last SrcFile's start.
+                        @panic("TODO updateDecl for .debug_line: add new SrcFile: append");
+                    } else {
+                        // This is the first file (and function) of the Line Number Program.
+                        self.first_dbg_line_file = src_file;
+                        self.last_dbg_line_file = src_file;
+
+                        src_fn.off = dbg_line_file_header_len;
+                        src_fn.len = @intCast(u32, dbg_line_buffer.items.len);
+
+                        src_file.off = self.dbgLineNeededHeaderBytes() * alloc_num / alloc_den;
+                        src_file.len = src_fn.off + src_fn.len + dbg_line_file_trailer_len;
+
+                        const needed_size = src_file.off + src_file.len;
+                        if (needed_size > debug_line_sect.sh_size) {
+                            debug_line_sect.sh_offset = self.findFreeSpace(needed_size, 1);
+                        }
+                        debug_line_sect.sh_size = needed_size;
+                        self.shdr_table_dirty = true; // TODO look into making only the one section dirty
+                        self.debug_line_header_dirty = true;
+
+                        try self.updateDbgLineFile(src_file);
+                    }
                 } else {
                     @panic("TODO updateDecl for .debug_line: update existing SrcFile");
+                    //src_fn_index = @panic("TODO");
                 }
+                const line_off: u28 = blk: {
+                    const tree = scope_file.contents.tree;
+                    const file_ast_decls = tree.root_node.decls();
+                    // TODO Look into improving the performance here by adding a token-index-to-line
+                    // lookup table. Currently this involves scanning over the source code for newlines
+                    // (but only from the previous decl to the current one).
+                    if (src_fn_index == 0) {
+                        // Since it's the first function in the file, the line number delta is just the
+                        // line number of the open curly from the beginning of the file.
+                        const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
+                        const block = fn_proto.body().?.castTag(.Block).?;
+                        const loc = tree.tokenLocation(0, block.lbrace);
+                        // No need to add one; this is a delta from DWARF's starting line number (1).
+                        break :blk @intCast(u28, loc.line);
+                    } else {
+                        const prev_src_fn = src_file.fns.entries.items[src_fn_index - 1].key;
+                        const mod_fn = @fieldParentPtr(Module.Fn, "link", prev_src_fn);
+                        const prev_fn_proto = file_ast_decls[mod_fn.owner_decl.src_index].castTag(.FnProto).?;
+                        const this_fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
+                        const prev_block = prev_fn_proto.body().?.castTag(.Block).?;
+                        const this_block = this_fn_proto.body().?.castTag(.Block).?;
+                        // Find the difference between prev decl end curly and this decl begin curly.
+                        const loc = tree.tokenLocation(tree.token_locs[prev_block.rbrace].start, this_block.lbrace);
+                        // No need to add one; this is a delta from the previous line number.
+                        break :blk @intCast(u28, loc.line);
+                    }
+                };
+
+                // Here we use a ULEB128 but we write 4 bytes regardless (possibly wasting space) because
+                // that is the amount of space we allocated for this field.
+                leb128.writeUnsignedFixed(4, dbg_line_buffer.items[self.getRelocDbgLineOff()..][0..4], line_off);
+
+                // We only have support for one compilation unit so far, so the offsets are directly
+                // from the .debug_line section.
+                const file_pos = debug_line_sect.sh_offset + src_file.off + src_fn.off;
+                try self.file.?.pwriteAll(dbg_line_buffer.items, file_pos);
             }
 
             // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
@@ -2026,6 +2111,46 @@ pub const File = struct {
             const sym_index = exp.sym_index orelse return;
             self.global_symbol_free_list.appendAssumeCapacity(sym_index);
             self.global_symbols.items[sym_index].st_info = 0;
+        }
+
+        const dbg_line_file_header_len = 5; // DW.LNS_set_file + ULEB128-fixed-4 file_index
+        const dbg_line_file_trailer_len = 9; // DW.LNE_end_sequence + 6-byte terminating NOP
+
+        fn updateDbgLineFile(self: *Elf, src_file: *SrcFile) !void {
+            const target_endian = self.base.options.target.cpu.arch.endian();
+            const shdr = &self.sections.items[self.debug_line_section_index.?];
+            const header_off = shdr.sh_offset + src_file.off;
+            {
+                var header: [dbg_line_file_header_len]u8 = undefined;
+                header[0] = DW.LNS_set_file;
+                // Once we support more than one source file, this will have the ability to be non-zero.
+                const file_index = 0;
+                leb128.writeUnsignedFixed(4, header[1..5], file_index);
+                try self.file.?.pwriteAll(&header, header_off);
+            }
+            {
+                const last_src_fn = src_file.fns.entries.items[src_file.fns.entries.items.len - 1].key;
+                const trailer_off = header_off + last_src_fn.off + last_src_fn.len;
+                const padding_to_next = blk: {
+                    if (src_file.next) |next| {
+                        break :blk next.off - (src_file.off + src_file.len);
+                    } else {
+                        // No need for padding after this one; we will add padding to it when a SrcFile
+                        // is added after it.
+                        break :blk 0;
+                    }
+                };
+                var trailer: [dbg_line_file_trailer_len]u8 = undefined;
+
+                trailer[0] = DW.LNS_extended_op;
+                trailer[1] = 1;
+                trailer[2] = DW.LNE_end_sequence;
+
+                trailer[3] = DW.LNS_extended_op;
+                leb128.writeUnsignedFixed(4, trailer[4..8], @intCast(u28, padding_to_next + 1));
+                trailer[8] = DW.LNE_hi_user;
+                try self.file.?.pwriteAll(&trailer, trailer_off);
+            }
         }
 
         fn writeProgHeader(self: *Elf, index: usize) !void {
@@ -2227,6 +2352,24 @@ pub const File = struct {
             };
         }
 
+        /// The reloc offset for the virtual address of a function in its Line Number Program.
+        /// Size is a virtual address integer.
+        const dbg_line_vaddr_reloc_index = 3;
+
+        /// The reloc offset for the line offset of a function from the previous function's line.
+        /// It's a fixed-size 4-byte ULEB128.
+        fn getRelocDbgLineOff(self: Elf) usize {
+            return dbg_line_vaddr_reloc_index + self.ptrWidthBytes() + 1;
+        }
+
+        fn dbgLineNeededHeaderBytes(self: Elf) u32 {
+            const directory_entry_format_count = 1;
+            const file_name_entry_format_count = 1;
+            const directory_count = 1;
+            const file_name_count = 1;
+            return 53 + directory_entry_format_count * 2 + file_name_entry_format_count * 2 +
+                directory_count * 8 + file_name_count * 8;
+        }
     };
 };
 
