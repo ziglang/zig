@@ -647,6 +647,8 @@ pub const File = struct {
         }
 
         fn allocatedSize(self: *Elf, start: u64) u64 {
+            if (start == 0)
+                return 0;
             var min_pos: u64 = std.math.maxInt(u64);
             if (self.shdr_table_offset) |off| {
                 if (off > start and off < min_pos) min_pos = off;
@@ -1229,8 +1231,13 @@ pub const File = struct {
                     0, // segment_selector_size
                 });
 
-                const header_length = dbg_line_prg_off - (di_buf.items.len + ptr_width_bytes);
-                self.writeDwarfAddrAssumeCapacity(&di_buf, header_length);
+                // Empirically, debug info consumers do not respect this field, or otherwise
+                // consider it to be an error when it does not point exactly to the end of the header.
+                // Therefore we rely on the NOP jump at the beginning of the Line Number Program for
+                // padding rather than this field.
+                const before_header_len = di_buf.items.len;
+                di_buf.items.len += ptr_width_bytes; // We will come back and write this.
+                const after_header_len = di_buf.items.len;
 
                 const opcode_base = DW.LNS_set_isa + 1;
                 di_buf.appendSliceAssumeCapacity(&[_]u8{
@@ -1280,7 +1287,17 @@ pub const File = struct {
                 self.writeDwarfAddrAssumeCapacity(&di_buf, root_src_file_strp); // DW.LNCT_path, DW.FORM_strp
                 di_buf.appendAssumeCapacity(0); // LNCT_directory_index, FORM_data1
 
-                // Add a redundant NOP in case the consumer ignores header_length.
+                const header_len = di_buf.items.len - after_header_len;
+                switch (self.ptr_width) {
+                    .p32 => {
+                        mem.writeInt(u32, di_buf.items[before_header_len..][0..4], @intCast(u32, header_len), target_endian);
+                    },
+                    .p64 => {
+                        mem.writeInt(u64, di_buf.items[before_header_len..][0..8], header_len, target_endian);
+                    },
+                }
+
+                // We use a NOP jmp because consumers empirically do not respect the header length field.
                 const after_jmp = di_buf.items.len + 6;
                 if (after_jmp > dbg_line_prg_off) {
                     // Move the first N files to the end to make more padding for the header.
