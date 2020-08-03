@@ -145,6 +145,10 @@ pub fn generateSymbol(
                 const vaddr = bin_file.local_symbols.items[decl.link.local_sym_index].st_value;
                 const endian = bin_file.base.options.target.cpu.arch.endian();
                 switch (bin_file.base.options.target.cpu.arch.ptrBitWidth()) {
+                    16 => {
+                        try code.resize(2);
+                        mem.writeInt(u16, code.items[0..2], @intCast(u16, vaddr), endian);
+                    },
                     32 => {
                         try code.resize(4);
                         mem.writeInt(u32, code.items[0..4], @intCast(u32, vaddr), endian);
