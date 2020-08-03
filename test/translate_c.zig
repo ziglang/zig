@@ -3,6 +3,16 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("alignof",
+        \\int main() {
+        \\    int a = _Alignof(int);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn main() c_int {
+        \\    var a: c_int = @bitCast(c_int, @truncate(c_uint, @alignOf(c_int)));
+        \\}
+    });
+
     cases.add("initializer list macro",
         \\typedef struct Color {
         \\    unsigned char r;

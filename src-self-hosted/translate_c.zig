@@ -3068,13 +3068,30 @@ fn transUnaryExprOrTypeTraitExpr(
     stmt: *const ZigClangUnaryExprOrTypeTraitExpr,
     result_used: ResultUsed,
 ) TransError!*ast.Node {
+    const loc = ZigClangUnaryExprOrTypeTraitExpr_getBeginLoc(stmt);
     const type_node = try transQualType(
         rp,
         ZigClangUnaryExprOrTypeTraitExpr_getTypeOfArgument(stmt),
-        ZigClangUnaryExprOrTypeTraitExpr_getBeginLoc(stmt),
+        loc,
     );
 
-    const builtin_node = try rp.c.createBuiltinCall("@sizeOf", 1);
+    const kind = ZigClangUnaryExprOrTypeTraitExpr_getKind(stmt);
+    const kind_str = switch (kind) {
+        .SizeOf => "@sizeOf",
+        .AlignOf => "@alignOf",
+        .PreferredAlignOf,
+        .VecStep,
+        .OpenMPRequiredSimdAlign, 
+        => return revertAndWarn(
+            rp,
+            error.UnsupportedTranslation,
+            loc,
+            "Unsupported type trait kind {}",
+            .{kind},
+        ),
+    };
+
+    const builtin_node = try rp.c.createBuiltinCall(kind_str, 1);
     builtin_node.params()[0] = type_node;
     builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
     return maybeSuppressResult(rp, scope, result_used, &builtin_node.base);

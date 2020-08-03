@@ -2714,6 +2714,14 @@ struct ZigClangSourceLocation ZigClangUnaryExprOrTypeTraitExpr_getBeginLoc(
     return bitcast(casted->getBeginLoc());
 }
 
+
+enum ZigClangUnaryExprOrTypeTrait_Kind ZigClangUnaryExprOrTypeTraitExpr_getKind(
+    const struct ZigClangUnaryExprOrTypeTraitExpr *self)
+{
+    auto casted = reinterpret_cast<const clang::UnaryExprOrTypeTraitExpr *>(self);
+    return (ZigClangUnaryExprOrTypeTrait_Kind)casted->getKind();
+}
+
 const struct ZigClangStmt *ZigClangDoStmt_getBody(const struct ZigClangDoStmt *self) {
     auto casted = reinterpret_cast<const clang::DoStmt *>(self);
     return reinterpret_cast<const struct ZigClangStmt *>(casted->getBody());
