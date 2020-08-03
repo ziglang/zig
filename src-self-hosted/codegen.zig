@@ -516,9 +516,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             entry.value = .dead;
             switch (prev_value) {
                 .register => |reg| {
-                    const reg64 = reg.to64();
-                    _ = branch.registers.remove(reg64);
-                    branch.markRegFree(reg64);
+                    const allocated = if (arch == .x86_64) reg.to64() else reg;
+                    _ = branch.registers.remove(allocated);
+                    branch.markRegFree(allocated);
                 },
                 else => {}, // TODO process stack allocation death
             }
