@@ -515,7 +515,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             entry.value = .dead;
             switch (prev_value) {
                 .register => |reg| {
-                    const reg64 = reg.to64();
+                    const reg64 = if (arch == .x86_64) reg.to64() else reg;
                     _ = branch.registers.remove(reg64);
                     branch.markRegFree(reg64);
                 },
@@ -1506,10 +1506,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         if (!self.wantSafety())
                             return; // The already existing value will do just fine.
                         // Write the debug undefined value.
-                        switch (reg.size()) {
-                            64 => return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
-                            else => unreachable,
-                        }
+                        return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa });
                     },
                     .immediate => |unsigned_x| {
                         const x = @bitCast(i64, unsigned_x);

@@ -71,18 +71,6 @@ pub const Register = enum(u8) {
         return null;
     }
 
-    /// Returns the bit-width of the register.
-    pub fn size(self: @This()) u7 {
-        return switch (@enumToInt(self)) {
-            0...31 => 64,
-            else => unreachable,
-        };
-    }
-    
-    pub fn to64(self: @This()) Register {
-        return self;
-    }
-
     /// Returns the register's id.
     pub fn id(self: @This()) u5 {
         return @truncate(u5, @enumToInt(self));
