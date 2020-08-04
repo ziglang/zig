@@ -950,8 +950,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     try self.code.append(0xcc); // int3
                 },
                 .riscv64 => {
-                    const full = @bitCast(u32, Instructions.CallBreak{
-                        .mode = @enumToInt(Instructions.CallBreak.Mode.ebreak),
+                    const full = @bitCast(u32, instructions.CallBreak{
+                        .mode = @enumToInt(instructions.CallBreak.Mode.ebreak),
                     });
 
                     mem.writeIntLittle(u32, try self.code.addManyAsArray(4), full);
@@ -1018,6 +1018,31 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
                     }
                 },
+                .riscv64 => {
+                    if (info.args.len > 0) return self.fail(inst.base.src, "TODO implement fn args for {}", .{self.target.cpu.arch});
+
+                    if (inst.func.cast(ir.Inst.Constant)) |func_inst| {
+                        if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
+                            const func = func_val.func;
+                            const got = &self.bin_file.program_headers.items[self.bin_file.phdr_got_index.?];
+                            const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+                            const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+                            const got_addr = @intCast(u32, got.p_vaddr + func.owner_decl.link.offset_table_index * ptr_bytes);
+
+                            try self.genSetReg(inst.base.src, .ra, .{ .memory = got_addr });
+                            const jalr = instructions.Jalr{
+                                .rd = Register.ra.id(),
+                                .rs1 = Register.ra.id(),
+                                .offset = 0,
+                            };
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), @bitCast(u32, jalr));
+                        } else {
+                            return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
+                        }
+                    } else {
+                        return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
+                    }
+                },
                 else => return self.fail(inst.base.src, "TODO implement call for {}", .{self.target.cpu.arch}),
             }
 
@@ -1065,6 +1090,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     try self.code.resize(self.code.items.len + 5);
                     self.code.items[self.code.items.len - 5] = 0xe9; // jmp rel32
                     try self.exitlude_jump_relocs.append(self.gpa, self.code.items.len - 4);
+                },
+                .riscv64 => {
+                    const jalr = instructions.Jalr{
+                        .rd = Register.zero.id(),
+                        .rs1 = Register.ra.id(),
+                        .offset = 0,
+                    };
+                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), @bitCast(u32, jalr));
                 },
                 else => return self.fail(src, "TODO implement return for {}", .{self.target.cpu.arch}),
             }
@@ -1267,8 +1300,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     }
 
                     if (mem.eql(u8, inst.asm_source, "ecall")) {
-                        const full = @bitCast(u32, Instructions.CallBreak{
-                            .mode = @enumToInt(Instructions.CallBreak.Mode.ecall),
+                        const full = @bitCast(u32, instructions.CallBreak{
+                            .mode = @enumToInt(instructions.CallBreak.Mode.ecall),
                         });
 
                         mem.writeIntLittle(u32, try self.code.addManyAsArray(4), full);
@@ -1481,8 +1514,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .immediate => |unsigned_x| {
                         const x = @bitCast(i64, unsigned_x);
                         if (math.minInt(i12) <= x and x <= math.maxInt(i12)) {
-                            const instruction = @bitCast(u32, Instructions.Addi{
-                                .mode = @enumToInt(Instructions.Addi.Mode.addi),
+                            const instruction = @bitCast(u32, instructions.Addi{
+                                .mode = @enumToInt(instructions.Addi.Mode.addi),
                                 .imm = @truncate(i12, x),
                                 .rs1 = Register.zero.id(),
                                 .rd = reg.id(),
@@ -1498,14 +1531,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             }, @truncate(i32, x));
                             if (split.low12 < 0) return self.fail(src, "TODO support riscv64 genSetReg i32 immediates with 12th bit set to 1", .{});
 
-                            const lui = @bitCast(u32, Instructions.Lui{
+                            const lui = @bitCast(u32, instructions.Lui{
                                 .imm = split.up20,
                                 .rd = reg.id(),
                             });
                             mem.writeIntLittle(u32, try self.code.addManyAsArray(4), lui);
 
-                            const addi = @bitCast(u32, Instructions.Addi{
-                                .mode = @enumToInt(Instructions.Addi.Mode.addi),
+                            const addi = @bitCast(u32, instructions.Addi{
+                                .mode = @enumToInt(instructions.Addi.Mode.addi),
                                 .imm = @truncate(i12, split.low12),
                                 .rs1 = reg.id(),
                                 .rd = reg.id(),
@@ -1513,6 +1546,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             mem.writeIntLittle(u32, try self.code.addManyAsArray(4), addi);
                             return;
                         }
+                        // li rd, immediate
+                        // "Myriad sequences"
                         return self.fail(src, "TODO genSetReg 33-64 bit immediates for riscv64", .{}); // glhf
                     },
                     .memory => |addr| {
@@ -1520,8 +1555,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // If the type is a pointer, it means the pointer address is at this memory location.
                         try self.genSetReg(src, reg, .{ .immediate = addr });
 
-                        const ld = @bitCast(u32, Instructions.Load{
-                            .mode = @enumToInt(Instructions.Load.Mode.ld),
+                        const ld = @bitCast(u32, instructions.Load{
+                            .mode = @enumToInt(instructions.Load.Mode.ld),
                             .rs1 = reg.id(),
                             .rd = reg.id(),
                             .offset = 0,
@@ -1967,6 +2002,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         const FreeRegInt = @Type(.{ .Int = .{ .is_signed = false, .bits = callee_preserved_regs.len } });
 
         fn parseRegName(name: []const u8) ?Register {
+            if (@hasDecl(Register, "parseRegName")) {
+                return Register.parseRegName(name);
+            }
             return std.meta.stringToEnum(Register, name);
         }
 
