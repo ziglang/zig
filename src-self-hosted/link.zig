@@ -552,6 +552,7 @@ pub const File = struct {
             self.local_symbol_free_list.deinit(self.allocator);
             self.offset_table_free_list.deinit(self.allocator);
             self.text_block_free_list.deinit(self.allocator);
+            self.dbg_line_fn_free_list.deinit(self.allocator);
             self.offset_table.deinit(self.allocator);
             if (self.owns_file_handle) {
                 if (self.file) |f| f.close();
