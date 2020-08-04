@@ -10,9 +10,7 @@ const Module = @import("Module.zig");
 const link = @import("link.zig");
 const Package = @import("Package.zig");
 const zir = @import("zir.zig");
-
-// TODO Improve async I/O enough that we feel comfortable doing this.
-//pub const io_mode = .evented;
+const build_options = @import("build_options");
 
 pub const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
@@ -47,18 +45,16 @@ pub fn log(
     if (@enumToInt(level) > @enumToInt(std.log.level))
         return;
 
-    const scope_prefix = "(" ++ switch (scope) {
-        // Uncomment to hide logs
-        //.compiler,
-        .module,
-        .liveness,
-        .link,
-        => return,
+    const scope_name = @tagName(scope);
+    const ok = comptime for (build_options.log_scopes) |log_scope| {
+        if (mem.eql(u8, log_scope, scope_name))
+            break true;
+    } else false;
 
-        else => @tagName(scope),
-    } ++ "): ";
+    if (!ok)
+        return;
 
-    const prefix = "[" ++ @tagName(level) ++ "] " ++ scope_prefix;
+    const prefix = "[" ++ @tagName(level) ++ "] " ++ "(" ++ @tagName(scope) ++ "): ";
 
     // Print the message to stderr, silently ignoring any errors
     std.debug.print(prefix ++ format, args);

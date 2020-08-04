@@ -107,6 +107,8 @@ pub const Inst = struct {
         condbr,
         /// Special case, has no textual representation.
         @"const",
+        /// Declares the beginning of a statement. Used for debug info.
+        dbg_stmt,
         /// Represents a pointer to a global decl by name.
         declref,
         /// Represents a pointer to a global decl by string name.
@@ -211,6 +213,7 @@ pub const Inst = struct {
             return switch (tag) {
                 .arg,
                 .breakpoint,
+                .dbg_stmt,
                 .returnvoid,
                 .alloc_inferred,
                 .ret_ptr,
@@ -324,6 +327,7 @@ pub const Inst = struct {
                 .coerce_result_block_ptr,
                 .coerce_to_ptr_elem,
                 .@"const",
+                .dbg_stmt,
                 .declref,
                 .declref_str,
                 .declval,
@@ -1843,6 +1847,7 @@ const EmitZIR = struct {
                 .breakpoint => try self.emitNoOp(inst.src, .breakpoint),
                 .unreach => try self.emitNoOp(inst.src, .@"unreachable"),
                 .retvoid => try self.emitNoOp(inst.src, .returnvoid),
+                .dbg_stmt => try self.emitNoOp(inst.src, .dbg_stmt),
 
                 .not => try self.emitUnOp(inst.src, new_body, inst.castTag(.not).?, .boolnot),
                 .ret => try self.emitUnOp(inst.src, new_body, inst.castTag(.ret).?, .@"return"),

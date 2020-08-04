@@ -120,6 +120,8 @@ pub fn blockExpr(mod: *Module, parent_scope: *Scope, block_node: *ast.Node.Block
 
     var scope = parent_scope;
     for (block_node.statements()) |statement| {
+        const src = scope.tree().token_locs[statement.firstToken()].start;
+        _ = try addZIRNoOp(mod, scope, src, .dbg_stmt);
         switch (statement.tag) {
             .VarDecl => {
                 const var_decl_node = statement.castTag(.VarDecl).?;
@@ -146,7 +148,6 @@ pub fn blockExpr(mod: *Module, parent_scope: *Scope, block_node: *ast.Node.Block
             else => {
                 const possibly_unused_result = try expr(mod, scope, .none, statement);
                 if (!possibly_unused_result.tag.isNoReturn()) {
-                    const src = scope.tree().token_locs[statement.firstToken()].start;
                     _ = try addZIRUnOp(mod, scope, src, .ensure_result_used, possibly_unused_result);
                 }
             },

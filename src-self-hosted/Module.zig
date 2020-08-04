@@ -6,6 +6,7 @@ const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
 const assert = std.debug.assert;
+const log = std.log;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
@@ -88,6 +89,9 @@ const WorkItem = union(enum) {
     /// It may have already be analyzed, or it may have been determined
     /// to be outdated; in this case perform semantic analysis again.
     analyze_decl: *Decl,
+    /// The source file containing the Decl has been updated, and so the
+    /// Decl may need its line number information updated in the debug info.
+    update_line_number: *Decl,
 };
 
 pub const Export = struct {
@@ -175,6 +179,13 @@ pub const Decl = struct {
     /// This is populated regardless of semantic analysis and code generation.
     link: link.File.Elf.TextBlock = link.File.Elf.TextBlock.empty,
 
+    /// Represents the function in the linked output file, if the `Decl` is a function.
+    /// This is stored here and not in `Fn` because `Decl` survives across updates but
+    /// `Fn` does not.
+    /// TODO Look into making `Fn` a longer lived structure and moving this field there
+    /// to save on memory usage.
+    fn_link: link.File.Elf.SrcFn = link.File.Elf.SrcFn.empty,
+
     contents_hash: std.zig.SrcHash,
 
     /// The shallow set of other decls whose typed_value could possibly change if this Decl's
@@ -235,7 +246,7 @@ pub const Decl = struct {
 
     pub fn dump(self: *Decl) void {
         const loc = std.zig.findLineColumn(self.scope.source.bytes, self.src);
-        std.debug.warn("{}:{}:{} name={} status={}", .{
+        std.debug.print("{}:{}:{} name={} status={}", .{
             self.scope.sub_file_path,
             loc.line + 1,
             loc.column + 1,
@@ -243,9 +254,9 @@ pub const Decl = struct {
             @tagName(self.analysis),
         });
         if (self.typedValueManaged()) |tvm| {
-            std.debug.warn(" ty={} val={}", .{ tvm.typed_value.ty, tvm.typed_value.val });
+            std.debug.print(" ty={} val={}", .{ tvm.typed_value.ty, tvm.typed_value.val });
         }
-        std.debug.warn("\n", .{});
+        std.debug.print("\n", .{});
     }
 
     pub fn typedValueManaged(self: *Decl) ?*TypedValue.Managed {
@@ -541,7 +552,7 @@ pub const Scope = struct {
 
         pub fn dumpSrc(self: *File, src: usize) void {
             const loc = std.zig.findLineColumn(self.source.bytes, src);
-            std.debug.warn("{}:{}:{}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
+            std.debug.print("{}:{}:{}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
         }
 
         pub fn getSource(self: *File, module: *Module) ![:0]const u8 {
@@ -643,7 +654,7 @@ pub const Scope = struct {
 
         pub fn dumpSrc(self: *ZIRModule, src: usize) void {
             const loc = std.zig.findLineColumn(self.source.bytes, src);
-            std.debug.warn("{}:{}:{}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
+            std.debug.print("{}:{}:{}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
         }
 
         pub fn getSource(self: *ZIRModule, module: *Module) ![:0]const u8 {
@@ -792,7 +803,7 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
     const bin_file_dir = options.bin_file_dir orelse std.fs.cwd();
     const bin_file = try link.File.openPath(gpa, bin_file_dir, options.bin_file_path, .{
         .root_name = root_name,
-        .root_src_dir_path = options.root_pkg.root_src_dir_path,
+        .root_pkg = options.root_pkg,
         .target = options.target,
         .output_mode = options.output_mode,
         .link_mode = options.link_mode orelse .Static,
@@ -885,6 +896,7 @@ pub fn deinit(self: *Module) void {
 
 fn freeExportList(gpa: *Allocator, export_list: []*Export) void {
     for (export_list) |exp| {
+        gpa.free(exp.options.name);
         gpa.destroy(exp);
     }
     gpa.free(export_list);
@@ -943,7 +955,6 @@ pub fn update(self: *Module) !void {
     }
 
     self.link_error_flags = self.bin_file.errorFlags();
-    std.log.debug(.module, "link_error_flags: {}\n", .{self.link_error_flags});
 
     // If there are any errors, we anticipate the source files being loaded
     // to report error messages. Otherwise we unload all source files to save memory.
@@ -1057,22 +1068,14 @@ pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
                     error.AnalysisFail => {
                         decl.analysis = .dependency_failure;
                     },
-                    error.CGenFailure => {
-                        // Error is handled by CBE, don't try adding it again
-                    },
                     else => {
                         try self.failed_decls.ensureCapacity(self.gpa, self.failed_decls.items().len + 1);
-                        const result = self.failed_decls.getOrPutAssumeCapacity(decl);
-                        if (result.found_existing) {
-                            std.debug.panic("Internal error: attempted to override error '{}' with 'unable to codegen: {}'", .{ result.entry.value.msg, @errorName(err) });
-                        } else {
-                            result.entry.value = try ErrorMsg.create(
-                                self.gpa,
-                                decl.src(),
-                                "unable to codegen: {}",
-                                .{@errorName(err)},
-                            );
-                        }
+                        self.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
+                            self.gpa,
+                            decl.src(),
+                            "unable to codegen: {}",
+                            .{@errorName(err)},
+                        ));
                         decl.analysis = .codegen_failure_retryable;
                     },
                 };
@@ -1082,6 +1085,18 @@ pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
             self.ensureDeclAnalyzed(decl) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => continue,
+            };
+        },
+        .update_line_number => |decl| {
+            self.bin_file.updateDeclLineNumber(self, decl) catch |err| {
+                try self.failed_decls.ensureCapacity(self.gpa, self.failed_decls.items().len + 1);
+                self.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
+                    self.gpa,
+                    decl.src(),
+                    "unable to update line number: {}",
+                    .{@errorName(err)},
+                ));
+                decl.analysis = .codegen_failure_retryable;
             };
         },
     };
@@ -1101,12 +1116,10 @@ pub fn ensureDeclAnalyzed(self: *Module, decl: *Decl) InnerError!void {
         .codegen_failure_retryable,
         => return error.AnalysisFail,
 
-        .complete, .outdated => blk: {
-            if (decl.generation == self.generation) {
-                assert(decl.analysis == .complete);
-                return;
-            }
-            //std.debug.warn("re-analyzing {}\n", .{decl.name});
+        .complete => return,
+
+        .outdated => blk: {
+            log.debug(.module, "re-analyzing {}\n", .{decl.name});
 
             // The exports this Decl performs will be re-discovered, so we remove them here
             // prior to re-analysis.
@@ -1481,6 +1494,9 @@ fn getAstTree(self: *Module, root_scope: *Scope.File) !*ast.Tree {
 }
 
 fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     // We may be analyzing it for the first time, or this may be
     // an incremental update. This code handles both cases.
     const tree = try self.getAstTree(root_scope);
@@ -1522,6 +1538,10 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
                     if (!srcHashEql(decl.contents_hash, contents_hash)) {
                         try self.markOutdatedDecl(decl);
                         decl.contents_hash = contents_hash;
+                    } else if (decl.fn_link.len != 0) {
+                        // TODO Look into detecting when this would be unnecessary by storing enough state
+                        // in `Decl` to notice that the line number did not change.
+                        self.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
                     }
                 }
             } else {
@@ -1540,7 +1560,7 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
     // Handle explicitly deleted decls from the source code. Not to be confused
     // with when we delete decls because they are no longer referenced.
     for (deleted_decls.items()) |entry| {
-        //std.debug.warn("noticed '{}' deleted from source\n", .{entry.key.name});
+        log.debug(.module, "noticed '{}' deleted from source\n", .{entry.key.name});
         try self.deleteDecl(entry.key);
     }
 }
@@ -1569,7 +1589,6 @@ fn analyzeRootZIRModule(self: *Module, root_scope: *Scope.ZIRModule) !void {
         const name_hash = root_scope.fullyQualifiedNameHash(src_decl.name);
         if (self.decl_table.get(name_hash)) |decl| {
             deleted_decls.removeAssertDiscard(decl);
-            //std.debug.warn("'{}' contents: '{}'\n", .{ src_decl.name, src_decl.contents });
             if (!srcHashEql(src_decl.contents_hash, decl.contents_hash)) {
                 try self.markOutdatedDecl(decl);
                 decl.contents_hash = src_decl.contents_hash;
@@ -1594,7 +1613,7 @@ fn analyzeRootZIRModule(self: *Module, root_scope: *Scope.ZIRModule) !void {
     // Handle explicitly deleted decls from the source code. Not to be confused
     // with when we delete decls because they are no longer referenced.
     for (deleted_decls.items()) |entry| {
-        //std.debug.warn("noticed '{}' deleted from source\n", .{entry.key.name});
+        log.debug(.module, "noticed '{}' deleted from source\n", .{entry.key.name});
         try self.deleteDecl(entry.key);
     }
 }
@@ -1606,7 +1625,7 @@ fn deleteDecl(self: *Module, decl: *Decl) !void {
     // not be present in the set, and this does nothing.
     decl.scope.removeDecl(decl);
 
-    //std.debug.warn("deleting decl '{}'\n", .{decl.name});
+    log.debug(.module, "deleting decl '{}'\n", .{decl.name});
     const name_hash = decl.fullyQualifiedNameHash();
     self.decl_table.removeAssertDiscard(name_hash);
     // Remove itself from its dependencies, because we are about to destroy the decl pointer.
@@ -1668,6 +1687,7 @@ fn deleteDeclExports(self: *Module, decl: *Decl) void {
             entry.value.destroy(self.gpa);
         }
         _ = self.symbol_exports.remove(exp.options.name);
+        self.gpa.free(exp.options.name);
         self.gpa.destroy(exp);
     }
     self.gpa.free(kv.value);
@@ -1692,17 +1712,17 @@ fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
     const fn_zir = func.analysis.queued;
     defer fn_zir.arena.promote(self.gpa).deinit();
     func.analysis = .{ .in_progress = {} };
-    //std.debug.warn("set {} to in_progress\n", .{decl.name});
+    log.debug(.module, "set {} to in_progress\n", .{decl.name});
 
     try zir_sema.analyzeBody(self, &inner_block.base, fn_zir.body);
 
     const instructions = try arena.allocator.dupe(*Inst, inner_block.instructions.items);
     func.analysis = .{ .success = .{ .instructions = instructions } };
-    //std.debug.warn("set {} to success\n", .{decl.name});
+    log.debug(.module, "set {} to success\n", .{decl.name});
 }
 
 fn markOutdatedDecl(self: *Module, decl: *Decl) !void {
-    //std.debug.warn("mark {} outdated\n", .{decl.name});
+    log.debug(.module, "mark {} outdated\n", .{decl.name});
     try self.work_queue.writeItem(.{ .analyze_decl = decl });
     if (self.failed_decls.remove(decl)) |entry| {
         entry.value.destroy(self.gpa);
@@ -1768,7 +1788,7 @@ pub fn resolveDefinedValue(self: *Module, scope: *Scope, base: *Inst) !?Value {
     return null;
 }
 
-pub fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []const u8, exported_decl: *Decl) !void {
+pub fn analyzeExport(self: *Module, scope: *Scope, src: usize, borrowed_symbol_name: []const u8, exported_decl: *Decl) !void {
     try self.ensureDeclAnalyzed(exported_decl);
     const typed_value = exported_decl.typed_value.most_recent.typed_value;
     switch (typed_value.ty.zigTypeTag()) {
@@ -1782,6 +1802,9 @@ pub fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []co
     const new_export = try self.gpa.create(Export);
     errdefer self.gpa.destroy(new_export);
 
+    const symbol_name = try self.gpa.dupe(u8, borrowed_symbol_name);
+    errdefer self.gpa.free(symbol_name);
+
     const owner_decl = scope.decl().?;
 
     new_export.* = .{
@@ -1794,7 +1817,7 @@ pub fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []co
     };
 
     // Add to export_owners table.
-    const eo_gop = self.export_owners.getOrPut(self.gpa, owner_decl) catch unreachable;
+    const eo_gop = self.export_owners.getOrPutAssumeCapacity(owner_decl);
     if (!eo_gop.found_existing) {
         eo_gop.entry.value = &[0]*Export{};
     }
@@ -1803,7 +1826,7 @@ pub fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []co
     errdefer eo_gop.entry.value = self.gpa.shrink(eo_gop.entry.value, eo_gop.entry.value.len - 1);
 
     // Add to exported_decl table.
-    const de_gop = self.decl_exports.getOrPut(self.gpa, exported_decl) catch unreachable;
+    const de_gop = self.decl_exports.getOrPutAssumeCapacity(exported_decl);
     if (!de_gop.found_existing) {
         de_gop.entry.value = &[0]*Export{};
     }
@@ -2811,7 +2834,7 @@ pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
     const source = zir_module.getSource(self) catch @panic("dumpInst failed to get source");
     const loc = std.zig.findLineColumn(source, inst.src);
     if (inst.tag == .constant) {
-        std.debug.warn("constant ty={} val={} src={}:{}:{}\n", .{
+        std.debug.print("constant ty={} val={} src={}:{}:{}\n", .{
             inst.ty,
             inst.castTag(.constant).?.val,
             zir_module.subFilePath(),
@@ -2819,7 +2842,7 @@ pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
             loc.column + 1,
         });
     } else if (inst.deaths == 0) {
-        std.debug.warn("{} ty={} src={}:{}:{}\n", .{
+        std.debug.print("{} ty={} src={}:{}:{}\n", .{
             @tagName(inst.tag),
             inst.ty,
             zir_module.subFilePath(),
@@ -2827,7 +2850,7 @@ pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
             loc.column + 1,
         });
     } else {
-        std.debug.warn("{} ty={} deaths={b} src={}:{}:{}\n", .{
+        std.debug.print("{} ty={} deaths={b} src={}:{}:{}\n", .{
             @tagName(inst.tag),
             inst.ty,
             inst.deaths,
