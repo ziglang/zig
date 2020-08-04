@@ -1324,7 +1324,7 @@ pub const File = struct {
                         shstrtab_sect.sh_offset = self.findFreeSpace(needed_size, 1);
                     }
                     shstrtab_sect.sh_size = needed_size;
-                    log.debug(.link, "shstrtab start=0x{x} end=0x{x}\n", .{ shstrtab_sect.sh_offset, shstrtab_sect.sh_offset + needed_size });
+                    log.debug(.link, "writing shstrtab start=0x{x} end=0x{x}\n", .{ shstrtab_sect.sh_offset, shstrtab_sect.sh_offset + needed_size });
 
                     try self.file.?.pwriteAll(self.shstrtab.items, shstrtab_sect.sh_offset);
                     if (!self.shdr_table_dirty) {
@@ -1980,11 +1980,17 @@ pub const File = struct {
                     src_fn.off = self.dbgLineNeededHeaderBytes() * alloc_num / alloc_den;
                 }
 
-                const needed_size = src_fn.off + src_fn.len;
+                const last_src_fn = self.dbg_line_fn_last.?;
+                const needed_size = last_src_fn.off + last_src_fn.len;
                 if (needed_size != debug_line_sect.sh_size) {
                     if (needed_size > self.allocatedSize(debug_line_sect.sh_offset)) {
                         const new_offset = self.findFreeSpace(needed_size, 1);
-                        const existing_size = src_fn.off;
+                        const existing_size = last_src_fn.off;
+                        log.debug(.link, "moving .debug_line section: {} bytes from 0x{x} to 0x{x}\n", .{
+                            existing_size,
+                            debug_line_sect.sh_offset,
+                            new_offset,
+                        });
                         const amt = try self.file.?.copyRangeAll(debug_line_sect.sh_offset, self.file.?, new_offset, existing_size);
                         if (amt != existing_size) return error.InputOutput;
                         debug_line_sect.sh_offset = new_offset;
@@ -2112,7 +2118,6 @@ pub const File = struct {
 
         fn writeSectHeader(self: *Elf, index: usize) !void {
             const foreign_endian = self.base.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
-            const offset = self.sections.items[index].sh_offset;
             switch (self.base.options.target.cpu.arch.ptrBitWidth()) {
                 32 => {
                     var shdr: [1]elf.Elf32_Shdr = undefined;
@@ -2120,6 +2125,7 @@ pub const File = struct {
                     if (foreign_endian) {
                         bswapAllFields(elf.Elf32_Shdr, &shdr[0]);
                     }
+                    const offset = self.shdr_table_offset.? + index * @sizeOf(elf.Elf32_Shdr);
                     return self.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
                 },
                 64 => {
@@ -2127,6 +2133,7 @@ pub const File = struct {
                     if (foreign_endian) {
                         bswapAllFields(elf.Elf64_Shdr, &shdr[0]);
                     }
+                    const offset = self.shdr_table_offset.? + index * @sizeOf(elf.Elf64_Shdr);
                     return self.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
                 },
                 else => return error.UnsupportedArchitecture,

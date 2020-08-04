@@ -1108,11 +1108,9 @@ pub fn ensureDeclAnalyzed(self: *Module, decl: *Decl) InnerError!void {
         .codegen_failure_retryable,
         => return error.AnalysisFail,
 
-        .complete, .outdated => blk: {
-            if (decl.generation == self.generation) {
-                assert(decl.analysis == .complete);
-                return;
-            }
+        .complete => return,
+
+        .outdated => blk: {
             log.debug(.module, "re-analyzing {}\n", .{decl.name});
 
             // The exports this Decl performs will be re-discovered, so we remove them here
