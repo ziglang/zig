@@ -584,27 +584,26 @@ pub const TestContext = struct {
                             .native => try argv.append(exe_path),
                             .unavailable => return, // No executor available; pass test.
 
-                            .qemu => |qemu_bin_name| {
-                                if (enable_qemu) qemu: {
-                                    // TODO Ability for test cases to specify whether to link libc.
-                                    const need_cross_glibc = false; // target.isGnuLibC() and self.is_linking_libc;
-                                    const glibc_dir_arg = if (need_cross_glibc)
-                                        glibc_multi_install_dir orelse break :qemu
-                                    else
-                                        null;
-                                    try argv.append(qemu_bin_name);
-                                    if (glibc_dir_arg) |dir| {
-                                        const linux_triple = try target.linuxTriple(arena);
-                                        const full_dir = try std.fs.path.join(arena, &[_][]const u8{
-                                            dir,
-                                            linux_triple,
-                                        });
+                            .qemu => |qemu_bin_name| if (enable_qemu) {
+                                // TODO Ability for test cases to specify whether to link libc.
+                                const need_cross_glibc = false; // target.isGnuLibC() and self.is_linking_libc;
+                                const glibc_dir_arg = if (need_cross_glibc)
+                                    glibc_multi_install_dir orelse return // glibc dir not available; pass test
+                                else
+                                    null;
+                                try argv.append(qemu_bin_name);
+                                if (glibc_dir_arg) |dir| {
+                                    const linux_triple = try target.linuxTriple(arena);
+                                    const full_dir = try std.fs.path.join(arena, &[_][]const u8{
+                                        dir,
+                                        linux_triple,
+                                    });
 
-                                        try argv.append("-L");
-                                        try argv.append(full_dir);
-                                    }
-                                    try argv.append(exe_path);
+                                    try argv.append("-L");
+                                    try argv.append(full_dir);
                                 }
+                                try argv.append(exe_path);
+                            } else {
                                 return; // QEMU not available; pass test.
                             },
 
@@ -628,7 +627,7 @@ pub const TestContext = struct {
 
                         break :x try std.ChildProcess.exec(.{
                             .allocator = allocator,
-                            .argv = &[_][]const u8{exe_path},
+                            .argv = argv.items,
                             .cwd_dir = tmp.dir,
                         });
                     };
