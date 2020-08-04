@@ -1028,8 +1028,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         .mode = @enumToInt(Instructions.CallBreak.Mode.ebreak),
                     });
 
-                    try self.code.resize(self.code.items.len + 4);
-                    mem.writeIntLittle(u32, self.code.items[self.code.items.len - 4 ..][0..4], full);
+                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), full);
                 },
                 else => return self.fail(src, "TODO implement @breakpoint() for {}", .{self.target.cpu.arch}),
             }
@@ -1351,8 +1350,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             .mode = @enumToInt(Instructions.CallBreak.Mode.ecall),
                         });
 
-                        try self.code.resize(self.code.items.len + 4);
-                        mem.writeIntLittle(u32, self.code.items[self.code.items.len - 4 ..][0..4], full);
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), full);
                     } else {
                         return self.fail(inst.base.src, "TODO implement support for more riscv64 assembly instructions", .{});
                     }
@@ -1546,29 +1544,74 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn genSetReg(self: *Self, src: usize, reg: Register, mcv: MCValue) InnerError!void {
             switch (arch) {
                 .riscv64 => switch (mcv) {
-                    .immediate => |x| {
-                        if (x > math.maxInt(u11)) {
-                            return self.fail(src, "TODO genSetReg 12+ bit immediates for riscv64", .{});
+                    .dead => unreachable,
+                    .ptr_stack_offset => unreachable,
+                    .ptr_embedded_in_code => unreachable,
+                    .unreach, .none => return, // Nothing to do.
+                    .undef => {
+                        if (!self.wantSafety())
+                            return; // The already existing value will do just fine.
+                        // Write the debug undefined value.
+                        switch (reg.size()) {
+                            64 => return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
+                            else => unreachable,
                         }
-                        const Instruction = packed struct {
-                            opcode: u7,
-                            rd: u5,
-                            mode: u3,
-                            rsi1: u5,
-                            imm: u11,
-                            signextend: u1 = 0,
-                        };
-                        const full = @bitCast(u32, Instructions.Addi{
-                            .imm = @intCast(u11, x),
-                            .rsi1 = Register.zero.id(),
-                            .mode = @enumToInt(Instructions.Addi.Mode.addi),
+                    },
+                    .immediate => |unsigned_x| {
+                        const x = @bitCast(i64, unsigned_x);
+                        if (math.minInt(i12) <= x and x <= math.maxInt(i12)) {
+                            const instruction = @bitCast(u32, Instructions.Addi{
+                                .mode = @enumToInt(Instructions.Addi.Mode.addi),
+                                .imm = @truncate(i12, x),
+                                .rs1 = Register.zero.id(),
+                                .rd = reg.id(),
+                            });
+
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), instruction);
+                            return;
+                        }
+                        if (math.minInt(i32) <= x and x <= math.maxInt(i32)) {
+                            const split = @bitCast(packed struct {
+                                low12: i12,
+                                up20: i20,
+                            }, @truncate(i32, x));
+                            if (split.low12 < 0) return self.fail(src, "TODO support riscv64 genSetReg i32 immediates with 12th bit set to 1", .{});
+
+                            const lui = @bitCast(u32, Instructions.Lui{
+                                .imm = split.up20,
+                                .rd = reg.id(),
+                            });
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), lui);
+
+                            const addi = @bitCast(u32, Instructions.Addi{
+                                .mode = @enumToInt(Instructions.Addi.Mode.addi),
+                                .imm = @truncate(i12, split.low12),
+                                .rs1 = reg.id(),
+                                .rd = reg.id(),
+                            });
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), addi);
+                            return;
+                        }
+                        return self.fail(src, "TODO genSetReg 33-64 bit immediates for riscv64", .{}); // glhf
+                    },
+                    .memory => |addr| {
+                        // The value is in memory at a hard-coded address.
+                        // If the type is a pointer, it means the pointer address is at this memory location.
+                        try self.genSetReg(src, reg, .{ .immediate = addr });
+
+                        const ld = @bitCast(u32, Instructions.Load{
+                            .mode = @enumToInt(Instructions.Load.Mode.ld),
+                            .rs1 = reg.id(),
                             .rd = reg.id(),
+                            .offset = 0,
                         });
 
-                        try self.code.resize(self.code.items.len + 4);
-                        mem.writeIntLittle(u32, self.code.items[self.code.items.len - 4 ..][0..4], full);
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), ld);
+                        // LOAD imm=[i12 offset = 0], rs1 =
+
+                        // return self.fail("TODO implement genSetReg memory for riscv64");
                     },
-                    else => return self.fail(src, "TODO implement getSetReg for riscv64 MCValue {}", .{mcv}),
+                    else => return self.fail(src, "TODO implement getSetReg for riscv64 {}", .{mcv}),
                 },
                 .x86_64 => switch (mcv) {
                     .dead => unreachable,

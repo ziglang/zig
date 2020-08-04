@@ -5,29 +5,41 @@ pub const Instructions = struct {
         unused1: u5 = 0,
         unused2: u3 = 0,
         unused3: u5 = 0,
-        mode: u12,
+        mode: u12, //: Mode
     };
     pub const Addi = packed struct {
         pub const Mode = packed enum(u3) { addi = 0b000, slti = 0b010, sltiu = 0b011, xori = 0b100, ori = 0b110, andi = 0b111 };
         opcode: u7 = 0b0010011,
         rd: u5,
-        mode: u3,
-        rsi1: u5,
-        imm: u11,
-        signextend: u1 = 0,
+        mode: u3, //: Mode
+        rs1: u5,
+        imm: i12,
+    };
+    pub const Lui = packed struct {
+        opcode: u7 = 0b0110111,
+        rd: u5,
+        imm: i20,
+    };
+    pub const Load = packed struct {
+        pub const Mode = packed enum(u3) { ld = 0b011, lwu = 0b110 };
+        opcode: u7 = 0b0000011,
+        rd: u5,
+        mode: u3, //: Mode
+        rs1: u5,
+        offset: i12,
     };
 };
 
 // zig fmt: off
 pub const Register = enum(u8) {
     // 64 bit registers
-    zero = 0, // zero
-    ra = 1, // return address. caller saved
-    sp = 2, // stack pointer. callee saved.
-    gp = 3, // global pointer
-    tp = 4, // thread pointer
-    t0 = 5, t1 = 6, t2 = 7, // temporaries. caller saved.
-    s0 = 8, // s0/fp, callee saved.
+    zero, // zero
+    ra, // return address. caller saved
+    sp, // stack pointer. callee saved.
+    gp, // global pointer
+    tp, // thread pointer
+    t0, t1, t2, // temporaries. caller saved.
+    s0, // s0/fp, callee saved.
     s1, // callee saved.
     a0, a1, // fn args/return values. caller saved.
     a2, a3, a4, a5, a6, a7, // fn args. caller saved.
