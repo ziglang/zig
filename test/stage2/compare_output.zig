@@ -7,6 +7,11 @@ const linux_x64 = std.zig.CrossTarget{
     .os_tag = .linux,
 };
 
+const riscv64 = std.zig.CrossTarget{
+    .cpu_arch = .riscv64,
+    .os_tag = .linux,
+};
+
 pub fn addCases(ctx: *TestContext) !void {
     if (std.Target.current.os.tag != .linux or
         std.Target.current.cpu.arch != .x86_64)
