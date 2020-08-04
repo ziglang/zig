@@ -588,9 +588,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             entry.value = .dead;
             switch (prev_value) {
                 .register => |reg| {
-                    const reg64 = if (arch == .x86_64) reg.to64() else reg;
-                    _ = branch.registers.remove(reg64);
-                    branch.markRegFree(reg64);
+                    const canon_reg = toCanonicalReg(reg);
+                    _ = branch.registers.remove(canon_reg);
+                    branch.markRegFree(canon_reg);
                 },
                 else => {}, // TODO process stack allocation death
             }
@@ -2096,6 +2096,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 else => return reg,
             }
+        }
+
+        /// For most architectures this does nothing. For x86_64 it resolves any aliased registers
+        /// to the 64-bit wide ones.
+        fn toCanonicalReg(reg: Register) Register {
+            return switch (arch) {
+                .x86_64 => reg.to64(),
+                else => reg,
+            };
         }
     };
 }
