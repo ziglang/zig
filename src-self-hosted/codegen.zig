@@ -12,6 +12,11 @@ const ErrorMsg = Module.ErrorMsg;
 const Target = std.Target;
 const Allocator = mem.Allocator;
 const trace = @import("tracy.zig").trace;
+const DW = std.dwarf;
+const leb128 = std.debug.leb;
+
+// TODO Turn back on zig fmt when https://github.com/ziglang/zig/issues/5948 is implemented.
+// zig fmt: off
 
 /// The codegen-related data that is stored in `ir.Inst.Block` instructions.
 pub const BlockData = struct {
@@ -44,6 +49,7 @@ pub fn generateSymbol(
     src: usize,
     typed_value: TypedValue,
     code: *std.ArrayList(u8),
+    dbg_line: *std.ArrayList(u8),
 ) GenerateSymbolError!Result {
     const tracy = trace(@src());
     defer tracy.end();
@@ -51,57 +57,57 @@ pub fn generateSymbol(
     switch (typed_value.ty.zigTypeTag()) {
         .Fn => {
             switch (bin_file.base.options.target.cpu.arch) {
-                //.arm => return Function(.arm).generateSymbol(bin_file, src, typed_value, code),
-                //.armeb => return Function(.armeb).generateSymbol(bin_file, src, typed_value, code),
-                //.aarch64 => return Function(.aarch64).generateSymbol(bin_file, src, typed_value, code),
-                //.aarch64_be => return Function(.aarch64_be).generateSymbol(bin_file, src, typed_value, code),
-                //.aarch64_32 => return Function(.aarch64_32).generateSymbol(bin_file, src, typed_value, code),
-                //.arc => return Function(.arc).generateSymbol(bin_file, src, typed_value, code),
-                //.avr => return Function(.avr).generateSymbol(bin_file, src, typed_value, code),
-                //.bpfel => return Function(.bpfel).generateSymbol(bin_file, src, typed_value, code),
-                //.bpfeb => return Function(.bpfeb).generateSymbol(bin_file, src, typed_value, code),
-                //.hexagon => return Function(.hexagon).generateSymbol(bin_file, src, typed_value, code),
-                //.mips => return Function(.mips).generateSymbol(bin_file, src, typed_value, code),
-                //.mipsel => return Function(.mipsel).generateSymbol(bin_file, src, typed_value, code),
-                //.mips64 => return Function(.mips64).generateSymbol(bin_file, src, typed_value, code),
-                //.mips64el => return Function(.mips64el).generateSymbol(bin_file, src, typed_value, code),
-                //.msp430 => return Function(.msp430).generateSymbol(bin_file, src, typed_value, code),
-                //.powerpc => return Function(.powerpc).generateSymbol(bin_file, src, typed_value, code),
-                //.powerpc64 => return Function(.powerpc64).generateSymbol(bin_file, src, typed_value, code),
-                //.powerpc64le => return Function(.powerpc64le).generateSymbol(bin_file, src, typed_value, code),
-                //.r600 => return Function(.r600).generateSymbol(bin_file, src, typed_value, code),
-                //.amdgcn => return Function(.amdgcn).generateSymbol(bin_file, src, typed_value, code),
-                //.riscv32 => return Function(.riscv32).generateSymbol(bin_file, src, typed_value, code),
-                //.riscv64 => return Function(.riscv64).generateSymbol(bin_file, src, typed_value, code),
-                //.sparc => return Function(.sparc).generateSymbol(bin_file, src, typed_value, code),
-                //.sparcv9 => return Function(.sparcv9).generateSymbol(bin_file, src, typed_value, code),
-                //.sparcel => return Function(.sparcel).generateSymbol(bin_file, src, typed_value, code),
-                //.s390x => return Function(.s390x).generateSymbol(bin_file, src, typed_value, code),
-                //.tce => return Function(.tce).generateSymbol(bin_file, src, typed_value, code),
-                //.tcele => return Function(.tcele).generateSymbol(bin_file, src, typed_value, code),
-                //.thumb => return Function(.thumb).generateSymbol(bin_file, src, typed_value, code),
-                //.thumbeb => return Function(.thumbeb).generateSymbol(bin_file, src, typed_value, code),
-                //.i386 => return Function(.i386).generateSymbol(bin_file, src, typed_value, code),
-                .x86_64 => return Function(.x86_64).generateSymbol(bin_file, src, typed_value, code),
-                //.xcore => return Function(.xcore).generateSymbol(bin_file, src, typed_value, code),
-                //.nvptx => return Function(.nvptx).generateSymbol(bin_file, src, typed_value, code),
-                //.nvptx64 => return Function(.nvptx64).generateSymbol(bin_file, src, typed_value, code),
-                //.le32 => return Function(.le32).generateSymbol(bin_file, src, typed_value, code),
-                //.le64 => return Function(.le64).generateSymbol(bin_file, src, typed_value, code),
-                //.amdil => return Function(.amdil).generateSymbol(bin_file, src, typed_value, code),
-                //.amdil64 => return Function(.amdil64).generateSymbol(bin_file, src, typed_value, code),
-                //.hsail => return Function(.hsail).generateSymbol(bin_file, src, typed_value, code),
-                //.hsail64 => return Function(.hsail64).generateSymbol(bin_file, src, typed_value, code),
-                //.spir => return Function(.spir).generateSymbol(bin_file, src, typed_value, code),
-                //.spir64 => return Function(.spir64).generateSymbol(bin_file, src, typed_value, code),
-                //.kalimba => return Function(.kalimba).generateSymbol(bin_file, src, typed_value, code),
-                //.shave => return Function(.shave).generateSymbol(bin_file, src, typed_value, code),
-                //.lanai => return Function(.lanai).generateSymbol(bin_file, src, typed_value, code),
-                //.wasm32 => return Function(.wasm32).generateSymbol(bin_file, src, typed_value, code),
-                //.wasm64 => return Function(.wasm64).generateSymbol(bin_file, src, typed_value, code),
-                //.renderscript32 => return Function(.renderscript32).generateSymbol(bin_file, src, typed_value, code),
-                //.renderscript64 => return Function(.renderscript64).generateSymbol(bin_file, src, typed_value, code),
-                //.ve => return Function(.ve).generateSymbol(bin_file, src, typed_value, code),
+                //.arm => return Function(.arm).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.armeb => return Function(.armeb).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.aarch64 => return Function(.aarch64).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.aarch64_be => return Function(.aarch64_be).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.aarch64_32 => return Function(.aarch64_32).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.arc => return Function(.arc).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.avr => return Function(.avr).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.bpfel => return Function(.bpfel).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.bpfeb => return Function(.bpfeb).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.hexagon => return Function(.hexagon).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.mips => return Function(.mips).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.mipsel => return Function(.mipsel).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.mips64 => return Function(.mips64).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.mips64el => return Function(.mips64el).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.msp430 => return Function(.msp430).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.powerpc => return Function(.powerpc).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.powerpc64 => return Function(.powerpc64).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.powerpc64le => return Function(.powerpc64le).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.r600 => return Function(.r600).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.amdgcn => return Function(.amdgcn).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.riscv32 => return Function(.riscv32).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.riscv64 => return Function(.riscv64).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.sparc => return Function(.sparc).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.sparcv9 => return Function(.sparcv9).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.sparcel => return Function(.sparcel).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.s390x => return Function(.s390x).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.tce => return Function(.tce).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.tcele => return Function(.tcele).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.thumb => return Function(.thumb).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.thumbeb => return Function(.thumbeb).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.i386 => return Function(.i386).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                .x86_64 => return Function(.x86_64).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.xcore => return Function(.xcore).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.nvptx => return Function(.nvptx).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.nvptx64 => return Function(.nvptx64).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.le32 => return Function(.le32).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.le64 => return Function(.le64).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.amdil => return Function(.amdil).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.amdil64 => return Function(.amdil64).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.hsail => return Function(.hsail).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.hsail64 => return Function(.hsail64).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.spir => return Function(.spir).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.spir64 => return Function(.spir64).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.kalimba => return Function(.kalimba).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.shave => return Function(.shave).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.lanai => return Function(.lanai).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.wasm32 => return Function(.wasm32).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.wasm64 => return Function(.wasm64).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.renderscript32 => return Function(.renderscript32).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.renderscript64 => return Function(.renderscript64).generateSymbol(bin_file, src, typed_value, code, dbg_line),
+                //.ve => return Function(.ve).generateSymbol(bin_file, src, typed_value, code, dbg_line),
                 else => @panic("Backend architectures that don't have good support yet are commented out, to improve compilation performance. If you are interested in one of these other backends feel free to uncomment them. Eventually these will be completed, but stage1 is slow and a memory hog."),
             }
         },
@@ -114,7 +120,7 @@ pub fn generateSymbol(
                     switch (try generateSymbol(bin_file, src, .{
                         .ty = typed_value.ty.elemType(),
                         .val = sentinel,
-                    }, code)) {
+                    }, code, dbg_line)) {
                         .appended => return Result{ .appended = {} },
                         .externally_managed => |slice| {
                             code.appendSliceAssumeCapacity(slice);
@@ -206,6 +212,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         target: *const std.Target,
         mod_fn: *const Module.Fn,
         code: *std.ArrayList(u8),
+        dbg_line: *std.ArrayList(u8),
         err_msg: ?*ErrorMsg,
         args: []MCValue,
         ret_mcv: MCValue,
@@ -213,6 +220,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         arg_index: usize,
         src: usize,
         stack_align: u32,
+
+        /// Byte offset within the source file.
+        prev_di_src: usize,
+        /// Relative to the beginning of `code`.
+        prev_di_pc: usize,
+        /// Used to find newlines and count line deltas.
+        source: []const u8,
+        /// Byte offset within the source file of the ending curly.
+        rbrace_src: usize,
 
         /// The value is an offset into the `Function` `code` from the beginning.
         /// To perform the reloc, write 32-bit signed little-endian integer
@@ -365,6 +381,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             src: usize,
             typed_value: TypedValue,
             code: *std.ArrayList(u8),
+            dbg_line: *std.ArrayList(u8),
         ) GenerateSymbolError!Result {
             const module_fn = typed_value.val.cast(Value.Payload.Function).?.func;
 
@@ -379,12 +396,29 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const branch = try branch_stack.addOne();
             branch.* = .{};
 
+            const src_data: struct {lbrace_src: usize, rbrace_src: usize, source: []const u8} = blk: {
+                if (module_fn.owner_decl.scope.cast(Module.Scope.File)) |scope_file| {
+                    const tree = scope_file.contents.tree;
+                    const fn_proto = tree.root_node.decls()[module_fn.owner_decl.src_index].castTag(.FnProto).?;
+                    const block = fn_proto.body().?.castTag(.Block).?;
+                    const lbrace_src = tree.token_locs[block.lbrace].start;
+                    const rbrace_src = tree.token_locs[block.rbrace].start;
+                    break :blk .{ .lbrace_src = lbrace_src, .rbrace_src = rbrace_src, .source = tree.source };
+                } else if (module_fn.owner_decl.scope.cast(Module.Scope.ZIRModule)) |zir_module| {
+                    const byte_off = zir_module.contents.module.decls[module_fn.owner_decl.src_index].inst.src;
+                    break :blk .{ .lbrace_src = byte_off, .rbrace_src = byte_off, .source = zir_module.source.bytes };
+                } else {
+                    unreachable;
+                }
+            };
+
             var function = Self{
                 .gpa = bin_file.allocator,
                 .target = &bin_file.base.options.target,
                 .bin_file = bin_file,
                 .mod_fn = module_fn,
                 .code = code,
+                .dbg_line = dbg_line,
                 .err_msg = null,
                 .args = undefined, // populated after `resolveCallingConventionValues`
                 .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
@@ -393,6 +427,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .branch_stack = &branch_stack,
                 .src = src,
                 .stack_align = undefined,
+                .prev_di_pc = 0,
+                .prev_di_src = src_data.lbrace_src,
+                .rbrace_src = src_data.rbrace_src,
+                .source = src_data.source,
             };
             defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
 
@@ -431,20 +469,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // TODO During semantic analysis, check if there are no function calls. If there
                         // are none, here we can omit the part where we subtract and then add rsp.
                         self.code.appendSliceAssumeCapacity(&[_]u8{
-                            // push rbp
-                            0x55,
-                            // mov rbp, rsp
-                            0x48,
-                            0x89,
-                            0xe5,
-                            // sub rsp, imm32 (with reloc)
-                            0x48,
-                            0x81,
-                            0xec,
+                            0x55, // push rbp
+                            0x48, 0x89, 0xe5, // mov rbp, rsp
+                            0x48, 0x81, 0xec, // sub rsp, imm32 (with reloc)
                         });
                         const reloc_index = self.code.items.len;
                         self.code.items.len += 4;
 
+                        try self.dbgSetPrologueEnd();
                         try self.genBody(self.mod_fn.analysis.success);
 
                         const stack_end = self.branch_stack.items[0].max_end_stack;
@@ -467,6 +499,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             mem.writeIntLittle(i32, self.code.items[jmp_reloc..][0..4], s32_amt);
                         }
 
+                        // Important to be after the possible self.code.items.len -= 5 above.
+                        try self.dbgSetEpilogueBegin();
+
                         try self.code.ensureCapacity(self.code.items.len + 9);
                         // add rsp, x
                         if (aligned_stack_end > math.maxInt(i8)) {
@@ -485,13 +520,19 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             0xc3, // ret
                         });
                     } else {
+                        try self.dbgSetPrologueEnd();
                         try self.genBody(self.mod_fn.analysis.success);
+                        try self.dbgSetEpilogueBegin();
                     }
                 },
                 else => {
+                    try self.dbgSetPrologueEnd();
                     try self.genBody(self.mod_fn.analysis.success);
+                    try self.dbgSetEpilogueBegin();
                 },
             }
+            // Drop them off at the rbrace.
+            try self.dbgAdvancePCAndLine(self.rbrace_src);
         }
 
         fn genBody(self: *Self, body: ir.Body) InnerError!void {
@@ -506,6 +547,38 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         self.processDeath(operand);
                 }
             }
+        }
+
+        fn dbgSetPrologueEnd(self: *Self) InnerError!void {
+            try self.dbg_line.append(DW.LNS_set_prologue_end);
+            try self.dbgAdvancePCAndLine(self.prev_di_src);
+        }
+
+        fn dbgSetEpilogueBegin(self: *Self) InnerError!void {
+            try self.dbg_line.append(DW.LNS_set_epilogue_begin);
+            try self.dbgAdvancePCAndLine(self.prev_di_src);
+        }
+
+        fn dbgAdvancePCAndLine(self: *Self, src: usize) InnerError!void {
+            // TODO Look into improving the performance here by adding a token-index-to-line
+            // lookup table, and changing ir.Inst from storing byte offset to token. Currently
+            // this involves scanning over the source code for newlines
+            // (but only from the previous byte offset to the new one).
+            const delta_line = std.zig.lineDelta(self.source, self.prev_di_src, src);
+            const delta_pc = self.code.items.len - self.prev_di_pc;
+            self.prev_di_src = src;
+            self.prev_di_pc = self.code.items.len;
+            // TODO Look into using the DWARF special opcodes to compress this data. It lets you emit
+            // single-byte opcodes that add different numbers to both the PC and the line number
+            // at the same time.
+            try self.dbg_line.ensureCapacity(self.dbg_line.items.len + 11);
+            self.dbg_line.appendAssumeCapacity(DW.LNS_advance_pc);
+            leb128.writeULEB128(self.dbg_line.writer(), delta_pc) catch unreachable;
+            if (delta_line != 0) {
+                self.dbg_line.appendAssumeCapacity(DW.LNS_advance_line);
+                leb128.writeILEB128(self.dbg_line.writer(), delta_line) catch unreachable;
+            }
+            self.dbg_line.appendAssumeCapacity(DW.LNS_copy);
         }
 
         fn processDeath(self: *Self, inst: *ir.Inst) void {
@@ -543,6 +616,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .cmp_neq => return self.genCmp(inst.castTag(.cmp_neq).?, .neq),
                 .condbr => return self.genCondBr(inst.castTag(.condbr).?),
                 .constant => unreachable, // excluded from function bodies
+                .dbg_stmt => return self.genDbgStmt(inst.castTag(.dbg_stmt).?),
                 .floatcast => return self.genFloatCast(inst.castTag(.floatcast).?),
                 .intcast => return self.genIntCast(inst.castTag(.intcast).?),
                 .isnonnull => return self.genIsNonNull(inst.castTag(.isnonnull).?),
@@ -1104,6 +1178,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 else => return self.fail(inst.base.src, "TODO implement cmp for {}", .{self.target.cpu.arch}),
             }
+        }
+
+        fn genDbgStmt(self: *Self, inst: *ir.Inst.NoOp) !MCValue {
+            try self.dbgAdvancePCAndLine(inst.base.src);
+            return MCValue.none;
         }
 
         fn genCondBr(self: *Self, inst: *ir.Inst.CondBr) !MCValue {
