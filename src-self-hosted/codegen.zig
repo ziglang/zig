@@ -469,7 +469,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         try self.dbgSetPrologueEnd();
                         try self.genBody(self.mod_fn.analysis.success);
-                        try self.dbgSetEpilogueBegin();
 
                         const stack_end = self.branch_stack.items[0].max_end_stack;
                         if (stack_end > math.maxInt(i32))
@@ -490,6 +489,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             const s32_amt = @intCast(i32, amt);
                             mem.writeIntLittle(i32, self.code.items[jmp_reloc..][0..4], s32_amt);
                         }
+
+                        // Important to be after the possible self.code.items.len -= 5 above.
+                        try self.dbgSetEpilogueBegin();
 
                         try self.code.ensureCapacity(self.code.items.len + 9);
                         // add rsp, x

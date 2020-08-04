@@ -506,10 +506,6 @@ pub const Scope = struct {
         /// Direct children of the file.
         decls: ArrayListUnmanaged(*Decl),
 
-        /// Represents the file in the linker code. The linker code
-        /// uses this field to store data relevant to its purposes.
-        link: link.File.Elf.SrcFile = link.File.Elf.SrcFile.empty,
-
         pub fn unload(self: *File, gpa: *Allocator) void {
             switch (self.status) {
                 .never_loaded,
