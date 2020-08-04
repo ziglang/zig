@@ -1960,6 +1960,7 @@ pub const File = struct {
                                 prev.next = src_fn.next;
                             }
                             next.prev = src_fn.prev;
+                            src_fn.next = null;
                             // Populate where it used to be with NOPs.
                             const file_pos = debug_line_sect.sh_offset + src_fn.off;
                             try self.pwriteWithNops(0, &[0]u8{}, src_fn.len, file_pos);
