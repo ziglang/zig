@@ -1922,7 +1922,7 @@ pub const File = struct {
                 // Now we have the full contents and may allocate a region to store it.
 
                 const debug_line_sect = &self.sections.items[self.debug_line_section_index.?];
-                const src_fn = &typed_value.val.cast(Value.Payload.Function).?.func.link;
+                const src_fn = &decl.fn_link;
                 if (self.dbg_line_fn_last) |last| {
                     if (src_fn.prev == null and src_fn.next == null) {
                         // Append new function.

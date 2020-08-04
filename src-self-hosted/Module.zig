@@ -176,6 +176,13 @@ pub const Decl = struct {
     /// This is populated regardless of semantic analysis and code generation.
     link: link.File.Elf.TextBlock = link.File.Elf.TextBlock.empty,
 
+    /// Represents the function in the linked output file, if the `Decl` is a function.
+    /// This is stored here and not in `Fn` because `Decl` survives across updates but
+    /// `Fn` does not.
+    /// TODO Look into making `Fn` a longer lived structure and moving this field there
+    /// to save on memory usage.
+    fn_link: link.File.Elf.SrcFn = link.File.Elf.SrcFn.empty,
+
     contents_hash: std.zig.SrcHash,
 
     /// The shallow set of other decls whose typed_value could possibly change if this Decl's
@@ -279,9 +286,6 @@ pub const Fn = struct {
         success: Body,
     },
     owner_decl: *Decl,
-
-    /// Represents the function in the linked output file.
-    link: link.File.Elf.SrcFn = link.File.Elf.SrcFn.empty,
 
     /// This memory is temporary and points to stack memory for the duration
     /// of Fn analysis.
