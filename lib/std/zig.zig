@@ -43,12 +43,19 @@ pub fn findLineColumn(source: []const u8, byte_offset: usize) struct { line: usi
     return .{ .line = line, .column = column };
 }
 
-pub fn lineDelta(source: []const u8, start: usize, end: usize) usize {
-    var line: usize = 0;
-    for (source[start..end]) |byte| switch (byte) {
-        '\n' => line += 1,
-        else => continue,
-    };
+pub fn lineDelta(source: []const u8, start: usize, end: usize) isize {
+    var line: isize = 0;
+    if (end >= start) {
+        for (source[start..end]) |byte| switch (byte) {
+            '\n' => line += 1,
+            else => continue,
+        };
+    } else {
+        for (source[end..start]) |byte| switch (byte) {
+            '\n' => line -= 1,
+            else => continue,
+        };
+    }
     return line;
 }
 

@@ -225,6 +225,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         prev_di_src: usize,
         /// Relative to the beginning of `code`.
         prev_di_pc: usize,
+        /// The is_stmt register value, used to avoid redundant LNS_negate_stmt ops.
+        prev_di_is_stmt: bool,
         /// Used to find newlines and count line deltas.
         source: []const u8,
         /// Byte offset within the source file of the ending curly.
@@ -420,6 +422,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .stack_align = undefined,
                 .prev_di_pc = 0,
                 .prev_di_src = lbrace_src,
+                .prev_di_is_stmt = true,
                 .rbrace_src = rbrace_src,
                 .source = tree.source,
             };
@@ -523,7 +526,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
             }
             // Drop them off at the rbrace.
-            try self.dbgAdvancePCAndLine(self.rbrace_src);
+            try self.dbgAdvancePCAndLine(self.rbrace_src, true);
         }
 
         fn genBody(self: *Self, body: ir.Body) InnerError!void {
@@ -542,15 +545,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         fn dbgSetPrologueEnd(self: *Self) InnerError!void {
             try self.dbg_line.append(DW.LNS_set_prologue_end);
-            try self.dbgAdvancePCAndLine(self.prev_di_src);
+            try self.dbgAdvancePCAndLine(self.prev_di_src, true);
         }
 
         fn dbgSetEpilogueBegin(self: *Self) InnerError!void {
             try self.dbg_line.append(DW.LNS_set_epilogue_begin);
-            try self.dbgAdvancePCAndLine(self.prev_di_src);
+            try self.dbgAdvancePCAndLine(self.prev_di_src, true);
         }
 
-        fn dbgAdvancePCAndLine(self: *Self, src: usize) InnerError!void {
+        fn dbgAdvancePCAndLine(self: *Self, src: usize, is_stmt: bool) InnerError!void {
             // TODO Look into improving the performance here by adding a token-index-to-line
             // lookup table, and changing ir.Inst from storing byte offset to token. Currently
             // this involves scanning over the source code for newlines
@@ -562,12 +565,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             // TODO Look into using the DWARF special opcodes to compress this data. It lets you emit
             // single-byte opcodes that add different numbers to both the PC and the line number
             // at the same time.
-            try self.dbg_line.ensureCapacity(self.dbg_line.items.len + 11);
+            try self.dbg_line.ensureCapacity(self.dbg_line.items.len + 12);
+            if (self.prev_di_is_stmt != is_stmt) {
+                self.dbg_line.appendAssumeCapacity(DW.LNS_negate_stmt);
+                self.prev_di_is_stmt = is_stmt;
+            }
             self.dbg_line.appendAssumeCapacity(DW.LNS_advance_pc);
             leb128.writeULEB128(self.dbg_line.writer(), delta_pc) catch unreachable;
             if (delta_line != 0) {
                 self.dbg_line.appendAssumeCapacity(DW.LNS_advance_line);
-                leb128.writeULEB128(self.dbg_line.writer(), delta_line) catch unreachable;
+                leb128.writeILEB128(self.dbg_line.writer(), delta_line) catch unreachable;
             }
             self.dbg_line.appendAssumeCapacity(DW.LNS_copy);
         }
@@ -1172,7 +1179,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genDbgStmt(self: *Self, inst: *ir.Inst.NoOp) !MCValue {
-            try self.dbgAdvancePCAndLine(inst.base.src);
+            try self.dbgAdvancePCAndLine(inst.base.src, true);
             return MCValue.none;
         }
 

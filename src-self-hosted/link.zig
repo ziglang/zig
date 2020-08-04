@@ -1263,7 +1263,7 @@ pub const File = struct {
                     @panic("TODO: handle .debug_line header exceeding its padding");
                 }
                 const jmp_amt = dbg_line_prg_off - di_buf.items.len;
-                try self.pwriteWithNops(di_buf.items, jmp_amt, debug_line_sect.sh_offset);
+                try self.pwriteWithNops(0, di_buf.items, jmp_amt, debug_line_sect.sh_offset);
                 self.debug_line_header_dirty = false;
             }
 
@@ -1958,12 +1958,13 @@ pub const File = struct {
                     self.shdr_table_dirty = true; // TODO look into making only the one section dirty
                     self.debug_line_header_dirty = true;
                 }
-                const padding_size: u32 = if (src_fn.next) |next| next.off - (src_fn.off + src_fn.len) else 0;
+                const prev_padding_size: u32 = if (src_fn.prev) |prev| src_fn.off - (prev.off + prev.len) else 0;
+                const next_padding_size: u32 = if (src_fn.next) |next| next.off - (src_fn.off + src_fn.len) else 0;
 
                 // We only have support for one compilation unit so far, so the offsets are directly
                 // from the .debug_line section.
                 const file_pos = debug_line_sect.sh_offset + src_fn.off;
-                try self.pwriteWithNops(dbg_line_buffer.items, padding_size, file_pos);
+                try self.pwriteWithNops(prev_padding_size, dbg_line_buffer.items, next_padding_size, file_pos);
             }
 
             // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
@@ -2282,44 +2283,82 @@ pub const File = struct {
 
         }
 
-        /// Writes to the file a buffer, followed by the specified number of bytes of NOPs.
-        /// Asserts `padding_size >= 2` and less than 126,976 bytes (if this limit is ever
-        /// reached, this function can be improved to make more than one pwritev call).
-        fn pwriteWithNops(self: *Elf, buf: []const u8, padding_size: usize, offset: usize) !void {
+        /// Writes to the file a buffer, prefixed and suffixed by the specified number of
+        /// bytes of NOPs. Asserts each padding size is at least two bytes and total padding bytes
+        /// are less than 126,976 bytes (if this limit is ever reached, this function can be
+        /// improved to make more than one pwritev call, or the limit can be raised by a fixed
+        /// amount by increasing the length of `vecs`).
+        fn pwriteWithNops(
+            self: *Elf,
+            prev_padding_size: usize,
+            buf: []const u8,
+            next_padding_size: usize,
+            offset: usize,
+        ) !void {
             const page_of_nops = [1]u8{DW.LNS_negate_stmt} ** 4096;
             const three_byte_nop = [3]u8{DW.LNS_advance_pc, 0b1000_0000, 0};
             var vecs: [32]std.os.iovec_const = undefined;
             var vec_index: usize = 0;
+            {
+                var padding_left = prev_padding_size;
+                if (padding_left % 2 != 0) {
+                    vecs[vec_index] = .{
+                        .iov_base = &three_byte_nop,
+                        .iov_len = three_byte_nop.len,
+                    };
+                    vec_index += 1;
+                    padding_left -= three_byte_nop.len;
+                }
+                while (padding_left > page_of_nops.len) {
+                    vecs[vec_index] = .{
+                        .iov_base = &page_of_nops,
+                        .iov_len = page_of_nops.len,
+                    };
+                    vec_index += 1;
+                    padding_left -= page_of_nops.len;
+                }
+                if (padding_left > 0) {
+                    vecs[vec_index] = .{
+                        .iov_base = &page_of_nops,
+                        .iov_len = padding_left,
+                    };
+                    vec_index += 1;
+                }
+            }
+
             vecs[vec_index] = .{
                 .iov_base = buf.ptr,
                 .iov_len = buf.len,
             };
             vec_index += 1;
-            var padding_left = padding_size;
-            if (padding_left % 2 != 0) {
-                vecs[vec_index] = .{
-                    .iov_base = &three_byte_nop,
-                    .iov_len = three_byte_nop.len,
-                };
-                vec_index += 1;
-                padding_left -= three_byte_nop.len;
+
+            {
+                var padding_left = next_padding_size;
+                if (padding_left % 2 != 0) {
+                    vecs[vec_index] = .{
+                        .iov_base = &three_byte_nop,
+                        .iov_len = three_byte_nop.len,
+                    };
+                    vec_index += 1;
+                    padding_left -= three_byte_nop.len;
+                }
+                while (padding_left > page_of_nops.len) {
+                    vecs[vec_index] = .{
+                        .iov_base = &page_of_nops,
+                        .iov_len = page_of_nops.len,
+                    };
+                    vec_index += 1;
+                    padding_left -= page_of_nops.len;
+                }
+                if (padding_left > 0) {
+                    vecs[vec_index] = .{
+                        .iov_base = &page_of_nops,
+                        .iov_len = padding_left,
+                    };
+                    vec_index += 1;
+                }
             }
-            while (padding_left > page_of_nops.len) {
-                vecs[vec_index] = .{
-                    .iov_base = &page_of_nops,
-                    .iov_len = page_of_nops.len,
-                };
-                vec_index += 1;
-                padding_left -= page_of_nops.len;
-            }
-            if (padding_left > 0) {
-                vecs[vec_index] = .{
-                    .iov_base = &page_of_nops,
-                    .iov_len = padding_left,
-                };
-                vec_index += 1;
-            }
-            try self.file.?.pwritevAll(vecs[0..vec_index], offset);
+            try self.file.?.pwritevAll(vecs[0..vec_index], offset - prev_padding_size);
         }
 
     };

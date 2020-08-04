@@ -1484,6 +1484,9 @@ fn getAstTree(self: *Module, root_scope: *Scope.File) !*ast.Tree {
 }
 
 fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     // We may be analyzing it for the first time, or this may be
     // an incremental update. This code handles both cases.
     const tree = try self.getAstTree(root_scope);
