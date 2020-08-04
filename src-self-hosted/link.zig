@@ -85,6 +85,13 @@ pub const File = struct {
         }
     }
 
+    pub fn updateDeclLineNumber(base: *File, module: *Module, decl: *Module.Decl) !void {
+        switch (base.tag) {
+            .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl),
+            .c => {},
+        }
+    }
+
     pub fn allocateDeclIndexes(base: *File, decl: *Module.Decl) !void {
         switch (base.tag) {
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
@@ -203,7 +210,7 @@ pub const File = struct {
 
         pub fn fail(self: *C, src: usize, comptime format: []const u8, args: anytype) !void {
             self.error_msg = try Module.ErrorMsg.create(self.allocator, src, format, args);
-            return error.CGenFailure;
+            return error.AnalysisFail;
         }
 
         pub fn deinit(self: *File.C) void {
@@ -217,7 +224,7 @@ pub const File = struct {
 
         pub fn updateDecl(self: *File.C, module: *Module, decl: *Module.Decl) !void {
             c_codegen.generate(self, decl) catch |err| {
-                if (err == error.CGenFailure) {
+                if (err == error.AnalysisFail) {
                     try module.failed_decls.put(module.gpa, decl, self.error_msg);
                 }
                 return err;
@@ -2086,6 +2093,28 @@ pub const File = struct {
                     exp.link.sym_index = @intCast(u32, i);
                 }
             }
+        }
+
+        /// Must be called only after a successful call to `updateDecl`.
+        pub fn updateDeclLineNumber(self: *Elf, module: *Module, decl: *const Module.Decl) !void {
+            const tracy = trace(@src());
+            defer tracy.end();
+
+            const scope_file = decl.scope.cast(Module.Scope.File).?;
+            const tree = scope_file.contents.tree;
+            const file_ast_decls = tree.root_node.decls();
+            // TODO Look into improving the performance here by adding a token-index-to-line
+            // lookup table. Currently this involves scanning over the source code for newlines.
+            const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
+            const block = fn_proto.body().?.castTag(.Block).?;
+            const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
+            const casted_line_off = @intCast(u28, line_delta);
+
+            const shdr = &self.sections.items[self.debug_line_section_index.?];
+            const file_pos = shdr.sh_offset + decl.fn_link.off + self.getRelocDbgLineOff();
+            var data: [4]u8 = undefined;
+            leb128.writeUnsignedFixed(4, &data, casted_line_off);
+            try self.file.?.pwriteAll(&data, file_pos);
         }
 
         pub fn deleteExport(self: *Elf, exp: Export) void {

@@ -89,6 +89,9 @@ const WorkItem = union(enum) {
     /// It may have already be analyzed, or it may have been determined
     /// to be outdated; in this case perform semantic analysis again.
     analyze_decl: *Decl,
+    /// The source file containing the Decl has been updated, and so the
+    /// Decl may need its line number information updated in the debug info.
+    update_line_number: *Decl,
 };
 
 pub const Export = struct {
@@ -1064,22 +1067,14 @@ pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
                     error.AnalysisFail => {
                         decl.analysis = .dependency_failure;
                     },
-                    error.CGenFailure => {
-                        // Error is handled by CBE, don't try adding it again
-                    },
                     else => {
                         try self.failed_decls.ensureCapacity(self.gpa, self.failed_decls.items().len + 1);
-                        const result = self.failed_decls.getOrPutAssumeCapacity(decl);
-                        if (result.found_existing) {
-                            std.debug.panic("Internal error: attempted to override error '{}' with 'unable to codegen: {}'", .{ result.entry.value.msg, @errorName(err) });
-                        } else {
-                            result.entry.value = try ErrorMsg.create(
-                                self.gpa,
-                                decl.src(),
-                                "unable to codegen: {}",
-                                .{@errorName(err)},
-                            );
-                        }
+                        self.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
+                            self.gpa,
+                            decl.src(),
+                            "unable to codegen: {}",
+                            .{@errorName(err)},
+                        ));
                         decl.analysis = .codegen_failure_retryable;
                     },
                 };
@@ -1089,6 +1084,18 @@ pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
             self.ensureDeclAnalyzed(decl) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => continue,
+            };
+        },
+        .update_line_number => |decl| {
+            self.bin_file.updateDeclLineNumber(self, decl) catch |err| {
+                try self.failed_decls.ensureCapacity(self.gpa, self.failed_decls.items().len + 1);
+                self.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
+                    self.gpa,
+                    decl.src(),
+                    "unable to update line number: {}",
+                    .{@errorName(err)},
+                ));
+                decl.analysis = .codegen_failure_retryable;
             };
         },
     };
@@ -1530,6 +1537,10 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
                     if (!srcHashEql(decl.contents_hash, contents_hash)) {
                         try self.markOutdatedDecl(decl);
                         decl.contents_hash = contents_hash;
+                    } else if (decl.fn_link.len != 0) {
+                        // TODO Look into detecting when this would be unnecessary by storing enough state
+                        // in `Decl` to notice that the line number did not change.
+                        self.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
                     }
                 }
             } else {
