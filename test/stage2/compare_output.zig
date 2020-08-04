@@ -7,7 +7,7 @@ const linux_x64 = std.zig.CrossTarget{
     .os_tag = .linux,
 };
 
-const riscv64 = std.zig.CrossTarget{
+const linux_riscv64 = std.zig.CrossTarget{
     .cpu_arch = .riscv64,
     .os_tag = .linux,
 };
@@ -121,6 +121,42 @@ pub fn addCases(ctx: *TestContext) !void {
             \\What is up? This is a longer message that will force the data to be relocated in virtual address space.
             \\What is up? This is a longer message that will force the data to be relocated in virtual address space.
             \\
+        );
+    }
+    
+    {
+        var case = ctx.exe("hello world", linux_riscv64);
+        // Regular old hello world
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    print();
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn print() void {
+            \\    asm volatile ("ecall"
+            \\        :
+            \\        : [number] "{a7}" (64),
+            \\          [arg1] "{a0}" (1),
+            \\          [arg2] "{a1}" (@ptrToInt("Hello, World!\n")),
+            \\          [arg3] "{a2}" ("Hello, World!\n".len)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("ecall"
+            \\        :
+            \\        : [number] "{a7}" (94),
+            \\          [arg1] "{a0}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "Hello, World!\n",
         );
     }
 
@@ -401,42 +437,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         ,
             "",
-        );
-    }
-    
-    {
-        var case = ctx.exe("hello world with updates", riscv64);
-        // Regular old hello world
-        case.addCompareOutput(
-            \\export fn _start() noreturn {
-            \\    print();
-            \\
-            \\    exit();
-            \\}
-            \\
-            \\fn print() void {
-            \\    asm volatile ("ecall"
-            \\        :
-            \\        : [number] "{a7}" (64),
-            \\          [arg1] "{a0}" (1),
-            \\          [arg2] "{a1}" (@ptrToInt("Hello, World!\n")),
-            \\          [arg3] "{a2}" ("Hello, World!\n".len)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    return;
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("ecall"
-            \\        :
-            \\        : [number] "{a7}" (94),
-            \\          [arg1] "{a0}" (0)
-            \\        : "rcx", "r11", "memory"
-            \\    );
-            \\    unreachable;
-            \\}
-        ,
-            "Hello, World!\n",
         );
     }
 }

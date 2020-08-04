@@ -107,6 +107,12 @@ pub fn build(b: *Builder) !void {
     const is_wasmtime_enabled = b.option(bool, "enable-wasmtime", "Use Wasmtime to enable and run WASI libstd tests") orelse false;
     const glibc_multi_dir = b.option([]const u8, "enable-foreign-glibc", "Provide directory with glibc installations to run cross compiled tests that link glibc");
 
+
+    test_stage2.addBuildOption(bool, "enable_qemu", is_qemu_enabled);
+    test_stage2.addBuildOption(bool, "enable_wine", is_wine_enabled);
+    test_stage2.addBuildOption(bool, "enable_wasmtime", is_wasmtime_enabled);
+    test_stage2.addBuildOption(?[]const u8, "glibc_multi_install_dir", glibc_multi_dir);
+
     const test_stage2_step = b.step("test-stage2", "Run the stage2 compiler tests");
     test_stage2_step.dependOn(&test_stage2.step);
     test_step.dependOn(test_stage2_step);
