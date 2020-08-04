@@ -6,6 +6,7 @@ const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
 const assert = std.debug.assert;
+const log = std.log;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
@@ -235,7 +236,7 @@ pub const Decl = struct {
 
     pub fn dump(self: *Decl) void {
         const loc = std.zig.findLineColumn(self.scope.source.bytes, self.src);
-        std.debug.warn("{}:{}:{} name={} status={}", .{
+        std.debug.print("{}:{}:{} name={} status={}", .{
             self.scope.sub_file_path,
             loc.line + 1,
             loc.column + 1,
@@ -243,9 +244,9 @@ pub const Decl = struct {
             @tagName(self.analysis),
         });
         if (self.typedValueManaged()) |tvm| {
-            std.debug.warn(" ty={} val={}", .{ tvm.typed_value.ty, tvm.typed_value.val });
+            std.debug.print(" ty={} val={}", .{ tvm.typed_value.ty, tvm.typed_value.val });
         }
-        std.debug.warn("\n", .{});
+        std.debug.print("\n", .{});
     }
 
     pub fn typedValueManaged(self: *Decl) ?*TypedValue.Managed {
@@ -544,7 +545,7 @@ pub const Scope = struct {
 
         pub fn dumpSrc(self: *File, src: usize) void {
             const loc = std.zig.findLineColumn(self.source.bytes, src);
-            std.debug.warn("{}:{}:{}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
+            std.debug.print("{}:{}:{}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
         }
 
         pub fn getSource(self: *File, module: *Module) ![:0]const u8 {
@@ -646,7 +647,7 @@ pub const Scope = struct {
 
         pub fn dumpSrc(self: *ZIRModule, src: usize) void {
             const loc = std.zig.findLineColumn(self.source.bytes, src);
-            std.debug.warn("{}:{}:{}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
+            std.debug.print("{}:{}:{}\n", .{ self.sub_file_path, loc.line + 1, loc.column + 1 });
         }
 
         pub fn getSource(self: *ZIRModule, module: *Module) ![:0]const u8 {
@@ -946,7 +947,6 @@ pub fn update(self: *Module) !void {
     }
 
     self.link_error_flags = self.bin_file.errorFlags();
-    std.log.debug(.module, "link_error_flags: {}\n", .{self.link_error_flags});
 
     // If there are any errors, we anticipate the source files being loaded
     // to report error messages. Otherwise we unload all source files to save memory.
@@ -1109,7 +1109,7 @@ pub fn ensureDeclAnalyzed(self: *Module, decl: *Decl) InnerError!void {
                 assert(decl.analysis == .complete);
                 return;
             }
-            //std.debug.warn("re-analyzing {}\n", .{decl.name});
+            log.debug(.module, "re-analyzing {}\n", .{decl.name});
 
             // The exports this Decl performs will be re-discovered, so we remove them here
             // prior to re-analysis.
@@ -1546,7 +1546,7 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
     // Handle explicitly deleted decls from the source code. Not to be confused
     // with when we delete decls because they are no longer referenced.
     for (deleted_decls.items()) |entry| {
-        //std.debug.warn("noticed '{}' deleted from source\n", .{entry.key.name});
+        log.debug(.module, "noticed '{}' deleted from source\n", .{entry.key.name});
         try self.deleteDecl(entry.key);
     }
 }
@@ -1575,7 +1575,6 @@ fn analyzeRootZIRModule(self: *Module, root_scope: *Scope.ZIRModule) !void {
         const name_hash = root_scope.fullyQualifiedNameHash(src_decl.name);
         if (self.decl_table.get(name_hash)) |decl| {
             deleted_decls.removeAssertDiscard(decl);
-            //std.debug.warn("'{}' contents: '{}'\n", .{ src_decl.name, src_decl.contents });
             if (!srcHashEql(src_decl.contents_hash, decl.contents_hash)) {
                 try self.markOutdatedDecl(decl);
                 decl.contents_hash = src_decl.contents_hash;
@@ -1600,7 +1599,7 @@ fn analyzeRootZIRModule(self: *Module, root_scope: *Scope.ZIRModule) !void {
     // Handle explicitly deleted decls from the source code. Not to be confused
     // with when we delete decls because they are no longer referenced.
     for (deleted_decls.items()) |entry| {
-        //std.debug.warn("noticed '{}' deleted from source\n", .{entry.key.name});
+        log.debug(.module, "noticed '{}' deleted from source\n", .{entry.key.name});
         try self.deleteDecl(entry.key);
     }
 }
@@ -1612,7 +1611,7 @@ fn deleteDecl(self: *Module, decl: *Decl) !void {
     // not be present in the set, and this does nothing.
     decl.scope.removeDecl(decl);
 
-    //std.debug.warn("deleting decl '{}'\n", .{decl.name});
+    log.debug(.module, "deleting decl '{}'\n", .{decl.name});
     const name_hash = decl.fullyQualifiedNameHash();
     self.decl_table.removeAssertDiscard(name_hash);
     // Remove itself from its dependencies, because we are about to destroy the decl pointer.
@@ -1698,17 +1697,17 @@ fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
     const fn_zir = func.analysis.queued;
     defer fn_zir.arena.promote(self.gpa).deinit();
     func.analysis = .{ .in_progress = {} };
-    //std.debug.warn("set {} to in_progress\n", .{decl.name});
+    log.debug(.module, "set {} to in_progress\n", .{decl.name});
 
     try zir_sema.analyzeBody(self, &inner_block.base, fn_zir.body);
 
     const instructions = try arena.allocator.dupe(*Inst, inner_block.instructions.items);
     func.analysis = .{ .success = .{ .instructions = instructions } };
-    //std.debug.warn("set {} to success\n", .{decl.name});
+    log.debug(.module, "set {} to success\n", .{decl.name});
 }
 
 fn markOutdatedDecl(self: *Module, decl: *Decl) !void {
-    //std.debug.warn("mark {} outdated\n", .{decl.name});
+    log.debug(.module, "mark {} outdated\n", .{decl.name});
     try self.work_queue.writeItem(.{ .analyze_decl = decl });
     if (self.failed_decls.remove(decl)) |entry| {
         entry.value.destroy(self.gpa);
@@ -2817,7 +2816,7 @@ pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
     const source = zir_module.getSource(self) catch @panic("dumpInst failed to get source");
     const loc = std.zig.findLineColumn(source, inst.src);
     if (inst.tag == .constant) {
-        std.debug.warn("constant ty={} val={} src={}:{}:{}\n", .{
+        std.debug.print("constant ty={} val={} src={}:{}:{}\n", .{
             inst.ty,
             inst.castTag(.constant).?.val,
             zir_module.subFilePath(),
@@ -2825,7 +2824,7 @@ pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
             loc.column + 1,
         });
     } else if (inst.deaths == 0) {
-        std.debug.warn("{} ty={} src={}:{}:{}\n", .{
+        std.debug.print("{} ty={} src={}:{}:{}\n", .{
             @tagName(inst.tag),
             inst.ty,
             zir_module.subFilePath(),
@@ -2833,7 +2832,7 @@ pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
             loc.column + 1,
         });
     } else {
-        std.debug.warn("{} ty={} deaths={b} src={}:{}:{}\n", .{
+        std.debug.print("{} ty={} deaths={b} src={}:{}:{}\n", .{
             @tagName(inst.tag),
             inst.ty,
             inst.deaths,
