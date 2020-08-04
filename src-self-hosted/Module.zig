@@ -896,6 +896,7 @@ pub fn deinit(self: *Module) void {
 
 fn freeExportList(gpa: *Allocator, export_list: []*Export) void {
     for (export_list) |exp| {
+        gpa.free(exp.options.name);
         gpa.destroy(exp);
     }
     gpa.free(export_list);
