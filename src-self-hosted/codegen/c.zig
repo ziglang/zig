@@ -89,17 +89,17 @@ fn genFn(file: *C, decl: *Decl) !void {
     const func: *Module.Fn = tv.val.cast(Value.Payload.Function).?.func;
     const instructions = func.analysis.success.instructions;
     if (instructions.len > 0) {
+        try writer.writeAll("\n");
         for (instructions) |inst| {
-            try writer.writeAll("\n    ");
             switch (inst.tag) {
                 .assembly => try genAsm(file, inst.castTag(.assembly).?, decl),
                 .call => try genCall(file, inst.castTag(.call).?, decl),
                 .ret => try genRet(file, inst.castTag(.ret).?, decl, tv.ty.fnReturnType()),
-                .retvoid => try file.main.writer().print("return;", .{}),
+                .retvoid => try file.main.writer().print("    return;\n", .{}),
+                .dbg_stmt => try genDbgStmt(file, inst.castTag(.dbg_stmt).?, decl),
                 else => |e| return file.fail(decl.src(), "TODO implement C codegen for {}", .{e}),
             }
         }
-        try writer.writeAll("\n");
     }
 
     try writer.writeAll("}\n\n");
@@ -112,6 +112,7 @@ fn genRet(file: *C, inst: *Inst.UnOp, decl: *Decl, expected_return_type: Type) !
 fn genCall(file: *C, inst: *Inst.Call, decl: *Decl) !void {
     const writer = file.main.writer();
     const header = file.header.writer();
+    try writer.writeAll("    ");
     if (inst.func.castTag(.constant)) |func_inst| {
         if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
             const target = func_val.func.owner_decl;
@@ -126,7 +127,7 @@ fn genCall(file: *C, inst: *Inst.Call, decl: *Decl) !void {
                 try renderFunctionSignature(file, header, target);
                 try header.writeAll(";\n");
             }
-            try writer.print("{}();", .{tname});
+            try writer.print("{}();\n", .{tname});
         } else {
             return file.fail(decl.src(), "TODO non-function call target?", .{});
         }
@@ -138,8 +139,13 @@ fn genCall(file: *C, inst: *Inst.Call, decl: *Decl) !void {
     }
 }
 
+fn genDbgStmt(file: *C, inst: *Inst.NoOp, decl: *Decl) !void {
+    // TODO emit #line directive here with line number and filename
+}
+
 fn genAsm(file: *C, as: *Inst.Assembly, decl: *Decl) !void {
     const writer = file.main.writer();
+    try writer.writeAll("    ");
     for (as.inputs) |i, index| {
         if (i[0] == '{' and i[i.len - 1] == '}') {
             const reg = i[1 .. i.len - 1];
@@ -187,5 +193,5 @@ fn genAsm(file: *C, as: *Inst.Assembly, decl: *Decl) !void {
             }
         }
     }
-    try writer.writeAll(");");
+    try writer.writeAll(");\n");
 }

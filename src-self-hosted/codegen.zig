@@ -396,12 +396,21 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const branch = try branch_stack.addOne();
             branch.* = .{};
 
-            const scope_file = module_fn.owner_decl.scope.cast(Module.Scope.File).?;
-            const tree = scope_file.contents.tree;
-            const fn_proto = tree.root_node.decls()[module_fn.owner_decl.src_index].castTag(.FnProto).?;
-            const block = fn_proto.body().?.castTag(.Block).?;
-            const lbrace_src = tree.token_locs[block.lbrace].start;
-            const rbrace_src = tree.token_locs[block.rbrace].start;
+            const src_data: struct {lbrace_src: usize, rbrace_src: usize, source: []const u8} = blk: {
+                if (module_fn.owner_decl.scope.cast(Module.Scope.File)) |scope_file| {
+                    const tree = scope_file.contents.tree;
+                    const fn_proto = tree.root_node.decls()[module_fn.owner_decl.src_index].castTag(.FnProto).?;
+                    const block = fn_proto.body().?.castTag(.Block).?;
+                    const lbrace_src = tree.token_locs[block.lbrace].start;
+                    const rbrace_src = tree.token_locs[block.rbrace].start;
+                    break :blk .{ .lbrace_src = lbrace_src, .rbrace_src = rbrace_src, .source = tree.source };
+                } else if (module_fn.owner_decl.scope.cast(Module.Scope.ZIRModule)) |zir_module| {
+                    const byte_off = zir_module.contents.module.decls[module_fn.owner_decl.src_index].inst.src;
+                    break :blk .{ .lbrace_src = byte_off, .rbrace_src = byte_off, .source = zir_module.source.bytes };
+                } else {
+                    unreachable;
+                }
+            };
 
             var function = Self{
                 .gpa = bin_file.allocator,
@@ -419,9 +428,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .src = src,
                 .stack_align = undefined,
                 .prev_di_pc = 0,
-                .prev_di_src = lbrace_src,
-                .rbrace_src = rbrace_src,
-                .source = tree.source,
+                .prev_di_src = src_data.lbrace_src,
+                .rbrace_src = src_data.rbrace_src,
+                .source = src_data.source,
             };
             defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
 

@@ -1825,15 +1825,24 @@ pub const File = struct {
                 // For functions we need to add a prologue to the debug line program.
                 try dbg_line_buffer.ensureCapacity(26);
 
-                const scope_file = decl.scope.cast(Module.Scope.File).?;
-                const tree = scope_file.contents.tree;
-                const file_ast_decls = tree.root_node.decls();
-                // TODO Look into improving the performance here by adding a token-index-to-line
-                // lookup table. Currently this involves scanning over the source code for newlines.
-                const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
-                const block = fn_proto.body().?.castTag(.Block).?;
-                const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
-                const casted_line_off = @intCast(u28, line_delta);
+                const line_off: u28 = blk: {
+                    if (decl.scope.cast(Module.Scope.File)) |scope_file| {
+                        const tree = scope_file.contents.tree;
+                        const file_ast_decls = tree.root_node.decls();
+                        // TODO Look into improving the performance here by adding a token-index-to-line
+                        // lookup table. Currently this involves scanning over the source code for newlines.
+                        const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
+                        const block = fn_proto.body().?.castTag(.Block).?;
+                        const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
+                        break :blk @intCast(u28, line_delta);
+                    } else if (decl.scope.cast(Module.Scope.ZIRModule)) |zir_module| {
+                        const byte_off = zir_module.contents.module.decls[decl.src_index].inst.src;
+                        const line_delta = std.zig.lineDelta(zir_module.source.bytes, 0, byte_off);
+                        break :blk @intCast(u28, line_delta);
+                    } else {
+                        unreachable;
+                    }
+                };
 
                 const ptr_width_bytes = self.ptrWidthBytes();
                 dbg_line_buffer.appendSliceAssumeCapacity(&[_]u8{
@@ -1850,7 +1859,7 @@ pub const File = struct {
                 // to this function's begin curly.
                 assert(self.getRelocDbgLineOff() == dbg_line_buffer.items.len);
                 // Here we use a ULEB128-fixed-4 to make sure this field can be overwritten later.
-                leb128.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), casted_line_off);
+                leb128.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), line_off);
 
                 dbg_line_buffer.appendAssumeCapacity(DW.LNS_set_file);
                 assert(self.getRelocDbgFileIndex() == dbg_line_buffer.items.len);
