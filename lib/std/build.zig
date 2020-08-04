@@ -1857,10 +1857,10 @@ pub const LibExeObjStep = struct {
         zig_args.append(builder.zig_exe) catch unreachable;
 
         const cmd = switch (self.kind) {
-            Kind.Lib => "build-lib",
-            Kind.Exe => "build-exe",
-            Kind.Obj => "build-obj",
-            Kind.Test => "test",
+            .Lib => "build-lib",
+            .Exe => "build-exe",
+            .Obj => "build-obj",
+            .Test => "test",
         };
         zig_args.append(cmd) catch unreachable;
 

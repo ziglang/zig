@@ -510,13 +510,18 @@ pub const Type = extern union {
             .u8,
             .i8,
             .bool,
+            .array_u8_sentinel_0,
+            => return 1,
+
             .fn_noreturn_no_args, // represents machine code; not a pointer
             .fn_void_no_args, // represents machine code; not a pointer
             .fn_naked_noreturn_no_args, // represents machine code; not a pointer
             .fn_ccc_void_no_args, // represents machine code; not a pointer
             .function, // represents machine code; not a pointer
-            .array_u8_sentinel_0,
-            => return 1,
+            => return switch (target.cpu.arch) {
+                .riscv64 => 2,
+                else => 1,
+            },
 
             .i16, .u16 => return 2,
             .i32, .u32 => return 4,
