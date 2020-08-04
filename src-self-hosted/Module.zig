@@ -1673,6 +1673,7 @@ fn deleteDeclExports(self: *Module, decl: *Decl) void {
             entry.value.destroy(self.gpa);
         }
         _ = self.symbol_exports.remove(exp.options.name);
+        self.gpa.free(exp.options.name);
         self.gpa.destroy(exp);
     }
     self.gpa.free(kv.value);
@@ -1773,7 +1774,7 @@ pub fn resolveDefinedValue(self: *Module, scope: *Scope, base: *Inst) !?Value {
     return null;
 }
 
-pub fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []const u8, exported_decl: *Decl) !void {
+pub fn analyzeExport(self: *Module, scope: *Scope, src: usize, borrowed_symbol_name: []const u8, exported_decl: *Decl) !void {
     try self.ensureDeclAnalyzed(exported_decl);
     const typed_value = exported_decl.typed_value.most_recent.typed_value;
     switch (typed_value.ty.zigTypeTag()) {
@@ -1787,6 +1788,9 @@ pub fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []co
     const new_export = try self.gpa.create(Export);
     errdefer self.gpa.destroy(new_export);
 
+    const symbol_name = try self.gpa.dupe(u8, borrowed_symbol_name);
+    errdefer self.gpa.free(symbol_name);
+
     const owner_decl = scope.decl().?;
 
     new_export.* = .{
@@ -1799,7 +1803,7 @@ pub fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []co
     };
 
     // Add to export_owners table.
-    const eo_gop = self.export_owners.getOrPut(self.gpa, owner_decl) catch unreachable;
+    const eo_gop = self.export_owners.getOrPutAssumeCapacity(owner_decl);
     if (!eo_gop.found_existing) {
         eo_gop.entry.value = &[0]*Export{};
     }
@@ -1808,7 +1812,7 @@ pub fn analyzeExport(self: *Module, scope: *Scope, src: usize, symbol_name: []co
     errdefer eo_gop.entry.value = self.gpa.shrink(eo_gop.entry.value, eo_gop.entry.value.len - 1);
 
     // Add to exported_decl table.
-    const de_gop = self.decl_exports.getOrPut(self.gpa, exported_decl) catch unreachable;
+    const de_gop = self.decl_exports.getOrPutAssumeCapacity(exported_decl);
     if (!de_gop.found_existing) {
         de_gop.entry.value = &[0]*Export{};
     }
