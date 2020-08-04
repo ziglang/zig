@@ -72,7 +72,7 @@ pub fn generateSymbol(
                 //.r600 => return Function(.r600).generateSymbol(bin_file, src, typed_value, code),
                 //.amdgcn => return Function(.amdgcn).generateSymbol(bin_file, src, typed_value, code),
                 //.riscv32 => return Function(.riscv32).generateSymbol(bin_file, src, typed_value, code),
-                //.riscv64 => return Function(.riscv64).generateSymbol(bin_file, src, typed_value, code),
+                .riscv64 => return Function(.riscv64).generateSymbol(bin_file, src, typed_value, code),
                 //.sparc => return Function(.sparc).generateSymbol(bin_file, src, typed_value, code),
                 //.sparcv9 => return Function(.sparcv9).generateSymbol(bin_file, src, typed_value, code),
                 //.sparcel => return Function(.sparcel).generateSymbol(bin_file, src, typed_value, code),
@@ -949,6 +949,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .i386, .x86_64 => {
                     try self.code.append(0xcc); // int3
                 },
+                .riscv64 => {
+                    const full = @bitCast(u32, Instructions.CallBreak{
+                        .mode = @enumToInt(Instructions.CallBreak.Mode.ebreak),
+                    });
+
+                    try self.code.resize(self.code.items.len + 4);
+                    mem.writeIntLittle(u32, self.code.items[self.code.items.len - 4 ..][0..4], full);
+                },
                 else => return self.fail(src, "TODO implement @breakpoint() for {}", .{self.target.cpu.arch}),
             }
             return .none;
@@ -1246,36 +1254,73 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn genAsm(self: *Self, inst: *ir.Inst.Assembly) !MCValue {
             if (!inst.is_volatile and inst.base.isUnused())
                 return MCValue.dead;
-            if (arch != .x86_64 and arch != .i386) {
-                return self.fail(inst.base.src, "TODO implement inline asm support for more architectures", .{});
-            }
-            for (inst.inputs) |input, i| {
-                if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
-                    return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
-                }
-                const reg_name = input[1 .. input.len - 1];
-                const reg = parseRegName(reg_name) orelse
-                    return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
-                const arg = try self.resolveInst(inst.args[i]);
-                try self.genSetReg(inst.base.src, reg, arg);
-            }
+            switch (arch) {
+                .riscv64 => {
+                    for (inst.inputs) |input, i| {
+                        if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
+                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
+                        }
+                        const reg_name = input[1 .. input.len - 1];
+                        const reg = parseRegName(reg_name) orelse
+                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                        const arg = try self.resolveInst(inst.args[i]);
+                        try self.genSetReg(inst.base.src, reg, arg);
+                    }
 
-            if (mem.eql(u8, inst.asm_source, "syscall")) {
-                try self.code.appendSlice(&[_]u8{ 0x0f, 0x05 });
-            } else {
-                return self.fail(inst.base.src, "TODO implement support for more x86 assembly instructions", .{});
-            }
+                    if (mem.eql(u8, inst.asm_source, "ecall")) {
+                        const full = @bitCast(u32, Instructions.CallBreak{
+                            .mode = @enumToInt(Instructions.CallBreak.Mode.ecall),
+                        });
 
-            if (inst.output) |output| {
-                if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
-                    return self.fail(inst.base.src, "unrecognized asm output constraint: '{}'", .{output});
-                }
-                const reg_name = output[2 .. output.len - 1];
-                const reg = parseRegName(reg_name) orelse
-                    return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
-                return MCValue{ .register = reg };
-            } else {
-                return MCValue.none;
+                        try self.code.resize(self.code.items.len + 4);
+                        mem.writeIntLittle(u32, self.code.items[self.code.items.len - 4 ..][0..4], full);
+                    } else {
+                        return self.fail(inst.base.src, "TODO implement support for more riscv64 assembly instructions", .{});
+                    }
+
+                    if (inst.output) |output| {
+                        if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
+                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{}'", .{output});
+                        }
+                        const reg_name = output[2 .. output.len - 1];
+                        const reg = parseRegName(reg_name) orelse
+                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                        return MCValue{ .register = reg };
+                    } else {
+                        return MCValue.none;
+                    }
+                },
+                .x86_64, .i386 => {
+                    for (inst.inputs) |input, i| {
+                        if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
+                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
+                        }
+                        const reg_name = input[1 .. input.len - 1];
+                        const reg = parseRegName(reg_name) orelse
+                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                        const arg = try self.resolveInst(inst.args[i]);
+                        try self.genSetReg(inst.base.src, reg, arg);
+                    }
+
+                    if (mem.eql(u8, inst.asm_source, "syscall")) {
+                        try self.code.appendSlice(&[_]u8{ 0x0f, 0x05 });
+                    } else {
+                        return self.fail(inst.base.src, "TODO implement support for more x86 assembly instructions", .{});
+                    }
+
+                    if (inst.output) |output| {
+                        if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
+                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{}'", .{output});
+                        }
+                        const reg_name = output[2 .. output.len - 1];
+                        const reg = parseRegName(reg_name) orelse
+                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                        return MCValue{ .register = reg };
+                    } else {
+                        return MCValue.none;
+                    }
+                },
+                else => return self.fail(inst.base.src, "TODO implement inline asm support for more architectures", .{}),
             }
         }
 
@@ -1421,6 +1466,31 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         fn genSetReg(self: *Self, src: usize, reg: Register, mcv: MCValue) InnerError!void {
             switch (arch) {
+                .riscv64 => switch (mcv) {
+                    .immediate => |x| {
+                        if (x > math.maxInt(u11)) {
+                            return self.fail(src, "TODO genSetReg 12+ bit immediates for riscv64", .{});
+                        }
+                        const Instruction = packed struct {
+                            opcode: u7,
+                            rd: u5,
+                            mode: u3,
+                            rsi1: u5,
+                            imm: u11,
+                            signextend: u1 = 0,
+                        };
+                        const full = @bitCast(u32, Instructions.Addi{
+                            .imm = @intCast(u11, x),
+                            .rsi1 = Register.zero.id(),
+                            .mode = @enumToInt(Instructions.Addi.Mode.addi),
+                            .rd = reg.id(),
+                        });
+
+                        try self.code.resize(self.code.items.len + 4);
+                        mem.writeIntLittle(u32, self.code.items[self.code.items.len - 4 ..][0..4], full);
+                    },
+                    else => return self.fail(src, "TODO implement getSetReg for riscv64 MCValue {}", .{mcv}),
+                },
                 .x86_64 => switch (mcv) {
                     .dead => unreachable,
                     .ptr_stack_offset => unreachable,
@@ -1794,7 +1864,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         else => return self.fail(src, "TODO implement function parameters for {}", .{cc}),
                     }
                 },
-                else => return self.fail(src, "TODO implement codegen parameters for {}", .{self.target.cpu.arch}),
+                else => if (param_types.len != 0)
+                    return self.fail(src, "TODO implement codegen parameters for {}", .{self.target.cpu.arch}),
             }
 
             if (ret_ty.zigTypeTag() == .NoReturn) {
@@ -1836,6 +1907,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         usingnamespace switch (arch) {
             .i386 => @import("codegen/x86.zig"),
             .x86_64 => @import("codegen/x86_64.zig"),
+            .riscv64 => @import("codegen/riscv64.zig"),
             else => struct {
                 pub const Register = enum {
                     dummy,
