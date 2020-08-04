@@ -1731,11 +1731,8 @@ pub const File = struct {
         pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
             if (decl.link.local_sym_index != 0) return;
 
-            // Here we also ensure capacity for the free lists so that they can be appended to without fail.
             try self.local_symbols.ensureCapacity(self.allocator, self.local_symbols.items.len + 1);
-            try self.local_symbol_free_list.ensureCapacity(self.allocator, self.local_symbols.items.len);
             try self.offset_table.ensureCapacity(self.allocator, self.offset_table.items.len + 1);
-            try self.offset_table_free_list.ensureCapacity(self.allocator, self.local_symbols.items.len);
 
             if (self.local_symbol_free_list.popOrNull()) |i| {
                 log.debug(.link, "reusing symbol index {} for {}\n", .{ i, decl.name });
@@ -1768,14 +1765,36 @@ pub const File = struct {
         }
 
         pub fn freeDecl(self: *Elf, decl: *Module.Decl) void {
+            // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
             self.freeTextBlock(&decl.link);
             if (decl.link.local_sym_index != 0) {
-                self.local_symbol_free_list.appendAssumeCapacity(decl.link.local_sym_index);
-                self.offset_table_free_list.appendAssumeCapacity(decl.link.offset_table_index);
+                self.local_symbol_free_list.append(self.allocator, decl.link.local_sym_index) catch {};
+                self.offset_table_free_list.append(self.allocator, decl.link.offset_table_index) catch {};
 
                 self.local_symbols.items[decl.link.local_sym_index].st_info = 0;
 
                 decl.link.local_sym_index = 0;
+            }
+            // TODO make this logic match freeTextBlock. Maybe abstract the logic out since the same thing
+            // is desired for both.
+            _ = self.dbg_line_fn_free_list.remove(&decl.fn_link);
+            if (decl.fn_link.prev) |prev| {
+                _ = self.dbg_line_fn_free_list.put(self.allocator, prev, {}) catch {};
+                prev.next = decl.fn_link.next;
+                if (decl.fn_link.next) |next| {
+                    next.prev = prev;
+                } else {
+                    self.dbg_line_fn_last = prev;
+                }
+            } else if (decl.fn_link.next) |next| {
+                self.dbg_line_fn_first = next;
+                next.prev = null;
+            }
+            if (self.dbg_line_fn_first == &decl.fn_link) {
+                self.dbg_line_fn_first = null;
+            }
+            if (self.dbg_line_fn_last == &decl.fn_link) {
+                self.dbg_line_fn_last = null;
             }
         }
 
@@ -1923,18 +1942,35 @@ pub const File = struct {
 
                 const debug_line_sect = &self.sections.items[self.debug_line_section_index.?];
                 const src_fn = &decl.fn_link;
+                src_fn.len = @intCast(u32, dbg_line_buffer.items.len);
                 if (self.dbg_line_fn_last) |last| {
-                    if (src_fn.prev == null and src_fn.next == null) {
+                    if (src_fn.next) |next| {
+                        // Update existing function - non-last item.
+                        if (src_fn.off + src_fn.len + min_nop_size > next.off) {
+                            // It grew too big, so we move it to a new location.
+                            if (src_fn.prev) |prev| {
+                                _ = self.dbg_line_fn_free_list.put(self.allocator, prev, {}) catch {};
+                                prev.next = src_fn.next;
+                            }
+                            next.prev = src_fn.prev;
+                            // Populate where it used to be with NOPs.
+                            const file_pos = debug_line_sect.sh_offset + src_fn.off;
+                            try self.pwriteWithNops(0, &[0]u8{}, src_fn.len, file_pos);
+                            // TODO Look at the free list before appending at the end.
+                            src_fn.prev = last;
+                            last.next = src_fn;
+                            self.dbg_line_fn_last = src_fn;
+
+                            src_fn.off = last.off + (last.len * alloc_num / alloc_den);
+                        }
+                    } else if (src_fn.prev == null) {
                         // Append new function.
+                        // TODO Look at the free list before appending at the end.
                         src_fn.prev = last;
                         last.next = src_fn;
                         self.dbg_line_fn_last = src_fn;
 
                         src_fn.off = last.off + (last.len * alloc_num / alloc_den);
-                        src_fn.len = @intCast(u32, dbg_line_buffer.items.len);
-                    } else {
-                        // Update existing function.
-                        @panic("TODO updateDecl for .debug_line: add new SrcFn: update");
                     }
                 } else {
                     // This is the first function of the Line Number Program.
@@ -1942,7 +1978,6 @@ pub const File = struct {
                     self.dbg_line_fn_last = src_fn;
 
                     src_fn.off = self.dbgLineNeededHeaderBytes() * alloc_num / alloc_den;
-                    src_fn.len = @intCast(u32, dbg_line_buffer.items.len);
                 }
 
                 const needed_size = src_fn.off + src_fn.len;
@@ -1982,10 +2017,7 @@ pub const File = struct {
             const tracy = trace(@src());
             defer tracy.end();
 
-            // In addition to ensuring capacity for global_symbols, we also ensure capacity for freeing all of
-            // them, so that deleting exports is guaranteed to succeed.
             try self.global_symbols.ensureCapacity(self.allocator, self.global_symbols.items.len + exports.len);
-            try self.global_symbol_free_list.ensureCapacity(self.allocator, self.global_symbols.items.len);
             const typed_value = decl.typed_value.most_recent.typed_value;
             if (decl.link.local_sym_index == 0) return;
             const decl_sym = self.local_symbols.items[decl.link.local_sym_index];
@@ -2052,7 +2084,7 @@ pub const File = struct {
 
         pub fn deleteExport(self: *Elf, exp: Export) void {
             const sym_index = exp.sym_index orelse return;
-            self.global_symbol_free_list.appendAssumeCapacity(sym_index);
+            self.global_symbol_free_list.append(self.allocator, sym_index) catch {};
             self.global_symbols.items[sym_index].st_info = 0;
         }
 
@@ -2284,7 +2316,7 @@ pub const File = struct {
         }
 
         /// Writes to the file a buffer, prefixed and suffixed by the specified number of
-        /// bytes of NOPs. Asserts each padding size is at least two bytes and total padding bytes
+        /// bytes of NOPs. Asserts each padding size is at least `min_nop_size` and total padding bytes
         /// are less than 126,976 bytes (if this limit is ever reached, this function can be
         /// improved to make more than one pwritev call, or the limit can be raised by a fixed
         /// amount by increasing the length of `vecs`).
@@ -2360,6 +2392,8 @@ pub const File = struct {
             }
             try self.file.?.pwritevAll(vecs[0..vec_index], offset - prev_padding_size);
         }
+
+        const min_nop_size = 2;
 
     };
 };
