@@ -1708,15 +1708,34 @@ pub const LibExeObjStep = struct {
 
     pub fn addBuildOption(self: *LibExeObjStep, comptime T: type, name: []const u8, value: T) void {
         const out = self.build_options_contents.outStream();
-        if (T == []const []const u8) {
-            out.print("pub const {}: []const []const u8 = &[_][]const u8{{\n", .{name}) catch unreachable;
-            for (value) |slice| {
-                out.writeAll("    ") catch unreachable;
-                std.zig.renderStringLiteral(slice, out) catch unreachable;
-                out.writeAll(",\n") catch unreachable;
-            }
-            out.writeAll("};\n") catch unreachable;
-            return;
+        switch (T) {
+            []const []const u8 => {
+                out.print("pub const {}: []const []const u8 = &[_][]const u8{{\n", .{name}) catch unreachable;
+                for (value) |slice| {
+                    out.writeAll("    ") catch unreachable;
+                    std.zig.renderStringLiteral(slice, out) catch unreachable;
+                    out.writeAll(",\n") catch unreachable;
+                }
+                out.writeAll("};\n") catch unreachable;
+                return;
+            },
+            []const u8 => {
+                out.print("pub const {}: []const u8 = ", .{name}) catch unreachable;
+                std.zig.renderStringLiteral(value, out) catch unreachable;
+                out.writeAll(";\n") catch unreachable;
+                return;
+            },
+            ?[]const u8 => {
+                out.print("pub const {}: ?[]const u8 = ", .{name}) catch unreachable;
+                if (value) |payload| {
+                    std.zig.renderStringLiteral(payload, out) catch unreachable;
+                    out.writeAll(";\n") catch unreachable;
+                } else {
+                    out.writeAll("null;\n") catch unreachable;
+                }
+                return;
+            },
+            else => {},
         }
         switch (@typeInfo(T)) {
             .Enum => |enum_info| {
