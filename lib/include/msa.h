@@ -212,10 +212,14 @@ typedef double v2f64_d __attribute__ ((vector_size(16), aligned(8)));
 #define __msa_ld_h __builtin_msa_ld_h
 #define __msa_ld_w __builtin_msa_ld_w
 #define __msa_ld_d __builtin_msa_ld_d
+#define __msa_ldr_d __builtin_msa_ldr_d
+#define __msa_ldr_w __builtin_msa_ldrq_w
 #define __msa_st_b __builtin_msa_st_b
 #define __msa_st_h __builtin_msa_st_h
 #define __msa_st_w __builtin_msa_st_w
 #define __msa_st_d __builtin_msa_st_d
+#define __msa_str_d __builtin_msa_str_d
+#define __msa_str_w __builtin_msa_strq_w
 #define __msa_sat_s_b __builtin_msa_sat_s_b
 #define __msa_sat_s_h __builtin_msa_sat_s_h
 #define __msa_sat_s_w __builtin_msa_sat_s_w

@@ -12,7 +12,9 @@
 #error "This file is for CUDA compilation only."
 #endif
 
+#ifndef __OPENMP_NVPTX__
 #include <limits>
+#endif
 
 // CUDA lets us use various std math functions on the device side.  This file
 // works in concert with __clang_cuda_math_forward_declares.h to make this work.
@@ -30,32 +32,16 @@
 // implementation.  Declaring in the global namespace and pulling into namespace
 // std covers all of the known knowns.
 
-#ifdef _OPENMP
-#define __DEVICE__ static __attribute__((always_inline))
+#ifdef __OPENMP_NVPTX__
+#define __DEVICE__ static constexpr __attribute__((always_inline, nothrow))
 #else
 #define __DEVICE__ static __device__ __inline__ __attribute__((always_inline))
 #endif
 
-// For C++ 17 we need to include noexcept attribute to be compatible
-// with the header-defined version. This may be removed once
-// variant is supported.
-#if defined(_OPENMP) && defined(__cplusplus) && __cplusplus >= 201703L
-#define __NOEXCEPT noexcept
-#else
-#define __NOEXCEPT
-#endif
-
-#if !(defined(_OPENMP) && defined(__cplusplus))
 __DEVICE__ long long abs(long long __n) { return ::llabs(__n); }
 __DEVICE__ long abs(long __n) { return ::labs(__n); }
 __DEVICE__ float abs(float __x) { return ::fabsf(__x); }
 __DEVICE__ double abs(double __x) { return ::fabs(__x); }
-#endif
-// TODO: remove once variat is supported.
-#if defined(_OPENMP) && defined(__cplusplus)
-__DEVICE__ const float abs(const float __x) { return ::fabsf((float)__x); }
-__DEVICE__ const double abs(const double __x) { return ::fabs((double)__x); }
-#endif
 __DEVICE__ float acos(float __x) { return ::acosf(__x); }
 __DEVICE__ float asin(float __x) { return ::asinf(__x); }
 __DEVICE__ float atan(float __x) { return ::atanf(__x); }
@@ -64,11 +50,9 @@ __DEVICE__ float ceil(float __x) { return ::ceilf(__x); }
 __DEVICE__ float cos(float __x) { return ::cosf(__x); }
 __DEVICE__ float cosh(float __x) { return ::coshf(__x); }
 __DEVICE__ float exp(float __x) { return ::expf(__x); }
-__DEVICE__ float fabs(float __x) __NOEXCEPT { return ::fabsf(__x); }
+__DEVICE__ float fabs(float __x) { return ::fabsf(__x); }
 __DEVICE__ float floor(float __x) { return ::floorf(__x); }
 __DEVICE__ float fmod(float __x, float __y) { return ::fmodf(__x, __y); }
-// TODO: remove when variant is supported
-#ifndef _OPENMP
 __DEVICE__ int fpclassify(float __x) {
   return __builtin_fpclassify(FP_NAN, FP_INFINITE, FP_NORMAL, FP_SUBNORMAL,
                               FP_ZERO, __x);
@@ -77,14 +61,15 @@ __DEVICE__ int fpclassify(double __x) {
   return __builtin_fpclassify(FP_NAN, FP_INFINITE, FP_NORMAL, FP_SUBNORMAL,
                               FP_ZERO, __x);
 }
-#endif
 __DEVICE__ float frexp(float __arg, int *__exp) {
   return ::frexpf(__arg, __exp);
 }
 
 // For inscrutable reasons, the CUDA headers define these functions for us on
-// Windows.
-#ifndef _MSC_VER
+// Windows. For OpenMP we omit these as some old system headers have
+// non-conforming `isinf(float)` and `isnan(float)` implementations that return
+// an `int`. The system versions of these functions should be fine anyway.
+#if !defined(_MSC_VER) && !defined(__OPENMP_NVPTX__)
 __DEVICE__ bool isinf(float __x) { return ::__isinff(__x); }
 __DEVICE__ bool isinf(double __x) { return ::__isinf(__x); }
 __DEVICE__ bool isfinite(float __x) { return ::__finitef(__x); }
@@ -160,6 +145,8 @@ __DEVICE__ float tanh(float __x) { return ::tanhf(__x); }
 // Notably missing above is nexttoward.  We omit it because
 // libdevice doesn't provide an implementation, and we don't want to be in the
 // business of implementing tricky libm functions in this header.
+
+#ifndef __OPENMP_NVPTX__
 
 // Now we've defined everything we promised we'd define in
 // __clang_cuda_math_forward_declares.h.  We need to do two additional things to
@@ -457,10 +444,7 @@ using ::remainderf;
 using ::remquof;
 using ::rintf;
 using ::roundf;
-// TODO: remove once variant is supported
-#ifndef _OPENMP
 using ::scalblnf;
-#endif
 using ::scalbnf;
 using ::sinf;
 using ::sinhf;
@@ -479,7 +463,8 @@ _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std
 #endif
 
-#undef __NOEXCEPT
+#endif // __OPENMP_NVPTX__
+
 #undef __DEVICE__
 
 #endif

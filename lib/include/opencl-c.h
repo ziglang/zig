@@ -13432,18 +13432,12 @@ int __ovld atomic_fetch_min_explicit(volatile atomic_int *object, int operand, m
 uint __ovld atomic_fetch_min(volatile atomic_uint *object, uint operand);
 uint __ovld atomic_fetch_min_explicit(volatile atomic_uint *object, uint operand, memory_order order);
 uint __ovld atomic_fetch_min_explicit(volatile atomic_uint *object, uint operand, memory_order order, memory_scope scope);
-uint __ovld atomic_fetch_min(volatile atomic_uint *object, int operand);
-uint __ovld atomic_fetch_min_explicit(volatile atomic_uint *object, int operand, memory_order order);
-uint __ovld atomic_fetch_min_explicit(volatile atomic_uint *object, int operand, memory_order order, memory_scope scope);
 int __ovld atomic_fetch_max(volatile atomic_int *object, int operand);
 int __ovld atomic_fetch_max_explicit(volatile atomic_int *object, int operand, memory_order order);
 int __ovld atomic_fetch_max_explicit(volatile atomic_int *object, int operand, memory_order order, memory_scope scope);
 uint __ovld atomic_fetch_max(volatile atomic_uint *object, uint operand);
 uint __ovld atomic_fetch_max_explicit(volatile atomic_uint *object, uint operand, memory_order order);
 uint __ovld atomic_fetch_max_explicit(volatile atomic_uint *object, uint operand, memory_order order, memory_scope scope);
-uint __ovld atomic_fetch_max(volatile atomic_uint *object, int operand);
-uint __ovld atomic_fetch_max_explicit(volatile atomic_uint *object, int operand, memory_order order);
-uint __ovld atomic_fetch_max_explicit(volatile atomic_uint *object, int operand, memory_order order, memory_scope scope);
 
 #if defined(cl_khr_int64_base_atomics) && defined(cl_khr_int64_extended_atomics)
 long __ovld atomic_fetch_add(volatile atomic_long *object, long operand);
@@ -13482,18 +13476,12 @@ long __ovld atomic_fetch_min_explicit(volatile atomic_long *object, long operand
 ulong __ovld atomic_fetch_min(volatile atomic_ulong *object, ulong operand);
 ulong __ovld atomic_fetch_min_explicit(volatile atomic_ulong *object, ulong operand, memory_order order);
 ulong __ovld atomic_fetch_min_explicit(volatile atomic_ulong *object, ulong operand, memory_order order, memory_scope scope);
-ulong __ovld atomic_fetch_min(volatile atomic_ulong *object, long operand);
-ulong __ovld atomic_fetch_min_explicit(volatile atomic_ulong *object, long operand, memory_order order);
-ulong __ovld atomic_fetch_min_explicit(volatile atomic_ulong *object, long operand, memory_order order, memory_scope scope);
 long __ovld atomic_fetch_max(volatile atomic_long *object, long operand);
 long __ovld atomic_fetch_max_explicit(volatile atomic_long *object, long operand, memory_order order);
 long __ovld atomic_fetch_max_explicit(volatile atomic_long *object, long operand, memory_order order, memory_scope scope);
 ulong __ovld atomic_fetch_max(volatile atomic_ulong *object, ulong operand);
 ulong __ovld atomic_fetch_max_explicit(volatile atomic_ulong *object, ulong operand, memory_order order);
 ulong __ovld atomic_fetch_max_explicit(volatile atomic_ulong *object, ulong operand, memory_order order, memory_scope scope);
-ulong __ovld atomic_fetch_max(volatile atomic_ulong *object, long operand);
-ulong __ovld atomic_fetch_max_explicit(volatile atomic_ulong *object, long operand, memory_order order);
-ulong __ovld atomic_fetch_max_explicit(volatile atomic_ulong *object, long operand, memory_order order, memory_scope scope);
 #endif //defined(cl_khr_int64_base_atomics) && defined(cl_khr_int64_extended_atomics)
 
 // OpenCL v2.0 s6.13.11.7.5:
@@ -14682,7 +14670,7 @@ void __ovld write_imagef(write_only image2d_array_depth_t image, int4 coord, flo
 
 // OpenCL Extension v2.0 s9.18 - Mipmaps
 #if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
-#ifdef cl_khr_mipmap_image
+#if defined(cl_khr_mipmap_image_writes)
 void __ovld write_imagef(write_only image1d_t image, int coord, int lod, float4 color);
 void __ovld write_imagei(write_only image1d_t image, int coord, int lod, int4 color);
 void __ovld write_imageui(write_only image1d_t image, int coord, int lod, uint4 color);
@@ -14699,15 +14687,16 @@ void __ovld write_imagef(write_only image2d_array_t image_array, int4 coord, int
 void __ovld write_imagei(write_only image2d_array_t image_array, int4 coord, int lod, int4 color);
 void __ovld write_imageui(write_only image2d_array_t image_array, int4 coord, int lod, uint4 color);
 
-void __ovld write_imagef(write_only image2d_depth_t image, int2 coord, int lod, float color);
-void __ovld write_imagef(write_only image2d_array_depth_t image, int4 coord, int lod, float color);
+void __ovld write_imagef(write_only image2d_depth_t image, int2 coord, int lod, float depth);
+void __ovld write_imagef(write_only image2d_array_depth_t image, int4 coord, int lod, float depth);
 
 #ifdef cl_khr_3d_image_writes
 void __ovld write_imagef(write_only image3d_t image, int4 coord, int lod, float4 color);
 void __ovld write_imagei(write_only image3d_t image, int4 coord, int lod, int4 color);
 void __ovld write_imageui(write_only image3d_t image, int4 coord, int lod, uint4 color);
-#endif
-#endif //cl_khr_mipmap_image
+#endif //cl_khr_3d_image_writes
+
+#endif //defined(cl_khr_mipmap_image_writes)
 #endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 // Image write functions for half4 type
@@ -14756,7 +14745,7 @@ void __ovld write_imagef(read_write image2d_array_depth_t image, int4 coord, flo
 #endif //cl_khr_depth_images
 
 #if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
-#ifdef cl_khr_mipmap_image
+#if defined(cl_khr_mipmap_image_writes)
 void __ovld write_imagef(read_write image1d_t image, int coord, int lod, float4 color);
 void __ovld write_imagei(read_write image1d_t image, int coord, int lod, int4 color);
 void __ovld write_imageui(read_write image1d_t image, int coord, int lod, uint4 color);
@@ -14780,8 +14769,9 @@ void __ovld write_imagef(read_write image2d_array_depth_t image, int4 coord, int
 void __ovld write_imagef(read_write image3d_t image, int4 coord, int lod, float4 color);
 void __ovld write_imagei(read_write image3d_t image, int4 coord, int lod, int4 color);
 void __ovld write_imageui(read_write image3d_t image, int4 coord, int lod, uint4 color);
-#endif
-#endif //cl_khr_mipmap_image
+#endif //cl_khr_3d_image_writes
+
+#endif //cl_khr_mipmap_image_writes
 #endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 // Image write functions for half4 type
@@ -15469,6 +15459,674 @@ double  __ovld __conv sub_group_scan_inclusive_max(double x);
 #endif //cl_khr_fp64
 
 #endif //cl_khr_subgroups cl_intel_subgroups
+
+#if defined(cl_khr_subgroup_extended_types)
+char __ovld __conv sub_group_broadcast( char value, uint index );
+char2 __ovld __conv sub_group_broadcast( char2 value, uint index );
+char3 __ovld __conv sub_group_broadcast( char3 value, uint index );
+char4 __ovld __conv sub_group_broadcast( char4 value, uint index );
+char8 __ovld __conv sub_group_broadcast( char8 value, uint index );
+char16 __ovld __conv sub_group_broadcast( char16 value, uint index );
+
+uchar __ovld __conv sub_group_broadcast( uchar value, uint index );
+uchar2 __ovld __conv sub_group_broadcast( uchar2 value, uint index );
+uchar3 __ovld __conv sub_group_broadcast( uchar3 value, uint index );
+uchar4 __ovld __conv sub_group_broadcast( uchar4 value, uint index );
+uchar8 __ovld __conv sub_group_broadcast( uchar8 value, uint index );
+uchar16 __ovld __conv sub_group_broadcast( uchar16 value, uint index );
+
+short __ovld __conv sub_group_broadcast( short value, uint index );
+short2 __ovld __conv sub_group_broadcast( short2 value, uint index );
+short3 __ovld __conv sub_group_broadcast( short3 value, uint index );
+short4 __ovld __conv sub_group_broadcast( short4 value, uint index );
+short8 __ovld __conv sub_group_broadcast( short8 value, uint index );
+short16 __ovld __conv sub_group_broadcast( short16 value, uint index );
+
+ushort __ovld __conv sub_group_broadcast( ushort value, uint index );
+ushort2 __ovld __conv sub_group_broadcast( ushort2 value, uint index );
+ushort3 __ovld __conv sub_group_broadcast( ushort3 value, uint index );
+ushort4 __ovld __conv sub_group_broadcast( ushort4 value, uint index );
+ushort8 __ovld __conv sub_group_broadcast( ushort8 value, uint index );
+ushort16 __ovld __conv sub_group_broadcast( ushort16 value, uint index );
+
+// scalar int broadcast is part of cl_khr_subgroups
+int2 __ovld __conv sub_group_broadcast( int2 value, uint index );
+int3 __ovld __conv sub_group_broadcast( int3 value, uint index );
+int4 __ovld __conv sub_group_broadcast( int4 value, uint index );
+int8 __ovld __conv sub_group_broadcast( int8 value, uint index );
+int16 __ovld __conv sub_group_broadcast( int16 value, uint index );
+
+// scalar uint broadcast is part of cl_khr_subgroups
+uint2 __ovld __conv sub_group_broadcast( uint2 value, uint index );
+uint3 __ovld __conv sub_group_broadcast( uint3 value, uint index );
+uint4 __ovld __conv sub_group_broadcast( uint4 value, uint index );
+uint8 __ovld __conv sub_group_broadcast( uint8 value, uint index );
+uint16 __ovld __conv sub_group_broadcast( uint16 value, uint index );
+
+// scalar long broadcast is part of cl_khr_subgroups
+long2 __ovld __conv sub_group_broadcast( long2 value, uint index );
+long3 __ovld __conv sub_group_broadcast( long3 value, uint index );
+long4 __ovld __conv sub_group_broadcast( long4 value, uint index );
+long8 __ovld __conv sub_group_broadcast( long8 value, uint index );
+long16 __ovld __conv sub_group_broadcast( long16 value, uint index );
+
+// scalar ulong broadcast is part of cl_khr_subgroups
+ulong2 __ovld __conv sub_group_broadcast( ulong2 value, uint index );
+ulong3 __ovld __conv sub_group_broadcast( ulong3 value, uint index );
+ulong4 __ovld __conv sub_group_broadcast( ulong4 value, uint index );
+ulong8 __ovld __conv sub_group_broadcast( ulong8 value, uint index );
+ulong16 __ovld __conv sub_group_broadcast( ulong16 value, uint index );
+
+// scalar float broadcast is part of cl_khr_subgroups
+float2 __ovld __conv sub_group_broadcast( float2 value, uint index );
+float3 __ovld __conv sub_group_broadcast( float3 value, uint index );
+float4 __ovld __conv sub_group_broadcast( float4 value, uint index );
+float8 __ovld __conv sub_group_broadcast( float8 value, uint index );
+float16 __ovld __conv sub_group_broadcast( float16 value, uint index );
+
+char __ovld __conv sub_group_reduce_add( char value );
+uchar __ovld __conv sub_group_reduce_add( uchar value );
+short __ovld __conv sub_group_reduce_add( short value );
+ushort __ovld __conv sub_group_reduce_add( ushort value );
+
+char __ovld __conv sub_group_reduce_min( char value );
+uchar __ovld __conv sub_group_reduce_min( uchar value );
+short __ovld __conv sub_group_reduce_min( short value );
+ushort __ovld __conv sub_group_reduce_min( ushort value );
+
+char __ovld __conv sub_group_reduce_max( char value );
+uchar __ovld __conv sub_group_reduce_max( uchar value );
+short __ovld __conv sub_group_reduce_max( short value );
+ushort __ovld __conv sub_group_reduce_max( ushort value );
+
+char __ovld __conv sub_group_scan_inclusive_add( char value );
+uchar __ovld __conv sub_group_scan_inclusive_add( uchar value );
+short __ovld __conv sub_group_scan_inclusive_add( short value );
+ushort __ovld __conv sub_group_scan_inclusive_add( ushort value );
+
+char __ovld __conv sub_group_scan_inclusive_min( char value );
+uchar __ovld __conv sub_group_scan_inclusive_min( uchar value );
+short __ovld __conv sub_group_scan_inclusive_min( short value );
+ushort __ovld __conv sub_group_scan_inclusive_min( ushort value );
+
+char __ovld __conv sub_group_scan_inclusive_max( char value );
+uchar __ovld __conv sub_group_scan_inclusive_max( uchar value );
+short __ovld __conv sub_group_scan_inclusive_max( short value );
+ushort __ovld __conv sub_group_scan_inclusive_max( ushort value );
+
+char __ovld __conv sub_group_scan_exclusive_add( char value );
+uchar __ovld __conv sub_group_scan_exclusive_add( uchar value );
+short __ovld __conv sub_group_scan_exclusive_add( short value );
+ushort __ovld __conv sub_group_scan_exclusive_add( ushort value );
+
+char __ovld __conv sub_group_scan_exclusive_min( char value );
+uchar __ovld __conv sub_group_scan_exclusive_min( uchar value );
+short __ovld __conv sub_group_scan_exclusive_min( short value );
+ushort __ovld __conv sub_group_scan_exclusive_min( ushort value );
+
+char __ovld __conv sub_group_scan_exclusive_max( char value );
+uchar __ovld __conv sub_group_scan_exclusive_max( uchar value );
+short __ovld __conv sub_group_scan_exclusive_max( short value );
+ushort __ovld __conv sub_group_scan_exclusive_max( ushort value );
+
+#if defined(cl_khr_fp16)
+// scalar half broadcast is part of cl_khr_subgroups
+half2 __ovld __conv sub_group_broadcast( half2 value, uint index );
+half3 __ovld __conv sub_group_broadcast( half3 value, uint index );
+half4 __ovld __conv sub_group_broadcast( half4 value, uint index );
+half8 __ovld __conv sub_group_broadcast( half8 value, uint index );
+half16 __ovld __conv sub_group_broadcast( half16 value, uint index );
+#endif  // cl_khr_fp16
+
+#if defined(cl_khr_fp64)
+// scalar double broadcast is part of cl_khr_subgroups
+double2 __ovld __conv sub_group_broadcast( double2 value, uint index );
+double3 __ovld __conv sub_group_broadcast( double3 value, uint index );
+double4 __ovld __conv sub_group_broadcast( double4 value, uint index );
+double8 __ovld __conv sub_group_broadcast( double8 value, uint index );
+double16 __ovld __conv sub_group_broadcast( double16 value, uint index );
+#endif  // cl_khr_fp64
+
+#endif  // cl_khr_subgroup_extended_types
+
+#if defined(cl_khr_subgroup_non_uniform_vote)
+int     __ovld sub_group_elect(void);
+int     __ovld sub_group_non_uniform_all( int predicate );
+int     __ovld sub_group_non_uniform_any( int predicate );
+
+int     __ovld sub_group_non_uniform_all_equal( char value );
+int     __ovld sub_group_non_uniform_all_equal( uchar value );
+int     __ovld sub_group_non_uniform_all_equal( short value );
+int     __ovld sub_group_non_uniform_all_equal( ushort value );
+int     __ovld sub_group_non_uniform_all_equal( int value );
+int     __ovld sub_group_non_uniform_all_equal( uint value );
+int     __ovld sub_group_non_uniform_all_equal( long value );
+int     __ovld sub_group_non_uniform_all_equal( ulong value );
+int     __ovld sub_group_non_uniform_all_equal( float value );
+
+#if defined(cl_khr_fp16)
+int     __ovld sub_group_non_uniform_all_equal( half value );
+#endif // cl_khr_fp16
+
+#if defined(cl_khr_fp64)
+int     __ovld sub_group_non_uniform_all_equal( double value );
+#endif // cl_khr_fp64
+
+#endif // cl_khr_subgroup_non_uniform_vote
+
+#if defined(cl_khr_subgroup_ballot)
+char    __ovld sub_group_non_uniform_broadcast( char value, uint index );
+char2   __ovld sub_group_non_uniform_broadcast( char2 value, uint index );
+char3   __ovld sub_group_non_uniform_broadcast( char3 value, uint index );
+char4   __ovld sub_group_non_uniform_broadcast( char4 value, uint index );
+char8   __ovld sub_group_non_uniform_broadcast( char8 value, uint index );
+char16  __ovld sub_group_non_uniform_broadcast( char16 value, uint index );
+
+uchar   __ovld sub_group_non_uniform_broadcast( uchar value, uint index );
+uchar2  __ovld sub_group_non_uniform_broadcast( uchar2 value, uint index );
+uchar3  __ovld sub_group_non_uniform_broadcast( uchar3 value, uint index );
+uchar4  __ovld sub_group_non_uniform_broadcast( uchar4 value, uint index );
+uchar8  __ovld sub_group_non_uniform_broadcast( uchar8 value, uint index );
+uchar16 __ovld sub_group_non_uniform_broadcast( uchar16 value, uint index );
+
+short   __ovld sub_group_non_uniform_broadcast( short value, uint index );
+short2  __ovld sub_group_non_uniform_broadcast( short2 value, uint index );
+short3  __ovld sub_group_non_uniform_broadcast( short3 value, uint index );
+short4  __ovld sub_group_non_uniform_broadcast( short4 value, uint index );
+short8  __ovld sub_group_non_uniform_broadcast( short8 value, uint index );
+short16 __ovld sub_group_non_uniform_broadcast( short16 value, uint index );
+
+ushort  __ovld sub_group_non_uniform_broadcast( ushort value, uint index );
+ushort2 __ovld sub_group_non_uniform_broadcast( ushort2 value, uint index );
+ushort3 __ovld sub_group_non_uniform_broadcast( ushort3 value, uint index );
+ushort4 __ovld sub_group_non_uniform_broadcast( ushort4 value, uint index );
+ushort8 __ovld sub_group_non_uniform_broadcast( ushort8 value, uint index );
+ushort16 __ovld sub_group_non_uniform_broadcast( ushort16 value, uint index );
+
+int     __ovld sub_group_non_uniform_broadcast( int value, uint index );
+int2    __ovld sub_group_non_uniform_broadcast( int2 value, uint index );
+int3    __ovld sub_group_non_uniform_broadcast( int3 value, uint index );
+int4    __ovld sub_group_non_uniform_broadcast( int4 value, uint index );
+int8    __ovld sub_group_non_uniform_broadcast( int8 value, uint index );
+int16   __ovld sub_group_non_uniform_broadcast( int16 value, uint index );
+
+uint    __ovld sub_group_non_uniform_broadcast( uint value, uint index );
+uint2   __ovld sub_group_non_uniform_broadcast( uint2 value, uint index );
+uint3   __ovld sub_group_non_uniform_broadcast( uint3 value, uint index );
+uint4   __ovld sub_group_non_uniform_broadcast( uint4 value, uint index );
+uint8   __ovld sub_group_non_uniform_broadcast( uint8 value, uint index );
+uint16  __ovld sub_group_non_uniform_broadcast( uint16 value, uint index );
+
+long    __ovld sub_group_non_uniform_broadcast( long value, uint index );
+long2   __ovld sub_group_non_uniform_broadcast( long2 value, uint index );
+long3   __ovld sub_group_non_uniform_broadcast( long3 value, uint index );
+long4   __ovld sub_group_non_uniform_broadcast( long4 value, uint index );
+long8   __ovld sub_group_non_uniform_broadcast( long8 value, uint index );
+long16  __ovld sub_group_non_uniform_broadcast( long16 value, uint index );
+
+ulong   __ovld sub_group_non_uniform_broadcast( ulong value, uint index );
+ulong2  __ovld sub_group_non_uniform_broadcast( ulong2 value, uint index );
+ulong3  __ovld sub_group_non_uniform_broadcast( ulong3 value, uint index );
+ulong4  __ovld sub_group_non_uniform_broadcast( ulong4 value, uint index );
+ulong8  __ovld sub_group_non_uniform_broadcast( ulong8 value, uint index );
+ulong16 __ovld sub_group_non_uniform_broadcast( ulong16 value, uint index );
+
+float   __ovld sub_group_non_uniform_broadcast( float value, uint index );
+float2  __ovld sub_group_non_uniform_broadcast( float2 value, uint index );
+float3  __ovld sub_group_non_uniform_broadcast( float3 value, uint index );
+float4  __ovld sub_group_non_uniform_broadcast( float4 value, uint index );
+float8  __ovld sub_group_non_uniform_broadcast( float8 value, uint index );
+float16 __ovld sub_group_non_uniform_broadcast( float16 value, uint index );
+
+char    __ovld sub_group_broadcast_first( char value );
+uchar   __ovld sub_group_broadcast_first( uchar value );
+short   __ovld sub_group_broadcast_first( short value );
+ushort  __ovld sub_group_broadcast_first( ushort value );
+int     __ovld sub_group_broadcast_first( int value );
+uint    __ovld sub_group_broadcast_first( uint value );
+long    __ovld sub_group_broadcast_first( long value );
+ulong   __ovld sub_group_broadcast_first( ulong value );
+float   __ovld sub_group_broadcast_first( float value );
+
+uint4   __ovld sub_group_ballot( int predicate );
+int     __ovld __cnfn sub_group_inverse_ballot( uint4 value );
+int     __ovld __cnfn sub_group_ballot_bit_extract( uint4 value, uint index );
+uint    __ovld __cnfn sub_group_ballot_bit_count( uint4 value );
+
+uint    __ovld sub_group_ballot_inclusive_scan( uint4 value );
+uint    __ovld sub_group_ballot_exclusive_scan( uint4 value );
+uint    __ovld sub_group_ballot_find_lsb( uint4 value );
+uint    __ovld sub_group_ballot_find_msb( uint4 value );
+
+uint4   __ovld __cnfn get_sub_group_eq_mask(void);
+uint4   __ovld __cnfn get_sub_group_ge_mask(void);
+uint4   __ovld __cnfn get_sub_group_gt_mask(void);
+uint4   __ovld __cnfn get_sub_group_le_mask(void);
+uint4   __ovld __cnfn get_sub_group_lt_mask(void);
+
+#if defined(cl_khr_fp16)
+half    __ovld sub_group_non_uniform_broadcast( half value, uint index );
+half2   __ovld sub_group_non_uniform_broadcast( half2 value, uint index );
+half3   __ovld sub_group_non_uniform_broadcast( half3 value, uint index );
+half4   __ovld sub_group_non_uniform_broadcast( half4 value, uint index );
+half8   __ovld sub_group_non_uniform_broadcast( half8 value, uint index );
+half16  __ovld sub_group_non_uniform_broadcast( half16 value, uint index );
+
+half    __ovld sub_group_broadcast_first( half value );
+#endif // cl_khr_fp16
+
+#if defined(cl_khr_fp64)
+double   __ovld sub_group_non_uniform_broadcast( double value, uint index );
+double2  __ovld sub_group_non_uniform_broadcast( double2 value, uint index );
+double3  __ovld sub_group_non_uniform_broadcast( double3 value, uint index );
+double4  __ovld sub_group_non_uniform_broadcast( double4 value, uint index );
+double8  __ovld sub_group_non_uniform_broadcast( double8 value, uint index );
+double16 __ovld sub_group_non_uniform_broadcast( double16 value, uint index );
+
+double   __ovld sub_group_broadcast_first( double value );
+#endif // cl_khr_fp64
+
+#endif // cl_khr_subgroup_ballot
+
+#if defined(cl_khr_subgroup_non_uniform_arithmetic)
+char    __ovld sub_group_non_uniform_reduce_add( char value );
+uchar   __ovld sub_group_non_uniform_reduce_add( uchar value );
+short   __ovld sub_group_non_uniform_reduce_add( short value );
+ushort  __ovld sub_group_non_uniform_reduce_add( ushort value );
+int     __ovld sub_group_non_uniform_reduce_add( int value );
+uint    __ovld sub_group_non_uniform_reduce_add( uint value );
+long    __ovld sub_group_non_uniform_reduce_add( long value );
+ulong   __ovld sub_group_non_uniform_reduce_add( ulong value );
+float   __ovld sub_group_non_uniform_reduce_add( float value );
+
+char    __ovld sub_group_non_uniform_reduce_mul( char value );
+uchar   __ovld sub_group_non_uniform_reduce_mul( uchar value );
+short   __ovld sub_group_non_uniform_reduce_mul( short value );
+ushort  __ovld sub_group_non_uniform_reduce_mul( ushort value );
+int     __ovld sub_group_non_uniform_reduce_mul( int value );
+uint    __ovld sub_group_non_uniform_reduce_mul( uint value );
+long    __ovld sub_group_non_uniform_reduce_mul( long value );
+ulong   __ovld sub_group_non_uniform_reduce_mul( ulong value );
+float   __ovld sub_group_non_uniform_reduce_mul( float value );
+
+char    __ovld sub_group_non_uniform_reduce_min( char value );
+uchar   __ovld sub_group_non_uniform_reduce_min( uchar value );
+short   __ovld sub_group_non_uniform_reduce_min( short value );
+ushort  __ovld sub_group_non_uniform_reduce_min( ushort value );
+int     __ovld sub_group_non_uniform_reduce_min( int value );
+uint    __ovld sub_group_non_uniform_reduce_min( uint value );
+long    __ovld sub_group_non_uniform_reduce_min( long value );
+ulong   __ovld sub_group_non_uniform_reduce_min( ulong value );
+float   __ovld sub_group_non_uniform_reduce_min( float value );
+
+char    __ovld sub_group_non_uniform_reduce_max( char value );
+uchar   __ovld sub_group_non_uniform_reduce_max( uchar value );
+short   __ovld sub_group_non_uniform_reduce_max( short value );
+ushort  __ovld sub_group_non_uniform_reduce_max( ushort value );
+int     __ovld sub_group_non_uniform_reduce_max( int value );
+uint    __ovld sub_group_non_uniform_reduce_max( uint value );
+long    __ovld sub_group_non_uniform_reduce_max( long value );
+ulong   __ovld sub_group_non_uniform_reduce_max( ulong value );
+float   __ovld sub_group_non_uniform_reduce_max( float value );
+
+char    __ovld sub_group_non_uniform_scan_inclusive_add( char value );
+uchar   __ovld sub_group_non_uniform_scan_inclusive_add( uchar value );
+short   __ovld sub_group_non_uniform_scan_inclusive_add( short value );
+ushort  __ovld sub_group_non_uniform_scan_inclusive_add( ushort value );
+int     __ovld sub_group_non_uniform_scan_inclusive_add( int value );
+uint    __ovld sub_group_non_uniform_scan_inclusive_add( uint value );
+long    __ovld sub_group_non_uniform_scan_inclusive_add( long value );
+ulong   __ovld sub_group_non_uniform_scan_inclusive_add( ulong value );
+float   __ovld sub_group_non_uniform_scan_inclusive_add( float value );
+
+char    __ovld sub_group_non_uniform_scan_inclusive_mul( char value );
+uchar   __ovld sub_group_non_uniform_scan_inclusive_mul( uchar value );
+short   __ovld sub_group_non_uniform_scan_inclusive_mul( short value );
+ushort  __ovld sub_group_non_uniform_scan_inclusive_mul( ushort value );
+int     __ovld sub_group_non_uniform_scan_inclusive_mul( int value );
+uint    __ovld sub_group_non_uniform_scan_inclusive_mul( uint value );
+long    __ovld sub_group_non_uniform_scan_inclusive_mul( long value );
+ulong   __ovld sub_group_non_uniform_scan_inclusive_mul( ulong value );
+float   __ovld sub_group_non_uniform_scan_inclusive_mul( float value );
+
+char    __ovld sub_group_non_uniform_scan_inclusive_min( char value );
+uchar   __ovld sub_group_non_uniform_scan_inclusive_min( uchar value );
+short   __ovld sub_group_non_uniform_scan_inclusive_min( short value );
+ushort  __ovld sub_group_non_uniform_scan_inclusive_min( ushort value );
+int     __ovld sub_group_non_uniform_scan_inclusive_min( int value );
+uint    __ovld sub_group_non_uniform_scan_inclusive_min( uint value );
+long    __ovld sub_group_non_uniform_scan_inclusive_min( long value );
+ulong   __ovld sub_group_non_uniform_scan_inclusive_min( ulong value );
+float   __ovld sub_group_non_uniform_scan_inclusive_min( float value );
+
+char    __ovld sub_group_non_uniform_scan_inclusive_max( char value );
+uchar   __ovld sub_group_non_uniform_scan_inclusive_max( uchar value );
+short   __ovld sub_group_non_uniform_scan_inclusive_max( short value );
+ushort  __ovld sub_group_non_uniform_scan_inclusive_max( ushort value );
+int     __ovld sub_group_non_uniform_scan_inclusive_max( int value );
+uint    __ovld sub_group_non_uniform_scan_inclusive_max( uint value );
+long    __ovld sub_group_non_uniform_scan_inclusive_max( long value );
+ulong   __ovld sub_group_non_uniform_scan_inclusive_max( ulong value );
+float   __ovld sub_group_non_uniform_scan_inclusive_max( float value );
+
+char    __ovld sub_group_non_uniform_scan_exclusive_add( char value );
+uchar   __ovld sub_group_non_uniform_scan_exclusive_add( uchar value );
+short   __ovld sub_group_non_uniform_scan_exclusive_add( short value );
+ushort  __ovld sub_group_non_uniform_scan_exclusive_add( ushort value );
+int     __ovld sub_group_non_uniform_scan_exclusive_add( int value );
+uint    __ovld sub_group_non_uniform_scan_exclusive_add( uint value );
+long    __ovld sub_group_non_uniform_scan_exclusive_add( long value );
+ulong   __ovld sub_group_non_uniform_scan_exclusive_add( ulong value );
+float   __ovld sub_group_non_uniform_scan_exclusive_add( float value );
+
+char    __ovld sub_group_non_uniform_scan_exclusive_mul( char value );
+uchar   __ovld sub_group_non_uniform_scan_exclusive_mul( uchar value );
+short   __ovld sub_group_non_uniform_scan_exclusive_mul( short value );
+ushort  __ovld sub_group_non_uniform_scan_exclusive_mul( ushort value );
+int     __ovld sub_group_non_uniform_scan_exclusive_mul( int value );
+uint    __ovld sub_group_non_uniform_scan_exclusive_mul( uint value );
+long    __ovld sub_group_non_uniform_scan_exclusive_mul( long value );
+ulong   __ovld sub_group_non_uniform_scan_exclusive_mul( ulong value );
+float   __ovld sub_group_non_uniform_scan_exclusive_mul( float value );
+
+char    __ovld sub_group_non_uniform_scan_exclusive_min( char value );
+uchar   __ovld sub_group_non_uniform_scan_exclusive_min( uchar value );
+short   __ovld sub_group_non_uniform_scan_exclusive_min( short value );
+ushort  __ovld sub_group_non_uniform_scan_exclusive_min( ushort value );
+int     __ovld sub_group_non_uniform_scan_exclusive_min( int value );
+uint    __ovld sub_group_non_uniform_scan_exclusive_min( uint value );
+long    __ovld sub_group_non_uniform_scan_exclusive_min( long value );
+ulong   __ovld sub_group_non_uniform_scan_exclusive_min( ulong value );
+float   __ovld sub_group_non_uniform_scan_exclusive_min( float value );
+
+char    __ovld sub_group_non_uniform_scan_exclusive_max( char value );
+uchar   __ovld sub_group_non_uniform_scan_exclusive_max( uchar value );
+short   __ovld sub_group_non_uniform_scan_exclusive_max( short value );
+ushort  __ovld sub_group_non_uniform_scan_exclusive_max( ushort value );
+int     __ovld sub_group_non_uniform_scan_exclusive_max( int value );
+uint    __ovld sub_group_non_uniform_scan_exclusive_max( uint value );
+long    __ovld sub_group_non_uniform_scan_exclusive_max( long value );
+ulong   __ovld sub_group_non_uniform_scan_exclusive_max( ulong value );
+float   __ovld sub_group_non_uniform_scan_exclusive_max( float value );
+
+char    __ovld sub_group_non_uniform_reduce_and( char value );
+uchar   __ovld sub_group_non_uniform_reduce_and( uchar value );
+short   __ovld sub_group_non_uniform_reduce_and( short value );
+ushort  __ovld sub_group_non_uniform_reduce_and( ushort value );
+int     __ovld sub_group_non_uniform_reduce_and( int value );
+uint    __ovld sub_group_non_uniform_reduce_and( uint value );
+long    __ovld sub_group_non_uniform_reduce_and( long value );
+ulong   __ovld sub_group_non_uniform_reduce_and( ulong value );
+
+char    __ovld sub_group_non_uniform_reduce_or( char value );
+uchar   __ovld sub_group_non_uniform_reduce_or( uchar value );
+short   __ovld sub_group_non_uniform_reduce_or( short value );
+ushort  __ovld sub_group_non_uniform_reduce_or( ushort value );
+int     __ovld sub_group_non_uniform_reduce_or( int value );
+uint    __ovld sub_group_non_uniform_reduce_or( uint value );
+long    __ovld sub_group_non_uniform_reduce_or( long value );
+ulong   __ovld sub_group_non_uniform_reduce_or( ulong value );
+
+char    __ovld sub_group_non_uniform_reduce_xor( char value );
+uchar   __ovld sub_group_non_uniform_reduce_xor( uchar value );
+short   __ovld sub_group_non_uniform_reduce_xor( short value );
+ushort  __ovld sub_group_non_uniform_reduce_xor( ushort value );
+int     __ovld sub_group_non_uniform_reduce_xor( int value );
+uint    __ovld sub_group_non_uniform_reduce_xor( uint value );
+long    __ovld sub_group_non_uniform_reduce_xor( long value );
+ulong   __ovld sub_group_non_uniform_reduce_xor( ulong value );
+
+char    __ovld sub_group_non_uniform_scan_inclusive_and( char value );
+uchar   __ovld sub_group_non_uniform_scan_inclusive_and( uchar value );
+short   __ovld sub_group_non_uniform_scan_inclusive_and( short value );
+ushort  __ovld sub_group_non_uniform_scan_inclusive_and( ushort value );
+int     __ovld sub_group_non_uniform_scan_inclusive_and( int value );
+uint    __ovld sub_group_non_uniform_scan_inclusive_and( uint value );
+long    __ovld sub_group_non_uniform_scan_inclusive_and( long value );
+ulong   __ovld sub_group_non_uniform_scan_inclusive_and( ulong value );
+
+char    __ovld sub_group_non_uniform_scan_inclusive_or( char value );
+uchar   __ovld sub_group_non_uniform_scan_inclusive_or( uchar value );
+short   __ovld sub_group_non_uniform_scan_inclusive_or( short value );
+ushort  __ovld sub_group_non_uniform_scan_inclusive_or( ushort value );
+int     __ovld sub_group_non_uniform_scan_inclusive_or( int value );
+uint    __ovld sub_group_non_uniform_scan_inclusive_or( uint value );
+long    __ovld sub_group_non_uniform_scan_inclusive_or( long value );
+ulong   __ovld sub_group_non_uniform_scan_inclusive_or( ulong value );
+
+char    __ovld sub_group_non_uniform_scan_inclusive_xor( char value );
+uchar   __ovld sub_group_non_uniform_scan_inclusive_xor( uchar value );
+short   __ovld sub_group_non_uniform_scan_inclusive_xor( short value );
+ushort  __ovld sub_group_non_uniform_scan_inclusive_xor( ushort value );
+int     __ovld sub_group_non_uniform_scan_inclusive_xor( int value );
+uint    __ovld sub_group_non_uniform_scan_inclusive_xor( uint value );
+long    __ovld sub_group_non_uniform_scan_inclusive_xor( long value );
+ulong   __ovld sub_group_non_uniform_scan_inclusive_xor( ulong value );
+
+char    __ovld sub_group_non_uniform_scan_exclusive_and( char value );
+uchar   __ovld sub_group_non_uniform_scan_exclusive_and( uchar value );
+short   __ovld sub_group_non_uniform_scan_exclusive_and( short value );
+ushort  __ovld sub_group_non_uniform_scan_exclusive_and( ushort value );
+int     __ovld sub_group_non_uniform_scan_exclusive_and( int value );
+uint    __ovld sub_group_non_uniform_scan_exclusive_and( uint value );
+long    __ovld sub_group_non_uniform_scan_exclusive_and( long value );
+ulong   __ovld sub_group_non_uniform_scan_exclusive_and( ulong value );
+
+char    __ovld sub_group_non_uniform_scan_exclusive_or( char value );
+uchar   __ovld sub_group_non_uniform_scan_exclusive_or( uchar value );
+short   __ovld sub_group_non_uniform_scan_exclusive_or( short value );
+ushort  __ovld sub_group_non_uniform_scan_exclusive_or( ushort value );
+int     __ovld sub_group_non_uniform_scan_exclusive_or( int value );
+uint    __ovld sub_group_non_uniform_scan_exclusive_or( uint value );
+long    __ovld sub_group_non_uniform_scan_exclusive_or( long value );
+ulong   __ovld sub_group_non_uniform_scan_exclusive_or( ulong value );
+
+char    __ovld sub_group_non_uniform_scan_exclusive_xor( char value );
+uchar   __ovld sub_group_non_uniform_scan_exclusive_xor( uchar value );
+short   __ovld sub_group_non_uniform_scan_exclusive_xor( short value );
+ushort  __ovld sub_group_non_uniform_scan_exclusive_xor( ushort value );
+int     __ovld sub_group_non_uniform_scan_exclusive_xor( int value );
+uint    __ovld sub_group_non_uniform_scan_exclusive_xor( uint value );
+long    __ovld sub_group_non_uniform_scan_exclusive_xor( long value );
+ulong   __ovld sub_group_non_uniform_scan_exclusive_xor( ulong value );
+
+int     __ovld sub_group_non_uniform_reduce_logical_and( int predicate );
+int     __ovld sub_group_non_uniform_reduce_logical_or( int predicate );
+int     __ovld sub_group_non_uniform_reduce_logical_xor( int predicate );
+
+int     __ovld sub_group_non_uniform_scan_inclusive_logical_and( int predicate );
+int     __ovld sub_group_non_uniform_scan_inclusive_logical_or( int predicate );
+int     __ovld sub_group_non_uniform_scan_inclusive_logical_xor( int predicate );
+
+int     __ovld sub_group_non_uniform_scan_exclusive_logical_and( int predicate );
+int     __ovld sub_group_non_uniform_scan_exclusive_logical_or( int predicate );
+int     __ovld sub_group_non_uniform_scan_exclusive_logical_xor( int predicate );
+
+#if defined(cl_khr_fp16)
+half    __ovld sub_group_non_uniform_reduce_add( half value );
+half    __ovld sub_group_non_uniform_reduce_mul( half value );
+half    __ovld sub_group_non_uniform_reduce_min( half value );
+half    __ovld sub_group_non_uniform_reduce_max( half value );
+half    __ovld sub_group_non_uniform_scan_inclusive_add( half value );
+half    __ovld sub_group_non_uniform_scan_inclusive_mul( half value );
+half    __ovld sub_group_non_uniform_scan_inclusive_min( half value );
+half    __ovld sub_group_non_uniform_scan_inclusive_max( half value );
+half    __ovld sub_group_non_uniform_scan_exclusive_add( half value );
+half    __ovld sub_group_non_uniform_scan_exclusive_mul( half value );
+half    __ovld sub_group_non_uniform_scan_exclusive_min( half value );
+half    __ovld sub_group_non_uniform_scan_exclusive_max( half value );
+#endif // cl_khr_fp16
+
+#if defined(cl_khr_fp64)
+double  __ovld sub_group_non_uniform_reduce_add( double value );
+double  __ovld sub_group_non_uniform_reduce_mul( double value );
+double  __ovld sub_group_non_uniform_reduce_min( double value );
+double  __ovld sub_group_non_uniform_reduce_max( double value );
+double  __ovld sub_group_non_uniform_scan_inclusive_add( double value );
+double  __ovld sub_group_non_uniform_scan_inclusive_mul( double value );
+double  __ovld sub_group_non_uniform_scan_inclusive_min( double value );
+double  __ovld sub_group_non_uniform_scan_inclusive_max( double value );
+double  __ovld sub_group_non_uniform_scan_exclusive_add( double value );
+double  __ovld sub_group_non_uniform_scan_exclusive_mul( double value );
+double  __ovld sub_group_non_uniform_scan_exclusive_min( double value );
+double  __ovld sub_group_non_uniform_scan_exclusive_max( double value );
+#endif // cl_khr_fp64
+
+#endif // cl_khr_subgroup_non_uniform_arithmetic
+
+#if defined(cl_khr_subgroup_shuffle)
+char    __ovld sub_group_shuffle( char value, uint index );
+uchar   __ovld sub_group_shuffle( uchar value, uint index );
+short   __ovld sub_group_shuffle( short value, uint index );
+ushort  __ovld sub_group_shuffle( ushort value, uint index );
+int     __ovld sub_group_shuffle( int value, uint index );
+uint    __ovld sub_group_shuffle( uint value, uint index );
+long    __ovld sub_group_shuffle( long value, uint index );
+ulong   __ovld sub_group_shuffle( ulong value, uint index );
+float   __ovld sub_group_shuffle( float value, uint index );
+
+char    __ovld sub_group_shuffle_xor( char value, uint mask );
+uchar   __ovld sub_group_shuffle_xor( uchar value, uint mask );
+short   __ovld sub_group_shuffle_xor( short value, uint mask );
+ushort  __ovld sub_group_shuffle_xor( ushort value, uint mask );
+int     __ovld sub_group_shuffle_xor( int value, uint mask );
+uint    __ovld sub_group_shuffle_xor( uint value, uint mask );
+long    __ovld sub_group_shuffle_xor( long value, uint mask );
+ulong   __ovld sub_group_shuffle_xor( ulong value, uint mask );
+float   __ovld sub_group_shuffle_xor( float value, uint mask );
+
+#if defined(cl_khr_fp16)
+half    __ovld sub_group_shuffle( half value, uint index );
+half    __ovld sub_group_shuffle_xor( half value, uint mask );
+#endif // cl_khr_fp16
+
+#if defined(cl_khr_fp64)
+double  __ovld sub_group_shuffle( double value, uint index );
+double  __ovld sub_group_shuffle_xor( double value, uint mask );
+#endif // cl_khr_fp64
+
+#endif // cl_khr_subgroup_shuffle
+
+#if defined(cl_khr_subgroup_shuffle_relative)
+char    __ovld sub_group_shuffle_up( char value, uint delta );
+uchar   __ovld sub_group_shuffle_up( uchar value, uint delta );
+short   __ovld sub_group_shuffle_up( short value, uint delta );
+ushort  __ovld sub_group_shuffle_up( ushort value, uint delta );
+int     __ovld sub_group_shuffle_up( int value, uint delta );
+uint    __ovld sub_group_shuffle_up( uint value, uint delta );
+long    __ovld sub_group_shuffle_up( long value, uint delta );
+ulong   __ovld sub_group_shuffle_up( ulong value, uint delta );
+float   __ovld sub_group_shuffle_up( float value, uint delta );
+
+char    __ovld sub_group_shuffle_down( char value, uint delta );
+uchar   __ovld sub_group_shuffle_down( uchar value, uint delta );
+short   __ovld sub_group_shuffle_down( short value, uint delta );
+ushort  __ovld sub_group_shuffle_down( ushort value, uint delta );
+int     __ovld sub_group_shuffle_down( int value, uint delta );
+uint    __ovld sub_group_shuffle_down( uint value, uint delta );
+long    __ovld sub_group_shuffle_down( long value, uint delta );
+ulong   __ovld sub_group_shuffle_down( ulong value, uint delta );
+float   __ovld sub_group_shuffle_down( float value, uint delta );
+
+#if defined(cl_khr_fp16)
+half    __ovld sub_group_shuffle_up( half value, uint delta );
+half    __ovld sub_group_shuffle_down( half value, uint delta );
+#endif // cl_khr_fp16
+
+#if defined(cl_khr_fp64)
+double  __ovld sub_group_shuffle_up( double value, uint delta );
+double  __ovld sub_group_shuffle_down( double value, uint delta );
+#endif // cl_khr_fp64
+
+#endif // cl_khr_subgroup_shuffle_relative
+
+#if defined(cl_khr_subgroup_clustered_reduce)
+char    __ovld sub_group_clustered_reduce_add( char value, uint clustersize );
+uchar   __ovld sub_group_clustered_reduce_add( uchar value, uint clustersize );
+short   __ovld sub_group_clustered_reduce_add( short value, uint clustersize );
+ushort  __ovld sub_group_clustered_reduce_add( ushort value, uint clustersize );
+int     __ovld sub_group_clustered_reduce_add( int value, uint clustersize );
+uint    __ovld sub_group_clustered_reduce_add( uint value, uint clustersize );
+long    __ovld sub_group_clustered_reduce_add( long value, uint clustersize );
+ulong   __ovld sub_group_clustered_reduce_add( ulong value, uint clustersize );
+float   __ovld sub_group_clustered_reduce_add( float value, uint clustersize );
+
+char    __ovld sub_group_clustered_reduce_mul( char value, uint clustersize );
+uchar   __ovld sub_group_clustered_reduce_mul( uchar value, uint clustersize );
+short   __ovld sub_group_clustered_reduce_mul( short value, uint clustersize );
+ushort  __ovld sub_group_clustered_reduce_mul( ushort value, uint clustersize );
+int     __ovld sub_group_clustered_reduce_mul( int value, uint clustersize );
+uint    __ovld sub_group_clustered_reduce_mul( uint value, uint clustersize );
+long    __ovld sub_group_clustered_reduce_mul( long value, uint clustersize );
+ulong   __ovld sub_group_clustered_reduce_mul( ulong value, uint clustersize );
+float   __ovld sub_group_clustered_reduce_mul( float value, uint clustersize );
+
+char    __ovld sub_group_clustered_reduce_min( char value, uint clustersize );
+uchar   __ovld sub_group_clustered_reduce_min( uchar value, uint clustersize );
+short   __ovld sub_group_clustered_reduce_min( short value, uint clustersize );
+ushort  __ovld sub_group_clustered_reduce_min( ushort value, uint clustersize );
+int     __ovld sub_group_clustered_reduce_min( int value, uint clustersize );
+uint    __ovld sub_group_clustered_reduce_min( uint value, uint clustersize );
+long    __ovld sub_group_clustered_reduce_min( long value, uint clustersize );
+ulong   __ovld sub_group_clustered_reduce_min( ulong value, uint clustersize );
+float   __ovld sub_group_clustered_reduce_min( float value, uint clustersize );
+
+char    __ovld sub_group_clustered_reduce_max( char value, uint clustersize );
+uchar   __ovld sub_group_clustered_reduce_max( uchar value, uint clustersize );
+short   __ovld sub_group_clustered_reduce_max( short value, uint clustersize );
+ushort  __ovld sub_group_clustered_reduce_max( ushort value, uint clustersize );
+int     __ovld sub_group_clustered_reduce_max( int value, uint clustersize );
+uint    __ovld sub_group_clustered_reduce_max( uint value, uint clustersize );
+long    __ovld sub_group_clustered_reduce_max( long value, uint clustersize );
+ulong   __ovld sub_group_clustered_reduce_max( ulong value, uint clustersize );
+float   __ovld sub_group_clustered_reduce_max( float value, uint clustersize );
+
+char    __ovld sub_group_clustered_reduce_and( char value, uint clustersize );
+uchar   __ovld sub_group_clustered_reduce_and( uchar value, uint clustersize );
+short   __ovld sub_group_clustered_reduce_and( short value, uint clustersize );
+ushort  __ovld sub_group_clustered_reduce_and( ushort value, uint clustersize );
+int     __ovld sub_group_clustered_reduce_and( int value, uint clustersize );
+uint    __ovld sub_group_clustered_reduce_and( uint value, uint clustersize );
+long    __ovld sub_group_clustered_reduce_and( long value, uint clustersize );
+ulong   __ovld sub_group_clustered_reduce_and( ulong value, uint clustersize );
+
+char    __ovld sub_group_clustered_reduce_or( char value, uint clustersize );
+uchar   __ovld sub_group_clustered_reduce_or( uchar value, uint clustersize );
+short   __ovld sub_group_clustered_reduce_or( short value, uint clustersize );
+ushort  __ovld sub_group_clustered_reduce_or( ushort value, uint clustersize );
+int     __ovld sub_group_clustered_reduce_or( int value, uint clustersize );
+uint    __ovld sub_group_clustered_reduce_or( uint value, uint clustersize );
+long    __ovld sub_group_clustered_reduce_or( long value, uint clustersize );
+ulong   __ovld sub_group_clustered_reduce_or( ulong value, uint clustersize );
+
+char    __ovld sub_group_clustered_reduce_xor( char value, uint clustersize );
+uchar   __ovld sub_group_clustered_reduce_xor( uchar value, uint clustersize );
+short   __ovld sub_group_clustered_reduce_xor( short value, uint clustersize );
+ushort  __ovld sub_group_clustered_reduce_xor( ushort value, uint clustersize );
+int     __ovld sub_group_clustered_reduce_xor( int value, uint clustersize );
+uint    __ovld sub_group_clustered_reduce_xor( uint value, uint clustersize );
+long    __ovld sub_group_clustered_reduce_xor( long value, uint clustersize );
+ulong   __ovld sub_group_clustered_reduce_xor( ulong value, uint clustersize );
+
+int     __ovld sub_group_clustered_reduce_logical_and( int predicate, uint clustersize );
+int     __ovld sub_group_clustered_reduce_logical_or( int predicate, uint clustersize );
+int     __ovld sub_group_clustered_reduce_logical_xor( int predicate, uint clustersize );
+
+#if defined(cl_khr_fp16)
+half    __ovld sub_group_clustered_reduce_add( half value, uint clustersize );
+half    __ovld sub_group_clustered_reduce_mul( half value, uint clustersize );
+half    __ovld sub_group_clustered_reduce_min( half value, uint clustersize );
+half    __ovld sub_group_clustered_reduce_max( half value, uint clustersize );
+#endif // cl_khr_fp16
+
+#if defined(cl_khr_fp64)
+double  __ovld sub_group_clustered_reduce_add( double value, uint clustersize );
+double  __ovld sub_group_clustered_reduce_mul( double value, uint clustersize );
+double  __ovld sub_group_clustered_reduce_min( double value, uint clustersize );
+double  __ovld sub_group_clustered_reduce_max( double value, uint clustersize );
+#endif // cl_khr_fp64
+
+#endif // cl_khr_subgroup_clustered_reduce
 
 #if defined(cl_intel_subgroups)
 // Intel-Specific Sub Group Functions

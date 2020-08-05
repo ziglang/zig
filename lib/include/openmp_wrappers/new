@@ -1,0 +1,70 @@
+//===--------- new - OPENMP wrapper for <new> ------------------------------===
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===-----------------------------------------------------------------------===
+
+#ifndef __CLANG_OPENMP_WRAPPERS_NEW
+#define __CLANG_OPENMP_WRAPPERS_NEW
+
+#include_next <new>
+
+#if defined(__NVPTX__) && defined(_OPENMP)
+
+#include <cstdlib>
+
+#pragma push_macro("OPENMP_NOEXCEPT")
+#if __cplusplus >= 201103L
+#define OPENMP_NOEXCEPT noexcept
+#else
+#define OPENMP_NOEXCEPT
+#endif
+
+// Device overrides for non-placement new and delete.
+inline void *operator new(__SIZE_TYPE__ size) {
+  if (size == 0)
+    size = 1;
+  return ::malloc(size);
+}
+inline void *operator new(__SIZE_TYPE__ size,
+                          const std::nothrow_t &) OPENMP_NOEXCEPT {
+  return ::operator new(size);
+}
+
+inline void *operator new[](__SIZE_TYPE__ size) { return ::operator new(size); }
+inline void *operator new[](__SIZE_TYPE__ size, const std::nothrow_t &) {
+  return ::operator new(size);
+}
+
+inline void operator delete(void *ptr)OPENMP_NOEXCEPT {
+  if (ptr)
+    ::free(ptr);
+}
+inline void operator delete(void *ptr, const std::nothrow_t &)OPENMP_NOEXCEPT {
+  ::operator delete(ptr);
+}
+
+inline void operator delete[](void *ptr) OPENMP_NOEXCEPT {
+  ::operator delete(ptr);
+}
+inline void operator delete[](void *ptr,
+                              const std::nothrow_t &) OPENMP_NOEXCEPT {
+  ::operator delete(ptr);
+}
+
+// Sized delete, C++14 only.
+#if __cplusplus >= 201402L
+inline void operator delete(void *ptr, __SIZE_TYPE__ size)OPENMP_NOEXCEPT {
+  ::operator delete(ptr);
+}
+inline void operator delete[](void *ptr, __SIZE_TYPE__ size) OPENMP_NOEXCEPT {
+  ::operator delete(ptr);
+}
+#endif
+
+#pragma pop_macro("OPENMP_NOEXCEPT")
+#endif
+
+#endif // include guard

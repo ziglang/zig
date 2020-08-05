@@ -13,10 +13,57 @@
 // This header defines __muldc3, __mulsc3, __divdc3, and __divsc3.  These are
 // libgcc functions that clang assumes are available when compiling c99 complex
 // operations.  (These implementations come from libc++, and have been modified
-// to work with CUDA.)
+// to work with CUDA and OpenMP target offloading [in C and C++ mode].)
 
-extern "C" inline __device__ double _Complex __muldc3(double __a, double __b,
-                                                      double __c, double __d) {
+#pragma push_macro("__DEVICE__")
+#ifdef _OPENMP
+#pragma omp declare target
+#define __DEVICE__ __attribute__((noinline, nothrow, cold, weak))
+#else
+#define __DEVICE__ __device__ inline
+#endif
+
+// To make the algorithms available for C and C++ in CUDA and OpenMP we select
+// different but equivalent function versions. TODO: For OpenMP we currently
+// select the native builtins as the overload support for templates is lacking.
+#if !defined(_OPENMP)
+#define _ISNANd std::isnan
+#define _ISNANf std::isnan
+#define _ISINFd std::isinf
+#define _ISINFf std::isinf
+#define _ISFINITEd std::isfinite
+#define _ISFINITEf std::isfinite
+#define _COPYSIGNd std::copysign
+#define _COPYSIGNf std::copysign
+#define _SCALBNd std::scalbn
+#define _SCALBNf std::scalbn
+#define _ABSd std::abs
+#define _ABSf std::abs
+#define _LOGBd std::logb
+#define _LOGBf std::logb
+#else
+#define _ISNANd __nv_isnand
+#define _ISNANf __nv_isnanf
+#define _ISINFd __nv_isinfd
+#define _ISINFf __nv_isinff
+#define _ISFINITEd __nv_isfinited
+#define _ISFINITEf __nv_finitef
+#define _COPYSIGNd __nv_copysign
+#define _COPYSIGNf __nv_copysignf
+#define _SCALBNd __nv_scalbn
+#define _SCALBNf __nv_scalbnf
+#define _ABSd __nv_fabs
+#define _ABSf __nv_fabsf
+#define _LOGBd __nv_logb
+#define _LOGBf __nv_logbf
+#endif
+
+#if defined(__cplusplus)
+extern "C" {
+#endif
+
+__DEVICE__ double _Complex __muldc3(double __a, double __b, double __c,
+                                    double __d) {
   double __ac = __a * __c;
   double __bd = __b * __d;
   double __ad = __a * __d;
@@ -24,50 +71,49 @@ extern "C" inline __device__ double _Complex __muldc3(double __a, double __b,
   double _Complex z;
   __real__(z) = __ac - __bd;
   __imag__(z) = __ad + __bc;
-  if (std::isnan(__real__(z)) && std::isnan(__imag__(z))) {
+  if (_ISNANd(__real__(z)) && _ISNANd(__imag__(z))) {
     int __recalc = 0;
-    if (std::isinf(__a) || std::isinf(__b)) {
-      __a = std::copysign(std::isinf(__a) ? 1 : 0, __a);
-      __b = std::copysign(std::isinf(__b) ? 1 : 0, __b);
-      if (std::isnan(__c))
-        __c = std::copysign(0, __c);
-      if (std::isnan(__d))
-        __d = std::copysign(0, __d);
+    if (_ISINFd(__a) || _ISINFd(__b)) {
+      __a = _COPYSIGNd(_ISINFd(__a) ? 1 : 0, __a);
+      __b = _COPYSIGNd(_ISINFd(__b) ? 1 : 0, __b);
+      if (_ISNANd(__c))
+        __c = _COPYSIGNd(0, __c);
+      if (_ISNANd(__d))
+        __d = _COPYSIGNd(0, __d);
       __recalc = 1;
     }
-    if (std::isinf(__c) || std::isinf(__d)) {
-      __c = std::copysign(std::isinf(__c) ? 1 : 0, __c);
-      __d = std::copysign(std::isinf(__d) ? 1 : 0, __d);
-      if (std::isnan(__a))
-        __a = std::copysign(0, __a);
-      if (std::isnan(__b))
-        __b = std::copysign(0, __b);
+    if (_ISINFd(__c) || _ISINFd(__d)) {
+      __c = _COPYSIGNd(_ISINFd(__c) ? 1 : 0, __c);
+      __d = _COPYSIGNd(_ISINFd(__d) ? 1 : 0, __d);
+      if (_ISNANd(__a))
+        __a = _COPYSIGNd(0, __a);
+      if (_ISNANd(__b))
+        __b = _COPYSIGNd(0, __b);
       __recalc = 1;
     }
-    if (!__recalc && (std::isinf(__ac) || std::isinf(__bd) ||
-                      std::isinf(__ad) || std::isinf(__bc))) {
-      if (std::isnan(__a))
-        __a = std::copysign(0, __a);
-      if (std::isnan(__b))
-        __b = std::copysign(0, __b);
-      if (std::isnan(__c))
-        __c = std::copysign(0, __c);
-      if (std::isnan(__d))
-        __d = std::copysign(0, __d);
+    if (!__recalc &&
+        (_ISINFd(__ac) || _ISINFd(__bd) || _ISINFd(__ad) || _ISINFd(__bc))) {
+      if (_ISNANd(__a))
+        __a = _COPYSIGNd(0, __a);
+      if (_ISNANd(__b))
+        __b = _COPYSIGNd(0, __b);
+      if (_ISNANd(__c))
+        __c = _COPYSIGNd(0, __c);
+      if (_ISNANd(__d))
+        __d = _COPYSIGNd(0, __d);
       __recalc = 1;
     }
     if (__recalc) {
       // Can't use std::numeric_limits<double>::infinity() -- that doesn't have
       // a device overload (and isn't constexpr before C++11, naturally).
-      __real__(z) = __builtin_huge_valf() * (__a * __c - __b * __d);
-      __imag__(z) = __builtin_huge_valf() * (__a * __d + __b * __c);
+      __real__(z) = __builtin_huge_val() * (__a * __c - __b * __d);
+      __imag__(z) = __builtin_huge_val() * (__a * __d + __b * __c);
     }
   }
   return z;
 }
 
-extern "C" inline __device__ float _Complex __mulsc3(float __a, float __b,
-                                                     float __c, float __d) {
+__DEVICE__ float _Complex __mulsc3(float __a, float __b, float __c, float __d) {
   float __ac = __a * __c;
   float __bd = __b * __d;
   float __ad = __a * __d;
@@ -75,36 +121,36 @@ extern "C" inline __device__ float _Complex __mulsc3(float __a, float __b,
   float _Complex z;
   __real__(z) = __ac - __bd;
   __imag__(z) = __ad + __bc;
-  if (std::isnan(__real__(z)) && std::isnan(__imag__(z))) {
+  if (_ISNANf(__real__(z)) && _ISNANf(__imag__(z))) {
     int __recalc = 0;
-    if (std::isinf(__a) || std::isinf(__b)) {
-      __a = std::copysign(std::isinf(__a) ? 1 : 0, __a);
-      __b = std::copysign(std::isinf(__b) ? 1 : 0, __b);
-      if (std::isnan(__c))
-        __c = std::copysign(0, __c);
-      if (std::isnan(__d))
-        __d = std::copysign(0, __d);
+    if (_ISINFf(__a) || _ISINFf(__b)) {
+      __a = _COPYSIGNf(_ISINFf(__a) ? 1 : 0, __a);
+      __b = _COPYSIGNf(_ISINFf(__b) ? 1 : 0, __b);
+      if (_ISNANf(__c))
+        __c = _COPYSIGNf(0, __c);
+      if (_ISNANf(__d))
+        __d = _COPYSIGNf(0, __d);
       __recalc = 1;
     }
-    if (std::isinf(__c) || std::isinf(__d)) {
-      __c = std::copysign(std::isinf(__c) ? 1 : 0, __c);
-      __d = std::copysign(std::isinf(__d) ? 1 : 0, __d);
-      if (std::isnan(__a))
-        __a = std::copysign(0, __a);
-      if (std::isnan(__b))
-        __b = std::copysign(0, __b);
+    if (_ISINFf(__c) || _ISINFf(__d)) {
+      __c = _COPYSIGNf(_ISINFf(__c) ? 1 : 0, __c);
+      __d = _COPYSIGNf(_ISINFf(__d) ? 1 : 0, __d);
+      if (_ISNANf(__a))
+        __a = _COPYSIGNf(0, __a);
+      if (_ISNANf(__b))
+        __b = _COPYSIGNf(0, __b);
       __recalc = 1;
     }
-    if (!__recalc && (std::isinf(__ac) || std::isinf(__bd) ||
-                      std::isinf(__ad) || std::isinf(__bc))) {
-      if (std::isnan(__a))
-        __a = std::copysign(0, __a);
-      if (std::isnan(__b))
-        __b = std::copysign(0, __b);
-      if (std::isnan(__c))
-        __c = std::copysign(0, __c);
-      if (std::isnan(__d))
-        __d = std::copysign(0, __d);
+    if (!__recalc &&
+        (_ISINFf(__ac) || _ISINFf(__bd) || _ISINFf(__ad) || _ISINFf(__bc))) {
+      if (_ISNANf(__a))
+        __a = _COPYSIGNf(0, __a);
+      if (_ISNANf(__b))
+        __b = _COPYSIGNf(0, __b);
+      if (_ISNANf(__c))
+        __c = _COPYSIGNf(0, __c);
+      if (_ISNANf(__d))
+        __d = _COPYSIGNf(0, __d);
       __recalc = 1;
     }
     if (__recalc) {
@@ -115,36 +161,36 @@ extern "C" inline __device__ float _Complex __mulsc3(float __a, float __b,
   return z;
 }
 
-extern "C" inline __device__ double _Complex __divdc3(double __a, double __b,
-                                                      double __c, double __d) {
+__DEVICE__ double _Complex __divdc3(double __a, double __b, double __c,
+                                    double __d) {
   int __ilogbw = 0;
   // Can't use std::max, because that's defined in <algorithm>, and we don't
   // want to pull that in for every compile.  The CUDA headers define
   // ::max(float, float) and ::max(double, double), which is sufficient for us.
-  double __logbw = std::logb(max(std::abs(__c), std::abs(__d)));
-  if (std::isfinite(__logbw)) {
+  double __logbw = _LOGBd(max(_ABSd(__c), _ABSd(__d)));
+  if (_ISFINITEd(__logbw)) {
     __ilogbw = (int)__logbw;
-    __c = std::scalbn(__c, -__ilogbw);
-    __d = std::scalbn(__d, -__ilogbw);
+    __c = _SCALBNd(__c, -__ilogbw);
+    __d = _SCALBNd(__d, -__ilogbw);
   }
   double __denom = __c * __c + __d * __d;
   double _Complex z;
-  __real__(z) = std::scalbn((__a * __c + __b * __d) / __denom, -__ilogbw);
-  __imag__(z) = std::scalbn((__b * __c - __a * __d) / __denom, -__ilogbw);
-  if (std::isnan(__real__(z)) && std::isnan(__imag__(z))) {
-    if ((__denom == 0.0) && (!std::isnan(__a) || !std::isnan(__b))) {
-      __real__(z) = std::copysign(__builtin_huge_valf(), __c) * __a;
-      __imag__(z) = std::copysign(__builtin_huge_valf(), __c) * __b;
-    } else if ((std::isinf(__a) || std::isinf(__b)) && std::isfinite(__c) &&
-               std::isfinite(__d)) {
-      __a = std::copysign(std::isinf(__a) ? 1.0 : 0.0, __a);
-      __b = std::copysign(std::isinf(__b) ? 1.0 : 0.0, __b);
-      __real__(z) = __builtin_huge_valf() * (__a * __c + __b * __d);
-      __imag__(z) = __builtin_huge_valf() * (__b * __c - __a * __d);
-    } else if (std::isinf(__logbw) && __logbw > 0.0 && std::isfinite(__a) &&
-               std::isfinite(__b)) {
-      __c = std::copysign(std::isinf(__c) ? 1.0 : 0.0, __c);
-      __d = std::copysign(std::isinf(__d) ? 1.0 : 0.0, __d);
+  __real__(z) = _SCALBNd((__a * __c + __b * __d) / __denom, -__ilogbw);
+  __imag__(z) = _SCALBNd((__b * __c - __a * __d) / __denom, -__ilogbw);
+  if (_ISNANd(__real__(z)) && _ISNANd(__imag__(z))) {
+    if ((__denom == 0.0) && (!_ISNANd(__a) || !_ISNANd(__b))) {
+      __real__(z) = _COPYSIGNd(__builtin_huge_val(), __c) * __a;
+      __imag__(z) = _COPYSIGNd(__builtin_huge_val(), __c) * __b;
+    } else if ((_ISINFd(__a) || _ISINFd(__b)) && _ISFINITEd(__c) &&
+               _ISFINITEd(__d)) {
+      __a = _COPYSIGNd(_ISINFd(__a) ? 1.0 : 0.0, __a);
+      __b = _COPYSIGNd(_ISINFd(__b) ? 1.0 : 0.0, __b);
+      __real__(z) = __builtin_huge_val() * (__a * __c + __b * __d);
+      __imag__(z) = __builtin_huge_val() * (__b * __c - __a * __d);
+    } else if (_ISINFd(__logbw) && __logbw > 0.0 && _ISFINITEd(__a) &&
+               _ISFINITEd(__b)) {
+      __c = _COPYSIGNd(_ISINFd(__c) ? 1.0 : 0.0, __c);
+      __d = _COPYSIGNd(_ISINFd(__d) ? 1.0 : 0.0, __d);
       __real__(z) = 0.0 * (__a * __c + __b * __d);
       __imag__(z) = 0.0 * (__b * __c - __a * __d);
     }
@@ -152,38 +198,62 @@ extern "C" inline __device__ double _Complex __divdc3(double __a, double __b,
   return z;
 }
 
-extern "C" inline __device__ float _Complex __divsc3(float __a, float __b,
-                                                     float __c, float __d) {
+__DEVICE__ float _Complex __divsc3(float __a, float __b, float __c, float __d) {
   int __ilogbw = 0;
-  float __logbw = std::logb(max(std::abs(__c), std::abs(__d)));
-  if (std::isfinite(__logbw)) {
+  float __logbw = _LOGBf(max(_ABSf(__c), _ABSf(__d)));
+  if (_ISFINITEf(__logbw)) {
     __ilogbw = (int)__logbw;
-    __c = std::scalbn(__c, -__ilogbw);
-    __d = std::scalbn(__d, -__ilogbw);
+    __c = _SCALBNf(__c, -__ilogbw);
+    __d = _SCALBNf(__d, -__ilogbw);
   }
   float __denom = __c * __c + __d * __d;
   float _Complex z;
-  __real__(z) = std::scalbn((__a * __c + __b * __d) / __denom, -__ilogbw);
-  __imag__(z) = std::scalbn((__b * __c - __a * __d) / __denom, -__ilogbw);
-  if (std::isnan(__real__(z)) && std::isnan(__imag__(z))) {
-    if ((__denom == 0) && (!std::isnan(__a) || !std::isnan(__b))) {
-      __real__(z) = std::copysign(__builtin_huge_valf(), __c) * __a;
-      __imag__(z) = std::copysign(__builtin_huge_valf(), __c) * __b;
-    } else if ((std::isinf(__a) || std::isinf(__b)) && std::isfinite(__c) &&
-               std::isfinite(__d)) {
-      __a = std::copysign(std::isinf(__a) ? 1 : 0, __a);
-      __b = std::copysign(std::isinf(__b) ? 1 : 0, __b);
+  __real__(z) = _SCALBNf((__a * __c + __b * __d) / __denom, -__ilogbw);
+  __imag__(z) = _SCALBNf((__b * __c - __a * __d) / __denom, -__ilogbw);
+  if (_ISNANf(__real__(z)) && _ISNANf(__imag__(z))) {
+    if ((__denom == 0) && (!_ISNANf(__a) || !_ISNANf(__b))) {
+      __real__(z) = _COPYSIGNf(__builtin_huge_valf(), __c) * __a;
+      __imag__(z) = _COPYSIGNf(__builtin_huge_valf(), __c) * __b;
+    } else if ((_ISINFf(__a) || _ISINFf(__b)) && _ISFINITEf(__c) &&
+               _ISFINITEf(__d)) {
+      __a = _COPYSIGNf(_ISINFf(__a) ? 1 : 0, __a);
+      __b = _COPYSIGNf(_ISINFf(__b) ? 1 : 0, __b);
       __real__(z) = __builtin_huge_valf() * (__a * __c + __b * __d);
       __imag__(z) = __builtin_huge_valf() * (__b * __c - __a * __d);
-    } else if (std::isinf(__logbw) && __logbw > 0 && std::isfinite(__a) &&
-               std::isfinite(__b)) {
-      __c = std::copysign(std::isinf(__c) ? 1 : 0, __c);
-      __d = std::copysign(std::isinf(__d) ? 1 : 0, __d);
+    } else if (_ISINFf(__logbw) && __logbw > 0 && _ISFINITEf(__a) &&
+               _ISFINITEf(__b)) {
+      __c = _COPYSIGNf(_ISINFf(__c) ? 1 : 0, __c);
+      __d = _COPYSIGNf(_ISINFf(__d) ? 1 : 0, __d);
       __real__(z) = 0 * (__a * __c + __b * __d);
       __imag__(z) = 0 * (__b * __c - __a * __d);
     }
   }
   return z;
 }
+
+#if defined(__cplusplus)
+} // extern "C"
+#endif
+
+#undef _ISNANd
+#undef _ISNANf
+#undef _ISINFd
+#undef _ISINFf
+#undef _COPYSIGNd
+#undef _COPYSIGNf
+#undef _ISFINITEd
+#undef _ISFINITEf
+#undef _SCALBNd
+#undef _SCALBNf
+#undef _ABSd
+#undef _ABSf
+#undef _LOGBd
+#undef _LOGBf
+
+#ifdef _OPENMP
+#pragma omp end declare target
+#endif
+
+#pragma pop_macro("__DEVICE__")
 
 #endif // __CLANG_CUDA_COMPLEX_BUILTINS

@@ -289,6 +289,9 @@ unsigned char _BitScanForward64(unsigned long *_Index, unsigned __int64 _Mask);
 static __inline__
 unsigned char _BitScanReverse64(unsigned long *_Index, unsigned __int64 _Mask);
 
+#endif
+
+#if defined(__i386__) || defined(__x86_64__) || defined(__arm__) || defined(__aarch64__)
 static __inline__
 __int64 _InterlockedDecrement64(__int64 volatile *_Addend);
 static __inline__

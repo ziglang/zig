@@ -740,6 +740,8 @@ _mm256_broadcastsi128_si256(__m128i __X)
   return (__m256i)__builtin_shufflevector((__v2di)__X, (__v2di)__X, 0, 1, 0, 1);
 }
 
+#define _mm_broadcastsi128_si256(X) _mm256_broadcastsi128_si256(X)
+
 #define _mm_blend_epi32(V1, V2, M) \
   (__m128i)__builtin_ia32_pblendd128((__v4si)(__m128i)(V1), \
                                      (__v4si)(__m128i)(V2), (int)(M))

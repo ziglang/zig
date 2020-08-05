@@ -8,8 +8,8 @@
  */
 #ifndef __CLANG__CUDA_MATH_FORWARD_DECLARES_H__
 #define __CLANG__CUDA_MATH_FORWARD_DECLARES_H__
-#ifndef __CUDA__
-#error "This file is for CUDA compilation only."
+#if !defined(__CUDA__) && !__HIP__
+#error "This file is for CUDA/HIP compilation only."
 #endif
 
 // This file forward-declares of some math functions we (or the CUDA headers)
@@ -20,37 +20,14 @@
 // would preclude the use of our own __device__ overloads for these functions.
 
 #pragma push_macro("__DEVICE__")
-#ifdef _OPENMP
-#define __DEVICE__ static __inline__ __attribute__((always_inline))
-#else
 #define __DEVICE__                                                             \
   static __inline__ __attribute__((always_inline)) __attribute__((device))
-#endif
 
-// For C++ 17 we need to include noexcept attribute to be compatible
-// with the header-defined version. This may be removed once
-// variant is supported.
-#if defined(_OPENMP) && defined(__cplusplus) && __cplusplus >= 201703L
-#define __NOEXCEPT noexcept
-#else
-#define __NOEXCEPT
-#endif
-
-#if !(defined(_OPENMP) && defined(__cplusplus))
 __DEVICE__ long abs(long);
 __DEVICE__ long long abs(long long);
 __DEVICE__ double abs(double);
 __DEVICE__ float abs(float);
-#endif
-// While providing the CUDA declarations and definitions for math functions,
-// we may manually define additional functions.
-// TODO: Once variant is supported the additional functions will have
-// to be removed.
-#if defined(_OPENMP) && defined(__cplusplus)
-__DEVICE__ const double abs(const double);
-__DEVICE__ const float abs(const float);
-#endif
-__DEVICE__ int abs(int) __NOEXCEPT;
+__DEVICE__ int abs(int);
 __DEVICE__ double acos(double);
 __DEVICE__ float acos(float);
 __DEVICE__ double acosh(double);
@@ -85,8 +62,8 @@ __DEVICE__ double exp(double);
 __DEVICE__ float exp(float);
 __DEVICE__ double expm1(double);
 __DEVICE__ float expm1(float);
-__DEVICE__ double fabs(double) __NOEXCEPT;
-__DEVICE__ float fabs(float) __NOEXCEPT;
+__DEVICE__ double fabs(double);
+__DEVICE__ float fabs(float);
 __DEVICE__ double fdim(double, double);
 __DEVICE__ float fdim(float, float);
 __DEVICE__ double floor(double);
@@ -136,12 +113,12 @@ __DEVICE__ bool isnormal(double);
 __DEVICE__ bool isnormal(float);
 __DEVICE__ bool isunordered(double, double);
 __DEVICE__ bool isunordered(float, float);
-__DEVICE__ long labs(long) __NOEXCEPT;
+__DEVICE__ long labs(long);
 __DEVICE__ double ldexp(double, int);
 __DEVICE__ float ldexp(float, int);
 __DEVICE__ double lgamma(double);
 __DEVICE__ float lgamma(float);
-__DEVICE__ long long llabs(long long) __NOEXCEPT;
+__DEVICE__ long long llabs(long long);
 __DEVICE__ long long llrint(double);
 __DEVICE__ long long llrint(float);
 __DEVICE__ double log10(double);
@@ -152,9 +129,6 @@ __DEVICE__ double log2(double);
 __DEVICE__ float log2(float);
 __DEVICE__ double logb(double);
 __DEVICE__ float logb(float);
-#if defined(_OPENMP) && defined(__cplusplus)
-__DEVICE__ long double log(long double);
-#endif
 __DEVICE__ double log(double);
 __DEVICE__ float log(float);
 __DEVICE__ long lrint(double);
@@ -302,7 +276,6 @@ _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std
 #endif
 
-#undef __NOEXCEPT
 #pragma pop_macro("__DEVICE__")
 
 #endif
