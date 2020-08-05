@@ -134,7 +134,7 @@ pub fn generateSymbol(
             }
             return Result{
                 .fail = try ErrorMsg.create(
-                    bin_file.allocator,
+                    bin_file.base.allocator,
                     src,
                     "TODO implement generateSymbol for more kinds of arrays",
                     .{},
@@ -150,21 +150,26 @@ pub fn generateSymbol(
                 // If the decl changes vaddr, then this symbol needs to get regenerated.
                 const vaddr = bin_file.local_symbols.items[decl.link.local_sym_index].st_value;
                 const endian = bin_file.base.options.target.cpu.arch.endian();
-                switch (bin_file.ptr_width) {
-                    .p32 => {
+                switch (bin_file.base.options.target.cpu.arch.ptrBitWidth()) {
+                    16 => {
+                        try code.resize(2);
+                        mem.writeInt(u16, code.items[0..2], @intCast(u16, vaddr), endian);
+                    },
+                    32 => {
                         try code.resize(4);
                         mem.writeInt(u32, code.items[0..4], @intCast(u32, vaddr), endian);
                     },
-                    .p64 => {
+                    64 => {
                         try code.resize(8);
                         mem.writeInt(u64, code.items[0..8], vaddr, endian);
                     },
+                    else => unreachable,
                 }
                 return Result{ .appended = {} };
             }
             return Result{
                 .fail = try ErrorMsg.create(
-                    bin_file.allocator,
+                    bin_file.base.allocator,
                     src,
                     "TODO implement generateSymbol for pointer {}",
                     .{typed_value.val},
@@ -180,7 +185,7 @@ pub fn generateSymbol(
             }
             return Result{
                 .fail = try ErrorMsg.create(
-                    bin_file.allocator,
+                    bin_file.base.allocator,
                     src,
                     "TODO implement generateSymbol for int type '{}'",
                     .{typed_value.ty},
@@ -190,7 +195,7 @@ pub fn generateSymbol(
         else => |t| {
             return Result{
                 .fail = try ErrorMsg.create(
-                    bin_file.allocator,
+                    bin_file.base.allocator,
                     src,
                     "TODO implement generateSymbol for type '{}'",
                     .{@tagName(t)},
@@ -387,10 +392,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             const fn_type = module_fn.owner_decl.typed_value.most_recent.typed_value.ty;
 
-            var branch_stack = std.ArrayList(Branch).init(bin_file.allocator);
+            var branch_stack = std.ArrayList(Branch).init(bin_file.base.allocator);
             defer {
                 assert(branch_stack.items.len == 1);
-                branch_stack.items[0].deinit(bin_file.allocator);
+                branch_stack.items[0].deinit(bin_file.base.allocator);
                 branch_stack.deinit();
             }
             const branch = try branch_stack.addOne();
@@ -413,7 +418,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             };
 
             var function = Self{
-                .gpa = bin_file.allocator,
+                .gpa = bin_file.base.allocator,
                 .target = &bin_file.base.options.target,
                 .bin_file = bin_file,
                 .mod_fn = module_fn,
@@ -432,7 +437,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .rbrace_src = src_data.rbrace_src,
                 .source = src_data.source,
             };
-            defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
+            defer function.exitlude_jump_relocs.deinit(bin_file.base.allocator);
 
             var call_info = function.resolveCallingConventionValues(src, fn_type) catch |err| switch (err) {
                 error.CodegenFail => return Result{ .fail = function.err_msg.? },
@@ -2054,7 +2059,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn fail(self: *Self, src: usize, comptime format: []const u8, args: anytype) error{ CodegenFail, OutOfMemory } {
             @setCold(true);
             assert(self.err_msg == null);
-            self.err_msg = try ErrorMsg.create(self.bin_file.allocator, src, format, args);
+            self.err_msg = try ErrorMsg.create(self.bin_file.base.allocator, src, format, args);
             return error.CodegenFail;
         }
 
