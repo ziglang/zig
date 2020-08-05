@@ -898,7 +898,6 @@ pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
 
 pub const GetFinalPathNameByHandleError = error{
     FileNotFound,
-    SystemResources,
     NameTooLong,
     Unexpected,
 };
@@ -963,9 +962,19 @@ pub fn GetFinalPathNameByHandle(hFile: HANDLE, out_buffer: []u16) GetFinalPathNa
         break :blk @as([*]const u16, object_name.Name.Buffer)[0..object_name.Name.Length / 2];
     };
 
-    // Since `NtQueryObject` returns a fully-qualified NT path, we need to translate
-    // the result into a Win32/DOS path (e.g., \Device\HarddiskVolume4\foo would become
-    // C:\foo).
+    // By now, we got a a fully-qualified NT path, which we need to translate
+    // into a Win32/DOS path, for instance:
+    // \Device\HarddiskVolume4\foo => C:\foo
+    // 
+    // NOTE:
+    // I couldn't figure out a better way of doing this unfortunately...
+    // This snippet below is in part based around `QueryDosDeviceW` implementation
+    // found in Wine. The trick with `NtQueryDirectoryObject` for some reason
+    // only lists `\DosDevices\Global` as the only SymblinkObject available, which
+    // means it's not possible to query the kernel for all available DOS volume name
+    // symlinks.
+    // TODO investigate!
+    // Wine source: https://source.winehq.com/git/wine.git/blob/HEAD:/dlls/kernelbase/volume.c#l1009
     const dos_drive_letters = &[_]u16{ 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z' };
     var query_path = [_]u16{ '\\', 'D', 'o', 's', 'D', 'e', 'v', 'i', 'c', 'e', 's', '\\', 'C', ':' };
     for (dos_drive_letters) |drive_letter| {
@@ -1010,14 +1019,17 @@ pub fn GetFinalPathNameByHandle(hFile: HANDLE, out_buffer: []u16) GetFinalPathNa
         const link_path = @as([*]const u16, link.Buffer)[0..link.Length / 2];
         const idx = std.mem.indexOf(u16, object_path, link_path) orelse continue;
 
-        // TODO check the provided buffer is actually big enough.
+        // TODO is this the most appropriate error here?
+        if (out_buffer.len < drive.len + object_path.len) return error.NameTooLong;
+
         std.mem.copy(u16, out_buffer[0..], drive[0..]);
         std.mem.copy(u16, out_buffer[2..], object_path[link_path.len..]);
 
         return out_buffer[0..object_path.len - link_path.len + 2];
     }
 
-    // If we're here, that means there was no match so error out!
+    // If we're here, that means there was no match so we panic!
+    // TODO should we actually panic here or return an error instead?
     unreachable;
 }
 
