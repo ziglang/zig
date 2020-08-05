@@ -25,11 +25,15 @@ pub const Feature = enum {
     frsqrte,
     frsqrtes,
     fsqrt,
+    fuse_addi_load,
+    fuse_addis_load,
+    fusion,
     hard_float,
     htm,
     icbt,
     invariant_function_descriptors,
     isa_v30_instructions,
+    isa_v31_instructions,
     isel,
     ldbrx,
     lfiwax,
@@ -37,7 +41,9 @@ pub const Feature = enum {
     mfocrf,
     msync,
     partword_atomics,
+    pcrelative_memops,
     popcntd,
+    power10_vector,
     power8_altivec,
     power8_vector,
     power9_altivec,
@@ -46,6 +52,8 @@ pub const Feature = enum {
     ppc_prera_sched,
     ppc4xx,
     ppc6xx,
+    predictable_select_expensive,
+    prefix_instrs,
     qpx,
     recipprec,
     secure_plt,
@@ -201,6 +209,25 @@ pub const all_features = blk: {
             .fpu,
         }),
     };
+    result[@enumToInt(Feature.fuse_addi_load)] = .{
+        .llvm_name = "fuse-addi-load",
+        .description = "Power8 Addi-Load fusion",
+        .dependencies = featureSet(&[_]Feature{
+            .fusion,
+        }),
+    };
+    result[@enumToInt(Feature.fuse_addis_load)] = .{
+        .llvm_name = "fuse-addis-load",
+        .description = "Power8 Addis-Load fusion",
+        .dependencies = featureSet(&[_]Feature{
+            .fusion,
+        }),
+    };
+    result[@enumToInt(Feature.fusion)] = .{
+        .llvm_name = "fusion",
+        .description = "Target supports instruction fusion",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.hard_float)] = .{
         .llvm_name = "hard-float",
         .description = "Enable floating-point instructions",
@@ -223,8 +250,15 @@ pub const all_features = blk: {
     };
     result[@enumToInt(Feature.isa_v30_instructions)] = .{
         .llvm_name = "isa-v30-instructions",
-        .description = "Enable instructions added in ISA 3.0.",
+        .description = "Enable instructions in ISA 3.0.",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.isa_v31_instructions)] = .{
+        .llvm_name = "isa-v31-instructions",
+        .description = "Enable instructions in ISA 3.1.",
+        .dependencies = featureSet(&[_]Feature{
+            .isa_v30_instructions,
+        }),
     };
     result[@enumToInt(Feature.isel)] = .{
         .llvm_name = "isel",
@@ -265,10 +299,25 @@ pub const all_features = blk: {
         .description = "Enable l[bh]arx and st[bh]cx.",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.pcrelative_memops)] = .{
+        .llvm_name = "pcrelative-memops",
+        .description = "Enable PC relative Memory Ops",
+        .dependencies = featureSet(&[_]Feature{
+            .isa_v30_instructions,
+        }),
+    };
     result[@enumToInt(Feature.popcntd)] = .{
         .llvm_name = "popcntd",
         .description = "Enable the popcnt[dw] instructions",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.power10_vector)] = .{
+        .llvm_name = "power10-vector",
+        .description = "Enable POWER10 vector instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .isa_v31_instructions,
+            .power9_vector,
+        }),
     };
     result[@enumToInt(Feature.power8_altivec)] = .{
         .llvm_name = "power8-altivec",
@@ -321,6 +370,20 @@ pub const all_features = blk: {
         .llvm_name = "ppc6xx",
         .description = "Enable PPC 6xx instructions",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.predictable_select_expensive)] = .{
+        .llvm_name = "predictable-select-expensive",
+        .description = "Prefer likely predicted branches over selects",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.prefix_instrs)] = .{
+        .llvm_name = "prefix-instrs",
+        .description = "Enable prefixed instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .isa_v30_instructions,
+            .power8_vector,
+            .power9_altivec,
+        }),
     };
     result[@enumToInt(Feature.qpx)] = .{
         .llvm_name = "qpx",
@@ -567,6 +630,7 @@ pub const cpu = struct {
             .booke,
             .icbt,
             .isel,
+            .msync,
             .spe,
         }),
     };
@@ -615,16 +679,21 @@ pub const cpu = struct {
             .htm,
             .icbt,
             .isa_v30_instructions,
+            .isa_v31_instructions,
             .isel,
             .ldbrx,
             .lfiwax,
             .mfocrf,
             .partword_atomics,
+            .pcrelative_memops,
             .popcntd,
+            .power10_vector,
             .power8_altivec,
             .power8_vector,
             .power9_altivec,
             .power9_vector,
+            .predictable_select_expensive,
+            .prefix_instrs,
             .recipprec,
             .stfiwx,
             .two_const_nr,
@@ -724,6 +793,8 @@ pub const cpu = struct {
             .frsqrte,
             .frsqrtes,
             .fsqrt,
+            .fuse_addi_load,
+            .fuse_addis_load,
             .htm,
             .icbt,
             .isel,
@@ -734,6 +805,51 @@ pub const cpu = struct {
             .popcntd,
             .power8_altivec,
             .power8_vector,
+            .predictable_select_expensive,
+            .recipprec,
+            .stfiwx,
+            .two_const_nr,
+            .vsx,
+        }),
+    };
+    pub const pwr10 = CpuModel{
+        .name = "pwr10",
+        .llvm_name = "pwr10",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .allow_unaligned_fp_access,
+            .altivec,
+            .bpermd,
+            .cmpb,
+            .crypto,
+            .direct_move,
+            .extdiv,
+            .fcpsgn,
+            .fpcvt,
+            .fprnd,
+            .fre,
+            .fres,
+            .frsqrte,
+            .frsqrtes,
+            .fsqrt,
+            .htm,
+            .icbt,
+            .isa_v30_instructions,
+            .isa_v31_instructions,
+            .isel,
+            .ldbrx,
+            .lfiwax,
+            .mfocrf,
+            .partword_atomics,
+            .pcrelative_memops,
+            .popcntd,
+            .power10_vector,
+            .power8_altivec,
+            .power8_vector,
+            .power9_altivec,
+            .power9_vector,
+            .predictable_select_expensive,
+            .prefix_instrs,
             .recipprec,
             .stfiwx,
             .two_const_nr,
@@ -885,6 +1001,8 @@ pub const cpu = struct {
             .frsqrte,
             .frsqrtes,
             .fsqrt,
+            .fuse_addi_load,
+            .fuse_addis_load,
             .htm,
             .icbt,
             .isel,
@@ -895,6 +1013,7 @@ pub const cpu = struct {
             .popcntd,
             .power8_altivec,
             .power8_vector,
+            .predictable_select_expensive,
             .recipprec,
             .stfiwx,
             .two_const_nr,
@@ -936,6 +1055,7 @@ pub const cpu = struct {
             .power9_vector,
             .ppc_postra_sched,
             .ppc_prera_sched,
+            .predictable_select_expensive,
             .recipprec,
             .stfiwx,
             .two_const_nr,

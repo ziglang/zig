@@ -8,6 +8,9 @@ pub const Feature = enum {
     @"64bit",
     adx,
     aes,
+    amx_bf16,
+    amx_int8,
+    amx_tile,
     avx,
     avx2,
     avx512bf16,
@@ -42,6 +45,7 @@ pub const Feature = enum {
     false_deps_popcnt,
     fast_11bytenop,
     fast_15bytenop,
+    fast_7bytenop,
     fast_bextr,
     fast_gather,
     fast_hops,
@@ -62,6 +66,8 @@ pub const Feature = enum {
     invpcid,
     lea_sp,
     lea_uses_ag,
+    lvi_cfi,
+    lvi_load_hardening,
     lwp,
     lzcnt,
     macrofusion,
@@ -93,6 +99,8 @@ pub const Feature = enum {
     retpoline_indirect_calls,
     rtm,
     sahf,
+    serialize,
+    seses,
     sgx,
     sha,
     shstk,
@@ -115,6 +123,7 @@ pub const Feature = enum {
     sse4a,
     ssse3,
     tbm,
+    tsxldtrk,
     use_aa,
     use_glm_div_sqrt_costs,
     vaes,
@@ -166,6 +175,25 @@ pub const all_features = blk: {
         .dependencies = featureSet(&[_]Feature{
             .sse2,
         }),
+    };
+    result[@enumToInt(Feature.amx_bf16)] = .{
+        .llvm_name = "amx-bf16",
+        .description = "Support AMX-BF16 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .amx_tile,
+        }),
+    };
+    result[@enumToInt(Feature.amx_int8)] = .{
+        .llvm_name = "amx-int8",
+        .description = "Support AMX-INT8 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .amx_tile,
+        }),
+    };
+    result[@enumToInt(Feature.amx_tile)] = .{
+        .llvm_name = "amx-tile",
+        .description = "Support AMX-TILE instructions",
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.avx)] = .{
         .llvm_name = "avx",
@@ -377,6 +405,11 @@ pub const all_features = blk: {
         .description = "Target can quickly decode up to 15 byte NOPs",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.fast_7bytenop)] = .{
+        .llvm_name = "fast-7bytenop",
+        .description = "Target can quickly decode up to 7 byte NOPs",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.fast_bextr)] = .{
         .llvm_name = "fast-bextr",
         .description = "Indicates that the BEXTR instruction is implemented as a single uop with good throughput",
@@ -482,6 +515,16 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.lea_uses_ag)] = .{
         .llvm_name = "lea-uses-ag",
         .description = "LEA instruction needs inputs at AG stage",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.lvi_cfi)] = .{
+        .llvm_name = "lvi-cfi",
+        .description = "Prevent indirect calls/branches from using a memory operand, and precede all indirect calls/branches from a register with an LFENCE instruction to serialize control flow. Also decompose RET instructions into a POP+LFENCE+JMP sequence.",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.lvi_load_hardening)] = .{
+        .llvm_name = "lvi-load-hardening",
+        .description = "Insert LFENCE instructions to prevent data speculatively injected into loads from being used maliciously.",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.lwp)] = .{
@@ -646,6 +689,18 @@ pub const all_features = blk: {
         .description = "Support LAHF and SAHF instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.serialize)] = .{
+        .llvm_name = "serialize",
+        .description = "Has serialize instruction",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.seses)] = .{
+        .llvm_name = "seses",
+        .description = "Prevent speculative execution side channel timing attacks by inserting a speculation barrier before memory reads, memory writes, and conditional branches. Implies LVI Control Flow integrity.",
+        .dependencies = featureSet(&[_]Feature{
+            .lvi_cfi,
+        }),
+    };
     result[@enumToInt(Feature.sgx)] = .{
         .llvm_name = "sgx",
         .description = "Enable Software Guard Extensions",
@@ -770,6 +825,11 @@ pub const all_features = blk: {
         .description = "Enable TBM instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.tsxldtrk)] = .{
+        .llvm_name = "tsxldtrk",
+        .description = "Support TSXLDTRK instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.use_aa)] = .{
         .llvm_name = "use-aa",
         .description = "Use alias analysis during codegen",
@@ -831,17 +891,23 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.xsavec)] = .{
         .llvm_name = "xsavec",
         .description = "Support xsavec instructions",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .xsave,
+        }),
     };
     result[@enumToInt(Feature.xsaveopt)] = .{
         .llvm_name = "xsaveopt",
         .description = "Support xsaveopt instructions",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .xsave,
+        }),
     };
     result[@enumToInt(Feature.xsaves)] = .{
         .llvm_name = "xsaves",
         .description = "Support xsaves instructions",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .xsave,
+        }),
     };
     const ti = @typeInfo(Feature);
     for (result) |*elem, i| {
@@ -866,6 +932,7 @@ pub const cpu = struct {
             .lzcnt,
             .nopl,
             .popcnt,
+            .prfchw,
             .sahf,
             .slow_shld,
             .sse4a,
@@ -1043,6 +1110,7 @@ pub const cpu = struct {
             .lzcnt,
             .nopl,
             .popcnt,
+            .prfchw,
             .sahf,
             .slow_shld,
             .sse4a,
@@ -1169,11 +1237,13 @@ pub const cpu = struct {
             .lwp,
             .lzcnt,
             .mmx,
+            .movbe,
             .mwaitx,
             .nopl,
             .pclmul,
             .popcnt,
             .prfchw,
+            .rdrnd,
             .sahf,
             .slow_shld,
             .tbm,
@@ -1226,6 +1296,7 @@ pub const cpu = struct {
             .f16c,
             .false_deps_lzcnt_tzcnt,
             .false_deps_popcnt,
+            .fast_15bytenop,
             .fast_scalar_fsqrt,
             .fast_shld_rotate,
             .fast_variable_shuffle,
@@ -1362,6 +1433,7 @@ pub const cpu = struct {
             .cx8,
             .ermsb,
             .f16c,
+            .fast_15bytenop,
             .fast_gather,
             .fast_scalar_fsqrt,
             .fast_shld_rotate,
@@ -1423,6 +1495,7 @@ pub const cpu = struct {
             .ermsb,
             .f16c,
             .false_deps_popcnt,
+            .fast_15bytenop,
             .fast_gather,
             .fast_scalar_fsqrt,
             .fast_shld_rotate,
@@ -1483,6 +1556,7 @@ pub const cpu = struct {
             .ermsb,
             .f16c,
             .false_deps_popcnt,
+            .fast_15bytenop,
             .fast_gather,
             .fast_scalar_fsqrt,
             .fast_shld_rotate,
@@ -1528,6 +1602,7 @@ pub const cpu = struct {
             .cx8,
             .f16c,
             .false_deps_popcnt,
+            .fast_15bytenop,
             .fast_scalar_fsqrt,
             .fast_shld_rotate,
             .fsgsbase,
@@ -1566,6 +1641,7 @@ pub const cpu = struct {
             .f16c,
             .false_deps_lzcnt_tzcnt,
             .false_deps_popcnt,
+            .fast_15bytenop,
             .fast_scalar_fsqrt,
             .fast_shld_rotate,
             .fast_variable_shuffle,
@@ -1640,6 +1716,7 @@ pub const cpu = struct {
             .cx16,
             .cx8,
             .false_deps_popcnt,
+            .fast_15bytenop,
             .fast_scalar_fsqrt,
             .fast_shld_rotate,
             .fxsr,
@@ -1773,6 +1850,7 @@ pub const cpu = struct {
             .f16c,
             .false_deps_lzcnt_tzcnt,
             .false_deps_popcnt,
+            .fast_15bytenop,
             .fast_scalar_fsqrt,
             .fast_shld_rotate,
             .fast_variable_shuffle,
@@ -1867,6 +1945,7 @@ pub const cpu = struct {
             .cx8,
             .ermsb,
             .f16c,
+            .fast_15bytenop,
             .fast_gather,
             .fast_scalar_fsqrt,
             .fast_shld_rotate,
@@ -1936,6 +2015,7 @@ pub const cpu = struct {
             .cx8,
             .ermsb,
             .f16c,
+            .fast_15bytenop,
             .fast_gather,
             .fast_scalar_fsqrt,
             .fast_shld_rotate,
@@ -1989,6 +2069,7 @@ pub const cpu = struct {
             .cx8,
             .f16c,
             .false_deps_popcnt,
+            .fast_15bytenop,
             .fast_scalar_fsqrt,
             .fast_shld_rotate,
             .fsgsbase,
@@ -2414,6 +2495,7 @@ pub const cpu = struct {
             .cx16,
             .cx8,
             .false_deps_popcnt,
+            .fast_15bytenop,
             .fast_scalar_fsqrt,
             .fast_shld_rotate,
             .fxsr,
@@ -2443,6 +2525,7 @@ pub const cpu = struct {
             .cx16,
             .cx8,
             .false_deps_popcnt,
+            .fast_7bytenop,
             .fxsr,
             .idivq_to_divl,
             .mmx,
@@ -2487,6 +2570,7 @@ pub const cpu = struct {
             .ermsb,
             .f16c,
             .false_deps_popcnt,
+            .fast_15bytenop,
             .fast_gather,
             .fast_scalar_fsqrt,
             .fast_shld_rotate,
@@ -2539,6 +2623,7 @@ pub const cpu = struct {
             .ermsb,
             .f16c,
             .false_deps_popcnt,
+            .fast_15bytenop,
             .fast_gather,
             .fast_scalar_fsqrt,
             .fast_shld_rotate,
@@ -2596,6 +2681,7 @@ pub const cpu = struct {
             .ermsb,
             .f16c,
             .false_deps_popcnt,
+            .fast_15bytenop,
             .fast_gather,
             .fast_scalar_fsqrt,
             .fast_shld_rotate,
@@ -2639,6 +2725,7 @@ pub const cpu = struct {
             .cx16,
             .cx8,
             .false_deps_popcnt,
+            .fast_7bytenop,
             .fxsr,
             .idivq_to_divl,
             .mmx,
@@ -2689,6 +2776,7 @@ pub const cpu = struct {
             .cx8,
             .ermsb,
             .f16c,
+            .fast_15bytenop,
             .fast_gather,
             .fast_scalar_fsqrt,
             .fast_shld_rotate,
@@ -2738,8 +2826,8 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .@"64bit",
             .aes,
-            .cldemote,
             .clflushopt,
+            .clwb,
             .cmov,
             .cx16,
             .cx8,
@@ -2748,8 +2836,6 @@ pub const cpu = struct {
             .gfni,
             .mmx,
             .movbe,
-            .movdir64b,
-            .movdiri,
             .nopl,
             .pclmul,
             .popcnt,
@@ -2768,7 +2854,6 @@ pub const cpu = struct {
             .ssse3,
             .use_glm_div_sqrt_costs,
             .vzeroupper,
-            .waitpkg,
             .x87,
             .xsave,
             .xsavec,
@@ -2824,6 +2909,7 @@ pub const cpu = struct {
             .cmov,
             .cx8,
             .fxsr,
+            .idivq_to_divl,
             .macrofusion,
             .mmx,
             .nopl,
