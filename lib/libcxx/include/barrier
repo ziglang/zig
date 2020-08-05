@@ -1,0 +1,322 @@
+// -*- C++ -*-
+//===--------------------------- barrier ----------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef _LIBCPP_BARRIER
+#define _LIBCPP_BARRIER
+
+/*
+    barrier synopsis
+
+namespace std
+{
+
+  template<class CompletionFunction = see below>
+  class barrier
+  {
+  public:
+    using arrival_token = see below;
+
+    constexpr explicit barrier(ptrdiff_t phase_count,
+                               CompletionFunction f = CompletionFunction());
+    ~barrier();
+
+    barrier(const barrier&) = delete;
+    barrier& operator=(const barrier&) = delete;
+
+    [[nodiscard]] arrival_token arrive(ptrdiff_t update = 1);
+    void wait(arrival_token&& arrival) const;
+
+    void arrive_and_wait();
+    void arrive_and_drop();
+
+  private:
+    CompletionFunction completion; // exposition only
+  };
+
+}
+
+*/
+
+#include <__config>
+#include <atomic>
+#ifndef _LIBCPP_HAS_NO_TREE_BARRIER
+# include <memory>
+#endif
+
+#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#pragma GCC system_header
+#endif
+
+#ifdef _LIBCPP_HAS_NO_THREADS
+# error <barrier> is not supported on this single threaded system
+#endif
+
+#if _LIBCPP_STD_VER >= 14
+
+_LIBCPP_BEGIN_NAMESPACE_STD
+
+struct __empty_completion
+{
+    inline _LIBCPP_INLINE_VISIBILITY
+    void operator()() noexcept
+    {
+    }
+};
+
+#ifndef _LIBCPP_HAS_NO_TREE_BARRIER
+
+/*
+
+The default implementation of __barrier_base is a classic tree barrier.
+
+It looks different from literature pseudocode for two main reasons:
+ 1. Threads that call into std::barrier functions do not provide indices,
+    so a numbering step is added before the actual barrier algorithm,
+    appearing as an N+1 round to the N rounds of the tree barrier.
+ 2. A great deal of attention has been paid to avoid cache line thrashing
+    by flattening the tree structure into cache-line sized arrays, that
+    are indexed in an efficient way.
+
+*/
+
+using __barrier_phase_t = uint8_t;
+
+class __barrier_algorithm_base;
+
+_LIBCPP_AVAILABILITY_SYNC _LIBCPP_EXPORTED_FROM_ABI
+__barrier_algorithm_base* __construct_barrier_algorithm_base(ptrdiff_t& __expected);
+
+_LIBCPP_AVAILABILITY_SYNC _LIBCPP_EXPORTED_FROM_ABI
+bool __arrive_barrier_algorithm_base(__barrier_algorithm_base* __barrier,
+                                     __barrier_phase_t __old_phase);
+
+_LIBCPP_AVAILABILITY_SYNC _LIBCPP_EXPORTED_FROM_ABI
+void __destroy_barrier_algorithm_base(__barrier_algorithm_base* __barrier);
+
+template<class _CompletionF>
+class __barrier_base {
+
+    ptrdiff_t                                               __expected;
+    unique_ptr<__barrier_algorithm_base,
+               void (*)(__barrier_algorithm_base*)>         __base;
+    __atomic_base<ptrdiff_t>                                __expected_adjustment;
+    _CompletionF                                            __completion;
+    __atomic_base<__barrier_phase_t>                        __phase;
+
+public:
+    using arrival_token = __barrier_phase_t;
+
+    static constexpr ptrdiff_t max() noexcept {
+        return numeric_limits<ptrdiff_t>::max();
+    }
+
+    _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
+    __barrier_base(ptrdiff_t __expected, _CompletionF __completion = _CompletionF())
+            : __expected(__expected), __base(__construct_barrier_algorithm_base(this->__expected),
+                                             &__destroy_barrier_algorithm_base),
+              __expected_adjustment(0), __completion(move(__completion)), __phase(0)
+    {
+    }
+    [[nodiscard]] _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
+    arrival_token arrive(ptrdiff_t update)
+    {
+        auto const __old_phase = __phase.load(memory_order_relaxed);
+        for(; update; --update)
+            if(__arrive_barrier_algorithm_base(__base.get(), __old_phase)) {
+                __completion();
+                __expected += __expected_adjustment.load(memory_order_relaxed);
+                __expected_adjustment.store(0, memory_order_relaxed);
+                __phase.store(__old_phase + 2, memory_order_release);
+                __phase.notify_all();
+            }
+        return __old_phase;
+    }
+    _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
+    void wait(arrival_token&& __old_phase) const
+    {
+        auto const __test_fn = [=]() -> bool {
+            return __phase.load(memory_order_acquire) != __old_phase;
+        };
+        __libcpp_thread_poll_with_backoff(__test_fn, __libcpp_timed_backoff_policy());
+    }
+    _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
+    void arrive_and_drop()
+    {
+        __expected_adjustment.fetch_sub(1, memory_order_relaxed);
+        (void)arrive(1);
+    }
+};
+
+#else
+
+/*
+
+The alternative implementation of __barrier_base is a central barrier.
+
+Two versions of this algorithm are provided:
+ 1. A fairly straightforward implementation of the litterature for the
+    general case where the completion function is not empty.
+ 2. An optimized implementation that exploits 2's complement arithmetic
+    and well-defined overflow in atomic arithmetic, to handle the phase
+    roll-over for free.
+
+*/
+
+template<class _CompletionF>
+class __barrier_base {
+
+    __atomic_base<ptrdiff_t> __expected;
+    __atomic_base<ptrdiff_t> __arrived;
+    _CompletionF             __completion;
+    __atomic_base<bool>      __phase;
+public:
+    using arrival_token = bool;
+
+    static constexpr ptrdiff_t max() noexcept {
+        return numeric_limits<ptrdiff_t>::max();
+    }
+
+    _LIBCPP_INLINE_VISIBILITY
+    __barrier_base(ptrdiff_t __expected, _CompletionF __completion = _CompletionF())
+        : __expected(__expected), __arrived(__expected), __completion(move(__completion)), __phase(false)
+    {
+    }
+    [[nodiscard]] _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
+    arrival_token arrive(ptrdiff_t update)
+    {
+        auto const __old_phase = __phase.load(memory_order_relaxed);
+        auto const __result = __arrived.fetch_sub(update, memory_order_acq_rel) - update;
+        auto const new_expected = __expected.load(memory_order_relaxed);
+        if(0 == __result) {
+            __completion();
+            __arrived.store(new_expected, memory_order_relaxed);
+            __phase.store(!__old_phase, memory_order_release);
+            __phase.notify_all();
+        }
+        return __old_phase;
+    }
+    _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
+    void wait(arrival_token&& __old_phase) const
+    {
+        __phase.wait(__old_phase, memory_order_acquire);
+    }
+    _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
+    void arrive_and_drop()
+    {
+        __expected.fetch_sub(1, memory_order_relaxed);
+        (void)arrive(1);
+    }
+};
+
+template<>
+class __barrier_base<__empty_completion> {
+
+    static constexpr uint64_t __expected_unit = 1ull;
+    static constexpr uint64_t __arrived_unit = 1ull << 32;
+    static constexpr uint64_t __expected_mask = __arrived_unit - 1;
+    static constexpr uint64_t __phase_bit = 1ull << 63;
+    static constexpr uint64_t __arrived_mask = (__phase_bit - 1) & ~__expected_mask;
+
+    __atomic_base<uint64_t>   __phase_arrived_expected;
+
+    static _LIBCPP_INLINE_VISIBILITY
+    constexpr uint64_t __init(ptrdiff_t __count) _NOEXCEPT
+    {
+        return ((uint64_t(1u << 31) - __count) << 32)
+              | (uint64_t(1u << 31) - __count);
+    }
+
+public:
+    using arrival_token = uint64_t;
+
+    static constexpr ptrdiff_t max() noexcept {
+        return ptrdiff_t(1u << 31) - 1;
+    }
+
+    _LIBCPP_INLINE_VISIBILITY
+    explicit inline __barrier_base(ptrdiff_t __count, __empty_completion = __empty_completion())
+        : __phase_arrived_expected(__init(__count))
+    {
+    }
+    [[nodiscard]] inline _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
+    arrival_token arrive(ptrdiff_t update)
+    {
+        auto const __inc = __arrived_unit * update;
+        auto const __old = __phase_arrived_expected.fetch_add(__inc, memory_order_acq_rel);
+        if((__old ^ (__old + __inc)) & __phase_bit) {
+            __phase_arrived_expected.fetch_add((__old & __expected_mask) << 32, memory_order_relaxed);
+            __phase_arrived_expected.notify_all();
+        }
+        return __old & __phase_bit;
+    }
+    inline _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
+    void wait(arrival_token&& __phase) const
+    {
+        auto const __test_fn = [=]() -> bool {
+            uint64_t const __current = __phase_arrived_expected.load(memory_order_acquire);
+            return ((__current & __phase_bit) != __phase);
+        };
+        __libcpp_thread_poll_with_backoff(__test_fn, __libcpp_timed_backoff_policy());
+    }
+    inline _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
+    void arrive_and_drop()
+    {
+        __phase_arrived_expected.fetch_add(__expected_unit, memory_order_relaxed);
+        (void)arrive(1);
+    }
+};
+
+#endif //_LIBCPP_HAS_NO_TREE_BARRIER
+
+template<class _CompletionF = __empty_completion>
+class barrier {
+
+    __barrier_base<_CompletionF> __b;
+public:
+    using arrival_token = typename __barrier_base<_CompletionF>::arrival_token;
+
+    static constexpr ptrdiff_t max() noexcept {
+        return __barrier_base<_CompletionF>::max();
+    }
+
+    _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
+    barrier(ptrdiff_t __count, _CompletionF __completion = _CompletionF())
+        : __b(__count, std::move(__completion)) {
+    }
+
+    barrier(barrier const&) = delete;
+    barrier& operator=(barrier const&) = delete;
+
+    [[nodiscard]] _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
+    arrival_token arrive(ptrdiff_t update = 1)
+    {
+        return __b.arrive(update);
+    }
+    _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
+    void wait(arrival_token&& __phase) const
+    {
+        __b.wait(std::move(__phase));
+    }
+	_LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
+    void arrive_and_wait()
+    {
+        wait(arrive());
+	}
+    _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
+    void arrive_and_drop()
+    {
+        __b.arrive_and_drop();
+    }
+};
+
+_LIBCPP_END_NAMESPACE_STD
+
+#endif // _LIBCPP_STD_VER >= 14
+
+#endif //_LIBCPP_BARRIER

@@ -150,9 +150,11 @@ template <class T, class Allocator>
          noexcept(noexcept(x.swap(y)));
 
 template <class T, class Allocator, class U>
-    void erase(deque<T, Allocator>& c, const U& value);       // C++20
+    typename deque<T, Allocator>::size_type
+    erase(deque<T, Allocator>& c, const U& value);       // C++20
 template <class T, class Allocator, class Predicate>
-    void erase_if(deque<T, Allocator>& c, Predicate pred);    // C++20
+    typename deque<T, Allocator>::size_type
+    erase_if(deque<T, Allocator>& c, Predicate pred);    // C++20
 
 }  // std
 
@@ -3021,14 +3023,20 @@ swap(deque<_Tp, _Allocator>& __x, deque<_Tp, _Allocator>& __y)
 
 #if _LIBCPP_STD_VER > 17
 template <class _Tp, class _Allocator, class _Up>
-inline _LIBCPP_INLINE_VISIBILITY
-void erase(deque<_Tp, _Allocator>& __c, const _Up& __v)
-{ __c.erase(_VSTD::remove(__c.begin(), __c.end(), __v), __c.end()); }
+inline _LIBCPP_INLINE_VISIBILITY typename deque<_Tp, _Allocator>::size_type
+erase(deque<_Tp, _Allocator>& __c, const _Up& __v) {
+  auto __old_size = __c.size();
+  __c.erase(_VSTD::remove(__c.begin(), __c.end(), __v), __c.end());
+  return __old_size - __c.size();
+}
 
 template <class _Tp, class _Allocator, class _Predicate>
-inline _LIBCPP_INLINE_VISIBILITY
-void erase_if(deque<_Tp, _Allocator>& __c, _Predicate __pred)
-{ __c.erase(_VSTD::remove_if(__c.begin(), __c.end(), __pred), __c.end()); }
+inline _LIBCPP_INLINE_VISIBILITY typename deque<_Tp, _Allocator>::size_type
+erase_if(deque<_Tp, _Allocator>& __c, _Predicate __pred) {
+  auto __old_size = __c.size();
+  __c.erase(_VSTD::remove_if(__c.begin(), __c.end(), __pred), __c.end());
+  return __old_size - __c.size();
+}
 #endif
 
 

@@ -296,6 +296,10 @@ floating_point trunc (arithmetic x);
 float          truncf(float x);
 long double    truncl(long double x);
 
+constexpr float       lerp(float a, float b, float t) noexcept;                   // C++20
+constexpr double      lerp(double a, double b, double t) noexcept;                // C++20
+constexpr long double lerp(long double a, long double b, long double t) noexcept; // C++20
+
 }  // std
 
 */

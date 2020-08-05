@@ -254,7 +254,8 @@ swap(map<Key, T, Compare, Allocator>& x, map<Key, T, Compare, Allocator>& y)
     noexcept(noexcept(x.swap(y)));
 
 template <class Key, class T, class Compare, class Allocator, class Predicate>
-  void erase_if(map<Key, T, Compare, Allocator>& c, Predicate pred);  // C++20
+typename map<Key, T, Compare, Allocator>::size_type
+erase_if(map<Key, T, Compare, Allocator>& c, Predicate pred);  // C++20
 
 
 template <class Key, class T, class Compare = less<Key>,
@@ -469,7 +470,8 @@ swap(multimap<Key, T, Compare, Allocator>& x,
     noexcept(noexcept(x.swap(y)));
 
 template <class Key, class T, class Compare, class Allocator, class Predicate>
-  void erase_if(multimap<Key, T, Compare, Allocator>& c, Predicate pred);  // C++20
+typename multimap<Key, T, Compare, Allocator>::size_type
+erase_if(multimap<Key, T, Compare, Allocator>& c, Predicate pred);  // C++20
 
 }  // std
 
@@ -1653,10 +1655,13 @@ swap(map<_Key, _Tp, _Compare, _Allocator>& __x,
 }
 
 #if _LIBCPP_STD_VER > 17
-template <class _Key, class _Tp, class _Compare, class _Allocator, class _Predicate>
+template <class _Key, class _Tp, class _Compare, class _Allocator,
+          class _Predicate>
 inline _LIBCPP_INLINE_VISIBILITY
-void erase_if(map<_Key, _Tp, _Compare, _Allocator>& __c, _Predicate __pred)
-{ __libcpp_erase_if_container(__c, __pred); }
+    typename map<_Key, _Tp, _Compare, _Allocator>::size_type
+    erase_if(map<_Key, _Tp, _Compare, _Allocator>& __c, _Predicate __pred) {
+  return __libcpp_erase_if_container(__c, __pred);
+}
 #endif
 
 
@@ -2235,10 +2240,14 @@ swap(multimap<_Key, _Tp, _Compare, _Allocator>& __x,
 }
 
 #if _LIBCPP_STD_VER > 17
-template <class _Key, class _Tp, class _Compare, class _Allocator, class _Predicate>
+template <class _Key, class _Tp, class _Compare, class _Allocator,
+          class _Predicate>
 inline _LIBCPP_INLINE_VISIBILITY
-void erase_if(multimap<_Key, _Tp, _Compare, _Allocator>& __c, _Predicate __pred)
-{ __libcpp_erase_if_container(__c, __pred); }
+    typename multimap<_Key, _Tp, _Compare, _Allocator>::size_type
+    erase_if(multimap<_Key, _Tp, _Compare, _Allocator>& __c,
+             _Predicate __pred) {
+  return __libcpp_erase_if_container(__c, __pred);
+}
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

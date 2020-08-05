@@ -73,6 +73,7 @@ namespace std {
 
 */
 
+#include <__config>
 #include <__errc>
 #include <type_traits>
 #include <limits>
@@ -92,8 +93,8 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace __itoa {
-_LIBCPP_FUNC_VIS char* __u64toa(uint64_t __value, char* __buffer);
-_LIBCPP_FUNC_VIS char* __u32toa(uint32_t __value, char* __buffer);
+_LIBCPP_AVAILABILITY_TO_CHARS _LIBCPP_FUNC_VIS char* __u64toa(uint64_t __value, char* __buffer) _NOEXCEPT;
+_LIBCPP_AVAILABILITY_TO_CHARS _LIBCPP_FUNC_VIS char* __u32toa(uint32_t __value, char* __buffer) _NOEXCEPT;
 }
 
 #ifndef _LIBCPP_CXX03_LANG
@@ -167,6 +168,7 @@ struct _LIBCPP_HIDDEN __traits_base
     }
 #endif
 
+    _LIBCPP_AVAILABILITY_TO_CHARS
     static _LIBCPP_INLINE_VISIBILITY char* __convert(_Tp __v, char* __p)
     {
         return __u64toa(__v, __p);
@@ -189,6 +191,7 @@ struct _LIBCPP_HIDDEN
     }
 #endif
 
+    _LIBCPP_AVAILABILITY_TO_CHARS
     static _LIBCPP_INLINE_VISIBILITY char* __convert(_Tp __v, char* __p)
     {
         return __u32toa(__v, __p);
@@ -292,6 +295,7 @@ __to_unsigned(_Tp __x)
 }
 
 template <typename _Tp>
+_LIBCPP_AVAILABILITY_TO_CHARS
 inline _LIBCPP_INLINE_VISIBILITY to_chars_result
 __to_chars_itoa(char* __first, char* __last, _Tp __value, true_type)
 {
@@ -306,6 +310,7 @@ __to_chars_itoa(char* __first, char* __last, _Tp __value, true_type)
 }
 
 template <typename _Tp>
+_LIBCPP_AVAILABILITY_TO_CHARS
 inline _LIBCPP_INLINE_VISIBILITY to_chars_result
 __to_chars_itoa(char* __first, char* __last, _Tp __value, false_type)
 {
@@ -337,6 +342,7 @@ __to_chars_itoa(char* __first, char* __last, _Tp __value, false_type)
 }
 
 template <typename _Tp>
+_LIBCPP_AVAILABILITY_TO_CHARS
 inline _LIBCPP_INLINE_VISIBILITY to_chars_result
 __to_chars_integral(char* __first, char* __last, _Tp __value, int __base,
                     true_type)
@@ -352,6 +358,7 @@ __to_chars_integral(char* __first, char* __last, _Tp __value, int __base,
 }
 
 template <typename _Tp>
+_LIBCPP_AVAILABILITY_TO_CHARS
 inline _LIBCPP_INLINE_VISIBILITY to_chars_result
 __to_chars_integral(char* __first, char* __last, _Tp __value, int __base,
                     false_type)
@@ -380,6 +387,7 @@ __to_chars_integral(char* __first, char* __last, _Tp __value, int __base,
 }
 
 template <typename _Tp, typename enable_if<is_integral<_Tp>::value, int>::type = 0>
+_LIBCPP_AVAILABILITY_TO_CHARS
 inline _LIBCPP_INLINE_VISIBILITY to_chars_result
 to_chars(char* __first, char* __last, _Tp __value)
 {
@@ -387,6 +395,7 @@ to_chars(char* __first, char* __last, _Tp __value)
 }
 
 template <typename _Tp, typename enable_if<is_integral<_Tp>::value, int>::type = 0>
+_LIBCPP_AVAILABILITY_TO_CHARS
 inline _LIBCPP_INLINE_VISIBILITY to_chars_result
 to_chars(char* __first, char* __last, _Tp __value, int __base)
 {

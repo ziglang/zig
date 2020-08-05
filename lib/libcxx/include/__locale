@@ -496,7 +496,13 @@ public:
     static const mask punct  = 1<<7;
     static const mask xdigit = 1<<8;
     static const mask blank  = 1<<9;
+#if defined(__BIONIC__)
+    // Historically this was a part of regex_traits rather than ctype_base. The
+    // historical value of the constant is preserved for ABI compatibility.
+    static const mask __regex_word = 0x8000;
+#else
     static const mask __regex_word = 1<<10;
+#endif // defined(__BIONIC__)
 #endif
     static const mask alnum  = alpha | digit;
     static const mask graph  = alnum | punct;

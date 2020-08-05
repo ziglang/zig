@@ -43,6 +43,84 @@ namespace std {
   template<class T> constexpr partial_ordering partial_order(const T& a, const T& b);
   template<class T> constexpr strong_equality strong_equal(const T& a, const T& b);
   template<class T> constexpr weak_equality weak_equal(const T& a, const T& b);
+
+  // [cmp.partialord], Class partial_ordering
+  class partial_ordering {
+  public:
+    // valid values
+    static const partial_ordering less;
+    static const partial_ordering equivalent;
+    static const partial_ordering greater;
+    static const partial_ordering unordered;
+
+    // comparisons
+    friend constexpr bool operator==(partial_ordering v, unspecified) noexcept;
+    friend constexpr bool operator==(partial_ordering v, partial_ordering w) noexcept = default;
+    friend constexpr bool operator< (partial_ordering v, unspecified) noexcept;
+    friend constexpr bool operator> (partial_ordering v, unspecified) noexcept;
+    friend constexpr bool operator<=(partial_ordering v, unspecified) noexcept;
+    friend constexpr bool operator>=(partial_ordering v, unspecified) noexcept;
+    friend constexpr bool operator< (unspecified, partial_ordering v) noexcept;
+    friend constexpr bool operator> (unspecified, partial_ordering v) noexcept;
+    friend constexpr bool operator<=(unspecified, partial_ordering v) noexcept;
+    friend constexpr bool operator>=(unspecified, partial_ordering v) noexcept;
+    friend constexpr partial_ordering operator<=>(partial_ordering v, unspecified) noexcept;
+    friend constexpr partial_ordering operator<=>(unspecified, partial_ordering v) noexcept;
+  };
+
+  // [cmp.weakord], Class weak_ordering
+  class weak_ordering {
+  public:
+    // valid values
+    static const weak_ordering less;
+    static const weak_ordering equivalent;
+    static const weak_ordering greater;
+
+    // conversions
+    constexpr operator partial_ordering() const noexcept;
+
+    // comparisons
+    friend constexpr bool operator==(weak_ordering v, unspecified) noexcept;
+    friend constexpr bool operator==(weak_ordering v, weak_ordering w) noexcept = default;
+    friend constexpr bool operator< (weak_ordering v, unspecified) noexcept;
+    friend constexpr bool operator> (weak_ordering v, unspecified) noexcept;
+    friend constexpr bool operator<=(weak_ordering v, unspecified) noexcept;
+    friend constexpr bool operator>=(weak_ordering v, unspecified) noexcept;
+    friend constexpr bool operator< (unspecified, weak_ordering v) noexcept;
+    friend constexpr bool operator> (unspecified, weak_ordering v) noexcept;
+    friend constexpr bool operator<=(unspecified, weak_ordering v) noexcept;
+    friend constexpr bool operator>=(unspecified, weak_ordering v) noexcept;
+    friend constexpr weak_ordering operator<=>(weak_ordering v, unspecified) noexcept;
+    friend constexpr weak_ordering operator<=>(unspecified, weak_ordering v) noexcept;
+  };
+
+  // [cmp.strongord], Class strong_ordering
+  class strong_ordering {
+  public:
+    // valid values
+    static const strong_ordering less;
+    static const strong_ordering equal;
+    static const strong_ordering equivalent;
+    static const strong_ordering greater;
+
+    // conversions
+    constexpr operator partial_ordering() const noexcept;
+    constexpr operator weak_ordering() const noexcept;
+
+    // comparisons
+    friend constexpr bool operator==(strong_ordering v, unspecified) noexcept;
+    friend constexpr bool operator==(strong_ordering v, strong_ordering w) noexcept = default;
+    friend constexpr bool operator< (strong_ordering v, unspecified) noexcept;
+    friend constexpr bool operator> (strong_ordering v, unspecified) noexcept;
+    friend constexpr bool operator<=(strong_ordering v, unspecified) noexcept;
+    friend constexpr bool operator>=(strong_ordering v, unspecified) noexcept;
+    friend constexpr bool operator< (unspecified, strong_ordering v) noexcept;
+    friend constexpr bool operator> (unspecified, strong_ordering v) noexcept;
+    friend constexpr bool operator<=(unspecified, strong_ordering v) noexcept;
+    friend constexpr bool operator>=(unspecified, strong_ordering v) noexcept;
+    friend constexpr strong_ordering operator<=>(strong_ordering v, unspecified) noexcept;
+    friend constexpr strong_ordering operator<=>(unspecified, strong_ordering v) noexcept;
+  };
 }
 */
 
@@ -248,6 +326,8 @@ public:
   _LIBCPP_INLINE_VISIBILITY friend constexpr bool operator>=(_CmpUnspecifiedParam, partial_ordering __v) noexcept;
 
 #ifndef _LIBCPP_HAS_NO_SPACESHIP_OPERATOR
+  _LIBCPP_INLINE_VISIBILITY friend constexpr bool operator==(partial_ordering, partial_ordering) noexcept = default;
+
   _LIBCPP_INLINE_VISIBILITY friend constexpr partial_ordering operator<=>(partial_ordering __v, _CmpUnspecifiedParam) noexcept;
   _LIBCPP_INLINE_VISIBILITY friend constexpr partial_ordering operator<=>(_CmpUnspecifiedParam, partial_ordering __v) noexcept;
 #endif
@@ -364,6 +444,8 @@ public:
   _LIBCPP_INLINE_VISIBILITY friend constexpr bool operator>=(_CmpUnspecifiedParam, weak_ordering __v) noexcept;
 
 #ifndef _LIBCPP_HAS_NO_SPACESHIP_OPERATOR
+  _LIBCPP_INLINE_VISIBILITY friend constexpr bool operator==(weak_ordering, weak_ordering) noexcept = default;
+
   _LIBCPP_INLINE_VISIBILITY friend constexpr weak_ordering operator<=>(weak_ordering __v, _CmpUnspecifiedParam) noexcept;
   _LIBCPP_INLINE_VISIBILITY friend constexpr weak_ordering operator<=>(_CmpUnspecifiedParam, weak_ordering __v) noexcept;
 #endif
@@ -490,6 +572,8 @@ public:
   _LIBCPP_INLINE_VISIBILITY friend constexpr bool operator>=(_CmpUnspecifiedParam, strong_ordering __v) noexcept;
 
 #ifndef _LIBCPP_HAS_NO_SPACESHIP_OPERATOR
+  _LIBCPP_INLINE_VISIBILITY friend constexpr bool operator==(strong_ordering, strong_ordering) noexcept = default;
+
   _LIBCPP_INLINE_VISIBILITY friend constexpr strong_ordering operator<=>(strong_ordering __v, _CmpUnspecifiedParam) noexcept;
   _LIBCPP_INLINE_VISIBILITY friend constexpr strong_ordering operator<=>(_CmpUnspecifiedParam, strong_ordering __v) noexcept;
 #endif

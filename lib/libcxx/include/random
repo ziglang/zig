@@ -4048,10 +4048,12 @@ binomial_distribution<_IntType>::operator()(_URNG& __g, const param_type& __pr)
     result_type __rd = __ru;
     while (true)
     {
+        bool __break = true;
         if (__rd >= 1)
         {
             __pd *= __rd / (__pr.__odds_ratio_ * (__pr.__t_ - __rd + 1));
             __u -= __pd;
+            __break = false;
             if (__u < 0)
                 return __rd - 1;
         }
@@ -4062,9 +4064,12 @@ binomial_distribution<_IntType>::operator()(_URNG& __g, const param_type& __pr)
         {
             __pu *= (__pr.__t_ - __ru + 1) * __pr.__odds_ratio_ / __ru;
             __u -= __pu;
+            __break = false;
             if (__u < 0)
                 return __ru;
         }
+        if (__break)
+            return 0;
     }
 }
 

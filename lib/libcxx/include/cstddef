@@ -25,7 +25,7 @@ Types:
 
     ptrdiff_t
     size_t
-    max_align_t
+    max_align_t // C++11
     nullptr_t
     byte // C++17
 
@@ -49,12 +49,34 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 using ::ptrdiff_t;
 using ::size_t;
 
-#if defined(__CLANG_MAX_ALIGN_T_DEFINED) || defined(_GCC_MAX_ALIGN_T) || \
-    defined(__DEFINED_max_align_t) || defined(__NetBSD__)
-// Re-use the compiler's <stddef.h> max_align_t where possible.
+#if !defined(_LIBCPP_CXX03_LANG)
 using ::max_align_t;
-#else
-typedef long double max_align_t;
+#endif
+
+template <class _Tp> struct __libcpp_is_integral                     { enum { value = 0 }; };
+template <>          struct __libcpp_is_integral<bool>               { enum { value = 1 }; };
+template <>          struct __libcpp_is_integral<char>               { enum { value = 1 }; };
+template <>          struct __libcpp_is_integral<signed char>        { enum { value = 1 }; };
+template <>          struct __libcpp_is_integral<unsigned char>      { enum { value = 1 }; };
+template <>          struct __libcpp_is_integral<wchar_t>            { enum { value = 1 }; };
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
+template <>          struct __libcpp_is_integral<char8_t>            { enum { value = 1 }; };
+#endif
+#ifndef _LIBCPP_HAS_NO_UNICODE_CHARS
+template <>          struct __libcpp_is_integral<char16_t>           { enum { value = 1 }; };
+template <>          struct __libcpp_is_integral<char32_t>           { enum { value = 1 }; };
+#endif  // _LIBCPP_HAS_NO_UNICODE_CHARS
+template <>          struct __libcpp_is_integral<short>              { enum { value = 1 }; };
+template <>          struct __libcpp_is_integral<unsigned short>     { enum { value = 1 }; };
+template <>          struct __libcpp_is_integral<int>                { enum { value = 1 }; };
+template <>          struct __libcpp_is_integral<unsigned int>       { enum { value = 1 }; };
+template <>          struct __libcpp_is_integral<long>               { enum { value = 1 }; };
+template <>          struct __libcpp_is_integral<unsigned long>      { enum { value = 1 }; };
+template <>          struct __libcpp_is_integral<long long>          { enum { value = 1 }; };
+template <>          struct __libcpp_is_integral<unsigned long long> { enum { value = 1 }; };
+#ifndef _LIBCPP_HAS_NO_INT128
+template <>          struct __libcpp_is_integral<__int128_t>         { enum { value = 1 }; };
+template <>          struct __libcpp_is_integral<__uint128_t>        { enum { value = 1 }; };
 #endif
 
 _LIBCPP_END_NAMESPACE_STD
@@ -63,6 +85,11 @@ _LIBCPP_END_NAMESPACE_STD
 namespace std  // purposefully not versioned
 {
 enum class byte : unsigned char {};
+
+
+template <bool> struct __enable_if_integral_imp {};
+template <> struct __enable_if_integral_imp<true> { using type = byte; };
+template <class _Tp> using _EnableByteOverload = typename __enable_if_integral_imp<__libcpp_is_integral<_Tp>::value>::type;
 
 constexpr byte  operator| (byte  __lhs, byte __rhs) noexcept
 {
@@ -104,10 +131,31 @@ constexpr byte  operator~ (byte __b) noexcept
         ~static_cast<unsigned int>(__b)
     ));
 }
+template <class _Integer>
+  constexpr _EnableByteOverload<_Integer> &
+  operator<<=(byte& __lhs, _Integer __shift) noexcept
+  { return __lhs = __lhs << __shift; }
 
+template <class _Integer>
+  constexpr _EnableByteOverload<_Integer>
+  operator<< (byte  __lhs, _Integer __shift) noexcept
+  { return static_cast<byte>(static_cast<unsigned char>(static_cast<unsigned int>(__lhs) << __shift)); }
+
+template <class _Integer>
+  constexpr _EnableByteOverload<_Integer> &
+  operator>>=(byte& __lhs, _Integer __shift) noexcept
+  { return __lhs = __lhs >> __shift; }
+
+template <class _Integer>
+  constexpr _EnableByteOverload<_Integer>
+  operator>> (byte  __lhs, _Integer __shift) noexcept
+  { return static_cast<byte>(static_cast<unsigned char>(static_cast<unsigned int>(__lhs) >> __shift)); }
+
+template <class _Integer, class = _EnableByteOverload<_Integer> >
+  constexpr _Integer
+  to_integer(byte __b) noexcept { return static_cast<_Integer>(__b); }
 }
 
-#include <type_traits>  // rest of byte
 #endif
 
 #endif  // _LIBCPP_CSTDDEF

@@ -131,9 +131,13 @@ using ::putc;
 using ::ungetc;
 using ::fread;
 using ::fwrite;
+#ifndef _LIBCPP_HAS_NO_FGETPOS_FSETPOS
 using ::fgetpos;
+#endif
 using ::fseek;
+#ifndef _LIBCPP_HAS_NO_FGETPOS_FSETPOS
 using ::fsetpos;
+#endif
 using ::ftell;
 using ::rewind;
 using ::clearerr;
