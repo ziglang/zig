@@ -56,7 +56,7 @@ struct libgcc_object_info {
           __attribute__((visibility("default"))) const char sym##_tmp42 = 0; \
        extern const char sym##_tmp43 __asm("$ld$hide$os4.3$_" #sym ); \
           __attribute__((visibility("default"))) const char sym##_tmp43 = 0;
-#elif defined(__arm64__)
+#elif defined(__aarch64__)
   #define NOT_HERE_BEFORE_10_6(sym)
   #define NEVER_HERE(sym)
 #else

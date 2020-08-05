@@ -109,6 +109,8 @@ bool EHHeaderParser<A>::findFDE(A &addressSpace, pint_t pc, pint_t ehHdrStart,
                                       hdrInfo))
     return false;
 
+  if (hdrInfo.fde_count == 0) return false;
+
   size_t tableEntrySize = getTableEntrySize(hdrInfo.table_enc);
   pint_t tableEntry;
 

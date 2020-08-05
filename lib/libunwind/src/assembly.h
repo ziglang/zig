@@ -28,7 +28,7 @@
 #ifdef _ARCH_PWR8
 #define PPC64_HAS_VMX
 #endif
-#elif defined(__arm64__)
+#elif defined(__APPLE__) && defined(__aarch64__)
 #define SEPARATOR %%
 #else
 #define SEPARATOR ;
@@ -75,9 +75,16 @@
 #define EXPORT_SYMBOL(name)
 #define HIDDEN_SYMBOL(name) .hidden name
 #define WEAK_SYMBOL(name) .weak name
+
+#if defined(__hexagon__)
+#define WEAK_ALIAS(name, aliasname) \
+  WEAK_SYMBOL(aliasname) SEPARATOR                                             \
+  .equiv SYMBOL_NAME(aliasname), SYMBOL_NAME(name)
+#else
 #define WEAK_ALIAS(name, aliasname)                                            \
   WEAK_SYMBOL(aliasname) SEPARATOR                                             \
   SYMBOL_NAME(aliasname) = SYMBOL_NAME(name)
+#endif
 
 #if defined(__GNU__) || defined(__FreeBSD__) || defined(__Fuchsia__) || \
     defined(__linux__)

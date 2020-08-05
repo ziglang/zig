@@ -111,10 +111,9 @@ typedef _Unwind_Reason_Code (*_Unwind_Stop_Fn)
        _Unwind_Exception* exceptionObject,
        struct _Unwind_Context* context);
 
-typedef _Unwind_Reason_Code (*__personality_routine)
-      (_Unwind_State state,
-       _Unwind_Exception* exceptionObject,
-       struct _Unwind_Context* context);
+typedef _Unwind_Reason_Code (*_Unwind_Personality_Fn)(
+    _Unwind_State state, _Unwind_Exception *exceptionObject,
+    struct _Unwind_Context *context);
 #else
 struct _Unwind_Context;   // opaque
 struct _Unwind_Exception; // forward declaration
@@ -150,12 +149,9 @@ typedef _Unwind_Reason_Code (*_Unwind_Stop_Fn)
      struct _Unwind_Context* context,
      void* stop_parameter );
 
-typedef _Unwind_Reason_Code (*__personality_routine)
-      (int version,
-       _Unwind_Action actions,
-       uint64_t exceptionClass,
-       _Unwind_Exception* exceptionObject,
-       struct _Unwind_Context* context);
+typedef _Unwind_Reason_Code (*_Unwind_Personality_Fn)(
+    int version, _Unwind_Action actions, uint64_t exceptionClass,
+    _Unwind_Exception *exceptionObject, struct _Unwind_Context *context);
 #endif
 
 #ifdef __cplusplus
@@ -387,10 +383,9 @@ typedef struct _DISPATCHER_CONTEXT DISPATCHER_CONTEXT;
 #endif
 // This is the common wrapper for GCC-style personality functions with SEH.
 extern EXCEPTION_DISPOSITION _GCC_specific_handler(EXCEPTION_RECORD *exc,
-                                                   void *frame,
-                                                   CONTEXT *ctx,
+                                                   void *frame, CONTEXT *ctx,
                                                    DISPATCHER_CONTEXT *disp,
-                                                   __personality_routine pers);
+                                                   _Unwind_Personality_Fn pers);
 #endif
 
 #ifdef __cplusplus
