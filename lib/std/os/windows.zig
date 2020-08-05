@@ -903,24 +903,78 @@ pub const GetFinalPathNameByHandleError = error{
     Unexpected,
 };
 
-pub fn GetFinalPathNameByHandleW(
-    hFile: HANDLE,
-    buf_ptr: [*]u16,
-    buf_len: DWORD,
-    flags: DWORD,
-) GetFinalPathNameByHandleError![:0]u16 {
-    const rc = kernel32.GetFinalPathNameByHandleW(hFile, buf_ptr, buf_len, flags);
-    if (rc == 0) {
-        switch (kernel32.GetLastError()) {
-            .FILE_NOT_FOUND => return error.FileNotFound,
-            .PATH_NOT_FOUND => return error.FileNotFound,
-            .NOT_ENOUGH_MEMORY => return error.SystemResources,
-            .FILENAME_EXCED_RANGE => return error.NameTooLong,
-            .INVALID_PARAMETER => unreachable,
-            else => |err| return unexpectedError(err),
-        }
+/// Returns canonical (normalized) path of handle. The output path assumes
+/// Win32 namespace, however, '\\?\' prefix is *not* prepended to the result.
+/// TODO support other namespaces/volume names.
+pub fn GetFinalPathNameByHandle(hFile: HANDLE, out_buffer: []u16) GetFinalPathNameByHandleError![]u16 {
+    // The implementation is based on implementation found in Wine sources:
+    // [LINK]
+    var buffer: [@sizeOf(OBJECT_NAME_INFORMATION) + MAX_PATH * 2]u8 = undefined;
+    var dummy: ULONG = undefined;
+    var rc = ntdll.NtQueryObject(hFile, OBJECT_INFORMATION_CLASS.ObjectNameInformation, &buffer, buffer.len, &dummy);
+    switch (rc) {
+        .SUCCESS => {},
+        else => return unexpectedStatus(rc),
     }
-    return buf_ptr[0..rc :0];
+
+    const object_name = @ptrCast(*const OBJECT_NAME_INFORMATION, @alignCast(@alignOf(OBJECT_NAME_INFORMATION), &buffer));
+    const object_path = @as([*]const u16, object_name.Name.Buffer)[0..object_name.Name.Length / 2];
+
+    // Since `NtQueryObject` returns a fully-qualified NT path, we need to translate
+    // the result into a Win32/DOS path (e.g., \Device\HarddiskVolume4\foo would become
+    // C:\foo).
+    const dos_drive_letters = &[_]u16{ 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z' };
+    var query_path = [_]u16{ '\\', 'D', 'o', 's', 'D', 'e', 'v', 'i', 'c', 'e', 's', '\\', 'C', ':' };
+    for (dos_drive_letters) |drive_letter| {
+        const drive = &[_]u16{ drive_letter, ':' };
+        std.mem.copy(u16, query_path[12..], drive[0..]);
+
+        var sym_handle: HANDLE = undefined;
+        const len_bytes = @intCast(u16, query_path.len) * 2;
+        var nt_name = UNICODE_STRING{
+            .Length = len_bytes,
+            .MaximumLength = len_bytes,
+            .Buffer = @intToPtr([*]u16, @ptrToInt(&query_path)),
+        };
+        var attr = OBJECT_ATTRIBUTES{
+            .Length = @sizeOf(OBJECT_ATTRIBUTES),
+            .RootDirectory = null,
+            .Attributes = 0,
+            .ObjectName = &nt_name,
+            .SecurityDescriptor = null,
+            .SecurityQualityOfService = null,
+        };
+        rc = ntdll.NtOpenSymbolicLinkObject(&sym_handle, SYMBOLIC_LINK_QUERY, attr);
+        switch (rc) {
+            .SUCCESS => {},
+            .OBJECT_NAME_NOT_FOUND => continue,
+            else => return unexpectedStatus(rc),
+        }
+
+        var link_buffer: [MAX_PATH]u8 = undefined;
+        var link = UNICODE_STRING{
+            .Length = 0,
+            .MaximumLength = MAX_PATH,
+            .Buffer = @intToPtr([*]u16, @ptrToInt(&link_buffer[0])),
+        };
+        rc = ntdll.NtQuerySymbolicLinkObject(sym_handle, &link, null);
+        CloseHandle(sym_handle);
+        switch (rc) {
+            .SUCCESS => {},
+            else => return unexpectedStatus(rc),
+        }
+
+        const link_path = @as([*]const u16, link.Buffer)[0..link.Length / 2];
+        const idx = std.mem.indexOf(u16, object_path, link_path) orelse continue;
+
+        std.mem.copy(u16, out_buffer[0..], drive[0..]);
+        std.mem.copy(u16, out_buffer[2..], object_path[link_path.len..]);
+
+        return out_buffer[0..object_path.len - link_path.len + 2];
+    }
+
+    // If we're here, that means there was no match so error out!
+    unreachable;
 }
 
 pub const GetFileSizeError = error{Unexpected};
