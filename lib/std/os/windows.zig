@@ -907,18 +907,61 @@ pub const GetFinalPathNameByHandleError = error{
 /// Win32 namespace, however, '\\?\' prefix is *not* prepended to the result.
 /// TODO support other namespaces/volume names.
 pub fn GetFinalPathNameByHandle(hFile: HANDLE, out_buffer: []u16) GetFinalPathNameByHandleError![]u16 {
-    // The implementation is based on implementation found in Wine sources:
-    // [LINK]
-    var buffer: [@sizeOf(OBJECT_NAME_INFORMATION) + MAX_PATH * 2]u8 = undefined;
-    var dummy: ULONG = undefined;
-    var rc = ntdll.NtQueryObject(hFile, OBJECT_INFORMATION_CLASS.ObjectNameInformation, &buffer, buffer.len, &dummy);
-    switch (rc) {
-        .SUCCESS => {},
-        else => return unexpectedStatus(rc),
-    }
+    // The implementation is based on implementation found in Wine sources, however,
+    // we make the following tweaks. First of all, if `NtQueryInformationFile` supports
+    // `FILE_INFORMATION_CLASS.FileNormalizedNameInformation` and `FileVolumeNameInformation`,
+    // we use those two calls to generate a valid Win32/DOS path. Otherwise, we fallback to
+    // more widely supported `NtQueryObject` generic routine.
+    // Wine source: https://source.winehq.com/git/wine.git/blob/HEAD:/dlls/kernelbase/file.c#l1708
+    var buffer: [PATH_MAX_WIDE]u16 = undefined;
+    const object_path = blk: {
+        var path_buffer: [PATH_MAX_WIDE * 2]u8 = undefined;
+        var io: IO_STATUS_BLOCK = undefined;
+        var rc = ntdll.NtQueryInformationFile(hFile, &io, &path_buffer, path_buffer.len, FILE_INFORMATION_CLASS.FileNormalizedNameInformation);
+        switch (rc) {
+            .SUCCESS => {
+                var nt_volume_buffer: [MAX_PATH]u8 = undefined;
+                rc = ntdll.NtQueryInformationFile(hFile, &io, &nt_volume_buffer, nt_volume_buffer.len, FILE_INFORMATION_CLASS.FileVolumeNameInformation);
+                switch (rc) {
+                    .SUCCESS => {
+                        const file_name = @ptrCast(*const FILE_NAME_INFORMATION, @alignCast(@alignOf(FILE_NAME_INFORMATION), &path_buffer[0]));
+                        const file_name_u16 = @ptrCast([*]const u16, &file_name.FileName[0])[0..file_name.FileNameLength / 2];
 
-    const object_name = @ptrCast(*const OBJECT_NAME_INFORMATION, @alignCast(@alignOf(OBJECT_NAME_INFORMATION), &buffer));
-    const object_path = @as([*]const u16, object_name.Name.Buffer)[0..object_name.Name.Length / 2];
+                        if (file_name_u16.len > PATH_MAX_WIDE) return error.NameTooLong;
+
+                        const volume_name = @ptrCast(*const FILE_NAME_INFORMATION, @alignCast(@alignOf(FILE_NAME_INFORMATION), &nt_volume_buffer[0]));
+                        const volume_name_u16 = @ptrCast([*]const u16, &volume_name.FileName[0])[0..volume_name.FileNameLength / 2];
+
+                        std.mem.copy(u16, buffer[0..], volume_name_u16);
+                        std.mem.copy(u16, buffer[volume_name_u16.len..], file_name_u16);
+
+                        break :blk buffer[0..volume_name_u16.len + file_name_u16.len];
+                    },
+                    .INVALID_PARAMETER => {}, // fall through
+                    else => return unexpectedStatus(rc),
+                }
+            },
+            .INVALID_PARAMETER => {}, // fall through
+            else => return unexpectedStatus(rc),
+        }
+
+        var dummy: ULONG = undefined;
+        rc = ntdll.NtQueryObject(hFile, OBJECT_INFORMATION_CLASS.ObjectNameInformation, &path_buffer, path_buffer.len, &dummy);
+        switch (rc) {
+            .SUCCESS => {},
+            else => return unexpectedStatus(rc),
+        }
+
+        const object_name = @ptrCast(*const OBJECT_NAME_INFORMATION, @alignCast(@alignOf(OBJECT_NAME_INFORMATION), &buffer));
+
+        // Apparently, `NtQueryObject` has a bug when signalling an error condition.
+        // To check for error, i.e., FileNotFound, we check if the result Buffer is non null
+        // and Length is greater than zero.
+        // Source: https://stackoverflow.com/questions/65170/how-to-get-name-associated-with-open-handle
+        if (object_name.Name.Length == 0) return error.FileNotFound;
+
+        break :blk @as([*]const u16, object_name.Name.Buffer)[0..object_name.Name.Length / 2];
+    };
 
     // Since `NtQueryObject` returns a fully-qualified NT path, we need to translate
     // the result into a Win32/DOS path (e.g., \Device\HarddiskVolume4\foo would become
@@ -927,7 +970,7 @@ pub fn GetFinalPathNameByHandle(hFile: HANDLE, out_buffer: []u16) GetFinalPathNa
     var query_path = [_]u16{ '\\', 'D', 'o', 's', 'D', 'e', 'v', 'i', 'c', 'e', 's', '\\', 'C', ':' };
     for (dos_drive_letters) |drive_letter| {
         const drive = &[_]u16{ drive_letter, ':' };
-        std.mem.copy(u16, query_path[12..], drive[0..]);
+        std.mem.copy(u16, query_path[query_path.len - 2..], drive[0..]);
 
         var sym_handle: HANDLE = undefined;
         const len_bytes = @intCast(u16, query_path.len) * 2;
@@ -944,7 +987,7 @@ pub fn GetFinalPathNameByHandle(hFile: HANDLE, out_buffer: []u16) GetFinalPathNa
             .SecurityDescriptor = null,
             .SecurityQualityOfService = null,
         };
-        rc = ntdll.NtOpenSymbolicLinkObject(&sym_handle, SYMBOLIC_LINK_QUERY, attr);
+        var rc = ntdll.NtOpenSymbolicLinkObject(&sym_handle, SYMBOLIC_LINK_QUERY, attr);
         switch (rc) {
             .SUCCESS => {},
             .OBJECT_NAME_NOT_FOUND => continue,
@@ -967,6 +1010,7 @@ pub fn GetFinalPathNameByHandle(hFile: HANDLE, out_buffer: []u16) GetFinalPathNa
         const link_path = @as([*]const u16, link.Buffer)[0..link.Length / 2];
         const idx = std.mem.indexOf(u16, object_path, link_path) orelse continue;
 
+        // TODO check the provided buffer is actually big enough.
         std.mem.copy(u16, out_buffer[0..], drive[0..]);
         std.mem.copy(u16, out_buffer[2..], object_path[link_path.len..]);
 
