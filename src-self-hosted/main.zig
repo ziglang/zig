@@ -336,39 +336,39 @@ fn buildOutputType(
                 } else if (mem.startsWith(u8, arg, "-l")) {
                     try system_libs.append(arg[2..]);
                 } else {
-                    std.debug.print("unrecognized parameter: '{}'", .{arg});
+                    std.debug.print("unrecognized parameter: '{}'\n", .{arg});
                     process.exit(1);
                 }
             } else if (mem.endsWith(u8, arg, ".s") or mem.endsWith(u8, arg, ".S")) {
-                std.debug.print("assembly files not supported yet", .{});
+                std.debug.print("assembly files not supported yet\n", .{});
                 process.exit(1);
             } else if (mem.endsWith(u8, arg, ".o") or
                 mem.endsWith(u8, arg, ".obj") or
                 mem.endsWith(u8, arg, ".a") or
                 mem.endsWith(u8, arg, ".lib"))
             {
-                std.debug.print("object files and static libraries not supported yet", .{});
+                std.debug.print("object files and static libraries not supported yet\n", .{});
                 process.exit(1);
             } else if (mem.endsWith(u8, arg, ".c") or
                 mem.endsWith(u8, arg, ".cpp"))
             {
-                std.debug.print("compilation of C and C++ source code requires LLVM extensions which are not implemented yet", .{});
+                std.debug.print("compilation of C and C++ source code requires LLVM extensions which are not implemented yet\n", .{});
                 process.exit(1);
             } else if (mem.endsWith(u8, arg, ".so") or
                 mem.endsWith(u8, arg, ".dylib") or
                 mem.endsWith(u8, arg, ".dll"))
             {
-                std.debug.print("linking against dynamic libraries not yet supported", .{});
+                std.debug.print("linking against dynamic libraries not yet supported\n", .{});
                 process.exit(1);
             } else if (mem.endsWith(u8, arg, ".zig") or mem.endsWith(u8, arg, ".zir")) {
                 if (root_src_file) |other| {
-                    std.debug.print("found another zig file '{}' after root source file '{}'", .{ arg, other });
+                    std.debug.print("found another zig file '{}' after root source file '{}'\n", .{ arg, other });
                     process.exit(1);
                 } else {
                     root_src_file = arg;
                 }
             } else {
-                std.debug.print("unrecognized file extension of parameter '{}'", .{arg});
+                std.debug.print("unrecognized file extension of parameter '{}'\n", .{arg});
             }
         }
     }
@@ -385,7 +385,7 @@ fn buildOutputType(
     };
 
     if (system_libs.items.len != 0) {
-        std.debug.print("linking against system libraries not yet supported", .{});
+        std.debug.print("linking against system libraries not yet supported\n", .{});
         process.exit(1);
     }
 
