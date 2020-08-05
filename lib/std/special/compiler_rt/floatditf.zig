@@ -18,7 +18,7 @@ pub fn __floatditf(arg: i64) callconv(.C) f128 {
     var aAbs = @bitCast(u64, arg);
     if (arg < 0) {
         sign = 1 << 127;
-        aAbs = ~@bitCast(u64, arg)+ 1;
+        aAbs = ~@bitCast(u64, arg) + 1;
     }
 
     // Exponent of (fp_t)a is the width of abs(a).

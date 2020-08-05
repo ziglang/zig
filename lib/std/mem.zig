@@ -2038,7 +2038,7 @@ pub fn replace(comptime T: type, input: []const T, needle: []const T, replacemen
     var replacements: usize = 0;
     while (slide < input.len) {
         if (mem.indexOf(T, input[slide..], needle) == @as(usize, 0)) {
-            mem.copy(T, output[i..i + replacement.len], replacement);
+            mem.copy(T, output[i .. i + replacement.len], replacement);
             i += replacement.len;
             slide += needle.len;
             replacements += 1;

@@ -51,7 +51,7 @@ pub const OpenFileOptions = struct {
     open_dir: bool = false,
     /// If false, tries to open path as a reparse point without dereferencing it.
     /// Defaults to true.
-    follow_symlinks: bool = true, 
+    follow_symlinks: bool = true,
 };
 
 /// TODO when share_access_nonblocking is false, this implementation uses

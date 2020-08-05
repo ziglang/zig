@@ -1742,7 +1742,7 @@ test "parse into tagged union" {
             A: struct { x: u32 },
             B: struct { y: u32 },
         };
-        testing.expectEqual(T{ .B = .{.y = 42} }, try parse(T, &TokenStream.init("{\"y\":42}"), ParseOptions{}));
+        testing.expectEqual(T{ .B = .{ .y = 42 } }, try parse(T, &TokenStream.init("{\"y\":42}"), ParseOptions{}));
     }
 }
 

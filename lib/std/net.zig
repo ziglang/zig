@@ -77,23 +77,23 @@ pub const Address = extern union {
     }
 
     pub fn parseIp6(buf: []const u8, port: u16) !Address {
-        return Address{.in6 = try Ip6Address.parse(buf, port) };
+        return Address{ .in6 = try Ip6Address.parse(buf, port) };
     }
 
     pub fn resolveIp6(buf: []const u8, port: u16) !Address {
-        return Address{.in6 = try Ip6Address.resolve(buf, port) };
+        return Address{ .in6 = try Ip6Address.resolve(buf, port) };
     }
 
     pub fn parseIp4(buf: []const u8, port: u16) !Address {
-        return Address {.in = try Ip4Address.parse(buf, port) };
+        return Address{ .in = try Ip4Address.parse(buf, port) };
     }
 
     pub fn initIp4(addr: [4]u8, port: u16) Address {
-        return Address{.in = Ip4Address.init(addr, port) };
+        return Address{ .in = Ip4Address.init(addr, port) };
     }
 
     pub fn initIp6(addr: [16]u8, port: u16, flowinfo: u32, scope_id: u32) Address {
-        return Address{.in6 = Ip6Address.init(addr, port, flowinfo, scope_id) };
+        return Address{ .in6 = Ip6Address.init(addr, port, flowinfo, scope_id) };
     }
 
     pub fn initUnix(path: []const u8) !Address {
@@ -136,8 +136,8 @@ pub const Address = extern union {
     /// on the address family.
     pub fn initPosix(addr: *align(4) const os.sockaddr) Address {
         switch (addr.family) {
-            os.AF_INET => return Address{ .in = Ip4Address{ .sa = @ptrCast(*const os.sockaddr_in, addr).*} },
-            os.AF_INET6 => return Address{ .in6 = Ip6Address{ .sa = @ptrCast(*const os.sockaddr_in6, addr).*} },
+            os.AF_INET => return Address{ .in = Ip4Address{ .sa = @ptrCast(*const os.sockaddr_in, addr).* } },
+            os.AF_INET6 => return Address{ .in6 = Ip6Address{ .sa = @ptrCast(*const os.sockaddr_in6, addr).* } },
             else => unreachable,
         }
     }
@@ -193,7 +193,7 @@ pub const Ip4Address = extern struct {
             .sa = .{
                 .port = mem.nativeToBig(u16, port),
                 .addr = undefined,
-            }
+            },
         };
         const out_ptr = mem.sliceAsBytes(@as(*[1]u32, &result.sa.addr)[0..]);
 
@@ -240,7 +240,7 @@ pub const Ip4Address = extern struct {
     }
 
     pub fn init(addr: [4]u8, port: u16) Ip4Address {
-        return Ip4Address {
+        return Ip4Address{
             .sa = os.sockaddr_in{
                 .port = mem.nativeToBig(u16, port),
                 .addr = @ptrCast(*align(1) const u32, &addr).*,
@@ -597,7 +597,6 @@ pub const Ip6Address = extern struct {
         return @sizeOf(os.sockaddr_in6);
     }
 };
-
 
 pub fn connectUnixSocket(path: []const u8) !fs.File {
     const opt_non_block = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
