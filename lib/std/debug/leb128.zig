@@ -159,6 +159,50 @@ pub fn writeILEB128Mem(ptr: []u8, int_value: anytype) !usize {
     return buf.pos;
 }
 
+/// This is an "advanced" function. It allows one to use a fixed amount of memory to store a
+/// ULEB128. This defeats the entire purpose of using this data encoding; it will no longer use
+/// fewer bytes to store smaller numbers. The advantage of using a fixed width is that it makes
+/// fields have a predictable size and so depending on the use case this tradeoff can be worthwhile.
+/// An example use case of this is in emitting DWARF info where one wants to make a ULEB128 field
+/// "relocatable", meaning that it becomes possible to later go back and patch the number to be a
+/// different value without shifting all the following code.
+pub fn writeUnsignedFixed(comptime l: usize, ptr: *[l]u8, int: std.meta.Int(false, l * 7)) void {
+    const T = @TypeOf(int);
+    const U = if (T.bit_count < 8) u8 else T;
+    var value = @intCast(U, int);
+
+    comptime var i = 0;
+    inline while (i < (l - 1)) : (i += 1) {
+        const byte = @truncate(u8, value) | 0b1000_0000;
+        value >>= 7;
+        ptr[i] = byte;
+    }
+    ptr[i] = @truncate(u8, value);
+}
+
+test "writeUnsignedFixed" {
+    {
+        var buf: [4]u8 = undefined;
+        writeUnsignedFixed(4, &buf, 0);
+        testing.expect((try test_read_uleb128(u64, &buf)) == 0);
+    }
+    {
+        var buf: [4]u8 = undefined;
+        writeUnsignedFixed(4, &buf, 1);
+        testing.expect((try test_read_uleb128(u64, &buf)) == 1);
+    }
+    {
+        var buf: [4]u8 = undefined;
+        writeUnsignedFixed(4, &buf, 1000);
+        testing.expect((try test_read_uleb128(u64, &buf)) == 1000);
+    }
+    {
+        var buf: [4]u8 = undefined;
+        writeUnsignedFixed(4, &buf, 10000000);
+        testing.expect((try test_read_uleb128(u64, &buf)) == 10000000);
+    }
+}
+
 // tests
 fn test_read_stream_ileb128(comptime T: type, encoded: []const u8) !T {
     var reader = std.io.fixedBufferStream(encoded);

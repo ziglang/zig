@@ -84,7 +84,7 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
         try crypto.randomBytes(rand_buf[0..]);
         base64_encoder.encode(tmp_path[dirname.len + 1 ..], &rand_buf);
 
-        if (cwd().symLink(existing_path, new_path, .{})) {
+        if (cwd().symLink(existing_path, tmp_path, .{})) {
             return rename(tmp_path, new_path);
         } else |err| switch (err) {
             error.PathAlreadyExists => continue,
@@ -225,8 +225,7 @@ pub fn makeDirAbsoluteZ(absolute_path_z: [*:0]const u8) !void {
 /// Same as `makeDirAbsolute` except the parameter is a null-terminated WTF-16 encoded string.
 pub fn makeDirAbsoluteW(absolute_path_w: [*:0]const u16) !void {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
-    const handle = try os.windows.CreateDirectoryW(null, absolute_path_w, null);
-    os.windows.CloseHandle(handle);
+    return os.mkdirW(absolute_path_w, default_new_dir_mode);
 }
 
 pub const deleteDir = @compileError("deprecated; use dir.deleteDir or deleteDirAbsolute");
@@ -881,8 +880,7 @@ pub const Dir = struct {
     }
 
     pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) !void {
-        const handle = try os.windows.CreateDirectoryW(self.fd, sub_path, null);
-        os.windows.CloseHandle(handle);
+        try os.mkdiratW(self.fd, sub_path, default_new_dir_mode);
     }
 
     /// Calls makeDir recursively to make an entire path. Returns success if the path
@@ -1119,7 +1117,7 @@ pub const Dir = struct {
     pub fn deleteFile(self: Dir, sub_path: []const u8) DeleteFileError!void {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
-            return self.deleteFileW(sub_path_w.span().ptr);
+            return self.deleteFileW(sub_path_w.span());
         } else if (builtin.os.tag == .wasi) {
             os.unlinkatWasi(self.fd, sub_path, 0) catch |err| switch (err) {
                 error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
@@ -1153,7 +1151,7 @@ pub const Dir = struct {
     }
 
     /// Same as `deleteFile` except the parameter is WTF-16 encoded.
-    pub fn deleteFileW(self: Dir, sub_path_w: [*:0]const u16) DeleteFileError!void {
+    pub fn deleteFileW(self: Dir, sub_path_w: []const u16) DeleteFileError!void {
         os.unlinkatW(self.fd, sub_path_w, 0) catch |err| switch (err) {
             error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
             else => |e| return e,
@@ -1182,7 +1180,7 @@ pub const Dir = struct {
     pub fn deleteDir(self: Dir, sub_path: []const u8) DeleteDirError!void {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
-            return self.deleteDirW(sub_path_w.span().ptr);
+            return self.deleteDirW(sub_path_w.span());
         } else if (builtin.os.tag == .wasi) {
             os.unlinkat(self.fd, sub_path, os.AT_REMOVEDIR) catch |err| switch (err) {
                 error.IsDir => unreachable, // not possible since we pass AT_REMOVEDIR
@@ -1204,7 +1202,7 @@ pub const Dir = struct {
 
     /// Same as `deleteDir` except the parameter is UTF16LE, NT prefixed.
     /// This function is Windows-only.
-    pub fn deleteDirW(self: Dir, sub_path_w: [*:0]const u16) DeleteDirError!void {
+    pub fn deleteDirW(self: Dir, sub_path_w: []const u16) DeleteDirError!void {
         os.unlinkatW(self.fd, sub_path_w, os.AT_REMOVEDIR) catch |err| switch (err) {
             error.IsDir => unreachable, // not possible since we pass AT_REMOVEDIR
             else => |e| return e,
@@ -1263,11 +1261,11 @@ pub const Dir = struct {
     /// are null-terminated, WTF16 encoded.
     pub fn symLinkW(
         self: Dir,
-        target_path_w: [:0]const u16,
-        sym_link_path_w: [:0]const u16,
+        target_path_w: []const u16,
+        sym_link_path_w: []const u16,
         flags: SymLinkFlags,
     ) !void {
-        return os.windows.CreateSymbolicLinkW(self.fd, sym_link_path_w, target_path_w, flags.is_directory);
+        return os.windows.CreateSymbolicLink(self.fd, sym_link_path_w, target_path_w, flags.is_directory);
     }
 
     /// Read value of a symbolic link.
@@ -1278,7 +1276,8 @@ pub const Dir = struct {
             return self.readLinkWasi(sub_path, buffer);
         }
         if (builtin.os.tag == .windows) {
-            return os.windows.ReadLink(self.fd, sub_path, buffer);
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            return self.readLinkW(sub_path_w.span(), buffer);
         }
         const sub_path_c = try os.toPosixPath(sub_path);
         return self.readLinkZ(&sub_path_c, buffer);
@@ -1295,15 +1294,15 @@ pub const Dir = struct {
     pub fn readLinkZ(self: Dir, sub_path_c: [*:0]const u8, buffer: []u8) ![]u8 {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
-            return self.readLinkW(sub_path_w, buffer);
+            return self.readLinkW(sub_path_w.span(), buffer);
         }
         return os.readlinkatZ(self.fd, sub_path_c, buffer);
     }
 
     /// Windows-only. Same as `readLink` except the pathname parameter
     /// is null-terminated, WTF16 encoded.
-    pub fn readLinkW(self: Dir, sub_path_w: [*:0]const u16, buffer: []u8) ![]u8 {
-        return os.windows.ReadLinkW(self.fd, sub_path_w, buffer);
+    pub fn readLinkW(self: Dir, sub_path_w: []const u16, buffer: []u8) ![]u8 {
+        return os.windows.ReadLink(self.fd, sub_path_w, buffer);
     }
 
     /// On success, caller owns returned buffer.
@@ -1813,7 +1812,9 @@ pub fn symLinkAbsolute(target_path: []const u8, sym_link_path: []const u8, flags
     assert(path.isAbsolute(target_path));
     assert(path.isAbsolute(sym_link_path));
     if (builtin.os.tag == .windows) {
-        return os.windows.CreateSymbolicLink(null, sym_link_path, target_path, flags.is_directory);
+        const target_path_w = try os.windows.sliceToPrefixedFileW(target_path);
+        const sym_link_path_w = try os.windows.sliceToPrefixedFileW(sym_link_path);
+        return os.windows.CreateSymbolicLink(null, sym_link_path_w.span(), target_path_w.span(), flags.is_directory);
     }
     return os.symlink(target_path, sym_link_path);
 }
@@ -1822,10 +1823,10 @@ pub fn symLinkAbsolute(target_path: []const u8, sym_link_path: []const u8, flags
 /// Note that this function will by default try creating a symbolic link to a file. If you would
 /// like to create a symbolic link to a directory, specify this with `SymLinkFlags{ .is_directory = true }`.
 /// See also `symLinkAbsolute`, `symLinkAbsoluteZ`.
-pub fn symLinkAbsoluteW(target_path_w: [:0]const u16, sym_link_path_w: [:0]const u16, flags: SymLinkFlags) !void {
-    assert(path.isAbsoluteWindowsW(target_path_w));
-    assert(path.isAbsoluteWindowsW(sym_link_path_w));
-    return os.windows.CreateSymbolicLinkW(null, sym_link_path_w, target_path_w, flags.is_directory);
+pub fn symLinkAbsoluteW(target_path_w: []const u16, sym_link_path_w: []const u16, flags: SymLinkFlags) !void {
+    assert(path.isAbsoluteWindowsWTF16(target_path_w));
+    assert(path.isAbsoluteWindowsWTF16(sym_link_path_w));
+    return os.windows.CreateSymbolicLink(null, sym_link_path_w, target_path_w, flags.is_directory);
 }
 
 /// Same as `symLinkAbsolute` except the parameters are null-terminated pointers.
@@ -1836,7 +1837,7 @@ pub fn symLinkAbsoluteZ(target_path_c: [*:0]const u8, sym_link_path_c: [*:0]cons
     if (builtin.os.tag == .windows) {
         const target_path_w = try os.windows.cStrToWin32PrefixedFileW(target_path_c);
         const sym_link_path_w = try os.windows.cStrToWin32PrefixedFileW(sym_link_path_c);
-        return os.windows.CreateSymbolicLinkW(sym_link_path_w.span().ptr, target_path_w.span().ptr, flags.is_directory);
+        return os.windows.CreateSymbolicLink(sym_link_path_w.span(), target_path_w.span(), flags.is_directory);
     }
     return os.symlinkZ(target_path_c, sym_link_path_c);
 }
@@ -1938,7 +1939,20 @@ pub fn walkPath(allocator: *Allocator, dir_path: []const u8) !Walker {
     return walker;
 }
 
-pub const OpenSelfExeError = os.OpenError || os.windows.CreateFileError || SelfExePathError || os.FlockError;
+pub const OpenSelfExeError = error{
+    SharingViolation,
+    PathAlreadyExists,
+    FileNotFound,
+    AccessDenied,
+    PipeBusy,
+    NameTooLong,
+    /// On Windows, file paths must be valid Unicode.
+    InvalidUtf8,
+    /// On Windows, file paths cannot contain these characters:
+    /// '/', '*', '?', '"', '<', '>', '|'
+    BadPathName,
+    Unexpected,
+} || os.OpenError || SelfExePathError || os.FlockError;
 
 pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
     if (builtin.os.tag == .linux) {

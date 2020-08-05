@@ -46,9 +46,10 @@ const BinaryElfOutput = struct {
             .segments = ArrayList(*BinaryElfSegment).init(allocator),
             .sections = ArrayList(*BinaryElfSection).init(allocator),
         };
-        const elf_hdrs = try std.elf.readAllHeaders(allocator, elf_file);
+        const elf_hdr = try std.elf.readHeader(elf_file);
 
-        for (elf_hdrs.section_headers) |section, i| {
+        var section_headers = elf_hdr.section_header_iterator(elf_file);
+        while (try section_headers.next()) |section| {
             if (sectionValidForOutput(section)) {
                 const newSection = try allocator.create(BinaryElfSection);
 
@@ -61,7 +62,8 @@ const BinaryElfOutput = struct {
             }
         }
 
-        for (elf_hdrs.program_headers) |phdr, i| {
+        var program_headers = elf_hdr.program_header_iterator(elf_file);
+        while (try program_headers.next()) |phdr| {
             if (phdr.p_type == elf.PT_LOAD) {
                 const newSegment = try allocator.create(BinaryElfSegment);
 

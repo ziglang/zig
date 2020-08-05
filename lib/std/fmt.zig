@@ -88,6 +88,8 @@ pub fn format(
     if (args.len > ArgSetType.bit_count) {
         @compileError("32 arguments max are supported per format call");
     }
+    if (args.len == 0)
+        return writer.writeAll(fmt);
 
     const State = enum {
         Start,

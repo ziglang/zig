@@ -99,7 +99,7 @@ pub const Mutable = struct {
     pub fn toManaged(self: Mutable, allocator: *Allocator) Managed {
         return .{
             .allocator = allocator,
-            .limbs = limbs,
+            .limbs = self.limbs,
             .metadata = if (self.positive)
                 self.len & ~Managed.sign_bit
             else

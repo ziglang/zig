@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Documentation - The Zig Programming Language</title>
     <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg=="/>
     <style>
@@ -7473,7 +7474,7 @@ export fn @"A function name that is a complete sentence."() void {}
       <p>
       When looking at the resulting object, you can see the symbol is used verbatim:
       </p>
-      <pre>00000000000001f0 T A function name that is a complete sentence.</pre>
+      <pre><code>00000000000001f0 T A function name that is a complete sentence.</code></pre>
       {#see_also|Exporting a C Library#}
       {#header_close#}
 

@@ -63,7 +63,9 @@ pub const Value = extern union {
 
         undef,
         zero,
-        the_one_possible_value, // when the type only has one possible value
+        void_value,
+        unreachable_value,
+        empty_array,
         null_value,
         bool_true,
         bool_false, // See last_no_payload_tag below.
@@ -164,7 +166,9 @@ pub const Value = extern union {
             .const_slice_u8_type,
             .undef,
             .zero,
-            .the_one_possible_value,
+            .void_value,
+            .unreachable_value,
+            .empty_array,
             .null_value,
             .bool_true,
             .bool_false,
@@ -285,7 +289,8 @@ pub const Value = extern union {
             .null_value => return out_stream.writeAll("null"),
             .undef => return out_stream.writeAll("undefined"),
             .zero => return out_stream.writeAll("0"),
-            .the_one_possible_value => return out_stream.writeAll("(one possible value)"),
+            .void_value => return out_stream.writeAll("{}"),
+            .unreachable_value => return out_stream.writeAll("unreachable"),
             .bool_true => return out_stream.writeAll("true"),
             .bool_false => return out_stream.writeAll("false"),
             .ty => return val.cast(Payload.Ty).?.ty.format("", options, out_stream),
@@ -312,6 +317,7 @@ pub const Value = extern union {
                 try out_stream.print("&[{}] ", .{elem_ptr.index});
                 val = elem_ptr.array_ptr;
             },
+            .empty_array => return out_stream.writeAll(".{}"),
             .bytes => return std.zig.renderStringLiteral(self.cast(Payload.Bytes).?.data, out_stream),
             .repeated => {
                 try out_stream.writeAll("(repeated) ");
@@ -388,7 +394,9 @@ pub const Value = extern union {
 
             .undef,
             .zero,
-            .the_one_possible_value,
+            .void_value,
+            .unreachable_value,
+            .empty_array,
             .bool_true,
             .bool_false,
             .null_value,
@@ -460,15 +468,18 @@ pub const Value = extern union {
             .decl_ref,
             .elem_ptr,
             .bytes,
-            .undef,
             .repeated,
             .float_16,
             .float_32,
             .float_64,
             .float_128,
+            .void_value,
+            .unreachable_value,
+            .empty_array,
             => unreachable,
 
-            .the_one_possible_value, // An integer with one possible value is always zero.
+            .undef => unreachable,
+
             .zero,
             .bool_false,
             => return BigIntMutable.init(&space.limbs, 0).toConst(),
@@ -532,16 +543,19 @@ pub const Value = extern union {
             .decl_ref,
             .elem_ptr,
             .bytes,
-            .undef,
             .repeated,
             .float_16,
             .float_32,
             .float_64,
             .float_128,
+            .void_value,
+            .unreachable_value,
+            .empty_array,
             => unreachable,
 
+            .undef => unreachable,
+
             .zero,
-            .the_one_possible_value, // an integer with one possible value is always zero
             .bool_false,
             => return 0,
 
@@ -570,10 +584,9 @@ pub const Value = extern union {
             .float_64 => @floatCast(T, self.cast(Payload.Float_64).?.val),
             .float_128 => @floatCast(T, self.cast(Payload.Float_128).?.val),
 
-            .zero, .the_one_possible_value => 0,
+            .zero => 0,
             .int_u64 => @intToFloat(T, self.cast(Payload.Int_u64).?.int),
-            // .int_i64 => @intToFloat(f128, self.cast(Payload.Int_i64).?.int),
-            .int_i64 => @panic("TODO lld: error: undefined symbol: __floatditf"),
+            .int_i64 => @intToFloat(T, self.cast(Payload.Int_i64).?.int),
 
             .int_big_positive, .int_big_negative => @panic("big int to f128"),
             else => unreachable,
@@ -637,9 +650,11 @@ pub const Value = extern union {
             .float_32,
             .float_64,
             .float_128,
+            .void_value,
+            .unreachable_value,
+            .empty_array,
             => unreachable,
 
-            .the_one_possible_value, // an integer with one possible value is always zero
             .zero,
             .bool_false,
             => return 0,
@@ -714,11 +729,13 @@ pub const Value = extern union {
             .float_32,
             .float_64,
             .float_128,
+            .void_value,
+            .unreachable_value,
+            .empty_array,
             => unreachable,
 
             .zero,
             .undef,
-            .the_one_possible_value, // an integer with one possible value is always zero
             .bool_false,
             => return true,
 
@@ -797,13 +814,13 @@ pub const Value = extern union {
                 // return Value.initPayload(&res_payload.base).copy(allocator);
             },
             32 => {
-                var res_payload = Value.Payload.Float_32{.val = self.toFloat(f32)};
+                var res_payload = Value.Payload.Float_32{ .val = self.toFloat(f32) };
                 if (!self.eql(Value.initPayload(&res_payload.base)))
                     return error.Overflow;
                 return Value.initPayload(&res_payload.base).copy(allocator);
             },
             64 => {
-                var res_payload = Value.Payload.Float_64{.val = self.toFloat(f64)};
+                var res_payload = Value.Payload.Float_64{ .val = self.toFloat(f64) };
                 if (!self.eql(Value.initPayload(&res_payload.base)))
                     return error.Overflow;
                 return Value.initPayload(&res_payload.base).copy(allocator);
@@ -875,7 +892,9 @@ pub const Value = extern union {
             .int_i64,
             .int_big_positive,
             .int_big_negative,
-            .the_one_possible_value,
+            .empty_array,
+            .void_value,
+            .unreachable_value,
             => unreachable,
 
             .zero => false,
@@ -939,10 +958,12 @@ pub const Value = extern union {
             .bytes,
             .repeated,
             .undef,
+            .void_value,
+            .unreachable_value,
+            .empty_array,
             => unreachable,
 
             .zero,
-            .the_one_possible_value, // an integer with one possible value is always zero
             .bool_false,
             => .eq,
 
@@ -964,8 +985,8 @@ pub const Value = extern union {
     pub fn order(lhs: Value, rhs: Value) std.math.Order {
         const lhs_tag = lhs.tag();
         const rhs_tag = rhs.tag();
-        const lhs_is_zero = lhs_tag == .zero or lhs_tag == .the_one_possible_value;
-        const rhs_is_zero = rhs_tag == .zero or rhs_tag == .the_one_possible_value;
+        const lhs_is_zero = lhs_tag == .zero;
+        const rhs_is_zero = rhs_tag == .zero;
         if (lhs_is_zero) return rhs.orderAgainstZero().invert();
         if (rhs_is_zero) return lhs.orderAgainstZero();
 
@@ -1071,9 +1092,11 @@ pub const Value = extern union {
             .float_32,
             .float_64,
             .float_128,
+            .void_value,
+            .unreachable_value,
+            .empty_array,
             => unreachable,
 
-            .the_one_possible_value => Value.initTag(.the_one_possible_value),
             .ref_val => self.cast(Payload.RefVal).?.val,
             .decl_ref => self.cast(Payload.DeclRef).?.decl.value(),
             .elem_ptr => {
@@ -1130,7 +1153,6 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .zero,
-            .the_one_possible_value,
             .bool_true,
             .bool_false,
             .null_value,
@@ -1147,7 +1169,11 @@ pub const Value = extern union {
             .float_32,
             .float_64,
             .float_128,
+            .void_value,
+            .unreachable_value,
             => unreachable,
+
+            .empty_array => unreachable, // out of bounds array index
 
             .bytes => {
                 const int_payload = try allocator.create(Payload.Int_u64);
@@ -1175,8 +1201,7 @@ pub const Value = extern union {
         return self.tag() == .undef;
     }
 
-    /// Valid for all types. Asserts the value is not undefined.
-    /// `.the_one_possible_value` is reported as not null.
+    /// Valid for all types. Asserts the value is not undefined and not unreachable.
     pub fn isNull(self: Value) bool {
         return switch (self.tag()) {
             .ty,
@@ -1221,7 +1246,7 @@ pub const Value = extern union {
             .single_const_pointer_to_comptime_int_type,
             .const_slice_u8_type,
             .zero,
-            .the_one_possible_value,
+            .empty_array,
             .bool_true,
             .bool_false,
             .function,
@@ -1238,9 +1263,11 @@ pub const Value = extern union {
             .float_32,
             .float_64,
             .float_128,
+            .void_value,
             => false,
 
             .undef => unreachable,
+            .unreachable_value => unreachable,
             .null_value => true,
         };
     }

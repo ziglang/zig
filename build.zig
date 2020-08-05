@@ -77,6 +77,9 @@ pub fn build(b: *Builder) !void {
         const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse false;
         if (link_libc) exe.linkLibC();
 
+        const log_scopes = b.option([]const []const u8, "log", "Which log scopes to enable") orelse &[0][]const u8{};
+
+        exe.addBuildOption([]const []const u8, "log_scopes", log_scopes);
         exe.addBuildOption(bool, "enable_tracy", tracy != null);
         if (tracy) |tracy_path| {
             const client_cpp = fs.path.join(
@@ -103,6 +106,12 @@ pub fn build(b: *Builder) !void {
     const is_qemu_enabled = b.option(bool, "enable-qemu", "Use QEMU to run cross compiled foreign architecture tests") orelse false;
     const is_wasmtime_enabled = b.option(bool, "enable-wasmtime", "Use Wasmtime to enable and run WASI libstd tests") orelse false;
     const glibc_multi_dir = b.option([]const u8, "enable-foreign-glibc", "Provide directory with glibc installations to run cross compiled tests that link glibc");
+
+
+    test_stage2.addBuildOption(bool, "enable_qemu", is_qemu_enabled);
+    test_stage2.addBuildOption(bool, "enable_wine", is_wine_enabled);
+    test_stage2.addBuildOption(bool, "enable_wasmtime", is_wasmtime_enabled);
+    test_stage2.addBuildOption(?[]const u8, "glibc_multi_install_dir", glibc_multi_dir);
 
     const test_stage2_step = b.step("test-stage2", "Run the stage2 compiler tests");
     test_stage2_step.dependOn(&test_stage2.step);

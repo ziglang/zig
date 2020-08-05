@@ -4,6 +4,11 @@ const Module = @import("Module.zig");
 const Allocator = std.mem.Allocator;
 const zir = @import("zir.zig");
 const Package = @import("Package.zig");
+const build_options = @import("build_options");
+const enable_qemu: bool = build_options.enable_qemu;
+const enable_wine: bool = build_options.enable_wine;
+const enable_wasmtime: bool = build_options.enable_wasmtime;
+const glibc_multi_install_dir: ?[]const u8 = build_options.glibc_multi_install_dir;
 
 const cheader = @embedFile("cbe.h");
 
@@ -401,8 +406,6 @@ pub const TestContext = struct {
         const root_node = try progress.start("tests", self.cases.items.len);
         defer root_node.end();
 
-        const native_info = try std.zig.system.NativeTargetInfo.detect(std.heap.page_allocator, .{});
-
         for (self.cases.items) |case| {
             std.testing.base_allocator_instance.reset();
 
@@ -415,13 +418,19 @@ pub const TestContext = struct {
             progress.initial_delay_ns = 0;
             progress.refresh_rate_ns = 0;
 
-            const info = try std.zig.system.NativeTargetInfo.detect(std.testing.allocator, case.target);
-            try self.runOneCase(std.testing.allocator, &prg_node, case, info.target);
+            try self.runOneCase(std.testing.allocator, &prg_node, case);
             try std.testing.allocator_instance.validate();
         }
     }
 
-    fn runOneCase(self: *TestContext, allocator: *Allocator, root_node: *std.Progress.Node, case: Case, target: std.Target) !void {
+    fn runOneCase(self: *TestContext, allocator: *Allocator, root_node: *std.Progress.Node, case: Case) !void {
+        const target_info = try std.zig.system.NativeTargetInfo.detect(std.testing.allocator, case.target);
+        const target = target_info.target;
+
+        var arena_allocator = std.heap.ArenaAllocator.init(allocator);
+        defer arena_allocator.deinit();
+        const arena = &arena_allocator.allocator;
+
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();
 
@@ -429,10 +438,10 @@ pub const TestContext = struct {
         const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
         defer root_pkg.destroy();
 
-        const bin_name = try std.zig.binNameAlloc(allocator, "test_case", target, case.output_mode, null);
-        defer allocator.free(bin_name);
+        const bin_name = try std.zig.binNameAlloc(arena, "test_case", target, case.output_mode, null);
 
         var module = try Module.init(allocator, .{
+            .root_name = "test_case",
             .target = target,
             // TODO: support tests for object file building, and library builds
             // and linking. This will require a rework to support multi-file
@@ -484,8 +493,7 @@ pub const TestContext = struct {
                         // incremental updates
                         var file = try tmp.dir.openFile(bin_name, .{ .read = true });
                         defer file.close();
-                        var out = file.reader().readAllAlloc(allocator, 1024 * 1024) catch @panic("Unable to read C output!");
-                        defer allocator.free(out);
+                        var out = file.reader().readAllAlloc(arena, 1024 * 1024) catch @panic("Unable to read C output!");
 
                         if (expected_output.len != out.len) {
                             std.debug.warn("\nTransformed C length differs:\n================\nExpected:\n================\n{}\n================\nFound:\n================\n{}\n================\nTest failed.\n", .{ expected_output, out });
@@ -532,8 +540,7 @@ pub const TestContext = struct {
                     var test_node = update_node.start("assert", null);
                     test_node.activate();
                     defer test_node.end();
-                    var handled_errors = try allocator.alloc(bool, e.len);
-                    defer allocator.free(handled_errors);
+                    var handled_errors = try arena.alloc(bool, e.len);
                     for (handled_errors) |*h| {
                         h.* = false;
                     }
@@ -568,14 +575,59 @@ pub const TestContext = struct {
                         exec_node.activate();
                         defer exec_node.end();
 
-                        try module.makeBinFileExecutable();
+                        var argv = std.ArrayList([]const u8).init(allocator);
+                        defer argv.deinit();
 
-                        const exe_path = try std.fmt.allocPrint(allocator, "." ++ std.fs.path.sep_str ++ "{}", .{bin_name});
-                        defer allocator.free(exe_path);
+                        const exe_path = try std.fmt.allocPrint(arena, "." ++ std.fs.path.sep_str ++ "{}", .{bin_name});
+
+                        switch (case.target.getExternalExecutor()) {
+                            .native => try argv.append(exe_path),
+                            .unavailable => return, // No executor available; pass test.
+
+                            .qemu => |qemu_bin_name| if (enable_qemu) {
+                                // TODO Ability for test cases to specify whether to link libc.
+                                const need_cross_glibc = false; // target.isGnuLibC() and self.is_linking_libc;
+                                const glibc_dir_arg = if (need_cross_glibc)
+                                    glibc_multi_install_dir orelse return // glibc dir not available; pass test
+                                else
+                                    null;
+                                try argv.append(qemu_bin_name);
+                                if (glibc_dir_arg) |dir| {
+                                    const linux_triple = try target.linuxTriple(arena);
+                                    const full_dir = try std.fs.path.join(arena, &[_][]const u8{
+                                        dir,
+                                        linux_triple,
+                                    });
+
+                                    try argv.append("-L");
+                                    try argv.append(full_dir);
+                                }
+                                try argv.append(exe_path);
+                            } else {
+                                return; // QEMU not available; pass test.
+                            },
+
+                            .wine => |wine_bin_name| if (enable_wine) {
+                                try argv.append(wine_bin_name);
+                                try argv.append(exe_path);
+                            } else {
+                                return; // Wine not available; pass test.
+                            },
+
+                            .wasmtime => |wasmtime_bin_name| if (enable_wasmtime) {
+                                try argv.append(wasmtime_bin_name);
+                                try argv.append("--dir=.");
+                                try argv.append(exe_path);
+                            } else {
+                                return; // wasmtime not available; pass test.
+                            },
+                        }
+
+                        try module.makeBinFileExecutable();
 
                         break :x try std.ChildProcess.exec(.{
                             .allocator = allocator,
-                            .argv = &[_][]const u8{exe_path},
+                            .argv = argv.items,
                             .cwd_dir = tmp.dir,
                         });
                     };

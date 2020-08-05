@@ -4,6 +4,7 @@ const Type = @import("type.zig").Type;
 const Module = @import("Module.zig");
 const assert = std.debug.assert;
 const codegen = @import("codegen.zig");
+const ast = std.zig.ast;
 
 /// These are in-memory, analyzed instructions. See `zir.Inst` for the representation
 /// of instructions that correspond to the ZIR text format.
@@ -47,6 +48,7 @@ pub const Inst = struct {
 
     pub const Tag = enum {
         add,
+        alloc,
         arg,
         assembly,
         bitcast,
@@ -63,28 +65,34 @@ pub const Inst = struct {
         cmp_neq,
         condbr,
         constant,
+        dbg_stmt,
         isnonnull,
         isnull,
+        /// Read a value from a pointer.
+        load,
         ptrtoint,
+        ref,
         ret,
         retvoid,
+        /// Write a value to a pointer. LHS is pointer, RHS is value.
+        store,
         sub,
         unreach,
         not,
         floatcast,
         intcast,
 
-        /// There is one-to-one correspondence between tag and type for now,
-        /// but this will not always be the case. For example, binary operations
-        /// such as + and - will have different tags but the same type.
         pub fn Type(tag: Tag) type {
             return switch (tag) {
+                .alloc,
                 .retvoid,
                 .unreach,
                 .arg,
                 .breakpoint,
+                .dbg_stmt,
                 => NoOp,
 
+                .ref,
                 .ret,
                 .bitcast,
                 .not,
@@ -93,6 +101,7 @@ pub const Inst = struct {
                 .ptrtoint,
                 .floatcast,
                 .intcast,
+                .load,
                 => UnOp,
 
                 .add,
@@ -103,6 +112,7 @@ pub const Inst = struct {
                 .cmp_gte,
                 .cmp_gt,
                 .cmp_neq,
+                .store,
                 => BinOp,
 
                 .assembly => Assembly,
@@ -157,8 +167,7 @@ pub const Inst = struct {
 
     /// Returns `null` if runtime-known.
     pub fn value(base: *Inst) ?Value {
-        if (base.ty.onePossibleValue())
-            return Value.initTag(.the_one_possible_value);
+        if (base.ty.onePossibleValue()) |opv| return opv;
 
         const inst = base.cast(Constant) orelse return null;
         return inst.val;

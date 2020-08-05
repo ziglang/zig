@@ -3,6 +3,16 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("alignof",
+        \\int main() {
+        \\    int a = _Alignof(int);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn main() c_int {
+        \\    var a: c_int = @bitCast(c_int, @truncate(c_uint, @alignOf(c_int)));
+        \\}
+    });
+
     cases.add("initializer list macro",
         \\typedef struct Color {
         \\    unsigned char r;
@@ -2713,6 +2723,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     ,
         \\pub const BAR = (@import("std").meta.cast(?*c_void, a));
+    });
+
+    cases.add("macro with cast to unsigned short, long, and long long",
+        \\#define CURLAUTH_BASIC_BUT_USHORT ((unsigned short) 1)
+        \\#define CURLAUTH_BASIC ((unsigned long) 1)
+        \\#define CURLAUTH_BASIC_BUT_ULONGLONG ((unsigned long long) 1)
+    , &[_][]const u8{
+        \\pub const CURLAUTH_BASIC_BUT_USHORT = (@import("std").meta.cast(c_ushort, 1));
+        \\pub const CURLAUTH_BASIC = (@import("std").meta.cast(c_ulong, 1));
+        \\pub const CURLAUTH_BASIC_BUT_ULONGLONG = (@import("std").meta.cast(c_ulonglong, 1));
     });
 
     cases.add("macro conditional operator",

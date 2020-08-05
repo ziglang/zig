@@ -430,9 +430,9 @@ pub const Builder = struct {
         const entry = self.user_input_options.getEntry(name) orelse return null;
         entry.value.used = true;
         switch (type_id) {
-            TypeId.Bool => switch (entry.value.value) {
-                UserValue.Flag => return true,
-                UserValue.Scalar => |s| {
+            .Bool => switch (entry.value.value) {
+                .Flag => return true,
+                .Scalar => |s| {
                     if (mem.eql(u8, s, "true")) {
                         return true;
                     } else if (mem.eql(u8, s, "false")) {
@@ -443,21 +443,21 @@ pub const Builder = struct {
                         return null;
                     }
                 },
-                UserValue.List => {
+                .List => {
                     warn("Expected -D{} to be a boolean, but received a list.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
             },
-            TypeId.Int => panic("TODO integer options to build script", .{}),
-            TypeId.Float => panic("TODO float options to build script", .{}),
-            TypeId.Enum => switch (entry.value.value) {
-                UserValue.Flag => {
+            .Int => panic("TODO integer options to build script", .{}),
+            .Float => panic("TODO float options to build script", .{}),
+            .Enum => switch (entry.value.value) {
+                .Flag => {
                     warn("Expected -D{} to be a string, but received a boolean.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
-                UserValue.Scalar => |s| {
+                .Scalar => |s| {
                     if (std.meta.stringToEnum(T, s)) |enum_lit| {
                         return enum_lit;
                     } else {
@@ -466,33 +466,35 @@ pub const Builder = struct {
                         return null;
                     }
                 },
-                UserValue.List => {
+                .List => {
                     warn("Expected -D{} to be a string, but received a list.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
             },
-            TypeId.String => switch (entry.value.value) {
-                UserValue.Flag => {
+            .String => switch (entry.value.value) {
+                .Flag => {
                     warn("Expected -D{} to be a string, but received a boolean.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
-                UserValue.List => {
+                .List => {
                     warn("Expected -D{} to be a string, but received a list.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
-                UserValue.Scalar => |s| return s,
+                .Scalar => |s| return s,
             },
-            TypeId.List => switch (entry.value.value) {
-                UserValue.Flag => {
+            .List => switch (entry.value.value) {
+                .Flag => {
                     warn("Expected -D{} to be a list, but received a boolean.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
-                UserValue.Scalar => |s| return &[_][]const u8{s},
-                UserValue.List => |lst| return lst.span(),
+                .Scalar => |s| {
+                    return self.allocator.dupe([]const u8, &[_][]const u8{s}) catch unreachable;
+                },
+                .List => |lst| return lst.span(),
             },
         }
     }
@@ -1151,6 +1153,7 @@ pub const LibExeObjStep = struct {
     bundle_compiler_rt: bool,
     disable_stack_probing: bool,
     disable_sanitize_c: bool,
+    rdynamic: bool,
     c_std: Builder.CStd,
     override_lib_dir: ?[]const u8,
     main_pkg_path: ?[]const u8,
@@ -1311,6 +1314,7 @@ pub const LibExeObjStep = struct {
             .bundle_compiler_rt = false,
             .disable_stack_probing = false,
             .disable_sanitize_c = false,
+            .rdynamic = false,
             .output_dir = null,
             .single_threaded = false,
             .installed_path = null,
@@ -1704,13 +1708,23 @@ pub const LibExeObjStep = struct {
 
     pub fn addBuildOption(self: *LibExeObjStep, comptime T: type, name: []const u8, value: T) void {
         const out = self.build_options_contents.outStream();
+        if (T == []const []const u8) {
+            out.print("pub const {}: []const []const u8 = &[_][]const u8{{\n", .{name}) catch unreachable;
+            for (value) |slice| {
+                out.writeAll("    ") catch unreachable;
+                std.zig.renderStringLiteral(slice, out) catch unreachable;
+                out.writeAll(",\n") catch unreachable;
+            }
+            out.writeAll("};\n") catch unreachable;
+            return;
+        }
         switch (@typeInfo(T)) {
             .Enum => |enum_info| {
-                out.print("const {} = enum {{\n", .{@typeName(T)}) catch unreachable;
+                out.print("pub const {} = enum {{\n", .{@typeName(T)}) catch unreachable;
                 inline for (enum_info.fields) |field| {
                     out.print("    {},\n", .{field.name}) catch unreachable;
                 }
-                out.print("}};\n", .{}) catch unreachable;
+                out.writeAll("};\n") catch unreachable;
             },
             else => {},
         }
@@ -1843,10 +1857,10 @@ pub const LibExeObjStep = struct {
         zig_args.append(builder.zig_exe) catch unreachable;
 
         const cmd = switch (self.kind) {
-            Kind.Lib => "build-lib",
-            Kind.Exe => "build-exe",
-            Kind.Obj => "build-obj",
-            Kind.Test => "test",
+            .Lib => "build-lib",
+            .Exe => "build-exe",
+            .Obj => "build-obj",
+            .Test => "test",
         };
         zig_args.append(cmd) catch unreachable;
 
@@ -1993,6 +2007,9 @@ pub const LibExeObjStep = struct {
         }
         if (self.disable_sanitize_c) {
             try zig_args.append("-fno-sanitize-c");
+        }
+        if (self.rdynamic) {
+            try zig_args.append("-rdynamic");
         }
 
         if (self.code_model != .default) {

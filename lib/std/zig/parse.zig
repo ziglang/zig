@@ -201,7 +201,16 @@ const Parser = struct {
                     p.findNextContainerMember();
                     const next = p.token_ids[p.tok_i];
                     switch (next) {
-                        .Eof => break,
+                        .Eof => {
+                            // no invalid tokens were found
+                            if (index == p.tok_i) break;
+
+                            // Invalid tokens, add error and exit
+                            try p.errors.append(p.gpa, .{
+                                .ExpectedToken = .{ .token = index, .expected_id = .Comma },
+                            });
+                            break;
+                        },
                         else => {
                             if (next == .RBrace) {
                                 if (!top_level) break;

@@ -5,6 +5,7 @@ const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
+const trait = meta.trait;
 const autoHash = std.hash.autoHash;
 const Wyhash = std.hash.Wyhash;
 const Allocator = mem.Allocator;
@@ -193,6 +194,10 @@ pub fn HashMap(
 
         pub fn getEntry(self: Self, key: K) ?*Entry {
             return self.unmanaged.getEntry(key);
+        }
+
+        pub fn getIndex(self: Self, key: K) ?usize {
+            return self.unmanaged.getIndex(key);
         }
 
         pub fn get(self: Self, key: K) ?V {
@@ -478,17 +483,21 @@ pub fn HashMapUnmanaged(
         }
 
         pub fn getEntry(self: Self, key: K) ?*Entry {
+            const index = self.getIndex(key) orelse return null;
+            return &self.entries.items[index];
+        }
+
+        pub fn getIndex(self: Self, key: K) ?usize {
             const header = self.index_header orelse {
                 // Linear scan.
                 const h = if (store_hash) hash(key) else {};
-                for (self.entries.items) |*item| {
+                for (self.entries.items) |*item, i| {
                     if (item.hash == h and eql(key, item.key)) {
-                        return item;
+                        return i;
                     }
                 }
                 return null;
             };
-
             switch (header.capacityIndexType()) {
                 .u8 => return self.getInternal(key, header, u8),
                 .u16 => return self.getInternal(key, header, u16),
@@ -710,7 +719,7 @@ pub fn HashMapUnmanaged(
             unreachable;
         }
 
-        fn getInternal(self: Self, key: K, header: *IndexHeader, comptime I: type) ?*Entry {
+        fn getInternal(self: Self, key: K, header: *IndexHeader, comptime I: type) ?usize {
             const indexes = header.indexes(I);
             const h = hash(key);
             const start_index = header.constrainIndex(h);
@@ -724,7 +733,7 @@ pub fn HashMapUnmanaged(
                 const entry = &self.entries.items[index.entry_index];
                 const hash_match = if (store_hash) h == entry.hash else true;
                 if (hash_match and eql(key, entry.key))
-                    return entry;
+                    return index.entry_index;
             }
             return null;
         }
@@ -1023,9 +1032,13 @@ pub fn getTrivialEqlFn(comptime K: type) (fn (K, K) bool) {
 pub fn getAutoHashFn(comptime K: type) (fn (K) u32) {
     return struct {
         fn hash(key: K) u32 {
-            var hasher = Wyhash.init(0);
-            autoHash(&hasher, key);
-            return @truncate(u32, hasher.final());
+            if (comptime trait.hasUniqueRepresentation(K)) {
+                return @truncate(u32, Wyhash.hash(0, std.mem.asBytes(&key)));
+            } else {
+                var hasher = Wyhash.init(0);
+                autoHash(&hasher, key);
+                return @truncate(u32, hasher.final());
+            }
         }
     }.hash;
 }

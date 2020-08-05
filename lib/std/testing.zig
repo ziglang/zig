@@ -171,6 +171,59 @@ test "expectEqual.union(enum)" {
     expectEqual(a10, a10);
 }
 
+/// This function is intended to be used only in tests. When the actual value is not
+/// within the margin of the expected value,
+/// prints diagnostics to stderr to show exactly how they are not equal, then aborts.
+/// The types must be floating point
+pub fn expectWithinMargin(expected: anytype, actual: @TypeOf(expected), margin: @TypeOf(expected)) void {
+    std.debug.assert(margin >= 0.0);
+
+    switch (@typeInfo(@TypeOf(actual))) {
+        .Float,
+        .ComptimeFloat,
+        => {
+            if (@fabs(expected - actual) > margin) {
+                std.debug.panic("actual {}, not within margin {} of expected {}", .{ actual, margin, expected });
+            }
+        },
+        else => @compileError("Unable to compare non floating point values"),
+    }
+}
+
+test "expectWithinMargin.f32" {
+    const x: f32 = 12.0;
+    const y: f32 = 12.06;
+
+    expectWithinMargin(x, y, 0.1);
+}
+
+/// This function is intended to be used only in tests. When the actual value is not
+/// within the epsilon of the expected value,
+/// prints diagnostics to stderr to show exactly how they are not equal, then aborts.
+/// The types must be floating point
+pub fn expectWithinEpsilon(expected: anytype, actual: @TypeOf(expected), epsilon: @TypeOf(expected)) void {
+    std.debug.assert(epsilon >= 0.0 and epsilon <= 1.0);
+
+    const margin = epsilon * expected;
+    switch (@typeInfo(@TypeOf(actual))) {
+        .Float,
+        .ComptimeFloat,
+        => {
+            if (@fabs(expected - actual) > margin) {
+                std.debug.panic("actual {}, not within epsilon {}, of expected {}", .{ actual, epsilon, expected });
+            }
+        },
+        else => @compileError("Unable to compare non floating point values"),
+    }
+}
+
+test "expectWithinEpsilon.f32" {
+    const x: f32 = 12.0;
+    const y: f32 = 13.2;
+
+    expectWithinEpsilon(x, y, 0.1);
+}
+
 /// This function is intended to be used only in tests. When the two slices are not
 /// equal, prints diagnostics to stderr to show exactly how they are not equal,
 /// then aborts.

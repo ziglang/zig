@@ -374,15 +374,13 @@ pub fn Watch(comptime V: type) type {
             defer if (!basename_utf16le_null_consumed) self.allocator.free(basename_utf16le_null);
             const basename_utf16le_no_null = basename_utf16le_null[0 .. basename_utf16le_null.len - 1];
 
-            const dir_handle = try windows.CreateFileW(
-                dirname_utf16le.ptr,
-                windows.FILE_LIST_DIRECTORY,
-                windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE | windows.FILE_SHARE_WRITE,
-                null,
-                windows.OPEN_EXISTING,
-                windows.FILE_FLAG_BACKUP_SEMANTICS | windows.FILE_FLAG_OVERLAPPED,
-                null,
-            );
+            const dir_handle = try windows.OpenFile(dirname_utf16le, .{
+                .dir = std.fs.cwd().fd,
+                .access_mask = windows.FILE_LIST_DIRECTORY,
+                .creation = windows.FILE_OPEN,
+                .io_mode = .blocking,
+                .open_dir = true,
+            });
             var dir_handle_consumed = false;
             defer if (!dir_handle_consumed) windows.CloseHandle(dir_handle);
 

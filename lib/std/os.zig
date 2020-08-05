@@ -1041,6 +1041,9 @@ pub const OpenError = error{
 
     /// The underlying filesystem does not support file locks
     FileLocksNotSupported,
+
+    BadPathName,
+    InvalidUtf8,
 } || UnexpectedError;
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
@@ -1092,18 +1095,65 @@ pub fn openZ(file_path: [*:0]const u8, flags: u32, perm: mode_t) OpenError!fd_t 
     }
 }
 
+fn openOptionsFromFlags(flags: u32) windows.OpenFileOptions {
+    const w = windows;
+
+    var access_mask: w.ULONG = w.READ_CONTROL | w.FILE_WRITE_ATTRIBUTES | w.SYNCHRONIZE;
+    if (flags & O_RDWR != 0) {
+        access_mask |= w.GENERIC_READ | w.GENERIC_WRITE;
+    } else if (flags & O_WRONLY != 0) {
+        access_mask |= w.GENERIC_WRITE;
+    } else {
+        access_mask |= w.GENERIC_READ | w.GENERIC_WRITE;
+    }
+
+    const open_dir: bool = flags & O_DIRECTORY != 0;
+    const follow_symlinks: bool = flags & O_NOFOLLOW == 0;
+
+    const creation: w.ULONG = blk: {
+        if (flags & O_CREAT != 0) {
+            if (flags & O_EXCL != 0) {
+                break :blk w.FILE_CREATE;
+            }
+        }
+        break :blk w.FILE_OPEN;
+    };
+
+    return .{
+        .access_mask = access_mask,
+        .io_mode = .blocking,
+        .creation = creation,
+        .open_dir = open_dir,
+        .follow_symlinks = follow_symlinks,
+    };
+}
+
 /// Windows-only. The path parameter is
 /// [WTF-16](https://simonsapin.github.io/wtf-8/#potentially-ill-formed-utf-16) encoded.
 /// Translates the POSIX open API call to a Windows API call.
-pub fn openW(file_path_w: []const u16, flags: u32, perm: usize) OpenError!fd_t {
-    @compileError("TODO implement openW for windows");
+/// TODO currently, this function does not handle all flag combinations
+/// or makes use of perm argument.
+pub fn openW(file_path_w: []const u16, flags: u32, perm: mode_t) OpenError!fd_t {
+    var options = openOptionsFromFlags(flags);
+    options.dir = std.fs.cwd().fd;
+    return windows.OpenFile(file_path_w, options) catch |err| switch (err) {
+        error.WouldBlock => unreachable,
+        error.PipeBusy => unreachable,
+        else => |e| return e,
+    };
 }
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// `file_path` is relative to the open directory handle `dir_fd`.
 /// See also `openatC`.
-/// TODO support windows
 pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: mode_t) OpenError!fd_t {
+    if (builtin.os.tag == .wasi) {
+        @compileError("use openatWasi instead");
+    }
+    if (builtin.os.tag == .windows) {
+        const file_path_w = try windows.sliceToPrefixedFileW(file_path);
+        return openatW(dir_fd, file_path_w.span(), flags, mode);
+    }
     const file_path_c = try toPosixPath(file_path);
     return openatZ(dir_fd, &file_path_c, flags, mode);
 }
@@ -1145,8 +1195,11 @@ pub const openatC = @compileError("deprecated: renamed to openatZ");
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// `file_path` is relative to the open directory handle `dir_fd`.
 /// See also `openat`.
-/// TODO support windows
 pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t) OpenError!fd_t {
+    if (builtin.os.tag == .windows) {
+        const file_path_w = try windows.cStrToPrefixedFileW(file_path);
+        return openatW(dir_fd, file_path_w.span(), flags, mode);
+    }
     while (true) {
         const rc = system.openat(dir_fd, file_path, flags, mode);
         switch (errno(rc)) {
@@ -1175,6 +1228,20 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t)
             else => |err| return unexpectedErrno(err),
         }
     }
+}
+
+/// Windows-only. Similar to `openat` but with pathname argument null-terminated
+/// WTF16 encoded.
+/// TODO currently, this function does not handle all flag combinations
+/// or makes use of perm argument.
+pub fn openatW(dir_fd: fd_t, file_path_w: []const u16, flags: u32, mode: mode_t) OpenError!fd_t {
+    var options = openOptionsFromFlags(flags);
+    options.dir = dir_fd;
+    return windows.OpenFile(file_path_w, options) catch |err| switch (err) {
+        error.WouldBlock => unreachable,
+        error.PipeBusy => unreachable,
+        else => |e| return e,
+    };
 }
 
 pub fn dup2(old_fd: fd_t, new_fd: fd_t) !void {
@@ -1683,7 +1750,7 @@ pub fn unlink(file_path: []const u8) UnlinkError!void {
         @compileError("unlink is not supported in WASI; use unlinkat instead");
     } else if (builtin.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
-        return windows.DeleteFileW(file_path_w.span().ptr);
+        return unlinkW(file_path_w.span());
     } else {
         const file_path_c = try toPosixPath(file_path);
         return unlinkZ(&file_path_c);
@@ -1696,7 +1763,7 @@ pub const unlinkC = @compileError("deprecated: renamed to unlinkZ");
 pub fn unlinkZ(file_path: [*:0]const u8) UnlinkError!void {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
-        return windows.DeleteFileW(file_path_w.span().ptr);
+        return unlinkW(file_path_w.span());
     }
     switch (errno(system.unlink(file_path))) {
         0 => return,
@@ -1717,6 +1784,11 @@ pub fn unlinkZ(file_path: [*:0]const u8) UnlinkError!void {
     }
 }
 
+/// Windows-only. Same as `unlink` except the parameter is null-terminated, WTF16 encoded.
+pub fn unlinkW(file_path_w: []const u16) UnlinkError!void {
+    return windows.DeleteFile(file_path_w, .{ .dir = std.fs.cwd().fd });
+}
+
 pub const UnlinkatError = UnlinkError || error{
     /// When passing `AT_REMOVEDIR`, this error occurs when the named directory is not empty.
     DirNotEmpty,
@@ -1727,7 +1799,7 @@ pub const UnlinkatError = UnlinkError || error{
 pub fn unlinkat(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!void {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
-        return unlinkatW(dirfd, file_path_w.span().ptr, flags);
+        return unlinkatW(dirfd, file_path_w.span(), flags);
     } else if (builtin.os.tag == .wasi) {
         return unlinkatWasi(dirfd, file_path, flags);
     } else {
@@ -1774,7 +1846,7 @@ pub fn unlinkatWasi(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatErro
 pub fn unlinkatZ(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatError!void {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path_c);
-        return unlinkatW(dirfd, file_path_w.span().ptr, flags);
+        return unlinkatW(dirfd, file_path_w.span(), flags);
     }
     switch (errno(system.unlinkat(dirfd, file_path_c, flags))) {
         0 => return,
@@ -1800,67 +1872,9 @@ pub fn unlinkatZ(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatEr
 }
 
 /// Same as `unlinkat` but `sub_path_w` is UTF16LE, NT prefixed. Windows only.
-pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*:0]const u16, flags: u32) UnlinkatError!void {
-    const w = windows;
-
-    const want_rmdir_behavior = (flags & AT_REMOVEDIR) != 0;
-    const create_options_flags = if (want_rmdir_behavior)
-        @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_DIRECTORY_FILE | w.FILE_OPEN_REPARSE_POINT)
-    else
-        @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_NON_DIRECTORY_FILE | w.FILE_OPEN_REPARSE_POINT); // would we ever want to delete the target instead?
-
-    const path_len_bytes = @intCast(u16, mem.lenZ(sub_path_w) * 2);
-    var nt_name = w.UNICODE_STRING{
-        .Length = path_len_bytes,
-        .MaximumLength = path_len_bytes,
-        // The Windows API makes this mutable, but it will not mutate here.
-        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
-    };
-
-    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
-        // Windows does not recognize this, but it does work with empty string.
-        nt_name.Length = 0;
-    }
-    if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
-        // Can't remove the parent directory with an open handle.
-        return error.FileBusy;
-    }
-
-    var attr = w.OBJECT_ATTRIBUTES{
-        .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w)) null else dirfd,
-        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
-        .ObjectName = &nt_name,
-        .SecurityDescriptor = null,
-        .SecurityQualityOfService = null,
-    };
-    var io: w.IO_STATUS_BLOCK = undefined;
-    var tmp_handle: w.HANDLE = undefined;
-    var rc = w.ntdll.NtCreateFile(
-        &tmp_handle,
-        w.SYNCHRONIZE | w.DELETE,
-        &attr,
-        &io,
-        null,
-        0,
-        w.FILE_SHARE_READ | w.FILE_SHARE_WRITE | w.FILE_SHARE_DELETE,
-        w.FILE_OPEN,
-        create_options_flags,
-        null,
-        0,
-    );
-    if (rc == .SUCCESS) {
-        rc = w.ntdll.NtClose(tmp_handle);
-    }
-    switch (rc) {
-        .SUCCESS => return,
-        .OBJECT_NAME_INVALID => unreachable,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .INVALID_PARAMETER => unreachable,
-        .FILE_IS_A_DIRECTORY => return error.IsDir,
-        .NOT_A_DIRECTORY => return error.NotDir,
-        else => return w.unexpectedStatus(rc),
-    }
+pub fn unlinkatW(dirfd: fd_t, sub_path_w: []const u16, flags: u32) UnlinkatError!void {
+    const remove_dir = (flags & AT_REMOVEDIR) != 0;
+    return windows.DeleteFile(sub_path_w, .{ .dir = dirfd, .remove_dir = remove_dir });
 }
 
 const RenameError = error{
@@ -2087,7 +2101,7 @@ pub fn renameatW(
 pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .windows) {
         const sub_dir_path_w = try windows.sliceToPrefixedFileW(sub_dir_path);
-        return mkdiratW(dir_fd, sub_dir_path_w.span().ptr, mode);
+        return mkdiratW(dir_fd, sub_dir_path_w.span(), mode);
     } else if (builtin.os.tag == .wasi) {
         return mkdiratWasi(dir_fd, sub_dir_path, mode);
     } else {
@@ -2145,8 +2159,19 @@ pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirErr
     }
 }
 
-pub fn mkdiratW(dir_fd: fd_t, sub_path_w: [*:0]const u16, mode: u32) MakeDirError!void {
-    const sub_dir_handle = try windows.CreateDirectoryW(dir_fd, sub_path_w, null);
+pub fn mkdiratW(dir_fd: fd_t, sub_path_w: []const u16, mode: u32) MakeDirError!void {
+    const sub_dir_handle = windows.OpenFile(sub_path_w, .{
+        .dir = dir_fd,
+        .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
+        .creation = windows.FILE_CREATE,
+        .io_mode = .blocking,
+        .open_dir = true,
+    }) catch |err| switch (err) {
+        error.IsDir => unreachable,
+        error.PipeBusy => unreachable,
+        error.WouldBlock => unreachable,
+        else => |e| return e,
+    };
     windows.CloseHandle(sub_dir_handle);
 }
 
@@ -2175,9 +2200,8 @@ pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .wasi) {
         @compileError("mkdir is not supported in WASI; use mkdirat instead");
     } else if (builtin.os.tag == .windows) {
-        const sub_dir_handle = try windows.CreateDirectory(null, dir_path, null);
-        windows.CloseHandle(sub_dir_handle);
-        return;
+        const dir_path_w = try windows.sliceToPrefixedFileW(dir_path);
+        return mkdirW(dir_path_w.span(), mode);
     } else {
         const dir_path_c = try toPosixPath(dir_path);
         return mkdirZ(&dir_path_c, mode);
@@ -2188,9 +2212,7 @@ pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
 pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
-        const sub_dir_handle = try windows.CreateDirectoryW(null, dir_path_w.span().ptr, null);
-        windows.CloseHandle(sub_dir_handle);
-        return;
+        return mkdirW(dir_path_w.span(), mode);
     }
     switch (errno(system.mkdir(dir_path, mode))) {
         0 => return,
@@ -2209,6 +2231,23 @@ pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
         EROFS => return error.ReadOnlyFileSystem,
         else => |err| return unexpectedErrno(err),
     }
+}
+
+/// Windows-only. Same as `mkdir` but the parameters is  WTF16 encoded.
+pub fn mkdirW(dir_path_w: []const u16, mode: u32) MakeDirError!void {
+    const sub_dir_handle = windows.OpenFile(dir_path_w, .{
+        .dir = std.fs.cwd().fd,
+        .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
+        .creation = windows.FILE_CREATE,
+        .io_mode = .blocking,
+        .open_dir = true,
+    }) catch |err| switch (err) {
+        error.IsDir => unreachable,
+        error.PipeBusy => unreachable,
+        error.WouldBlock => unreachable,
+        else => |e| return e,
+    };
+    windows.CloseHandle(sub_dir_handle);
 }
 
 pub const DeleteDirError = error{
@@ -2231,7 +2270,7 @@ pub fn rmdir(dir_path: []const u8) DeleteDirError!void {
         @compileError("rmdir is not supported in WASI; use unlinkat instead");
     } else if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.sliceToPrefixedFileW(dir_path);
-        return windows.RemoveDirectoryW(dir_path_w.span().ptr);
+        return rmdirW(dir_path_w.span());
     } else {
         const dir_path_c = try toPosixPath(dir_path);
         return rmdirZ(&dir_path_c);
@@ -2244,7 +2283,7 @@ pub const rmdirC = @compileError("deprecated: renamed to rmdirZ");
 pub fn rmdirZ(dir_path: [*:0]const u8) DeleteDirError!void {
     if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
-        return windows.RemoveDirectoryW(dir_path_w.span().ptr);
+        return rmdirW(dir_path_w.span());
     }
     switch (errno(system.rmdir(dir_path))) {
         0 => return,
@@ -2263,6 +2302,14 @@ pub fn rmdirZ(dir_path: [*:0]const u8) DeleteDirError!void {
         EROFS => return error.ReadOnlyFileSystem,
         else => |err| return unexpectedErrno(err),
     }
+}
+
+/// Windows-only. Same as `rmdir` except the parameter is WTF16 encoded.
+pub fn rmdirW(dir_path_w: []const u16) DeleteDirError!void {
+    return windows.DeleteFile(dir_path_w, .{ .dir = std.fs.cwd().fd, .remove_dir = true }) catch |err| switch (err) {
+        error.IsDir => unreachable,
+        else => |e| return e,
+    };
 }
 
 pub const ChangeCurDirError = error{
@@ -2354,7 +2401,8 @@ pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os.tag == .wasi) {
         @compileError("readlink is not supported in WASI; use readlinkat instead");
     } else if (builtin.os.tag == .windows) {
-        return windows.ReadLink(std.fs.cwd().fd, file_path, out_buffer);
+        const file_path_w = try windows.sliceToPrefixedFileW(file_path);
+        return readlinkW(file_path_w.span(), out_buffer);
     } else {
         const file_path_c = try toPosixPath(file_path);
         return readlinkZ(&file_path_c, out_buffer);
@@ -2363,17 +2411,17 @@ pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
 
 pub const readlinkC = @compileError("deprecated: renamed to readlinkZ");
 
-/// Windows-only. Same as `readlink` except `file_path` is null-terminated, WTF16 encoded.
+/// Windows-only. Same as `readlink` except `file_path` is WTF16 encoded.
 /// See also `readlinkZ`.
-pub fn readlinkW(file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8 {
-    return windows.ReadLinkW(std.fs.cwd().fd, file_path, out_buffer);
+pub fn readlinkW(file_path: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
+    return windows.ReadLink(std.fs.cwd().fd, file_path, out_buffer);
 }
 
 /// Same as `readlink` except `file_path` is null-terminated.
 pub fn readlinkZ(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToWin32PrefixedFileW(file_path);
-        return readlinkW(file_path_w.span().ptr, out_buffer);
+        return readlinkW(file_path_w.span(), out_buffer);
     }
     const rc = system.readlink(file_path, out_buffer.ptr, out_buffer.len);
     switch (errno(rc)) {
@@ -2399,7 +2447,8 @@ pub fn readlinkat(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) ReadLink
         return readlinkatWasi(dirfd, file_path, out_buffer);
     }
     if (builtin.os.tag == .windows) {
-        return windows.ReadLink(dirfd, file_path, out_buffer);
+        const file_path_w = try windows.sliceToPrefixedFileW(file_path);
+        return readlinkatW(dirfd, file_path_w.span(), out_buffer);
     }
     const file_path_c = try toPosixPath(file_path);
     return readlinkatZ(dirfd, &file_path_c, out_buffer);
@@ -2429,8 +2478,8 @@ pub fn readlinkatWasi(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) Read
 
 /// Windows-only. Same as `readlinkat` except `file_path` is null-terminated, WTF16 encoded.
 /// See also `readlinkat`.
-pub fn readlinkatW(dirfd: fd_t, file_path: [*:0]const u16, out_buffer: []u8) ReadLinkError![]u8 {
-    return windows.ReadLinkW(dirfd, file_path, out_buffer);
+pub fn readlinkatW(dirfd: fd_t, file_path: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
+    return windows.ReadLink(dirfd, file_path, out_buffer);
 }
 
 /// Same as `readlinkat` except `file_path` is null-terminated.
@@ -2438,7 +2487,7 @@ pub fn readlinkatW(dirfd: fd_t, file_path: [*:0]const u16, out_buffer: []u8) Rea
 pub fn readlinkatZ(dirfd: fd_t, file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
-        return readlinkatW(dirfd, file_path_w.span().ptr, out_buffer);
+        return readlinkatW(dirfd, file_path_w.span(), out_buffer);
     }
     const rc = system.readlinkat(dirfd, file_path, out_buffer.ptr, out_buffer.len);
     switch (errno(rc)) {
@@ -3959,7 +4008,7 @@ pub const RealPathError = error{
 pub fn realpath(pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     if (builtin.os.tag == .windows) {
         const pathname_w = try windows.sliceToPrefixedFileW(pathname);
-        return realpathW(pathname_w.span().ptr, out_buffer);
+        return realpathW(pathname_w.span(), out_buffer);
     }
     if (builtin.os.tag == .wasi) {
         @compileError("Use std.fs.wasi.PreopenList to obtain valid Dir handles instead of using absolute paths");
@@ -3974,7 +4023,7 @@ pub const realpathC = @compileError("deprecated: renamed realpathZ");
 pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     if (builtin.os.tag == .windows) {
         const pathname_w = try windows.cStrToPrefixedFileW(pathname);
-        return realpathW(pathname_w.span().ptr, out_buffer);
+        return realpathW(pathname_w.span(), out_buffer);
     }
     if (builtin.os.tag == .linux and !builtin.link_libc) {
         const fd = openZ(pathname, linux.O_PATH | linux.O_NONBLOCK | linux.O_CLOEXEC, 0) catch |err| switch (err) {
@@ -4010,22 +4059,43 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
     return mem.spanZ(result_path);
 }
 
-/// Same as `realpath` except `pathname` is null-terminated and UTF16LE-encoded.
-/// TODO use ntdll for better semantics
-pub fn realpathW(pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
-    const h_file = try windows.CreateFileW(
-        pathname,
-        windows.GENERIC_READ,
-        windows.FILE_SHARE_READ,
-        null,
-        windows.OPEN_EXISTING,
-        windows.FILE_FLAG_BACKUP_SEMANTICS,
-        null,
-    );
-    defer windows.CloseHandle(h_file);
+/// Same as `realpath` except `pathname` is UTF16LE-encoded.
+/// TODO use ntdll to emulate `GetFinalPathNameByHandleW` routine
+pub fn realpathW(pathname: []const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
+    const w = windows;
 
-    var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
-    const wide_slice = try windows.GetFinalPathNameByHandleW(h_file, &wide_buf, wide_buf.len, windows.VOLUME_NAME_DOS);
+    const dir = std.fs.cwd().fd;
+    const access_mask = w.GENERIC_READ | w.SYNCHRONIZE;
+    const share_access = w.FILE_SHARE_READ;
+    const creation = w.FILE_OPEN;
+    const h_file = blk: {
+        const res = w.OpenFile(pathname, .{
+            .dir = dir,
+            .access_mask = access_mask,
+            .share_access = share_access,
+            .creation = creation,
+            .io_mode = .blocking,
+        }) catch |err| switch (err) {
+            error.IsDir => break :blk w.OpenFile(pathname, .{
+                .dir = dir,
+                .access_mask = access_mask,
+                .share_access = share_access,
+                .creation = creation,
+                .io_mode = .blocking,
+                .open_dir = true,
+            }) catch |er| switch (er) {
+                error.WouldBlock => unreachable,
+                else => |e2| return e2,
+            },
+            error.WouldBlock => unreachable,
+            else => |e| return e,
+        };
+        break :blk res;
+    };
+    defer w.CloseHandle(h_file);
+
+    var wide_buf: [w.PATH_MAX_WIDE]u16 = undefined;
+    const wide_slice = try w.GetFinalPathNameByHandleW(h_file, &wide_buf, wide_buf.len, w.VOLUME_NAME_DOS);
 
     // Windows returns \\?\ prepended to the path.
     // We strip it to make this function consistent across platforms.

@@ -67,6 +67,7 @@ pub const Type = extern union {
 
             .array, .array_u8_sentinel_0 => return .Array,
             .single_const_pointer => return .Pointer,
+            .single_mut_pointer => return .Pointer,
             .single_const_pointer_to_comptime_int => return .Pointer,
             .const_slice_u8 => return .Pointer,
         }
@@ -261,6 +262,15 @@ pub const Type = extern union {
                 };
                 return Type{ .ptr_otherwise = &new_payload.base };
             },
+            .single_mut_pointer => {
+                const payload = @fieldParentPtr(Payload.SingleMutPointer, "base", self.ptr_otherwise);
+                const new_payload = try allocator.create(Payload.SingleMutPointer);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .pointee_type = try payload.pointee_type.copy(allocator),
+                };
+                return Type{ .ptr_otherwise = &new_payload.base };
+            },
             .int_signed => return self.copyPayloadShallow(allocator, Payload.IntSigned),
             .int_unsigned => return self.copyPayloadShallow(allocator, Payload.IntUnsigned),
             .function => {
@@ -368,6 +378,12 @@ pub const Type = extern union {
                     ty = payload.pointee_type;
                     continue;
                 },
+                .single_mut_pointer => {
+                    const payload = @fieldParentPtr(Payload.SingleMutPointer, "base", ty.ptr_otherwise);
+                    try out_stream.writeAll("*");
+                    ty = payload.pointee_type;
+                    continue;
+                },
                 .int_signed => {
                     const payload = @fieldParentPtr(Payload.IntSigned, "base", ty.ptr_otherwise);
                     return out_stream.print("i{}", .{payload.bits});
@@ -467,6 +483,7 @@ pub const Type = extern union {
             .array_u8_sentinel_0,
             .array, // TODO check for zero bits
             .single_const_pointer,
+            .single_mut_pointer,
             .int_signed, // TODO check for zero bits
             .int_unsigned, // TODO check for zero bits
             => true,
@@ -493,13 +510,18 @@ pub const Type = extern union {
             .u8,
             .i8,
             .bool,
+            .array_u8_sentinel_0,
+            => return 1,
+
             .fn_noreturn_no_args, // represents machine code; not a pointer
             .fn_void_no_args, // represents machine code; not a pointer
             .fn_naked_noreturn_no_args, // represents machine code; not a pointer
             .fn_ccc_void_no_args, // represents machine code; not a pointer
             .function, // represents machine code; not a pointer
-            .array_u8_sentinel_0,
-            => return 1,
+            => return switch (target.cpu.arch) {
+                .riscv64 => 2,
+                else => 1,
+            },
 
             .i16, .u16 => return 2,
             .i32, .u32 => return 4,
@@ -510,6 +532,7 @@ pub const Type = extern union {
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
             .single_const_pointer,
+            .single_mut_pointer,
             => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
 
             .c_short => return @divExact(CType.short.sizeInBits(target), 8),
@@ -591,6 +614,7 @@ pub const Type = extern union {
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
             .single_const_pointer,
+            .single_mut_pointer,
             => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
 
             .c_short => return @divExact(CType.short.sizeInBits(target), 8),
@@ -671,6 +695,7 @@ pub const Type = extern union {
             => false,
 
             .single_const_pointer,
+            .single_mut_pointer,
             .single_const_pointer_to_comptime_int,
             => true,
         };
@@ -714,6 +739,7 @@ pub const Type = extern union {
             .array,
             .array_u8_sentinel_0,
             .single_const_pointer,
+            .single_mut_pointer,
             .single_const_pointer_to_comptime_int,
             .fn_noreturn_no_args,
             .fn_void_no_args,
@@ -728,8 +754,7 @@ pub const Type = extern union {
         };
     }
 
-    /// Asserts the type is a pointer type.
-    pub fn pointerIsConst(self: Type) bool {
+    pub fn isConstPtr(self: Type) bool {
         return switch (self.tag()) {
             .u8,
             .i8,
@@ -773,12 +798,65 @@ pub const Type = extern union {
             .function,
             .int_unsigned,
             .int_signed,
-            => unreachable,
+            .single_mut_pointer,
+            => false,
 
             .single_const_pointer,
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
             => true,
+        };
+    }
+
+    pub fn isVolatilePtr(self: Type) bool {
+        return switch (self.tag()) {
+            .u8,
+            .i8,
+            .u16,
+            .i16,
+            .u32,
+            .i32,
+            .u64,
+            .i64,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .@"null",
+            .@"undefined",
+            .array,
+            .array_u8_sentinel_0,
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .function,
+            .int_unsigned,
+            .int_signed,
+            .single_mut_pointer,
+            .single_const_pointer,
+            .single_const_pointer_to_comptime_int,
+            .const_slice_u8,
+            => false,
         };
     }
 
@@ -829,6 +907,7 @@ pub const Type = extern union {
 
             .array => self.cast(Payload.Array).?.elem_type,
             .single_const_pointer => self.cast(Payload.SingleConstPointer).?.pointee_type,
+            .single_mut_pointer => self.cast(Payload.SingleMutPointer).?.pointee_type,
             .array_u8_sentinel_0, .const_slice_u8 => Type.initTag(.u8),
             .single_const_pointer_to_comptime_int => Type.initTag(.comptime_int),
         };
@@ -876,6 +955,7 @@ pub const Type = extern union {
             .fn_ccc_void_no_args,
             .function,
             .single_const_pointer,
+            .single_mut_pointer,
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
             .int_unsigned,
@@ -929,6 +1009,7 @@ pub const Type = extern union {
             .fn_ccc_void_no_args,
             .function,
             .single_const_pointer,
+            .single_mut_pointer,
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
             .int_unsigned,
@@ -970,6 +1051,7 @@ pub const Type = extern union {
             .function,
             .array,
             .single_const_pointer,
+            .single_mut_pointer,
             .single_const_pointer_to_comptime_int,
             .array_u8_sentinel_0,
             .const_slice_u8,
@@ -1024,6 +1106,7 @@ pub const Type = extern union {
             .function,
             .array,
             .single_const_pointer,
+            .single_mut_pointer,
             .single_const_pointer_to_comptime_int,
             .array_u8_sentinel_0,
             .const_slice_u8,
@@ -1078,6 +1161,7 @@ pub const Type = extern union {
             .function,
             .array,
             .single_const_pointer,
+            .single_mut_pointer,
             .single_const_pointer_to_comptime_int,
             .array_u8_sentinel_0,
             .const_slice_u8,
@@ -1130,6 +1214,7 @@ pub const Type = extern union {
             .function,
             .array,
             .single_const_pointer,
+            .single_mut_pointer,
             .single_const_pointer_to_comptime_int,
             .array_u8_sentinel_0,
             .const_slice_u8,
@@ -1211,6 +1296,7 @@ pub const Type = extern union {
             .@"undefined",
             .array,
             .single_const_pointer,
+            .single_mut_pointer,
             .single_const_pointer_to_comptime_int,
             .array_u8_sentinel_0,
             .const_slice_u8,
@@ -1268,6 +1354,7 @@ pub const Type = extern union {
             .@"undefined",
             .array,
             .single_const_pointer,
+            .single_mut_pointer,
             .single_const_pointer_to_comptime_int,
             .array_u8_sentinel_0,
             .const_slice_u8,
@@ -1324,6 +1411,7 @@ pub const Type = extern union {
             .@"undefined",
             .array,
             .single_const_pointer,
+            .single_mut_pointer,
             .single_const_pointer_to_comptime_int,
             .array_u8_sentinel_0,
             .const_slice_u8,
@@ -1380,6 +1468,7 @@ pub const Type = extern union {
             .@"undefined",
             .array,
             .single_const_pointer,
+            .single_mut_pointer,
             .single_const_pointer_to_comptime_int,
             .array_u8_sentinel_0,
             .const_slice_u8,
@@ -1433,6 +1522,7 @@ pub const Type = extern union {
             .@"undefined",
             .array,
             .single_const_pointer,
+            .single_mut_pointer,
             .single_const_pointer_to_comptime_int,
             .array_u8_sentinel_0,
             .const_slice_u8,
@@ -1486,6 +1576,7 @@ pub const Type = extern union {
             .@"undefined",
             .array,
             .single_const_pointer,
+            .single_mut_pointer,
             .single_const_pointer_to_comptime_int,
             .array_u8_sentinel_0,
             .const_slice_u8,
@@ -1559,6 +1650,7 @@ pub const Type = extern union {
             .function,
             .array,
             .single_const_pointer,
+            .single_mut_pointer,
             .single_const_pointer_to_comptime_int,
             .array_u8_sentinel_0,
             .const_slice_u8,
@@ -1566,7 +1658,7 @@ pub const Type = extern union {
         };
     }
 
-    pub fn onePossibleValue(self: Type) bool {
+    pub fn onePossibleValue(self: Type) ?Value {
         var ty = self;
         while (true) switch (ty.tag()) {
             .f16,
@@ -1605,26 +1697,42 @@ pub const Type = extern union {
             .single_const_pointer_to_comptime_int,
             .array_u8_sentinel_0,
             .const_slice_u8,
-            => return false,
-
             .c_void,
-            .void,
-            .noreturn,
-            .@"null",
-            .@"undefined",
-            => return true,
+            => return null,
 
-            .int_unsigned => return ty.cast(Payload.IntUnsigned).?.bits == 0,
-            .int_signed => return ty.cast(Payload.IntSigned).?.bits == 0,
+            .void => return Value.initTag(.void_value),
+            .noreturn => return Value.initTag(.unreachable_value),
+            .@"null" => return Value.initTag(.null_value),
+            .@"undefined" => return Value.initTag(.undef),
+
+            .int_unsigned => {
+                if (ty.cast(Payload.IntUnsigned).?.bits == 0) {
+                    return Value.initTag(.zero);
+                } else {
+                    return null;
+                }
+            },
+            .int_signed => {
+                if (ty.cast(Payload.IntSigned).?.bits == 0) {
+                    return Value.initTag(.zero);
+                } else {
+                    return null;
+                }
+            },
             .array => {
                 const array = ty.cast(Payload.Array).?;
                 if (array.len == 0)
-                    return true;
+                    return Value.initTag(.empty_array);
                 ty = array.elem_type;
                 continue;
             },
             .single_const_pointer => {
                 const ptr = ty.cast(Payload.SingleConstPointer).?;
+                ty = ptr.pointee_type;
+                continue;
+            },
+            .single_mut_pointer => {
+                const ptr = ty.cast(Payload.SingleMutPointer).?;
                 ty = ptr.pointee_type;
                 continue;
             },
@@ -1678,6 +1786,7 @@ pub const Type = extern union {
             .int_signed,
             .array,
             .single_const_pointer,
+            .single_mut_pointer,
             => return false,
         };
     }
@@ -1734,6 +1843,7 @@ pub const Type = extern union {
         array_u8_sentinel_0,
         array,
         single_const_pointer,
+        single_mut_pointer,
         int_signed,
         int_unsigned,
         function,
@@ -1760,6 +1870,12 @@ pub const Type = extern union {
 
         pub const SingleConstPointer = struct {
             base: Payload = Payload{ .tag = .single_const_pointer },
+
+            pointee_type: Type,
+        };
+
+        pub const SingleMutPointer = struct {
+            base: Payload = Payload{ .tag = .single_mut_pointer },
 
             pointee_type: Type,
         };

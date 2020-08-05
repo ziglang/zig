@@ -81,6 +81,26 @@ pub const Register = enum(u8) {
             else => null,
         };
     }
+
+    /// Convert from any register to its 64 bit alias.
+    pub fn to64(self: Register) Register {
+        return @intToEnum(Register, self.id());
+    }
+
+    /// Convert from any register to its 32 bit alias.
+    pub fn to32(self: Register) Register {
+        return @intToEnum(Register, @as(u8, self.id()) + 16);
+    }
+
+    /// Convert from any register to its 16 bit alias.
+    pub fn to16(self: Register) Register {
+        return @intToEnum(Register, @as(u8, self.id()) + 32);
+    }
+
+    /// Convert from any register to its 8 bit alias.
+    pub fn to8(self: Register) Register {
+        return @intToEnum(Register, @as(u8, self.id()) + 48);
+    }
 };
 
 // zig fmt: on
@@ -88,3 +108,4 @@ pub const Register = enum(u8) {
 /// These registers belong to the called function.
 pub const callee_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
 pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
+pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };

@@ -1299,6 +1299,10 @@ pub const Node = struct {
             });
         }
 
+        pub fn body(self: *const FnProto) ?*Node {
+            return self.getTrailer("body_node");
+        }
+
         pub fn getTrailer(self: *const FnProto, comptime name: []const u8) ?TrailerFlags.Field(name) {
             const trailers_start = @alignCast(
                 @alignOf(ParamDecl),
@@ -1381,7 +1385,7 @@ pub const Node = struct {
                 .Invalid => {},
             }
 
-            if (self.getTrailer("body_node")) |body_node| {
+            if (self.body()) |body_node| {
                 if (i < 1) return body_node;
                 i -= 1;
             }
@@ -1397,7 +1401,7 @@ pub const Node = struct {
         }
 
         pub fn lastToken(self: *const FnProto) TokenIndex {
-            if (self.getTrailer("body_node")) |body_node| return body_node.lastToken();
+            if (self.body()) |body_node| return body_node.lastToken();
             switch (self.return_type) {
                 .Explicit, .InferErrorSet => |node| return node.lastToken(),
                 .Invalid => |tok| return tok,

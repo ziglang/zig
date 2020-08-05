@@ -17,6 +17,9 @@ pub const ResultLoc = union(enum) {
     discard,
     /// The expression has an inferred type, and it will be evaluated as an rvalue.
     none,
+    /// The expression must generate a pointer rather than a value. For example, the left hand side
+    /// of an assignment uses an "LValue" result location.
+    lvalue,
     /// The expression will be type coerced into this type, but it will be evaluated as an rvalue.
     ty: *zir.Inst,
     /// The expression must store its result into this typed pointer.
@@ -33,7 +36,7 @@ pub const ResultLoc = union(enum) {
 
 pub fn typeExpr(mod: *Module, scope: *Scope, type_node: *ast.Node) InnerError!*zir.Inst {
     const type_src = scope.tree().token_locs[type_node.firstToken()].start;
-    const type_type = try mod.addZIRInstConst(scope, type_src, .{
+    const type_type = try addZIRInstConst(mod, scope, type_src, .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.type_type),
     });
@@ -46,18 +49,45 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
     switch (node.tag) {
         .VarDecl => unreachable, // Handled in `blockExpr`.
         .Assign => unreachable, // Handled in `blockExpr`.
+        .AssignBitAnd => unreachable, // Handled in `blockExpr`.
+        .AssignBitOr => unreachable, // Handled in `blockExpr`.
+        .AssignBitShiftLeft => unreachable, // Handled in `blockExpr`.
+        .AssignBitShiftRight => unreachable, // Handled in `blockExpr`.
+        .AssignBitXor => unreachable, // Handled in `blockExpr`.
+        .AssignDiv => unreachable, // Handled in `blockExpr`.
+        .AssignSub => unreachable, // Handled in `blockExpr`.
+        .AssignSubWrap => unreachable, // Handled in `blockExpr`.
+        .AssignMod => unreachable, // Handled in `blockExpr`.
+        .AssignAdd => unreachable, // Handled in `blockExpr`.
+        .AssignAddWrap => unreachable, // Handled in `blockExpr`.
+        .AssignMul => unreachable, // Handled in `blockExpr`.
+        .AssignMulWrap => unreachable, // Handled in `blockExpr`.
 
-        .Add => return arithmetic(mod, scope, rl, node.castTag(.Add).?, .add),
-        .Sub => return arithmetic(mod, scope, rl, node.castTag(.Sub).?, .sub),
+        .Add => return simpleBinOp(mod, scope, rl, node.castTag(.Add).?, .add),
+        .AddWrap => return simpleBinOp(mod, scope, rl, node.castTag(.AddWrap).?, .addwrap),
+        .Sub => return simpleBinOp(mod, scope, rl, node.castTag(.Sub).?, .sub),
+        .SubWrap => return simpleBinOp(mod, scope, rl, node.castTag(.SubWrap).?, .subwrap),
+        .Mul => return simpleBinOp(mod, scope, rl, node.castTag(.Mul).?, .mul),
+        .MulWrap => return simpleBinOp(mod, scope, rl, node.castTag(.MulWrap).?, .mulwrap),
+        .Div => return simpleBinOp(mod, scope, rl, node.castTag(.Div).?, .div),
+        .Mod => return simpleBinOp(mod, scope, rl, node.castTag(.Mod).?, .mod_rem),
+        .BitAnd => return simpleBinOp(mod, scope, rl, node.castTag(.BitAnd).?, .bitand),
+        .BitOr => return simpleBinOp(mod, scope, rl, node.castTag(.BitOr).?, .bitor),
+        .BitShiftLeft => return simpleBinOp(mod, scope, rl, node.castTag(.BitShiftLeft).?, .shl),
+        .BitShiftRight => return simpleBinOp(mod, scope, rl, node.castTag(.BitShiftRight).?, .shr),
+        .BitXor => return simpleBinOp(mod, scope, rl, node.castTag(.BitXor).?, .xor),
 
-        .BangEqual => return cmp(mod, scope, rl, node.castTag(.BangEqual).?, .cmp_neq),
-        .EqualEqual => return cmp(mod, scope, rl, node.castTag(.EqualEqual).?, .cmp_eq),
-        .GreaterThan => return cmp(mod, scope, rl, node.castTag(.GreaterThan).?, .cmp_gt),
-        .GreaterOrEqual => return cmp(mod, scope, rl, node.castTag(.GreaterOrEqual).?, .cmp_gte),
-        .LessThan => return cmp(mod, scope, rl, node.castTag(.LessThan).?, .cmp_lt),
-        .LessOrEqual => return cmp(mod, scope, rl, node.castTag(.LessOrEqual).?, .cmp_lte),
+        .BangEqual => return simpleBinOp(mod, scope, rl, node.castTag(.BangEqual).?, .cmp_neq),
+        .EqualEqual => return simpleBinOp(mod, scope, rl, node.castTag(.EqualEqual).?, .cmp_eq),
+        .GreaterThan => return simpleBinOp(mod, scope, rl, node.castTag(.GreaterThan).?, .cmp_gt),
+        .GreaterOrEqual => return simpleBinOp(mod, scope, rl, node.castTag(.GreaterOrEqual).?, .cmp_gte),
+        .LessThan => return simpleBinOp(mod, scope, rl, node.castTag(.LessThan).?, .cmp_lt),
+        .LessOrEqual => return simpleBinOp(mod, scope, rl, node.castTag(.LessOrEqual).?, .cmp_lte),
 
-        .Identifier => return rlWrap(mod, scope, rl, try identifier(mod, scope, node.castTag(.Identifier).?)),
+        .ArrayCat => return simpleBinOp(mod, scope, rl, node.castTag(.ArrayCat).?, .array_cat),
+        .ArrayMult => return simpleBinOp(mod, scope, rl, node.castTag(.ArrayMult).?, .array_mul),
+
+        .Identifier => return try identifier(mod, scope, rl, node.castTag(.Identifier).?),
         .Asm => return rlWrap(mod, scope, rl, try assembly(mod, scope, node.castTag(.Asm).?)),
         .StringLiteral => return rlWrap(mod, scope, rl, try stringLiteral(mod, scope, node.castTag(.StringLiteral).?)),
         .IntegerLiteral => return rlWrap(mod, scope, rl, try integerLiteral(mod, scope, node.castTag(.IntegerLiteral).?)),
@@ -90,6 +120,8 @@ pub fn blockExpr(mod: *Module, parent_scope: *Scope, block_node: *ast.Node.Block
 
     var scope = parent_scope;
     for (block_node.statements()) |statement| {
+        const src = scope.tree().token_locs[statement.firstToken()].start;
+        _ = try addZIRNoOp(mod, scope, src, .dbg_stmt);
         switch (statement.tag) {
             .VarDecl => {
                 const var_decl_node = statement.castTag(.VarDecl).?;
@@ -99,10 +131,25 @@ pub fn blockExpr(mod: *Module, parent_scope: *Scope, block_node: *ast.Node.Block
                 const ass = statement.castTag(.Assign).?;
                 try assign(mod, scope, ass);
             },
+            .AssignBitAnd => try assignOp(mod, scope, statement.castTag(.AssignBitAnd).?, .bitand),
+            .AssignBitOr => try assignOp(mod, scope, statement.castTag(.AssignBitOr).?, .bitor),
+            .AssignBitShiftLeft => try assignOp(mod, scope, statement.castTag(.AssignBitShiftLeft).?, .shl),
+            .AssignBitShiftRight => try assignOp(mod, scope, statement.castTag(.AssignBitShiftRight).?, .shr),
+            .AssignBitXor => try assignOp(mod, scope, statement.castTag(.AssignBitXor).?, .xor),
+            .AssignDiv => try assignOp(mod, scope, statement.castTag(.AssignDiv).?, .div),
+            .AssignSub => try assignOp(mod, scope, statement.castTag(.AssignSub).?, .sub),
+            .AssignSubWrap => try assignOp(mod, scope, statement.castTag(.AssignSubWrap).?, .subwrap),
+            .AssignMod => try assignOp(mod, scope, statement.castTag(.AssignMod).?, .mod_rem),
+            .AssignAdd => try assignOp(mod, scope, statement.castTag(.AssignAdd).?, .add),
+            .AssignAddWrap => try assignOp(mod, scope, statement.castTag(.AssignAddWrap).?, .addwrap),
+            .AssignMul => try assignOp(mod, scope, statement.castTag(.AssignMul).?, .mul),
+            .AssignMulWrap => try assignOp(mod, scope, statement.castTag(.AssignMulWrap).?, .mulwrap),
+
             else => {
                 const possibly_unused_result = try expr(mod, scope, .none, statement);
-                const src = scope.tree().token_locs[statement.firstToken()].start;
-                _ = try mod.addZIRUnOp(scope, src, .ensure_result_used, possibly_unused_result);
+                if (!possibly_unused_result.tag.isNoReturn()) {
+                    _ = try addZIRUnOp(mod, scope, src, .ensure_result_used, possibly_unused_result);
+                }
             },
         }
     }
@@ -133,7 +180,7 @@ fn varDecl(
             if (nodeMayNeedMemoryLocation(init_node)) {
                 if (node.getTrailer("type_node")) |type_node| {
                     const type_inst = try typeExpr(mod, scope, type_node);
-                    const alloc = try mod.addZIRUnOp(scope, name_src, .alloc, type_inst);
+                    const alloc = try addZIRUnOp(mod, scope, name_src, .alloc, type_inst);
                     const result_loc: ResultLoc = .{ .ptr = alloc };
                     const init_inst = try expr(mod, scope, result_loc, init_node);
                     const sub_scope = try block_arena.create(Scope.LocalVal);
@@ -145,7 +192,7 @@ fn varDecl(
                     };
                     return &sub_scope.base;
                 } else {
-                    const alloc = try mod.addZIRNoOpT(scope, name_src, .alloc_inferred);
+                    const alloc = try addZIRNoOpT(mod, scope, name_src, .alloc_inferred);
                     const result_loc: ResultLoc = .{ .inferred_ptr = alloc };
                     const init_inst = try expr(mod, scope, result_loc, init_node);
                     const sub_scope = try block_arena.create(Scope.LocalVal);
@@ -176,7 +223,7 @@ fn varDecl(
         .Keyword_var => {
             if (node.getTrailer("type_node")) |type_node| {
                 const type_inst = try typeExpr(mod, scope, type_node);
-                const alloc = try mod.addZIRUnOp(scope, name_src, .alloc, type_inst);
+                const alloc = try addZIRUnOp(mod, scope, name_src, .alloc, type_inst);
                 const result_loc: ResultLoc = .{ .ptr = alloc };
                 const init_inst = try expr(mod, scope, result_loc, init_node);
                 const sub_scope = try block_arena.create(Scope.LocalPtr);
@@ -188,7 +235,7 @@ fn varDecl(
                 };
                 return &sub_scope.base;
             } else {
-                const alloc = try mod.addZIRNoOp(scope, name_src, .alloc_inferred);
+                const alloc = try addZIRNoOp(mod, scope, name_src, .alloc_inferred);
                 const result_loc = .{ .inferred_ptr = alloc.castTag(.alloc_inferred).? };
                 const init_inst = try expr(mod, scope, result_loc, init_node);
                 const sub_scope = try block_arena.create(Scope.LocalPtr);
@@ -207,28 +254,44 @@ fn varDecl(
 
 fn assign(mod: *Module, scope: *Scope, infix_node: *ast.Node.SimpleInfixOp) InnerError!void {
     if (infix_node.lhs.castTag(.Identifier)) |ident| {
-        const tree = scope.tree();
-        const ident_name = try identifierTokenString(mod, scope, ident.token);
+        // This intentionally does not support @"_" syntax.
+        const ident_name = scope.tree().tokenSlice(ident.token);
         if (std.mem.eql(u8, ident_name, "_")) {
             _ = try expr(mod, scope, .discard, infix_node.rhs);
             return;
-        } else {
-            return mod.failNode(scope, &infix_node.base, "TODO implement infix operator assign", .{});
         }
-    } else {
-        return mod.failNode(scope, &infix_node.base, "TODO implement infix operator assign", .{});
     }
+    const lvalue = try expr(mod, scope, .lvalue, infix_node.lhs);
+    _ = try expr(mod, scope, .{ .ptr = lvalue }, infix_node.rhs);
+}
+
+fn assignOp(
+    mod: *Module,
+    scope: *Scope,
+    infix_node: *ast.Node.SimpleInfixOp,
+    op_inst_tag: zir.Inst.Tag,
+) InnerError!void {
+    const lhs_ptr = try expr(mod, scope, .lvalue, infix_node.lhs);
+    const lhs = try addZIRUnOp(mod, scope, lhs_ptr.src, .deref, lhs_ptr);
+    const lhs_type = try addZIRUnOp(mod, scope, lhs_ptr.src, .typeof, lhs);
+    const rhs = try expr(mod, scope, .{ .ty = lhs_type }, infix_node.rhs);
+
+    const tree = scope.tree();
+    const src = tree.token_locs[infix_node.op_token].start;
+
+    const result = try addZIRBinOp(mod, scope, src, op_inst_tag, lhs, rhs);
+    _ = try addZIRBinOp(mod, scope, src, .store, lhs_ptr, result);
 }
 
 fn boolNot(mod: *Module, scope: *Scope, node: *ast.Node.SimplePrefixOp) InnerError!*zir.Inst {
     const tree = scope.tree();
     const src = tree.token_locs[node.op_token].start;
-    const bool_type = try mod.addZIRInstConst(scope, src, .{
+    const bool_type = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.bool_type),
     });
     const operand = try expr(mod, scope, .{ .ty = bool_type }, node.rhs);
-    return mod.addZIRUnOp(scope, src, .boolnot, operand);
+    return addZIRUnOp(mod, scope, src, .boolnot, operand);
 }
 
 /// Identifier token -> String (allocated in scope.arena())
@@ -257,7 +320,7 @@ pub fn identifierStringInst(mod: *Module, scope: *Scope, node: *ast.Node.OneToke
 
     const ident_name = try identifierTokenString(mod, scope, node.token);
 
-    return mod.addZIRInst(scope, src, zir.Inst.Str, .{ .bytes = ident_name }, .{});
+    return addZIRInst(mod, scope, src, zir.Inst.Str, .{ .bytes = ident_name }, .{});
 }
 
 fn field(mod: *Module, scope: *Scope, node: *ast.Node.SimpleInfixOp) InnerError!*zir.Inst {
@@ -268,47 +331,31 @@ fn field(mod: *Module, scope: *Scope, node: *ast.Node.SimpleInfixOp) InnerError!
     const lhs = try expr(mod, scope, .none, node.lhs);
     const field_name = try identifierStringInst(mod, scope, node.rhs.castTag(.Identifier).?);
 
-    const pointer = try mod.addZIRInst(scope, src, zir.Inst.FieldPtr, .{ .object_ptr = lhs, .field_name = field_name }, .{});
-    return mod.addZIRUnOp(scope, src, .deref, pointer);
+    const pointer = try addZIRInst(mod, scope, src, zir.Inst.FieldPtr, .{ .object_ptr = lhs, .field_name = field_name }, .{});
+    return addZIRUnOp(mod, scope, src, .deref, pointer);
 }
 
 fn deref(mod: *Module, scope: *Scope, node: *ast.Node.SimpleSuffixOp) InnerError!*zir.Inst {
     const tree = scope.tree();
     const src = tree.token_locs[node.rtoken].start;
     const lhs = try expr(mod, scope, .none, node.lhs);
-    return mod.addZIRUnOp(scope, src, .deref, lhs);
+    return addZIRUnOp(mod, scope, src, .deref, lhs);
 }
 
-fn cmp(
-    mod: *Module,
-    scope: *Scope,
-    rl: ResultLoc,
-    infix_node: *ast.Node.SimpleInfixOp,
-    cmp_inst_tag: zir.Inst.Tag,
-) InnerError!*zir.Inst {
-    const tree = scope.tree();
-    const src = tree.token_locs[infix_node.op_token].start;
-
-    const lhs = try expr(mod, scope, .none, infix_node.lhs);
-    const rhs = try expr(mod, scope, .none, infix_node.rhs);
-    const result = try mod.addZIRBinOp(scope, src, cmp_inst_tag, lhs, rhs);
-    return rlWrap(mod, scope, rl, result);
-}
-
-fn arithmetic(
+fn simpleBinOp(
     mod: *Module,
     scope: *Scope,
     rl: ResultLoc,
     infix_node: *ast.Node.SimpleInfixOp,
     op_inst_tag: zir.Inst.Tag,
 ) InnerError!*zir.Inst {
-    const lhs = try expr(mod, scope, .none, infix_node.lhs);
-    const rhs = try expr(mod, scope, .none, infix_node.rhs);
-
     const tree = scope.tree();
     const src = tree.token_locs[infix_node.op_token].start;
 
-    const result = try mod.addZIRBinOp(scope, src, op_inst_tag, lhs, rhs);
+    const lhs = try expr(mod, scope, .none, infix_node.lhs);
+    const rhs = try expr(mod, scope, .none, infix_node.rhs);
+
+    const result = try addZIRBinOp(mod, scope, src, op_inst_tag, lhs, rhs);
     return rlWrap(mod, scope, rl, result);
 }
 
@@ -331,19 +378,19 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
 
     const tree = scope.tree();
     const if_src = tree.token_locs[if_node.if_token].start;
-    const bool_type = try mod.addZIRInstConst(scope, if_src, .{
+    const bool_type = try addZIRInstConst(mod, scope, if_src, .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.bool_type),
     });
     const cond = try expr(mod, &block_scope.base, .{ .ty = bool_type }, if_node.condition);
 
-    const condbr = try mod.addZIRInstSpecial(&block_scope.base, if_src, zir.Inst.CondBr, .{
+    const condbr = try addZIRInstSpecial(mod, &block_scope.base, if_src, zir.Inst.CondBr, .{
         .condition = cond,
         .then_body = undefined, // populated below
         .else_body = undefined, // populated below
     }, .{});
 
-    const block = try mod.addZIRInstBlock(scope, if_src, .{
+    const block = try addZIRInstBlock(mod, scope, if_src, .{
         .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
     });
     var then_scope: Scope.GenZIR = .{
@@ -359,14 +406,14 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
     // proper type inference requires peer type resolution on the if's
     // branches.
     const branch_rl: ResultLoc = switch (rl) {
-        .discard, .none, .ty, .ptr => rl,
+        .discard, .none, .ty, .ptr, .lvalue => rl,
         .inferred_ptr, .bitcasted_ptr, .block_ptr => .{ .block_ptr = block },
     };
 
     const then_result = try expr(mod, &then_scope.base, branch_rl, if_node.body);
     if (!then_result.tag.isNoReturn()) {
         const then_src = tree.token_locs[if_node.body.lastToken()].start;
-        _ = try mod.addZIRInst(&then_scope.base, then_src, zir.Inst.Break, .{
+        _ = try addZIRInst(mod, &then_scope.base, then_src, zir.Inst.Break, .{
             .block = block,
             .operand = then_result,
         }, .{});
@@ -387,7 +434,7 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
         const else_result = try expr(mod, &else_scope.base, branch_rl, else_node.body);
         if (!else_result.tag.isNoReturn()) {
             const else_src = tree.token_locs[else_node.body.lastToken()].start;
-            _ = try mod.addZIRInst(&else_scope.base, else_src, zir.Inst.Break, .{
+            _ = try addZIRInst(mod, &else_scope.base, else_src, zir.Inst.Break, .{
                 .block = block,
                 .operand = else_result,
             }, .{});
@@ -396,7 +443,7 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
         // TODO Optimization opportunity: we can avoid an allocation and a memcpy here
         // by directly allocating the body for this one instruction.
         const else_src = tree.token_locs[if_node.lastToken()].start;
-        _ = try mod.addZIRInst(&else_scope.base, else_src, zir.Inst.BreakVoid, .{
+        _ = try addZIRInst(mod, &else_scope.base, else_src, zir.Inst.BreakVoid, .{
             .block = block,
         }, .{});
     }
@@ -412,20 +459,20 @@ fn ret(mod: *Module, scope: *Scope, cfe: *ast.Node.ControlFlowExpression) InnerE
     const src = tree.token_locs[cfe.ltoken].start;
     if (cfe.getRHS()) |rhs_node| {
         if (nodeMayNeedMemoryLocation(rhs_node)) {
-            const ret_ptr = try mod.addZIRNoOp(scope, src, .ret_ptr);
+            const ret_ptr = try addZIRNoOp(mod, scope, src, .ret_ptr);
             const operand = try expr(mod, scope, .{ .ptr = ret_ptr }, rhs_node);
-            return mod.addZIRUnOp(scope, src, .@"return", operand);
+            return addZIRUnOp(mod, scope, src, .@"return", operand);
         } else {
-            const fn_ret_ty = try mod.addZIRNoOp(scope, src, .ret_type);
+            const fn_ret_ty = try addZIRNoOp(mod, scope, src, .ret_type);
             const operand = try expr(mod, scope, .{ .ty = fn_ret_ty }, rhs_node);
-            return mod.addZIRUnOp(scope, src, .@"return", operand);
+            return addZIRUnOp(mod, scope, src, .@"return", operand);
         }
     } else {
-        return mod.addZIRNoOp(scope, src, .returnvoid);
+        return addZIRNoOp(mod, scope, src, .returnvoid);
     }
 }
 
-fn identifier(mod: *Module, scope: *Scope, ident: *ast.Node.OneToken) InnerError!*zir.Inst {
+fn identifier(mod: *Module, scope: *Scope, rl: ResultLoc, ident: *ast.Node.OneToken) InnerError!*zir.Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -437,7 +484,8 @@ fn identifier(mod: *Module, scope: *Scope, ident: *ast.Node.OneToken) InnerError
     }
 
     if (getSimplePrimitiveValue(ident_name)) |typed_value| {
-        return mod.addZIRInstConst(scope, src, typed_value);
+        const result = try addZIRInstConst(mod, scope, src, typed_value);
+        return rlWrap(mod, scope, rl, result);
     }
 
     if (ident_name.len >= 2) integer: {
@@ -461,16 +509,18 @@ fn identifier(mod: *Module, scope: *Scope, ident: *ast.Node.OneToken) InnerError
                 else => {
                     const int_type_payload = try scope.arena().create(Value.Payload.IntType);
                     int_type_payload.* = .{ .signed = is_signed, .bits = bit_count };
-                    return mod.addZIRInstConst(scope, src, .{
+                    const result = try addZIRInstConst(mod, scope, src, .{
                         .ty = Type.initTag(.comptime_int),
                         .val = Value.initPayload(&int_type_payload.base),
                     });
+                    return rlWrap(mod, scope, rl, result);
                 },
             };
-            return mod.addZIRInstConst(scope, src, .{
+            const result = try addZIRInstConst(mod, scope, src, .{
                 .ty = Type.initTag(.type),
                 .val = val,
             });
+            return rlWrap(mod, scope, rl, result);
         }
     }
 
@@ -481,14 +531,19 @@ fn identifier(mod: *Module, scope: *Scope, ident: *ast.Node.OneToken) InnerError
             .local_val => {
                 const local_val = s.cast(Scope.LocalVal).?;
                 if (mem.eql(u8, local_val.name, ident_name)) {
-                    return local_val.inst;
+                    return rlWrap(mod, scope, rl, local_val.inst);
                 }
                 s = local_val.parent;
             },
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
                 if (mem.eql(u8, local_ptr.name, ident_name)) {
-                    return try mod.addZIRUnOp(scope, src, .deref, local_ptr.ptr);
+                    if (rl == .lvalue) {
+                        return local_ptr.ptr;
+                    } else {
+                        const result = try addZIRUnOp(mod, scope, src, .deref, local_ptr.ptr);
+                        return rlWrap(mod, scope, rl, result);
+                    }
                 }
                 s = local_ptr.parent;
             },
@@ -498,7 +553,9 @@ fn identifier(mod: *Module, scope: *Scope, ident: *ast.Node.OneToken) InnerError
     }
 
     if (mod.lookupDeclName(scope, ident_name)) |decl| {
-        return try mod.addZIRInst(scope, src, zir.Inst.DeclValInModule, .{ .decl = decl }, .{});
+        // TODO handle lvalues
+        const result = try addZIRInst(mod, scope, src, zir.Inst.DeclValInModule, .{ .decl = decl }, .{});
+        return rlWrap(mod, scope, rl, result);
     }
 
     return mod.failNode(scope, &ident.base, "use of undeclared identifier '{}'", .{ident_name});
@@ -520,7 +577,7 @@ fn stringLiteral(mod: *Module, scope: *Scope, str_lit: *ast.Node.OneToken) Inner
     };
 
     const src = tree.token_locs[str_lit.token].start;
-    return mod.addZIRInst(scope, src, zir.Inst.Str, .{ .bytes = bytes }, .{});
+    return addZIRInst(mod, scope, src, zir.Inst.Str, .{ .bytes = bytes }, .{});
 }
 
 fn integerLiteral(mod: *Module, scope: *Scope, int_lit: *ast.Node.OneToken) InnerError!*zir.Inst {
@@ -545,7 +602,7 @@ fn integerLiteral(mod: *Module, scope: *Scope, int_lit: *ast.Node.OneToken) Inne
         const int_payload = try arena.create(Value.Payload.Int_u64);
         int_payload.* = .{ .int = small_int };
         const src = tree.token_locs[int_lit.token].start;
-        return mod.addZIRInstConst(scope, src, .{
+        return addZIRInstConst(mod, scope, src, .{
             .ty = Type.initTag(.comptime_int),
             .val = Value.initPayload(&int_payload.base),
         });
@@ -568,7 +625,7 @@ fn floatLiteral(mod: *Module, scope: *Scope, float_lit: *ast.Node.OneToken) Inne
     const float_payload = try arena.create(Value.Payload.Float_128);
     float_payload.* = .{ .val = val };
     const src = tree.token_locs[float_lit.token].start;
-    return mod.addZIRInstConst(scope, src, .{
+    return addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.comptime_float),
         .val = Value.initPayload(&float_payload.base),
     });
@@ -578,7 +635,7 @@ fn undefLiteral(mod: *Module, scope: *Scope, node: *ast.Node.OneToken) InnerErro
     const arena = scope.arena();
     const tree = scope.tree();
     const src = tree.token_locs[node.token].start;
-    return mod.addZIRInstConst(scope, src, .{
+    return addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.@"undefined"),
         .val = Value.initTag(.undef),
     });
@@ -588,7 +645,7 @@ fn boolLiteral(mod: *Module, scope: *Scope, node: *ast.Node.OneToken) InnerError
     const arena = scope.arena();
     const tree = scope.tree();
     const src = tree.token_locs[node.token].start;
-    return mod.addZIRInstConst(scope, src, .{
+    return addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.bool),
         .val = switch (tree.token_ids[node.token]) {
             .Keyword_true => Value.initTag(.bool_true),
@@ -602,7 +659,7 @@ fn nullLiteral(mod: *Module, scope: *Scope, node: *ast.Node.OneToken) InnerError
     const arena = scope.arena();
     const tree = scope.tree();
     const src = tree.token_locs[node.token].start;
-    return mod.addZIRInstConst(scope, src, .{
+    return addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.@"null"),
         .val = Value.initTag(.null_value),
     });
@@ -620,7 +677,7 @@ fn assembly(mod: *Module, scope: *Scope, asm_node: *ast.Node.Asm) InnerError!*zi
 
     const src = tree.token_locs[asm_node.asm_token].start;
 
-    const str_type = try mod.addZIRInstConst(scope, src, .{
+    const str_type = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.const_slice_u8_type),
     });
@@ -632,11 +689,11 @@ fn assembly(mod: *Module, scope: *Scope, asm_node: *ast.Node.Asm) InnerError!*zi
         args[i] = try expr(mod, scope, .none, input.expr);
     }
 
-    const return_type = try mod.addZIRInstConst(scope, src, .{
+    const return_type = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.void_type),
     });
-    const asm_inst = try mod.addZIRInst(scope, src, zir.Inst.Asm, .{
+    const asm_inst = try addZIRInst(mod, scope, src, zir.Inst.Asm, .{
         .asm_source = try expr(mod, scope, str_type_rl, asm_node.template),
         .return_type = return_type,
     }, .{
@@ -666,14 +723,14 @@ fn simpleCast(
     try ensureBuiltinParamCount(mod, scope, call, 2);
     const tree = scope.tree();
     const src = tree.token_locs[call.builtin_token].start;
-    const type_type = try mod.addZIRInstConst(scope, src, .{
+    const type_type = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.type_type),
     });
     const params = call.params();
     const dest_type = try expr(mod, scope, .{ .ty = type_type }, params[0]);
     const rhs = try expr(mod, scope, .none, params[1]);
-    const result = try mod.addZIRBinOp(scope, src, inst_tag, dest_type, rhs);
+    const result = try addZIRBinOp(mod, scope, src, inst_tag, dest_type, rhs);
     return rlWrap(mod, scope, rl, result);
 }
 
@@ -682,7 +739,7 @@ fn ptrToInt(mod: *Module, scope: *Scope, call: *ast.Node.BuiltinCall) InnerError
     const operand = try expr(mod, scope, .none, call.params()[0]);
     const tree = scope.tree();
     const src = tree.token_locs[call.builtin_token].start;
-    return mod.addZIRUnOp(scope, src, .ptrtoint, operand);
+    return addZIRUnOp(mod, scope, src, .ptrtoint, operand);
 }
 
 fn as(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCall) InnerError!*zir.Inst {
@@ -695,15 +752,19 @@ fn as(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCall) I
         .none => return try expr(mod, scope, .{ .ty = dest_type }, params[1]),
         .discard => {
             const result = try expr(mod, scope, .{ .ty = dest_type }, params[1]);
-            _ = try mod.addZIRUnOp(scope, result.src, .ensure_result_non_error, result);
+            _ = try addZIRUnOp(mod, scope, result.src, .ensure_result_non_error, result);
             return result;
+        },
+        .lvalue => {
+            const result = try expr(mod, scope, .{ .ty = dest_type }, params[1]);
+            return addZIRUnOp(mod, scope, result.src, .ref, result);
         },
         .ty => |result_ty| {
             const result = try expr(mod, scope, .{ .ty = dest_type }, params[1]);
-            return mod.addZIRBinOp(scope, src, .as, result_ty, result);
+            return addZIRBinOp(mod, scope, src, .as, result_ty, result);
         },
         .ptr => |result_ptr| {
-            const casted_result_ptr = try mod.addZIRBinOp(scope, src, .coerce_result_ptr, dest_type, result_ptr);
+            const casted_result_ptr = try addZIRBinOp(mod, scope, src, .coerce_result_ptr, dest_type, result_ptr);
             return expr(mod, scope, .{ .ptr = casted_result_ptr }, params[1]);
         },
         .bitcasted_ptr => |bitcasted_ptr| {
@@ -715,7 +776,7 @@ fn as(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCall) I
             return mod.failTok(scope, call.builtin_token, "TODO implement @as with inferred-type result location pointer", .{});
         },
         .block_ptr => |block_ptr| {
-            const casted_block_ptr = try mod.addZIRInst(scope, src, zir.Inst.CoerceResultBlockPtr, .{
+            const casted_block_ptr = try addZIRInst(mod, scope, src, zir.Inst.CoerceResultBlockPtr, .{
                 .dest_type = dest_type,
                 .block = block_ptr,
             }, .{});
@@ -728,7 +789,7 @@ fn bitCast(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCa
     try ensureBuiltinParamCount(mod, scope, call, 2);
     const tree = scope.tree();
     const src = tree.token_locs[call.builtin_token].start;
-    const type_type = try mod.addZIRInstConst(scope, src, .{
+    const type_type = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.type_type),
     });
@@ -737,21 +798,26 @@ fn bitCast(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCa
     switch (rl) {
         .none => {
             const operand = try expr(mod, scope, .none, params[1]);
-            return mod.addZIRBinOp(scope, src, .bitcast, dest_type, operand);
+            return addZIRBinOp(mod, scope, src, .bitcast, dest_type, operand);
         },
         .discard => {
             const operand = try expr(mod, scope, .none, params[1]);
-            const result = try mod.addZIRBinOp(scope, src, .bitcast, dest_type, operand);
-            _ = try mod.addZIRUnOp(scope, result.src, .ensure_result_non_error, result);
+            const result = try addZIRBinOp(mod, scope, src, .bitcast, dest_type, operand);
+            _ = try addZIRUnOp(mod, scope, result.src, .ensure_result_non_error, result);
+            return result;
+        },
+        .lvalue => {
+            const operand = try expr(mod, scope, .lvalue, params[1]);
+            const result = try addZIRBinOp(mod, scope, src, .bitcast_lvalue, dest_type, operand);
             return result;
         },
         .ty => |result_ty| {
             const result = try expr(mod, scope, .none, params[1]);
-            const bitcasted = try mod.addZIRBinOp(scope, src, .bitcast, dest_type, result);
-            return mod.addZIRBinOp(scope, src, .as, result_ty, bitcasted);
+            const bitcasted = try addZIRBinOp(mod, scope, src, .bitcast, dest_type, result);
+            return addZIRBinOp(mod, scope, src, .as, result_ty, bitcasted);
         },
         .ptr => |result_ptr| {
-            const casted_result_ptr = try mod.addZIRUnOp(scope, src, .bitcast_result_ptr, result_ptr);
+            const casted_result_ptr = try addZIRUnOp(mod, scope, src, .bitcast_result_ptr, result_ptr);
             return expr(mod, scope, .{ .bitcasted_ptr = casted_result_ptr.castTag(.bitcast_result_ptr).? }, params[1]);
         },
         .bitcasted_ptr => |bitcasted_ptr| {
@@ -799,7 +865,7 @@ fn callExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Call) In
     const args = try scope.getGenZIR().arena.alloc(*zir.Inst, param_nodes.len);
     for (param_nodes) |param_node, i| {
         const param_src = tree.token_locs[param_node.firstToken()].start;
-        const param_type = try mod.addZIRInst(scope, param_src, zir.Inst.ParamType, .{
+        const param_type = try addZIRInst(mod, scope, param_src, zir.Inst.ParamType, .{
             .func = lhs,
             .arg_index = i,
         }, .{});
@@ -807,7 +873,7 @@ fn callExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Call) In
     }
 
     const src = tree.token_locs[node.lhs.firstToken()].start;
-    const result = try mod.addZIRInst(scope, src, zir.Inst.Call, .{
+    const result = try addZIRInst(mod, scope, src, zir.Inst.Call, .{
         .func = lhs,
         .args = args,
     }, .{});
@@ -818,7 +884,7 @@ fn callExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Call) In
 fn unreach(mod: *Module, scope: *Scope, unreach_node: *ast.Node.OneToken) InnerError!*zir.Inst {
     const tree = scope.tree();
     const src = tree.token_locs[unreach_node.token].start;
-    return mod.addZIRNoOp(scope, src, .@"unreachable");
+    return addZIRNoOp(mod, scope, src, .@"unreachable");
 }
 
 fn getSimplePrimitiveValue(name: []const u8) ?TypedValue {
@@ -1000,19 +1066,20 @@ fn rlWrap(mod: *Module, scope: *Scope, rl: ResultLoc, result: *zir.Inst) InnerEr
         .none => return result,
         .discard => {
             // Emit a compile error for discarding error values.
-            _ = try mod.addZIRUnOp(scope, result.src, .ensure_result_non_error, result);
+            _ = try addZIRUnOp(mod, scope, result.src, .ensure_result_non_error, result);
             return result;
         },
-        .ty => |ty_inst| return mod.addZIRBinOp(scope, result.src, .as, ty_inst, result),
+        .lvalue => {
+            // We need a pointer but we have a value.
+            return addZIRUnOp(mod, scope, result.src, .ref, result);
+        },
+        .ty => |ty_inst| return addZIRBinOp(mod, scope, result.src, .as, ty_inst, result),
         .ptr => |ptr_inst| {
-            const casted_result = try mod.addZIRInst(scope, result.src, zir.Inst.CoerceToPtrElem, .{
+            const casted_result = try addZIRInst(mod, scope, result.src, zir.Inst.CoerceToPtrElem, .{
                 .ptr = ptr_inst,
                 .value = result,
             }, .{});
-            _ = try mod.addZIRInst(scope, result.src, zir.Inst.Store, .{
-                .ptr = ptr_inst,
-                .value = casted_result,
-            }, .{});
+            _ = try addZIRBinOp(mod, scope, result.src, .store, ptr_inst, casted_result);
             return casted_result;
         },
         .bitcasted_ptr => |bitcasted_ptr| {
@@ -1025,4 +1092,122 @@ fn rlWrap(mod: *Module, scope: *Scope, rl: ResultLoc, result: *zir.Inst) InnerEr
             return mod.fail(scope, result.src, "TODO implement rlWrap .block_ptr", .{});
         },
     }
+}
+
+pub fn addZIRInstSpecial(
+    mod: *Module,
+    scope: *Scope,
+    src: usize,
+    comptime T: type,
+    positionals: std.meta.fieldInfo(T, "positionals").field_type,
+    kw_args: std.meta.fieldInfo(T, "kw_args").field_type,
+) !*T {
+    const gen_zir = scope.getGenZIR();
+    try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
+    const inst = try gen_zir.arena.create(T);
+    inst.* = .{
+        .base = .{
+            .tag = T.base_tag,
+            .src = src,
+        },
+        .positionals = positionals,
+        .kw_args = kw_args,
+    };
+    gen_zir.instructions.appendAssumeCapacity(&inst.base);
+    return inst;
+}
+
+pub fn addZIRNoOpT(mod: *Module, scope: *Scope, src: usize, tag: zir.Inst.Tag) !*zir.Inst.NoOp {
+    const gen_zir = scope.getGenZIR();
+    try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
+    const inst = try gen_zir.arena.create(zir.Inst.NoOp);
+    inst.* = .{
+        .base = .{
+            .tag = tag,
+            .src = src,
+        },
+        .positionals = .{},
+        .kw_args = .{},
+    };
+    gen_zir.instructions.appendAssumeCapacity(&inst.base);
+    return inst;
+}
+
+pub fn addZIRNoOp(mod: *Module, scope: *Scope, src: usize, tag: zir.Inst.Tag) !*zir.Inst {
+    const inst = try addZIRNoOpT(mod, scope, src, tag);
+    return &inst.base;
+}
+
+pub fn addZIRUnOp(
+    mod: *Module,
+    scope: *Scope,
+    src: usize,
+    tag: zir.Inst.Tag,
+    operand: *zir.Inst,
+) !*zir.Inst {
+    const gen_zir = scope.getGenZIR();
+    try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
+    const inst = try gen_zir.arena.create(zir.Inst.UnOp);
+    inst.* = .{
+        .base = .{
+            .tag = tag,
+            .src = src,
+        },
+        .positionals = .{
+            .operand = operand,
+        },
+        .kw_args = .{},
+    };
+    gen_zir.instructions.appendAssumeCapacity(&inst.base);
+    return &inst.base;
+}
+
+pub fn addZIRBinOp(
+    mod: *Module,
+    scope: *Scope,
+    src: usize,
+    tag: zir.Inst.Tag,
+    lhs: *zir.Inst,
+    rhs: *zir.Inst,
+) !*zir.Inst {
+    const gen_zir = scope.getGenZIR();
+    try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
+    const inst = try gen_zir.arena.create(zir.Inst.BinOp);
+    inst.* = .{
+        .base = .{
+            .tag = tag,
+            .src = src,
+        },
+        .positionals = .{
+            .lhs = lhs,
+            .rhs = rhs,
+        },
+        .kw_args = .{},
+    };
+    gen_zir.instructions.appendAssumeCapacity(&inst.base);
+    return &inst.base;
+}
+
+pub fn addZIRInst(
+    mod: *Module,
+    scope: *Scope,
+    src: usize,
+    comptime T: type,
+    positionals: std.meta.fieldInfo(T, "positionals").field_type,
+    kw_args: std.meta.fieldInfo(T, "kw_args").field_type,
+) !*zir.Inst {
+    const inst_special = try addZIRInstSpecial(mod, scope, src, T, positionals, kw_args);
+    return &inst_special.base;
+}
+
+/// TODO The existence of this function is a workaround for a bug in stage1.
+pub fn addZIRInstConst(mod: *Module, scope: *Scope, src: usize, typed_value: TypedValue) !*zir.Inst {
+    const P = std.meta.fieldInfo(zir.Inst.Const, "positionals").field_type;
+    return addZIRInst(mod, scope, src, zir.Inst.Const, P{ .typed_value = typed_value }, .{});
+}
+
+/// TODO The existence of this function is a workaround for a bug in stage1.
+pub fn addZIRInstBlock(mod: *Module, scope: *Scope, src: usize, body: zir.Module.Body) !*zir.Inst.Block {
+    const P = std.meta.fieldInfo(zir.Inst.Block, "positionals").field_type;
+    return addZIRInstSpecial(mod, scope, src, zir.Inst.Block, P{ .body = body }, .{});
 }

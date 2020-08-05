@@ -1490,6 +1490,20 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, ZigV
 }
 
 ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
+    Error err;
+    // Hot path for simple identifiers, to avoid unnecessary memory allocations.
+    if (node->type == NodeTypeSymbol) {
+        Buf *variable_name = node->data.symbol_expr.symbol;
+        if (buf_eql_str(variable_name, "_"))
+            goto abort_hot_path;
+        ZigType *primitive_type;
+        if ((err = get_primitive_type(g, variable_name, &primitive_type))) {
+            goto abort_hot_path;
+        } else {
+            return primitive_type;
+        }
+abort_hot_path:;
+    }
     ZigValue *result = analyze_const_value(g, scope, node, g->builtin_types.entry_type,
             nullptr, UndefBad);
     if (type_is_invalid(result->type))

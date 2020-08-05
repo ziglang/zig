@@ -429,3 +429,71 @@ test "std.meta.trait.hasFunctions" {
     testing.expect(!hasFunctions(TestStruct2, .{ "a", "b", "c" }));
     testing.expect(!hasFunctions(TestStruct2, tuple));
 }
+
+/// True if every value of the type `T` has a unique bit pattern representing it.
+/// In other words, `T` has no unused bits and no padding.
+pub fn hasUniqueRepresentation(comptime T: type) bool {
+    switch (@typeInfo(T)) {
+        else => return false, // TODO can we know if it's true for some of these types ?
+
+        .AnyFrame,
+        .Bool,
+        .BoundFn,
+        .Enum,
+        .ErrorSet,
+        .Fn,
+        .Int, // TODO check that it is still true
+        .Pointer,
+        => return true,
+
+        .Array => |info| return comptime hasUniqueRepresentation(info.child),
+
+        .Struct => |info| {
+            var sum_size = @as(usize, 0);
+
+            inline for (info.fields) |field| {
+                const FieldType = field.field_type;
+                if (comptime !hasUniqueRepresentation(FieldType)) return false;
+                sum_size += @sizeOf(FieldType);
+            }
+
+            return @sizeOf(T) == sum_size;
+        },
+
+        .Vector => |info| return comptime hasUniqueRepresentation(info.child),
+    }
+}
+
+test "std.meta.trait.hasUniqueRepresentation" {
+    const TestStruct1 = struct {
+        a: u32,
+        b: u32,
+    };
+
+    testing.expect(hasUniqueRepresentation(TestStruct1));
+
+    const TestStruct2 = struct {
+        a: u32,
+        b: u16,
+    };
+
+    testing.expect(!hasUniqueRepresentation(TestStruct2));
+
+    const TestStruct3 = struct {
+        a: u32,
+        b: u32,
+    };
+
+    testing.expect(hasUniqueRepresentation(TestStruct3));
+
+    testing.expect(hasUniqueRepresentation(i1));
+    testing.expect(hasUniqueRepresentation(u2));
+    testing.expect(hasUniqueRepresentation(i3));
+    testing.expect(hasUniqueRepresentation(u4));
+    testing.expect(hasUniqueRepresentation(i5));
+    testing.expect(hasUniqueRepresentation(u6));
+    testing.expect(hasUniqueRepresentation(i7));
+    testing.expect(hasUniqueRepresentation(u8));
+    testing.expect(hasUniqueRepresentation(i9));
+    testing.expect(hasUniqueRepresentation(u10));
+}

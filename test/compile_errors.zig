@@ -2,6 +2,32 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("@alignCast of zero sized types",
+        \\export fn foo() void {
+        \\    const a: *void = undefined;
+        \\    _ = @alignCast(2, a);
+        \\}
+        \\export fn bar() void {
+        \\    const a: ?*void = undefined;
+        \\    _ = @alignCast(2, a);
+        \\}
+        \\export fn baz() void {
+        \\    const a: []void = undefined;
+        \\    _ = @alignCast(2, a);
+        \\}
+        \\export fn qux() void {
+        \\    const a = struct {
+        \\        fn a(comptime b: u32) void {}
+        \\    }.a;
+        \\    _ = @alignCast(2, a);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:23: error: cannot adjust alignment of zero sized type '*void'",
+        "tmp.zig:7:23: error: cannot adjust alignment of zero sized type '?*void'",
+        "tmp.zig:11:23: error: cannot adjust alignment of zero sized type '[]void'",
+        "tmp.zig:17:23: error: cannot adjust alignment of zero sized type 'fn(u32) anytype'",
+    });
+
     cases.addTest("invalid pointer with @Type",
         \\export fn entry() void {
         \\    _ = @Type(.{ .Pointer = .{
@@ -16,6 +42,28 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:16: error: sentinels are only allowed on slices and unknown-length pointers",
+    });
+
+    cases.addTest("helpful return type error message",
+        \\export fn foo() u32 {
+        \\    return error.Ohno;
+        \\}
+        \\fn bar() !u32 {
+        \\    return error.Ohno;
+        \\}
+        \\export fn baz() void {
+        \\    try bar();
+        \\}
+        \\export fn quux() u32 {
+        \\    return bar();
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:17: error: expected type 'u32', found 'error{Ohno}'",
+        "tmp.zig:1:17: note: function cannot return an error",
+        "tmp.zig:8:5: error: expected type 'void', found '@TypeOf(bar).ReturnType.ErrorSet'",
+        "tmp.zig:7:17: note: function cannot return an error",
+        "tmp.zig:11:15: error: expected type 'u32', found '@TypeOf(bar).ReturnType.ErrorSet!u32'",
+        "tmp.zig:10:18: note: function cannot return an error",
     });
 
     cases.addTest("int/float conversion to comptime_int/float",
@@ -507,6 +555,102 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         "tmp.zig:8:5: error: enumeration value 'E.b' not handled in switch",
         "tmp.zig:12:5: error: switch on non-exhaustive enum must include `else` or `_` prong",
+    });
+
+    cases.add("switch expression - unreachable else prong (bool)",
+        \\fn foo(x: bool) void {
+        \\    switch (x) {
+        \\        true => {},
+        \\        false => {},
+        \\        else => {},
+        \\    }
+        \\}
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
+    , &[_][]const u8{
+        "tmp.zig:5:9: error: unreachable else prong, all cases already handled",
+    });
+
+    cases.add("switch expression - unreachable else prong (u1)",
+        \\fn foo(x: u1) void {
+        \\    switch (x) {
+        \\        0 => {},
+        \\        1 => {},
+        \\        else => {},
+        \\    }
+        \\}
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
+    , &[_][]const u8{
+        "tmp.zig:5:9: error: unreachable else prong, all cases already handled",
+    });
+
+    cases.add("switch expression - unreachable else prong (u2)",
+        \\fn foo(x: u2) void {
+        \\    switch (x) {
+        \\        0 => {},
+        \\        1 => {},
+        \\        2 => {},
+        \\        3 => {},
+        \\        else => {},
+        \\    }
+        \\}
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
+    , &[_][]const u8{
+        "tmp.zig:7:9: error: unreachable else prong, all cases already handled",
+    });
+
+    cases.add("switch expression - unreachable else prong (range u8)",
+        \\fn foo(x: u8) void {
+        \\    switch (x) {
+        \\        0 => {},
+        \\        1 => {},
+        \\        2 => {},
+        \\        3 => {},
+        \\        4...255 => {},
+        \\        else => {},
+        \\    }
+        \\}
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
+    , &[_][]const u8{
+        "tmp.zig:8:9: error: unreachable else prong, all cases already handled",
+    });
+
+    cases.add("switch expression - unreachable else prong (range i8)",
+        \\fn foo(x: i8) void {
+        \\    switch (x) {
+        \\        -128...0 => {},
+        \\        1 => {},
+        \\        2 => {},
+        \\        3 => {},
+        \\        4...127 => {},
+        \\        else => {},
+        \\    }
+        \\}
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
+    , &[_][]const u8{
+        "tmp.zig:8:9: error: unreachable else prong, all cases already handled",
+    });
+
+    cases.add("switch expression - unreachable else prong (enum)",
+        \\const TestEnum = enum{ T1, T2 };
+        \\
+        \\fn err(x: u8) TestEnum {
+        \\    switch (x) {
+        \\        0 => return TestEnum.T1,
+        \\        else => return TestEnum.T2,
+        \\    }
+        \\}
+        \\
+        \\fn foo(x: u8) void {
+        \\    switch (err(x)) {
+        \\        TestEnum.T1 => {},
+        \\        TestEnum.T2 => {},
+        \\        else => {},
+        \\    }
+        \\}
+        \\
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
+    , &[_][]const u8{
+        "tmp.zig:14:9: error: unreachable else prong, all cases already handled",
     });
 
     cases.addTest("@export with empty name string",
