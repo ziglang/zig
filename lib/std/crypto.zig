@@ -32,6 +32,9 @@ pub const HmacBlake2s256 = hmac.HmacBlake2s256;
 const import_chaCha20 = @import("crypto/chacha20.zig");
 pub const chaCha20IETF = import_chaCha20.chaCha20IETF;
 pub const chaCha20With64BitNonce = import_chaCha20.chaCha20With64BitNonce;
+pub const chacha20poly1305_tag_size = import_chaCha20.chacha20poly1305_tag_size;
+pub const chacha20poly1305Seal = import_chaCha20.chacha20poly1305Seal;
+pub const chacha20poly1305Open = import_chaCha20.chacha20poly1305Open;
 
 pub const Poly1305 = @import("crypto/poly1305.zig").Poly1305;
 pub const X25519 = @import("crypto/x25519.zig").X25519;
