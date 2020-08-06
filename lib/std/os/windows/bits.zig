@@ -1574,28 +1574,20 @@ pub const SYMLINK_FLAG_RELATIVE: ULONG = 0x1;
 pub const SYMBOLIC_LINK_FLAG_DIRECTORY: DWORD = 0x1;
 pub const SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE: DWORD = 0x2;
 
-pub const OBJECT_INFORMATION_CLASS = extern enum {
-    ObjectBasicInformation,
-    ObjectNameInformation,
-    ObjectTypeInformation,
-    ObjectAllInformation,
-    ObjectDataInformation,
+pub const MOUNTMGR_MOUNT_POINT = extern struct {
+    SymbolicLinkNameOffset: ULONG,
+    SymbolicLinkNameLength: USHORT,
+    Reserved1: USHORT,
+    UniqueIdOffset: ULONG,
+    UniqueIdLength: USHORT,
+    Reserved2: USHORT,
+    DeviceNameOffset: ULONG,
+    DeviceNameLength: USHORT,
+    Reserved3: USHORT,
 };
-pub const OBJECT_NAME_INFORMATION = extern struct {
-    Name: UNICODE_STRING,
+pub const MOUNTMGR_MOUNT_POINTS = extern struct {
+    Size: ULONG,
+    NumberOfMountPoints: ULONG,
+    MountPoints: [1]MOUNTMGR_MOUNT_POINT,
 };
-
-pub const DIRECTORY_QUERY: DWORD = 0x0001;
-pub const DIRECTORY_TRAVERSE: DWORD = 0x0002;
-pub const DIRECTORY_CREATE_OBJECT: DWORD = 0x0004;
-pub const DIRECTORY_CREATE_SUBDIRECTORY: DWORD = 0x0008;
-pub const DIRECTORY_ALL_ACCESS: DWORD = STANDARD_RIGHTS_REQUIRED | 0xF;
-
-pub const OBJDIR_INFORMATION = extern struct {
-    ObjectName: UNICODE_STRING,
-    ObjectTypeName: UNICODE_STRING,
-    Data: [1]BYTE,
-};
-
-pub const SYMBOLIC_LINK_QUERY: DWORD = 0x0001;
-pub const SYMBOLIC_LINK_ALL_ACCESS: DWORD = STANDARD_RIGHTS_REQUIRED | 0x1;
+pub const IOCTL_MOUNTMGR_QUERY_POINTS: ULONG = 0x6d0008;

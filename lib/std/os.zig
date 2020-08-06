@@ -4094,7 +4094,7 @@ pub fn realpathW(pathname: []const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPat
     defer w.CloseHandle(h_file);
 
     var wide_buf: [w.PATH_MAX_WIDE]u16 = undefined;
-    const wide_slice = try w.GetFinalPathNameByHandle(h_file, wide_buf[0..]);
+    const wide_slice = try w.GetFinalPathNameByHandle(h_file, .{}, wide_buf[0..]);
 
     // Trust that Windows gives us valid UTF-16LE.
     const end_index = std.unicode.utf16leToUtf8(out_buffer, wide_slice) catch unreachable;

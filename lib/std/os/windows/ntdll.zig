@@ -106,37 +106,3 @@ pub extern "NtDll" fn NtWaitForKeyedEvent(
     Alertable: BOOLEAN,
     Timeout: ?*LARGE_INTEGER,
 ) callconv(.Stdcall) NTSTATUS;
-
-pub extern "NtDll" fn NtQueryObject(
-    Handle: HANDLE,
-    ObjectInformationClass: OBJECT_INFORMATION_CLASS,
-    ObjectInformation: *c_void,
-    ObjectInformationLength: ULONG,
-    ReturnLength: *ULONG,
-) callconv(.Stdcall) NTSTATUS;
-
-pub extern "NtDll" fn NtOpenSymbolicLinkObject(
-    pHandle: *HANDLE,
-    DesiredAccess: DWORD,
-    ObjectAttributes: OBJECT_ATTRIBUTES,
-) callconv(.Stdcall) NTSTATUS;
-pub extern "NtDll" fn NtQuerySymbolicLinkObject(
-    SymbolicLinkHandle: HANDLE,
-    pLinkName: *UNICODE_STRING,
-    pDataWritten: ?*ULONG,
-) callconv(.Stdcall) NTSTATUS;
-
-pub extern "NtDll" fn NtOpenDirectoryObject(
-    DirectoryObjectHandle: *HANDLE,
-    DesiredAccess: DWORD,
-    ObjectAttributes: OBJECT_ATTRIBUTES,
-) callconv(.Stdcall) NTSTATUS;
-pub extern "NtDll" fn NtQueryDirectoryObject(
-    DirectoryHandle: HANDLE,
-    Buffer: ?*c_void,
-    Length: ULONG,
-    ReturnSingleEntry: BOOLEAN,
-    RestartScan: BOOLEAN,
-    Context: *ULONG,
-    ReturnLength: *ULONG,
-) callconv(.Stdcall) NTSTATUS;

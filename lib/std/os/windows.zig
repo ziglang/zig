@@ -902,135 +902,142 @@ pub const GetFinalPathNameByHandleError = error{
     Unexpected,
 };
 
-/// Returns canonical (normalized) path of handle. The output path assumes
-/// Win32 namespace, however, '\\?\' prefix is *not* prepended to the result.
-/// TODO support other namespaces/volume names.
-pub fn GetFinalPathNameByHandle(hFile: HANDLE, out_buffer: []u16) GetFinalPathNameByHandleError![]u16 {
-    // The implementation is based on implementation found in Wine sources, however,
-    // we make the following tweaks. First of all, if `NtQueryInformationFile` supports
-    // `FILE_INFORMATION_CLASS.FileNormalizedNameInformation` and `FileVolumeNameInformation`,
-    // we use those two calls to generate a valid Win32/DOS path. Otherwise, we fallback to
-    // more widely supported `NtQueryObject` generic routine.
-    // Wine source: https://source.winehq.com/git/wine.git/blob/HEAD:/dlls/kernelbase/file.c#l1708
-    var buffer: [PATH_MAX_WIDE]u16 = undefined;
-    const object_path = blk: {
-        var path_buffer: [PATH_MAX_WIDE * 2]u8 = undefined;
-        var io: IO_STATUS_BLOCK = undefined;
-        var rc = ntdll.NtQueryInformationFile(hFile, &io, &path_buffer, path_buffer.len, FILE_INFORMATION_CLASS.FileNormalizedNameInformation);
-        switch (rc) {
-            .SUCCESS => {
-                var nt_volume_buffer: [MAX_PATH]u8 = undefined;
-                rc = ntdll.NtQueryInformationFile(hFile, &io, &nt_volume_buffer, nt_volume_buffer.len, FILE_INFORMATION_CLASS.FileVolumeNameInformation);
-                switch (rc) {
-                    .SUCCESS => {
-                        const file_name = @ptrCast(*const FILE_NAME_INFORMATION, @alignCast(@alignOf(FILE_NAME_INFORMATION), &path_buffer[0]));
-                        const file_name_u16 = @ptrCast([*]const u16, &file_name.FileName[0])[0..file_name.FileNameLength / 2];
+/// Specifies how to format volume path in the result of `GetFinalPathNameByHandle`.
+/// Defaults to DOS volume names.
+pub const GetFinalPathNameByHandleFormat = struct {
+    volume_name: enum {
+        /// Format as DOS volume name
+        Dos,
+        /// Format as NT volume name
+        Nt,
+    } = .Dos,
+};
 
-                        if (file_name_u16.len > PATH_MAX_WIDE) return error.NameTooLong;
-
-                        const volume_name = @ptrCast(*const FILE_NAME_INFORMATION, @alignCast(@alignOf(FILE_NAME_INFORMATION), &nt_volume_buffer[0]));
-                        const volume_name_u16 = @ptrCast([*]const u16, &volume_name.FileName[0])[0..volume_name.FileNameLength / 2];
-
-                        std.mem.copy(u16, buffer[0..], volume_name_u16);
-                        std.mem.copy(u16, buffer[volume_name_u16.len..], file_name_u16);
-
-                        break :blk buffer[0..volume_name_u16.len + file_name_u16.len];
-                    },
-                    .INVALID_PARAMETER => {}, // fall through
-                    else => return unexpectedStatus(rc),
-                }
-            },
-            .INVALID_PARAMETER => {}, // fall through
-            else => return unexpectedStatus(rc),
-        }
-
-        var dummy: ULONG = undefined;
-        rc = ntdll.NtQueryObject(hFile, OBJECT_INFORMATION_CLASS.ObjectNameInformation, &path_buffer, path_buffer.len, &dummy);
-        switch (rc) {
-            .SUCCESS => {},
-            else => return unexpectedStatus(rc),
-        }
-
-        const object_name = @ptrCast(*const OBJECT_NAME_INFORMATION, @alignCast(@alignOf(OBJECT_NAME_INFORMATION), &buffer));
-
-        // Apparently, `NtQueryObject` has a bug when signalling an error condition.
-        // To check for error, i.e., FileNotFound, we check if the result Buffer is non null
-        // and Length is greater than zero.
-        // Source: https://stackoverflow.com/questions/65170/how-to-get-name-associated-with-open-handle
-        if (object_name.Name.Length == 0) return error.FileNotFound;
-
-        break :blk @as([*]const u16, object_name.Name.Buffer)[0..object_name.Name.Length / 2];
-    };
-
-    // By now, we got a a fully-qualified NT path, which we need to translate
-    // into a Win32/DOS path, for instance:
-    // \Device\HarddiskVolume4\foo => C:\foo
-    // 
-    // NOTE:
-    // I couldn't figure out a better way of doing this unfortunately...
-    // This snippet below is in part based around `QueryDosDeviceW` implementation
-    // found in Wine. The trick with `NtQueryDirectoryObject` for some reason
-    // only lists `\DosDevices\Global` as the only SymblinkObject available, which
-    // means it's not possible to query the kernel for all available DOS volume name
-    // symlinks.
-    // TODO investigate!
-    // Wine source: https://source.winehq.com/git/wine.git/blob/HEAD:/dlls/kernelbase/volume.c#l1009
-    const dos_drive_letters = &[_]u16{ 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z' };
-    var query_path = [_]u16{ '\\', 'D', 'o', 's', 'D', 'e', 'v', 'i', 'c', 'e', 's', '\\', 'C', ':' };
-    for (dos_drive_letters) |drive_letter| {
-        const drive = &[_]u16{ drive_letter, ':' };
-        std.mem.copy(u16, query_path[query_path.len - 2..], drive[0..]);
-
-        var sym_handle: HANDLE = undefined;
-        const len_bytes = @intCast(u16, query_path.len) * 2;
-        var nt_name = UNICODE_STRING{
-            .Length = len_bytes,
-            .MaximumLength = len_bytes,
-            .Buffer = @intToPtr([*]u16, @ptrToInt(&query_path)),
-        };
-        var attr = OBJECT_ATTRIBUTES{
-            .Length = @sizeOf(OBJECT_ATTRIBUTES),
-            .RootDirectory = null,
-            .Attributes = 0,
-            .ObjectName = &nt_name,
-            .SecurityDescriptor = null,
-            .SecurityQualityOfService = null,
-        };
-        var rc = ntdll.NtOpenSymbolicLinkObject(&sym_handle, SYMBOLIC_LINK_QUERY, attr);
-        switch (rc) {
-            .SUCCESS => {},
-            .OBJECT_NAME_NOT_FOUND => continue,
-            else => return unexpectedStatus(rc),
-        }
-
-        var link_buffer: [MAX_PATH]u8 = undefined;
-        var link = UNICODE_STRING{
-            .Length = 0,
-            .MaximumLength = MAX_PATH,
-            .Buffer = @intToPtr([*]u16, @ptrToInt(&link_buffer[0])),
-        };
-        rc = ntdll.NtQuerySymbolicLinkObject(sym_handle, &link, null);
-        CloseHandle(sym_handle);
-        switch (rc) {
-            .SUCCESS => {},
-            else => return unexpectedStatus(rc),
-        }
-
-        const link_path = @as([*]const u16, link.Buffer)[0..link.Length / 2];
-        const idx = std.mem.indexOf(u16, object_path, link_path) orelse continue;
-
-        // TODO is this the most appropriate error here?
-        if (out_buffer.len < drive.len + object_path.len) return error.NameTooLong;
-
-        std.mem.copy(u16, out_buffer[0..], drive[0..]);
-        std.mem.copy(u16, out_buffer[2..], object_path[link_path.len..]);
-
-        return out_buffer[0..object_path.len - link_path.len + 2];
+/// Returns canonical (normalized) path of handle.
+/// Use `GetFinalPathNameByHandleFormat` to specify whether the path is meant to include
+/// NT or DOS volume name (e.g., `\Device\HarddiskVolume0\foo.txt` versus `C:\foo.txt`).
+/// If DOS volume name format is selected, note that this function does *not* prepend
+/// `\\?\` prefix to the resultant path.
+pub fn GetFinalPathNameByHandle(
+    hFile: HANDLE,
+    fmt: GetFinalPathNameByHandleFormat,
+    out_buffer: []u16,
+) GetFinalPathNameByHandleError![]u16 {
+    // Get normalized path; doesn't include volume name though.
+    var path_buffer: [@sizeOf(FILE_NAME_INFORMATION) + PATH_MAX_WIDE * 2 + 2]u8 = undefined;
+    var io: IO_STATUS_BLOCK = undefined;
+    var rc = ntdll.NtQueryInformationFile(hFile, &io, &path_buffer, path_buffer.len, FILE_INFORMATION_CLASS.FileNormalizedNameInformation);
+    switch (rc) {
+        .SUCCESS => {},
+        .INVALID_PARAMETER => unreachable,
+        else => return unexpectedStatus(rc),
     }
 
-    // If we're here, that means there was no match so we panic!
-    // TODO should we actually panic here or return an error instead?
-    unreachable;
+    // Get NT volume name.
+    var volume_buffer: [MAX_PATH]u8 = undefined; // MAX_PATH bytes should be enough since it's Windows-defined name
+    rc = ntdll.NtQueryInformationFile(hFile, &io, &volume_buffer, volume_buffer.len, FILE_INFORMATION_CLASS.FileVolumeNameInformation);
+    switch (rc) {
+        .SUCCESS => {},
+        .INVALID_PARAMETER => unreachable,
+        else => return unexpectedStatus(rc),
+    }
+
+    const file_name = @ptrCast(*const FILE_NAME_INFORMATION, @alignCast(@alignOf(FILE_NAME_INFORMATION), &path_buffer[0]));
+    const file_name_u16 = @ptrCast([*]const u16, &file_name.FileName[0])[0 .. file_name.FileNameLength / 2];
+
+    const volume_name = @ptrCast(*const FILE_NAME_INFORMATION, @alignCast(@alignOf(FILE_NAME_INFORMATION), &volume_buffer[0]));
+
+    switch (fmt.volume_name) {
+        .Nt => {
+            // Nothing to do, we simply copy the bytes to the user-provided buffer.
+            const volume_name_u16 = @ptrCast([*]const u16, &volume_name.FileName[0])[0 .. volume_name.FileNameLength / 2];
+
+            if (out_buffer.len < volume_name_u16.len + file_name_u16.len) return error.NameTooLong;
+
+            std.mem.copy(u16, out_buffer[0..], volume_name_u16);
+            std.mem.copy(u16, out_buffer[volume_name_u16.len..], file_name_u16);
+
+            return out_buffer[0 .. volume_name_u16.len + file_name_u16.len];
+        },
+        .Dos => {
+            // Get DOS volume name. DOS volume names are actually symbolic link objects to the
+            // actual NT volume. For example:
+            // (NT) \Device\HarddiskVolume4 => (DOS) \DosDevices\C: == (DOS) C:
+            const MIN_SIZE = @sizeOf(MOUNTMGR_MOUNT_POINT) + MAX_PATH;
+            // We initialize the input buffer to all zeros for convenience since
+            // `DeviceIoControl` with `IOCTL_MOUNTMGR_QUERY_POINTS` expects this.
+            var input_buf = [_]u8{0} ** MIN_SIZE;
+            var output_buf: [MIN_SIZE * 4]u8 = undefined;
+
+            // This surprising path is a filesystem path to the mount manager on Windows.
+            // Source: https://stackoverflow.com/questions/3012828/using-ioctl-mountmgr-query-points
+            const mgmt_path = "\\MountPointManager";
+            const mgmt_path_u16 = sliceToPrefixedFileW(mgmt_path) catch unreachable;
+            const mgmt_handle = OpenFile(mgmt_path_u16.span(), .{
+                .access_mask = SYNCHRONIZE,
+                .share_access = FILE_SHARE_READ | FILE_SHARE_WRITE,
+                .creation = FILE_OPEN,
+                .io_mode = .blocking,
+            }) catch |err| switch (err) {
+                error.IsDir => unreachable,
+                error.NotDir => unreachable,
+                error.NoDevice => unreachable,
+                error.AccessDenied => unreachable,
+                error.PipeBusy => unreachable,
+                error.PathAlreadyExists => unreachable,
+                error.WouldBlock => unreachable,
+                else => |e| return e,
+            };
+            defer CloseHandle(mgmt_handle);
+
+            var input_struct = @ptrCast(*MOUNTMGR_MOUNT_POINT, @alignCast(@alignOf(MOUNTMGR_MOUNT_POINT), &input_buf[0]));
+            input_struct.DeviceNameOffset = @sizeOf(MOUNTMGR_MOUNT_POINT);
+            input_struct.DeviceNameLength = @intCast(USHORT, volume_name.FileNameLength);
+            @memcpy(input_buf[@sizeOf(MOUNTMGR_MOUNT_POINT)..], @ptrCast([*]const u8, &volume_name.FileName[0]), volume_name.FileNameLength);
+
+            try DeviceIoControl(
+                mgmt_handle,
+                IOCTL_MOUNTMGR_QUERY_POINTS,
+                input_buf[0 .. @sizeOf(MOUNTMGR_MOUNT_POINT) + volume_name.FileNameLength],
+                output_buf[0..],
+            );
+            const mount_points_struct = @ptrCast(*const MOUNTMGR_MOUNT_POINTS, @alignCast(@alignOf(MOUNTMGR_MOUNT_POINTS), &output_buf[0]));
+
+            const mount_points = @ptrCast(
+                [*]const MOUNTMGR_MOUNT_POINT,
+                @alignCast(@alignOf(MOUNTMGR_MOUNT_POINT), &mount_points_struct.MountPoints[0]),
+            )[0..mount_points_struct.NumberOfMountPoints];
+
+            var found: bool = false;
+            for (mount_points) |mount_point| {
+                const symlink = @ptrCast(
+                    [*]const u16,
+                    @alignCast(@alignOf(u16), &output_buf[mount_point.SymbolicLinkNameOffset]),
+                )[0 .. mount_point.SymbolicLinkNameLength / 2];
+
+                // Look for `\DosDevices\` prefix. We don't really care if there are more than one symlinks
+                // with traditional DOS drive letters, so pick the first one available.
+                const prefix = &[_]u16{ '\\', 'D', 'o', 's', 'D', 'e', 'v', 'i', 'c', 'e', 's', '\\' };
+
+                if (std.mem.indexOf(u16, symlink, prefix)) |idx| {
+                    if (idx != 0) continue;
+
+                    const drive_letter = symlink[prefix.len..];
+
+                    if (out_buffer.len < drive_letter.len + file_name_u16.len) return error.NameTooLong;
+
+                    std.mem.copy(u16, out_buffer[0..], drive_letter);
+                    std.mem.copy(u16, out_buffer[drive_letter.len..], file_name_u16);
+
+                    return out_buffer[0 .. drive_letter.len + file_name_u16.len];
+                }
+            }
+
+            // If we've ended up here, then something went wrong/is corrupted in the OS,
+            // so error out!
+            return error.FileNotFound;
+        },
+    }
 }
 
 pub const GetFileSizeError = error{Unexpected};
