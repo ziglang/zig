@@ -1571,7 +1571,7 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
                         .macho => {
                             // TODO Implement for MachO
                         },
-                        .c => {},
+                        .c, .wasm => {},
                     }
                 }
             } else {
@@ -1781,11 +1781,13 @@ fn allocateNewDecl(
             .elf => .{ .elf = link.File.Elf.TextBlock.empty },
             .macho => .{ .macho = link.File.MachO.TextBlock.empty },
             .c => .{ .c = {} },
+            .wasm => .{ .wasm = {} },
         },
         .fn_link = switch (self.bin_file.tag) {
             .elf => .{ .elf = link.File.Elf.SrcFn.empty },
             .macho => .{ .macho = link.File.MachO.SrcFn.empty },
             .c => .{ .c = {} },
+            .wasm => .{ .wasm = null },
         },
         .generation = 0,
     };

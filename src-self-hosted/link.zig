@@ -46,12 +46,14 @@ pub const File = struct {
         elf: Elf.TextBlock,
         macho: MachO.TextBlock,
         c: void,
+        wasm: void,
     };
 
     pub const LinkFn = union {
         elf: Elf.SrcFn,
         macho: MachO.SrcFn,
         c: void,
+        wasm: ?Wasm.FnData,
     };
 
     tag: Tag,
@@ -69,7 +71,7 @@ pub const File = struct {
             .coff => return error.TODOImplementCoff,
             .elf => return Elf.openPath(allocator, dir, sub_path, options),
             .macho => return MachO.openPath(allocator, dir, sub_path, options),
-            .wasm => return error.TODOImplementWasm,
+            .wasm => return Wasm.openPath(allocator, dir, sub_path, options),
             .c => return C.openPath(allocator, dir, sub_path, options),
             .hex => return error.TODOImplementHex,
             .raw => return error.TODOImplementRaw,
@@ -93,7 +95,7 @@ pub const File = struct {
                     .mode = determineMode(base.options),
                 });
             },
-            .c => {},
+            .c, .wasm => {},
         }
     }
 
@@ -102,6 +104,7 @@ pub const File = struct {
         if (base.file) |f| {
             f.close();
             base.file = null;
+
         }
     }
 
@@ -110,6 +113,7 @@ pub const File = struct {
             .elf => return @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDecl(module, decl),
             .c => return @fieldParentPtr(C, "base", base).updateDecl(module, decl),
+            .wasm => return @fieldParentPtr(Wasm, "base", base).updateDecl(module, decl),
         }
     }
 
@@ -117,7 +121,7 @@ pub const File = struct {
         switch (base.tag) {
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDeclLineNumber(module, decl),
-            .c => {},
+            .c, .wasm => {},
         }
     }
 
@@ -125,7 +129,7 @@ pub const File = struct {
         switch (base.tag) {
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
             .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl),
-            .c => {},
+            .c, .wasm => {},
         }
     }
 
@@ -135,6 +139,7 @@ pub const File = struct {
             .elf => @fieldParentPtr(Elf, "base", base).deinit(),
             .macho => @fieldParentPtr(MachO, "base", base).deinit(),
             .c => @fieldParentPtr(C, "base", base).deinit(),
+            .wasm => @fieldParentPtr(Wasm, "base", base).deinit(),
         }
     }
 
@@ -155,6 +160,11 @@ pub const File = struct {
                 parent.deinit();
                 base.allocator.destroy(parent);
             },
+            .wasm => {
+                const parent = @fieldParentPtr(Wasm, "base", base);
+                parent.deinit();
+                base.allocator.destroy(parent);
+            },
         }
     }
 
@@ -167,6 +177,7 @@ pub const File = struct {
             .elf => @fieldParentPtr(Elf, "base", base).flush(),
             .macho => @fieldParentPtr(MachO, "base", base).flush(),
             .c => @fieldParentPtr(C, "base", base).flush(),
+            .wasm => @fieldParentPtr(Wasm, "base", base).flush(),
         };
     }
 
@@ -175,6 +186,7 @@ pub const File = struct {
             .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl),
             .macho => @fieldParentPtr(MachO, "base", base).freeDecl(decl),
             .c => unreachable,
+            .wasm => @fieldParentPtr(Wasm, "base", base).freeDecl(decl),
         }
     }
 
@@ -183,6 +195,7 @@ pub const File = struct {
             .elf => @fieldParentPtr(Elf, "base", base).error_flags,
             .macho => @fieldParentPtr(MachO, "base", base).error_flags,
             .c => return .{ .no_entry_point_found = false },
+            .wasm => return ErrorFlags{},
         };
     }
 
@@ -197,6 +210,7 @@ pub const File = struct {
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl, exports),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDeclExports(module, decl, exports),
             .c => return {},
+            .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclExports(module, decl, exports),
         }
     }
 
@@ -204,6 +218,7 @@ pub const File = struct {
         elf,
         macho,
         c,
+        wasm,
     };
 
     pub const ErrorFlags = struct {
@@ -2832,6 +2847,7 @@ pub const File = struct {
     };
 
     pub const MachO = @import("link/MachO.zig");
+    const Wasm = @import("link/Wasm.zig");
 };
 
 /// Saturating multiplication
