@@ -38,6 +38,16 @@ pub const Options = struct {
 
 
 pub const File = struct {
+    pub const LinkBlock = union {
+        elf: Elf.TextBlock,
+        c: void,
+    };
+
+    pub const LinkFn = union {
+        elf: Elf.SrcFn,
+        c: void,
+    };
+
     tag: Tag,
     options: Options,
     file: ?fs.File,
@@ -1720,31 +1730,31 @@ pub const File = struct {
         }
 
         pub fn allocateDeclIndexes(self: *Elf, decl: *Module.Decl) !void {
-            if (decl.link.local_sym_index != 0) return;
+            if (decl.link.elf.local_sym_index != 0) return;
 
             try self.local_symbols.ensureCapacity(self.base.allocator, self.local_symbols.items.len + 1);
             try self.offset_table.ensureCapacity(self.base.allocator, self.offset_table.items.len + 1);
 
             if (self.local_symbol_free_list.popOrNull()) |i| {
                 log.debug(.link, "reusing symbol index {} for {}\n", .{ i, decl.name });
-                decl.link.local_sym_index = i;
+                decl.link.elf.local_sym_index = i;
             } else {
                 log.debug(.link, "allocating symbol index {} for {}\n", .{ self.local_symbols.items.len, decl.name });
-                decl.link.local_sym_index = @intCast(u32, self.local_symbols.items.len);
+                decl.link.elf.local_sym_index = @intCast(u32, self.local_symbols.items.len);
                 _ = self.local_symbols.addOneAssumeCapacity();
             }
 
             if (self.offset_table_free_list.popOrNull()) |i| {
-                decl.link.offset_table_index = i;
+                decl.link.elf.offset_table_index = i;
             } else {
-                decl.link.offset_table_index = @intCast(u32, self.offset_table.items.len);
+                decl.link.elf.offset_table_index = @intCast(u32, self.offset_table.items.len);
                 _ = self.offset_table.addOneAssumeCapacity();
                 self.offset_table_count_dirty = true;
             }
 
             const phdr = &self.program_headers.items[self.phdr_load_re_index.?];
 
-            self.local_symbols.items[decl.link.local_sym_index] = .{
+            self.local_symbols.items[decl.link.elf.local_sym_index] = .{
                 .st_name = 0,
                 .st_info = 0,
                 .st_other = 0,
@@ -1752,39 +1762,39 @@ pub const File = struct {
                 .st_value = phdr.p_vaddr,
                 .st_size = 0,
             };
-            self.offset_table.items[decl.link.offset_table_index] = 0;
+            self.offset_table.items[decl.link.elf.offset_table_index] = 0;
         }
 
         pub fn freeDecl(self: *Elf, decl: *Module.Decl) void {
             // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
-            self.freeTextBlock(&decl.link);
-            if (decl.link.local_sym_index != 0) {
-                self.local_symbol_free_list.append(self.base.allocator, decl.link.local_sym_index) catch {};
-                self.offset_table_free_list.append(self.base.allocator, decl.link.offset_table_index) catch {};
+            self.freeTextBlock(&decl.link.elf);
+            if (decl.link.elf.local_sym_index != 0) {
+                self.local_symbol_free_list.append(self.base.allocator, decl.link.elf.local_sym_index) catch {};
+                self.offset_table_free_list.append(self.base.allocator, decl.link.elf.offset_table_index) catch {};
 
-                self.local_symbols.items[decl.link.local_sym_index].st_info = 0;
+                self.local_symbols.items[decl.link.elf.local_sym_index].st_info = 0;
 
-                decl.link.local_sym_index = 0;
+                decl.link.elf.local_sym_index = 0;
             }
             // TODO make this logic match freeTextBlock. Maybe abstract the logic out since the same thing
             // is desired for both.
-            _ = self.dbg_line_fn_free_list.remove(&decl.fn_link);
-            if (decl.fn_link.prev) |prev| {
+            _ = self.dbg_line_fn_free_list.remove(&decl.fn_link.elf);
+            if (decl.fn_link.elf.prev) |prev| {
                 _ = self.dbg_line_fn_free_list.put(self.base.allocator, prev, {}) catch {};
-                prev.next = decl.fn_link.next;
-                if (decl.fn_link.next) |next| {
+                prev.next = decl.fn_link.elf.next;
+                if (decl.fn_link.elf.next) |next| {
                     next.prev = prev;
                 } else {
                     self.dbg_line_fn_last = prev;
                 }
-            } else if (decl.fn_link.next) |next| {
+            } else if (decl.fn_link.elf.next) |next| {
                 self.dbg_line_fn_first = next;
                 next.prev = null;
             }
-            if (self.dbg_line_fn_first == &decl.fn_link) {
+            if (self.dbg_line_fn_first == &decl.fn_link.elf) {
                 self.dbg_line_fn_first = null;
             }
-            if (self.dbg_line_fn_last == &decl.fn_link) {
+            if (self.dbg_line_fn_last == &decl.fn_link.elf) {
                 self.dbg_line_fn_last = null;
             }
         }
@@ -1870,24 +1880,24 @@ pub const File = struct {
 
             const stt_bits: u8 = if (is_fn) elf.STT_FUNC else elf.STT_OBJECT;
 
-            assert(decl.link.local_sym_index != 0); // Caller forgot to allocateDeclIndexes()
-            const local_sym = &self.local_symbols.items[decl.link.local_sym_index];
+            assert(decl.link.elf.local_sym_index != 0); // Caller forgot to allocateDeclIndexes()
+            const local_sym = &self.local_symbols.items[decl.link.elf.local_sym_index];
             if (local_sym.st_size != 0) {
-                const capacity = decl.link.capacity(self.*);
+                const capacity = decl.link.elf.capacity(self.*);
                 const need_realloc = code.len > capacity or
                     !mem.isAlignedGeneric(u64, local_sym.st_value, required_alignment);
                 if (need_realloc) {
-                    const vaddr = try self.growTextBlock(&decl.link, code.len, required_alignment);
+                    const vaddr = try self.growTextBlock(&decl.link.elf, code.len, required_alignment);
                     log.debug(.link, "growing {} from 0x{x} to 0x{x}\n", .{ decl.name, local_sym.st_value, vaddr });
                     if (vaddr != local_sym.st_value) {
                         local_sym.st_value = vaddr;
 
                         log.debug(.link, "  (writing new offset table entry)\n", .{});
-                        self.offset_table.items[decl.link.offset_table_index] = vaddr;
-                        try self.writeOffsetTableEntry(decl.link.offset_table_index);
+                        self.offset_table.items[decl.link.elf.offset_table_index] = vaddr;
+                        try self.writeOffsetTableEntry(decl.link.elf.offset_table_index);
                     }
                 } else if (code.len < local_sym.st_size) {
-                    self.shrinkTextBlock(&decl.link, code.len);
+                    self.shrinkTextBlock(&decl.link.elf, code.len);
                 }
                 local_sym.st_size = code.len;
                 local_sym.st_name = try self.updateString(local_sym.st_name, mem.spanZ(decl.name));
@@ -1895,13 +1905,13 @@ pub const File = struct {
                 local_sym.st_other = 0;
                 local_sym.st_shndx = self.text_section_index.?;
                 // TODO this write could be avoided if no fields of the symbol were changed.
-                try self.writeSymbol(decl.link.local_sym_index);
+                try self.writeSymbol(decl.link.elf.local_sym_index);
             } else {
                 const decl_name = mem.spanZ(decl.name);
                 const name_str_index = try self.makeString(decl_name);
-                const vaddr = try self.allocateTextBlock(&decl.link, code.len, required_alignment);
+                const vaddr = try self.allocateTextBlock(&decl.link.elf, code.len, required_alignment);
                 log.debug(.link, "allocated text block for {} at 0x{x}\n", .{ decl_name, vaddr });
-                errdefer self.freeTextBlock(&decl.link);
+                errdefer self.freeTextBlock(&decl.link.elf);
 
                 local_sym.* = .{
                     .st_name = name_str_index,
@@ -1911,10 +1921,10 @@ pub const File = struct {
                     .st_value = vaddr,
                     .st_size = code.len,
                 };
-                self.offset_table.items[decl.link.offset_table_index] = vaddr;
+                self.offset_table.items[decl.link.elf.offset_table_index] = vaddr;
 
-                try self.writeSymbol(decl.link.local_sym_index);
-                try self.writeOffsetTableEntry(decl.link.offset_table_index);
+                try self.writeSymbol(decl.link.elf.local_sym_index);
+                try self.writeOffsetTableEntry(decl.link.elf.offset_table_index);
             }
 
             const section_offset = local_sym.st_value - self.program_headers.items[self.phdr_load_re_index.?].p_vaddr;
@@ -1941,7 +1951,7 @@ pub const File = struct {
                 // Now we have the full contents and may allocate a region to store it.
 
                 const debug_line_sect = &self.sections.items[self.debug_line_section_index.?];
-                const src_fn = &decl.fn_link;
+                const src_fn = &decl.fn_link.elf;
                 src_fn.len = @intCast(u32, dbg_line_buffer.items.len);
                 if (self.dbg_line_fn_last) |last| {
                     if (src_fn.next) |next| {
@@ -2026,8 +2036,8 @@ pub const File = struct {
 
             try self.global_symbols.ensureCapacity(self.base.allocator, self.global_symbols.items.len + exports.len);
             const typed_value = decl.typed_value.most_recent.typed_value;
-            if (decl.link.local_sym_index == 0) return;
-            const decl_sym = self.local_symbols.items[decl.link.local_sym_index];
+            if (decl.link.elf.local_sym_index == 0) return;
+            const decl_sym = self.local_symbols.items[decl.link.elf.local_sym_index];
 
             for (exports) |exp| {
                 if (exp.options.section) |section_name| {
@@ -2105,7 +2115,7 @@ pub const File = struct {
             const casted_line_off = @intCast(u28, line_delta);
 
             const shdr = &self.sections.items[self.debug_line_section_index.?];
-            const file_pos = shdr.sh_offset + decl.fn_link.off + self.getRelocDbgLineOff();
+            const file_pos = shdr.sh_offset + decl.fn_link.elf.off + self.getRelocDbgLineOff();
             var data: [4]u8 = undefined;
             leb128.writeUnsignedFixed(4, &data, casted_line_off);
             try self.base.file.?.pwriteAll(&data, file_pos);

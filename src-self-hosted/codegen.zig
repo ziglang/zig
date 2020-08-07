@@ -145,10 +145,10 @@ pub fn generateSymbol(
             if (typed_value.val.cast(Value.Payload.DeclRef)) |payload| {
                 const decl = payload.decl;
                 if (decl.analysis != .complete) return error.AnalysisFail;
-                assert(decl.link.local_sym_index != 0);
+                assert(decl.link.elf.local_sym_index != 0);
                 // TODO handle the dependency of this symbol on the decl's vaddr.
                 // If the decl changes vaddr, then this symbol needs to get regenerated.
-                const vaddr = bin_file.local_symbols.items[decl.link.local_sym_index].st_value;
+                const vaddr = bin_file.local_symbols.items[decl.link.elf.local_sym_index].st_value;
                 const endian = bin_file.base.options.target.cpu.arch.endian();
                 switch (bin_file.base.options.target.cpu.arch.ptrBitWidth()) {
                     16 => {
@@ -1085,7 +1085,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             const got = &self.bin_file.program_headers.items[self.bin_file.phdr_got_index.?];
                             const ptr_bits = self.target.cpu.arch.ptrBitWidth();
                             const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-                            const got_addr = @intCast(u32, got.p_vaddr + func.owner_decl.link.offset_table_index * ptr_bytes);
+                            const got_addr = @intCast(u32, got.p_vaddr + func.owner_decl.link.elf.offset_table_index * ptr_bytes);
                             // ff 14 25 xx xx xx xx    call [addr]
                             try self.code.ensureCapacity(self.code.items.len + 7);
                             self.code.appendSliceAssumeCapacity(&[3]u8{ 0xff, 0x14, 0x25 });
@@ -1106,7 +1106,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             const got = &self.bin_file.program_headers.items[self.bin_file.phdr_got_index.?];
                             const ptr_bits = self.target.cpu.arch.ptrBitWidth();
                             const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-                            const got_addr = @intCast(u32, got.p_vaddr + func.owner_decl.link.offset_table_index * ptr_bytes);
+                            const got_addr = @intCast(u32, got.p_vaddr + func.owner_decl.link.elf.offset_table_index * ptr_bytes);
 
                             try self.genSetReg(inst.base.src, .ra, .{ .memory = got_addr });
                             const jalr = instructions.Jalr{
@@ -1934,7 +1934,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     if (typed_value.val.cast(Value.Payload.DeclRef)) |payload| {
                         const got = &self.bin_file.program_headers.items[self.bin_file.phdr_got_index.?];
                         const decl = payload.decl;
-                        const got_addr = got.p_vaddr + decl.link.offset_table_index * ptr_bytes;
+                        const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
                         return MCValue{ .memory = got_addr };
                     }
                     return self.fail(src, "TODO codegen more kinds of const pointers", .{});

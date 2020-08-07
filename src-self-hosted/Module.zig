@@ -177,14 +177,14 @@ pub const Decl = struct {
 
     /// Represents the position of the code in the output file.
     /// This is populated regardless of semantic analysis and code generation.
-    link: link.File.Elf.TextBlock = link.File.Elf.TextBlock.empty,
+    link: link.File.LinkBlock,
 
     /// Represents the function in the linked output file, if the `Decl` is a function.
     /// This is stored here and not in `Fn` because `Decl` survives across updates but
     /// `Fn` does not.
     /// TODO Look into making `Fn` a longer lived structure and moving this field there
     /// to save on memory usage.
-    fn_link: link.File.Elf.SrcFn = link.File.Elf.SrcFn.empty,
+    fn_link: link.File.LinkFn,
 
     contents_hash: std.zig.SrcHash,
 
@@ -1538,10 +1538,13 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
                     if (!srcHashEql(decl.contents_hash, contents_hash)) {
                         try self.markOutdatedDecl(decl);
                         decl.contents_hash = contents_hash;
-                    } else if (decl.fn_link.len != 0) {
-                        // TODO Look into detecting when this would be unnecessary by storing enough state
-                        // in `Decl` to notice that the line number did not change.
-                        self.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
+                    } else switch (self.bin_file.tag) {
+                        .elf => if (decl.fn_link.elf.len != 0) {
+                            // TODO Look into detecting when this would be unnecessary by storing enough state
+                            // in `Decl` to notice that the line number did not change.
+                            self.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
+                        },
+                        .c => {},
                     }
                 }
             } else {
@@ -1745,7 +1748,14 @@ fn allocateNewDecl(
         .analysis = .unreferenced,
         .deletion_flag = false,
         .contents_hash = contents_hash,
-        .link = link.File.Elf.TextBlock.empty,
+        .link = switch (self.bin_file.tag) {
+            .elf => .{ .elf = link.File.Elf.TextBlock.empty },
+            .c => .{ .c = {} },
+        },
+        .fn_link = switch (self.bin_file.tag) {
+            .elf => .{ .elf = link.File.Elf.SrcFn.empty },
+            .c => .{ .c = {} },
+        },
         .generation = 0,
     };
     return new_decl;
