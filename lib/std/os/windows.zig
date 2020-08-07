@@ -924,7 +924,7 @@ pub fn GetFinalPathNameByHandle(
     out_buffer: []u16,
 ) GetFinalPathNameByHandleError![]u16 {
     // Get normalized path; doesn't include volume name though.
-    var path_buffer: [@sizeOf(FILE_NAME_INFORMATION) + PATH_MAX_WIDE * 2 + 2]u8 = undefined;
+    var path_buffer: [PATH_MAX_WIDE * 2]u8 align(@alignOf(FILE_NAME_INFORMATION)) = undefined;
     var io: IO_STATUS_BLOCK = undefined;
     var rc = ntdll.NtQueryInformationFile(hFile, &io, &path_buffer, path_buffer.len, FILE_INFORMATION_CLASS.FileNormalizedNameInformation);
     switch (rc) {
@@ -934,7 +934,7 @@ pub fn GetFinalPathNameByHandle(
     }
 
     // Get NT volume name.
-    var volume_buffer: [MAX_PATH]u8 = undefined; // MAX_PATH bytes should be enough since it's Windows-defined name
+    var volume_buffer: [MAX_PATH]u8 align(@alignOf(FILE_NAME_INFORMATION)) = undefined; // MAX_PATH bytes should be enough since it's Windows-defined name
     rc = ntdll.NtQueryInformationFile(hFile, &io, &volume_buffer, volume_buffer.len, FILE_INFORMATION_CLASS.FileVolumeNameInformation);
     switch (rc) {
         .SUCCESS => {},
@@ -942,10 +942,10 @@ pub fn GetFinalPathNameByHandle(
         else => return unexpectedStatus(rc),
     }
 
-    const file_name = @ptrCast(*const FILE_NAME_INFORMATION, @alignCast(@alignOf(FILE_NAME_INFORMATION), &path_buffer[0]));
+    const file_name = @ptrCast(*const FILE_NAME_INFORMATION, &path_buffer[0]);
     const file_name_u16 = @ptrCast([*]const u16, &file_name.FileName[0])[0 .. file_name.FileNameLength / 2];
 
-    const volume_name = @ptrCast(*const FILE_NAME_INFORMATION, @alignCast(@alignOf(FILE_NAME_INFORMATION), &volume_buffer[0]));
+    const volume_name = @ptrCast(*const FILE_NAME_INFORMATION, &volume_buffer[0]);
 
     switch (fmt.volume_name) {
         .Nt => {
@@ -966,8 +966,8 @@ pub fn GetFinalPathNameByHandle(
             const MIN_SIZE = @sizeOf(MOUNTMGR_MOUNT_POINT) + MAX_PATH;
             // We initialize the input buffer to all zeros for convenience since
             // `DeviceIoControl` with `IOCTL_MOUNTMGR_QUERY_POINTS` expects this.
-            var input_buf = [_]u8{0} ** MIN_SIZE;
-            var output_buf: [MIN_SIZE * 4]u8 = undefined;
+            var input_buf: [MIN_SIZE]u8 align(@alignOf(MOUNTMGR_MOUNT_POINT)) = [_]u8{0} ** MIN_SIZE;
+            var output_buf: [MIN_SIZE * 4]u8 align(@alignOf(MOUNTMGR_MOUNT_POINTS)) = undefined;
 
             // This surprising path is a filesystem path to the mount manager on Windows.
             // Source: https://stackoverflow.com/questions/3012828/using-ioctl-mountmgr-query-points
@@ -990,22 +990,17 @@ pub fn GetFinalPathNameByHandle(
             };
             defer CloseHandle(mgmt_handle);
 
-            var input_struct = @ptrCast(*MOUNTMGR_MOUNT_POINT, @alignCast(@alignOf(MOUNTMGR_MOUNT_POINT), &input_buf[0]));
+            var input_struct = @ptrCast(*MOUNTMGR_MOUNT_POINT, &input_buf[0]);
             input_struct.DeviceNameOffset = @sizeOf(MOUNTMGR_MOUNT_POINT);
             input_struct.DeviceNameLength = @intCast(USHORT, volume_name.FileNameLength);
             @memcpy(input_buf[@sizeOf(MOUNTMGR_MOUNT_POINT)..], @ptrCast([*]const u8, &volume_name.FileName[0]), volume_name.FileNameLength);
 
-            try DeviceIoControl(
-                mgmt_handle,
-                IOCTL_MOUNTMGR_QUERY_POINTS,
-                input_buf[0 .. @sizeOf(MOUNTMGR_MOUNT_POINT) + volume_name.FileNameLength],
-                output_buf[0..],
-            );
-            const mount_points_struct = @ptrCast(*const MOUNTMGR_MOUNT_POINTS, @alignCast(@alignOf(MOUNTMGR_MOUNT_POINTS), &output_buf[0]));
+            try DeviceIoControl(mgmt_handle, IOCTL_MOUNTMGR_QUERY_POINTS, input_buf[0..], output_buf[0..]);
+            const mount_points_struct = @ptrCast(*const MOUNTMGR_MOUNT_POINTS, &output_buf[0]);
 
             const mount_points = @ptrCast(
                 [*]const MOUNTMGR_MOUNT_POINT,
-                @alignCast(@alignOf(MOUNTMGR_MOUNT_POINT), &mount_points_struct.MountPoints[0]),
+                &mount_points_struct.MountPoints[0],
             )[0..mount_points_struct.NumberOfMountPoints];
 
             var found: bool = false;
