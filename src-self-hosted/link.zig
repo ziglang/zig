@@ -325,17 +325,17 @@ pub const File = struct {
         /// local symbols, they cannot be mixed. So we must buffer all the global symbols and
         /// write them at the end. These are only the local symbols. The length of this array
         /// is the value used for sh_info in the .symtab section.
-        local_symbols: std.ArrayListUnmanaged(elf.Elf64_Sym) = std.ArrayListUnmanaged(elf.Elf64_Sym){},
-        global_symbols: std.ArrayListUnmanaged(elf.Elf64_Sym) = std.ArrayListUnmanaged(elf.Elf64_Sym){},
+        local_symbols: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
+        global_symbols: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
 
-        local_symbol_free_list: std.ArrayListUnmanaged(u32) = std.ArrayListUnmanaged(u32){},
-        global_symbol_free_list: std.ArrayListUnmanaged(u32) = std.ArrayListUnmanaged(u32){},
-        offset_table_free_list: std.ArrayListUnmanaged(u32) = std.ArrayListUnmanaged(u32){},
+        local_symbol_free_list: std.ArrayListUnmanaged(u32) = .{},
+        global_symbol_free_list: std.ArrayListUnmanaged(u32) = .{},
+        offset_table_free_list: std.ArrayListUnmanaged(u32) = .{},
 
         /// Same order as in the file. The value is the absolute vaddr value.
         /// If the vaddr of the executable program header changes, the entire
         /// offset table needs to be rewritten.
-        offset_table: std.ArrayListUnmanaged(u64) = std.ArrayListUnmanaged(u64){},
+        offset_table: std.ArrayListUnmanaged(u64) = .{},
 
         phdr_table_dirty: bool = false,
         shdr_table_dirty: bool = false,
