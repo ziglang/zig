@@ -3480,8 +3480,9 @@ static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutableGen *exec
 static LLVMValueRef ir_render_int_to_ptr(CodeGen *g, IrExecutableGen *executable, IrInstGenIntToPtr *instruction) {
     ZigType *wanted_type = instruction->base.value->type;
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
+    const uint32_t align_bytes = get_ptr_align(g, wanted_type);
 
-    if (ir_want_runtime_safety(g, &instruction->base)) {
+    if (ir_want_runtime_safety(g, &instruction->base) && align_bytes > 1) {
         ZigType *usize = g->builtin_types.entry_usize;
         LLVMValueRef zero = LLVMConstNull(usize->llvm_type);
 
@@ -3498,7 +3499,6 @@ static LLVMValueRef ir_render_int_to_ptr(CodeGen *g, IrExecutableGen *executable
         }
 
         {
-            const uint32_t align_bytes = get_ptr_align(g, wanted_type);
             LLVMValueRef alignment_minus_1 = LLVMConstInt(usize->llvm_type, align_bytes - 1, false);
             LLVMValueRef anded_val = LLVMBuildAnd(g->builder, target_val, alignment_minus_1, "");
             LLVMValueRef is_ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, anded_val, zero, "");
