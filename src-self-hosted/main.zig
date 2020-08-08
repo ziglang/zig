@@ -60,9 +60,10 @@ pub fn log(
     std.debug.print(prefix ++ format, args);
 }
 
+var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+
 pub fn main() !void {
-    // TODO general purpose allocator in the zig std lib
-    const gpa = if (std.builtin.link_libc) std.heap.c_allocator else std.heap.page_allocator;
+    const gpa = if (std.builtin.link_libc) std.heap.c_allocator else &general_purpose_allocator.allocator;
     var arena_instance = std.heap.ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
     const arena = &arena_instance.allocator;

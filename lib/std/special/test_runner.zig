@@ -19,9 +19,14 @@ pub fn main() anyerror!void {
     // ignores the alignment of the slice.
     async_frame_buffer = &[_]u8{};
 
+    var leaks: usize = 0;
     for (test_fn_list) |test_fn, i| {
         std.testing.allocator_instance = std.heap.GeneralPurposeAllocator(.{}){};
-        defer std.testing.allocator_instance.deinit();
+        defer {
+            if (std.testing.allocator_instance.deinit()) {
+                leaks += 1;
+            }
+        }
         std.testing.log_level = .warn;
 
         var test_node = root_node.start(test_fn.name, null);
@@ -69,6 +74,10 @@ pub fn main() anyerror!void {
         std.debug.print("All {} tests passed.\n", .{ok_count});
     } else {
         std.debug.print("{} passed; {} skipped.\n", .{ ok_count, skip_count });
+    }
+    if (leaks != 0) {
+        std.debug.print("{} tests leaked memory\n", .{ok_count});
+        std.process.exit(1);
     }
 }
 

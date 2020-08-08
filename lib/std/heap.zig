@@ -464,7 +464,13 @@ pub const HeapAllocator = switch (builtin.os.tag) {
             return buf;
         }
 
-        fn resize(allocator: *Allocator, buf: []u8, new_size: usize, len_align: u29) error{OutOfMemory}!usize {
+        fn resize(
+            allocator: *Allocator,
+            buf: []u8,
+            buf_align: u29,
+            new_size: usize,
+            len_align: u29,
+        ) error{OutOfMemory}!usize {
             const self = @fieldParentPtr(HeapAllocator, "allocator", allocator);
             if (new_size == 0) {
                 os.windows.HeapFree(self.heap_handle.?, 0, @intToPtr(*c_void, getRecordPtr(buf).*));

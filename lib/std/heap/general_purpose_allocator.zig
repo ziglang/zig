@@ -140,7 +140,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         const total_requested_bytes_init = if (config.enable_memory_limit) @as(usize, 0) else {};
         const requested_memory_limit_init = if (config.enable_memory_limit) @as(usize, math.maxInt(usize)) else {};
 
-        const mutex_init = if (config.thread_safe) std.Mutex.init() else std.Mutex.Dummy.init();
+        const mutex_init = if (config.thread_safe) std.Mutex{} else std.mutex.Dummy{};
 
         const stack_n = config.stack_trace_frames;
         const one_trace_size = @sizeOf(usize) * stack_n;
@@ -250,7 +250,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             bucket: *BucketHeader,
             size_class: usize,
             used_bits_count: usize,
-        ) void {
+        ) bool {
+            var leaks = false;
             var used_bits_byte: usize = 0;
             while (used_bits_byte < used_bits_count) : (used_bits_byte += 1) {
                 const used_byte = bucket.usedBits(used_bits_byte).*;
@@ -268,22 +269,26 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                                 .alloc,
                             );
                             std.debug.dumpStackTrace(stack_trace);
+                            leaks = true;
                         }
                         if (bit_index == math.maxInt(u3))
                             break;
                     }
                 }
             }
+            return leaks;
         }
 
-        pub fn deinit(self: *Self) void {
+        /// Returns whether there were leaks.
+        pub fn deinit(self: *Self) bool {
+            var leaks = false;
             for (self.buckets) |optional_bucket, bucket_i| {
                 const first_bucket = optional_bucket orelse continue;
                 const size_class = @as(usize, 1) << @intCast(u6, bucket_i);
                 const used_bits_count = usedBitsCount(size_class);
                 var bucket = first_bucket;
                 while (true) {
-                    detectLeaksInBucket(bucket, size_class, used_bits_count);
+                    leaks = detectLeaksInBucket(bucket, size_class, used_bits_count) or leaks;
                     bucket = bucket.next;
                     if (bucket == first_bucket)
                         break;
@@ -292,9 +297,11 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             for (self.large_allocations.items()) |*large_alloc| {
                 std.debug.print("\nMemory leak detected:\n", .{});
                 large_alloc.value.dumpStackTrace();
+                leaks = true;
             }
             self.large_allocations.deinit(self.backing_allocator);
             self.* = undefined;
+            return leaks;
         }
 
         fn collectStackTrace(first_trace_addr: usize, addresses: *[stack_n]usize) void {
@@ -600,7 +607,7 @@ const test_config = Config{};
 
 test "small allocations - free in same order" {
     var gpda = GeneralPurposeAllocator(test_config){};
-    defer gpda.deinit();
+    defer std.testing.expect(!gpda.deinit());
     const allocator = &gpda.allocator;
 
     var list = std.ArrayList(*u64).init(std.testing.allocator);
@@ -619,7 +626,7 @@ test "small allocations - free in same order" {
 
 test "small allocations - free in reverse order" {
     var gpda = GeneralPurposeAllocator(test_config){};
-    defer gpda.deinit();
+    defer std.testing.expect(!gpda.deinit());
     const allocator = &gpda.allocator;
 
     var list = std.ArrayList(*u64).init(std.testing.allocator);
@@ -638,7 +645,7 @@ test "small allocations - free in reverse order" {
 
 test "large allocations" {
     var gpda = GeneralPurposeAllocator(test_config){};
-    defer gpda.deinit();
+    defer std.testing.expect(!gpda.deinit());
     const allocator = &gpda.allocator;
 
     const ptr1 = try allocator.alloc(u64, 42768);
@@ -651,7 +658,7 @@ test "large allocations" {
 
 test "realloc" {
     var gpda = GeneralPurposeAllocator(test_config){};
-    defer gpda.deinit();
+    defer std.testing.expect(!gpda.deinit());
     const allocator = &gpda.allocator;
 
     var slice = try allocator.alignedAlloc(u8, @alignOf(u32), 1);
@@ -673,7 +680,7 @@ test "realloc" {
 
 test "shrink" {
     var gpda = GeneralPurposeAllocator(test_config){};
-    defer gpda.deinit();
+    defer std.testing.expect(!gpda.deinit());
     const allocator = &gpda.allocator;
 
     var slice = try allocator.alloc(u8, 20);
@@ -696,7 +703,7 @@ test "shrink" {
 
 test "large object - grow" {
     var gpda = GeneralPurposeAllocator(test_config){};
-    defer gpda.deinit();
+    defer std.testing.expect(!gpda.deinit());
     const allocator = &gpda.allocator;
 
     var slice1 = try allocator.alloc(u8, page_size * 2 - 20);
@@ -714,7 +721,7 @@ test "large object - grow" {
 
 test "realloc small object to large object" {
     var gpda = GeneralPurposeAllocator(test_config){};
-    defer gpda.deinit();
+    defer std.testing.expect(!gpda.deinit());
     const allocator = &gpda.allocator;
 
     var slice = try allocator.alloc(u8, 70);
@@ -731,7 +738,7 @@ test "realloc small object to large object" {
 
 test "shrink large object to large object" {
     var gpda = GeneralPurposeAllocator(test_config){};
-    defer gpda.deinit();
+    defer std.testing.expect(!gpda.deinit());
     const allocator = &gpda.allocator;
 
     var slice = try allocator.alloc(u8, page_size * 2 + 50);
@@ -754,7 +761,7 @@ test "shrink large object to large object" {
 
 test "shrink large object to large object with larger alignment" {
     var gpda = GeneralPurposeAllocator(test_config){};
-    defer gpda.deinit();
+    defer std.testing.expect(!gpda.deinit());
     const allocator = &gpda.allocator;
 
     var debug_buffer: [1000]u8 = undefined;
@@ -782,7 +789,7 @@ test "shrink large object to large object with larger alignment" {
 
 test "realloc large object to small object" {
     var gpda = GeneralPurposeAllocator(test_config){};
-    defer gpda.deinit();
+    defer std.testing.expect(!gpda.deinit());
     const allocator = &gpda.allocator;
 
     var slice = try allocator.alloc(u8, page_size * 2 + 50);
@@ -797,7 +804,7 @@ test "realloc large object to small object" {
 
 test "non-page-allocator backing allocator" {
     var gpda = GeneralPurposeAllocator(.{}){ .backing_allocator = std.testing.allocator };
-    defer gpda.deinit();
+    defer std.testing.expect(!gpda.deinit());
     const allocator = &gpda.allocator;
 
     const ptr = try allocator.create(i32);
@@ -806,7 +813,7 @@ test "non-page-allocator backing allocator" {
 
 test "realloc large object to larger alignment" {
     var gpda = GeneralPurposeAllocator(test_config){};
-    defer gpda.deinit();
+    defer std.testing.expect(!gpda.deinit());
     const allocator = &gpda.allocator;
 
     var debug_buffer: [1000]u8 = undefined;
@@ -866,7 +873,7 @@ test "isAligned works" {
 test "large object shrinks to small but allocation fails during shrink" {
     var failing_allocator = std.testing.FailingAllocator.init(std.heap.page_allocator, 3);
     var gpda = GeneralPurposeAllocator(.{}){ .backing_allocator = &failing_allocator.allocator };
-    defer gpda.deinit();
+    defer std.testing.expect(!gpda.deinit());
     const allocator = &gpda.allocator;
 
     var slice = try allocator.alloc(u8, page_size * 2 + 50);
@@ -883,7 +890,7 @@ test "large object shrinks to small but allocation fails during shrink" {
 
 test "objects of size 1024 and 2048" {
     var gpda = GeneralPurposeAllocator(test_config){};
-    defer gpda.deinit();
+    defer std.testing.expect(!gpda.deinit());
     const allocator = &gpda.allocator;
 
     const slice = try allocator.alloc(u8, 1025);
@@ -895,7 +902,7 @@ test "objects of size 1024 and 2048" {
 
 test "setting a memory cap" {
     var gpda = GeneralPurposeAllocator(.{ .enable_memory_limit = true }){};
-    defer gpda.deinit();
+    defer std.testing.expect(!gpda.deinit());
     const allocator = &gpda.allocator;
 
     gpda.setRequestedMemoryLimit(1010);

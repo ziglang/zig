@@ -47,7 +47,7 @@ pub const LineInfo = struct {
     }
 };
 
-var stderr_mutex = std.Mutex.init();
+var stderr_mutex = std.Mutex{};
 
 /// Deprecated. Use `std.log` functions for logging or `std.debug.print` for
 /// "printf debugging".
@@ -232,7 +232,7 @@ pub fn panic(comptime format: []const u8, args: anytype) noreturn {
 var panicking: u8 = 0;
 
 // Locked to avoid interleaving panic messages from multiple threads.
-var panic_mutex = std.Mutex.init();
+var panic_mutex = std.Mutex{};
 
 /// Counts how many times the panic handler is invoked by this thread.
 /// This is used to catch and handle panics triggered by the panic handler.
