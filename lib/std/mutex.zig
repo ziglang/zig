@@ -30,49 +30,7 @@ const ResetEvent = std.ResetEvent;
 ///     // ... lock not acquired
 /// }
 pub const Mutex = if (builtin.single_threaded)
-    struct {
-        lock: @TypeOf(lock_init),
-
-        const lock_init = if (std.debug.runtime_safety) false else {};
-
-        pub const Held = struct {
-            mutex: *Mutex,
-
-            pub fn release(self: Held) void {
-                if (std.debug.runtime_safety) {
-                    self.mutex.lock = false;
-                }
-            }
-        };
-
-        /// Create a new mutex in unlocked state.
-        pub fn init() Mutex {
-            return Mutex{ .lock = lock_init };
-        }
-
-        /// Free a mutex created with init. Calling this while the
-        /// mutex is held is illegal behavior.
-        pub fn deinit(self: *Mutex) void {
-            self.* = undefined;
-        }
-
-        /// Try to acquire the mutex without blocking. Returns null if
-        /// the mutex is unavailable. Otherwise returns Held. Call
-        /// release on Held.
-        pub fn tryAcquire(self: *Mutex) ?Held {
-            if (std.debug.runtime_safety) {
-                if (self.lock) return null;
-                self.lock = true;
-            }
-            return Held{ .mutex = self };
-        }
-
-        /// Acquire the mutex. Will deadlock if the mutex is already
-        /// held by the calling thread.
-        pub fn acquire(self: *Mutex) Held {
-            return self.tryAcquire() orelse @panic("deadlock detected");
-        }
-    }
+    Dummy
 else if (builtin.os.tag == .windows)
 // https://locklessinc.com/articles/keyed_events/
     extern union {
@@ -81,6 +39,8 @@ else if (builtin.os.tag == .windows)
 
         const WAKE = 1 << 8;
         const WAIT = 1 << 9;
+
+        pub const Dummy = Dummy;
 
         pub fn init() Mutex {
             return Mutex{ .waiters = 0 };
@@ -165,6 +125,8 @@ else if (builtin.link_libc or builtin.os.tag == .linux)
 // stack-based version of https://github.com/Amanieu/parking_lot/blob/master/core/src/word_lock.rs
     struct {
         state: usize,
+
+        pub const Dummy = Dummy;
 
         /// number of times to spin trying to acquire the lock.
         /// https://webkit.org/blog/6161/locking-in-webkit/
@@ -297,6 +259,52 @@ else if (builtin.link_libc or builtin.os.tag == .linux)
     // primitive, default to SpinLock for correctness
 else
     SpinLock;
+
+/// This has the sematics as `Mutex`, however it does not actually do any
+/// synchronization. Operations are safety-checked no-ops.
+pub const Dummy = struct {
+    lock: @TypeOf(lock_init),
+
+    const lock_init = if (std.debug.runtime_safety) false else {};
+
+    pub const Held = struct {
+        mutex: *Dummy,
+
+        pub fn release(self: Held) void {
+            if (std.debug.runtime_safety) {
+                self.mutex.lock = false;
+            }
+        }
+    };
+
+    /// Create a new mutex in unlocked state.
+    pub fn init() Dummy {
+        return Dummy{ .lock = lock_init };
+    }
+
+    /// Free a mutex created with init. Calling this while the
+    /// mutex is held is illegal behavior.
+    pub fn deinit(self: *Dummy) void {
+        self.* = undefined;
+    }
+
+    /// Try to acquire the mutex without blocking. Returns null if
+    /// the mutex is unavailable. Otherwise returns Held. Call
+    /// release on Held.
+    pub fn tryAcquire(self: *Dummy) ?Held {
+        if (std.debug.runtime_safety) {
+            if (self.lock) return null;
+            self.lock = true;
+        }
+        return Held{ .mutex = self };
+    }
+
+    /// Acquire the mutex. Will deadlock if the mutex is already
+    /// held by the calling thread.
+    pub fn acquire(self: *Dummy) Held {
+        return self.tryAcquire() orelse @panic("deadlock detected");
+    }
+};
 
 const TestContext = struct {
     mutex: *Mutex,

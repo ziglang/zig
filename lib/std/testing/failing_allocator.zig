@@ -50,16 +50,22 @@ pub const FailingAllocator = struct {
         if (self.index == self.fail_index) {
             return error.OutOfMemory;
         }
-        const result = try self.internal_allocator.callAllocFn(len, ptr_align, len_align);
+        const result = try self.internal_allocator.allocFn(self.internal_allocator, len, ptr_align, len_align);
         self.allocated_bytes += result.len;
         self.allocations += 1;
         self.index += 1;
         return result;
     }
 
-    fn resize(allocator: *std.mem.Allocator, old_mem: []u8, new_len: usize, len_align: u29) error{OutOfMemory}!usize {
+    fn resize(
+        allocator: *std.mem.Allocator,
+        old_mem: []u8,
+        old_align: u29,
+        new_len: usize,
+        len_align: u29,
+    ) error{OutOfMemory}!usize {
         const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
-        const r = self.internal_allocator.callResizeFn(old_mem, new_len, len_align) catch |e| {
+        const r = self.internal_allocator.resizeFn(self.internal_allocator, old_mem, old_align, new_len, len_align) catch |e| {
             std.debug.assert(new_len > old_mem.len);
             return e;
         };

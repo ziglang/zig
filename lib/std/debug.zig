@@ -19,9 +19,6 @@ const windows = std.os.windows;
 
 pub const leb = @import("debug/leb128.zig");
 
-pub const global_allocator = @compileError("Please switch to std.testing.allocator.");
-pub const failing_allocator = @compileError("Please switch to std.testing.failing_allocator.");
-
 pub const runtime_safety = switch (builtin.mode) {
     .Debug, .ReleaseSafe => true,
     .ReleaseFast, .ReleaseSmall => false,
