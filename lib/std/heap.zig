@@ -37,7 +37,7 @@ var c_allocator_state = Allocator{
     .resizeFn = cResize,
 };
 
-fn cAlloc(self: *Allocator, len: usize, ptr_align: u29, len_align: u29) Allocator.Error![]u8 {
+fn cAlloc(self: *Allocator, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Allocator.Error![]u8 {
     assert(ptr_align <= @alignOf(c_longdouble));
     const ptr = @ptrCast([*]u8, c.malloc(len) orelse return error.OutOfMemory);
     if (len_align == 0) {
@@ -54,7 +54,14 @@ fn cAlloc(self: *Allocator, len: usize, ptr_align: u29, len_align: u29) Allocato
     return ptr[0..mem.alignBackwardAnyAlign(full_len, len_align)];
 }
 
-fn cResize(self: *Allocator, buf: []u8, old_align: u29, new_len: usize, len_align: u29) Allocator.Error!usize {
+fn cResize(
+    self: *Allocator,
+    buf: []u8,
+    old_align: u29,
+    new_len: usize,
+    len_align: u29,
+    ret_addr: usize,
+) Allocator.Error!usize {
     if (new_len == 0) {
         c.free(buf.ptr);
         return 0;

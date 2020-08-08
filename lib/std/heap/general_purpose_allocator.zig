@@ -102,9 +102,12 @@ const StackTrace = std.builtin.StackTrace;
 /// Integer type for pointing to slots in a small allocation
 const SlotIndex = std.meta.Int(false, math.log2(page_size) + 1);
 
+// WebAssembly doesn't support stack tracing yet.
+const default_stack_trace_frames: usize = if (std.Target.current.cpu.arch.isWasm()) 0 else 4;
+
 pub const Config = struct {
     /// Number of stack frames to capture.
-    stack_trace_frames: usize = if (std.debug.runtime_safety) @as(usize, 4) else @as(usize, 0),
+    stack_trace_frames: usize = if (std.debug.runtime_safety) default_stack_trace_frames else @as(usize, 0),
 
     /// If true, the allocator will have two fields:
     ///  * `total_requested_bytes` which tracks the total allocated bytes of memory requested.
