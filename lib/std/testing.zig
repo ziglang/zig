@@ -5,7 +5,7 @@ pub const FailingAllocator = @import("testing/failing_allocator.zig").FailingAll
 
 /// This should only be used in temporary test programs.
 pub const allocator = &allocator_instance.allocator;
-pub var allocator_instance: std.heap.GeneralPurposeAllocator(.{}) = undefined;
+pub var allocator_instance = std.heap.GeneralPurposeAllocator(.{}){};
 
 pub const failing_allocator = &failing_allocator_instance.allocator;
 pub var failing_allocator_instance = FailingAllocator.init(&base_allocator_instance.allocator, 0);
