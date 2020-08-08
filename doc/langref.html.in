@@ -9363,7 +9363,7 @@ pub fn main() !void {
               Finally, if none of the above apply, you need a general purpose allocator.
               Zig's general purpose allocator is available as a function that takes a {#link|comptime#}
               {#link|struct#} of configuration options and returns a type.
-              Generally, you will set up one {#syntax#}std.heap.GeneralPurposeAllocator#{endsyntax#} in
+              Generally, you will set up one {#syntax#}std.heap.GeneralPurposeAllocator{#endsyntax#} in
               your main function, and then pass it or sub-allocators around to various parts of your
               application.
           </li>

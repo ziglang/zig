@@ -102,8 +102,22 @@ const StackTrace = std.builtin.StackTrace;
 /// Integer type for pointing to slots in a small allocation
 const SlotIndex = std.meta.Int(false, math.log2(page_size) + 1);
 
-// WebAssembly doesn't support stack tracing yet.
-const default_stack_trace_frames: usize = if (std.Target.current.cpu.arch.isWasm()) 0 else 4;
+const sys_can_stack_trace = switch (std.Target.current.cpu.arch) {
+    // Observed to go into an infinite loop.
+    // TODO: Make this work.
+    .mips,
+    .mipsel,
+    => false,
+
+    // `@returnAddress()` in LLVM 10 gives
+    // "Non-Emscripten WebAssembly hasn't implemented __builtin_return_address".
+    .wasm32,
+    .wasm64,
+    => std.Target.current.os.tag == .emscripten,
+
+    else => true,
+};
+const default_stack_trace_frames: usize = if (sys_can_stack_trace) 4 else 0;
 
 pub const Config = struct {
     /// Number of stack frames to capture.
