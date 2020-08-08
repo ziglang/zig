@@ -189,7 +189,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 std.debug.dumpStackTrace(stack_trace);
             }
         };
-        const LargeAllocTable = std.HashMapUnmanaged(usize, LargeAlloc, hash_addr, eql_addr, false);
+        const LargeAllocTable = std.AutoHashMapUnmanaged(usize, LargeAlloc);
 
         // Bucket: In memory, in order:
         // * BucketHeader
@@ -608,17 +608,6 @@ const TraceKind = enum {
     alloc,
     free,
 };
-
-fn hash_addr(addr: usize) u32 {
-    if (@sizeOf(usize) == @sizeOf(u32))
-        return addr;
-    comptime assert(@sizeOf(usize) == 8);
-    return @intCast(u32, addr >> 32) ^ @truncate(u32, addr);
-}
-
-fn eql_addr(a: usize, b: usize) bool {
-    return a == b;
-}
 
 const test_config = Config{};
 
