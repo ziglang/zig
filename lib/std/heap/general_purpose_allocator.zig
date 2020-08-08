@@ -475,7 +475,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             if (aligned_size > largest_bucket_object_size) {
                 return self.resizeLarge(old_mem, old_align, new_size, len_align, ret_addr);
             }
-            const size_class_hint = up_to_nearest_power_of_2(usize, aligned_size);
+            const size_class_hint = math.ceilPowerOfTwoAssert(usize, aligned_size);
 
             var bucket_index = math.log2(size_class_hint);
             var size_class: usize = size_class_hint;
@@ -512,7 +512,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 return @as(usize, 0);
             }
             const new_aligned_size = math.max(new_size, old_align);
-            const new_size_class = up_to_nearest_power_of_2(usize, new_aligned_size);
+            const new_size_class = math.ceilPowerOfTwoAssert(usize, new_aligned_size);
             if (new_size_class <= size_class) {
                 return new_size;
             }
@@ -553,7 +553,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
                 return slice;
             } else {
-                const new_size_class = up_to_nearest_power_of_2(usize, new_aligned_size);
+                const new_size_class = math.ceilPowerOfTwoAssert(usize, new_aligned_size);
                 const ptr = try self.allocSlot(new_size_class, ret_addr);
                 return ptr[0..len];
             }
@@ -585,13 +585,6 @@ const TraceKind = enum {
     alloc,
     free,
 };
-
-fn up_to_nearest_power_of_2(comptime T: type, n: T) T {
-    var power: T = 1;
-    while (power < n)
-        power *= 2;
-    return power;
-}
 
 fn hash_addr(addr: usize) u32 {
     if (@sizeOf(usize) == @sizeOf(u32))

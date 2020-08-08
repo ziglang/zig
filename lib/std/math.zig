@@ -837,6 +837,10 @@ pub fn ceilPowerOfTwo(comptime T: type, value: T) (error{Overflow}!T) {
     return @intCast(T, x);
 }
 
+pub fn ceilPowerOfTwoAssert(comptime T: type, value: T) T {
+    return ceilPowerOfTwo(T, value) catch unreachable;
+}
+
 test "math.ceilPowerOfTwoPromote" {
     testCeilPowerOfTwoPromote();
     comptime testCeilPowerOfTwoPromote();
