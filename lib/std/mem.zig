@@ -37,7 +37,13 @@ pub fn ValidationAllocator(comptime T: type) type {
             if (*T == *Allocator) return &self.underlying_allocator;
             return &self.underlying_allocator.allocator;
         }
-        pub fn alloc(allocator: *Allocator, n: usize, ptr_align: u29, len_align: u29) Allocator.Error![]u8 {
+        pub fn alloc(
+            allocator: *Allocator,
+            n: usize,
+            ptr_align: u29,
+            len_align: u29,
+            ret_addr: usize,
+        ) Allocator.Error![]u8 {
             assert(n > 0);
             assert(mem.isValidAlign(ptr_align));
             if (len_align != 0) {
@@ -47,7 +53,7 @@ pub fn ValidationAllocator(comptime T: type) type {
 
             const self = @fieldParentPtr(@This(), "allocator", allocator);
             const underlying = self.getUnderlyingAllocatorPtr();
-            const result = try underlying.allocFn(underlying, n, ptr_align, len_align);
+            const result = try underlying.allocFn(underlying, n, ptr_align, len_align, ret_addr);
             assert(mem.isAligned(@ptrToInt(result.ptr), ptr_align));
             if (len_align == 0) {
                 assert(result.len == n);
@@ -63,6 +69,7 @@ pub fn ValidationAllocator(comptime T: type) type {
             buf_align: u29,
             new_len: usize,
             len_align: u29,
+            ret_addr: usize,
         ) Allocator.Error!usize {
             assert(buf.len > 0);
             if (len_align != 0) {
@@ -71,7 +78,7 @@ pub fn ValidationAllocator(comptime T: type) type {
             }
             const self = @fieldParentPtr(@This(), "allocator", allocator);
             const underlying = self.getUnderlyingAllocatorPtr();
-            const result = try underlying.resizeFn(underlying, buf, buf_align, new_len, len_align);
+            const result = try underlying.resizeFn(underlying, buf, buf_align, new_len, len_align, ret_addr);
             if (len_align == 0) {
                 assert(result == new_len);
             } else {
@@ -111,7 +118,7 @@ var failAllocator = Allocator{
     .allocFn = failAllocatorAlloc,
     .resizeFn = Allocator.noResize,
 };
-fn failAllocatorAlloc(self: *Allocator, n: usize, alignment: u29, len_align: u29) Allocator.Error![]u8 {
+fn failAllocatorAlloc(self: *Allocator, n: usize, alignment: u29, len_align: u29, ra: usize) Allocator.Error![]u8 {
     return error.OutOfMemory;
 }
 

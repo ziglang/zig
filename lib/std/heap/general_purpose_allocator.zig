@@ -104,7 +104,7 @@ const SlotIndex = std.meta.Int(false, math.log2(page_size) + 1);
 
 pub const Config = struct {
     /// Number of stack frames to capture.
-    stack_trace_frames: usize = if (std.debug.runtime_safety) @as(usize, 6) else @as(usize, 0),
+    stack_trace_frames: usize = if (std.debug.runtime_safety) @as(usize, 4) else @as(usize, 0),
 
     /// If true, the allocator will have two fields:
     ///  * `total_requested_bytes` which tracks the total allocated bytes of memory requested.
@@ -199,7 +199,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
             fn captureStackTrace(
                 bucket: *BucketHeader,
-                return_address: usize,
+                ret_addr: usize,
                 size_class: usize,
                 slot_index: SlotIndex,
                 trace_kind: TraceKind,
@@ -207,7 +207,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 // Initialize them to 0. When determining the count we must look
                 // for non zero addresses.
                 const stack_addresses = bucket.stackTracePtr(size_class, slot_index, trace_kind);
-                collectStackTrace(return_address, stack_addresses);
+                collectStackTrace(ret_addr, stack_addresses);
             }
         };
 
@@ -284,7 +284,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             var leaks = false;
             for (self.buckets) |optional_bucket, bucket_i| {
                 const first_bucket = optional_bucket orelse continue;
-                const size_class = @as(usize, 1) << @intCast(u6, bucket_i);
+                const size_class = @as(usize, 1) << @intCast(math.Log2Int(usize), bucket_i);
                 const used_bits_count = usedBitsCount(size_class);
                 var bucket = first_bucket;
                 while (true) {
@@ -377,7 +377,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             trace_addr: usize,
         ) void {
             // Capture stack trace to be the "first free", in case a double free happens.
-            bucket.captureStackTrace(@returnAddress(), size_class, slot_index, .free);
+            bucket.captureStackTrace(trace_addr, size_class, slot_index, .free);
 
             used_byte.* &= ~(@as(u8, 1) << used_bit_index);
             bucket.used_count -= 1;
@@ -408,7 +408,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             old_align: u29,
             new_size: usize,
             len_align: u29,
-            return_addr: usize,
+            ret_addr: usize,
         ) Error!usize {
             const entry = self.large_allocations.getEntry(@ptrToInt(old_mem.ptr)) orelse {
                 if (config.safety) {
@@ -428,7 +428,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 @panic("\nFree here:");
             }
 
-            const result_len = try self.backing_allocator.resizeFn(self.backing_allocator, old_mem, old_align, new_size, len_align);
+            const result_len = try self.backing_allocator.resizeFn(self.backing_allocator, old_mem, old_align, new_size, len_align, ret_addr);
 
             if (result_len == 0) {
                 self.large_allocations.removeAssertDiscard(@ptrToInt(old_mem.ptr));
@@ -436,7 +436,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             }
 
             entry.value.bytes = old_mem.ptr[0..result_len];
-            collectStackTrace(return_addr, &entry.value.stack_addresses);
+            collectStackTrace(ret_addr, &entry.value.stack_addresses);
             return result_len;
         }
 
@@ -450,6 +450,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             old_align: u29,
             new_size: usize,
             len_align: u29,
+            ret_addr: usize,
         ) Error!usize {
             const self = @fieldParentPtr(Self, "allocator", allocator);
 
@@ -472,7 +473,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
             const aligned_size = math.max(old_mem.len, old_align);
             if (aligned_size > largest_bucket_object_size) {
-                return self.resizeLarge(old_mem, old_align, new_size, len_align, @returnAddress());
+                return self.resizeLarge(old_mem, old_align, new_size, len_align, ret_addr);
             }
             const size_class_hint = up_to_nearest_power_of_2(usize, aligned_size);
 
@@ -484,7 +485,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 }
                 size_class *= 2;
             } else {
-                return self.resizeLarge(old_mem, old_align, new_size, len_align, @returnAddress());
+                return self.resizeLarge(old_mem, old_align, new_size, len_align, ret_addr);
             };
             const byte_offset = @ptrToInt(old_mem.ptr) - @ptrToInt(bucket.page);
             const slot_index = @intCast(SlotIndex, byte_offset / size_class);
@@ -507,7 +508,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 }
             }
             if (new_size == 0) {
-                self.freeSlot(bucket, bucket_index, size_class, slot_index, used_byte, used_bit_index, @returnAddress());
+                self.freeSlot(bucket, bucket_index, size_class, slot_index, used_byte, used_bit_index, ret_addr);
                 return @as(usize, 0);
             }
             const new_aligned_size = math.max(new_size, old_align);
@@ -518,7 +519,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             return error.OutOfMemory;
         }
 
-        fn alloc(allocator: *Allocator, len: usize, ptr_align: u29, len_align: u29) Error![]u8 {
+        fn alloc(allocator: *Allocator, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8 {
             const self = @fieldParentPtr(Self, "allocator", allocator);
 
             const held = self.mutex.acquire();
@@ -543,17 +544,17 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     self.large_allocations.entries.items.len + 1,
                 );
 
-                const slice = try self.backing_allocator.allocFn(self.backing_allocator, len, ptr_align, len_align);
+                const slice = try self.backing_allocator.allocFn(self.backing_allocator, len, ptr_align, len_align, ret_addr);
 
                 const gop = self.large_allocations.getOrPutAssumeCapacity(@ptrToInt(slice.ptr));
                 assert(!gop.found_existing); // This would mean the kernel double-mapped pages.
                 gop.entry.value.bytes = slice;
-                collectStackTrace(@returnAddress(), &gop.entry.value.stack_addresses);
+                collectStackTrace(ret_addr, &gop.entry.value.stack_addresses);
 
                 return slice;
             } else {
                 const new_size_class = up_to_nearest_power_of_2(usize, new_aligned_size);
-                const ptr = try self.allocSlot(new_size_class, @returnAddress());
+                const ptr = try self.allocSlot(new_size_class, ret_addr);
                 return ptr[0..len];
             }
         }
@@ -782,7 +783,7 @@ test "shrink large object to large object with larger alignment" {
     slice[0] = 0x12;
     slice[60] = 0x34;
 
-    slice = try allocator.alignedRealloc(slice, page_size * 2, alloc_size / 2);
+    slice = try allocator.reallocAdvanced(slice, page_size * 2, alloc_size / 2, .exact);
     assert(slice[0] == 0x12);
     assert(slice[60] == 0x34);
 }
@@ -833,15 +834,15 @@ test "realloc large object to larger alignment" {
     slice[0] = 0x12;
     slice[16] = 0x34;
 
-    slice = try allocator.alignedRealloc(slice, 32, page_size * 2 + 100);
+    slice = try allocator.reallocAdvanced(slice, 32, page_size * 2 + 100, .exact);
     assert(slice[0] == 0x12);
     assert(slice[16] == 0x34);
 
-    slice = try allocator.alignedRealloc(slice, 32, page_size * 2 + 25);
+    slice = try allocator.reallocAdvanced(slice, 32, page_size * 2 + 25, .exact);
     assert(slice[0] == 0x12);
     assert(slice[16] == 0x34);
 
-    slice = try allocator.alignedRealloc(slice, page_size * 2, page_size * 2 + 100);
+    slice = try allocator.reallocAdvanced(slice, page_size * 2, page_size * 2 + 100, .exact);
     assert(slice[0] == 0x12);
     assert(slice[16] == 0x34);
 }
