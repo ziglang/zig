@@ -317,7 +317,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 }
             }
             for (self.large_allocations.items()) |*large_alloc| {
-                std.debug.print("\nMemory leak detected:\n", .{});
+                std.debug.print("\nMemory leak detected (0x{x}):\n", .{@ptrToInt(large_alloc.value.bytes.ptr)});
                 large_alloc.value.dumpStackTrace();
                 leaks = true;
             }
@@ -788,8 +788,15 @@ test "shrink large object to large object with larger alignment" {
     var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
     defer allocator.free(slice);
 
+    const big_alignment: usize = switch (std.Target.current.os.tag) {
+        .windows => page_size * 32, // Windows aligns to 64K.
+        else => page_size * 2,
+    };
+    // This loop allocates until we find a page that is not aligned to the big
+    // alignment. Then we shrink the allocation after the loop, but increase the
+    // alignment to the higher one, that we know will force it to realloc.
     var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
-    while (mem.isAligned(@ptrToInt(slice.ptr), page_size * 2)) {
+    while (mem.isAligned(@ptrToInt(slice.ptr), big_alignment)) {
         try stuff_to_free.append(slice);
         slice = try allocator.alignedAlloc(u8, 16, alloc_size);
     }
@@ -799,7 +806,7 @@ test "shrink large object to large object with larger alignment" {
     slice[0] = 0x12;
     slice[60] = 0x34;
 
-    slice = try allocator.reallocAdvanced(slice, page_size * 2, alloc_size / 2, .exact);
+    slice = try allocator.reallocAdvanced(slice, big_alignment, alloc_size / 2, .exact);
     std.testing.expect(slice[0] == 0x12);
     std.testing.expect(slice[60] == 0x34);
 }
@@ -839,8 +846,13 @@ test "realloc large object to larger alignment" {
     var slice = try allocator.alignedAlloc(u8, 16, page_size * 2 + 50);
     defer allocator.free(slice);
 
+    const big_alignment: usize = switch (std.Target.current.os.tag) {
+        .windows => page_size * 32, // Windows aligns to 64K.
+        else => page_size * 2,
+    };
+    // This loop allocates until we find a page that is not aligned to the big alignment.
     var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
-    while (mem.isAligned(@ptrToInt(slice.ptr), page_size * 2)) {
+    while (mem.isAligned(@ptrToInt(slice.ptr), big_alignment)) {
         try stuff_to_free.append(slice);
         slice = try allocator.alignedAlloc(u8, 16, page_size * 2 + 50);
     }
@@ -858,7 +870,7 @@ test "realloc large object to larger alignment" {
     std.testing.expect(slice[0] == 0x12);
     std.testing.expect(slice[16] == 0x34);
 
-    slice = try allocator.reallocAdvanced(slice, page_size * 2, page_size * 2 + 100, .exact);
+    slice = try allocator.reallocAdvanced(slice, big_alignment, page_size * 2 + 100, .exact);
     std.testing.expect(slice[0] == 0x12);
     std.testing.expect(slice[16] == 0x34);
 }
