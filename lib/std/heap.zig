@@ -225,7 +225,7 @@ const PageAllocator = struct {
                 w.VirtualFree(buf_unaligned.ptr, 0, w.MEM_RELEASE);
                 return 0;
             }
-            if (new_size < buf_unaligned.len) {
+            if (new_size <= buf_unaligned.len) {
                 const base_addr = @ptrToInt(buf_unaligned.ptr);
                 const old_addr_end = base_addr + buf_unaligned.len;
                 const new_addr_end = mem.alignForward(base_addr + new_size, mem.page_size);
@@ -240,10 +240,10 @@ const PageAllocator = struct {
                 }
                 return alignPageAllocLen(new_size_aligned, new_size, len_align);
             }
-            if (new_size == buf_unaligned.len) {
+            const old_size_aligned = mem.alignForward(buf_unaligned.len, mem.page_size);
+            if (new_size_aligned <= old_size_aligned) {
                 return alignPageAllocLen(new_size_aligned, new_size, len_align);
             }
-            // new_size > buf_unaligned.len not implemented
             return error.OutOfMemory;
         }
 
