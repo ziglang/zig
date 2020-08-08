@@ -95,6 +95,7 @@
 const std = @import("std");
 const math = std.math;
 const assert = std.debug.assert;
+const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const page_size = std.mem.page_size;
 const StackTrace = std.builtin.StackTrace;
@@ -117,11 +118,15 @@ const sys_can_stack_trace = switch (std.Target.current.cpu.arch) {
 
     else => true,
 };
-const default_stack_trace_frames: usize = if (sys_can_stack_trace) 4 else 0;
+const default_sys_stack_trace_frames: usize = if (sys_can_stack_trace) 4 else 0;
+const default_stack_trace_frames: usize = switch (std.builtin.mode) {
+    .Debug => default_sys_stack_trace_frames,
+    else => 0,
+};
 
 pub const Config = struct {
     /// Number of stack frames to capture.
-    stack_trace_frames: usize = if (std.debug.runtime_safety) default_stack_trace_frames else @as(usize, 0),
+    stack_trace_frames: usize = default_stack_trace_frames,
 
     /// If true, the allocator will have two fields:
     ///  * `total_requested_bytes` which tracks the total allocated bytes of memory requested.
@@ -163,7 +168,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         const one_trace_size = @sizeOf(usize) * stack_n;
         const traces_per_slot = 2;
 
-        pub const Error = std.mem.Allocator.Error;
+        pub const Error = mem.Allocator.Error;
 
         const small_bucket_count = math.log2(page_size);
         const largest_bucket_object_size = 1 << (small_bucket_count - 1);
@@ -246,7 +251,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         }
 
         fn bucketStackFramesStart(size_class: usize) usize {
-            return std.mem.alignForward(
+            return mem.alignForward(
                 @sizeOf(BucketHeader) + usedBitsCount(size_class),
                 @alignOf(usize),
             );
@@ -322,7 +327,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         }
 
         fn collectStackTrace(first_trace_addr: usize, addresses: *[stack_n]usize) void {
-            std.mem.set(usize, addresses, 0);
+            if (stack_n == 0) return;
+            mem.set(usize, addresses, 0);
             var stack_trace = StackTrace{
                 .instruction_addresses = addresses,
                 .index = 0,
@@ -679,14 +685,14 @@ test "realloc" {
     // This reallocation should keep its pointer address.
     const old_slice = slice;
     slice = try allocator.realloc(slice, 2);
-    assert(old_slice.ptr == slice.ptr);
-    assert(slice[0] == 0x12);
+    std.testing.expect(old_slice.ptr == slice.ptr);
+    std.testing.expect(slice[0] == 0x12);
     slice[1] = 0x34;
 
     // This requires upgrading to a larger size class
     slice = try allocator.realloc(slice, 17);
-    assert(slice[0] == 0x12);
-    assert(slice[1] == 0x34);
+    std.testing.expect(slice[0] == 0x12);
+    std.testing.expect(slice[1] == 0x34);
 }
 
 test "shrink" {
@@ -697,18 +703,18 @@ test "shrink" {
     var slice = try allocator.alloc(u8, 20);
     defer allocator.free(slice);
 
-    std.mem.set(u8, slice, 0x11);
+    mem.set(u8, slice, 0x11);
 
     slice = allocator.shrink(slice, 17);
 
     for (slice) |b| {
-        assert(b == 0x11);
+        std.testing.expect(b == 0x11);
     }
 
     slice = allocator.shrink(slice, 16);
 
     for (slice) |b| {
-        assert(b == 0x11);
+        std.testing.expect(b == 0x11);
     }
 }
 
@@ -722,10 +728,10 @@ test "large object - grow" {
 
     var old = slice1;
     slice1 = try allocator.realloc(slice1, page_size * 2 - 10);
-    assert(slice1.ptr == old.ptr);
+    std.testing.expect(slice1.ptr == old.ptr);
 
     slice1 = try allocator.realloc(slice1, page_size * 2);
-    assert(slice1.ptr == old.ptr);
+    std.testing.expect(slice1.ptr == old.ptr);
 
     slice1 = try allocator.realloc(slice1, page_size * 2 + 1);
 }
@@ -743,8 +749,8 @@ test "realloc small object to large object" {
     // This requires upgrading to a large object
     const large_object_size = page_size * 2 + 50;
     slice = try allocator.realloc(slice, large_object_size);
-    assert(slice[0] == 0x12);
-    assert(slice[60] == 0x34);
+    std.testing.expect(slice[0] == 0x12);
+    std.testing.expect(slice[60] == 0x34);
 }
 
 test "shrink large object to large object" {
@@ -758,16 +764,16 @@ test "shrink large object to large object" {
     slice[60] = 0x34;
 
     slice = try allocator.resize(slice, page_size * 2 + 1);
-    assert(slice[0] == 0x12);
-    assert(slice[60] == 0x34);
+    std.testing.expect(slice[0] == 0x12);
+    std.testing.expect(slice[60] == 0x34);
 
     slice = allocator.shrink(slice, page_size * 2 + 1);
-    assert(slice[0] == 0x12);
-    assert(slice[60] == 0x34);
+    std.testing.expect(slice[0] == 0x12);
+    std.testing.expect(slice[60] == 0x34);
 
     slice = try allocator.realloc(slice, page_size * 2);
-    assert(slice[0] == 0x12);
-    assert(slice[60] == 0x34);
+    std.testing.expect(slice[0] == 0x12);
+    std.testing.expect(slice[60] == 0x34);
 }
 
 test "shrink large object to large object with larger alignment" {
@@ -783,7 +789,7 @@ test "shrink large object to large object with larger alignment" {
     defer allocator.free(slice);
 
     var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
-    while (isAligned(@ptrToInt(slice.ptr), page_size * 2)) {
+    while (mem.isAligned(@ptrToInt(slice.ptr), page_size * 2)) {
         try stuff_to_free.append(slice);
         slice = try allocator.alignedAlloc(u8, 16, alloc_size);
     }
@@ -794,8 +800,8 @@ test "shrink large object to large object with larger alignment" {
     slice[60] = 0x34;
 
     slice = try allocator.reallocAdvanced(slice, page_size * 2, alloc_size / 2, .exact);
-    assert(slice[0] == 0x12);
-    assert(slice[60] == 0x34);
+    std.testing.expect(slice[0] == 0x12);
+    std.testing.expect(slice[60] == 0x34);
 }
 
 test "realloc large object to small object" {
@@ -809,8 +815,8 @@ test "realloc large object to small object" {
     slice[16] = 0x34;
 
     slice = try allocator.realloc(slice, 19);
-    assert(slice[0] == 0x12);
-    assert(slice[16] == 0x34);
+    std.testing.expect(slice[0] == 0x12);
+    std.testing.expect(slice[16] == 0x34);
 }
 
 test "non-page-allocator backing allocator" {
@@ -834,7 +840,7 @@ test "realloc large object to larger alignment" {
     defer allocator.free(slice);
 
     var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
-    while (isAligned(@ptrToInt(slice.ptr), page_size * 2)) {
+    while (mem.isAligned(@ptrToInt(slice.ptr), page_size * 2)) {
         try stuff_to_free.append(slice);
         slice = try allocator.alignedAlloc(u8, 16, page_size * 2 + 50);
     }
@@ -845,40 +851,16 @@ test "realloc large object to larger alignment" {
     slice[16] = 0x34;
 
     slice = try allocator.reallocAdvanced(slice, 32, page_size * 2 + 100, .exact);
-    assert(slice[0] == 0x12);
-    assert(slice[16] == 0x34);
+    std.testing.expect(slice[0] == 0x12);
+    std.testing.expect(slice[16] == 0x34);
 
     slice = try allocator.reallocAdvanced(slice, 32, page_size * 2 + 25, .exact);
-    assert(slice[0] == 0x12);
-    assert(slice[16] == 0x34);
+    std.testing.expect(slice[0] == 0x12);
+    std.testing.expect(slice[16] == 0x34);
 
     slice = try allocator.reallocAdvanced(slice, page_size * 2, page_size * 2 + 100, .exact);
-    assert(slice[0] == 0x12);
-    assert(slice[16] == 0x34);
-}
-
-fn isAligned(addr: usize, alignment: usize) bool {
-    // 000010000 // example addr
-    // 000001111 // subtract 1
-    // 111110000 // binary not
-    const aligned_addr = (addr & ~(alignment - 1));
-    return aligned_addr == addr;
-}
-
-test "isAligned works" {
-    assert(isAligned(0, 4));
-    assert(isAligned(1, 1));
-    assert(isAligned(2, 1));
-    assert(isAligned(2, 2));
-    assert(!isAligned(2, 4));
-    assert(isAligned(3, 1));
-    assert(!isAligned(3, 2));
-    assert(!isAligned(3, 4));
-    assert(isAligned(4, 4));
-    assert(isAligned(4, 2));
-    assert(isAligned(4, 1));
-    assert(!isAligned(4, 8));
-    assert(!isAligned(4, 16));
+    std.testing.expect(slice[0] == 0x12);
+    std.testing.expect(slice[16] == 0x34);
 }
 
 test "large object shrinks to small but allocation fails during shrink" {
@@ -895,8 +877,8 @@ test "large object shrinks to small but allocation fails during shrink" {
     // Next allocation will fail in the backing allocator of the GeneralPurposeAllocator
 
     slice = allocator.shrink(slice, 4);
-    assert(slice[0] == 0x12);
-    assert(slice[3] == 0x34);
+    std.testing.expect(slice[0] == 0x12);
+    std.testing.expect(slice[3] == 0x34);
 }
 
 test "objects of size 1024 and 2048" {
@@ -919,20 +901,20 @@ test "setting a memory cap" {
     gpda.setRequestedMemoryLimit(1010);
 
     const small = try allocator.create(i32);
-    assert(gpda.total_requested_bytes == 4);
+    std.testing.expect(gpda.total_requested_bytes == 4);
 
     const big = try allocator.alloc(u8, 1000);
-    assert(gpda.total_requested_bytes == 1004);
+    std.testing.expect(gpda.total_requested_bytes == 1004);
 
     std.testing.expectError(error.OutOfMemory, allocator.create(u64));
 
     allocator.destroy(small);
-    assert(gpda.total_requested_bytes == 1000);
+    std.testing.expect(gpda.total_requested_bytes == 1000);
 
     allocator.free(big);
-    assert(gpda.total_requested_bytes == 0);
+    std.testing.expect(gpda.total_requested_bytes == 0);
 
     const exact = try allocator.alloc(u8, 1010);
-    assert(gpda.total_requested_bytes == 1010);
+    std.testing.expect(gpda.total_requested_bytes == 1010);
     allocator.free(exact);
 }
