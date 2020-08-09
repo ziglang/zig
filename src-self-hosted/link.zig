@@ -202,7 +202,6 @@ pub const File = struct {
         called: std.StringHashMap(void),
         need_stddef: bool = false,
         need_stdint: bool = false,
-        need_noreturn: bool = false,
         error_msg: *Module.ErrorMsg = undefined,
 
         pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: Options) !*File {

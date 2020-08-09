@@ -12,7 +12,7 @@ pub fn addCases(ctx: *TestContext) !void {
     ctx.c("empty start function", linux_x64,
         \\export fn _start() noreturn {}
     ,
-        \\noreturn void _start(void) {}
+        \\zig_noreturn void _start(void) {}
         \\
     );
     ctx.c("less empty start function", linux_x64,
@@ -22,19 +22,19 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    main();
         \\}
     ,
-        \\noreturn void main(void);
+        \\zig_noreturn void main(void);
         \\
-        \\noreturn void _start(void) {
+        \\zig_noreturn void _start(void) {
         \\    main();
         \\}
         \\
-        \\noreturn void main(void) {}
+        \\zig_noreturn void main(void) {}
         \\
     );
     // TODO: implement return values
     // TODO: figure out a way to prevent asm constants from being generated
     ctx.c("inline asm", linux_x64,
-        \\fn exitGood() void {
+        \\fn exitGood() noreturn {
         \\    asm volatile ("syscall"
         \\        :
         \\        : [number] "{rax}" (231),
@@ -48,21 +48,20 @@ pub fn addCases(ctx: *TestContext) !void {
     ,
         \\#include <stddef.h>
         \\
-        \\void exitGood(void);
+        \\zig_noreturn void exitGood(void);
         \\
         \\const char *const exitGood__anon_0 = "{rax}";
         \\const char *const exitGood__anon_1 = "{rdi}";
         \\const char *const exitGood__anon_2 = "syscall";
         \\
-        \\noreturn void _start(void) {
+        \\zig_noreturn void _start(void) {
         \\    exitGood();
         \\}
         \\
-        \\void exitGood(void) {
+        \\zig_noreturn void exitGood(void) {
         \\    register size_t rax_constant __asm__("rax") = 231;
         \\    register size_t rdi_constant __asm__("rdi") = 0;
         \\    __asm volatile ("syscall" :: ""(rax_constant), ""(rdi_constant));
-        \\    return;
         \\}
         \\
     );
