@@ -8,3 +8,8 @@
 #define zig_noreturn
 #endif
 
+#if __GNUC__
+#define zig_unreachable() __builtin_unreachable()
+#else
+#define zig_unreachable()
+#endif

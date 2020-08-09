@@ -178,7 +178,7 @@ fn genBreak(file: *C, inst: *Inst.NoOp, decl: *Decl) !void {
 }
 
 fn genUnreach(file: *C, inst: *Inst.NoOp, decl: *Decl) !void {
-    // TODO ??
+    try file.main.writer().writeAll("    zig_unreachable();\n");
 }
 
 fn genAsm(file: *C, as: *Inst.Assembly, decl: *Decl, argdex: *usize) !void {

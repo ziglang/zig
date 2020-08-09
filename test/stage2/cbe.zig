@@ -65,7 +65,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\
     );
-    ctx.c("exit", linux_x64,
+    ctx.c("exit with parameter", linux_x64,
         \\export fn _start() noreturn {
         \\    exit(0);
         \\}
@@ -96,6 +96,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    register size_t rax_constant __asm__("rax") = 231;
         \\    register size_t rdi_constant __asm__("rdi") = arg0;
         \\    __asm volatile ("syscall" :: ""(rax_constant), ""(rdi_constant));
+        \\    zig_unreachable();
         \\}
         \\
     );
