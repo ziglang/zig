@@ -924,23 +924,12 @@ pub fn GetFinalPathNameByHandle(
     out_buffer: []u16,
 ) GetFinalPathNameByHandleError![]u16 {
     // Get normalized path; doesn't include volume name though.
-    var path_buffer: [PATH_MAX_WIDE * 2]u8 align(@alignOf(FILE_NAME_INFORMATION)) = undefined;
-    var io: IO_STATUS_BLOCK = undefined;
-    var rc = ntdll.NtQueryInformationFile(hFile, &io, &path_buffer, path_buffer.len, FILE_INFORMATION_CLASS.FileNormalizedNameInformation);
-    switch (rc) {
-        .SUCCESS => {},
-        .INVALID_PARAMETER => unreachable,
-        else => return unexpectedStatus(rc),
-    }
+    var path_buffer: [@sizeOf(FILE_NAME_INFORMATION) + PATH_MAX_WIDE * 2]u8 align(@alignOf(FILE_NAME_INFORMATION)) = undefined;
+    try QueryInformationFile(hFile, FILE_INFORMATION_CLASS.FileNormalizedNameInformation, path_buffer[0..]);
 
     // Get NT volume name.
-    var volume_buffer: [MAX_PATH]u8 align(@alignOf(FILE_NAME_INFORMATION)) = undefined; // MAX_PATH bytes should be enough since it's Windows-defined name
-    rc = ntdll.NtQueryInformationFile(hFile, &io, &volume_buffer, volume_buffer.len, FILE_INFORMATION_CLASS.FileVolumeNameInformation);
-    switch (rc) {
-        .SUCCESS => {},
-        .INVALID_PARAMETER => unreachable,
-        else => return unexpectedStatus(rc),
-    }
+    var volume_buffer: [@sizeOf(FILE_NAME_INFORMATION) + MAX_PATH]u8 align(@alignOf(FILE_NAME_INFORMATION)) = undefined; // MAX_PATH bytes should be enough since it's Windows-defined name
+    try QueryInformationFile(hFile, FILE_INFORMATION_CLASS.FileVolumeNameInformation, volume_buffer[0..]);
 
     const file_name = @ptrCast(*const FILE_NAME_INFORMATION, &path_buffer[0]);
     const file_name_u16 = @ptrCast([*]const u16, &file_name.FileName[0])[0 .. file_name.FileNameLength / 2];
@@ -1014,9 +1003,7 @@ pub fn GetFinalPathNameByHandle(
                 // with traditional DOS drive letters, so pick the first one available.
                 const prefix = &[_]u16{ '\\', 'D', 'o', 's', 'D', 'e', 'v', 'i', 'c', 'e', 's', '\\' };
 
-                if (std.mem.indexOf(u16, symlink, prefix)) |idx| {
-                    if (idx != 0) continue;
-
+                if (std.mem.startsWith(u16, symlink, prefix)) {
                     const drive_letter = symlink[prefix.len..];
 
                     if (out_buffer.len < drive_letter.len + file_name_u16.len) return error.NameTooLong;
@@ -1032,6 +1019,25 @@ pub fn GetFinalPathNameByHandle(
             // so error out!
             return error.FileNotFound;
         },
+    }
+}
+
+pub const QueryInformationFileError = error{Unexpected};
+
+pub fn QueryInformationFile(
+    handle: HANDLE,
+    info_class: FILE_INFORMATION_CLASS,
+    out_buffer: []u8,
+) QueryInformationFileError!void {
+    var io: IO_STATUS_BLOCK = undefined;
+    const len_bytes = std.math.cast(u32, out_buffer.len) catch |err| switch (err) {
+        error.Overflow => std.math.maxInt(u32), // If the provided buffer is larger than what we can handle, set size to max what we can handle
+    };
+    const rc = ntdll.NtQueryInformationFile(handle, &io, out_buffer.ptr, len_bytes, info_class);
+    switch (rc) {
+        .SUCCESS => {},
+        .INVALID_PARAMETER => unreachable,
+        else => return unexpectedStatus(rc),
     }
 }
 
