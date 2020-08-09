@@ -578,7 +578,7 @@ fn formatFloatValue(
         @compileError("Unknown format string: '" ++ fmt ++ "'");
     }
 
-    return formatBuf(buf[0..buf_stream.pos], options, writer);
+    return formatBuf(buf_stream.getWritten(), options, writer);
 }
 
 pub fn formatText(
