@@ -100,4 +100,40 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\
     );
+    ctx.c("exit with u8 parameter", linux_x64,
+        \\export fn _start() noreturn {
+        \\    exit(0);
+        \\}
+        \\
+        \\fn exit(code: u8) noreturn {
+        \\    asm volatile ("syscall"
+        \\        :
+        \\        : [number] "{rax}" (231),
+        \\          [arg1] "{rdi}" (code)
+        \\    );
+        \\    unreachable;
+        \\}
+        \\
+    ,
+        \\#include <stddef.h>
+        \\#include <stdint.h>
+        \\
+        \\zig_noreturn void exit(uint8_t arg0);
+        \\
+        \\const char *const exit__anon_0 = "{rax}";
+        \\const char *const exit__anon_1 = "{rdi}";
+        \\const char *const exit__anon_2 = "syscall";
+        \\
+        \\zig_noreturn void _start(void) {
+        \\    exit(0);
+        \\}
+        \\
+        \\zig_noreturn void exit(uint8_t arg0) {
+        \\    register size_t rax_constant __asm__("rax") = 231;
+        \\    register size_t rdi_constant __asm__("rdi") = (size_t)arg0;
+        \\    __asm volatile ("syscall" :: ""(rax_constant), ""(rdi_constant));
+        \\    zig_unreachable();
+        \\}
+        \\
+    );
 }
