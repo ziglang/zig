@@ -1086,6 +1086,7 @@ pub extern fn ZigClangVarDecl_getTypeSourceInfo_getType(self: *const struct_ZigC
 
 pub extern fn ZigClangIntegerLiteral_EvaluateAsInt(*const ZigClangIntegerLiteral, *ZigClangExprEvalResult, *const ZigClangASTContext) bool;
 pub extern fn ZigClangIntegerLiteral_getBeginLoc(*const ZigClangIntegerLiteral) ZigClangSourceLocation;
+pub extern fn ZigClangIntegerLiteral_isZero(*const ZigClangIntegerLiteral, *bool, *const ZigClangASTContext) bool;
 
 pub extern fn ZigClangReturnStmt_getRetValue(*const ZigClangReturnStmt) ?*const ZigClangExpr;
 

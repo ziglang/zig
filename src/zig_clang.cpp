@@ -2510,6 +2510,19 @@ struct ZigClangSourceLocation ZigClangIntegerLiteral_getBeginLoc(const struct Zi
     return bitcast(casted->getBeginLoc());
 }
 
+bool ZigClangIntegerLiteral_isZero(const struct ZigClangIntegerLiteral *self, bool *result, const struct ZigClangASTContext *ctx) {
+    auto casted_self = reinterpret_cast<const clang::IntegerLiteral *>(self);
+    auto casted_ctx = reinterpret_cast<const clang::ASTContext *>(ctx);
+    clang::Expr::EvalResult eval_result;
+    if (!casted_self->EvaluateAsInt(eval_result, *casted_ctx)) {
+        return false;
+    }
+    const llvm::APSInt result_int = eval_result.Val.getInt();
+    const llvm::APSInt zero(result_int.getBitWidth(), result_int.isUnsigned());
+    *result = zero == result_int;
+    return true;
+}
+
 const struct ZigClangExpr *ZigClangReturnStmt_getRetValue(const struct ZigClangReturnStmt *self) {
     auto casted = reinterpret_cast<const clang::ReturnStmt *>(self);
     return reinterpret_cast<const struct ZigClangExpr *>(casted->getRetValue());

@@ -1684,6 +1684,14 @@ fn transBoolExpr(
     lrvalue: LRValue,
     grouped: bool,
 ) TransError!*ast.Node {
+    if (ZigClangStmt_getStmtClass(@ptrCast(*const ZigClangStmt, expr)) == .IntegerLiteralClass) {
+        var is_zero: bool = undefined;
+        if (!ZigClangIntegerLiteral_isZero(@ptrCast(*const ZigClangIntegerLiteral, expr), &is_zero, rp.c.clang_context)) {
+            return revertAndWarn(rp, error.UnsupportedTranslation, ZigClangExpr_getBeginLoc(expr), "invalid integer literal", .{});
+        }
+        return try transCreateNodeBoolLiteral(rp.c, !is_zero);
+    }
+
     const lparen = if (grouped)
         try appendToken(rp.c, .LParen, "(")
     else
