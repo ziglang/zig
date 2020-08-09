@@ -1260,11 +1260,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\void __attribute__((cdecl)) foo4(float *a);
         \\void __attribute__((thiscall)) foo5(float *a);
     , &[_][]const u8{
-        \\pub fn foo1(a: [*c]f32) callconv(.Fastcall) void;
-        \\pub fn foo2(a: [*c]f32) callconv(.Stdcall) void;
-        \\pub fn foo3(a: [*c]f32) callconv(.Vectorcall) void;
+        \\pub extern fn foo1(a: [*c]f32) callconv(.Fastcall) void;
+        \\pub extern fn foo2(a: [*c]f32) callconv(.Stdcall) void;
+        \\pub extern fn foo3(a: [*c]f32) callconv(.Vectorcall) void;
         \\pub extern fn foo4(a: [*c]f32) void;
-        \\pub fn foo5(a: [*c]f32) callconv(.Thiscall) void;
+        \\pub extern fn foo5(a: [*c]f32) callconv(.Thiscall) void;
     });
 
     cases.addWithTarget("Calling convention", CrossTarget.parse(.{
@@ -1274,8 +1274,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\void __attribute__((pcs("aapcs"))) foo1(float *a);
         \\void __attribute__((pcs("aapcs-vfp"))) foo2(float *a);
     , &[_][]const u8{
-        \\pub fn foo1(a: [*c]f32) callconv(.AAPCS) void;
-        \\pub fn foo2(a: [*c]f32) callconv(.AAPCSVFP) void;
+        \\pub extern fn foo1(a: [*c]f32) callconv(.AAPCS) void;
+        \\pub extern fn foo2(a: [*c]f32) callconv(.AAPCSVFP) void;
     });
 
     cases.addWithTarget("Calling convention", CrossTarget.parse(.{
@@ -1284,7 +1284,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     }) catch unreachable,
         \\void __attribute__((aarch64_vector_pcs)) foo1(float *a);
     , &[_][]const u8{
-        \\pub fn foo1(a: [*c]f32) callconv(.Vectorcall) void;
+        \\pub extern fn foo1(a: [*c]f32) callconv(.Vectorcall) void;
     });
 
     cases.add("Parameterless function prototypes",

@@ -4907,7 +4907,7 @@ fn finishTransFnProto(
     const pub_tok = if (is_pub) try appendToken(rp.c, .Keyword_pub, "pub") else null;
     const extern_export_inline_tok = if (is_export)
         try appendToken(rp.c, .Keyword_export, "export")
-    else if (cc == .C and is_extern)
+    else if (is_extern)
         try appendToken(rp.c, .Keyword_extern, "extern")
     else
         null;
