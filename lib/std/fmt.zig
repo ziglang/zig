@@ -560,13 +560,19 @@ fn formatFloatValue(
     options: FormatOptions,
     writer: anytype,
 ) !void {
+    // this buffer should be enough to display all decimal places of a decimal f64 number.
+    var buf: [512]u8 = undefined;
+    var buf_stream = std.io.fixedBufferStream(&buf);
+
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
-        return formatFloatScientific(value, options, writer);
+        try formatFloatScientific(value, options, buf_stream.writer());
     } else if (comptime std.mem.eql(u8, fmt, "d")) {
-        return formatFloatDecimal(value, options, writer);
+        try formatFloatDecimal(value, options, buf_stream.writer());
     } else {
         @compileError("Unknown format string: '" ++ fmt ++ "'");
     }
+
+    return formatBuf(buf[0..buf_stream.pos], options, writer);
 }
 
 pub fn formatText(
@@ -1790,4 +1796,18 @@ test "padding" {
     try testFmt("Minimum            width", "{:18} width", .{"Minimum"});
     try testFmt("==================Filled", "{:=>24}", .{"Filled"});
     try testFmt("        Centered        ", "{:^24}", .{"Centered"});
+}
+
+test "decimal float padding" {
+    var number: f32 = 3.1415;
+    try testFmt("left-pad:   **3.141\n", "left-pad:   {d:*>7.3}\n", .{number});
+    try testFmt("center-pad: *3.141*\n", "center-pad: {d:*^7.3}\n", .{number});
+    try testFmt("right-pad:  3.141**\n", "right-pad:  {d:*<7.3}\n", .{number});
+}
+
+test "sci float padding" {
+    var number: f32 = 3.1415;
+    try testFmt("left-pad:   **3.141e+00\n", "left-pad:   {e:*>11.3}\n", .{number});
+    try testFmt("center-pad: *3.141e+00*\n", "center-pad: {e:*^11.3}\n", .{number});
+    try testFmt("right-pad:  3.141e+00**\n", "right-pad:  {e:*<11.3}\n", .{number});
 }
