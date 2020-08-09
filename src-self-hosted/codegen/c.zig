@@ -24,8 +24,7 @@ fn renderType(file: *C, writer: std.ArrayList(u8).Writer, T: Type, src: usize) !
     } else {
         switch (T.zigTypeTag()) {
             .NoReturn => {
-                file.need_noreturn = true;
-                try writer.writeAll("noreturn void");
+                try writer.writeAll("zig_noreturn void");
             },
             .Void => try writer.writeAll("void"),
             .Int => {
