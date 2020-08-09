@@ -565,9 +565,15 @@ fn formatFloatValue(
     var buf_stream = std.io.fixedBufferStream(&buf);
 
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
-        try formatFloatScientific(value, options, buf_stream.writer());
+        formatFloatScientific(value, options, buf_stream.writer()) catch |err| switch (err) {
+            error.NoSpaceLeft => unreachable,
+            else => |e| return e,
+        };
     } else if (comptime std.mem.eql(u8, fmt, "d")) {
-        try formatFloatDecimal(value, options, buf_stream.writer());
+        formatFloatDecimal(value, options, buf_stream.writer()) catch |err| switch (err) {
+            error.NoSpaceLeft => unreachable,
+            else => |e| return e,
+        };
     } else {
         @compileError("Unknown format string: '" ++ fmt ++ "'");
     }
