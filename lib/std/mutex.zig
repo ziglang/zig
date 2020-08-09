@@ -15,8 +15,7 @@ const ResetEvent = std.ResetEvent;
 /// deadlock detection.
 ///
 /// Example usage:
-/// var m = Mutex.init();
-/// defer m.deinit();
+/// var m = Mutex{};
 ///
 /// const lock = m.acquire();
 /// defer lock.release();
@@ -30,141 +29,13 @@ const ResetEvent = std.ResetEvent;
 ///     // ... lock not acquired
 /// }
 pub const Mutex = if (builtin.single_threaded)
-    struct {
-        lock: @TypeOf(lock_init),
-
-        const lock_init = if (std.debug.runtime_safety) false else {};
-
-        pub const Held = struct {
-            mutex: *Mutex,
-
-            pub fn release(self: Held) void {
-                if (std.debug.runtime_safety) {
-                    self.mutex.lock = false;
-                }
-            }
-        };
-
-        /// Create a new mutex in unlocked state.
-        pub fn init() Mutex {
-            return Mutex{ .lock = lock_init };
-        }
-
-        /// Free a mutex created with init. Calling this while the
-        /// mutex is held is illegal behavior.
-        pub fn deinit(self: *Mutex) void {
-            self.* = undefined;
-        }
-
-        /// Try to acquire the mutex without blocking. Returns null if
-        /// the mutex is unavailable. Otherwise returns Held. Call
-        /// release on Held.
-        pub fn tryAcquire(self: *Mutex) ?Held {
-            if (std.debug.runtime_safety) {
-                if (self.lock) return null;
-                self.lock = true;
-            }
-            return Held{ .mutex = self };
-        }
-
-        /// Acquire the mutex. Will deadlock if the mutex is already
-        /// held by the calling thread.
-        pub fn acquire(self: *Mutex) Held {
-            return self.tryAcquire() orelse @panic("deadlock detected");
-        }
-    }
+    Dummy
 else if (builtin.os.tag == .windows)
-// https://locklessinc.com/articles/keyed_events/
-    extern union {
-        locked: u8,
-        waiters: u32,
-
-        const WAKE = 1 << 8;
-        const WAIT = 1 << 9;
-
-        pub fn init() Mutex {
-            return Mutex{ .waiters = 0 };
-        }
-
-        pub fn deinit(self: *Mutex) void {
-            self.* = undefined;
-        }
-
-        pub fn tryAcquire(self: *Mutex) ?Held {
-            if (@atomicRmw(u8, &self.locked, .Xchg, 1, .Acquire) != 0)
-                return null;
-            return Held{ .mutex = self };
-        }
-
-        pub fn acquire(self: *Mutex) Held {
-            return self.tryAcquire() orelse self.acquireSlow();
-        }
-
-        fn acquireSpinning(self: *Mutex) Held {
-            @setCold(true);
-            while (true) : (SpinLock.yield()) {
-                return self.tryAcquire() orelse continue;
-            }
-        }
-
-        fn acquireSlow(self: *Mutex) Held {
-            // try to use NT keyed events for blocking, falling back to spinlock if unavailable
-            @setCold(true);
-            const handle = ResetEvent.OsEvent.Futex.getEventHandle() orelse return self.acquireSpinning();
-            const key = @ptrCast(*const c_void, &self.waiters);
-
-            while (true) : (SpinLock.loopHint(1)) {
-                const waiters = @atomicLoad(u32, &self.waiters, .Monotonic);
-
-                // try and take lock if unlocked
-                if ((waiters & 1) == 0) {
-                    if (@atomicRmw(u8, &self.locked, .Xchg, 1, .Acquire) == 0) {
-                        return Held{ .mutex = self };
-                    }
-
-                    // otherwise, try and update the waiting count.
-                    // then unset the WAKE bit so that another unlocker can wake up a thread.
-                } else if (@cmpxchgWeak(u32, &self.waiters, waiters, (waiters + WAIT) | 1, .Monotonic, .Monotonic) == null) {
-                    const rc = windows.ntdll.NtWaitForKeyedEvent(handle, key, windows.FALSE, null);
-                    assert(rc == .SUCCESS);
-                    _ = @atomicRmw(u32, &self.waiters, .Sub, WAKE, .Monotonic);
-                }
-            }
-        }
-
-        pub const Held = struct {
-            mutex: *Mutex,
-
-            pub fn release(self: Held) void {
-                // unlock without a rmw/cmpxchg instruction
-                @atomicStore(u8, @ptrCast(*u8, &self.mutex.locked), 0, .Release);
-                const handle = ResetEvent.OsEvent.Futex.getEventHandle() orelse return;
-                const key = @ptrCast(*const c_void, &self.mutex.waiters);
-
-                while (true) : (SpinLock.loopHint(1)) {
-                    const waiters = @atomicLoad(u32, &self.mutex.waiters, .Monotonic);
-
-                    // no one is waiting
-                    if (waiters < WAIT) return;
-                    // someone grabbed the lock and will do the wake instead
-                    if (waiters & 1 != 0) return;
-                    // someone else is currently waking up
-                    if (waiters & WAKE != 0) return;
-
-                    // try to decrease the waiter count & set the WAKE bit meaning a thread is waking up
-                    if (@cmpxchgWeak(u32, &self.mutex.waiters, waiters, waiters - WAIT + WAKE, .Release, .Monotonic) == null) {
-                        const rc = windows.ntdll.NtReleaseKeyedEvent(handle, key, windows.FALSE, null);
-                        assert(rc == .SUCCESS);
-                        return;
-                    }
-                }
-            }
-        };
-    }
+    WindowsMutex
 else if (builtin.link_libc or builtin.os.tag == .linux)
 // stack-based version of https://github.com/Amanieu/parking_lot/blob/master/core/src/word_lock.rs
     struct {
-        state: usize,
+        state: usize = 0,
 
         /// number of times to spin trying to acquire the lock.
         /// https://webkit.org/blog/6161/locking-in-webkit/
@@ -178,14 +49,6 @@ else if (builtin.link_libc or builtin.os.tag == .linux)
             next: ?*Node,
             event: ResetEvent,
         };
-
-        pub fn init() Mutex {
-            return Mutex{ .state = 0 };
-        }
-
-        pub fn deinit(self: *Mutex) void {
-            self.* = undefined;
-        }
 
         pub fn tryAcquire(self: *Mutex) ?Held {
             if (@cmpxchgWeak(usize, &self.state, 0, MUTEX_LOCK, .Acquire, .Monotonic) != null)
@@ -298,6 +161,128 @@ else if (builtin.link_libc or builtin.os.tag == .linux)
 else
     SpinLock;
 
+/// This has the sematics as `Mutex`, however it does not actually do any
+/// synchronization. Operations are safety-checked no-ops.
+pub const Dummy = struct {
+    lock: @TypeOf(lock_init) = lock_init,
+
+    const lock_init = if (std.debug.runtime_safety) false else {};
+
+    pub const Held = struct {
+        mutex: *Dummy,
+
+        pub fn release(self: Held) void {
+            if (std.debug.runtime_safety) {
+                self.mutex.lock = false;
+            }
+        }
+    };
+
+    /// Create a new mutex in unlocked state.
+    pub const init = Dummy{};
+
+    /// Try to acquire the mutex without blocking. Returns null if
+    /// the mutex is unavailable. Otherwise returns Held. Call
+    /// release on Held.
+    pub fn tryAcquire(self: *Dummy) ?Held {
+        if (std.debug.runtime_safety) {
+            if (self.lock) return null;
+            self.lock = true;
+        }
+        return Held{ .mutex = self };
+    }
+
+    /// Acquire the mutex. Will deadlock if the mutex is already
+    /// held by the calling thread.
+    pub fn acquire(self: *Dummy) Held {
+        return self.tryAcquire() orelse @panic("deadlock detected");
+    }
+};
+
+// https://locklessinc.com/articles/keyed_events/
+const WindowsMutex = struct {
+    state: State = State{ .waiters = 0 },
+
+    const State = extern union {
+        locked: u8,
+        waiters: u32,
+    };
+
+    const WAKE = 1 << 8;
+    const WAIT = 1 << 9;
+
+    pub fn tryAcquire(self: *WindowsMutex) ?Held {
+        if (@atomicRmw(u8, &self.state.locked, .Xchg, 1, .Acquire) != 0)
+            return null;
+        return Held{ .mutex = self };
+    }
+
+    pub fn acquire(self: *WindowsMutex) Held {
+        return self.tryAcquire() orelse self.acquireSlow();
+    }
+
+    fn acquireSpinning(self: *WindowsMutex) Held {
+        @setCold(true);
+        while (true) : (SpinLock.yield()) {
+            return self.tryAcquire() orelse continue;
+        }
+    }
+
+    fn acquireSlow(self: *WindowsMutex) Held {
+        // try to use NT keyed events for blocking, falling back to spinlock if unavailable
+        @setCold(true);
+        const handle = ResetEvent.OsEvent.Futex.getEventHandle() orelse return self.acquireSpinning();
+        const key = @ptrCast(*const c_void, &self.state.waiters);
+
+        while (true) : (SpinLock.loopHint(1)) {
+            const waiters = @atomicLoad(u32, &self.state.waiters, .Monotonic);
+
+            // try and take lock if unlocked
+            if ((waiters & 1) == 0) {
+                if (@atomicRmw(u8, &self.state.locked, .Xchg, 1, .Acquire) == 0) {
+                    return Held{ .mutex = self };
+                }
+
+                // otherwise, try and update the waiting count.
+                // then unset the WAKE bit so that another unlocker can wake up a thread.
+            } else if (@cmpxchgWeak(u32, &self.state.waiters, waiters, (waiters + WAIT) | 1, .Monotonic, .Monotonic) == null) {
+                const rc = windows.ntdll.NtWaitForKeyedEvent(handle, key, windows.FALSE, null);
+                assert(rc == .SUCCESS);
+                _ = @atomicRmw(u32, &self.state.waiters, .Sub, WAKE, .Monotonic);
+            }
+        }
+    }
+
+    pub const Held = struct {
+        mutex: *WindowsMutex,
+
+        pub fn release(self: Held) void {
+            // unlock without a rmw/cmpxchg instruction
+            @atomicStore(u8, @ptrCast(*u8, &self.mutex.state.locked), 0, .Release);
+            const handle = ResetEvent.OsEvent.Futex.getEventHandle() orelse return;
+            const key = @ptrCast(*const c_void, &self.mutex.state.waiters);
+
+            while (true) : (SpinLock.loopHint(1)) {
+                const waiters = @atomicLoad(u32, &self.mutex.state.waiters, .Monotonic);
+
+                // no one is waiting
+                if (waiters < WAIT) return;
+                // someone grabbed the lock and will do the wake instead
+                if (waiters & 1 != 0) return;
+                // someone else is currently waking up
+                if (waiters & WAKE != 0) return;
+
+                // try to decrease the waiter count & set the WAKE bit meaning a thread is waking up
+                if (@cmpxchgWeak(u32, &self.mutex.state.waiters, waiters, waiters - WAIT + WAKE, .Release, .Monotonic) == null) {
+                    const rc = windows.ntdll.NtReleaseKeyedEvent(handle, key, windows.FALSE, null);
+                    assert(rc == .SUCCESS);
+                    return;
+                }
+            }
+        }
+    };
+};
+
 const TestContext = struct {
     mutex: *Mutex,
     data: i128,
@@ -306,8 +291,7 @@ const TestContext = struct {
 };
 
 test "std.Mutex" {
-    var mutex = Mutex.init();
-    defer mutex.deinit();
+    var mutex = Mutex{};
 
     var context = TestContext{
         .mutex = &mutex,

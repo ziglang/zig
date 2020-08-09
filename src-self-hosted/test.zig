@@ -407,8 +407,6 @@ pub const TestContext = struct {
         defer root_node.end();
 
         for (self.cases.items) |case| {
-            std.testing.base_allocator_instance.reset();
-
             var prg_node = root_node.start(case.name, case.updates.items.len);
             prg_node.activate();
             defer prg_node.end();
@@ -419,7 +417,6 @@ pub const TestContext = struct {
             progress.refresh_rate_ns = 0;
 
             try self.runOneCase(std.testing.allocator, &prg_node, case);
-            try std.testing.allocator_instance.validate();
         }
     }
 

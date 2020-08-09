@@ -25067,12 +25067,12 @@ static PtrLen size_enum_index_to_ptr_len(BuiltinPtrSize size_enum_index) {
     zig_unreachable();
 }
 
-static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_type_entry) {
-    Error err;
+static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, IrInst *source_instr, ZigType *ptr_type_entry) {
     ZigType *attrs_type;
     BuiltinPtrSize size_enum_index;
     if (is_slice(ptr_type_entry)) {
-        attrs_type = ptr_type_entry->data.structure.fields[slice_ptr_index]->type_entry;
+        TypeStructField *ptr_field = ptr_type_entry->data.structure.fields[slice_ptr_index];
+        attrs_type = resolve_struct_field_type(ira->codegen, ptr_field);
         size_enum_index = BuiltinPtrSizeSlice;
     } else if (ptr_type_entry->id == ZigTypeIdPointer) {
         attrs_type = ptr_type_entry;
@@ -25080,9 +25080,6 @@ static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_type_ent
     } else {
         zig_unreachable();
     }
-
-    if ((err = type_resolve(ira->codegen, attrs_type->data.pointer.child_type, ResolveStatusSizeKnown)))
-        return nullptr;
 
     ZigType *type_info_pointer_type = ir_type_info_get_type(ira, "Pointer", nullptr);
     assertNoError(type_resolve(ira->codegen, type_info_pointer_type, ResolveStatusSizeKnown));
@@ -25114,9 +25111,18 @@ static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_type_ent
     fields[2]->data.x_bool = attrs_type->data.pointer.is_volatile;
     // alignment: u32
     ensure_field_index(result->type, "alignment", 3);
-    fields[3]->special = ConstValSpecialStatic;
     fields[3]->type = ira->codegen->builtin_types.entry_num_lit_int;
-    bigint_init_unsigned(&fields[3]->data.x_bigint, get_ptr_align(ira->codegen, attrs_type));
+    if (attrs_type->data.pointer.explicit_alignment != 0) {
+        fields[3]->special = ConstValSpecialStatic;
+        bigint_init_unsigned(&fields[3]->data.x_bigint, attrs_type->data.pointer.explicit_alignment);
+    } else {
+        LazyValueAlignOf *lazy_align_of = heap::c_allocator.create<LazyValueAlignOf>();
+        lazy_align_of->ira = ira; ira_ref(ira);
+        fields[3]->special = ConstValSpecialLazy;
+        fields[3]->data.x_lazy = &lazy_align_of->base;
+        lazy_align_of->base.id = LazyValueIdAlignOf;
+        lazy_align_of->target_type = ir_const_type(ira, source_instr, attrs_type->data.pointer.child_type);
+    }
     // child: type
     ensure_field_index(result->type, "child", 4);
     fields[4]->special = ConstValSpecialStatic;
@@ -25130,7 +25136,7 @@ static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_type_ent
     // sentinel: anytype
     ensure_field_index(result->type, "sentinel", 6);
     fields[6]->special = ConstValSpecialStatic;
-    if (attrs_type->data.pointer.child_type->id != ZigTypeIdOpaque) {
+    if (attrs_type->data.pointer.sentinel != nullptr) {
         fields[6]->type = get_optional_type(ira->codegen, attrs_type->data.pointer.child_type);
         set_optional_payload(fields[6], attrs_type->data.pointer.sentinel);
     } else {
@@ -25164,9 +25170,6 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
     Error err;
     assert(type_entry != nullptr);
     assert(!type_is_invalid(type_entry));
-
-    if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusSizeKnown)))
-        return err;
 
     auto entry = ira->codegen->type_info_cache.maybe_get(type_entry);
     if (entry != nullptr) {
@@ -25231,7 +25234,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
             }
         case ZigTypeIdPointer:
             {
-                result = create_ptr_like_type_info(ira, type_entry);
+                result = create_ptr_like_type_info(ira, source_instr, type_entry);
                 if (result == nullptr)
                     return ErrorSemanticAnalyzeFail;
                 break;
@@ -25317,6 +25320,9 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
         }
         case ZigTypeIdEnum:
             {
+                if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusSizeKnown)))
+                    return err;
+
                 result = ira->codegen->pass1_arena->create<ZigValue>();
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Enum", nullptr);
@@ -25455,6 +25461,9 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
             }
         case ZigTypeIdUnion:
             {
+                if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusSizeKnown)))
+                    return err;
+
                 result = ira->codegen->pass1_arena->create<ZigValue>();
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Union", nullptr);
@@ -25545,11 +25554,14 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
         case ZigTypeIdStruct:
             {
                 if (type_entry->data.structure.special == StructSpecialSlice) {
-                    result = create_ptr_like_type_info(ira, type_entry);
+                    result = create_ptr_like_type_info(ira, source_instr, type_entry);
                     if (result == nullptr)
                         return ErrorSemanticAnalyzeFail;
                     break;
                 }
+
+                if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusSizeKnown)))
+                    return err;
 
                 result = ira->codegen->pass1_arena->create<ZigValue>();
                 result->special = ConstValSpecialStatic;

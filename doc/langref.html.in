@@ -9357,9 +9357,17 @@ pub fn main() !void {
               is handled correctly? In this case, use {#syntax#}std.testing.FailingAllocator{#endsyntax#}.
           </li>
           <li>
-              Finally, if none of the above apply, you need a general purpose allocator. Zig does not
-              yet have a general purpose allocator in the standard library,
-              <a href="https://github.com/andrewrk/zig-general-purpose-allocator/">but one is being actively developed</a>.
+              Are you writing a test? In this case, use {#syntax#}std.testing.allocator{#endsyntax#}.
+          </li>
+          <li>
+              Finally, if none of the above apply, you need a general purpose allocator.
+              Zig's general purpose allocator is available as a function that takes a {#link|comptime#}
+              {#link|struct#} of configuration options and returns a type.
+              Generally, you will set up one {#syntax#}std.heap.GeneralPurposeAllocator{#endsyntax#} in
+              your main function, and then pass it or sub-allocators around to various parts of your
+              application.
+          </li>
+          <li>
               You can also consider {#link|Implementing an Allocator#}.
           </li>
       </ol>
