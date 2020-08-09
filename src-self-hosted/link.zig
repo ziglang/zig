@@ -1172,7 +1172,10 @@ pub const File = struct {
 
                 self.debug_aranges_section_dirty = false;
             }
-            if (self.debug_line_header_dirty) {
+            if (self.debug_line_header_dirty) debug_line: {
+                if (self.dbg_line_fn_first == null) {
+                    break :debug_line; // Error in module; leave debug_line_header_dirty=true.
+                }
                 const dbg_line_prg_off = self.getDebugLineProgramOff();
                 const dbg_line_prg_end = self.getDebugLineProgramEnd();
                 assert(dbg_line_prg_end != 0);
@@ -1403,18 +1406,21 @@ pub const File = struct {
                 self.shdr_table_dirty = false;
             }
             if (self.entry_addr == null and self.base.options.output_mode == .Exe) {
-                log.debug(.link, "no_entry_point_found = true\n", .{});
+                log.debug(.link, "flushing. no_entry_point_found = true\n", .{});
                 self.error_flags.no_entry_point_found = true;
             } else {
+                log.debug(.link, "flushing. no_entry_point_found = false\n", .{});
                 self.error_flags.no_entry_point_found = false;
                 try self.writeElfHeader();
             }
 
-            // The point of flush() is to commit changes, so nothing should be dirty after this.
+            // The point of flush() is to commit changes, so in theory, nothing should
+            // be dirty after this. However, it is possible for some things to remain
+            // dirty because they fail to be written in the event of compile errors,
+            // such as debug_line_header_dirty.
             assert(!self.debug_info_section_dirty);
             assert(!self.debug_abbrev_section_dirty);
             assert(!self.debug_aranges_section_dirty);
-            assert(!self.debug_line_header_dirty);
             assert(!self.phdr_table_dirty);
             assert(!self.shdr_table_dirty);
             assert(!self.shstrtab_dirty);

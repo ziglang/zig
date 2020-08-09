@@ -949,10 +949,8 @@ pub fn update(self: *Module) !void {
         try self.deleteDecl(decl);
     }
 
-    if (self.totalErrorCount() == 0) {
-        // This is needed before reading the error flags.
-        try self.bin_file.flush();
-    }
+    // This is needed before reading the error flags.
+    try self.bin_file.flush();
 
     self.link_error_flags = self.bin_file.errorFlags();
 
@@ -2537,7 +2535,7 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
         }
     }
 
-    return self.fail(scope, inst.src, "TODO implement type coercion from {} to {}", .{ inst.ty, dest_type });
+    return self.fail(scope, inst.src, "expected {}, found {}", .{  dest_type, inst.ty });
 }
 
 pub fn storePtr(self: *Module, scope: *Scope, src: usize, ptr: *Inst, uncasted_value: *Inst) !*Inst {

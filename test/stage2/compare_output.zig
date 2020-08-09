@@ -23,6 +23,9 @@ pub fn addCases(ctx: *TestContext) !void {
 
     {
         var case = ctx.exe("hello world with updates", linux_x64);
+
+        case.addError("", &[_][]const u8{":1:1: error: no entry point found"});
+
         // Regular old hello world
         case.addCompareOutput(
             \\export fn _start() noreturn {
@@ -123,7 +126,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\
         );
     }
-    
+
     {
         var case = ctx.exe("hello world", linux_riscv64);
         // Regular old hello world

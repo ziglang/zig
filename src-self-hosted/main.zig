@@ -64,6 +64,9 @@ var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
 
 pub fn main() !void {
     const gpa = if (std.builtin.link_libc) std.heap.c_allocator else &general_purpose_allocator.allocator;
+    defer if (!std.builtin.link_libc) {
+        _ = general_purpose_allocator.deinit();
+    };
     var arena_instance = std.heap.ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
     const arena = &arena_instance.allocator;
