@@ -40,16 +40,33 @@ fn renderType(file: *C, writer: std.ArrayList(u8).Writer, T: Type, src: usize) !
     }
 }
 
+fn renderValue(file: *C, writer: std.ArrayList(u8).Writer, val: Value, src: usize) !void {
+    switch (val.tag()) {
+        .int_u64 => return writer.print("{}", .{val.toUnsignedInt()}),
+        else => |e| return file.fail(src, "TODO implement value {}", .{e}),
+    }
+}
+
 fn renderFunctionSignature(file: *C, writer: std.ArrayList(u8).Writer, decl: *Decl) !void {
     const tv = decl.typed_value.most_recent.typed_value;
     try renderType(file, writer, tv.ty.fnReturnType(), decl.src());
     const name = try map(file.base.allocator, mem.spanZ(decl.name));
     defer file.base.allocator.free(name);
     try writer.print(" {}(", .{name});
-    if (tv.ty.fnParamLen() == 0)
-        try writer.writeAll("void)")
-    else
-        return file.fail(decl.src(), "TODO implement parameters", .{});
+    var param_len = tv.ty.fnParamLen();
+    if (param_len == 0)
+        try writer.writeAll("void")
+    else {
+        var index: usize = 0;
+        while (index < param_len) : (index += 1) {
+            if (index > 0) {
+                try writer.writeAll(", ");
+            }
+            try renderType(file, writer, tv.ty.fnParamType(index), decl.src());
+            try writer.print(" arg{}", .{index});
+        }
+    }
+    try writer.writeByte(')');
 }
 
 pub fn generate(file: *C, decl: *Decl) !void {
@@ -87,15 +104,19 @@ fn genFn(file: *C, decl: *Decl) !void {
 
     const func: *Module.Fn = tv.val.cast(Value.Payload.Function).?.func;
     const instructions = func.analysis.success.instructions;
+    var argdex: usize = 0;
     if (instructions.len > 0) {
         try writer.writeAll("\n");
         for (instructions) |inst| {
             switch (inst.tag) {
-                .assembly => try genAsm(file, inst.castTag(.assembly).?, decl),
+                .assembly => try genAsm(file, inst.castTag(.assembly).?, decl, &argdex),
                 .call => try genCall(file, inst.castTag(.call).?, decl),
                 .ret => try genRet(file, inst.castTag(.ret).?, decl, tv.ty.fnReturnType()),
                 .retvoid => try file.main.writer().print("    return;\n", .{}),
+                .arg => {},
                 .dbg_stmt => try genDbgStmt(file, inst.castTag(.dbg_stmt).?, decl),
+                .breakpoint => try genBreak(file, inst.castTag(.breakpoint).?, decl),
+                .unreach => try genUnreach(file, inst.castTag(.unreach).?, decl),
                 else => |e| return file.fail(decl.src(), "TODO implement C codegen for {}", .{e}),
             }
         }
@@ -126,12 +147,22 @@ fn genCall(file: *C, inst: *Inst.Call, decl: *Decl) !void {
                 try renderFunctionSignature(file, header, target);
                 try header.writeAll(";\n");
             }
-            try writer.print("{}();\n", .{tname});
+            try writer.print("{}(", .{tname});
+            if (inst.args.len != 0) {
+                for (inst.args) |arg, i| {
+                    if (i > 0) {
+                        try writer.writeAll(", ");
+                    }
+                    if (arg.cast(Inst.Constant)) |con| {
+                        try renderValue(file, writer, con.val, decl.src());
+                    } else {
+                        return file.fail(decl.src(), "TODO call pass arg {}", .{arg});
+                    }
+                }
+            }
+            try writer.writeAll(");\n");
         } else {
             return file.fail(decl.src(), "TODO non-function call target?", .{});
-        }
-        if (inst.args.len != 0) {
-            return file.fail(decl.src(), "TODO function arguments", .{});
         }
     } else {
         return file.fail(decl.src(), "TODO non-constant call inst?", .{});
@@ -142,24 +173,33 @@ fn genDbgStmt(file: *C, inst: *Inst.NoOp, decl: *Decl) !void {
     // TODO emit #line directive here with line number and filename
 }
 
-fn genAsm(file: *C, as: *Inst.Assembly, decl: *Decl) !void {
+fn genBreak(file: *C, inst: *Inst.NoOp, decl: *Decl) !void {
+    // TODO ??
+}
+
+fn genUnreach(file: *C, inst: *Inst.NoOp, decl: *Decl) !void {
+    // TODO ??
+}
+
+fn genAsm(file: *C, as: *Inst.Assembly, decl: *Decl, argdex: *usize) !void {
     const writer = file.main.writer();
     try writer.writeAll("    ");
     for (as.inputs) |i, index| {
         if (i[0] == '{' and i[i.len - 1] == '}') {
             const reg = i[1 .. i.len - 1];
             const arg = as.args[index];
+            try writer.writeAll("register ");
+            try renderType(file, writer, arg.ty, decl.src());
+            try writer.print(" {}_constant __asm__(\"{}\") = ", .{ reg, reg });
             if (arg.castTag(.constant)) |c| {
-                if (c.val.tag() == .int_u64) {
-                    try writer.writeAll("register ");
-                    try renderType(file, writer, arg.ty, decl.src());
-                    try writer.print(" {}_constant __asm__(\"{}\") = {};\n    ", .{ reg, reg, c.val.toUnsignedInt() });
-                } else {
-                    return file.fail(decl.src(), "TODO inline asm {} args", .{c.val.tag()});
-                }
+                try renderValue(file, writer, c.val, decl.src());
+            } else if (arg.castTag(.arg)) |inst| {
+                try writer.print("arg{}", .{argdex.*});
+                argdex.* += 1;
             } else {
-                return file.fail(decl.src(), "TODO non-constant inline asm args", .{});
+                return file.fail(decl.src(), "TODO non-constant inline asm args ({})", .{arg.tag});
             }
+            try writer.writeAll(";\n    ");
         } else {
             return file.fail(decl.src(), "TODO non-explicit inline asm regs", .{});
         }
@@ -180,12 +220,14 @@ fn genAsm(file: *C, as: *Inst.Assembly, decl: *Decl) !void {
                 if (index > 0) {
                     try writer.writeAll(", ");
                 }
-                if (arg.castTag(.constant)) |c| {
-                    try writer.print("\"\"({}_constant)", .{reg});
+                try writer.writeAll("\"\"(");
+                if (arg.tag == .constant or arg.tag == .arg) {
+                    try writer.print("{}_constant", .{reg});
                 } else {
                     // This is blocked by the earlier test
                     unreachable;
                 }
+                try writer.writeByte(')');
             } else {
                 // This is blocked by the earlier test
                 unreachable;
