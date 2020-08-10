@@ -428,6 +428,12 @@ pub const Version = struct {
             if (self.max.order(ver) == .lt) return false;
             return true;
         }
+
+        pub fn isAtLeast(self: Range, ver: Version) std.math.Ternary {
+            if (self.min.order(ver) != .lt) return .yes;
+            if (self.max.order(ver) == .lt) return .no;
+            return .maybe;
+        }
     };
 
     pub fn order(lhs: Version, rhs: Version) std.math.Order {

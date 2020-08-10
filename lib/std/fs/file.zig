@@ -607,15 +607,10 @@ pub const File = struct {
         }
     }
 
-    pub const CopyRangeError = PWriteError || PReadError;
+    pub const CopyRangeError = os.CopyFileRangeError;
 
     pub fn copyRange(in: File, in_offset: u64, out: File, out_offset: u64, len: usize) CopyRangeError!usize {
-        // TODO take advantage of copy_file_range OS APIs
-        var buf: [8 * 4096]u8 = undefined;
-        const adjusted_count = math.min(buf.len, len);
-        const amt_read = try in.pread(buf[0..adjusted_count], in_offset);
-        if (amt_read == 0) return @as(usize, 0);
-        return out.pwrite(buf[0..amt_read], out_offset);
+        return os.copy_file_range(in.handle, in_offset, out.handle, out_offset, len, 0);
     }
 
     /// Returns the number of bytes copied. If the number read is smaller than `buffer.len`, it

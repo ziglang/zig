@@ -91,6 +91,8 @@ pub extern "c" fn sendfile(
     count: usize,
 ) isize;
 
+pub extern "c" fn copy_file_range(fd_in: fd_t, off_in: ?*i64, fd_out: fd_t, off_out: ?*i64, len: usize, flags: c_uint) isize;
+
 pub const pthread_attr_t = extern struct {
     __size: [56]u8,
     __align: c_long,

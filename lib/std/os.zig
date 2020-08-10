@@ -4932,6 +4932,87 @@ pub fn sendfile(
     return total_written;
 }
 
+pub const CopyFileRangeError = error{
+    FileTooBig,
+    InputOutput,
+    IsDir,
+    OutOfMemory,
+    NoSpaceLeft,
+    Unseekable,
+    PermissionDenied,
+    FileBusy,
+} || PReadError || PWriteError || UnexpectedError;
+
+/// Transfer data between file descriptors at specified offsets.
+/// Returns the number of bytes written, which can less than requested.
+///
+/// The `copy_file_range` call copies `len` bytes from one file descriptor to another. When possible,
+/// this is done within the operating system kernel, which can provide better performance
+/// characteristics than transferring data from kernel to user space and back, such as with
+/// `pread` and `pwrite` calls.
+///
+/// `fd_in` must be a file descriptor opened for reading, and `fd_out` must be a file descriptor
+/// opened for writing. They may be any kind of file descriptor; however, if `fd_in` is not a regular
+/// file system file, it may cause this function to fall back to calling `pread` and `pwrite`, in which case
+/// atomicity guarantees no longer apply.
+///
+/// If `fd_in` and `fd_out` are the same, source and target ranges must not overlap.
+/// The file descriptor seek positions are ignored and not updated.
+/// When `off_in` is past the end of the input file, it successfully reads 0 bytes.
+///
+/// `flags` has different meanings per operating system; refer to the respective man pages.
+///
+/// These systems support in-kernel data copying:
+/// * Linux 4.5 (cross-filesystem 5.3)
+///
+/// Other systems fall back to calling `pread` / `pwrite`.
+///
+/// Maximum offsets on Linux are `math.maxInt(i64)`.
+pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
+    // TODO support for other systems than linux
+
+    const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
+
+    const try_syscall = std.Target.current.os.tag == .linux and std.Target.current.os.version_range.linux.isAtLeast(.{ .major = 4, .minor = 5 }) != .no;
+
+    if(use_c or try_syscall){
+        const sys = if (use_c) std.c else linux;
+        const getErrno = if (use_c) std.c.getErrno else linux.getErrno;
+
+        var off_in_copy = @bitCast(i64, off_in);
+        var off_out_copy = @bitCast(i64, off_out);
+
+        const rc = sys.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, flags);
+
+        // TODO avoid wasting a syscall every time if kernel is too old and returns ENOSYS https://github.com/ziglang/zig/issues/1018
+
+        switch (getErrno(rc)) {
+            0 => return @intCast(usize, rc),
+            EBADF => unreachable,
+            EFBIG => return error.FileTooBig,
+            EIO => return error.InputOutput,
+            EISDIR => return error.IsDir,
+            ENOMEM => return error.OutOfMemory,
+            ENOSPC => return error.NoSpaceLeft,
+            EOVERFLOW => return error.Unseekable,
+            EPERM => return error.PermissionDenied,
+            ETXTBSY => return error.FileBusy,
+            EINVAL => {}, // these may not be regular files, try fallback
+            EXDEV => {}, // support for cross-filesystem copy added in Linux 5.3, use fallback
+            ENOSYS => {}, // syscall added in Linux 4.5, use fallback
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
+    var buf: [8 * 4096]u8 = undefined;
+    const adjusted_count = math.min(buf.len, len);
+    const amt_read = try pread(fd_in, buf[0..adjusted_count], off_in);
+    // without @as the line below fails to compile for wasm32-wasi:
+    // error: integer value 0 cannot be coerced to type 'os.PWriteError!usize'
+    if (amt_read == 0) return @as(usize, 0);
+    return pwrite(fd_out, buf[0..amt_read], off_out);
+}
+
 pub const PollError = error{
     /// The kernel had no space to allocate file descriptor tables.
     SystemResources,

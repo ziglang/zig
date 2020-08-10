@@ -1096,3 +1096,9 @@ test "compare between signed and unsigned" {
     testing.expect(!compare(@as(u8, 255), .eq, @as(i8, -1)));
     testing.expect(compare(@as(u8, 1), .eq, @as(u8, 1)));
 }
+
+pub const Ternary = enum {
+    yes,
+    no,
+    maybe,
+};

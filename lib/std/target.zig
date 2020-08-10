@@ -100,6 +100,12 @@ pub const Target = struct {
                 pub fn includesVersion(self: Range, ver: WindowsVersion) bool {
                     return @enumToInt(ver) >= @enumToInt(self.min) and @enumToInt(ver) <= @enumToInt(self.max);
                 }
+
+                pub fn isAtLeast(self: Range, ver: Version) std.math.Ternary {
+                    if (@enumToInt(self.min) >= @enumToInt(ver)) return .yes;
+                    if (@enumToInt(self.max) < @enumToInt(ver)) return .no;
+                    return .maybe;
+                }
             };
 
             /// This function is defined to serialize a Zig source code representation of this
@@ -134,6 +140,10 @@ pub const Target = struct {
 
             pub fn includesVersion(self: LinuxVersionRange, ver: Version) bool {
                 return self.range.includesVersion(ver);
+            }
+
+            pub fn isAtLeast(self: LinuxVersionRange, ver: Version) std.math.Ternary {
+                return self.range.isAtLeast(ver);
             }
         };
 
