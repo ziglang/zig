@@ -1002,7 +1002,10 @@ pub fn GetFinalPathNameByHandle(
 
                 // Look for `\DosDevices\` prefix. We don't really care if there are more than one symlinks
                 // with traditional DOS drive letters, so pick the first one available.
-                const prefix = &[_]u16{ '\\', 'D', 'o', 's', 'D', 'e', 'v', 'i', 'c', 'e', 's', '\\' };
+                const prefix_u8 = "\\DosDevices\\";
+                var prefix_buf_u16: [prefix_u8.len]u16 = undefined;
+                const prefix_len_u16 = std.unicode.utf8ToUtf16Le(prefix_buf_u16[0..], prefix_u8[0..]) catch unreachable;
+                const prefix = prefix_buf_u16[0..prefix_len_u16];
 
                 if (std.mem.startsWith(u16, symlink, prefix)) {
                     const drive_letter = symlink[prefix.len..];
