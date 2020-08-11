@@ -4,12 +4,12 @@
 //!
 //! ### `OptimizationMode.debug` and `OptimizationMode.release_safe`:
 //!
-//!  * Detect double free, and print stack trace of:
+//!  * Detect double free, and emit stack trace of:
 //!    - Where it was first allocated
 //!    - Where it was freed the first time
 //!    - Where it was freed the second time
 //!
-//!  * Detect leaks and print stack trace of:
+//!  * Detect leaks and emit stack trace of:
 //!    - Where it was allocated
 //!
 //!  * When a page of memory is no longer needed, give it back to resident memory
@@ -178,15 +178,18 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             stack_addresses: [stack_n]usize,
 
             fn dumpStackTrace(self: *LargeAlloc) void {
+                std.debug.dumpStackTrace(self.getStackTrace());
+            }
+
+            fn getStackTrace(self: *LargeAlloc) std.builtin.StackTrace {
                 var len: usize = 0;
                 while (len < stack_n and self.stack_addresses[len] != 0) {
                     len += 1;
                 }
-                const stack_trace = StackTrace{
+                return .{
                     .instruction_addresses = &self.stack_addresses,
                     .index = len,
                 };
-                std.debug.dumpStackTrace(stack_trace);
             }
         };
         const LargeAllocTable = std.AutoHashMapUnmanaged(usize, LargeAlloc);
@@ -282,15 +285,9 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     while (true) : (bit_index += 1) {
                         const is_used = @truncate(u1, used_byte >> bit_index) != 0;
                         if (is_used) {
-                            std.debug.print("\nMemory leak detected:\n", .{});
                             const slot_index = @intCast(SlotIndex, used_bits_byte * 8 + bit_index);
-                            const stack_trace = bucketStackTrace(
-                                bucket,
-                                size_class,
-                                slot_index,
-                                .alloc,
-                            );
-                            std.debug.dumpStackTrace(stack_trace);
+                            const stack_trace = bucketStackTrace(bucket, size_class, slot_index, .alloc);
+                            std.log.err(.std, "Memory leak detected: {}", .{stack_trace});
                             leaks = true;
                         }
                         if (bit_index == math.maxInt(u3))
@@ -301,8 +298,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             return leaks;
         }
 
-        /// Returns whether there were leaks.
-        pub fn deinit(self: *Self) bool {
+        /// Emits log messages for leaks and then returns whether there were any leaks.
+        pub fn detectLeaks(self: *Self) bool {
             var leaks = false;
             for (self.buckets) |optional_bucket, bucket_i| {
                 const first_bucket = optional_bucket orelse continue;
@@ -317,10 +314,14 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 }
             }
             for (self.large_allocations.items()) |*large_alloc| {
-                std.debug.print("\nMemory leak detected (0x{x}):\n", .{@ptrToInt(large_alloc.value.bytes.ptr)});
-                large_alloc.value.dumpStackTrace();
+                std.log.err(.std, "Memory leak detected: {}", .{large_alloc.value.getStackTrace()});
                 leaks = true;
             }
+            return leaks;
+        }
+
+        pub fn deinit(self: *Self) bool {
+            const leaks = if (config.safety) self.detectLeaks() else false;
             self.large_allocations.deinit(self.backing_allocator);
             self.* = undefined;
             return leaks;
@@ -442,13 +443,18 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             };
 
             if (config.safety and old_mem.len != entry.value.bytes.len) {
-                std.debug.print("\nAllocation size {} bytes does not match free size {}. Allocated here:\n", .{
+                var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
+                var free_stack_trace = StackTrace{
+                    .instruction_addresses = &addresses,
+                    .index = 0,
+                };
+                std.debug.captureStackTrace(ret_addr, &free_stack_trace);
+                std.log.err(.std, "Allocation size {} bytes does not match free size {}. Allocation: {} Free: {}", .{
                     entry.value.bytes.len,
                     old_mem.len,
+                    entry.value.getStackTrace(),
+                    free_stack_trace,
                 });
-                entry.value.dumpStackTrace();
-
-                @panic("\nFree here:");
             }
 
             const result_len = try self.backing_allocator.resizeFn(self.backing_allocator, old_mem, old_align, new_size, len_align, ret_addr);
@@ -518,14 +524,24 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             const is_used = @truncate(u1, used_byte.* >> used_bit_index) != 0;
             if (!is_used) {
                 if (config.safety) {
-                    // print allocation stack trace
-                    std.debug.print("\nDouble free detected, allocated here:\n", .{});
                     const alloc_stack_trace = bucketStackTrace(bucket, size_class, slot_index, .alloc);
-                    std.debug.dumpStackTrace(alloc_stack_trace);
-                    std.debug.print("\nFirst free here:\n", .{});
                     const free_stack_trace = bucketStackTrace(bucket, size_class, slot_index, .free);
-                    std.debug.dumpStackTrace(free_stack_trace);
-                    @panic("\nSecond free here:");
+                    var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
+                    var second_free_stack_trace = StackTrace{
+                        .instruction_addresses = &addresses,
+                        .index = 0,
+                    };
+                    std.debug.captureStackTrace(ret_addr, &second_free_stack_trace);
+                    std.log.err(.std, "Double free detected. Allocation: {} First free: {} Second free: {}", .{
+                        alloc_stack_trace,
+                        free_stack_trace,
+                        second_free_stack_trace,
+                    });
+                    if (new_size == 0) {
+                        // Recoverable.
+                        return @as(usize, 0);
+                    }
+                    @panic("Unrecoverable double free");
                 } else {
                     unreachable;
                 }
