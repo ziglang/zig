@@ -1679,8 +1679,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("shadowing primitive types",
         \\unsigned anyerror = 2;
+        \\#define noreturn _Noreturn
     , &[_][]const u8{
         \\pub export var anyerror_1: c_uint = @bitCast(c_uint, @as(c_int, 2));
+        ,
+
+        \\pub const noreturn_2 = @compileError("unable to translate C expr: unexpected token .Keyword_noreturn");
     });
 
     cases.add("floats",
