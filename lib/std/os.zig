@@ -4969,15 +4969,13 @@ pub const CopyFileRangeError = error{
 ///
 /// Maximum offsets on Linux are `math.maxInt(i64)`.
 pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
-    // TODO support for other systems than linux
-
     const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
 
-    const try_syscall = std.Target.current.os.tag == .linux and std.Target.current.os.version_range.linux.isAtLeast(.{ .major = 4, .minor = 5 }) != .no;
+    // TODO support for other systems than linux
+    const try_syscall = comptime std.Target.current.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) != false;
 
-    if(use_c or try_syscall){
+    if (use_c or try_syscall) {
         const sys = if (use_c) std.c else linux;
-        const getErrno = if (use_c) std.c.getErrno else linux.getErrno;
 
         var off_in_copy = @bitCast(i64, off_in);
         var off_out_copy = @bitCast(i64, off_out);
@@ -4986,7 +4984,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
 
         // TODO avoid wasting a syscall every time if kernel is too old and returns ENOSYS https://github.com/ziglang/zig/issues/1018
 
-        switch (getErrno(rc)) {
+        switch (sys.getErrno(rc)) {
             0 => return @intCast(usize, rc),
             EBADF => unreachable,
             EFBIG => return error.FileTooBig,
@@ -5007,7 +5005,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
     var buf: [8 * 4096]u8 = undefined;
     const adjusted_count = math.min(buf.len, len);
     const amt_read = try pread(fd_in, buf[0..adjusted_count], off_in);
-    // without @as the line below fails to compile for wasm32-wasi:
+    // TODO without @as the line below fails to compile for wasm32-wasi:
     // error: integer value 0 cannot be coerced to type 'os.PWriteError!usize'
     if (amt_read == 0) return @as(usize, 0);
     return pwrite(fd_out, buf[0..amt_read], off_out);

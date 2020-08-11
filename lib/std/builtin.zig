@@ -429,10 +429,12 @@ pub const Version = struct {
             return true;
         }
 
-        pub fn isAtLeast(self: Range, ver: Version) std.math.Ternary {
-            if (self.min.order(ver) != .lt) return .yes;
-            if (self.max.order(ver) == .lt) return .no;
-            return .maybe;
+        /// Checks if system is guaranteed to be at least `version` or older than `version`.
+        /// Returns `null` if a runtime check is required.
+        pub fn isAtLeast(self: Range, ver: Version) ?bool {
+            if (self.min.order(ver) != .lt) return true;
+            if (self.max.order(ver) == .lt) return false;
+            return null;
         }
     };
 

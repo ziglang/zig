@@ -101,10 +101,12 @@ pub const Target = struct {
                     return @enumToInt(ver) >= @enumToInt(self.min) and @enumToInt(ver) <= @enumToInt(self.max);
                 }
 
-                pub fn isAtLeast(self: Range, ver: Version) std.math.Ternary {
-                    if (@enumToInt(self.min) >= @enumToInt(ver)) return .yes;
-                    if (@enumToInt(self.max) < @enumToInt(ver)) return .no;
-                    return .maybe;
+                /// Checks if system is guaranteed to be at least `version` or older than `version`.
+                /// Returns `null` if a runtime check is required.
+                pub fn isAtLeast(self: Range, ver: WindowsVersion) ?bool {
+                    if (@enumToInt(self.min) >= @enumToInt(ver)) return true;
+                    if (@enumToInt(self.max) < @enumToInt(ver)) return false;
+                    return null;
                 }
             };
 
@@ -142,7 +144,9 @@ pub const Target = struct {
                 return self.range.includesVersion(ver);
             }
 
-            pub fn isAtLeast(self: LinuxVersionRange, ver: Version) std.math.Ternary {
+            /// Checks if system is guaranteed to be at least `version` or older than `version`.
+            /// Returns `null` if a runtime check is required.
+            pub fn isAtLeast(self: LinuxVersionRange, ver: Version) ?bool {
                 return self.range.isAtLeast(ver);
             }
         };
@@ -168,6 +172,8 @@ pub const Target = struct {
         ///
         /// Binaries built with a given maximum version will continue to function on newer operating system
         /// versions. However, such a binary may not take full advantage of the newer operating system APIs.
+        ///
+        /// See `Os.isAtLeast`.
         pub const VersionRange = union {
             none: void,
             semver: Version.Range,
@@ -280,6 +286,18 @@ pub const Target = struct {
             return .{
                 .tag = tag,
                 .version_range = VersionRange.default(tag),
+            };
+        }
+
+        /// Checks if system is guaranteed to be at least `version` or older than `version`.
+        /// Returns `null` if a runtime check is required.
+        pub fn isAtLeast(self: Os, comptime tag: Tag, version: anytype) ?bool {
+            if (self.tag != tag) return false;
+
+            return switch (tag) {
+                .linux => self.version_range.linux.isAtLeast(version),
+                .windows => self.version_range.windows.isAtLeast(version),
+                else => self.version_range.semver.isAtLeast(version),
             };
         }
 
