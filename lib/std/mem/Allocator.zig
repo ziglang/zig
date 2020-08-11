@@ -369,7 +369,7 @@ pub fn reallocAdvancedWithRetAddr(
     const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
     const T = Slice.child;
     if (old_mem.len == 0) {
-        return self.allocAdvanced(T, new_alignment, new_n, exact);
+        return self.allocAdvancedWithRetAddr(T, new_alignment, new_n, exact, return_address);
     }
     if (new_n == 0) {
         self.free(old_mem);
