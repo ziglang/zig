@@ -4060,7 +4060,6 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
 }
 
 /// Same as `realpath` except `pathname` is UTF16LE-encoded.
-/// TODO use ntdll to emulate `GetFinalPathNameByHandleW` routine
 pub fn realpathW(pathname: []const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     const w = windows;
 
@@ -4095,15 +4094,10 @@ pub fn realpathW(pathname: []const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPat
     defer w.CloseHandle(h_file);
 
     var wide_buf: [w.PATH_MAX_WIDE]u16 = undefined;
-    const wide_slice = try w.GetFinalPathNameByHandleW(h_file, &wide_buf, wide_buf.len, w.VOLUME_NAME_DOS);
-
-    // Windows returns \\?\ prepended to the path.
-    // We strip it to make this function consistent across platforms.
-    const prefix = [_]u16{ '\\', '\\', '?', '\\' };
-    const start_index = if (mem.startsWith(u16, wide_slice, &prefix)) prefix.len else 0;
+    const wide_slice = try w.GetFinalPathNameByHandle(h_file, .{}, wide_buf[0..]);
 
     // Trust that Windows gives us valid UTF-16LE.
-    const end_index = std.unicode.utf16leToUtf8(out_buffer, wide_slice[start_index..]) catch unreachable;
+    const end_index = std.unicode.utf16leToUtf8(out_buffer, wide_slice) catch unreachable;
     return out_buffer[0..end_index];
 }
 

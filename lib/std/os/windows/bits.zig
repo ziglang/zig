@@ -1573,3 +1573,21 @@ pub const SYMLINK_FLAG_RELATIVE: ULONG = 0x1;
 
 pub const SYMBOLIC_LINK_FLAG_DIRECTORY: DWORD = 0x1;
 pub const SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE: DWORD = 0x2;
+
+pub const MOUNTMGR_MOUNT_POINT = extern struct {
+    SymbolicLinkNameOffset: ULONG,
+    SymbolicLinkNameLength: USHORT,
+    Reserved1: USHORT,
+    UniqueIdOffset: ULONG,
+    UniqueIdLength: USHORT,
+    Reserved2: USHORT,
+    DeviceNameOffset: ULONG,
+    DeviceNameLength: USHORT,
+    Reserved3: USHORT,
+};
+pub const MOUNTMGR_MOUNT_POINTS = extern struct {
+    Size: ULONG,
+    NumberOfMountPoints: ULONG,
+    MountPoints: [1]MOUNTMGR_MOUNT_POINT,
+};
+pub const IOCTL_MOUNTMGR_QUERY_POINTS: ULONG = 0x6d0008;

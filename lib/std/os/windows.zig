@@ -897,30 +897,156 @@ pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
 }
 
 pub const GetFinalPathNameByHandleError = error{
+    BadPathName,
     FileNotFound,
-    SystemResources,
     NameTooLong,
     Unexpected,
 };
 
-pub fn GetFinalPathNameByHandleW(
+/// Specifies how to format volume path in the result of `GetFinalPathNameByHandle`.
+/// Defaults to DOS volume names.
+pub const GetFinalPathNameByHandleFormat = struct {
+    volume_name: enum {
+        /// Format as DOS volume name
+        Dos,
+        /// Format as NT volume name
+        Nt,
+    } = .Dos,
+};
+
+/// Returns canonical (normalized) path of handle.
+/// Use `GetFinalPathNameByHandleFormat` to specify whether the path is meant to include
+/// NT or DOS volume name (e.g., `\Device\HarddiskVolume0\foo.txt` versus `C:\foo.txt`).
+/// If DOS volume name format is selected, note that this function does *not* prepend
+/// `\\?\` prefix to the resultant path.
+pub fn GetFinalPathNameByHandle(
     hFile: HANDLE,
-    buf_ptr: [*]u16,
-    buf_len: DWORD,
-    flags: DWORD,
-) GetFinalPathNameByHandleError![:0]u16 {
-    const rc = kernel32.GetFinalPathNameByHandleW(hFile, buf_ptr, buf_len, flags);
-    if (rc == 0) {
-        switch (kernel32.GetLastError()) {
-            .FILE_NOT_FOUND => return error.FileNotFound,
-            .PATH_NOT_FOUND => return error.FileNotFound,
-            .NOT_ENOUGH_MEMORY => return error.SystemResources,
-            .FILENAME_EXCED_RANGE => return error.NameTooLong,
-            .INVALID_PARAMETER => unreachable,
-            else => |err| return unexpectedError(err),
-        }
+    fmt: GetFinalPathNameByHandleFormat,
+    out_buffer: []u16,
+) GetFinalPathNameByHandleError![]u16 {
+    // Get normalized path; doesn't include volume name though.
+    var path_buffer: [@sizeOf(FILE_NAME_INFORMATION) + PATH_MAX_WIDE * 2]u8 align(@alignOf(FILE_NAME_INFORMATION)) = undefined;
+    try QueryInformationFile(hFile, .FileNormalizedNameInformation, path_buffer[0..]);
+
+    // Get NT volume name.
+    var volume_buffer: [@sizeOf(FILE_NAME_INFORMATION) + MAX_PATH]u8 align(@alignOf(FILE_NAME_INFORMATION)) = undefined; // MAX_PATH bytes should be enough since it's Windows-defined name
+    try QueryInformationFile(hFile, .FileVolumeNameInformation, volume_buffer[0..]);
+
+    const file_name = @ptrCast(*const FILE_NAME_INFORMATION, &path_buffer[0]);
+    const file_name_u16 = @ptrCast([*]const u16, &file_name.FileName[0])[0 .. file_name.FileNameLength / 2];
+
+    const volume_name = @ptrCast(*const FILE_NAME_INFORMATION, &volume_buffer[0]);
+
+    switch (fmt.volume_name) {
+        .Nt => {
+            // Nothing to do, we simply copy the bytes to the user-provided buffer.
+            const volume_name_u16 = @ptrCast([*]const u16, &volume_name.FileName[0])[0 .. volume_name.FileNameLength / 2];
+
+            if (out_buffer.len < volume_name_u16.len + file_name_u16.len) return error.NameTooLong;
+
+            std.mem.copy(u16, out_buffer[0..], volume_name_u16);
+            std.mem.copy(u16, out_buffer[volume_name_u16.len..], file_name_u16);
+
+            return out_buffer[0 .. volume_name_u16.len + file_name_u16.len];
+        },
+        .Dos => {
+            // Get DOS volume name. DOS volume names are actually symbolic link objects to the
+            // actual NT volume. For example:
+            // (NT) \Device\HarddiskVolume4 => (DOS) \DosDevices\C: == (DOS) C:
+            const MIN_SIZE = @sizeOf(MOUNTMGR_MOUNT_POINT) + MAX_PATH;
+            // We initialize the input buffer to all zeros for convenience since
+            // `DeviceIoControl` with `IOCTL_MOUNTMGR_QUERY_POINTS` expects this.
+            var input_buf: [MIN_SIZE]u8 align(@alignOf(MOUNTMGR_MOUNT_POINT)) = [_]u8{0} ** MIN_SIZE;
+            var output_buf: [MIN_SIZE * 4]u8 align(@alignOf(MOUNTMGR_MOUNT_POINTS)) = undefined;
+
+            // This surprising path is a filesystem path to the mount manager on Windows.
+            // Source: https://stackoverflow.com/questions/3012828/using-ioctl-mountmgr-query-points
+            const mgmt_path = "\\MountPointManager";
+            const mgmt_path_u16 = sliceToPrefixedFileW(mgmt_path) catch unreachable;
+            const mgmt_handle = OpenFile(mgmt_path_u16.span(), .{
+                .access_mask = SYNCHRONIZE,
+                .share_access = FILE_SHARE_READ | FILE_SHARE_WRITE,
+                .creation = FILE_OPEN,
+                .io_mode = .blocking,
+            }) catch |err| switch (err) {
+                error.IsDir => unreachable,
+                error.NotDir => unreachable,
+                error.NoDevice => unreachable,
+                error.AccessDenied => unreachable,
+                error.PipeBusy => unreachable,
+                error.PathAlreadyExists => unreachable,
+                error.WouldBlock => unreachable,
+                else => |e| return e,
+            };
+            defer CloseHandle(mgmt_handle);
+
+            var input_struct = @ptrCast(*MOUNTMGR_MOUNT_POINT, &input_buf[0]);
+            input_struct.DeviceNameOffset = @sizeOf(MOUNTMGR_MOUNT_POINT);
+            input_struct.DeviceNameLength = @intCast(USHORT, volume_name.FileNameLength);
+            @memcpy(input_buf[@sizeOf(MOUNTMGR_MOUNT_POINT)..], @ptrCast([*]const u8, &volume_name.FileName[0]), volume_name.FileNameLength);
+
+            try DeviceIoControl(mgmt_handle, IOCTL_MOUNTMGR_QUERY_POINTS, input_buf[0..], output_buf[0..]);
+            const mount_points_struct = @ptrCast(*const MOUNTMGR_MOUNT_POINTS, &output_buf[0]);
+
+            const mount_points = @ptrCast(
+                [*]const MOUNTMGR_MOUNT_POINT,
+                &mount_points_struct.MountPoints[0],
+            )[0..mount_points_struct.NumberOfMountPoints];
+
+            var found: bool = false;
+            for (mount_points) |mount_point| {
+                const symlink = @ptrCast(
+                    [*]const u16,
+                    @alignCast(@alignOf(u16), &output_buf[mount_point.SymbolicLinkNameOffset]),
+                )[0 .. mount_point.SymbolicLinkNameLength / 2];
+
+                // Look for `\DosDevices\` prefix. We don't really care if there are more than one symlinks
+                // with traditional DOS drive letters, so pick the first one available.
+                const prefix_u8 = "\\DosDevices\\";
+                var prefix_buf_u16: [prefix_u8.len]u16 = undefined;
+                const prefix_len_u16 = std.unicode.utf8ToUtf16Le(prefix_buf_u16[0..], prefix_u8[0..]) catch unreachable;
+                const prefix = prefix_buf_u16[0..prefix_len_u16];
+
+                if (std.mem.startsWith(u16, symlink, prefix)) {
+                    const drive_letter = symlink[prefix.len..];
+
+                    if (out_buffer.len < drive_letter.len + file_name_u16.len) return error.NameTooLong;
+
+                    std.mem.copy(u16, out_buffer[0..], drive_letter);
+                    std.mem.copy(u16, out_buffer[drive_letter.len..], file_name_u16);
+                    const total_len = drive_letter.len + file_name_u16.len;
+
+                    // Validate that DOS does not contain any spurious nul bytes.
+                    if (std.mem.indexOfScalar(u16, out_buffer[0..total_len], 0)) |_| {
+                        return error.BadPathName;
+                    }
+
+                    return out_buffer[0..total_len];
+                }
+            }
+
+            // If we've ended up here, then something went wrong/is corrupted in the OS,
+            // so error out!
+            return error.FileNotFound;
+        },
     }
-    return buf_ptr[0..rc :0];
+}
+
+pub const QueryInformationFileError = error{Unexpected};
+
+pub fn QueryInformationFile(
+    handle: HANDLE,
+    info_class: FILE_INFORMATION_CLASS,
+    out_buffer: []u8,
+) QueryInformationFileError!void {
+    var io: IO_STATUS_BLOCK = undefined;
+    const len_bytes = std.math.cast(u32, out_buffer.len) catch unreachable;
+    const rc = ntdll.NtQueryInformationFile(handle, &io, out_buffer.ptr, len_bytes, info_class);
+    switch (rc) {
+        .SUCCESS => {},
+        .INVALID_PARAMETER => unreachable,
+        else => return unexpectedStatus(rc),
+    }
 }
 
 pub const GetFileSizeError = error{Unexpected};
