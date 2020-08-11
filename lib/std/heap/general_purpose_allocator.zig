@@ -118,7 +118,8 @@ const sys_can_stack_trace = switch (std.Target.current.cpu.arch) {
 
     else => true,
 };
-const default_sys_stack_trace_frames: usize = if (sys_can_stack_trace) 4 else 0;
+const default_test_stack_trace_frames: usize = if (std.builtin.is_test) 8 else 4;
+const default_sys_stack_trace_frames: usize = if (sys_can_stack_trace) default_test_stack_trace_frames else 0;
 const default_stack_trace_frames: usize = switch (std.builtin.mode) {
     .Debug => default_sys_stack_trace_frames,
     else => 0,
