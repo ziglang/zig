@@ -4,6 +4,8 @@ const builtin = @import("builtin");
 
 pub const io_mode: io.Mode = builtin.test_io_mode;
 
+var log_err_count: usize = 0;
+
 pub fn main() anyerror!void {
     const test_fn_list = builtin.test_functions;
     var ok_count: usize = 0;
@@ -75,8 +77,13 @@ pub fn main() anyerror!void {
     } else {
         std.debug.print("{} passed; {} skipped.\n", .{ ok_count, skip_count });
     }
+    if (log_err_count != 0) {
+        std.debug.print("{} errors were logged.\n", .{log_err_count});
+    }
     if (leaks != 0) {
-        std.debug.print("{} tests leaked memory\n", .{ok_count});
+        std.debug.print("{} tests leaked memory.\n", .{ok_count});
+    }
+    if (leaks != 0 or log_err_count != 0) {
         std.process.exit(1);
     }
 }
@@ -87,6 +94,9 @@ pub fn log(
     comptime format: []const u8,
     args: anytype,
 ) void {
+    if (@enumToInt(message_level) <= @enumToInt(std.log.Level.err)) {
+        log_err_count += 1;
+    }
     if (@enumToInt(message_level) <= @enumToInt(std.testing.log_level)) {
         std.debug.print("[{}] ({}): " ++ format, .{ @tagName(scope), @tagName(message_level) } ++ args);
     }

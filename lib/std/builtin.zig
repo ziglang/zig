@@ -52,6 +52,25 @@ pub const subsystem: ?SubSystem = blk: {
 pub const StackTrace = struct {
     index: usize,
     instruction_addresses: []usize,
+
+    pub fn format(
+        self: StackTrace,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+        const debug_info = std.debug.getSelfDebugInfo() catch |err| {
+            return writer.print("\nUnable to print stack trace: Unable to open debug info: {}\n", .{@errorName(err)});
+        };
+        const tty_config = std.debug.detectTTYConfig();
+        try writer.writeAll("\n");
+        std.debug.writeStackTrace(self, writer, &arena.allocator, debug_info, tty_config) catch |err| {
+            try writer.print("Unable to print stack trace: {}\n", .{@errorName(err)});
+        };
+        try writer.writeAll("\n");
+    }
 };
 
 /// This data structure is used by the Zig language code generation and
