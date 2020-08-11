@@ -447,6 +447,14 @@ pub const Version = struct {
             if (self.max.order(ver) == .lt) return false;
             return true;
         }
+
+        /// Checks if system is guaranteed to be at least `version` or older than `version`.
+        /// Returns `null` if a runtime check is required.
+        pub fn isAtLeast(self: Range, ver: Version) ?bool {
+            if (self.min.order(ver) != .lt) return true;
+            if (self.max.order(ver) == .lt) return false;
+            return null;
+        }
     };
 
     pub fn order(lhs: Version, rhs: Version) std.math.Order {

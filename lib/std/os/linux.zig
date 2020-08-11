@@ -1210,6 +1210,18 @@ pub fn signalfd4(fd: fd_t, mask: *const sigset_t, flags: i32) usize {
     );
 }
 
+pub fn copy_file_range(fd_in: fd_t, off_in: ?*i64, fd_out: fd_t, off_out: ?*i64, len: usize, flags: u32) usize {
+    return syscall6(
+        .copy_file_range,
+        @bitCast(usize, @as(isize, fd_in)),
+        @ptrToInt(off_in),
+        @bitCast(usize, @as(isize, fd_out)),
+        @ptrToInt(off_out),
+        len,
+        flags,
+    );
+}
+
 test "" {
     if (builtin.os.tag == .linux) {
         _ = @import("linux/test.zig");

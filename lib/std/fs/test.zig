@@ -328,6 +328,32 @@ test "sendfile" {
     testing.expect(mem.eql(u8, written_buf[0..amt], "header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n"));
 }
 
+test "copyRangeAll" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("os_test_tmp");
+    defer tmp.dir.deleteTree("os_test_tmp") catch {};
+
+    var dir = try tmp.dir.openDir("os_test_tmp", .{});
+    defer dir.close();
+
+    var src_file = try dir.createFile("file1.txt", .{ .read = true });
+    defer src_file.close();
+
+    const data = "u6wj+JmdF3qHsFPE BUlH2g4gJCmEz0PP";
+    try src_file.writeAll(data);
+
+    var dest_file = try dir.createFile("file2.txt", .{ .read = true });
+    defer dest_file.close();
+
+    var written_buf: [100]u8 = undefined;
+    _ = try src_file.copyRangeAll(0, dest_file, 0, data.len);
+
+    const amt = try dest_file.preadAll(&written_buf, 0);
+    testing.expect(mem.eql(u8, written_buf[0..amt], data));
+}
+
 test "fs.copyFile" {
     const data = "u6wj+JmdF3qHsFPE BUlH2g4gJCmEz0PP";
     const src_file = "tmp_test_copy_file.txt";
