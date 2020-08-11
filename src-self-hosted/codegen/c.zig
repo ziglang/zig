@@ -94,6 +94,28 @@ fn genArray(file: *C, decl: *Decl) !void {
         return file.fail(decl.src(), "TODO non-byte arrays", .{});
 }
 
+const Context = struct {
+    file: *C,
+    decl: *Decl,
+    inst_map: std.AutoHashMap(*Inst, []u8),
+    argdex: usize = 0,
+    unnamed_index: usize = 0,
+
+    fn name(self: *Context) ![]u8 {
+        const val = try std.fmt.allocPrint(self.file.base.allocator, "__temp_{}", .{self.unnamed_index});
+        self.unnamed_index += 1;
+        return val;
+    }
+
+    fn deinit(self: *Context) void {
+        for (self.inst_map.items()) |kv| {
+            self.file.base.allocator.free(kv.value);
+        }
+        self.inst_map.deinit();
+        self.* = undefined;
+    }
+};
+
 fn genFn(file: *C, decl: *Decl) !void {
     const writer = file.main.writer();
     const tv = decl.typed_value.most_recent.typed_value;
@@ -102,24 +124,31 @@ fn genFn(file: *C, decl: *Decl) !void {
 
     try writer.writeAll(" {");
 
+    var ctx = Context{
+        .file = file,
+        .decl = decl,
+        .inst_map = std.AutoHashMap(*Inst, []u8).init(file.base.allocator),
+    };
+    defer ctx.deinit();
+
     const func: *Module.Fn = tv.val.cast(Value.Payload.Function).?.func;
     const instructions = func.analysis.success.instructions;
-    var argdex: usize = 0;
     if (instructions.len > 0) {
         try writer.writeAll("\n");
         for (instructions) |inst| {
-            switch (inst.tag) {
-                .assembly => try genAsm(file, inst.castTag(.assembly).?, decl, &argdex),
-                .call => try genCall(file, inst.castTag(.call).?, decl),
-                .ret => try genRet(file, inst.castTag(.ret).?, decl, tv.ty.fnReturnType()),
-                .retvoid => try file.main.writer().print("    return;\n", .{}),
-                .arg => {},
-                .dbg_stmt => try genDbgStmt(file, inst.castTag(.dbg_stmt).?, decl),
-                .breakpoint => try genBreak(file, inst.castTag(.breakpoint).?, decl),
-                .unreach => try genUnreach(file, inst.castTag(.unreach).?, decl),
-                // This will be handled correctly later?
-                .intcast => {},
+            if (switch (inst.tag) {
+                .assembly => try genAsm(&ctx, inst.castTag(.assembly).?),
+                .call => try genCall(&ctx, inst.castTag(.call).?),
+                .ret => try genRet(&ctx, inst.castTag(.ret).?),
+                .retvoid => try genRetVoid(&ctx),
+                .arg => try genArg(&ctx),
+                .dbg_stmt => try genDbgStmt(&ctx, inst.castTag(.dbg_stmt).?),
+                .breakpoint => try genBreak(&ctx, inst.castTag(.breakpoint).?),
+                .unreach => try genUnreach(&ctx, inst.castTag(.unreach).?),
+                .intcast => try genIntCast(&ctx, inst.castTag(.intcast).?),
                 else => |e| return file.fail(decl.src(), "TODO implement C codegen for {}", .{e}),
+            }) |name| {
+                try ctx.inst_map.putNoClobber(inst, name);
             }
         }
     }
@@ -127,27 +156,40 @@ fn genFn(file: *C, decl: *Decl) !void {
     try writer.writeAll("}\n\n");
 }
 
-fn genRet(file: *C, inst: *Inst.UnOp, decl: *Decl, expected_return_type: Type) !void {
-    return file.fail(decl.src(), "TODO return {}", .{expected_return_type});
+fn genArg(ctx: *Context) !?[]u8 {
+    const name = try std.fmt.allocPrint(ctx.file.base.allocator, "arg{}", .{ctx.argdex});
+    ctx.argdex += 1;
+    return name;
 }
 
-fn genIntCast(file: *C, inst: *Inst.UnOp, decl: *Decl, argdex: *usize) !void {
+fn genRetVoid(ctx: *Context) !?[]u8 {
+    try ctx.file.main.writer().print("    return;\n", .{});
+    return null;
+}
+
+fn genRet(ctx: *Context, inst: *Inst.UnOp) !?[]u8 {
+    return ctx.file.fail(ctx.decl.src(), "TODO return", .{});
+}
+
+fn genIntCast(ctx: *Context, inst: *Inst.UnOp) !?[]u8 {
+    if (inst.base.isUnused())
+        return null;
     const op = inst.operand;
-    const writer = file.main.writer();
-    try writer.writeByte('(');
-    try renderType(file, writer, inst.base.ty, decl.src());
-    try writer.writeByte(')');
-    if (op.castTag(.arg)) |_| {
-        try writer.print("arg{}", .{argdex.*});
-        argdex.* += 1;
-    } else {
-        return file.fail(decl.src(), "TODO intcast {} to {}", .{ op, inst.base.ty });
-    }
+    const writer = ctx.file.main.writer();
+    const name = try ctx.name();
+    const from = ctx.inst_map.get(op) orelse
+        return ctx.file.fail(ctx.decl.src(), "Internal error in C backend: intCast argument not found in inst_map", .{});
+    try writer.writeAll("    const ");
+    try renderType(ctx.file, writer, inst.base.ty, ctx.decl.src());
+    try writer.print(" {} = (", .{name});
+    try renderType(ctx.file, writer, inst.base.ty, ctx.decl.src());
+    try writer.print("){};\n", .{from});
+    return name;
 }
 
-fn genCall(file: *C, inst: *Inst.Call, decl: *Decl) !void {
-    const writer = file.main.writer();
-    const header = file.header.writer();
+fn genCall(ctx: *Context, inst: *Inst.Call) !?[]u8 {
+    const writer = ctx.file.main.writer();
+    const header = ctx.file.header.writer();
     try writer.writeAll("    ");
     if (inst.func.castTag(.constant)) |func_inst| {
         if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
@@ -158,9 +200,9 @@ fn genCall(file: *C, inst: *Inst.Call, decl: *Decl) !void {
                 try writer.print("(void)", .{});
             }
             const tname = mem.spanZ(target.name);
-            if (file.called.get(tname) == null) {
-                try file.called.put(tname, void{});
-                try renderFunctionSignature(file, header, target);
+            if (ctx.file.called.get(tname) == null) {
+                try ctx.file.called.put(tname, void{});
+                try renderFunctionSignature(ctx.file, header, target);
                 try header.writeAll(";\n");
             }
             try writer.print("{}(", .{tname});
@@ -170,61 +212,65 @@ fn genCall(file: *C, inst: *Inst.Call, decl: *Decl) !void {
                         try writer.writeAll(", ");
                     }
                     if (arg.cast(Inst.Constant)) |con| {
-                        try renderValue(file, writer, con.val, decl.src());
+                        try renderValue(ctx.file, writer, con.val, ctx.decl.src());
                     } else {
-                        return file.fail(decl.src(), "TODO call pass arg {}", .{arg});
+                        return ctx.file.fail(ctx.decl.src(), "TODO call pass arg {}", .{arg});
                     }
                 }
             }
             try writer.writeAll(");\n");
         } else {
-            return file.fail(decl.src(), "TODO non-function call target?", .{});
+            return ctx.file.fail(ctx.decl.src(), "TODO non-function call target?", .{});
         }
     } else {
-        return file.fail(decl.src(), "TODO non-constant call inst?", .{});
+        return ctx.file.fail(ctx.decl.src(), "TODO non-constant call inst?", .{});
     }
+    return null;
 }
 
-fn genDbgStmt(file: *C, inst: *Inst.NoOp, decl: *Decl) !void {
+fn genDbgStmt(ctx: *Context, inst: *Inst.NoOp) !?[]u8 {
     // TODO emit #line directive here with line number and filename
+    return null;
 }
 
-fn genBreak(file: *C, inst: *Inst.NoOp, decl: *Decl) !void {
+fn genBreak(ctx: *Context, inst: *Inst.NoOp) !?[]u8 {
     // TODO ??
+    return null;
 }
 
-fn genUnreach(file: *C, inst: *Inst.NoOp, decl: *Decl) !void {
-    try file.main.writer().writeAll("    zig_unreachable();\n");
+fn genUnreach(ctx: *Context, inst: *Inst.NoOp) !?[]u8 {
+    try ctx.file.main.writer().writeAll("    zig_unreachable();\n");
+    return null;
 }
 
-fn genAsm(file: *C, as: *Inst.Assembly, decl: *Decl, argdex: *usize) !void {
-    const writer = file.main.writer();
+fn genAsm(ctx: *Context, as: *Inst.Assembly) !?[]u8 {
+    const writer = ctx.file.main.writer();
     try writer.writeAll("    ");
     for (as.inputs) |i, index| {
         if (i[0] == '{' and i[i.len - 1] == '}') {
             const reg = i[1 .. i.len - 1];
             const arg = as.args[index];
             try writer.writeAll("register ");
-            try renderType(file, writer, arg.ty, decl.src());
+            try renderType(ctx.file, writer, arg.ty, ctx.decl.src());
             try writer.print(" {}_constant __asm__(\"{}\") = ", .{ reg, reg });
+            // TODO merge constant handling into inst_map as well
             if (arg.castTag(.constant)) |c| {
-                try renderValue(file, writer, c.val, decl.src());
-            } else if (arg.castTag(.arg)) |inst| {
-                try writer.print("arg{}", .{argdex.*});
-                argdex.* += 1;
-            } else if (arg.castTag(.intcast)) |inst| {
-                try genIntCast(file, inst, decl, argdex);
+                try renderValue(ctx.file, writer, c.val, ctx.decl.src());
+                try writer.writeAll(";\n    ");
             } else {
-                return file.fail(decl.src(), "TODO non-constant inline asm args ({})", .{arg.tag});
+                const gop = try ctx.inst_map.getOrPut(arg);
+                if (!gop.found_existing) {
+                    return ctx.file.fail(ctx.decl.src(), "Internal error in C backend: asm argument not found in inst_map", .{});
+                }
+                try writer.print("{};\n    ", .{gop.entry.value});
             }
-            try writer.writeAll(";\n    ");
         } else {
-            return file.fail(decl.src(), "TODO non-explicit inline asm regs", .{});
+            return ctx.file.fail(ctx.decl.src(), "TODO non-explicit inline asm regs", .{});
         }
     }
     try writer.print("__asm {} (\"{}\"", .{ if (as.is_volatile) @as([]const u8, "volatile") else "", as.asm_source });
     if (as.output) |o| {
-        return file.fail(decl.src(), "TODO inline asm output", .{});
+        return ctx.file.fail(ctx.decl.src(), "TODO inline asm output", .{});
     }
     if (as.inputs.len > 0) {
         if (as.output == null) {
@@ -246,4 +292,5 @@ fn genAsm(file: *C, as: *Inst.Assembly, decl: *Decl, argdex: *usize) !void {
         }
     }
     try writer.writeAll(");\n");
+    return null;
 }

@@ -229,7 +229,7 @@ pub const File = struct {
             return &c_file.base;
         }
 
-        pub fn fail(self: *C, src: usize, comptime format: []const u8, args: anytype) !void {
+        pub fn fail(self: *C, src: usize, comptime format: []const u8, args: anytype) anyerror {
             self.error_msg = try Module.ErrorMsg.create(self.base.allocator, src, format, args);
             return error.AnalysisFail;
         }

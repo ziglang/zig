@@ -129,8 +129,9 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\
         \\zig_noreturn void exit(uint8_t arg0) {
+        \\    const size_t __temp_0 = (size_t)arg0;
         \\    register size_t rax_constant __asm__("rax") = 231;
-        \\    register size_t rdi_constant __asm__("rdi") = (size_t)arg0;
+        \\    register size_t rdi_constant __asm__("rdi") = __temp_0;
         \\    __asm volatile ("syscall" :: ""(rax_constant), ""(rdi_constant));
         \\    zig_unreachable();
         \\}
