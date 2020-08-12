@@ -931,7 +931,7 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
                 else => |e| return e,
             };
 
-            const align_expr = blk: {
+            const align_expr = blk_2: {
                 const alignment = ZigClangFieldDecl_getAlignedAttribute(field_decl, rp.c.clang_context);
                 if (alignment != 0) {
                     _ = try appendToken(rp.c, .Keyword_align, "align");
@@ -940,9 +940,9 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
                     const expr = try transCreateNodeInt(rp.c, alignment / 8);
                     _ = try appendToken(rp.c, .RParen, ")");
 
-                    break :blk expr;
+                    break :blk_2 expr;
                 }
-                break :blk null;
+                break :blk_2 null;
             };
 
             const field_node = try c.arena.create(ast.Node.ContainerField);
@@ -1073,9 +1073,9 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
 
             const field_name_tok = try appendIdentifier(c, field_name);
 
-            const int_node = if (!pure_enum) blk: {
+            const int_node = if (!pure_enum) blk_2: {
                 _ = try appendToken(c, .Colon, "=");
-                break :blk try transCreateNodeAPInt(c, ZigClangEnumConstantDecl_getInitVal(enum_const));
+                break :blk_2 try transCreateNodeAPInt(c, ZigClangEnumConstantDecl_getInitVal(enum_const));
             } else
                 null;
 
@@ -2388,7 +2388,7 @@ fn transZeroInitExpr(
     ty: *const ZigClangType,
 ) TransError!*ast.Node {
     switch (ZigClangType_getTypeClass(ty)) {
-        .Builtin => blk: {
+        .Builtin => {
             const builtin_ty = @ptrCast(*const ZigClangBuiltinType, ty);
             switch (ZigClangBuiltinType_getKind(builtin_ty)) {
                 .Bool => return try transCreateNodeBoolLiteral(rp.c, false),
