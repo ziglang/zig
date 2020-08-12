@@ -107,6 +107,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .boolnot => return analyzeInstBoolNot(mod, scope, old_inst.castTag(.boolnot).?),
         .typeof => return analyzeInstTypeOf(mod, scope, old_inst.castTag(.typeof).?),
         .optional_type => return analyzeInstOptionalType(mod, scope, old_inst.castTag(.optional_type).?),
+        .unwrap_optional => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional).?),
     }
 }
 
@@ -306,8 +307,19 @@ fn analyzeInstRetPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerErr
 
 fn analyzeInstRef(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
-    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
     const ptr_type = try mod.singleConstPtrType(scope, inst.base.src, operand.ty);
+
+    if (operand.value()) |val| {
+        const ref_payload = try scope.arena().create(Value.Payload.RefVal);
+        ref_payload.* = .{ .val = val };
+    
+        return mod.constInst(scope, inst.base.src, .{
+            .ty = ptr_type,
+            .val = Value.initPayload(&ref_payload.base),
+        });
+    }
+
+    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
     return mod.addUnOp(b, inst.base.src, ptr_type, .ref, operand);
 }
 
@@ -647,6 +659,34 @@ fn analyzeInstOptionalType(mod: *Module, scope: *Scope, optional: *zir.Inst.UnOp
             break :blk &payload.base;
         },
     }));
+}
+
+fn analyzeInstUnwrapOptional(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnwrapOptional) InnerError!*Inst {
+    const operand = try resolveInst(mod, scope, unwrap.positionals.operand);
+    assert(operand.ty.zigTypeTag() == .Pointer);
+
+    if (operand.ty.elemType().zigTypeTag() != .Optional) {
+        return mod.fail(scope, unwrap.base.src, "expected optional type, found {}", .{operand.ty.elemType()});
+    }
+
+    const child_type = operand.ty.elemType().elemType();
+    const child_pointer = if (operand.ty.isConstPtr())
+        try mod.singleConstPtrType(scope, unwrap.base.src, child_type)
+    else
+        try mod.singleMutPtrType(scope, unwrap.base.src, child_type);
+
+    if (operand.value()) |val| {
+        if (val.tag() == .null_value) {
+            return mod.fail(scope, unwrap.base.src, "unable to unwrap null", .{});
+        }
+        return mod.constInst(scope, unwrap.base.src, .{
+            .ty = child_pointer,
+            .val = val,
+        });
+    }
+
+    const b = try mod.requireRuntimeBlock(scope, unwrap.base.src);
+    return mod.addUnwrapOptional(b, unwrap.base.src, child_pointer, operand, unwrap.kw_args.safety_check);
 }
 
 fn analyzeInstFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) InnerError!*Inst {

@@ -106,6 +106,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .BoolLiteral => return rlWrap(mod, scope, rl, try boolLiteral(mod, scope, node.castTag(.BoolLiteral).?)),
         .NullLiteral => return rlWrap(mod, scope, rl, try nullLiteral(mod, scope, node.castTag(.NullLiteral).?)),
         .OptionalType => return rlWrap(mod, scope, rl, try optionalType(mod, scope, node.castTag(.OptionalType).?)),
+        .UnwrapOptional => return unwrapOptional(mod, scope, rl, node.castTag(.UnwrapOptional).?),
         else => return mod.failNode(scope, node, "TODO implement astgen.Expr for {}", .{@tagName(node.tag)}),
     }
 }
@@ -303,6 +304,17 @@ fn optionalType(mod: *Module, scope: *Scope, node: *ast.Node.SimplePrefixOp) Inn
     });
     const operand = try expr(mod, scope, .{ .ty = meta_type }, node.rhs);
     return addZIRUnOp(mod, scope, src, .optional_type, operand);
+}
+
+fn unwrapOptional(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.SimpleSuffixOp) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.rtoken].start;
+
+    const operand = try expr(mod, scope, .lvalue, node.lhs);
+    const unwrapped_ptr = try addZIRInst(mod, scope, src, zir.Inst.UnwrapOptional, .{ .operand = operand }, .{});
+    if (rl == .lvalue) return unwrapped_ptr;
+
+    return rlWrap(mod, scope, rl, try addZIRUnOp(mod, scope, src, .deref, unwrapped_ptr));
 }
 
 /// Identifier token -> String (allocated in scope.arena())
