@@ -2,12 +2,16 @@ const std = @import("std.zig");
 const builtin = std.builtin;
 const root = @import("root");
 
-//! std.log is standardized interface for logging which allows for the logging
+//! std.log is a standardized interface for logging which allows for the logging
 //! of programs and libraries using this interface to be formatted and filtered
 //! by the implementer of the root.log function.
 //!
 //! The scope parameter should be used to give context to the logging. For
 //! example, a library called 'libfoo' might use .libfoo as its scope.
+//! This parameter can either be passed explicitly to the logging functions
+//! provided here, or a scoped logging namespace can be created
+//! using the `log.scoped` function. If logging scopes are not relevant for
+//! your use case, the `log.default` scope namespace can be used.
 //!
 //! An example root.log might look something like this:
 //!
@@ -44,16 +48,26 @@ const root = @import("root");
 //! }
 //!
 //! pub fn main() void {
+//!     // Using explicit scopes:
 //!     // Won't be printed as log_level is .warn
 //!     std.log.info(.my_project, "Starting up.", .{});
 //!     std.log.err(.nice_library, "Something went very wrong, sorry.", .{});
 //!     // Won't be printed as it gets filtered out by our log function
 //!     std.log.err(.lib_that_logs_too_much, "Added 1 + 1", .{});
+//!
+//!     // Using a scoped logging namespace:
+//!     const scoped_log = std.log.scoped(.my_project);
+//!     scoped_log.alert("The scope for this message is implicitly .my_project", .{});
+//!
+//!     // Using the default namespace:
+//!     // Won't be printed as log_level is .warn
+//!     std.log.default.info("I don't care about my namespace", .{});
 //! }
 //! ```
 //! Which produces the following output:
 //! ```
 //! [err] (nice_library): Something went very wrong, sorry.
+//! [alert] (my_project): The scope for this message is implicitly .my_project
 //! ```
 
 pub const Level = enum {
@@ -201,6 +215,8 @@ pub fn debug(
     log(.debug, scope, format, args);
 }
 
+/// Returns a scoped logging namespace that logs all messages using the scope
+/// provided here.
 pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
     return struct {
         /// Log an emergency message to stderr. This log level is intended to be used
@@ -283,4 +299,5 @@ pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
     };
 }
 
+/// The default scoped logging namespace.
 pub const default = scoped(.default);
