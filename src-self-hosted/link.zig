@@ -14,6 +14,7 @@ const trace = @import("tracy.zig").trace;
 const leb128 = std.debug.leb;
 const Package = @import("Package.zig");
 const Value = @import("value.zig").Value;
+const Type = @import("type.zig").Type;
 
 // TODO Turn back on zig fmt when https://github.com/ziglang/zig/issues/5948 is implemented.
 // zig fmt: off
@@ -985,6 +986,12 @@ pub const File = struct {
             }
         }
 
+        pub const abbrev_compile_unit = 1;
+        pub const abbrev_subprogram = 2;
+        pub const abbrev_subprogram_retvoid = 3;
+        pub const abbrev_base_type = 4;
+        pub const abbrev_pad1 = 5;
+
         /// Commit pending changes and write headers.
         pub fn flush(self: *Elf) !void {
             const target_endian = self.base.options.target.cpu.arch.endian();
@@ -1005,7 +1012,7 @@ pub const File = struct {
                 // These are LEB encoded but since the values are all less than 127
                 // we can simply append these bytes.
                 const abbrev_buf = [_]u8{
-                    1, DW.TAG_compile_unit, DW.CHILDREN_no, // header
+                    abbrev_compile_unit, DW.TAG_compile_unit, DW.CHILDREN_yes, // header
                     DW.AT_stmt_list,  DW.FORM_sec_offset,
                     DW.AT_low_pc   ,  DW.FORM_addr,
                     DW.AT_high_pc  ,  DW.FORM_addr,
@@ -1013,6 +1020,28 @@ pub const File = struct {
                     DW.AT_comp_dir ,  DW.FORM_strp,
                     DW.AT_producer ,  DW.FORM_strp,
                     DW.AT_language ,  DW.FORM_data2,
+                    0, 0, // table sentinel
+
+                    abbrev_subprogram, DW.TAG_subprogram, DW.CHILDREN_yes, // header
+                    DW.AT_low_pc   ,  DW.FORM_addr,
+                    DW.AT_high_pc  ,  DW.FORM_data4,
+                    DW.AT_type     ,  DW.FORM_ref4,
+                    DW.AT_name     ,  DW.FORM_string,
+                    0, 0, // table sentinel
+
+                    abbrev_subprogram_retvoid, DW.TAG_subprogram, DW.CHILDREN_yes, // header
+                    DW.AT_low_pc   ,  DW.FORM_addr,
+                    DW.AT_high_pc  ,  DW.FORM_data4,
+                    DW.AT_name     ,  DW.FORM_string,
+                    0, 0, // table sentinel
+
+                    abbrev_base_type, DW.TAG_base_type, DW.CHILDREN_no, // header
+                    DW.AT_encoding ,  DW.FORM_data1,
+                    DW.AT_byte_size,  DW.FORM_data1,
+                    DW.AT_name     ,  DW.FORM_string,
+                    0, 0, // table sentinel
+
+                    abbrev_pad1, DW.TAG_unspecified_type, DW.CHILDREN_no, // header
                     0, 0, // table sentinel
 
                     0, 0, 0, // section sentinel
@@ -1092,7 +1121,7 @@ pub const File = struct {
                 const low_pc = text_phdr.p_vaddr;
                 const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
 
-                di_buf.appendAssumeCapacity(1); // abbrev tag, matching the value from the abbrev table header
+                di_buf.appendAssumeCapacity(abbrev_compile_unit);
                 self.writeDwarfAddrAssumeCapacity(&di_buf, 0); // DW.AT_stmt_list, DW.FORM_sec_offset
                 self.writeDwarfAddrAssumeCapacity(&di_buf, low_pc);
                 self.writeDwarfAddrAssumeCapacity(&di_buf, high_pc);
@@ -1834,6 +1863,7 @@ pub const File = struct {
                 .Fn => true,
                 else => false,
             };
+            var fn_ret_has_bits: bool = undefined;
             if (is_fn) {
                 // For functions we need to add a prologue to the debug line program.
                 try dbg_line_buffer.ensureCapacity(26);
@@ -1884,6 +1914,31 @@ pub const File = struct {
                 // Emit a line for the begin curly with prologue_end=false. The codegen will
                 // do the work of setting prologue_end=true and epilogue_begin=true.
                 dbg_line_buffer.appendAssumeCapacity(DW.LNS_copy);
+
+                // .debug_info subprogram
+                const decl_name_with_null = decl.name[0..mem.lenZ(decl.name) + 1];
+                try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 25 + decl_name_with_null.len);
+
+                fn_ret_has_bits = typed_value.ty.fnReturnType().hasCodeGenBits();
+                if (fn_ret_has_bits) {
+                    dbg_info_buffer.appendAssumeCapacity(abbrev_subprogram);
+                } else {
+                    dbg_info_buffer.appendAssumeCapacity(abbrev_subprogram_retvoid);
+                }
+                // These get overwritten after generating the machine code. These values are
+                // "relocations" and have to be in this fixed place so that functions can be
+                // moved in virtual address space.
+                assert(dbg_info_low_pc_reloc_index == dbg_info_buffer.items.len);
+                dbg_info_buffer.items.len += ptr_width_bytes; // DW.AT_low_pc,  DW.FORM_addr
+                assert(self.getRelocDbgInfoSubprogramHighPC() == dbg_info_buffer.items.len);
+                dbg_info_buffer.items.len += 4; // DW.AT_high_pc,  DW.FORM_data4
+                if (fn_ret_has_bits) {
+                    assert(self.getRelocDbgInfoSubprogramRetType() == dbg_info_buffer.items.len);
+                    dbg_info_buffer.items.len += 4; // DW.AT_type,  DW.FORM_ref4
+                }
+                dbg_info_buffer.appendSliceAssumeCapacity(decl_name_with_null); // DW.AT_name, DW.FORM_string
+            } else {
+                // TODO implement .debug_info for global variables
             }
             const res = try codegen.generateSymbol(self, decl.src(), typed_value, &code_buffer, &dbg_line_buffer, &dbg_info_buffer);
             const code = switch (res) {
@@ -1951,21 +2006,39 @@ pub const File = struct {
             const file_offset = self.sections.items[self.text_section_index.?].sh_offset + section_offset;
             try self.base.file.?.pwriteAll(code, file_offset);
 
-            try self.updateDeclDebugInfo(module, decl, dbg_info_buffer.items);
+            const target_endian = self.base.options.target.cpu.arch.endian();
+
+            const text_block = &decl.link.elf;
 
             // If the Decl is a function, we need to update the .debug_line program.
+            var fn_ret_type_index: usize = undefined;
             if (is_fn) {
-                // Perform the relocation based on vaddr.
-                const target_endian = self.base.options.target.cpu.arch.endian();
+                // Perform the relocations based on vaddr.
                 switch (self.ptr_width) {
                     .p32 => {
-                        const ptr = dbg_line_buffer.items[dbg_line_vaddr_reloc_index..][0..4];
-                        mem.writeInt(u32, ptr, @intCast(u32, local_sym.st_value), target_endian);
+                        {
+                            const ptr = dbg_line_buffer.items[dbg_line_vaddr_reloc_index..][0..4];
+                            mem.writeInt(u32, ptr, @intCast(u32, local_sym.st_value), target_endian);
+                        }
+                        {
+                            const ptr = dbg_info_buffer.items[dbg_info_low_pc_reloc_index..][0..4];
+                            mem.writeInt(u32, ptr, @intCast(u32, local_sym.st_value), target_endian);
+                        }
                     },
                     .p64 => {
-                        const ptr = dbg_line_buffer.items[dbg_line_vaddr_reloc_index..][0..8];
-                        mem.writeInt(u64, ptr, local_sym.st_value, target_endian);
+                        {
+                            const ptr = dbg_line_buffer.items[dbg_line_vaddr_reloc_index..][0..8];
+                            mem.writeInt(u64, ptr, local_sym.st_value, target_endian);
+                        }
+                        {
+                            const ptr = dbg_info_buffer.items[dbg_info_low_pc_reloc_index..][0..8];
+                            mem.writeInt(u64, ptr, local_sym.st_value, target_endian);
+                        }
                     },
+                }
+                {
+                    const ptr = dbg_info_buffer.items[self.getRelocDbgInfoSubprogramHighPC()..][0..4];
+                    mem.writeInt(u32, ptr, @intCast(u32, local_sym.st_size), target_endian);
                 }
 
                 try dbg_line_buffer.appendSlice(&[_]u8{ DW.LNS_extended_op, 1, DW.LNE_end_sequence });
@@ -2043,14 +2116,69 @@ pub const File = struct {
                 // from the .debug_line section.
                 const file_pos = debug_line_sect.sh_offset + src_fn.off;
                 try self.pwriteDbgLineNops(prev_padding_size, dbg_line_buffer.items, next_padding_size, file_pos);
+
+                // .debug_info
+                try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 2);
+                // End the TAG_subprogram children.
+                dbg_info_buffer.appendAssumeCapacity(0);
+                if (fn_ret_has_bits) {
+                    // Now we do the return type of the function. The relocation must be performed
+                    // later after the offset for this subprogram is computed.
+                    fn_ret_type_index = dbg_info_buffer.items.len;
+                    try self.addDbgInfoType(typed_value.ty.fnReturnType(), &dbg_info_buffer);
+                }
             }
+
+            try self.updateDeclDebugInfoAllocation(text_block, @intCast(u32, dbg_info_buffer.items.len));
+
+            if (is_fn and fn_ret_has_bits) {
+                // Perform function return type relocation.
+                mem.writeInt(
+                    u32,
+                    dbg_info_buffer.items[self.getRelocDbgInfoSubprogramRetType()..][0..4],
+                    text_block.dbg_info_off + @intCast(u32, fn_ret_type_index),
+                    target_endian,
+                );
+            }
+
+            try self.writeDeclDebugInfo(text_block, dbg_info_buffer.items);
 
             // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
             const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
             return self.updateDeclExports(module, decl, decl_exports);
         }
 
-        pub fn updateDeclDebugInfo(self: *Elf, module: *Module, decl: *Module.Decl, dbg_info_buf: []const u8) !void {
+        /// Asserts the type has codegen bits.
+        fn addDbgInfoType(self: *Elf, ty: Type, dbg_info_buffer: *std.ArrayList(u8)) !void {
+            switch (ty.zigTypeTag()) {
+                .Void, .NoReturn => unreachable,
+                .Bool => {
+                    try dbg_info_buffer.appendSlice(&[_]u8{
+                        abbrev_base_type,
+                        DW.ATE_boolean, // DW.AT_encoding ,  DW.FORM_data1
+                        1, // DW.AT_byte_size,  DW.FORM_data1
+                        'b', 'o', 'o', 'l', 0, // DW.AT_name,  DW.FORM_string
+                    });
+                },
+                .Int => {
+                    const info = ty.intInfo(self.base.options.target);
+                    try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 12);
+                    dbg_info_buffer.appendAssumeCapacity(abbrev_base_type);
+                    // DW.AT_encoding, DW.FORM_data1
+                    dbg_info_buffer.appendAssumeCapacity(if (info.signed) DW.ATE_signed else DW.ATE_unsigned);
+                    // DW.AT_byte_size,  DW.FORM_data1
+                    dbg_info_buffer.appendAssumeCapacity(@intCast(u8, ty.abiSize(self.base.options.target)));
+                    // DW.AT_name,  DW.FORM_string
+                    try dbg_info_buffer.writer().print("{}\x00", .{ty});
+                },
+                else => {
+                    log.err(.compiler, "TODO implement .debug_info for type '{}'", .{ty});
+                    try dbg_info_buffer.append(abbrev_pad1);
+                },
+            }
+        }
+
+        fn updateDeclDebugInfoAllocation(self: *Elf, text_block: *TextBlock, len: u32) !void {
             const tracy = trace(@src());
             defer tracy.end();
 
@@ -2059,7 +2187,7 @@ pub const File = struct {
             // probably need to edit that logic too.
 
             const debug_info_sect = &self.sections.items[self.debug_info_section_index.?];
-            const text_block = &decl.link.elf;
+            text_block.dbg_info_len = len;
             if (self.dbg_info_decl_last) |last| {
                 if (text_block.dbg_info_next) |next| {
                     // Update existing Decl - non-last item.
@@ -2097,6 +2225,17 @@ pub const File = struct {
 
                 text_block.dbg_info_off = self.dbgInfoNeededHeaderBytes() * alloc_num / alloc_den;
             }
+        }
+
+        fn writeDeclDebugInfo(self: *Elf, text_block: *TextBlock, dbg_info_buf: []const u8) !void {
+            const tracy = trace(@src());
+            defer tracy.end();
+
+            // This logic is nearly identical to the logic above in `updateDecl` for
+            // `SrcFn` and the line number programs. If you are editing this logic, you
+            // probably need to edit that logic too.
+
+            const debug_info_sect = &self.sections.items[self.debug_info_section_index.?];
 
             const last_decl = self.dbg_info_decl_last.?;
             const needed_size = last_decl.dbg_info_off + last_decl.dbg_info_len;
@@ -2441,6 +2580,9 @@ pub const File = struct {
         /// The reloc offset for the virtual address of a function in its Line Number Program.
         /// Size is a virtual address integer.
         const dbg_line_vaddr_reloc_index = 3;
+        /// The reloc offset for the virtual address of a function in its .debug_info TAG_subprogram.
+        /// Size is a virtual address integer.
+        const dbg_info_low_pc_reloc_index = 1;
 
         /// The reloc offset for the line offset of a function from the previous function's line.
         /// It's a fixed-size 4-byte ULEB128.
@@ -2450,6 +2592,14 @@ pub const File = struct {
 
         fn getRelocDbgFileIndex(self: Elf) usize {
             return self.getRelocDbgLineOff() + 5;
+        }
+
+        fn getRelocDbgInfoSubprogramHighPC(self: Elf) u32 {
+            return dbg_info_low_pc_reloc_index + self.ptrWidthBytes();
+        }
+
+        fn getRelocDbgInfoSubprogramRetType(self: Elf) u32 {
+            return self.getRelocDbgInfoSubprogramHighPC() + 4;
         }
 
         fn dbgLineNeededHeaderBytes(self: Elf) u32 {
@@ -2565,7 +2715,7 @@ pub const File = struct {
             const tracy = trace(@src());
             defer tracy.end();
 
-            const page_of_nops = [1]u8{0} ** 4096;
+            const page_of_nops = [1]u8{abbrev_pad1} ** 4096;
             var vecs: [32]std.os.iovec_const = undefined;
             var vec_index: usize = 0;
             {

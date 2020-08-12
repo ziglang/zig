@@ -59,7 +59,7 @@ pub fn log(
     const prefix = "[" ++ @tagName(level) ++ "] " ++ "(" ++ @tagName(scope) ++ "): ";
 
     // Print the message to stderr, silently ignoring any errors
-    std.debug.print(prefix ++ format, args);
+    std.debug.print(prefix ++ format ++ "\n", args);
 }
 
 var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
