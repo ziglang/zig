@@ -9299,10 +9299,8 @@ fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
       which will also do perform basic leak detection.
       </p>
       <p>
-      Currently Zig has no general purpose allocator, but there is
-      <a href="https://github.com/andrewrk/zig-general-purpose-allocator/">one under active development</a>.
-      Once it is merged into the Zig standard library it will become available to import
-      with {#syntax#}std.heap.default_allocator{#endsyntax#}. However, it will still be recommended to
+      Zig has a general purpose allocator available to be imported
+      with {#syntax#}std.heap.GeneralPurposeAllocator{#endsyntax#}. However, it is still recommended to
       follow the {#link|Choosing an Allocator#} guide.
       </p>
 
