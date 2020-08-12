@@ -2476,6 +2476,24 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
     }
     assert(inst.ty.zigTypeTag() != .Undefined);
 
+    // null to ?T
+    if (dest_type.zigTypeTag() == .Optional and inst.ty.zigTypeTag() == .Null) {
+        return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = inst.ty.onePossibleValue().? });
+    }
+
+    // T to ?T
+    if (dest_type.zigTypeTag() == .Optional) {
+        const child_type = dest_type.elemType();
+        if (inst.value()) |val| {
+            if (child_type.eql(inst.ty)) {
+                return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
+            }
+            return self.fail(scope, inst.src, "TODO optional wrap {} to {}", .{ val, inst.ty });
+        } else if (child_type.eql(inst.ty)) {
+            return self.fail(scope, inst.src, "TODO optional wrap {}", .{inst.ty});
+        }
+    }
+
     // *[N]T to []T
     if (inst.ty.isSinglePointer() and dest_type.isSlice() and
         (!inst.ty.isConstPtr() or dest_type.isConstPtr()))
