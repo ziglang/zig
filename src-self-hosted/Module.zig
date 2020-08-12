@@ -1301,14 +1301,16 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 for (fn_proto.params()) |param, i| {
                     const name_token = param.name_token.?;
                     const src = tree.token_locs[name_token].start;
-                    const param_name = tree.tokenSlice(name_token);
-                    const arg = try gen_scope_arena.allocator.create(zir.Inst.NoOp);
+                    const param_name = tree.tokenSlice(name_token); // TODO: call identifierTokenString
+                    const arg = try gen_scope_arena.allocator.create(zir.Inst.Arg);
                     arg.* = .{
                         .base = .{
                             .tag = .arg,
                             .src = src,
                         },
-                        .positionals = .{},
+                        .positionals = .{
+                            .name = param_name,
+                        },
                         .kw_args = .{},
                     };
                     gen_scope.instructions.items[i] = &arg.base;
@@ -1934,6 +1936,20 @@ pub fn addBinOp(
     return &inst.base;
 }
 
+pub fn addArg(self: *Module, block: *Scope.Block, src: usize, ty: Type, name: [*:0]const u8) !*Inst {
+    const inst = try block.arena.create(Inst.Arg);
+    inst.* = .{
+        .base = .{
+            .tag = .arg,
+            .ty = ty,
+            .src = src,
+        },
+        .name = name,
+    };
+    try block.instructions.append(self.gpa, &inst.base);
+    return &inst.base;
+}
+
 pub fn addBr(
     self: *Module,
     scope_block: *Scope.Block,
@@ -2535,7 +2551,7 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
         }
     }
 
-    return self.fail(scope, inst.src, "expected {}, found {}", .{  dest_type, inst.ty });
+    return self.fail(scope, inst.src, "expected {}, found {}", .{ dest_type, inst.ty });
 }
 
 pub fn storePtr(self: *Module, scope: *Scope, src: usize, ptr: *Inst, uncasted_value: *Inst) !*Inst {

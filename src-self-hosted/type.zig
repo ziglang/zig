@@ -103,7 +103,6 @@ pub const Type = extern union {
     }
 
     pub fn eql(a: Type, b: Type) bool {
-        //std.debug.warn("test {} == {}\n", .{ a, b });
         // As a shortcut, if the small tags / addresses match, we're done.
         if (a.tag_if_small_enough == b.tag_if_small_enough)
             return true;
@@ -195,6 +194,71 @@ pub const Type = extern union {
             .EnumLiteral,
             => std.debug.panic("TODO implement Type equality comparison of {} and {}", .{ a, b }),
         }
+    }
+
+    pub fn hash(self: Type) u32 {
+        var hasher = std.hash.Wyhash.init(0);
+        const zig_type_tag = self.zigTypeTag();
+        std.hash.autoHash(&hasher, zig_type_tag);
+        switch (zig_type_tag) {
+            .Type,
+            .Void,
+            .Bool,
+            .NoReturn,
+            .ComptimeFloat,
+            .ComptimeInt,
+            .Undefined,
+            .Null,
+            => {}, // The zig type tag is all that is needed to distinguish.
+
+            .Pointer => {
+                // TODO implement more pointer type hashing
+            },
+            .Int => {
+                // Detect that e.g. u64 != usize, even if the bits match on a particular target.
+                if (self.isNamedInt()) {
+                    std.hash.autoHash(&hasher, self.tag());
+                } else {
+                    // Remaining cases are arbitrary sized integers.
+                    // The target will not be branched upon, because we handled target-dependent cases above.
+                    const info = self.intInfo(@as(Target, undefined));
+                    std.hash.autoHash(&hasher, info.signed);
+                    std.hash.autoHash(&hasher, info.bits);
+                }
+            },
+            .Array => {
+                std.hash.autoHash(&hasher, self.arrayLen());
+                std.hash.autoHash(&hasher, self.elemType().hash());
+                // TODO hash array sentinel
+            },
+            .Fn => {
+                std.hash.autoHash(&hasher, self.fnReturnType().hash());
+                std.hash.autoHash(&hasher, self.fnCallingConvention());
+                const params_len = self.fnParamLen();
+                std.hash.autoHash(&hasher, params_len);
+                var i: usize = 0;
+                while (i < params_len) : (i += 1) {
+                    std.hash.autoHash(&hasher, self.fnParamType(i).hash());
+                }
+            },
+            .Float,
+            .Struct,
+            .Optional,
+            .ErrorUnion,
+            .ErrorSet,
+            .Enum,
+            .Union,
+            .BoundFn,
+            .Opaque,
+            .Frame,
+            .AnyFrame,
+            .Vector,
+            .EnumLiteral,
+            => {
+                // TODO implement more type hashing
+            },
+        }
+        return @truncate(u32, hasher.final());
     }
 
     pub fn copy(self: Type, allocator: *Allocator) error{OutOfMemory}!Type {

@@ -1,4 +1,5 @@
 const std = @import("std");
+const DW = std.dwarf;
 
 pub const instructions = struct {
     pub const CallBreak = packed struct {
@@ -48,6 +49,10 @@ pub const RawRegister = enum(u8) {
     x8,  x9,  x10, x11, x12, x13, x14, x15,
     x16, x17, x18, x19, x20, x21, x22, x23,
     x24, x25, x26, x27, x28, x29, x30, x31,
+
+    pub fn dwarfLocOp(reg: RawRegister) u8 {
+        return @enumToInt(reg) + DW.OP_reg0;
+    }
 };
 
 pub const Register = enum(u8) {
@@ -82,6 +87,10 @@ pub const Register = enum(u8) {
             if(self == cpreg) return i;
         }
         return null;
+    }
+
+    pub fn dwarfLocOp(reg: Register) u8 {
+        return @enumToInt(reg) + DW.OP_reg0;
     }
 };
 

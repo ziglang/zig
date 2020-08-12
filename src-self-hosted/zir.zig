@@ -211,7 +211,6 @@ pub const Inst = struct {
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
-                .arg,
                 .breakpoint,
                 .dbg_stmt,
                 .returnvoid,
@@ -268,6 +267,7 @@ pub const Inst = struct {
                 .xor,
                 => BinOp,
 
+                .arg => Arg,
                 .block => Block,
                 .@"break" => Break,
                 .breakvoid => BreakVoid,
@@ -427,6 +427,16 @@ pub const Inst = struct {
         positionals: struct {
             lhs: *Inst,
             rhs: *Inst,
+        },
+        kw_args: struct {},
+    };
+
+    pub const Arg = struct {
+        pub const base_tag = Tag.arg;
+        base: Inst,
+
+        positionals: struct {
+            name: []const u8,
         },
         kw_args: struct {},
     };
@@ -1843,7 +1853,6 @@ const EmitZIR = struct {
             const new_inst = switch (inst.tag) {
                 .constant => unreachable, // excluded from function bodies
 
-                .arg => try self.emitNoOp(inst.src, .arg),
                 .breakpoint => try self.emitNoOp(inst.src, .breakpoint),
                 .unreach => try self.emitNoOp(inst.src, .@"unreachable"),
                 .retvoid => try self.emitNoOp(inst.src, .returnvoid),
@@ -1880,6 +1889,22 @@ const EmitZIR = struct {
                         },
                         .positionals = .{
                             .operand = (try self.emitType(inst.src, inst.ty)).inst,
+                        },
+                        .kw_args = .{},
+                    };
+                    break :blk &new_inst.base;
+                },
+
+                .arg => blk: {
+                    const old_inst = inst.castTag(.arg).?;
+                    const new_inst = try self.arena.allocator.create(Inst.Arg);
+                    new_inst.* = .{
+                        .base = .{
+                            .src = inst.src,
+                            .tag = .arg,
+                        },
+                        .positionals = .{
+                            .name = try self.arena.allocator.dupe(u8, mem.spanZ(old_inst.name)),
                         },
                         .kw_args = .{},
                     };

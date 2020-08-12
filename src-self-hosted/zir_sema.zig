@@ -408,7 +408,7 @@ fn analyzeInstCompileError(mod: *Module, scope: *Scope, inst: *zir.Inst.CompileE
     return mod.fail(scope, inst.base.src, "{}", .{inst.positionals.msg});
 }
 
-fn analyzeInstArg(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
+fn analyzeInstArg(mod: *Module, scope: *Scope, inst: *zir.Inst.Arg) InnerError!*Inst {
     const b = try mod.requireRuntimeBlock(scope, inst.base.src);
     const fn_ty = b.func.?.owner_decl.typed_value.most_recent.typed_value.ty;
     const param_index = b.instructions.items.len;
@@ -420,7 +420,8 @@ fn analyzeInstArg(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!
         });
     }
     const param_type = fn_ty.fnParamType(param_index);
-    return mod.addNoOp(b, inst.base.src, param_type, .arg);
+    const name = try scope.arena().dupeZ(u8, inst.positionals.name);
+    return mod.addArg(b, inst.base.src, param_type, name);
 }
 
 fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerError!*Inst {
