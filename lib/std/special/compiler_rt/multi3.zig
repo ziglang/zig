@@ -1,4 +1,5 @@
-const builtin = @import("builtin");
+const std = @import("std");
+const builtin = std.builtin;
 const compiler_rt = @import("../compiler_rt.zig");
 
 // Ported from git@github.com:llvm-project/llvm-project-20170507.git

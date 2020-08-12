@@ -4,9 +4,9 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/floorf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/floor.c
 
-const builtin = @import("builtin");
+const std = @import("std");
+const builtin = std.builtin;
 const expect = std.testing.expect;
-const std = @import("../std.zig");
 const math = std.math;
 
 /// Returns the greatest integer value less than or equal to x.

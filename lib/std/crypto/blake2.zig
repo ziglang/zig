@@ -1,7 +1,8 @@
-const mem = @import("../mem.zig");
-const builtin = @import("builtin");
-const debug = @import("../debug.zig");
-const math = @import("../math.zig");
+const std = @import("std");
+const mem = std.mem;
+const builtin = std.builtin;
+const debug = std.debug;
+const math = std.math;
 const htest = @import("test.zig");
 
 const RoundParam = struct {

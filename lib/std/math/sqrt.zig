@@ -1,7 +1,7 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const math = std.math;
 const expect = std.testing.expect;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const TypeId = builtin.TypeId;
 const maxInt = std.math.maxInt;
 

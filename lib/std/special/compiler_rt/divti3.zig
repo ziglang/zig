@@ -1,5 +1,6 @@
+const std = @import("std");
 const udivmod = @import("udivmod.zig").udivmod;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 
 pub fn __divti3(a: i128, b: i128) callconv(.C) i128 {
     @setRuntimeSafety(builtin.is_test);

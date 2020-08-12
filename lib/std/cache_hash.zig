@@ -1,4 +1,4 @@
-const std = @import("std.zig");
+const std = @import("std");
 const Blake3 = std.crypto.Blake3;
 const fs = std.fs;
 const base64 = std.base64;

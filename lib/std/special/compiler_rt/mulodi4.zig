@@ -1,7 +1,8 @@
-const builtin = @import("builtin");
+const std = @import("std");
+const builtin = std.builtin;
 const compiler_rt = @import("../compiler_rt.zig");
-const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
+const maxInt = std.math.maxInt;
 
 pub fn __mulodi4(a: i64, b: i64, overflow: *c_int) callconv(.C) i64 {
     @setRuntimeSafety(builtin.is_test);

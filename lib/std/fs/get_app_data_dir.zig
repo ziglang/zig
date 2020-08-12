@@ -1,5 +1,5 @@
-const std = @import("../std.zig");
-const builtin = @import("builtin");
+const std = @import("std");
+const builtin = std.builtin;
 const unicode = std.unicode;
 const mem = std.mem;
 const fs = std.fs;

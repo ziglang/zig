@@ -1,5 +1,5 @@
 // riscv64-specific declarations that are intended to be imported into the POSIX namespace.
-const std = @import("../../../std.zig");
+const std = @import("std");
 const uid_t = std.os.linux.uid_t;
 const gid_t = std.os.linux.gid_t;
 const pid_t = std.os.linux.pid_t;

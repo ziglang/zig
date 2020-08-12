@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const Lock = std.event.Lock;
 
 /// Thread-safe async/await lock that protects one piece of data.

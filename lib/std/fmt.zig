@@ -1,8 +1,8 @@
-const std = @import("std.zig");
+const std = @import("std");
 const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const errol = @import("fmt/errol.zig");
 const lossyCast = std.math.lossyCast;
 

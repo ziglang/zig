@@ -1,5 +1,5 @@
-const std = @import("../std.zig");
-const builtin = @import("builtin");
+const std = @import("std");
+const builtin = std.builtin;
 const Lock = std.event.Lock;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;

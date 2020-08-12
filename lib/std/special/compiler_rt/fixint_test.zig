@@ -1,5 +1,5 @@
-const is_test = @import("builtin").is_test;
 const std = @import("std");
+const is_test = std.builtin.is_test;
 const math = std.math;
 const testing = std.testing;
 const warn = std.debug.warn;

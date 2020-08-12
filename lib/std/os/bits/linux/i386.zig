@@ -1,7 +1,7 @@
 // i386-specific declarations that are intended to be imported into the POSIX namespace.
 // This does include Linux-only APIs.
 
-const std = @import("../../../std.zig");
+const std = @import("std");
 const linux = std.os.linux;
 const socklen_t = linux.socklen_t;
 const iovec = linux.iovec;

@@ -1,5 +1,5 @@
-const std = @import("std.zig");
-const builtin = @import("builtin");
+const std = @import("std");
+const builtin = std.builtin;
 
 pub const SpinLock = struct {
     state: State,

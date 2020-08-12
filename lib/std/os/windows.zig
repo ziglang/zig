@@ -4,8 +4,8 @@
 // * When null-terminated or UTF16LE byte buffers are required, provide APIs which accept
 //   slices as well as APIs which accept null-terminated UTF16LE byte buffers.
 
-const builtin = @import("builtin");
-const std = @import("../std.zig");
+const std = @import("std");
+const builtin = std.builtin;
 const mem = std.mem;
 const assert = std.debug.assert;
 const math = std.math;

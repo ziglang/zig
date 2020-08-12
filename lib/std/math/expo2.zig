@@ -4,7 +4,8 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/__expo2f.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/__expo2.c
 
-const math = @import("../math.zig");
+const std = @import("std");
+const math = std.math;
 
 /// Returns exp(x) / 2 for x >= log(maxFloat(T)).
 pub fn expo2(x: anytype) @TypeOf(x) {

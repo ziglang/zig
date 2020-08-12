@@ -1,4 +1,4 @@
-const std = @import("../../std.zig");
+const std = @import("std");
 const maxInt = std.math.maxInt;
 
 pub const fd_t = c_int;

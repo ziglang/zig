@@ -1,5 +1,5 @@
-const builtin = @import("builtin");
 const std = @import("std");
+const builtin = std.builtin;
 
 pub fn main() !void {
     const stdout = std.io.getStdOut().outStream();

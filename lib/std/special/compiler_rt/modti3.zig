@@ -1,9 +1,9 @@
 // Ported from:
 //
 // https://github.com/llvm/llvm-project/blob/2ffb1b0413efa9a24eb3c49e710e36f92e2cb50b/compiler-rt/lib/builtins/modti3.c
-
+const std = @import("std");
 const udivmod = @import("udivmod.zig").udivmod;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const compiler_rt = @import("../compiler_rt.zig");
 
 pub fn __modti3(a: i128, b: i128) callconv(.C) i128 {

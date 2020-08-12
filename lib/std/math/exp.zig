@@ -4,10 +4,10 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/expf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/exp.c
 
-const std = @import("../std.zig");
+const std = @import("std");
 const math = std.math;
 const assert = std.debug.assert;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 
 /// Returns e raised to the power of x (e^x).
 ///

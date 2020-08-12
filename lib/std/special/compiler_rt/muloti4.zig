@@ -1,4 +1,5 @@
-const builtin = @import("builtin");
+const std = @import("std");
+const builtin = std.builtin;
 const compiler_rt = @import("../compiler_rt.zig");
 
 pub fn __muloti4(a: i128, b: i128, overflow: *c_int) callconv(.C) i128 {

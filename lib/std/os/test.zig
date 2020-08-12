@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const os = std.os;
 const testing = std.testing;
 const expect = testing.expect;
@@ -13,7 +13,7 @@ const Thread = std.Thread;
 
 const a = std.testing.allocator;
 
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 const tmpDir = std.testing.tmpDir;

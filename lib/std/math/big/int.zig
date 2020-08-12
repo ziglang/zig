@@ -1,4 +1,4 @@
-const std = @import("../../std.zig");
+const std = @import("std");
 const math = std.math;
 const Limb = std.math.big.Limb;
 const DoubleLimb = std.math.big.DoubleLimb;

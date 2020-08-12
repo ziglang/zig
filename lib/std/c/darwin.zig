@@ -1,6 +1,6 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const assert = std.debug.assert;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const macho = std.macho;
 
 usingnamespace @import("../os/bits.zig");

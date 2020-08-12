@@ -4,7 +4,7 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/fabsf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/fabs.c
 
-const std = @import("../std.zig");
+const std = @import("std");
 const math = std.math;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;

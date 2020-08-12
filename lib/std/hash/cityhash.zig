@@ -1,5 +1,5 @@
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 
 pub const CityHash32 = struct {
     const Self = @This();

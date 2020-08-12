@@ -1,5 +1,5 @@
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 
 const normalize = @import("divdf3.zig").normalize;
 const wideMultiply = @import("divdf3.zig").wideMultiply;

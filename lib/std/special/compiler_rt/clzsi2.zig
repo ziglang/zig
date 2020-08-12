@@ -1,4 +1,5 @@
-const builtin = @import("builtin");
+const std = @import("std");
+const builtin = std.builtin;
 
 fn __clzsi2_generic(a: i32) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);

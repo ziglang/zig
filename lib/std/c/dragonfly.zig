@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 usingnamespace std.c;
 extern "c" threadlocal var errno: c_int;
 pub fn _errno() *c_int {

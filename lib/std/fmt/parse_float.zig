@@ -29,7 +29,7 @@
 // - Only supports round-to-zero
 // - Does not handle denormals
 
-const std = @import("../std.zig");
+const std = @import("std");
 const ascii = std.ascii;
 
 const max_digits = 25;

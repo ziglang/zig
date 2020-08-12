@@ -14,9 +14,9 @@
 // Note: The Zig standard library does not support POSIX thread cancellation, and
 // in general EINTR is handled by trying again.
 
+const std = @import("std");
 const root = @import("root");
-const std = @import("std.zig");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const assert = std.debug.assert;
 const math = std.math;
 const mem = std.mem;

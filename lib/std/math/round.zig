@@ -4,9 +4,9 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/roundf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/round.c
 
-const builtin = @import("builtin");
+const std = @import("std");
+const builtin = std.builtin;
 const expect = std.testing.expect;
-const std = @import("../std.zig");
 const math = std.math;
 
 /// Returns x rounded to the nearest integer, rounding half away from zero.

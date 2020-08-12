@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 usingnamespace std.c;
 
 extern "c" fn __error() *c_int;

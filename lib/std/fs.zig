@@ -1,5 +1,5 @@
-const builtin = @import("builtin");
-const std = @import("std.zig");
+const std = @import("std");
+const builtin = std.builtin;
 const os = std.os;
 const mem = std.mem;
 const base64 = std.base64;

@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const io = std.io;
 
 pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) type {

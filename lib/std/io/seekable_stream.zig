@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 
 pub fn SeekableStream(
     comptime Context: type,

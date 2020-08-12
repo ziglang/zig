@@ -1,6 +1,6 @@
 const std = @import("std");
 const io = std.io;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 
 pub const io_mode: io.Mode = builtin.test_io_mode;
 

@@ -1,7 +1,7 @@
 // Platform-dependent types and values that are used along with OS-specific APIs.
 
-const builtin = @import("builtin");
-const std = @import("../../std.zig");
+const std = @import("std");
+const builtin = std.builtin;
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 

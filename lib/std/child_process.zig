@@ -1,4 +1,4 @@
-const std = @import("std.zig");
+const std = @import("std");
 const cstr = std.cstr;
 const unicode = std.unicode;
 const io = std.io;

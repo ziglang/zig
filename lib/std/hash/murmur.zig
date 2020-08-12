@@ -1,5 +1,5 @@
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const testing = std.testing;
 
 const default_seed: u32 = 0xc70f6907;

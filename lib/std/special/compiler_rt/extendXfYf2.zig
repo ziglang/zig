@@ -1,5 +1,5 @@
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const is_test = builtin.is_test;
 
 pub fn __extendsfdf2(a: f32) callconv(.C) f64 {

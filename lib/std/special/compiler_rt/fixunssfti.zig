@@ -1,5 +1,6 @@
+const std = @import("std");
 const fixuint = @import("fixuint.zig").fixuint;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 
 pub fn __fixunssfti(a: f32) callconv(.C) u128 {
     @setRuntimeSafety(builtin.is_test);

@@ -4,8 +4,8 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/acoshf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/acosh.c
 
-const builtin = @import("builtin");
-const std = @import("../std.zig");
+const std = @import("std");
+const builtin = std.builtin;
 const math = std.math;
 const expect = std.testing.expect;
 

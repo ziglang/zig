@@ -4,7 +4,7 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/log10f.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/log10.c
 
-const std = @import("../std.zig");
+const std = @import("std");
 const math = std.math;
 const testing = std.testing;
 const maxInt = std.math.maxInt;

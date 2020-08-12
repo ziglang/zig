@@ -1,4 +1,4 @@
-const std = @import("std.zig");
+const std = @import("std");
 const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
@@ -9,7 +9,7 @@ const trait = meta.trait;
 const autoHash = std.hash.autoHash;
 const Wyhash = std.hash.Wyhash;
 const Allocator = mem.Allocator;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const hash_map = @This();
 
 pub fn AutoHashMap(comptime K: type, comptime V: type) type {

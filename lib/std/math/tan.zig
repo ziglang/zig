@@ -3,8 +3,8 @@
 //
 // https://golang.org/src/math/tan.go
 
-const builtin = @import("builtin");
-const std = @import("../std.zig");
+const std = @import("std");
+const builtin = std.builtin;
 const math = std.math;
 const expect = std.testing.expect;
 

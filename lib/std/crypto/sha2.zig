@@ -1,8 +1,9 @@
-const mem = @import("../mem.zig");
-const math = @import("../math.zig");
-const endian = @import("../endian.zig");
-const debug = @import("../debug.zig");
-const builtin = @import("builtin");
+const std = @import("std");
+const mem = std.mem;
+const math = std.math;
+const endian = std.endian;
+const debug = std.debug;
+const builtin = std.builtin;
 const htest = @import("test.zig");
 
 /////////////////////

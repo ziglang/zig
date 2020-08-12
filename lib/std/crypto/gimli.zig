@@ -7,7 +7,7 @@
 // https://gimli.cr.yp.to/
 // https://csrc.nist.gov/CSRC/media/Projects/Lightweight-Cryptography/documents/round-1/spec-doc/gimli-spec.pdf
 
-const std = @import("../std.zig");
+const std = @import("std");
 const mem = std.mem;
 const math = std.math;
 const debug = std.debug;

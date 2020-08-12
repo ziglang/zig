@@ -1,5 +1,5 @@
-const builtin = @import("builtin");
-const std = @import("std.zig");
+const std = @import("std");
+const builtin = std.builtin;
 const math = std.math;
 
 pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize) usize {

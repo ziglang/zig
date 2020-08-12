@@ -3,7 +3,7 @@
 // https://github.com/llvm/llvm-project/blob/2ffb1b0413efa9a24eb3c49e710e36f92e2cb50b/compiler-rt/lib/builtins/fp_mul_impl.inc
 
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const compiler_rt = @import("../compiler_rt.zig");
 
 pub fn __multf3(a: f128, b: f128) callconv(.C) f128 {

@@ -1,4 +1,4 @@
-const std = @import("std.zig");
+const std = @import("std");
 const mem = std.mem;
 
 /// Like ComptimeStringHashMap but optimized for small sets of disparate string keys.

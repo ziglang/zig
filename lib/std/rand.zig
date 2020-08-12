@@ -14,8 +14,8 @@
 //
 // TODO(tiehuis): Benchmark these against other reference implementations.
 
-const std = @import("std.zig");
-const builtin = @import("builtin");
+const std = @import("std");
+const builtin = std.builtin;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;

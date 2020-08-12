@@ -1,11 +1,10 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const builtin = std.builtin;
 const mem = std.mem;
 const debug = std.debug;
 const testing = std.testing;
 const warn = debug.warn;
-
-const meta = @import("../meta.zig");
+const meta = std.meta;
 
 pub const TraitFn = fn (type) bool;
 

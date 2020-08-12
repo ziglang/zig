@@ -5,7 +5,7 @@
 //
 // https://131002.net/siphash/
 
-const std = @import("../std.zig");
+const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
 const math = std.math;

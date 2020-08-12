@@ -1,3 +1,6 @@
+const std = @import("std");
+const root = @import("root");
+
 pub usingnamespace @import("builtin");
 
 /// Deprecated: use `std.Target`.
@@ -593,6 +596,3 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
         },
     }
 }
-
-const std = @import("std.zig");
-const root = @import("root");

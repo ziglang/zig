@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const RwLock = std.event.RwLock;
 
 /// Thread-safe async/await RW lock that protects one piece of data.

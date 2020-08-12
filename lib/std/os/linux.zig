@@ -5,13 +5,12 @@
 // * Implement all the syscalls in the same way that libc functions will
 //   provide `rename` when only the `renameat` syscall exists.
 // * Does not support POSIX thread cancellation.
-const std = @import("../std.zig");
+const std = @import("std");
 const builtin = std.builtin;
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 const elf = std.elf;
 const vdso = @import("linux/vdso.zig");
-const dl = @import("../dynamic_library.zig");
 
 pub usingnamespace switch (builtin.arch) {
     .i386 => @import("linux/i386.zig"),

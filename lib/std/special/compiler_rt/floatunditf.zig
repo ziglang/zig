@@ -1,6 +1,6 @@
-const builtin = @import("builtin");
-const is_test = builtin.is_test;
 const std = @import("std");
+const builtin = std.builtin;
+const is_test = builtin.is_test;
 
 pub fn __floatunditf(a: u64) callconv(.C) f128 {
     @setRuntimeSafety(is_test);

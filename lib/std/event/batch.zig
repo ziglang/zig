@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const testing = std.testing;
 
 /// Performs multiple async functions in parallel, without heap allocation.

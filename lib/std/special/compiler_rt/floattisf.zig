@@ -1,6 +1,6 @@
-const builtin = @import("builtin");
-const is_test = builtin.is_test;
 const std = @import("std");
+const builtin = std.builtin;
+const is_test = builtin.is_test;
 const maxInt = std.math.maxInt;
 
 const FLT_MANT_DIG = 24;

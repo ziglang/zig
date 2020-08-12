@@ -1,4 +1,5 @@
-const builtin = @import("builtin");
+const std = @import("std");
+const builtin = std.builtin;
 const is_test = builtin.is_test;
 
 const low = switch (builtin.endian) {

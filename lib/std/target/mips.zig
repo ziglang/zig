@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const CpuFeature = std.Target.Cpu.Feature;
 const CpuModel = std.Target.Cpu.Model;
 

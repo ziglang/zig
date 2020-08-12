@@ -1,7 +1,7 @@
 // Translated from BLAKE3 reference implementation.
 // Source: https://github.com/BLAKE3-team/BLAKE3
 
-const std = @import("../std.zig");
+const std = @import("std";
 const fmt = std.fmt;
 const math = std.math;
 const mem = std.mem;

@@ -1,7 +1,7 @@
 // This file is included in the compilation unit when exporting an executable.
 
+const std = @import("std");
 const root = @import("root");
-const std = @import("std.zig");
 const builtin = std.builtin;
 const assert = std.debug.assert;
 const uefi = std.os.uefi;

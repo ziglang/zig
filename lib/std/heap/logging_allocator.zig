@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 /// This allocator is used in front of another allocator and logs to the provided stream

@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const assert = std.debug.assert;
 
 pub const Rational = @import("big/rational.zig").Rational;

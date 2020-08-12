@@ -5,7 +5,7 @@
 // such as memcpy, memset, and some math functions.
 
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const maxInt = std.math.maxInt;
 const isNan = std.math.isNan;
 

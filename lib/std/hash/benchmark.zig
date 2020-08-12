@@ -1,7 +1,7 @@
 // zig run benchmark.zig --release-fast --override-lib-dir ..
 
-const builtin = @import("builtin");
 const std = @import("std");
+const builtin = std.builtin;
 const time = std.time;
 const Timer = time.Timer;
 const hash = std.hash;

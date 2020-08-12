@@ -3,7 +3,7 @@
 // https://tools.ietf.org/html/rfc1950#section-9
 // https://github.com/madler/zlib/blob/master/adler32.c
 
-const std = @import("../std.zig");
+const std = @import("std");
 const testing = std.testing;
 
 pub const Adler32 = struct {

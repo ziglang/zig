@@ -1,6 +1,6 @@
 // Based on public domain Supercop by Daniel J. Bernstein
 
-const std = @import("../std.zig");
+const std = @import("std");
 const mem = std.mem;
 const endian = std.endian;
 const assert = std.debug.assert;

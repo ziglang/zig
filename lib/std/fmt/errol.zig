@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const enum3 = @import("errol/enum3.zig").enum3;
 const enum3_data = @import("errol/enum3.zig").enum3_data;
 const lookup_table = @import("errol/lookup.zig").lookup_table;

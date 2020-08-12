@@ -1,4 +1,4 @@
-const std = @import("std.zig");
+const std = @import("std");
 const print = std.debug.print;
 
 pub const FailingAllocator = @import("testing/failing_allocator.zig").FailingAllocator;

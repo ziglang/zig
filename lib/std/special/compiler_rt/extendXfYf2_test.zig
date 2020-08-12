@@ -1,4 +1,5 @@
-const builtin = @import("builtin");
+const std = @import("std");
+const builtin = std.builtin;
 const __extenddftf2 = @import("extendXfYf2.zig").__extenddftf2;
 const __extendhfsf2 = @import("extendXfYf2.zig").__extendhfsf2;
 const __extendsftf2 = @import("extendXfYf2.zig").__extendsftf2;

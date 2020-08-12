@@ -1,4 +1,4 @@
-const std = @import("../../std.zig");
+const std = @import("std");
 const mem = std.mem;
 const testing = std.testing;
 const Managed = std.math.big.int.Managed;

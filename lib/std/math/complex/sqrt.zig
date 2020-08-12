@@ -4,7 +4,7 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/complex/csqrtf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/complex/csqrt.c
 
-const std = @import("../../std.zig");
+const std = @import("std");
 const testing = std.testing;
 const math = std.math;
 const cmath = math.complex;

@@ -1,5 +1,5 @@
-const std = @import("std.zig");
-const builtin = @import("builtin");
+const std = @import("std");
+const builtin = std.builtin;
 const testing = std.testing;
 const SpinLock = std.SpinLock;
 const assert = std.debug.assert;

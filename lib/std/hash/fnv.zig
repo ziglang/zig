@@ -4,7 +4,7 @@
 //
 // https://tools.ietf.org/html/draft-eastlake-fnv-14
 
-const std = @import("../std.zig");
+const std = @import("std");
 const testing = std.testing;
 
 pub const Fnv1a_32 = Fnv1a(u32, 0x01000193, 0x811c9dc5);

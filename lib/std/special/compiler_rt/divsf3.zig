@@ -3,7 +3,7 @@
 // https://github.com/llvm/llvm-project/commit/d674d96bc56c0f377879d01c9d8dfdaaa7859cdb/compiler-rt/lib/builtins/divsf3.c
 
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 
 pub fn __divsf3(a: f32, b: f32) callconv(.C) f32 {
     @setRuntimeSafety(builtin.is_test);

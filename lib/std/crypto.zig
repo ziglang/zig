@@ -40,7 +40,7 @@ const import_aes = @import("crypto/aes.zig");
 pub const AES128 = import_aes.AES128;
 pub const AES256 = import_aes.AES256;
 
-const std = @import("std.zig");
+const std = @import("std");
 pub const randomBytes = std.os.getrandom;
 
 test "crypto" {

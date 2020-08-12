@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const builtin = std.builtin;
 const net = std.net;
 const mem = std.mem;

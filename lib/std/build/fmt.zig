@@ -1,5 +1,5 @@
-const std = @import("../std.zig");
-const build = @import("../build.zig");
+const std = @import("std");
+const build = std.build.zig;
 const Step = build.Step;
 const Builder = build.Builder;
 const BufMap = std.BufMap;

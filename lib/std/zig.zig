@@ -1,4 +1,4 @@
-const std = @import("std.zig");
+const std = @import("std");
 const tokenizer = @import("zig/tokenizer.zig");
 
 pub const Token = tokenizer.Token;

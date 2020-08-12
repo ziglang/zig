@@ -1,5 +1,6 @@
 // ARM specific builtins
-const builtin = @import("builtin");
+const std = @import("std");
+const builtin = std.builtin;
 
 const __divmodsi4 = @import("int.zig").__divmodsi4;
 const __udivmodsi4 = @import("int.zig").__udivmodsi4;

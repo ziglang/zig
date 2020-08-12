@@ -2,8 +2,8 @@
 //
 // https://monocypher.org/
 
-const std = @import("../std.zig");
-const builtin = @import("builtin");
+const std = @import("std");
+const builtin = std.builtin;
 const fmt = std.fmt;
 
 const Endian = builtin.Endian;

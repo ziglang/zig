@@ -1,5 +1,6 @@
-const is_test = @import("builtin").is_test;
-const Log2Int = @import("std").math.Log2Int;
+const std = @import("std");
+const is_test = std.builtin.is_test;
+const Log2Int = std.math.Log2Int;
 
 pub fn fixuint(comptime fp_t: type, comptime fixuint_t: type, a: fp_t) fixuint_t {
     @setRuntimeSafety(is_test);

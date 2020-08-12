@@ -1,5 +1,5 @@
 // x86-64-specific declarations that are intended to be imported into the POSIX namespace.
-const std = @import("../../../std.zig");
+const std = @import("std");
 const pid_t = linux.pid_t;
 const uid_t = linux.uid_t;
 const clock_t = linux.clock_t;

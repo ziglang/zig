@@ -11,7 +11,7 @@
 // Headers are implemented as an array of entries.
 // An index of field name => array indices is kept.
 
-const std = @import("../std.zig");
+const std = @import("std");
 const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
