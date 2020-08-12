@@ -200,3 +200,87 @@ pub fn debug(
 ) void {
     log(.debug, scope, format, args);
 }
+
+pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
+    return struct {
+        /// Log an emergency message to stderr. This log level is intended to be used
+        /// for conditions that cannot be handled and is usually followed by a panic.
+        pub fn emerg(
+            comptime format: []const u8,
+            args: anytype,
+        ) void {
+            @setCold(true);
+            log(.emerg, scope, format, args);
+        }
+
+        /// Log an alert message to stderr. This log level is intended to be used for
+        /// conditions that should be corrected immediately (e.g. database corruption).
+        pub fn alert(
+            comptime format: []const u8,
+            args: anytype,
+        ) void {
+            @setCold(true);
+            log(.alert, scope, format, args);
+        }
+
+        /// Log a critical message to stderr. This log level is intended to be used
+        /// when a bug has been detected or something has gone wrong and it will have
+        /// an effect on the operation of the program.
+        pub fn crit(
+            comptime format: []const u8,
+            args: anytype,
+        ) void {
+            @setCold(true);
+            log(.crit, scope, format, args);
+        }
+
+        /// Log an error message to stderr. This log level is intended to be used when
+        /// a bug has been detected or something has gone wrong but it is recoverable.
+        pub fn err(
+            comptime format: []const u8,
+            args: anytype,
+        ) void {
+            @setCold(true);
+            log(.err, scope, format, args);
+        }
+
+        /// Log a warning message to stderr. This log level is intended to be used if
+        /// it is uncertain whether something has gone wrong or not, but the
+        /// circumstances would be worth investigating.
+        pub fn warn(
+            comptime format: []const u8,
+            args: anytype,
+        ) void {
+            log(.warn, scope, format, args);
+        }
+
+        /// Log a notice message to stderr. This log level is intended to be used for
+        /// non-error but significant conditions.
+        pub fn notice(
+            comptime format: []const u8,
+            args: anytype,
+        ) void {
+            log(.notice, scope, format, args);
+        }
+
+        /// Log an info message to stderr. This log level is intended to be used for
+        /// general messages about the state of the program.
+        pub fn info(
+            comptime format: []const u8,
+            args: anytype,
+        ) void {
+            log(.info, scope, format, args);
+        }
+
+        /// Log a debug message to stderr. This log level is intended to be used for
+        /// messages which are only useful for debugging.
+        pub fn debug(
+            comptime format: []const u8,
+            args: anytype,
+        ) void {
+            log(.debug, scope, format, args);
+        }
+    };
+}
+
+pub const default = scoped(.default);
