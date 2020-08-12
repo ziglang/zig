@@ -4025,23 +4025,15 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
         const pathname_w = try windows.cStrToPrefixedFileW(pathname);
         return realpathW(pathname_w.span(), out_buffer);
     }
-    if (builtin.os.tag == .linux and !builtin.link_libc) {
-        const fd = openZ(pathname, linux.O_PATH | linux.O_NONBLOCK | linux.O_CLOEXEC, 0) catch |err| switch (err) {
+    if (!builtin.link_libc) {
+        const flags = if (builtin.os.tag == .linux) O_PATH | O_NONBLOCK | O_CLOEXEC else O_NONBLOCK | O_CLOEXEC;
+        const fd = openZ(pathname, flags, 0) catch |err| switch (err) {
             error.FileLocksNotSupported => unreachable,
             else => |e| return e,
         };
         defer close(fd);
 
-        var procfs_buf: ["/proc/self/fd/-2147483648".len:0]u8 = undefined;
-        const proc_path = std.fmt.bufPrint(procfs_buf[0..], "/proc/self/fd/{}\x00", .{fd}) catch unreachable;
-
-        const target = readlinkZ(@ptrCast([*:0]const u8, proc_path.ptr), out_buffer) catch |err| {
-            switch (err) {
-                error.UnsupportedReparsePointType => unreachable, // Windows only,
-                else => |e| return e,
-            }
-        };
-        return target;
+        return getFdPath(fd, out_buffer);
     }
     const result_path = std.c.realpath(pathname, out_buffer) orelse switch (std.c._errno().*) {
         EINVAL => unreachable,
@@ -4093,12 +4085,51 @@ pub fn realpathW(pathname: []const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPat
     };
     defer w.CloseHandle(h_file);
 
-    var wide_buf: [w.PATH_MAX_WIDE]u16 = undefined;
-    const wide_slice = try w.GetFinalPathNameByHandle(h_file, .{}, wide_buf[0..]);
+    return getFdPath(h_file, out_buffer);
+}
 
-    // Trust that Windows gives us valid UTF-16LE.
-    const end_index = std.unicode.utf16leToUtf8(out_buffer, wide_slice) catch unreachable;
-    return out_buffer[0..end_index];
+/// Return canonical path of handle `fd`.
+/// This function is very host-specific and is not universally supported by all hosts.
+/// For example, while it generally works on Linux, macOS or Windows, it is unsupported
+/// on FreeBSD, or WASI.
+pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
+    switch (builtin.os.tag) {
+        .windows => {
+            var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
+            const wide_slice = try windows.GetFinalPathNameByHandle(fd, .{}, wide_buf[0..]);
+
+            // Trust that Windows gives us valid UTF-16LE.
+            const end_index = std.unicode.utf16leToUtf8(out_buffer, wide_slice) catch unreachable;
+            return out_buffer[0..end_index];
+        },
+        .macosx, .ios, .watchos, .tvos => {
+            // On macOS, we can use F_GETPATH fcntl command to query the OS for
+            // the path to the file descriptor.
+            @memset(out_buffer, 0, MAX_PATH_BYTES);
+            switch (errno(system.fcntl(fd, F_GETPATH, out_buffer))) {
+                0 => {},
+                EBADF => return error.FileNotFound,
+                // TODO man pages for fcntl on macOS don't really tell you what
+                // errno values to expect when command is F_GETPATH...
+                else => |err| return unexpectedErrno(err),
+            }
+            const len = mem.indexOfScalar(u8, out_buffer[0..], @as(u8, 0)) orelse MAX_PATH_BYTES;
+            return out_buffer[0..len];
+        },
+        .linux => {
+            var procfs_buf: ["/proc/self/fd/-2147483648".len:0]u8 = undefined;
+            const proc_path = std.fmt.bufPrint(procfs_buf[0..], "/proc/self/fd/{}\x00", .{fd}) catch unreachable;
+
+            const target = readlinkZ(@ptrCast([*:0]const u8, proc_path.ptr), out_buffer) catch |err| {
+                switch (err) {
+                    error.UnsupportedReparsePointType => unreachable, // Windows only,
+                    else => |e| return e,
+                }
+            };
+            return target;
+        },
+        else => @compileError("querying for canonical path of a handle is unsupported on this host"),
+    }
 }
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
