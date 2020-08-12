@@ -2016,6 +2016,28 @@ pub fn addCall(
     return &inst.base;
 }
 
+pub fn addUnwrapOptional(
+    self: *Module,
+    block: *Scope.Block,
+    src: usize,
+    ty: Type,
+    operand: *Inst,
+    safety_check: bool,
+) !*Inst {
+    const inst = try block.arena.create(Inst.UnwrapOptional);
+    inst.* = .{
+        .base = .{
+            .tag = .unwrap_optional,
+            .ty = ty,
+            .src = src,
+        },
+        .operand = operand,
+        .safety_check = safety_check, 
+    };
+    try block.instructions.append(self.gpa, &inst.base);
+    return &inst.base;
+}
+
 pub fn constInst(self: *Module, scope: *Scope, src: usize, typed_value: TypedValue) !*Inst {
     const const_inst = try scope.arena().create(Inst.Constant);
     const_inst.* = .{
@@ -2488,9 +2510,9 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
             if (child_type.eql(inst.ty)) {
                 return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
             }
-            return self.fail(scope, inst.src, "TODO optional wrap {} to {}", .{ val, inst.ty });
+            return self.fail(scope, inst.src, "TODO optional wrap {} to {}", .{ val, dest_type });
         } else if (child_type.eql(inst.ty)) {
-            return self.fail(scope, inst.src, "TODO optional wrap {}", .{inst.ty});
+            return self.fail(scope, inst.src, "TODO optional wrap {}", .{dest_type});
         }
     }
 

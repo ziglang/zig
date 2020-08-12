@@ -214,6 +214,8 @@ pub const Inst = struct {
         xor,
         /// Create an optional type '?T'
         optional_type,
+        /// Unwraps an optional value 'lhs.?'
+        unwrap_optional,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
@@ -301,6 +303,7 @@ pub const Inst = struct {
                 .fntype => FnType,
                 .elemptr => ElemPtr,
                 .condbr => CondBr,
+                .unwrap_optional => UnwrapOptional,
             };
         }
 
@@ -376,6 +379,7 @@ pub const Inst = struct {
                 .typeof,
                 .xor,
                 .optional_type,
+                .unwrap_optional,
                 => false,
 
                 .@"break",
@@ -815,6 +819,18 @@ pub const Inst = struct {
             else_body: Module.Body,
         },
         kw_args: struct {},
+    };
+
+    pub const UnwrapOptional = struct {
+        pub const base_tag = Tag.unwrap_optional;
+        base: Inst,
+
+        positionals: struct {
+            operand: *Inst,
+        },
+        kw_args: struct {
+            safety_check: bool = true,
+        },
     };
 };
 
@@ -2138,6 +2154,25 @@ const EmitZIR = struct {
                             .else_body = .{ .instructions = else_body.toOwnedSlice() },
                         },
                         .kw_args = .{},
+                    };
+                    break :blk &new_inst.base;
+                },
+
+                .unwrap_optional => blk: {
+                    const old_inst = inst.castTag(.unwrap_optional).?;
+
+                    const new_inst = try self.arena.allocator.create(Inst.UnwrapOptional);
+                    new_inst.* = .{
+                        .base = .{
+                            .src = inst.src,
+                            .tag = Inst.UnwrapOptional.base_tag,
+                        },
+                        .positionals = .{
+                            .operand = try self.resolveInst(new_body, old_inst.operand),
+                        },
+                        .kw_args = .{
+                            .safety_check = old_inst.safety_check,
+                        },
                     };
                     break :blk &new_inst.base;
                 },

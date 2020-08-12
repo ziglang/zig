@@ -31,6 +31,11 @@ pub fn addCases(ctx: *TestContext) !void {
             \\export fn _start() noreturn {
             \\    print();
             \\
+            \\    const a: u32 = 2;
+            \\    const b: ?u32 = a;
+            \\    const c = b.?;
+            \\    if (c != 2) unreachable;
+            \\
             \\    exit();
             \\}
             \\

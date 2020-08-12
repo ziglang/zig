@@ -668,6 +668,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .store => return self.genStore(inst.castTag(.store).?),
                 .sub => return self.genSub(inst.castTag(.sub).?),
                 .unreach => return MCValue{ .unreach = {} },
+                .unwrap_optional => return self.genUnwrapOptional(inst.castTag(.unwrap_optional).?),
             }
         }
 
@@ -814,6 +815,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 0, 0x00);
                 },
                 else => return self.fail(inst.base.src, "TODO implement add for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        fn genUnwrapOptional(self: *Self, inst: *ir.Inst.UnwrapOptional) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement unwrap optional for {}", .{self.target.cpu.arch}),
             }
         }
 

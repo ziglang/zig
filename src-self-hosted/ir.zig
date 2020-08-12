@@ -82,6 +82,7 @@ pub const Inst = struct {
         not,
         floatcast,
         intcast,
+        unwrap_optional,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
@@ -124,6 +125,7 @@ pub const Inst = struct {
                 .condbr => CondBr,
                 .constant => Constant,
                 .loop => Loop,
+                .unwrap_optional => UnwrapOptional,
             };
         }
 
@@ -420,6 +422,26 @@ pub const Inst = struct {
         }
     };
 
+    pub const UnwrapOptional = struct {
+        pub const base_tag = Tag.unwrap_optional;
+        base: Inst,
+
+        operand: *Inst,
+        safety_check: bool,
+
+        pub fn operandCount(self: *const UnwrapOptional) usize {
+            return 1;
+        }
+        pub fn getOperand(self: *const UnwrapOptional, index: usize) ?*Inst {
+            var i = index;
+
+            if (i < 1)
+                return self.operand;
+            i -= 1;
+
+            return null;
+        }
+    };
 };
 
 pub const Body = struct {
