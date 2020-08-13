@@ -8623,7 +8623,7 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatu
     enum_type->llvm_type = get_llvm_type(g, tag_int_type);
 
     // create debug type for tag
-    uint64_t tag_debug_size_in_bits = tag_int_type->size_in_bits;
+    uint64_t tag_debug_size_in_bits = 8*tag_int_type->abi_size;
     uint64_t tag_debug_align_in_bits = 8*tag_int_type->abi_align;
     ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
             ZigLLVMFileToScope(import->data.structure.root_struct->di_file), buf_ptr(&enum_type->name),
