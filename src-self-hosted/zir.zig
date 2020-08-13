@@ -212,6 +212,12 @@ pub const Inst = struct {
         @"unreachable",
         /// Bitwise XOR. `^`
         xor,
+        /// Create an optional type '?T'
+        optional_type,
+        /// Unwraps an optional value 'lhs.?'
+        unwrap_optional_safe,
+        /// Same as previous, but without safety checks. Used for orelse, if and while
+        unwrap_optional_unsafe,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
@@ -240,6 +246,9 @@ pub const Inst = struct {
                 .typeof,
                 .single_const_ptr_type,
                 .single_mut_ptr_type,
+                .optional_type,
+                .unwrap_optional_safe,
+                .unwrap_optional_unsafe,
                 => UnOp,
 
                 .add,
@@ -372,6 +381,9 @@ pub const Inst = struct {
                 .subwrap,
                 .typeof,
                 .xor,
+                .optional_type,
+                .unwrap_optional_safe,
+                .unwrap_optional_unsafe,
                 => false,
 
                 .@"break",
@@ -1915,6 +1927,7 @@ const EmitZIR = struct {
                 .isnonnull => try self.emitUnOp(inst.src, new_body, inst.castTag(.isnonnull).?, .isnonnull),
                 .load => try self.emitUnOp(inst.src, new_body, inst.castTag(.load).?, .deref),
                 .ref => try self.emitUnOp(inst.src, new_body, inst.castTag(.ref).?, .ref),
+                .unwrap_optional => try self.emitUnOp(inst.src, new_body, inst.castTag(.unwrap_optional).?, .unwrap_optional_unsafe),
 
                 .add => try self.emitBinOp(inst.src, new_body, inst.castTag(.add).?, .add),
                 .sub => try self.emitBinOp(inst.src, new_body, inst.castTag(.sub).?, .sub),
@@ -2241,6 +2254,20 @@ const EmitZIR = struct {
                     } else {
                         std.debug.panic("TODO implement emitType for {}", .{ty});
                     }
+                },
+                .Optional => {
+                    const inst = try self.arena.allocator.create(Inst.UnOp);
+                    inst.* = .{
+                        .base = .{
+                            .src = src,
+                            .tag = .optional_type,
+                        },
+                        .positionals = .{
+                            .operand = (try self.emitType(src, ty.elemType())).inst,
+                        },
+                        .kw_args = .{},
+                    };
+                    return self.emitUnnamedDecl(&inst.base);
                 },
                 else => std.debug.panic("TODO implement emitType for {}", .{ty}),
             },

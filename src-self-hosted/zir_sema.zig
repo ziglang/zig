@@ -68,8 +68,8 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .deref => return analyzeInstDeref(mod, scope, old_inst.castTag(.deref).?),
         .as => return analyzeInstAs(mod, scope, old_inst.castTag(.as).?),
         .@"asm" => return analyzeInstAsm(mod, scope, old_inst.castTag(.@"asm").?),
-        .@"unreachable" => return analyzeInstUnreachable(mod, scope, old_inst.castTag(.@"unreachable").?),
-        .unreach_nocheck => return analyzeInstUnreachNoChk(mod, scope, old_inst.castTag(.unreach_nocheck).?),
+        .@"unreachable" => return analyzeInstUnreachable(mod, scope, old_inst.castTag(.@"unreachable").?, true),
+        .unreach_nocheck => return analyzeInstUnreachable(mod, scope, old_inst.castTag(.unreach_nocheck).?, false),
         .@"return" => return analyzeInstRet(mod, scope, old_inst.castTag(.@"return").?),
         .returnvoid => return analyzeInstRetVoid(mod, scope, old_inst.castTag(.returnvoid).?),
         .@"fn" => return analyzeInstFn(mod, scope, old_inst.castTag(.@"fn").?),
@@ -106,6 +106,9 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .isnonnull => return analyzeInstIsNonNull(mod, scope, old_inst.castTag(.isnonnull).?, false),
         .boolnot => return analyzeInstBoolNot(mod, scope, old_inst.castTag(.boolnot).?),
         .typeof => return analyzeInstTypeOf(mod, scope, old_inst.castTag(.typeof).?),
+        .optional_type => return analyzeInstOptionalType(mod, scope, old_inst.castTag(.optional_type).?),
+        .unwrap_optional_safe => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional_safe).?, true),
+        .unwrap_optional_unsafe => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional_unsafe).?, false),
     }
 }
 
@@ -305,8 +308,19 @@ fn analyzeInstRetPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerErr
 
 fn analyzeInstRef(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
-    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
     const ptr_type = try mod.singleConstPtrType(scope, inst.base.src, operand.ty);
+
+    if (operand.value()) |val| {
+        const ref_payload = try scope.arena().create(Value.Payload.RefVal);
+        ref_payload.* = .{ .val = val };
+
+        return mod.constInst(scope, inst.base.src, .{
+            .ty = ptr_type,
+            .val = Value.initPayload(&ref_payload.base),
+        });
+    }
+
+    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
     return mod.addUnOp(b, inst.base.src, ptr_type, .ref, operand);
 }
 
@@ -618,6 +632,66 @@ fn analyzeInstFn(mod: *Module, scope: *Scope, fn_inst: *zir.Inst.Fn) InnerError!
 
 fn analyzeInstIntType(mod: *Module, scope: *Scope, inttype: *zir.Inst.IntType) InnerError!*Inst {
     return mod.fail(scope, inttype.base.src, "TODO implement inttype", .{});
+}
+
+fn analyzeInstOptionalType(mod: *Module, scope: *Scope, optional: *zir.Inst.UnOp) InnerError!*Inst {
+    const child_type = try resolveType(mod, scope, optional.positionals.operand);
+
+    return mod.constType(scope, optional.base.src, Type.initPayload(switch (child_type.tag()) {
+        .single_const_pointer => blk: {
+            const payload = try scope.arena().create(Type.Payload.OptionalSingleConstPointer);
+            payload.* = .{
+                .pointee_type = child_type.elemType(),
+            };
+            break :blk &payload.base;
+        },
+        .single_mut_pointer => blk: {
+            const payload = try scope.arena().create(Type.Payload.OptionalSingleMutPointer);
+            payload.* = .{
+                .pointee_type = child_type.elemType(),
+            };
+            break :blk &payload.base;
+        },
+        else => blk: {
+            const payload = try scope.arena().create(Type.Payload.Optional);
+            payload.* = .{
+                .child_type = child_type,
+            };
+            break :blk &payload.base;
+        },
+    }));
+}
+
+fn analyzeInstUnwrapOptional(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp, safety_check: bool) InnerError!*Inst {
+    const operand = try resolveInst(mod, scope, unwrap.positionals.operand);
+    assert(operand.ty.zigTypeTag() == .Pointer);
+
+    if (operand.ty.elemType().zigTypeTag() != .Optional) {
+        return mod.fail(scope, unwrap.base.src, "expected optional type, found {}", .{operand.ty.elemType()});
+    }
+
+    const child_type = operand.ty.elemType().elemType();
+    const child_pointer = if (operand.ty.isConstPtr())
+        try mod.singleConstPtrType(scope, unwrap.base.src, child_type)
+    else
+        try mod.singleMutPtrType(scope, unwrap.base.src, child_type);
+
+    if (operand.value()) |val| {
+        if (val.isNull()) {
+            return mod.fail(scope, unwrap.base.src, "unable to unwrap null", .{});
+        }
+        return mod.constInst(scope, unwrap.base.src, .{
+            .ty = child_pointer,
+            .val = val,
+        });
+    }
+
+    const b = try mod.requireRuntimeBlock(scope, unwrap.base.src);
+    if (safety_check and mod.wantSafety(scope)) {
+        const is_non_null = try mod.addUnOp(b, unwrap.base.src, Type.initTag(.bool), .isnonnull, operand);
+        try mod.addSafetyCheck(b, is_non_null, .unwrap_null);
+    }
+    return mod.addUnOp(b, unwrap.base.src, child_pointer, .unwrap_optional, operand);
 }
 
 fn analyzeInstFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) InnerError!*Inst {
@@ -1094,18 +1168,19 @@ fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerE
     return mod.addCondBr(parent_block, inst.base.src, cond, then_body, else_body);
 }
 
-fn analyzeInstUnreachNoChk(mod: *Module, scope: *Scope, unreach: *zir.Inst.NoOp) InnerError!*Inst {
-    return mod.analyzeUnreach(scope, unreach.base.src);
-}
-
-fn analyzeInstUnreachable(mod: *Module, scope: *Scope, unreach: *zir.Inst.NoOp) InnerError!*Inst {
+fn analyzeInstUnreachable(
+    mod: *Module,
+    scope: *Scope,
+    unreach: *zir.Inst.NoOp,
+    safety_check: bool,
+) InnerError!*Inst {
     const b = try mod.requireRuntimeBlock(scope, unreach.base.src);
     // TODO Add compile error for @optimizeFor occurring too late in a scope.
-    if (mod.wantSafety(scope)) {
-        // TODO Once we have a panic function to call, call it here instead of this.
-        _ = try mod.addNoOp(b, unreach.base.src, Type.initTag(.void), .breakpoint);
+    if (safety_check and mod.wantSafety(scope)) {
+        return mod.safetyPanic(b, unreach.base.src, .unreach);
+    } else {
+        return mod.addNoOp(b, unreach.base.src, Type.initTag(.noreturn), .unreach);
     }
-    return mod.analyzeUnreach(scope, unreach.base.src);
 }
 
 fn analyzeInstRet(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {

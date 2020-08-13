@@ -441,5 +441,29 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "",
         );
+
+        // Optionals
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    const a: u32 = 2;
+            \\    const b: ?u32 = a;
+            \\    const c = b.?;
+            \\    if (c != 2) unreachable;
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
     }
 }
