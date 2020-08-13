@@ -6,7 +6,7 @@ const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
 const assert = std.debug.assert;
-const log = std.log;
+const log = std.log.scoped(.module);
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
@@ -1055,7 +1055,7 @@ pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
                     // lifetime annotations in the ZIR.
                     var decl_arena = decl.typed_value.most_recent.arena.?.promote(self.gpa);
                     defer decl.typed_value.most_recent.arena.?.* = decl_arena.state;
-                    std.log.debug(.module, "analyze liveness of {}\n", .{decl.name});
+                    log.debug("analyze liveness of {}\n", .{decl.name});
                     try liveness.analyze(self.gpa, &decl_arena.allocator, payload.func.analysis.success);
                 }
 
@@ -1117,7 +1117,7 @@ pub fn ensureDeclAnalyzed(self: *Module, decl: *Decl) InnerError!void {
         .complete => return,
 
         .outdated => blk: {
-            log.debug(.module, "re-analyzing {}\n", .{decl.name});
+            log.debug("re-analyzing {}\n", .{decl.name});
 
             // The exports this Decl performs will be re-discovered, so we remove them here
             // prior to re-analysis.
@@ -1563,7 +1563,7 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
     // Handle explicitly deleted decls from the source code. Not to be confused
     // with when we delete decls because they are no longer referenced.
     for (deleted_decls.items()) |entry| {
-        log.debug(.module, "noticed '{}' deleted from source\n", .{entry.key.name});
+        log.debug("noticed '{}' deleted from source\n", .{entry.key.name});
         try self.deleteDecl(entry.key);
     }
 }
@@ -1616,7 +1616,7 @@ fn analyzeRootZIRModule(self: *Module, root_scope: *Scope.ZIRModule) !void {
     // Handle explicitly deleted decls from the source code. Not to be confused
     // with when we delete decls because they are no longer referenced.
     for (deleted_decls.items()) |entry| {
-        log.debug(.module, "noticed '{}' deleted from source\n", .{entry.key.name});
+        log.debug("noticed '{}' deleted from source\n", .{entry.key.name});
         try self.deleteDecl(entry.key);
     }
 }
@@ -1628,7 +1628,7 @@ fn deleteDecl(self: *Module, decl: *Decl) !void {
     // not be present in the set, and this does nothing.
     decl.scope.removeDecl(decl);
 
-    log.debug(.module, "deleting decl '{}'\n", .{decl.name});
+    log.debug("deleting decl '{}'\n", .{decl.name});
     const name_hash = decl.fullyQualifiedNameHash();
     self.decl_table.removeAssertDiscard(name_hash);
     // Remove itself from its dependencies, because we are about to destroy the decl pointer.
@@ -1715,17 +1715,17 @@ fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
     const fn_zir = func.analysis.queued;
     defer fn_zir.arena.promote(self.gpa).deinit();
     func.analysis = .{ .in_progress = {} };
-    log.debug(.module, "set {} to in_progress\n", .{decl.name});
+    log.debug("set {} to in_progress\n", .{decl.name});
 
     try zir_sema.analyzeBody(self, &inner_block.base, fn_zir.body);
 
     const instructions = try arena.allocator.dupe(*Inst, inner_block.instructions.items);
     func.analysis = .{ .success = .{ .instructions = instructions } };
-    log.debug(.module, "set {} to success\n", .{decl.name});
+    log.debug("set {} to success\n", .{decl.name});
 }
 
 fn markOutdatedDecl(self: *Module, decl: *Decl) !void {
-    log.debug(.module, "mark {} outdated\n", .{decl.name});
+    log.debug("mark {} outdated\n", .{decl.name});
     try self.work_queue.writeItem(.{ .analyze_decl = decl });
     if (self.failed_decls.remove(decl)) |entry| {
         entry.value.destroy(self.gpa);
