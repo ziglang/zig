@@ -129,92 +129,6 @@ fn log(
     }
 }
 
-/// Log an emergency message. This log level is intended to be used
-/// for conditions that cannot be handled and is usually followed by a panic.
-pub fn emerg(
-    comptime scope: @Type(.EnumLiteral),
-    comptime format: []const u8,
-    args: anytype,
-) void {
-    @setCold(true);
-    log(.emerg, scope, format, args);
-}
-
-/// Log an alert message. This log level is intended to be used for
-/// conditions that should be corrected immediately (e.g. database corruption).
-pub fn alert(
-    comptime scope: @Type(.EnumLiteral),
-    comptime format: []const u8,
-    args: anytype,
-) void {
-    @setCold(true);
-    log(.alert, scope, format, args);
-}
-
-/// Log a critical message. This log level is intended to be used
-/// when a bug has been detected or something has gone wrong and it will have
-/// an effect on the operation of the program.
-pub fn crit(
-    comptime scope: @Type(.EnumLiteral),
-    comptime format: []const u8,
-    args: anytype,
-) void {
-    @setCold(true);
-    log(.crit, scope, format, args);
-}
-
-/// Log an error message. This log level is intended to be used when
-/// a bug has been detected or something has gone wrong but it is recoverable.
-pub fn err(
-    comptime scope: @Type(.EnumLiteral),
-    comptime format: []const u8,
-    args: anytype,
-) void {
-    @setCold(true);
-    log(.err, scope, format, args);
-}
-
-/// Log a warning message. This log level is intended to be used if
-/// it is uncertain whether something has gone wrong or not, but the
-/// circumstances would be worth investigating.
-pub fn warn(
-    comptime scope: @Type(.EnumLiteral),
-    comptime format: []const u8,
-    args: anytype,
-) void {
-    log(.warn, scope, format, args);
-}
-
-/// Log a notice message. This log level is intended to be used for
-/// non-error but significant conditions.
-pub fn notice(
-    comptime scope: @Type(.EnumLiteral),
-    comptime format: []const u8,
-    args: anytype,
-) void {
-    log(.notice, scope, format, args);
-}
-
-/// Log an info message. This log level is intended to be used for
-/// general messages about the state of the program.
-pub fn info(
-    comptime scope: @Type(.EnumLiteral),
-    comptime format: []const u8,
-    args: anytype,
-) void {
-    log(.info, scope, format, args);
-}
-
-/// Log a debug message. This log level is intended to be used for
-/// messages which are only useful for debugging.
-pub fn debug(
-    comptime scope: @Type(.EnumLiteral),
-    comptime format: []const u8,
-    args: anytype,
-) void {
-    log(.debug, scope, format, args);
-}
-
 /// Returns a scoped logging namespace that logs all messages using the scope
 /// provided here.
 pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
@@ -301,3 +215,40 @@ pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
 
 /// The default scoped logging namespace.
 pub const default = scoped(.default);
+
+/// Log an emergency message using the default scope. This log level is
+/// intended to be used for conditions that cannot be handled and is usually
+/// followed by a panic.
+pub const emerg = default.emerg;
+
+/// Log an alert message using the default scope. This log level is intended to
+/// be used for conditions that should be corrected immediately (e.g. database
+/// corruption).
+pub const alert = default.alert;
+
+/// Log a critical message using the default scope. This log level is intended
+/// to be used when a bug has been detected or something has gone wrong and it
+/// will have an effect on the operation of the program.
+pub const crit = default.crit;
+
+/// Log an error message using the default scope. This log level is intended to
+/// be used when a bug has been detected or something has gone wrong but it is
+/// recoverable.
+pub const err = default.err;
+
+/// Log a warning message using the default scope. This log level is intended
+/// to be used if it is uncertain whether something has gone wrong or not, but
+/// the circumstances would be worth investigating.
+pub const warn = default.warn;
+
+/// Log a notice message using the default scope. This log level is intended to
+/// be used for non-error but significant conditions.
+pub const notice = default.notice;
+
+/// Log an info message using the default scope. This log level is intended to
+/// be used for general messages about the state of the program.
+pub const info = default.info;
+
+/// Log a debug message using the default scope. This log level is intended to
+/// be used for messages which are only useful for debugging.
+pub const debug = default.debug;
