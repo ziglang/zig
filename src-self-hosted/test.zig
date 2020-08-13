@@ -478,6 +478,10 @@ pub const TestContext = struct {
                     for (all_errors.list) |err| {
                         std.debug.warn(":{}:{}: error: {}\n================\n", .{ err.line + 1, err.column + 1, err.msg });
                     }
+                    if (case.cbe) {
+                        const C = module.bin_file.cast(link.File.C).?;
+                        std.debug.warn("Generated C: \n===============\n{}\n\n===========\n\n", .{C.main.items});
+                    }
                     std.debug.warn("Test failed.\n", .{});
                     std.process.exit(1);
                 }

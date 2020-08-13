@@ -202,7 +202,6 @@ pub const File = struct {
         called: std.StringHashMap(void),
         need_stddef: bool = false,
         need_stdint: bool = false,
-        need_noreturn: bool = false,
         error_msg: *Module.ErrorMsg = undefined,
 
         pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: Options) !*File {
@@ -230,7 +229,7 @@ pub const File = struct {
             return &c_file.base;
         }
 
-        pub fn fail(self: *C, src: usize, comptime format: []const u8, args: anytype) !void {
+        pub fn fail(self: *C, src: usize, comptime format: []const u8, args: anytype) error{AnalysisFail, OutOfMemory} {
             self.error_msg = try Module.ErrorMsg.create(self.base.allocator, src, format, args);
             return error.AnalysisFail;
         }
