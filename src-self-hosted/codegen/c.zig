@@ -17,41 +17,43 @@ fn map(allocator: *std.mem.Allocator, name: []const u8) ![]const u8 {
     return allocator.dupe(u8, name);
 }
 
-fn renderType(file: *C, writer: std.ArrayList(u8).Writer, T: Type, src: usize) !void {
-    if (T.tag() == .usize) {
-        file.need_stddef = true;
-        try writer.writeAll("size_t");
-    } else {
-        switch (T.zigTypeTag()) {
-            .NoReturn => {
-                try writer.writeAll("zig_noreturn void");
-            },
-            .Void => try writer.writeAll("void"),
-            .Int => {
-                if (T.tag() == .u8) {
-                    file.need_stdint = true;
-                    try writer.writeAll("uint8_t");
-                } else {
-                    return file.fail(src, "TODO implement int types", .{});
-                }
-            },
-            else => |e| return file.fail(src, "TODO implement type {}", .{e}),
-        }
+fn renderType(ctx: *Context, writer: std.ArrayList(u8).Writer, T: Type) !void {
+    switch (T.zigTypeTag()) {
+        .NoReturn => {
+            try writer.writeAll("zig_noreturn void");
+        },
+        .Void => try writer.writeAll("void"),
+        .Int => {
+            if (T.tag() == .u8) {
+                ctx.file.need_stdint = true;
+                try writer.writeAll("uint8_t");
+            } else if (T.tag() == .usize) {
+                ctx.file.need_stddef = true;
+                try writer.writeAll("size_t");
+            } else {
+                return ctx.file.fail(ctx.decl.src(), "TODO implement int types", .{});
+            }
+        },
+        else => |e| return ctx.file.fail(ctx.decl.src(), "TODO implement type {}", .{e}),
     }
 }
 
-fn renderValue(file: *C, writer: std.ArrayList(u8).Writer, val: Value, src: usize) !void {
-    switch (val.tag()) {
-        .int_u64 => return writer.print("{}", .{val.toUnsignedInt()}),
-        else => |e| return file.fail(src, "TODO implement value {}", .{e}),
+fn renderValue(ctx: *Context, writer: std.ArrayList(u8).Writer, T: Type, val: Value) !void {
+    switch (T.zigTypeTag()) {
+        .Int => {
+            if (T.isSignedInt())
+                return writer.print("{}", .{val.toSignedInt()});
+            return writer.print("{}", .{val.toUnsignedInt()});
+        },
+        else => |e| return ctx.file.fail(ctx.decl.src(), "TODO implement value {}", .{e}),
     }
 }
 
-fn renderFunctionSignature(file: *C, writer: std.ArrayList(u8).Writer, decl: *Decl) !void {
+fn renderFunctionSignature(ctx: *Context, writer: std.ArrayList(u8).Writer, decl: *Decl) !void {
     const tv = decl.typed_value.most_recent.typed_value;
-    try renderType(file, writer, tv.ty.fnReturnType(), decl.src());
-    const name = try map(file.base.allocator, mem.spanZ(decl.name));
-    defer file.base.allocator.free(name);
+    try renderType(ctx, writer, tv.ty.fnReturnType());
+    const name = try map(ctx.file.base.allocator, mem.spanZ(decl.name));
+    defer ctx.file.base.allocator.free(name);
     try writer.print(" {}(", .{name});
     var param_len = tv.ty.fnParamLen();
     if (param_len == 0)
@@ -62,7 +64,7 @@ fn renderFunctionSignature(file: *C, writer: std.ArrayList(u8).Writer, decl: *De
             if (index > 0) {
                 try writer.writeAll(", ");
             }
-            try renderType(file, writer, tv.ty.fnParamType(index), decl.src());
+            try renderType(ctx, writer, tv.ty.fnParamType(index));
             try writer.print(" arg{}", .{index});
         }
     }
@@ -120,16 +122,16 @@ fn genFn(file: *C, decl: *Decl) !void {
     const writer = file.main.writer();
     const tv = decl.typed_value.most_recent.typed_value;
 
-    try renderFunctionSignature(file, writer, decl);
-
-    try writer.writeAll(" {");
-
     var ctx = Context{
         .file = file,
         .decl = decl,
         .inst_map = std.AutoHashMap(*Inst, []u8).init(file.base.allocator),
     };
     defer ctx.deinit();
+
+    try renderFunctionSignature(&ctx, writer, decl);
+
+    try writer.writeAll(" {");
 
     const func: *Module.Fn = tv.val.cast(Value.Payload.Function).?.func;
     const instructions = func.analysis.success.instructions;
@@ -180,9 +182,9 @@ fn genIntCast(ctx: *Context, inst: *Inst.UnOp) !?[]u8 {
     const from = ctx.inst_map.get(op) orelse
         return ctx.file.fail(ctx.decl.src(), "Internal error in C backend: intCast argument not found in inst_map", .{});
     try writer.writeAll("    const ");
-    try renderType(ctx.file, writer, inst.base.ty, ctx.decl.src());
+    try renderType(ctx, writer, inst.base.ty);
     try writer.print(" {} = (", .{name});
-    try renderType(ctx.file, writer, inst.base.ty, ctx.decl.src());
+    try renderType(ctx, writer, inst.base.ty);
     try writer.print("){};\n", .{from});
     return name;
 }
@@ -202,7 +204,7 @@ fn genCall(ctx: *Context, inst: *Inst.Call) !?[]u8 {
             const tname = mem.spanZ(target.name);
             if (ctx.file.called.get(tname) == null) {
                 try ctx.file.called.put(tname, void{});
-                try renderFunctionSignature(ctx.file, header, target);
+                try renderFunctionSignature(ctx, header, target);
                 try header.writeAll(";\n");
             }
             try writer.print("{}(", .{tname});
@@ -212,7 +214,7 @@ fn genCall(ctx: *Context, inst: *Inst.Call) !?[]u8 {
                         try writer.writeAll(", ");
                     }
                     if (arg.cast(Inst.Constant)) |con| {
-                        try renderValue(ctx.file, writer, con.val, ctx.decl.src());
+                        try renderValue(ctx, writer, arg.ty, con.val);
                     } else {
                         return ctx.file.fail(ctx.decl.src(), "TODO call pass arg {}", .{arg});
                     }
@@ -251,11 +253,11 @@ fn genAsm(ctx: *Context, as: *Inst.Assembly) !?[]u8 {
             const reg = i[1 .. i.len - 1];
             const arg = as.args[index];
             try writer.writeAll("register ");
-            try renderType(ctx.file, writer, arg.ty, ctx.decl.src());
+            try renderType(ctx, writer, arg.ty);
             try writer.print(" {}_constant __asm__(\"{}\") = ", .{ reg, reg });
             // TODO merge constant handling into inst_map as well
             if (arg.castTag(.constant)) |c| {
-                try renderValue(ctx.file, writer, c.val, ctx.decl.src());
+                try renderValue(ctx, writer, arg.ty, c.val);
                 try writer.writeAll(";\n    ");
             } else {
                 const gop = try ctx.inst_map.getOrPut(arg);
