@@ -335,76 +335,52 @@ fn varDecl(
             // Depending on the type of AST the initialization expression is, we may need an lvalue
             // or an rvalue as a result location. If it is an rvalue, we can use the instruction as
             // the variable, no memory location needed.
-            if (nodeMayNeedMemoryLocation(init_node)) {
+            const result_loc = if (nodeMayNeedMemoryLocation(init_node)) r: {
                 if (node.getTrailer("type_node")) |type_node| {
                     const type_inst = try typeExpr(mod, scope, type_node);
                     const alloc = try addZIRUnOp(mod, scope, name_src, .alloc, type_inst);
-                    const result_loc: ResultLoc = .{ .ptr = alloc };
-                    const init_inst = try expr(mod, scope, result_loc, init_node);
-                    const sub_scope = try block_arena.create(Scope.LocalVal);
-                    sub_scope.* = .{
-                        .parent = scope,
-                        .gen_zir = scope.getGenZIR(),
-                        .name = ident_name,
-                        .inst = init_inst,
-                    };
-                    return &sub_scope.base;
+                    break :r ResultLoc{ .ptr = alloc };
                 } else {
                     const alloc = try addZIRNoOpT(mod, scope, name_src, .alloc_inferred);
-                    const result_loc: ResultLoc = .{ .inferred_ptr = alloc };
-                    const init_inst = try expr(mod, scope, result_loc, init_node);
-                    const sub_scope = try block_arena.create(Scope.LocalVal);
-                    sub_scope.* = .{
-                        .parent = scope,
-                        .gen_zir = scope.getGenZIR(),
-                        .name = ident_name,
-                        .inst = init_inst,
-                    };
-                    return &sub_scope.base;
+                    break :r ResultLoc{ .inferred_ptr = alloc };
                 }
-            } else {
-                const result_loc: ResultLoc = if (node.getTrailer("type_node")) |type_node|
-                    .{ .ty = try typeExpr(mod, scope, type_node) }
+            } else r: {
+                if (node.getTrailer("type_node")) |type_node|
+                    break :r ResultLoc{ .ty = try typeExpr(mod, scope, type_node) }
                 else
-                    .none;
-                const init_inst = try expr(mod, scope, result_loc, init_node);
-                const sub_scope = try block_arena.create(Scope.LocalVal);
-                sub_scope.* = .{
-                    .parent = scope,
-                    .gen_zir = scope.getGenZIR(),
-                    .name = ident_name,
-                    .inst = init_inst,
-                };
-                return &sub_scope.base;
-            }
+                    break :r .none;
+            };
+            const init_inst = try expr(mod, scope, result_loc, init_node);
+            const sub_scope = try block_arena.create(Scope.LocalVal);
+            sub_scope.* = .{
+                .parent = scope,
+                .gen_zir = scope.getGenZIR(),
+                .name = ident_name,
+                .inst = init_inst,
+            };
+            return &sub_scope.base;
         },
         .Keyword_var => {
-            if (node.getTrailer("type_node")) |type_node| {
+            const alloc = if (node.getTrailer("type_node")) |type_node| a: {
                 const type_inst = try typeExpr(mod, scope, type_node);
-                const alloc = try addZIRUnOp(mod, scope, name_src, .alloc, type_inst);
-                const result_loc: ResultLoc = .{ .ptr = alloc };
-                const init_inst = try expr(mod, scope, result_loc, init_node);
-                const sub_scope = try block_arena.create(Scope.LocalPtr);
-                sub_scope.* = .{
-                    .parent = scope,
-                    .gen_zir = scope.getGenZIR(),
-                    .name = ident_name,
-                    .ptr = alloc,
-                };
-                return &sub_scope.base;
-            } else {
-                const alloc = try addZIRNoOp(mod, scope, name_src, .alloc_inferred);
-                const result_loc = .{ .inferred_ptr = alloc.castTag(.alloc_inferred).? };
-                const init_inst = try expr(mod, scope, result_loc, init_node);
-                const sub_scope = try block_arena.create(Scope.LocalPtr);
-                sub_scope.* = .{
-                    .parent = scope,
-                    .gen_zir = scope.getGenZIR(),
-                    .name = ident_name,
-                    .ptr = alloc,
-                };
-                return &sub_scope.base;
-            }
+                break :a try addZIRUnOp(mod, scope, name_src, .alloc, type_inst);
+            } else try addZIRNoOp(mod, scope, name_src, .alloc_inferred);
+            const result_loc = r: {
+                if (node.getTrailer("type_node")) |type_node| {
+                    break :r ResultLoc{ .ptr = alloc };
+                } else {
+                    break :r ResultLoc{ .inferred_ptr = alloc.castTag(.alloc_inferred).? };
+                }
+            };
+            const init_inst = try expr(mod, scope, result_loc, init_node);
+            const sub_scope = try block_arena.create(Scope.LocalPtr);
+            sub_scope.* = .{
+                .parent = scope,
+                .gen_zir = scope.getGenZIR(),
+                .name = ident_name,
+                .ptr = alloc,
+            };
+            return &sub_scope.base;
         },
         else => unreachable,
     }
