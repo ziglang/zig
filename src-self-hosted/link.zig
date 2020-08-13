@@ -1484,9 +1484,6 @@ pub const File = struct {
             assert(!self.shdr_table_dirty);
             assert(!self.shstrtab_dirty);
             assert(!self.debug_strtab_dirty);
-            assert(!self.offset_table_count_dirty);
-            const syms_sect = &self.sections.items[self.symtab_section_index.?];
-            assert(syms_sect.sh_info == self.local_symbols.items.len);
         }
 
         fn writeDwarfAddrAssumeCapacity(self: *Elf, buf: *std.ArrayList(u8), addr: u64) void {

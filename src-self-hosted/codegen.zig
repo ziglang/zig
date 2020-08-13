@@ -23,6 +23,8 @@ pub const BlockData = struct {
     relocs: std.ArrayListUnmanaged(Reloc) = .{},
 };
 
+pub const LoopData = struct { };
+
 pub const Reloc = union(enum) {
     /// The value is an offset into the `Function` `code` from the beginning.
     /// To perform the reloc, write 32-bit signed little-endian integer
@@ -657,6 +659,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .isnonnull => return self.genIsNonNull(inst.castTag(.isnonnull).?),
                 .isnull => return self.genIsNull(inst.castTag(.isnull).?),
                 .load => return self.genLoad(inst.castTag(.load).?),
+                .loop => return self.genLoop(inst.castTag(.loop).?),
                 .not => return self.genNot(inst.castTag(.not).?),
                 .ptrtoint => return self.genPtrToInt(inst.castTag(.ptrtoint).?),
                 .ref => return self.genRef(inst.castTag(.ref).?),
@@ -1344,6 +1347,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             switch (arch) {
                 else => return self.fail(inst.base.src, "TODO call genIsNull and invert the result ", .{}),
             }
+        }
+
+        fn genLoop(self: *Self, inst: *ir.Inst.Loop) !MCValue {
+            return self.fail(inst.base.src, "TODO codegen loop", .{});
         }
 
         fn genBlock(self: *Self, inst: *ir.Inst.Block) !MCValue {

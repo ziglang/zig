@@ -60,6 +60,8 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
             return mod.constIntBig(scope, old_inst.src, Type.initTag(.comptime_int), big_int);
         },
         .inttype => return analyzeInstIntType(mod, scope, old_inst.castTag(.inttype).?),
+        .loop => return analyzeInstLoop(mod, scope, old_inst.castTag(.loop).?),
+        .repeat => return analyzeInstRepeat(mod, scope, old_inst.castTag(.repeat).?),
         .param_type => return analyzeInstParamType(mod, scope, old_inst.castTag(.param_type).?),
         .ptrtoint => return analyzeInstPtrToInt(mod, scope, old_inst.castTag(.ptrtoint).?),
         .fieldptr => return analyzeInstFieldPtr(mod, scope, old_inst.castTag(.fieldptr).?),
@@ -422,6 +424,14 @@ fn analyzeInstArg(mod: *Module, scope: *Scope, inst: *zir.Inst.Arg) InnerError!*
     const param_type = fn_ty.fnParamType(param_index);
     const name = try scope.arena().dupeZ(u8, inst.positionals.name);
     return mod.addArg(b, inst.base.src, param_type, name);
+}
+
+fn analyzeInstRepeat(mod: *Module, scope: *Scope, inst: *zir.Inst.Repeat) InnerError!*Inst {
+    return mod.fail(scope, inst.base.src, "TODO analyze .repeat ZIR", .{});
+}
+
+fn analyzeInstLoop(mod: *Module, scope: *Scope, inst: *zir.Inst.Loop) InnerError!*Inst {
+    return mod.fail(scope, inst.base.src, "TODO analyze .loop ZIR", .{});
 }
 
 fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerError!*Inst {

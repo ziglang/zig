@@ -151,6 +151,8 @@ pub const Inst = struct {
         isnonnull,
         /// Return a boolean true if an optional is null. `x == null`
         isnull,
+        /// A labeled block of code that loops forever.
+        loop,
         /// Ambiguously remainder division or modulus. If the computation would possibly have
         /// a different value depending on whether the operation is remainder division or modulus,
         /// a compile error is emitted. Otherwise the computation is performed.
@@ -173,6 +175,8 @@ pub const Inst = struct {
         /// the memory location is in the stack frame, local to the scope containing the
         /// instruction.
         ref,
+        /// Sends control flow back to the loop block operand.
+        repeat,
         /// Obtains a pointer to the return value.
         ret_ptr,
         /// Obtains the return type of the in-scope function.
@@ -279,7 +283,9 @@ pub const Inst = struct {
                 .declval_in_module => DeclValInModule,
                 .coerce_result_block_ptr => CoerceResultBlockPtr,
                 .compileerror => CompileError,
+                .loop => Loop,
                 .@"const" => Const,
+                .repeat => Repeat,
                 .str => Str,
                 .int => Int,
                 .inttype => IntType,
@@ -372,10 +378,12 @@ pub const Inst = struct {
                 .breakvoid,
                 .condbr,
                 .compileerror,
+                .repeat,
                 .@"return",
                 .returnvoid,
                 .unreach_nocheck,
                 .@"unreachable",
+                .loop,
                 => true,
             };
         }
@@ -567,6 +575,16 @@ pub const Inst = struct {
         kw_args: struct {},
     };
 
+    pub const Repeat = struct {
+        pub const base_tag = Tag.repeat;
+        base: Inst,
+
+        positionals: struct {
+            loop: *Loop,
+        },
+        kw_args: struct {},
+    };
+
     pub const Str = struct {
         pub const base_tag = Tag.str;
         base: Inst,
@@ -583,6 +601,16 @@ pub const Inst = struct {
 
         positionals: struct {
             int: BigIntConst,
+        },
+        kw_args: struct {},
+    };
+
+    pub const Loop = struct {
+        pub const base_tag = Tag.loop;
+        base: Inst,
+
+        positionals: struct {
+            body: Module.Body,
         },
         kw_args: struct {},
     };
@@ -848,12 +876,14 @@ pub const Module = struct {
             .module = &self,
             .inst_table = InstPtrTable.init(allocator),
             .block_table = std.AutoHashMap(*Inst.Block, []const u8).init(allocator),
+            .loop_table = std.AutoHashMap(*Inst.Loop, []const u8).init(allocator),
             .arena = std.heap.ArenaAllocator.init(allocator),
             .indent = 2,
         };
         defer write.arena.deinit();
         defer write.inst_table.deinit();
         defer write.block_table.deinit();
+        defer write.loop_table.deinit();
 
         // First, build a map of *Inst to @ or % indexes
         try write.inst_table.ensureCapacity(self.decls.len);
@@ -882,6 +912,7 @@ const Writer = struct {
     module: *const Module,
     inst_table: InstPtrTable,
     block_table: std.AutoHashMap(*Inst.Block, []const u8),
+    loop_table: std.AutoHashMap(*Inst.Loop, []const u8),
     arena: std.heap.ArenaAllocator,
     indent: usize,
 
@@ -962,6 +993,9 @@ const Writer = struct {
                     if (inst.cast(Inst.Block)) |block| {
                         const name = try std.fmt.allocPrint(&self.arena.allocator, "label_{}", .{i});
                         try self.block_table.put(block, name);
+                    } else if (inst.cast(Inst.Loop)) |loop| {
+                        const name = try std.fmt.allocPrint(&self.arena.allocator, "loop_{}", .{i});
+                        try self.loop_table.put(loop, name);
                     }
                     self.indent += 2;
                     try self.writeInstToStream(stream, inst);
@@ -978,6 +1012,10 @@ const Writer = struct {
             *IrModule.Decl => unreachable, // this is a special case
             *Inst.Block => {
                 const name = self.block_table.get(param).?;
+                return std.zig.renderStringLiteral(name, stream);
+            },
+            *Inst.Loop => {
+                const name = self.loop_table.get(param).?;
                 return std.zig.renderStringLiteral(name, stream);
             },
             else => |T| @compileError("unimplemented: rendering parameter of type " ++ @typeName(T)),
@@ -1016,8 +1054,10 @@ pub fn parse(allocator: *Allocator, source: [:0]const u8) Allocator.Error!Module
         .decls = .{},
         .unnamed_index = 0,
         .block_table = std.StringHashMap(*Inst.Block).init(allocator),
+        .loop_table = std.StringHashMap(*Inst.Loop).init(allocator),
     };
     defer parser.block_table.deinit();
+    defer parser.loop_table.deinit();
     errdefer parser.arena.deinit();
 
     parser.parseRoot() catch |err| switch (err) {
@@ -1044,6 +1084,7 @@ const Parser = struct {
     error_msg: ?ErrorMsg = null,
     unnamed_index: usize,
     block_table: std.StringHashMap(*Inst.Block),
+    loop_table: std.StringHashMap(*Inst.Loop),
 
     const Body = struct {
         instructions: std.ArrayList(*Inst),
@@ -1255,6 +1296,8 @@ const Parser = struct {
 
         if (InstType == Inst.Block) {
             try self.block_table.put(inst_name, inst_specific);
+        } else if (InstType == Inst.Loop) {
+            try self.loop_table.put(inst_name, inst_specific);
         }
 
         if (@hasField(InstType, "ty")) {
@@ -1366,6 +1409,10 @@ const Parser = struct {
                 const name = try self.parseStringLiteral();
                 return self.block_table.get(name).?;
             },
+            *Inst.Loop => {
+                const name = try self.parseStringLiteral();
+                return self.loop_table.get(name).?;
+            },
             else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),
         }
         return self.fail("TODO parse parameter {}", .{@typeName(T)});
@@ -1431,8 +1478,10 @@ pub fn emit(allocator: *Allocator, old_module: IrModule) !Module {
         .primitive_table = std.AutoHashMap(Inst.Primitive.Builtin, *Decl).init(allocator),
         .indent = 0,
         .block_table = std.AutoHashMap(*ir.Inst.Block, *Inst.Block).init(allocator),
+        .loop_table = std.AutoHashMap(*ir.Inst.Loop, *Inst.Loop).init(allocator),
     };
     defer ctx.block_table.deinit();
+    defer ctx.loop_table.deinit();
     defer ctx.decls.deinit(allocator);
     defer ctx.names.deinit();
     defer ctx.primitive_table.deinit();
@@ -1456,6 +1505,7 @@ const EmitZIR = struct {
     primitive_table: std.AutoHashMap(Inst.Primitive.Builtin, *Decl),
     indent: usize,
     block_table: std.AutoHashMap(*ir.Inst.Block, *Inst.Block),
+    loop_table: std.AutoHashMap(*ir.Inst.Loop, *Inst.Loop),
 
     fn emit(self: *EmitZIR) !void {
         // Put all the Decls in a list and sort them by name to avoid nondeterminism introduced
@@ -1929,6 +1979,31 @@ const EmitZIR = struct {
                         },
                         .positionals = .{
                             .body = .{ .instructions = block_body.toOwnedSlice() },
+                        },
+                        .kw_args = .{},
+                    };
+
+                    break :blk &new_inst.base;
+                },
+
+                .loop => blk: {
+                    const old_inst = inst.castTag(.loop).?;
+                    const new_inst = try self.arena.allocator.create(Inst.Loop);
+
+                    try self.loop_table.put(old_inst, new_inst);
+
+                    var loop_body = std.ArrayList(*Inst).init(self.allocator);
+                    defer loop_body.deinit();
+
+                    try self.emitBody(old_inst.body, inst_table, &loop_body);
+
+                    new_inst.* = .{
+                        .base = .{
+                            .src = inst.src,
+                            .tag = Inst.Loop.base_tag,
+                        },
+                        .positionals = .{
+                            .body = .{ .instructions = loop_body.toOwnedSlice() },
                         },
                         .kw_args = .{},
                     };

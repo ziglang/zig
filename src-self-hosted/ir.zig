@@ -70,6 +70,7 @@ pub const Inst = struct {
         isnull,
         /// Read a value from a pointer.
         load,
+        loop,
         ptrtoint,
         ref,
         ret,
@@ -122,6 +123,7 @@ pub const Inst = struct {
                 .call => Call,
                 .condbr => CondBr,
                 .constant => Constant,
+                .loop => Loop,
             };
         }
 
@@ -401,6 +403,23 @@ pub const Inst = struct {
             return null;
         }
     };
+
+    pub const Loop = struct {
+        pub const base_tag = Tag.loop;
+
+        base: Inst,
+        body: Body,
+        /// This memory is reserved for codegen code to do whatever it needs to here.
+        codegen: codegen.LoopData = .{},
+
+        pub fn operandCount(self: *const Loop) usize {
+            return 0;
+        }
+        pub fn getOperand(self: *const Loop, index: usize) ?*Inst {
+            return null;
+        }
+    };
+
 };
 
 pub const Body = struct {
