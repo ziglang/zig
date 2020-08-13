@@ -107,7 +107,8 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .boolnot => return analyzeInstBoolNot(mod, scope, old_inst.castTag(.boolnot).?),
         .typeof => return analyzeInstTypeOf(mod, scope, old_inst.castTag(.typeof).?),
         .optional_type => return analyzeInstOptionalType(mod, scope, old_inst.castTag(.optional_type).?),
-        .unwrap_optional => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional).?),
+        .unwrap_optional_safe => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional_safe).?, true),
+        .unwrap_optional_unsafe => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional_unsafe).?, false),
     }
 }
 
@@ -661,7 +662,7 @@ fn analyzeInstOptionalType(mod: *Module, scope: *Scope, optional: *zir.Inst.UnOp
     }));
 }
 
-fn analyzeInstUnwrapOptional(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnwrapOptional) InnerError!*Inst {
+fn analyzeInstUnwrapOptional(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp, safety_check: bool) InnerError!*Inst {
     const operand = try resolveInst(mod, scope, unwrap.positionals.operand);
     assert(operand.ty.zigTypeTag() == .Pointer);
 
@@ -686,7 +687,10 @@ fn analyzeInstUnwrapOptional(mod: *Module, scope: *Scope, unwrap: *zir.Inst.Unwr
     }
 
     const b = try mod.requireRuntimeBlock(scope, unwrap.base.src);
-    return mod.addUnwrapOptional(b, unwrap.base.src, child_pointer, operand, unwrap.kw_args.safety_check);
+    return if (safety_check)
+        mod.addUnOp(b, unwrap.base.src, child_pointer, .unwrap_optional_safe, operand)
+    else
+        mod.addUnOp(b, unwrap.base.src, child_pointer, .unwrap_optional_unsafe, operand);
 }
 
 fn analyzeInstFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) InnerError!*Inst {

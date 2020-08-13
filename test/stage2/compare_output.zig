@@ -31,11 +31,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\export fn _start() noreturn {
             \\    print();
             \\
-            \\    const a: u32 = 2;
-            \\    const b: ?u32 = a;
-            \\    const c = b.?;
-            \\    if (c != 2) unreachable;
-            \\
             \\    exit();
             \\}
             \\
@@ -432,6 +427,30 @@ pub fn addCases(ctx: *TestContext) !void {
             \\
             \\pub fn assert(ok: bool) void {
             \\    if (!ok) unreachable; // assertion failure
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+
+        // Optionals
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    const a: u32 = 2;
+            \\    const b: ?u32 = a;
+            \\    const c = b.?;
+            \\    if (c != 2) unreachable;
+            \\
+            \\    exit();
             \\}
             \\
             \\fn exit() noreturn {
