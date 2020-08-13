@@ -311,7 +311,7 @@ fn unwrapOptional(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Si
     const src = tree.token_locs[node.rtoken].start;
 
     const operand = try expr(mod, scope, .lvalue, node.lhs);
-    const unwrapped_ptr = try addZIRInst(mod, scope, src, zir.Inst.UnwrapOptional, .{ .operand = operand }, .{});
+    const unwrapped_ptr = try addZIRUnOp(mod, scope, src, .unwrap_optional_safe, operand);
     if (rl == .lvalue) return unwrapped_ptr;
 
     return rlWrap(mod, scope, rl, try addZIRUnOp(mod, scope, src, .deref, unwrapped_ptr));

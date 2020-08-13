@@ -185,8 +185,6 @@ pub const Type = extern union {
                 return true;
             },
             .Optional => {
-                if (a.tag() != b.tag())
-                    return false;
                 return a.elemType().eql(b.elemType());
             },
             .Float,
@@ -662,6 +660,10 @@ pub const Type = extern union {
             .optional => {
                 const child_type = self.cast(Payload.Optional).?.child_type;
                 if (!child_type.hasCodeGenBits()) return 1;
+
+                if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr())
+                    return @divExact(target.cpu.arch.ptrBitWidth(), 8);
+
                 return child_type.abiAlignment(target);
             },
 
@@ -750,6 +752,10 @@ pub const Type = extern union {
             .optional => {
                 const child_type = self.cast(Payload.Optional).?.child_type;
                 if (!child_type.hasCodeGenBits()) return 1;
+
+                if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr())
+                    return @divExact(target.cpu.arch.ptrBitWidth(), 8);
+
                 // Optional types are represented as a struct with the child type as the first
                 // field and a boolean as the second. Since the child type's abi alignment is
                 // guaranteed to be >= that of bool's (1 byte) the added size is exactly equal

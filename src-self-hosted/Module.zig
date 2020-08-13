@@ -2016,28 +2016,6 @@ pub fn addCall(
     return &inst.base;
 }
 
-pub fn addUnwrapOptional(
-    self: *Module,
-    block: *Scope.Block,
-    src: usize,
-    ty: Type,
-    operand: *Inst,
-    safety_check: bool,
-) !*Inst {
-    const inst = try block.arena.create(Inst.UnwrapOptional);
-    inst.* = .{
-        .base = .{
-            .tag = .unwrap_optional,
-            .ty = ty,
-            .src = src,
-        },
-        .operand = operand,
-        .safety_check = safety_check, 
-    };
-    try block.instructions.append(self.gpa, &inst.base);
-    return &inst.base;
-}
-
 pub fn constInst(self: *Module, scope: *Scope, src: usize, typed_value: TypedValue) !*Inst {
     const const_inst = try scope.arena().create(Inst.Constant);
     const_inst.* = .{
@@ -2500,7 +2478,7 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
 
     // null to ?T
     if (dest_type.zigTypeTag() == .Optional and inst.ty.zigTypeTag() == .Null) {
-        return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = inst.ty.onePossibleValue().? });
+        return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = Value.initTag(.null_value) });
     }
 
     // T to ?T

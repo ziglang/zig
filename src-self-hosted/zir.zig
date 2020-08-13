@@ -215,7 +215,9 @@ pub const Inst = struct {
         /// Create an optional type '?T'
         optional_type,
         /// Unwraps an optional value 'lhs.?'
-        unwrap_optional,
+        unwrap_optional_safe,
+        /// Same as previous, but without safety checks. Used for orelse, if and while
+        unwrap_optional_unsafe,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
@@ -245,6 +247,8 @@ pub const Inst = struct {
                 .single_const_ptr_type,
                 .single_mut_ptr_type,
                 .optional_type,
+                .unwrap_optional_safe,
+                .unwrap_optional_unsafe,
                 => UnOp,
 
                 .add,
@@ -303,7 +307,6 @@ pub const Inst = struct {
                 .fntype => FnType,
                 .elemptr => ElemPtr,
                 .condbr => CondBr,
-                .unwrap_optional => UnwrapOptional,
             };
         }
 
@@ -379,7 +382,8 @@ pub const Inst = struct {
                 .typeof,
                 .xor,
                 .optional_type,
-                .unwrap_optional,
+                .unwrap_optional_safe,
+                .unwrap_optional_unsafe,
                 => false,
 
                 .@"break",
@@ -819,18 +823,6 @@ pub const Inst = struct {
             else_body: Module.Body,
         },
         kw_args: struct {},
-    };
-
-    pub const UnwrapOptional = struct {
-        pub const base_tag = Tag.unwrap_optional;
-        base: Inst,
-
-        positionals: struct {
-            operand: *Inst,
-        },
-        kw_args: struct {
-            safety_check: bool = true,
-        },
     };
 };
 
@@ -1935,6 +1927,8 @@ const EmitZIR = struct {
                 .isnonnull => try self.emitUnOp(inst.src, new_body, inst.castTag(.isnonnull).?, .isnonnull),
                 .load => try self.emitUnOp(inst.src, new_body, inst.castTag(.load).?, .deref),
                 .ref => try self.emitUnOp(inst.src, new_body, inst.castTag(.ref).?, .ref),
+                .unwrap_optional_safe => try self.emitUnOp(inst.src, new_body, inst.castTag(.unwrap_optional_safe).?, .unwrap_optional_safe),
+                .unwrap_optional_unsafe => try self.emitUnOp(inst.src, new_body, inst.castTag(.unwrap_optional_unsafe).?, .unwrap_optional_unsafe),
 
                 .add => try self.emitBinOp(inst.src, new_body, inst.castTag(.add).?, .add),
                 .sub => try self.emitBinOp(inst.src, new_body, inst.castTag(.sub).?, .sub),
@@ -2154,25 +2148,6 @@ const EmitZIR = struct {
                             .else_body = .{ .instructions = else_body.toOwnedSlice() },
                         },
                         .kw_args = .{},
-                    };
-                    break :blk &new_inst.base;
-                },
-
-                .unwrap_optional => blk: {
-                    const old_inst = inst.castTag(.unwrap_optional).?;
-
-                    const new_inst = try self.arena.allocator.create(Inst.UnwrapOptional);
-                    new_inst.* = .{
-                        .base = .{
-                            .src = inst.src,
-                            .tag = Inst.UnwrapOptional.base_tag,
-                        },
-                        .positionals = .{
-                            .operand = try self.resolveInst(new_body, old_inst.operand),
-                        },
-                        .kw_args = .{
-                            .safety_check = old_inst.safety_check,
-                        },
                     };
                     break :blk &new_inst.base;
                 },
