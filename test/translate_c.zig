@@ -1730,16 +1730,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn switch_fn(arg_i: c_int) c_int {
         \\    var i = arg_i;
         \\    var res: c_int = 0;
-        \\    __switch: {
-        \\        __case_2: {
-        \\            __default: {
-        \\                __case_1: {
-        \\                    __case_0: {
+        \\    @"switch": {
+        \\        case_2: {
+        \\            default: {
+        \\                case_1: {
+        \\                    case: {
         \\                        switch (i) {
-        \\                            @as(c_int, 0) => break :__case_0,
-        \\                            @as(c_int, 1)...@as(c_int, 3) => break :__case_1,
-        \\                            else => break :__default,
-        \\                            @as(c_int, 4) => break :__case_2,
+        \\                            @as(c_int, 0) => break :case,
+        \\                            @as(c_int, 1)...@as(c_int, 3) => break :case_1,
+        \\                            else => break :default,
+        \\                            @as(c_int, 4) => break :case_2,
         \\                        }
         \\                    }
         \\                    res = 1;
@@ -1747,7 +1747,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\                res = 2;
         \\            }
         \\            res = (@as(c_int, 3) * i);
-        \\            break :__switch;
+        \\            break :@"switch";
         \\        }
         \\        res = 5;
         \\    }
@@ -2782,11 +2782,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var x = arg_x;
         \\    return blk: {
         \\        const tmp = x;
-        \\        (blk: {
+        \\        (blk_1: {
         \\            const ref = &p;
-        \\            const tmp_1 = ref.*;
+        \\            const tmp_2 = ref.*;
         \\            ref.* += 1;
-        \\            break :blk tmp_1;
+        \\            break :blk_1 tmp_2;
         \\        }).?.* = tmp;
         \\        break :blk tmp;
         \\    };

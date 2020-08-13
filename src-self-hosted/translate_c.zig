@@ -61,7 +61,8 @@ const Scope = struct {
         pending_block: Block,
         cases: []*ast.Node,
         case_index: usize,
-        has_default: bool = false,
+        switch_label: ?[]const u8,
+        default_label: ?[]const u8,
     };
 
     /// Used for the scope of condition expressions, for example `if (cond)`.
@@ -73,7 +74,7 @@ const Scope = struct {
 
         fn getBlockScope(self: *Condition, c: *Context) !*Block {
             if (self.block) |*b| return b;
-            self.block = try Block.init(c, &self.base, "blk");
+            self.block = try Block.init(c, &self.base, true);
             return &self.block.?;
         }
 
@@ -93,21 +94,22 @@ const Scope = struct {
         mangle_count: u32 = 0,
         lbrace: ast.TokenIndex,
 
-        fn init(c: *Context, parent: *Scope, label: ?[]const u8) !Block {
-            return Block{
+        fn init(c: *Context, parent: *Scope, labeled: bool) !Block {
+            var blk = Block{
                 .base = .{
                     .id = .Block,
                     .parent = parent,
                 },
                 .statements = std.ArrayList(*ast.Node).init(c.gpa),
                 .variables = AliasList.init(c.gpa),
-                .label = if (label) |l| blk: {
-                    const ll = try appendIdentifier(c, l);
-                    _ = try appendToken(c, .Colon, ":");
-                    break :blk ll;
-                } else null,
+                .label = null,
                 .lbrace = try appendToken(c, .LBrace, "{"),
             };
+            if (labeled) {
+                blk.label = try appendIdentifier(c, try blk.makeMangledName(c, "blk"));
+                _ = try appendToken(c, .Colon, ":");
+            }
+            return blk;
         }
 
         fn deinit(self: *Block) void {
@@ -577,7 +579,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
 
     // actual function definition with body
     const body_stmt = ZigClangFunctionDecl_getBody(fn_decl);
-    var block_scope = try Scope.Block.init(rp.c, &c.global_scope.base, null);
+    var block_scope = try Scope.Block.init(rp.c, &c.global_scope.base, false);
     defer block_scope.deinit();
     var scope = &block_scope.base;
 
@@ -1307,7 +1309,7 @@ fn transBinaryOperator(
             const rhs = try transExpr(rp, &block_scope.base, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value);
             if (expr) {
                 _ = try appendToken(rp.c, .Semicolon, ";");
-                const break_node = try transCreateNodeBreakToken(rp.c, block_scope.label, rhs);
+                const break_node = try transCreateNodeBreak(rp.c, block_scope.label, rhs);
                 try block_scope.statements.append(&break_node.base);
                 const block_node = try block_scope.complete(rp.c);
                 const rparen = try appendToken(rp.c, .RParen, ")");
@@ -1476,7 +1478,7 @@ fn transCompoundStmtInline(
 }
 
 fn transCompoundStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangCompoundStmt) TransError!*ast.Node {
-    var block_scope = try Scope.Block.init(rp.c, scope, null);
+    var block_scope = try Scope.Block.init(rp.c, scope, false);
     defer block_scope.deinit();
     try transCompoundStmtInline(rp, &block_scope.base, stmt, &block_scope);
     const node = try block_scope.complete(rp.c);
@@ -2587,7 +2589,7 @@ fn transForLoop(
     defer if (block_scope) |*bs| bs.deinit();
 
     if (ZigClangForStmt_getInit(stmt)) |init| {
-        block_scope = try Scope.Block.init(rp.c, scope, null);
+        block_scope = try Scope.Block.init(rp.c, scope, false);
         loop_scope.parent = &block_scope.?.base;
         const init_node = try transStmt(rp, &block_scope.?.base, init, .unused, .r_value);
         try block_scope.?.statements.append(init_node);
@@ -2673,17 +2675,19 @@ fn transSwitch(
         .cases = switch_node.cases(),
         .case_index = 0,
         .pending_block = undefined,
+        .default_label = null,
+        .switch_label = null,
     };
 
     // tmp block that all statements will go before being picked up by a case or default
-    var block_scope = try Scope.Block.init(rp.c, &switch_scope.base, null);
+    var block_scope = try Scope.Block.init(rp.c, &switch_scope.base, false);
     defer block_scope.deinit();
 
     // Note that we do not defer a deinit here; the switch_scope.pending_block field
     // has its own memory management. This resource is freed inside `transCase` and
     // then the final pending_block is freed at the bottom of this function with
     // pending_block.deinit().
-    switch_scope.pending_block = try Scope.Block.init(rp.c, scope, null);
+    switch_scope.pending_block = try Scope.Block.init(rp.c, scope, false);
     try switch_scope.pending_block.statements.append(&switch_node.base);
 
     const last = try transStmt(rp, &block_scope.base, ZigClangSwitchStmt_getBody(stmt), .unused, .r_value);
@@ -2698,11 +2702,19 @@ fn transSwitch(
         switch_scope.pending_block.statements.appendAssumeCapacity(n);
     }
 
-    switch_scope.pending_block.label = try appendIdentifier(rp.c, "__switch");
-    _ = try appendToken(rp.c, .Colon, ":");
-    if (!switch_scope.has_default) {
+    if (switch_scope.default_label == null) {
+        switch_scope.switch_label = try block_scope.makeMangledName(rp.c, "switch");
+    }
+    if (switch_scope.switch_label) |l| {
+        switch_scope.pending_block.label = try appendIdentifier(rp.c, l);
+        _ = try appendToken(rp.c, .Colon, ":");
+    }
+    if (switch_scope.default_label == null) {
         const else_prong = try transCreateNodeSwitchCase(rp.c, try transCreateNodeSwitchElse(rp.c));
-        else_prong.expr = &(try transCreateNodeBreak(rp.c, "__switch", null)).base;
+        else_prong.expr = blk: {
+            var br = try CtrlFlow.init(rp.c, .Break, switch_scope.switch_label.?);
+            break :blk &(try br.finish(null)).base;
+        };
         _ = try appendToken(rp.c, .Comma, ",");
 
         if (switch_scope.case_index >= switch_scope.cases.len)
@@ -2726,7 +2738,7 @@ fn transCase(
 ) TransError!*ast.Node {
     const block_scope = scope.findBlockScope(rp.c) catch unreachable;
     const switch_scope = scope.getSwitch();
-    const label = try std.fmt.allocPrint(rp.c.arena, "__case_{}", .{switch_scope.case_index - @boolToInt(switch_scope.has_default)});
+    const label = try block_scope.makeMangledName(rp.c, "case");
     _ = try appendToken(rp.c, .Semicolon, ";");
 
     const expr = if (ZigClangCaseStmt_getRHS(stmt)) |rhs| blk: {
@@ -2746,7 +2758,10 @@ fn transCase(
         try transExpr(rp, scope, ZigClangCaseStmt_getLHS(stmt), .used, .r_value);
 
     const switch_prong = try transCreateNodeSwitchCase(rp.c, expr);
-    switch_prong.expr = &(try transCreateNodeBreak(rp.c, label, null)).base;
+    switch_prong.expr = blk: {
+        var br = try CtrlFlow.init(rp.c, .Break, label);
+        break :blk &(try br.finish(null)).base;
+    };
     _ = try appendToken(rp.c, .Comma, ",");
 
     if (switch_scope.case_index >= switch_scope.cases.len)
@@ -2763,7 +2778,7 @@ fn transCase(
 
     const pending_node = try switch_scope.pending_block.complete(rp.c);
     switch_scope.pending_block.deinit();
-    switch_scope.pending_block = try Scope.Block.init(rp.c, scope, null);
+    switch_scope.pending_block = try Scope.Block.init(rp.c, scope, false);
 
     try switch_scope.pending_block.statements.append(&pending_node.base);
 
@@ -2777,12 +2792,14 @@ fn transDefault(
 ) TransError!*ast.Node {
     const block_scope = scope.findBlockScope(rp.c) catch unreachable;
     const switch_scope = scope.getSwitch();
-    const label = "__default";
-    switch_scope.has_default = true;
+    switch_scope.default_label = try block_scope.makeMangledName(rp.c, "default");
     _ = try appendToken(rp.c, .Semicolon, ";");
 
     const else_prong = try transCreateNodeSwitchCase(rp.c, try transCreateNodeSwitchElse(rp.c));
-    else_prong.expr = &(try transCreateNodeBreak(rp.c, label, null)).base;
+    else_prong.expr = blk: {
+        var br = try CtrlFlow.init(rp.c, .Break, switch_scope.default_label.?);
+        break :blk &(try br.finish(null)).base;
+    };
     _ = try appendToken(rp.c, .Comma, ",");
 
     if (switch_scope.case_index >= switch_scope.cases.len)
@@ -2790,7 +2807,7 @@ fn transDefault(
     switch_scope.cases[switch_scope.case_index] = &else_prong.base;
     switch_scope.case_index += 1;
 
-    switch_scope.pending_block.label = try appendIdentifier(rp.c, label);
+    switch_scope.pending_block.label = try appendIdentifier(rp.c, switch_scope.default_label.?);
     _ = try appendToken(rp.c, .Colon, ":");
 
     // take all pending statements
@@ -2799,7 +2816,7 @@ fn transDefault(
 
     const pending_node = try switch_scope.pending_block.complete(rp.c);
     switch_scope.pending_block.deinit();
-    switch_scope.pending_block = try Scope.Block.init(rp.c, scope, null);
+    switch_scope.pending_block = try Scope.Block.init(rp.c, scope, false);
     try switch_scope.pending_block.statements.append(&pending_node.base);
 
     return transStmt(rp, scope, ZigClangDefaultStmt_getSubStmt(stmt), .unused, .r_value);
@@ -2894,7 +2911,7 @@ fn transStmtExpr(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangStmtExpr,
         return transCompoundStmt(rp, scope, comp);
     }
     const lparen = try appendToken(rp.c, .LParen, "(");
-    var block_scope = try Scope.Block.init(rp.c, scope, "blk");
+    var block_scope = try Scope.Block.init(rp.c, scope, true);
     defer block_scope.deinit();
 
     var it = ZigClangCompoundStmt_body_begin(comp);
@@ -3209,7 +3226,7 @@ fn transCreatePreCrement(
     // zig:     _ref.* += 1;
     // zig:     break :blk _ref.*
     // zig: })
-    var block_scope = try Scope.Block.init(rp.c, scope, "blk");
+    var block_scope = try Scope.Block.init(rp.c, scope, true);
     defer block_scope.deinit();
     const ref = try block_scope.makeMangledName(rp.c, "ref");
 
@@ -3239,7 +3256,7 @@ fn transCreatePreCrement(
     const assign = try transCreateNodeInfixOp(rp, scope, ref_node, op, token, one, .used, false);
     try block_scope.statements.append(assign);
 
-    const break_node = try transCreateNodeBreakToken(rp.c, block_scope.label, ref_node);
+    const break_node = try transCreateNodeBreak(rp.c, block_scope.label, ref_node);
     try block_scope.statements.append(&break_node.base);
     const block_node = try block_scope.complete(rp.c);
     // semicolon must immediately follow rbrace because it is the last token in a block
@@ -3283,7 +3300,7 @@ fn transCreatePostCrement(
     // zig:     _ref.* += 1;
     // zig:     break :blk _tmp
     // zig: })
-    var block_scope = try Scope.Block.init(rp.c, scope, "blk");
+    var block_scope = try Scope.Block.init(rp.c, scope, true);
     defer block_scope.deinit();
     const ref = try block_scope.makeMangledName(rp.c, "ref");
 
@@ -3458,7 +3475,7 @@ fn transCreateCompoundAssign(
     // zig:     _ref.* = _ref.* + rhs;
     // zig:     break :blk _ref.*
     // zig: })
-    var block_scope = try Scope.Block.init(rp.c, scope, "blk");
+    var block_scope = try Scope.Block.init(rp.c, scope, true);
     defer block_scope.deinit();
     const ref = try block_scope.makeMangledName(rp.c, "ref");
 
@@ -3526,7 +3543,7 @@ fn transCreateCompoundAssign(
         try block_scope.statements.append(assign);
     }
 
-    const break_node = try transCreateNodeBreakToken(rp.c, block_scope.label, ref_node);
+    const break_node = try transCreateNodeBreak(rp.c, block_scope.label, ref_node);
     try block_scope.statements.append(&break_node.base);
     const block_node = try block_scope.complete(rp.c);
     const grouped_expr = try rp.c.arena.create(ast.Node.GroupedExpression);
@@ -3602,8 +3619,16 @@ fn transCPtrCast(
 
 fn transBreak(rp: RestorePoint, scope: *Scope) TransError!*ast.Node {
     const break_scope = scope.getBreakableScope();
-    const label_text: ?[]const u8 = if (break_scope.id == .Switch) "__switch" else null;
-    const br = try transCreateNodeBreak(rp.c, label_text, null);
+    const label_text: ?[]const u8 = if (break_scope.id == .Switch) blk: {
+        const swtch = @fieldParentPtr(Scope.Switch, "base", break_scope);
+        const block_scope = try scope.findBlockScope(rp.c);
+        swtch.switch_label = try block_scope.makeMangledName(rp.c, "switch");
+        break :blk swtch.switch_label;
+    } else
+        null;
+
+    var cf = try CtrlFlow.init(rp.c, .Break, label_text);
+    const br = try cf.finish(null);
     _ = try appendToken(rp.c, .Semicolon, ";");
     return &br.base;
 }
@@ -3634,7 +3659,7 @@ fn transBinaryConditionalOperator(rp: RestorePoint, scope: *Scope, stmt: *const 
     //      })
     const lparen = try appendToken(rp.c, .LParen, "(");
 
-    var block_scope = try Scope.Block.init(rp.c, scope, "blk");
+    var block_scope = try Scope.Block.init(rp.c, scope, true);
     defer block_scope.deinit();
 
     const mangled_name = try block_scope.makeMangledName(rp.c, "cond_temp");
@@ -4082,8 +4107,7 @@ fn transCreateNodeAssign(
     // zig:     lhs = _tmp;
     // zig:     break :blk _tmp
     // zig: })
-    const label_name = "blk";
-    var block_scope = try Scope.Block.init(rp.c, scope, label_name);
+    var block_scope = try Scope.Block.init(rp.c, scope, true);
     defer block_scope.deinit();
 
     const tmp = try block_scope.makeMangledName(rp.c, "tmp");
@@ -4118,7 +4142,7 @@ fn transCreateNodeAssign(
     try block_scope.statements.append(assign);
 
     const break_node = blk: {
-        var tmp_ctrl_flow = try CtrlFlow.init(rp.c, .Break, label_name);
+        var tmp_ctrl_flow = try CtrlFlow.init(rp.c, .Break, tokenSlice(rp.c, block_scope.label.?));
         const rhs_expr = try transCreateNodeIdentifier(rp.c, tmp);
         break :blk try tmp_ctrl_flow.finish(rhs_expr);
     };
@@ -4495,23 +4519,12 @@ fn transCreateNodeElse(c: *Context) !*ast.Node.Else {
     return node;
 }
 
-fn transCreateNodeBreakToken(
+fn transCreateNodeBreak(
     c: *Context,
     label: ?ast.TokenIndex,
     rhs: ?*ast.Node,
 ) !*ast.Node.ControlFlowExpression {
-    const other_token = label orelse return transCreateNodeBreak(c, null, rhs);
-    const loc = c.token_locs.items[other_token];
-    const label_name = c.source_buffer.items[loc.start..loc.end];
-    return transCreateNodeBreak(c, label_name, rhs);
-}
-
-fn transCreateNodeBreak(
-    c: *Context,
-    label: ?[]const u8,
-    rhs: ?*ast.Node,
-) !*ast.Node.ControlFlowExpression {
-    var ctrl_flow = try CtrlFlow.init(c, .Break, label);
+    var ctrl_flow = try CtrlFlow.init(c, .Break, if (label) |l| tokenSlice(c, l) else null);
     return ctrl_flow.finish(rhs);
 }
 
@@ -5362,7 +5375,7 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
 }
 
 fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
-    var block_scope = try Scope.Block.init(c, &c.global_scope.base, null);
+    var block_scope = try Scope.Block.init(c, &c.global_scope.base, false);
     defer block_scope.deinit();
     const scope = &block_scope.base;
 
@@ -5475,8 +5488,7 @@ fn parseCExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
         },
         .Comma => {
             _ = try appendToken(c, .Semicolon, ";");
-            const label_name = "blk";
-            var block_scope = try Scope.Block.init(c, scope, label_name);
+            var block_scope = try Scope.Block.init(c, scope, true);
             defer block_scope.deinit();
 
             var last = node;
@@ -5501,7 +5513,7 @@ fn parseCExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
                 }
             }
 
-            const break_node = try transCreateNodeBreak(c, label_name, last);
+            const break_node = try transCreateNodeBreak(c, block_scope.label, last);
             try block_scope.statements.append(&break_node.base);
             const block_node = try block_scope.complete(c);
             return &block_node.base;
