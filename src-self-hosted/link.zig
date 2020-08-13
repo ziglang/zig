@@ -229,7 +229,7 @@ pub const File = struct {
             return &c_file.base;
         }
 
-        pub fn fail(self: *C, src: usize, comptime format: []const u8, args: anytype) anyerror {
+        pub fn fail(self: *C, src: usize, comptime format: []const u8, args: anytype) error{AnalysisFail, OutOfMemory} {
             self.error_msg = try Module.ErrorMsg.create(self.base.allocator, src, format, args);
             return error.AnalysisFail;
         }
