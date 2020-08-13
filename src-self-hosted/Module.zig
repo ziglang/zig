@@ -2219,11 +2219,6 @@ pub fn wantSafety(self: *Module, scope: *Scope) bool {
     };
 }
 
-pub fn analyzeUnreach(self: *Module, scope: *Scope, src: usize) InnerError!*Inst {
-    const b = try self.requireRuntimeBlock(scope, src);
-    return self.addNoOp(b, src, Type.initTag(.noreturn), .unreach);
-}
-
 pub fn analyzeIsNull(
     self: *Module,
     scope: *Scope,
@@ -2901,4 +2896,71 @@ pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
             loc.column + 1,
         });
     }
+}
+
+pub const PanicId = enum {
+    unreach,
+    unwrap_null,
+};
+
+pub fn addSafetyCheck(mod: *Module, parent_block: *Scope.Block, ok: *Inst, panic_id: PanicId) !void {
+    const block_inst = try parent_block.arena.create(Inst.Block);
+    block_inst.* = .{
+        .base = .{
+            .tag = Inst.Block.base_tag,
+            .ty = Type.initTag(.void),
+            .src = ok.src,
+        },
+        .body = .{
+            .instructions = try parent_block.arena.alloc(*Inst, 1), // Only need space for the condbr.
+        },
+    };
+
+    const ok_body: ir.Body = .{
+        .instructions = try parent_block.arena.alloc(*Inst, 1), // Only need space for the brvoid.
+    };
+    const brvoid = try parent_block.arena.create(Inst.BrVoid);
+    brvoid.* = .{
+        .base = .{
+            .tag = .brvoid,
+            .ty = Type.initTag(.noreturn),
+            .src = ok.src,
+        },
+        .block = block_inst,
+    };
+    ok_body.instructions[0] = &brvoid.base;
+
+    var fail_block: Scope.Block = .{
+        .parent = parent_block,
+        .func = parent_block.func,
+        .decl = parent_block.decl,
+        .instructions = .{},
+        .arena = parent_block.arena,
+    };
+    defer fail_block.instructions.deinit(mod.gpa);
+
+    _ = try mod.safetyPanic(&fail_block, ok.src, panic_id);
+
+    const fail_body: ir.Body = .{ .instructions = try parent_block.arena.dupe(*Inst, fail_block.instructions.items) };
+
+    const condbr = try parent_block.arena.create(Inst.CondBr);
+    condbr.* = .{
+        .base = .{
+            .tag = .condbr,
+            .ty = Type.initTag(.noreturn),
+            .src = ok.src,
+        },
+        .condition = ok,
+        .then_body = ok_body,
+        .else_body = fail_body,
+    };
+    block_inst.body.instructions[0] = &condbr.base;
+
+    try parent_block.instructions.append(mod.gpa, &block_inst.base);
+}
+
+pub fn safetyPanic(mod: *Module, block: *Scope.Block, src: usize, panic_id: PanicId) !*Inst {
+    // TODO Once we have a panic function to call, call it here instead of breakpoint.
+    _ = try mod.addNoOp(block, src, Type.initTag(.void), .breakpoint);
+    return mod.addNoOp(block, src, Type.initTag(.noreturn), .unreach);
 }

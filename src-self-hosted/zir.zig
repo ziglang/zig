@@ -1927,8 +1927,7 @@ const EmitZIR = struct {
                 .isnonnull => try self.emitUnOp(inst.src, new_body, inst.castTag(.isnonnull).?, .isnonnull),
                 .load => try self.emitUnOp(inst.src, new_body, inst.castTag(.load).?, .deref),
                 .ref => try self.emitUnOp(inst.src, new_body, inst.castTag(.ref).?, .ref),
-                .unwrap_optional_safe => try self.emitUnOp(inst.src, new_body, inst.castTag(.unwrap_optional_safe).?, .unwrap_optional_safe),
-                .unwrap_optional_unsafe => try self.emitUnOp(inst.src, new_body, inst.castTag(.unwrap_optional_unsafe).?, .unwrap_optional_unsafe),
+                .unwrap_optional => try self.emitUnOp(inst.src, new_body, inst.castTag(.unwrap_optional).?, .unwrap_optional_unsafe),
 
                 .add => try self.emitBinOp(inst.src, new_body, inst.castTag(.add).?, .add),
                 .sub => try self.emitBinOp(inst.src, new_body, inst.castTag(.sub).?, .sub),

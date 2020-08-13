@@ -668,8 +668,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .store => return self.genStore(inst.castTag(.store).?),
                 .sub => return self.genSub(inst.castTag(.sub).?),
                 .unreach => return MCValue{ .unreach = {} },
-                .unwrap_optional_safe => return self.genUnwrapOptional(inst.castTag(.unwrap_optional_safe).?, true),
-                .unwrap_optional_unsafe => return self.genUnwrapOptional(inst.castTag(.unwrap_optional_unsafe).?, false),
+                .unwrap_optional => return self.genUnwrapOptional(inst.castTag(.unwrap_optional).?),
             }
         }
 
@@ -819,7 +818,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
-        fn genUnwrapOptional(self: *Self, inst: *ir.Inst.UnOp, safety_check: bool) !MCValue {
+        fn genUnwrapOptional(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
             // No side effects, so if it's unreferenced, do nothing.
             if (inst.base.isUnused())
                 return MCValue.dead;
