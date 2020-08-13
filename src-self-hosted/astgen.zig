@@ -531,13 +531,12 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
     const cond_block = try addZIRInstBlock(mod, &loop_scope.base, while_src, .{
         .instructions = try loop_scope.arena.dupe(*zir.Inst, continue_scope.instructions.items),
     });
+    // TODO avoid emitting the continue expr when there
+    // are no jumps to it. This happens when the last statement of a while body is noreturn
+    // and there are no `continue` statements.
+    // The "repeat" at the end of a loop body is implied.
     if (while_node.continue_expr) |cont_expr| {
-        const cont_expr_result = try expr(mod, &loop_scope.base, .{ .ty = void_type }, cont_expr);
-        if (!cont_expr_result.tag.isNoReturn()) {
-            _ = try addZIRNoOp(mod, &loop_scope.base, while_src, .repeat);
-        }
-    } else {
-        _ = try addZIRNoOp(mod, &loop_scope.base, while_src, .repeat);
+        _ = try expr(mod, &loop_scope.base, .{ .ty = void_type }, cont_expr);
     }
     const loop = try addZIRInstLoop(mod, &expr_scope.base, while_src, .{
         .instructions = try expr_scope.arena.dupe(*zir.Inst, loop_scope.instructions.items),

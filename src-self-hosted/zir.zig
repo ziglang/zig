@@ -151,7 +151,8 @@ pub const Inst = struct {
         isnonnull,
         /// Return a boolean true if an optional is null. `x == null`
         isnull,
-        /// A labeled block of code that loops forever.
+        /// A labeled block of code that loops forever. At the end of the body it is implied
+        /// to repeat; no explicit "repeat" instruction terminates loop bodies.
         loop,
         /// Ambiguously remainder division or modulus. If the computation would possibly have
         /// a different value depending on whether the operation is remainder division or modulus,
@@ -175,8 +176,6 @@ pub const Inst = struct {
         /// the memory location is in the stack frame, local to the scope containing the
         /// instruction.
         ref,
-        /// Sends control flow back to the loop block operand.
-        repeat,
         /// Obtains a pointer to the return value.
         ret_ptr,
         /// Obtains the return type of the in-scope function.
@@ -294,7 +293,6 @@ pub const Inst = struct {
                 .compileerror => CompileError,
                 .loop => Loop,
                 .@"const" => Const,
-                .repeat => Repeat,
                 .str => Str,
                 .int => Int,
                 .inttype => IntType,
@@ -390,7 +388,6 @@ pub const Inst = struct {
                 .breakvoid,
                 .condbr,
                 .compileerror,
-                .repeat,
                 .@"return",
                 .returnvoid,
                 .unreach_nocheck,
@@ -583,16 +580,6 @@ pub const Inst = struct {
 
         positionals: struct {
             typed_value: TypedValue,
-        },
-        kw_args: struct {},
-    };
-
-    pub const Repeat = struct {
-        pub const base_tag = Tag.repeat;
-        base: Inst,
-
-        positionals: struct {
-            loop: *Loop,
         },
         kw_args: struct {},
     };

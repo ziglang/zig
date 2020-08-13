@@ -61,7 +61,6 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         },
         .inttype => return analyzeInstIntType(mod, scope, old_inst.castTag(.inttype).?),
         .loop => return analyzeInstLoop(mod, scope, old_inst.castTag(.loop).?),
-        .repeat => return analyzeInstRepeat(mod, scope, old_inst.castTag(.repeat).?),
         .param_type => return analyzeInstParamType(mod, scope, old_inst.castTag(.param_type).?),
         .ptrtoint => return analyzeInstPtrToInt(mod, scope, old_inst.castTag(.ptrtoint).?),
         .fieldptr => return analyzeInstFieldPtr(mod, scope, old_inst.castTag(.fieldptr).?),
@@ -440,12 +439,38 @@ fn analyzeInstArg(mod: *Module, scope: *Scope, inst: *zir.Inst.Arg) InnerError!*
     return mod.addArg(b, inst.base.src, param_type, name);
 }
 
-fn analyzeInstRepeat(mod: *Module, scope: *Scope, inst: *zir.Inst.Repeat) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO analyze .repeat ZIR", .{});
-}
-
 fn analyzeInstLoop(mod: *Module, scope: *Scope, inst: *zir.Inst.Loop) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO analyze .loop ZIR", .{});
+    const parent_block = scope.cast(Scope.Block).?;
+
+    // Reserve space for a Loop instruction so that generated Break instructions can
+    // point to it, even if it doesn't end up getting used because the code ends up being
+    // comptime evaluated.
+    const loop_inst = try parent_block.arena.create(Inst.Loop);
+    loop_inst.* = .{
+        .base = .{
+            .tag = Inst.Loop.base_tag,
+            .ty = Type.initTag(.noreturn),
+            .src = inst.base.src,
+        },
+        .body = undefined,
+    };
+
+    var child_block: Scope.Block = .{
+        .parent = parent_block,
+        .func = parent_block.func,
+        .decl = parent_block.decl,
+        .instructions = .{},
+        .arena = parent_block.arena,
+    };
+    defer child_block.instructions.deinit(mod.gpa);
+
+    try analyzeBody(mod, &child_block.base, inst.positionals.body);
+
+    // Loop repetition is implied so the last instruction may or may not be a noreturn instruction.
+
+    try parent_block.instructions.append(mod.gpa, &loop_inst.base);
+    loop_inst.body = .{ .instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items) };
+    return &loop_inst.base;
 }
 
 fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerError!*Inst {
