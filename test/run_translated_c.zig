@@ -15,7 +15,6 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    }
         \\    if (s0 != 1) abort();
         \\    if (s1 != 10) abort();
-        \\    return 0;
         \\}
     , "");
 

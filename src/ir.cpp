@@ -5476,6 +5476,25 @@ static ResultLocPeer *create_peer_result(ResultLocPeerParent *peer_parent) {
     return result;
 }
 
+static bool is_duplicate_label(CodeGen *g, Scope *scope, AstNode *node, Buf *name) {
+    if (name == nullptr) return false;
+
+    for (;;) {
+        if (scope == nullptr || scope->id == ScopeIdFnDef) {
+            break;
+        } else if (scope->id == ScopeIdBlock || scope->id == ScopeIdLoop) {
+            Buf *this_block_name = scope->id == ScopeIdBlock ? ((ScopeBlock *)scope)->name : ((ScopeLoop *)scope)->name;
+            if (this_block_name != nullptr && buf_eql_buf(name, this_block_name)) {
+                ErrorMsg *msg = add_node_error(g, node, buf_sprintf("redeclaration of label '%s'", buf_ptr(name)));
+                add_error_note(g, msg, scope->source_node, buf_sprintf("previous declaration is here"));
+                return true;
+            }
+        }
+        scope = scope->parent;
+    }
+    return false;
+}
+
 static IrInstSrc *ir_gen_block(IrBuilderSrc *irb, Scope *parent_scope, AstNode *block_node, LVal lval,
         ResultLoc *result_loc)
 {
@@ -5483,6 +5502,9 @@ static IrInstSrc *ir_gen_block(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
 
     ZigList<IrInstSrc *> incoming_values = {0};
     ZigList<IrBasicBlockSrc *> incoming_blocks = {0};
+
+    if (is_duplicate_label(irb->codegen, parent_scope, block_node, block_node->data.block.name))
+        return irb->codegen->invalid_inst_src;
 
     ScopeBlock *scope_block = create_block_scope(irb->codegen, block_node, parent_scope);
 
@@ -5495,6 +5517,9 @@ static IrInstSrc *ir_gen_block(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
     }
 
     if (block_node->data.block.statements.length == 0) {
+        if (scope_block->name != nullptr) {
+            add_node_error(irb->codegen, block_node, buf_sprintf("unused block label"));
+        }
         // {}
         return ir_lval_wrap(irb, parent_scope, ir_build_const_void(irb, child_scope, block_node), lval, result_loc);
     }
@@ -5550,6 +5575,10 @@ static IrInstSrc *ir_gen_block(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
             // this statement's value must be void
             ir_mark_gen(ir_build_check_statement_is_void(irb, child_scope, statement_node, statement_value));
         }
+    }
+
+    if (scope_block->name != nullptr && scope_block->name_used == false) {
+        add_node_error(irb->codegen, block_node, buf_sprintf("unused block label"));
     }
 
     if (found_invalid_inst)
@@ -8152,6 +8181,9 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
         ZigList<IrInstSrc *> incoming_values = {0};
         ZigList<IrBasicBlockSrc *> incoming_blocks = {0};
 
+        if (is_duplicate_label(irb->codegen, payload_scope, node, node->data.while_expr.name))
+            return irb->codegen->invalid_inst_src;
+
         ScopeLoop *loop_scope = create_loop_scope(irb->codegen, node, payload_scope);
         loop_scope->break_block = end_block;
         loop_scope->continue_block = continue_block;
@@ -8168,6 +8200,10 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
         IrInstSrc *body_result = ir_gen_node(irb, node->data.while_expr.body, &loop_scope->base);
         if (body_result == irb->codegen->invalid_inst_src)
             return body_result;
+
+        if (loop_scope->name != nullptr && loop_scope->name_used == false) {
+            add_node_error(irb->codegen, node, buf_sprintf("unused while label"));
+        }
 
         if (!instr_is_unreachable(body_result)) {
             ir_mark_gen(ir_build_check_statement_is_void(irb, payload_scope, node->data.while_expr.body, body_result));
@@ -8263,6 +8299,9 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
         ZigList<IrInstSrc *> incoming_values = {0};
         ZigList<IrBasicBlockSrc *> incoming_blocks = {0};
 
+        if (is_duplicate_label(irb->codegen, child_scope, node, node->data.while_expr.name))
+            return irb->codegen->invalid_inst_src;
+
         ScopeLoop *loop_scope = create_loop_scope(irb->codegen, node, child_scope);
         loop_scope->break_block = end_block;
         loop_scope->continue_block = continue_block;
@@ -8279,6 +8318,10 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
         IrInstSrc *body_result = ir_gen_node(irb, node->data.while_expr.body, &loop_scope->base);
         if (body_result == irb->codegen->invalid_inst_src)
             return body_result;
+
+        if (loop_scope->name != nullptr && loop_scope->name_used == false) {
+            add_node_error(irb->codegen, node, buf_sprintf("unused while label"));
+        }
 
         if (!instr_is_unreachable(body_result)) {
             ir_mark_gen(ir_build_check_statement_is_void(irb, child_scope, node->data.while_expr.body, body_result));
@@ -8353,6 +8396,9 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
 
         Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, scope, is_comptime);
 
+        if (is_duplicate_label(irb->codegen, subexpr_scope, node, node->data.while_expr.name))
+            return irb->codegen->invalid_inst_src;
+
         ScopeLoop *loop_scope = create_loop_scope(irb->codegen, node, subexpr_scope);
         loop_scope->break_block = end_block;
         loop_scope->continue_block = continue_block;
@@ -8368,6 +8414,10 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
         IrInstSrc *body_result = ir_gen_node(irb, node->data.while_expr.body, &loop_scope->base);
         if (body_result == irb->codegen->invalid_inst_src)
             return body_result;
+
+        if (loop_scope->name != nullptr && loop_scope->name_used == false) {
+            add_node_error(irb->codegen, node, buf_sprintf("unused while label"));
+        }
 
         if (!instr_is_unreachable(body_result)) {
             ir_mark_gen(ir_build_check_statement_is_void(irb, scope, node->data.while_expr.body, body_result));
@@ -8501,6 +8551,9 @@ static IrInstSrc *ir_gen_for_expr(IrBuilderSrc *irb, Scope *parent_scope, AstNod
         elem_ptr : ir_build_load_ptr(irb, &spill_scope->base, elem_node, elem_ptr);
     build_decl_var_and_init(irb, parent_scope, elem_node, elem_var, elem_value, buf_ptr(elem_var_name), is_comptime);
 
+    if (is_duplicate_label(irb->codegen, child_scope, node, node->data.for_expr.name))
+        return irb->codegen->invalid_inst_src;
+    
     ZigList<IrInstSrc *> incoming_values = {0};
     ZigList<IrBasicBlockSrc *> incoming_blocks = {0};
     ScopeLoop *loop_scope = create_loop_scope(irb->codegen, node, child_scope);
@@ -8519,6 +8572,10 @@ static IrInstSrc *ir_gen_for_expr(IrBuilderSrc *irb, Scope *parent_scope, AstNod
     IrInstSrc *body_result = ir_gen_node(irb, body_node, &loop_scope->base);
     if (body_result == irb->codegen->invalid_inst_src)
         return irb->codegen->invalid_inst_src;
+
+    if (loop_scope->name != nullptr && loop_scope->name_used == false) {
+        add_node_error(irb->codegen, node, buf_sprintf("unused for label"));
+    }
 
     if (!instr_is_unreachable(body_result)) {
         ir_mark_gen(ir_build_check_statement_is_void(irb, child_scope, node->data.for_expr.body, body_result));
@@ -9464,6 +9521,7 @@ static IrInstSrc *ir_gen_break(IrBuilderSrc *irb, Scope *break_scope, AstNode *n
             if (node->data.break_expr.name == nullptr ||
                 (this_loop_scope->name != nullptr && buf_eql_buf(node->data.break_expr.name, this_loop_scope->name)))
             {
+                this_loop_scope->name_used = true;
                 loop_scope = this_loop_scope;
                 break;
             }
@@ -9473,6 +9531,7 @@ static IrInstSrc *ir_gen_break(IrBuilderSrc *irb, Scope *break_scope, AstNode *n
                 (this_block_scope->name != nullptr && buf_eql_buf(node->data.break_expr.name, this_block_scope->name)))
             {
                 assert(this_block_scope->end_block != nullptr);
+                this_block_scope->name_used = true;
                 return ir_gen_return_from_block(irb, break_scope, node, this_block_scope);
             }
         } else if (search_scope->id == ScopeIdSuspend) {
@@ -9540,6 +9599,7 @@ static IrInstSrc *ir_gen_continue(IrBuilderSrc *irb, Scope *continue_scope, AstN
             if (node->data.continue_expr.name == nullptr ||
                 (this_loop_scope->name != nullptr && buf_eql_buf(node->data.continue_expr.name, this_loop_scope->name)))
             {
+                this_loop_scope->name_used = true;
                 loop_scope = this_loop_scope;
                 break;
             }

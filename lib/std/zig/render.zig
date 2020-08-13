@@ -2385,7 +2385,7 @@ fn renderTokenOffset(
         }
     }
 
-    if (next_token_id != .LineComment) blk: {
+    if (next_token_id != .LineComment) {
         switch (space) {
             Space.None, Space.NoNewline => return,
             Space.Newline => {

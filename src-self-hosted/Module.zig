@@ -2811,7 +2811,7 @@ pub fn floatAdd(self: *Module, scope: *Scope, float_type: Type, src: usize, lhs:
             val_payload.* = .{ .val = lhs_val + rhs_val };
             break :blk &val_payload.base;
         },
-        128 => blk: {
+        128 => {
             return self.fail(scope, src, "TODO Implement addition for big floats", .{});
         },
         else => unreachable,
@@ -2845,7 +2845,7 @@ pub fn floatSub(self: *Module, scope: *Scope, float_type: Type, src: usize, lhs:
             val_payload.* = .{ .val = lhs_val - rhs_val };
             break :blk &val_payload.base;
         },
-        128 => blk: {
+        128 => {
             return self.fail(scope, src, "TODO Implement substraction for big floats", .{});
         },
         else => unreachable,
