@@ -628,6 +628,46 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
         error.UnsupportedType,
         => return failDecl(c, fn_decl_loc, fn_name, "unable to translate function", .{}),
     };
+    // add return statement if the function didn't have one
+    blk: {
+        const fn_ty = @ptrCast(*const ZigClangFunctionType, fn_type);
+
+        if (ZigClangFunctionType_getNoReturnAttr(fn_ty)) break :blk;
+        const return_qt = ZigClangFunctionType_getReturnType(fn_ty);
+        if (isCVoid(return_qt)) break :blk;
+
+        if (block_scope.statements.items.len > 0) {
+            var last = block_scope.statements.items[block_scope.statements.items.len - 1];
+            while (true) {
+                switch (last.tag) {
+                    .Block => {
+                        const stmts = last.castTag(.Block).?.statements();
+                        if (stmts.len == 0) break;
+
+                        last = stmts[stmts.len - 1];
+                    },
+                    // no extra return needed
+                    .Return => break :blk,
+                    else => break,
+                }
+            }
+        }
+
+        const return_expr = try ast.Node.ControlFlowExpression.create(rp.c.arena, .{
+            .ltoken = try appendToken(rp.c, .Keyword_return, "return"),
+            .tag = .Return,
+        }, .{
+            .rhs = transZeroInitExpr(rp, scope, fn_decl_loc, ZigClangQualType_getTypePtr(return_qt)) catch |err| switch (err) {
+                error.OutOfMemory => |e| return e,
+                error.UnsupportedTranslation,
+                error.UnsupportedType,
+                => return failDecl(c, fn_decl_loc, fn_name, "unable to create a return value for function", .{}),
+            },
+        });
+        _ = try appendToken(rp.c, .Semicolon, ";");
+        try block_scope.statements.append(&return_expr.base);
+    }
+
     const body_node = try block_scope.complete(rp.c);
     proto_node.setTrailer("body_node", &body_node.base);
     return addTopLevelDecl(c, fn_name, &proto_node.base);

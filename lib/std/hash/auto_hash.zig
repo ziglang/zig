@@ -129,7 +129,7 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
             }
         },
 
-        .Union => |info| blk: {
+        .Union => |info| {
             if (info.tag_type) |tag_type| {
                 const tag = meta.activeTag(key);
                 const s = hash(hasher, tag, strat);
