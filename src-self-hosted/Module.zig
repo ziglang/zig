@@ -2200,8 +2200,11 @@ pub fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) Inn
     };
 
     const decl_tv = try decl.typedValue();
-    const ty_payload = try scope.arena().create(Type.Payload.SingleConstPointer);
-    ty_payload.* = .{ .pointee_type = decl_tv.ty };
+    const ty_payload = try scope.arena().create(Type.Payload.Pointer);
+    ty_payload.* = .{
+        .base = .{ .tag = .single_const_pointer },
+        .pointee_type = decl_tv.ty,
+    };
     const val_payload = try scope.arena().create(Value.Payload.DeclRef);
     val_payload.* = .{ .decl = decl };
 
@@ -2425,6 +2428,16 @@ pub fn cmpNumeric(
     return self.addBinOp(b, src, Type.initTag(.bool), Inst.Tag.fromCmpOp(op), casted_lhs, casted_rhs);
 }
 
+fn wrapOptional(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
+    if (inst.value()) |val| {
+        return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
+    }
+
+    // TODO how do we get the result location
+    const b = try self.requireRuntimeBlock(scope, inst.src);
+    return self.addUnOp(b, inst.src, dest_type, .wrap_optional, inst);
+}
+
 fn makeIntType(self: *Module, scope: *Scope, signed: bool, bits: u16) !Type {
     if (signed) {
         const int_payload = try scope.arena().create(Type.Payload.IntSigned);
@@ -2502,14 +2515,12 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
 
     // T to ?T
     if (dest_type.zigTypeTag() == .Optional) {
-        const child_type = dest_type.elemType();
-        if (inst.value()) |val| {
-            if (child_type.eql(inst.ty)) {
-                return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
-            }
-            return self.fail(scope, inst.src, "TODO optional wrap {} to {}", .{ val, dest_type });
-        } else if (child_type.eql(inst.ty)) {
-            return self.fail(scope, inst.src, "TODO optional wrap {}", .{dest_type});
+        var buf: Type.Payload.Pointer = undefined;
+        const child_type = dest_type.optionalChild(&buf);
+        if (child_type.eql(inst.ty)) {
+            return self.wrapOptional(scope, dest_type, inst);
+        } else if (try self.coerceNum(scope, child_type, inst)) |some| {
+            return self.wrapOptional(scope, dest_type, some);
         }
     }
 
@@ -2527,39 +2538,8 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
     }
 
     // comptime known number to other number
-    if (inst.value()) |val| {
-        const src_zig_tag = inst.ty.zigTypeTag();
-        const dst_zig_tag = dest_type.zigTypeTag();
-
-        if (dst_zig_tag == .ComptimeInt or dst_zig_tag == .Int) {
-            if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
-                if (val.floatHasFraction()) {
-                    return self.fail(scope, inst.src, "fractional component prevents float value {} from being casted to type '{}'", .{ val, inst.ty });
-                }
-                return self.fail(scope, inst.src, "TODO float to int", .{});
-            } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
-                if (!val.intFitsInType(dest_type, self.target())) {
-                    return self.fail(scope, inst.src, "type {} cannot represent integer value {}", .{ inst.ty, val });
-                }
-                return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
-            }
-        } else if (dst_zig_tag == .ComptimeFloat or dst_zig_tag == .Float) {
-            if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
-                const res = val.floatCast(scope.arena(), dest_type, self.target()) catch |err| switch (err) {
-                    error.Overflow => return self.fail(
-                        scope,
-                        inst.src,
-                        "cast of value {} to type '{}' loses information",
-                        .{ val, dest_type },
-                    ),
-                    error.OutOfMemory => return error.OutOfMemory,
-                };
-                return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = res });
-            } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
-                return self.fail(scope, inst.src, "TODO int to float", .{});
-            }
-        }
-    }
+    if (try self.coerceNum(scope, dest_type, inst)) |some|
+        return some;
 
     // integer widening
     if (inst.ty.zigTypeTag() == .Int and dest_type.zigTypeTag() == .Int) {
@@ -2589,6 +2569,42 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
     }
 
     return self.fail(scope, inst.src, "expected {}, found {}", .{ dest_type, inst.ty });
+}
+
+pub fn coerceNum(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !?*Inst {
+    const val = inst.value() orelse return null;
+    const src_zig_tag = inst.ty.zigTypeTag();
+    const dst_zig_tag = dest_type.zigTypeTag();
+
+    if (dst_zig_tag == .ComptimeInt or dst_zig_tag == .Int) {
+        if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
+            if (val.floatHasFraction()) {
+                return self.fail(scope, inst.src, "fractional component prevents float value {} from being casted to type '{}'", .{ val, inst.ty });
+            }
+            return self.fail(scope, inst.src, "TODO float to int", .{});
+        } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
+            if (!val.intFitsInType(dest_type, self.target())) {
+                return self.fail(scope, inst.src, "type {} cannot represent integer value {}", .{ inst.ty, val });
+            }
+            return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
+        }
+    } else if (dst_zig_tag == .ComptimeFloat or dst_zig_tag == .Float) {
+        if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
+            const res = val.floatCast(scope.arena(), dest_type, self.target()) catch |err| switch (err) {
+                error.Overflow => return self.fail(
+                    scope,
+                    inst.src,
+                    "cast of value {} to type '{}' loses information",
+                    .{ val, dest_type },
+                ),
+                error.OutOfMemory => return error.OutOfMemory,
+            };
+            return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = res });
+        } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
+            return self.fail(scope, inst.src, "TODO int to float", .{});
+        }
+    }
+    return null;
 }
 
 pub fn storePtr(self: *Module, scope: *Scope, src: usize, ptr: *Inst, uncasted_value: *Inst) !*Inst {
@@ -2878,15 +2894,12 @@ pub fn floatSub(self: *Module, scope: *Scope, float_type: Type, src: usize, lhs:
     return Value.initPayload(val_payload);
 }
 
-pub fn singleMutPtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type) error{OutOfMemory}!Type {
-    const type_payload = try scope.arena().create(Type.Payload.SingleMutPointer);
-    type_payload.* = .{ .pointee_type = elem_ty };
-    return Type.initPayload(&type_payload.base);
-}
-
-pub fn singleConstPtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type) error{OutOfMemory}!Type {
-    const type_payload = try scope.arena().create(Type.Payload.SingleConstPointer);
-    type_payload.* = .{ .pointee_type = elem_ty };
+pub fn singlePtrType(self: *Module, scope: *Scope, src: usize, mutable: bool, elem_ty: Type) error{OutOfMemory}!Type {
+    const type_payload = try scope.arena().create(Type.Payload.Pointer);
+    type_payload.* = .{
+        .base = .{ .tag = if (mutable) .single_mut_pointer else .single_const_pointer },
+        .pointee_type = elem_ty,
+    };
     return Type.initPayload(&type_payload.base);
 }
 

@@ -83,6 +83,7 @@ pub const Inst = struct {
         floatcast,
         intcast,
         unwrap_optional,
+        wrap_optional,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
@@ -104,6 +105,7 @@ pub const Inst = struct {
                 .intcast,
                 .load,
                 .unwrap_optional,
+                .wrap_optional,
                 => UnOp,
 
                 .add,

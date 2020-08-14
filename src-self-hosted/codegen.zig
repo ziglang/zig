@@ -682,6 +682,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .sub => return self.genSub(inst.castTag(.sub).?),
                 .unreach => return MCValue{ .unreach = {} },
                 .unwrap_optional => return self.genUnwrapOptional(inst.castTag(.unwrap_optional).?),
+                .wrap_optional => return self.genWrapOptional(inst.castTag(.wrap_optional).?),
             }
         }
 
@@ -837,6 +838,22 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 return MCValue.dead;
             switch (arch) {
                 else => return self.fail(inst.base.src, "TODO implement unwrap optional for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        fn genWrapOptional(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            const optional_ty = inst.base.ty;
+
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+
+            // Optional type is just a boolean true
+            if (optional_ty.abiSize(self.target.*) == 1)
+                return MCValue{ .immediate = 1 };
+
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement wrap optional for {}", .{self.target.cpu.arch}),
             }
         }
 
@@ -2028,9 +2045,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return mcv;
         }
 
-        fn genTypedValue(self: *Self, src: usize, typed_value: TypedValue) !MCValue {
+        fn genTypedValue(self: *Self, src: usize, typed_value: TypedValue) error{ CodegenFail, OutOfMemory }!MCValue {
             if (typed_value.val.isUndef())
-                return MCValue.undef;
+                return MCValue{ .undef = {} };
             const ptr_bits = self.target.cpu.arch.ptrBitWidth();
             const ptr_bytes: u64 = @divExact(ptr_bits, 8);
             switch (typed_value.ty.zigTypeTag()) {
@@ -2055,6 +2072,21 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 .ComptimeInt => unreachable, // semantic analysis prevents this
                 .ComptimeFloat => unreachable, // semantic analysis prevents this
+                .Optional => {
+                    if (typed_value.ty.isPtrLikeOptional()) {
+                        if (typed_value.val.isNull())
+                            return MCValue{ .immediate = 0 };
+
+                        var buf: Type.Payload.Pointer = undefined;
+                        return self.genTypedValue(src, .{
+                            .ty = typed_value.ty.optionalChild(&buf),
+                            .val = typed_value.val,
+                        });
+                    } else if (typed_value.ty.abiSize(self.target.*) == 1) {
+                        return MCValue{ .immediate = @boolToInt(typed_value.val.isNull()) };
+                    }
+                    return self.fail(src, "TODO non pointer optionals", .{});
+                },
                 else => return self.fail(src, "TODO implement const of type '{}'", .{typed_value.ty}),
             }
         }

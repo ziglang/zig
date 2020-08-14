@@ -870,7 +870,7 @@ fn identifier(mod: *Module, scope: *Scope, rl: ResultLoc, ident: *ast.Node.OneTo
                     const int_type_payload = try scope.arena().create(Value.Payload.IntType);
                     int_type_payload.* = .{ .signed = is_signed, .bits = bit_count };
                     const result = try addZIRInstConst(mod, scope, src, .{
-                        .ty = Type.initTag(.comptime_int),
+                        .ty = Type.initTag(.type),
                         .val = Value.initPayload(&int_type_payload.base),
                     });
                     return rlWrap(mod, scope, rl, result);

@@ -2017,6 +2017,7 @@ const EmitZIR = struct {
                 .load => try self.emitUnOp(inst.src, new_body, inst.castTag(.load).?, .deref),
                 .ref => try self.emitUnOp(inst.src, new_body, inst.castTag(.ref).?, .ref),
                 .unwrap_optional => try self.emitUnOp(inst.src, new_body, inst.castTag(.unwrap_optional).?, .unwrap_optional_unsafe),
+                .wrap_optional => try self.emitCast(inst.src, new_body, inst.castTag(.wrap_optional).?, .as),
 
                 .add => try self.emitBinOp(inst.src, new_body, inst.castTag(.add).?, .add),
                 .sub => try self.emitBinOp(inst.src, new_body, inst.castTag(.sub).?, .sub),
@@ -2360,6 +2361,7 @@ const EmitZIR = struct {
                     }
                 },
                 .Optional => {
+                    var buf: Type.Payload.Pointer = undefined;
                     const inst = try self.arena.allocator.create(Inst.UnOp);
                     inst.* = .{
                         .base = .{
@@ -2367,7 +2369,7 @@ const EmitZIR = struct {
                             .tag = .optional_type,
                         },
                         .positionals = .{
-                            .operand = (try self.emitType(src, ty.elemType())).inst,
+                            .operand = (try self.emitType(src, ty.optionalChild(&buf))).inst,
                         },
                         .kw_args = .{},
                     };

@@ -107,6 +107,17 @@ pub const Type = extern union {
         return @fieldParentPtr(T, "base", self.ptr_otherwise);
     }
 
+    pub fn castPointer(self: Type) ?*Payload.Pointer {
+        return switch (self.tag()) {
+            .single_const_pointer,
+            .single_mut_pointer,
+            .optional_single_const_pointer,
+            .optional_single_mut_pointer,
+            => @fieldParentPtr(Payload.Pointer, "base", self.ptr_otherwise),
+            else => null,
+        };
+    }
+
     pub fn eql(a: Type, b: Type) bool {
         // As a shortcut, if the small tags / addresses match, we're done.
         if (a.tag_if_small_enough == b.tag_if_small_enough)
@@ -126,8 +137,8 @@ pub const Type = extern union {
             .Null => return true,
             .Pointer => {
                 // Hot path for common case:
-                if (a.cast(Payload.SingleConstPointer)) |a_payload| {
-                    if (b.cast(Payload.SingleConstPointer)) |b_payload| {
+                if (a.castPointer()) |a_payload| {
+                    if (b.castPointer()) |b_payload| {
                         return eql(a_payload.pointee_type, b_payload.pointee_type);
                     }
                 }
@@ -185,7 +196,9 @@ pub const Type = extern union {
                 return true;
             },
             .Optional => {
-                return a.elemType().eql(b.elemType());
+                var buf_a: Payload.Pointer = undefined;
+                var buf_b: Payload.Pointer = undefined;
+                return a.optionalChild(&buf_a).eql(b.optionalChild(&buf_b));
             },
             .Float,
             .Struct,
@@ -249,7 +262,8 @@ pub const Type = extern union {
                 }
             },
             .Optional => {
-                std.hash.autoHash(&hasher, self.elemType().hash());
+                var buf: Payload.Pointer = undefined;
+                std.hash.autoHash(&hasher, self.optionalChild(&buf).hash());
             },
             .Float,
             .Struct,
@@ -326,8 +340,6 @@ pub const Type = extern union {
                 };
                 return Type{ .ptr_otherwise = &new_payload.base };
             },
-            .single_const_pointer => return self.copyPayloadSingleField(allocator, Payload.SingleConstPointer, "pointee_type"),
-            .single_mut_pointer => return self.copyPayloadSingleField(allocator, Payload.SingleMutPointer, "pointee_type"),
             .int_signed => return self.copyPayloadShallow(allocator, Payload.IntSigned),
             .int_unsigned => return self.copyPayloadShallow(allocator, Payload.IntUnsigned),
             .function => {
@@ -346,8 +358,11 @@ pub const Type = extern union {
                 return Type{ .ptr_otherwise = &new_payload.base };
             },
             .optional => return self.copyPayloadSingleField(allocator, Payload.Optional, "child_type"),
-            .optional_single_mut_pointer => return self.copyPayloadSingleField(allocator, Payload.OptionalSingleMutPointer, "pointee_type"),
-            .optional_single_const_pointer => return self.copyPayloadSingleField(allocator, Payload.OptionalSingleConstPointer, "pointee_type"),
+            .single_const_pointer,
+            .single_mut_pointer,
+            .optional_single_mut_pointer,
+            .optional_single_const_pointer,
+             => return self.copyPayloadSingleField(allocator, Payload.Pointer, "pointee_type"),
         }
     }
 
@@ -441,13 +456,13 @@ pub const Type = extern union {
                     continue;
                 },
                 .single_const_pointer => {
-                    const payload = @fieldParentPtr(Payload.SingleConstPointer, "base", ty.ptr_otherwise);
+                    const payload = @fieldParentPtr(Payload.Pointer, "base", ty.ptr_otherwise);
                     try out_stream.writeAll("*const ");
                     ty = payload.pointee_type;
                     continue;
                 },
                 .single_mut_pointer => {
-                    const payload = @fieldParentPtr(Payload.SingleMutPointer, "base", ty.ptr_otherwise);
+                    const payload = @fieldParentPtr(Payload.Pointer, "base", ty.ptr_otherwise);
                     try out_stream.writeAll("*");
                     ty = payload.pointee_type;
                     continue;
@@ -467,13 +482,13 @@ pub const Type = extern union {
                     continue;
                 },
                 .optional_single_const_pointer => {
-                    const payload = @fieldParentPtr(Payload.OptionalSingleConstPointer, "base", ty.ptr_otherwise);
+                    const payload = @fieldParentPtr(Payload.Pointer, "base", ty.ptr_otherwise);
                     try out_stream.writeAll("?*const ");
                     ty = payload.pointee_type;
                     continue;
                 },
                 .optional_single_mut_pointer => {
-                    const payload = @fieldParentPtr(Payload.OptionalSingleMutPointer, "base", ty.ptr_otherwise);
+                    const payload = @fieldParentPtr(Payload.Pointer, "base", ty.ptr_otherwise);
                     try out_stream.writeAll("?*");
                     ty = payload.pointee_type;
                     continue;
@@ -658,7 +673,8 @@ pub const Type = extern union {
             },
 
             .optional => {
-                const child_type = self.cast(Payload.Optional).?.child_type;
+                var buf: Payload.Pointer = undefined;
+                const child_type = self.optionalChild(&buf);
                 if (!child_type.hasCodeGenBits()) return 1;
 
                 if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr())
@@ -750,7 +766,8 @@ pub const Type = extern union {
             },
 
             .optional => {
-                const child_type = self.cast(Payload.Optional).?.child_type;
+                var buf: Payload.Pointer = undefined;
+                const child_type = self.optionalChild(&buf);
                 if (!child_type.hasCodeGenBits()) return 1;
 
                 if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr())
@@ -990,7 +1007,23 @@ pub const Type = extern union {
         };
     }
 
-    /// Asserts the type is a pointer, optional or array type.
+    /// Asserts that the type is an optional
+    pub fn isPtrLikeOptional(self: Type) bool {
+        switch (self.tag()) {
+            .optional_single_const_pointer, .optional_single_mut_pointer => return true,
+            .optional => {
+                var buf: Payload.Pointer = undefined;
+                const child_type = self.optionalChild(&buf);
+                // optionals of zero sized pointers behave like bools
+                if (!child_type.hasCodeGenBits()) return false;
+
+                return child_type.zigTypeTag() == .Pointer and !child_type.isCPtr();
+            },
+            else => unreachable,
+        }
+    }
+
+    /// Asserts the type is a pointer or array type.
     pub fn elemType(self: Type) Type {
         return switch (self.tag()) {
             .u8,
@@ -1033,16 +1066,38 @@ pub const Type = extern union {
             .function,
             .int_unsigned,
             .int_signed,
+            .optional,
+            .optional_single_const_pointer,
+            .optional_single_mut_pointer,
             => unreachable,
 
             .array => self.cast(Payload.Array).?.elem_type,
-            .single_const_pointer => self.cast(Payload.SingleConstPointer).?.pointee_type,
-            .single_mut_pointer => self.cast(Payload.SingleMutPointer).?.pointee_type,
+            .single_const_pointer => self.castPointer().?.pointee_type,
+            .single_mut_pointer => self.castPointer().?.pointee_type,
             .array_u8_sentinel_0, .const_slice_u8 => Type.initTag(.u8),
             .single_const_pointer_to_comptime_int => Type.initTag(.comptime_int),
+        };
+    }
+
+    /// Asserts that the type is an optional.
+    pub fn optionalChild(self: Type, buf: *Payload.Pointer) Type {
+        return switch (self.tag()) {
             .optional => self.cast(Payload.Optional).?.child_type,
-            .optional_single_mut_pointer => self.cast(Payload.OptionalSingleMutPointer).?.pointee_type,
-            .optional_single_const_pointer => self.cast(Payload.OptionalSingleConstPointer).?.pointee_type,
+            .optional_single_mut_pointer => {
+                buf.* = .{
+                    .base = .{ .tag = .single_mut_pointer },
+                    .pointee_type = self.castPointer().?.pointee_type
+                };
+                return Type.initPayload(&buf.base);
+            },
+            .optional_single_const_pointer => {
+                buf.* = .{
+                    .base = .{ .tag = .single_const_pointer },
+                    .pointee_type = self.castPointer().?.pointee_type
+                };
+                return Type.initPayload(&buf.base);
+            },
+            else => unreachable,
         };
     }
 
@@ -1901,13 +1956,8 @@ pub const Type = extern union {
                 ty = array.elem_type;
                 continue;
             },
-            .single_const_pointer => {
-                const ptr = ty.cast(Payload.SingleConstPointer).?;
-                ty = ptr.pointee_type;
-                continue;
-            },
-            .single_mut_pointer => {
-                const ptr = ty.cast(Payload.SingleMutPointer).?;
+            .single_const_pointer, .single_mut_pointer => {
+                const ptr = ty.castPointer().?;
                 ty = ptr.pointee_type;
                 continue;
             },
@@ -2049,14 +2099,8 @@ pub const Type = extern union {
             len: u64,
         };
 
-        pub const SingleConstPointer = struct {
-            base: Payload = Payload{ .tag = .single_const_pointer },
-
-            pointee_type: Type,
-        };
-
-        pub const SingleMutPointer = struct {
-            base: Payload = Payload{ .tag = .single_mut_pointer },
+        pub const Pointer = struct {
+            base: Payload,
 
             pointee_type: Type,
         };
@@ -2085,18 +2129,6 @@ pub const Type = extern union {
             base: Payload = Payload{ .tag = .optional },
 
             child_type: Type,
-        };
-
-        pub const OptionalSingleConstPointer = struct {
-            base: Payload = Payload{ .tag = .optional_single_const_pointer },
-
-            pointee_type: Type,
-        };
-
-        pub const OptionalSingleMutPointer = struct {
-            base: Payload = Payload{ .tag = .optional_single_mut_pointer },
-
-            pointee_type: Type,
         };
     };
 };
