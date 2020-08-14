@@ -63,8 +63,8 @@ test "crypto" {
     _ = @import("crypto/25519/curve25519.zig");
     _ = @import("crypto/25519/ed25519.zig");
     _ = @import("crypto/25519/edwards25519.zig");
-    _ = @import("crypto/25519/field25519.zig");
-    _ = @import("crypto/25519/scalar25519.zig");
+    _ = @import("crypto/25519/field.zig");
+    _ = @import("crypto/25519/scalar.zig");
     _ = @import("crypto/25519/x25519.zig");
     _ = @import("crypto/25519/ristretto255.zig");
 }
