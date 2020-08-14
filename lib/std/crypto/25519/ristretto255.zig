@@ -10,7 +10,7 @@ pub const Ristretto255 = struct {
     /// Field arithmetic mod the order of the main subgroup.
     pub const scalar = Curve.scalar;
 
-    p: Curve = undefined,
+    p: Curve,
 
     fn sqrtRatioM1(u: Fe, v: Fe) !Fe {
         const v3 = v.sq().mul(v); // v^3
