@@ -1345,8 +1345,8 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
 
                 _ = try astgen.blockExpr(self, params_scope, .none, body_block);
 
-                if (!fn_type.fnReturnType().isNoReturn() and (gen_scope.instructions.items.len == 0 or
-                    !gen_scope.instructions.items[gen_scope.instructions.items.len - 1].tag.isNoReturn()))
+                if (gen_scope.instructions.items.len == 0 or
+                    !gen_scope.instructions.items[gen_scope.instructions.items.len - 1].tag.isNoReturn())
                 {
                     const src = tree.token_locs[body_block.rbrace].start;
                     _ = try astgen.addZIRNoOp(self, &gen_scope.base, src, .returnvoid);
