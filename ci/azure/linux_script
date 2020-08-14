@@ -14,7 +14,7 @@ sudo apt-get remove -y llvm-*
 sudo rm -rf /usr/local/*
 sudo apt-get install -y libxml2-dev libclang-10-dev llvm-10 llvm-10-dev liblld-10-dev cmake s3cmd gcc-7 g++-7 ninja-build tidy
 
-QEMUBASE="qemu-linux-x86_64-5.0.0-49ee115552"
+QEMUBASE="qemu-linux-x86_64-5.1.0"
 wget https://ziglang.org/deps/$QEMUBASE.tar.xz
 tar xf $QEMUBASE.tar.xz
 PATH=$PWD/$QEMUBASE/bin:$PATH
