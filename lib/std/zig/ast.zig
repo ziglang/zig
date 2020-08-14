@@ -526,6 +526,7 @@ pub const Node = struct {
         Comptime,
         Nosuspend,
         Block,
+        LabeledBlock,
 
         // Misc
         DocComment,
@@ -654,6 +655,7 @@ pub const Node = struct {
                 .Comptime => Comptime,
                 .Nosuspend => Nosuspend,
                 .Block => Block,
+                .LabeledBlock => LabeledBlock,
                 .DocComment => DocComment,
                 .SwitchCase => SwitchCase,
                 .SwitchElse => SwitchElse,
@@ -664,6 +666,13 @@ pub const Node = struct {
                 .ContainerField => ContainerField,
                 .ErrorTag => ErrorTag,
                 .FieldInitializer => FieldInitializer,
+            };
+        }
+
+        pub fn isBlock(tag: Tag) bool {
+            return switch (tag) {
+                .Block, .LabeledBlock => true,
+                else => false,
             };
         }
     };
@@ -729,6 +738,7 @@ pub const Node = struct {
                 .Root,
                 .ContainerField,
                 .Block,
+                .LabeledBlock,
                 .Payload,
                 .PointerPayload,
                 .PointerIndexPayload,
@@ -739,6 +749,7 @@ pub const Node = struct {
                 .DocComment,
                 .TestDecl,
                 => return false,
+
                 .While => {
                     const while_node = @fieldParentPtr(While, "base", n);
                     if (while_node.@"else") |@"else"| {
@@ -746,7 +757,7 @@ pub const Node = struct {
                         continue;
                     }
 
-                    return while_node.body.tag != .Block;
+                    return !while_node.body.tag.isBlock();
                 },
                 .For => {
                     const for_node = @fieldParentPtr(For, "base", n);
@@ -755,7 +766,7 @@ pub const Node = struct {
                         continue;
                     }
 
-                    return for_node.body.tag != .Block;
+                    return !for_node.body.tag.isBlock();
                 },
                 .If => {
                     const if_node = @fieldParentPtr(If, "base", n);
@@ -764,7 +775,7 @@ pub const Node = struct {
                         continue;
                     }
 
-                    return if_node.body.tag != .Block;
+                    return !if_node.body.tag.isBlock();
                 },
                 .Else => {
                     const else_node = @fieldParentPtr(Else, "base", n);
@@ -773,26 +784,37 @@ pub const Node = struct {
                 },
                 .Defer => {
                     const defer_node = @fieldParentPtr(Defer, "base", n);
-                    return defer_node.expr.tag != .Block;
+                    return !defer_node.expr.tag.isBlock();
                 },
                 .Comptime => {
                     const comptime_node = @fieldParentPtr(Comptime, "base", n);
-                    return comptime_node.expr.tag != .Block;
+                    return !comptime_node.expr.tag.isBlock();
                 },
                 .Suspend => {
                     const suspend_node = @fieldParentPtr(Suspend, "base", n);
                     if (suspend_node.body) |body| {
-                        return body.tag != .Block;
+                        return !body.tag.isBlock();
                     }
 
                     return true;
                 },
                 .Nosuspend => {
                     const nosuspend_node = @fieldParentPtr(Nosuspend, "base", n);
-                    return nosuspend_node.expr.tag != .Block;
+                    return !nosuspend_node.expr.tag.isBlock();
                 },
                 else => return true,
             }
+        }
+    }
+
+    /// Asserts the node is a Block or LabeledBlock and returns the statements slice.
+    pub fn blockStatements(base: *Node) []*Node {
+        if (base.castTag(.Block)) |block| {
+            return block.statements();
+        } else if (base.castTag(.LabeledBlock)) |labeled_block| {
+            return labeled_block.statements();
+        } else {
+            unreachable;
         }
     }
 
@@ -1460,7 +1482,6 @@ pub const Node = struct {
         statements_len: NodeIndex,
         lbrace: TokenIndex,
         rbrace: TokenIndex,
-        label: ?TokenIndex,
 
         /// After this the caller must initialize the statements list.
         pub fn alloc(allocator: *mem.Allocator, statements_len: NodeIndex) !*Block {
@@ -1483,10 +1504,6 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: *const Block) TokenIndex {
-            if (self.label) |label| {
-                return label;
-            }
-
             return self.lbrace;
         }
 
@@ -1506,6 +1523,57 @@ pub const Node = struct {
 
         fn sizeInBytes(statements_len: NodeIndex) usize {
             return @sizeOf(Block) + @sizeOf(*Node) * @as(usize, statements_len);
+        }
+    };
+
+    /// The statements of the block follow LabeledBlock directly in memory.
+    pub const LabeledBlock = struct {
+        base: Node = Node{ .tag = .LabeledBlock },
+        statements_len: NodeIndex,
+        lbrace: TokenIndex,
+        rbrace: TokenIndex,
+        label: TokenIndex,
+
+        /// After this the caller must initialize the statements list.
+        pub fn alloc(allocator: *mem.Allocator, statements_len: NodeIndex) !*LabeledBlock {
+            const bytes = try allocator.alignedAlloc(u8, @alignOf(LabeledBlock), sizeInBytes(statements_len));
+            return @ptrCast(*LabeledBlock, bytes.ptr);
+        }
+
+        pub fn free(self: *LabeledBlock, allocator: *mem.Allocator) void {
+            const bytes = @ptrCast([*]u8, self)[0..sizeInBytes(self.statements_len)];
+            allocator.free(bytes);
+        }
+
+        pub fn iterate(self: *const LabeledBlock, index: usize) ?*Node {
+            var i = index;
+
+            if (i < self.statements_len) return self.statementsConst()[i];
+            i -= self.statements_len;
+
+            return null;
+        }
+
+        pub fn firstToken(self: *const LabeledBlock) TokenIndex {
+            return self.label;
+        }
+
+        pub fn lastToken(self: *const LabeledBlock) TokenIndex {
+            return self.rbrace;
+        }
+
+        pub fn statements(self: *LabeledBlock) []*Node {
+            const decls_start = @ptrCast([*]u8, self) + @sizeOf(LabeledBlock);
+            return @ptrCast([*]*Node, decls_start)[0..self.statements_len];
+        }
+
+        pub fn statementsConst(self: *const LabeledBlock) []const *Node {
+            const decls_start = @ptrCast([*]const u8, self) + @sizeOf(LabeledBlock);
+            return @ptrCast([*]const *Node, decls_start)[0..self.statements_len];
+        }
+
+        fn sizeInBytes(statements_len: NodeIndex) usize {
+            return @sizeOf(LabeledBlock) + @sizeOf(*Node) * @as(usize, statements_len);
         }
     };
 

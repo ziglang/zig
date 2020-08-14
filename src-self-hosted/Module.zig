@@ -1343,7 +1343,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
 
                 const body_block = body_node.cast(ast.Node.Block).?;
 
-                _ = try astgen.blockExpr(self, params_scope, .none, body_block);
+                try astgen.blockExpr(self, params_scope, body_block);
 
                 if (gen_scope.instructions.items.len == 0 or
                     !gen_scope.instructions.items[gen_scope.instructions.items.len - 1].tag.isNoReturn())
