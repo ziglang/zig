@@ -13,9 +13,8 @@ pub const Ristretto255 = struct {
     p: Curve = undefined,
 
     fn sqrtRatioM1(u: Fe, v: Fe) !Fe {
-        const v3 = v.sq().mul(v); // v3 = v^3
-        var x = v3.sq().mul(u).mul(v). // x = uv^7
-            pow2523().mul(v3).mul(u); // x = uv^3(uv^7)^((q-5)/8)
+        const v3 = v.sq().mul(v); // v^3
+        var x = v3.sq().mul(u).mul(v).pow2523().mul(v3).mul(u); // uv^3(uv^7)^((q-5)/8)
         const vxx = x.sq().mul(v); // vx^2
         const m_root_check = vxx.sub(u); // vx^2-u
         const p_root_check = vxx.add(u); // vx^2+u
@@ -77,7 +76,7 @@ pub const Ristretto255 = struct {
             .z = Fe.one(),
             .t = t,
         };
-        return @as(Ristretto255, .{ .p = p });
+        return Ristretto255 { .p = p };
     }
 
     /// Encode to a Ristretto255 representative.
@@ -87,25 +86,20 @@ pub const Ristretto255 = struct {
         const zmy = p.z.sub(p.y); // Z-Y
         u1_ = u1_.mul(zmy); // (Z+Y)*(Z-Y)
         const u2_ = p.x.mul(p.y); // X*Y
-
         const u1_u2u2 = u2_.sq().mul(u1_); // u1*u2^2
-
         const inv_sqrt = sqrtRatioM1(Fe.one(), u1_u2u2) catch unreachable;
         const den1 = inv_sqrt.mul(u1_);
         const den2 = inv_sqrt.mul(u2_);
         const z_inv = den1.mul(den2).mul(p.t); // den1*den2*T
-
         const ix = p.x.mul(Fe.sqrtm1()); // X*sqrt(-1)
         const iy = p.y.mul(Fe.sqrtm1()); // Y*sqrt(-1)
         const eden = den1.mul(Fe.edwards25519sqrtamd()); // den1/sqrt(a-d)
-
         const t_z_inv = p.t.mul(z_inv); // T*z_inv
-        const rotate = @boolToInt(t_z_inv.isNegative());
 
+        const rotate = @boolToInt(t_z_inv.isNegative());
         var x = p.x;
         var y = p.y;
         var den_inv = den2;
-
         x.cMov(iy, rotate);
         y.cMov(ix, rotate);
         den_inv.cMov(eden, rotate);
@@ -131,7 +125,7 @@ pub const Ristretto255 = struct {
     /// Return error.WeakPublicKey if the resulting element is
     /// the identity element.
     pub inline fn mul(p: Ristretto255, s: [32]u8) !Ristretto255 {
-        return @as(Ristretto255, .{ .p = try p.p.mul(s) });
+        return Ristretto255 { .p = try p.p.mul(s) };
     }
 };
 

@@ -76,7 +76,7 @@ pub const Curve25519 = struct {
         if (x2.isZero()) {
             return error.IdentityElement;
         }
-        return @as(Curve25519, .{ .x = x2 });
+        return Curve25519 { .x = x2 };
     }
 
     /// Multiply a Curve25519 point by a scalar after "clamping" it.
