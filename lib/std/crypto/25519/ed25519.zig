@@ -96,7 +96,7 @@ pub const Ed25519 = struct {
 
         const p = try a.neg().mul(hram);
         const check = (try Curve.basePoint().mul(s.*)).add(p).toBytes();
-        if (mem.timingSafeEqual(u8, &check, r) == false) {
+        if (mem.eql(u8, &check, r) == false) {
             return error.InvalidSignature;
         }
     }
