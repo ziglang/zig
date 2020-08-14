@@ -23,8 +23,6 @@ pub const BlockData = struct {
     relocs: std.ArrayListUnmanaged(Reloc) = .{},
 };
 
-pub const LoopData = struct { };
-
 pub const Reloc = union(enum) {
     /// The value is an offset into the `Function` `code` from the beginning.
     /// To perform the reloc, write 32-bit signed little-endian integer
@@ -556,7 +554,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genBody(self: *Self, body: ir.Body) InnerError!void {
-            const inst_table = &self.branch_stack.items[0].inst_table;
+            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+            const inst_table = &branch.inst_table;
             for (body.instructions) |inst| {
                 const new_inst = try self.genFuncInst(inst);
                 try inst_table.putNoClobber(self.gpa, inst, new_inst);
@@ -1284,6 +1283,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genCondBr(self: *Self, inst: *ir.Inst.CondBr) !MCValue {
+            // TODO Rework this so that the arch-independent logic isn't buried and duplicated.
             switch (arch) {
                 .x86_64 => {
                     try self.code.ensureCapacity(self.code.items.len + 6);
@@ -1336,6 +1336,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genX86CondBr(self: *Self, inst: *ir.Inst.CondBr, opcode: u8) !MCValue {
+            // TODO deal with liveness / deaths condbr's then_entry_deaths and else_entry_deaths
             self.code.appendSliceAssumeCapacity(&[_]u8{ 0x0f, opcode });
             const reloc = Reloc{ .rel32 = self.code.items.len };
             self.code.items.len += 4;
@@ -1360,14 +1361,36 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genLoop(self: *Self, inst: *ir.Inst.Loop) !MCValue {
-            return self.fail(inst.base.src, "TODO codegen loop", .{});
+            // A loop is a setup to be able to jump back to the beginning.
+            const start_index = self.code.items.len;
+            try self.genBody(inst.body);
+            try self.jump(inst.base.src, start_index);
+            return MCValue.unreach;
+        }
+
+        /// Send control flow to the `index` of `self.code`.
+        fn jump(self: *Self, src: usize, index: usize) !void {
+            switch (arch) {
+                .i386, .x86_64 => {
+                    try self.code.ensureCapacity(self.code.items.len + 5);
+                    if (math.cast(i8, @intCast(i32, index) - (@intCast(i32, self.code.items.len + 2)))) |delta| {
+                        self.code.appendAssumeCapacity(0xeb); // jmp rel8
+                        self.code.appendAssumeCapacity(@bitCast(u8, delta));
+                    } else |_| {
+                        const delta = @intCast(i32, index) - (@intCast(i32, self.code.items.len + 5));
+                        self.code.appendAssumeCapacity(0xe9); // jmp rel32
+                        mem.writeIntLittle(i32, self.code.addManyAsArrayAssumeCapacity(4), delta);
+                    }
+                },
+                else => return self.fail(src, "TODO implement jump for {}", .{self.target.cpu.arch}),
+            }
         }
 
         fn genBlock(self: *Self, inst: *ir.Inst.Block) !MCValue {
             if (inst.base.ty.hasCodeGenBits()) {
                 return self.fail(inst.base.src, "TODO codegen Block with non-void type", .{});
             }
-            // A block is nothing but a setup to be able to jump to the end.
+            // A block is a setup to be able to jump to the end.
             defer inst.codegen.relocs.deinit(self.gpa);
             try self.genBody(inst.body);
 

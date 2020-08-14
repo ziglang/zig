@@ -372,11 +372,11 @@ pub const Inst = struct {
         then_body: Body,
         else_body: Body,
         /// Set of instructions whose lifetimes end at the start of one of the branches.
-        /// The `true` branch is first: `deaths[0..true_death_count]`.
-        /// The `false` branch is next: `(deaths + true_death_count)[..false_death_count]`.
+        /// The `then` branch is first: `deaths[0..then_death_count]`.
+        /// The `else` branch is next: `(deaths + then_death_count)[0..else_death_count]`.
         deaths: [*]*Inst = undefined,
-        true_death_count: u32 = 0,
-        false_death_count: u32 = 0,
+        then_death_count: u32 = 0,
+        else_death_count: u32 = 0,
 
         pub fn operandCount(self: *const CondBr) usize {
             return 1;
@@ -389,6 +389,12 @@ pub const Inst = struct {
             i -= 1;
 
             return null;
+        }
+        pub fn thenDeaths(self: *const CondBr) []*Inst {
+            return self.deaths[0..self.then_death_count];
+        }
+        pub fn elseDeaths(self: *const CondBr) []*Inst {
+            return (self.deaths + self.then_death_count)[0..self.else_death_count];
         }
     };
 
@@ -411,8 +417,6 @@ pub const Inst = struct {
 
         base: Inst,
         body: Body,
-        /// This memory is reserved for codegen code to do whatever it needs to here.
-        codegen: codegen.LoopData = .{},
 
         pub fn operandCount(self: *const Loop) usize {
             return 0;

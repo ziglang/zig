@@ -301,6 +301,23 @@ pub const Fn = struct {
         body: zir.Module.Body,
         arena: std.heap.ArenaAllocator.State,
     };
+
+    /// For debugging purposes.
+    pub fn dump(self: *Fn, mod: Module) void {
+        std.debug.print("Module.Function(name={}) ", .{self.owner_decl.name});
+        switch (self.analysis) {
+            .queued => {
+                std.debug.print("queued\n", .{});
+            },
+            .in_progress => {
+                std.debug.print("in_progress\n", .{});
+            },
+            else => {
+                std.debug.print("\n", .{});
+                zir.dumpFn(mod, self);
+            },
+        }
+    }
 };
 
 pub const Scope = struct {

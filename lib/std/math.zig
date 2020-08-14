@@ -747,6 +747,7 @@ test "math.negateCast" {
 
 /// Cast an integer to a different integer type. If the value doesn't fit,
 /// return an error.
+/// TODO make this an optional not an error.
 pub fn cast(comptime T: type, x: anytype) (error{Overflow}!T) {
     comptime assert(@typeInfo(T) == .Int); // must pass an integer
     comptime assert(@typeInfo(@TypeOf(x)) == .Int); // must pass an integer

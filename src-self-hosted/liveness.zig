@@ -16,20 +16,42 @@ pub fn analyze(
     var table = std.AutoHashMap(*ir.Inst, void).init(gpa);
     defer table.deinit();
     try table.ensureCapacity(body.instructions.len);
-    try analyzeWithTable(arena, &table, body);
+    try analyzeWithTable(arena, &table, null, body);
 }
 
-fn analyzeWithTable(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Inst, void), body: ir.Body) error{OutOfMemory}!void {
+fn analyzeWithTable(
+    arena: *std.mem.Allocator,
+    table: *std.AutoHashMap(*ir.Inst, void),
+    new_set: ?*std.AutoHashMap(*ir.Inst, void),
+    body: ir.Body,
+) error{OutOfMemory}!void {
     var i: usize = body.instructions.len;
 
-    while (i != 0) {
-        i -= 1;
-        const base = body.instructions[i];
-        try analyzeInst(arena, table, base);
+    if (new_set) |ns| {
+        // We are only interested in doing this for instructions which are born
+        // before a conditional branch, so after obtaining the new set for
+        // each branch we prune the instructions which were born within.
+        while (i != 0) {
+            i -= 1;
+            const base = body.instructions[i];
+            _ = ns.remove(base);
+            try analyzeInst(arena, table, new_set, base);
+        }
+    } else {
+        while (i != 0) {
+            i -= 1;
+            const base = body.instructions[i];
+            try analyzeInst(arena, table, new_set, base);
+        }
     }
 }
 
-fn analyzeInst(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Inst, void), base: *ir.Inst) error{OutOfMemory}!void {
+fn analyzeInst(
+    arena: *std.mem.Allocator,
+    table: *std.AutoHashMap(*ir.Inst, void),
+    new_set: ?*std.AutoHashMap(*ir.Inst, void),
+    base: *ir.Inst,
+) error{OutOfMemory}!void {
     if (table.contains(base)) {
         base.deaths = 0;
     } else {
@@ -42,56 +64,70 @@ fn analyzeInst(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Inst, void
         .constant => return,
         .block => {
             const inst = base.castTag(.block).?;
-            try analyzeWithTable(arena, table, inst.body);
+            try analyzeWithTable(arena, table, new_set, inst.body);
             // We let this continue so that it can possibly mark the block as
             // unreferenced below.
         },
+        .loop => {
+            const inst = base.castTag(.loop).?;
+            try analyzeWithTable(arena, table, new_set, inst.body);
+            return; // Loop has no operands and it is always unreferenced.
+        },
         .condbr => {
             const inst = base.castTag(.condbr).?;
-            var true_table = std.AutoHashMap(*ir.Inst, void).init(table.allocator);
-            defer true_table.deinit();
-            try true_table.ensureCapacity(inst.then_body.instructions.len);
-            try analyzeWithTable(arena, &true_table, inst.then_body);
-
-            var false_table = std.AutoHashMap(*ir.Inst, void).init(table.allocator);
-            defer false_table.deinit();
-            try false_table.ensureCapacity(inst.else_body.instructions.len);
-            try analyzeWithTable(arena, &false_table, inst.else_body);
 
             // Each death that occurs inside one branch, but not the other, needs
             // to be added as a death immediately upon entering the other branch.
-            // During the iteration of the table, we additionally propagate the
-            // deaths to the parent table.
-            var true_entry_deaths = std.ArrayList(*ir.Inst).init(table.allocator);
-            defer true_entry_deaths.deinit();
-            var false_entry_deaths = std.ArrayList(*ir.Inst).init(table.allocator);
-            defer false_entry_deaths.deinit();
-            {
-                var it = false_table.iterator();
-                while (it.next()) |entry| {
-                    const false_death = entry.key;
-                    if (!true_table.contains(false_death)) {
-                        try true_entry_deaths.append(false_death);
-                        // Here we are only adding to the parent table if the following iteration
-                        // would miss it.
-                        try table.putNoClobber(false_death, {});
-                    }
+
+            var then_table = std.AutoHashMap(*ir.Inst, void).init(table.allocator);
+            defer then_table.deinit();
+            try analyzeWithTable(arena, table, &then_table, inst.then_body);
+
+            // Reset the table back to its state from before the branch.
+            for (then_table.items()) |entry| {
+                table.removeAssertDiscard(entry.key);
+            }
+
+            var else_table = std.AutoHashMap(*ir.Inst, void).init(table.allocator);
+            defer else_table.deinit();
+            try analyzeWithTable(arena, table, &else_table, inst.else_body);
+
+            var then_entry_deaths = std.ArrayList(*ir.Inst).init(table.allocator);
+            defer then_entry_deaths.deinit();
+            var else_entry_deaths = std.ArrayList(*ir.Inst).init(table.allocator);
+            defer else_entry_deaths.deinit();
+
+            for (else_table.items()) |entry| {
+                const else_death = entry.key;
+                if (!then_table.contains(else_death)) {
+                    try then_entry_deaths.append(else_death);
                 }
             }
-            {
-                var it = true_table.iterator();
-                while (it.next()) |entry| {
-                    const true_death = entry.key;
-                    try table.putNoClobber(true_death, {});
-                    if (!false_table.contains(true_death)) {
-                        try false_entry_deaths.append(true_death);
-                    }
+            // This loop is the same, except it's for the then branch, and it additionally
+            // has to put its items back into the table to undo the reset.
+            for (then_table.items()) |entry| {
+                const then_death = entry.key;
+                if (!else_table.contains(then_death)) {
+                    try else_entry_deaths.append(then_death);
+                }
+                _ = try table.put(then_death, {});
+            }
+            // Now we have to correctly populate new_set.
+            if (new_set) |ns| {
+                try ns.ensureCapacity(ns.items().len + then_table.items().len + else_table.items().len);
+                for (then_table.items()) |entry| {
+                    _ = ns.putAssumeCapacity(entry.key, {});
+                }
+                for (else_table.items()) |entry| {
+                    _ = ns.putAssumeCapacity(entry.key, {});
                 }
             }
-            inst.true_death_count = std.math.cast(@TypeOf(inst.true_death_count), true_entry_deaths.items.len) catch return error.OutOfMemory;
-            inst.false_death_count = std.math.cast(@TypeOf(inst.false_death_count), false_entry_deaths.items.len) catch return error.OutOfMemory;
-            const allocated_slice = try arena.alloc(*ir.Inst, true_entry_deaths.items.len + false_entry_deaths.items.len);
+            inst.then_death_count = std.math.cast(@TypeOf(inst.then_death_count), then_entry_deaths.items.len) catch return error.OutOfMemory;
+            inst.else_death_count = std.math.cast(@TypeOf(inst.else_death_count), else_entry_deaths.items.len) catch return error.OutOfMemory;
+            const allocated_slice = try arena.alloc(*ir.Inst, then_entry_deaths.items.len + else_entry_deaths.items.len);
             inst.deaths = allocated_slice.ptr;
+            std.mem.copy(*ir.Inst, inst.thenDeaths(), then_entry_deaths.items);
+            std.mem.copy(*ir.Inst, inst.elseDeaths(), else_entry_deaths.items);
 
             // Continue on with the instruction analysis. The following code will find the condition
             // instruction, and the deaths flag for the CondBr instruction will indicate whether the
@@ -108,6 +144,7 @@ fn analyzeInst(arena: *std.mem.Allocator, table: *std.AutoHashMap(*ir.Inst, void
             if (prev == null) {
                 // Death.
                 base.deaths |= @as(ir.Inst.DeathsInt, 1) << bit_i;
+                if (new_set) |ns| try ns.putNoClobber(operand, {});
             }
         }
     } else {

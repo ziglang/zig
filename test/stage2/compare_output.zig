@@ -465,5 +465,44 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "",
         );
+
+        // While loops
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    var i: u32 = 0;
+            \\    while (i < 4) : (i += 1) print();
+            \\    assert(i == 4);
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn print() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (1),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("hello\n")),
+            \\          [arg3] "{rdx}" (6)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "hello\nhello\nhello\nhello\n",
+        );
     }
 }

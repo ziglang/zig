@@ -822,6 +822,16 @@ pub const Module = struct {
     decls: []*Decl,
     arena: std.heap.ArenaAllocator,
     error_msg: ?ErrorMsg = null,
+    metadata: std.AutoHashMap(*Inst, MetaData),
+    body_metadata: std.AutoHashMap(*Body, BodyMetaData),
+
+    pub const MetaData = struct {
+        deaths: ir.Inst.DeathsInt,
+    };
+
+    pub const BodyMetaData = struct {
+        deaths: []*Inst,
+    };
 
     pub const Body = struct {
         instructions: []*Inst,
@@ -878,6 +888,7 @@ pub const Module = struct {
             .loop_table = std.AutoHashMap(*Inst.Loop, []const u8).init(allocator),
             .arena = std.heap.ArenaAllocator.init(allocator),
             .indent = 2,
+            .next_instr_index = undefined,
         };
         defer write.arena.deinit();
         defer write.inst_table.deinit();
@@ -889,15 +900,10 @@ pub const Module = struct {
 
         for (self.decls) |decl, decl_i| {
             try write.inst_table.putNoClobber(decl.inst, .{ .inst = decl.inst, .index = null, .name = decl.name });
-
-            if (decl.inst.cast(Inst.Fn)) |fn_inst| {
-                for (fn_inst.positionals.body.instructions) |inst, inst_i| {
-                    try write.inst_table.putNoClobber(inst, .{ .inst = inst, .index = inst_i, .name = undefined });
-                }
-            }
         }
 
         for (self.decls) |decl, i| {
+            write.next_instr_index = 0;
             try stream.print("@{} ", .{decl.name});
             try write.writeInstToStream(stream, decl.inst);
             try stream.writeByte('\n');
@@ -914,6 +920,7 @@ const Writer = struct {
     loop_table: std.AutoHashMap(*Inst.Loop, []const u8),
     arena: std.heap.ArenaAllocator,
     indent: usize,
+    next_instr_index: usize,
 
     fn writeInstToStream(
         self: *Writer,
@@ -944,7 +951,7 @@ const Writer = struct {
             if (i != 0) {
                 try stream.writeAll(", ");
             }
-            try self.writeParamToStream(stream, @field(inst.positionals, arg_field.name));
+            try self.writeParamToStream(stream, &@field(inst.positionals, arg_field.name));
         }
 
         comptime var need_comma = pos_fields.len != 0;
@@ -954,13 +961,13 @@ const Writer = struct {
                 if (@field(inst.kw_args, arg_field.name)) |non_optional| {
                     if (need_comma) try stream.writeAll(", ");
                     try stream.print("{}=", .{arg_field.name});
-                    try self.writeParamToStream(stream, non_optional);
+                    try self.writeParamToStream(stream, &non_optional);
                     need_comma = true;
                 }
             } else {
                 if (need_comma) try stream.writeAll(", ");
                 try stream.print("{}=", .{arg_field.name});
-                try self.writeParamToStream(stream, @field(inst.kw_args, arg_field.name));
+                try self.writeParamToStream(stream, &@field(inst.kw_args, arg_field.name));
                 need_comma = true;
             }
         }
@@ -968,7 +975,8 @@ const Writer = struct {
         try stream.writeByte(')');
     }
 
-    fn writeParamToStream(self: *Writer, stream: anytype, param: anytype) !void {
+    fn writeParamToStream(self: *Writer, stream: anytype, param_ptr: anytype) !void {
+        const param = param_ptr.*;
         if (@typeInfo(@TypeOf(param)) == .Enum) {
             return stream.writeAll(@tagName(param));
         }
@@ -986,18 +994,36 @@ const Writer = struct {
             },
             Module.Body => {
                 try stream.writeAll("{\n");
-                for (param.instructions) |inst, i| {
+                if (self.module.body_metadata.get(param_ptr)) |metadata| {
+                    if (metadata.deaths.len > 0) {
+                        try stream.writeByteNTimes(' ', self.indent);
+                        try stream.writeAll("; deaths={");
+                        for (metadata.deaths) |death, i| {
+                            if (i != 0) try stream.writeAll(", ");
+                            try self.writeInstParamToStream(stream, death);
+                        }
+                        try stream.writeAll("}\n");
+                    }
+                }
+
+                for (param.instructions) |inst| {
+                    const my_i = self.next_instr_index;
+                    self.next_instr_index += 1;
+                    try self.inst_table.putNoClobber(inst, .{ .inst = inst, .index = my_i, .name = undefined });
                     try stream.writeByteNTimes(' ', self.indent);
-                    try stream.print("%{} ", .{i});
+                    try stream.print("%{} ", .{my_i});
                     if (inst.cast(Inst.Block)) |block| {
-                        const name = try std.fmt.allocPrint(&self.arena.allocator, "label_{}", .{i});
+                        const name = try std.fmt.allocPrint(&self.arena.allocator, "label_{}", .{my_i});
                         try self.block_table.put(block, name);
                     } else if (inst.cast(Inst.Loop)) |loop| {
-                        const name = try std.fmt.allocPrint(&self.arena.allocator, "loop_{}", .{i});
+                        const name = try std.fmt.allocPrint(&self.arena.allocator, "loop_{}", .{my_i});
                         try self.loop_table.put(loop, name);
                     }
                     self.indent += 2;
                     try self.writeInstToStream(stream, inst);
+                    if (self.module.metadata.get(inst)) |metadata| {
+                        try stream.print(" ; deaths=0b{b}", .{metadata.deaths});
+                    }
                     self.indent -= 2;
                     try stream.writeByte('\n');
                 }
@@ -1070,6 +1096,8 @@ pub fn parse(allocator: *Allocator, source: [:0]const u8) Allocator.Error!Module
         .decls = parser.decls.toOwnedSlice(allocator),
         .arena = parser.arena,
         .error_msg = parser.error_msg,
+        .metadata = std.AutoHashMap(*Inst, Module.MetaData).init(allocator),
+        .body_metadata = std.AutoHashMap(*Module.Body, Module.BodyMetaData).init(allocator),
     };
 }
 
@@ -1478,7 +1506,11 @@ pub fn emit(allocator: *Allocator, old_module: IrModule) !Module {
         .indent = 0,
         .block_table = std.AutoHashMap(*ir.Inst.Block, *Inst.Block).init(allocator),
         .loop_table = std.AutoHashMap(*ir.Inst.Loop, *Inst.Loop).init(allocator),
+        .metadata = std.AutoHashMap(*Inst, Module.MetaData).init(allocator),
+        .body_metadata = std.AutoHashMap(*Module.Body, Module.BodyMetaData).init(allocator),
     };
+    defer ctx.metadata.deinit();
+    defer ctx.body_metadata.deinit();
     defer ctx.block_table.deinit();
     defer ctx.loop_table.deinit();
     defer ctx.decls.deinit(allocator);
@@ -1491,7 +1523,50 @@ pub fn emit(allocator: *Allocator, old_module: IrModule) !Module {
     return Module{
         .decls = ctx.decls.toOwnedSlice(allocator),
         .arena = ctx.arena,
+        .metadata = ctx.metadata,
+        .body_metadata = ctx.body_metadata,
     };
+}
+
+/// For debugging purposes, prints a function representation to stderr.
+pub fn dumpFn(old_module: IrModule, module_fn: *IrModule.Fn) void {
+    const allocator = old_module.gpa;
+    var ctx: EmitZIR = .{
+        .allocator = allocator,
+        .decls = .{},
+        .arena = std.heap.ArenaAllocator.init(allocator),
+        .old_module = &old_module,
+        .next_auto_name = 0,
+        .names = std.StringHashMap(void).init(allocator),
+        .primitive_table = std.AutoHashMap(Inst.Primitive.Builtin, *Decl).init(allocator),
+        .indent = 0,
+        .block_table = std.AutoHashMap(*ir.Inst.Block, *Inst.Block).init(allocator),
+        .loop_table = std.AutoHashMap(*ir.Inst.Loop, *Inst.Loop).init(allocator),
+        .metadata = std.AutoHashMap(*Inst, Module.MetaData).init(allocator),
+        .body_metadata = std.AutoHashMap(*Module.Body, Module.BodyMetaData).init(allocator),
+    };
+    defer ctx.metadata.deinit();
+    defer ctx.body_metadata.deinit();
+    defer ctx.block_table.deinit();
+    defer ctx.loop_table.deinit();
+    defer ctx.decls.deinit(allocator);
+    defer ctx.names.deinit();
+    defer ctx.primitive_table.deinit();
+    defer ctx.arena.deinit();
+
+    const fn_ty = module_fn.owner_decl.typed_value.most_recent.typed_value.ty;
+    _ = ctx.emitFn(module_fn, 0, fn_ty) catch |err| {
+        std.debug.print("unable to dump function: {}\n", .{err});
+        return;
+    };
+    var module = Module{
+        .decls = ctx.decls.items,
+        .arena = ctx.arena,
+        .metadata = ctx.metadata,
+        .body_metadata = ctx.body_metadata,
+    };
+
+    module.dump();
 }
 
 const EmitZIR = struct {
@@ -1505,6 +1580,8 @@ const EmitZIR = struct {
     indent: usize,
     block_table: std.AutoHashMap(*ir.Inst.Block, *Inst.Block),
     loop_table: std.AutoHashMap(*ir.Inst.Loop, *Inst.Loop),
+    metadata: std.AutoHashMap(*Inst, Module.MetaData),
+    body_metadata: std.AutoHashMap(*Module.Body, Module.BodyMetaData),
 
     fn emit(self: *EmitZIR) !void {
         // Put all the Decls in a list and sort them by name to avoid nondeterminism introduced
@@ -1604,7 +1681,7 @@ const EmitZIR = struct {
             } else blk: {
                 break :blk (try self.emitTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val })).inst;
             };
-            try new_body.inst_table.putNoClobber(inst, new_inst);
+            _ = try new_body.inst_table.put(inst, new_inst);
             return new_inst;
         } else {
             return new_body.inst_table.get(inst).?;
@@ -1653,6 +1730,70 @@ const EmitZIR = struct {
             .kw_args = .{},
         };
         return &declref_inst.base;
+    }
+
+    fn emitFn(self: *EmitZIR, module_fn: *IrModule.Fn, src: usize, ty: Type) Allocator.Error!*Decl {
+        var inst_table = std.AutoHashMap(*ir.Inst, *Inst).init(self.allocator);
+        defer inst_table.deinit();
+
+        var instructions = std.ArrayList(*Inst).init(self.allocator);
+        defer instructions.deinit();
+
+        switch (module_fn.analysis) {
+            .queued => unreachable,
+            .in_progress => unreachable,
+            .success => |body| {
+                try self.emitBody(body, &inst_table, &instructions);
+            },
+            .sema_failure => {
+                const err_msg = self.old_module.failed_decls.get(module_fn.owner_decl).?;
+                const fail_inst = try self.arena.allocator.create(Inst.CompileError);
+                fail_inst.* = .{
+                    .base = .{
+                        .src = src,
+                        .tag = Inst.CompileError.base_tag,
+                    },
+                    .positionals = .{
+                        .msg = try self.arena.allocator.dupe(u8, err_msg.msg),
+                    },
+                    .kw_args = .{},
+                };
+                try instructions.append(&fail_inst.base);
+            },
+            .dependency_failure => {
+                const fail_inst = try self.arena.allocator.create(Inst.CompileError);
+                fail_inst.* = .{
+                    .base = .{
+                        .src = src,
+                        .tag = Inst.CompileError.base_tag,
+                    },
+                    .positionals = .{
+                        .msg = try self.arena.allocator.dupe(u8, "depends on another failed Decl"),
+                    },
+                    .kw_args = .{},
+                };
+                try instructions.append(&fail_inst.base);
+            },
+        }
+
+        const fn_type = try self.emitType(src, ty);
+
+        const arena_instrs = try self.arena.allocator.alloc(*Inst, instructions.items.len);
+        mem.copy(*Inst, arena_instrs, instructions.items);
+
+        const fn_inst = try self.arena.allocator.create(Inst.Fn);
+        fn_inst.* = .{
+            .base = .{
+                .src = src,
+                .tag = Inst.Fn.base_tag,
+            },
+            .positionals = .{
+                .fn_type = fn_type.inst,
+                .body = .{ .instructions = arena_instrs },
+            },
+            .kw_args = .{},
+        };
+        return self.emitUnnamedDecl(&fn_inst.base);
     }
 
     fn emitTypedValue(self: *EmitZIR, src: usize, typed_value: TypedValue) Allocator.Error!*Decl {
@@ -1718,68 +1859,7 @@ const EmitZIR = struct {
             },
             .Fn => {
                 const module_fn = typed_value.val.cast(Value.Payload.Function).?.func;
-
-                var inst_table = std.AutoHashMap(*ir.Inst, *Inst).init(self.allocator);
-                defer inst_table.deinit();
-
-                var instructions = std.ArrayList(*Inst).init(self.allocator);
-                defer instructions.deinit();
-
-                switch (module_fn.analysis) {
-                    .queued => unreachable,
-                    .in_progress => unreachable,
-                    .success => |body| {
-                        try self.emitBody(body, &inst_table, &instructions);
-                    },
-                    .sema_failure => {
-                        const err_msg = self.old_module.failed_decls.get(module_fn.owner_decl).?;
-                        const fail_inst = try self.arena.allocator.create(Inst.CompileError);
-                        fail_inst.* = .{
-                            .base = .{
-                                .src = src,
-                                .tag = Inst.CompileError.base_tag,
-                            },
-                            .positionals = .{
-                                .msg = try self.arena.allocator.dupe(u8, err_msg.msg),
-                            },
-                            .kw_args = .{},
-                        };
-                        try instructions.append(&fail_inst.base);
-                    },
-                    .dependency_failure => {
-                        const fail_inst = try self.arena.allocator.create(Inst.CompileError);
-                        fail_inst.* = .{
-                            .base = .{
-                                .src = src,
-                                .tag = Inst.CompileError.base_tag,
-                            },
-                            .positionals = .{
-                                .msg = try self.arena.allocator.dupe(u8, "depends on another failed Decl"),
-                            },
-                            .kw_args = .{},
-                        };
-                        try instructions.append(&fail_inst.base);
-                    },
-                }
-
-                const fn_type = try self.emitType(src, typed_value.ty);
-
-                const arena_instrs = try self.arena.allocator.alloc(*Inst, instructions.items.len);
-                mem.copy(*Inst, arena_instrs, instructions.items);
-
-                const fn_inst = try self.arena.allocator.create(Inst.Fn);
-                fn_inst.* = .{
-                    .base = .{
-                        .src = src,
-                        .tag = Inst.Fn.base_tag,
-                    },
-                    .positionals = .{
-                        .fn_type = fn_type.inst,
-                        .body = .{ .instructions = arena_instrs },
-                    },
-                    .kw_args = .{},
-                };
-                return self.emitUnnamedDecl(&fn_inst.base);
+                return self.emitFn(module_fn, src, typed_value.ty);
             },
             .Array => {
                 // TODO more checks to make sure this can be emitted as a string literal
@@ -1810,7 +1890,7 @@ const EmitZIR = struct {
         }
     }
 
-    fn emitNoOp(self: *EmitZIR, src: usize, tag: Inst.Tag) Allocator.Error!*Inst {
+    fn emitNoOp(self: *EmitZIR, src: usize, old_inst: *ir.Inst.NoOp, tag: Inst.Tag) Allocator.Error!*Inst {
         const new_inst = try self.arena.allocator.create(Inst.NoOp);
         new_inst.* = .{
             .base = .{
@@ -1902,10 +1982,10 @@ const EmitZIR = struct {
             const new_inst = switch (inst.tag) {
                 .constant => unreachable, // excluded from function bodies
 
-                .breakpoint => try self.emitNoOp(inst.src, .breakpoint),
-                .unreach => try self.emitNoOp(inst.src, .@"unreachable"),
-                .retvoid => try self.emitNoOp(inst.src, .returnvoid),
-                .dbg_stmt => try self.emitNoOp(inst.src, .dbg_stmt),
+                .breakpoint => try self.emitNoOp(inst.src, inst.castTag(.breakpoint).?, .breakpoint),
+                .unreach => try self.emitNoOp(inst.src, inst.castTag(.unreach).?, .unreach_nocheck),
+                .retvoid => try self.emitNoOp(inst.src, inst.castTag(.retvoid).?, .returnvoid),
+                .dbg_stmt => try self.emitNoOp(inst.src, inst.castTag(.dbg_stmt).?, .dbg_stmt),
 
                 .not => try self.emitUnOp(inst.src, new_body, inst.castTag(.not).?, .boolnot),
                 .ret => try self.emitUnOp(inst.src, new_body, inst.castTag(.ret).?, .@"return"),
@@ -2119,10 +2199,24 @@ const EmitZIR = struct {
                     defer then_body.deinit();
                     defer else_body.deinit();
 
+                    const then_deaths = try self.arena.allocator.alloc(*Inst, old_inst.thenDeaths().len);
+                    const else_deaths = try self.arena.allocator.alloc(*Inst, old_inst.elseDeaths().len);
+
+                    for (old_inst.thenDeaths()) |death, i| {
+                        then_deaths[i] = try self.resolveInst(new_body, death);
+                    }
+                    for (old_inst.elseDeaths()) |death, i| {
+                        else_deaths[i] = try self.resolveInst(new_body, death);
+                    }
+
                     try self.emitBody(old_inst.then_body, inst_table, &then_body);
                     try self.emitBody(old_inst.else_body, inst_table, &else_body);
 
                     const new_inst = try self.arena.allocator.create(Inst.CondBr);
+
+                    try self.body_metadata.put(&new_inst.positionals.then_body, .{ .deaths = then_deaths });
+                    try self.body_metadata.put(&new_inst.positionals.else_body, .{ .deaths = else_deaths });
+
                     new_inst.* = .{
                         .base = .{
                             .src = inst.src,
@@ -2138,6 +2232,7 @@ const EmitZIR = struct {
                     break :blk &new_inst.base;
                 },
             };
+            try self.metadata.put(new_inst, .{ .deaths = inst.deaths });
             try instructions.append(new_inst);
             try inst_table.put(inst, new_inst);
         }

@@ -1887,6 +1887,8 @@ pub const File = struct {
                 else => false,
             };
             if (is_fn) {
+                //typed_value.val.cast(Value.Payload.Function).?.func.dump(module.*);
+
                 // For functions we need to add a prologue to the debug line program.
                 try dbg_line_buffer.ensureCapacity(26);
 
