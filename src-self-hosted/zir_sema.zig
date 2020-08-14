@@ -53,6 +53,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .ret_type => return analyzeInstRetType(mod, scope, old_inst.castTag(.ret_type).?),
         .single_const_ptr_type => return analyzeInstSingleConstPtrType(mod, scope, old_inst.castTag(.single_const_ptr_type).?),
         .single_mut_ptr_type => return analyzeInstSingleMutPtrType(mod, scope, old_inst.castTag(.single_mut_ptr_type).?),
+        .ptr_type => return analyzeInstPtrType(mod, scope, old_inst.castTag(.ptr_type).?),
         .store => return analyzeInstStore(mod, scope, old_inst.castTag(.store).?),
         .str => return analyzeInstStr(mod, scope, old_inst.castTag(.str).?),
         .int => {
@@ -1286,4 +1287,8 @@ fn analyzeInstSingleMutPtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp
     const elem_type = try resolveType(mod, scope, inst.positionals.operand);
     const ty = try mod.singleMutPtrType(scope, inst.base.src, elem_type);
     return mod.constType(scope, inst.base.src, ty);
+}
+
+fn analyzeInstPtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.PtrType) InnerError!*Inst {
+    return mod.fail(scope, inst.base.src, "TODO implement ptr_type", .{});
 }

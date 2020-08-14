@@ -192,6 +192,8 @@ pub const Inst = struct {
         single_const_ptr_type,
         /// Create a mutable pointer type based on the element type. `*T`
         single_mut_ptr_type,
+        /// Create a pointer type with attributes
+        ptr_type,
         /// Write a value to a pointer. For loading, see `deref`.
         store,
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
@@ -305,6 +307,7 @@ pub const Inst = struct {
                 .fntype => FnType,
                 .elemptr => ElemPtr,
                 .condbr => CondBr,
+                .ptr_type => PtrType,
             };
         }
 
@@ -382,6 +385,7 @@ pub const Inst = struct {
                 .optional_type,
                 .unwrap_optional_safe,
                 .unwrap_optional_unsafe,
+                .ptr_type,
                 => false,
 
                 .@"break",
@@ -810,6 +814,24 @@ pub const Inst = struct {
             else_body: Module.Body,
         },
         kw_args: struct {},
+    };
+
+    pub const PtrType = struct {
+        pub const base_tag = Tag.ptr_type;
+        base: Inst,
+
+        positionals: struct {
+            child_type: *Inst,
+        },
+        kw_args: struct {
+            @"allowzero": bool = false,
+            @"align": ?*Inst = null,
+            align_bit_start: ?*Inst = null,
+            align_bit_end: ?*Inst = null,
+            @"const": bool = true,
+            @"volatile": bool = false,
+            sentinel: ?*Inst = null,
+        },
     };
 };
 
