@@ -174,7 +174,7 @@ test "non-canonical scalar25519" {
     std.testing.expectError(error.NonCanonical, rejectNonCanonical(too_targe));
 }
 
-test "mulAdd overflow check" {
+test "scalar25519 mulAdd overflow check" {
     const a: [32]u8 = [_]u8{0xff} ** 32;
     const b: [32]u8 = [_]u8{0xff} ** 32;
     const c: [32]u8 = [_]u8{0xff} ** 32;

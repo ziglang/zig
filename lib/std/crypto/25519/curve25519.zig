@@ -3,9 +3,9 @@ const std = @import("std");
 /// Group operations over Curve25519.
 pub const Curve25519 = struct {
     /// The underlying prime field.
-    pub const Fe = @import("field25519.zig").Fe;
+    pub const Fe = @import("field.zig").Fe;
     /// Field arithmetic mod the order of the main subgroup.
-    pub const scalar = @import("scalar25519.zig");
+    pub const scalar = @import("scalar.zig");
 
     x: Fe,
 
