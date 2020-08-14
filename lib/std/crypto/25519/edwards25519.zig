@@ -34,7 +34,7 @@ pub const Edwards25519 = struct {
         x.cMov(x.mul(Fe.sqrtm1()), 1 - @boolToInt(has_m_root));
         x.cMov(x.neg(), @boolToInt(x.isNegative()) ^ (s[31] >> 7));
         const t = x.mul(y);
-        return @as(Edwards25519, .{ .x = x, .y = y, .z = z, .t = t });
+        return Edwards25519 { .x = x, .y = y, .z = z, .t = t };
     }
 
     /// Encode an Edwards25519 point.
