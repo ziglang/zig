@@ -118,19 +118,31 @@ const Scope = struct {
             self.* = undefined;
         }
 
-        fn complete(self: *Block, c: *Context) !*ast.Node.Block {
+        fn complete(self: *Block, c: *Context) !*ast.Node {
             // We reserve 1 extra statement if the parent is a Loop. This is in case of
             // do while, we want to put `if (cond) break;` at the end.
             const alloc_len = self.statements.items.len + @boolToInt(self.base.parent.?.id == .Loop);
-            const node = try ast.Node.Block.alloc(c.arena, alloc_len);
-            node.* = .{
-                .statements_len = self.statements.items.len,
-                .lbrace = self.lbrace,
-                .rbrace = try appendToken(c, .RBrace, "}"),
-                .label = self.label,
-            };
-            mem.copy(*ast.Node, node.statements(), self.statements.items);
-            return node;
+            const rbrace = try appendToken(c, .RBrace, "}");
+            if (self.label) |label| {
+                const node = try ast.Node.LabeledBlock.alloc(c.arena, alloc_len);
+                node.* = .{
+                    .statements_len = self.statements.items.len,
+                    .lbrace = self.lbrace,
+                    .rbrace = rbrace,
+                    .label = label,
+                };
+                mem.copy(*ast.Node, node.statements(), self.statements.items);
+                return &node.base;
+            } else {
+                const node = try ast.Node.Block.alloc(c.arena, alloc_len);
+                node.* = .{
+                    .statements_len = self.statements.items.len,
+                    .lbrace = self.lbrace,
+                    .rbrace = rbrace,
+                };
+                mem.copy(*ast.Node, node.statements(), self.statements.items);
+                return &node.base;
+            }
         }
 
         /// Given the desired name, return a name that does not shadow anything from outer scopes.
@@ -320,15 +332,9 @@ pub const Context = struct {
         return node;
     }
 
-    fn createBlock(c: *Context, label: ?[]const u8, statements_len: ast.NodeIndex) !*ast.Node.Block {
-        const label_node = if (label) |l| blk: {
-            const ll = try appendIdentifier(c, l);
-            _ = try appendToken(c, .Colon, ":");
-            break :blk ll;
-        } else null;
+    fn createBlock(c: *Context, statements_len: ast.NodeIndex) !*ast.Node.Block {
         const block_node = try ast.Node.Block.alloc(c.arena, statements_len);
         block_node.* = .{
-            .label = label_node,
             .lbrace = try appendToken(c, .LBrace, "{"),
             .statements_len = statements_len,
             .rbrace = undefined,
@@ -640,8 +646,8 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
             var last = block_scope.statements.items[block_scope.statements.items.len - 1];
             while (true) {
                 switch (last.tag) {
-                    .Block => {
-                        const stmts = last.castTag(.Block).?.statements();
+                    .Block, .LabeledBlock => {
+                        const stmts = last.blockStatements();
                         if (stmts.len == 0) break;
 
                         last = stmts[stmts.len - 1];
@@ -669,7 +675,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     }
 
     const body_node = try block_scope.complete(rp.c);
-    proto_node.setTrailer("body_node", &body_node.base);
+    proto_node.setTrailer("body_node", body_node);
     return addTopLevelDecl(c, fn_name, &proto_node.base);
 }
 
@@ -1275,7 +1281,7 @@ fn transStmt(
         .WhileStmtClass => return transWhileLoop(rp, scope, @ptrCast(*const ZigClangWhileStmt, stmt)),
         .DoStmtClass => return transDoWhileLoop(rp, scope, @ptrCast(*const ZigClangDoStmt, stmt)),
         .NullStmtClass => {
-            const block = try rp.c.createBlock(null, 0);
+            const block = try rp.c.createBlock(0);
             block.rbrace = try appendToken(rp.c, .RBrace, "}");
             return &block.base;
         },
@@ -1356,7 +1362,7 @@ fn transBinaryOperator(
                 const grouped_expr = try rp.c.arena.create(ast.Node.GroupedExpression);
                 grouped_expr.* = .{
                     .lparen = lparen,
-                    .expr = &block_node.base,
+                    .expr = block_node,
                     .rparen = rparen,
                 };
                 return maybeSuppressResult(rp, scope, result_used, &grouped_expr.base);
@@ -1521,8 +1527,7 @@ fn transCompoundStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangCompo
     var block_scope = try Scope.Block.init(rp.c, scope, false);
     defer block_scope.deinit();
     try transCompoundStmtInline(rp, &block_scope.base, stmt, &block_scope);
-    const node = try block_scope.complete(rp.c);
-    return &node.base;
+    return try block_scope.complete(rp.c);
 }
 
 fn transCStyleCastExprClass(
@@ -2589,7 +2594,7 @@ fn transDoWhileLoop(
         // zig:   if (!cond) break;
         // zig: }
         const node = try transStmt(rp, &loop_scope, ZigClangDoStmt_getBody(stmt), .unused, .r_value);
-        break :blk node.cast(ast.Node.Block).?;
+        break :blk node.castTag(.Block).?;
     } else blk: {
         // the C statement is without a block, so we need to create a block to contain it.
         // c: do
@@ -2600,7 +2605,7 @@ fn transDoWhileLoop(
         // zig:   if (!cond) break;
         // zig: }
         new = true;
-        const block = try rp.c.createBlock(null, 2);
+        const block = try rp.c.createBlock(2);
         block.statements_len = 1; // over-allocated so we can add another below
         block.statements()[0] = try transStmt(rp, &loop_scope, ZigClangDoStmt_getBody(stmt), .unused, .r_value);
         break :blk block;
@@ -2659,8 +2664,7 @@ fn transForLoop(
     while_node.body = try transStmt(rp, &loop_scope, ZigClangForStmt_getBody(stmt), .unused, .r_value);
     if (block_scope) |*bs| {
         try bs.statements.append(&while_node.base);
-        const node = try bs.complete(rp.c);
-        return &node.base;
+        return try bs.complete(rp.c);
     } else {
         _ = try appendToken(rp.c, .Semicolon, ";");
         return &while_node.base;
@@ -2768,7 +2772,7 @@ fn transSwitch(
 
     const result_node = try switch_scope.pending_block.complete(rp.c);
     switch_scope.pending_block.deinit();
-    return &result_node.base;
+    return result_node;
 }
 
 fn transCase(
@@ -2820,7 +2824,7 @@ fn transCase(
     switch_scope.pending_block.deinit();
     switch_scope.pending_block = try Scope.Block.init(rp.c, scope, false);
 
-    try switch_scope.pending_block.statements.append(&pending_node.base);
+    try switch_scope.pending_block.statements.append(pending_node);
 
     return transStmt(rp, scope, ZigClangCaseStmt_getSubStmt(stmt), .unused, .r_value);
 }
@@ -2857,7 +2861,7 @@ fn transDefault(
     const pending_node = try switch_scope.pending_block.complete(rp.c);
     switch_scope.pending_block.deinit();
     switch_scope.pending_block = try Scope.Block.init(rp.c, scope, false);
-    try switch_scope.pending_block.statements.append(&pending_node.base);
+    try switch_scope.pending_block.statements.append(pending_node);
 
     return transStmt(rp, scope, ZigClangDefaultStmt_getSubStmt(stmt), .unused, .r_value);
 }
@@ -2972,7 +2976,7 @@ fn transStmtExpr(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangStmtExpr,
     const grouped_expr = try rp.c.arena.create(ast.Node.GroupedExpression);
     grouped_expr.* = .{
         .lparen = lparen,
-        .expr = &block_node.base,
+        .expr = block_node,
         .rparen = rparen,
     };
     return maybeSuppressResult(rp, scope, used, &grouped_expr.base);
@@ -3304,7 +3308,7 @@ fn transCreatePreCrement(
     const grouped_expr = try rp.c.arena.create(ast.Node.GroupedExpression);
     grouped_expr.* = .{
         .lparen = try appendToken(rp.c, .LParen, "("),
-        .expr = &block_node.base,
+        .expr = block_node,
         .rparen = try appendToken(rp.c, .RParen, ")"),
     };
     return &grouped_expr.base;
@@ -3398,7 +3402,7 @@ fn transCreatePostCrement(
     const grouped_expr = try rp.c.arena.create(ast.Node.GroupedExpression);
     grouped_expr.* = .{
         .lparen = try appendToken(rp.c, .LParen, "("),
-        .expr = &block_node.base,
+        .expr = block_node,
         .rparen = try appendToken(rp.c, .RParen, ")"),
     };
     return &grouped_expr.base;
@@ -3589,7 +3593,7 @@ fn transCreateCompoundAssign(
     const grouped_expr = try rp.c.arena.create(ast.Node.GroupedExpression);
     grouped_expr.* = .{
         .lparen = try appendToken(rp.c, .LParen, "("),
-        .expr = &block_node.base,
+        .expr = block_node,
         .rparen = try appendToken(rp.c, .RParen, ")"),
     };
     return &grouped_expr.base;
@@ -3748,7 +3752,7 @@ fn transBinaryConditionalOperator(rp: RestorePoint, scope: *Scope, stmt: *const 
     const grouped_expr = try rp.c.arena.create(ast.Node.GroupedExpression);
     grouped_expr.* = .{
         .lparen = lparen,
-        .expr = &block_node.base,
+        .expr = block_node,
         .rparen = try appendToken(rp.c, .RParen, ")"),
     };
     return maybeSuppressResult(rp, scope, used, &grouped_expr.base);
@@ -4191,7 +4195,7 @@ fn transCreateNodeAssign(
     const block_node = try block_scope.complete(rp.c);
     // semicolon must immediately follow rbrace because it is the last token in a block
     _ = try appendToken(rp.c, .Semicolon, ";");
-    return &block_node.base;
+    return block_node;
 }
 
 fn transCreateNodeFieldAccess(c: *Context, container: *ast.Node, field_name: []const u8) !*ast.Node {
@@ -4484,7 +4488,6 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
 
     const block = try ast.Node.Block.alloc(c.arena, 1);
     block.* = .{
-        .label = null,
         .lbrace = block_lbrace,
         .statements_len = 1,
         .rbrace = try appendToken(c, .RBrace, "}"),
@@ -5475,9 +5478,9 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
     if (last != .Eof and last != .Nl)
         return m.fail(c, "unable to translate C expr: unexpected token .{}", .{@tagName(last)});
     _ = try appendToken(c, .Semicolon, ";");
-    const type_of_arg = if (expr.tag != .Block) expr else blk: {
-        const blk = @fieldParentPtr(ast.Node.Block, "base", expr);
-        const blk_last = blk.statements()[blk.statements_len - 1];
+    const type_of_arg = if (!expr.tag.isBlock()) expr else blk: {
+        const stmts = expr.blockStatements();
+        const blk_last = stmts[stmts.len - 1];
         const br = blk_last.cast(ast.Node.ControlFlowExpression).?;
         break :blk br.getRHS().?;
     };
@@ -5500,7 +5503,7 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
         .visib_token = pub_tok,
         .extern_export_inline_token = inline_tok,
         .name_token = name_tok,
-        .body_node = &block_node.base,
+        .body_node = block_node,
     });
     mem.copy(ast.Node.FnProto.ParamDecl, fn_proto.params(), fn_params.items);
 
@@ -5555,8 +5558,7 @@ fn parseCExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
 
             const break_node = try transCreateNodeBreak(c, block_scope.label, last);
             try block_scope.statements.append(&break_node.base);
-            const block_node = try block_scope.complete(c);
-            return &block_node.base;
+            return try block_scope.complete(c);
         },
         else => {
             m.i -= 1;

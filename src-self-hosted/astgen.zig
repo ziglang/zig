@@ -107,31 +107,46 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .NullLiteral => return rlWrap(mod, scope, rl, try nullLiteral(mod, scope, node.castTag(.NullLiteral).?)),
         .OptionalType => return rlWrap(mod, scope, rl, try optionalType(mod, scope, node.castTag(.OptionalType).?)),
         .UnwrapOptional => return unwrapOptional(mod, scope, rl, node.castTag(.UnwrapOptional).?),
-        .Block => return blockExpr(mod, scope, rl, node.castTag(.Block).?),
+        .Block => return rlWrapVoid(mod, scope, rl, node, try blockExpr(mod, scope, node.castTag(.Block).?)),
+        .LabeledBlock => return labeledBlockExpr(mod, scope, rl, node.castTag(.LabeledBlock).?),
         else => return mod.failNode(scope, node, "TODO implement astgen.Expr for {}", .{@tagName(node.tag)}),
     }
 }
 
-pub fn blockExpr(
+pub fn blockExpr(mod: *Module, parent_scope: *Scope, block_node: *ast.Node.Block) InnerError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    try blockExprStmts(mod, parent_scope, &block_node.base, block_node.statements());
+}
+
+fn labeledBlockExpr(
     mod: *Module,
     parent_scope: *Scope,
     rl: ResultLoc,
-    block_node: *ast.Node.Block,
+    block_node: *ast.Node.LabeledBlock,
 ) InnerError!*zir.Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (block_node.label) |label| {
-        return mod.failTok(parent_scope, label, "TODO implement labeled blocks", .{});
+    const statements = block_node.statements();
+
+    if (statements.len == 0) {
+        // Hot path for `{}`.
+        return rlWrapVoid(mod, parent_scope, rl, &block_node.base, {});
     }
+
+    return mod.failNode(parent_scope, &block_node.base, "TODO implement labeled blocks", .{});
+}
+
+fn blockExprStmts(mod: *Module, parent_scope: *Scope, node: *ast.Node, statements: []*ast.Node) !void {
+    const tree = parent_scope.tree();
 
     var block_arena = std.heap.ArenaAllocator.init(mod.gpa);
     defer block_arena.deinit();
 
-    const tree = parent_scope.tree();
-
     var scope = parent_scope;
-    for (block_node.statements()) |statement| {
+    for (statements) |statement| {
         const src = tree.token_locs[statement.firstToken()].start;
         _ = try addZIRNoOp(mod, scope, src, .dbg_stmt);
         switch (statement.tag) {
@@ -162,12 +177,6 @@ pub fn blockExpr(
             },
         }
     }
-
-    const src = tree.token_locs[block_node.firstToken()].start;
-    return addZIRInstConst(mod, parent_scope, src, .{
-        .ty = Type.initTag(.void),
-        .val = Value.initTag(.void_value),
-    });
 }
 
 fn varDecl(
@@ -1184,6 +1193,7 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node) bool {
             .Slice,
             .Deref,
             .ArrayAccess,
+            .Block,
             => return false,
 
             // Forward the question to a sub-expression.
@@ -1210,11 +1220,11 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node) bool {
             .Switch,
             .Call,
             .BuiltinCall, // TODO some of these can return false
+            .LabeledBlock,
             => return true,
 
             // Depending on AST properties, they may need memory locations.
             .If => return node.castTag(.If).?.@"else" != null,
-            .Block => return node.castTag(.Block).?.label != null,
         }
     }
 }
