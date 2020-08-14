@@ -107,11 +107,17 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .NullLiteral => return rlWrap(mod, scope, rl, try nullLiteral(mod, scope, node.castTag(.NullLiteral).?)),
         .OptionalType => return rlWrap(mod, scope, rl, try optionalType(mod, scope, node.castTag(.OptionalType).?)),
         .UnwrapOptional => return unwrapOptional(mod, scope, rl, node.castTag(.UnwrapOptional).?),
+        .Block => return blockExpr(mod, scope, rl, node.castTag(.Block).?),
         else => return mod.failNode(scope, node, "TODO implement astgen.Expr for {}", .{@tagName(node.tag)}),
     }
 }
 
-pub fn blockExpr(mod: *Module, parent_scope: *Scope, block_node: *ast.Node.Block) !void {
+pub fn blockExpr(
+    mod: *Module,
+    parent_scope: *Scope,
+    rl: ResultLoc,
+    block_node: *ast.Node.Block,
+) InnerError!*zir.Inst {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -122,9 +128,11 @@ pub fn blockExpr(mod: *Module, parent_scope: *Scope, block_node: *ast.Node.Block
     var block_arena = std.heap.ArenaAllocator.init(mod.gpa);
     defer block_arena.deinit();
 
+    const tree = parent_scope.tree();
+
     var scope = parent_scope;
     for (block_node.statements()) |statement| {
-        const src = scope.tree().token_locs[statement.firstToken()].start;
+        const src = tree.token_locs[statement.firstToken()].start;
         _ = try addZIRNoOp(mod, scope, src, .dbg_stmt);
         switch (statement.tag) {
             .VarDecl => {
@@ -154,6 +162,12 @@ pub fn blockExpr(mod: *Module, parent_scope: *Scope, block_node: *ast.Node.Block
             },
         }
     }
+
+    const src = tree.token_locs[block_node.firstToken()].start;
+    return addZIRInstConst(mod, parent_scope, src, .{
+        .ty = Type.initTag(.void),
+        .val = Value.initTag(.void_value),
+    });
 }
 
 fn varDecl(
