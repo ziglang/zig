@@ -334,31 +334,6 @@ test "mem.secureZero" {
     testing.expectEqualSlices(u8, a[0..], b[0..]);
 }
 
-/// Constant-time (for a given length) comparison.
-pub fn timingSafeEqual(comptime T: type, a: []const T, b: []const T) bool {
-    const length = a.len;
-    if (length != b.len) {
-        return false;
-    }
-    const ap = @ptrCast([*]const volatile T, a.ptr);
-    const bp = @ptrCast([*]const volatile T, b.ptr);
-    var c: u8 = 0;
-    var i: usize = 0;
-    while (i < length) : (i += 1) {
-        c |= a[i] ^ b[i];
-    }
-    return c == 0;
-}
-
-test "mem.timingSafeEqual" {
-    var a = [_]u8{0xfe} ** 8;
-    var b = [_]u8{0xfe} ** 8;
-
-    testing.expect(timingSafeEqual(u8, &a, &b));
-    a[0] += 1;
-    testing.expect(!timingSafeEqual(u8, &a, &b));
-}
-
 /// Initializes all fields of the struct with their default value, or zero values if no default value is present.
 /// If the field is present in the provided initial values, it will have that value instead.
 /// Structs are initialized recursively.
