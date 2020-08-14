@@ -3,7 +3,7 @@ const readIntLittle = std.mem.readIntLittle;
 const writeIntLittle = std.mem.writeIntLittle;
 
 pub const Fe = struct {
-    limbs: [5]u64 = undefined,
+    limbs: [5]u64,
 
     const MASK51: u64 = 0x7ffffffffffff;
 
