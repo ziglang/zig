@@ -129,14 +129,24 @@ fn labeledBlockExpr(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const statements = block_node.statements();
+    var block_scope: Scope.GenZIR = .{
+        .parent = parent_scope,
+        .decl = parent_scope.decl().?,
+        .arena = parent_scope.arena(),
+        .instructions = .{},
+        .label = block_node.label,
+    };
+    defer block_scope.instructions.deinit(mod.gpa);
 
-    if (statements.len == 0) {
-        // Hot path for `{}`.
-        return rlWrapVoid(mod, parent_scope, rl, &block_node.base, {});
-    }
+    try blockExprStmts(mod, &block_scope.base, &block_node.base, block_node.statements());
 
-    return mod.failNode(parent_scope, &block_node.base, "TODO implement labeled blocks", .{});
+    const tree = parent_scope.tree();
+    const src = tree.token_locs[block_node.lbrace].start;
+    const block = try addZIRInstBlock(mod, parent_scope, src, .{
+        .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
+    });
+
+    return &block.base;
 }
 
 fn blockExprStmts(mod: *Module, parent_scope: *Scope, node: *ast.Node, statements: []*ast.Node) !void {

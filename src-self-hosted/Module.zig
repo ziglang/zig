@@ -737,6 +737,7 @@ pub const Scope = struct {
         arena: *Allocator,
         /// The first N instructions in a function body ZIR are arg instructions.
         instructions: std.ArrayListUnmanaged(*zir.Inst) = .{},
+        label: ?ast.TokenIndex = null,
     };
 
     /// This is always a `const` local and importantly the `inst` is a value type, not a pointer.
