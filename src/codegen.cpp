@@ -7871,17 +7871,6 @@ static void gen_global_var(CodeGen *g, ZigVar *var, LLVMValueRef init_val,
     // TODO ^^ make an actual global variable
 }
 
-static void validate_inline_fns(CodeGen *g) {
-    for (size_t i = 0; i < g->inline_fns.length; i += 1) {
-        ZigFn *fn_entry = g->inline_fns.at(i);
-        LLVMValueRef fn_val = LLVMGetNamedFunction(g->module, fn_entry->llvm_name);
-        if (fn_val != nullptr) {
-            add_node_error(g, fn_entry->proto_node, buf_sprintf("unable to inline function"));
-        }
-    }
-    report_errors_and_maybe_exit(g);
-}
-
 static void set_global_tls(CodeGen *g, ZigVar *var, LLVMValueRef global_value) {
     bool is_extern = var->decl_node->data.variable_declaration.is_extern;
     bool is_export = var->decl_node->data.variable_declaration.is_export;
@@ -8358,8 +8347,6 @@ static void zig_llvm_emit_output(CodeGen *g) {
         fprintf(stderr, "LLVM failed to emit file: %s\n", err_msg);
         exit(1);
     }
-
-    validate_inline_fns(g);
 
     if (g->emit_bin) {
         g->link_objects.append(&g->o_file_output_path);
