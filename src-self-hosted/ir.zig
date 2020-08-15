@@ -68,6 +68,7 @@ pub const Inst = struct {
         dbg_stmt,
         isnonnull,
         isnull,
+        iserr,
         /// Read a value from a pointer.
         load,
         loop,
@@ -100,6 +101,7 @@ pub const Inst = struct {
                 .not,
                 .isnonnull,
                 .isnull,
+                .iserr,
                 .ptrtoint,
                 .floatcast,
                 .intcast,

@@ -151,6 +151,8 @@ pub const Inst = struct {
         isnonnull,
         /// Return a boolean true if an optional is null. `x == null`
         isnull,
+        /// Return a boolean true if value is an error
+        iserr,
         /// A labeled block of code that loops forever. At the end of the body it is implied
         /// to repeat; no explicit "repeat" instruction terminates loop bodies.
         loop,
@@ -219,6 +221,10 @@ pub const Inst = struct {
         unwrap_optional_safe,
         /// Same as previous, but without safety checks. Used for orelse, if and while
         unwrap_optional_unsafe,
+        /// Gets the payload of an error union
+        unwrap_err_safe,
+        /// Same as previous, but without safety checks. Used for orelse, if and while
+        unwrap_err_unsafe,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
@@ -237,6 +243,7 @@ pub const Inst = struct {
                 .@"return",
                 .isnull,
                 .isnonnull,
+                .iserr,
                 .ptrtoint,
                 .alloc,
                 .ensure_result_used,
@@ -250,6 +257,8 @@ pub const Inst = struct {
                 .optional_type,
                 .unwrap_optional_safe,
                 .unwrap_optional_unsafe,
+                .unwrap_err_safe,
+                .unwrap_err_unsafe,
                 => UnOp,
 
                 .add,
@@ -363,6 +372,7 @@ pub const Inst = struct {
                 .inttype,
                 .isnonnull,
                 .isnull,
+                .iserr,
                 .mod_rem,
                 .mul,
                 .mulwrap,
@@ -385,6 +395,8 @@ pub const Inst = struct {
                 .optional_type,
                 .unwrap_optional_safe,
                 .unwrap_optional_unsafe,
+                .unwrap_err_safe,
+                .unwrap_err_unsafe,
                 .ptr_type,
                 => false,
 
@@ -2014,6 +2026,7 @@ const EmitZIR = struct {
                 .ptrtoint => try self.emitUnOp(inst.src, new_body, inst.castTag(.ptrtoint).?, .ptrtoint),
                 .isnull => try self.emitUnOp(inst.src, new_body, inst.castTag(.isnull).?, .isnull),
                 .isnonnull => try self.emitUnOp(inst.src, new_body, inst.castTag(.isnonnull).?, .isnonnull),
+                .iserr => try self.emitUnOp(inst.src, new_body, inst.castTag(.iserr).?, .iserr),
                 .load => try self.emitUnOp(inst.src, new_body, inst.castTag(.load).?, .deref),
                 .ref => try self.emitUnOp(inst.src, new_body, inst.castTag(.ref).?, .ref),
                 .unwrap_optional => try self.emitUnOp(inst.src, new_body, inst.castTag(.unwrap_optional).?, .unwrap_optional_unsafe),

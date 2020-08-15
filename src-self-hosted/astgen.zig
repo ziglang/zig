@@ -614,11 +614,16 @@ const CondKind = union(enum) {
                 const result = try addZIRUnOp(mod, &block_scope.base, src, .deref, cond_ptr);
                 return try addZIRUnOp(mod, &block_scope.base, src, .isnonnull, result);
             },
-            .err_union => unreachable,
+            .err_union => {
+                const err_ptr = try expr(mod, &block_scope.base, .lvalue, cond_node);
+                self.* = .{ .err_union = err_ptr };
+                const result = try addZIRUnOp(mod, &block_scope.base, src, .deref, err_ptr);
+                return try addZIRUnOp(mod, &block_scope.base, src, .iserr, result);
+            },
         }
     }
 
-    fn thenSubScope(self: CondKind, mod: *Module, then_scope: *Scope.GenZIR, payload_node: ?*ast.Node) !*Scope {
+    fn thenSubScope(self: CondKind, mod: *Module, then_scope: *Scope.GenZIR, src: usize, payload_node: ?*ast.Node) !*Scope {
         if (self == .bool) return &then_scope.base;
 
         const payload = payload_node.?.castTag(.PointerPayload).?;
@@ -633,6 +638,21 @@ const CondKind = union(enum) {
 
         return mod.failNode(&then_scope.base, payload.value_symbol, "TODO implement payload symbols", .{});
     }
+
+    fn elseSubScope(self: CondKind, mod: *Module, else_scope: *Scope.GenZIR, src: usize, payload_node: ?*ast.Node) !*Scope {
+        if (self != .err_union) return &else_scope.base;
+
+        const payload_ptr = try addZIRUnOp(mod, &else_scope.base, src, .unwrap_err_unsafe, self.err_union.?);
+
+        const payload = payload_node.?.castTag(.Payload).?;
+        const ident_node = payload.error_symbol.castTag(.Identifier).?;
+        const ident_name = try identifierTokenString(mod, &else_scope.base, ident_node.token);
+        if (mem.eql(u8, ident_name, "_")) {
+            return &else_scope.base;
+        }
+
+        return mod.failNode(&else_scope.base, payload.error_symbol, "TODO implement payload symbols", .{});
+    }
 };
 
 fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) InnerError!*zir.Inst {
@@ -643,7 +663,7 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
             if (cond_kind != .optional) {
                 return mod.failNode(scope, payload, "else payload invalid on bool conditions", .{});
             }
-            return mod.failNode(scope, payload, "TODO implement astgen.IfExpr for error unions", .{});
+            cond_kind = .{ .err_union = null };
         }
     }
     var block_scope: Scope.GenZIR = .{
@@ -667,6 +687,8 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
     const block = try addZIRInstBlock(mod, scope, if_src, .{
         .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
     });
+
+    const then_src = tree.token_locs[if_node.body.lastToken()].start;
     var then_scope: Scope.GenZIR = .{
         .parent = scope,
         .decl = block_scope.decl,
@@ -676,7 +698,7 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
     defer then_scope.instructions.deinit(mod.gpa);
 
     // declare payload to the then_scope
-    const then_sub_scope = try cond_kind.thenSubScope(mod, &then_scope, if_node.payload);
+    const then_sub_scope = try cond_kind.thenSubScope(mod, &then_scope, then_src, if_node.payload);
 
     // Most result location types can be forwarded directly; however
     // if we need to write to a pointer which has an inferred type,
@@ -689,7 +711,6 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
 
     const then_result = try expr(mod, then_sub_scope, branch_rl, if_node.body);
     if (!then_result.tag.isNoReturn()) {
-        const then_src = tree.token_locs[if_node.body.lastToken()].start;
         _ = try addZIRInst(mod, then_sub_scope, then_src, zir.Inst.Break, .{
             .block = block,
             .operand = then_result,
@@ -708,10 +729,13 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
     defer else_scope.instructions.deinit(mod.gpa);
 
     if (if_node.@"else") |else_node| {
-        const else_result = try expr(mod, &else_scope.base, branch_rl, else_node.body);
+        const else_src = tree.token_locs[else_node.body.lastToken()].start;
+        // declare payload to the then_scope
+        const else_sub_scope = try cond_kind.elseSubScope(mod, &else_scope, else_src, else_node.payload);
+
+        const else_result = try expr(mod, else_sub_scope, branch_rl, else_node.body);
         if (!else_result.tag.isNoReturn()) {
-            const else_src = tree.token_locs[else_node.body.lastToken()].start;
-            _ = try addZIRInst(mod, &else_scope.base, else_src, zir.Inst.Break, .{
+            _ = try addZIRInst(mod, else_sub_scope, else_src, zir.Inst.Break, .{
                 .block = block,
                 .operand = else_result,
             }, .{});
@@ -739,7 +763,7 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
             if (cond_kind != .optional) {
                 return mod.failNode(scope, payload, "else payload invalid on bool conditions", .{});
             }
-            return mod.failNode(scope, payload, "TODO implement astgen.whileExpr for error unions", .{});
+            cond_kind = .{ .err_union = null };
         }
     }
 
@@ -796,6 +820,8 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
     const while_block = try addZIRInstBlock(mod, scope, while_src, .{
         .instructions = try expr_scope.arena.dupe(*zir.Inst, expr_scope.instructions.items),
     });
+
+    const then_src = tree.token_locs[while_node.body.lastToken()].start;
     var then_scope: Scope.GenZIR = .{
         .parent = &continue_scope.base,
         .decl = continue_scope.decl,
@@ -805,7 +831,7 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
     defer then_scope.instructions.deinit(mod.gpa);
 
     // declare payload to the then_scope
-    const then_sub_scope = try cond_kind.thenSubScope(mod, &then_scope, while_node.payload);
+    const then_sub_scope = try cond_kind.thenSubScope(mod, &then_scope, then_src, while_node.payload);
 
     // Most result location types can be forwarded directly; however
     // if we need to write to a pointer which has an inferred type,
@@ -818,7 +844,6 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
 
     const then_result = try expr(mod, then_sub_scope, branch_rl, while_node.body);
     if (!then_result.tag.isNoReturn()) {
-        const then_src = tree.token_locs[while_node.body.lastToken()].start;
         _ = try addZIRInst(mod, then_sub_scope, then_src, zir.Inst.Break, .{
             .block = cond_block,
             .operand = then_result,
@@ -837,10 +862,13 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
     defer else_scope.instructions.deinit(mod.gpa);
 
     if (while_node.@"else") |else_node| {
-        const else_result = try expr(mod, &else_scope.base, branch_rl, else_node.body);
+        const else_src = tree.token_locs[else_node.body.lastToken()].start;
+        // declare payload to the then_scope
+        const else_sub_scope = try cond_kind.elseSubScope(mod, &else_scope, else_src, else_node.payload);
+
+        const else_result = try expr(mod, else_sub_scope, branch_rl, else_node.body);
         if (!else_result.tag.isNoReturn()) {
-            const else_src = tree.token_locs[else_node.body.lastToken()].start;
-            _ = try addZIRInst(mod, &else_scope.base, else_src, zir.Inst.Break, .{
+            _ = try addZIRInst(mod, else_sub_scope, else_src, zir.Inst.Break, .{
                 .block = while_block,
                 .operand = else_result,
             }, .{});

@@ -104,11 +104,14 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .condbr => return analyzeInstCondBr(mod, scope, old_inst.castTag(.condbr).?),
         .isnull => return analyzeInstIsNonNull(mod, scope, old_inst.castTag(.isnull).?, true),
         .isnonnull => return analyzeInstIsNonNull(mod, scope, old_inst.castTag(.isnonnull).?, false),
+        .iserr => return analyzeInstIsErr(mod, scope, old_inst.castTag(.iserr).?, true),
         .boolnot => return analyzeInstBoolNot(mod, scope, old_inst.castTag(.boolnot).?),
         .typeof => return analyzeInstTypeOf(mod, scope, old_inst.castTag(.typeof).?),
         .optional_type => return analyzeInstOptionalType(mod, scope, old_inst.castTag(.optional_type).?),
         .unwrap_optional_safe => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional_safe).?, true),
         .unwrap_optional_unsafe => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional_unsafe).?, false),
+        .unwrap_err_safe => return analyzeInstUnwrapErr(mod, scope, old_inst.castTag(.unwrap_err_safe).?, true),
+        .unwrap_err_unsafe => return analyzeInstUnwrapErr(mod, scope, old_inst.castTag(.unwrap_err_unsafe).?, false),
     }
 }
 
@@ -729,6 +732,10 @@ fn analyzeInstUnwrapOptional(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp
     return mod.addUnOp(b, unwrap.base.src, child_pointer, .unwrap_optional, operand);
 }
 
+fn analyzeInstUnwrapErr(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp, safety_check: bool) InnerError!*Inst {
+    return mod.fail(scope, unwrap.base.src, "TODO implement analyzeInstUnwrapErr", .{});
+}
+
 fn analyzeInstFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) InnerError!*Inst {
     const return_type = try resolveType(mod, scope, fntype.positionals.return_type);
 
@@ -1167,6 +1174,10 @@ fn analyzeInstBoolNot(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerEr
 fn analyzeInstIsNonNull(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp, invert_logic: bool) InnerError!*Inst {
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
     return mod.analyzeIsNull(scope, inst.base.src, operand, invert_logic);
+}
+
+fn analyzeInstIsErr(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp, invert_logic: bool) InnerError!*Inst {
+    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstIsErr", .{});
 }
 
 fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerError!*Inst {

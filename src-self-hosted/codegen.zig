@@ -671,6 +671,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .intcast => return self.genIntCast(inst.castTag(.intcast).?),
                 .isnonnull => return self.genIsNonNull(inst.castTag(.isnonnull).?),
                 .isnull => return self.genIsNull(inst.castTag(.isnull).?),
+                .iserr => return self.genIsErr(inst.castTag(.iserr).?),
                 .load => return self.genLoad(inst.castTag(.load).?),
                 .loop => return self.genLoop(inst.castTag(.loop).?),
                 .not => return self.genNot(inst.castTag(.not).?),
@@ -1388,6 +1389,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             // will call genIsNull and invert the result.
             switch (arch) {
                 else => return self.fail(inst.base.src, "TODO call genIsNull and invert the result ", .{}),
+            }
+        }
+
+        fn genIsErr(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement iserr for {}", .{self.target.cpu.arch}),
             }
         }
 
