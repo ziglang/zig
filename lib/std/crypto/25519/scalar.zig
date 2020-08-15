@@ -116,13 +116,12 @@ pub fn rejectNonCanonical(s: [32]u8) !void {
     var c: u8 = 0;
     var n: u8 = 1;
     var i: usize = 31;
-    while (true) {
+    while (true) : (i -= 1) {
         const xs = @as(u16, s[i]);
         const xfield_size = @as(u16, field_size[i]);
         c |= @intCast(u8, ((xs -% xfield_size) >> 8) & n);
         n &= @intCast(u8, ((xs ^ xfield_size) -% 1) >> 8);
         if (i == 0) break;
-        i -= 1;
     }
     if (c == 0) {
         return error.NonCanonical;

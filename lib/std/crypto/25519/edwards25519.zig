@@ -132,12 +132,11 @@ pub const Edwards25519 = struct {
     fn pcMul(pc: [16]Edwards25519, s: [32]u8) !Edwards25519 {
         var q = Edwards25519.identityElement();
         var pos: usize = 252;
-        while (true) {
+        while (true) : (pos -= 4) {
             q = q.dbl().dbl().dbl().dbl();
             const b = (s[pos / 8] >> @intCast(u3, pos & 7)) & 0xf;
             q = q.add(pcSelect(pc, b));
             if (pos == 0) break;
-            pos -= 4;
         }
         try q.rejectIdentity();
         return q;
