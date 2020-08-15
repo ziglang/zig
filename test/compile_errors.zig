@@ -6151,32 +6151,33 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:15: error: expected error union type, found '?i32'",
     });
 
-    cases.add("inline fn calls itself indirectly",
-        \\export fn foo() void {
-        \\    bar();
-        \\}
-        \\inline fn bar() void {
-        \\    baz();
-        \\    quux();
-        \\}
-        \\inline fn baz() void {
-        \\    bar();
-        \\    quux();
-        \\}
-        \\extern fn quux() void;
-    , &[_][]const u8{
-        "tmp.zig:4:1: error: unable to inline function",
-    });
+    // TODO test this in stage2, but we won't even try in stage1
+    //cases.add("inline fn calls itself indirectly",
+    //    \\export fn foo() void {
+    //    \\    bar();
+    //    \\}
+    //    \\inline fn bar() void {
+    //    \\    baz();
+    //    \\    quux();
+    //    \\}
+    //    \\inline fn baz() void {
+    //    \\    bar();
+    //    \\    quux();
+    //    \\}
+    //    \\extern fn quux() void;
+    //, &[_][]const u8{
+    //    "tmp.zig:4:1: error: unable to inline function",
+    //});
 
-    cases.add("save reference to inline function",
-        \\export fn foo() void {
-        \\    quux(@ptrToInt(bar));
-        \\}
-        \\inline fn bar() void { }
-        \\extern fn quux(usize) void;
-    , &[_][]const u8{
-        "tmp.zig:4:1: error: unable to inline function",
-    });
+    //cases.add("save reference to inline function",
+    //    \\export fn foo() void {
+    //    \\    quux(@ptrToInt(bar));
+    //    \\}
+    //    \\inline fn bar() void { }
+    //    \\extern fn quux(usize) void;
+    //, &[_][]const u8{
+    //    "tmp.zig:4:1: error: unable to inline function",
+    //});
 
     cases.add("signed integer division",
         \\export fn foo(a: i32, b: i32) i32 {
