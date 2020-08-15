@@ -3,9 +3,12 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const leb = std.debug.leb;
+const mem = std.mem;
 
 const Decl = @import("../Module.zig").Decl;
+const Inst = @import("../ir.zig").Inst;
 const Type = @import("../type.zig").Type;
+const Value = @import("../value.zig").Value;
 
 fn genValtype(ty: Type) u8 {
     return switch (ty.tag()) {
@@ -56,10 +59,10 @@ pub fn genCode(buf: *ArrayList(u8), decl: *Decl) !void {
     try leb.writeULEB128(writer, @as(u32, 0));
 
     // Write instructions
-
-    // TODO: actually implement codegen
-    try writer.writeByte(0x41); // i32.const
-    try leb.writeILEB128(writer, @as(i32, 42));
+    // TODO: check for and handle death of instructions
+    const tv = decl.typed_value.most_recent.typed_value;
+    const mod_fn = tv.val.cast(Value.Payload.Function).?.func;
+    for (mod_fn.analysis.success.instructions) |inst| try genInst(writer, inst);
 
     // Write 'end' opcode
     try writer.writeByte(0x0B);
@@ -67,4 +70,50 @@ pub fn genCode(buf: *ArrayList(u8), decl: *Decl) !void {
     // Fill in the size of the generated code to the reserved space at the
     // beginning of the buffer.
     leb.writeUnsignedFixed(5, buf.items[0..5], @intCast(u32, buf.items.len - 5));
+}
+
+fn genInst(writer: ArrayList(u8).Writer, inst: *Inst) !void {
+    return switch (inst.tag) {
+        .dbg_stmt => {},
+        .ret => genRet(writer, inst.castTag(.ret).?),
+        else => error.TODOImplementMoreWasmCodegen,
+    };
+}
+
+fn genRet(writer: ArrayList(u8).Writer, inst: *Inst.UnOp) !void {
+    switch (inst.operand.tag) {
+        .constant => {
+            const constant = inst.operand.castTag(.constant).?;
+            switch (inst.operand.ty.tag()) {
+                .u32 => {
+                    try writer.writeByte(0x41); // i32.const
+                    try leb.writeILEB128(writer, constant.val.toUnsignedInt());
+                },
+                .i32 => {
+                    try writer.writeByte(0x41); // i32.const
+                    try leb.writeILEB128(writer, constant.val.toSignedInt());
+                },
+                .u64 => {
+                    try writer.writeByte(0x42); // i64.const
+                    try leb.writeILEB128(writer, constant.val.toUnsignedInt());
+                },
+                .i64 => {
+                    try writer.writeByte(0x42); // i64.const
+                    try leb.writeILEB128(writer, constant.val.toSignedInt());
+                },
+                .f32 => {
+                    try writer.writeByte(0x43); // f32.const
+                    // TODO: enforce LE byte order
+                    try writer.writeAll(mem.asBytes(&constant.val.toFloat(f32)));
+                },
+                .f64 => {
+                    try writer.writeByte(0x44); // f64.const
+                    // TODO: enforce LE byte order
+                    try writer.writeAll(mem.asBytes(&constant.val.toFloat(f64)));
+                },
+                else => return error.TODOImplementMoreWasmCodegen,
+            }
+        },
+        else => return error.TODOImplementMoreWasmCodegen,
+    }
 }
