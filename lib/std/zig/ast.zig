@@ -530,15 +530,15 @@ pub const Node = struct {
 
         // Misc
         DocComment,
-        SwitchCase,
-        SwitchElse,
-        Else,
-        Payload,
-        PointerPayload,
-        PointerIndexPayload,
+        SwitchCase, // TODO make this not a child of AST Node
+        SwitchElse, // TODO make this not a child of AST Node
+        Else, // TODO make this not a child of AST Node
+        Payload, // TODO make this not a child of AST Node
+        PointerPayload, // TODO make this not a child of AST Node
+        PointerIndexPayload, // TODO make this not a child of AST Node
         ContainerField,
-        ErrorTag,
-        FieldInitializer,
+        ErrorTag, // TODO make this not a child of AST Node
+        FieldInitializer, // TODO make this not a child of AST Node
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
