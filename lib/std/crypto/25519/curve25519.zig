@@ -19,10 +19,8 @@ pub const Curve25519 = struct {
         return p.x.toBytes();
     }
 
-    /// Return the Curve25519 base point.
-    pub inline fn basePoint() Curve25519 {
-        return .{ .x = Fe.curve25519BasePoint };
-    }
+    /// The Curve25519 base point.
+    pub const basePoint = Curve25519{ .x = Fe.curve25519BasePoint };
 
     /// Check that the encoding of a Curve25519 point is canonical.
     pub fn rejectNonCanonical(s: [32]u8) !void {
@@ -103,7 +101,7 @@ pub const Curve25519 = struct {
 
 test "curve25519" {
     var s = [32]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8 };
-    const p = try Curve25519.basePoint().clampedMul(s);
+    const p = try Curve25519.basePoint.clampedMul(s);
     try p.rejectIdentity();
     var buf: [128]u8 = undefined;
     std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{p.toBytes()}), "E6F2A4D1C28EE5C7AD0329268255A468AD407D2672824C0C0EB30EA6EF450145");

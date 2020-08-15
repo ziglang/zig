@@ -43,10 +43,8 @@ pub const Ristretto255 = struct {
         return p.p.rejectIdentity();
     }
 
-    /// Return the base point (Ristretto is a curve in desguise).
-    pub inline fn basePoint() Ristretto255 {
-        return .{ .p = Curve.basePoint() };
-    }
+    /// The base point (Ristretto is a curve in desguise).
+    pub const basePoint = Ristretto255{ .p = Curve.basePoint };
 
     /// Decode a Ristretto255 representative.
     pub fn fromBytes(s: [32]u8) !Ristretto255 {
@@ -130,7 +128,7 @@ pub const Ristretto255 = struct {
 };
 
 test "ristretto255" {
-    const p = Ristretto255.basePoint();
+    const p = Ristretto255.basePoint;
     var buf: [256]u8 = undefined;
     std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{p.toBytes()}), "E2F2AE0A6ABC4E71A884A961C500515F58E30B6AA582DD8DB6A65945E08D2D76");
 

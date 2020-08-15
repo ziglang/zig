@@ -17,7 +17,7 @@ pub const X25519 = struct {
         std.debug.assert(public_key.len >= minimum_key_length);
         var s: [32]u8 = undefined;
         mem.copy(u8, &s, private_key[0..32]);
-        if (Curve.basePoint().clampedMul(s)) |q| {
+        if (Curve.basePoint.clampedMul(s)) |q| {
             mem.copy(u8, public_key, q.toBytes()[0..]);
             return true;
         } else |_| {
@@ -52,7 +52,7 @@ test "x25519 public key calculation from secret key" {
     try fmt.hexToBytes(sk[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
     try fmt.hexToBytes(pk_expected[0..], "f1814f0e8ff1043d8a44d25babff3cedcae6c22c3edaa48f857ae70de2baae50");
     std.testing.expect(X25519.createPublicKey(pk_calculated[0..], &sk));
-    std.testing.expect(std.mem.eql(u8, &pk_calculated, &pk_expected));
+    std.testing.expectEqual(pk_calculated, pk_expected);
 }
 
 test "x25519 rfc7748 vector1" {
@@ -64,7 +64,7 @@ test "x25519 rfc7748 vector1" {
     var output: [32]u8 = undefined;
 
     std.testing.expect(X25519.create(output[0..], secret_key[0..], public_key[0..]));
-    std.testing.expect(std.mem.eql(u8, &output, expected_output[0..]));
+    std.testing.expectEqual(output, expected_output);
 }
 
 test "x25519 rfc7748 vector2" {
@@ -76,7 +76,7 @@ test "x25519 rfc7748 vector2" {
     var output: [32]u8 = undefined;
 
     std.testing.expect(X25519.create(output[0..], secret_key[0..], public_key[0..]));
-    std.testing.expect(std.mem.eql(u8, &output, expected_output[0..]));
+    std.testing.expectEqual(output, expected_output);
 }
 
 test "x25519 rfc7748 one iteration" {
@@ -91,11 +91,11 @@ test "x25519 rfc7748 one iteration" {
         var output: [32]u8 = undefined;
         std.testing.expect(X25519.create(output[0..], &k, &u));
 
-        std.mem.copy(u8, u[0..], k[0..]);
-        std.mem.copy(u8, k[0..], output[0..]);
+        mem.copy(u8, u[0..], k[0..]);
+        mem.copy(u8, k[0..], output[0..]);
     }
 
-    std.testing.expect(std.mem.eql(u8, k[0..], expected_output[0..]));
+    std.testing.expectEqual(k, expected_output);
 }
 
 test "x25519 rfc7748 1,000 iterations" {
@@ -115,11 +115,11 @@ test "x25519 rfc7748 1,000 iterations" {
         var output: [32]u8 = undefined;
         std.testing.expect(X25519.create(output[0..], &k, &u));
 
-        std.mem.copy(u8, u[0..], k[0..]);
-        std.mem.copy(u8, k[0..], output[0..]);
+        mem.copy(u8, u[0..], k[0..]);
+        mem.copy(u8, k[0..], output[0..]);
     }
 
-    std.testing.expect(std.mem.eql(u8, k[0..], expected_output));
+    std.testing.expectEqual(k, expected_output);
 }
 
 test "x25519 rfc7748 1,000,000 iterations" {
@@ -138,9 +138,9 @@ test "x25519 rfc7748 1,000,000 iterations" {
         var output: [32]u8 = undefined;
         std.testing.expect(X25519.create(output[0..], &k, &u));
 
-        std.mem.copy(u8, u[0..], k[0..]);
-        std.mem.copy(u8, k[0..], output[0..]);
+        mem.copy(u8, u[0..], k[0..]);
+        mem.copy(u8, k[0..], output[0..]);
     }
 
-    std.testing.expect(std.mem.eql(u8, k[0..], expected_output));
+    std.testing.expectEqual(k[0..], expected_output);
 }
