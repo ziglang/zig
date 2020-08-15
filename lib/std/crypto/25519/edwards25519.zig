@@ -74,7 +74,7 @@ pub const Edwards25519 = struct {
     }
 
     /// Double an Edwards25519 point.
-    pub inline fn dbl(p: Edwards25519) Edwards25519 {
+    pub fn dbl(p: Edwards25519) Edwards25519 {
         const t0 = p.x.add(p.y).sq();
         var x = p.x.sq();
         var z = p.y.sq();
@@ -91,7 +91,7 @@ pub const Edwards25519 = struct {
     }
 
     /// Add two Edwards25519 points.
-    pub inline fn add(p: Edwards25519, q: Edwards25519) Edwards25519 {
+    pub fn add(p: Edwards25519, q: Edwards25519) Edwards25519 {
         const a = p.y.sub(p.x).mul(q.y.sub(q.x));
         const b = p.x.add(p.y).mul(q.x.add(q.y));
         const c = p.t.mul(q.t).mul(Fe.edwards25519d2);
