@@ -47,7 +47,19 @@ pub fn typeExpr(mod: *Module, scope: *Scope, type_node: *ast.Node) InnerError!*z
 /// Turn Zig AST into untyped ZIR istructions.
 pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerError!*zir.Inst {
     switch (node.tag) {
+        .Root => unreachable, // Top-level declaration.
+        .Use => unreachable, // Top-level declaration.
+        .TestDecl => unreachable, // Top-level declaration.
+        .DocComment => unreachable, // Top-level declaration.
         .VarDecl => unreachable, // Handled in `blockExpr`.
+        .SwitchCase => unreachable, // Handled in `switchExpr`.
+        .SwitchElse => unreachable, // Handled in `switchExpr`.
+        .Else => unreachable, // Handled explicitly the control flow expression functions.
+        .Payload => unreachable, // Handled explicitly.
+        .PointerPayload => unreachable, // Handled explicitly.
+        .PointerIndexPayload => unreachable, // Handled explicitly.
+        .ErrorTag => unreachable, // Handled explicitly.
+        .FieldInitializer => unreachable, // Handled explicitly.
 
         .Assign => return rlWrapVoid(mod, scope, rl, node, try assign(mod, scope, node.castTag(.Assign).?)),
         .AssignBitAnd => return rlWrapVoid(mod, scope, rl, node, try assignOp(mod, scope, node.castTag(.AssignBitAnd).?, .bitand)),
@@ -109,7 +121,49 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .UnwrapOptional => return unwrapOptional(mod, scope, rl, node.castTag(.UnwrapOptional).?),
         .Block => return rlWrapVoid(mod, scope, rl, node, try blockExpr(mod, scope, node.castTag(.Block).?)),
         .LabeledBlock => return labeledBlockExpr(mod, scope, rl, node.castTag(.LabeledBlock).?),
-        else => return mod.failNode(scope, node, "TODO implement astgen.Expr for {}", .{@tagName(node.tag)}),
+        .Defer => return mod.failNode(scope, node, "TODO implement astgen.expr for .Defer", .{}),
+        .Catch => return mod.failNode(scope, node, "TODO implement astgen.expr for .Catch", .{}),
+        .BoolAnd => return mod.failNode(scope, node, "TODO implement astgen.expr for .BoolAnd", .{}),
+        .BoolOr => return mod.failNode(scope, node, "TODO implement astgen.expr for .BoolOr", .{}),
+        .ErrorUnion => return mod.failNode(scope, node, "TODO implement astgen.expr for .ErrorUnion", .{}),
+        .MergeErrorSets => return mod.failNode(scope, node, "TODO implement astgen.expr for .MergeErrorSets", .{}),
+        .Range => return mod.failNode(scope, node, "TODO implement astgen.expr for .Range", .{}),
+        .OrElse => return mod.failNode(scope, node, "TODO implement astgen.expr for .OrElse", .{}),
+        .AddressOf => return mod.failNode(scope, node, "TODO implement astgen.expr for .AddressOf", .{}),
+        .Await => return mod.failNode(scope, node, "TODO implement astgen.expr for .Await", .{}),
+        .BitNot => return mod.failNode(scope, node, "TODO implement astgen.expr for .BitNot", .{}),
+        .Negation => return mod.failNode(scope, node, "TODO implement astgen.expr for .Negation", .{}),
+        .NegationWrap => return mod.failNode(scope, node, "TODO implement astgen.expr for .NegationWrap", .{}),
+        .Resume => return mod.failNode(scope, node, "TODO implement astgen.expr for .Resume", .{}),
+        .Try => return mod.failNode(scope, node, "TODO implement astgen.expr for .Try", .{}),
+        .ArrayType => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayType", .{}),
+        .ArrayTypeSentinel => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayTypeSentinel", .{}),
+        .PtrType => return mod.failNode(scope, node, "TODO implement astgen.expr for .PtrType", .{}),
+        .SliceType => return mod.failNode(scope, node, "TODO implement astgen.expr for .SliceType", .{}),
+        .Slice => return mod.failNode(scope, node, "TODO implement astgen.expr for .Slice", .{}),
+        .ArrayAccess => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayAccess", .{}),
+        .ArrayInitializer => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayInitializer", .{}),
+        .ArrayInitializerDot => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayInitializerDot", .{}),
+        .StructInitializer => return mod.failNode(scope, node, "TODO implement astgen.expr for .StructInitializer", .{}),
+        .StructInitializerDot => return mod.failNode(scope, node, "TODO implement astgen.expr for .StructInitializerDot", .{}),
+        .Switch => return mod.failNode(scope, node, "TODO implement astgen.expr for .Switch", .{}),
+        .For => return mod.failNode(scope, node, "TODO implement astgen.expr for .For", .{}),
+        .Suspend => return mod.failNode(scope, node, "TODO implement astgen.expr for .Suspend", .{}),
+        .Continue => return mod.failNode(scope, node, "TODO implement astgen.expr for .Continue", .{}),
+        .Break => return mod.failNode(scope, node, "TODO implement astgen.expr for .Break", .{}),
+        .AnyType => return mod.failNode(scope, node, "TODO implement astgen.expr for .AnyType", .{}),
+        .ErrorType => return mod.failNode(scope, node, "TODO implement astgen.expr for .ErrorType", .{}),
+        .FnProto => return mod.failNode(scope, node, "TODO implement astgen.expr for .FnProto", .{}),
+        .AnyFrameType => return mod.failNode(scope, node, "TODO implement astgen.expr for .AnyFrameType", .{}),
+        .EnumLiteral => return mod.failNode(scope, node, "TODO implement astgen.expr for .EnumLiteral", .{}),
+        .MultilineStringLiteral => return mod.failNode(scope, node, "TODO implement astgen.expr for .MultilineStringLiteral", .{}),
+        .CharLiteral => return mod.failNode(scope, node, "TODO implement astgen.expr for .CharLiteral", .{}),
+        .GroupedExpression => return mod.failNode(scope, node, "TODO implement astgen.expr for .GroupedExpression", .{}),
+        .ErrorSetDecl => return mod.failNode(scope, node, "TODO implement astgen.expr for .ErrorSetDecl", .{}),
+        .ContainerDecl => return mod.failNode(scope, node, "TODO implement astgen.expr for .ContainerDecl", .{}),
+        .Comptime => return mod.failNode(scope, node, "TODO implement astgen.expr for .Comptime", .{}),
+        .Nosuspend => return mod.failNode(scope, node, "TODO implement astgen.expr for .Nosuspend", .{}),
+        .ContainerField => return mod.failNode(scope, node, "TODO implement astgen.expr for .ContainerField", .{}),
     }
 }
 
