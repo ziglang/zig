@@ -50,20 +50,16 @@ pub const Edwards25519 = struct {
         return Fe.rejectNonCanonical(s, true);
     }
 
-    /// Return the Edwards25519 base point.
-    pub inline fn basePoint() Edwards25519 {
-        return .{
-            .x = Fe{ .limbs = .{ 3990542415680775, 3398198340507945, 4322667446711068, 2814063955482877, 2839572215813860 } },
-            .y = Fe{ .limbs = .{ 1801439850948184, 1351079888211148, 450359962737049, 900719925474099, 1801439850948198 } },
-            .z = Fe.one,
-            .t = Fe{ .limbs = .{ 1841354044333475, 16398895984059, 755974180946558, 900171276175154, 1821297809914039 } },
-            .is_base = true,
-        };
-    }
+    /// The edwards25519 base point.
+    pub const basePoint = Edwards25519{
+        .x = Fe{ .limbs = .{ 3990542415680775, 3398198340507945, 4322667446711068, 2814063955482877, 2839572215813860 } },
+        .y = Fe{ .limbs = .{ 1801439850948184, 1351079888211148, 450359962737049, 900719925474099, 1801439850948198 } },
+        .z = Fe.one,
+        .t = Fe{ .limbs = .{ 1841354044333475, 16398895984059, 755974180946558, 900171276175154, 1821297809914039 } },
+        .is_base = true,
+    };
 
-    inline fn identityElement() Edwards25519 {
-        return .{ .x = Fe.zero, .y = Fe.one, .z = Fe.one, .t = Fe.zero };
-    }
+    const identityElement = Edwards25519{ .x = Fe.zero, .y = Fe.one, .z = Fe.one, .t = Fe.zero };
 
     /// Reject the neutral element.
     pub fn rejectIdentity(p: Edwards25519) !void {
@@ -121,16 +117,16 @@ pub const Edwards25519 = struct {
     }
 
     inline fn pcSelect(pc: [16]Edwards25519, b: u8) Edwards25519 {
-        var t = Edwards25519.identityElement();
+        var t = Edwards25519.identityElement;
         comptime var i: u8 = 0;
         inline while (i < 16) : (i += 1) {
-            t.cMov(pc[i], ((@as(usize, (b ^ i)) -% 1) >> 8) & 1);
+            t.cMov(pc[i], ((@as(usize, b ^ i) -% 1) >> 8) & 1);
         }
         return t;
     }
 
     fn pcMul(pc: [16]Edwards25519, s: [32]u8) !Edwards25519 {
-        var q = Edwards25519.identityElement();
+        var q = Edwards25519.identityElement;
         var pos: usize = 252;
         while (true) : (pos -= 4) {
             q = q.dbl().dbl().dbl().dbl();
@@ -144,7 +140,7 @@ pub const Edwards25519 = struct {
 
     fn precompute(p: Edwards25519) [16]Edwards25519 {
         var pc: [16]Edwards25519 = undefined;
-        pc[0] = Edwards25519.identityElement();
+        pc[0] = Edwards25519.identityElement;
         pc[1] = p;
         var i: usize = 2;
         while (i < 16) : (i += 1) {
@@ -153,11 +149,14 @@ pub const Edwards25519 = struct {
         return pc;
     }
 
-    fn _mul(p: Edwards25519, s: [32]u8) !Edwards25519 {
+    /// Multiply an Edwards25519 point by a scalar without clamping it.
+    /// Return error.WeakPublicKey if the resulting point is
+    /// the identity element.
+    pub fn mul(p: Edwards25519, s: [32]u8) !Edwards25519 {
         var pc: [16]Edwards25519 = undefined;
         if (p.is_base) {
             @setEvalBranchQuota(10000);
-            pc = comptime precompute(Edwards25519.basePoint());
+            pc = comptime precompute(Edwards25519.basePoint);
         } else {
             pc = precompute(p);
             pc[4].rejectIdentity() catch |_| return error.WeakPublicKey;
@@ -174,20 +173,13 @@ pub const Edwards25519 = struct {
     pub fn clampedMul(p: Edwards25519, s: [32]u8) !Edwards25519 {
         var t: [32]u8 = s;
         scalar.clamp(&t);
-        return _mul(p, t);
-    }
-
-    /// Multiply an Edwards25519 point by a scalar without clamping it.
-    /// Return error.WeakPublicKey if the resulting point is
-    /// the identity element.
-    pub fn mul(p: Edwards25519, s: [32]u8) !Edwards25519 {
-        return _mul(p, s);
+        return mul(p, t);
     }
 };
 
 test "edwards25519 packing/unpacking" {
     const s = [_]u8{170} ++ [_]u8{0} ** 31;
-    var b = Edwards25519.basePoint();
+    var b = Edwards25519.basePoint;
     const pk = try b.mul(s);
     var buf: [128]u8 = undefined;
     std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{pk.toBytes()}), "074BC7E0FCBD587FDBC0969444245FADC562809C8F6E97E949AF62484B5B81A6");
