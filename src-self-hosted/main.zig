@@ -95,11 +95,8 @@ pub fn main() !void {
         const stdout = io.getStdOut().outStream();
         return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, info.target);
     } else if (mem.eql(u8, cmd, "version")) {
-        // Need to set up the build script to give the version as a comptime value.
-        // TODO when you solve this, also take a look at link.zig, there is a placeholder
-        // that says "TODO version here".
-        std.debug.print("TODO version command not implemented yet\n", .{});
-        return error.Unimplemented;
+        std.io.getStdOut().writeAll(build_options.version ++ "\n") catch process.exit(1);
+        return;
     } else if (mem.eql(u8, cmd, "zen")) {
         try io.getStdOut().writeAll(info_zen);
     } else if (mem.eql(u8, cmd, "help")) {

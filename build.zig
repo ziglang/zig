@@ -10,6 +10,8 @@ const io = std.io;
 const fs = std.fs;
 const InstallDirectoryOptions = std.build.InstallDirectoryOptions;
 
+const zig_version = std.builtin.Version{ .major = 0, .minor = 6, .patch = 0 };
+
 pub fn build(b: *Builder) !void {
     b.setPreferredReleaseMode(.ReleaseFast);
     const mode = b.standardReleaseOptions();
@@ -78,6 +80,24 @@ pub fn build(b: *Builder) !void {
         if (link_libc) exe.linkLibC();
 
         const log_scopes = b.option([]const []const u8, "log", "Which log scopes to enable") orelse &[0][]const u8{};
+
+        const opt_version_string = b.option([]const u8, "version-string", "Override Zig version string. Default is to find out with git.");
+        const version = if (opt_version_string) |version| version else v: {
+            var code: u8 = undefined;
+            const version_untrimmed = b.execAllowFail(&[_][]const u8{
+                "git",    "-C",          b.build_root,     "name-rev", "HEAD",
+                "--tags", "--name-only", "--no-undefined", "--always",
+            }, &code, .Ignore) catch |err| {
+                std.debug.print(
+                    \\Unable to determine zig version string: {}
+                    \\Provide the zig version string explicitly using the `version-string` build option.
+                , .{err});
+                std.process.exit(1);
+            };
+            const trimmed = mem.trim(u8, version_untrimmed, " \n\r");
+            break :v b.fmt("{}.{}.{}+{}", .{ zig_version.major, zig_version.minor, zig_version.patch, trimmed });
+        };
+        exe.addBuildOption([]const u8, "version", version);
 
         exe.addBuildOption([]const []const u8, "log_scopes", log_scopes);
         exe.addBuildOption(bool, "enable_tracy", tracy != null);
