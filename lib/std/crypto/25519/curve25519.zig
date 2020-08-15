@@ -44,7 +44,7 @@ pub const Curve25519 = struct {
         var z3 = Fe.one;
         var swap: u8 = 0;
         var pos: usize = bits - 1;
-        while (true) {
+        while (true) : (pos -= 1) {
             const b = (s[pos / 8] >> @intCast(u3, pos & 7)) & 1;
             swap ^= b;
             Fe.cSwap2(&x2, &x3, &z2, &z3, swap);
@@ -68,7 +68,6 @@ pub const Curve25519 = struct {
             z3 = x1.mul(z2);
             z2 = tmp1.mul(tmp0);
             if (pos == 0) break;
-            pos -= 1;
         }
         Fe.cSwap2(&x2, &x3, &z2, &z3, swap);
         z2 = z2.invert();
