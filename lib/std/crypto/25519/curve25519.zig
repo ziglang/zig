@@ -21,7 +21,7 @@ pub const Curve25519 = struct {
 
     /// Return the Curve25519 base point.
     pub inline fn basePoint() Curve25519 {
-        return .{ .x = Fe.curve25519BasePoint() };
+        return .{ .x = Fe.curve25519BasePoint };
     }
 
     /// Check that the encoding of a Curve25519 point is canonical.
@@ -38,10 +38,10 @@ pub const Curve25519 = struct {
 
     fn ladder(p: Curve25519, s: [32]u8, comptime bits: usize) !Curve25519 {
         var x1 = p.x;
-        var x2 = Fe.one();
-        var z2 = Fe.zero();
+        var x2 = Fe.one;
+        var z2 = Fe.zero;
         var x3 = x1;
-        var z3 = Fe.one();
+        var z3 = Fe.one;
         var swap: u8 = 0;
         var pos: usize = bits - 1;
         while (true) {
@@ -76,7 +76,7 @@ pub const Curve25519 = struct {
         if (x2.isZero()) {
             return error.IdentityElement;
         }
-        return Curve25519 { .x = x2 };
+        return Curve25519{ .x = x2 };
     }
 
     /// Multiply a Curve25519 point by a scalar after "clamping" it.
@@ -88,7 +88,7 @@ pub const Curve25519 = struct {
     pub fn clampedMul(p: Curve25519, s: [32]u8) !Curve25519 {
         var t: [32]u8 = s;
         scalar.clamp(&t);
-        return ladder(p, t, 255);
+        return try ladder(p, t, 255);
     }
 
     /// Multiply a Curve25519 point by a scalar without clamping it.
@@ -98,7 +98,7 @@ pub const Curve25519 = struct {
     pub fn mul(p: Curve25519, s: [32]u8) !Curve25519 {
         const cofactor = [_]u8{8} ++ [_]u8{0} ** 31;
         _ = ladder(p, cofactor, 4) catch |_| return error.WeakPublicKey;
-        return ladder(p, s, 256);
+        return try ladder(p, s, 256);
     }
 };
 
@@ -107,10 +107,9 @@ test "curve25519" {
     const p = try Curve25519.basePoint().clampedMul(s);
     try p.rejectIdentity();
     var buf: [128]u8 = undefined;
-    const alloc = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    std.testing.expectEqualStrings(try std.fmt.allocPrint(alloc, "{X}", .{p.toBytes()}), "E6F2A4D1C28EE5C7AD0329268255A468AD407D2672824C0C0EB30EA6EF450145");
+    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{p.toBytes()}), "E6F2A4D1C28EE5C7AD0329268255A468AD407D2672824C0C0EB30EA6EF450145");
     const q = try p.clampedMul(s);
-    std.testing.expectEqualStrings(try std.fmt.allocPrint(alloc, "{X}", .{q.toBytes()}), "3614E119FFE55EC55B87D6B19971A9F4CBC78EFE80BEC55B96392BABCC712537");
+    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{q.toBytes()}), "3614E119FFE55EC55B87D6B19971A9F4CBC78EFE80BEC55B96392BABCC712537");
 
     try Curve25519.rejectNonCanonical(s);
     s[31] |= 0x80;

@@ -107,11 +107,10 @@ test "ed25519 key pair creation" {
     try fmt.hexToBytes(seed[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
     const key_pair = try Ed25519.createKeyPair(seed);
     var buf: [256]u8 = undefined;
-    const alloc = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    std.testing.expectEqualStrings(try std.fmt.allocPrint(alloc, "{X}", .{key_pair}), "8052030376D47112BE7F73ED7A019293DD12AD910B654455798B4667D73DE1662D6F7455D97B4A3A10D7293909D1A4F2058CB9A370E43FA8154BB280DB839083");
+    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{key_pair}), "8052030376D47112BE7F73ED7A019293DD12AD910B654455798B4667D73DE1662D6F7455D97B4A3A10D7293909D1A4F2058CB9A370E43FA8154BB280DB839083");
 
     const public_key = Ed25519.publicKey(key_pair);
-    std.testing.expectEqualStrings(try std.fmt.allocPrint(alloc, "{X}", .{public_key}), "2D6F7455D97B4A3A10D7293909D1A4F2058CB9A370E43FA8154BB280DB839083");
+    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{public_key}), "2D6F7455D97B4A3A10D7293909D1A4F2058CB9A370E43FA8154BB280DB839083");
 }
 
 test "ed25519 signature" {
@@ -121,8 +120,7 @@ test "ed25519 signature" {
 
     const sig = try Ed25519.sign("test", key_pair, null);
     var buf: [128]u8 = undefined;
-    const alloc = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    std.testing.expectEqualStrings(try std.fmt.allocPrint(alloc, "{X}", .{sig}), "10A442B4A80CC4225B154F43BEF28D2472CA80221951262EB8E0DF9091575E2687CC486E77263C3418C757522D54F84B0359236ABBBD4ACD20DC297FDCA66808");
+    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{sig}), "10A442B4A80CC4225B154F43BEF28D2472CA80221951262EB8E0DF9091575E2687CC486E77263C3418C757522D54F84B0359236ABBBD4ACD20DC297FDCA66808");
     const public_key = Ed25519.publicKey(key_pair);
     try Ed25519.verify(sig, "test", public_key);
     std.testing.expectError(error.InvalidSignature, Ed25519.verify(sig, "TEST", public_key));

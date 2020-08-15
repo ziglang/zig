@@ -1,20 +1,17 @@
 const std = @import("std");
 const mem = std.mem;
 
-inline fn fieldSize() [32]u8 {
-    return .{
-        0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, // 2^252+27742317777372353535851937790883648493
-    };
-}
+const field_size = [32]u8{
+    0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, // 2^252+27742317777372353535851937790883648493
+};
 
 const ScalarExpanded = struct {
-    const L = fieldSize();
     limbs: [64]i64 = [_]i64{0} ** 64,
 
     fn fromBytes(s: [32]u8) ScalarExpanded {
         var limbs: [64]i64 = undefined;
         for (s) |x, idx| {
-            limbs[idx] = @intCast(i64, x);
+            limbs[idx] = @as(i64, x);
         }
         mem.set(i64, limbs[32..], 0);
         return .{ .limbs = limbs };
@@ -23,7 +20,7 @@ const ScalarExpanded = struct {
     fn fromBytes64(s: [64]u8) ScalarExpanded {
         var limbs: [64]i64 = undefined;
         for (s) |x, idx| {
-            limbs[idx] = @intCast(i64, x);
+            limbs[idx] = @as(i64, x);
         }
         return .{ .limbs = limbs };
     }
@@ -38,7 +35,7 @@ const ScalarExpanded = struct {
             const xi = limbs[i];
             var j = i - 32;
             while (j < k) : (j += 1) {
-                const xj = limbs[j] + carry - 16 * xi * @intCast(i64, L[j - (i - 32)]);
+                const xj = limbs[j] + carry - 16 * xi * @as(i64, field_size[j - (i - 32)]);
                 carry = (xj + 128) >> 8;
                 limbs[j] = xj - carry * 256;
             }
@@ -48,13 +45,13 @@ const ScalarExpanded = struct {
         carry = 0;
         comptime var j: usize = 0;
         inline while (j < 32) : (j += 1) {
-            const xi = limbs[j] + carry - (limbs[31] >> 4) * @intCast(i64, L[j]);
+            const xi = limbs[j] + carry - (limbs[31] >> 4) * @as(i64, field_size[j]);
             carry = xi >> 8;
             limbs[j] = xi & 255;
         }
         j = 0;
         inline while (j < 32) : (j += 1) {
-            limbs[j] -= carry * @intCast(i64, L[j]);
+            limbs[j] -= carry * @as(i64, field_size[j]);
         }
         j = 0;
         inline while (j < 32) : (j += 1) {
@@ -116,15 +113,14 @@ const ScalarExpanded = struct {
 
 /// Reject a scalar whose encoding is not canonical.
 pub fn rejectNonCanonical(s: [32]u8) !void {
-    const L = fieldSize();
     var c: u8 = 0;
     var n: u8 = 1;
     var i: usize = 31;
     while (true) {
-        const xs = @intCast(u16, s[i]);
-        const xL = @intCast(u16, L[i]);
-        c |= @intCast(u8, ((xs -% xL) >> 8) & n);
-        n &= @intCast(u8, ((xs ^ xL) -% 1) >> 8);
+        const xs = @as(u16, s[i]);
+        const xfield_size = @as(u16, field_size[i]);
+        c |= @intCast(u8, ((xs -% xfield_size) >> 8) & n);
+        n &= @intCast(u8, ((xs ^ xfield_size) -% 1) >> 8);
         if (i == 0) break;
         i -= 1;
     }
@@ -161,12 +157,10 @@ test "scalar25519" {
     var y = x.toBytes();
     try rejectNonCanonical(y);
     var buf: [128]u8 = undefined;
-    const alloc = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    std.testing.expectEqualStrings(try std.fmt.allocPrint(alloc, "{X}", .{y}), "1E979B917937F3DE71D18077F961F6CEFF01030405060708010203040506070F");
+    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{y}), "1E979B917937F3DE71D18077F961F6CEFF01030405060708010203040506070F");
 
-    const field_size = fieldSize();
     const reduced = reduce(field_size);
-    std.testing.expectEqualStrings(try std.fmt.allocPrint(alloc, "{X}", .{reduced}), "0000000000000000000000000000000000000000000000000000000000000000");
+    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{reduced}), "0000000000000000000000000000000000000000000000000000000000000000");
 }
 
 test "non-canonical scalar25519" {
@@ -174,12 +168,11 @@ test "non-canonical scalar25519" {
     std.testing.expectError(error.NonCanonical, rejectNonCanonical(too_targe));
 }
 
-test "scalar25519 mulAdd overflow check" {
+test "mulAdd overflow check" {
     const a: [32]u8 = [_]u8{0xff} ** 32;
     const b: [32]u8 = [_]u8{0xff} ** 32;
     const c: [32]u8 = [_]u8{0xff} ** 32;
     const x = mulAdd(a, b, c);
     var buf: [128]u8 = undefined;
-    const alloc = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    std.testing.expectEqualStrings(try std.fmt.allocPrint(alloc, "{X}", .{x}), "D14DF91389432C25AD60FF9791B9FD1D67BEF517D273ECCE3D9A307C1B419903");
+    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{x}), "D14DF91389432C25AD60FF9791B9FD1D67BEF517D273ECCE3D9A307C1B419903");
 }

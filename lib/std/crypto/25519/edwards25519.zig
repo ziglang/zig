@@ -17,10 +17,10 @@ pub const Edwards25519 = struct {
 
     /// Decode an Edwards25519 point from its compressed (Y+sign) coordinates.
     pub fn fromBytes(s: [32]u8) !Edwards25519 {
-        const z = Fe.one();
+        const z = Fe.one;
         const y = Fe.fromBytes(s);
         var u = y.sq();
-        var v = u.mul(Fe.edwards25519d());
+        var v = u.mul(Fe.edwards25519d);
         u = u.sub(z);
         v = v.add(z);
         const v3 = v.sq().mul(v);
@@ -31,10 +31,10 @@ pub const Edwards25519 = struct {
         if ((@boolToInt(has_m_root) | @boolToInt(has_p_root)) == 0) {
             return error.InvalidEncoding;
         }
-        x.cMov(x.mul(Fe.sqrtm1()), 1 - @boolToInt(has_m_root));
+        x.cMov(x.mul(Fe.sqrtm1), 1 - @boolToInt(has_m_root));
         x.cMov(x.neg(), @boolToInt(x.isNegative()) ^ (s[31] >> 7));
         const t = x.mul(y);
-        return Edwards25519 { .x = x, .y = y, .z = z, .t = t };
+        return Edwards25519{ .x = x, .y = y, .z = z, .t = t };
     }
 
     /// Encode an Edwards25519 point.
@@ -55,14 +55,14 @@ pub const Edwards25519 = struct {
         return .{
             .x = Fe{ .limbs = .{ 3990542415680775, 3398198340507945, 4322667446711068, 2814063955482877, 2839572215813860 } },
             .y = Fe{ .limbs = .{ 1801439850948184, 1351079888211148, 450359962737049, 900719925474099, 1801439850948198 } },
-            .z = Fe.one(),
+            .z = Fe.one,
             .t = Fe{ .limbs = .{ 1841354044333475, 16398895984059, 755974180946558, 900171276175154, 1821297809914039 } },
             .is_base = true,
         };
     }
 
     inline fn identityElement() Edwards25519 {
-        return .{ .x = Fe.zero(), .y = Fe.one(), .z = Fe.one(), .t = Fe.zero() };
+        return .{ .x = Fe.zero, .y = Fe.one, .z = Fe.one, .t = Fe.zero };
     }
 
     /// Reject the neutral element.
@@ -98,7 +98,7 @@ pub const Edwards25519 = struct {
     pub inline fn add(p: Edwards25519, q: Edwards25519) Edwards25519 {
         const a = p.y.sub(p.x).mul(q.y.sub(q.x));
         const b = p.x.add(p.y).mul(q.x.add(q.y));
-        const c = p.t.mul(q.t).mul(Fe.edwards25519d2());
+        const c = p.t.mul(q.t).mul(Fe.edwards25519d2);
         var d = p.z.mul(q.z);
         d = d.add(d);
         const x = b.sub(a);
@@ -124,7 +124,7 @@ pub const Edwards25519 = struct {
         var t = Edwards25519.identityElement();
         comptime var i: u8 = 0;
         inline while (i < 16) : (i += 1) {
-            t.cMov(pc[i], ((@intCast(usize, (b ^ i)) -% 1) >> 8) & 1);
+            t.cMov(pc[i], ((@as(usize, (b ^ i)) -% 1) >> 8) & 1);
         }
         return t;
     }
@@ -191,8 +191,7 @@ test "edwards25519 packing/unpacking" {
     var b = Edwards25519.basePoint();
     const pk = try b.mul(s);
     var buf: [128]u8 = undefined;
-    const alloc = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    std.testing.expectEqualStrings(try std.fmt.allocPrint(alloc, "{X}", .{pk.toBytes()}), "074BC7E0FCBD587FDBC0969444245FADC562809C8F6E97E949AF62484B5B81A6");
+    std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{pk.toBytes()}), "074BC7E0FCBD587FDBC0969444245FADC562809C8F6E97E949AF62484B5B81A6");
 
     const small_order_ss: [7][32]u8 = .{
         .{
