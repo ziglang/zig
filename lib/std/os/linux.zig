@@ -1221,3 +1221,464 @@ test "" {
         _ = @import("linux/test.zig");
     }
 }
+
+pub const bpf = struct {
+    /// a single BPF instruction
+    pub const Insn = packed struct {
+        code: u8,
+        dst: u4,
+        src: u4,
+        off: i16,
+        imm: i32,
+
+        /// r0 - r9 are general purpose 64-bit registers, r10 points to the stack
+        /// frame
+        pub const Reg = enum(u4) {
+            r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10
+        };
+
+        const alu = 0x04;
+        const jmp = 0x05;
+        const mov = 0xb0;
+        const k = 0;
+        const exit_code = 0x90;
+
+        // TODO: implement more factory functions for the other instructions
+        /// load immediate value into a register
+        pub fn load_imm(dst: Reg, imm: i32) Insn {
+            return Insn{
+                .code = alu | mov | k,
+                .dst = @enumToInt(dst),
+                .src = 0,
+                .off = 0,
+                .imm = imm,
+            };
+        }
+
+        /// exit BPF program
+        pub fn exit() Insn {
+            return Insn{
+                .code = jmp | exit_code,
+                .dst = 0,
+                .src = 0,
+                .off = 0,
+                .imm = 0,
+            };
+        }
+    };
+
+    /// flags for how to update a BPF map
+    pub const MapUpdateFlags = enum(u64) {
+        /// create new element of update existing
+        any = 0,
+        /// create new element if it didn't exist
+        no_exist = 1,
+        /// update existing element
+        exist = 2,
+    };
+
+    pub const MapCreateFlags = enum(u32) {
+        no_prealloc = 1 << 0,
+        /// Instead of having one common LRU list in the
+        /// BPF_MAP_TYPE_LRU_[PERCPU_]HASH map, use a percpu LRU list which can
+        /// scale and perform better.  Note, the LRU nodes (including free
+        /// nodes) cannot be moved across different LRU lists.
+        no_common_lru = 1 << 1,
+        /// specify numa node during map creation
+        numa_node = 1 << 2,
+        /// flags for accessing BPF object from syscall side
+        rdonly = 1 << 3,
+        wronly = 1 << 4,
+        /// flag for stack_map, store build_id+offset instead of pointer
+        stack_build_id = 1 << 5,
+        /// zero-initialize hash function seed. This should only be used for
+        /// testing
+        zero_seed = 1 << 6,
+        /// flags for accessing BPF object from program side
+        rdonly_prog = 1 << 7,
+        wronly_prog = 1 << 8,
+        /// Clone map from listener for newly accepted socket
+        clone = 1 << 9,
+        /// Enable memory-mapping BPF map
+        mmapable = 1 << 10,
+    };
+
+    pub const ProgQueryFlags = enum(64) {
+        /// Query effective (directly attached + inherited from ancestor
+        /// cgroups) programs that will be executed for events within a cgroup.
+        /// attach_flags with this flag are returned only for directly attached
+        /// programs.
+        effective = 1,
+    };
+
+    pub const MapType = enum(u32) {
+        unspec,
+        hash,
+        array,
+        prog_array,
+        perf_event_array,
+        percpu_hash,
+        percpu_array,
+        stack_trace,
+        cgroup_array,
+        lru_hash,
+        lru_percpu_hash,
+        lpm_trie,
+        array_of_maps,
+        hash_of_maps,
+        devmap,
+        sockmap,
+        cpumap,
+        xskmap,
+        sockhash,
+        cgroup_storage,
+        reuseport_sockarray,
+        percpu_cgroup_storage,
+        queue,
+        stack,
+        sk_storage,
+        devmap_hash,
+        struct_ops,
+        ringbuf,
+    };
+
+    pub const AttachType = enum(u32) {
+        cgroup_inet_ingress,
+        cgroup_inet_egress,
+        cgroup_inet_sock_create,
+        cgroup_sock_ops,
+        sk_skb_stream_parser,
+        sk_skb_stream_verdict,
+        cgroup_device,
+        sk_msg_verdict,
+        cgroup_inet4_bind,
+        cgroup_inet6_bind,
+        cgroup_inet4_connect,
+        cgroup_inet6_connect,
+        cgroup_inet4_post_bind,
+        cgroup_inet6_post_bind,
+        cgroup_udp4_sendmsg,
+        cgroup_udp6_sendmsg,
+        lirc_mode2,
+        flow_dissector,
+        cgroup_sysctl,
+        cgroup_udp4_recvmsg,
+        cgroup_udp6_recvmsg,
+        cgroup_getsockopt,
+        cgroup_setsockopt,
+        trace_raw_tp,
+        trace_fentry,
+        trace_fexit,
+        modify_return,
+        lsm_mac,
+        trace_iter,
+        cgroup_inet4_getpeername,
+        cgroup_inet6_getpeername,
+        cgroup_inet4_getsockname,
+        cgroup_inet6_getsockname,
+        xdp_devmap,
+    };
+
+    pub const Cmd = enum(usize) {
+        map_create,
+        map_lookup_elem,
+        map_update_elem,
+        map_delete_elem,
+        map_get_next_key,
+        prog_load,
+        obj_pin,
+        obj_get,
+        prog_attach,
+        prog_detach,
+        prog_test_run,
+        prog_get_next_id,
+        map_get_next_id,
+        prog_get_fd_by_id,
+        map_get_fd_by_id,
+        obj_get_info_by_fd,
+        prog_query,
+        raw_tracepoint_open,
+        btf_load,
+        btf_get_fd_by_id,
+        task_fd_query,
+        map_lookup_and_delete_elem,
+        map_freeze,
+        btf_get_next_id,
+        map_lookup_batch,
+        map_lookup_and_delete_batch,
+        map_update_batch,
+        map_delete_batch,
+        link_create,
+        link_update,
+        link_get_fd_by_id,
+        link_get_next_id,
+        enable_stats,
+        iter_create,
+    };
+
+    const obj_name_len = 16;
+    /// struct used by Cmd.map_create command
+    pub const MapCreateAttr = extern struct {
+        /// one of MapType
+        map_type: u32,
+        /// size of key in bytes
+        key_size: u32,
+        /// size of value in bytes
+        value_size: u32,
+        /// max number of entries in a map
+        max_entries: u32,
+        /// .map_create related flags
+        map_flags: u32,
+        /// fd pointing to the inner map
+        inner_map_fd: u32,
+        /// numa node (effective only if MapCreateFlags.numa_node is set)
+        numa_node: u32,
+        map_name: [obj_name_len]u8,
+        /// ifindex of netdev to create on
+        map_ifindex: u32,
+        /// fd pointing to a BTF type data
+        btf_fd: u32,
+        /// BTF type_id of the key
+        btf_key_type_id: u32,
+        /// BTF type_id of the value
+        bpf_value_type_id: u32,
+        /// BTF type_id of a kernel struct stored as the map value
+        btf_vmlinux_value_type_id: u32,
+    };
+
+    /// struct used by Cmd.map_*_elem commands
+    pub const MapElemAttr = extern struct {
+        map_fd: u32,
+        key: u64,
+        result: extern union {
+            value: u64,
+            next_key: u64,
+        },
+        flags: u64,
+    };
+
+    /// struct used by Cmd.map_*_batch commands
+    pub const MapBatchAttr = extern struct {
+        /// start batch, NULL to start from beginning
+        in_batch: u64,
+        /// output: next start batch
+        out_batch: u64,
+        keys: u64,
+        values: u64,
+        /// input/output:
+        /// input: # of key/value elements
+        /// output: # of filled elements
+        count: u32,
+        map_fd: u32,
+        elem_flags: u64,
+        flags: u64,
+    };
+
+    /// struct used by Cmd.prog_load command
+    pub const ProgLoadAttr = extern struct {
+        /// one of ProgType
+        prog_type: u32,
+        insn_cnt: u32,
+        insns: u64,
+        license: u64,
+        /// verbosity level of verifier
+        log_level: u32,
+        /// size of user buffer
+        log_size: u32,
+        /// user supplied buffer
+        log_buf: u64,
+        /// not used
+        kern_version: u32,
+        prog_flags: u32,
+        prog_name: [obj_name_len]u8,
+        /// ifindex of netdev to prep for. For some prog types expected attach
+        /// type must be known at load time to verify attach type specific parts
+        /// of prog (context accesses, allowed helpers, etc).
+        prog_ifindex: u32,
+        expected_attach_type: u32,
+        /// fd pointing to BTF type data
+        prog_btf_fd: u32,
+        /// userspace bpf_func_info size
+        func_info_rec_size: u32,
+        func_info: u64,
+        /// number of bpf_func_info records
+        func_info_cnt: u32,
+        /// userspace bpf_line_info size
+        line_info_rec_size: u32,
+        line_info: u64,
+        /// number of bpf_line_info records
+        line_info_cnt: u32,
+        /// in-kernel BTF type id to attach to
+        attact_btf_id: u32,
+        /// 0 to attach to vmlinux
+        attach_prog_id: u32,
+    };
+
+    /// struct used by Cmd.obj_* commands
+    pub const ObjAttr = extern struct {
+        pathname: u64,
+        bpf_fd: u32,
+        file_flags: u32,
+    };
+
+    /// struct used by Cmd.prog_attach/detach commands
+    pub const ProgAttachAttr = extern struct {
+        /// container object to attach to
+        target_fd: u32,
+        /// eBPF program to attach
+        attach_bpf_fd: u32,
+        attach_type: u32,
+        attach_flags: u32,
+        // TODO: BPF_F_REPLACE flags
+        /// previously attached eBPF program to replace if .replace is used
+        replace_bpf_fd: u32,
+    };
+
+    /// struct used by Cmd.prog_test_run command
+    pub const TestAttr = extern struct {
+        prog_fd: u32,
+        retval: u32,
+        /// input: len of data_in
+        data_size_in: u32,
+        /// input/output: len of data_out. returns ENOSPC if data_out is too small.
+        data_size_out: u32,
+        data_in: u64,
+        data_out: u64,
+        repeat: u32,
+        duration: u32,
+        /// input: len of ctx_in
+        ctx_size_in: u32,
+        /// input/output: len of ctx_out. returns ENOSPC if ctx_out is too small.
+        ctx_size_out: u32,
+        ctx_in: u64,
+        ctx_out: u64,
+    };
+
+    /// struct used by Cmd.*_get_*_id commands
+    pub const GetIdAttr = extern struct {
+        id: extern union {
+            start_id: u32,
+            prog_id: u32,
+            map_id: u32,
+            btf_id: u32,
+            link_id: u32,
+        },
+        next_id: u32,
+        open_flags: u32,
+    };
+
+    /// struct used by Cmd.obj_get_info_by_fd command
+    pub const InfoAttr = extern struct {
+        bpf_fd: u32,
+        info_len: u32,
+        info: u64,
+    };
+
+    /// struct used by Cmd.prog_query command
+    pub const QueryAttr = extern struct {
+        /// container object to query
+        target_fd: u32,
+        attach_type: u32,
+        query_flags: u32,
+        attach_flags: u32,
+        prog_ids: u64,
+        prog_cnt: u32,
+    };
+
+    /// struct used by Cmd.raw_tracepoint_open command
+    pub const RawTracepointAttr = extern struct {
+        name: u64,
+        prog_fd: u32,
+    };
+
+    /// struct used by Cmd.btf_load command
+    pub const BtfLoadAttr = extern struct {
+        btf: u64,
+        btf_log_buf: u64,
+        btf_size: u32,
+        btf_log_size: u32,
+        btf_log_level: u32,
+    };
+
+    pub const TaskFdQueryAttr = extern struct {
+        /// input: pid
+        pid: u32,
+        /// input: fd
+        fd: u32,
+        /// input: flags
+        flags: u32,
+        /// input/output: buf len
+        buf_len: u32,
+        /// input/output:
+        ///     tp_name for tracepoint
+        ///     symbol for kprobe
+        ///     filename for uprobe
+        buf: u64,
+        /// output: prod_id
+        prog_id: u32,
+        /// output: BPF_FD_TYPE
+        fd_type: u32,
+        /// output: probe_offset
+        probe_offset: u64,
+        /// output: probe_addr
+        probe_addr: u64,
+    };
+
+    /// struct used by Cmd.link_create command
+    pub const LinkCreateAttr = extern struct {
+        /// eBPF program to attach
+        prog_fd: u32,
+        /// object to attach to
+        target_fd: u32,
+        attach_type: u32,
+        /// extra flags
+        flags: u32,
+    };
+
+    /// struct used by Cmd.link_update command
+    pub const LinkUpdateAttr = extern struct {
+        link_fd: u32,
+        /// new program to update link with
+        new_prog_fd: u32,
+        /// extra flags
+        flags: u32,
+        /// expected link's program fd, it is specified only if BPF_F_REPLACE is
+        /// set in flags
+        old_prog_fd: u32,
+    };
+
+    /// struct used by Cmd.enable_stats command
+    pub const EnableStatsAttr = extern struct {
+        type: u32,
+    };
+
+    /// struct used by Cmd.iter_create command
+    pub const IterCreateAttr = extern struct {
+        link_fd: u32,
+        flags: u32,
+    };
+
+    pub const Attr = extern union {
+        map_create: MapCreateAttr,
+        map_elem: MapElemAttr,
+        map_batch: MapBatchAttr,
+        prog_load: ProgLoadAttr,
+        obj: ObjAttr,
+        prog_attach: ProgAttachAttr,
+        test_run: TestRunAttr,
+        get_id: GetIdAttr,
+        info: InfoAttr,
+        query: QueryAttr,
+        raw_tracepoint: RawTracepointAttr,
+        btf_load: BtfLoadAttr,
+        task_fd_query: TaskFdQueryAttr,
+        link_create: LinkCreateAttr,
+        link_update: LinkUpdateAttr,
+        enable_stats: EnableStatsAttr,
+        iter_create: IterCreateAttr,
+    };
+
+    pub fn bpf(cmd: Cmd, attr: *Attr, size: u32) usize {
+        return syscall3(.bpf, @enumToInt(cmd), @ptrToInt(attr), size);
+    }
+};
