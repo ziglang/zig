@@ -121,6 +121,8 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .UnwrapOptional => return unwrapOptional(mod, scope, rl, node.castTag(.UnwrapOptional).?),
         .Block => return rlWrapVoid(mod, scope, rl, node, try blockExpr(mod, scope, node.castTag(.Block).?)),
         .LabeledBlock => return labeledBlockExpr(mod, scope, rl, node.castTag(.LabeledBlock).?),
+        .Break => return rlWrap(mod, scope, rl, try breakExpr(mod, scope, node.castTag(.Break).?)),
+
         .Defer => return mod.failNode(scope, node, "TODO implement astgen.expr for .Defer", .{}),
         .Catch => return mod.failNode(scope, node, "TODO implement astgen.expr for .Catch", .{}),
         .BoolAnd => return mod.failNode(scope, node, "TODO implement astgen.expr for .BoolAnd", .{}),
@@ -150,7 +152,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .For => return mod.failNode(scope, node, "TODO implement astgen.expr for .For", .{}),
         .Suspend => return mod.failNode(scope, node, "TODO implement astgen.expr for .Suspend", .{}),
         .Continue => return mod.failNode(scope, node, "TODO implement astgen.expr for .Continue", .{}),
-        .Break => return mod.failNode(scope, node, "TODO implement astgen.expr for .Break", .{}),
         .AnyType => return mod.failNode(scope, node, "TODO implement astgen.expr for .AnyType", .{}),
         .ErrorType => return mod.failNode(scope, node, "TODO implement astgen.expr for .ErrorType", .{}),
         .FnProto => return mod.failNode(scope, node, "TODO implement astgen.expr for .FnProto", .{}),
@@ -164,6 +165,55 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .Comptime => return mod.failNode(scope, node, "TODO implement astgen.expr for .Comptime", .{}),
         .Nosuspend => return mod.failNode(scope, node, "TODO implement astgen.expr for .Nosuspend", .{}),
         .ContainerField => return mod.failNode(scope, node, "TODO implement astgen.expr for .ContainerField", .{}),
+    }
+}
+
+fn breakExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowExpression) InnerError!*zir.Inst {
+    const tree = parent_scope.tree();
+    const src = tree.token_locs[node.ltoken].start;
+
+    if (node.getLabel()) |break_label| {
+        // Look for the label in the scope.
+        var scope = parent_scope;
+        while (true) {
+            switch (scope.tag) {
+                .gen_zir => {
+                    const gen_zir = scope.cast(Scope.GenZIR).?;
+                    if (gen_zir.label) |label| {
+                        if (try tokenIdentEql(mod, parent_scope, label.token, break_label)) {
+                            if (node.getRHS()) |rhs| {
+                                // Most result location types can be forwarded directly; however
+                                // if we need to write to a pointer which has an inferred type,
+                                // proper type inference requires peer type resolution on the block's
+                                // break operand expressions.
+                                const branch_rl: ResultLoc = switch (label.result_loc) {
+                                    .discard, .none, .ty, .ptr, .lvalue => label.result_loc,
+                                    .inferred_ptr, .bitcasted_ptr, .block_ptr => .{ .block_ptr = label.block_inst },
+                                };
+                                const operand = try expr(mod, parent_scope, branch_rl, rhs);
+                                return try addZIRInst(mod, scope, src, zir.Inst.Break, .{
+                                    .block = label.block_inst,
+                                    .operand = operand,
+                                }, .{});
+                            } else {
+                                return try addZIRInst(mod, scope, src, zir.Inst.BreakVoid, .{
+                                    .block = label.block_inst,
+                                }, .{});
+                            }
+                        }
+                    }
+                    scope = gen_zir.parent;
+                },
+                .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
+                .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
+                else => {
+                    const label_name = try identifierTokenString(mod, parent_scope, break_label);
+                    return mod.failTok(parent_scope, break_label, "label not found: '{}'", .{label_name});
+                },
+            }
+        }
+    } else {
+        return mod.failNode(parent_scope, &node.base, "TODO implement break from loop", .{});
     }
 }
 
@@ -183,24 +233,44 @@ fn labeledBlockExpr(
     const tracy = trace(@src());
     defer tracy.end();
 
+    const tree = parent_scope.tree();
+    const src = tree.token_locs[block_node.lbrace].start;
+
+    // Create the Block ZIR instruction so that we can put it into the GenZIR struct
+    // so that break statements can reference it.
+    const gen_zir = parent_scope.getGenZIR();
+    const block_inst = try gen_zir.arena.create(zir.Inst.Block);
+    block_inst.* = .{
+        .base = .{
+            .tag = .block,
+            .src = src,
+        },
+        .positionals = .{
+            .body = .{ .instructions = undefined },
+        },
+        .kw_args = .{},
+    };
+
     var block_scope: Scope.GenZIR = .{
         .parent = parent_scope,
         .decl = parent_scope.decl().?,
-        .arena = parent_scope.arena(),
+        .arena = gen_zir.arena,
         .instructions = .{},
-        .label = block_node.label,
+        // TODO @as here is working around a stage1 miscompilation bug :(
+        .label = @as(?Scope.GenZIR.Label, Scope.GenZIR.Label{
+            .token = block_node.label,
+            .block_inst = block_inst,
+            .result_loc = rl,
+        }),
     };
     defer block_scope.instructions.deinit(mod.gpa);
 
     try blockExprStmts(mod, &block_scope.base, &block_node.base, block_node.statements());
 
-    const tree = parent_scope.tree();
-    const src = tree.token_locs[block_node.lbrace].start;
-    const block = try addZIRInstBlock(mod, parent_scope, src, .{
-        .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
-    });
+    block_inst.positionals.body.instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items);
+    try gen_zir.instructions.append(mod.gpa, &block_inst.base);
 
-    return &block.base;
+    return &block_inst.base;
 }
 
 fn blockExprStmts(mod: *Module, parent_scope: *Scope, node: *ast.Node, statements: []*ast.Node) !void {
@@ -344,7 +414,7 @@ fn assign(mod: *Module, scope: *Scope, infix_node: *ast.Node.SimpleInfixOp) Inne
     if (infix_node.lhs.castTag(.Identifier)) |ident| {
         // This intentionally does not support @"_" syntax.
         const ident_name = scope.tree().tokenSlice(ident.token);
-        if (std.mem.eql(u8, ident_name, "_")) {
+        if (mem.eql(u8, ident_name, "_")) {
             _ = try expr(mod, scope, .discard, infix_node.rhs);
             return;
         }
@@ -404,12 +474,20 @@ fn unwrapOptional(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Si
     return rlWrap(mod, scope, rl, try addZIRUnOp(mod, scope, src, .deref, unwrapped_ptr));
 }
 
+/// Return whether the identifier names of two tokens are equal. Resolves @"" tokens without allocating.
+/// OK in theory it could do it without allocating. This implementation allocates when the @"" form is used.
+fn tokenIdentEql(mod: *Module, scope: *Scope, token1: ast.TokenIndex, token2: ast.TokenIndex) !bool {
+    const ident_name_1 = try identifierTokenString(mod, scope, token1);
+    const ident_name_2 = try identifierTokenString(mod, scope, token2);
+    return mem.eql(u8, ident_name_1, ident_name_2);
+}
+
 /// Identifier token -> String (allocated in scope.arena())
-pub fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex) InnerError![]const u8 {
+fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex) InnerError![]const u8 {
     const tree = scope.tree();
 
     const ident_name = tree.tokenSlice(token);
-    if (std.mem.startsWith(u8, ident_name, "@")) {
+    if (mem.startsWith(u8, ident_name, "@")) {
         const raw_string = ident_name[1..];
         var bad_index: usize = undefined;
         return std.zig.parseStringLiteral(scope.arena(), raw_string, &bad_index) catch |err| switch (err) {

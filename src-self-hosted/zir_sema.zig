@@ -504,7 +504,7 @@ fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerErr
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
-        // TODO @as here is working around a miscompilation compiler bug :(
+        // TODO @as here is working around a stage1 miscompilation bug :(
         .label = @as(?Scope.Block.Label, Scope.Block.Label{
             .zir_block = inst,
             .results = .{},
