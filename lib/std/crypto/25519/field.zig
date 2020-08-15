@@ -7,34 +7,19 @@ pub const Fe = struct {
 
     const MASK51: u64 = 0x7ffffffffffff;
 
-    pub inline fn zero() Fe {
-        return .{ .limbs = .{ 0, 0, 0, 0, 0 } };
-    }
+    pub const zero = Fe{ .limbs = .{ 0, 0, 0, 0, 0 } };
 
-    pub inline fn one() Fe {
-        return .{ .limbs = .{ 1, 0, 0, 0, 0 } };
-    }
+    pub const one = Fe{ .limbs = .{ 1, 0, 0, 0, 0 } };
 
-    pub inline fn sqrtm1() Fe {
-        return .{ .limbs = .{ 1718705420411056, 234908883556509, 2233514472574048, 2117202627021982, 765476049583133 } }; // sqrt(-1)
-    }
+    pub const sqrtm1 = Fe{ .limbs = .{ 1718705420411056, 234908883556509, 2233514472574048, 2117202627021982, 765476049583133 } }; // sqrt(-1)
 
-    pub inline fn curve25519BasePoint() Fe {
-        return .{ .limbs = .{ 9, 0, 0, 0, 0 } };
-    }
+    pub const curve25519BasePoint = Fe{ .limbs = .{ 9, 0, 0, 0, 0 } };
 
-    pub inline fn edwards25519d() Fe {
-        return .{ .limbs = .{ 929955233495203, 466365720129213, 1662059464998953, 2033849074728123, 1442794654840575 } }; // 37095705934669439343138083508754565189542113879843219016388785533085940283555
-    }
+    pub const edwards25519d = Fe{ .limbs = .{ 929955233495203, 466365720129213, 1662059464998953, 2033849074728123, 1442794654840575 } }; // 37095705934669439343138083508754565189542113879843219016388785533085940283555
 
-    pub inline fn edwards25519d2() Fe {
-        return .{ .limbs = .{ 1859910466990425, 932731440258426, 1072319116312658, 1815898335770999, 633789495995903 } }; // 2d
-    }
+    pub const edwards25519d2 = Fe{ .limbs = .{ 1859910466990425, 932731440258426, 1072319116312658, 1815898335770999, 633789495995903 } }; // 2d
 
-    // 1/sqrt(a-d)
-    pub inline fn edwards25519sqrtamd() Fe {
-        return .{ .limbs = .{ 278908739862762, 821645201101625, 8113234426968, 1777959178193151, 2118520810568447 } };
-    }
+    pub const edwards25519sqrtamd = Fe{ .limbs = .{ 278908739862762, 821645201101625, 8113234426968, 1777959178193151, 2118520810568447 } }; // 1/sqrt(a-d)
 
     pub inline fn isZero(fe: Fe) bool {
         var reduced = fe;
@@ -77,7 +62,7 @@ pub const Fe = struct {
             c |= s[i] ^ 0xff;
         }
         c = (c -% 1) >> 8;
-        const d = (@intCast(u16, 0xed - 1) -% @intCast(u16, s[0])) >> 8;
+        const d = (@as(u16, 0xed - 1) -% @as(u16, s[0])) >> 8;
         const x = if (ignore_extra_bit) 0 else s[31] >> 7;
         if ((((c & d) | x) & 1) != 0) {
             return error.NonCanonical;
@@ -148,7 +133,7 @@ pub const Fe = struct {
     }
 
     pub inline fn neg(a: Fe) Fe {
-        return zero().sub(a);
+        return zero.sub(a);
     }
 
     pub inline fn isNegative(a: Fe) bool {
