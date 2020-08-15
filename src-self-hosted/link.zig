@@ -15,6 +15,9 @@ const leb128 = std.debug.leb;
 const Package = @import("Package.zig");
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
+const build_options = @import("build_options");
+
+const producer_string = if (std.builtin.is_test) "zig test" else "zig " ++ build_options.version;
 
 // TODO Turn back on zig fmt when https://github.com/ziglang/zig/issues/5948 is implemented.
 // zig fmt: off
@@ -1132,7 +1135,7 @@ pub const File = struct {
                 // Write the form for the compile unit, which must match the abbrev table above.
                 const name_strp = try self.makeDebugString(self.base.options.root_pkg.root_src_path);
                 const comp_dir_strp = try self.makeDebugString(self.base.options.root_pkg.root_src_dir_path);
-                const producer_strp = try self.makeDebugString("zig (TODO version here)");
+                const producer_strp = try self.makeDebugString(producer_string);
                 // Currently only one compilation unit is supported, so the address range is simply
                 // identical to the main program header virtual address and memory size.
                 const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
