@@ -130,8 +130,8 @@ pub const Edwards25519 = struct {
         var pos: usize = 252;
         while (true) : (pos -= 4) {
             q = q.dbl().dbl().dbl().dbl();
-            const b = (s[pos >> 3] >> @truncate(u3, pos)) & 0xf;
-            q = q.add(pcSelect(pc, b));
+            const bit = (s[pos >> 3] >> @truncate(u3, pos)) & 0xf;
+            q = q.add(pcSelect(pc, bit));
             if (pos == 0) break;
         }
         try q.rejectIdentity();
