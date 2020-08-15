@@ -90,7 +90,6 @@ pub fn benchmarkKeyExchange(comptime DhKeyExchange: anytype, comptime exchange_c
     var out: [DhKeyExchange.minimum_key_length]u8 = undefined;
     prng.random.bytes(out[0..]);
 
-    var offset: usize = 0;
     var timer = try Timer.start();
     const start = timer.lap();
     {
@@ -103,6 +102,30 @@ pub fn benchmarkKeyExchange(comptime DhKeyExchange: anytype, comptime exchange_c
 
     const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
     const throughput = @floatToInt(u64, exchange_count / elapsed_s);
+
+    return throughput;
+}
+
+const signatures = [_]Crypto{Crypto{ .ty = crypto.Ed25519, .name = "ed25519" }};
+
+pub fn benchmarkSignatures(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
+    var seed: [Signature.seed_length]u8 = undefined;
+    prng.random.bytes(seed[0..]);
+    const msg = [_]u8{0} ** 64;
+    const key_pair = try Signature.createKeyPair(seed);
+
+    var timer = try Timer.start();
+    const start = timer.lap();
+    {
+        var i: usize = 0;
+        while (i < signatures_count) : (i += 1) {
+            _ = try Signature.sign(&msg, key_pair, null);
+        }
+    }
+    const end = timer.read();
+
+    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
+    const throughput = @floatToInt(u64, signatures_count / elapsed_s);
 
     return throughput;
 }
@@ -181,6 +204,13 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkKeyExchange(E.ty, mode(1000));
             try stdout.print("{:>11}: {:5} exchanges/s\n", .{ E.name, throughput });
+        }
+    }
+
+    inline for (signatures) |E| {
+        if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
+            const throughput = try benchmarkSignatures(E.ty, mode(1000));
+            try stdout.print("{:>11}: {:5} signatures/s\n", .{ E.name, throughput });
         }
     }
 }
