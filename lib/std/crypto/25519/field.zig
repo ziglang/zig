@@ -114,7 +114,7 @@ pub const Fe = struct {
         return fe;
     }
 
-    pub fn sub(a: Fe, b: Fe) Fe {
+    pub inline fn sub(a: Fe, b: Fe) Fe {
         var fe = b;
         comptime var i = 0;
         inline while (i < 4) : (i += 1) {
@@ -200,7 +200,7 @@ pub const Fe = struct {
         return .{ .limbs = rs };
     }
 
-    pub fn mul(a: Fe, b: Fe) Fe {
+    pub inline fn mul(a: Fe, b: Fe) Fe {
         var ax: [5]u128 = undefined;
         var bx: [5]u128 = undefined;
         var a19: [5]u128 = undefined;
@@ -223,7 +223,7 @@ pub const Fe = struct {
         return _carry128(&r);
     }
 
-    fn _sq(a: Fe, double: comptime bool) Fe {
+    inline fn _sq(a: Fe, double: comptime bool) Fe {
         var ax: [5]u128 = undefined;
         var r: [5]u128 = undefined;
         comptime var i = 0;
