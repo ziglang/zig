@@ -5142,11 +5142,11 @@ test "float widening" {
       <p>
       A compiler error is appropriate because this ambiguous expression leaves the compiler
       two choices about the coercion.
+      </p>
       <ul>
         <li> Cast {#syntax#}54.0{#endsyntax#} to {#syntax#}comptime_int{#endsyntax#} resulting in {#syntax#}@as(comptime_int, 10){#endsyntax#}, which is casted to {#syntax#}@as(f32, 10){#endsyntax#}</li>
         <li> Cast {#syntax#}5{#endsyntax#} to {#syntax#}comptime_float{#endsyntax#} resulting in {#syntax#}@as(comptime_float, 10.8){#endsyntax#}, which is casted to {#syntax#}@as(f32, 10.8){#endsyntax#}</li>
       </ul>
-      </p>
       {#code_begin|test_err#}
 // Compile time coercion of float to int
 test "implicit cast to comptime_int" {

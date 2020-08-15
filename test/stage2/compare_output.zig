@@ -26,6 +26,11 @@ pub fn addCases(ctx: *TestContext) !void {
 
         case.addError("", &[_][]const u8{":1:1: error: no entry point found"});
 
+        case.addError(
+            \\export fn _start() noreturn {
+            \\}
+        , &[_][]const u8{":2:1: error: expected noreturn, found void"});
+
         // Regular old hello world
         case.addCompareOutput(
             \\export fn _start() noreturn {

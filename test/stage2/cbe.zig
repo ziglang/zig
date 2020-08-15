@@ -10,13 +10,19 @@ const linux_x64 = std.zig.CrossTarget{
 
 pub fn addCases(ctx: *TestContext) !void {
     ctx.c("empty start function", linux_x64,
-        \\export fn _start() noreturn {}
+        \\export fn _start() noreturn {
+        \\    unreachable;
+        \\}
     ,
-        \\zig_noreturn void _start(void) {}
+        \\zig_noreturn void _start(void) {
+        \\    zig_unreachable();
+        \\}
         \\
     );
     ctx.c("less empty start function", linux_x64,
-        \\fn main() noreturn {}
+        \\fn main() noreturn {
+        \\    unreachable;
+        \\}
         \\
         \\export fn _start() noreturn {
         \\    main();
@@ -28,7 +34,9 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    main();
         \\}
         \\
-        \\zig_noreturn void main(void) {}
+        \\zig_noreturn void main(void) {
+        \\    zig_unreachable();
+        \\}
         \\
     );
     // TODO: implement return values
@@ -40,6 +48,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\        : [number] "{rax}" (231),
         \\          [arg1] "{rdi}" (0)
         \\    );
+        \\    unreachable;
         \\}
         \\
         \\export fn _start() noreturn {
@@ -62,6 +71,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    register size_t rax_constant __asm__("rax") = 231;
         \\    register size_t rdi_constant __asm__("rdi") = 0;
         \\    __asm volatile ("syscall" :: ""(rax_constant), ""(rdi_constant));
+        \\    zig_unreachable();
         \\}
         \\
     );

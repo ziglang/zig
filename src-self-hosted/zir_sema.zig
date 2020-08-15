@@ -112,8 +112,17 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
 }
 
 pub fn analyzeBody(mod: *Module, scope: *Scope, body: zir.Module.Body) !void {
-    for (body.instructions) |src_inst| {
-        src_inst.analyzed_inst = try analyzeInst(mod, scope, src_inst);
+    for (body.instructions) |src_inst, i| {
+        const analyzed_inst = try analyzeInst(mod, scope, src_inst);
+        src_inst.analyzed_inst = analyzed_inst;
+        if (analyzed_inst.ty.zigTypeTag() == .NoReturn) {
+            for (body.instructions[i..]) |unreachable_inst| {
+                if (unreachable_inst.castTag(.dbg_stmt)) |dbg_stmt| {
+                    return mod.fail(scope, dbg_stmt.base.src, "unreachable code", .{});
+                }
+            }
+            break;
+        }
     }
 }
 
@@ -495,7 +504,7 @@ fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerErr
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
-        // TODO @as here is working around a miscompilation compiler bug :(
+        // TODO @as here is working around a stage1 miscompilation bug :(
         .label = @as(?Scope.Block.Label, Scope.Block.Label{
             .zir_block = inst,
             .results = .{},
@@ -1216,6 +1225,15 @@ fn analyzeInstRet(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!
 
 fn analyzeInstRetVoid(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
     const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    if (b.func) |func| {
+        // Need to emit a compile error if returning void is not allowed.
+        const void_inst = try mod.constVoid(scope, inst.base.src);
+        const fn_ty = func.owner_decl.typed_value.most_recent.typed_value.ty;
+        const casted_void = try mod.coerce(scope, fn_ty.fnReturnType(), void_inst);
+        if (casted_void.ty.zigTypeTag() != .Void) {
+            return mod.addUnOp(b, inst.base.src, Type.initTag(.noreturn), .ret, casted_void);
+        }
+    }
     return mod.addNoOp(b, inst.base.src, Type.initTag(.noreturn), .retvoid);
 }
 

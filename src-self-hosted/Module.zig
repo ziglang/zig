@@ -737,6 +737,13 @@ pub const Scope = struct {
         arena: *Allocator,
         /// The first N instructions in a function body ZIR are arg instructions.
         instructions: std.ArrayListUnmanaged(*zir.Inst) = .{},
+        label: ?Label = null,
+
+        pub const Label = struct {
+            token: ast.TokenIndex,
+            block_inst: *zir.Inst.Block,
+            result_loc: astgen.ResultLoc,
+        };
     };
 
     /// This is always a `const` local and importantly the `inst` is a value type, not a pointer.
@@ -1345,8 +1352,8 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
 
                 try astgen.blockExpr(self, params_scope, body_block);
 
-                if (!fn_type.fnReturnType().isNoReturn() and (gen_scope.instructions.items.len == 0 or
-                    !gen_scope.instructions.items[gen_scope.instructions.items.len - 1].tag.isNoReturn()))
+                if (gen_scope.instructions.items.len == 0 or
+                    !gen_scope.instructions.items[gen_scope.instructions.items.len - 1].tag.isNoReturn())
                 {
                     const src = tree.token_locs[body_block.rbrace].start;
                     _ = try astgen.addZIRNoOp(self, &gen_scope.base, src, .returnvoid);

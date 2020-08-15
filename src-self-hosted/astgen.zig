@@ -47,7 +47,19 @@ pub fn typeExpr(mod: *Module, scope: *Scope, type_node: *ast.Node) InnerError!*z
 /// Turn Zig AST into untyped ZIR istructions.
 pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerError!*zir.Inst {
     switch (node.tag) {
+        .Root => unreachable, // Top-level declaration.
+        .Use => unreachable, // Top-level declaration.
+        .TestDecl => unreachable, // Top-level declaration.
+        .DocComment => unreachable, // Top-level declaration.
         .VarDecl => unreachable, // Handled in `blockExpr`.
+        .SwitchCase => unreachable, // Handled in `switchExpr`.
+        .SwitchElse => unreachable, // Handled in `switchExpr`.
+        .Else => unreachable, // Handled explicitly the control flow expression functions.
+        .Payload => unreachable, // Handled explicitly.
+        .PointerPayload => unreachable, // Handled explicitly.
+        .PointerIndexPayload => unreachable, // Handled explicitly.
+        .ErrorTag => unreachable, // Handled explicitly.
+        .FieldInitializer => unreachable, // Handled explicitly.
 
         .Assign => return rlWrapVoid(mod, scope, rl, node, try assign(mod, scope, node.castTag(.Assign).?)),
         .AssignBitAnd => return rlWrapVoid(mod, scope, rl, node, try assignOp(mod, scope, node.castTag(.AssignBitAnd).?, .bitand)),
@@ -107,24 +119,169 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .NullLiteral => return rlWrap(mod, scope, rl, try nullLiteral(mod, scope, node.castTag(.NullLiteral).?)),
         .OptionalType => return rlWrap(mod, scope, rl, try optionalType(mod, scope, node.castTag(.OptionalType).?)),
         .UnwrapOptional => return unwrapOptional(mod, scope, rl, node.castTag(.UnwrapOptional).?),
-        else => return mod.failNode(scope, node, "TODO implement astgen.Expr for {}", .{@tagName(node.tag)}),
+        .Block => return rlWrapVoid(mod, scope, rl, node, try blockExpr(mod, scope, node.castTag(.Block).?)),
+        .LabeledBlock => return labeledBlockExpr(mod, scope, rl, node.castTag(.LabeledBlock).?),
+        .Break => return rlWrap(mod, scope, rl, try breakExpr(mod, scope, node.castTag(.Break).?)),
+
+        .Defer => return mod.failNode(scope, node, "TODO implement astgen.expr for .Defer", .{}),
+        .Catch => return mod.failNode(scope, node, "TODO implement astgen.expr for .Catch", .{}),
+        .BoolAnd => return mod.failNode(scope, node, "TODO implement astgen.expr for .BoolAnd", .{}),
+        .BoolOr => return mod.failNode(scope, node, "TODO implement astgen.expr for .BoolOr", .{}),
+        .ErrorUnion => return mod.failNode(scope, node, "TODO implement astgen.expr for .ErrorUnion", .{}),
+        .MergeErrorSets => return mod.failNode(scope, node, "TODO implement astgen.expr for .MergeErrorSets", .{}),
+        .Range => return mod.failNode(scope, node, "TODO implement astgen.expr for .Range", .{}),
+        .OrElse => return mod.failNode(scope, node, "TODO implement astgen.expr for .OrElse", .{}),
+        .AddressOf => return mod.failNode(scope, node, "TODO implement astgen.expr for .AddressOf", .{}),
+        .Await => return mod.failNode(scope, node, "TODO implement astgen.expr for .Await", .{}),
+        .BitNot => return mod.failNode(scope, node, "TODO implement astgen.expr for .BitNot", .{}),
+        .Negation => return mod.failNode(scope, node, "TODO implement astgen.expr for .Negation", .{}),
+        .NegationWrap => return mod.failNode(scope, node, "TODO implement astgen.expr for .NegationWrap", .{}),
+        .Resume => return mod.failNode(scope, node, "TODO implement astgen.expr for .Resume", .{}),
+        .Try => return mod.failNode(scope, node, "TODO implement astgen.expr for .Try", .{}),
+        .ArrayType => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayType", .{}),
+        .ArrayTypeSentinel => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayTypeSentinel", .{}),
+        .PtrType => return mod.failNode(scope, node, "TODO implement astgen.expr for .PtrType", .{}),
+        .SliceType => return mod.failNode(scope, node, "TODO implement astgen.expr for .SliceType", .{}),
+        .Slice => return mod.failNode(scope, node, "TODO implement astgen.expr for .Slice", .{}),
+        .ArrayAccess => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayAccess", .{}),
+        .ArrayInitializer => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayInitializer", .{}),
+        .ArrayInitializerDot => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayInitializerDot", .{}),
+        .StructInitializer => return mod.failNode(scope, node, "TODO implement astgen.expr for .StructInitializer", .{}),
+        .StructInitializerDot => return mod.failNode(scope, node, "TODO implement astgen.expr for .StructInitializerDot", .{}),
+        .Switch => return mod.failNode(scope, node, "TODO implement astgen.expr for .Switch", .{}),
+        .For => return mod.failNode(scope, node, "TODO implement astgen.expr for .For", .{}),
+        .Suspend => return mod.failNode(scope, node, "TODO implement astgen.expr for .Suspend", .{}),
+        .Continue => return mod.failNode(scope, node, "TODO implement astgen.expr for .Continue", .{}),
+        .AnyType => return mod.failNode(scope, node, "TODO implement astgen.expr for .AnyType", .{}),
+        .ErrorType => return mod.failNode(scope, node, "TODO implement astgen.expr for .ErrorType", .{}),
+        .FnProto => return mod.failNode(scope, node, "TODO implement astgen.expr for .FnProto", .{}),
+        .AnyFrameType => return mod.failNode(scope, node, "TODO implement astgen.expr for .AnyFrameType", .{}),
+        .EnumLiteral => return mod.failNode(scope, node, "TODO implement astgen.expr for .EnumLiteral", .{}),
+        .MultilineStringLiteral => return mod.failNode(scope, node, "TODO implement astgen.expr for .MultilineStringLiteral", .{}),
+        .CharLiteral => return mod.failNode(scope, node, "TODO implement astgen.expr for .CharLiteral", .{}),
+        .GroupedExpression => return mod.failNode(scope, node, "TODO implement astgen.expr for .GroupedExpression", .{}),
+        .ErrorSetDecl => return mod.failNode(scope, node, "TODO implement astgen.expr for .ErrorSetDecl", .{}),
+        .ContainerDecl => return mod.failNode(scope, node, "TODO implement astgen.expr for .ContainerDecl", .{}),
+        .Comptime => return mod.failNode(scope, node, "TODO implement astgen.expr for .Comptime", .{}),
+        .Nosuspend => return mod.failNode(scope, node, "TODO implement astgen.expr for .Nosuspend", .{}),
+        .ContainerField => return mod.failNode(scope, node, "TODO implement astgen.expr for .ContainerField", .{}),
     }
 }
 
-pub fn blockExpr(mod: *Module, parent_scope: *Scope, block_node: *ast.Node.Block) !void {
+fn breakExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowExpression) InnerError!*zir.Inst {
+    const tree = parent_scope.tree();
+    const src = tree.token_locs[node.ltoken].start;
+
+    if (node.getLabel()) |break_label| {
+        // Look for the label in the scope.
+        var scope = parent_scope;
+        while (true) {
+            switch (scope.tag) {
+                .gen_zir => {
+                    const gen_zir = scope.cast(Scope.GenZIR).?;
+                    if (gen_zir.label) |label| {
+                        if (try tokenIdentEql(mod, parent_scope, label.token, break_label)) {
+                            if (node.getRHS()) |rhs| {
+                                // Most result location types can be forwarded directly; however
+                                // if we need to write to a pointer which has an inferred type,
+                                // proper type inference requires peer type resolution on the block's
+                                // break operand expressions.
+                                const branch_rl: ResultLoc = switch (label.result_loc) {
+                                    .discard, .none, .ty, .ptr, .lvalue => label.result_loc,
+                                    .inferred_ptr, .bitcasted_ptr, .block_ptr => .{ .block_ptr = label.block_inst },
+                                };
+                                const operand = try expr(mod, parent_scope, branch_rl, rhs);
+                                return try addZIRInst(mod, scope, src, zir.Inst.Break, .{
+                                    .block = label.block_inst,
+                                    .operand = operand,
+                                }, .{});
+                            } else {
+                                return try addZIRInst(mod, scope, src, zir.Inst.BreakVoid, .{
+                                    .block = label.block_inst,
+                                }, .{});
+                            }
+                        }
+                    }
+                    scope = gen_zir.parent;
+                },
+                .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
+                .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
+                else => {
+                    const label_name = try identifierTokenString(mod, parent_scope, break_label);
+                    return mod.failTok(parent_scope, break_label, "label not found: '{}'", .{label_name});
+                },
+            }
+        }
+    } else {
+        return mod.failNode(parent_scope, &node.base, "TODO implement break from loop", .{});
+    }
+}
+
+pub fn blockExpr(mod: *Module, parent_scope: *Scope, block_node: *ast.Node.Block) InnerError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (block_node.label) |label| {
-        return mod.failTok(parent_scope, label, "TODO implement labeled blocks", .{});
-    }
+    try blockExprStmts(mod, parent_scope, &block_node.base, block_node.statements());
+}
+
+fn labeledBlockExpr(
+    mod: *Module,
+    parent_scope: *Scope,
+    rl: ResultLoc,
+    block_node: *ast.Node.LabeledBlock,
+) InnerError!*zir.Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const tree = parent_scope.tree();
+    const src = tree.token_locs[block_node.lbrace].start;
+
+    // Create the Block ZIR instruction so that we can put it into the GenZIR struct
+    // so that break statements can reference it.
+    const gen_zir = parent_scope.getGenZIR();
+    const block_inst = try gen_zir.arena.create(zir.Inst.Block);
+    block_inst.* = .{
+        .base = .{
+            .tag = .block,
+            .src = src,
+        },
+        .positionals = .{
+            .body = .{ .instructions = undefined },
+        },
+        .kw_args = .{},
+    };
+
+    var block_scope: Scope.GenZIR = .{
+        .parent = parent_scope,
+        .decl = parent_scope.decl().?,
+        .arena = gen_zir.arena,
+        .instructions = .{},
+        // TODO @as here is working around a stage1 miscompilation bug :(
+        .label = @as(?Scope.GenZIR.Label, Scope.GenZIR.Label{
+            .token = block_node.label,
+            .block_inst = block_inst,
+            .result_loc = rl,
+        }),
+    };
+    defer block_scope.instructions.deinit(mod.gpa);
+
+    try blockExprStmts(mod, &block_scope.base, &block_node.base, block_node.statements());
+
+    block_inst.positionals.body.instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items);
+    try gen_zir.instructions.append(mod.gpa, &block_inst.base);
+
+    return &block_inst.base;
+}
+
+fn blockExprStmts(mod: *Module, parent_scope: *Scope, node: *ast.Node, statements: []*ast.Node) !void {
+    const tree = parent_scope.tree();
 
     var block_arena = std.heap.ArenaAllocator.init(mod.gpa);
     defer block_arena.deinit();
 
     var scope = parent_scope;
-    for (block_node.statements()) |statement| {
-        const src = scope.tree().token_locs[statement.firstToken()].start;
+    for (statements) |statement| {
+        const src = tree.token_locs[statement.firstToken()].start;
         _ = try addZIRNoOp(mod, scope, src, .dbg_stmt);
         switch (statement.tag) {
             .VarDecl => {
@@ -257,7 +414,7 @@ fn assign(mod: *Module, scope: *Scope, infix_node: *ast.Node.SimpleInfixOp) Inne
     if (infix_node.lhs.castTag(.Identifier)) |ident| {
         // This intentionally does not support @"_" syntax.
         const ident_name = scope.tree().tokenSlice(ident.token);
-        if (std.mem.eql(u8, ident_name, "_")) {
+        if (mem.eql(u8, ident_name, "_")) {
             _ = try expr(mod, scope, .discard, infix_node.rhs);
             return;
         }
@@ -317,12 +474,20 @@ fn unwrapOptional(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Si
     return rlWrap(mod, scope, rl, try addZIRUnOp(mod, scope, src, .deref, unwrapped_ptr));
 }
 
+/// Return whether the identifier names of two tokens are equal. Resolves @"" tokens without allocating.
+/// OK in theory it could do it without allocating. This implementation allocates when the @"" form is used.
+fn tokenIdentEql(mod: *Module, scope: *Scope, token1: ast.TokenIndex, token2: ast.TokenIndex) !bool {
+    const ident_name_1 = try identifierTokenString(mod, scope, token1);
+    const ident_name_2 = try identifierTokenString(mod, scope, token2);
+    return mem.eql(u8, ident_name_1, ident_name_2);
+}
+
 /// Identifier token -> String (allocated in scope.arena())
-pub fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex) InnerError![]const u8 {
+fn identifierTokenString(mod: *Module, scope: *Scope, token: ast.TokenIndex) InnerError![]const u8 {
     const tree = scope.tree();
 
     const ident_name = tree.tokenSlice(token);
-    if (std.mem.startsWith(u8, ident_name, "@")) {
+    if (mem.startsWith(u8, ident_name, "@")) {
         const raw_string = ident_name[1..];
         var bad_index: usize = undefined;
         return std.zig.parseStringLiteral(scope.arena(), raw_string, &bad_index) catch |err| switch (err) {
@@ -1170,6 +1335,7 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node) bool {
             .Slice,
             .Deref,
             .ArrayAccess,
+            .Block,
             => return false,
 
             // Forward the question to a sub-expression.
@@ -1196,11 +1362,11 @@ fn nodeMayNeedMemoryLocation(start_node: *ast.Node) bool {
             .Switch,
             .Call,
             .BuiltinCall, // TODO some of these can return false
+            .LabeledBlock,
             => return true,
 
             // Depending on AST properties, they may need memory locations.
             .If => return node.castTag(.If).?.@"else" != null,
-            .Block => return node.castTag(.Block).?.label != null,
         }
     }
 }
