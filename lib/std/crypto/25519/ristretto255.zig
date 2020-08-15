@@ -24,11 +24,11 @@ pub const Ristretto255 = struct {
         const has_f_root = f_root_check.isZero();
         const x_sqrtm1 = x.mul(Fe.sqrtm1); // x*sqrt(-1)
         x.cMov(x_sqrtm1, @boolToInt(has_p_root) | @boolToInt(has_f_root));
-        x = x.abs();
+        const xa = x.abs();
         if ((@boolToInt(has_m_root) | @boolToInt(has_p_root)) == 0) {
             return error.NoRoot;
         }
-        return x;
+        return xa;
     }
 
     fn rejectNonCanonical(s: [32]u8) !void {
