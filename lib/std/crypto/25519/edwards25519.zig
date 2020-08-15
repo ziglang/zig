@@ -28,7 +28,7 @@ pub const Edwards25519 = struct {
         const vxx = x.sq().mul(v);
         const has_m_root = vxx.sub(u).isZero();
         const has_p_root = vxx.add(u).isZero();
-        if ((@boolToInt(has_m_root) | @boolToInt(has_p_root)) == 0) {
+        if ((@boolToInt(has_m_root) | @boolToInt(has_p_root)) == 0) { // best-effort to avoid two conditional branches
             return error.InvalidEncoding;
         }
         x.cMov(x.mul(Fe.sqrtm1), 1 - @boolToInt(has_m_root));
@@ -130,7 +130,7 @@ pub const Edwards25519 = struct {
         var pos: usize = 252;
         while (true) : (pos -= 4) {
             q = q.dbl().dbl().dbl().dbl();
-            const b = (s[pos / 8] >> @intCast(u3, pos & 7)) & 0xf;
+            const b = (s[pos >> 3] >> @truncate(u3, pos)) & 0xf;
             q = q.add(pcSelect(pc, b));
             if (pos == 0) break;
         }
