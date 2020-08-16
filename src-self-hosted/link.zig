@@ -41,11 +41,13 @@ pub const Options = struct {
 pub const File = struct {
     pub const LinkBlock = union {
         elf: Elf.TextBlock,
+        macho: MachO.TextBlock,
         c: void,
     };
 
     pub const LinkFn = union {
         elf: Elf.SrcFn,
+        macho: MachO.SrcFn,
         c: void,
     };
 
@@ -63,7 +65,7 @@ pub const File = struct {
             .unknown => unreachable,
             .coff => return error.TODOImplementCoff,
             .elf => return Elf.openPath(allocator, dir, sub_path, options),
-            .macho => return error.TODOImplementMacho,
+            .macho => return MachO.openPath(allocator, dir, sub_path, options),
             .wasm => return error.TODOImplementWasm,
             .c => return C.openPath(allocator, dir, sub_path, options),
             .hex => return error.TODOImplementHex,
@@ -80,7 +82,7 @@ pub const File = struct {
 
     pub fn makeWritable(base: *File, dir: fs.Dir, sub_path: []const u8) !void {
         switch (base.tag) {
-            .elf => {
+            .elf, .macho => {
                 if (base.file != null) return;
                 base.file = try dir.createFile(sub_path, .{
                     .truncate = false,
@@ -103,6 +105,7 @@ pub const File = struct {
     pub fn updateDecl(base: *File, module: *Module, decl: *Module.Decl) !void {
         switch (base.tag) {
             .elf => return @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
+            .macho => return @fieldParentPtr(MachO, "base", base).updateDecl(module, decl),
             .c => return @fieldParentPtr(C, "base", base).updateDecl(module, decl),
         }
     }
@@ -110,6 +113,7 @@ pub const File = struct {
     pub fn updateDeclLineNumber(base: *File, module: *Module, decl: *Module.Decl) !void {
         switch (base.tag) {
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl),
+            .macho => return @fieldParentPtr(MachO, "base", base).updateDeclLineNumber(module, decl),
             .c => {},
         }
     }
@@ -117,6 +121,7 @@ pub const File = struct {
     pub fn allocateDeclIndexes(base: *File, decl: *Module.Decl) !void {
         switch (base.tag) {
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
+            .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl),
             .c => {},
         }
     }
@@ -125,6 +130,7 @@ pub const File = struct {
         if (base.file) |f| f.close();
         switch (base.tag) {
             .elf => @fieldParentPtr(Elf, "base", base).deinit(),
+            .macho => @fieldParentPtr(MachO, "base", base).deinit(),
             .c => @fieldParentPtr(C, "base", base).deinit(),
         }
     }
@@ -133,6 +139,11 @@ pub const File = struct {
         switch (base.tag) {
             .elf => {
                 const parent = @fieldParentPtr(Elf, "base", base);
+                parent.deinit();
+                base.allocator.destroy(parent);
+            },
+            .macho => {
+                const parent = @fieldParentPtr(MachO, "base", base);
                 parent.deinit();
                 base.allocator.destroy(parent);
             },
@@ -150,6 +161,7 @@ pub const File = struct {
 
         try switch (base.tag) {
             .elf => @fieldParentPtr(Elf, "base", base).flush(),
+            .macho => @fieldParentPtr(MachO, "base", base).flush(),
             .c => @fieldParentPtr(C, "base", base).flush(),
         };
     }
@@ -157,6 +169,7 @@ pub const File = struct {
     pub fn freeDecl(base: *File, decl: *Module.Decl) void {
         switch (base.tag) {
             .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl),
+            .macho => @fieldParentPtr(MachO, "base", base).freeDecl(decl),
             .c => unreachable,
         }
     }
@@ -164,6 +177,7 @@ pub const File = struct {
     pub fn errorFlags(base: *File) ErrorFlags {
         return switch (base.tag) {
             .elf => @fieldParentPtr(Elf, "base", base).error_flags,
+            .macho => @fieldParentPtr(MachO, "base", base).error_flags,
             .c => return .{ .no_entry_point_found = false },
         };
     }
@@ -177,12 +191,14 @@ pub const File = struct {
     ) !void {
         switch (base.tag) {
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl, exports),
+            .macho => return @fieldParentPtr(MachO, "base", base).updateDeclExports(module, decl, exports),
             .c => return {},
         }
     }
 
     pub const Tag = enum {
         elf,
+        macho,
         c,
     };
 
@@ -2811,6 +2827,100 @@ pub const File = struct {
             try self.base.file.?.pwritevAll(vecs[0..vec_index], offset - prev_padding_size);
         }
 
+    };
+
+    pub const MachO = struct {
+        pub const base_tag: Tag = .macho;
+
+        base: File,
+
+        ptr_width: enum { p32, p64 },
+
+        error_flags: ErrorFlags = ErrorFlags{},
+
+        pub const TextBlock = struct {
+            pub const empty = TextBlock{};
+        };
+
+        pub const SrcFn = struct {
+            pub const empty = SrcFn{};
+        };
+
+        pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: Options) !*File {
+            assert(options.object_format == .macho);
+
+            const file = try dir.createFile(sub_path, .{ .truncate = false, .read = true, .mode = determineMode(options) });
+            errdefer file.close();
+
+            var macho_file = try allocator.create(MachO);
+            errdefer allocator.destroy(macho_file);
+
+            macho_file.* = openFile(allocator, file, options) catch |err| switch (err) {
+                error.IncrFailed => try createFile(allocator, file, options),
+                else => |e| return e,
+            };
+
+            return &macho_file.base;
+        }
+
+        /// Returns error.IncrFailed if incremental update could not be performed.
+        fn openFile(allocator: *Allocator, file: fs.File, options: Options) !MachO {
+            switch (options.output_mode) {
+                .Exe => {},
+                .Obj => {},
+                .Lib => return error.IncrFailed,
+            }
+            var self: MachO = .{
+                .base = .{
+                    .file = file,
+                    .tag = .macho,
+                    .options = options,
+                    .allocator = allocator,
+                },
+                .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
+                    32 => .p32,
+                    64 => .p64,
+                    else => return error.UnsupportedELFArchitecture,
+                },
+            };
+            errdefer self.deinit();
+
+            // TODO implement reading the macho file
+            return error.IncrFailed;
+            //try self.populateMissingMetadata();
+            //return self;
+        }
+
+        /// Truncates the existing file contents and overwrites the contents.
+        /// Returns an error if `file` is not already open with +read +write +seek abilities.
+        fn createFile(allocator: *Allocator, file: fs.File, options: Options) !MachO {
+            switch (options.output_mode) {
+                .Exe => return error.TODOImplementWritingMachOExeFiles,
+                .Obj => return error.TODOImplementWritingMachOObjFiles,
+                .Lib => return error.TODOImplementWritingLibFiles,
+            }
+        }
+
+        /// Commit pending changes and write headers.
+        pub fn flush(self: *MachO) !void {}
+
+        pub fn deinit(self: *MachO) void {}
+
+        pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {}
+
+        pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {}
+
+        pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl: *const Module.Decl) !void {}
+
+        /// Must be called only after a successful call to `updateDecl`.
+        pub fn updateDeclExports(
+            self: *MachO,
+            module: *Module,
+            decl: *const Module.Decl,
+            exports: []const *Module.Export,
+        ) !void {}
+
+        pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {}
     };
 };
 
