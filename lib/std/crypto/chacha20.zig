@@ -507,7 +507,7 @@ pub fn chacha20poly1305OpenDetached(dst: []u8, ciphertext: []const u8, tag: *con
     // See https://github.com/ziglang/zig/issues/1776
     var acc: u8 = 0;
     for (computedTag) |_, i| {
-        acc |= (computedTag[i] ^ tag.*[i]);
+        acc |= (computedTag[i] ^ tag[i]);
     }
     if (acc != 0) {
         return error.AuthenticationFailed;
