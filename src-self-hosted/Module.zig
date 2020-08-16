@@ -974,7 +974,7 @@ pub fn update(self: *Module) !void {
     }
 
     // This is needed before reading the error flags.
-    try self.bin_file.flush();
+    try self.bin_file.flush(self);
 
     self.link_error_flags = self.bin_file.errorFlags();
 

@@ -168,16 +168,15 @@ pub const File = struct {
         }
     }
 
-    /// Commit pending changes and write headers.
-    pub fn flush(base: *File) !void {
+    pub fn flush(base: *File, module: *Module) !void {
         const tracy = trace(@src());
         defer tracy.end();
 
         try switch (base.tag) {
-            .elf => @fieldParentPtr(Elf, "base", base).flush(),
-            .macho => @fieldParentPtr(MachO, "base", base).flush(),
-            .c => @fieldParentPtr(C, "base", base).flush(),
-            .wasm => @fieldParentPtr(Wasm, "base", base).flush(),
+            .elf => @fieldParentPtr(Elf, "base", base).flush(module),
+            .macho => @fieldParentPtr(MachO, "base", base).flush(module),
+            .c => @fieldParentPtr(C, "base", base).flush(module),
+            .wasm => @fieldParentPtr(Wasm, "base", base).flush(module),
         };
     }
 
@@ -285,7 +284,7 @@ pub const File = struct {
             };
         }
 
-        pub fn flush(self: *File.C) !void {
+        pub fn flush(self: *File.C, module: *Module) !void {
             const writer = self.base.file.?.writer();
             try writer.writeAll(@embedFile("cbe.h"));
             var includes = false;
@@ -1038,7 +1037,8 @@ pub const File = struct {
         pub const abbrev_pad1 = 5;
         pub const abbrev_parameter = 6;
 
-        pub fn flush(self: *Elf) !void {
+        /// Commit pending changes and write headers.
+        pub fn flush(self: *Elf, module: *Module) !void {
             const target_endian = self.base.options.target.cpu.arch.endian();
             const foreign_endian = target_endian != std.Target.current.cpu.arch.endian();
             const ptr_width_bytes: u8 = self.ptrWidthBytes();

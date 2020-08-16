@@ -52,7 +52,7 @@ pub fn genCode(buf: *ArrayList(u8), decl: *Decl) !void {
     const writer = buf.writer();
 
     // Reserve space to write the size after generating the code
-    try writer.writeAll(&([1]u8{undefined} ** 5));
+    try buf.resize(5);
 
     // Write the size of the locals vec
     // TODO: implement locals

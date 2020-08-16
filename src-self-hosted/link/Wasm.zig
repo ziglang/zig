@@ -59,34 +59,37 @@ pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, option
 
     try file.writeAll(&(spec.magic ++ spec.version));
 
-    wasm.base = .{
-        .tag = .wasm,
-        .options = options,
-        .file = file,
-        .allocator = allocator,
-    };
-
     // TODO: this should vary depending on the section and be less arbitrary
     const size = 1024;
     const offset = @sizeOf(@TypeOf(spec.magic ++ spec.version));
 
-    wasm.types = try Types.init(file, offset, size);
-    wasm.funcs = try Funcs.init(file, offset + size, size, offset + 3 * size, size);
-    wasm.exports = try Exports.init(file, offset + 2 * size, size);
-    try file.setEndPos(offset + 4 * size);
+    wasm.* = .{
+        .base = .{
+            .tag = .wasm,
+            .options = options,
+            .file = file,
+            .allocator = allocator,
+        },
 
-    wasm.sections = [_]*Section{
-        &wasm.types.typesec.section,
-        &wasm.funcs.funcsec,
-        &wasm.exports.exportsec,
-        &wasm.funcs.codesec.section,
+        .types = try Types.init(file, offset, size),
+        .funcs = try Funcs.init(file, offset + size, size, offset + 3 * size, size),
+        .exports = try Exports.init(file, offset + 2 * size, size),
+
+        // These must be ordered as they will appear in the output file
+        .sections = [_]*Section{
+            &wasm.types.typesec.section,
+            &wasm.funcs.funcsec,
+            &wasm.exports.exportsec,
+            &wasm.funcs.codesec.section,
+        },
     };
+
+    try file.setEndPos(offset + 4 * size);
 
     return &wasm.base;
 }
 
 pub fn deinit(self: *Wasm) void {
-    if (self.base.file) |f| f.close();
     self.types.deinit();
     self.funcs.deinit();
 }
@@ -112,7 +115,8 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
 
     decl.fn_link.wasm = .{ .typeidx = typeidx, .funcidx = funcidx };
 
-    try self.exports.writeAll(module);
+    // TODO: we should be more smart and set this only when needed
+    self.exports.dirty = true;
 }
 
 pub fn updateDeclExports(
@@ -121,11 +125,7 @@ pub fn updateDeclExports(
     decl: *const Module.Decl,
     exports: []const *Module.Export,
 ) !void {
-    // TODO: updateDeclExports() may currently be called before updateDecl,
-    // presumably due to a bug. For now just rely on the following call
-    // being made in updateDecl().
-
-    //try self.exports.writeAll(module);
+    self.exports.dirty = true;
 }
 
 pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
@@ -138,7 +138,9 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     }
 }
 
-pub fn flush(self: *Wasm) !void {}
+pub fn flush(self: *Wasm, module: *Module) !void {
+    if (self.exports.dirty) try self.exports.writeAll(module);
+}
 
 /// This struct describes the location of a named section + custom section
 /// padding in the output file. This is all the data we need to allow for
@@ -373,11 +375,14 @@ const Exports = struct {
     /// Size in bytes of the contents of the section. Does not include
     /// the "header" containing the section id and this value.
     contents_size: u32,
+    /// If this is true, then exports will be rewritten on flush()
+    dirty: bool,
 
     fn init(file: fs.File, offset: u64, initial_size: u64) !Exports {
         return Exports{
             .exportsec = (try VecSection.init(spec.exports_id, file, offset, initial_size)).section,
             .contents_size = 5,
+            .dirty = false,
         };
     }
 
@@ -410,6 +415,8 @@ const Exports = struct {
 
         for (module.decl_exports.entries.items) |entry|
             for (entry.value) |e| try writeExport(writer, e);
+
+        self.dirty = false;
     }
 
     /// Return the total number of bytes an export will take.

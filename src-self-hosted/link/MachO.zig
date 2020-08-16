@@ -73,7 +73,7 @@ fn createFile(allocator: *Allocator, file: fs.File, options: link.Options) !Mach
     }
 }
 
-pub fn flush(self: *MachO) !void {}
+pub fn flush(self: *MachO, module: *Module) !void {}
 
 pub fn deinit(self: *MachO) void {}
 
