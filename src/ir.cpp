@@ -6352,7 +6352,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
     if (builtin_fn->param_count != SIZE_MAX && builtin_fn->param_count != actual_param_count) { 
         const char *arg_str = (builtin_fn->param_count == 1) ? std::string("argument").c_str() : std::string("arguments").c_str();
         add_node_error(irb->codegen, node,
-                buf_sprintf("expected %" ZIG_PRI_usize "%s, found %" ZIG_PRI_usize,
+                buf_sprintf("expected %" ZIG_PRI_usize " %s, found %" ZIG_PRI_usize,
                     builtin_fn->param_count, arg_str, actual_param_count));
         return irb->codegen->invalid_inst_src;
     }
@@ -30130,9 +30130,10 @@ static IrInstGen *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstSrcArgTy
             // TODO remove this with var args
             return ir_const_type(ira, &instruction->base.base, ira->codegen->builtin_types.entry_anytype);
         }
+        const char *arg_str = (fn_type_id->param_count == 1) ? std::string("argument").c_str() : std::string("arguments").c_str();
         ir_add_error(ira, &arg_index_inst->base,
-                buf_sprintf("arg index %" ZIG_PRI_u64 " out of bounds; '%s' has %" ZIG_PRI_usize " arguments",
-                    arg_index, buf_ptr(&fn_type->name), fn_type_id->param_count));
+                buf_sprintf("arg index %" ZIG_PRI_u64 " out of bounds; '%s' has %" ZIG_PRI_usize " %s",
+                    arg_index, buf_ptr(&fn_type->name), fn_type_id->param_count, arg_str));
         return ira->codegen->invalid_inst_gen;
     }
 
