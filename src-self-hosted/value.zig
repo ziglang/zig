@@ -562,7 +562,7 @@ pub const Value = extern union {
             .bool_true => return 1,
 
             .int_u64 => return self.cast(Payload.Int_u64).?.int,
-            .int_i64 => return @intCast(u64, self.cast(Payload.Int_u64).?.int),
+            .int_i64 => return @intCast(u64, self.cast(Payload.Int_i64).?.int),
             .int_big_positive => return self.cast(Payload.IntBigPositive).?.asBigInt().to(u64) catch unreachable,
             .int_big_negative => return self.cast(Payload.IntBigNegative).?.asBigInt().to(u64) catch unreachable,
         }
@@ -636,7 +636,7 @@ pub const Value = extern union {
 
             .bool_true => return 1,
 
-            .int_u64 => return @intCast(i64, self.cast(Payload.Int_i64).?.int),
+            .int_u64 => return @intCast(i64, self.cast(Payload.Int_u64).?.int),
             .int_i64 => return self.cast(Payload.Int_i64).?.int,
             .int_big_positive => return self.cast(Payload.IntBigPositive).?.asBigInt().to(i64) catch unreachable,
             .int_big_negative => return self.cast(Payload.IntBigNegative).?.asBigInt().to(i64) catch unreachable,
