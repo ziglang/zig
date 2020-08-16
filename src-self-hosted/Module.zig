@@ -1568,6 +1568,9 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
                             // in `Decl` to notice that the line number did not change.
                             self.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
                         },
+                        .macho => {
+                            // TODO Implement for MachO
+                        },
                         .c => {},
                     }
                 }
@@ -1776,10 +1779,12 @@ fn allocateNewDecl(
         .contents_hash = contents_hash,
         .link = switch (self.bin_file.tag) {
             .elf => .{ .elf = link.File.Elf.TextBlock.empty },
+            .macho => .{ .macho = link.File.MachO.TextBlock.empty },
             .c => .{ .c = {} },
         },
         .fn_link = switch (self.bin_file.tag) {
             .elf => .{ .elf = link.File.Elf.SrcFn.empty },
+            .macho => .{ .macho = link.File.MachO.SrcFn.empty },
             .c => .{ .c = {} },
         },
         .generation = 0,
