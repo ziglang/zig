@@ -5309,7 +5309,7 @@ pub fn ioctl_SIOCGIFINDEX(fd: fd_t, ifr: *ifreq) IoCtl_SIOCGIFINDEX_Error!void {
 }
 
 pub fn signalfd(fd: fd_t, mask: *const sigset_t, flags: i32) !fd_t {
-    const rc = system.signalfd4(fd, mask, flags);
+    const rc = system.signalfd(fd, mask, flags);
     switch (errno(rc)) {
         0 => return @intCast(fd_t, rc),
         EBADF, EINVAL => unreachable,

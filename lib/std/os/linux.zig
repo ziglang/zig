@@ -1200,7 +1200,7 @@ pub fn ioctl(fd: fd_t, request: u32, arg: usize) usize {
     return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), request, arg);
 }
 
-pub fn signalfd4(fd: fd_t, mask: *const sigset_t, flags: i32) usize {
+pub fn signalfd(fd: fd_t, mask: *const sigset_t, flags: i32) usize {
     return syscall4(
         .signalfd4,
         @bitCast(usize, @as(isize, fd)),
