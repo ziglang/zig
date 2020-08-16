@@ -10252,9 +10252,11 @@ static void prepend_c_type_to_decl_list(CodeGen *g, GenH *gen_h, ZigType *type_e
             gen_h->types_to_declare.append(type_entry);
             return;
         case ZigTypeIdStruct:
-            for (uint32_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
-                TypeStructField *field = type_entry->data.structure.fields[i];
-                prepend_c_type_to_decl_list(g, gen_h, field->type_entry);
+            if(type_entry->data.structure.layout == ContainerLayoutExtern) {
+                for (uint32_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
+                    TypeStructField *field = type_entry->data.structure.fields[i];
+                    prepend_c_type_to_decl_list(g, gen_h, field->type_entry);
+                }
             }
             gen_h->types_to_declare.append(type_entry);
             return;
@@ -10687,20 +10689,18 @@ static void gen_h_file(CodeGen *g) {
         fprintf(out_h, "\n");
     }
 
-    fprintf(out_h, "%s", buf_ptr(&types_buf));
-
     fprintf(out_h, "#ifdef __cplusplus\n");
     fprintf(out_h, "extern \"C\" {\n");
     fprintf(out_h, "#endif\n");
     fprintf(out_h, "\n");
 
+    fprintf(out_h, "%s", buf_ptr(&types_buf));
     fprintf(out_h, "%s\n", buf_ptr(&fns_buf));
+    fprintf(out_h, "%s\n", buf_ptr(&vars_buf));
 
     fprintf(out_h, "#ifdef __cplusplus\n");
     fprintf(out_h, "} // extern \"C\"\n");
     fprintf(out_h, "#endif\n\n");
-
-    fprintf(out_h, "%s\n", buf_ptr(&vars_buf));
 
     fprintf(out_h, "#endif // %s\n", buf_ptr(ifdef_dance_name));
 
