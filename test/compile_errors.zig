@@ -4716,7 +4716,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
-        "tmp.zig:20:34: error: expected 1 arguments, found 0",
+        "tmp.zig:20:34: error: expected 1 argument, found 0",
     });
 
     cases.add("missing function name",
