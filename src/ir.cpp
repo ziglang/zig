@@ -6349,10 +6349,11 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
     BuiltinFnEntry *builtin_fn = entry->value;
     size_t actual_param_count = node->data.fn_call_expr.params.length;
 
-    if (builtin_fn->param_count != SIZE_MAX && builtin_fn->param_count != actual_param_count) {
+    if (builtin_fn->param_count != SIZE_MAX && builtin_fn->param_count != actual_param_count) { 
+        const char *arg_str = (builtin_fn->param_count == 1) ? std::string("argument").c_str() : std::string("arguments").c_str();
         add_node_error(irb->codegen, node,
-                buf_sprintf("expected %" ZIG_PRI_usize " arguments, found %" ZIG_PRI_usize,
-                    builtin_fn->param_count, actual_param_count));
+                buf_sprintf("expected %" ZIG_PRI_usize "%s, found %" ZIG_PRI_usize,
+                    builtin_fn->param_count, arg_str, actual_param_count));
         return irb->codegen->invalid_inst_src;
     }
 
@@ -20183,10 +20184,12 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
         return ira->codegen->invalid_inst_gen;
     }
 
+    const char *arg_str = (src_param_count == 1) ? std::string("argument").c_str() : std::string("arguments").c_str();
     if (fn_type_id->is_var_args) {
         if (call_param_count < src_param_count) {
             ErrorMsg *msg = ir_add_error_node(ira, source_node,
-                buf_sprintf("expected at least %" ZIG_PRI_usize " arguments, found %" ZIG_PRI_usize "", src_param_count, call_param_count));
+                buf_sprintf("expected at least %" ZIG_PRI_usize " %s, found %" ZIG_PRI_usize "",
+                    src_param_count, arg_str, call_param_count));
             if (fn_proto_node) {
                 add_error_note(ira->codegen, msg, fn_proto_node,
                     buf_sprintf("declared here"));
@@ -20195,7 +20198,8 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
         }
     } else if (src_param_count != call_param_count) {
         ErrorMsg *msg = ir_add_error_node(ira, source_node,
-            buf_sprintf("expected %" ZIG_PRI_usize " arguments, found %" ZIG_PRI_usize "", src_param_count, call_param_count));
+            buf_sprintf("expected %" ZIG_PRI_usize " %s, found %" ZIG_PRI_usize "",
+                src_param_count, arg_str, call_param_count));
         if (fn_proto_node) {
             add_error_note(ira->codegen, msg, fn_proto_node,
                 buf_sprintf("declared here"));
