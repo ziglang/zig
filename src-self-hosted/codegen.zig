@@ -20,7 +20,21 @@ const leb128 = std.debug.leb;
 
 /// The codegen-related data that is stored in `ir.Inst.Block` instructions.
 pub const BlockData = struct {
-    relocs: std.ArrayListUnmanaged(Reloc) = .{},
+    relocs: std.ArrayListUnmanaged(Reloc) = undefined,
+    /// The first break instruction encounters `null` here and chooses a
+    /// machine code value for the block result, populating this field.
+    /// Following break instructions encounter that value and use it for
+    /// the location to store their block results.
+    mcv: AnyMCValue = undefined,
+};
+
+/// Architecture-independent MCValue. Here, we have a type that is the same size as
+/// the architecture-specific MCValue. Next to the declaration of MCValue is a
+/// comptime assert that makes sure we guessed correctly about the size. This only
+/// exists so that we can bitcast an arch-independent field to and from the real MCValue.
+pub const AnyMCValue = extern struct {
+    a: u64,
+    b: u64,
 };
 
 pub const Reloc = union(enum) {
@@ -1387,16 +1401,23 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genBlock(self: *Self, inst: *ir.Inst.Block) !MCValue {
-            if (inst.base.ty.hasCodeGenBits()) {
-                return self.fail(inst.base.src, "TODO codegen Block with non-void type", .{});
-            }
-            // A block is a setup to be able to jump to the end.
+            inst.codegen = .{
+                // A block is a setup to be able to jump to the end.
+                .relocs = .{},
+                // It also acts as a receptical for break operands.
+                // Here we use `MCValue.none` to represent a null value so that the first
+                // break instruction will choose a MCValue for the block result and overwrite
+                // this field. Following break instructions will use that MCValue to put their
+                // block results.
+                .mcv = @bitCast(AnyMCValue, MCValue { .none = {} }),
+            };
             defer inst.codegen.relocs.deinit(self.gpa);
+
             try self.genBody(inst.body);
 
             for (inst.codegen.relocs.items) |reloc| try self.performReloc(inst.base.src, reloc);
 
-            return MCValue.none;
+            return @bitCast(MCValue, inst.codegen.mcv);
         }
 
         fn performReloc(self: *Self, src: usize, reloc: Reloc) !void {
@@ -1416,13 +1437,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genBr(self: *Self, inst: *ir.Inst.Br) !MCValue {
-            if (!inst.operand.ty.hasCodeGenBits())
-                return self.brVoid(inst.base.src, inst.block);
-
-            const operand = try self.resolveInst(inst.operand);
-            switch (arch) {
-                else => return self.fail(inst.base.src, "TODO implement br for {}", .{self.target.cpu.arch}),
+            if (inst.operand.ty.hasCodeGenBits()) {
+                const operand = try self.resolveInst(inst.operand);
+                const block_mcv = @bitCast(MCValue, inst.block.codegen.mcv);
+                if (block_mcv == .none) {
+                    inst.block.codegen.mcv = @bitCast(AnyMCValue, operand);
+                } else {
+                    try self.setRegOrMem(inst.base.src, inst.block.base.ty, block_mcv, operand);
+                }
             }
+            return self.brVoid(inst.base.src, inst.block);
         }
 
         fn genBrVoid(self: *Self, inst: *ir.Inst.BrVoid) !MCValue {

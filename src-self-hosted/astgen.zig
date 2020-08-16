@@ -1165,6 +1165,9 @@ fn builtinCall(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.Built
         return simpleCast(mod, scope, rl, call, .intcast);
     } else if (mem.eql(u8, builtin_name, "@bitCast")) {
         return bitCast(mod, scope, rl, call);
+    } else if (mem.eql(u8, builtin_name, "@breakpoint")) {
+        const src = tree.token_locs[call.builtin_token].start;
+        return rlWrap(mod, scope, rl, try addZIRNoOp(mod, scope, src, .breakpoint));
     } else {
         return mod.failTok(scope, call.builtin_token, "invalid builtin function: '{}'", .{builtin_name});
     }
