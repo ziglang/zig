@@ -710,8 +710,7 @@ fn analyzeInstUnwrapOptional(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp
         return mod.fail(scope, unwrap.base.src, "expected optional type, found {}", .{operand.ty.elemType()});
     }
 
-    var buf: Type.Payload.Pointer = undefined;
-    const child_type = try operand.ty.elemType().optionalChild(&buf).copy(scope.arena());
+    const child_type = try operand.ty.elemType().optionalChildAlloc(scope.arena());
     const child_pointer = try mod.singlePtrType(scope, unwrap.base.src, operand.ty.isConstPtr(), child_type);
 
     if (operand.value()) |val| {

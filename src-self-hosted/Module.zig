@@ -2433,7 +2433,6 @@ fn wrapOptional(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*In
         return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
     }
 
-    // TODO how do we get the result location
     const b = try self.requireRuntimeBlock(scope, inst.src);
     return self.addUnOp(b, inst.src, dest_type, .wrap_optional, inst);
 }

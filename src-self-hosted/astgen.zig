@@ -453,8 +453,6 @@ fn boolNot(mod: *Module, scope: *Scope, node: *ast.Node.SimplePrefixOp) InnerErr
 }
 
 fn addressOf(mod: *Module, scope: *Scope, node: *ast.Node.SimplePrefixOp) InnerError!*zir.Inst {
-    const tree = scope.tree();
-    const src = tree.token_locs[node.op_token].start;
     return expr(mod, scope, .lvalue, node.rhs);
 }
 
@@ -490,8 +488,6 @@ fn ptrType(mod: *Module, scope: *Scope, node: *ast.Node.PtrType) InnerError!*zir
             .single_const_ptr_type, child_type);
     }
 
-    const child_type = try expr(mod, scope, .{ .ty = meta_type }, node.rhs);
-
     var kw_args: std.meta.fieldInfo(zir.Inst.PtrType, "kw_args").field_type = .{};
     kw_args.@"allowzero" = node.ptr_info.allowzero_token != null;
     if (node.ptr_info.align_info) |some| {
@@ -504,7 +500,12 @@ fn ptrType(mod: *Module, scope: *Scope, node: *ast.Node.PtrType) InnerError!*zir
     kw_args.@"const" = node.ptr_info.const_token != null;
     kw_args.@"volatile" = node.ptr_info.volatile_token != null;
     if (node.ptr_info.sentinel) |some| {
-        kw_args.sentinel = try expr(mod, scope, .{ .ty = child_type }, some);
+        kw_args.sentinel = try expr(mod, scope, .none, some);
+    }
+
+    const child_type = try expr(mod, scope, .{ .ty = meta_type }, node.rhs);
+    if (kw_args.sentinel) |some| {
+        kw_args.sentinel = try addZIRBinOp(mod, scope, some.src, .as, child_type, some);
     }
 
     return addZIRInst(mod, scope, src, zir.Inst.PtrType, .{ .child_type = child_type }, kw_args);
@@ -629,7 +630,9 @@ const CondKind = union(enum) {
         const payload = payload_node.?.castTag(.PointerPayload).?;
         const is_ptr = payload.ptr_token != null;
         const ident_node = payload.value_symbol.castTag(.Identifier).?;
-        const ident_name = try identifierTokenString(mod, &then_scope.base, ident_node.token);
+
+        // This intentionally does not support @"_" syntax.
+        const ident_name = then_scope.base.tree().tokenSlice(ident_node.token);
         if (mem.eql(u8, ident_name, "_")) {
             if (is_ptr)
                 return mod.failTok(&then_scope.base, payload.ptr_token.?, "pointer modifier invalid on discard", .{});
@@ -646,7 +649,9 @@ const CondKind = union(enum) {
 
         const payload = payload_node.?.castTag(.Payload).?;
         const ident_node = payload.error_symbol.castTag(.Identifier).?;
-        const ident_name = try identifierTokenString(mod, &else_scope.base, ident_node.token);
+
+        // This intentionally does not support @"_" syntax.
+        const ident_name = else_scope.base.tree().tokenSlice(ident_node.token);
         if (mem.eql(u8, ident_name, "_")) {
             return &else_scope.base;
         }
@@ -660,9 +665,6 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
     if (if_node.payload) |_| cond_kind = .{ .optional = null };
     if (if_node.@"else") |else_node| {
         if (else_node.payload) |payload| {
-            if (cond_kind != .optional) {
-                return mod.failNode(scope, payload, "else payload invalid on bool conditions", .{});
-            }
             cond_kind = .{ .err_union = null };
         }
     }
@@ -760,9 +762,6 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
     if (while_node.payload) |_| cond_kind = .{ .optional = null };
     if (while_node.@"else") |else_node| {
         if (else_node.payload) |payload| {
-            if (cond_kind != .optional) {
-                return mod.failNode(scope, payload, "else payload invalid on bool conditions", .{});
-            }
             cond_kind = .{ .err_union = null };
         }
     }

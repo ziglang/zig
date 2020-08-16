@@ -362,7 +362,7 @@ pub const Type = extern union {
             .single_mut_pointer,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
-             => return self.copyPayloadSingleField(allocator, Payload.Pointer, "pointee_type"),
+            => return self.copyPayloadSingleField(allocator, Payload.Pointer, "pointee_type"),
         }
     }
 
@@ -1086,16 +1086,38 @@ pub const Type = extern union {
             .optional_single_mut_pointer => {
                 buf.* = .{
                     .base = .{ .tag = .single_mut_pointer },
-                    .pointee_type = self.castPointer().?.pointee_type
+                    .pointee_type = self.castPointer().?.pointee_type,
                 };
                 return Type.initPayload(&buf.base);
             },
             .optional_single_const_pointer => {
                 buf.* = .{
                     .base = .{ .tag = .single_const_pointer },
-                    .pointee_type = self.castPointer().?.pointee_type
+                    .pointee_type = self.castPointer().?.pointee_type,
                 };
                 return Type.initPayload(&buf.base);
+            },
+            else => unreachable,
+        };
+    }
+
+    /// Asserts that the type is an optional.
+    /// Same as `optionalChild` but allocates the buffer if needed.
+    pub fn optionalChildAlloc(self: Type, allocator: *Allocator) !Type {
+        return switch (self.tag()) {
+            .optional => self.cast(Payload.Optional).?.child_type,
+            .optional_single_mut_pointer, .optional_single_const_pointer => {
+                const payload = try allocator.create(Payload.Pointer);
+                payload.* = .{
+                    .base = .{
+                        .tag = if (self.tag() == .optional_single_const_pointer)
+                            .single_const_pointer
+                        else
+                            .single_mut_pointer,
+                    },
+                    .pointee_type = self.castPointer().?.pointee_type,
+                };
+                return Type.initPayload(&payload.base);
             },
             else => unreachable,
         };
