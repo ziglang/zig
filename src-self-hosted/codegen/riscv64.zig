@@ -101,7 +101,7 @@ pub const Instruction = union(enum) {
                 .rs1 = @enumToInt(r1),
                 .rs2 = @enumToInt(r2),
                 .imm0_4 = @truncate(u5, umm),
-                .imm5_11 = @truncate(u6, umm >> 5),
+                .imm5_11 = @truncate(u7, umm >> 5),
             },
         };
     }
