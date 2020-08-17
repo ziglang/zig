@@ -20196,8 +20196,8 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
         }
     } else if (src_param_count != call_param_count) {
         ErrorMsg *msg = ir_add_error_node(ira, source_node,
-            buf_sprintf("expected %" ZIG_PRI_usize " %s, found %" ZIG_PRI_usize "",
-                src_param_count, arg_str, call_param_count));
+            buf_sprintf("expected %" ZIG_PRI_usize " argument(s), found %" ZIG_PRI_usize "",
+                src_param_count, call_param_count));
         if (fn_proto_node) {
             add_error_note(ira->codegen, msg, fn_proto_node,
                 buf_sprintf("declared here"));
@@ -30128,10 +30128,9 @@ static IrInstGen *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstSrcArgTy
             // TODO remove this with var args
             return ir_const_type(ira, &instruction->base.base, ira->codegen->builtin_types.entry_anytype);
         }
-        const char *arg_str = (fn_type_id->param_count == 1) ? std::string("argument").c_str() : std::string("arguments").c_str();
         ir_add_error(ira, &arg_index_inst->base,
-                buf_sprintf("arg index %" ZIG_PRI_u64 " out of bounds; '%s' has %" ZIG_PRI_usize " %s",
-                    arg_index, buf_ptr(&fn_type->name), fn_type_id->param_count, arg_str));
+                buf_sprintf("arg index %" ZIG_PRI_u64 " out of bounds; '%s' has %" ZIG_PRI_usize " argument(s)",
+                    arg_index, buf_ptr(&fn_type->name), fn_type_id->param_count));
         return ira->codegen->invalid_inst_gen;
     }
 

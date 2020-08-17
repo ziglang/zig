@@ -606,8 +606,8 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
         return mod.fail(
             scope,
             inst.positionals.func.src,
-            "expected {} {}, found {}",
-            .{ fn_params_len, arg_str, call_params_len },
+            "expected {} argument(s), found {}",
+            .{ fn_params_len, call_params_len },
         );
     }
 
