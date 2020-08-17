@@ -522,3 +522,9 @@ test "fcntl" {
         expect((flags & os.FD_CLOEXEC) != 0);
     }
 }
+
+test "signalfd" {
+    if (builtin.os.tag != .linux)
+        return error.SkipZigTest;
+    _ = std.os.signalfd;
+}

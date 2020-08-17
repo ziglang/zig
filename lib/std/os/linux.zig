@@ -1200,14 +1200,8 @@ pub fn ioctl(fd: fd_t, request: u32, arg: usize) usize {
     return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), request, arg);
 }
 
-pub fn signalfd4(fd: fd_t, mask: *const sigset_t, flags: i32) usize {
-    return syscall4(
-        .signalfd4,
-        @bitCast(usize, @as(isize, fd)),
-        @ptrToInt(mask),
-        @bitCast(usize, @as(usize, NSIG / 8)),
-        @intCast(usize, flags),
-    );
+pub fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) usize {
+    return syscall4(.signalfd4, @bitCast(usize, @as(isize, fd)), @ptrToInt(mask), NSIG / 8, flags);
 }
 
 pub fn copy_file_range(fd_in: fd_t, off_in: ?*i64, fd_out: fd_t, off_out: ?*i64, len: usize, flags: u32) usize {
