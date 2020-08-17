@@ -293,6 +293,30 @@ pub const Instruction = union(enum) {
         return iType(0b0000011, 0b011, rd, base, offset);
     }
 
+    pub fn lw(rd: Register, offset: i12, base: Register) Instruction {
+        return iType(0b0000011, 0b010, rd, base, offset);
+    }
+
+    pub fn lwu(rd: Register, offset: i12, base: Register) Instruction {
+        return iType(0b0000011, 0b110, rd, base, offset);
+    }
+
+    pub fn lh(rd: Register, offset: i12, base: Register) Instruction {
+        return iType(0b0000011, 0b001, rd, base, offset);
+    }
+
+    pub fn lhu(rd: Register, offset: i12, base: Register) Instruction {
+        return iType(0b0000011, 0b101, rd, base, offset);
+    }
+
+    pub fn lb(rd: Register, offset: i12, base: Register) Instruction {
+        return iType(0b0000011, 0b000, rd, base, offset);
+    }
+
+    pub fn lbu(rd: Register, offset: i12, base: Register) Instruction {
+        return iType(0b0000011, 0b100, rd, base, offset);
+    }
+
     // Store
 
     pub fn sd(rs, offset, base) Instruction {
