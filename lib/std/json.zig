@@ -375,7 +375,7 @@ pub const StreamingParser = struct {
                 '}' => {
                     // unlikely
                     if (p.stack & 1 != object_bit) {
-                        return error.UnexpectedClosingBracket;
+                        return error.UnexpectedClosingBrace;
                     }
                     if (p.stack_used == 0) {
                         return error.TooManyClosingItems;
@@ -401,7 +401,7 @@ pub const StreamingParser = struct {
                 },
                 ']' => {
                     if (p.stack & 1 != array_bit) {
-                        return error.UnexpectedClosingBrace;
+                        return error.UnexpectedClosingBracket;
                     }
                     if (p.stack_used == 0) {
                         return error.TooManyClosingItems;
@@ -572,7 +572,7 @@ pub const StreamingParser = struct {
                 },
                 ']' => {
                     if (p.stack & 1 != array_bit) {
-                        return error.UnexpectedClosingBrace;
+                        return error.UnexpectedClosingBracket;
                     }
                     if (p.stack_used == 0) {
                         return error.TooManyClosingItems;
@@ -594,7 +594,7 @@ pub const StreamingParser = struct {
                 '}' => {
                     // unlikely
                     if (p.stack & 1 != object_bit) {
-                        return error.UnexpectedClosingBracket;
+                        return error.UnexpectedClosingBrace;
                     }
                     if (p.stack_used == 0) {
                         return error.TooManyClosingItems;
@@ -1194,6 +1194,15 @@ test "json.token" {
     checkNext(&p, .ObjectEnd);
 
     testing.expect((try p.next()) == null);
+}
+
+test "json.token mismatched close" {
+    var p = TokenStream.init("[102, 111, 111 }");
+    checkNext(&p, .ArrayBegin);
+    checkNext(&p, .Number);
+    checkNext(&p, .Number);
+    checkNext(&p, .Number);
+    testing.expectError(error.UnexpectedClosingBrace, p.next());
 }
 
 /// Validate a JSON string. This does not limit number precision so a decoder may not necessarily
