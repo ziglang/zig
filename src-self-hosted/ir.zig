@@ -68,6 +68,7 @@ pub const Inst = struct {
         dbg_stmt,
         isnonnull,
         isnull,
+        iserr,
         /// Read a value from a pointer.
         load,
         loop,
@@ -83,6 +84,7 @@ pub const Inst = struct {
         floatcast,
         intcast,
         unwrap_optional,
+        wrap_optional,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
@@ -99,11 +101,13 @@ pub const Inst = struct {
                 .not,
                 .isnonnull,
                 .isnull,
+                .iserr,
                 .ptrtoint,
                 .floatcast,
                 .intcast,
                 .load,
                 .unwrap_optional,
+                .wrap_optional,
                 => UnOp,
 
                 .add,

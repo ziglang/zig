@@ -671,6 +671,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .intcast => return self.genIntCast(inst.castTag(.intcast).?),
                 .isnonnull => return self.genIsNonNull(inst.castTag(.isnonnull).?),
                 .isnull => return self.genIsNull(inst.castTag(.isnull).?),
+                .iserr => return self.genIsErr(inst.castTag(.iserr).?),
                 .load => return self.genLoad(inst.castTag(.load).?),
                 .loop => return self.genLoop(inst.castTag(.loop).?),
                 .not => return self.genNot(inst.castTag(.not).?),
@@ -682,6 +683,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .sub => return self.genSub(inst.castTag(.sub).?),
                 .unreach => return MCValue{ .unreach = {} },
                 .unwrap_optional => return self.genUnwrapOptional(inst.castTag(.unwrap_optional).?),
+                .wrap_optional => return self.genWrapOptional(inst.castTag(.wrap_optional).?),
             }
         }
 
@@ -837,6 +839,22 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 return MCValue.dead;
             switch (arch) {
                 else => return self.fail(inst.base.src, "TODO implement unwrap optional for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        fn genWrapOptional(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            const optional_ty = inst.base.ty;
+
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+
+            // Optional type is just a boolean true
+            if (optional_ty.abiSize(self.target.*) == 1)
+                return MCValue{ .immediate = 1 };
+
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement wrap optional for {}", .{self.target.cpu.arch}),
             }
         }
 
@@ -1371,6 +1389,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             // will call genIsNull and invert the result.
             switch (arch) {
                 else => return self.fail(inst.base.src, "TODO call genIsNull and invert the result ", .{}),
+            }
+        }
+
+        fn genIsErr(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement iserr for {}", .{self.target.cpu.arch}),
             }
         }
 
@@ -2028,9 +2052,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return mcv;
         }
 
-        fn genTypedValue(self: *Self, src: usize, typed_value: TypedValue) !MCValue {
+        fn genTypedValue(self: *Self, src: usize, typed_value: TypedValue) InnerError!MCValue {
             if (typed_value.val.isUndef())
-                return MCValue.undef;
+                return MCValue{ .undef = {} };
             const ptr_bits = self.target.cpu.arch.ptrBitWidth();
             const ptr_bytes: u64 = @divExact(ptr_bits, 8);
             switch (typed_value.ty.zigTypeTag()) {
@@ -2055,6 +2079,21 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 .ComptimeInt => unreachable, // semantic analysis prevents this
                 .ComptimeFloat => unreachable, // semantic analysis prevents this
+                .Optional => {
+                    if (typed_value.ty.isPtrLikeOptional()) {
+                        if (typed_value.val.isNull())
+                            return MCValue{ .immediate = 0 };
+
+                        var buf: Type.Payload.Pointer = undefined;
+                        return self.genTypedValue(src, .{
+                            .ty = typed_value.ty.optionalChild(&buf),
+                            .val = typed_value.val,
+                        });
+                    } else if (typed_value.ty.abiSize(self.target.*) == 1) {
+                        return MCValue{ .immediate = @boolToInt(typed_value.val.isNull()) };
+                    }
+                    return self.fail(src, "TODO non pointer optionals", .{});
+                },
                 else => return self.fail(src, "TODO implement const of type '{}'", .{typed_value.ty}),
             }
         }
@@ -2160,7 +2199,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             };
         }
 
-        fn fail(self: *Self, src: usize, comptime format: []const u8, args: anytype) error{ CodegenFail, OutOfMemory } {
+        fn fail(self: *Self, src: usize, comptime format: []const u8, args: anytype) InnerError {
             @setCold(true);
             assert(self.err_msg == null);
             self.err_msg = try ErrorMsg.create(self.bin_file.base.allocator, src, format, args);
