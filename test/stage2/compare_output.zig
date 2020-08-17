@@ -12,6 +12,11 @@ const linux_riscv64 = std.zig.CrossTarget{
     .os_tag = .linux,
 };
 
+const wasi = std.zig.CrossTarget{
+    .cpu_arch = .wasm32,
+    .os_tag = .wasi,
+};
+
 pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("hello world with updates", linux_x64);
@@ -537,6 +542,37 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         ,
             "",
+        );
+    }
+
+    {
+        var case = ctx.exe("wasm returns", wasi);
+
+        case.addCompareOutput(
+            \\export fn _start() u32 {
+            \\    return 42;
+            \\}
+        ,
+            "42\n",
+        );
+
+        case.addCompareOutput(
+            \\export fn _start() i64 {
+            \\    return 42;
+            \\}
+        ,
+            "42\n",
+        );
+
+        case.addCompareOutput(
+            \\export fn _start() f32 {
+            \\    return 42.0;
+            \\}
+        ,
+            // This is what you get when you take the bits of the IEE-754
+            // representation of 42.0 and reinterpret them as an unsigned
+            // integer. Guess that's a bug in wasmtime.
+            "1109917696\n",
         );
     }
 }

@@ -100,11 +100,13 @@ pub const File = struct {
     }
 
     pub fn makeExecutable(base: *File) !void {
-        std.debug.assert(base.tag != .c);
-        if (base.file) |f| {
-            f.close();
-            base.file = null;
-
+        switch (base.tag) {
+            .c => unreachable,
+            .wasm => {},
+            else => if (base.file) |f| {
+                f.close();
+                base.file = null;
+            },
         }
     }
 
