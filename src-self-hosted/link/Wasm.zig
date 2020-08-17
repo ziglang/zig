@@ -33,7 +33,6 @@ pub const base_tag = link.File.Tag.wasm;
 
 pub const FnData = struct {
     funcidx: u32,
-    typeidx: u32,
 };
 
 base: link.File,
@@ -99,7 +98,6 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
         return error.TODOImplementNonFnDeclsForWasm;
 
     if (decl.fn_link.wasm) |fn_data| {
-        self.types.free(fn_data.typeidx);
         self.funcs.free(fn_data.funcidx);
     }
 
@@ -113,7 +111,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     try codegen.genCode(&buf, decl);
     const funcidx = try self.funcs.new(typeidx, buf.items);
 
-    decl.fn_link.wasm = .{ .typeidx = typeidx, .funcidx = funcidx };
+    decl.fn_link.wasm = .{ .funcidx = funcidx };
 
     // TODO: we should be more smart and set this only when needed
     self.exports.dirty = true;
@@ -132,7 +130,6 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     // TODO: remove this assert when non-function Decls are implemented
     assert(decl.typed_value.most_recent.typed_value.ty.zigTypeTag() == .Fn);
     if (decl.fn_link.wasm) |fn_data| {
-        self.types.free(fn_data.typeidx);
         self.funcs.free(fn_data.funcidx);
         decl.fn_link.wasm = null;
     }
@@ -307,21 +304,20 @@ const Funcs = struct {
     /// This section needs special handling to keep the indexes matching with
     /// the codesec, so we cant just use a VecSection.
     funcsec: Section,
-    /// Number of functions listed in the funcsec. Must be kept in sync with
-    /// codesec.entries.items.len.
-    funcs_count: u32,
+    /// The typeidx stored for each function, indexed by funcidx.
+    func_types: std.ArrayListUnmanaged(u32) = std.ArrayListUnmanaged(u32){},
     codesec: VecSection,
 
     fn init(file: fs.File, funcs_offset: u64, funcs_size: u64, code_offset: u64, code_size: u64) !Funcs {
         return Funcs{
             .funcsec = (try VecSection.init(spec.funcs_id, file, funcs_offset, funcs_size)).section,
-            .funcs_count = 0,
             .codesec = try VecSection.init(spec.code_id, file, code_offset, code_size),
         };
     }
 
     fn deinit(self: *Funcs) void {
         const wasm = @fieldParentPtr(Wasm, "funcs", self);
+        self.func_types.deinit(wasm.base.allocator);
         self.codesec.deinit(wasm.base.allocator);
     }
 
@@ -333,25 +329,30 @@ const Funcs = struct {
         const file = wasm.base.file.?;
         const allocator = wasm.base.allocator;
 
-        assert(self.funcs_count == self.codesec.entries.items.len);
+        assert(self.func_types.items.len == self.codesec.entries.items.len);
 
         // TODO: consider nop-padding the code if there is a close but not perfect fit
         const funcidx = try self.codesec.addEntry(file, allocator, code);
 
-        if (self.funcs_count < self.codesec.entries.items.len) {
+        if (self.func_types.items.len < self.codesec.entries.items.len) {
             // u32 vector length + funcs_count u32s in the vector
-            const current = 5 + self.funcs_count * 5;
+            const current = 5 + @intCast(u32, self.func_types.items.len) * 5;
             try self.funcsec.resize(file, current, current + 5);
-            self.funcs_count += 1;
+            try self.func_types.append(allocator, typeidx);
 
             // Update the size in the section header and the item count of
             // the contents vector.
+            const count = @intCast(u32, self.func_types.items.len);
             var size_and_count: [10]u8 = undefined;
-            leb.writeUnsignedFixed(5, size_and_count[0..5], 5 + self.funcs_count * 5);
-            leb.writeUnsignedFixed(5, size_and_count[5..], self.funcs_count);
+            leb.writeUnsignedFixed(5, size_and_count[0..5], 5 + count * 5);
+            leb.writeUnsignedFixed(5, size_and_count[5..], count);
             try file.pwriteAll(&size_and_count, self.funcsec.offset + 1);
+        } else {
+            // We are overwriting a dead function and may now free the type
+            wasm.types.free(self.func_types.items[funcidx]);
         }
-        assert(self.funcs_count == self.codesec.entries.items.len);
+
+        assert(self.func_types.items.len == self.codesec.entries.items.len);
 
         var typeidx_leb: [5]u8 = undefined;
         leb.writeUnsignedFixed(5, &typeidx_leb, typeidx);
