@@ -1,6 +1,8 @@
 const std = @import("std");
 const DW = std.dwarf;
 
+// TODO: this is only tagged to facilitate the monstrosity.
+// Once packed structs work make it packed.
 pub const Instruction = union(enum) {
     R: packed struct {
         opcode: u7,
@@ -49,14 +51,13 @@ pub const Instruction = union(enum) {
         imm20: u1,
     },
 
+    // TODO: once packed structs work we can remove this monstrosity.
     pub fn toU32(self: Instruction) u32 {
         return switch (self) {
             .R => |v| @bitCast(u32, v),
             .I => |v| @bitCast(u32, v),
             .S => |v| @bitCast(u32, v),
-            .B => |v|
-            // TODO: once packed structs work we can remove this monstrosity.
-            @intCast(u32, v.opcode) + (@intCast(u32, v.imm11) << 7) + (@intCast(u32, v.imm1_4) << 8) + (@intCast(u32, v.funct3) << 12) + (@intCast(u32, v.rs1) << 15) + (@intCast(u32, v.rs2) << 20) + (@intCast(u32, v.imm5_10) << 25) + (@intCast(u32, v.imm12) << 31),
+            .B => |v| @intCast(u32, v.opcode) + (@intCast(u32, v.imm11) << 7) + (@intCast(u32, v.imm1_4) << 8) + (@intCast(u32, v.funct3) << 12) + (@intCast(u32, v.rs1) << 15) + (@intCast(u32, v.rs2) << 20) + (@intCast(u32, v.imm5_10) << 25) + (@intCast(u32, v.imm12) << 31),
             .U => |v| @bitCast(u32, v),
             .J => |v| @bitCast(u32, v),
         };
@@ -154,14 +155,76 @@ pub const Instruction = union(enum) {
         };
     }
 
-    // The meat and potatoes. Arguments are in the order in which they appear in assembly code.
+    // The meat and potatoes. Arguments are in the order in which they would appear in assembly code.
 
     // Arithmetic/Logical, Register-Register
+    pub fn add(rd: Register, r1: Register, r2: Register) Instruction {
+        return rType(0b0110011, 0b000, 0b0000000, rd, r1, r2);
+    }
+
+    pub fn sub(rd: Register, r1: Register, r2: Register) Instruction {
+        return rType(0b0110011, 0b000, 0b0100000, rd, r1, r2);
+    }
+
+    pub fn @"and"(rd: Register, r1: Register, r2: Register) Instruction {
+        return rType(0b0110011, 0b111, 0b0000000, rd, r1, r2);
+    }
+
+    pub fn @"or"(rd: Register, r1: Register, r2: Register) Instruction {
+        return rType(0b0110011, 0b110, 0b0000000, rd, r1, r2);
+    }
+
+    pub fn xor(rd: Register, r1: Register, r2: Register) Instruction {
+        return rType(0b0110011, 0b100, 0b0000000, rd, r1, r2);
+    }
+
+    pub fn sll(rd: Register, r1: Register, r2: Register) Instruction {
+        return rType(0b0110011, 0b001, 0b0000000, rd, r1, r2);
+    }
+
+    pub fn srl(rd: Register, r1: Register, r2: Register) Instruction {
+        return rType(0b0110011, 0b101, 0b0000000, rd, r1, r2);
+    }
+
+    pub fn sra(rd: Register, r1: Register, r2: Register) Instruction {
+        return rType(0b0110011, 0b101, 0b0100000, rd, r1, r2);
+    }
+
+    pub fn slt(rd: Register, r1: Register, r2: Register) Instruction {
+        return rType(0b0110011, 0b010, 0b0000000, rd, r1, r2);
+    }
+
+    pub fn sltu(rd: Register, r1: Register, r2: Register) Instruction {
+        return rType(0b0110011, 0b011, 0b0000000, rd, r1, r2);
+    }
+
+    // Arithmetic/Logical, Register-Register (32-bit)
+    pub fn addw(rd: Register, r1: Register, r2: Register) Instruction {
+        return rType(0b0111011, 0b000, rd, r1, r2);
+    }
+
+    pub fn subw(rd: Register, r1: Register, r2: Register) Instruction {
+        return rType(0b0111011, 0b000, 0b0100000, rd, r1, r2);
+    }
+
+    pub fn sllw(rd: Register, r1: Register, r2: Register) Instruction {
+        return rType(0b0111011, 0b001, 0b0000000, rd, r1, r2);
+    }
+
+    pub fn srlw(rd: Register, r1: Register, r2: Register) Instruction {
+        return rType(0b0111011, 0b101, 0b0000000, rd, r1, r2);
+    }
+
+    pub fn sraw(rd: Register, r1: Register, r2: Register) Instruction {
+        return rType(0b0111011, 0b101, 0b0100000, rd, r1, r2);
+    }
 
     // Arithmetic/Logical, Register-Immediate
     pub fn addi(rd: Register, r1: Register, imm: i12) Instruction {
         return iType(0b0010011, 0b000, rd, r1, imm);
     }
+
+    // Arithmetic/Logical, Register-Immediate (32-bit)
 
     // Upper Immediate
     pub fn lui(rd: Register, imm: i20) Instruction {
@@ -178,6 +241,8 @@ pub const Instruction = union(enum) {
     }
 
     // Store
+
+    // Fence
 
     // Branch
 
