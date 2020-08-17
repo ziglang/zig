@@ -319,19 +319,19 @@ pub const Instruction = union(enum) {
 
     // Store
 
-    pub fn sd(rs, offset, base) Instruction {
+    pub fn sd(rs: Register, offset: i12, base: Register) Instruction {
         return sType(0b0100011, 0b011, base, rs, offset);
     }
 
-    pub fn sw(rs, offset, base) Instruction {
+    pub fn sw(rs: Register, offset: i12, base: Register) Instruction {
         return sType(0b0100011, 0b010, base, rs, offset);
     }
 
-    pub fn sh(rs, offset, base) Instruction {
+    pub fn sh(rs: Register, offset: i12, base: Register) Instruction {
         return sType(0b0100011, 0b001, base, rs, offset);
     }
 
-    pub fn sb(rs, offset, base) Instruction {
+    pub fn sb(rs: Register, offset: i12, base: Register) Instruction {
         return sType(0b0100011, 0b000, base, rs, offset);
     }
 
