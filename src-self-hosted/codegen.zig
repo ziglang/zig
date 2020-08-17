@@ -1095,7 +1095,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     try self.code.append(0xcc); // int3
                 },
                 .riscv64 => {
-                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ebreak().toU32());
+                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ebreak.toU32());
                 },
                 else => return self.fail(src, "TODO implement @breakpoint() for {}", .{self.target.cpu.arch}),
             }
@@ -1474,7 +1474,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     }
 
                     if (mem.eql(u8, inst.asm_source, "ecall")) {
-                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ecall().toU32());
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ecall.toU32());
                     } else {
                         return self.fail(inst.base.src, "TODO implement support for more riscv64 assembly instructions", .{});
                     }
@@ -1686,7 +1686,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                         if (math.minInt(i32) <= x and x <= math.maxInt(i32)) {
                             const lo12 = @truncate(i12, x);
-                            const hi20 = @truncate(i20, ((x >> 11) + 1) >> 1);
+                            const carry: i32 = if (lo12 < 0) 1 else 0;
+                            const hi20 = @truncate(i20, (x >> 12) +% carry);
 
                             // TODO: add test case for 32-bit immediate
                             mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.lui(reg, hi20).toU32());

@@ -191,13 +191,25 @@ pub const Instruction = union(enum) {
     }
 
     // System
-    pub fn ecall() Instruction {
-        return iType(0b1110011, 0b000, .zero, .zero, 0x000);
-    }
+    pub const ecall = Instruction{
+        .I = .{
+            .opcode = 0b1110011,
+            .funct3 = 0b000,
+            .rd = 0,
+            .rs1 = 0,
+            .imm0_11 = 0,
+        },
+    };
 
-    pub fn ebreak() Instruction {
-        return iType(0b1110011, 0b000, .zero, .zero, 0x001);
-    }
+    pub const ebreak = Instruction{
+        .I = .{
+            .opcode = 0b1110011,
+            .funct3 = 0b000,
+            .rd = 0,
+            .rs1 = 0,
+            .imm0_11 = 1,
+        },
+    };
 };
 
 // zig fmt: off
@@ -233,11 +245,6 @@ pub const Register = enum(u5) {
         return null;
     }
 
-    /// Returns the register's id.
-    pub fn id(self: @This()) u5 {
-        return @enumToInt(self);
-    }
-
     /// Returns the index into `callee_preserved_regs`.
     pub fn allocIndex(self: Register) ?u4 {
         inline for(callee_preserved_regs) |cpreg, i| {
@@ -247,7 +254,7 @@ pub const Register = enum(u5) {
     }
 
     pub fn dwarfLocOp(reg: Register) u8 {
-        return @intCast(u8, @enumToInt(reg)) + DW.OP_reg0;
+        return @as(u8, @enumToInt(reg)) + DW.OP_reg0;
     }
 };
 
