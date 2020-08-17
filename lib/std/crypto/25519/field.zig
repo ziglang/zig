@@ -21,6 +21,12 @@ pub const Fe = struct {
 
     pub const edwards25519sqrtamd = Fe{ .limbs = .{ 278908739862762, 821645201101625, 8113234426968, 1777959178193151, 2118520810568447 } }; // 1/sqrt(a-d)
 
+    pub const edwards25519eonemsqd = Fe{ .limbs = .{ 1136626929484150, 1998550399581263, 496427632559748, 118527312129759, 45110755273534 } }; // 1-d^2
+
+    pub const edwards25519sqdmone = Fe{ .limbs = .{ 1507062230895904, 1572317787530805, 683053064812840, 317374165784489, 1572899562415810 } }; // (d-1)^2
+
+    pub const edwards25519sqrtadm1 = Fe{ .limbs = .{ 2241493124984347, 425987919032274, 2207028919301688, 1220490630685848, 974799131293748 } };
+
     pub inline fn isZero(fe: Fe) bool {
         var reduced = fe;
         reduced.reduce();
