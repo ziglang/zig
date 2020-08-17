@@ -158,6 +158,7 @@ pub const Instruction = union(enum) {
     // The meat and potatoes. Arguments are in the order in which they would appear in assembly code.
 
     // Arithmetic/Logical, Register-Register
+
     pub fn add(rd: Register, r1: Register, r2: Register) Instruction {
         return rType(0b0110011, 0b000, 0b0000000, rd, r1, r2);
     }
@@ -199,6 +200,7 @@ pub const Instruction = union(enum) {
     }
 
     // Arithmetic/Logical, Register-Register (32-bit)
+
     pub fn addw(rd: Register, r1: Register, r2: Register) Instruction {
         return rType(0b0111011, 0b000, rd, r1, r2);
     }
@@ -220,13 +222,63 @@ pub const Instruction = union(enum) {
     }
 
     // Arithmetic/Logical, Register-Immediate
+
     pub fn addi(rd: Register, r1: Register, imm: i12) Instruction {
         return iType(0b0010011, 0b000, rd, r1, imm);
     }
 
+    pub fn andi(rd: Register, r1: Register, imm: i12) Instruction {
+        return iType(0b0010011, 0b111, rd, r1, imm);
+    }
+
+    pub fn ori(rd: Register, r1: Register, imm: i12) Instruction {
+        return iType(0b0010011, 0b110, rd, r1, imm);
+    }
+
+    pub fn xori(rd: Register, r1: Register, imm: i12) Instruction {
+        return iType(0b0010011, 0b100, rd, r1, imm);
+    }
+
+    pub fn slli(rd: Register, r1: Register, shamt: u6) Instruction {
+        return iType(0b0010011, 0b001, rd, r1, shamt);
+    }
+
+    pub fn srli(rd: Register, r1: Register, shamt: u6) Instruction {
+        return iType(0b0010011, 0b101, rd, r1, shamt);
+    }
+
+    pub fn srai(rd: Register, r1: Register, shamt: u6) Instruction {
+        return iType(0b0010011, 0b101, rd, r1, (1 << 10) + shamt);
+    }
+
+    pub fn slti(rd: Register, r1: Register, imm: i12) Instruction {
+        return iType(0b0010011, 0b010, rd, r1, imm);
+    }
+
+    pub fn sltiu(rd: Register, r1: Register, imm: u12) Instruction {
+        return iType(0b0010011, 0b011, rd, r1, @bitCast(i12, imm));
+    }
+
     // Arithmetic/Logical, Register-Immediate (32-bit)
 
+    pub fn addiw(rd: Register, r1: Register, imm: i12) Instruction {
+        return iType(0b0011011, 0b000, rd, r1, imm);
+    }
+
+    pub fn slliw(rd: Register, r1: Register, shamt: u5) Instruction {
+        return iType(0b0011011, 0b001, rd, r1, shamt);
+    }
+
+    pub fn srliw(rd: Register, r1: Register, shamt: u5) Instruction {
+        return iType(0b0011011, 0b101, rd, r1, shamt);
+    }
+
+    pub fn sraiw(rd: Register, r1: Register, shamt: u5) Instruction {
+        return iType(0b0011011, 0b101, rd, r1, (1 << 10) + shamt);
+    }
+
     // Upper Immediate
+
     pub fn lui(rd: Register, imm: i20) Instruction {
         return uType(0b0110111, rd, imm);
     }
@@ -236,17 +288,35 @@ pub const Instruction = union(enum) {
     }
 
     // Load
+
     pub fn ld(rd: Register, offset: i12, base: Register) Instruction {
         return iType(0b0000011, 0b011, rd, base, offset);
     }
 
     // Store
 
+    pub fn sd(rs, offset, base) Instruction {
+        return sType(0b0100011, 0b011, base, rs, offset);
+    }
+
+    pub fn sw(rs, offset, base) Instruction {
+        return sType(0b0100011, 0b010, base, rs, offset);
+    }
+
+    pub fn sh(rs, offset, base) Instruction {
+        return sType(0b0100011, 0b001, base, rs, offset);
+    }
+
+    pub fn sb(rs, offset, base) Instruction {
+        return sType(0b0100011, 0b000, base, rs, offset);
+    }
+
     // Fence
 
     // Branch
 
     // Jump
+
     pub fn jal(link: Register, offset: i21) Instruction {
         return jType(0b1101111, link, offset);
     }
@@ -256,25 +326,9 @@ pub const Instruction = union(enum) {
     }
 
     // System
-    pub const ecall = Instruction{
-        .I = .{
-            .opcode = 0b1110011,
-            .funct3 = 0b000,
-            .rd = 0,
-            .rs1 = 0,
-            .imm0_11 = 0,
-        },
-    };
 
-    pub const ebreak = Instruction{
-        .I = .{
-            .opcode = 0b1110011,
-            .funct3 = 0b000,
-            .rd = 0,
-            .rs1 = 0,
-            .imm0_11 = 1,
-        },
-    };
+    pub const ecall = iType(0b1110011, 0b000, .zero, .zero, 0x000);
+    pub const ebreak = iType(0b1110011, 0b000, .zero, .zero, 0x001);
 };
 
 // zig fmt: off
