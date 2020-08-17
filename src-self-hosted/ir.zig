@@ -243,16 +243,10 @@ pub const Inst = struct {
             return 2;
         }
         pub fn getOperand(self: *const BinOp, index: usize) ?*Inst {
-            var i = index;
-
-            if (i < 1)
+            if (index == 0)
                 return self.lhs;
-            i -= 1;
-
-            if (i < 1)
+            if (index == 1)
                 return self.rhs;
-            i -= 1;
-
             return null;
         }
     };
@@ -350,16 +344,10 @@ pub const Inst = struct {
             return self.args.len + 1;
         }
         pub fn getOperand(self: *const Call, index: usize) ?*Inst {
-            var i = index;
-
-            if (i < 1)
+            if (index == 0)
                 return self.func;
-            i -= 1;
-
-            if (i < self.args.len)
-                return self.args[i];
-            i -= self.args.len;
-
+            if (index - 1 < self.args.len)
+                return self.args[index - 1];
             return null;
         }
     };
@@ -382,12 +370,8 @@ pub const Inst = struct {
             return 1;
         }
         pub fn getOperand(self: *const CondBr, index: usize) ?*Inst {
-            var i = index;
-
-            if (i < 1)
+            if (index == 0)
                 return self.condition;
-            i -= 1;
-
             return null;
         }
         pub fn thenDeaths(self: *const CondBr) []*Inst {
