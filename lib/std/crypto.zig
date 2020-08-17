@@ -35,11 +35,16 @@ pub const chaCha20With64BitNonce = chacha20.chaCha20With64BitNonce;
 pub const xChaCha20IETF = chacha20.xChaCha20IETF;
 
 pub const Poly1305 = @import("crypto/poly1305.zig").Poly1305;
-pub const X25519 = @import("crypto/x25519.zig").X25519;
 
 const import_aes = @import("crypto/aes.zig");
 pub const AES128 = import_aes.AES128;
 pub const AES256 = import_aes.AES256;
+
+pub const Curve25519 = @import("crypto/25519/curve25519.zig").Curve25519;
+pub const Ed25519 = @import("crypto/25519/ed25519.zig").Ed25519;
+pub const Edwards25519 = @import("crypto/25519/edwards25519.zig").Edwards25519;
+pub const X25519 = @import("crypto/25519/x25519.zig").X25519;
+pub const Ristretto255 = @import("crypto/25519/ristretto255.zig").Ristretto255;
 
 pub const aead = struct {
     pub const Gimli = gimli.Aead;
@@ -62,7 +67,13 @@ test "crypto" {
     _ = @import("crypto/sha1.zig");
     _ = @import("crypto/sha2.zig");
     _ = @import("crypto/sha3.zig");
-    _ = @import("crypto/x25519.zig");
+    _ = @import("crypto/25519/curve25519.zig");
+    _ = @import("crypto/25519/ed25519.zig");
+    _ = @import("crypto/25519/edwards25519.zig");
+    _ = @import("crypto/25519/field.zig");
+    _ = @import("crypto/25519/scalar.zig");
+    _ = @import("crypto/25519/x25519.zig");
+    _ = @import("crypto/25519/ristretto255.zig");
 }
 
 test "issue #4532: no index out of bounds" {

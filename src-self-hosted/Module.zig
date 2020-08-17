@@ -1580,6 +1580,8 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
                     }
                 }
             }
+        } else {
+            std.debug.panic("TODO: analyzeRootSrcFile {}", .{src_decl.tag});
         }
         // TODO also look for global variable declarations
         // TODO also look for comptime blocks and exported globals
