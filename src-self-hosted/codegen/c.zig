@@ -11,8 +11,8 @@ const C = link.File.C;
 const Decl = Module.Decl;
 const mem = std.mem;
 
-/// Maps a name from Zig source to C. This will always give the same output for
-/// any given input.
+/// Maps a name from Zig source to C. Currently, this will always give the same
+/// output for any given input, sometimes resulting in broken identifiers.
 fn map(allocator: *std.mem.Allocator, name: []const u8) ![]const u8 {
     return allocator.dupe(u8, name);
 }
