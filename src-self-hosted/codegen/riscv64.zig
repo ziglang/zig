@@ -336,8 +336,33 @@ pub const Instruction = union(enum) {
     }
 
     // Fence
+    // TODO: implement fence
 
     // Branch
+
+    pub fn beq(r1: Register, r2: Register, offset: u13) Instruction {
+        return bType(0b1100011, 0b000, r1, r2, offset);
+    }
+
+    pub fn bne(r1: Register, r2: Register, offset: u13) Instruction {
+        return bType(0b1100011, 0b001, r1, r2, offset);
+    }
+
+    pub fn blt(r1: Register, r2: Register, offset: u13) Instruction {
+        return bType(0b1100011, 0b100, r1, r2, offset);
+    }
+
+    pub fn bge(r1: Register, r2: Register, offset: u13) Instruction {
+        return bType(0b1100011, 0b101, r1, r2, offset);
+    }
+
+    pub fn bltu(r1: Register, r2: Register, offset: u13) Instruction {
+        return bType(0b1100011, 0b110, r1, r2, offset);
+    }
+
+    pub fn bgeu(r1: Register, r2: Register, offset: u13) Instruction {
+        return bType(0b1100011, 0b111, r1, r2, offset);
+    }
 
     // Jump
 
