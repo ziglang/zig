@@ -13,14 +13,6 @@ const linux_riscv64 = std.zig.CrossTarget{
 };
 
 pub fn addCases(ctx: *TestContext) !void {
-    if (std.Target.current.os.tag != .linux or
-        std.Target.current.cpu.arch != .x86_64)
-    {
-        // TODO implement self-hosted PE (.exe file) linking
-        // TODO implement more ZIR so we don't depend on x86_64-linux
-        return;
-    }
-
     {
         var case = ctx.exe("hello world with updates", linux_x64);
 
