@@ -151,5 +151,5 @@ fn analyzeInst(
         @panic("Handle liveness analysis for instructions with many parameters");
     }
 
-    std.log.debug(.liveness, "analyze {}: 0b{b}\n", .{ base.tag, base.deaths });
+    std.log.scoped(.liveness).debug("analyze {}: 0b{b}\n", .{ base.tag, base.deaths });
 }

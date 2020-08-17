@@ -325,7 +325,7 @@ pub fn main() !void {
         represents writing data to a file. When the disk is full, a write to the file will fail.
         However, we typically do not expect writing text to the standard output to fail. To avoid having
         to handle the failure case of printing to standard output, you can use alternate functions: the
-        <code>std.log</code> function for proper logging or the <code>std.debug.print</code> function.
+        functions in <code>std.log</code> for proper logging or the <code>std.debug.print</code> function.
         This documentation will use the latter option to print to standard error (stderr) and silently return
         on failure. The next code sample, <code>hello_again.zig</code> demonstrates the use of
         <code>std.debug.print</code>.

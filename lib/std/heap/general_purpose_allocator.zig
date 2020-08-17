@@ -93,6 +93,7 @@
 //! in a `std.HashMap` using the backing allocator.
 
 const std = @import("std");
+const log = std.log.scoped(.std);
 const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
@@ -288,7 +289,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                         if (is_used) {
                             const slot_index = @intCast(SlotIndex, used_bits_byte * 8 + bit_index);
                             const stack_trace = bucketStackTrace(bucket, size_class, slot_index, .alloc);
-                            std.log.err(.std, "Memory leak detected: {}", .{stack_trace});
+                            log.err("Memory leak detected: {}", .{stack_trace});
                             leaks = true;
                         }
                         if (bit_index == math.maxInt(u3))
@@ -315,7 +316,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 }
             }
             for (self.large_allocations.items()) |*large_alloc| {
-                std.log.err(.std, "Memory leak detected: {}", .{large_alloc.value.getStackTrace()});
+                log.err("Memory leak detected: {}", .{large_alloc.value.getStackTrace()});
                 leaks = true;
             }
             return leaks;
@@ -450,7 +451,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     .index = 0,
                 };
                 std.debug.captureStackTrace(ret_addr, &free_stack_trace);
-                std.log.err(.std, "Allocation size {} bytes does not match free size {}. Allocation: {} Free: {}", .{
+                log.err("Allocation size {} bytes does not match free size {}. Allocation: {} Free: {}", .{
                     entry.value.bytes.len,
                     old_mem.len,
                     entry.value.getStackTrace(),
@@ -533,7 +534,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                         .index = 0,
                     };
                     std.debug.captureStackTrace(ret_addr, &second_free_stack_trace);
-                    std.log.err(.std, "Double free detected. Allocation: {} First free: {} Second free: {}", .{
+                    log.err("Double free detected. Allocation: {} First free: {} Second free: {}", .{
                         alloc_stack_trace,
                         free_stack_trace,
                         second_free_stack_trace,
