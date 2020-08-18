@@ -23,7 +23,7 @@ pub fn main() anyerror!void {
 
     var leaks: usize = 0;
     for (test_fn_list) |test_fn, i| {
-        std.testing.allocator_instance = std.heap.GeneralPurposeAllocator(.{}){};
+        std.testing.allocator_instance = .{};
         defer {
             if (std.testing.allocator_instance.deinit()) {
                 leaks += 1;
