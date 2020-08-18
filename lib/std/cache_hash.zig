@@ -188,11 +188,13 @@ pub const CacheHash = struct {
             };
 
             var iter = mem.tokenize(line, " ");
+            const size = iter.next() orelse return error.InvalidFormat;
             const inode = iter.next() orelse return error.InvalidFormat;
             const mtime_nsec_str = iter.next() orelse return error.InvalidFormat;
             const digest_str = iter.next() orelse return error.InvalidFormat;
             const file_path = iter.rest();
 
+            cache_hash_file.stat.size = fmt.parseInt(u64, size, 10) catch return error.InvalidFormat;
             cache_hash_file.stat.inode = fmt.parseInt(fs.File.INode, inode, 10) catch return error.InvalidFormat;
             cache_hash_file.stat.mtime = fmt.parseInt(i64, mtime_nsec_str, 10) catch return error.InvalidFormat;
             base64_decoder.decode(&cache_hash_file.bin_digest, digest_str) catch return error.InvalidFormat;
@@ -216,10 +218,11 @@ pub const CacheHash = struct {
             defer this_file.close();
 
             const actual_stat = try this_file.stat();
+            const size_match = actual_stat.size == cache_hash_file.stat.size;
             const mtime_match = actual_stat.mtime == cache_hash_file.stat.mtime;
             const inode_match = actual_stat.inode == cache_hash_file.stat.inode;
 
-            if (!mtime_match or !inode_match) {
+            if (!size_match or !mtime_match or !inode_match) {
                 self.manifest_dirty = true;
 
                 cache_hash_file.stat = actual_stat;
@@ -392,7 +395,7 @@ pub const CacheHash = struct {
 
         for (self.files.items) |file| {
             base64_encoder.encode(encoded_digest[0..], &file.bin_digest);
-            try outStream.print("{} {} {} {}\n", .{ file.stat.inode, file.stat.mtime, encoded_digest[0..], file.path });
+            try outStream.print("{} {} {} {} {}\n", .{ file.stat.size, file.stat.inode, file.stat.mtime, encoded_digest[0..], file.path });
         }
 
         try self.manifest_file.?.pwriteAll(contents.items, 0);
@@ -451,16 +454,9 @@ fn isProblematicTimestamp(fs_clock: i128) bool {
     // to detect precision of seconds, because looking at the zero bits in base
     // 2 would not detect precision of the seconds value.
     const fs_sec = @intCast(i64, @divFloor(fs_clock, std.time.ns_per_s));
-    var fs_nsec = @intCast(i64, @mod(fs_clock, std.time.ns_per_s));
+    const fs_nsec = @intCast(i64, @mod(fs_clock, std.time.ns_per_s));
     var wall_sec = @intCast(i64, @divFloor(wall_clock, std.time.ns_per_s));
     var wall_nsec = @intCast(i64, @mod(wall_clock, std.time.ns_per_s));
-
-    if (std.Target.current.os.tag == .linux) {
-        // TODO As a temporary measure while we figure out how to solve
-        // https://github.com/ziglang/zig/issues/6082, we cut the granularity of nanoseconds
-        // by a large amount.
-        fs_nsec &= @as(i64, -1) << 23;
-    }
 
     // First make all the least significant zero bits in the fs_clock, also zero bits in the wall clock.
     if (fs_nsec == 0) {
