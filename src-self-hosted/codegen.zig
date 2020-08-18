@@ -1113,11 +1113,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     try self.code.append(0xcc); // int3
                 },
                 .riscv64 => {
-                    const full = @bitCast(u32, instructions.CallBreak{
-                        .mode = @enumToInt(instructions.CallBreak.Mode.ebreak),
-                    });
-
-                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), full);
+                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ebreak.toU32());
                 },
                 else => return self.fail(src, "TODO implement @breakpoint() for {}", .{self.target.cpu.arch}),
             }
@@ -1193,12 +1189,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             const got_addr = @intCast(u32, got.p_vaddr + func.owner_decl.link.elf.offset_table_index * ptr_bytes);
 
                             try self.genSetReg(inst.base.src, .ra, .{ .memory = got_addr });
-                            const jalr = instructions.Jalr{
-                                .rd = Register.ra.id(),
-                                .rs1 = Register.ra.id(),
-                                .offset = 0,
-                            };
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), @bitCast(u32, jalr));
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.jalr(.ra, 0, .ra).toU32());
                         } else {
                             return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
                         }
@@ -1255,12 +1246,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     try self.exitlude_jump_relocs.append(self.gpa, self.code.items.len - 4);
                 },
                 .riscv64 => {
-                    const jalr = instructions.Jalr{
-                        .rd = Register.zero.id(),
-                        .rs1 = Register.ra.id(),
-                        .offset = 0,
-                    };
-                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), @bitCast(u32, jalr));
+                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.jalr(.zero, 0, .ra).toU32());
                 },
                 else => return self.fail(src, "TODO implement return for {}", .{self.target.cpu.arch}),
             }
@@ -1512,11 +1498,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     }
 
                     if (mem.eql(u8, inst.asm_source, "ecall")) {
-                        const full = @bitCast(u32, instructions.CallBreak{
-                            .mode = @enumToInt(instructions.CallBreak.Mode.ecall),
-                        });
-
-                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), full);
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ecall.toU32());
                     } else {
                         return self.fail(inst.base.src, "TODO implement support for more riscv64 assembly instructions", .{});
                     }
@@ -1723,36 +1705,17 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .immediate => |unsigned_x| {
                         const x = @bitCast(i64, unsigned_x);
                         if (math.minInt(i12) <= x and x <= math.maxInt(i12)) {
-                            const instruction = @bitCast(u32, instructions.Addi{
-                                .mode = @enumToInt(instructions.Addi.Mode.addi),
-                                .imm = @truncate(i12, x),
-                                .rs1 = Register.zero.id(),
-                                .rd = reg.id(),
-                            });
-
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), instruction);
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.addi(reg, .zero, @truncate(i12, x)).toU32());
                             return;
                         }
                         if (math.minInt(i32) <= x and x <= math.maxInt(i32)) {
-                            const split = @bitCast(packed struct {
-                                low12: i12,
-                                up20: i20,
-                            }, @truncate(i32, x));
-                            if (split.low12 < 0) return self.fail(src, "TODO support riscv64 genSetReg i32 immediates with 12th bit set to 1", .{});
+                            const lo12 = @truncate(i12, x);
+                            const carry: i32 = if (lo12 < 0) 1 else 0;
+                            const hi20 = @truncate(i20, (x >> 12) +% carry);
 
-                            const lui = @bitCast(u32, instructions.Lui{
-                                .imm = split.up20,
-                                .rd = reg.id(),
-                            });
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), lui);
-
-                            const addi = @bitCast(u32, instructions.Addi{
-                                .mode = @enumToInt(instructions.Addi.Mode.addi),
-                                .imm = @truncate(i12, split.low12),
-                                .rs1 = reg.id(),
-                                .rd = reg.id(),
-                            });
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), addi);
+                            // TODO: add test case for 32-bit immediate
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.lui(reg, hi20).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.addi(reg, reg, lo12).toU32());
                             return;
                         }
                         // li rd, immediate
@@ -1764,14 +1727,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // If the type is a pointer, it means the pointer address is at this memory location.
                         try self.genSetReg(src, reg, .{ .immediate = addr });
 
-                        const ld = @bitCast(u32, instructions.Load{
-                            .mode = @enumToInt(instructions.Load.Mode.ld),
-                            .rs1 = reg.id(),
-                            .rd = reg.id(),
-                            .offset = 0,
-                        });
-
-                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), ld);
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ld(reg, 0, reg).toU32());
                         // LOAD imm=[i12 offset = 0], rs1 =
 
                         // return self.fail("TODO implement genSetReg memory for riscv64");
