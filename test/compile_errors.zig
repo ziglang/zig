@@ -6665,12 +6665,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:9:13: error: type '*MyType' does not support field access",
     });
 
-    cases.add("carriage return special case", "fn test() bool {\r\n" ++
-        "   true\r\n" ++
-        "}\r\n", &[_][]const u8{
-        "tmp.zig:1:17: error: invalid carriage return, only '\\n' line endings are supported",
-    });
-
     cases.add("invalid legacy unicode escape",
         \\export fn entry() void {
         \\    const a = '\U1234';
