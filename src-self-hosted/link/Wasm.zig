@@ -36,6 +36,9 @@ pub const FnData = struct {
     functype: std.ArrayListUnmanaged(u8) = .{},
     /// Generated code for the body of the function
     code: std.ArrayListUnmanaged(u8) = .{},
+    /// Locations in the generated code where function indexes must be filled in.
+    /// This must be kept ordered by offset.
+    idx_refs: std.ArrayListUnmanaged(struct { offset: u32, decl: *Module.Decl }) = .{},
 };
 
 base: link.File,
@@ -74,6 +77,7 @@ pub fn deinit(self: *Wasm) void {
     for (self.funcs.items) |decl| {
         decl.fn_link.wasm.?.functype.deinit(self.base.allocator);
         decl.fn_link.wasm.?.code.deinit(self.base.allocator);
+        decl.fn_link.wasm.?.idx_refs.deinit(self.base.allocator);
     }
     self.funcs.deinit(self.base.allocator);
 }
@@ -87,6 +91,7 @@ pub fn updateDecl(self: *Wasm, module: *Module, decl: *Module.Decl) !void {
     if (decl.fn_link.wasm) |*fn_data| {
         fn_data.functype.items.len = 0;
         fn_data.code.items.len = 0;
+        fn_data.idx_refs.items.len = 0;
     } else {
         decl.fn_link.wasm = .{};
         try self.funcs.append(self.base.allocator, decl);
@@ -114,6 +119,7 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     _ = self.funcs.swapRemove(self.getFuncidx(decl).?);
     decl.fn_link.wasm.?.functype.deinit(self.base.allocator);
     decl.fn_link.wasm.?.code.deinit(self.base.allocator);
+    decl.fn_link.wasm.?.idx_refs.deinit(self.base.allocator);
     decl.fn_link.wasm = null;
 }
 
@@ -190,7 +196,25 @@ pub fn flush(self: *Wasm, module: *Module) !void {
     // Code section
     {
         const header_offset = try reserveVecSectionHeader(file);
-        for (self.funcs.items) |decl| try file.writeAll(decl.fn_link.wasm.?.code.items);
+        const writer = file.writer();
+        for (self.funcs.items) |decl| {
+            const fn_data = &decl.fn_link.wasm.?;
+
+            // Write the already generated code to the file, inserting
+            // function indexes where required.
+            var current: u32 = 0;
+            for (fn_data.idx_refs.items) |idx_ref| {
+                try writer.writeAll(fn_data.code.items[current..idx_ref.offset]);
+                current = idx_ref.offset;
+                // Use a fixed width here to make calculating the code size
+                // in codegen.wasm.genCode() simpler.
+                var buf: [5]u8 = undefined;
+                leb.writeUnsignedFixed(5, &buf, self.getFuncidx(idx_ref.decl).?);
+                try writer.writeAll(&buf);
+            }
+
+            try writer.writeAll(fn_data.code.items[current..]);
+        }
         try writeVecSectionHeader(
             file,
             header_offset,

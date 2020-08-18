@@ -546,28 +546,53 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.exe("wasm returns", wasi);
+        var case = ctx.exe("wasm function calls", wasi);
 
         case.addCompareOutput(
             \\export fn _start() u32 {
+            \\    foo();
+            \\    bar();
             \\    return 42;
             \\}
+            \\fn foo() void {
+            \\    bar();
+            \\    bar();
+            \\}
+            \\fn bar() void {}
         ,
             "42\n",
         );
 
         case.addCompareOutput(
             \\export fn _start() i64 {
+            \\    bar();
+            \\    foo();
+            \\    foo();
+            \\    bar();
+            \\    foo();
+            \\    bar();
             \\    return 42;
             \\}
+            \\fn foo() void {
+            \\    bar();
+            \\}
+            \\fn bar() void {}
         ,
             "42\n",
         );
 
         case.addCompareOutput(
             \\export fn _start() f32 {
+            \\    bar();
+            \\    foo();
             \\    return 42.0;
             \\}
+            \\fn foo() void {
+            \\    bar();
+            \\    bar();
+            \\    bar();
+            \\}
+            \\fn bar() void {}
         ,
             // This is what you get when you take the bits of the IEE-754
             // representation of 42.0 and reinterpret them as an unsigned
