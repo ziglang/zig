@@ -394,19 +394,19 @@ fn detectNativeCpuWithLLVM(
     return result;
 }
 
-export fn stage2_info(argc: c_int, argv: [*]const [*:0]const u8) c_int {
+export fn stage2_env(argc: c_int, argv: [*]const [*:0]const u8) c_int {
     const allocator = std.heap.c_allocator;
 
     var args_list = argvToArrayList(allocator, argc, argv) catch |err| {
-        std.debug.warn("unable to parse arguments: {}\n", .{@errorName(err)});
+        std.debug.print("unable to parse arguments: {}\n", .{@errorName(err)});
         return -1;
     };
     defer args_list.deinit();
 
     const args = args_list.span()[2..];
 
-    @import("print_info.zig").cmdInfo(allocator, args, .Stage1, std.io.getStdOut().outStream()) catch |err| {
-        std.debug.warn("unable to print info: {}\n", .{@errorName(err)});
+    @import("print_env.zig").cmdEnv(allocator, args, std.io.getStdOut().outStream()) catch |err| {
+        std.debug.print("unable to print info: {}\n", .{@errorName(err)});
         return -1;
     };
 

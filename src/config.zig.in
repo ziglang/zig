@@ -1,0 +1,3 @@
+pub const version: []const u8 = "@ZIG_VERSION@";
+pub const log_scopes: []const []const u8 = &[_][]const u8{};
+pub const enable_tracy = false;
