@@ -142,6 +142,11 @@ pub const Config = struct {
 
     /// Whether the allocator may be used simultaneously from multiple threads.
     thread_safe: bool = !std.builtin.single_threaded,
+
+    /// This is a temporary debugging trick you can use to turn segfaults into more helpful
+    /// logged error messages with stack trace details. The downside is that every allocation
+    /// will be leaked!
+    never_unmap: bool = false,
 };
 
 pub fn GeneralPurposeAllocator(comptime config: Config) type {
@@ -416,7 +421,9 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     bucket.prev.next = bucket.next;
                     self.buckets[bucket_index] = bucket.prev;
                 }
-                self.backing_allocator.free(bucket.page[0..page_size]);
+                if (!config.never_unmap) {
+                    self.backing_allocator.free(bucket.page[0..page_size]);
+                }
                 const bucket_size = bucketSize(size_class);
                 const bucket_slice = @ptrCast([*]align(@alignOf(BucketHeader)) u8, bucket)[0..bucket_size];
                 self.backing_allocator.free(bucket_slice);
