@@ -1924,6 +1924,10 @@ const EmitZIR = struct {
                 return self.emitUnnamedDecl(&str_inst.base);
             },
             .Void => return self.emitPrimitive(src, .void_value),
+            .Bool => if (typed_value.val.toBool())
+                return self.emitPrimitive(src, .@"true")
+            else
+                return self.emitPrimitive(src, .@"false"),
             else => |t| std.debug.panic("TODO implement emitTypedValue for {}", .{@tagName(t)}),
         }
     }

@@ -100,6 +100,9 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .ArrayCat => return simpleBinOp(mod, scope, rl, node.castTag(.ArrayCat).?, .array_cat),
         .ArrayMult => return simpleBinOp(mod, scope, rl, node.castTag(.ArrayMult).?, .array_mul),
 
+        .BoolAnd => return boolBinOp(mod, scope, rl, node.castTag(.BoolAnd).?),
+        .BoolOr => return boolBinOp(mod, scope, rl, node.castTag(.BoolOr).?),
+
         .Identifier => return try identifier(mod, scope, rl, node.castTag(.Identifier).?),
         .Asm => return rlWrap(mod, scope, rl, try assembly(mod, scope, node.castTag(.Asm).?)),
         .StringLiteral => return rlWrap(mod, scope, rl, try stringLiteral(mod, scope, node.castTag(.StringLiteral).?)),
@@ -124,11 +127,10 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .LabeledBlock => return labeledBlockExpr(mod, scope, rl, node.castTag(.LabeledBlock).?),
         .Break => return rlWrap(mod, scope, rl, try breakExpr(mod, scope, node.castTag(.Break).?)),
         .PtrType => return rlWrap(mod, scope, rl, try ptrType(mod, scope, node.castTag(.PtrType).?)),
+        .GroupedExpression => return expr(mod, scope, rl, node.castTag(.GroupedExpression).?.expr),
 
         .Defer => return mod.failNode(scope, node, "TODO implement astgen.expr for .Defer", .{}),
         .Catch => return mod.failNode(scope, node, "TODO implement astgen.expr for .Catch", .{}),
-        .BoolAnd => return mod.failNode(scope, node, "TODO implement astgen.expr for .BoolAnd", .{}),
-        .BoolOr => return mod.failNode(scope, node, "TODO implement astgen.expr for .BoolOr", .{}),
         .ErrorUnion => return mod.failNode(scope, node, "TODO implement astgen.expr for .ErrorUnion", .{}),
         .MergeErrorSets => return mod.failNode(scope, node, "TODO implement astgen.expr for .MergeErrorSets", .{}),
         .Range => return mod.failNode(scope, node, "TODO implement astgen.expr for .Range", .{}),
@@ -159,7 +161,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .EnumLiteral => return mod.failNode(scope, node, "TODO implement astgen.expr for .EnumLiteral", .{}),
         .MultilineStringLiteral => return mod.failNode(scope, node, "TODO implement astgen.expr for .MultilineStringLiteral", .{}),
         .CharLiteral => return mod.failNode(scope, node, "TODO implement astgen.expr for .CharLiteral", .{}),
-        .GroupedExpression => return mod.failNode(scope, node, "TODO implement astgen.expr for .GroupedExpression", .{}),
         .ErrorSetDecl => return mod.failNode(scope, node, "TODO implement astgen.expr for .ErrorSetDecl", .{}),
         .ContainerDecl => return mod.failNode(scope, node, "TODO implement astgen.expr for .ContainerDecl", .{}),
         .Comptime => return mod.failNode(scope, node, "TODO implement astgen.expr for .Comptime", .{}),
@@ -566,6 +567,88 @@ fn simpleBinOp(
 
     const result = try addZIRBinOp(mod, scope, src, op_inst_tag, lhs, rhs);
     return rlWrap(mod, scope, rl, result);
+}
+
+fn boolBinOp(
+    mod: *Module,
+    scope: *Scope,
+    rl: ResultLoc,
+    infix_node: *ast.Node.SimpleInfixOp,
+) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[infix_node.op_token].start;
+    const bool_type = try addZIRInstConst(mod, scope, src, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.bool_type),
+    });
+
+    var block_scope: Scope.GenZIR = .{
+        .parent = scope,
+        .decl = scope.decl().?,
+        .arena = scope.arena(),
+        .instructions = .{},
+    };
+    defer block_scope.instructions.deinit(mod.gpa);
+
+    const lhs = try expr(mod, scope, .{ .ty = bool_type }, infix_node.lhs);
+    const condbr = try addZIRInstSpecial(mod, &block_scope.base, src, zir.Inst.CondBr, .{
+        .condition = lhs,
+        .then_body = undefined, // populated below
+        .else_body = undefined, // populated below
+    }, .{});
+
+    const block = try addZIRInstBlock(mod, scope, src, .{
+        .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
+    });
+
+    var rhs_scope: Scope.GenZIR = .{
+        .parent = scope,
+        .decl = block_scope.decl,
+        .arena = block_scope.arena,
+        .instructions = .{},
+    };
+    defer rhs_scope.instructions.deinit(mod.gpa);
+
+    const rhs = try expr(mod, &rhs_scope.base, .{ .ty = bool_type }, infix_node.rhs);
+    _ = try addZIRInst(mod, &rhs_scope.base, src, zir.Inst.Break, .{
+        .block = block,
+        .operand = rhs,
+    }, .{});
+
+    var const_scope: Scope.GenZIR = .{
+        .parent = scope,
+        .decl = block_scope.decl,
+        .arena = block_scope.arena,
+        .instructions = .{},
+    };
+    defer const_scope.instructions.deinit(mod.gpa);
+
+    const is_bool_and = infix_node.base.tag == .BoolAnd;
+    _ = try addZIRInst(mod, &const_scope.base, src, zir.Inst.Break, .{
+        .block = block,
+        .operand = try addZIRInstConst(mod, &const_scope.base, src, .{
+            .ty = Type.initTag(.bool),
+            .val = if (is_bool_and) Value.initTag(.bool_false) else Value.initTag(.bool_true),
+        }),
+    }, .{});
+
+    if (is_bool_and) {
+        // if lhs // AND
+        //     break rhs
+        // else
+        //     break false
+        condbr.positionals.then_body = .{ .instructions = try rhs_scope.arena.dupe(*zir.Inst, rhs_scope.instructions.items) };
+        condbr.positionals.else_body = .{ .instructions = try const_scope.arena.dupe(*zir.Inst, const_scope.instructions.items) };
+    } else {
+        // if lhs // OR
+        //     break true
+        // else
+        //     break rhs
+        condbr.positionals.then_body = .{ .instructions = try const_scope.arena.dupe(*zir.Inst, const_scope.instructions.items) };
+        condbr.positionals.else_body = .{ .instructions = try rhs_scope.arena.dupe(*zir.Inst, rhs_scope.instructions.items) };
+    }
+
+    return rlWrap(mod, scope, rl, &block.base);
 }
 
 const CondKind = union(enum) {
