@@ -600,7 +600,11 @@ const CondKind = union(enum) {
     fn thenSubScope(self: CondKind, mod: *Module, then_scope: *Scope.GenZIR, src: usize, payload_node: ?*ast.Node) !*Scope {
         if (self == .bool) return &then_scope.base;
 
-        const payload = payload_node.?.castTag(.PointerPayload).?;
+        const payload = payload_node.?.castTag(.PointerPayload) orelse {
+            // condition is error union and payload is not explicitly ignored
+            _ = try addZIRUnOp(mod, &then_scope.base, src, .ensure_err_payload_void, self.err_union.?);
+            return &then_scope.base;
+        };
         const is_ptr = payload.ptr_token != null;
         const ident_node = payload.value_symbol.castTag(.Identifier).?;
 

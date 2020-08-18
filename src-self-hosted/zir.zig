@@ -225,6 +225,8 @@ pub const Inst = struct {
         unwrap_err_safe,
         /// Same as previous, but without safety checks. Used for orelse, if and while
         unwrap_err_unsafe,
+        /// Takes a *E!T and raises a compiler error if T != void
+        ensure_err_payload_void,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
@@ -259,6 +261,7 @@ pub const Inst = struct {
                 .unwrap_optional_unsafe,
                 .unwrap_err_safe,
                 .unwrap_err_unsafe,
+                .ensure_err_payload_void,
                 => UnOp,
 
                 .add,
@@ -398,6 +401,7 @@ pub const Inst = struct {
                 .unwrap_err_safe,
                 .unwrap_err_unsafe,
                 .ptr_type,
+                .ensure_err_payload_void,
                 => false,
 
                 .@"break",
