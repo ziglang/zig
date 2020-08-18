@@ -690,3 +690,26 @@ test "method call on an empty union" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "switching on non exhaustive union" {
+    const S = struct {
+        const E = enum(u8) {
+            a,
+            b,
+            _,
+        };
+        const U = union(E) {
+            a: i32,
+            b: u32,
+        };
+        fn doTheTest() void {
+            var a = U{ .a = 2 };
+            switch (a) {
+                .a => |val| expect(val == 2),
+                .b => unreachable,
+            }
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

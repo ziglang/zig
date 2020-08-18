@@ -326,9 +326,14 @@ set(LIBUNWIND_FILES_DEST "${ZIG_LIB_DIR}/libunwind")
 set(LIBCXX_FILES_DEST "${ZIG_LIB_DIR}/libcxx")
 set(ZIG_STD_DEST "${ZIG_LIB_DIR}/std")
 set(ZIG_CONFIG_H_OUT "${CMAKE_BINARY_DIR}/config.h")
+set(ZIG_CONFIG_ZIG_OUT "${CMAKE_BINARY_DIR}/config.zig")
 configure_file (
     "${CMAKE_SOURCE_DIR}/src/config.h.in"
     "${ZIG_CONFIG_H_OUT}"
+)
+configure_file (
+    "${CMAKE_SOURCE_DIR}/src/config.zig.in"
+    "${ZIG_CONFIG_ZIG_OUT}"
 )
 
 include_directories(
@@ -472,6 +477,8 @@ set(BUILD_LIBSTAGE2_ARGS "build-lib"
     --bundle-compiler-rt
     -fPIC
     -lc
+    --pkg-begin build_options "${ZIG_CONFIG_ZIG_OUT}"
+    --pkg-end
 )
 
 if("${ZIG_TARGET_TRIPLE}" STREQUAL "native")

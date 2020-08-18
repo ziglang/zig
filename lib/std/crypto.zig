@@ -29,16 +29,28 @@ pub const HmacSha1 = hmac.HmacSha1;
 pub const HmacSha256 = hmac.HmacSha256;
 pub const HmacBlake2s256 = hmac.HmacBlake2s256;
 
-const import_chaCha20 = @import("crypto/chacha20.zig");
-pub const chaCha20IETF = import_chaCha20.chaCha20IETF;
-pub const chaCha20With64BitNonce = import_chaCha20.chaCha20With64BitNonce;
+pub const chacha20 = @import("crypto/chacha20.zig");
+pub const chaCha20IETF = chacha20.chaCha20IETF;
+pub const chaCha20With64BitNonce = chacha20.chaCha20With64BitNonce;
+pub const xChaCha20IETF = chacha20.xChaCha20IETF;
 
 pub const Poly1305 = @import("crypto/poly1305.zig").Poly1305;
-pub const X25519 = @import("crypto/x25519.zig").X25519;
 
 const import_aes = @import("crypto/aes.zig");
 pub const AES128 = import_aes.AES128;
 pub const AES256 = import_aes.AES256;
+
+pub const Curve25519 = @import("crypto/25519/curve25519.zig").Curve25519;
+pub const Ed25519 = @import("crypto/25519/ed25519.zig").Ed25519;
+pub const Edwards25519 = @import("crypto/25519/edwards25519.zig").Edwards25519;
+pub const X25519 = @import("crypto/25519/x25519.zig").X25519;
+pub const Ristretto255 = @import("crypto/25519/ristretto255.zig").Ristretto255;
+
+pub const aead = struct {
+    pub const Gimli = gimli.Aead;
+    pub const ChaCha20Poly1305 = chacha20.Chacha20Poly1305;
+    pub const XChaCha20Poly1305 = chacha20.XChacha20Poly1305;
+};
 
 const std = @import("std.zig");
 pub const randomBytes = std.os.getrandom;
@@ -55,7 +67,13 @@ test "crypto" {
     _ = @import("crypto/sha1.zig");
     _ = @import("crypto/sha2.zig");
     _ = @import("crypto/sha3.zig");
-    _ = @import("crypto/x25519.zig");
+    _ = @import("crypto/25519/curve25519.zig");
+    _ = @import("crypto/25519/ed25519.zig");
+    _ = @import("crypto/25519/edwards25519.zig");
+    _ = @import("crypto/25519/field.zig");
+    _ = @import("crypto/25519/scalar.zig");
+    _ = @import("crypto/25519/x25519.zig");
+    _ = @import("crypto/25519/ristretto255.zig");
 }
 
 test "issue #4532: no index out of bounds" {

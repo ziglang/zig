@@ -22,7 +22,7 @@ pub fn Queue(comptime T: type) type {
             return Self{
                 .head = null,
                 .tail = null,
-                .mutex = std.Mutex.init(),
+                .mutex = std.Mutex{},
             };
         }
 

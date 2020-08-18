@@ -6,7 +6,7 @@ const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
 const assert = std.debug.assert;
-const log = std.log;
+const log = std.log.scoped(.module);
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
@@ -177,14 +177,14 @@ pub const Decl = struct {
 
     /// Represents the position of the code in the output file.
     /// This is populated regardless of semantic analysis and code generation.
-    link: link.File.Elf.TextBlock = link.File.Elf.TextBlock.empty,
+    link: link.File.LinkBlock,
 
     /// Represents the function in the linked output file, if the `Decl` is a function.
     /// This is stored here and not in `Fn` because `Decl` survives across updates but
     /// `Fn` does not.
     /// TODO Look into making `Fn` a longer lived structure and moving this field there
     /// to save on memory usage.
-    fn_link: link.File.Elf.SrcFn = link.File.Elf.SrcFn.empty,
+    fn_link: link.File.LinkFn,
 
     contents_hash: std.zig.SrcHash,
 
@@ -301,6 +301,23 @@ pub const Fn = struct {
         body: zir.Module.Body,
         arena: std.heap.ArenaAllocator.State,
     };
+
+    /// For debugging purposes.
+    pub fn dump(self: *Fn, mod: Module) void {
+        std.debug.print("Module.Function(name={}) ", .{self.owner_decl.name});
+        switch (self.analysis) {
+            .queued => {
+                std.debug.print("queued\n", .{});
+            },
+            .in_progress => {
+                std.debug.print("in_progress\n", .{});
+            },
+            else => {
+                std.debug.print("\n", .{});
+                zir.dumpFn(mod, self);
+            },
+        }
+    }
 };
 
 pub const Scope = struct {
@@ -720,6 +737,13 @@ pub const Scope = struct {
         arena: *Allocator,
         /// The first N instructions in a function body ZIR are arg instructions.
         instructions: std.ArrayListUnmanaged(*zir.Inst) = .{},
+        label: ?Label = null,
+
+        pub const Label = struct {
+            token: ast.TokenIndex,
+            block_inst: *zir.Inst.Block,
+            result_loc: astgen.ResultLoc,
+        };
     };
 
     /// This is always a `const` local and importantly the `inst` is a value type, not a pointer.
@@ -949,10 +973,8 @@ pub fn update(self: *Module) !void {
         try self.deleteDecl(decl);
     }
 
-    if (self.totalErrorCount() == 0) {
-        // This is needed before reading the error flags.
-        try self.bin_file.flush();
-    }
+    // This is needed before reading the error flags.
+    try self.bin_file.flush(self);
 
     self.link_error_flags = self.bin_file.errorFlags();
 
@@ -1057,7 +1079,7 @@ pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
                     // lifetime annotations in the ZIR.
                     var decl_arena = decl.typed_value.most_recent.arena.?.promote(self.gpa);
                     defer decl.typed_value.most_recent.arena.?.* = decl_arena.state;
-                    std.log.debug(.module, "analyze liveness of {}\n", .{decl.name});
+                    log.debug("analyze liveness of {}\n", .{decl.name});
                     try liveness.analyze(self.gpa, &decl_arena.allocator, payload.func.analysis.success);
                 }
 
@@ -1119,7 +1141,7 @@ pub fn ensureDeclAnalyzed(self: *Module, decl: *Decl) InnerError!void {
         .complete => return,
 
         .outdated => blk: {
-            log.debug(.module, "re-analyzing {}\n", .{decl.name});
+            log.debug("re-analyzing {}\n", .{decl.name});
 
             // The exports this Decl performs will be re-discovered, so we remove them here
             // prior to re-analysis.
@@ -1303,14 +1325,16 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 for (fn_proto.params()) |param, i| {
                     const name_token = param.name_token.?;
                     const src = tree.token_locs[name_token].start;
-                    const param_name = tree.tokenSlice(name_token);
-                    const arg = try gen_scope_arena.allocator.create(zir.Inst.NoOp);
+                    const param_name = tree.tokenSlice(name_token); // TODO: call identifierTokenString
+                    const arg = try gen_scope_arena.allocator.create(zir.Inst.Arg);
                     arg.* = .{
                         .base = .{
                             .tag = .arg,
                             .src = src,
                         },
-                        .positionals = .{},
+                        .positionals = .{
+                            .name = param_name,
+                        },
                         .kw_args = .{},
                     };
                     gen_scope.instructions.items[i] = &arg.base;
@@ -1328,8 +1352,8 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
 
                 try astgen.blockExpr(self, params_scope, body_block);
 
-                if (!fn_type.fnReturnType().isNoReturn() and (gen_scope.instructions.items.len == 0 or
-                    !gen_scope.instructions.items[gen_scope.instructions.items.len - 1].tag.isNoReturn()))
+                if (gen_scope.instructions.items.len == 0 or
+                    !gen_scope.instructions.items[gen_scope.instructions.items.len - 1].tag.isNoReturn())
                 {
                     const src = tree.token_locs[body_block.rbrace].start;
                     _ = try astgen.addZIRNoOp(self, &gen_scope.base, src, .returnvoid);
@@ -1538,10 +1562,16 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
                     if (!srcHashEql(decl.contents_hash, contents_hash)) {
                         try self.markOutdatedDecl(decl);
                         decl.contents_hash = contents_hash;
-                    } else if (decl.fn_link.len != 0) {
-                        // TODO Look into detecting when this would be unnecessary by storing enough state
-                        // in `Decl` to notice that the line number did not change.
-                        self.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
+                    } else switch (self.bin_file.tag) {
+                        .elf => if (decl.fn_link.elf.len != 0) {
+                            // TODO Look into detecting when this would be unnecessary by storing enough state
+                            // in `Decl` to notice that the line number did not change.
+                            self.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl });
+                        },
+                        .macho => {
+                            // TODO Implement for MachO
+                        },
+                        .c, .wasm => {},
                     }
                 }
             } else {
@@ -1553,6 +1583,8 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
                     }
                 }
             }
+        } else {
+            std.debug.panic("TODO: analyzeRootSrcFile {}", .{src_decl.tag});
         }
         // TODO also look for global variable declarations
         // TODO also look for comptime blocks and exported globals
@@ -1560,7 +1592,7 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
     // Handle explicitly deleted decls from the source code. Not to be confused
     // with when we delete decls because they are no longer referenced.
     for (deleted_decls.items()) |entry| {
-        log.debug(.module, "noticed '{}' deleted from source\n", .{entry.key.name});
+        log.debug("noticed '{}' deleted from source\n", .{entry.key.name});
         try self.deleteDecl(entry.key);
     }
 }
@@ -1613,7 +1645,7 @@ fn analyzeRootZIRModule(self: *Module, root_scope: *Scope.ZIRModule) !void {
     // Handle explicitly deleted decls from the source code. Not to be confused
     // with when we delete decls because they are no longer referenced.
     for (deleted_decls.items()) |entry| {
-        log.debug(.module, "noticed '{}' deleted from source\n", .{entry.key.name});
+        log.debug("noticed '{}' deleted from source\n", .{entry.key.name});
         try self.deleteDecl(entry.key);
     }
 }
@@ -1625,7 +1657,7 @@ fn deleteDecl(self: *Module, decl: *Decl) !void {
     // not be present in the set, and this does nothing.
     decl.scope.removeDecl(decl);
 
-    log.debug(.module, "deleting decl '{}'\n", .{decl.name});
+    log.debug("deleting decl '{}'\n", .{decl.name});
     const name_hash = decl.fullyQualifiedNameHash();
     self.decl_table.removeAssertDiscard(name_hash);
     // Remove itself from its dependencies, because we are about to destroy the decl pointer.
@@ -1712,17 +1744,17 @@ fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
     const fn_zir = func.analysis.queued;
     defer fn_zir.arena.promote(self.gpa).deinit();
     func.analysis = .{ .in_progress = {} };
-    log.debug(.module, "set {} to in_progress\n", .{decl.name});
+    log.debug("set {} to in_progress\n", .{decl.name});
 
     try zir_sema.analyzeBody(self, &inner_block.base, fn_zir.body);
 
     const instructions = try arena.allocator.dupe(*Inst, inner_block.instructions.items);
     func.analysis = .{ .success = .{ .instructions = instructions } };
-    log.debug(.module, "set {} to success\n", .{decl.name});
+    log.debug("set {} to success\n", .{decl.name});
 }
 
 fn markOutdatedDecl(self: *Module, decl: *Decl) !void {
-    log.debug(.module, "mark {} outdated\n", .{decl.name});
+    log.debug("mark {} outdated\n", .{decl.name});
     try self.work_queue.writeItem(.{ .analyze_decl = decl });
     if (self.failed_decls.remove(decl)) |entry| {
         entry.value.destroy(self.gpa);
@@ -1745,7 +1777,18 @@ fn allocateNewDecl(
         .analysis = .unreferenced,
         .deletion_flag = false,
         .contents_hash = contents_hash,
-        .link = link.File.Elf.TextBlock.empty,
+        .link = switch (self.bin_file.tag) {
+            .elf => .{ .elf = link.File.Elf.TextBlock.empty },
+            .macho => .{ .macho = link.File.MachO.TextBlock.empty },
+            .c => .{ .c = {} },
+            .wasm => .{ .wasm = {} },
+        },
+        .fn_link = switch (self.bin_file.tag) {
+            .elf => .{ .elf = link.File.Elf.SrcFn.empty },
+            .macho => .{ .macho = link.File.MachO.SrcFn.empty },
+            .c => .{ .c = {} },
+            .wasm => .{ .wasm = null },
+        },
         .generation = 0,
     };
     return new_decl;
@@ -1921,6 +1964,20 @@ pub fn addBinOp(
         },
         .lhs = lhs,
         .rhs = rhs,
+    };
+    try block.instructions.append(self.gpa, &inst.base);
+    return &inst.base;
+}
+
+pub fn addArg(self: *Module, block: *Scope.Block, src: usize, ty: Type, name: [*:0]const u8) !*Inst {
+    const inst = try block.arena.create(Inst.Arg);
+    inst.* = .{
+        .base = .{
+            .tag = .arg,
+            .ty = ty,
+            .src = src,
+        },
+        .name = name,
     };
     try block.instructions.append(self.gpa, &inst.base);
     return &inst.base;
@@ -2152,8 +2209,11 @@ pub fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) Inn
     };
 
     const decl_tv = try decl.typedValue();
-    const ty_payload = try scope.arena().create(Type.Payload.SingleConstPointer);
-    ty_payload.* = .{ .pointee_type = decl_tv.ty };
+    const ty_payload = try scope.arena().create(Type.Payload.Pointer);
+    ty_payload.* = .{
+        .base = .{ .tag = .single_const_pointer },
+        .pointee_type = decl_tv.ty,
+    };
     const val_payload = try scope.arena().create(Value.Payload.DeclRef);
     val_payload.* = .{ .decl = decl };
 
@@ -2193,11 +2253,6 @@ pub fn wantSafety(self: *Module, scope: *Scope) bool {
         .ReleaseFast => false,
         .ReleaseSmall => false,
     };
-}
-
-pub fn analyzeUnreach(self: *Module, scope: *Scope, src: usize) InnerError!*Inst {
-    const b = try self.requireRuntimeBlock(scope, src);
-    return self.addNoOp(b, src, Type.initTag(.noreturn), .unreach);
 }
 
 pub fn analyzeIsNull(
@@ -2382,6 +2437,15 @@ pub fn cmpNumeric(
     return self.addBinOp(b, src, Type.initTag(.bool), Inst.Tag.fromCmpOp(op), casted_lhs, casted_rhs);
 }
 
+fn wrapOptional(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
+    if (inst.value()) |val| {
+        return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
+    }
+
+    const b = try self.requireRuntimeBlock(scope, inst.src);
+    return self.addUnOp(b, inst.src, dest_type, .wrap_optional, inst);
+}
+
 fn makeIntType(self: *Module, scope: *Scope, signed: bool, bits: u16) !Type {
     if (signed) {
         const int_payload = try scope.arena().create(Type.Payload.IntSigned);
@@ -2452,6 +2516,22 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
     }
     assert(inst.ty.zigTypeTag() != .Undefined);
 
+    // null to ?T
+    if (dest_type.zigTypeTag() == .Optional and inst.ty.zigTypeTag() == .Null) {
+        return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = Value.initTag(.null_value) });
+    }
+
+    // T to ?T
+    if (dest_type.zigTypeTag() == .Optional) {
+        var buf: Type.Payload.Pointer = undefined;
+        const child_type = dest_type.optionalChild(&buf);
+        if (child_type.eql(inst.ty)) {
+            return self.wrapOptional(scope, dest_type, inst);
+        } else if (try self.coerceNum(scope, child_type, inst)) |some| {
+            return self.wrapOptional(scope, dest_type, some);
+        }
+    }
+
     // *[N]T to []T
     if (inst.ty.isSinglePointer() and dest_type.isSlice() and
         (!inst.ty.isConstPtr() or dest_type.isConstPtr()))
@@ -2466,39 +2546,8 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
     }
 
     // comptime known number to other number
-    if (inst.value()) |val| {
-        const src_zig_tag = inst.ty.zigTypeTag();
-        const dst_zig_tag = dest_type.zigTypeTag();
-
-        if (dst_zig_tag == .ComptimeInt or dst_zig_tag == .Int) {
-            if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
-                if (val.floatHasFraction()) {
-                    return self.fail(scope, inst.src, "fractional component prevents float value {} from being casted to type '{}'", .{ val, inst.ty });
-                }
-                return self.fail(scope, inst.src, "TODO float to int", .{});
-            } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
-                if (!val.intFitsInType(dest_type, self.target())) {
-                    return self.fail(scope, inst.src, "type {} cannot represent integer value {}", .{ inst.ty, val });
-                }
-                return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
-            }
-        } else if (dst_zig_tag == .ComptimeFloat or dst_zig_tag == .Float) {
-            if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
-                const res = val.floatCast(scope.arena(), dest_type, self.target()) catch |err| switch (err) {
-                    error.Overflow => return self.fail(
-                        scope,
-                        inst.src,
-                        "cast of value {} to type '{}' loses information",
-                        .{ val, dest_type },
-                    ),
-                    error.OutOfMemory => return error.OutOfMemory,
-                };
-                return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = res });
-            } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
-                return self.fail(scope, inst.src, "TODO int to float", .{});
-            }
-        }
-    }
+    if (try self.coerceNum(scope, dest_type, inst)) |some|
+        return some;
 
     // integer widening
     if (inst.ty.zigTypeTag() == .Int and dest_type.zigTypeTag() == .Int) {
@@ -2527,7 +2576,43 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
         }
     }
 
-    return self.fail(scope, inst.src, "TODO implement type coercion from {} to {}", .{ inst.ty, dest_type });
+    return self.fail(scope, inst.src, "expected {}, found {}", .{ dest_type, inst.ty });
+}
+
+pub fn coerceNum(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !?*Inst {
+    const val = inst.value() orelse return null;
+    const src_zig_tag = inst.ty.zigTypeTag();
+    const dst_zig_tag = dest_type.zigTypeTag();
+
+    if (dst_zig_tag == .ComptimeInt or dst_zig_tag == .Int) {
+        if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
+            if (val.floatHasFraction()) {
+                return self.fail(scope, inst.src, "fractional component prevents float value {} from being casted to type '{}'", .{ val, inst.ty });
+            }
+            return self.fail(scope, inst.src, "TODO float to int", .{});
+        } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
+            if (!val.intFitsInType(dest_type, self.target())) {
+                return self.fail(scope, inst.src, "type {} cannot represent integer value {}", .{ inst.ty, val });
+            }
+            return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = val });
+        }
+    } else if (dst_zig_tag == .ComptimeFloat or dst_zig_tag == .Float) {
+        if (src_zig_tag == .Float or src_zig_tag == .ComptimeFloat) {
+            const res = val.floatCast(scope.arena(), dest_type, self.target()) catch |err| switch (err) {
+                error.Overflow => return self.fail(
+                    scope,
+                    inst.src,
+                    "cast of value {} to type '{}' loses information",
+                    .{ val, dest_type },
+                ),
+                error.OutOfMemory => return error.OutOfMemory,
+            };
+            return self.constInst(scope, inst.src, .{ .ty = dest_type, .val = res });
+        } else if (src_zig_tag == .Int or src_zig_tag == .ComptimeInt) {
+            return self.fail(scope, inst.src, "TODO int to float", .{});
+        }
+    }
+    return null;
 }
 
 pub fn storePtr(self: *Module, scope: *Scope, src: usize, ptr: *Inst, uncasted_value: *Inst) !*Inst {
@@ -2774,7 +2859,7 @@ pub fn floatAdd(self: *Module, scope: *Scope, float_type: Type, src: usize, lhs:
             val_payload.* = .{ .val = lhs_val + rhs_val };
             break :blk &val_payload.base;
         },
-        128 => blk: {
+        128 => {
             return self.fail(scope, src, "TODO Implement addition for big floats", .{});
         },
         else => unreachable,
@@ -2808,7 +2893,7 @@ pub fn floatSub(self: *Module, scope: *Scope, float_type: Type, src: usize, lhs:
             val_payload.* = .{ .val = lhs_val - rhs_val };
             break :blk &val_payload.base;
         },
-        128 => blk: {
+        128 => {
             return self.fail(scope, src, "TODO Implement substraction for big floats", .{});
         },
         else => unreachable,
@@ -2817,15 +2902,12 @@ pub fn floatSub(self: *Module, scope: *Scope, float_type: Type, src: usize, lhs:
     return Value.initPayload(val_payload);
 }
 
-pub fn singleMutPtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type) error{OutOfMemory}!Type {
-    const type_payload = try scope.arena().create(Type.Payload.SingleMutPointer);
-    type_payload.* = .{ .pointee_type = elem_ty };
-    return Type.initPayload(&type_payload.base);
-}
-
-pub fn singleConstPtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type) error{OutOfMemory}!Type {
-    const type_payload = try scope.arena().create(Type.Payload.SingleConstPointer);
-    type_payload.* = .{ .pointee_type = elem_ty };
+pub fn singlePtrType(self: *Module, scope: *Scope, src: usize, mutable: bool, elem_ty: Type) error{OutOfMemory}!Type {
+    const type_payload = try scope.arena().create(Type.Payload.Pointer);
+    type_payload.* = .{
+        .base = .{ .tag = if (mutable) .single_mut_pointer else .single_const_pointer },
+        .pointee_type = elem_ty,
+    };
     return Type.initPayload(&type_payload.base);
 }
 
@@ -2859,4 +2941,71 @@ pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
             loc.column + 1,
         });
     }
+}
+
+pub const PanicId = enum {
+    unreach,
+    unwrap_null,
+};
+
+pub fn addSafetyCheck(mod: *Module, parent_block: *Scope.Block, ok: *Inst, panic_id: PanicId) !void {
+    const block_inst = try parent_block.arena.create(Inst.Block);
+    block_inst.* = .{
+        .base = .{
+            .tag = Inst.Block.base_tag,
+            .ty = Type.initTag(.void),
+            .src = ok.src,
+        },
+        .body = .{
+            .instructions = try parent_block.arena.alloc(*Inst, 1), // Only need space for the condbr.
+        },
+    };
+
+    const ok_body: ir.Body = .{
+        .instructions = try parent_block.arena.alloc(*Inst, 1), // Only need space for the brvoid.
+    };
+    const brvoid = try parent_block.arena.create(Inst.BrVoid);
+    brvoid.* = .{
+        .base = .{
+            .tag = .brvoid,
+            .ty = Type.initTag(.noreturn),
+            .src = ok.src,
+        },
+        .block = block_inst,
+    };
+    ok_body.instructions[0] = &brvoid.base;
+
+    var fail_block: Scope.Block = .{
+        .parent = parent_block,
+        .func = parent_block.func,
+        .decl = parent_block.decl,
+        .instructions = .{},
+        .arena = parent_block.arena,
+    };
+    defer fail_block.instructions.deinit(mod.gpa);
+
+    _ = try mod.safetyPanic(&fail_block, ok.src, panic_id);
+
+    const fail_body: ir.Body = .{ .instructions = try parent_block.arena.dupe(*Inst, fail_block.instructions.items) };
+
+    const condbr = try parent_block.arena.create(Inst.CondBr);
+    condbr.* = .{
+        .base = .{
+            .tag = .condbr,
+            .ty = Type.initTag(.noreturn),
+            .src = ok.src,
+        },
+        .condition = ok,
+        .then_body = ok_body,
+        .else_body = fail_body,
+    };
+    block_inst.body.instructions[0] = &condbr.base;
+
+    try parent_block.instructions.append(mod.gpa, &block_inst.base);
+}
+
+pub fn safetyPanic(mod: *Module, block: *Scope.Block, src: usize, panic_id: PanicId) !*Inst {
+    // TODO Once we have a panic function to call, call it here instead of breakpoint.
+    _ = try mod.addNoOp(block, src, Type.initTag(.void), .breakpoint);
+    return mod.addNoOp(block, src, Type.initTag(.noreturn), .unreach);
 }

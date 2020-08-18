@@ -3481,8 +3481,9 @@ static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutableGen *exec
 static LLVMValueRef ir_render_int_to_ptr(CodeGen *g, IrExecutableGen *executable, IrInstGenIntToPtr *instruction) {
     ZigType *wanted_type = instruction->base.value->type;
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
+    const uint32_t align_bytes = get_ptr_align(g, wanted_type);
 
-    if (ir_want_runtime_safety(g, &instruction->base)) {
+    if (ir_want_runtime_safety(g, &instruction->base) && align_bytes > 1) {
         ZigType *usize = g->builtin_types.entry_usize;
         LLVMValueRef zero = LLVMConstNull(usize->llvm_type);
 
@@ -3499,7 +3500,6 @@ static LLVMValueRef ir_render_int_to_ptr(CodeGen *g, IrExecutableGen *executable
         }
 
         {
-            const uint32_t align_bytes = get_ptr_align(g, wanted_type);
             LLVMValueRef alignment_minus_1 = LLVMConstInt(usize->llvm_type, align_bytes - 1, false);
             LLVMValueRef anded_val = LLVMBuildAnd(g->builder, target_val, alignment_minus_1, "");
             LLVMValueRef is_ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, anded_val, zero, "");
@@ -5887,6 +5887,12 @@ static LLVMValueRef ir_render_breakpoint(CodeGen *g, IrExecutableGen *executable
 static LLVMValueRef ir_render_return_address(CodeGen *g, IrExecutableGen *executable,
         IrInstGenReturnAddress *instruction)
 {
+    if (target_is_wasm(g->zig_target) && g->zig_target->os != OsEmscripten) {
+        // I got this error from LLVM 10:
+        // "Non-Emscripten WebAssembly hasn't implemented __builtin_return_address"
+        return LLVMConstNull(get_llvm_type(g, instruction->base.value->type));
+    }
+
     LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_i32->llvm_type);
     LLVMValueRef ptr_val = LLVMBuildCall(g->builder, get_return_address_fn_val(g), &zero, 1, "");
     return LLVMBuildPtrToInt(g->builder, ptr_val, g->builtin_types.entry_usize->llvm_type, "");
@@ -7866,17 +7872,6 @@ static void gen_global_var(CodeGen *g, ZigVar *var, LLVMValueRef init_val,
     // TODO ^^ make an actual global variable
 }
 
-static void validate_inline_fns(CodeGen *g) {
-    for (size_t i = 0; i < g->inline_fns.length; i += 1) {
-        ZigFn *fn_entry = g->inline_fns.at(i);
-        LLVMValueRef fn_val = LLVMGetNamedFunction(g->module, fn_entry->llvm_name);
-        if (fn_val != nullptr) {
-            add_node_error(g, fn_entry->proto_node, buf_sprintf("unable to inline function"));
-        }
-    }
-    report_errors_and_maybe_exit(g);
-}
-
 static void set_global_tls(CodeGen *g, ZigVar *var, LLVMValueRef global_value) {
     bool is_extern = var->decl_node->data.variable_declaration.is_extern;
     bool is_export = var->decl_node->data.variable_declaration.is_export;
@@ -8353,8 +8348,6 @@ static void zig_llvm_emit_output(CodeGen *g) {
         fprintf(stderr, "LLVM failed to emit file: %s\n", err_msg);
         exit(1);
     }
-
-    validate_inline_fns(g);
 
     if (g->emit_bin) {
         g->link_objects.append(&g->o_file_output_path);
@@ -10260,9 +10253,11 @@ static void prepend_c_type_to_decl_list(CodeGen *g, GenH *gen_h, ZigType *type_e
             gen_h->types_to_declare.append(type_entry);
             return;
         case ZigTypeIdStruct:
-            for (uint32_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
-                TypeStructField *field = type_entry->data.structure.fields[i];
-                prepend_c_type_to_decl_list(g, gen_h, field->type_entry);
+            if(type_entry->data.structure.layout == ContainerLayoutExtern) {
+                for (uint32_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
+                    TypeStructField *field = type_entry->data.structure.fields[i];
+                    prepend_c_type_to_decl_list(g, gen_h, field->type_entry);
+                }
             }
             gen_h->types_to_declare.append(type_entry);
             return;
@@ -10695,20 +10690,18 @@ static void gen_h_file(CodeGen *g) {
         fprintf(out_h, "\n");
     }
 
-    fprintf(out_h, "%s", buf_ptr(&types_buf));
-
     fprintf(out_h, "#ifdef __cplusplus\n");
     fprintf(out_h, "extern \"C\" {\n");
     fprintf(out_h, "#endif\n");
     fprintf(out_h, "\n");
 
+    fprintf(out_h, "%s", buf_ptr(&types_buf));
     fprintf(out_h, "%s\n", buf_ptr(&fns_buf));
+    fprintf(out_h, "%s\n", buf_ptr(&vars_buf));
 
     fprintf(out_h, "#ifdef __cplusplus\n");
     fprintf(out_h, "} // extern \"C\"\n");
     fprintf(out_h, "#endif\n\n");
-
-    fprintf(out_h, "%s\n", buf_ptr(&vars_buf));
 
     fprintf(out_h, "#endif // %s\n", buf_ptr(ifdef_dance_name));
 

@@ -109,15 +109,55 @@ test "Dir.Iterator" {
     testing.expect(contains(&entries, Dir.Entry{ .name = "some_dir", .kind = Dir.Entry.Kind.Directory }));
 }
 
-fn entry_eql(lhs: Dir.Entry, rhs: Dir.Entry) bool {
+fn entryEql(lhs: Dir.Entry, rhs: Dir.Entry) bool {
     return mem.eql(u8, lhs.name, rhs.name) and lhs.kind == rhs.kind;
 }
 
 fn contains(entries: *const std.ArrayList(Dir.Entry), el: Dir.Entry) bool {
     for (entries.items) |entry| {
-        if (entry_eql(entry, el)) return true;
+        if (entryEql(entry, el)) return true;
     }
     return false;
+}
+
+test "Dir.realpath smoke test" {
+    switch (builtin.os.tag) {
+        .linux, .windows, .macosx, .ios, .watchos, .tvos => {},
+        else => return error.SkipZigTest,
+    }
+
+    var tmp_dir = tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    var file = try tmp_dir.dir.createFile("test_file", .{ .lock = File.Lock.Shared });
+    // We need to close the file immediately as otherwise on Windows we'll end up
+    // with a sharing violation.
+    file.close();
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const base_path = blk: {
+        const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp_dir.sub_path[0..] });
+        break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
+    };
+
+    // First, test non-alloc version
+    {
+        var buf1: [fs.MAX_PATH_BYTES]u8 = undefined;
+        const file_path = try tmp_dir.dir.realpath("test_file", buf1[0..]);
+        const expected_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "test_file" });
+
+        testing.expect(mem.eql(u8, file_path, expected_path));
+    }
+
+    // Next, test alloc version
+    {
+        const file_path = try tmp_dir.dir.realpathAlloc(&arena.allocator, "test_file");
+        const expected_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "test_file" });
+
+        testing.expect(mem.eql(u8, file_path, expected_path));
+    }
 }
 
 test "readAllAlloc" {
@@ -167,12 +207,7 @@ test "directory operations on files" {
     testing.expectError(error.NotDir, tmp_dir.dir.deleteDir(test_file_name));
 
     if (builtin.os.tag != .wasi) {
-        // TODO: use Dir's realpath function once that exists
-        const absolute_path = blk: {
-            const relative_path = try fs.path.join(testing.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp_dir.sub_path[0..], test_file_name });
-            defer testing.allocator.free(relative_path);
-            break :blk try fs.realpathAlloc(testing.allocator, relative_path);
-        };
+        const absolute_path = try tmp_dir.dir.realpathAlloc(testing.allocator, test_file_name);
         defer testing.allocator.free(absolute_path);
 
         testing.expectError(error.PathAlreadyExists, fs.makeDirAbsolute(absolute_path));
@@ -206,12 +241,7 @@ test "file operations on directories" {
     testing.expectError(error.IsDir, tmp_dir.dir.openFile(test_dir_name, .{ .write = true }));
 
     if (builtin.os.tag != .wasi) {
-        // TODO: use Dir's realpath function once that exists
-        const absolute_path = blk: {
-            const relative_path = try fs.path.join(testing.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp_dir.sub_path[0..], test_dir_name });
-            defer testing.allocator.free(relative_path);
-            break :blk try fs.realpathAlloc(testing.allocator, relative_path);
-        };
+        const absolute_path = try tmp_dir.dir.realpathAlloc(testing.allocator, test_dir_name);
         defer testing.allocator.free(absolute_path);
 
         testing.expectError(error.IsDir, fs.createFileAbsolute(absolute_path, .{}));
@@ -326,6 +356,32 @@ test "sendfile" {
     });
     const amt = try dest_file.preadAll(&written_buf, 0);
     testing.expect(mem.eql(u8, written_buf[0..amt], "header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n"));
+}
+
+test "copyRangeAll" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("os_test_tmp");
+    defer tmp.dir.deleteTree("os_test_tmp") catch {};
+
+    var dir = try tmp.dir.openDir("os_test_tmp", .{});
+    defer dir.close();
+
+    var src_file = try dir.createFile("file1.txt", .{ .read = true });
+    defer src_file.close();
+
+    const data = "u6wj+JmdF3qHsFPE BUlH2g4gJCmEz0PP";
+    try src_file.writeAll(data);
+
+    var dest_file = try dir.createFile("file2.txt", .{ .read = true });
+    defer dest_file.close();
+
+    var written_buf: [100]u8 = undefined;
+    _ = try src_file.copyRangeAll(0, dest_file, 0, data.len);
+
+    const amt = try dest_file.preadAll(&written_buf, 0);
+    testing.expect(mem.eql(u8, written_buf[0..amt], data));
 }
 
 test "fs.copyFile" {

@@ -23,10 +23,16 @@ pub fn LoggingAllocator(comptime OutStreamType: type) type {
             };
         }
 
-        fn alloc(allocator: *Allocator, len: usize, ptr_align: u29, len_align: u29) error{OutOfMemory}![]u8 {
+        fn alloc(
+            allocator: *Allocator,
+            len: usize,
+            ptr_align: u29,
+            len_align: u29,
+            ra: usize,
+        ) error{OutOfMemory}![]u8 {
             const self = @fieldParentPtr(Self, "allocator", allocator);
             self.out_stream.print("alloc : {}", .{len}) catch {};
-            const result = self.parent_allocator.callAllocFn(len, ptr_align, len_align);
+            const result = self.parent_allocator.allocFn(self.parent_allocator, len, ptr_align, len_align, ra);
             if (result) |buff| {
                 self.out_stream.print(" success!\n", .{}) catch {};
             } else |err| {
@@ -35,7 +41,14 @@ pub fn LoggingAllocator(comptime OutStreamType: type) type {
             return result;
         }
 
-        fn resize(allocator: *Allocator, buf: []u8, new_len: usize, len_align: u29) error{OutOfMemory}!usize {
+        fn resize(
+            allocator: *Allocator,
+            buf: []u8,
+            buf_align: u29,
+            new_len: usize,
+            len_align: u29,
+            ra: usize,
+        ) error{OutOfMemory}!usize {
             const self = @fieldParentPtr(Self, "allocator", allocator);
             if (new_len == 0) {
                 self.out_stream.print("free  : {}\n", .{buf.len}) catch {};
@@ -44,7 +57,7 @@ pub fn LoggingAllocator(comptime OutStreamType: type) type {
             } else {
                 self.out_stream.print("expand: {} to {}", .{ buf.len, new_len }) catch {};
             }
-            if (self.parent_allocator.callResizeFn(buf, new_len, len_align)) |resized_len| {
+            if (self.parent_allocator.resizeFn(self.parent_allocator, buf, buf_align, new_len, len_align, ra)) |resized_len| {
                 if (new_len > buf.len) {
                     self.out_stream.print(" success!\n", .{}) catch {};
                 }
@@ -74,9 +87,9 @@ test "LoggingAllocator" {
     const allocator = &loggingAllocator(&fixedBufferAllocator.allocator, fbs.outStream()).allocator;
 
     var a = try allocator.alloc(u8, 10);
-    a.len = allocator.shrinkBytes(a, 5, 0);
+    a = allocator.shrink(a, 5);
     std.debug.assert(a.len == 5);
-    std.testing.expectError(error.OutOfMemory, allocator.callResizeFn(a, 20, 0));
+    std.testing.expectError(error.OutOfMemory, allocator.resize(a, 20));
     allocator.free(a);
 
     std.testing.expectEqualSlices(u8,

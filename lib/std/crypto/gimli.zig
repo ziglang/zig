@@ -269,7 +269,7 @@ pub const Aead = struct {
     /// npub: public nonce
     /// k: private key
     /// NOTE: the check of the authentication tag is currently not done in constant time
-    pub fn decrypt(m: []u8, c: []const u8, at: [State.RATE]u8, ad: []u8, npub: [16]u8, k: [32]u8) !void {
+    pub fn decrypt(m: []u8, c: []const u8, at: [State.RATE]u8, ad: []const u8, npub: [16]u8, k: [32]u8) !void {
         assert(c.len == m.len);
 
         var state = Aead.init(ad, npub, k);

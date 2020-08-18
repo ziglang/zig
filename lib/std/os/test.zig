@@ -112,8 +112,11 @@ test "openat smoke test" {
 test "symlink with relative paths" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
+    const cwd = fs.cwd();
+    cwd.deleteFile("file.txt") catch {};
+    cwd.deleteFile("symlinked") catch {};
+
     // First, try relative paths in cwd
-    var cwd = fs.cwd();
     try cwd.writeFile("file.txt", "nonsense");
 
     if (builtin.os.tag == .windows) {
@@ -518,4 +521,10 @@ test "fcntl" {
         const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
         expect((flags & os.FD_CLOEXEC) != 0);
     }
+}
+
+test "signalfd" {
+    if (builtin.os.tag != .linux)
+        return error.SkipZigTest;
+    _ = std.os.signalfd;
 }

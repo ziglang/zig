@@ -67,7 +67,7 @@ pub fn cmdTargets(
 ) !void {
     const available_glibcs = blk: {
         const zig_lib_dir = introspect.resolveZigLibDir(allocator) catch |err| {
-            std.debug.warn("unable to find zig installation directory: {}\n", .{@errorName(err)});
+            std.debug.print("unable to find zig installation directory: {}\n", .{@errorName(err)});
             std.process.exit(1);
         };
         defer allocator.free(zig_lib_dir);

@@ -248,7 +248,7 @@ pub fn main() !void {
       </p>
       <p>
         Following the <code>hello.zig</code> Zig code sample, the {#link|Zig Build System#} is used
-        to build an executable program from the <code>hello.zig</code> source code. Then, the 
+        to build an executable program from the <code>hello.zig</code> source code. Then, the
         <code>hello</code> program is executed showing its output <code>Hello, world!</code>. The
         lines beginning with <code>$</code> represent command line prompts and a command.
         Everything else is program output.
@@ -293,7 +293,7 @@ pub fn main() !void {
       <p>
         In Zig, a function's block of statements and expressions are surrounded by <code>{</code> and
         <code>}</code> curly-braces. Inside of the <code>main</code> function are expressions that perform
-        the task of outputting <code>Hello, world!</code> to standard output. 
+        the task of outputting <code>Hello, world!</code> to standard output.
       </p>
       <p>
         First, a constant identifier, <code>stdout</code>, is initialized to represent standard output's
@@ -325,7 +325,7 @@ pub fn main() !void {
         represents writing data to a file. When the disk is full, a write to the file will fail.
         However, we typically do not expect writing text to the standard output to fail. To avoid having
         to handle the failure case of printing to standard output, you can use alternate functions: the
-        <code>std.log</code> function for proper logging or the <code>std.debug.print</code> function.
+        functions in <code>std.log</code> for proper logging or the <code>std.debug.print</code> function.
         This documentation will use the latter option to print to standard error (stderr) and silently return
         on failure. The next code sample, <code>hello_again.zig</code> demonstrates the use of
         <code>std.debug.print</code>.
@@ -5138,6 +5138,22 @@ test "float widening" {
 }
       {#code_end#}
       {#header_close#}
+      {#header_open|Type Coercion: Coercion Float to Int#}
+      <p>
+      A compiler error is appropriate because this ambiguous expression leaves the compiler
+      two choices about the coercion.
+      </p>
+      <ul>
+        <li> Cast {#syntax#}54.0{#endsyntax#} to {#syntax#}comptime_int{#endsyntax#} resulting in {#syntax#}@as(comptime_int, 10){#endsyntax#}, which is casted to {#syntax#}@as(f32, 10){#endsyntax#}</li>
+        <li> Cast {#syntax#}5{#endsyntax#} to {#syntax#}comptime_float{#endsyntax#} resulting in {#syntax#}@as(comptime_float, 10.8){#endsyntax#}, which is casted to {#syntax#}@as(f32, 10.8){#endsyntax#}</li>
+      </ul>
+      {#code_begin|test_err#}
+// Compile time coercion of float to int
+test "implicit cast to comptime_int" {
+    var f: f32 = 54.0 / 5;
+}
+      {#code_end#}
+      {#header_close#}
       {#header_open|Type Coercion: Arrays and Pointers#}
       {#code_begin|test|coerce_arrays_and_ptrs#}
 const std = @import("std");
@@ -8179,7 +8195,7 @@ const expect = std.testing.expect;
 test "@src" {
     doTheTest();
 }
-    
+
 fn doTheTest() void {
     const src = @src();
 
@@ -9299,10 +9315,8 @@ fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
       which will also do perform basic leak detection.
       </p>
       <p>
-      Currently Zig has no general purpose allocator, but there is
-      <a href="https://github.com/andrewrk/zig-general-purpose-allocator/">one under active development</a>.
-      Once it is merged into the Zig standard library it will become available to import
-      with {#syntax#}std.heap.default_allocator{#endsyntax#}. However, it will still be recommended to
+      Zig has a general purpose allocator available to be imported
+      with {#syntax#}std.heap.GeneralPurposeAllocator{#endsyntax#}. However, it is still recommended to
       follow the {#link|Choosing an Allocator#} guide.
       </p>
 
@@ -9357,9 +9371,17 @@ pub fn main() !void {
               is handled correctly? In this case, use {#syntax#}std.testing.FailingAllocator{#endsyntax#}.
           </li>
           <li>
-              Finally, if none of the above apply, you need a general purpose allocator. Zig does not
-              yet have a general purpose allocator in the standard library,
-              <a href="https://github.com/andrewrk/zig-general-purpose-allocator/">but one is being actively developed</a>.
+              Are you writing a test? In this case, use {#syntax#}std.testing.allocator{#endsyntax#}.
+          </li>
+          <li>
+              Finally, if none of the above apply, you need a general purpose allocator.
+              Zig's general purpose allocator is available as a function that takes a {#link|comptime#}
+              {#link|struct#} of configuration options and returns a type.
+              Generally, you will set up one {#syntax#}std.heap.GeneralPurposeAllocator{#endsyntax#} in
+              your main function, and then pass it or sub-allocators around to various parts of your
+              application.
+          </li>
+          <li>
               You can also consider {#link|Implementing an Allocator#}.
           </li>
       </ol>

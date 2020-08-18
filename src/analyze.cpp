@@ -7303,7 +7303,14 @@ void render_const_value(CodeGen *g, Buf *buf, ZigValue *const_val) {
         case ZigTypeIdEnum:
             {
                 TypeEnumField *field = find_enum_field_by_tag(type_entry, &const_val->data.x_enum_tag);
-                buf_appendf(buf, "%s.%s", buf_ptr(&type_entry->name), buf_ptr(field->name));
+                if(field != nullptr){
+                    buf_appendf(buf, "%s.%s", buf_ptr(&type_entry->name), buf_ptr(field->name));
+                } else {
+                    // untagged value in a non-exhaustive enum
+                    buf_appendf(buf, "%s.(", buf_ptr(&type_entry->name));
+                    bigint_append_buf(buf, &const_val->data.x_enum_tag, 10);
+                    buf_appendf(buf, ")");
+                }
                 return;
             }
         case ZigTypeIdErrorUnion:
@@ -8623,7 +8630,7 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatu
     enum_type->llvm_type = get_llvm_type(g, tag_int_type);
 
     // create debug type for tag
-    uint64_t tag_debug_size_in_bits = tag_int_type->size_in_bits;
+    uint64_t tag_debug_size_in_bits = 8*tag_int_type->abi_size;
     uint64_t tag_debug_align_in_bits = 8*tag_int_type->abi_align;
     ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
             ZigLLVMFileToScope(import->data.structure.root_struct->di_file), buf_ptr(&enum_type->name),

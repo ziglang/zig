@@ -49,7 +49,7 @@ pub const ArenaAllocator = struct {
         const actual_min_size = minimum_size + (@sizeOf(BufNode) + 16);
         const big_enough_len = prev_len + actual_min_size;
         const len = big_enough_len + big_enough_len / 2;
-        const buf = try self.child_allocator.callAllocFn(len, @alignOf(BufNode), 1);
+        const buf = try self.child_allocator.allocFn(self.child_allocator, len, @alignOf(BufNode), 1, @returnAddress());
         const buf_node = @ptrCast(*BufNode, @alignCast(@alignOf(BufNode), buf.ptr));
         buf_node.* = BufNode{
             .data = buf,
@@ -60,7 +60,7 @@ pub const ArenaAllocator = struct {
         return buf_node;
     }
 
-    fn alloc(allocator: *Allocator, n: usize, ptr_align: u29, len_align: u29) ![]u8 {
+    fn alloc(allocator: *Allocator, n: usize, ptr_align: u29, len_align: u29, ra: usize) ![]u8 {
         const self = @fieldParentPtr(ArenaAllocator, "allocator", allocator);
 
         var cur_node = if (self.state.buffer_list.first) |first_node| first_node else try self.createNode(0, n + ptr_align);

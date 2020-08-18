@@ -536,7 +536,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
     // normalize x and y
     if (ex == 0) {
         i = ux << exp_bits;
-        while (i >> bits_minus_1 == 0) : (b: {
+        while (i >> bits_minus_1 == 0) : ({
             ex -= 1;
             i <<= 1;
         }) {}
@@ -547,7 +547,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
     }
     if (ey == 0) {
         i = uy << exp_bits;
-        while (i >> bits_minus_1 == 0) : (b: {
+        while (i >> bits_minus_1 == 0) : ({
             ey -= 1;
             i <<= 1;
         }) {}
@@ -573,7 +573,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
             return 0 * x;
         ux = i;
     }
-    while (ux >> digits == 0) : (b: {
+    while (ux >> digits == 0) : ({
         ux <<= 1;
         ex -= 1;
     }) {}

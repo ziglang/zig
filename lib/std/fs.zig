@@ -926,6 +926,123 @@ pub const Dir = struct {
         return self.openDir(sub_path, open_dir_options);
     }
 
+    ///  This function returns the canonicalized absolute pathname of
+    /// `pathname` relative to this `Dir`. If `pathname` is absolute, ignores this
+    /// `Dir` handle and returns the canonicalized absolute pathname of `pathname`
+    /// argument.
+    /// This function is not universally supported by all platforms.
+    /// Currently supported hosts are: Linux, macOS, and Windows.
+    /// See also `Dir.realpathZ`, `Dir.realpathW`, and `Dir.realpathAlloc`.
+    pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) ![]u8 {
+        if (builtin.os.tag == .wasi) {
+            @compileError("realpath is unsupported in WASI");
+        }
+        if (builtin.os.tag == .windows) {
+            const pathname_w = try os.windows.sliceToPrefixedFileW(pathname);
+            return self.realpathW(pathname_w.span(), out_buffer);
+        }
+        const pathname_c = try os.toPosixPath(pathname);
+        return self.realpathZ(&pathname_c, out_buffer);
+    }
+
+    /// Same as `Dir.realpath` except `pathname` is null-terminated.
+    /// See also `Dir.realpath`, `realpathZ`.
+    pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) ![]u8 {
+        if (builtin.os.tag == .windows) {
+            const pathname_w = try os.windows.cStrToPrefixedFileW(pathname);
+            return self.realpathW(pathname_w.span(), out_buffer);
+        }
+
+        const flags = if (builtin.os.tag == .linux) os.O_PATH | os.O_NONBLOCK | os.O_CLOEXEC else os.O_NONBLOCK | os.O_CLOEXEC;
+        const fd = os.openatZ(self.fd, pathname, flags, 0) catch |err| switch (err) {
+            error.FileLocksNotSupported => unreachable,
+            else => |e| return e,
+        };
+        defer os.close(fd);
+
+        // Use of MAX_PATH_BYTES here is valid as the realpath function does not
+        // have a variant that takes an arbitrary-size buffer.
+        // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
+        // NULL out parameter (GNU's canonicalize_file_name) to handle overelong
+        // paths. musl supports passing NULL but restricts the output to PATH_MAX
+        // anyway.
+        var buffer: [MAX_PATH_BYTES]u8 = undefined;
+        const out_path = try os.getFdPath(fd, &buffer);
+
+        if (out_path.len > out_buffer.len) {
+            return error.NameTooLong;
+        }
+
+        mem.copy(u8, out_buffer, out_path);
+
+        return out_buffer[0..out_path.len];
+    }
+
+    /// Windows-only. Same as `Dir.realpath` except `pathname` is WTF16 encoded.
+    /// See also `Dir.realpath`, `realpathW`.
+    pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) ![]u8 {
+        const w = os.windows;
+
+        const access_mask = w.GENERIC_READ | w.SYNCHRONIZE;
+        const share_access = w.FILE_SHARE_READ;
+        const creation = w.FILE_OPEN;
+        const h_file = blk: {
+            const res = w.OpenFile(pathname, .{
+                .dir = self.fd,
+                .access_mask = access_mask,
+                .share_access = share_access,
+                .creation = creation,
+                .io_mode = .blocking,
+            }) catch |err| switch (err) {
+                error.IsDir => break :blk w.OpenFile(pathname, .{
+                    .dir = self.fd,
+                    .access_mask = access_mask,
+                    .share_access = share_access,
+                    .creation = creation,
+                    .io_mode = .blocking,
+                    .open_dir = true,
+                }) catch |er| switch (er) {
+                    error.WouldBlock => unreachable,
+                    else => |e2| return e2,
+                },
+                error.WouldBlock => unreachable,
+                else => |e| return e,
+            };
+            break :blk res;
+        };
+        defer w.CloseHandle(h_file);
+
+        // Use of MAX_PATH_BYTES here is valid as the realpath function does not
+        // have a variant that takes an arbitrary-size buffer.
+        // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
+        // NULL out parameter (GNU's canonicalize_file_name) to handle overelong
+        // paths. musl supports passing NULL but restricts the output to PATH_MAX
+        // anyway.
+        var buffer: [MAX_PATH_BYTES]u8 = undefined;
+        const out_path = try os.getFdPath(h_file, &buffer);
+
+        if (out_path.len > out_buffer.len) {
+            return error.NameTooLong;
+        }
+
+        mem.copy(u8, out_buffer, out_path);
+
+        return out_buffer[0..out_path.len];
+    }
+
+    /// Same as `Dir.realpath` except caller must free the returned memory.
+    /// See also `Dir.realpath`.
+    pub fn realpathAlloc(self: Dir, allocator: *Allocator, pathname: []const u8) ![]u8 {
+        // Use of MAX_PATH_BYTES here is valid as the realpath function does not
+        // have a variant that takes an arbitrary-size buffer.
+        // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
+        // NULL out parameter (GNU's canonicalize_file_name) to handle overelong
+        // paths. musl supports passing NULL but restricts the output to PATH_MAX
+        // anyway.
+        var buf: [MAX_PATH_BYTES]u8 = undefined;
+        return allocator.dupe(u8, try self.realpath(pathname, buf[0..]));
+    }
+
     /// Changes the current working directory to the open directory handle.
     /// This modifies global state and can have surprising effects in multi-
     /// threaded applications. Most applications and especially libraries should
@@ -2060,7 +2177,7 @@ pub fn selfExeDirPath(out_buffer: []u8) SelfExePathError![]const u8 {
 }
 
 /// `realpath`, except caller must free the returned memory.
-/// TODO integrate with `Dir`
+/// See also `Dir.realpath`.
 pub fn realpathAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
     // Use of MAX_PATH_BYTES here is valid as the realpath function does not
     // have a variant that takes an arbitrary-size buffer.

@@ -179,8 +179,7 @@ export fn stage2_fmt(argc: c_int, argv: [*]const [*:0]const u8) c_int {
     return 0;
 }
 
-fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
-    const allocator = std.heap.c_allocator;
+fn argvToArrayList(allocator: *Allocator, argc: c_int, argv: [*]const [*:0]const u8) !ArrayList([]const u8) {
     var args_list = std.ArrayList([]const u8).init(allocator);
     const argc_usize = @intCast(usize, argc);
     var arg_i: usize = 0;
@@ -188,8 +187,16 @@ fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
         try args_list.append(mem.spanZ(argv[arg_i]));
     }
 
-    const args = args_list.span()[2..];
+    return args_list;
+}
 
+fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
+    const allocator = std.heap.c_allocator;
+
+    var args_list = try argvToArrayList(allocator, argc, argv);
+    defer args_list.deinit();
+
+    const args = args_list.span()[2..];
     return self_hosted_main.cmdFmt(allocator, args);
 }
 
@@ -385,6 +392,25 @@ fn detectNativeCpuWithLLVM(
 
     result.features.populateDependencies(all_features);
     return result;
+}
+
+export fn stage2_env(argc: c_int, argv: [*]const [*:0]const u8) c_int {
+    const allocator = std.heap.c_allocator;
+
+    var args_list = argvToArrayList(allocator, argc, argv) catch |err| {
+        std.debug.print("unable to parse arguments: {}\n", .{@errorName(err)});
+        return -1;
+    };
+    defer args_list.deinit();
+
+    const args = args_list.span()[2..];
+
+    @import("print_env.zig").cmdEnv(allocator, args, std.io.getStdOut().outStream()) catch |err| {
+        std.debug.print("unable to print info: {}\n", .{@errorName(err)});
+        return -1;
+    };
+
+    return 0;
 }
 
 // ABI warning

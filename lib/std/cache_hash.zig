@@ -188,12 +188,14 @@ pub const CacheHash = struct {
             };
 
             var iter = mem.tokenize(line, " ");
+            const size = iter.next() orelse return error.InvalidFormat;
             const inode = iter.next() orelse return error.InvalidFormat;
             const mtime_nsec_str = iter.next() orelse return error.InvalidFormat;
             const digest_str = iter.next() orelse return error.InvalidFormat;
             const file_path = iter.rest();
 
-            cache_hash_file.stat.inode = fmt.parseInt(fs.File.INode, mtime_nsec_str, 10) catch return error.InvalidFormat;
+            cache_hash_file.stat.size = fmt.parseInt(u64, size, 10) catch return error.InvalidFormat;
+            cache_hash_file.stat.inode = fmt.parseInt(fs.File.INode, inode, 10) catch return error.InvalidFormat;
             cache_hash_file.stat.mtime = fmt.parseInt(i64, mtime_nsec_str, 10) catch return error.InvalidFormat;
             base64_decoder.decode(&cache_hash_file.bin_digest, digest_str) catch return error.InvalidFormat;
 
@@ -216,10 +218,11 @@ pub const CacheHash = struct {
             defer this_file.close();
 
             const actual_stat = try this_file.stat();
+            const size_match = actual_stat.size == cache_hash_file.stat.size;
             const mtime_match = actual_stat.mtime == cache_hash_file.stat.mtime;
             const inode_match = actual_stat.inode == cache_hash_file.stat.inode;
 
-            if (!mtime_match or !inode_match) {
+            if (!size_match or !mtime_match or !inode_match) {
                 self.manifest_dirty = true;
 
                 cache_hash_file.stat = actual_stat;
@@ -392,7 +395,7 @@ pub const CacheHash = struct {
 
         for (self.files.items) |file| {
             base64_encoder.encode(encoded_digest[0..], &file.bin_digest);
-            try outStream.print("{} {} {} {}\n", .{ file.stat.inode, file.stat.mtime, encoded_digest[0..], file.path });
+            try outStream.print("{} {} {} {} {}\n", .{ file.stat.size, file.stat.inode, file.stat.mtime, encoded_digest[0..], file.path });
         }
 
         try self.manifest_file.?.pwriteAll(contents.items, 0);
@@ -479,9 +482,10 @@ test "cache file and then recall it" {
     const temp_file = "test.txt";
     const temp_manifest_dir = "temp_manifest_dir";
 
+    const ts = std.time.nanoTimestamp();
     try cwd.writeFile(temp_file, "Hello, world!\n");
 
-    while (isProblematicTimestamp(std.time.nanoTimestamp())) {
+    while (isProblematicTimestamp(ts)) {
         std.time.sleep(1);
     }
 
@@ -545,9 +549,13 @@ test "check that changing a file makes cache fail" {
     const original_temp_file_contents = "Hello, world!\n";
     const updated_temp_file_contents = "Hello, world; but updated!\n";
 
+    try cwd.deleteTree(temp_manifest_dir);
+    try cwd.deleteTree(temp_file);
+
+    const ts = std.time.nanoTimestamp();
     try cwd.writeFile(temp_file, original_temp_file_contents);
 
-    while (isProblematicTimestamp(std.time.nanoTimestamp())) {
+    while (isProblematicTimestamp(ts)) {
         std.time.sleep(1);
     }
 
@@ -571,10 +579,6 @@ test "check that changing a file makes cache fail" {
 
     try cwd.writeFile(temp_file, updated_temp_file_contents);
 
-    while (isProblematicTimestamp(std.time.nanoTimestamp())) {
-        std.time.sleep(1);
-    }
-
     {
         var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
         defer ch.release();
@@ -594,7 +598,7 @@ test "check that changing a file makes cache fail" {
     testing.expect(!mem.eql(u8, digest1[0..], digest2[0..]));
 
     try cwd.deleteTree(temp_manifest_dir);
-    try cwd.deleteFile(temp_file);
+    try cwd.deleteTree(temp_file);
 }
 
 test "no file inputs" {
@@ -643,10 +647,11 @@ test "CacheHashes with files added after initial hash work" {
     const temp_file2 = "cache_hash_post_file_test2.txt";
     const temp_manifest_dir = "cache_hash_post_file_manifest_dir";
 
+    const ts1 = std.time.nanoTimestamp();
     try cwd.writeFile(temp_file1, "Hello, world!\n");
     try cwd.writeFile(temp_file2, "Hello world the second!\n");
 
-    while (isProblematicTimestamp(std.time.nanoTimestamp())) {
+    while (isProblematicTimestamp(ts1)) {
         std.time.sleep(1);
     }
 
@@ -680,9 +685,10 @@ test "CacheHashes with files added after initial hash work" {
     testing.expect(mem.eql(u8, &digest1, &digest2));
 
     // Modify the file added after initial hash
+    const ts2 = std.time.nanoTimestamp();
     try cwd.writeFile(temp_file2, "Hello world the second, updated\n");
 
-    while (isProblematicTimestamp(std.time.nanoTimestamp())) {
+    while (isProblematicTimestamp(ts2)) {
         std.time.sleep(1);
     }
 

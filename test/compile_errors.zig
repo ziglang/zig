@@ -2,6 +2,29 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("duplicate/unused labels",
+        \\comptime {
+        \\    blk: { blk: while (false) {} }
+        \\    blk: while (false) { blk: for (@as([0]void, undefined)) |_| {} }
+        \\    blk: for (@as([0]void, undefined)) |_| { blk: {} }
+        \\}
+        \\comptime {
+        \\    blk: {}
+        \\    blk: while(false) {}
+        \\    blk: for(@as([0]void, undefined)) |_| {}
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:17: error: redeclaration of label 'blk'",
+        "tmp.zig:2:10: note: previous declaration is here",
+        "tmp.zig:3:31: error: redeclaration of label 'blk'",
+        "tmp.zig:3:10: note: previous declaration is here",
+        "tmp.zig:4:51: error: redeclaration of label 'blk'",
+        "tmp.zig:4:10: note: previous declaration is here",
+        "tmp.zig:7:10: error: unused block label",
+        "tmp.zig:8:10: error: unused while label",
+        "tmp.zig:9:10: error: unused for label",
+    });
+
     cases.addTest("@alignCast of zero sized types",
         \\export fn foo() void {
         \\    const a: *void = undefined;
@@ -26,6 +49,46 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:7:23: error: cannot adjust alignment of zero sized type '?*void'",
         "tmp.zig:11:23: error: cannot adjust alignment of zero sized type '[]void'",
         "tmp.zig:17:23: error: cannot adjust alignment of zero sized type 'fn(u32) anytype'",
+    });
+
+    cases.addTest("invalid non-exhaustive enum to union",
+        \\const E = enum(u8) {
+        \\    a,
+        \\    b,
+        \\    _,
+        \\};
+        \\const U = union(E) {
+        \\    a,
+        \\    b,
+        \\};
+        \\export fn foo() void {
+        \\    var e = @intToEnum(E, 15);
+        \\    var u: U = e;
+        \\}
+        \\export fn bar() void {
+        \\    const e = @intToEnum(E, 15);
+        \\    var u: U = e;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:12:16: error: runtime cast to union 'U' from non-exhustive enum",
+        "tmp.zig:16:16: error: no tag by value 15",
+    });
+
+    cases.addTest("switching with exhaustive enum has '_' prong ",
+        \\const E = enum{
+        \\    a,
+        \\    b,
+        \\};
+        \\pub export fn entry() void {
+        \\    var e: E = .b;
+        \\    switch (e) {
+        \\        .a => {},
+        \\        .b => {},
+        \\        _ => {},
+        \\    }
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:7:5: error: switch on exhaustive enum has `_` prong",
     });
 
     cases.addTest("invalid pointer with @Type",
@@ -541,6 +604,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    b,
         \\    _,
         \\};
+        \\const U = union(E) {
+        \\    a: i32,
+        \\    b: u32,
+        \\};
         \\pub export fn entry() void {
         \\    var e: E = .b;
         \\    switch (e) { // error: switch not handling the tag `b`
@@ -551,10 +618,17 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\        .a => {},
         \\        .b => {},
         \\    }
+        \\    var u = U{.a = 2};
+        \\    switch (u) { // error: `_` prong not allowed when switching on tagged union
+        \\        .a => {},
+        \\        .b => {},
+        \\        _ => {},
+        \\    }
         \\}
     , &[_][]const u8{
-        "tmp.zig:8:5: error: enumeration value 'E.b' not handled in switch",
-        "tmp.zig:12:5: error: switch on non-exhaustive enum must include `else` or `_` prong",
+        "tmp.zig:12:5: error: enumeration value 'E.b' not handled in switch",
+        "tmp.zig:16:5: error: switch on non-exhaustive enum must include `else` or `_` prong",
+        "tmp.zig:21:5: error: `_` prong not allowed when switching on tagged union",
     });
 
     cases.add("switch expression - unreachable else prong (bool)",
@@ -682,7 +756,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    for (arr) |bits| _ = @popCount(bits);
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:26: error: expected 2 arguments, found 1",
+        "tmp.zig:3:26: error: expected 2 argument(s), found 1",
     });
 
     cases.addTest("@call rejects non comptime-known fn - always_inline",
@@ -4080,7 +4154,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn b(a: i32, b: i32, c: i32) void { }
     , &[_][]const u8{
-        "tmp.zig:2:6: error: expected 3 arguments, found 1",
+        "tmp.zig:2:6: error: expected 3 argument(s), found 1",
     });
 
     cases.add("invalid type",
@@ -4693,7 +4767,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
-        "tmp.zig:20:34: error: expected 1 arguments, found 0",
+        "tmp.zig:20:34: error: expected 1 argument(s), found 0",
     });
 
     cases.add("missing function name",
@@ -5475,7 +5549,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
-        "tmp.zig:6:15: error: expected 2 arguments, found 3",
+        "tmp.zig:6:15: error: expected 2 argument(s), found 3",
     });
 
     cases.add("assign through constant pointer",
@@ -6128,32 +6202,33 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:15: error: expected error union type, found '?i32'",
     });
 
-    cases.add("inline fn calls itself indirectly",
-        \\export fn foo() void {
-        \\    bar();
-        \\}
-        \\inline fn bar() void {
-        \\    baz();
-        \\    quux();
-        \\}
-        \\inline fn baz() void {
-        \\    bar();
-        \\    quux();
-        \\}
-        \\extern fn quux() void;
-    , &[_][]const u8{
-        "tmp.zig:4:1: error: unable to inline function",
-    });
+    // TODO test this in stage2, but we won't even try in stage1
+    //cases.add("inline fn calls itself indirectly",
+    //    \\export fn foo() void {
+    //    \\    bar();
+    //    \\}
+    //    \\inline fn bar() void {
+    //    \\    baz();
+    //    \\    quux();
+    //    \\}
+    //    \\inline fn baz() void {
+    //    \\    bar();
+    //    \\    quux();
+    //    \\}
+    //    \\extern fn quux() void;
+    //, &[_][]const u8{
+    //    "tmp.zig:4:1: error: unable to inline function",
+    //});
 
-    cases.add("save reference to inline function",
-        \\export fn foo() void {
-        \\    quux(@ptrToInt(bar));
-        \\}
-        \\inline fn bar() void { }
-        \\extern fn quux(usize) void;
-    , &[_][]const u8{
-        "tmp.zig:4:1: error: unable to inline function",
-    });
+    //cases.add("save reference to inline function",
+    //    \\export fn foo() void {
+    //    \\    quux(@ptrToInt(bar));
+    //    \\}
+    //    \\inline fn bar() void { }
+    //    \\extern fn quux(usize) void;
+    //, &[_][]const u8{
+    //    "tmp.zig:4:1: error: unable to inline function",
+    //});
 
     cases.add("signed integer division",
         \\export fn foo(a: i32, b: i32) i32 {
@@ -6639,12 +6714,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     , &[_][]const u8{
         "tmp.zig:9:13: error: type '*MyType' does not support field access",
-    });
-
-    cases.add("carriage return special case", "fn test() bool {\r\n" ++
-        "   true\r\n" ++
-        "}\r\n", &[_][]const u8{
-        "tmp.zig:1:17: error: invalid carriage return, only '\\n' line endings are supported",
     });
 
     cases.add("invalid legacy unicode escape",

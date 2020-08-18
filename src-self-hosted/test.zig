@@ -407,8 +407,6 @@ pub const TestContext = struct {
         defer root_node.end();
 
         for (self.cases.items) |case| {
-            std.testing.base_allocator_instance.reset();
-
             var prg_node = root_node.start(case.name, case.updates.items.len);
             prg_node.activate();
             defer prg_node.end();
@@ -419,12 +417,11 @@ pub const TestContext = struct {
             progress.refresh_rate_ns = 0;
 
             try self.runOneCase(std.testing.allocator, &prg_node, case);
-            try std.testing.allocator_instance.validate();
         }
     }
 
     fn runOneCase(self: *TestContext, allocator: *Allocator, root_node: *std.Progress.Node, case: Case) !void {
-        const target_info = try std.zig.system.NativeTargetInfo.detect(std.testing.allocator, case.target);
+        const target_info = try std.zig.system.NativeTargetInfo.detect(allocator, case.target);
         const target = target_info.target;
 
         var arena_allocator = std.heap.ArenaAllocator.init(allocator);
@@ -480,6 +477,10 @@ pub const TestContext = struct {
                     std.debug.warn("\nErrors occurred updating the module:\n================\n", .{});
                     for (all_errors.list) |err| {
                         std.debug.warn(":{}:{}: error: {}\n================\n", .{ err.line + 1, err.column + 1, err.msg });
+                    }
+                    if (case.cbe) {
+                        const C = module.bin_file.cast(link.File.C).?;
+                        std.debug.warn("Generated C: \n===============\n{}\n\n===========\n\n", .{C.main.items});
                     }
                     std.debug.warn("Test failed.\n", .{});
                     std.process.exit(1);

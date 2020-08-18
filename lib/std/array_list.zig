@@ -263,6 +263,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
                 if (better_capacity >= new_capacity) break;
             }
 
+            // TODO This can be optimized to avoid needlessly copying undefined memory.
             const new_memory = try self.allocator.reallocAtLeast(self.allocatedSlice(), better_capacity);
             self.items.ptr = new_memory.ptr;
             self.capacity = new_memory.len;

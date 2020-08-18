@@ -2438,6 +2438,7 @@ struct ScopeBlock {
     LVal lval;
     bool safety_off;
     bool fast_math_on;
+    bool name_used;
 };
 
 // This scope is created from every defer expression.
@@ -2488,6 +2489,8 @@ struct ScopeLoop {
     ZigList<IrBasicBlockSrc *> *incoming_blocks;
     ResultLocPeerParent *peer_parent;
     ScopeExpr *spill_scope;
+
+    bool name_used;
 };
 
 // This scope blocks certain things from working such as comptime continue

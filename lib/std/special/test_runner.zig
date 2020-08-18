@@ -4,6 +4,8 @@ const builtin = @import("builtin");
 
 pub const io_mode: io.Mode = builtin.test_io_mode;
 
+var log_err_count: usize = 0;
+
 pub fn main() anyerror!void {
     const test_fn_list = builtin.test_functions;
     var ok_count: usize = 0;
@@ -19,15 +21,21 @@ pub fn main() anyerror!void {
     // ignores the alignment of the slice.
     async_frame_buffer = &[_]u8{};
 
+    var leaks: usize = 0;
     for (test_fn_list) |test_fn, i| {
-        std.testing.base_allocator_instance.reset();
+        std.testing.allocator_instance = .{};
+        defer {
+            if (std.testing.allocator_instance.deinit()) {
+                leaks += 1;
+            }
+        }
         std.testing.log_level = .warn;
 
         var test_node = root_node.start(test_fn.name, null);
         test_node.activate();
         progress.refresh();
         if (progress.terminal == null) {
-            std.debug.warn("{}/{} {}...", .{ i + 1, test_fn_list.len, test_fn.name });
+            std.debug.print("{}/{} {}...", .{ i + 1, test_fn_list.len, test_fn.name });
         }
         const result = if (test_fn.async_frame_size) |size| switch (io_mode) {
             .evented => blk: {
@@ -42,24 +50,20 @@ pub fn main() anyerror!void {
                 skip_count += 1;
                 test_node.end();
                 progress.log("{}...SKIP (async test)\n", .{test_fn.name});
-                if (progress.terminal == null) std.debug.warn("SKIP (async test)\n", .{});
+                if (progress.terminal == null) std.debug.print("SKIP (async test)\n", .{});
                 continue;
             },
         } else test_fn.func();
         if (result) |_| {
             ok_count += 1;
             test_node.end();
-            std.testing.allocator_instance.validate() catch |err| switch (err) {
-                error.Leak => std.debug.panic("", .{}),
-                else => std.debug.panic("error.{}", .{@errorName(err)}),
-            };
-            if (progress.terminal == null) std.debug.warn("OK\n", .{});
+            if (progress.terminal == null) std.debug.print("OK\n", .{});
         } else |err| switch (err) {
             error.SkipZigTest => {
                 skip_count += 1;
                 test_node.end();
                 progress.log("{}...SKIP\n", .{test_fn.name});
-                if (progress.terminal == null) std.debug.warn("SKIP\n", .{});
+                if (progress.terminal == null) std.debug.print("SKIP\n", .{});
             },
             else => {
                 progress.log("", .{});
@@ -69,9 +73,18 @@ pub fn main() anyerror!void {
     }
     root_node.end();
     if (ok_count == test_fn_list.len) {
-        std.debug.warn("All {} tests passed.\n", .{ok_count});
+        std.debug.print("All {} tests passed.\n", .{ok_count});
     } else {
-        std.debug.warn("{} passed; {} skipped.\n", .{ ok_count, skip_count });
+        std.debug.print("{} passed; {} skipped.\n", .{ ok_count, skip_count });
+    }
+    if (log_err_count != 0) {
+        std.debug.print("{} errors were logged.\n", .{log_err_count});
+    }
+    if (leaks != 0) {
+        std.debug.print("{} tests leaked memory.\n", .{ok_count});
+    }
+    if (leaks != 0 or log_err_count != 0) {
+        std.process.exit(1);
     }
 }
 
@@ -81,6 +94,9 @@ pub fn log(
     comptime format: []const u8,
     args: anytype,
 ) void {
+    if (@enumToInt(message_level) <= @enumToInt(std.log.Level.err)) {
+        log_err_count += 1;
+    }
     if (@enumToInt(message_level) <= @enumToInt(std.testing.log_level)) {
         std.debug.print("[{}] ({}): " ++ format, .{ @tagName(scope), @tagName(message_level) } ++ args);
     }

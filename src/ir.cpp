@@ -5477,6 +5477,25 @@ static ResultLocPeer *create_peer_result(ResultLocPeerParent *peer_parent) {
     return result;
 }
 
+static bool is_duplicate_label(CodeGen *g, Scope *scope, AstNode *node, Buf *name) {
+    if (name == nullptr) return false;
+
+    for (;;) {
+        if (scope == nullptr || scope->id == ScopeIdFnDef) {
+            break;
+        } else if (scope->id == ScopeIdBlock || scope->id == ScopeIdLoop) {
+            Buf *this_block_name = scope->id == ScopeIdBlock ? ((ScopeBlock *)scope)->name : ((ScopeLoop *)scope)->name;
+            if (this_block_name != nullptr && buf_eql_buf(name, this_block_name)) {
+                ErrorMsg *msg = add_node_error(g, node, buf_sprintf("redeclaration of label '%s'", buf_ptr(name)));
+                add_error_note(g, msg, scope->source_node, buf_sprintf("previous declaration is here"));
+                return true;
+            }
+        }
+        scope = scope->parent;
+    }
+    return false;
+}
+
 static IrInstSrc *ir_gen_block(IrBuilderSrc *irb, Scope *parent_scope, AstNode *block_node, LVal lval,
         ResultLoc *result_loc)
 {
@@ -5484,6 +5503,9 @@ static IrInstSrc *ir_gen_block(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
 
     ZigList<IrInstSrc *> incoming_values = {0};
     ZigList<IrBasicBlockSrc *> incoming_blocks = {0};
+
+    if (is_duplicate_label(irb->codegen, parent_scope, block_node, block_node->data.block.name))
+        return irb->codegen->invalid_inst_src;
 
     ScopeBlock *scope_block = create_block_scope(irb->codegen, block_node, parent_scope);
 
@@ -5496,6 +5518,9 @@ static IrInstSrc *ir_gen_block(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
     }
 
     if (block_node->data.block.statements.length == 0) {
+        if (scope_block->name != nullptr) {
+            add_node_error(irb->codegen, block_node, buf_sprintf("unused block label"));
+        }
         // {}
         return ir_lval_wrap(irb, parent_scope, ir_build_const_void(irb, child_scope, block_node), lval, result_loc);
     }
@@ -5551,6 +5576,10 @@ static IrInstSrc *ir_gen_block(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
             // this statement's value must be void
             ir_mark_gen(ir_build_check_statement_is_void(irb, child_scope, statement_node, statement_value));
         }
+    }
+
+    if (scope_block->name != nullptr && scope_block->name_used == false) {
+        add_node_error(irb->codegen, block_node, buf_sprintf("unused block label"));
     }
 
     if (found_invalid_inst)
@@ -6321,9 +6350,9 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
     BuiltinFnEntry *builtin_fn = entry->value;
     size_t actual_param_count = node->data.fn_call_expr.params.length;
 
-    if (builtin_fn->param_count != SIZE_MAX && builtin_fn->param_count != actual_param_count) {
+    if (builtin_fn->param_count != SIZE_MAX && builtin_fn->param_count != actual_param_count) { 
         add_node_error(irb->codegen, node,
-                buf_sprintf("expected %" ZIG_PRI_usize " arguments, found %" ZIG_PRI_usize,
+                buf_sprintf("expected %" ZIG_PRI_usize " argument(s), found %" ZIG_PRI_usize,
                     builtin_fn->param_count, actual_param_count));
         return irb->codegen->invalid_inst_src;
     }
@@ -8153,6 +8182,9 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
         ZigList<IrInstSrc *> incoming_values = {0};
         ZigList<IrBasicBlockSrc *> incoming_blocks = {0};
 
+        if (is_duplicate_label(irb->codegen, payload_scope, node, node->data.while_expr.name))
+            return irb->codegen->invalid_inst_src;
+
         ScopeLoop *loop_scope = create_loop_scope(irb->codegen, node, payload_scope);
         loop_scope->break_block = end_block;
         loop_scope->continue_block = continue_block;
@@ -8169,6 +8201,10 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
         IrInstSrc *body_result = ir_gen_node(irb, node->data.while_expr.body, &loop_scope->base);
         if (body_result == irb->codegen->invalid_inst_src)
             return body_result;
+
+        if (loop_scope->name != nullptr && loop_scope->name_used == false) {
+            add_node_error(irb->codegen, node, buf_sprintf("unused while label"));
+        }
 
         if (!instr_is_unreachable(body_result)) {
             ir_mark_gen(ir_build_check_statement_is_void(irb, payload_scope, node->data.while_expr.body, body_result));
@@ -8264,6 +8300,9 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
         ZigList<IrInstSrc *> incoming_values = {0};
         ZigList<IrBasicBlockSrc *> incoming_blocks = {0};
 
+        if (is_duplicate_label(irb->codegen, child_scope, node, node->data.while_expr.name))
+            return irb->codegen->invalid_inst_src;
+
         ScopeLoop *loop_scope = create_loop_scope(irb->codegen, node, child_scope);
         loop_scope->break_block = end_block;
         loop_scope->continue_block = continue_block;
@@ -8280,6 +8319,10 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
         IrInstSrc *body_result = ir_gen_node(irb, node->data.while_expr.body, &loop_scope->base);
         if (body_result == irb->codegen->invalid_inst_src)
             return body_result;
+
+        if (loop_scope->name != nullptr && loop_scope->name_used == false) {
+            add_node_error(irb->codegen, node, buf_sprintf("unused while label"));
+        }
 
         if (!instr_is_unreachable(body_result)) {
             ir_mark_gen(ir_build_check_statement_is_void(irb, child_scope, node->data.while_expr.body, body_result));
@@ -8354,6 +8397,9 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
 
         Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, scope, is_comptime);
 
+        if (is_duplicate_label(irb->codegen, subexpr_scope, node, node->data.while_expr.name))
+            return irb->codegen->invalid_inst_src;
+
         ScopeLoop *loop_scope = create_loop_scope(irb->codegen, node, subexpr_scope);
         loop_scope->break_block = end_block;
         loop_scope->continue_block = continue_block;
@@ -8369,6 +8415,10 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
         IrInstSrc *body_result = ir_gen_node(irb, node->data.while_expr.body, &loop_scope->base);
         if (body_result == irb->codegen->invalid_inst_src)
             return body_result;
+
+        if (loop_scope->name != nullptr && loop_scope->name_used == false) {
+            add_node_error(irb->codegen, node, buf_sprintf("unused while label"));
+        }
 
         if (!instr_is_unreachable(body_result)) {
             ir_mark_gen(ir_build_check_statement_is_void(irb, scope, node->data.while_expr.body, body_result));
@@ -8502,6 +8552,9 @@ static IrInstSrc *ir_gen_for_expr(IrBuilderSrc *irb, Scope *parent_scope, AstNod
         elem_ptr : ir_build_load_ptr(irb, &spill_scope->base, elem_node, elem_ptr);
     build_decl_var_and_init(irb, parent_scope, elem_node, elem_var, elem_value, buf_ptr(elem_var_name), is_comptime);
 
+    if (is_duplicate_label(irb->codegen, child_scope, node, node->data.for_expr.name))
+        return irb->codegen->invalid_inst_src;
+    
     ZigList<IrInstSrc *> incoming_values = {0};
     ZigList<IrBasicBlockSrc *> incoming_blocks = {0};
     ScopeLoop *loop_scope = create_loop_scope(irb->codegen, node, child_scope);
@@ -8520,6 +8573,10 @@ static IrInstSrc *ir_gen_for_expr(IrBuilderSrc *irb, Scope *parent_scope, AstNod
     IrInstSrc *body_result = ir_gen_node(irb, body_node, &loop_scope->base);
     if (body_result == irb->codegen->invalid_inst_src)
         return irb->codegen->invalid_inst_src;
+
+    if (loop_scope->name != nullptr && loop_scope->name_used == false) {
+        add_node_error(irb->codegen, node, buf_sprintf("unused for label"));
+    }
 
     if (!instr_is_unreachable(body_result)) {
         ir_mark_gen(ir_build_check_statement_is_void(irb, child_scope, node->data.for_expr.body, body_result));
@@ -9465,6 +9522,7 @@ static IrInstSrc *ir_gen_break(IrBuilderSrc *irb, Scope *break_scope, AstNode *n
             if (node->data.break_expr.name == nullptr ||
                 (this_loop_scope->name != nullptr && buf_eql_buf(node->data.break_expr.name, this_loop_scope->name)))
             {
+                this_loop_scope->name_used = true;
                 loop_scope = this_loop_scope;
                 break;
             }
@@ -9474,6 +9532,7 @@ static IrInstSrc *ir_gen_break(IrBuilderSrc *irb, Scope *break_scope, AstNode *n
                 (this_block_scope->name != nullptr && buf_eql_buf(node->data.break_expr.name, this_block_scope->name)))
             {
                 assert(this_block_scope->end_block != nullptr);
+                this_block_scope->name_used = true;
                 return ir_gen_return_from_block(irb, break_scope, node, this_block_scope);
             }
         } else if (search_scope->id == ScopeIdSuspend) {
@@ -9541,6 +9600,7 @@ static IrInstSrc *ir_gen_continue(IrBuilderSrc *irb, Scope *continue_scope, AstN
             if (node->data.continue_expr.name == nullptr ||
                 (this_loop_scope->name != nullptr && buf_eql_buf(node->data.continue_expr.name, this_loop_scope->name)))
             {
+                this_loop_scope->name_used = true;
                 loop_scope = this_loop_scope;
                 break;
             }
@@ -14037,7 +14097,8 @@ static IrInstGen *ir_analyze_enum_to_int(IrAnalyze *ira, IrInst *source_instr, I
 
     // If there is only one possible tag, then we know at comptime what it is.
     if (enum_type->data.enumeration.layout == ContainerLayoutAuto &&
-        enum_type->data.enumeration.src_field_count == 1)
+        enum_type->data.enumeration.src_field_count == 1 &&
+        !enum_type->data.enumeration.non_exhaustive)
     {
         IrInstGen *result = ir_const(ira, source_instr, tag_type);
         init_const_bigint(result->value, tag_type,
@@ -14077,7 +14138,8 @@ static IrInstGen *ir_analyze_union_to_tag(IrAnalyze *ira, IrInst* source_instr,
 
     // If there is only 1 possible tag, then we know at comptime what it is.
     if (wanted_type->data.enumeration.layout == ContainerLayoutAuto &&
-        wanted_type->data.enumeration.src_field_count == 1)
+        wanted_type->data.enumeration.src_field_count == 1 &&
+        !wanted_type->data.enumeration.non_exhaustive)
     {
         IrInstGen *result = ir_const(ira, source_instr, wanted_type);
         result->value->special = ConstValSpecialStatic;
@@ -14116,7 +14178,14 @@ static IrInstGen *ir_analyze_enum_to_union(IrAnalyze *ira, IrInst* source_instr,
         if (!val)
             return ira->codegen->invalid_inst_gen;
         TypeUnionField *union_field = find_union_field_by_tag(wanted_type, &val->data.x_enum_tag);
-        assert(union_field != nullptr);
+        if (union_field == nullptr) {
+            Buf *int_buf = buf_alloc();
+            bigint_append_buf(int_buf, &target->value->data.x_enum_tag, 10);
+
+            ir_add_error(ira, &target->base,
+                buf_sprintf("no tag by value %s", buf_ptr(int_buf)));
+            return ira->codegen->invalid_inst_gen;
+        }
         ZigType *field_type = resolve_union_field_type(ira->codegen, union_field);
         if (field_type == nullptr)
             return ira->codegen->invalid_inst_gen;
@@ -14150,6 +14219,13 @@ static IrInstGen *ir_analyze_enum_to_union(IrAnalyze *ira, IrInst* source_instr,
         result->value->data.x_union.payload->special = ConstValSpecialStatic;
         result->value->data.x_union.payload->type = field_type;
         return result;
+    }
+
+    if (target->value->type->data.enumeration.non_exhaustive) {
+        ir_add_error(ira, source_instr,
+                buf_sprintf("runtime cast to union '%s' from non-exhustive enum",
+                    buf_ptr(&wanted_type->name)));
+        return ira->codegen->invalid_inst_gen;
     }
 
     // if the union has all fields 0 bits, we can do it
@@ -20127,7 +20203,8 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
     if (fn_type_id->is_var_args) {
         if (call_param_count < src_param_count) {
             ErrorMsg *msg = ir_add_error_node(ira, source_node,
-                buf_sprintf("expected at least %" ZIG_PRI_usize " arguments, found %" ZIG_PRI_usize "", src_param_count, call_param_count));
+                buf_sprintf("expected at least %" ZIG_PRI_usize " argument(s), found %" ZIG_PRI_usize "",
+                    src_param_count, call_param_count));
             if (fn_proto_node) {
                 add_error_note(ira->codegen, msg, fn_proto_node,
                     buf_sprintf("declared here"));
@@ -20136,7 +20213,8 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
         }
     } else if (src_param_count != call_param_count) {
         ErrorMsg *msg = ir_add_error_node(ira, source_node,
-            buf_sprintf("expected %" ZIG_PRI_usize " arguments, found %" ZIG_PRI_usize "", src_param_count, call_param_count));
+            buf_sprintf("expected %" ZIG_PRI_usize " argument(s), found %" ZIG_PRI_usize "",
+                src_param_count, call_param_count));
         if (fn_proto_node) {
             add_error_note(ira->codegen, msg, fn_proto_node,
                 buf_sprintf("declared here"));
@@ -23755,7 +23833,7 @@ static IrInstGen *ir_analyze_instruction_switch_target(IrAnalyze *ira,
                 bigint_init_bigint(&result->value->data.x_enum_tag, &pointee_val->data.x_union.tag);
                 return result;
             }
-            if (tag_type->data.enumeration.src_field_count == 1) {
+            if (tag_type->data.enumeration.src_field_count == 1 && !tag_type->data.enumeration.non_exhaustive) {
                 IrInstGen *result = ir_const(ira, &switch_target_instruction->base.base, tag_type);
                 TypeEnumField *only_field = &tag_type->data.enumeration.fields[0];
                 bigint_init_bigint(&result->value->data.x_enum_tag, &only_field->value);
@@ -23770,7 +23848,7 @@ static IrInstGen *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case ZigTypeIdEnum: {
             if ((err = type_resolve(ira->codegen, target_type, ResolveStatusZeroBitsKnown)))
                 return ira->codegen->invalid_inst_gen;
-            if (target_type->data.enumeration.src_field_count == 1) {
+            if (target_type->data.enumeration.src_field_count == 1 && !target_type->data.enumeration.non_exhaustive) {
                 TypeEnumField *only_field = &target_type->data.enumeration.fields[0];
                 IrInstGen *result = ir_const(ira, &switch_target_instruction->base.base, target_type);
                 bigint_init_bigint(&result->value->data.x_enum_tag, &only_field->value);
@@ -25068,12 +25146,12 @@ static PtrLen size_enum_index_to_ptr_len(BuiltinPtrSize size_enum_index) {
     zig_unreachable();
 }
 
-static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_type_entry) {
-    Error err;
+static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, IrInst *source_instr, ZigType *ptr_type_entry) {
     ZigType *attrs_type;
     BuiltinPtrSize size_enum_index;
     if (is_slice(ptr_type_entry)) {
-        attrs_type = ptr_type_entry->data.structure.fields[slice_ptr_index]->type_entry;
+        TypeStructField *ptr_field = ptr_type_entry->data.structure.fields[slice_ptr_index];
+        attrs_type = resolve_struct_field_type(ira->codegen, ptr_field);
         size_enum_index = BuiltinPtrSizeSlice;
     } else if (ptr_type_entry->id == ZigTypeIdPointer) {
         attrs_type = ptr_type_entry;
@@ -25081,9 +25159,6 @@ static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_type_ent
     } else {
         zig_unreachable();
     }
-
-    if ((err = type_resolve(ira->codegen, attrs_type->data.pointer.child_type, ResolveStatusSizeKnown)))
-        return nullptr;
 
     ZigType *type_info_pointer_type = ir_type_info_get_type(ira, "Pointer", nullptr);
     assertNoError(type_resolve(ira->codegen, type_info_pointer_type, ResolveStatusSizeKnown));
@@ -25115,9 +25190,18 @@ static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_type_ent
     fields[2]->data.x_bool = attrs_type->data.pointer.is_volatile;
     // alignment: u32
     ensure_field_index(result->type, "alignment", 3);
-    fields[3]->special = ConstValSpecialStatic;
     fields[3]->type = ira->codegen->builtin_types.entry_num_lit_int;
-    bigint_init_unsigned(&fields[3]->data.x_bigint, get_ptr_align(ira->codegen, attrs_type));
+    if (attrs_type->data.pointer.explicit_alignment != 0) {
+        fields[3]->special = ConstValSpecialStatic;
+        bigint_init_unsigned(&fields[3]->data.x_bigint, attrs_type->data.pointer.explicit_alignment);
+    } else {
+        LazyValueAlignOf *lazy_align_of = heap::c_allocator.create<LazyValueAlignOf>();
+        lazy_align_of->ira = ira; ira_ref(ira);
+        fields[3]->special = ConstValSpecialLazy;
+        fields[3]->data.x_lazy = &lazy_align_of->base;
+        lazy_align_of->base.id = LazyValueIdAlignOf;
+        lazy_align_of->target_type = ir_const_type(ira, source_instr, attrs_type->data.pointer.child_type);
+    }
     // child: type
     ensure_field_index(result->type, "child", 4);
     fields[4]->special = ConstValSpecialStatic;
@@ -25131,7 +25215,7 @@ static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_type_ent
     // sentinel: anytype
     ensure_field_index(result->type, "sentinel", 6);
     fields[6]->special = ConstValSpecialStatic;
-    if (attrs_type->data.pointer.child_type->id != ZigTypeIdOpaque) {
+    if (attrs_type->data.pointer.sentinel != nullptr) {
         fields[6]->type = get_optional_type(ira->codegen, attrs_type->data.pointer.child_type);
         set_optional_payload(fields[6], attrs_type->data.pointer.sentinel);
     } else {
@@ -25165,9 +25249,6 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
     Error err;
     assert(type_entry != nullptr);
     assert(!type_is_invalid(type_entry));
-
-    if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusSizeKnown)))
-        return err;
 
     auto entry = ira->codegen->type_info_cache.maybe_get(type_entry);
     if (entry != nullptr) {
@@ -25232,7 +25313,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
             }
         case ZigTypeIdPointer:
             {
-                result = create_ptr_like_type_info(ira, type_entry);
+                result = create_ptr_like_type_info(ira, source_instr, type_entry);
                 if (result == nullptr)
                     return ErrorSemanticAnalyzeFail;
                 break;
@@ -25318,6 +25399,9 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
         }
         case ZigTypeIdEnum:
             {
+                if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusSizeKnown)))
+                    return err;
+
                 result = ira->codegen->pass1_arena->create<ZigValue>();
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Enum", nullptr);
@@ -25456,6 +25540,9 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
             }
         case ZigTypeIdUnion:
             {
+                if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusSizeKnown)))
+                    return err;
+
                 result = ira->codegen->pass1_arena->create<ZigValue>();
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Union", nullptr);
@@ -25546,11 +25633,14 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
         case ZigTypeIdStruct:
             {
                 if (type_entry->data.structure.special == StructSpecialSlice) {
-                    result = create_ptr_like_type_info(ira, type_entry);
+                    result = create_ptr_like_type_info(ira, source_instr, type_entry);
                     if (result == nullptr)
                         return ErrorSemanticAnalyzeFail;
                     break;
                 }
+
+                if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusSizeKnown)))
+                    return err;
 
                 result = ira->codegen->pass1_arena->create<ZigValue>();
                 result->special = ConstValSpecialStatic;
@@ -28765,6 +28855,10 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
     if (type_is_invalid(switch_type))
         return ira->codegen->invalid_inst_gen;
 
+    ZigValue *original_value = ((IrInstSrcSwitchTarget *)(instruction->target_value))->target_value_ptr->child->value;
+    bool target_is_originally_union = original_value->type->id == ZigTypeIdPointer &&
+        original_value->type->data.pointer.child_type->id == ZigTypeIdUnion;
+
     if (switch_type->id == ZigTypeIdEnum) {
         HashMap<BigInt, AstNode *, bigint_hash, bigint_eql> field_prev_uses = {};
         field_prev_uses.init(switch_type->data.enumeration.src_field_count);
@@ -28820,9 +28914,12 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
             }
         }
         if (instruction->have_underscore_prong) {
-            if (!switch_type->data.enumeration.non_exhaustive){
+            if (!switch_type->data.enumeration.non_exhaustive) {
                 ir_add_error(ira, &instruction->base.base,
-                    buf_sprintf("switch on non-exhaustive enum has `_` prong"));
+                    buf_sprintf("switch on exhaustive enum has `_` prong"));
+            } else if (target_is_originally_union) {
+                ir_add_error(ira, &instruction->base.base,
+                    buf_sprintf("`_` prong not allowed when switching on tagged union"));
             }
             for (uint32_t i = 0; i < switch_type->data.enumeration.src_field_count; i += 1) {
                 TypeEnumField *enum_field = &switch_type->data.enumeration.fields[i];
@@ -28837,7 +28934,7 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
                 }
             }
         } else if (instruction->else_prong == nullptr) {
-            if (switch_type->data.enumeration.non_exhaustive) {
+            if (switch_type->data.enumeration.non_exhaustive && !target_is_originally_union) {
                 ir_add_error(ira, &instruction->base.base,
                     buf_sprintf("switch on non-exhaustive enum must include `else` or `_` prong"));
             }
@@ -30056,7 +30153,7 @@ static IrInstGen *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstSrcArgTy
             return ir_const_type(ira, &instruction->base.base, ira->codegen->builtin_types.entry_anytype);
         }
         ir_add_error(ira, &arg_index_inst->base,
-                buf_sprintf("arg index %" ZIG_PRI_u64 " out of bounds; '%s' has %" ZIG_PRI_usize " arguments",
+                buf_sprintf("arg index %" ZIG_PRI_u64 " out of bounds; '%s' has %" ZIG_PRI_usize " argument(s)",
                     arg_index, buf_ptr(&fn_type->name), fn_type_id->param_count));
         return ira->codegen->invalid_inst_gen;
     }

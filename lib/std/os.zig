@@ -4025,23 +4025,15 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
         const pathname_w = try windows.cStrToPrefixedFileW(pathname);
         return realpathW(pathname_w.span(), out_buffer);
     }
-    if (builtin.os.tag == .linux and !builtin.link_libc) {
-        const fd = openZ(pathname, linux.O_PATH | linux.O_NONBLOCK | linux.O_CLOEXEC, 0) catch |err| switch (err) {
+    if (!builtin.link_libc) {
+        const flags = if (builtin.os.tag == .linux) O_PATH | O_NONBLOCK | O_CLOEXEC else O_NONBLOCK | O_CLOEXEC;
+        const fd = openZ(pathname, flags, 0) catch |err| switch (err) {
             error.FileLocksNotSupported => unreachable,
             else => |e| return e,
         };
         defer close(fd);
 
-        var procfs_buf: ["/proc/self/fd/-2147483648".len:0]u8 = undefined;
-        const proc_path = std.fmt.bufPrint(procfs_buf[0..], "/proc/self/fd/{}\x00", .{fd}) catch unreachable;
-
-        const target = readlinkZ(@ptrCast([*:0]const u8, proc_path.ptr), out_buffer) catch |err| {
-            switch (err) {
-                error.UnsupportedReparsePointType => unreachable, // Windows only,
-                else => |e| return e,
-            }
-        };
-        return target;
+        return getFdPath(fd, out_buffer);
     }
     const result_path = std.c.realpath(pathname, out_buffer) orelse switch (std.c._errno().*) {
         EINVAL => unreachable,
@@ -4060,7 +4052,6 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
 }
 
 /// Same as `realpath` except `pathname` is UTF16LE-encoded.
-/// TODO use ntdll to emulate `GetFinalPathNameByHandleW` routine
 pub fn realpathW(pathname: []const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     const w = windows;
 
@@ -4094,17 +4085,51 @@ pub fn realpathW(pathname: []const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPat
     };
     defer w.CloseHandle(h_file);
 
-    var wide_buf: [w.PATH_MAX_WIDE]u16 = undefined;
-    const wide_slice = try w.GetFinalPathNameByHandleW(h_file, &wide_buf, wide_buf.len, w.VOLUME_NAME_DOS);
+    return getFdPath(h_file, out_buffer);
+}
 
-    // Windows returns \\?\ prepended to the path.
-    // We strip it to make this function consistent across platforms.
-    const prefix = [_]u16{ '\\', '\\', '?', '\\' };
-    const start_index = if (mem.startsWith(u16, wide_slice, &prefix)) prefix.len else 0;
+/// Return canonical path of handle `fd`.
+/// This function is very host-specific and is not universally supported by all hosts.
+/// For example, while it generally works on Linux, macOS or Windows, it is unsupported
+/// on FreeBSD, or WASI.
+pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
+    switch (builtin.os.tag) {
+        .windows => {
+            var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
+            const wide_slice = try windows.GetFinalPathNameByHandle(fd, .{}, wide_buf[0..]);
 
-    // Trust that Windows gives us valid UTF-16LE.
-    const end_index = std.unicode.utf16leToUtf8(out_buffer, wide_slice[start_index..]) catch unreachable;
-    return out_buffer[0..end_index];
+            // Trust that Windows gives us valid UTF-16LE.
+            const end_index = std.unicode.utf16leToUtf8(out_buffer, wide_slice) catch unreachable;
+            return out_buffer[0..end_index];
+        },
+        .macosx, .ios, .watchos, .tvos => {
+            // On macOS, we can use F_GETPATH fcntl command to query the OS for
+            // the path to the file descriptor.
+            @memset(out_buffer, 0, MAX_PATH_BYTES);
+            switch (errno(system.fcntl(fd, F_GETPATH, out_buffer))) {
+                0 => {},
+                EBADF => return error.FileNotFound,
+                // TODO man pages for fcntl on macOS don't really tell you what
+                // errno values to expect when command is F_GETPATH...
+                else => |err| return unexpectedErrno(err),
+            }
+            const len = mem.indexOfScalar(u8, out_buffer[0..], @as(u8, 0)) orelse MAX_PATH_BYTES;
+            return out_buffer[0..len];
+        },
+        .linux => {
+            var procfs_buf: ["/proc/self/fd/-2147483648".len:0]u8 = undefined;
+            const proc_path = std.fmt.bufPrint(procfs_buf[0..], "/proc/self/fd/{}\x00", .{fd}) catch unreachable;
+
+            const target = readlinkZ(@ptrCast([*:0]const u8, proc_path.ptr), out_buffer) catch |err| {
+                switch (err) {
+                    error.UnsupportedReparsePointType => unreachable, // Windows only,
+                    else => |e| return e,
+                }
+            };
+            return target;
+        },
+        else => @compileError("querying for canonical path of a handle is unsupported on this host"),
+    }
 }
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
@@ -4932,6 +4957,85 @@ pub fn sendfile(
     return total_written;
 }
 
+pub const CopyFileRangeError = error{
+    FileTooBig,
+    InputOutput,
+    IsDir,
+    OutOfMemory,
+    NoSpaceLeft,
+    Unseekable,
+    PermissionDenied,
+    FileBusy,
+} || PReadError || PWriteError || UnexpectedError;
+
+/// Transfer data between file descriptors at specified offsets.
+/// Returns the number of bytes written, which can less than requested.
+///
+/// The `copy_file_range` call copies `len` bytes from one file descriptor to another. When possible,
+/// this is done within the operating system kernel, which can provide better performance
+/// characteristics than transferring data from kernel to user space and back, such as with
+/// `pread` and `pwrite` calls.
+///
+/// `fd_in` must be a file descriptor opened for reading, and `fd_out` must be a file descriptor
+/// opened for writing. They may be any kind of file descriptor; however, if `fd_in` is not a regular
+/// file system file, it may cause this function to fall back to calling `pread` and `pwrite`, in which case
+/// atomicity guarantees no longer apply.
+///
+/// If `fd_in` and `fd_out` are the same, source and target ranges must not overlap.
+/// The file descriptor seek positions are ignored and not updated.
+/// When `off_in` is past the end of the input file, it successfully reads 0 bytes.
+///
+/// `flags` has different meanings per operating system; refer to the respective man pages.
+///
+/// These systems support in-kernel data copying:
+/// * Linux 4.5 (cross-filesystem 5.3)
+///
+/// Other systems fall back to calling `pread` / `pwrite`.
+///
+/// Maximum offsets on Linux are `math.maxInt(i64)`.
+pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
+    const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
+
+    // TODO support for other systems than linux
+    const try_syscall = comptime std.Target.current.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) != false;
+
+    if (use_c or try_syscall) {
+        const sys = if (use_c) std.c else linux;
+
+        var off_in_copy = @bitCast(i64, off_in);
+        var off_out_copy = @bitCast(i64, off_out);
+
+        const rc = sys.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, flags);
+
+        // TODO avoid wasting a syscall every time if kernel is too old and returns ENOSYS https://github.com/ziglang/zig/issues/1018
+
+        switch (sys.getErrno(rc)) {
+            0 => return @intCast(usize, rc),
+            EBADF => unreachable,
+            EFBIG => return error.FileTooBig,
+            EIO => return error.InputOutput,
+            EISDIR => return error.IsDir,
+            ENOMEM => return error.OutOfMemory,
+            ENOSPC => return error.NoSpaceLeft,
+            EOVERFLOW => return error.Unseekable,
+            EPERM => return error.PermissionDenied,
+            ETXTBSY => return error.FileBusy,
+            EINVAL => {}, // these may not be regular files, try fallback
+            EXDEV => {}, // support for cross-filesystem copy added in Linux 5.3, use fallback
+            ENOSYS => {}, // syscall added in Linux 4.5, use fallback
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
+    var buf: [8 * 4096]u8 = undefined;
+    const adjusted_count = math.min(buf.len, len);
+    const amt_read = try pread(fd_in, buf[0..adjusted_count], off_in);
+    // TODO without @as the line below fails to compile for wasm32-wasi:
+    // error: integer value 0 cannot be coerced to type 'os.PWriteError!usize'
+    if (amt_read == 0) return @as(usize, 0);
+    return pwrite(fd_out, buf[0..amt_read], off_out);
+}
+
 pub const PollError = error{
     /// The kernel had no space to allocate file descriptor tables.
     SystemResources,
@@ -5204,8 +5308,8 @@ pub fn ioctl_SIOCGIFINDEX(fd: fd_t, ifr: *ifreq) IoCtl_SIOCGIFINDEX_Error!void {
     }
 }
 
-pub fn signalfd(fd: fd_t, mask: *const sigset_t, flags: i32) !fd_t {
-    const rc = system.signalfd4(fd, mask, flags);
+pub fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) !fd_t {
+    const rc = system.signalfd(fd, mask, flags);
     switch (errno(rc)) {
         0 => return @intCast(fd_t, rc),
         EBADF, EINVAL => unreachable,

@@ -10,7 +10,7 @@ pub fn once(comptime f: fn () void) Once(f) {
 pub fn Once(comptime f: fn () void) type {
     return struct {
         done: bool = false,
-        mutex: std.Mutex = std.Mutex.init(),
+        mutex: std.Mutex = std.Mutex{},
 
         /// Call the function `f`.
         /// If `call` is invoked multiple times `f` will be executed only the

@@ -151,6 +151,11 @@ pub const Inst = struct {
         isnonnull,
         /// Return a boolean true if an optional is null. `x == null`
         isnull,
+        /// Return a boolean true if value is an error
+        iserr,
+        /// A labeled block of code that loops forever. At the end of the body it is implied
+        /// to repeat; no explicit "repeat" instruction terminates loop bodies.
+        loop,
         /// Ambiguously remainder division or modulus. If the computation would possibly have
         /// a different value depending on whether the operation is remainder division or modulus,
         /// a compile error is emitted. Otherwise the computation is performed.
@@ -189,6 +194,8 @@ pub const Inst = struct {
         single_const_ptr_type,
         /// Create a mutable pointer type based on the element type. `*T`
         single_mut_ptr_type,
+        /// Create a pointer type with attributes
+        ptr_type,
         /// Write a value to a pointer. For loading, see `deref`.
         store,
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
@@ -208,10 +215,19 @@ pub const Inst = struct {
         @"unreachable",
         /// Bitwise XOR. `^`
         xor,
+        /// Create an optional type '?T'
+        optional_type,
+        /// Unwraps an optional value 'lhs.?'
+        unwrap_optional_safe,
+        /// Same as previous, but without safety checks. Used for orelse, if and while
+        unwrap_optional_unsafe,
+        /// Gets the payload of an error union
+        unwrap_err_safe,
+        /// Same as previous, but without safety checks. Used for orelse, if and while
+        unwrap_err_unsafe,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
-                .arg,
                 .breakpoint,
                 .dbg_stmt,
                 .returnvoid,
@@ -227,6 +243,7 @@ pub const Inst = struct {
                 .@"return",
                 .isnull,
                 .isnonnull,
+                .iserr,
                 .ptrtoint,
                 .alloc,
                 .ensure_result_used,
@@ -237,6 +254,11 @@ pub const Inst = struct {
                 .typeof,
                 .single_const_ptr_type,
                 .single_mut_ptr_type,
+                .optional_type,
+                .unwrap_optional_safe,
+                .unwrap_optional_unsafe,
+                .unwrap_err_safe,
+                .unwrap_err_unsafe,
                 => UnOp,
 
                 .add,
@@ -268,6 +290,7 @@ pub const Inst = struct {
                 .xor,
                 => BinOp,
 
+                .arg => Arg,
                 .block => Block,
                 .@"break" => Break,
                 .breakvoid => BreakVoid,
@@ -279,6 +302,7 @@ pub const Inst = struct {
                 .declval_in_module => DeclValInModule,
                 .coerce_result_block_ptr => CoerceResultBlockPtr,
                 .compileerror => CompileError,
+                .loop => Loop,
                 .@"const" => Const,
                 .str => Str,
                 .int => Int,
@@ -292,6 +316,7 @@ pub const Inst = struct {
                 .fntype => FnType,
                 .elemptr => ElemPtr,
                 .condbr => CondBr,
+                .ptr_type => PtrType,
             };
         }
 
@@ -347,6 +372,7 @@ pub const Inst = struct {
                 .inttype,
                 .isnonnull,
                 .isnull,
+                .iserr,
                 .mod_rem,
                 .mul,
                 .mulwrap,
@@ -366,6 +392,12 @@ pub const Inst = struct {
                 .subwrap,
                 .typeof,
                 .xor,
+                .optional_type,
+                .unwrap_optional_safe,
+                .unwrap_optional_unsafe,
+                .unwrap_err_safe,
+                .unwrap_err_unsafe,
+                .ptr_type,
                 => false,
 
                 .@"break",
@@ -376,6 +408,7 @@ pub const Inst = struct {
                 .returnvoid,
                 .unreach_nocheck,
                 .@"unreachable",
+                .loop,
                 => true,
             };
         }
@@ -427,6 +460,16 @@ pub const Inst = struct {
         positionals: struct {
             lhs: *Inst,
             rhs: *Inst,
+        },
+        kw_args: struct {},
+    };
+
+    pub const Arg = struct {
+        pub const base_tag = Tag.arg;
+        base: Inst,
+
+        positionals: struct {
+            name: []const u8,
         },
         kw_args: struct {},
     };
@@ -573,6 +616,16 @@ pub const Inst = struct {
 
         positionals: struct {
             int: BigIntConst,
+        },
+        kw_args: struct {},
+    };
+
+    pub const Loop = struct {
+        pub const base_tag = Tag.loop;
+        base: Inst,
+
+        positionals: struct {
+            body: Module.Body,
         },
         kw_args: struct {},
     };
@@ -774,6 +827,24 @@ pub const Inst = struct {
         },
         kw_args: struct {},
     };
+
+    pub const PtrType = struct {
+        pub const base_tag = Tag.ptr_type;
+        base: Inst,
+
+        positionals: struct {
+            child_type: *Inst,
+        },
+        kw_args: struct {
+            @"allowzero": bool = false,
+            @"align": ?*Inst = null,
+            align_bit_start: ?*Inst = null,
+            align_bit_end: ?*Inst = null,
+            @"const": bool = true,
+            @"volatile": bool = false,
+            sentinel: ?*Inst = null,
+        },
+    };
 };
 
 pub const ErrorMsg = struct {
@@ -785,12 +856,24 @@ pub const Module = struct {
     decls: []*Decl,
     arena: std.heap.ArenaAllocator,
     error_msg: ?ErrorMsg = null,
+    metadata: std.AutoHashMap(*Inst, MetaData),
+    body_metadata: std.AutoHashMap(*Body, BodyMetaData),
+
+    pub const MetaData = struct {
+        deaths: ir.Inst.DeathsInt,
+    };
+
+    pub const BodyMetaData = struct {
+        deaths: []*Inst,
+    };
 
     pub const Body = struct {
         instructions: []*Inst,
     };
 
     pub fn deinit(self: *Module, allocator: *Allocator) void {
+        self.metadata.deinit();
+        self.body_metadata.deinit();
         allocator.free(self.decls);
         self.arena.deinit();
         self.* = undefined;
@@ -838,27 +921,25 @@ pub const Module = struct {
             .module = &self,
             .inst_table = InstPtrTable.init(allocator),
             .block_table = std.AutoHashMap(*Inst.Block, []const u8).init(allocator),
+            .loop_table = std.AutoHashMap(*Inst.Loop, []const u8).init(allocator),
             .arena = std.heap.ArenaAllocator.init(allocator),
             .indent = 2,
+            .next_instr_index = undefined,
         };
         defer write.arena.deinit();
         defer write.inst_table.deinit();
         defer write.block_table.deinit();
+        defer write.loop_table.deinit();
 
         // First, build a map of *Inst to @ or % indexes
         try write.inst_table.ensureCapacity(self.decls.len);
 
         for (self.decls) |decl, decl_i| {
             try write.inst_table.putNoClobber(decl.inst, .{ .inst = decl.inst, .index = null, .name = decl.name });
-
-            if (decl.inst.cast(Inst.Fn)) |fn_inst| {
-                for (fn_inst.positionals.body.instructions) |inst, inst_i| {
-                    try write.inst_table.putNoClobber(inst, .{ .inst = inst, .index = inst_i, .name = undefined });
-                }
-            }
         }
 
         for (self.decls) |decl, i| {
+            write.next_instr_index = 0;
             try stream.print("@{} ", .{decl.name});
             try write.writeInstToStream(stream, decl.inst);
             try stream.writeByte('\n');
@@ -872,8 +953,10 @@ const Writer = struct {
     module: *const Module,
     inst_table: InstPtrTable,
     block_table: std.AutoHashMap(*Inst.Block, []const u8),
+    loop_table: std.AutoHashMap(*Inst.Loop, []const u8),
     arena: std.heap.ArenaAllocator,
     indent: usize,
+    next_instr_index: usize,
 
     fn writeInstToStream(
         self: *Writer,
@@ -904,7 +987,7 @@ const Writer = struct {
             if (i != 0) {
                 try stream.writeAll(", ");
             }
-            try self.writeParamToStream(stream, @field(inst.positionals, arg_field.name));
+            try self.writeParamToStream(stream, &@field(inst.positionals, arg_field.name));
         }
 
         comptime var need_comma = pos_fields.len != 0;
@@ -914,13 +997,13 @@ const Writer = struct {
                 if (@field(inst.kw_args, arg_field.name)) |non_optional| {
                     if (need_comma) try stream.writeAll(", ");
                     try stream.print("{}=", .{arg_field.name});
-                    try self.writeParamToStream(stream, non_optional);
+                    try self.writeParamToStream(stream, &non_optional);
                     need_comma = true;
                 }
             } else {
                 if (need_comma) try stream.writeAll(", ");
                 try stream.print("{}=", .{arg_field.name});
-                try self.writeParamToStream(stream, @field(inst.kw_args, arg_field.name));
+                try self.writeParamToStream(stream, &@field(inst.kw_args, arg_field.name));
                 need_comma = true;
             }
         }
@@ -928,7 +1011,8 @@ const Writer = struct {
         try stream.writeByte(')');
     }
 
-    fn writeParamToStream(self: *Writer, stream: anytype, param: anytype) !void {
+    fn writeParamToStream(self: *Writer, stream: anytype, param_ptr: anytype) !void {
+        const param = param_ptr.*;
         if (@typeInfo(@TypeOf(param)) == .Enum) {
             return stream.writeAll(@tagName(param));
         }
@@ -946,15 +1030,36 @@ const Writer = struct {
             },
             Module.Body => {
                 try stream.writeAll("{\n");
-                for (param.instructions) |inst, i| {
+                if (self.module.body_metadata.get(param_ptr)) |metadata| {
+                    if (metadata.deaths.len > 0) {
+                        try stream.writeByteNTimes(' ', self.indent);
+                        try stream.writeAll("; deaths={");
+                        for (metadata.deaths) |death, i| {
+                            if (i != 0) try stream.writeAll(", ");
+                            try self.writeInstParamToStream(stream, death);
+                        }
+                        try stream.writeAll("}\n");
+                    }
+                }
+
+                for (param.instructions) |inst| {
+                    const my_i = self.next_instr_index;
+                    self.next_instr_index += 1;
+                    try self.inst_table.putNoClobber(inst, .{ .inst = inst, .index = my_i, .name = undefined });
                     try stream.writeByteNTimes(' ', self.indent);
-                    try stream.print("%{} ", .{i});
+                    try stream.print("%{} ", .{my_i});
                     if (inst.cast(Inst.Block)) |block| {
-                        const name = try std.fmt.allocPrint(&self.arena.allocator, "label_{}", .{i});
+                        const name = try std.fmt.allocPrint(&self.arena.allocator, "label_{}", .{my_i});
                         try self.block_table.put(block, name);
+                    } else if (inst.cast(Inst.Loop)) |loop| {
+                        const name = try std.fmt.allocPrint(&self.arena.allocator, "loop_{}", .{my_i});
+                        try self.loop_table.put(loop, name);
                     }
                     self.indent += 2;
                     try self.writeInstToStream(stream, inst);
+                    if (self.module.metadata.get(inst)) |metadata| {
+                        try stream.print(" ; deaths=0b{b}", .{metadata.deaths});
+                    }
                     self.indent -= 2;
                     try stream.writeByte('\n');
                 }
@@ -968,6 +1073,10 @@ const Writer = struct {
             *IrModule.Decl => unreachable, // this is a special case
             *Inst.Block => {
                 const name = self.block_table.get(param).?;
+                return std.zig.renderStringLiteral(name, stream);
+            },
+            *Inst.Loop => {
+                const name = self.loop_table.get(param).?;
                 return std.zig.renderStringLiteral(name, stream);
             },
             else => |T| @compileError("unimplemented: rendering parameter of type " ++ @typeName(T)),
@@ -1006,8 +1115,10 @@ pub fn parse(allocator: *Allocator, source: [:0]const u8) Allocator.Error!Module
         .decls = .{},
         .unnamed_index = 0,
         .block_table = std.StringHashMap(*Inst.Block).init(allocator),
+        .loop_table = std.StringHashMap(*Inst.Loop).init(allocator),
     };
     defer parser.block_table.deinit();
+    defer parser.loop_table.deinit();
     errdefer parser.arena.deinit();
 
     parser.parseRoot() catch |err| switch (err) {
@@ -1021,6 +1132,8 @@ pub fn parse(allocator: *Allocator, source: [:0]const u8) Allocator.Error!Module
         .decls = parser.decls.toOwnedSlice(allocator),
         .arena = parser.arena,
         .error_msg = parser.error_msg,
+        .metadata = std.AutoHashMap(*Inst, Module.MetaData).init(allocator),
+        .body_metadata = std.AutoHashMap(*Module.Body, Module.BodyMetaData).init(allocator),
     };
 }
 
@@ -1034,6 +1147,7 @@ const Parser = struct {
     error_msg: ?ErrorMsg = null,
     unnamed_index: usize,
     block_table: std.StringHashMap(*Inst.Block),
+    loop_table: std.StringHashMap(*Inst.Loop),
 
     const Body = struct {
         instructions: std.ArrayList(*Inst),
@@ -1245,6 +1359,8 @@ const Parser = struct {
 
         if (InstType == Inst.Block) {
             try self.block_table.put(inst_name, inst_specific);
+        } else if (InstType == Inst.Loop) {
+            try self.loop_table.put(inst_name, inst_specific);
         }
 
         if (@hasField(InstType, "ty")) {
@@ -1356,6 +1472,10 @@ const Parser = struct {
                 const name = try self.parseStringLiteral();
                 return self.block_table.get(name).?;
             },
+            *Inst.Loop => {
+                const name = try self.parseStringLiteral();
+                return self.loop_table.get(name).?;
+            },
             else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),
         }
         return self.fail("TODO parse parameter {}", .{@typeName(T)});
@@ -1421,8 +1541,14 @@ pub fn emit(allocator: *Allocator, old_module: IrModule) !Module {
         .primitive_table = std.AutoHashMap(Inst.Primitive.Builtin, *Decl).init(allocator),
         .indent = 0,
         .block_table = std.AutoHashMap(*ir.Inst.Block, *Inst.Block).init(allocator),
+        .loop_table = std.AutoHashMap(*ir.Inst.Loop, *Inst.Loop).init(allocator),
+        .metadata = std.AutoHashMap(*Inst, Module.MetaData).init(allocator),
+        .body_metadata = std.AutoHashMap(*Module.Body, Module.BodyMetaData).init(allocator),
     };
+    errdefer ctx.metadata.deinit();
+    errdefer ctx.body_metadata.deinit();
     defer ctx.block_table.deinit();
+    defer ctx.loop_table.deinit();
     defer ctx.decls.deinit(allocator);
     defer ctx.names.deinit();
     defer ctx.primitive_table.deinit();
@@ -1433,7 +1559,50 @@ pub fn emit(allocator: *Allocator, old_module: IrModule) !Module {
     return Module{
         .decls = ctx.decls.toOwnedSlice(allocator),
         .arena = ctx.arena,
+        .metadata = ctx.metadata,
+        .body_metadata = ctx.body_metadata,
     };
+}
+
+/// For debugging purposes, prints a function representation to stderr.
+pub fn dumpFn(old_module: IrModule, module_fn: *IrModule.Fn) void {
+    const allocator = old_module.gpa;
+    var ctx: EmitZIR = .{
+        .allocator = allocator,
+        .decls = .{},
+        .arena = std.heap.ArenaAllocator.init(allocator),
+        .old_module = &old_module,
+        .next_auto_name = 0,
+        .names = std.StringHashMap(void).init(allocator),
+        .primitive_table = std.AutoHashMap(Inst.Primitive.Builtin, *Decl).init(allocator),
+        .indent = 0,
+        .block_table = std.AutoHashMap(*ir.Inst.Block, *Inst.Block).init(allocator),
+        .loop_table = std.AutoHashMap(*ir.Inst.Loop, *Inst.Loop).init(allocator),
+        .metadata = std.AutoHashMap(*Inst, Module.MetaData).init(allocator),
+        .body_metadata = std.AutoHashMap(*Module.Body, Module.BodyMetaData).init(allocator),
+    };
+    defer ctx.metadata.deinit();
+    defer ctx.body_metadata.deinit();
+    defer ctx.block_table.deinit();
+    defer ctx.loop_table.deinit();
+    defer ctx.decls.deinit(allocator);
+    defer ctx.names.deinit();
+    defer ctx.primitive_table.deinit();
+    defer ctx.arena.deinit();
+
+    const fn_ty = module_fn.owner_decl.typed_value.most_recent.typed_value.ty;
+    _ = ctx.emitFn(module_fn, 0, fn_ty) catch |err| {
+        std.debug.print("unable to dump function: {}\n", .{err});
+        return;
+    };
+    var module = Module{
+        .decls = ctx.decls.items,
+        .arena = ctx.arena,
+        .metadata = ctx.metadata,
+        .body_metadata = ctx.body_metadata,
+    };
+
+    module.dump();
 }
 
 const EmitZIR = struct {
@@ -1446,6 +1615,9 @@ const EmitZIR = struct {
     primitive_table: std.AutoHashMap(Inst.Primitive.Builtin, *Decl),
     indent: usize,
     block_table: std.AutoHashMap(*ir.Inst.Block, *Inst.Block),
+    loop_table: std.AutoHashMap(*ir.Inst.Loop, *Inst.Loop),
+    metadata: std.AutoHashMap(*Inst, Module.MetaData),
+    body_metadata: std.AutoHashMap(*Module.Body, Module.BodyMetaData),
 
     fn emit(self: *EmitZIR) !void {
         // Put all the Decls in a list and sort them by name to avoid nondeterminism introduced
@@ -1545,7 +1717,7 @@ const EmitZIR = struct {
             } else blk: {
                 break :blk (try self.emitTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val })).inst;
             };
-            try new_body.inst_table.putNoClobber(inst, new_inst);
+            _ = try new_body.inst_table.put(inst, new_inst);
             return new_inst;
         } else {
             return new_body.inst_table.get(inst).?;
@@ -1594,6 +1766,70 @@ const EmitZIR = struct {
             .kw_args = .{},
         };
         return &declref_inst.base;
+    }
+
+    fn emitFn(self: *EmitZIR, module_fn: *IrModule.Fn, src: usize, ty: Type) Allocator.Error!*Decl {
+        var inst_table = std.AutoHashMap(*ir.Inst, *Inst).init(self.allocator);
+        defer inst_table.deinit();
+
+        var instructions = std.ArrayList(*Inst).init(self.allocator);
+        defer instructions.deinit();
+
+        switch (module_fn.analysis) {
+            .queued => unreachable,
+            .in_progress => unreachable,
+            .success => |body| {
+                try self.emitBody(body, &inst_table, &instructions);
+            },
+            .sema_failure => {
+                const err_msg = self.old_module.failed_decls.get(module_fn.owner_decl).?;
+                const fail_inst = try self.arena.allocator.create(Inst.CompileError);
+                fail_inst.* = .{
+                    .base = .{
+                        .src = src,
+                        .tag = Inst.CompileError.base_tag,
+                    },
+                    .positionals = .{
+                        .msg = try self.arena.allocator.dupe(u8, err_msg.msg),
+                    },
+                    .kw_args = .{},
+                };
+                try instructions.append(&fail_inst.base);
+            },
+            .dependency_failure => {
+                const fail_inst = try self.arena.allocator.create(Inst.CompileError);
+                fail_inst.* = .{
+                    .base = .{
+                        .src = src,
+                        .tag = Inst.CompileError.base_tag,
+                    },
+                    .positionals = .{
+                        .msg = try self.arena.allocator.dupe(u8, "depends on another failed Decl"),
+                    },
+                    .kw_args = .{},
+                };
+                try instructions.append(&fail_inst.base);
+            },
+        }
+
+        const fn_type = try self.emitType(src, ty);
+
+        const arena_instrs = try self.arena.allocator.alloc(*Inst, instructions.items.len);
+        mem.copy(*Inst, arena_instrs, instructions.items);
+
+        const fn_inst = try self.arena.allocator.create(Inst.Fn);
+        fn_inst.* = .{
+            .base = .{
+                .src = src,
+                .tag = Inst.Fn.base_tag,
+            },
+            .positionals = .{
+                .fn_type = fn_type.inst,
+                .body = .{ .instructions = arena_instrs },
+            },
+            .kw_args = .{},
+        };
+        return self.emitUnnamedDecl(&fn_inst.base);
     }
 
     fn emitTypedValue(self: *EmitZIR, src: usize, typed_value: TypedValue) Allocator.Error!*Decl {
@@ -1659,68 +1895,7 @@ const EmitZIR = struct {
             },
             .Fn => {
                 const module_fn = typed_value.val.cast(Value.Payload.Function).?.func;
-
-                var inst_table = std.AutoHashMap(*ir.Inst, *Inst).init(self.allocator);
-                defer inst_table.deinit();
-
-                var instructions = std.ArrayList(*Inst).init(self.allocator);
-                defer instructions.deinit();
-
-                switch (module_fn.analysis) {
-                    .queued => unreachable,
-                    .in_progress => unreachable,
-                    .success => |body| {
-                        try self.emitBody(body, &inst_table, &instructions);
-                    },
-                    .sema_failure => {
-                        const err_msg = self.old_module.failed_decls.get(module_fn.owner_decl).?;
-                        const fail_inst = try self.arena.allocator.create(Inst.CompileError);
-                        fail_inst.* = .{
-                            .base = .{
-                                .src = src,
-                                .tag = Inst.CompileError.base_tag,
-                            },
-                            .positionals = .{
-                                .msg = try self.arena.allocator.dupe(u8, err_msg.msg),
-                            },
-                            .kw_args = .{},
-                        };
-                        try instructions.append(&fail_inst.base);
-                    },
-                    .dependency_failure => {
-                        const fail_inst = try self.arena.allocator.create(Inst.CompileError);
-                        fail_inst.* = .{
-                            .base = .{
-                                .src = src,
-                                .tag = Inst.CompileError.base_tag,
-                            },
-                            .positionals = .{
-                                .msg = try self.arena.allocator.dupe(u8, "depends on another failed Decl"),
-                            },
-                            .kw_args = .{},
-                        };
-                        try instructions.append(&fail_inst.base);
-                    },
-                }
-
-                const fn_type = try self.emitType(src, typed_value.ty);
-
-                const arena_instrs = try self.arena.allocator.alloc(*Inst, instructions.items.len);
-                mem.copy(*Inst, arena_instrs, instructions.items);
-
-                const fn_inst = try self.arena.allocator.create(Inst.Fn);
-                fn_inst.* = .{
-                    .base = .{
-                        .src = src,
-                        .tag = Inst.Fn.base_tag,
-                    },
-                    .positionals = .{
-                        .fn_type = fn_type.inst,
-                        .body = .{ .instructions = arena_instrs },
-                    },
-                    .kw_args = .{},
-                };
-                return self.emitUnnamedDecl(&fn_inst.base);
+                return self.emitFn(module_fn, src, typed_value.ty);
             },
             .Array => {
                 // TODO more checks to make sure this can be emitted as a string literal
@@ -1751,7 +1926,7 @@ const EmitZIR = struct {
         }
     }
 
-    fn emitNoOp(self: *EmitZIR, src: usize, tag: Inst.Tag) Allocator.Error!*Inst {
+    fn emitNoOp(self: *EmitZIR, src: usize, old_inst: *ir.Inst.NoOp, tag: Inst.Tag) Allocator.Error!*Inst {
         const new_inst = try self.arena.allocator.create(Inst.NoOp);
         new_inst.* = .{
             .base = .{
@@ -1843,19 +2018,21 @@ const EmitZIR = struct {
             const new_inst = switch (inst.tag) {
                 .constant => unreachable, // excluded from function bodies
 
-                .arg => try self.emitNoOp(inst.src, .arg),
-                .breakpoint => try self.emitNoOp(inst.src, .breakpoint),
-                .unreach => try self.emitNoOp(inst.src, .@"unreachable"),
-                .retvoid => try self.emitNoOp(inst.src, .returnvoid),
-                .dbg_stmt => try self.emitNoOp(inst.src, .dbg_stmt),
+                .breakpoint => try self.emitNoOp(inst.src, inst.castTag(.breakpoint).?, .breakpoint),
+                .unreach => try self.emitNoOp(inst.src, inst.castTag(.unreach).?, .unreach_nocheck),
+                .retvoid => try self.emitNoOp(inst.src, inst.castTag(.retvoid).?, .returnvoid),
+                .dbg_stmt => try self.emitNoOp(inst.src, inst.castTag(.dbg_stmt).?, .dbg_stmt),
 
                 .not => try self.emitUnOp(inst.src, new_body, inst.castTag(.not).?, .boolnot),
                 .ret => try self.emitUnOp(inst.src, new_body, inst.castTag(.ret).?, .@"return"),
                 .ptrtoint => try self.emitUnOp(inst.src, new_body, inst.castTag(.ptrtoint).?, .ptrtoint),
                 .isnull => try self.emitUnOp(inst.src, new_body, inst.castTag(.isnull).?, .isnull),
                 .isnonnull => try self.emitUnOp(inst.src, new_body, inst.castTag(.isnonnull).?, .isnonnull),
+                .iserr => try self.emitUnOp(inst.src, new_body, inst.castTag(.iserr).?, .iserr),
                 .load => try self.emitUnOp(inst.src, new_body, inst.castTag(.load).?, .deref),
                 .ref => try self.emitUnOp(inst.src, new_body, inst.castTag(.ref).?, .ref),
+                .unwrap_optional => try self.emitUnOp(inst.src, new_body, inst.castTag(.unwrap_optional).?, .unwrap_optional_unsafe),
+                .wrap_optional => try self.emitCast(inst.src, new_body, inst.castTag(.wrap_optional).?, .as),
 
                 .add => try self.emitBinOp(inst.src, new_body, inst.castTag(.add).?, .add),
                 .sub => try self.emitBinOp(inst.src, new_body, inst.castTag(.sub).?, .sub),
@@ -1886,6 +2063,22 @@ const EmitZIR = struct {
                     break :blk &new_inst.base;
                 },
 
+                .arg => blk: {
+                    const old_inst = inst.castTag(.arg).?;
+                    const new_inst = try self.arena.allocator.create(Inst.Arg);
+                    new_inst.* = .{
+                        .base = .{
+                            .src = inst.src,
+                            .tag = .arg,
+                        },
+                        .positionals = .{
+                            .name = try self.arena.allocator.dupe(u8, mem.spanZ(old_inst.name)),
+                        },
+                        .kw_args = .{},
+                    };
+                    break :blk &new_inst.base;
+                },
+
                 .block => blk: {
                     const old_inst = inst.castTag(.block).?;
                     const new_inst = try self.arena.allocator.create(Inst.Block);
@@ -1904,6 +2097,31 @@ const EmitZIR = struct {
                         },
                         .positionals = .{
                             .body = .{ .instructions = block_body.toOwnedSlice() },
+                        },
+                        .kw_args = .{},
+                    };
+
+                    break :blk &new_inst.base;
+                },
+
+                .loop => blk: {
+                    const old_inst = inst.castTag(.loop).?;
+                    const new_inst = try self.arena.allocator.create(Inst.Loop);
+
+                    try self.loop_table.put(old_inst, new_inst);
+
+                    var loop_body = std.ArrayList(*Inst).init(self.allocator);
+                    defer loop_body.deinit();
+
+                    try self.emitBody(old_inst.body, inst_table, &loop_body);
+
+                    new_inst.* = .{
+                        .base = .{
+                            .src = inst.src,
+                            .tag = Inst.Loop.base_tag,
+                        },
+                        .positionals = .{
+                            .body = .{ .instructions = loop_body.toOwnedSlice() },
                         },
                         .kw_args = .{},
                     };
@@ -2019,10 +2237,24 @@ const EmitZIR = struct {
                     defer then_body.deinit();
                     defer else_body.deinit();
 
+                    const then_deaths = try self.arena.allocator.alloc(*Inst, old_inst.thenDeaths().len);
+                    const else_deaths = try self.arena.allocator.alloc(*Inst, old_inst.elseDeaths().len);
+
+                    for (old_inst.thenDeaths()) |death, i| {
+                        then_deaths[i] = try self.resolveInst(new_body, death);
+                    }
+                    for (old_inst.elseDeaths()) |death, i| {
+                        else_deaths[i] = try self.resolveInst(new_body, death);
+                    }
+
                     try self.emitBody(old_inst.then_body, inst_table, &then_body);
                     try self.emitBody(old_inst.else_body, inst_table, &else_body);
 
                     const new_inst = try self.arena.allocator.create(Inst.CondBr);
+
+                    try self.body_metadata.put(&new_inst.positionals.then_body, .{ .deaths = then_deaths });
+                    try self.body_metadata.put(&new_inst.positionals.else_body, .{ .deaths = else_deaths });
+
                     new_inst.* = .{
                         .base = .{
                             .src = inst.src,
@@ -2038,6 +2270,7 @@ const EmitZIR = struct {
                     break :blk &new_inst.base;
                 },
             };
+            try self.metadata.put(new_inst, .{ .deaths = inst.deaths });
             try instructions.append(new_inst);
             try inst_table.put(inst, new_inst);
         }
@@ -2141,6 +2374,21 @@ const EmitZIR = struct {
                     } else {
                         std.debug.panic("TODO implement emitType for {}", .{ty});
                     }
+                },
+                .Optional => {
+                    var buf: Type.Payload.Pointer = undefined;
+                    const inst = try self.arena.allocator.create(Inst.UnOp);
+                    inst.* = .{
+                        .base = .{
+                            .src = src,
+                            .tag = .optional_type,
+                        },
+                        .positionals = .{
+                            .operand = (try self.emitType(src, ty.optionalChild(&buf))).inst,
+                        },
+                        .kw_args = .{},
+                    };
+                    return self.emitUnnamedDecl(&inst.base);
                 },
                 else => std.debug.panic("TODO implement emitType for {}", .{ty}),
             },

@@ -392,28 +392,50 @@ fn renderExpression(
             return renderToken(tree, stream, any_type.token, indent, start_col, space);
         },
 
-        .Block => {
-            const block = @fieldParentPtr(ast.Node.Block, "base", base);
+        .Block, .LabeledBlock => {
+            const block: struct {
+                label: ?ast.TokenIndex,
+                statements: []*ast.Node,
+                lbrace: ast.TokenIndex,
+                rbrace: ast.TokenIndex,
+            } = b: {
+                if (base.castTag(.Block)) |block| {
+                    break :b .{
+                        .label = null,
+                        .statements = block.statements(),
+                        .lbrace = block.lbrace,
+                        .rbrace = block.rbrace,
+                    };
+                } else if (base.castTag(.LabeledBlock)) |block| {
+                    break :b .{
+                        .label = block.label,
+                        .statements = block.statements(),
+                        .lbrace = block.lbrace,
+                        .rbrace = block.rbrace,
+                    };
+                } else {
+                    unreachable;
+                }
+            };
 
             if (block.label) |label| {
                 try renderToken(tree, stream, label, indent, start_col, Space.None);
                 try renderToken(tree, stream, tree.nextToken(label), indent, start_col, Space.Space);
             }
 
-            if (block.statements_len == 0) {
+            if (block.statements.len == 0) {
                 try renderToken(tree, stream, block.lbrace, indent + indent_delta, start_col, Space.None);
                 return renderToken(tree, stream, block.rbrace, indent, start_col, space);
             } else {
                 const block_indent = indent + indent_delta;
                 try renderToken(tree, stream, block.lbrace, block_indent, start_col, Space.Newline);
 
-                const block_statements = block.statements();
-                for (block_statements) |statement, i| {
+                for (block.statements) |statement, i| {
                     try stream.writeByteNTimes(' ', block_indent);
                     try renderStatement(allocator, stream, tree, block_indent, start_col, statement);
 
-                    if (i + 1 < block_statements.len) {
-                        try renderExtraNewline(tree, stream, start_col, block_statements[i + 1]);
+                    if (i + 1 < block.statements.len) {
+                        try renderExtraNewline(tree, stream, start_col, block.statements[i + 1]);
                     }
                 }
 
@@ -1841,7 +1863,7 @@ fn renderExpression(
 
             const rparen = tree.nextToken(for_node.array_expr.lastToken());
 
-            const body_is_block = for_node.body.tag == .Block;
+            const body_is_block = for_node.body.tag.isBlock();
             const src_one_line_to_body = !body_is_block and tree.tokensOnSameLine(rparen, for_node.body.firstToken());
             const body_on_same_line = body_is_block or src_one_line_to_body;
 
@@ -2385,7 +2407,7 @@ fn renderTokenOffset(
         }
     }
 
-    if (next_token_id != .LineComment) blk: {
+    if (next_token_id != .LineComment) {
         switch (space) {
             Space.None, Space.NoNewline => return,
             Space.Newline => {
@@ -2578,6 +2600,7 @@ fn renderDocCommentsToken(
 fn nodeIsBlock(base: *const ast.Node) bool {
     return switch (base.tag) {
         .Block,
+        .LabeledBlock,
         .If,
         .For,
         .While,

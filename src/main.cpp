@@ -38,6 +38,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  builtin                      show the source code of @import(\"builtin\")\n"
         "  cc                           use Zig as a drop-in C compiler\n"
         "  c++                          use Zig as a drop-in C++ compiler\n"
+        "  env                          print lib path, std path, compiler id and version\n"
         "  fmt                          parse files and render in canonical zig format\n"
         "  id                           print the base64-encoded compiler id\n"
         "  init-exe                     initialize a `zig build` application in the cwd\n"
@@ -582,6 +583,8 @@ static int main0(int argc, char **argv) {
         return (term.how == TerminationIdClean) ? term.code : -1;
     } else if (argc >= 2 && strcmp(argv[1], "fmt") == 0) {
         return stage2_fmt(argc, argv);
+    } else if (argc >= 2 && strcmp(argv[1], "env") == 0) {
+        return stage2_env(argc, argv);
     } else if (argc >= 2 && (strcmp(argv[1], "cc") == 0 || strcmp(argv[1], "c++") == 0)) {
         emit_h = false;
         strip = true;

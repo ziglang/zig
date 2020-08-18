@@ -1,4 +1,6 @@
+const std = @import("std");
 const Type = @import("../Type.zig");
+const DW = std.dwarf;
 
 // zig fmt: off
 
@@ -101,6 +103,30 @@ pub const Register = enum(u8) {
     pub fn to8(self: Register) Register {
         return @intToEnum(Register, @as(u8, self.id()) + 48);
     }
+
+    pub fn dwarfLocOp(self: Register) u8 {
+        return switch (self.to64()) {
+            .rax => DW.OP_reg0,
+            .rdx => DW.OP_reg1,
+            .rcx => DW.OP_reg2,
+            .rbx => DW.OP_reg3,
+            .rsi => DW.OP_reg4,
+            .rdi => DW.OP_reg5,
+            .rbp => DW.OP_reg6,
+            .rsp => DW.OP_reg7,
+
+            .r8 => DW.OP_reg8,
+            .r9 => DW.OP_reg9,
+            .r10 => DW.OP_reg10,
+            .r11 => DW.OP_reg11,
+            .r12 => DW.OP_reg12,
+            .r13 => DW.OP_reg13,
+            .r14 => DW.OP_reg14,
+            .r15 => DW.OP_reg15,
+
+            else => unreachable,
+        };
+    }
 };
 
 // zig fmt: on
@@ -109,3 +135,86 @@ pub const Register = enum(u8) {
 pub const callee_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
 pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
 pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
+
+// TODO add these registers to the enum and populate dwarfLocOp
+//    // Return Address register. This is stored in `0(%rsp, "")` and is not a physical register.
+//    RA = (16, "RA"),
+//
+//    XMM0 = (17, "xmm0"),
+//    XMM1 = (18, "xmm1"),
+//    XMM2 = (19, "xmm2"),
+//    XMM3 = (20, "xmm3"),
+//    XMM4 = (21, "xmm4"),
+//    XMM5 = (22, "xmm5"),
+//    XMM6 = (23, "xmm6"),
+//    XMM7 = (24, "xmm7"),
+//
+//    XMM8 = (25, "xmm8"),
+//    XMM9 = (26, "xmm9"),
+//    XMM10 = (27, "xmm10"),
+//    XMM11 = (28, "xmm11"),
+//    XMM12 = (29, "xmm12"),
+//    XMM13 = (30, "xmm13"),
+//    XMM14 = (31, "xmm14"),
+//    XMM15 = (32, "xmm15"),
+//
+//    ST0 = (33, "st0"),
+//    ST1 = (34, "st1"),
+//    ST2 = (35, "st2"),
+//    ST3 = (36, "st3"),
+//    ST4 = (37, "st4"),
+//    ST5 = (38, "st5"),
+//    ST6 = (39, "st6"),
+//    ST7 = (40, "st7"),
+//
+//    MM0 = (41, "mm0"),
+//    MM1 = (42, "mm1"),
+//    MM2 = (43, "mm2"),
+//    MM3 = (44, "mm3"),
+//    MM4 = (45, "mm4"),
+//    MM5 = (46, "mm5"),
+//    MM6 = (47, "mm6"),
+//    MM7 = (48, "mm7"),
+//
+//    RFLAGS = (49, "rFLAGS"),
+//    ES = (50, "es"),
+//    CS = (51, "cs"),
+//    SS = (52, "ss"),
+//    DS = (53, "ds"),
+//    FS = (54, "fs"),
+//    GS = (55, "gs"),
+//
+//    FS_BASE = (58, "fs.base"),
+//    GS_BASE = (59, "gs.base"),
+//
+//    TR = (62, "tr"),
+//    LDTR = (63, "ldtr"),
+//    MXCSR = (64, "mxcsr"),
+//    FCW = (65, "fcw"),
+//    FSW = (66, "fsw"),
+//
+//    XMM16 = (67, "xmm16"),
+//    XMM17 = (68, "xmm17"),
+//    XMM18 = (69, "xmm18"),
+//    XMM19 = (70, "xmm19"),
+//    XMM20 = (71, "xmm20"),
+//    XMM21 = (72, "xmm21"),
+//    XMM22 = (73, "xmm22"),
+//    XMM23 = (74, "xmm23"),
+//    XMM24 = (75, "xmm24"),
+//    XMM25 = (76, "xmm25"),
+//    XMM26 = (77, "xmm26"),
+//    XMM27 = (78, "xmm27"),
+//    XMM28 = (79, "xmm28"),
+//    XMM29 = (80, "xmm29"),
+//    XMM30 = (81, "xmm30"),
+//    XMM31 = (82, "xmm31"),
+//
+//    K0 = (118, "k0"),
+//    K1 = (119, "k1"),
+//    K2 = (120, "k2"),
+//    K3 = (121, "k3"),
+//    K4 = (122, "k4"),
+//    K5 = (123, "k5"),
+//    K6 = (124, "k6"),
+//    K7 = (125, "k7"),

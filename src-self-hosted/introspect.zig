@@ -3,8 +3,7 @@
 const std = @import("std");
 const mem = std.mem;
 const fs = std.fs;
-
-const warn = std.debug.warn;
+const CacheHash = std.cache_hash.CacheHash;
 
 /// Caller must free result
 pub fn testZigInstallPrefix(allocator: *mem.Allocator, test_path: []const u8) ![]u8 {
@@ -63,7 +62,7 @@ pub fn findZigLibDir(allocator: *mem.Allocator) ![]u8 {
 
 pub fn resolveZigLibDir(allocator: *mem.Allocator) ![]u8 {
     return findZigLibDir(allocator) catch |err| {
-        warn(
+        std.debug.print(
             \\Unable to find zig lib directory: {}.
             \\Reinstall Zig or use --zig-install-prefix.
             \\
@@ -73,7 +72,64 @@ pub fn resolveZigLibDir(allocator: *mem.Allocator) ![]u8 {
     };
 }
 
-/// Caller must free result
-pub fn resolveZigCacheDir(allocator: *mem.Allocator) ![]u8 {
-    return std.mem.dupe(allocator, u8, "zig-cache");
+/// Caller owns returned memory.
+pub fn resolveGlobalCacheDir(allocator: *mem.Allocator) ![]u8 {
+    const appname = "zig";
+
+    if (std.Target.current.os.tag != .windows) {
+        if (std.os.getenv("XDG_CACHE_HOME")) |cache_root| {
+            return fs.path.join(allocator, &[_][]const u8{ cache_root, appname });
+        } else if (std.os.getenv("HOME")) |home| {
+            return fs.path.join(allocator, &[_][]const u8{ home, ".cache", appname });
+        }
+    }
+
+    return fs.getAppDataDir(allocator, appname);
+}
+
+var compiler_id_mutex = std.Mutex{};
+var compiler_id: [16]u8 = undefined;
+var compiler_id_computed = false;
+
+pub fn resolveCompilerId(gpa: *mem.Allocator) ![16]u8 {
+    const held = compiler_id_mutex.acquire();
+    defer held.release();
+
+    if (compiler_id_computed)
+        return compiler_id;
+    compiler_id_computed = true;
+
+    const global_cache_dir = try resolveGlobalCacheDir(gpa);
+    defer gpa.free(global_cache_dir);
+
+    // TODO Introduce openGlobalCacheDir which returns a dir handle rather than a string.
+    var cache_dir = try fs.cwd().openDir(global_cache_dir, .{});
+    defer cache_dir.close();
+
+    var ch = try CacheHash.init(gpa, cache_dir, "exe");
+    defer ch.release();
+
+    const self_exe_path = try fs.selfExePathAlloc(gpa);
+    defer gpa.free(self_exe_path);
+
+    _ = try ch.addFile(self_exe_path, null);
+
+    if (try ch.hit()) |digest| {
+        compiler_id = digest[0..16].*;
+        return compiler_id;
+    }
+
+    const libs = try std.process.getSelfExeSharedLibPaths(gpa);
+    defer {
+        for (libs) |lib| gpa.free(lib);
+        gpa.free(libs);
+    }
+
+    for (libs) |lib| {
+        try ch.addFilePost(lib);
+    }
+
+    const digest = ch.final();
+    compiler_id = digest[0..16].*;
+    return compiler_id;
 }
