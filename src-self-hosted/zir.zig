@@ -47,6 +47,10 @@ pub const Inst = struct {
         array_cat,
         /// Array multiplication `a ** b`
         array_mul,
+        /// Create an array type
+        array_type,
+        /// Create an array type with sentinel
+        array_type_sentinel,
         /// Function parameter value. These must be first in a function's main block,
         /// in respective order with the parameters.
         arg,
@@ -268,6 +272,7 @@ pub const Inst = struct {
                 .addwrap,
                 .array_cat,
                 .array_mul,
+                .array_type,
                 .bitand,
                 .bitor,
                 .div,
@@ -294,6 +299,7 @@ pub const Inst = struct {
                 => BinOp,
 
                 .arg => Arg,
+                .array_type_sentinel => ArrayTypeSentinel,
                 .block => Block,
                 .@"break" => Break,
                 .breakvoid => BreakVoid,
@@ -333,6 +339,8 @@ pub const Inst = struct {
                 .alloc_inferred,
                 .array_cat,
                 .array_mul,
+                .array_type,
+                .array_type_sentinel,
                 .arg,
                 .as,
                 .@"asm",
@@ -848,6 +856,18 @@ pub const Inst = struct {
             @"volatile": bool = false,
             sentinel: ?*Inst = null,
         },
+    };
+
+    pub const ArrayTypeSentinel = struct {
+        pub const base_tag = Tag.array_type_sentinel;
+        base: Inst,
+
+        positionals: struct {
+            len: *Inst,
+            sentinel: *Inst,
+            elem_type: *Inst,
+        },
+        kw_args: struct {},
     };
 };
 

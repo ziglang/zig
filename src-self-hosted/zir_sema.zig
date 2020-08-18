@@ -113,6 +113,8 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .unwrap_err_safe => return analyzeInstUnwrapErr(mod, scope, old_inst.castTag(.unwrap_err_safe).?, true),
         .unwrap_err_unsafe => return analyzeInstUnwrapErr(mod, scope, old_inst.castTag(.unwrap_err_unsafe).?, false),
         .ensure_err_payload_void => return analyzeInstEnsureErrPayloadVoid(mod, scope, old_inst.castTag(.ensure_err_payload_void).?),
+        .array_type => return analyzeInstArrayType(mod, scope, old_inst.castTag(.array_type).?),
+        .array_type_sentinel => return analyzeInstArrayTypeSentinel(mod, scope, old_inst.castTag(.array_type_sentinel).?),
     }
 }
 
@@ -676,31 +678,24 @@ fn analyzeInstIntType(mod: *Module, scope: *Scope, inttype: *zir.Inst.IntType) I
 fn analyzeInstOptionalType(mod: *Module, scope: *Scope, optional: *zir.Inst.UnOp) InnerError!*Inst {
     const child_type = try resolveType(mod, scope, optional.positionals.operand);
 
-    return mod.constType(scope, optional.base.src, Type.initPayload(switch (child_type.tag()) {
-        .single_const_pointer => blk: {
-            const payload = try scope.arena().create(Type.Payload.Pointer);
-            payload.* = .{
-                .base = .{ .tag = .optional_single_const_pointer },
-                .pointee_type = child_type.elemType(),
-            };
-            break :blk &payload.base;
-        },
-        .single_mut_pointer => blk: {
-            const payload = try scope.arena().create(Type.Payload.Pointer);
-            payload.* = .{
-                .base = .{ .tag = .optional_single_mut_pointer },
-                .pointee_type = child_type.elemType(),
-            };
-            break :blk &payload.base;
-        },
-        else => blk: {
-            const payload = try scope.arena().create(Type.Payload.Optional);
-            payload.* = .{
-                .child_type = child_type,
-            };
-            break :blk &payload.base;
-        },
-    }));
+    return mod.constType(scope, optional.base.src, try mod.optionalType(scope, child_type));
+}
+
+fn analyzeInstArrayType(mod: *Module, scope: *Scope, array: *zir.Inst.BinOp) InnerError!*Inst {
+    // TODO these should be lazily evaluated
+    const len = try resolveInstConst(mod, scope, array.positionals.lhs);
+    const elem_type = try resolveType(mod, scope, array.positionals.rhs);
+
+    return mod.constType(scope, array.base.src, try mod.arrayType(scope, len.val.toUnsignedInt(), null, elem_type));
+}
+
+fn analyzeInstArrayTypeSentinel(mod: *Module, scope: *Scope, array: *zir.Inst.ArrayTypeSentinel) InnerError!*Inst {
+    // TODO these should be lazily evaluated
+    const len = try resolveInstConst(mod, scope, array.positionals.len);
+    const sentinel = try resolveInstConst(mod, scope, array.positionals.sentinel);
+    const elem_type = try resolveType(mod, scope, array.positionals.elem_type);
+
+    return mod.constType(scope, array.base.src, try mod.arrayType(scope, len.val.toUnsignedInt(), sentinel.val, elem_type));
 }
 
 fn analyzeInstUnwrapOptional(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp, safety_check: bool) InnerError!*Inst {

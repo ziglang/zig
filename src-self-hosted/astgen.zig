@@ -128,6 +128,8 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .Break => return rlWrap(mod, scope, rl, try breakExpr(mod, scope, node.castTag(.Break).?)),
         .PtrType => return rlWrap(mod, scope, rl, try ptrType(mod, scope, node.castTag(.PtrType).?)),
         .GroupedExpression => return expr(mod, scope, rl, node.castTag(.GroupedExpression).?.expr),
+        .ArrayType => return rlWrap(mod, scope, rl, try arrayType(mod, scope, node.castTag(.ArrayType).?)),
+        .ArrayTypeSentinel => return rlWrap(mod, scope, rl, try arrayTypeSentinel(mod, scope, node.castTag(.ArrayTypeSentinel).?)),
 
         .Defer => return mod.failNode(scope, node, "TODO implement astgen.expr for .Defer", .{}),
         .Catch => return mod.failNode(scope, node, "TODO implement astgen.expr for .Catch", .{}),
@@ -141,8 +143,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .NegationWrap => return mod.failNode(scope, node, "TODO implement astgen.expr for .NegationWrap", .{}),
         .Resume => return mod.failNode(scope, node, "TODO implement astgen.expr for .Resume", .{}),
         .Try => return mod.failNode(scope, node, "TODO implement astgen.expr for .Try", .{}),
-        .ArrayType => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayType", .{}),
-        .ArrayTypeSentinel => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayTypeSentinel", .{}),
         .SliceType => return mod.failNode(scope, node, "TODO implement astgen.expr for .SliceType", .{}),
         .Slice => return mod.failNode(scope, node, "TODO implement astgen.expr for .Slice", .{}),
         .ArrayAccess => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayAccess", .{}),
@@ -483,6 +483,48 @@ fn ptrType(mod: *Module, scope: *Scope, node: *ast.Node.PtrType) InnerError!*zir
     }
 
     return addZIRInst(mod, scope, src, zir.Inst.PtrType, .{ .child_type = child_type }, kw_args);
+}
+
+fn arrayType(mod: *Module, scope: *Scope, node: *ast.Node.ArrayType) !*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.op_token].start;
+    const meta_type = try addZIRInstConst(mod, scope, src, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.type_type),
+    });
+    const usize_type = try addZIRInstConst(mod, scope, src, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.usize_type),
+    });
+
+    const len = try expr(mod, scope, .{ .ty = usize_type }, node.len_expr);
+    const child_type = try expr(mod, scope, .{ .ty = meta_type }, node.rhs);
+
+    return addZIRBinOp(mod, scope, src, .array_type, len, child_type);
+}
+
+fn arrayTypeSentinel(mod: *Module, scope: *Scope, node: *ast.Node.ArrayTypeSentinel) !*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.op_token].start;
+    const meta_type = try addZIRInstConst(mod, scope, src, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.type_type),
+    });
+    const usize_type = try addZIRInstConst(mod, scope, src, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.usize_type),
+    });
+
+    const len = try expr(mod, scope, .{ .ty = usize_type }, node.len_expr);
+    const sentinel_uncasted = try expr(mod, scope, .none, node.sentinel);
+    const elem_type = try expr(mod, scope, .{ .ty = meta_type }, node.rhs);
+    const sentinel = try addZIRBinOp(mod, scope, src, .as, elem_type, sentinel_uncasted);
+
+    return addZIRInst(mod, scope, src, zir.Inst.ArrayTypeSentinel, .{
+        .len = len,
+        .sentinel = sentinel,
+        .elem_type = elem_type,
+    }, .{});
 }
 
 fn unwrapOptional(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.SimpleSuffixOp) InnerError!*zir.Inst {
