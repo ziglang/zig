@@ -17,6 +17,7 @@
 
 #define WHITESPACE \
          ' ': \
+    case '\r': \
     case '\n'
 
 #define DIGIT_NON_ZERO \
