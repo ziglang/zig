@@ -872,6 +872,8 @@ pub const Module = struct {
     };
 
     pub fn deinit(self: *Module, allocator: *Allocator) void {
+        self.metadata.deinit();
+        self.body_metadata.deinit();
         allocator.free(self.decls);
         self.arena.deinit();
         self.* = undefined;
@@ -1543,8 +1545,8 @@ pub fn emit(allocator: *Allocator, old_module: IrModule) !Module {
         .metadata = std.AutoHashMap(*Inst, Module.MetaData).init(allocator),
         .body_metadata = std.AutoHashMap(*Module.Body, Module.BodyMetaData).init(allocator),
     };
-    defer ctx.metadata.deinit();
-    defer ctx.body_metadata.deinit();
+    errdefer ctx.metadata.deinit();
+    errdefer ctx.body_metadata.deinit();
     defer ctx.block_table.deinit();
     defer ctx.loop_table.deinit();
     defer ctx.decls.deinit(allocator);
