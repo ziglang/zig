@@ -193,7 +193,7 @@ pub const CacheHash = struct {
             const digest_str = iter.next() orelse return error.InvalidFormat;
             const file_path = iter.rest();
 
-            cache_hash_file.stat.inode = fmt.parseInt(fs.File.INode, mtime_nsec_str, 10) catch return error.InvalidFormat;
+            cache_hash_file.stat.inode = fmt.parseInt(fs.File.INode, inode, 10) catch return error.InvalidFormat;
             cache_hash_file.stat.mtime = fmt.parseInt(i64, mtime_nsec_str, 10) catch return error.InvalidFormat;
             base64_decoder.decode(&cache_hash_file.bin_digest, digest_str) catch return error.InvalidFormat;
 
