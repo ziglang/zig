@@ -134,10 +134,10 @@ fn writeMachOHeader(self: *MachO) !void {
 pub fn flush(self: *MachO, module: *Module) !void {
     // TODO implement flush
     if (self.entry_addr == null and self.base.options.output_mode == .Exe) {
-        log.debug(.link, "flushing. no_entry_point_found = true\n", .{});
+        log.debug("flushing. no_entry_point_found = true\n", .{});
         self.error_flags.no_entry_point_found = true;
     } else {
-        log.debug(.link, "flushing. no_entry_point_found = false\n", .{});
+        log.debug("flushing. no_entry_point_found = false\n", .{});
         self.error_flags.no_entry_point_found = false;
         try self.writeMachOHeader();
     }
