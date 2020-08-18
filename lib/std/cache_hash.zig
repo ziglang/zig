@@ -466,7 +466,16 @@ fn isProblematicTimestamp(fs_clock: i128) bool {
     } else {
         wall_nsec &= @as(i64, -1) << @intCast(u6, @ctz(i64, fs_nsec));
     }
-    return wall_nsec == fs_nsec and wall_sec == fs_sec;
+    if (wall_nsec == fs_nsec and wall_sec == fs_sec)
+        return true;
+
+    // I have also observed precision problems at a millisecond granularity.
+    const fs_msec = @intCast(i64, @divFloor(fs_clock, std.time.ns_per_ms * 2));
+    const wall_msec = @intCast(i64, @divFloor(wall_clock, std.time.ns_per_ms * 2));
+    if (fs_msec == wall_msec)
+        return true;
+
+    return false;
 }
 
 test "cache file and then recall it" {
@@ -479,9 +488,10 @@ test "cache file and then recall it" {
     const temp_file = "test.txt";
     const temp_manifest_dir = "temp_manifest_dir";
 
+    const ts = std.time.nanoTimestamp();
     try cwd.writeFile(temp_file, "Hello, world!\n");
 
-    while (isProblematicTimestamp(std.time.nanoTimestamp())) {
+    while (isProblematicTimestamp(ts)) {
         std.time.sleep(1);
     }
 
@@ -545,9 +555,13 @@ test "check that changing a file makes cache fail" {
     const original_temp_file_contents = "Hello, world!\n";
     const updated_temp_file_contents = "Hello, world; but updated!\n";
 
+    try cwd.deleteTree(temp_manifest_dir);
+    try cwd.deleteTree(temp_file);
+
+    const ts = std.time.nanoTimestamp();
     try cwd.writeFile(temp_file, original_temp_file_contents);
 
-    while (isProblematicTimestamp(std.time.nanoTimestamp())) {
+    while (isProblematicTimestamp(ts)) {
         std.time.sleep(1);
     }
 
@@ -571,10 +585,6 @@ test "check that changing a file makes cache fail" {
 
     try cwd.writeFile(temp_file, updated_temp_file_contents);
 
-    while (isProblematicTimestamp(std.time.nanoTimestamp())) {
-        std.time.sleep(1);
-    }
-
     {
         var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
         defer ch.release();
@@ -594,7 +604,7 @@ test "check that changing a file makes cache fail" {
     testing.expect(!mem.eql(u8, digest1[0..], digest2[0..]));
 
     try cwd.deleteTree(temp_manifest_dir);
-    try cwd.deleteFile(temp_file);
+    try cwd.deleteTree(temp_file);
 }
 
 test "no file inputs" {
@@ -643,10 +653,11 @@ test "CacheHashes with files added after initial hash work" {
     const temp_file2 = "cache_hash_post_file_test2.txt";
     const temp_manifest_dir = "cache_hash_post_file_manifest_dir";
 
+    const ts1 = std.time.nanoTimestamp();
     try cwd.writeFile(temp_file1, "Hello, world!\n");
     try cwd.writeFile(temp_file2, "Hello world the second!\n");
 
-    while (isProblematicTimestamp(std.time.nanoTimestamp())) {
+    while (isProblematicTimestamp(ts1)) {
         std.time.sleep(1);
     }
 
@@ -680,9 +691,10 @@ test "CacheHashes with files added after initial hash work" {
     testing.expect(mem.eql(u8, &digest1, &digest2));
 
     // Modify the file added after initial hash
+    const ts2 = std.time.nanoTimestamp();
     try cwd.writeFile(temp_file2, "Hello world the second, updated\n");
 
-    while (isProblematicTimestamp(std.time.nanoTimestamp())) {
+    while (isProblematicTimestamp(ts2)) {
         std.time.sleep(1);
     }
 
