@@ -75,6 +75,7 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
             => return .Optional,
+            .enum_literal => return .EnumLiteral,
         }
     }
 
@@ -127,6 +128,7 @@ pub const Type = extern union {
         if (zig_tag_a != zig_tag_b)
             return false;
         switch (zig_tag_a) {
+            .EnumLiteral => return true,
             .Type => return true,
             .Void => return true,
             .Bool => return true,
@@ -211,7 +213,6 @@ pub const Type = extern union {
             .Frame,
             .AnyFrame,
             .Vector,
-            .EnumLiteral,
             => std.debug.panic("TODO implement Type equality comparison of {} and {}", .{ a, b }),
         }
     }
@@ -327,6 +328,7 @@ pub const Type = extern union {
             .fn_ccc_void_no_args,
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
+            .enum_literal,
             => unreachable,
 
             .array_u8_sentinel_0 => return self.copyPayloadShallow(allocator, Payload.Array_u8_Sentinel0),
@@ -437,6 +439,7 @@ pub const Type = extern union {
                 .noreturn,
                 => return out_stream.writeAll(@tagName(t)),
 
+                .enum_literal => return out_stream.writeAll("@TypeOf(.EnumLiteral)"),
                 .@"null" => return out_stream.writeAll("@TypeOf(null)"),
                 .@"undefined" => return out_stream.writeAll("@TypeOf(undefined)"),
 
@@ -561,6 +564,7 @@ pub const Type = extern union {
             .fn_ccc_void_no_args => return Value.initTag(.fn_ccc_void_no_args_type),
             .single_const_pointer_to_comptime_int => return Value.initTag(.single_const_pointer_to_comptime_int_type),
             .const_slice_u8 => return Value.initTag(.const_slice_u8_type),
+            .enum_literal => return Value.initTag(.enum_literal_type),
             else => {
                 const ty_payload = try allocator.create(Value.Payload.Ty);
                 ty_payload.* = .{ .ty = self };
@@ -625,6 +629,7 @@ pub const Type = extern union {
             .noreturn,
             .@"null",
             .@"undefined",
+            .enum_literal,
             => false,
         };
     }
@@ -716,6 +721,7 @@ pub const Type = extern union {
             .noreturn,
             .@"null",
             .@"undefined",
+            .enum_literal,
             => unreachable,
         };
     }
@@ -736,6 +742,7 @@ pub const Type = extern union {
             .noreturn => unreachable,
             .@"null" => unreachable,
             .@"undefined" => unreachable,
+            .enum_literal => unreachable,
 
             .u8,
             .i8,
@@ -863,6 +870,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => false,
 
             .single_const_pointer,
@@ -924,6 +932,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => false,
 
             .const_slice_u8 => true,
@@ -980,6 +989,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => false,
 
             .single_const_pointer,
@@ -1042,6 +1052,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => false,
         };
     }
@@ -1147,6 +1158,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
+            .enum_literal,
             => unreachable,
 
             .array => self.cast(Payload.Array).?.elem_type,
@@ -1252,6 +1264,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => unreachable,
 
             .array => self.cast(Payload.Array).?.len,
@@ -1311,6 +1324,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => unreachable,
 
             .array, .array_u8 => return null,
@@ -1368,6 +1382,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => false,
 
             .int_signed,
@@ -1428,6 +1443,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => false,
 
             .int_unsigned,
@@ -1478,6 +1494,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => unreachable,
 
             .int_unsigned => .{ .signed = false, .bits = self.cast(Payload.IntUnsigned).?.bits },
@@ -1546,6 +1563,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => false,
 
             .usize,
@@ -1643,6 +1661,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => unreachable,
         };
     }
@@ -1706,6 +1725,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => unreachable,
         }
     }
@@ -1768,6 +1788,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => unreachable,
         }
     }
@@ -1830,6 +1851,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => unreachable,
         };
     }
@@ -1889,6 +1911,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => unreachable,
         };
     }
@@ -1948,6 +1971,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => unreachable,
         };
     }
@@ -2007,6 +2031,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => false,
         };
     }
@@ -2055,6 +2080,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => return null,
 
             .void => return Value.initTag(.void_value),
@@ -2143,6 +2169,7 @@ pub const Type = extern union {
             .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
+            .enum_literal,
             => return false,
         };
     }
@@ -2186,6 +2213,7 @@ pub const Type = extern union {
         comptime_int,
         comptime_float,
         noreturn,
+        enum_literal,
         @"null",
         @"undefined",
         fn_noreturn_no_args,

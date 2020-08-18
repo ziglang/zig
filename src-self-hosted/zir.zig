@@ -231,6 +231,8 @@ pub const Inst = struct {
         unwrap_err_unsafe,
         /// Takes a *E!T and raises a compiler error if T != void
         ensure_err_payload_void,
+        /// Enum literal
+        enum_literal,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
@@ -326,6 +328,7 @@ pub const Inst = struct {
                 .elemptr => ElemPtr,
                 .condbr => CondBr,
                 .ptr_type => PtrType,
+                .enum_literal => EnumLiteral,
             };
         }
 
@@ -410,6 +413,7 @@ pub const Inst = struct {
                 .unwrap_err_unsafe,
                 .ptr_type,
                 .ensure_err_payload_void,
+                .enum_literal,
                 => false,
 
                 .@"break",
@@ -866,6 +870,16 @@ pub const Inst = struct {
             len: *Inst,
             sentinel: *Inst,
             elem_type: *Inst,
+        },
+        kw_args: struct {},
+    };
+
+    pub const EnumLiteral = struct {
+        pub const base_tag = Tag.enum_literal;
+        base: Inst,
+
+        positionals: struct {
+            name: []const u8,
         },
         kw_args: struct {},
     };

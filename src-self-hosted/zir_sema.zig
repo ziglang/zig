@@ -115,6 +115,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .ensure_err_payload_void => return analyzeInstEnsureErrPayloadVoid(mod, scope, old_inst.castTag(.ensure_err_payload_void).?),
         .array_type => return analyzeInstArrayType(mod, scope, old_inst.castTag(.array_type).?),
         .array_type_sentinel => return analyzeInstArrayTypeSentinel(mod, scope, old_inst.castTag(.array_type_sentinel).?),
+        .enum_literal => return analyzeInstEnumLiteral(mod, scope, old_inst.castTag(.enum_literal).?),
     }
 }
 
@@ -699,6 +700,18 @@ fn analyzeInstArrayTypeSentinel(mod: *Module, scope: *Scope, array: *zir.Inst.Ar
     const elem_type = try resolveType(mod, scope, array.positionals.elem_type);
 
     return mod.constType(scope, array.base.src, try mod.arrayType(scope, len.val.toUnsignedInt(), sentinel.val, elem_type));
+}
+
+fn analyzeInstEnumLiteral(mod: *Module, scope: *Scope, inst: *zir.Inst.EnumLiteral) InnerError!*Inst {
+    const payload = try scope.arena().create(Value.Payload.Bytes);
+    payload.* = .{
+        .base = .{ .tag = .enum_literal },
+        .data = try scope.arena().dupe(u8, inst.positionals.name),
+    };
+    return mod.constInst(scope, inst.base.src, .{
+        .ty = Type.initTag(.enum_literal),
+        .val = Value.initPayload(&payload.base),
+    });
 }
 
 fn analyzeInstUnwrapOptional(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp, safety_check: bool) InnerError!*Inst {
