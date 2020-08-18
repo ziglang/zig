@@ -13,6 +13,9 @@ pub fn cmdEnv(gpa: *Allocator, args: []const []const u8, stdout: anytype) !void 
     const zig_std_dir = try std.fs.path.join(gpa, &[_][]const u8{ zig_lib_dir, "std" });
     defer gpa.free(zig_std_dir);
 
+    const global_cache_dir = try introspect.resolveGlobalCacheDir(gpa);
+    defer gpa.free(global_cache_dir);
+
     var bos = std.io.bufferedOutStream(stdout);
     const bos_stream = bos.outStream();
 
@@ -24,6 +27,9 @@ pub fn cmdEnv(gpa: *Allocator, args: []const []const u8, stdout: anytype) !void 
 
     try jws.objectField("std_dir");
     try jws.emitString(zig_std_dir);
+
+    try jws.objectField("global_cache_dir");
+    try jws.emitString(global_cache_dir);
 
     try jws.objectField("version");
     try jws.emitString(build_options.version);

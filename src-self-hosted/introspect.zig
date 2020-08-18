@@ -73,7 +73,17 @@ pub fn resolveZigLibDir(allocator: *mem.Allocator) ![]u8 {
     };
 }
 
-/// Caller must free result
-pub fn resolveZigCacheDir(allocator: *mem.Allocator) ![]u8 {
-    return std.mem.dupe(allocator, u8, "zig-cache");
+/// Caller owns returned memory.
+pub fn resolveGlobalCacheDir(allocator: *mem.Allocator) ![]u8 {
+    const appname = "zig";
+
+    if (std.Target.current.os.tag != .windows) {
+        if (std.os.getenv("XDG_CACHE_HOME")) |cache_root| {
+            return fs.path.join(allocator, &[_][]const u8{ cache_root, appname });
+        } else if (std.os.getenv("HOME")) |home| {
+            return fs.path.join(allocator, &[_][]const u8{ home, ".cache", appname });
+        }
+    }
+
+    return fs.getAppDataDir(allocator, appname);
 }
