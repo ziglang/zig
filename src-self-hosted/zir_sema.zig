@@ -29,7 +29,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .alloc => return analyzeInstAlloc(mod, scope, old_inst.castTag(.alloc).?),
         .alloc_inferred => return analyzeInstAllocInferred(mod, scope, old_inst.castTag(.alloc_inferred).?),
         .arg => return analyzeInstArg(mod, scope, old_inst.castTag(.arg).?),
-        .bitcast_lvalue => return analyzeInstBitCastLValue(mod, scope, old_inst.castTag(.bitcast_lvalue).?),
+        .bitcast_ref => return analyzeInstBitCastRef(mod, scope, old_inst.castTag(.bitcast_ref).?),
         .bitcast_result_ptr => return analyzeInstBitCastResultPtr(mod, scope, old_inst.castTag(.bitcast_result_ptr).?),
         .block => return analyzeInstBlock(mod, scope, old_inst.castTag(.block).?),
         .@"break" => return analyzeInstBreak(mod, scope, old_inst.castTag(.@"break").?),
@@ -299,8 +299,8 @@ fn analyzeInstCoerceResultBlockPtr(
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstCoerceResultBlockPtr", .{});
 }
 
-fn analyzeInstBitCastLValue(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstBitCastLValue", .{});
+fn analyzeInstBitCastRef(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstBitCastRef", .{});
 }
 
 fn analyzeInstBitCastResultPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {

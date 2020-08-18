@@ -62,11 +62,11 @@ pub const Inst = struct {
         bitand,
         /// TODO delete this instruction, it has no purpose.
         bitcast,
-        /// An arbitrary typed pointer, which is to be used as an L-Value, is pointer-casted
-        /// to a new L-Value. The destination type is given by LHS. The cast is to be evaluated
+        /// An arbitrary typed pointer is pointer-casted to a new Pointer.
+        /// The destination type is given by LHS. The cast is to be evaluated
         /// as if it were a bit-cast operation from the operand pointer element type to the
         /// provided destination type.
-        bitcast_lvalue,
+        bitcast_ref,
         /// A typed result location pointer is bitcasted to a new result location pointer.
         /// The new result location pointer has an inferred type.
         bitcast_result_ptr,
@@ -258,7 +258,7 @@ pub const Inst = struct {
                 .ensure_result_non_error,
                 .bitcast_result_ptr,
                 .ref,
-                .bitcast_lvalue,
+                .bitcast_ref,
                 .typeof,
                 .single_const_ptr_type,
                 .single_mut_ptr_type,
@@ -349,7 +349,7 @@ pub const Inst = struct {
                 .@"asm",
                 .bitand,
                 .bitcast,
-                .bitcast_lvalue,
+                .bitcast_ref,
                 .bitcast_result_ptr,
                 .bitor,
                 .block,
