@@ -1062,6 +1062,45 @@ pub const Type = extern union {
         }
     }
 
+    /// Returns if type can be used for a runtime variable
+    pub fn isValidVarType(self: Type) bool {
+        var ty = self;
+        while (true) switch (ty.zigTypeTag()) {
+            .Bool,
+            .Int,
+            .Float,
+            .ErrorSet,
+            .Enum,
+            .Frame,
+            .AnyFrame,
+            .Vector,
+            => return true,
+
+            .BoundFn,
+            .ComptimeFloat,
+            .ComptimeInt,
+            .EnumLiteral,
+            .NoReturn,
+            .Type,
+            .Void,
+            .Undefined,
+            .Null,
+            .Opaque,
+            => return false,
+
+            .Optional => {
+                var buf: Payload.Pointer = undefined;
+                return ty.optionalChild(&buf).isValidVarType();
+            },
+            .Pointer, .Array => ty = ty.elemType(),
+
+            .ErrorUnion => @panic("TODO fn isValidVarType"),
+            .Fn => @panic("TODO fn isValidVarType"),
+            .Struct => @panic("TODO struct isValidVarType"),
+            .Union => @panic("TODO union isValidVarType"),
+        };
+    }
+
     /// Asserts the type is a pointer or array type.
     pub fn elemType(self: Type) Type {
         return switch (self.tag()) {

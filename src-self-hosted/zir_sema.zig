@@ -364,6 +364,9 @@ fn analyzeInstEnsureResultNonError(mod: *Module, scope: *Scope, inst: *zir.Inst.
 
 fn analyzeInstAlloc(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const var_type = try resolveType(mod, scope, inst.positionals.operand);
+    if (!var_type.isValidVarType()) {
+        return mod.fail(scope, inst.base.src, "variable of type '{}' must be const or comptime", .{var_type});
+    }
     const ptr_type = try mod.singlePtrType(scope, inst.base.src, true, var_type);
     const b = try mod.requireRuntimeBlock(scope, inst.base.src);
     return mod.addNoOp(b, inst.base.src, ptr_type, .alloc);
@@ -760,7 +763,12 @@ fn analyzeInstFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) Inne
     const arena = scope.arena();
     const param_types = try arena.alloc(Type, fntype.positionals.param_types.len);
     for (fntype.positionals.param_types) |param_type, i| {
-        param_types[i] = try resolveType(mod, scope, param_type);
+        const resolved = try resolveType(mod, scope, param_type);
+        // TODO skip for comptime params
+        if (!resolved.isValidVarType()) {
+            return mod.fail(scope, param_type.src, "parameter of type '{}' must be declared comptime", .{resolved});
+        }
+        param_types[i] = resolved;
     }
 
     const payload = try arena.create(Type.Payload.Function);
