@@ -421,7 +421,7 @@ pub const TestContext = struct {
     }
 
     fn runOneCase(self: *TestContext, allocator: *Allocator, root_node: *std.Progress.Node, case: Case) !void {
-        const target_info = try std.zig.system.NativeTargetInfo.detect(std.testing.allocator, case.target);
+        const target_info = try std.zig.system.NativeTargetInfo.detect(allocator, case.target);
         const target = target_info.target;
 
         var arena_allocator = std.heap.ArenaAllocator.init(allocator);
