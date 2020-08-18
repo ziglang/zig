@@ -14096,7 +14096,8 @@ static IrInstGen *ir_analyze_enum_to_int(IrAnalyze *ira, IrInst *source_instr, I
 
     // If there is only one possible tag, then we know at comptime what it is.
     if (enum_type->data.enumeration.layout == ContainerLayoutAuto &&
-        enum_type->data.enumeration.src_field_count == 1)
+        enum_type->data.enumeration.src_field_count == 1 &&
+        !enum_type->data.enumeration.non_exhaustive)
     {
         IrInstGen *result = ir_const(ira, source_instr, tag_type);
         init_const_bigint(result->value, tag_type,
@@ -14136,7 +14137,8 @@ static IrInstGen *ir_analyze_union_to_tag(IrAnalyze *ira, IrInst* source_instr,
 
     // If there is only 1 possible tag, then we know at comptime what it is.
     if (wanted_type->data.enumeration.layout == ContainerLayoutAuto &&
-        wanted_type->data.enumeration.src_field_count == 1)
+        wanted_type->data.enumeration.src_field_count == 1 &&
+        !wanted_type->data.enumeration.non_exhaustive)
     {
         IrInstGen *result = ir_const(ira, source_instr, wanted_type);
         result->value->special = ConstValSpecialStatic;
@@ -14175,7 +14177,14 @@ static IrInstGen *ir_analyze_enum_to_union(IrAnalyze *ira, IrInst* source_instr,
         if (!val)
             return ira->codegen->invalid_inst_gen;
         TypeUnionField *union_field = find_union_field_by_tag(wanted_type, &val->data.x_enum_tag);
-        assert(union_field != nullptr);
+        if (union_field == nullptr) {
+            Buf *int_buf = buf_alloc();
+            bigint_append_buf(int_buf, &target->value->data.x_enum_tag, 10);
+
+            ir_add_error(ira, &target->base,
+                buf_sprintf("no tag by value %s", buf_ptr(int_buf)));
+            return ira->codegen->invalid_inst_gen;
+        }
         ZigType *field_type = resolve_union_field_type(ira->codegen, union_field);
         if (field_type == nullptr)
             return ira->codegen->invalid_inst_gen;
@@ -14209,6 +14218,13 @@ static IrInstGen *ir_analyze_enum_to_union(IrAnalyze *ira, IrInst* source_instr,
         result->value->data.x_union.payload->special = ConstValSpecialStatic;
         result->value->data.x_union.payload->type = field_type;
         return result;
+    }
+
+    if (target->value->type->data.enumeration.non_exhaustive) {
+        ir_add_error(ira, source_instr,
+                buf_sprintf("runtime cast to union '%s' from non-exhustive enum",
+                    buf_ptr(&wanted_type->name)));
+        return ira->codegen->invalid_inst_gen;
     }
 
     // if the union has all fields 0 bits, we can do it
@@ -23816,7 +23832,7 @@ static IrInstGen *ir_analyze_instruction_switch_target(IrAnalyze *ira,
                 bigint_init_bigint(&result->value->data.x_enum_tag, &pointee_val->data.x_union.tag);
                 return result;
             }
-            if (tag_type->data.enumeration.src_field_count == 1) {
+            if (tag_type->data.enumeration.src_field_count == 1 && !tag_type->data.enumeration.non_exhaustive) {
                 IrInstGen *result = ir_const(ira, &switch_target_instruction->base.base, tag_type);
                 TypeEnumField *only_field = &tag_type->data.enumeration.fields[0];
                 bigint_init_bigint(&result->value->data.x_enum_tag, &only_field->value);
@@ -23831,7 +23847,7 @@ static IrInstGen *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case ZigTypeIdEnum: {
             if ((err = type_resolve(ira->codegen, target_type, ResolveStatusZeroBitsKnown)))
                 return ira->codegen->invalid_inst_gen;
-            if (target_type->data.enumeration.src_field_count == 1) {
+            if (target_type->data.enumeration.src_field_count == 1 && !target_type->data.enumeration.non_exhaustive) {
                 TypeEnumField *only_field = &target_type->data.enumeration.fields[0];
                 IrInstGen *result = ir_const(ira, &switch_target_instruction->base.base, target_type);
                 bigint_init_bigint(&result->value->data.x_enum_tag, &only_field->value);
@@ -28838,6 +28854,10 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
     if (type_is_invalid(switch_type))
         return ira->codegen->invalid_inst_gen;
 
+    ZigValue *original_value = ((IrInstSrcSwitchTarget *)(instruction->target_value))->target_value_ptr->child->value;
+    bool target_is_originally_union = original_value->type->id == ZigTypeIdPointer &&
+        original_value->type->data.pointer.child_type->id == ZigTypeIdUnion;
+
     if (switch_type->id == ZigTypeIdEnum) {
         HashMap<BigInt, AstNode *, bigint_hash, bigint_eql> field_prev_uses = {};
         field_prev_uses.init(switch_type->data.enumeration.src_field_count);
@@ -28893,9 +28913,12 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
             }
         }
         if (instruction->have_underscore_prong) {
-            if (!switch_type->data.enumeration.non_exhaustive){
+            if (!switch_type->data.enumeration.non_exhaustive) {
                 ir_add_error(ira, &instruction->base.base,
-                    buf_sprintf("switch on non-exhaustive enum has `_` prong"));
+                    buf_sprintf("switch on exhaustive enum has `_` prong"));
+            } else if (target_is_originally_union) {
+                ir_add_error(ira, &instruction->base.base,
+                    buf_sprintf("`_` prong not allowed when switching on tagged union"));
             }
             for (uint32_t i = 0; i < switch_type->data.enumeration.src_field_count; i += 1) {
                 TypeEnumField *enum_field = &switch_type->data.enumeration.fields[i];
@@ -28910,7 +28933,7 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
                 }
             }
         } else if (instruction->else_prong == nullptr) {
-            if (switch_type->data.enumeration.non_exhaustive) {
+            if (switch_type->data.enumeration.non_exhaustive && !target_is_originally_union) {
                 ir_add_error(ira, &instruction->base.base,
                     buf_sprintf("switch on non-exhaustive enum must include `else` or `_` prong"));
             }

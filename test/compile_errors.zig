@@ -51,6 +51,46 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:17:23: error: cannot adjust alignment of zero sized type 'fn(u32) anytype'",
     });
 
+    cases.addTest("invalid non-exhaustive enum to union",
+        \\const E = enum(u8) {
+        \\    a,
+        \\    b,
+        \\    _,
+        \\};
+        \\const U = union(E) {
+        \\    a,
+        \\    b,
+        \\};
+        \\export fn foo() void {
+        \\    var e = @intToEnum(E, 15);
+        \\    var u: U = e;
+        \\}
+        \\export fn bar() void {
+        \\    const e = @intToEnum(E, 15);
+        \\    var u: U = e;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:12:16: error: runtime cast to union 'U' from non-exhustive enum",
+        "tmp.zig:16:16: error: no tag by value 15",
+    });
+
+    cases.addTest("switching with exhaustive enum has '_' prong ",
+        \\const E = enum{
+        \\    a,
+        \\    b,
+        \\};
+        \\pub export fn entry() void {
+        \\    var e: E = .b;
+        \\    switch (e) {
+        \\        .a => {},
+        \\        .b => {},
+        \\        _ => {},
+        \\    }
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:7:5: error: switch on exhaustive enum has `_` prong",
+    });
+
     cases.addTest("invalid pointer with @Type",
         \\export fn entry() void {
         \\    _ = @Type(.{ .Pointer = .{
@@ -564,6 +604,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    b,
         \\    _,
         \\};
+        \\const U = union(E) {
+        \\    a: i32,
+        \\    b: u32,
+        \\};
         \\pub export fn entry() void {
         \\    var e: E = .b;
         \\    switch (e) { // error: switch not handling the tag `b`
@@ -574,10 +618,17 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\        .a => {},
         \\        .b => {},
         \\    }
+        \\    var u = U{.a = 2};
+        \\    switch (u) { // error: `_` prong not allowed when switching on tagged union
+        \\        .a => {},
+        \\        .b => {},
+        \\        _ => {},
+        \\    }
         \\}
     , &[_][]const u8{
-        "tmp.zig:8:5: error: enumeration value 'E.b' not handled in switch",
-        "tmp.zig:12:5: error: switch on non-exhaustive enum must include `else` or `_` prong",
+        "tmp.zig:12:5: error: enumeration value 'E.b' not handled in switch",
+        "tmp.zig:16:5: error: switch on non-exhaustive enum must include `else` or `_` prong",
+        "tmp.zig:21:5: error: `_` prong not allowed when switching on tagged union",
     });
 
     cases.add("switch expression - unreachable else prong (bool)",
