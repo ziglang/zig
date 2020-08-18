@@ -705,7 +705,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    for (arr) |bits| _ = @popCount(bits);
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:26: error: expected 2 arguments, found 1",
+        "tmp.zig:3:26: error: expected 2 argument(s), found 1",
     });
 
     cases.addTest("@call rejects non comptime-known fn - always_inline",
@@ -4103,7 +4103,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn b(a: i32, b: i32, c: i32) void { }
     , &[_][]const u8{
-        "tmp.zig:2:6: error: expected 3 arguments, found 1",
+        "tmp.zig:2:6: error: expected 3 argument(s), found 1",
     });
 
     cases.add("invalid type",
@@ -4716,7 +4716,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
-        "tmp.zig:20:34: error: expected 1 arguments, found 0",
+        "tmp.zig:20:34: error: expected 1 argument(s), found 0",
     });
 
     cases.add("missing function name",
@@ -5498,7 +5498,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
-        "tmp.zig:6:15: error: expected 2 arguments, found 3",
+        "tmp.zig:6:15: error: expected 2 argument(s), found 3",
     });
 
     cases.add("assign through constant pointer",

@@ -393,7 +393,7 @@ fn analyzeInstParamType(mod: *Module, scope: *Scope, inst: *zir.Inst.ParamType) 
     // TODO support C-style var args
     const param_count = fn_ty.fnParamLen();
     if (arg_index >= param_count) {
-        return mod.fail(scope, inst.base.src, "arg index {} out of bounds; '{}' has {} arguments", .{
+        return mod.fail(scope, inst.base.src, "arg index {} out of bounds; '{}' has {} argument(s)", .{
             arg_index,
             fn_ty,
             param_count,
@@ -600,7 +600,7 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
             return mod.fail(
                 scope,
                 inst.positionals.func.src,
-                "expected at least {} arguments, found {}",
+                "expected at least {} argument(s), found {}",
                 .{ fn_params_len, call_params_len },
             );
         }
@@ -610,7 +610,7 @@ fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError
         return mod.fail(
             scope,
             inst.positionals.func.src,
-            "expected {} arguments, found {}",
+            "expected {} argument(s), found {}",
             .{ fn_params_len, call_params_len },
         );
     }
