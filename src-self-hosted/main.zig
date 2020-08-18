@@ -152,6 +152,7 @@ const usage_build_generic =
     \\  -ofmt=[mode]              Override target object format
     \\    elf                     Executable and Linking Format
     \\    c                       Compile to C source code
+    \\    wasm                    WebAssembly
     \\    coff   (planned)        Common Object File Format (Windows)
     \\    pe     (planned)        Portable Executable (Windows)
     \\    macho  (planned)        macOS relocatables

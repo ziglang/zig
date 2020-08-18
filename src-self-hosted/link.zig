@@ -46,12 +46,14 @@ pub const File = struct {
         elf: Elf.TextBlock,
         macho: MachO.TextBlock,
         c: void,
+        wasm: void,
     };
 
     pub const LinkFn = union {
         elf: Elf.SrcFn,
         macho: MachO.SrcFn,
         c: void,
+        wasm: ?Wasm.FnData,
     };
 
     tag: Tag,
@@ -69,7 +71,7 @@ pub const File = struct {
             .coff => return error.TODOImplementCoff,
             .elf => return Elf.openPath(allocator, dir, sub_path, options),
             .macho => return MachO.openPath(allocator, dir, sub_path, options),
-            .wasm => return error.TODOImplementWasm,
+            .wasm => return Wasm.openPath(allocator, dir, sub_path, options),
             .c => return C.openPath(allocator, dir, sub_path, options),
             .hex => return error.TODOImplementHex,
             .raw => return error.TODOImplementRaw,
@@ -93,15 +95,18 @@ pub const File = struct {
                     .mode = determineMode(base.options),
                 });
             },
-            .c => {},
+            .c, .wasm => {},
         }
     }
 
     pub fn makeExecutable(base: *File) !void {
-        std.debug.assert(base.tag != .c);
-        if (base.file) |f| {
-            f.close();
-            base.file = null;
+        switch (base.tag) {
+            .c => unreachable,
+            .wasm => {},
+            else => if (base.file) |f| {
+                f.close();
+                base.file = null;
+            },
         }
     }
 
@@ -110,6 +115,7 @@ pub const File = struct {
             .elf => return @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDecl(module, decl),
             .c => return @fieldParentPtr(C, "base", base).updateDecl(module, decl),
+            .wasm => return @fieldParentPtr(Wasm, "base", base).updateDecl(module, decl),
         }
     }
 
@@ -117,7 +123,7 @@ pub const File = struct {
         switch (base.tag) {
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDeclLineNumber(module, decl),
-            .c => {},
+            .c, .wasm => {},
         }
     }
 
@@ -125,7 +131,7 @@ pub const File = struct {
         switch (base.tag) {
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
             .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl),
-            .c => {},
+            .c, .wasm => {},
         }
     }
 
@@ -135,6 +141,7 @@ pub const File = struct {
             .elf => @fieldParentPtr(Elf, "base", base).deinit(),
             .macho => @fieldParentPtr(MachO, "base", base).deinit(),
             .c => @fieldParentPtr(C, "base", base).deinit(),
+            .wasm => @fieldParentPtr(Wasm, "base", base).deinit(),
         }
     }
 
@@ -155,18 +162,23 @@ pub const File = struct {
                 parent.deinit();
                 base.allocator.destroy(parent);
             },
+            .wasm => {
+                const parent = @fieldParentPtr(Wasm, "base", base);
+                parent.deinit();
+                base.allocator.destroy(parent);
+            },
         }
     }
 
-    /// Commit pending changes and write headers.
-    pub fn flush(base: *File) !void {
+    pub fn flush(base: *File, module: *Module) !void {
         const tracy = trace(@src());
         defer tracy.end();
 
         try switch (base.tag) {
-            .elf => @fieldParentPtr(Elf, "base", base).flush(),
-            .macho => @fieldParentPtr(MachO, "base", base).flush(),
-            .c => @fieldParentPtr(C, "base", base).flush(),
+            .elf => @fieldParentPtr(Elf, "base", base).flush(module),
+            .macho => @fieldParentPtr(MachO, "base", base).flush(module),
+            .c => @fieldParentPtr(C, "base", base).flush(module),
+            .wasm => @fieldParentPtr(Wasm, "base", base).flush(module),
         };
     }
 
@@ -175,6 +187,7 @@ pub const File = struct {
             .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl),
             .macho => @fieldParentPtr(MachO, "base", base).freeDecl(decl),
             .c => unreachable,
+            .wasm => @fieldParentPtr(Wasm, "base", base).freeDecl(decl),
         }
     }
 
@@ -183,6 +196,7 @@ pub const File = struct {
             .elf => @fieldParentPtr(Elf, "base", base).error_flags,
             .macho => @fieldParentPtr(MachO, "base", base).error_flags,
             .c => return .{ .no_entry_point_found = false },
+            .wasm => return ErrorFlags{},
         };
     }
 
@@ -197,6 +211,7 @@ pub const File = struct {
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl, exports),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDeclExports(module, decl, exports),
             .c => return {},
+            .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclExports(module, decl, exports),
         }
     }
 
@@ -204,6 +219,7 @@ pub const File = struct {
         elf,
         macho,
         c,
+        wasm,
     };
 
     pub const ErrorFlags = struct {
@@ -270,7 +286,7 @@ pub const File = struct {
             };
         }
 
-        pub fn flush(self: *File.C) !void {
+        pub fn flush(self: *File.C, module: *Module) !void {
             const writer = self.base.file.?.writer();
             try writer.writeAll(@embedFile("cbe.h"));
             var includes = false;
@@ -1023,7 +1039,8 @@ pub const File = struct {
         pub const abbrev_pad1 = 5;
         pub const abbrev_parameter = 6;
 
-        pub fn flush(self: *Elf) !void {
+        /// Commit pending changes and write headers.
+        pub fn flush(self: *Elf, module: *Module) !void {
             const target_endian = self.base.options.target.cpu.arch.endian();
             const foreign_endian = target_endian != std.Target.current.cpu.arch.endian();
             const ptr_width_bytes: u8 = self.ptrWidthBytes();
@@ -2832,6 +2849,7 @@ pub const File = struct {
     };
 
     pub const MachO = @import("link/MachO.zig");
+    const Wasm = @import("link/Wasm.zig");
 };
 
 /// Saturating multiplication
