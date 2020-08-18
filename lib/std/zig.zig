@@ -80,6 +80,107 @@ pub fn binNameAlloc(
     }
 }
 
+/// Only validates escape sequence characters.
+/// Slice must be valid utf8 starting and ending with "'" and exactly one codepoint in between.
+pub fn parseCharLiteral(
+    slice: []const u8,
+    bad_index: *usize, // populated if error.InvalidCharacter is returned)
+) error{InvalidCharacter}!u32 {
+    std.debug.assert(slice.len >= 3 and slice[0] == '\'' and slice[slice.len - 1] == '\'');
+
+    if (slice[1] == '\\') {
+        switch (slice[2]) {
+            'n' => return '\n',
+            'r' => return '\r',
+            '\\' => return '\\',
+            't' => return '\t',
+            '\'' => return '\'',
+            '"' => return '"',
+            'x' => {
+                if (slice.len != 6) {
+                    bad_index.* = slice.len - 2;
+                    return error.InvalidCharacter;
+                }
+
+                var value: u32 = 0;
+                for (slice[3..5]) |c, i| {
+                    switch (slice[3]) {
+                        '0'...'9' => {
+                            value *= 16;
+                            value += c - '0';
+                        },
+                        'a'...'f' => {
+                            value *= 16;
+                            value += c - 'a';
+                        },
+                        'A'...'F' => {
+                            value *= 16;
+                            value += c - 'a';
+                        },
+                        else => {
+                            bad_index.* = i;
+                            return error.InvalidCharacter;
+                        },
+                    }
+                }
+                return value;
+            },
+            'u' => {
+                if (slice.len < 6 or slice[3] != '{') {
+                    bad_index.* = 2;
+                    return error.InvalidCharacter;
+                }
+                var value: u32 = 0;
+                for (slice[4..]) |c, i| {
+                    if (value > 0x10ffff) {
+                        bad_index.* = i;
+                        return error.InvalidCharacter;
+                    }
+                    switch (c) {
+                        '0'...'9' => {
+                            value *= 16;
+                            value += c - '0';
+                        },
+                        'a'...'f' => {
+                            value *= 16;
+                            value += c - 'a';
+                        },
+                        'A'...'F' => {
+                            value *= 16;
+                            value += c - 'A';
+                        },
+                        '}' => break,
+                        else => {
+                            bad_index.* = i;
+                            return error.InvalidCharacter;
+                        },
+                    }
+                }
+                return value;
+            },
+            else => {
+                bad_index.* = 2;
+                return error.InvalidCharacter;
+            }
+        }
+    }
+    return std.unicode.utf8Decode(slice[1 .. slice.len - 1]) catch unreachable;
+}
+
+test "parseCharLiteral" {
+    var bad_index: usize = undefined;
+    std.testing.expectEqual(try parseCharLiteral("'a'", &bad_index), 'a');
+    std.testing.expectEqual(try parseCharLiteral("'ä'", &bad_index), 'ä');
+    std.testing.expectEqual(try parseCharLiteral("'\\x00'", &bad_index), 0);
+    std.testing.expectEqual(try parseCharLiteral("'ぁ'", &bad_index), 0x3041);
+    std.testing.expectEqual(try parseCharLiteral("'\\u{3041}'", &bad_index), 0x3041);
+
+    std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\x0'", &bad_index));
+    std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\y'", &bad_index));
+    std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u'", &bad_index));
+    std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u{FFFFFF}'", &bad_index));
+}
+
 test "" {
     @import("std").meta.refAllDecls(@This());
 }

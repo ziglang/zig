@@ -365,6 +365,7 @@ fn analyzeInstEnsureResultNonError(mod: *Module, scope: *Scope, inst: *zir.Inst.
 
 fn analyzeInstAlloc(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const var_type = try resolveType(mod, scope, inst.positionals.operand);
+    // TODO this should happen only for var allocs
     if (!var_type.isValidVarType()) {
         return mod.fail(scope, inst.base.src, "variable of type '{}' must be const or comptime", .{var_type});
     }

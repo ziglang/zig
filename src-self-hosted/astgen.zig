@@ -131,6 +131,8 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .ArrayType => return rlWrap(mod, scope, rl, try arrayType(mod, scope, node.castTag(.ArrayType).?)),
         .ArrayTypeSentinel => return rlWrap(mod, scope, rl, try arrayTypeSentinel(mod, scope, node.castTag(.ArrayTypeSentinel).?)),
         .EnumLiteral => return rlWrap(mod, scope, rl, try enumLiteral(mod, scope, node.castTag(.EnumLiteral).?)),
+        .MultilineStringLiteral => return rlWrap(mod, scope, rl, try multilineStrLiteral(mod, scope, node.castTag(.MultilineStringLiteral).?)),
+        .CharLiteral => return rlWrap(mod, scope, rl, try charLiteral(mod, scope, node.castTag(.CharLiteral).?)),
 
         .Defer => return mod.failNode(scope, node, "TODO implement astgen.expr for .Defer", .{}),
         .Catch => return mod.failNode(scope, node, "TODO implement astgen.expr for .Catch", .{}),
@@ -159,8 +161,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .ErrorType => return mod.failNode(scope, node, "TODO implement astgen.expr for .ErrorType", .{}),
         .FnProto => return mod.failNode(scope, node, "TODO implement astgen.expr for .FnProto", .{}),
         .AnyFrameType => return mod.failNode(scope, node, "TODO implement astgen.expr for .AnyFrameType", .{}),
-        .MultilineStringLiteral => return mod.failNode(scope, node, "TODO implement astgen.expr for .MultilineStringLiteral", .{}),
-        .CharLiteral => return mod.failNode(scope, node, "TODO implement astgen.expr for .CharLiteral", .{}),
         .ErrorSetDecl => return mod.failNode(scope, node, "TODO implement astgen.expr for .ErrorSetDecl", .{}),
         .ContainerDecl => return mod.failNode(scope, node, "TODO implement astgen.expr for .ContainerDecl", .{}),
         .Comptime => return mod.failNode(scope, node, "TODO implement astgen.expr for .Comptime", .{}),
@@ -497,6 +497,7 @@ fn arrayType(mod: *Module, scope: *Scope, node: *ast.Node.ArrayType) !*zir.Inst 
         .val = Value.initTag(.usize_type),
     });
 
+    // TODO check for [_]T
     const len = try expr(mod, scope, .{ .ty = usize_type }, node.len_expr);
     const child_type = try expr(mod, scope, .{ .ty = meta_type }, node.rhs);
 
@@ -515,6 +516,7 @@ fn arrayTypeSentinel(mod: *Module, scope: *Scope, node: *ast.Node.ArrayTypeSenti
         .val = Value.initTag(.usize_type),
     });
 
+    // TODO check for [_]T
     const len = try expr(mod, scope, .{ .ty = usize_type }, node.len_expr);
     const sentinel_uncasted = try expr(mod, scope, .none, node.sentinel);
     const elem_type = try expr(mod, scope, .{ .ty = meta_type }, node.rhs);
@@ -1118,6 +1120,53 @@ fn stringLiteral(mod: *Module, scope: *Scope, str_lit: *ast.Node.OneToken) Inner
 
     const src = tree.token_locs[str_lit.token].start;
     return addZIRInst(mod, scope, src, zir.Inst.Str, .{ .bytes = bytes }, .{});
+}
+
+fn multilineStrLiteral(mod: *Module, scope: *Scope, node: *ast.Node.MultilineStringLiteral) !*zir.Inst {
+    const tree = scope.tree();
+    const lines = node.linesConst();
+    const src = tree.token_locs[lines[0]].start;
+
+    // line lengths and new lines
+    var len = lines.len - 1;
+    for (lines) |line| {
+        len += tree.tokenSlice(line).len - 2;
+    }
+
+    const bytes = try scope.arena().alloc(u8, len);
+    var i: usize = 0;
+    for (lines) |line, line_i| {
+        if (line_i != 0) {
+            bytes[i] = '\n';
+            i += 1;
+        }
+        const slice = tree.tokenSlice(line)[2..];
+        mem.copy(u8, bytes[i..], slice);
+        i += slice.len;
+    }
+
+    return addZIRInst(mod, scope, src, zir.Inst.Str, .{ .bytes = bytes }, .{});
+}
+
+fn charLiteral(mod: *Module, scope: *Scope, node: *ast.Node.OneToken) !*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.token].start;
+    const slice = tree.tokenSlice(node.token);
+
+    var bad_index: usize = undefined;
+    const value = std.zig.parseCharLiteral(slice, &bad_index) catch |err| switch (err) {
+        error.InvalidCharacter => {
+            const bad_byte = slice[bad_index];
+            return mod.fail(scope, src + bad_index, "invalid character: '{c}'\n", .{bad_byte});
+        },
+    };
+
+    const int_payload = try scope.arena().create(Value.Payload.Int_u64);
+    int_payload.* = .{ .int = value };
+    return addZIRInstConst(mod, scope, src, .{
+        .ty = Type.initTag(.comptime_int),
+        .val = Value.initPayload(&int_payload.base),
+    });
 }
 
 fn integerLiteral(mod: *Module, scope: *Scope, int_lit: *ast.Node.OneToken) InnerError!*zir.Inst {
