@@ -77,7 +77,10 @@ pub fn build(b: *Builder) !void {
         }
         const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
         const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse false;
-        if (link_libc) exe.linkLibC();
+        if (link_libc) {
+            exe.linkLibC();
+            test_stage2.linkLibC();
+        }
 
         const log_scopes = b.option([]const []const u8, "log", "Which log scopes to enable") orelse &[0][]const u8{};
 
