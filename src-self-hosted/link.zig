@@ -110,6 +110,8 @@ pub const File = struct {
         }
     }
 
+    /// May be called before or after updateDeclExports but must be called
+    /// after allocateDeclIndexes for any given Decl.
     pub fn updateDecl(base: *File, module: *Module, decl: *Module.Decl) !void {
         switch (base.tag) {
             .elf => return @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
@@ -127,6 +129,8 @@ pub const File = struct {
         }
     }
 
+    /// Must be called before any call to updateDecl or updateDeclExports for
+    /// any given Decl.
     pub fn allocateDeclIndexes(base: *File, decl: *Module.Decl) !void {
         switch (base.tag) {
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
@@ -200,7 +204,8 @@ pub const File = struct {
         };
     }
 
-    /// Must be called only after a successful call to `updateDecl`.
+    /// May be called before or after updateDecl, but must be called after
+    /// allocateDeclIndexes for any given Decl.
     pub fn updateDeclExports(
         base: *File,
         module: *Module,
