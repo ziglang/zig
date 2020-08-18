@@ -451,9 +451,16 @@ fn isProblematicTimestamp(fs_clock: i128) bool {
     // to detect precision of seconds, because looking at the zero bits in base
     // 2 would not detect precision of the seconds value.
     const fs_sec = @intCast(i64, @divFloor(fs_clock, std.time.ns_per_s));
-    const fs_nsec = @intCast(i64, @mod(fs_clock, std.time.ns_per_s));
+    var fs_nsec = @intCast(i64, @mod(fs_clock, std.time.ns_per_s));
     var wall_sec = @intCast(i64, @divFloor(wall_clock, std.time.ns_per_s));
     var wall_nsec = @intCast(i64, @mod(wall_clock, std.time.ns_per_s));
+
+    if (std.Target.current.os.tag == .linux) {
+        // TODO As a temporary measure while we figure out how to solve
+        // https://github.com/ziglang/zig/issues/6082, we cut the granularity of nanoseconds
+        // by a large amount.
+        fs_nsec &= @as(i64, -1) << 23;
+    }
 
     // First make all the least significant zero bits in the fs_clock, also zero bits in the wall clock.
     if (fs_nsec == 0) {
@@ -466,16 +473,7 @@ fn isProblematicTimestamp(fs_clock: i128) bool {
     } else {
         wall_nsec &= @as(i64, -1) << @intCast(u6, @ctz(i64, fs_nsec));
     }
-    if (wall_nsec == fs_nsec and wall_sec == fs_sec)
-        return true;
-
-    // I have also observed precision problems at a millisecond granularity.
-    const fs_msec = @intCast(i64, @divFloor(fs_clock, std.time.ns_per_ms * 2));
-    const wall_msec = @intCast(i64, @divFloor(wall_clock, std.time.ns_per_ms * 2));
-    if (fs_msec == wall_msec)
-        return true;
-
-    return false;
+    return wall_nsec == fs_nsec and wall_sec == fs_sec;
 }
 
 test "cache file and then recall it" {
