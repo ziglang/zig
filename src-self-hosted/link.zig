@@ -5,6 +5,9 @@ const fs = std.fs;
 const trace = @import("tracy.zig").trace;
 const Package = @import("Package.zig");
 const Type = @import("type.zig").Type;
+const build_options = @import("build_options");
+
+const producer_string = if (std.builtin.is_test) "zig test" else "zig " ++ build_options.version;
 
 pub const Options = struct {
     target: std.Target,
@@ -20,6 +23,7 @@ pub const Options = struct {
     /// Used for calculating how much space to reserve for executable program code in case
     /// the binary file deos not already have such a section.
     program_code_size_hint: u64 = 256 * 1024,
+    default_entry_addr: u64 = 0x8000000,
 };
 
 pub const File = struct {
