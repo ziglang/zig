@@ -666,6 +666,7 @@ fn analyzeInstFn(mod: *Module, scope: *Scope, fn_inst: *zir.Inst.Fn) InnerError!
     new_func.* = .{
         .analysis = .{ .queued = fn_zir },
         .owner_decl = scope.decl().?,
+        .is_pub = false,
     };
     const fn_payload = try scope.arena().create(Value.Payload.Function);
     fn_payload.* = .{ .func = new_func };
