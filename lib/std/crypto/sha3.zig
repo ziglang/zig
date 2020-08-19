@@ -27,14 +27,14 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
 
         pub fn init() Self {
             var d: Self = undefined;
-            d.reset();
-            return d;
-        }
-
-        pub fn reset(d: *Self) void {
             mem.set(u8, d.s[0..], 0);
             d.offset = 0;
             d.rate = 200 - (bits / 4);
+            return d;
+        }
+
+        pub fn reset(self: *Self) void {
+            self.* = init();
         }
 
         pub fn hash(b: []const u8, out: []u8) void {

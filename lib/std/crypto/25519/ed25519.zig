@@ -6,7 +6,7 @@
 const std = @import("std");
 const fmt = std.fmt;
 const mem = std.mem;
-const Sha512 = std.crypto.Sha512;
+const Sha512 = std.crypto.hash.sha2.Sha512;
 
 /// Ed25519 (EdDSA) signatures.
 pub const Ed25519 = struct {

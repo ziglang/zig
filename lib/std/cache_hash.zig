@@ -4,7 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std.zig");
-const Blake3 = std.crypto.Blake3;
+const Blake3 = std.crypto.hash.Blake3;
 const fs = std.fs;
 const base64 = std.base64;
 const ArrayList = std.ArrayList;

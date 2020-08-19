@@ -109,15 +109,19 @@ pub const Hash = struct {
     state: State,
     buf_off: usize,
 
+    pub const block_length = State.RATE;
+
     const Self = @This();
 
     pub fn init() Self {
         return Self{
-            .state = State{
-                .data = [_]u32{0} ** (State.BLOCKBYTES / 4),
-            },
+            .state = State{ .data = [_]u32{0} ** (State.BLOCKBYTES / 4) },
             .buf_off = 0,
         };
+    }
+
+    pub fn reset(self: *Self) void {
+        self.* = init();
     }
 
     /// Also known as 'absorb'

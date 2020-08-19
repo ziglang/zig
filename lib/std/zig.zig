@@ -26,7 +26,7 @@ pub fn hashSrc(src: []const u8) SrcHash {
         std.mem.copy(u8, &out, src);
         std.mem.set(u8, out[src.len..], 0);
     } else {
-        std.crypto.Blake3.hash(src, &out);
+        std.crypto.hash.Blake3.hash(src, &out);
     }
     return out;
 }

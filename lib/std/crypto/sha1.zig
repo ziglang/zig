@@ -29,6 +29,9 @@ fn Rp(a: usize, b: usize, c: usize, d: usize, e: usize, i: u32) RoundParam {
     };
 }
 
+/// The SHA-1 function is now considered cryptographically broken.
+/// Namely, it is feasible to find multiple inputs producing the same hash.
+/// For a fast-performing, cryptographically secure hash function, see SHA512/256, BLAKE2 or BLAKE3.
 pub const Sha1 = struct {
     const Self = @This();
     pub const block_length = 64;
@@ -41,19 +44,22 @@ pub const Sha1 = struct {
     total_len: u64,
 
     pub fn init() Self {
-        var d: Self = undefined;
-        d.reset();
-        return d;
+        return Self{
+            .s = [_]u32{
+                0x67452301,
+                0xEFCDAB89,
+                0x98BADCFE,
+                0x10325476,
+                0xC3D2E1F0,
+            },
+            .buf = undefined,
+            .buf_len = 0,
+            .total_len = 0,
+        };
     }
 
-    pub fn reset(d: *Self) void {
-        d.s[0] = 0x67452301;
-        d.s[1] = 0xEFCDAB89;
-        d.s[2] = 0x98BADCFE;
-        d.s[3] = 0x10325476;
-        d.s[4] = 0xC3D2E1F0;
-        d.buf_len = 0;
-        d.total_len = 0;
+    pub fn reset(self: *Self) void {
+        self.* = init();
     }
 
     pub fn hash(b: []const u8, out: []u8) void {

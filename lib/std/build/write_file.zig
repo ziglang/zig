@@ -58,7 +58,7 @@ pub const WriteFileStep = struct {
         // TODO port the cache system from stage1 to zig std lib. Until then we use blake2b
         // directly and construct the path, and no "cache hit" detection happens; the files
         // are always written.
-        var hash = std.crypto.Blake2b384.init();
+        var hash = std.crypto.hash.blake2.Blake2b384.init();
 
         // Random bytes to make WriteFileStep unique. Refresh this with
         // new random bytes when WriteFileStep implementation is modified

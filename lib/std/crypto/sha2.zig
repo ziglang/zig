@@ -93,22 +93,25 @@ fn Sha2_32(comptime params: Sha2Params32) type {
         total_len: u64,
 
         pub fn init() Self {
-            var d: Self = undefined;
-            d.reset();
-            return d;
+            return Self{
+                .s = [_]u32{
+                    params.iv0,
+                    params.iv1,
+                    params.iv2,
+                    params.iv3,
+                    params.iv4,
+                    params.iv5,
+                    params.iv6,
+                    params.iv7,
+                },
+                .buf = undefined,
+                .buf_len = 0,
+                .total_len = 0,
+            };
         }
 
-        pub fn reset(d: *Self) void {
-            d.s[0] = params.iv0;
-            d.s[1] = params.iv1;
-            d.s[2] = params.iv2;
-            d.s[3] = params.iv3;
-            d.s[4] = params.iv4;
-            d.s[5] = params.iv5;
-            d.s[6] = params.iv6;
-            d.s[7] = params.iv7;
-            d.buf_len = 0;
-            d.total_len = 0;
+        pub fn reset(self: *Self) void {
+            self.* = init();
         }
 
         pub fn hash(b: []const u8, out: []u8) void {
