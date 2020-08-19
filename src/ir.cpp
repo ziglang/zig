@@ -26203,7 +26203,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
 
             ZigValue *layout_value = get_const_field(ira, source_instr->source_node, payload, "layout", 0);
             assert(layout_value->special == ConstValSpecialStatic);
-            assert(layout_value->type->id == ZigTypeIdEnum);
+            assert(layout_value->type == ir_type_info_get_type(ira, "ContainerLayout", nullptr));
             ContainerLayout layout = (ContainerLayout)bigint_as_u32(&layout_value->data.x_enum_tag);
 
             ZigValue *fields_value = get_const_field(ira, source_instr->source_node, payload, "fields", 1);
@@ -26236,7 +26236,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
             entry->data.structure.layout = layout;
             entry->data.structure.special = is_tuple ? StructSpecialInferredTuple : StructSpecialNone;
             entry->data.structure.created_by_at_type = true;
-            entry->data.structure.decls_scope = create_decls_scope(ira->codegen, nullptr, nullptr, entry, entry, buf_create_from_str("a"));
+            entry->data.structure.decls_scope = create_decls_scope(ira->codegen, nullptr, nullptr, entry, entry, &entry->name);
 
             assert(fields_ptr->data.x_ptr.special == ConstPtrSpecialBaseArray);
             assert(fields_ptr->data.x_ptr.data.base_array.elem_index == 0);
@@ -26245,7 +26245,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
             assert(fields_arr->data.x_array.special == ConstArraySpecialNone);
             for (size_t i = 0; i < fields_len; i++) {
                 ZigValue *field_value = &fields_arr->data.x_array.data.s_none.elements[i];
-                assert(field_value->type->id == ZigTypeIdStruct);
+                assert(field_value->type == ir_type_info_get_type(ira, "StructField", nullptr));
                 TypeStructField *field = entry->data.structure.fields[i];
                 field->name = buf_alloc();
                 if ((err = get_const_field_buf(ira, source_instr->source_node, field_value, "name", 0, field->name)))
