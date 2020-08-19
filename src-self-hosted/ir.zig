@@ -81,6 +81,7 @@ pub const Inst = struct {
         ref,
         ret,
         retvoid,
+        varptr,
         /// Write a value to a pointer. LHS is pointer, RHS is value.
         store,
         sub,
@@ -135,6 +136,7 @@ pub const Inst = struct {
                 .condbr => CondBr,
                 .constant => Constant,
                 .loop => Loop,
+                .varptr => VarPtr,
             };
         }
 
@@ -431,6 +433,20 @@ pub const Inst = struct {
             return 0;
         }
         pub fn getOperand(self: *const Loop, index: usize) ?*Inst {
+            return null;
+        }
+    };
+
+    pub const VarPtr = struct {
+        pub const base_tag = Tag.varptr;
+
+        base: Inst,
+        variable: *Module.Var,
+
+        pub fn operandCount(self: *const VarPtr) usize {
+            return 0;
+        }
+        pub fn getOperand(self: *const VarPtr, index: usize) ?*Inst {
             return null;
         }
     };

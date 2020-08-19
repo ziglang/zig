@@ -320,6 +320,12 @@ pub const Fn = struct {
     }
 };
 
+pub const Var = struct {
+    value: ?Value,
+    owner_decl: *Decl,
+    is_mutable: bool,
+};
+
 pub const Scope = struct {
     tag: Tag,
 
@@ -1419,7 +1425,152 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             }
             return type_changed;
         },
-        .VarDecl => @panic("TODO var decl"),
+        .VarDecl => {
+            const var_decl = @fieldParentPtr(ast.Node.VarDecl, "base", ast_node);
+
+            decl.analysis = .in_progress;
+
+            const is_extern = blk: {
+                const maybe_extern_token = var_decl.getTrailer("extern_export_token") orelse
+                    break :blk false;
+                break :blk tree.token_ids[maybe_extern_token] == .Keyword_extern;
+            };
+            const is_mutable = tree.token_ids[var_decl.mut_token] == .Keyword_var;
+
+            // We need the memory for the Type to go into the arena for the Decl
+            var decl_arena = std.heap.ArenaAllocator.init(self.gpa);
+            errdefer decl_arena.deinit();
+            const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
+
+            var block_scope: Scope.Block = .{
+                .parent = null,
+                .func = null,
+                .decl = decl,
+                .instructions = .{},
+                .arena = &decl_arena.allocator,
+            };
+            defer block_scope.instructions.deinit(self.gpa);
+
+            const explicit_type = blk: {
+                const type_node = var_decl.getTrailer("type_node") orelse
+                    break :blk null;
+
+                var type_scope_arena = std.heap.ArenaAllocator.init(self.gpa);
+                defer type_scope_arena.deinit();
+                var type_scope: Scope.GenZIR = .{
+                    .decl = decl,
+                    .arena = &type_scope_arena.allocator,
+                    .parent = decl.scope,
+                };
+                defer type_scope.instructions.deinit(self.gpa);
+
+                const src = tree.token_locs[type_node.firstToken()].start;
+                const type_type = try astgen.addZIRInstConst(self, &type_scope.base, src, .{
+                    .ty = Type.initTag(.type),
+                    .val = Value.initTag(.type_type),
+                });
+                const var_type = try astgen.expr(self, &type_scope.base, .{ .ty = type_type }, type_node);
+                _ = try astgen.addZIRUnOp(self, &type_scope.base, src, .@"return", var_type);
+
+                break :blk try zir_sema.analyzeBodyValueAsType(self, &block_scope, .{
+                    .instructions = type_scope.instructions.items,
+                });
+            };
+
+            var var_type: Type = undefined;
+            const value: ?Value = if (var_decl.getTrailer("init_node")) |init_node| blk: {
+                var gen_scope_arena = std.heap.ArenaAllocator.init(self.gpa);
+                defer gen_scope_arena.deinit();
+                var gen_scope: Scope.GenZIR = .{
+                    .decl = decl,
+                    .arena = &gen_scope_arena.allocator,
+                    .parent = decl.scope,
+                };
+                defer gen_scope.instructions.deinit(self.gpa);
+                const src = tree.token_locs[init_node.firstToken()].start;
+
+                // TODO comptime scope here
+                const init_inst = try astgen.expr(self, &gen_scope.base, .none, init_node);
+                _ = try astgen.addZIRUnOp(self, &gen_scope.base, src, .@"return", init_inst);
+
+                var inner_block: Scope.Block = .{
+                    .parent = null,
+                    .func = null,
+                    .decl = decl,
+                    .instructions = .{},
+                    .arena = &gen_scope_arena.allocator,
+                };
+                defer inner_block.instructions.deinit(self.gpa);
+                try zir_sema.analyzeBody(self, &inner_block.base, .{ .instructions = gen_scope.instructions.items });
+
+                for (inner_block.instructions.items) |inst| {
+                    if (inst.castTag(.ret)) |ret| {
+                        const coerced = if (explicit_type) |some|
+                            try self.coerce(&inner_block.base, some, ret.operand)
+                        else
+                            ret.operand;
+                        const val = try self.resolveConstValue(&inner_block.base, coerced);
+
+                        var_type = explicit_type orelse try ret.operand.ty.copy(block_scope.arena);
+                        break :blk try val.copy(block_scope.arena);
+                    } else {
+                        return self.fail(&block_scope.base, inst.src, "unable to resolve comptime value", .{});
+                    }
+                }
+                unreachable;
+            } else if (!is_extern) {
+                return self.failTok(&block_scope.base, var_decl.firstToken(), "variables must be initialized", .{});
+            } else if (explicit_type) |some| blk: {
+                var_type = some;
+                break :blk null;
+            } else {
+                return self.failTok(&block_scope.base, var_decl.firstToken(), "unable to infer variable type", .{});
+            };
+
+            if (is_mutable and !var_type.isValidVarType(is_extern)) {
+                return self.failTok(&block_scope.base, var_decl.firstToken(), "variable of type '{}' must be const", .{var_type});
+            }
+
+            var type_changed = true;
+            if (decl.typedValueManaged()) |tvm| {
+                type_changed = !tvm.typed_value.ty.eql(var_type);
+
+                tvm.deinit(self.gpa);
+            }
+
+            const new_variable = try decl_arena.allocator.create(Var);
+            const var_payload = try decl_arena.allocator.create(Value.Payload.Variable);
+            new_variable.* = .{
+                .value = value,
+                .owner_decl = decl,
+                .is_mutable = is_mutable,
+            };
+            var_payload.* = .{ .variable = new_variable };
+
+            decl_arena_state.* = decl_arena.state;
+            decl.typed_value = .{
+                .most_recent = .{
+                    .typed_value = .{
+                        .ty = var_type,
+                        .val = Value.initPayload(&var_payload.base),
+                    },
+                    .arena = decl_arena_state,
+                },
+            };
+            decl.analysis = .complete;
+            decl.generation = self.generation;
+
+            if (var_decl.getTrailer("extern_export_token")) |maybe_export_token| {
+                if (tree.token_ids[maybe_export_token] == .Keyword_export) {
+                    const export_src = tree.token_locs[maybe_export_token].start;
+                    const name_loc = tree.token_locs[var_decl.name_token];
+                    const name = tree.tokenSliceLoc(name_loc);
+                    // The scope needs to have the decl in it.
+                    try self.analyzeExport(&block_scope.base, export_src, name, decl);
+                }
+            }
+            return type_changed;
+        },
         .Comptime => @panic("TODO comptime decl"),
         .Use => @panic("TODO usingnamespace decl"),
         else => unreachable,
@@ -1584,7 +1735,32 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
                 }
             }
         } else if (src_decl.castTag(.VarDecl)) |var_decl| {
-            log.err("TODO: analyze var decl", .{});
+            const name_loc = tree.token_locs[var_decl.name_token];
+            const name = tree.tokenSliceLoc(name_loc);
+            const name_hash = root_scope.fullyQualifiedNameHash(name);
+            const contents_hash = std.zig.hashSrc(tree.getNodeSource(src_decl));
+            if (self.decl_table.get(name_hash)) |decl| {
+                // Update the AST Node index of the decl, even if its contents are unchanged, it may
+                // have been re-ordered.
+                decl.src_index = decl_i;
+                if (deleted_decls.remove(decl) == null) {
+                    decl.analysis = .sema_failure;
+                    const err_msg = try ErrorMsg.create(self.gpa, name_loc.start, "redefinition of '{}'", .{decl.name});
+                    errdefer err_msg.destroy(self.gpa);
+                    try self.failed_decls.putNoClobber(self.gpa, decl, err_msg);
+                } else if (!srcHashEql(decl.contents_hash, contents_hash)) {
+                    try self.markOutdatedDecl(decl);
+                    decl.contents_hash = contents_hash;
+                }
+            } else {
+                const new_decl = try self.createNewDecl(&root_scope.base, name, decl_i, name_hash, contents_hash);
+                root_scope.decls.appendAssumeCapacity(new_decl);
+                if (var_decl.getTrailer("extern_export_token")) |maybe_export_token| {
+                    if (tree.token_ids[maybe_export_token] == .Keyword_export) {
+                        self.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
+                    }
+                }
+            }
         } else if (src_decl.castTag(.Comptime)) |comptime_node| {
             log.err("TODO: analyze comptime decl", .{});
         } else if (src_decl.castTag(.ContainerField)) |container_field| {
@@ -2217,18 +2393,44 @@ pub fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) Inn
     };
 
     const decl_tv = try decl.typedValue();
-    const ty_payload = try scope.arena().create(Type.Payload.Pointer);
-    ty_payload.* = .{
-        .base = .{ .tag = .single_const_pointer },
-        .pointee_type = decl_tv.ty,
-    };
+    if (decl_tv.val.tag() == .variable) {
+        return self.getVarRef(scope, src, decl_tv);
+    }
+    const ty = try self.singlePtrType(scope, src, false, decl_tv.ty);
     const val_payload = try scope.arena().create(Value.Payload.DeclRef);
     val_payload.* = .{ .decl = decl };
 
     return self.constInst(scope, src, .{
-        .ty = Type.initPayload(&ty_payload.base),
+        .ty = ty,
         .val = Value.initPayload(&val_payload.base),
     });
+}
+
+fn getVarRef(self: *Module, scope: *Scope, src: usize, tv: TypedValue) InnerError!*Inst {
+    const variable = tv.val.cast(Value.Payload.Variable).?.variable;
+
+    const ty = try self.singlePtrType(scope, src, variable.is_mutable, tv.ty);
+    if (!variable.is_mutable and variable.value != null) {
+        const val_payload = try scope.arena().create(Value.Payload.RefVal);
+        val_payload.* = .{ .val = variable.value.? };
+        return self.constInst(scope, src, .{
+            .ty = ty,
+            .val = Value.initPayload(&val_payload.base),
+        });
+    }
+    
+    const b = try self.requireRuntimeBlock(scope, src);
+    const inst = try b.arena.create(Inst.VarPtr);
+    inst.* = .{
+        .base = .{
+            .tag = .varptr,
+            .ty = ty,
+            .src = src,
+        },
+        .variable = variable,
+    };
+    try b.instructions.append(self.gpa, &inst.base);
+    return &inst.base;
 }
 
 pub fn analyzeDeref(self: *Module, scope: *Scope, src: usize, ptr: *Inst, ptr_src: usize) InnerError!*Inst {
