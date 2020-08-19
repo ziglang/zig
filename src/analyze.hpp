@@ -116,6 +116,7 @@ void eval_min_max_value_int(CodeGen *g, ZigType *int_type, BigInt *bigint, bool 
 
 void render_const_value(CodeGen *g, Buf *buf, ZigValue *const_val);
 
+ScopeDecls *create_decls_scope(CodeGen *g, AstNode *node, Scope *parent, ZigType *container_type, ZigType *import, Buf *bare_name);
 ScopeBlock *create_block_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeDefer *create_defer_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeDeferExpr *create_defer_expr_scope(CodeGen *g, AstNode *node, Scope *parent);

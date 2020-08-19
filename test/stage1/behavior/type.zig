@@ -236,3 +236,47 @@ test "Type.ErrorSet" {
     _ = @Type(@typeInfo(error{A}));
     _ = @Type(@typeInfo(error{ A, B, C }));
 }
+
+test "Type.Struct" {
+    const A = @Type(@typeInfo(struct { x: u8, y: u32 }));
+    const infoA = @typeInfo(A).Struct;
+    testing.expectEqual(TypeInfo.ContainerLayout.Auto, infoA.layout);
+    testing.expectEqualSlices(u8, "x", infoA.fields[0].name);
+    testing.expectEqual(u8, infoA.fields[0].field_type);
+    testing.expectEqual(@as(?u8, null), infoA.fields[0].default_value);
+    testing.expectEqualSlices(u8, "y", infoA.fields[1].name);
+    testing.expectEqual(u32, infoA.fields[1].field_type);
+    testing.expectEqual(@as(?u32, null), infoA.fields[1].default_value);
+    testing.expectEqualSlices(TypeInfo.Declaration, &[_]TypeInfo.Declaration{}, infoA.decls);
+    testing.expectEqual(@as(bool, false), infoA.is_tuple);
+
+    var a = A{ .x = 0, .y = 1 };
+    testing.expectEqual(@as(u8, 0), a.x);
+    testing.expectEqual(@as(u32, 1), a.y);
+    a.y += 1;
+    testing.expectEqual(@as(u32, 2), a.y);
+
+    const B = @Type(@typeInfo(extern struct { x: u8, y: u32 = 5 }));
+    const infoB = @typeInfo(B).Struct;
+    testing.expectEqual(TypeInfo.ContainerLayout.Extern, infoB.layout);
+    testing.expectEqualSlices(u8, "x", infoB.fields[0].name);
+    testing.expectEqual(u8, infoB.fields[0].field_type);
+    testing.expectEqual(@as(?u8, null), infoB.fields[0].default_value);
+    testing.expectEqualSlices(u8, "y", infoB.fields[1].name);
+    testing.expectEqual(u32, infoB.fields[1].field_type);
+    testing.expectEqual(@as(?u32, 5), infoB.fields[1].default_value);
+    testing.expectEqual(@as(usize, 0), infoB.decls.len);
+    testing.expectEqual(@as(bool, false), infoB.is_tuple);
+
+    const C = @Type(@typeInfo(packed struct { x: u8 = 3, y: u32 = 5 }));
+    const infoC = @typeInfo(C).Struct;
+    testing.expectEqual(TypeInfo.ContainerLayout.Packed, infoC.layout);
+    testing.expectEqualSlices(u8, "x", infoC.fields[0].name);
+    testing.expectEqual(u8, infoC.fields[0].field_type);
+    testing.expectEqual(@as(?u8, 3), infoC.fields[0].default_value);
+    testing.expectEqualSlices(u8, "y", infoC.fields[1].name);
+    testing.expectEqual(u32, infoC.fields[1].field_type);
+    testing.expectEqual(@as(?u32, 5), infoC.fields[1].default_value);
+    testing.expectEqual(@as(usize, 0), infoC.decls.len);
+    testing.expectEqual(@as(bool, false), infoC.is_tuple);
+}
