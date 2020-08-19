@@ -571,6 +571,56 @@ pub const TestContext = struct {
                     std.debug.assert(!case.cbe);
 
                     update_node.estimated_total_items = 4;
+                    if (case.target.cpu_arch) |arch| {
+                        if (arch == .spu_2) {
+                            if (case.target.os_tag) |os| {
+                                if (os != .freestanding) {
+                                    std.debug.panic("Only freestanding makes sense for SPU-II tests!", .{});
+                                }
+                            } else {
+                                std.debug.panic("SPU_2 has no native OS, check the test!", .{});
+                            }
+                            var output = std.ArrayList(u8).init(allocator);
+                            //                                defer output.deinit();
+                            const uart = struct {
+                                fn in(_out: usize) !u8 {
+                                    return error.not_implemented;
+                                }
+                                fn out(_output: usize, val: u8) !void {
+                                    try @intToPtr(*std.ArrayList(u8), _output).append(val);
+                                }
+                            };
+                            var interpreter = std.spu.interpreter(struct {
+                                    RAM: [0x10000]u8 = undefined,
+
+                                    pub fn read8(bus: @This(), addr: u16) u8 {
+                                        return bus.RAM[addr];
+                                    }
+                                    pub fn read16(bus: @This(), addr: u16) u16 {
+                                        return std.mem.readIntLittle(u16, bus.RAM[addr..][0..2]);
+                                    }
+
+                                    pub fn write8(bus: *@This(), addr: u16, val: u8) void {
+                                        bus.RAM[addr] = val;
+                                    }
+
+                                    pub fn write16(bus: *@This(), addr: u16, val: u16) void {
+                                        std.mem.writeIntLittle(u16, bus.RAM[addr..][0..2], val);
+                                    }
+                                }){
+                                .bus = .{},
+                            };
+
+                            //defer interpreter.deinit(allocator);
+                            std.debug.print("TODO implement SPU-II test loader\n", .{});
+                            std.process.exit(1);
+                            // TODO: loop detection? Solve the halting problem? fork() and limit by wall clock?
+                            // Limit by emulated cycles?
+                            //   while (!interpreter.undefined0) {
+                            //       try interpreter.ExecuteBlock(100);
+                            //   }
+                        }
+                    }
                     var exec_result = x: {
                         var exec_node = update_node.start("execute", null);
                         exec_node.activate();
@@ -635,7 +685,6 @@ pub const TestContext = struct {
                     var test_node = update_node.start("test", null);
                     test_node.activate();
                     defer test_node.end();
-
                     defer allocator.free(exec_result.stdout);
                     defer allocator.free(exec_result.stderr);
                     switch (exec_result.term) {
