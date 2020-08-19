@@ -449,7 +449,33 @@ pub const Builder = struct {
                     return null;
                 },
             },
-            .Int => panic("TODO integer options to build script", .{}),
+            .Int => switch (entry.value.value) {
+                .Flag => {
+                    warn("Expected -D{} to be an integer, but received a boolean.\n", .{name});
+                    self.markInvalidUserInput();
+                    return null;
+                },
+                .Scalar => |s| {
+                    const n = std.fmt.parseInt(T, s, 10) catch |err| switch (err) {
+                        error.Overflow => {
+                            warn("-D{} value {} cannot fit into type {}.\n", .{ name, s, @typeName(T) });
+                            self.markInvalidUserInput();
+                            return null;
+                        },
+                        else => {
+                            warn("Expected -D{} to be an integer of type {}.\n", .{ name, @typeName(T) });
+                            self.markInvalidUserInput();
+                            return null;
+                        },
+                    };
+                    return n;
+                },
+                .List => {
+                    warn("Expected -D{} to be an integer, but received a list.\n", .{name});
+                    self.markInvalidUserInput();
+                    return null;
+                },
+            },
             .Float => panic("TODO float options to build script", .{}),
             .Enum => switch (entry.value.value) {
                 .Flag => {
