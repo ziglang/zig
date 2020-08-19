@@ -1878,6 +1878,11 @@ const EmitZIR = struct {
         if (typed_value.val.cast(Value.Payload.DeclRef)) |decl_ref| {
             const decl = decl_ref.decl;
             return try self.emitUnnamedDecl(try self.emitDeclRef(src, decl));
+        } else if (typed_value.val.cast(Value.Payload.Variable)) |variable| {
+            return self.emitTypedValue(src, .{
+                .ty = typed_value.ty,
+                .val = variable.variable.value.?,
+            });
         }
         if (typed_value.val.isUndef()) {
             const as_inst = try self.arena.allocator.create(Inst.BinOp);
@@ -1967,6 +1972,21 @@ const EmitZIR = struct {
                 return self.emitPrimitive(src, .@"true")
             else
                 return self.emitPrimitive(src, .@"false"),
+            .EnumLiteral => {
+                const enum_literal = @fieldParentPtr(Value.Payload.Bytes, "base", typed_value.val.ptr_otherwise);
+                const inst = try self.arena.allocator.create(Inst.Str);
+                inst.* = .{
+                    .base = .{
+                        .src = src,
+                        .tag = .enum_literal,
+                    },
+                    .positionals = .{
+                        .bytes = enum_literal.data,
+                    },
+                    .kw_args = .{},
+                };
+                return self.emitUnnamedDecl(&inst.base);
+            },
             else => |t| std.debug.panic("TODO implement emitTypedValue for {}", .{@tagName(t)}),
         }
     }
@@ -2436,6 +2456,51 @@ const EmitZIR = struct {
                         .kw_args = .{},
                     };
                     return self.emitUnnamedDecl(&inst.base);
+                },
+                .Array => {
+                    var len_pl = Value.Payload.Int_u64{ .int = ty.arrayLen() };
+                    const len = Value.initPayload(&len_pl.base);
+
+                    const inst = if (ty.arraySentinel()) |sentinel| blk: {
+                        const inst = try self.arena.allocator.create(Inst.ArrayTypeSentinel);
+                        inst.* = .{
+                            .base = .{
+                                .src = src,
+                                .tag = .array_type,
+                            },
+                            .positionals = .{
+                                .len = (try self.emitTypedValue(src, .{
+                                    .ty = Type.initTag(.usize),
+                                    .val = len,
+                                })).inst,
+                                .sentinel = (try self.emitTypedValue(src, .{
+                                    .ty = ty.elemType(),
+                                    .val = sentinel,
+                                })).inst,
+                                .elem_type = (try self.emitType(src, ty.elemType())).inst,
+                            },
+                            .kw_args = .{},
+                        };
+                        break :blk &inst.base;
+                    } else blk: {
+                        const inst = try self.arena.allocator.create(Inst.BinOp);
+                        inst.* = .{
+                            .base = .{
+                                .src = src,
+                                .tag = .array_type,
+                            },
+                            .positionals = .{
+                                .lhs = (try self.emitTypedValue(src, .{
+                                    .ty = Type.initTag(.usize),
+                                    .val = len,
+                                })).inst,
+                                .rhs = (try self.emitType(src, ty.elemType())).inst,
+                            },
+                            .kw_args = .{},
+                        };
+                        break :blk &inst.base;
+                    };
+                    return self.emitUnnamedDecl(inst);
                 },
                 else => std.debug.panic("TODO implement emitType for {}", .{ty}),
             },

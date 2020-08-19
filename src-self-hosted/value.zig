@@ -218,7 +218,7 @@ pub const Value = extern union {
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
-            .enum_literal, .bytes => return self.copyPayloadShallow(allocator, Payload.Bytes),
+            .bytes => return self.copyPayloadShallow(allocator, Payload.Bytes),
             .repeated => {
                 const payload = @fieldParentPtr(Payload.Repeated, "base", self.ptr_otherwise);
                 const new_payload = try allocator.create(Payload.Repeated);
@@ -232,6 +232,15 @@ pub const Value = extern union {
             .float_32 => return self.copyPayloadShallow(allocator, Payload.Float_32),
             .float_64 => return self.copyPayloadShallow(allocator, Payload.Float_64),
             .float_128 => return self.copyPayloadShallow(allocator, Payload.Float_128),
+            .enum_literal => {
+                const payload = @fieldParentPtr(Payload.Bytes, "base", self.ptr_otherwise);
+                const new_payload = try allocator.create(Payload.Bytes);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .data = try allocator.dupe(u8, payload.data),
+                };
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
         }
     }
 
