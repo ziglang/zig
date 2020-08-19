@@ -1583,11 +1583,19 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
                     }
                 }
             }
+        } else if (src_decl.castTag(.VarDecl)) |var_decl| {
+            log.err("TODO: analyze var decl", .{});
+        } else if (src_decl.castTag(.Comptime)) |comptime_node| {
+            log.err("TODO: analyze comptime decl", .{});
+        } else if (src_decl.castTag(.ContainerField)) |container_field| {
+            log.err("TODO: analyze container field", .{});
+        } else if (src_decl.castTag(.TestDecl)) |test_decl| {
+            log.err("TODO: analyze test decl", .{});
+        } else if (src_decl.castTag(.Use)) |use_decl| {
+            log.err("TODO: analyze usingnamespace decl", .{});
         } else {
-            std.debug.panic("TODO: analyzeRootSrcFile {}", .{src_decl.tag});
+            unreachable;
         }
-        // TODO also look for global variable declarations
-        // TODO also look for comptime blocks and exported globals
     }
     // Handle explicitly deleted decls from the source code. Not to be confused
     // with when we delete decls because they are no longer referenced.
