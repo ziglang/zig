@@ -617,6 +617,37 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "",
         );
+
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    add(aa, bb);
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\const aa = 'ぁ';
+            \\const bb = '\x03';
+            \\
+            \\fn add(a: u32, b: u32) void {
+            \\    assert(a + b == 12356);
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
     }
 
     {

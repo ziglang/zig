@@ -1223,9 +1223,10 @@ fn identifier(mod: *Module, scope: *Scope, rl: ResultLoc, ident: *ast.Node.OneTo
     }
 
     if (mod.lookupDeclName(scope, ident_name)) |decl| {
-        // TODO handle lvalues
         const result = try addZIRInst(mod, scope, src, zir.Inst.DeclValInModule, .{ .decl = decl }, .{});
-        return rlWrap(mod, scope, rl, result);
+        if (rl == .lvalue or rl == .ref)
+            return result;
+        return rlWrap(mod, scope, rl, try addZIRUnOp(mod, scope, src, .deref, result));
     }
 
     return mod.failNode(scope, &ident.base, "use of undeclared identifier '{}'", .{ident_name});
@@ -1258,7 +1259,8 @@ fn multilineStrLiteral(mod: *Module, scope: *Scope, node: *ast.Node.MultilineStr
     // line lengths and new lines
     var len = lines.len - 1;
     for (lines) |line| {
-        len += tree.tokenSlice(line).len - 2;
+        // 2 for the '//' + 1 for '\n'
+        len += tree.tokenSlice(line).len - 3;
     }
 
     const bytes = try scope.arena().alloc(u8, len);
@@ -1268,9 +1270,9 @@ fn multilineStrLiteral(mod: *Module, scope: *Scope, node: *ast.Node.MultilineStr
             bytes[i] = '\n';
             i += 1;
         }
-        const slice = tree.tokenSlice(line)[2..];
-        mem.copy(u8, bytes[i..], slice);
-        i += slice.len;
+        const slice = tree.tokenSlice(line);
+        mem.copy(u8, bytes[i..], slice[2..slice.len - 1]);
+        i += slice.len - 3;
     }
 
     return addZIRInst(mod, scope, src, zir.Inst.Str, .{ .bytes = bytes }, .{});

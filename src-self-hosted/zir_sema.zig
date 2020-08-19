@@ -581,8 +581,7 @@ fn analyzeInstDeclVal(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclVal) Inne
 
 fn analyzeInstDeclValInModule(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclValInModule) InnerError!*Inst {
     const decl = inst.positionals.decl;
-    const ptr = try mod.analyzeDeclRef(scope, inst.base.src, decl);
-    return mod.analyzeDeref(scope, inst.base.src, ptr, inst.base.src);
+    return mod.analyzeDeclRef(scope, inst.base.src, decl);
 }
 
 fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError!*Inst {
