@@ -4,7 +4,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const fs = std.fs;
-const log = std.log;
+const log = std.log.scoped(.link);
 const macho = std.macho;
 
 const Module = @import("../Module.zig");
