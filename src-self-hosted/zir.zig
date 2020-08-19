@@ -47,6 +47,10 @@ pub const Inst = struct {
         array_cat,
         /// Array multiplication `a ** b`
         array_mul,
+        /// Create an array type
+        array_type,
+        /// Create an array type with sentinel
+        array_type_sentinel,
         /// Function parameter value. These must be first in a function's main block,
         /// in respective order with the parameters.
         arg,
@@ -58,11 +62,11 @@ pub const Inst = struct {
         bitand,
         /// TODO delete this instruction, it has no purpose.
         bitcast,
-        /// An arbitrary typed pointer, which is to be used as an L-Value, is pointer-casted
-        /// to a new L-Value. The destination type is given by LHS. The cast is to be evaluated
+        /// An arbitrary typed pointer is pointer-casted to a new Pointer.
+        /// The destination type is given by LHS. The cast is to be evaluated
         /// as if it were a bit-cast operation from the operand pointer element type to the
         /// provided destination type.
-        bitcast_lvalue,
+        bitcast_ref,
         /// A typed result location pointer is bitcasted to a new result location pointer.
         /// The new result location pointer has an inferred type.
         bitcast_result_ptr,
@@ -225,6 +229,10 @@ pub const Inst = struct {
         unwrap_err_safe,
         /// Same as previous, but without safety checks. Used for orelse, if and while
         unwrap_err_unsafe,
+        /// Takes a *E!T and raises a compiler error if T != void
+        ensure_err_payload_void,
+        /// Enum literal
+        enum_literal,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
@@ -250,7 +258,7 @@ pub const Inst = struct {
                 .ensure_result_non_error,
                 .bitcast_result_ptr,
                 .ref,
-                .bitcast_lvalue,
+                .bitcast_ref,
                 .typeof,
                 .single_const_ptr_type,
                 .single_mut_ptr_type,
@@ -259,12 +267,14 @@ pub const Inst = struct {
                 .unwrap_optional_unsafe,
                 .unwrap_err_safe,
                 .unwrap_err_unsafe,
+                .ensure_err_payload_void,
                 => UnOp,
 
                 .add,
                 .addwrap,
                 .array_cat,
                 .array_mul,
+                .array_type,
                 .bitand,
                 .bitor,
                 .div,
@@ -291,6 +301,7 @@ pub const Inst = struct {
                 => BinOp,
 
                 .arg => Arg,
+                .array_type_sentinel => ArrayTypeSentinel,
                 .block => Block,
                 .@"break" => Break,
                 .breakvoid => BreakVoid,
@@ -317,6 +328,7 @@ pub const Inst = struct {
                 .elemptr => ElemPtr,
                 .condbr => CondBr,
                 .ptr_type => PtrType,
+                .enum_literal => EnumLiteral,
             };
         }
 
@@ -330,12 +342,14 @@ pub const Inst = struct {
                 .alloc_inferred,
                 .array_cat,
                 .array_mul,
+                .array_type,
+                .array_type_sentinel,
                 .arg,
                 .as,
                 .@"asm",
                 .bitand,
                 .bitcast,
-                .bitcast_lvalue,
+                .bitcast_ref,
                 .bitcast_result_ptr,
                 .bitor,
                 .block,
@@ -398,6 +412,8 @@ pub const Inst = struct {
                 .unwrap_err_safe,
                 .unwrap_err_unsafe,
                 .ptr_type,
+                .ensure_err_payload_void,
+                .enum_literal,
                 => false,
 
                 .@"break",
@@ -844,6 +860,28 @@ pub const Inst = struct {
             @"volatile": bool = false,
             sentinel: ?*Inst = null,
         },
+    };
+
+    pub const ArrayTypeSentinel = struct {
+        pub const base_tag = Tag.array_type_sentinel;
+        base: Inst,
+
+        positionals: struct {
+            len: *Inst,
+            sentinel: *Inst,
+            elem_type: *Inst,
+        },
+        kw_args: struct {},
+    };
+
+    pub const EnumLiteral = struct {
+        pub const base_tag = Tag.enum_literal;
+        base: Inst,
+
+        positionals: struct {
+            name: []const u8,
+        },
+        kw_args: struct {},
     };
 };
 
@@ -1922,6 +1960,10 @@ const EmitZIR = struct {
                 return self.emitUnnamedDecl(&str_inst.base);
             },
             .Void => return self.emitPrimitive(src, .void_value),
+            .Bool => if (typed_value.val.toBool())
+                return self.emitPrimitive(src, .@"true")
+            else
+                return self.emitPrimitive(src, .@"false"),
             else => |t| std.debug.panic("TODO implement emitTypedValue for {}", .{@tagName(t)}),
         }
     }

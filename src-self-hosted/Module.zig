@@ -2902,13 +2902,78 @@ pub fn floatSub(self: *Module, scope: *Scope, float_type: Type, src: usize, lhs:
     return Value.initPayload(val_payload);
 }
 
-pub fn singlePtrType(self: *Module, scope: *Scope, src: usize, mutable: bool, elem_ty: Type) error{OutOfMemory}!Type {
+pub fn singlePtrType(self: *Module, scope: *Scope, src: usize, mutable: bool, elem_ty: Type) Allocator.Error!Type {
     const type_payload = try scope.arena().create(Type.Payload.Pointer);
     type_payload.* = .{
         .base = .{ .tag = if (mutable) .single_mut_pointer else .single_const_pointer },
         .pointee_type = elem_ty,
     };
     return Type.initPayload(&type_payload.base);
+}
+
+pub fn optionalType(self: *Module, scope: *Scope, child_type: Type) Allocator.Error!Type {
+    return Type.initPayload(switch (child_type.tag()) {
+        .single_const_pointer => blk: {
+            const payload = try scope.arena().create(Type.Payload.Pointer);
+            payload.* = .{
+                .base = .{ .tag = .optional_single_const_pointer },
+                .pointee_type = child_type.elemType(),
+            };
+            break :blk &payload.base;
+        },
+        .single_mut_pointer => blk: {
+            const payload = try scope.arena().create(Type.Payload.Pointer);
+            payload.* = .{
+                .base = .{ .tag = .optional_single_mut_pointer },
+                .pointee_type = child_type.elemType(),
+            };
+            break :blk &payload.base;
+        },
+        else => blk: {
+            const payload = try scope.arena().create(Type.Payload.Optional);
+            payload.* = .{
+                .child_type = child_type,
+            };
+            break :blk &payload.base;
+        },
+    });
+}
+
+pub fn arrayType(self: *Module, scope: *Scope, len: u64, sentinel: ?Value, elem_type: Type) Allocator.Error!Type {
+    if (elem_type.eql(Type.initTag(.u8))) {
+        if (sentinel) |some| {
+            if (some.eql(Value.initTag(.zero))) {
+                const payload = try scope.arena().create(Type.Payload.Array_u8_Sentinel0);
+                payload.* = .{
+                    .len = len,
+                };
+                return Type.initPayload(&payload.base);
+            }
+        } else {
+            const payload = try scope.arena().create(Type.Payload.Array_u8);
+            payload.* = .{
+                .len = len,
+            };
+            return Type.initPayload(&payload.base);
+        }
+    }
+
+    if (sentinel) |some| {
+        const payload = try scope.arena().create(Type.Payload.ArraySentinel);
+        payload.* = .{
+            .len = len,
+            .sentinel = some,
+            .elem_type = elem_type,
+        };
+        return Type.initPayload(&payload.base);
+    }
+
+    const payload = try scope.arena().create(Type.Payload.Array);
+    payload.* = .{
+        .len = len,
+        .elem_type = elem_type,
+    };
+    return Type.initPayload(&payload.base);
 }
 
 pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {

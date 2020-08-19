@@ -29,7 +29,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .alloc => return analyzeInstAlloc(mod, scope, old_inst.castTag(.alloc).?),
         .alloc_inferred => return analyzeInstAllocInferred(mod, scope, old_inst.castTag(.alloc_inferred).?),
         .arg => return analyzeInstArg(mod, scope, old_inst.castTag(.arg).?),
-        .bitcast_lvalue => return analyzeInstBitCastLValue(mod, scope, old_inst.castTag(.bitcast_lvalue).?),
+        .bitcast_ref => return analyzeInstBitCastRef(mod, scope, old_inst.castTag(.bitcast_ref).?),
         .bitcast_result_ptr => return analyzeInstBitCastResultPtr(mod, scope, old_inst.castTag(.bitcast_result_ptr).?),
         .block => return analyzeInstBlock(mod, scope, old_inst.castTag(.block).?),
         .@"break" => return analyzeInstBreak(mod, scope, old_inst.castTag(.@"break").?),
@@ -112,6 +112,10 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .unwrap_optional_unsafe => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional_unsafe).?, false),
         .unwrap_err_safe => return analyzeInstUnwrapErr(mod, scope, old_inst.castTag(.unwrap_err_safe).?, true),
         .unwrap_err_unsafe => return analyzeInstUnwrapErr(mod, scope, old_inst.castTag(.unwrap_err_unsafe).?, false),
+        .ensure_err_payload_void => return analyzeInstEnsureErrPayloadVoid(mod, scope, old_inst.castTag(.ensure_err_payload_void).?),
+        .array_type => return analyzeInstArrayType(mod, scope, old_inst.castTag(.array_type).?),
+        .array_type_sentinel => return analyzeInstArrayTypeSentinel(mod, scope, old_inst.castTag(.array_type_sentinel).?),
+        .enum_literal => return analyzeInstEnumLiteral(mod, scope, old_inst.castTag(.enum_literal).?),
     }
 }
 
@@ -295,8 +299,8 @@ fn analyzeInstCoerceResultBlockPtr(
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstCoerceResultBlockPtr", .{});
 }
 
-fn analyzeInstBitCastLValue(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstBitCastLValue", .{});
+fn analyzeInstBitCastRef(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstBitCastRef", .{});
 }
 
 fn analyzeInstBitCastResultPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
@@ -361,6 +365,10 @@ fn analyzeInstEnsureResultNonError(mod: *Module, scope: *Scope, inst: *zir.Inst.
 
 fn analyzeInstAlloc(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const var_type = try resolveType(mod, scope, inst.positionals.operand);
+    // TODO this should happen only for var allocs
+    if (!var_type.isValidVarType()) {
+        return mod.fail(scope, inst.base.src, "variable of type '{}' must be const or comptime", .{var_type});
+    }
     const ptr_type = try mod.singlePtrType(scope, inst.base.src, true, var_type);
     const b = try mod.requireRuntimeBlock(scope, inst.base.src);
     return mod.addNoOp(b, inst.base.src, ptr_type, .alloc);
@@ -675,31 +683,36 @@ fn analyzeInstIntType(mod: *Module, scope: *Scope, inttype: *zir.Inst.IntType) I
 fn analyzeInstOptionalType(mod: *Module, scope: *Scope, optional: *zir.Inst.UnOp) InnerError!*Inst {
     const child_type = try resolveType(mod, scope, optional.positionals.operand);
 
-    return mod.constType(scope, optional.base.src, Type.initPayload(switch (child_type.tag()) {
-        .single_const_pointer => blk: {
-            const payload = try scope.arena().create(Type.Payload.Pointer);
-            payload.* = .{
-                .base = .{ .tag = .optional_single_const_pointer },
-                .pointee_type = child_type.elemType(),
-            };
-            break :blk &payload.base;
-        },
-        .single_mut_pointer => blk: {
-            const payload = try scope.arena().create(Type.Payload.Pointer);
-            payload.* = .{
-                .base = .{ .tag = .optional_single_mut_pointer },
-                .pointee_type = child_type.elemType(),
-            };
-            break :blk &payload.base;
-        },
-        else => blk: {
-            const payload = try scope.arena().create(Type.Payload.Optional);
-            payload.* = .{
-                .child_type = child_type,
-            };
-            break :blk &payload.base;
-        },
-    }));
+    return mod.constType(scope, optional.base.src, try mod.optionalType(scope, child_type));
+}
+
+fn analyzeInstArrayType(mod: *Module, scope: *Scope, array: *zir.Inst.BinOp) InnerError!*Inst {
+    // TODO these should be lazily evaluated
+    const len = try resolveInstConst(mod, scope, array.positionals.lhs);
+    const elem_type = try resolveType(mod, scope, array.positionals.rhs);
+
+    return mod.constType(scope, array.base.src, try mod.arrayType(scope, len.val.toUnsignedInt(), null, elem_type));
+}
+
+fn analyzeInstArrayTypeSentinel(mod: *Module, scope: *Scope, array: *zir.Inst.ArrayTypeSentinel) InnerError!*Inst {
+    // TODO these should be lazily evaluated
+    const len = try resolveInstConst(mod, scope, array.positionals.len);
+    const sentinel = try resolveInstConst(mod, scope, array.positionals.sentinel);
+    const elem_type = try resolveType(mod, scope, array.positionals.elem_type);
+
+    return mod.constType(scope, array.base.src, try mod.arrayType(scope, len.val.toUnsignedInt(), sentinel.val, elem_type));
+}
+
+fn analyzeInstEnumLiteral(mod: *Module, scope: *Scope, inst: *zir.Inst.EnumLiteral) InnerError!*Inst {
+    const payload = try scope.arena().create(Value.Payload.Bytes);
+    payload.* = .{
+        .base = .{ .tag = .enum_literal },
+        .data = try scope.arena().dupe(u8, inst.positionals.name),
+    };
+    return mod.constInst(scope, inst.base.src, .{
+        .ty = Type.initTag(.enum_literal),
+        .val = Value.initPayload(&payload.base),
+    });
 }
 
 fn analyzeInstUnwrapOptional(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp, safety_check: bool) InnerError!*Inst {
@@ -735,6 +748,10 @@ fn analyzeInstUnwrapErr(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp, saf
     return mod.fail(scope, unwrap.base.src, "TODO implement analyzeInstUnwrapErr", .{});
 }
 
+fn analyzeInstEnsureErrPayloadVoid(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp) InnerError!*Inst {
+    return mod.fail(scope, unwrap.base.src, "TODO implement analyzeInstEnsureErrPayloadVoid", .{});
+}
+
 fn analyzeInstFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) InnerError!*Inst {
     const return_type = try resolveType(mod, scope, fntype.positionals.return_type);
 
@@ -760,7 +777,12 @@ fn analyzeInstFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) Inne
     const arena = scope.arena();
     const param_types = try arena.alloc(Type, fntype.positionals.param_types.len);
     for (fntype.positionals.param_types) |param_type, i| {
-        param_types[i] = try resolveType(mod, scope, param_type);
+        const resolved = try resolveType(mod, scope, param_type);
+        // TODO skip for comptime params
+        if (!resolved.isValidVarType()) {
+            return mod.fail(scope, param_type.src, "parameter of type '{}' must be declared comptime", .{resolved});
+        }
+        param_types[i] = resolved;
     }
 
     const payload = try arena.create(Type.Payload.Function);
