@@ -290,6 +290,8 @@ pub const Fn = struct {
     },
     owner_decl: *Decl,
 
+    is_pub: bool,
+
     /// This memory is temporary and points to stack memory for the duration
     /// of Fn analysis.
     pub const Analysis = struct {
@@ -323,7 +325,11 @@ pub const Fn = struct {
 pub const Var = struct {
     value: ?Value,
     owner_decl: *Decl,
+
+    is_pub: bool,
+    is_extern: bool,
     is_mutable: bool,
+    is_threadlocal: bool,
 };
 
 pub const Scope = struct {
@@ -1241,6 +1247,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             };
             defer fn_type_scope.instructions.deinit(self.gpa);
 
+            const is_pub = fn_proto.getTrailer("visib_token") != null;
             const body_node = fn_proto.getTrailer("body_node") orelse
                 return self.failTok(&fn_type_scope.base, fn_proto.fn_token, "TODO implement extern functions", .{});
 
@@ -1378,6 +1385,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             new_func.* = .{
                 .analysis = .{ .queued = fn_zir },
                 .owner_decl = decl,
+                .is_pub = is_pub,
             };
             fn_payload.* = .{ .func = new_func };
 
@@ -1430,13 +1438,6 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
 
             decl.analysis = .in_progress;
 
-            const is_extern = blk: {
-                const maybe_extern_token = var_decl.getTrailer("extern_export_token") orelse
-                    break :blk false;
-                break :blk tree.token_ids[maybe_extern_token] == .Keyword_extern;
-            };
-            const is_mutable = tree.token_ids[var_decl.mut_token] == .Keyword_var;
-
             // We need the memory for the Type to go into the arena for the Decl
             var decl_arena = std.heap.ArenaAllocator.init(self.gpa);
             errdefer decl_arena.deinit();
@@ -1450,6 +1451,32 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .arena = &decl_arena.allocator,
             };
             defer block_scope.instructions.deinit(self.gpa);
+
+            const is_pub = var_decl.getTrailer("visib_token") != null;
+            const is_extern = blk: {
+                const maybe_extern_token = var_decl.getTrailer("extern_export_token") orelse
+                    break :blk false;
+                break :blk tree.token_ids[maybe_extern_token] == .Keyword_extern;
+            };
+            if (var_decl.getTrailer("lib_name")) |lib_name| {
+                assert(is_extern);
+                return self.failNode(&block_scope.base, lib_name, "TODO implement function library name", .{});
+            }
+            const is_mutable = tree.token_ids[var_decl.mut_token] == .Keyword_var;
+            const is_threadlocal = if (var_decl.getTrailer("thread_local_token")) |some| blk: {
+                if (!is_mutable) {
+                    return self.failTok(&block_scope.base, some, "threadlocal variable cannot be constant", .{});
+                }
+                break :blk true;
+            } else false;
+            assert(var_decl.getTrailer("comptime_token") == null);
+            if (var_decl.getTrailer("align_node")) |align_expr| {
+                return self.failNode(&block_scope.base, align_expr, "TODO implement function align expression", .{});
+            }
+            if (var_decl.getTrailer("section_node")) |sect_expr| {
+                return self.failNode(&block_scope.base, sect_expr, "TODO implement function section expression", .{});
+            }
+
 
             const explicit_type = blk: {
                 const type_node = var_decl.getTrailer("type_node") orelse
@@ -1543,7 +1570,10 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             new_variable.* = .{
                 .value = value,
                 .owner_decl = decl,
+                .is_pub = is_pub,
+                .is_extern = is_extern,
                 .is_mutable = is_mutable,
+                .is_threadlocal = is_threadlocal,
             };
             var_payload.* = .{ .variable = new_variable };
 
@@ -2394,7 +2424,7 @@ pub fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) Inn
 
     const decl_tv = try decl.typedValue();
     if (decl_tv.val.tag() == .variable) {
-        return self.getVarRef(scope, src, decl_tv);
+        return self.analyzeVarRef(scope, src, decl_tv);
     }
     const ty = try self.singlePtrType(scope, src, false, decl_tv.ty);
     const val_payload = try scope.arena().create(Value.Payload.DeclRef);
@@ -2406,11 +2436,11 @@ pub fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) Inn
     });
 }
 
-fn getVarRef(self: *Module, scope: *Scope, src: usize, tv: TypedValue) InnerError!*Inst {
+fn analyzeVarRef(self: *Module, scope: *Scope, src: usize, tv: TypedValue) InnerError!*Inst {
     const variable = tv.val.cast(Value.Payload.Variable).?.variable;
 
     const ty = try self.singlePtrType(scope, src, variable.is_mutable, tv.ty);
-    if (!variable.is_mutable and variable.value != null) {
+    if (!variable.is_mutable and !variable.is_extern and variable.value != null) {
         const val_payload = try scope.arena().create(Value.Payload.RefVal);
         val_payload.* = .{ .val = variable.value.? };
         return self.constInst(scope, src, .{
