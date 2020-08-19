@@ -42,6 +42,11 @@ pub const Inst = struct {
         return @truncate(u1, self.deaths >> index) != 0;
     }
 
+    pub fn clearOperandDeath(self: *Inst, index: DeathsBitIndex) void {
+        assert(index < deaths_bits);
+        self.deaths &= ~(@as(DeathsInt, 1) << index);
+    }
+
     pub fn specialOperandDeaths(self: Inst) bool {
         return (self.deaths & (1 << deaths_bits)) != 0;
     }
