@@ -457,7 +457,8 @@ pub const Type = extern union {
                         try param_type.format("", .{}, out_stream);
                     }
                     try out_stream.writeAll(") ");
-                    try payload.return_type.format("", .{}, out_stream);
+                    ty = payload.return_type;
+                    continue;
                 },
 
                 .array_u8 => {
