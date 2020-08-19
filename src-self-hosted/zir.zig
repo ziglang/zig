@@ -1752,6 +1752,9 @@ const EmitZIR = struct {
                 const decl_ref = try self.emitDeclRef(inst.src, declref.decl);
                 try new_body.instructions.append(decl_ref);
                 break :blk decl_ref;
+            } else if (const_inst.val.cast(Value.Payload.Variable)) |var_pl| blk: {
+                const owner_decl = var_pl.variable.owner_decl;
+                break :blk try self.emitDeclVal(inst.src, mem.spanZ(owner_decl.name));
             } else blk: {
                 break :blk (try self.emitTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val })).inst;
             };
@@ -2311,6 +2314,8 @@ const EmitZIR = struct {
                     };
                     break :blk &new_inst.base;
                 },
+
+                .varptr => @panic("TODO"),
             };
             try self.metadata.put(new_inst, .{ .deaths = inst.deaths });
             try instructions.append(new_inst);
