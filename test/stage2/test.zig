@@ -785,4 +785,5 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\extern var foo;
     , &[_][]const u8{":4:1: error: unable to infer variable type"});
+    try @import("spu-ii.zig").addCases(ctx);
 }
