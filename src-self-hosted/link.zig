@@ -40,7 +40,6 @@ pub const Options = struct {
     program_code_size_hint: u64 = 256 * 1024,
 };
 
-
 pub const File = struct {
     pub const LinkBlock = union {
         elf: Elf.TextBlock,
