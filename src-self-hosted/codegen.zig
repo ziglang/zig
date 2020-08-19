@@ -2372,6 +2372,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             .x86_64 => @import("codegen/x86_64.zig"),
             .riscv64 => @import("codegen/riscv64.zig"),
             .spu_2 => @import("codegen/spu-mk2.zig"),
+            .arm => @import("codegen/arm.zig"),
             else => struct {
                 pub const Register = enum {
                     dummy,
