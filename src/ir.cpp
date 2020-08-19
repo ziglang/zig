@@ -25678,37 +25678,20 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                     struct_field_val->type = type_info_struct_field_type;
 
                     ZigValue **inner_fields = alloc_const_vals_ptrs(ira->codegen, 4);
+
                     inner_fields[1]->special = ConstValSpecialStatic;
-                    inner_fields[1]->type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_num_lit_int);
-
-                    ZigType *field_type = resolve_struct_field_type(ira->codegen, struct_field);
-                    if (field_type == nullptr)
-                        return ErrorSemanticAnalyzeFail;
-                    if ((err = type_resolve(ira->codegen, field_type, ResolveStatusZeroBitsKnown)))
-                        return err;
-                    if (!type_has_bits(ira->codegen, struct_field->type_entry)) {
-                        inner_fields[1]->data.x_optional = nullptr;
-                    } else {
-                        size_t byte_offset = struct_field->offset;
-                        inner_fields[1]->data.x_optional = ira->codegen->pass1_arena->create<ZigValue>();
-                        inner_fields[1]->data.x_optional->special = ConstValSpecialStatic;
-                        inner_fields[1]->data.x_optional->type = ira->codegen->builtin_types.entry_num_lit_int;
-                        bigint_init_unsigned(&inner_fields[1]->data.x_optional->data.x_bigint, byte_offset);
-                    }
-
-                    inner_fields[2]->special = ConstValSpecialStatic;
-                    inner_fields[2]->type = ira->codegen->builtin_types.entry_type;
-                    inner_fields[2]->data.x_type = struct_field->type_entry;
+                    inner_fields[1]->type = ira->codegen->builtin_types.entry_type;
+                    inner_fields[1]->data.x_type = struct_field->type_entry;
 
                     // default_value: anytype
-                    inner_fields[3]->special = ConstValSpecialStatic;
-                    inner_fields[3]->type = get_optional_type2(ira->codegen, struct_field->type_entry);
-                    if (inner_fields[3]->type == nullptr) return ErrorSemanticAnalyzeFail;
+                    inner_fields[2]->special = ConstValSpecialStatic;
+                    inner_fields[2]->type = get_optional_type2(ira->codegen, struct_field->type_entry);
+                    if (inner_fields[2]->type == nullptr) return ErrorSemanticAnalyzeFail;
                     memoize_field_init_val(ira->codegen, type_entry, struct_field);
                     if(struct_field->init_val != nullptr && type_is_invalid(struct_field->init_val->type)){
                         return ErrorSemanticAnalyzeFail;
                     }
-                    set_optional_payload(inner_fields[3], struct_field->init_val);
+                    set_optional_payload(inner_fields[2], struct_field->init_val);
 
                     ZigValue *name = create_const_str_lit(ira->codegen, struct_field->name)->data.x_ptr.data.ref.pointee;
                     init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(struct_field->name), true);
