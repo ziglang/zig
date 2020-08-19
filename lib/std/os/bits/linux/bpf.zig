@@ -454,27 +454,32 @@ pub const Insn = packed struct {
         };
     }
 
-    fn ld_imm_impl(dst: Reg, src: Reg, imm: u64) [2]Insn {
-        return [2]Insn{
-            Insn{
-                .code = LD | DW | IMM,
-                .dst = @enumToInt(dst),
-                .src = @enumToInt(src),
-                .off = 0,
-                .imm = @intCast(i32, @truncate(u32, imm)),
-            },
-            Insn{
-                .code = 0,
-                .dst = 0,
-                .src = 0,
-                .off = 0,
-                .imm = @intCast(i32, @truncate(u32, imm >> 32)),
-            },
+    fn ld_imm_impl1(dst: Reg, src: Reg, imm: u64) Insn {
+        return Insn{
+            .code = LD | DW | IMM,
+            .dst = @enumToInt(dst),
+            .src = @enumToInt(src),
+            .off = 0,
+            .imm = @intCast(i32, @truncate(u32, imm)),
         };
     }
 
-    pub fn ld_map_fd(dst: Reg, map_fd: fd_t) [2]Insn {
-        return ld_imm_impl(dst, @intToEnum(Reg, PSEUDO_MAP_FD), @intCast(u64, map_fd));
+    fn ld_imm_impl2(imm: u64) Insn {
+        return Insn{
+            .code = 0,
+            .dst = 0,
+            .src = 0,
+            .off = 0,
+            .imm = @intCast(i32, @truncate(u32, imm >> 32)),
+        };
+    }
+
+    pub fn ld_map_fd1(dst: Reg, map_fd: fd_t) Insn {
+        return ld_imm_impl1(dst, @intToEnum(Reg, PSEUDO_MAP_FD), @intCast(u64, map_fd));
+    }
+
+    pub fn ld_map_fd2(map_fd: fd_t) Insn {
+        return ld_imm_impl2(@intCast(u64, map_fd));
     }
 
     pub fn call(helper: Helper) Insn {
@@ -527,9 +532,8 @@ test "ld_abs" {
 }
 
 test "ld_map_fd" {
-    const insns = Insn.ld_map_fd(.r1, 42);
-    expect_insn(insns[0], 0x0000002a00001118);
-    expect_insn(insns[1], 0x0000000000000000);
+    expect_insn(Insn.ld_map_fd1(.r1, 42), 0x0000002a00001118);
+    expect_insn(Insn.ld_map_fd2(42), 0x0000000000000000);
 }
 
 // st instructions
