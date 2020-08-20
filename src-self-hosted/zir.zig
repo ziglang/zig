@@ -194,18 +194,22 @@ pub const Inst = struct {
         shl,
         /// Integer shift-right. Arithmetic or logical depending on the signedness of the integer type.
         shr,
-        /// Create a const pointer type based on the element type. `*const T`
+        /// Create a const pointer type with element type T. `*const T`
         single_const_ptr_type,
-        /// Create a mutable pointer type based on the element type. `*T`
+        /// Create a mutable pointer type with element type T. `*T`
         single_mut_ptr_type,
-        /// Create a const pointer type based on the element type. `[*]const T`
+        /// Create a const pointer type with element type T. `[*]const T`
         many_const_ptr_type,
-        /// Create a mutable pointer type based on the element type. `[*]T`
+        /// Create a mutable pointer type with element type T. `[*]T`
         many_mut_ptr_type,
-        /// Create a const pointer type based on the element type. `[*c]const T`
+        /// Create a const pointer type with element type T. `[*c]const T`
         c_const_ptr_type,
-        /// Create a mutable pointer type based on the element type. `[*c]T`
+        /// Create a mutable pointer type with element type T. `[*c]T`
         c_mut_ptr_type,
+        /// Create a mutable slice type with element type T. `[]T`
+        mut_slice_type,
+        /// Create a const slice type with element type T. `[]T`
+        const_slice_type,
         /// Create a pointer type with attributes
         ptr_type,
         /// Write a value to a pointer. For loading, see `deref`.
@@ -274,6 +278,8 @@ pub const Inst = struct {
                 .many_mut_ptr_type,
                 .c_const_ptr_type,
                 .c_mut_ptr_type,
+                .mut_slice_type,
+                .const_slice_type,
                 .optional_type,
                 .unwrap_optional_safe,
                 .unwrap_optional_unsafe,
@@ -416,6 +422,8 @@ pub const Inst = struct {
                 .many_mut_ptr_type,
                 .c_const_ptr_type,
                 .c_mut_ptr_type,
+                .mut_slice_type,
+                .const_slice_type,
                 .store,
                 .str,
                 .sub,
