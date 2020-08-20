@@ -2429,7 +2429,7 @@ pub fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) Inn
     if (decl_tv.val.tag() == .variable) {
         return self.analyzeVarRef(scope, src, decl_tv);
     }
-    const ty = try self.singlePtrType(scope, src, false, decl_tv.ty);
+    const ty = try self.simplePtrType(scope, src, decl_tv.ty, false, .One);
     const val_payload = try scope.arena().create(Value.Payload.DeclRef);
     val_payload.* = .{ .decl = decl };
 
@@ -2442,7 +2442,7 @@ pub fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) Inn
 fn analyzeVarRef(self: *Module, scope: *Scope, src: usize, tv: TypedValue) InnerError!*Inst {
     const variable = tv.val.cast(Value.Payload.Variable).?.variable;
 
-    const ty = try self.singlePtrType(scope, src, variable.is_mutable, tv.ty);
+    const ty = try self.singlePtrType(scope, src, variable.is_mutable, tv.ty, .One);
     if (!variable.is_mutable and !variable.is_extern) {
         const val_payload = try scope.arena().create(Value.Payload.RefVal);
         val_payload.* = .{ .val = variable.init };
@@ -2766,7 +2766,7 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
 
     // T to ?T
     if (dest_type.zigTypeTag() == .Optional) {
-        var buf: Type.Payload.Pointer = undefined;
+        var buf: Type.Payload.PointerSimple = undefined;
         const child_type = dest_type.optionalChild(&buf);
         if (child_type.eql(inst.ty)) {
             return self.wrapOptional(scope, dest_type, inst);
@@ -3145,10 +3145,20 @@ pub fn floatSub(self: *Module, scope: *Scope, float_type: Type, src: usize, lhs:
     return Value.initPayload(val_payload);
 }
 
-pub fn singlePtrType(self: *Module, scope: *Scope, src: usize, mutable: bool, elem_ty: Type) Allocator.Error!Type {
-    const type_payload = try scope.arena().create(Type.Payload.Pointer);
+pub fn simplePtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type, mutable: bool, size: std.builtin.TypeInfo.Pointer.Size) Allocator.Error!Type {
+    // TODO stage1 type inference bug
+    const T = Type.Tag;
+
+    const type_payload = try scope.arena().create(Type.Payload.PointerSimple);
     type_payload.* = .{
-        .base = .{ .tag = if (mutable) .single_mut_pointer else .single_const_pointer },
+        .base = .{
+            .tag = switch (size) {
+                .One => if (mutable) .single_mut_pointer else T.many_const_pointer,
+                .Many => if (mutable) T.many_mut_pointer else T.many_const_pointer,
+                .C => if (mutable) T.c_mut_pointer else T.c_const_pointer,
+                else => unreachable,
+            },
+        },
         .pointee_type = elem_ty,
     };
     return Type.initPayload(&type_payload.base);
@@ -3157,7 +3167,7 @@ pub fn singlePtrType(self: *Module, scope: *Scope, src: usize, mutable: bool, el
 pub fn optionalType(self: *Module, scope: *Scope, child_type: Type) Allocator.Error!Type {
     return Type.initPayload(switch (child_type.tag()) {
         .single_const_pointer => blk: {
-            const payload = try scope.arena().create(Type.Payload.Pointer);
+            const payload = try scope.arena().create(Type.Payload.PointerSimple);
             payload.* = .{
                 .base = .{ .tag = .optional_single_const_pointer },
                 .pointee_type = child_type.elemType(),
@@ -3165,7 +3175,7 @@ pub fn optionalType(self: *Module, scope: *Scope, child_type: Type) Allocator.Er
             break :blk &payload.base;
         },
         .single_mut_pointer => blk: {
-            const payload = try scope.arena().create(Type.Payload.Pointer);
+            const payload = try scope.arena().create(Type.Payload.PointerSimple);
             payload.* = .{
                 .base = .{ .tag = .optional_single_mut_pointer },
                 .pointee_type = child_type.elemType(),

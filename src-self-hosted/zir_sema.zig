@@ -51,8 +51,12 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .ref => return analyzeInstRef(mod, scope, old_inst.castTag(.ref).?),
         .ret_ptr => return analyzeInstRetPtr(mod, scope, old_inst.castTag(.ret_ptr).?),
         .ret_type => return analyzeInstRetType(mod, scope, old_inst.castTag(.ret_type).?),
-        .single_const_ptr_type => return analyzeInstSingleConstPtrType(mod, scope, old_inst.castTag(.single_const_ptr_type).?),
-        .single_mut_ptr_type => return analyzeInstSingleMutPtrType(mod, scope, old_inst.castTag(.single_mut_ptr_type).?),
+        .single_const_ptr_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.single_const_ptr_type).?, false, .One),
+        .single_mut_ptr_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.single_mut_ptr_type).?, true, .One),
+        .many_const_ptr_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.many_const_ptr_type).?, false, .Many),
+        .many_mut_ptr_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.many_mut_ptr_type).?, true, .Many),
+        .c_const_ptr_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.c_const_ptr_type).?, false, .C),
+        .c_mut_ptr_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.c_mut_ptr_type).?, true, .C),
         .ptr_type => return analyzeInstPtrType(mod, scope, old_inst.castTag(.ptr_type).?),
         .store => return analyzeInstStore(mod, scope, old_inst.castTag(.store).?),
         .str => return analyzeInstStr(mod, scope, old_inst.castTag(.str).?),
@@ -324,7 +328,7 @@ fn analyzeInstRetPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerErr
 
 fn analyzeInstRef(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
-    const ptr_type = try mod.singlePtrType(scope, inst.base.src, false, operand.ty);
+    const ptr_type = try mod.simplePtrType(scope, inst.base.src, operand.ty, false, .One);
 
     if (operand.value()) |val| {
         const ref_payload = try scope.arena().create(Value.Payload.RefVal);
@@ -369,7 +373,7 @@ fn analyzeInstAlloc(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerErro
     if (!var_type.isValidVarType(false)) {
         return mod.fail(scope, inst.base.src, "variable of type '{}' must be const or comptime", .{var_type});
     }
-    const ptr_type = try mod.singlePtrType(scope, inst.base.src, true, var_type);
+    const ptr_type = try mod.simplePtrType(scope, inst.base.src, var_type, true, .One);
     const b = try mod.requireRuntimeBlock(scope, inst.base.src);
     return mod.addNoOp(b, inst.base.src, ptr_type, .alloc);
 }
@@ -723,7 +727,7 @@ fn analyzeInstUnwrapOptional(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp
     }
 
     const child_type = try operand.ty.elemType().optionalChildAlloc(scope.arena());
-    const child_pointer = try mod.singlePtrType(scope, unwrap.base.src, operand.ty.isConstPtr(), child_type);
+    const child_pointer = try mod.simplePtrType(scope, unwrap.base.src, child_type, operand.ty.isConstPtr(), .One);
 
     if (operand.value()) |val| {
         if (val.isNull()) {
@@ -940,7 +944,7 @@ fn analyzeInstElemPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) Inne
                 // required a larger index.
                 const elem_ptr = try array_ptr_val.elemPtr(scope.arena(), @intCast(usize, index_u64));
 
-                const type_payload = try scope.arena().create(Type.Payload.Pointer);
+                const type_payload = try scope.arena().create(Type.Payload.PointerSimple);
                 type_payload.* = .{
                     .base = .{ .tag = .single_const_pointer },
                     .pointee_type = array_ptr.ty.elemType().elemType(),
@@ -1311,15 +1315,9 @@ fn analyzeDeclVal(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclVal) InnerErr
     return decl;
 }
 
-fn analyzeInstSingleConstPtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+fn analyzeInstSimplePtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp, mutable: bool, size: std.builtin.TypeInfo.Pointer.Size) InnerError!*Inst {
     const elem_type = try resolveType(mod, scope, inst.positionals.operand);
-    const ty = try mod.singlePtrType(scope, inst.base.src, false, elem_type);
-    return mod.constType(scope, inst.base.src, ty);
-}
-
-fn analyzeInstSingleMutPtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
-    const elem_type = try resolveType(mod, scope, inst.positionals.operand);
-    const ty = try mod.singlePtrType(scope, inst.base.src, true, elem_type);
+    const ty = try mod.simplePtrType(scope, inst.base.src, elem_type, mutable, size);
     return mod.constType(scope, inst.base.src, ty);
 }
 
