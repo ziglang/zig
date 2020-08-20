@@ -577,6 +577,17 @@ fn ptrType(mod: *Module, scope: *Scope, node: *ast.Node.PtrType) InnerError!*zir
         .val = Value.initTag(.type_type),
     });
 
+    const size: std.builtin.TypeInfo.Pointer.Size = switch (tree.token_ids[node.op_token]) {
+        .Asterisk, .AsteriskAsterisk => .One,
+        // TODO stage1 type inference bug
+        .LBracket => @as(std.builtin.TypeInfo.Pointer.Size, switch (tree.token_ids[node.op_token + 2]) {
+            .Identifier => .C,
+            .RBracket => .Many,
+            else => unreachable,
+        }),
+        else => unreachable,
+    };
+
     const simple = node.ptr_info.allowzero_token == null and
         node.ptr_info.align_info == null and
         node.ptr_info.volatile_token == null and
@@ -584,13 +595,19 @@ fn ptrType(mod: *Module, scope: *Scope, node: *ast.Node.PtrType) InnerError!*zir
 
     if (simple) {
         const child_type = try expr(mod, scope, .{ .ty = meta_type }, node.rhs);
-        return addZIRUnOp(mod, scope, src, if (node.ptr_info.const_token == null)
-            .single_mut_ptr_type
-        else
-            .single_const_ptr_type, child_type);
+        const mutable = node.ptr_info.const_token == null;
+        // TODO stage1 type inference bug
+        const T = zir.Inst.Tag;
+        return addZIRUnOp(mod, scope, src, switch (size) {
+            .One => if (mutable) T.single_mut_ptr_type else T.single_const_ptr_type,
+            .Many => if (mutable) T.many_mut_ptr_type else T.many_const_ptr_type,
+            .C => if (mutable) T.c_mut_ptr_type else T.c_const_ptr_type,
+            else => unreachable,
+        }, child_type);
     }
 
     var kw_args: std.meta.fieldInfo(zir.Inst.PtrType, "kw_args").field_type = .{};
+    kw_args.size = size;
     kw_args.@"allowzero" = node.ptr_info.allowzero_token != null;
     if (node.ptr_info.align_info) |some| {
         kw_args.@"align" = try expr(mod, scope, .none, some.node);
@@ -1271,7 +1288,7 @@ fn multilineStrLiteral(mod: *Module, scope: *Scope, node: *ast.Node.MultilineStr
             i += 1;
         }
         const slice = tree.tokenSlice(line);
-        mem.copy(u8, bytes[i..], slice[2..slice.len - 1]);
+        mem.copy(u8, bytes[i..], slice[2 .. slice.len - 1]);
         i += slice.len - 3;
     }
 

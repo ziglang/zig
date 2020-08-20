@@ -198,6 +198,14 @@ pub const Inst = struct {
         single_const_ptr_type,
         /// Create a mutable pointer type based on the element type. `*T`
         single_mut_ptr_type,
+        /// Create a const pointer type based on the element type. `[*]const T`
+        many_const_ptr_type,
+        /// Create a mutable pointer type based on the element type. `[*]T`
+        many_mut_ptr_type,
+        /// Create a const pointer type based on the element type. `[*c]const T`
+        c_const_ptr_type,
+        /// Create a mutable pointer type based on the element type. `[*c]T`
+        c_mut_ptr_type,
         /// Create a pointer type with attributes
         ptr_type,
         /// Write a value to a pointer. For loading, see `deref`.
@@ -262,6 +270,10 @@ pub const Inst = struct {
                 .typeof,
                 .single_const_ptr_type,
                 .single_mut_ptr_type,
+                .many_const_ptr_type,
+                .many_mut_ptr_type,
+                .c_const_ptr_type,
+                .c_mut_ptr_type,
                 .optional_type,
                 .unwrap_optional_safe,
                 .unwrap_optional_unsafe,
@@ -400,6 +412,10 @@ pub const Inst = struct {
                 .shr,
                 .single_const_ptr_type,
                 .single_mut_ptr_type,
+                .many_const_ptr_type,
+                .many_mut_ptr_type,
+                .c_const_ptr_type,
+                .c_mut_ptr_type,
                 .store,
                 .str,
                 .sub,
@@ -859,6 +875,7 @@ pub const Inst = struct {
             @"const": bool = true,
             @"volatile": bool = false,
             sentinel: ?*Inst = null,
+            size: std.builtin.TypeInfo.Pointer.Size = .One,
         },
     };
 
@@ -2443,7 +2460,7 @@ const EmitZIR = struct {
                     }
                 },
                 .Optional => {
-                    var buf: Type.Payload.Pointer = undefined;
+                    var buf: Type.Payload.PointerSimple = undefined;
                     const inst = try self.arena.allocator.create(Inst.UnOp);
                     inst.* = .{
                         .base = .{
