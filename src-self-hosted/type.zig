@@ -457,7 +457,8 @@ pub const Type = extern union {
                         try param_type.format("", .{}, out_stream);
                     }
                     try out_stream.writeAll(") ");
-                    try payload.return_type.format("", .{}, out_stream);
+                    ty = payload.return_type;
+                    continue;
                 },
 
                 .array_u8 => {
@@ -1074,7 +1075,7 @@ pub const Type = extern union {
     }
 
     /// Returns if type can be used for a runtime variable
-    pub fn isValidVarType(self: Type) bool {
+    pub fn isValidVarType(self: Type, is_extern: bool) bool {
         var ty = self;
         while (true) switch (ty.zigTypeTag()) {
             .Bool,
@@ -1087,6 +1088,7 @@ pub const Type = extern union {
             .Vector,
             => return true,
 
+            .Opaque => return is_extern,
             .BoundFn,
             .ComptimeFloat,
             .ComptimeInt,
@@ -1096,12 +1098,11 @@ pub const Type = extern union {
             .Void,
             .Undefined,
             .Null,
-            .Opaque,
             => return false,
 
             .Optional => {
                 var buf: Payload.Pointer = undefined;
-                return ty.optionalChild(&buf).isValidVarType();
+                return ty.optionalChild(&buf).isValidVarType(is_extern);
             },
             .Pointer, .Array => ty = ty.elemType(),
 

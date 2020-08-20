@@ -684,6 +684,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .unreach => return MCValue{ .unreach = {} },
                 .unwrap_optional => return self.genUnwrapOptional(inst.castTag(.unwrap_optional).?),
                 .wrap_optional => return self.genWrapOptional(inst.castTag(.wrap_optional).?),
+                .varptr => return self.genVarPtr(inst.castTag(.varptr).?),
             }
         }
 
@@ -855,6 +856,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             switch (arch) {
                 else => return self.fail(inst.base.src, "TODO implement wrap optional for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        fn genVarPtr(self: *Self, inst: *ir.Inst.VarPtr) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement varptr for {}", .{self.target.cpu.arch}),
             }
         }
 

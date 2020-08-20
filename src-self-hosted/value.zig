@@ -79,6 +79,7 @@ pub const Value = extern union {
         int_big_positive,
         int_big_negative,
         function,
+        variable,
         ref_val,
         decl_ref,
         elem_ptr,
@@ -196,6 +197,7 @@ pub const Value = extern union {
                 @panic("TODO implement copying of big ints");
             },
             .function => return self.copyPayloadShallow(allocator, Payload.Function),
+            .variable => return self.copyPayloadShallow(allocator, Payload.Variable),
             .ref_val => {
                 const payload = @fieldParentPtr(Payload.RefVal, "base", self.ptr_otherwise);
                 const new_payload = try allocator.create(Payload.RefVal);
@@ -216,7 +218,7 @@ pub const Value = extern union {
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
-            .enum_literal, .bytes => return self.copyPayloadShallow(allocator, Payload.Bytes),
+            .bytes => return self.copyPayloadShallow(allocator, Payload.Bytes),
             .repeated => {
                 const payload = @fieldParentPtr(Payload.Repeated, "base", self.ptr_otherwise);
                 const new_payload = try allocator.create(Payload.Repeated);
@@ -230,6 +232,15 @@ pub const Value = extern union {
             .float_32 => return self.copyPayloadShallow(allocator, Payload.Float_32),
             .float_64 => return self.copyPayloadShallow(allocator, Payload.Float_64),
             .float_128 => return self.copyPayloadShallow(allocator, Payload.Float_128),
+            .enum_literal => {
+                const payload = @fieldParentPtr(Payload.Bytes, "base", self.ptr_otherwise);
+                const new_payload = try allocator.create(Payload.Bytes);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .data = try allocator.dupe(u8, payload.data),
+                };
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
         }
     }
 
@@ -310,6 +321,7 @@ pub const Value = extern union {
             .int_big_positive => return out_stream.print("{}", .{val.cast(Payload.IntBigPositive).?.asBigInt()}),
             .int_big_negative => return out_stream.print("{}", .{val.cast(Payload.IntBigNegative).?.asBigInt()}),
             .function => return out_stream.writeAll("(function)"),
+            .variable => return out_stream.writeAll("(variable)"),
             .ref_val => {
                 const ref_val = val.cast(Payload.RefVal).?;
                 try out_stream.writeAll("&const ");
@@ -410,6 +422,7 @@ pub const Value = extern union {
             .int_big_positive,
             .int_big_negative,
             .function,
+            .variable,
             .ref_val,
             .decl_ref,
             .elem_ptr,
@@ -471,6 +484,7 @@ pub const Value = extern union {
             .enum_literal_type,
             .null_value,
             .function,
+            .variable,
             .ref_val,
             .decl_ref,
             .elem_ptr,
@@ -548,6 +562,7 @@ pub const Value = extern union {
             .enum_literal_type,
             .null_value,
             .function,
+            .variable,
             .ref_val,
             .decl_ref,
             .elem_ptr,
@@ -625,6 +640,7 @@ pub const Value = extern union {
             .enum_literal_type,
             .null_value,
             .function,
+            .variable,
             .ref_val,
             .decl_ref,
             .elem_ptr,
@@ -728,6 +744,7 @@ pub const Value = extern union {
             .enum_literal_type,
             .null_value,
             .function,
+            .variable,
             .ref_val,
             .decl_ref,
             .elem_ptr,
@@ -810,6 +827,7 @@ pub const Value = extern union {
             .enum_literal_type,
             .null_value,
             .function,
+            .variable,
             .ref_val,
             .decl_ref,
             .elem_ptr,
@@ -974,6 +992,7 @@ pub const Value = extern union {
             .bool_false,
             .null_value,
             .function,
+            .variable,
             .ref_val,
             .decl_ref,
             .elem_ptr,
@@ -1046,6 +1065,7 @@ pub const Value = extern union {
             .enum_literal_type,
             .null_value,
             .function,
+            .variable,
             .ref_val,
             .decl_ref,
             .elem_ptr,
@@ -1182,6 +1202,7 @@ pub const Value = extern union {
             .bool_false,
             .null_value,
             .function,
+            .variable,
             .int_u64,
             .int_i64,
             .int_big_positive,
@@ -1260,6 +1281,7 @@ pub const Value = extern union {
             .bool_false,
             .null_value,
             .function,
+            .variable,
             .int_u64,
             .int_i64,
             .int_big_positive,
@@ -1355,6 +1377,7 @@ pub const Value = extern union {
             .bool_true,
             .bool_false,
             .function,
+            .variable,
             .int_u64,
             .int_i64,
             .int_big_positive,
@@ -1427,6 +1450,11 @@ pub const Value = extern union {
         pub const Function = struct {
             base: Payload = Payload{ .tag = .function },
             func: *Module.Fn,
+        };
+
+        pub const Variable = struct {
+            base: Payload = Payload{ .tag = .variable },
+            variable: *Module.Var,
         };
 
         pub const ArraySentinel0_u8_Type = struct {
