@@ -586,6 +586,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
 
+        // Character literals and multiline strings.
         case.addCompareOutput(
             \\export fn _start() noreturn {
             \\    const ignore = 
@@ -618,6 +619,7 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
 
+        // Global const.
         case.addCompareOutput(
             \\export fn _start() noreturn {
             \\    add(aa, bb);

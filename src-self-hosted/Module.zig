@@ -170,6 +170,9 @@ pub const Decl = struct {
     /// This flag is set when this Decl is added to a check_for_deletion set, and cleared
     /// when removed.
     deletion_flag: bool,
+    /// Whether the corresponding AST decl has a `pub` keyword.
+    is_pub: bool,
+
     /// An integer that can be checked against the corresponding incrementing
     /// generation field of Module. This is used to determine whether `complete` status
     /// represents pre- or post- re-analysis.
@@ -290,8 +293,6 @@ pub const Fn = struct {
     },
     owner_decl: *Decl,
 
-    is_pub: bool,
-
     /// This memory is temporary and points to stack memory for the duration
     /// of Fn analysis.
     pub const Analysis = struct {
@@ -323,10 +324,10 @@ pub const Fn = struct {
 };
 
 pub const Var = struct {
-    value: ?Value,
+    init: Value,
     owner_decl: *Decl,
 
-    is_pub: bool,
+    has_init: bool,
     is_extern: bool,
     is_mutable: bool,
     is_threadlocal: bool,
@@ -1247,7 +1248,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             };
             defer fn_type_scope.instructions.deinit(self.gpa);
 
-            const is_pub = fn_proto.getTrailer("visib_token") != null;
+            decl.is_pub = fn_proto.getTrailer("visib_token") != null;
             const body_node = fn_proto.getTrailer("body_node") orelse
                 return self.failTok(&fn_type_scope.base, fn_proto.fn_token, "TODO implement extern functions", .{});
 
@@ -1385,7 +1386,6 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             new_func.* = .{
                 .analysis = .{ .queued = fn_zir },
                 .owner_decl = decl,
-                .is_pub = is_pub,
             };
             fn_payload.* = .{ .func = new_func };
 
@@ -1452,7 +1452,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             };
             defer block_scope.instructions.deinit(self.gpa);
 
-            const is_pub = var_decl.getTrailer("visib_token") != null;
+            decl.is_pub = var_decl.getTrailer("visib_token") != null;
             const is_extern = blk: {
                 const maybe_extern_token = var_decl.getTrailer("extern_export_token") orelse
                     break :blk false;
@@ -1476,7 +1476,6 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             if (var_decl.getTrailer("section_node")) |sect_expr| {
                 return self.failNode(&block_scope.base, sect_expr, "TODO implement function section expression", .{});
             }
-
 
             const explicit_type = blk: {
                 const type_node = var_decl.getTrailer("type_node") orelse
@@ -1568,9 +1567,9 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             const new_variable = try decl_arena.allocator.create(Var);
             const var_payload = try decl_arena.allocator.create(Value.Payload.Variable);
             new_variable.* = .{
-                .value = value,
                 .owner_decl = decl,
-                .is_pub = is_pub,
+                .init = value orelse undefined,
+                .has_init = value != null,
                 .is_extern = is_extern,
                 .is_mutable = is_mutable,
                 .is_threadlocal = is_threadlocal,
@@ -2004,6 +2003,7 @@ fn allocateNewDecl(
             .wasm => .{ .wasm = null },
         },
         .generation = 0,
+        .is_pub = false,
     };
     return new_decl;
 }
@@ -2440,15 +2440,15 @@ fn analyzeVarRef(self: *Module, scope: *Scope, src: usize, tv: TypedValue) Inner
     const variable = tv.val.cast(Value.Payload.Variable).?.variable;
 
     const ty = try self.singlePtrType(scope, src, variable.is_mutable, tv.ty);
-    if (!variable.is_mutable and !variable.is_extern and variable.value != null) {
+    if (!variable.is_mutable and !variable.is_extern and variable.has_init) {
         const val_payload = try scope.arena().create(Value.Payload.RefVal);
-        val_payload.* = .{ .val = variable.value.? };
+        val_payload.* = .{ .val = variable.init };
         return self.constInst(scope, src, .{
             .ty = ty,
             .val = Value.initPayload(&val_payload.base),
         });
     }
-    
+
     const b = try self.requireRuntimeBlock(scope, src);
     const inst = try b.arena.create(Inst.VarPtr);
     inst.* = .{

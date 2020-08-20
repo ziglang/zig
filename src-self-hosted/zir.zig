@@ -1881,7 +1881,7 @@ const EmitZIR = struct {
         } else if (typed_value.val.cast(Value.Payload.Variable)) |variable| {
             return self.emitTypedValue(src, .{
                 .ty = typed_value.ty,
-                .val = variable.variable.value.?,
+                .val = variable.variable.init,
             });
         }
         if (typed_value.val.isUndef()) {
