@@ -737,12 +737,12 @@ test "xoroshiro sequence" {
 // CSPRNG
 pub const Gimli = struct {
     random: Random,
-    state: std.crypto.gimli.State,
+    state: std.crypto.core.Gimli,
 
     pub fn init(init_s: u64) Gimli {
         var self = Gimli{
             .random = Random{ .fillFn = fill },
-            .state = std.crypto.gimli.State{
+            .state = std.crypto.core.Gimli{
                 .data = [_]u32{0} ** (std.crypto.gimli.State.BLOCKBYTES / 4),
             },
         };

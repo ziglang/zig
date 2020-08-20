@@ -6,7 +6,7 @@
 const std = @import("std");
 const fmt = std.fmt;
 const mem = std.mem;
-const Sha512 = std.crypto.Sha512;
+const Sha512 = std.crypto.hash.sha2.Sha512;
 
 /// Ed25519 (EdDSA) signatures.
 pub const Ed25519 = struct {
@@ -33,7 +33,7 @@ pub const Ed25519 = struct {
     /// from which the actual secret is derived.
     pub fn createKeyPair(seed: [seed_length]u8) ![keypair_length]u8 {
         var az: [Sha512.digest_length]u8 = undefined;
-        var h = Sha512.init();
+        var h = Sha512.init(.{});
         h.update(&seed);
         h.final(&az);
         const p = try Curve.basePoint.clampedMul(az[0..32].*);
@@ -56,11 +56,11 @@ pub const Ed25519 = struct {
     pub fn sign(msg: []const u8, key_pair: [keypair_length]u8, noise: ?[noise_length]u8) ![signature_length]u8 {
         const public_key = key_pair[32..];
         var az: [Sha512.digest_length]u8 = undefined;
-        var h = Sha512.init();
+        var h = Sha512.init(.{});
         h.update(key_pair[0..seed_length]);
         h.final(&az);
 
-        h = Sha512.init();
+        h = Sha512.init(.{});
         if (noise) |*z| {
             h.update(z);
         }
@@ -74,7 +74,7 @@ pub const Ed25519 = struct {
         var sig: [signature_length]u8 = undefined;
         mem.copy(u8, sig[0..32], &r.toBytes());
         mem.copy(u8, sig[32..], public_key);
-        h = Sha512.init();
+        h = Sha512.init(.{});
         h.update(&sig);
         h.update(msg);
         var hram64: [Sha512.digest_length]u8 = undefined;
@@ -98,7 +98,7 @@ pub const Ed25519 = struct {
         const a = try Curve.fromBytes(public_key);
         try a.rejectIdentity();
 
-        var h = Sha512.init();
+        var h = Sha512.init(.{});
         h.update(r);
         h.update(&public_key);
         h.update(msg);
