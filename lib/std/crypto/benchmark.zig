@@ -56,19 +56,19 @@ pub fn benchmarkHash(comptime Hash: anytype, comptime bytes: comptime_int) !u64 
 
 const macs = [_]Crypto{
     Crypto{ .ty = crypto.onetimeauth.Poly1305, .name = "poly1305" },
-    Crypto{ .ty = crypto.auth.HmacMd5, .name = "hmac-md5" },
-    Crypto{ .ty = crypto.auth.HmacSha1, .name = "hmac-sha1" },
-    Crypto{ .ty = crypto.auth.sha2.HmacSha256, .name = "hmac-sha256" },
-    Crypto{ .ty = crypto.auth.sha2.HmacSha512, .name = "hmac-sha512" },
+    Crypto{ .ty = crypto.auth.hmac.HmacMd5, .name = "hmac-md5" },
+    Crypto{ .ty = crypto.auth.hmac.HmacSha1, .name = "hmac-sha1" },
+    Crypto{ .ty = crypto.auth.hmac.sha2.HmacSha256, .name = "hmac-sha256" },
+    Crypto{ .ty = crypto.auth.hmac.sha2.HmacSha512, .name = "hmac-sha512" },
 };
 
 pub fn benchmarkMac(comptime Mac: anytype, comptime bytes: comptime_int) !u64 {
-    std.debug.assert(32 >= Mac.mac_length and 32 >= Mac.minimum_key_length);
+    std.debug.assert(64 >= Mac.mac_length and 32 >= Mac.minimum_key_length);
 
     var in: [1 * MiB]u8 = undefined;
     prng.random.bytes(in[0..]);
 
-    var key: [32]u8 = undefined;
+    var key: [64]u8 = undefined;
     prng.random.bytes(key[0..]);
 
     var offset: usize = 0;

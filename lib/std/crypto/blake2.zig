@@ -74,7 +74,7 @@ pub fn Blake2s(comptime out_len: usize) type {
         key: []const u8,
 
         pub fn init() Self {
-            return init_keyed("");
+            return comptime init_keyed("");
         }
 
         pub fn init_keyed(key: []const u8) Self {
@@ -364,6 +364,7 @@ test "comptime blake2s256" {
 /////////////////////
 // Blake2b
 
+pub const Blake2b256 = Blake2b(256);
 pub const Blake2b384 = Blake2b(384);
 pub const Blake2b512 = Blake2b(512);
 

@@ -298,7 +298,7 @@ pub const Blake3 = struct {
 
     /// Construct a new `Blake3` for the regular hash function.
     pub fn init() Blake3 {
-        return Blake3.init_internal(IV, 0);
+        return comptime Blake3.init_internal(IV, 0);
     }
 
     /// Construct a new `Blake3` for the keyed hash function.

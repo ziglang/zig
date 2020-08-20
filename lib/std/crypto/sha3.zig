@@ -26,11 +26,11 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
         rate: usize,
 
         pub fn init() Self {
-            var d: Self = undefined;
-            mem.set(u8, d.s[0..], 0);
-            d.offset = 0;
-            d.rate = 200 - (bits / 4);
-            return d;
+            return comptime Self{
+                .s = [_]u8{0} ** 200,
+                .offset = 0,
+                .rate = 200 - (bits / 4),
+            };
         }
 
         pub fn reset(self: *Self) void {
