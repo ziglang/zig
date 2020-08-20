@@ -36,6 +36,7 @@ pub const Sha1 = struct {
     const Self = @This();
     pub const block_length = 64;
     pub const digest_length = 20;
+    pub const Options = struct {};
 
     s: [5]u32,
     // Streaming Cache
@@ -43,7 +44,7 @@ pub const Sha1 = struct {
     buf_len: u8 = 0,
     total_len: u64 = 0,
 
-    pub fn init() Self {
+    pub fn init(options: Options) Self {
         return Self{
             .s = [_]u32{
                 0x67452301,
@@ -55,8 +56,8 @@ pub const Sha1 = struct {
         };
     }
 
-    pub fn hash(b: []const u8, out: []u8) void {
-        var d = Sha1.init();
+    pub fn hash(b: []const u8, out: []u8, options: Options) void {
+        var d = Sha1.init(options);
         d.update(b);
         d.final(out);
     }
@@ -276,18 +277,18 @@ test "sha1 single" {
 }
 
 test "sha1 streaming" {
-    var h = Sha1.init();
+    var h = Sha1.init(.{});
     var out: [20]u8 = undefined;
 
     h.final(out[0..]);
     htest.assertEqual("da39a3ee5e6b4b0d3255bfef95601890afd80709", out[0..]);
 
-    h = Sha1.init();
+    h = Sha1.init(.{});
     h.update("abc");
     h.final(out[0..]);
     htest.assertEqual("a9993e364706816aba3e25717850c26c9cd0d89d", out[0..]);
 
-    h = Sha1.init();
+    h = Sha1.init(.{});
     h.update("a");
     h.update("b");
     h.update("c");
@@ -299,7 +300,7 @@ test "sha1 aligned final" {
     var block = [_]u8{0} ** Sha1.block_length;
     var out: [Sha1.digest_length]u8 = undefined;
 
-    var h = Sha1.init();
+    var h = Sha1.init(.{});
     h.update(&block);
     h.final(out[0..]);
 }

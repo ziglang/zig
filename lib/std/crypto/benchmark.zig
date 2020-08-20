@@ -35,7 +35,7 @@ const hashes = [_]Crypto{
 };
 
 pub fn benchmarkHash(comptime Hash: anytype, comptime bytes: comptime_int) !u64 {
-    var h = Hash.init();
+    var h = Hash.init(.{});
 
     var block: [Hash.digest_length]u8 = undefined;
     prng.random.bytes(block[0..]);

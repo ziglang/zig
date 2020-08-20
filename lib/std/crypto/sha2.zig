@@ -88,6 +88,7 @@ fn Sha2_32(comptime params: Sha2Params32) type {
         const Self = @This();
         pub const block_length = 64;
         pub const digest_length = params.out_len / 8;
+        pub const Options = struct {};
 
         s: [8]u32,
         // Streaming Cache
@@ -95,7 +96,7 @@ fn Sha2_32(comptime params: Sha2Params32) type {
         buf_len: u8 = 0,
         total_len: u64 = 0,
 
-        pub fn init() Self {
+        pub fn init(options: Options) Self {
             return Self{
                 .s = [_]u32{
                     params.iv0,
@@ -110,8 +111,8 @@ fn Sha2_32(comptime params: Sha2Params32) type {
             };
         }
 
-        pub fn hash(b: []const u8, out: []u8) void {
-            var d = Self.init();
+        pub fn hash(b: []const u8, out: []u8, options: Options) void {
+            var d = Self.init(options);
             d.update(b);
             d.final(out);
         }
@@ -296,18 +297,18 @@ test "sha224 single" {
 }
 
 test "sha224 streaming" {
-    var h = Sha224.init();
+    var h = Sha224.init(.{});
     var out: [28]u8 = undefined;
 
     h.final(out[0..]);
     htest.assertEqual("d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f", out[0..]);
 
-    h = Sha224.init();
+    h = Sha224.init(.{});
     h.update("abc");
     h.final(out[0..]);
     htest.assertEqual("23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7", out[0..]);
 
-    h = Sha224.init();
+    h = Sha224.init(.{});
     h.update("a");
     h.update("b");
     h.update("c");
@@ -322,18 +323,18 @@ test "sha256 single" {
 }
 
 test "sha256 streaming" {
-    var h = Sha256.init();
+    var h = Sha256.init(.{});
     var out: [32]u8 = undefined;
 
     h.final(out[0..]);
     htest.assertEqual("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", out[0..]);
 
-    h = Sha256.init();
+    h = Sha256.init(.{});
     h.update("abc");
     h.final(out[0..]);
     htest.assertEqual("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", out[0..]);
 
-    h = Sha256.init();
+    h = Sha256.init(.{});
     h.update("a");
     h.update("b");
     h.update("c");
@@ -345,7 +346,7 @@ test "sha256 aligned final" {
     var block = [_]u8{0} ** Sha256.block_length;
     var out: [Sha256.digest_length]u8 = undefined;
 
-    var h = Sha256.init();
+    var h = Sha256.init(.{});
     h.update(&block);
     h.final(out[0..]);
 }
@@ -458,6 +459,7 @@ fn Sha2_64(comptime params: Sha2Params64) type {
         const Self = @This();
         pub const block_length = 128;
         pub const digest_length = params.out_len / 8;
+        pub const Options = struct {};
 
         s: [8]u64,
         // Streaming Cache
@@ -465,7 +467,7 @@ fn Sha2_64(comptime params: Sha2Params64) type {
         buf_len: u8 = 0,
         total_len: u128 = 0,
 
-        pub fn init() Self {
+        pub fn init(options: Options) Self {
             return Self{
                 .s = [_]u64{
                     params.iv0,
@@ -480,8 +482,8 @@ fn Sha2_64(comptime params: Sha2Params64) type {
             };
         }
 
-        pub fn hash(b: []const u8, out: []u8) void {
-            var d = Self.init();
+        pub fn hash(b: []const u8, out: []u8, options: Options) void {
+            var d = Self.init(options);
             d.update(b);
             d.final(out);
         }
@@ -693,7 +695,7 @@ test "sha384 single" {
 }
 
 test "sha384 streaming" {
-    var h = Sha384.init();
+    var h = Sha384.init(.{});
     var out: [48]u8 = undefined;
 
     const h1 = "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b";
@@ -702,12 +704,12 @@ test "sha384 streaming" {
 
     const h2 = "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7";
 
-    h = Sha384.init();
+    h = Sha384.init(.{});
     h.update("abc");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
 
-    h = Sha384.init();
+    h = Sha384.init(.{});
     h.update("a");
     h.update("b");
     h.update("c");
@@ -727,7 +729,7 @@ test "sha512 single" {
 }
 
 test "sha512 streaming" {
-    var h = Sha512.init();
+    var h = Sha512.init(.{});
     var out: [64]u8 = undefined;
 
     const h1 = "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e";
@@ -736,12 +738,12 @@ test "sha512 streaming" {
 
     const h2 = "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f";
 
-    h = Sha512.init();
+    h = Sha512.init(.{});
     h.update("abc");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
 
-    h = Sha512.init();
+    h = Sha512.init(.{});
     h.update("a");
     h.update("b");
     h.update("c");
@@ -753,7 +755,7 @@ test "sha512 aligned final" {
     var block = [_]u8{0} ** Sha512.block_length;
     var out: [Sha512.digest_length]u8 = undefined;
 
-    var h = Sha512.init();
+    var h = Sha512.init(.{});
     h.update(&block);
     h.final(out[0..]);
 }

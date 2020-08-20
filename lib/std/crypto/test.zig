@@ -11,7 +11,7 @@ const fmt = std.fmt;
 // Hash using the specified hasher `H` asserting `expected == H(input)`.
 pub fn assertEqualHash(comptime Hasher: anytype, comptime expected: []const u8, input: []const u8) void {
     var h: [expected.len / 2]u8 = undefined;
-    Hasher.hash(input, h[0..]);
+    Hasher.hash(input, h[0..], .{});
 
     assertEqual(expected, &h);
 }

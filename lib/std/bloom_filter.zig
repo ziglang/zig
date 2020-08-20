@@ -158,7 +158,7 @@ pub fn BloomFilter(
 }
 
 fn hashFunc(out: []u8, Ki: usize, in: []const u8) void {
-    var st = std.crypto.hash.Gimli.init();
+    var st = std.crypto.hash.Gimli.init(.{});
     st.update(std.mem.asBytes(&Ki));
     st.update(in);
     st.final(out);
