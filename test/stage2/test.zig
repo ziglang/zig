@@ -8,6 +8,11 @@ const linux_x64 = std.zig.CrossTarget{
     .os_tag = .linux,
 };
 
+const macosx_x64 = std.zig.CrossTarget{
+    .cpu_arch = .x86_64,
+    .os_tag = .macosx,
+};
+
 const linux_riscv64 = std.zig.CrossTarget{
     .cpu_arch = .riscv64,
     .os_tag = .linux,
@@ -131,6 +136,11 @@ pub fn addCases(ctx: *TestContext) !void {
             \\What is up? This is a longer message that will force the data to be relocated in virtual address space.
             \\
         );
+    }
+
+    {
+        var case = ctx.exe("hello world", macosx_x64);
+        case.addError("", &[_][]const u8{":1:1: error: no entry point found"});
     }
 
     {
