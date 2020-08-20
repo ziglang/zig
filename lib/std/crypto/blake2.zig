@@ -72,7 +72,7 @@ pub fn Blake2s(comptime out_len: usize) type {
         buf_len: u8,
 
         pub fn init() Self {
-            return comptime init_keyed("");
+            return init_keyed("");
         }
 
         pub fn init_keyed(key: []const u8) Self {
