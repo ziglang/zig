@@ -23,7 +23,7 @@ segment_cmds: std.ArrayListUnmanaged(macho.segment_command_64) = std.ArrayListUn
 
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
 /// Same order as in the file.
-sections: std.ArrayListUnmanaged(macho.@"section_64") = std.ArrayListUnmanaged(macho.@"section_64"){},
+sections: std.ArrayListUnmanaged(macho.section_64) = std.ArrayListUnmanaged(macho.section_64){},
 
 entry_addr: ?u64 = null,
 
@@ -117,9 +117,8 @@ fn createFile(allocator: *Allocator, file: fs.File, options: link.Options) !Mach
 }
 
 fn makeString(self: *MachO, comptime bytes: []const u8) [16]u8 {
-    if (bytes.len > 16) @compileError("MachO segment/section name too long");
-
     var buf: [16]u8 = undefined;
+    if (bytes.len > buf.len) @compileError("MachO segment/section name too long");
     mem.copy(u8, buf[0..], bytes);
     return buf;
 }
@@ -194,7 +193,7 @@ pub fn flush(self: *MachO, module: *Module) !void {
 
 pub fn deinit(self: *MachO) void {
     self.segment_cmds.deinit(self.base.allocator);
-    self.@"sections".deinit(self.base.allocator);
+    self.sections.deinit(self.base.allocator);
 }
 
 pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {}
