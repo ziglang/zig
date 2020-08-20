@@ -498,7 +498,7 @@ fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
             _ = try transRecordDecl(c, @ptrCast(*const ZigClangRecordDecl, decl));
         },
         .Var => {
-            return visitVarDecl(c, @ptrCast(*const ZigClangVarDecl, decl));
+            return visitVarDecl(c, @ptrCast(*const ZigClangVarDecl, decl), null);
         },
         .Empty => {
             // Do nothing
@@ -679,12 +679,13 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     return addTopLevelDecl(c, fn_name, &proto_node.base);
 }
 
-fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
-    const var_name = try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, var_decl)));
+/// if mangled_name is not null, this var decl was declared in a block scope.
+fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl, mangled_name: ?[]const u8) Error!void {
+    const var_name = mangled_name orelse try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, var_decl)));
     if (c.global_scope.sym_table.contains(var_name))
         return; // Avoid processing this decl twice
     const rp = makeRestorePoint(c);
-    const visib_tok = try appendToken(c, .Keyword_pub, "pub");
+    const visib_tok = if (mangled_name) |_| null else try appendToken(c, .Keyword_pub, "pub");
 
     const thread_local_token = if (ZigClangVarDecl_getTLSKind(var_decl) == .None)
         null
@@ -1582,15 +1583,22 @@ fn transDeclStmtOne(
         .Var => {
             const var_decl = @ptrCast(*const ZigClangVarDecl, decl);
 
-            const thread_local_token = if (ZigClangVarDecl_getTLSKind(var_decl) == .None)
-                null
-            else
-                try appendToken(c, .Keyword_threadlocal, "threadlocal");
             const qual_type = ZigClangVarDecl_getTypeSourceInfo_getType(var_decl);
             const name = try c.str(ZigClangNamedDecl_getName_bytes_begin(
                 @ptrCast(*const ZigClangNamedDecl, var_decl),
             ));
             const mangled_name = try block_scope.makeMangledName(c, name);
+
+            switch (ZigClangVarDecl_getStorageClass(var_decl)) {
+                .Extern, .Static => {
+                    // This is actually a global variable, put it in the global scope and reference it.
+                    // `_ = mangled_name;`
+                    try visitVarDecl(rp.c, var_decl, mangled_name);
+                    return try maybeSuppressResult(rp, scope, .unused, try transCreateNodeIdentifier(rp.c, mangled_name));
+                },
+                else => {},
+            }
+
             const mut_tok = if (ZigClangQualType_isConstQualified(qual_type))
                 try appendToken(c, .Keyword_const, "const")
             else
@@ -1618,7 +1626,6 @@ fn transDeclStmtOne(
                 .mut_token = mut_tok,
                 .semicolon_token = semicolon_token,
             }, .{
-                .thread_local_token = thread_local_token,
                 .eq_token = eq_token,
                 .type_node = type_node,
                 .init_node = init_node,
