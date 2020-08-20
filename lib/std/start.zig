@@ -80,48 +80,50 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
     }
 }
 
-fn _start() callconv(.Naked) noreturn {
-    if (builtin.os.tag == .wasi) {
-        // This is marked inline because for some reason LLVM in release mode fails to inline it,
-        // and we want fewer call frames in stack traces.
-        std.os.wasi.proc_exit(@call(.{ .modifier = .always_inline }, callMain, .{}));
-    }
+usingnamespace if (@hasDecl(root, "_start")) struct { } else struct {
+    pub fn _start() callconv(.Naked) noreturn {
+        if (builtin.os.tag == .wasi) {
+            // This is marked inline because for some reason LLVM in release mode fails to inline it,
+            // and we want fewer call frames in stack traces.
+            std.os.wasi.proc_exit(@call(.{ .modifier = .always_inline }, callMain, .{}));
+        }
 
-    switch (builtin.arch) {
-        .x86_64 => {
-            starting_stack_ptr = asm (""
-                : [argc] "={rsp}" (-> [*]usize)
-            );
-        },
-        .i386 => {
-            starting_stack_ptr = asm (""
-                : [argc] "={esp}" (-> [*]usize)
-            );
-        },
-        .aarch64, .aarch64_be, .arm => {
-            starting_stack_ptr = asm ("mov %[argc], sp"
-                : [argc] "=r" (-> [*]usize)
-            );
-        },
-        .riscv64 => {
-            starting_stack_ptr = asm ("mv %[argc], sp"
-                : [argc] "=r" (-> [*]usize)
-            );
-        },
-        .mips, .mipsel => {
-            // Need noat here because LLVM is free to pick any register
-            starting_stack_ptr = asm (
-                \\ .set noat
-                \\ move %[argc], $sp
-                : [argc] "=r" (-> [*]usize)
-            );
-        },
-        else => @compileError("unsupported arch"),
+        switch (builtin.arch) {
+            .x86_64 => {
+                starting_stack_ptr = asm (""
+                    : [argc] "={rsp}" (-> [*]usize)
+                );
+            },
+            .i386 => {
+                starting_stack_ptr = asm (""
+                    : [argc] "={esp}" (-> [*]usize)
+                );
+            },
+            .aarch64, .aarch64_be, .arm => {
+                starting_stack_ptr = asm ("mov %[argc], sp"
+                    : [argc] "=r" (-> [*]usize)
+                );
+            },
+            .riscv64 => {
+                starting_stack_ptr = asm ("mv %[argc], sp"
+                    : [argc] "=r" (-> [*]usize)
+                );
+            },
+            .mips, .mipsel => {
+                // Need noat here because LLVM is free to pick any register
+                starting_stack_ptr = asm (
+                    \\ .set noat
+                    \\ move %[argc], $sp
+                    : [argc] "=r" (-> [*]usize)
+                );
+            },
+            else => @compileError("unsupported arch"),
+        }
+        // If LLVM inlines stack variables into _start, they will overwrite
+        // the command line argument data.
+        @call(.{ .modifier = .never_inline }, posixCallMainAndExit, .{});
     }
-    // If LLVM inlines stack variables into _start, they will overwrite
-    // the command line argument data.
-    @call(.{ .modifier = .never_inline }, posixCallMainAndExit, .{});
-}
+};
 
 fn WinMainCRTStartup() callconv(.Stdcall) noreturn {
     @setAlignStack(16);
