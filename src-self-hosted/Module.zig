@@ -1481,6 +1481,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 const type_node = var_decl.getTrailer("type_node") orelse
                     break :blk null;
 
+                // Temporary arena for the zir instructions.
                 var type_scope_arena = std.heap.ArenaAllocator.init(self.gpa);
                 defer type_scope_arena.deinit();
                 var type_scope: Scope.GenZIR = .{
@@ -1535,7 +1536,8 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                             try self.coerce(&inner_block.base, some, ret.operand)
                         else
                             ret.operand;
-                        const val = try self.resolveConstValue(&inner_block.base, coerced);
+                        const val = coerced.value() orelse
+                            return self.fail(&block_scope.base, inst.src, "unable to resolve comptime value", .{});
 
                         var_type = explicit_type orelse try ret.operand.ty.copy(block_scope.arena);
                         break :blk try val.copy(block_scope.arena);
@@ -1600,7 +1602,41 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             }
             return type_changed;
         },
-        .Comptime => @panic("TODO comptime decl"),
+        .Comptime => {
+            const comptime_decl = @fieldParentPtr(ast.Node.Comptime, "base", ast_node);
+
+            decl.analysis = .in_progress;
+
+            // A comptime decl does not store any value so we can just deinit this arena after analysis is done.
+            var analysis_arena = std.heap.ArenaAllocator.init(self.gpa);
+            defer analysis_arena.deinit();
+            var gen_scope: Scope.GenZIR = .{
+                .decl = decl,
+                .arena = &analysis_arena.allocator,
+                .parent = decl.scope,
+            };
+            defer gen_scope.instructions.deinit(self.gpa);
+
+            // TODO comptime scope here
+            _ = try astgen.expr(self, &gen_scope.base, .none, comptime_decl.expr);
+
+            var block_scope: Scope.Block = .{
+                .parent = null,
+                .func = null,
+                .decl = decl,
+                .instructions = .{},
+                .arena = &analysis_arena.allocator,
+            };
+            defer block_scope.instructions.deinit(self.gpa);
+
+            _ = try zir_sema.analyzeBody(self, &block_scope.base, .{
+                .instructions = gen_scope.instructions.items,
+            });
+
+            decl.analysis = .complete;
+            decl.generation = self.generation;
+            return true;
+        },
         .Use => @panic("TODO usingnamespace decl"),
         else => unreachable,
     }
@@ -1791,7 +1827,16 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
                 }
             }
         } else if (src_decl.castTag(.Comptime)) |comptime_node| {
-            log.err("TODO: analyze comptime decl", .{});
+            const name_index = self.getNextAnonNameIndex();
+            const name = try std.fmt.allocPrint(self.gpa, "__comptime_{}", .{name_index});
+            defer self.gpa.free(name);
+
+            const name_hash = root_scope.fullyQualifiedNameHash(name);
+            const contents_hash = std.zig.hashSrc(tree.getNodeSource(src_decl));
+
+            const new_decl = try self.createNewDecl(&root_scope.base, name, decl_i, name_hash, contents_hash);
+            root_scope.decls.appendAssumeCapacity(new_decl);
+            self.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
         } else if (src_decl.castTag(.ContainerField)) |container_field| {
             log.err("TODO: analyze container field", .{});
         } else if (src_decl.castTag(.TestDecl)) |test_decl| {

@@ -67,6 +67,18 @@ pub fn addCases(ctx: *TestContext) !void {
         \\fn entry() void {}
     , &[_][]const u8{":2:4: error: redefinition of 'entry'"});
 
+    ctx.compileError("incorrect return type", linux_x64,
+        \\export fn _start() noreturn {
+        \\}
+    , &[_][]const u8{":2:1: error: expected noreturn, found void"});
+
+    ctx.compileError("extern variable has no type", linux_x64,
+        \\comptime {
+        \\    _ = foo;
+        \\}
+        \\extern var foo;
+    , &[_][]const u8{":4:1: error: unable to infer variable type"});
+
     //ctx.incrementalFailure("function redefinition", linux_x64,
     //    \\fn entry() void {}
     //    \\fn entry() void {}
@@ -108,28 +120,4 @@ pub fn addCases(ctx: *TestContext) !void {
     //    \\    return 36893488147419103232;
     //    \\}
     //, "1.zig", 2, 12, "integer value '36893488147419103232' cannot be stored in type 'c_int'");
-
-    //ctx.testCompileError(
-    //    \\comptime {
-    //    \\    var a: *align(4) align(4) i32 = 0;
-    //    \\}
-    //, "1.zig", 2, 22, "Extra align qualifier");
-
-    //ctx.testCompileError(
-    //    \\comptime {
-    //    \\    var b: *const const i32 = 0;
-    //    \\}
-    //, "1.zig", 2, 19, "Extra align qualifier");
-
-    //ctx.testCompileError(
-    //    \\comptime {
-    //    \\    var c: *volatile volatile i32 = 0;
-    //    \\}
-    //, "1.zig", 2, 22, "Extra align qualifier");
-
-    //ctx.testCompileError(
-    //    \\comptime {
-    //    \\    var d: *allowzero allowzero i32 = 0;
-    //    \\}
-    //, "1.zig", 2, 23, "Extra align qualifier");
 }
