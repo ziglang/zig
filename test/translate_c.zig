@@ -466,7 +466,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub extern var extern_var: c_int;
         \\pub const int_var: c_int = 13;
-        \\pub export var foo: c_int = undefined;
+        \\pub export var foo: c_int = @import("std").mem.zeroes(c_int);
     });
 
     cases.add("const ptr initializer",
@@ -1327,7 +1327,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\static char arr1[] = "hello";
         \\char arr2[] = "hello";
     , &[_][]const u8{
-        \\pub extern var arr0: [*c]u8 = "hello";
+        \\pub export var arr0: [*c]u8 = "hello";
         \\pub var arr1: [*c]u8 = "hello";
         \\pub export var arr2: [*c]u8 = "hello";
     });

@@ -221,9 +221,19 @@ pub fn zeroes(comptime T: type) T {
         .Vector => |info| {
             return @splat(info.len, zeroes(info.child));
         },
+        .Union => |info| {
+            if (comptime meta.containerLayout(T) == .Extern) {
+                // The C language specification states that (global) unions
+                // should be zero initialized to the first named member.
+                var item: T = undefined;
+                @field(item, info.fields[0].name) = zeroes(@TypeOf(@field(item, info.fields[0].name)));
+                return item;
+            }
+
+            @compileError("Can't set a " ++ @typeName(T) ++ " to zero.");
+        },
         .ErrorUnion,
         .ErrorSet,
-        .Union,
         .Fn,
         .BoundFn,
         .Type,
@@ -312,6 +322,14 @@ test "mem.zeroes" {
     for (b.sentinel) |e| {
         testing.expectEqual(@as(u8, 0), e);
     }
+
+    const C_union = extern union {
+        a: u8,
+        b: u32,
+    };
+
+    var c = zeroes(C_union);
+    testing.expectEqual(@as(u8, 0), c.a);
 }
 
 /// Sets a slice to zeroes.

@@ -701,8 +701,14 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
     const qual_type = ZigClangVarDecl_getTypeSourceInfo_getType(var_decl);
     const storage_class = ZigClangVarDecl_getStorageClass(var_decl);
     const is_const = ZigClangQualType_isConstQualified(qual_type);
+    const has_init = ZigClangVarDecl_hasInit(var_decl);
 
-    const extern_tok = if (storage_class == .Extern)
+    // In C extern variables with initializers behave like Zig exports.
+    // extern int foo = 2;
+    // does the same as:
+    // extern int foo;
+    // int foo = 2;
+    const extern_tok = if (storage_class == .Extern and !has_init)
         try appendToken(c, .Keyword_extern, "extern")
     else if (storage_class != .Static)
         try appendToken(c, .Keyword_export, "export")
@@ -730,7 +736,7 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
     // If the initialization expression is not present, initialize with undefined.
     // If it is an integer literal, we can skip the @as since it will be redundant
     // with the variable type.
-    if (ZigClangVarDecl_hasInit(var_decl)) {
+    if (has_init) {
         eq_tok = try appendToken(c, .Equal, "=");
         init_node = if (ZigClangVarDecl_getInit(var_decl)) |expr|
             transExprCoercing(rp, &c.global_scope.base, expr, .used, .r_value) catch |err| switch (err) {
@@ -745,7 +751,22 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
             try transCreateNodeUndefinedLiteral(c);
     } else if (storage_class != .Extern) {
         eq_tok = try appendToken(c, .Equal, "=");
-        init_node = try transCreateNodeIdentifierUnchecked(c, "undefined");
+        // The C language specification states that variables with static or threadlocal
+        // storage without an initializer are initialized to a zero value.
+
+        // @import("std").mem.zeroes(T)
+        const import_fn_call = try c.createBuiltinCall("@import", 1);
+        const std_node = try transCreateNodeStringLiteral(c, "\"std\"");
+        import_fn_call.params()[0] = std_node;
+        import_fn_call.rparen_token = try appendToken(c, .RParen, ")");
+        const inner_field_access = try transCreateNodeFieldAccess(c, &import_fn_call.base, "mem");
+        const outer_field_access = try transCreateNodeFieldAccess(c, inner_field_access, "zeroes");
+
+        const zero_init_call = try c.createCall(outer_field_access, 1);
+        zero_init_call.params()[0] = type_node;
+        zero_init_call.rtoken = try appendToken(c, .RParen, ")");
+
+        init_node = &zero_init_call.base;
     }
 
     const linksection_expr = blk: {
