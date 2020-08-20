@@ -1,4 +1,5 @@
 const std = @import("std");
+const DW = std.dwarf;
 const testing = std.testing;
 
 /// The condition field specifies the flags neccessary for an
@@ -93,6 +94,18 @@ pub const Register = enum(u5) {
     pub fn id(self: Register) u4 {
         return @truncate(u4, @enumToInt(self));
     }
+
+    /// Returns the index into `callee_preserved_regs`.
+    pub fn allocIndex(self: Register) ?u4 {
+        inline for (callee_preserved_regs) |cpreg, i| {
+            if (self.id() == cpreg.id()) return i;
+        }
+        return null;
+    }
+
+    pub fn dwarfLocOp(self: Register) u8 {
+        return @as(u8, self.id()) + DW.OP_reg0;
+    }
 };
 
 test "Register.id" {
@@ -148,6 +161,12 @@ pub const Instruction = union(enum) {
         comment: u24,
         fixed: u4 = 0b1111,
         cond: u4,
+    },
+    Breakpoint: packed struct {
+        imm4: u4,
+        fixed_1: u4 = 0b0111,
+        imm12: u12,
+        fixed_2_and_cond: u12 = 0b1110_0001_0010,
     },
 
     /// Represents the possible operations which can be performed by a
@@ -326,6 +345,7 @@ pub const Instruction = union(enum) {
             .Branch => |v| @bitCast(u32, v),
             .BranchExchange => |v| @bitCast(u32, v),
             .SoftwareInterrupt => |v| @bitCast(u32, v),
+            .Breakpoint => |v| @intCast(u32, v.imm4) | (@intCast(u32, v.fixed_1) << 4) | (@intCast(u32, v.imm12) << 8) | (@intCast(u32, v.fixed_2_and_cond) << 20),
         };
     }
 
@@ -404,6 +424,15 @@ pub const Instruction = union(enum) {
             .SoftwareInterrupt = .{
                 .cond = @enumToInt(cond),
                 .comment = comment,
+            },
+        };
+    }
+
+    fn breakpoint(imm: u16) Instruction {
+        return Instruction{
+            .Breakpoint = .{
+                .imm12 = @truncate(u12, imm >> 4),
+                .imm4 = @truncate(u4, imm),
             },
         };
     }
@@ -512,6 +541,12 @@ pub const Instruction = union(enum) {
     pub fn swi(cond: Condition, comment: u24) Instruction {
         return softwareInterrupt(cond, comment);
     }
+
+    // Breakpoint
+
+    pub fn bkpt(imm: u16) Instruction {
+        return breakpoint(imm);
+    }
 };
 
 test "serialize instructions" {
@@ -556,6 +591,10 @@ test "serialize instructions" {
         .{ // swi #0
             .inst = Instruction.swi(.al, 0),
             .expected = 0b1110_1111_0000_0000_0000_0000_0000_0000,
+        },
+        .{ // bkpt #42
+            .inst = Instruction.bkpt(42),
+            .expected = 0b1110_0001_0010_000000000010_0111_1010,
         },
     };
 

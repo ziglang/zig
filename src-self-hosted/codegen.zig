@@ -76,8 +76,8 @@ pub fn generateSymbol(
             switch (bin_file.options.target.cpu.arch) {
                 .wasm32 => unreachable, // has its own code path
                 .wasm64 => unreachable, // has its own code path
-                //.arm => return Function(.arm).generateSymbol(bin_file, src, typed_value, code, dbg_line, dbg_info, dbg_info_type_relocs),
-                //.armeb => return Function(.armeb).generateSymbol(bin_file, src, typed_value, code, dbg_line, dbg_info, dbg_info_type_relocs),
+                .arm => return Function(.arm).generateSymbol(bin_file, src, typed_value, code, dbg_line, dbg_info, dbg_info_type_relocs),
+                .armeb => return Function(.armeb).generateSymbol(bin_file, src, typed_value, code, dbg_line, dbg_info, dbg_info_type_relocs),
                 //.aarch64 => return Function(.aarch64).generateSymbol(bin_file, src, typed_value, code, dbg_line, dbg_info, dbg_info_type_relocs),
                 //.aarch64_be => return Function(.aarch64_be).generateSymbol(bin_file, src, typed_value, code, dbg_line, dbg_info, dbg_info_type_relocs),
                 //.aarch64_32 => return Function(.aarch64_32).generateSymbol(bin_file, src, typed_value, code, dbg_line, dbg_info, dbg_info_type_relocs),
@@ -1270,8 +1270,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     var instr = Instruction{ .condition = .always, .input0 = .zero, .input1 = .zero, .modify_flags = false, .output = .discard, .command = .undefined1 };
                     mem.writeIntLittle(u16, self.code.items[self.code.items.len - 2 ..][0..2], @bitCast(u16, instr));
                 },
+                .arm => {
+                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.bkpt(0).toU32());
+                },
+                .armeb => {
+                    mem.writeIntBig(u32, try self.code.addManyAsArray(4), Instruction.bkpt(0).toU32());
+                },
                 else => return self.fail(src, "TODO implement @breakpoint() for {}", .{self.target.cpu.arch}),
-            }
+                }
             return .none;
         }
 
@@ -2373,6 +2379,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             .riscv64 => @import("codegen/riscv64.zig"),
             .spu_2 => @import("codegen/spu-mk2.zig"),
             .arm => @import("codegen/arm.zig"),
+            .armeb => @import("codegen/arm.zig"),
             else => struct {
                 pub const Register = enum {
                     dummy,
