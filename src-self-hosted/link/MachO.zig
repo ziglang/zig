@@ -6,6 +6,8 @@ const assert = std.debug.assert;
 const fs = std.fs;
 const log = std.log.scoped(.link);
 const macho = std.macho;
+const math = std.math;
+const mem = std.mem;
 
 const Module = @import("../Module.zig");
 const link = @import("../link.zig");
@@ -14,6 +16,14 @@ const File = link.File;
 pub const base_tag: Tag = File.Tag.macho;
 
 base: File,
+
+/// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
+/// Same order as in the file.
+segment_cmds: std.ArrayListUnmanaged(macho.segment_command_64) = std.ArrayListUnmanaged(macho.segment_command_64){},
+
+/// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
+/// Same order as in the file.
+sections: std.ArrayListUnmanaged(macho.@"section_64") = std.ArrayListUnmanaged(macho.@"section_64"){},
 
 entry_addr: ?u64 = null,
 
@@ -86,7 +96,32 @@ fn createFile(allocator: *Allocator, file: fs.File, options: link.Options) !Mach
     };
     errdefer self.deinit();
 
+    if (options.output_mode == .Exe) {
+        // The first segment command for executables is always a __PAGEZERO segment.
+        try self.segment_cmds.append(allocator, .{
+            .cmd = macho.LC_SEGMENT_64,
+            .cmdsize = @sizeOf(macho.segment_command_64),
+            .segname = self.makeString("__PAGEZERO"),
+            .vmaddr = 0,
+            .vmsize = 0,
+            .fileoff = 0,
+            .filesize = 0,
+            .maxprot = 0,
+            .initprot = 0,
+            .nsects = 0,
+            .flags = 0,
+        });
+    }
+
     return self;
+}
+
+fn makeString(self: *MachO, comptime bytes: []const u8) [16]u8 {
+    if (bytes.len > 16) @compileError("MachO segment/section name too long");
+
+    var buf: [16]u8 = undefined;
+    mem.copy(u8, buf[0..], bytes);
+    return buf;
 }
 
 fn writeMachOHeader(self: *MachO) !void {
@@ -122,9 +157,12 @@ fn writeMachOHeader(self: *MachO) !void {
     };
     hdr.filetype = filetype;
 
-    // TODO the rest of the header
-    hdr.ncmds = 0;
-    hdr.sizeofcmds = 0;
+    // TODO consider other commands
+    const ncmds = try math.cast(u32, self.segment_cmds.items.len);
+    hdr.ncmds = ncmds;
+    hdr.sizeofcmds = ncmds * @sizeOf(macho.segment_command_64);
+
+    // TODO should these be set to something else?
     hdr.flags = 0;
     hdr.reserved = 0;
 
@@ -133,6 +171,17 @@ fn writeMachOHeader(self: *MachO) !void {
 
 pub fn flush(self: *MachO, module: *Module) !void {
     // TODO implement flush
+    {
+        const buf = try self.base.allocator.alloc(macho.segment_command_64, self.segment_cmds.items.len);
+        defer self.base.allocator.free(buf);
+
+        for (buf) |*seg, i| {
+            seg.* = self.segment_cmds.items[i];
+        }
+
+        try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), @sizeOf(macho.mach_header_64));
+    }
+
     if (self.entry_addr == null and self.base.options.output_mode == .Exe) {
         log.debug("flushing. no_entry_point_found = true\n", .{});
         self.error_flags.no_entry_point_found = true;
@@ -143,7 +192,10 @@ pub fn flush(self: *MachO, module: *Module) !void {
     }
 }
 
-pub fn deinit(self: *MachO) void {}
+pub fn deinit(self: *MachO) void {
+    self.segment_cmds.deinit(self.base.allocator);
+    self.@"sections".deinit(self.base.allocator);
+}
 
 pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {}
 
