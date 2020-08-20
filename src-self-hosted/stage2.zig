@@ -153,6 +153,7 @@ export fn stage2_render_ast(tree: *ast.Tree, output_file: *FILE) Error {
     const c_out_stream = std.io.cOutStream(output_file);
     _ = std.zig.render(std.heap.c_allocator, c_out_stream, tree) catch |e| switch (e) {
         error.WouldBlock => unreachable, // stage1 opens stuff in exclusively blocking mode
+        error.NotOpenForWriting => unreachable,
         error.SystemResources => return .SystemResources,
         error.OperationAborted => return .OperationAborted,
         error.BrokenPipe => return .BrokenPipe,
@@ -611,6 +612,8 @@ export fn stage2_libc_parse(stage1_libc: *Stage2LibCInstallation, libc_file_z: [
         error.SystemResources => return .SystemResources,
         error.OperationAborted => return .OperationAborted,
         error.WouldBlock => unreachable,
+        error.NotOpenForWriting => unreachable,
+        error.NotOpenForReading => unreachable,
         error.Unexpected => return .Unexpected,
         error.EndOfStream => return .EndOfFile,
         error.IsDir => return .IsDir,
@@ -666,6 +669,7 @@ export fn stage2_libc_render(stage1_libc: *Stage2LibCInstallation, output_file: 
     const c_out_stream = std.io.cOutStream(output_file);
     libc.render(c_out_stream) catch |err| switch (err) {
         error.WouldBlock => unreachable, // stage1 opens stuff in exclusively blocking mode
+        error.NotOpenForWriting => unreachable,
         error.SystemResources => return .SystemResources,
         error.OperationAborted => return .OperationAborted,
         error.BrokenPipe => return .BrokenPipe,

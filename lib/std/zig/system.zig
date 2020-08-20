@@ -857,6 +857,7 @@ pub const NativeTargetInfo = struct {
             const len = file.pread(buf[i .. buf.len - i], offset + i) catch |err| switch (err) {
                 error.OperationAborted => unreachable, // Windows-only
                 error.WouldBlock => unreachable, // Did not request blocking mode
+                error.NotOpenForReading => unreachable,
                 error.SystemResources => return error.SystemResources,
                 error.IsDir => return error.UnableToReadElfFile,
                 error.BrokenPipe => return error.UnableToReadElfFile,
