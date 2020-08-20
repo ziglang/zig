@@ -498,7 +498,7 @@ fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
             _ = try transRecordDecl(c, @ptrCast(*const ZigClangRecordDecl, decl));
         },
         .Var => {
-            return visitVarDecl(c, @ptrCast(*const ZigClangVarDecl, decl));
+            return visitVarDecl(c, @ptrCast(*const ZigClangVarDecl, decl), null);
         },
         .Empty => {
             // Do nothing
@@ -679,12 +679,13 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     return addTopLevelDecl(c, fn_name, &proto_node.base);
 }
 
-fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
-    const var_name = try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, var_decl)));
+/// if mangled_name is not null, this var decl was declared in a block scope.
+fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl, mangled_name: ?[]const u8) Error!void {
+    const var_name = mangled_name orelse try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, var_decl)));
     if (c.global_scope.sym_table.contains(var_name))
         return; // Avoid processing this decl twice
     const rp = makeRestorePoint(c);
-    const visib_tok = try appendToken(c, .Keyword_pub, "pub");
+    const visib_tok = if (mangled_name) |_| null else try appendToken(c, .Keyword_pub, "pub");
 
     const thread_local_token = if (ZigClangVarDecl_getTLSKind(var_decl) == .None)
         null
@@ -701,8 +702,14 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
     const qual_type = ZigClangVarDecl_getTypeSourceInfo_getType(var_decl);
     const storage_class = ZigClangVarDecl_getStorageClass(var_decl);
     const is_const = ZigClangQualType_isConstQualified(qual_type);
+    const has_init = ZigClangVarDecl_hasInit(var_decl);
 
-    const extern_tok = if (storage_class == .Extern)
+    // In C extern variables with initializers behave like Zig exports.
+    // extern int foo = 2;
+    // does the same as:
+    // extern int foo;
+    // int foo = 2;
+    const extern_tok = if (storage_class == .Extern and !has_init)
         try appendToken(c, .Keyword_extern, "extern")
     else if (storage_class != .Static)
         try appendToken(c, .Keyword_export, "export")
@@ -730,7 +737,7 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
     // If the initialization expression is not present, initialize with undefined.
     // If it is an integer literal, we can skip the @as since it will be redundant
     // with the variable type.
-    if (ZigClangVarDecl_hasInit(var_decl)) {
+    if (has_init) {
         eq_tok = try appendToken(c, .Equal, "=");
         init_node = if (ZigClangVarDecl_getInit(var_decl)) |expr|
             transExprCoercing(rp, &c.global_scope.base, expr, .used, .r_value) catch |err| switch (err) {
@@ -745,7 +752,22 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
             try transCreateNodeUndefinedLiteral(c);
     } else if (storage_class != .Extern) {
         eq_tok = try appendToken(c, .Equal, "=");
-        init_node = try transCreateNodeIdentifierUnchecked(c, "undefined");
+        // The C language specification states that variables with static or threadlocal
+        // storage without an initializer are initialized to a zero value.
+
+        // @import("std").mem.zeroes(T)
+        const import_fn_call = try c.createBuiltinCall("@import", 1);
+        const std_node = try transCreateNodeStringLiteral(c, "\"std\"");
+        import_fn_call.params()[0] = std_node;
+        import_fn_call.rparen_token = try appendToken(c, .RParen, ")");
+        const inner_field_access = try transCreateNodeFieldAccess(c, &import_fn_call.base, "mem");
+        const outer_field_access = try transCreateNodeFieldAccess(c, inner_field_access, "zeroes");
+
+        const zero_init_call = try c.createCall(outer_field_access, 1);
+        zero_init_call.params()[0] = type_node;
+        zero_init_call.rtoken = try appendToken(c, .RParen, ")");
+
+        init_node = &zero_init_call.base;
     }
 
     const linksection_expr = blk: {
@@ -1561,15 +1583,22 @@ fn transDeclStmtOne(
         .Var => {
             const var_decl = @ptrCast(*const ZigClangVarDecl, decl);
 
-            const thread_local_token = if (ZigClangVarDecl_getTLSKind(var_decl) == .None)
-                null
-            else
-                try appendToken(c, .Keyword_threadlocal, "threadlocal");
             const qual_type = ZigClangVarDecl_getTypeSourceInfo_getType(var_decl);
             const name = try c.str(ZigClangNamedDecl_getName_bytes_begin(
                 @ptrCast(*const ZigClangNamedDecl, var_decl),
             ));
             const mangled_name = try block_scope.makeMangledName(c, name);
+
+            switch (ZigClangVarDecl_getStorageClass(var_decl)) {
+                .Extern, .Static => {
+                    // This is actually a global variable, put it in the global scope and reference it.
+                    // `_ = mangled_name;`
+                    try visitVarDecl(rp.c, var_decl, mangled_name);
+                    return try maybeSuppressResult(rp, scope, .unused, try transCreateNodeIdentifier(rp.c, mangled_name));
+                },
+                else => {},
+            }
+
             const mut_tok = if (ZigClangQualType_isConstQualified(qual_type))
                 try appendToken(c, .Keyword_const, "const")
             else
@@ -1597,7 +1626,6 @@ fn transDeclStmtOne(
                 .mut_token = mut_tok,
                 .semicolon_token = semicolon_token,
             }, .{
-                .thread_local_token = thread_local_token,
                 .eq_token = eq_token,
                 .type_node = type_node,
                 .init_node = init_node,

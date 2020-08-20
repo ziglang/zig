@@ -340,7 +340,7 @@ fn __stack_chk_fail() callconv(.C) noreturn {
     @panic("stack smashing detected");
 }
 
-extern var __stack_chk_guard: usize = blk: {
+var __stack_chk_guard: usize = blk: {
     var buf = [1]u8{0} ** @sizeOf(usize);
     buf[@sizeOf(usize) - 1] = 255;
     buf[@sizeOf(usize) - 2] = '\n';
