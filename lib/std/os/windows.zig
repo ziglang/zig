@@ -469,7 +469,7 @@ pub const WriteFileError = error{
     SystemResources,
     OperationAborted,
     BrokenPipe,
-    InvalidFd,
+    NotOpenForWriting,
     Unexpected,
 };
 
