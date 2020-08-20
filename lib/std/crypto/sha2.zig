@@ -77,7 +77,10 @@ const Sha256Params = Sha2Params32{
     .out_len = 256,
 };
 
+/// SHA-224
 pub const Sha224 = Sha2_32(Sha224Params);
+
+/// SHA-256
 pub const Sha256 = Sha2_32(Sha256Params);
 
 fn Sha2_32(comptime params: Sha2Params32) type {
@@ -421,8 +424,41 @@ const Sha512Params = Sha2Params64{
     .out_len = 512,
 };
 
+const Sha512256Params = Sha2Params64{
+    .iv0 = 0x22312194FC2BF72C,
+    .iv1 = 0x9F555FA3C84C64C2,
+    .iv2 = 0x2393B86B6F53B151,
+    .iv3 = 0x963877195940EABD,
+    .iv4 = 0x96283EE2A88EFFE3,
+    .iv5 = 0xBE5E1E2553863992,
+    .iv6 = 0x2B0199FC2C85B8AA,
+    .iv7 = 0x0EB72DDC81C52CA2,
+    .out_len = 256,
+};
+
+const Sha512T256Params = Sha2Params64{
+    .iv0 = 0x6A09E667F3BCC908,
+    .iv1 = 0xBB67AE8584CAA73B,
+    .iv2 = 0x3C6EF372FE94F82B,
+    .iv3 = 0xA54FF53A5F1D36F1,
+    .iv4 = 0x510E527FADE682D1,
+    .iv5 = 0x9B05688C2B3E6C1F,
+    .iv6 = 0x1F83D9ABFB41BD6B,
+    .iv7 = 0x5BE0CD19137E2179,
+    .out_len = 256,
+};
+
+/// SHA-384
 pub const Sha384 = Sha2_64(Sha384Params);
+
+/// SHA-512
 pub const Sha512 = Sha2_64(Sha512Params);
+
+/// SHA-512/256
+pub const Sha512256 = Sha2_64(Sha512256Params);
+
+/// Truncated SHA-512
+pub const Sha512T256 = Sha2_64(Sha512T256Params);
 
 fn Sha2_64(comptime params: Sha2Params64) type {
     return struct {

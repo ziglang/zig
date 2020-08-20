@@ -8,8 +8,8 @@ const crypto = std.crypto;
 const debug = std.debug;
 const mem = std.mem;
 
-pub const HmacMd5 = Hmac(crypto.hash.legacy.Md5);
-pub const HmacSha1 = Hmac(crypto.hash.legacy.Sha1);
+pub const HmacMd5 = Hmac(crypto.hash.Md5);
+pub const HmacSha1 = Hmac(crypto.hash.Sha1);
 
 pub const sha2 = struct {
     pub const HmacSha224 = Hmac(crypto.hash.sha2.Sha224);
