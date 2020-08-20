@@ -3153,13 +3153,45 @@ pub fn simplePtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type, mu
     type_payload.* = .{
         .base = .{
             .tag = switch (size) {
-                .One => if (mutable) .single_mut_pointer else T.many_const_pointer,
+                .One => if (mutable) T.single_mut_pointer else T.single_const_pointer,
                 .Many => if (mutable) T.many_mut_pointer else T.many_const_pointer,
                 .C => if (mutable) T.c_mut_pointer else T.c_const_pointer,
                 else => unreachable,
             },
         },
         .pointee_type = elem_ty,
+    };
+    return Type.initPayload(&type_payload.base);
+}
+
+pub fn ptrType(
+    self: *Module,
+    scope: *Scope,
+    src: usize,
+    elem_ty: Type,
+    sentinel: ?Value,
+    @"align": u32,
+    bit_offset: u16,
+    host_size: u16,
+    mutable: bool,
+    @"allowzero": bool,
+    @"volatile": bool,
+    size: std.builtin.TypeInfo.Pointer.Size,
+) Allocator.Error!Type {
+    assert(host_size == 0 or bit_offset < host_size * 8);
+
+    // TODO check if type can be represented by simplePtrType
+    const type_payload = try scope.arena().create(Type.Payload.Pointer);
+    type_payload.* = .{
+        .pointee_type = elem_ty,
+        .sentinel = sentinel,
+        .@"align" = @"align",
+        .bit_offset = bit_offset,
+        .host_size = host_size,
+        .@"allowzero" = @"allowzero",
+        .mutable = mutable,
+        .@"volatile" = @"volatile",
+        .size = size,
     };
     return Type.initPayload(&type_payload.base);
 }

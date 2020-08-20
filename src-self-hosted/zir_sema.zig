@@ -271,6 +271,14 @@ fn resolveType(mod: *Module, scope: *Scope, old_inst: *zir.Inst) !Type {
     return val.toType();
 }
 
+fn resolveInt(mod: *Module, scope: *Scope, old_inst: *zir.Inst, dest_type: Type) !u64 {
+    const new_inst = try resolveInst(mod, scope, old_inst);
+    const coerced = try mod.coerce(scope, dest_type, new_inst);
+    const val = try mod.resolveConstValue(scope, coerced);
+
+    return val.toUnsignedInt();
+}
+
 pub fn resolveInstConst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!TypedValue {
     const new_inst = try resolveInst(mod, scope, old_inst);
     const val = try mod.resolveConstValue(scope, new_inst);
@@ -1322,5 +1330,42 @@ fn analyzeInstSimplePtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp, m
 }
 
 fn analyzeInstPtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.PtrType) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement ptr_type", .{});
+    // TODO lazy values
+    const @"align" = if (inst.kw_args.@"align") |some|
+        @truncate(u32, try resolveInt(mod, scope, some, Type.initTag(.u32)))
+    else
+        0;
+    const bit_offset = if (inst.kw_args.align_bit_start) |some|
+        @truncate(u16, try resolveInt(mod, scope, some, Type.initTag(.u16)))
+    else
+        0;
+    const host_size = if (inst.kw_args.align_bit_end) |some|
+        @truncate(u16, try resolveInt(mod, scope, some, Type.initTag(.u16)))
+    else
+        0;
+
+    if (host_size != 0 and bit_offset >= host_size * 8)
+        return mod.fail(scope, inst.base.src, "bit offset starts after end of host integer", .{});
+    
+    const sentinel = if (inst.kw_args.sentinel) |some|
+        (try resolveInstConst(mod, scope, some)).val
+    else
+        null;
+
+    const elem_type = try resolveType(mod, scope, inst.positionals.child_type);
+
+    const ty = try mod.ptrType(
+        scope,
+        inst.base.src,
+        elem_type,
+        sentinel,
+        @"align",
+        bit_offset,
+        host_size,
+        inst.kw_args.mutable,
+        inst.kw_args.@"allowzero",
+        inst.kw_args.@"volatile",
+        inst.kw_args.size,
+    );
+    return mod.constType(scope, inst.base.src, ty);
 }

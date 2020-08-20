@@ -582,8 +582,7 @@ fn ptrType(mod: *Module, scope: *Scope, node: *ast.Node.PtrType) InnerError!*zir
         // TODO stage1 type inference bug
         .LBracket => @as(std.builtin.TypeInfo.Pointer.Size, switch (tree.token_ids[node.op_token + 2]) {
             .Identifier => .C,
-            .RBracket => .Many,
-            else => unreachable,
+            else => .Many,
         }),
         else => unreachable,
     };
@@ -616,7 +615,7 @@ fn ptrType(mod: *Module, scope: *Scope, node: *ast.Node.PtrType) InnerError!*zir
             kw_args.align_bit_end = try expr(mod, scope, .none, bit_range.end);
         }
     }
-    kw_args.@"const" = node.ptr_info.const_token != null;
+    kw_args.mutable = node.ptr_info.const_token == null;
     kw_args.@"volatile" = node.ptr_info.volatile_token != null;
     if (node.ptr_info.sentinel) |some| {
         kw_args.sentinel = try expr(mod, scope, .none, some);
