@@ -3143,6 +3143,9 @@ pub fn floatSub(self: *Module, scope: *Scope, float_type: Type, src: usize, lhs:
 }
 
 pub fn simplePtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type, mutable: bool, size: std.builtin.TypeInfo.Pointer.Size) Allocator.Error!Type {
+    if (size == .Slice and elem_ty.eql(Type.initTag(.u8))) {
+        return Type.initTag(.const_slice_u8);
+    }
     // TODO stage1 type inference bug
     const T = Type.Tag;
 
@@ -3153,7 +3156,7 @@ pub fn simplePtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type, mu
                 .One => if (mutable) T.single_mut_pointer else T.single_const_pointer,
                 .Many => if (mutable) T.many_mut_pointer else T.many_const_pointer,
                 .C => if (mutable) T.c_mut_pointer else T.c_const_pointer,
-                else => unreachable,
+                .Slice => if (mutable) T.mut_slice else T.const_slice,
             },
         },
         .pointee_type = elem_ty,
