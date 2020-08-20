@@ -313,7 +313,7 @@ pub fn main() !void {
     var max_bytes_saved: usize = 0;
     var total_bytes: usize = 0;
 
-    var hasher = std.crypto.hash.sha2.Sha256.init();
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
 
     for (libc_targets) |libc_target| {
         const dest_target = DestTarget{
