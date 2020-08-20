@@ -770,6 +770,9 @@ pub fn S_ISSOCK(m: u32) bool {
     return m & S_IFMT == S_IFSOCK;
 }
 
+pub const UTIME_NOW = 0x3fffffff;
+pub const UTIME_OMIT = 0x3ffffffe;
+
 pub const TFD_NONBLOCK = O_NONBLOCK;
 pub const TFD_CLOEXEC = O_CLOEXEC;
 
