@@ -39,9 +39,9 @@ pub const Sha1 = struct {
 
     s: [5]u32,
     // Streaming Cache
-    buf: [64]u8,
-    buf_len: u8,
-    total_len: u64,
+    buf: [64]u8 = undefined,
+    buf_len: u8 = 0,
+    total_len: u64 = 0,
 
     pub fn init() Self {
         return Self{
@@ -52,14 +52,7 @@ pub const Sha1 = struct {
                 0x10325476,
                 0xC3D2E1F0,
             },
-            .buf = undefined,
-            .buf_len = 0,
-            .total_len = 0,
         };
-    }
-
-    pub fn reset(self: *Self) void {
-        self.* = init();
     }
 
     pub fn hash(b: []const u8, out: []u8) void {
@@ -289,12 +282,12 @@ test "sha1 streaming" {
     h.final(out[0..]);
     htest.assertEqual("da39a3ee5e6b4b0d3255bfef95601890afd80709", out[0..]);
 
-    h.reset();
+    h = Sha1.init();
     h.update("abc");
     h.final(out[0..]);
     htest.assertEqual("a9993e364706816aba3e25717850c26c9cd0d89d", out[0..]);
 
-    h.reset();
+    h = Sha1.init();
     h.update("a");
     h.update("b");
     h.update("c");

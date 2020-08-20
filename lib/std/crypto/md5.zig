@@ -60,10 +60,6 @@ pub const Md5 = struct {
         };
     }
 
-    pub fn reset(self: *Self) void {
-        self.* = init();
-    }
-
     pub fn hash(b: []const u8, out: []u8) void {
         var d = Md5.init();
         d.update(b);
@@ -267,12 +263,12 @@ test "md5 streaming" {
     h.final(out[0..]);
     htest.assertEqual("d41d8cd98f00b204e9800998ecf8427e", out[0..]);
 
-    h.reset();
+    h = Md5.init();
     h.update("abc");
     h.final(out[0..]);
     htest.assertEqual("900150983cd24fb0d6963f7d28e17f72", out[0..]);
 
-    h.reset();
+    h = Md5.init();
     h.update("a");
     h.update("b");
     h.update("c");

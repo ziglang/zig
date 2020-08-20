@@ -112,11 +112,11 @@ test "issue #4532: no index out of bounds" {
         var block = [_]u8{'#'} ** Hasher.block_length;
         var out1: [Hasher.digest_length]u8 = undefined;
         var out2: [Hasher.digest_length]u8 = undefined;
-
-        var h = Hasher.init();
+        const h0 = Hasher.init();
+        var h = h0;
         h.update(block[0..]);
         h.final(out1[0..]);
-        h.reset();
+        h = h0;
         h.update(block[0..1]);
         h.update(block[1..]);
         h.final(out2[0..]);

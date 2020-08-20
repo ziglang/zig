@@ -326,12 +326,6 @@ pub const Blake3 = struct {
         hasher.final(out);
     }
 
-    /// Reset the `Blake3` to its initial state.
-    pub fn reset(self: *Blake3) void {
-        self.chunk_state = ChunkState.init(self.key, 0, self.flags);
-        self.cv_stack_len = 0;
-    }
-
     fn push_cv(self: *Blake3, cv: [8]u32) void {
         self.cv_stack[self.cv_stack_len] = cv;
         self.cv_stack_len += 1;
@@ -566,6 +560,9 @@ const reference_test = ReferenceTest{
 };
 
 fn test_blake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) void {
+    // Save initial state
+    const initial_state = hasher.*;
+
     // Setup input pattern
     var input_pattern: [251]u8 = undefined;
     for (input_pattern) |*e, i| e.* = @truncate(u8, i);
@@ -581,12 +578,14 @@ fn test_blake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) void {
     // Read final hash value
     var actual_bytes: [expected_hex.len / 2]u8 = undefined;
     hasher.final(actual_bytes[0..]);
-    hasher.reset();
 
     // Compare to expected value
     var expected_bytes: [expected_hex.len / 2]u8 = undefined;
     fmt.hexToBytes(expected_bytes[0..], expected_hex[0..]) catch unreachable;
     testing.expectEqual(actual_bytes, expected_bytes);
+
+    // Restore initial state
+    hasher.* = initial_state;
 }
 
 test "BLAKE3 reference test cases" {

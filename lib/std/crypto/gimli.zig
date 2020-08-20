@@ -120,10 +120,6 @@ pub const Hash = struct {
         };
     }
 
-    pub fn reset(self: *Self) void {
-        self.* = init();
-    }
-
     /// Also known as 'absorb'
     pub fn update(self: *Self, data: []const u8) void {
         const buf = self.state.toSlice();

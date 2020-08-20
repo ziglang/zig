@@ -75,10 +75,10 @@ pub fn Hmac(comptime Hash: type) type {
             debug.assert(Hash.block_length >= out.len and out.len >= mac_length);
 
             ctx.hash.final(ctx.scratch[0..mac_length]);
-            ctx.hash.reset();
-            ctx.hash.update(ctx.o_key_pad[0..]);
-            ctx.hash.update(ctx.scratch[0..mac_length]);
-            ctx.hash.final(out[0..mac_length]);
+            var ohash = Hash.init();
+            ohash.update(ctx.o_key_pad[0..]);
+            ohash.update(ctx.scratch[0..mac_length]);
+            ohash.final(out[0..mac_length]);
         }
     };
 }

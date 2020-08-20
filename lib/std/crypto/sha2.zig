@@ -91,9 +91,9 @@ fn Sha2_32(comptime params: Sha2Params32) type {
 
         s: [8]u32,
         // Streaming Cache
-        buf: [64]u8,
-        buf_len: u8,
-        total_len: u64,
+        buf: [64]u8 = undefined,
+        buf_len: u8 = 0,
+        total_len: u64 = 0,
 
         pub fn init() Self {
             return Self{
@@ -107,14 +107,7 @@ fn Sha2_32(comptime params: Sha2Params32) type {
                     params.iv6,
                     params.iv7,
                 },
-                .buf = undefined,
-                .buf_len = 0,
-                .total_len = 0,
             };
-        }
-
-        pub fn reset(self: *Self) void {
-            self.* = init();
         }
 
         pub fn hash(b: []const u8, out: []u8) void {
@@ -309,12 +302,12 @@ test "sha224 streaming" {
     h.final(out[0..]);
     htest.assertEqual("d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f", out[0..]);
 
-    h.reset();
+    h = Sha224.init();
     h.update("abc");
     h.final(out[0..]);
     htest.assertEqual("23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7", out[0..]);
 
-    h.reset();
+    h = Sha224.init();
     h.update("a");
     h.update("b");
     h.update("c");
@@ -335,12 +328,12 @@ test "sha256 streaming" {
     h.final(out[0..]);
     htest.assertEqual("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", out[0..]);
 
-    h.reset();
+    h = Sha256.init();
     h.update("abc");
     h.final(out[0..]);
     htest.assertEqual("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", out[0..]);
 
-    h.reset();
+    h = Sha256.init();
     h.update("a");
     h.update("b");
     h.update("c");
@@ -468,27 +461,23 @@ fn Sha2_64(comptime params: Sha2Params64) type {
 
         s: [8]u64,
         // Streaming Cache
-        buf: [128]u8,
-        buf_len: u8,
-        total_len: u128,
+        buf: [128]u8 = undefined,
+        buf_len: u8 = 0,
+        total_len: u128 = 0,
 
         pub fn init() Self {
-            var d: Self = undefined;
-            d.reset();
-            return d;
-        }
-
-        pub fn reset(d: *Self) void {
-            d.s[0] = params.iv0;
-            d.s[1] = params.iv1;
-            d.s[2] = params.iv2;
-            d.s[3] = params.iv3;
-            d.s[4] = params.iv4;
-            d.s[5] = params.iv5;
-            d.s[6] = params.iv6;
-            d.s[7] = params.iv7;
-            d.buf_len = 0;
-            d.total_len = 0;
+            return Self{
+                .s = [_]u64{
+                    params.iv0,
+                    params.iv1,
+                    params.iv2,
+                    params.iv3,
+                    params.iv4,
+                    params.iv5,
+                    params.iv6,
+                    params.iv7,
+                },
+            };
         }
 
         pub fn hash(b: []const u8, out: []u8) void {
@@ -713,12 +702,12 @@ test "sha384 streaming" {
 
     const h2 = "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7";
 
-    h.reset();
+    h = Sha384.init();
     h.update("abc");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
 
-    h.reset();
+    h = Sha384.init();
     h.update("a");
     h.update("b");
     h.update("c");
@@ -747,12 +736,12 @@ test "sha512 streaming" {
 
     const h2 = "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f";
 
-    h.reset();
+    h = Sha512.init();
     h.update("abc");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
 
-    h.reset();
+    h = Sha512.init();
     h.update("a");
     h.update("b");
     h.update("c");
