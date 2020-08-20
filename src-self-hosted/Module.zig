@@ -324,10 +324,10 @@ pub const Fn = struct {
 };
 
 pub const Var = struct {
+    /// if is_extern == true this is undefined
     init: Value,
     owner_decl: *Decl,
 
-    has_init: bool,
     is_extern: bool,
     is_mutable: bool,
     is_threadlocal: bool,
@@ -1456,7 +1456,11 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             const is_extern = blk: {
                 const maybe_extern_token = var_decl.getTrailer("extern_export_token") orelse
                     break :blk false;
-                break :blk tree.token_ids[maybe_extern_token] == .Keyword_extern;
+                if (tree.token_ids[maybe_extern_token] != .Keyword_extern) break :blk false;
+                if (var_decl.getTrailer("init_node")) |some| {
+                    return self.failNode(&block_scope.base, some, "extern variables have no initializers", .{});
+                }
+                break :blk true;
             };
             if (var_decl.getTrailer("lib_name")) |lib_name| {
                 assert(is_extern);
@@ -1569,7 +1573,6 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             new_variable.* = .{
                 .owner_decl = decl,
                 .init = value orelse undefined,
-                .has_init = value != null,
                 .is_extern = is_extern,
                 .is_mutable = is_mutable,
                 .is_threadlocal = is_threadlocal,
@@ -2440,7 +2443,7 @@ fn analyzeVarRef(self: *Module, scope: *Scope, src: usize, tv: TypedValue) Inner
     const variable = tv.val.cast(Value.Payload.Variable).?.variable;
 
     const ty = try self.singlePtrType(scope, src, variable.is_mutable, tv.ty);
-    if (!variable.is_mutable and !variable.is_extern and variable.has_init) {
+    if (!variable.is_mutable and !variable.is_extern) {
         const val_payload = try scope.arena().create(Value.Payload.RefVal);
         val_payload.* = .{ .val = variable.init };
         return self.constInst(scope, src, .{

@@ -35,7 +35,7 @@ comptime {
     }
 }
 
-extern var _fltused: c_int = 1;
+var _fltused: c_int = 1;
 
 extern fn main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 fn wasm_start() callconv(.C) void {
