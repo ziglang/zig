@@ -286,10 +286,6 @@ fn createFile(allocator: *Allocator, file: fs.File, options: link.Options) !Elf 
     };
     errdefer self.deinit();
 
-    if (options.target.cpu.arch == .spu_2) {
-        self.base.options.default_entry_addr = 0;
-    }
-
     // Index 0 is always a null symbol.
     try self.local_symbols.append(allocator, .{
         .st_name = 0,
@@ -466,12 +462,13 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         const p_align = 0x1000;
         const off = self.findFreeSpace(file_size, p_align);
         log.debug("found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+        const entry_addr: u64 = self.entry_addr orelse if (self.base.options.target.cpu.arch == .spu_2) @as(u64, 0) else default_entry_addr;
         try self.program_headers.append(self.base.allocator, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
             .p_filesz = file_size,
-            .p_vaddr = self.base.options.default_entry_addr,
-            .p_paddr = self.base.options.default_entry_addr,
+            .p_vaddr = entry_addr,
+            .p_paddr = entry_addr,
             .p_memsz = file_size,
             .p_align = p_align,
             .p_flags = elf.PF_X | elf.PF_R,
@@ -490,13 +487,13 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         // TODO instead of hard coding the vaddr, make a function to find a vaddr to put things at.
         // we'll need to re-use that function anyway, in case the GOT grows and overlaps something
         // else in virtual memory.
-        const default_got_addr = if (self.base.options.target.cpu.arch.ptrBitWidth() == 16) @as(u32, 0x8000) else 0x4000000;
+        const got_addr = if (self.base.options.target.cpu.arch.ptrBitWidth() == 16) @as(u32, 0x8000) else 0x4000000;
         try self.program_headers.append(self.base.allocator, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
             .p_filesz = file_size,
-            .p_vaddr = default_got_addr,
-            .p_paddr = default_got_addr,
+            .p_vaddr = got_addr,
+            .p_paddr = got_addr,
             .p_memsz = file_size,
             .p_align = p_align,
             .p_flags = elf.PF_R,

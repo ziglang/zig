@@ -23,7 +23,7 @@ pub const Options = struct {
     /// Used for calculating how much space to reserve for executable program code in case
     /// the binary file deos not already have such a section.
     program_code_size_hint: u64 = 256 * 1024,
-    default_entry_addr: u64 = 0x8000000,
+    entry_addr: ?u64 = null,
 };
 
 pub const File = struct {
