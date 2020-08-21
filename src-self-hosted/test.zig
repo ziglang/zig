@@ -645,14 +645,17 @@ pub const TestContext = struct {
                             exec_node.activate();
                             defer exec_node.end();
 
-                            // TODO: loop detection? Solve the halting problem? fork() and limit by wall clock?
-                            // Limit by emulated cycles?
+                            var blocks: u16 = 1000;
+                            const block_size = 1000;
                             while (!interpreter.undefined0) {
                                 const pre_ip = interpreter.ip;
-                                try interpreter.ExecuteBlock(1);
-                                if (pre_ip == interpreter.ip) {
-                                    std.debug.print("Infinite loop detected in SPU II test!\n", .{});
-                                    std.process.exit(1);
+                                if (blocks > 0) {
+                                    blocks -= 1;
+                                    try interpreter.ExecuteBlock(block_size);
+                                    if (pre_ip == interpreter.ip) {
+                                        std.debug.print("Infinite loop detected in SPU II test!\n", .{});
+                                        std.process.exit(1);
+                                    }
                                 }
                             }
                         }
