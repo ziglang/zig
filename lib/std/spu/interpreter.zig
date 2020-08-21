@@ -1,4 +1,5 @@
 const std = @import("std");
+const log = std.log.scoped(.SPU_2_Interpreter);
 usingnamespace @import("defines.zig");
 
 pub fn Interpreter(comptime Bus: type) type {
@@ -18,7 +19,7 @@ pub fn Interpreter(comptime Bus: type) type {
                 count += 1;
                 var instruction = @bitCast(Instruction, self.bus.read16(self.ip));
 
-                std.log.debug(.SPU_2_Interpreter, "Executing {}\n", .{instruction});
+                log.debug("Executing {}\n", .{instruction});
 
                 self.ip +%= 2;
 
@@ -137,10 +138,6 @@ pub fn Interpreter(comptime Bus: type) type {
                         },
                         .jump => {
                             self.ip = output;
-                            if (!(instruction.command == .copy and instruction.input0 == .immediate)) {
-                                // Not absolute. Break, for compatibility with JIT.
-                                break;
-                            }
                         },
                         else => return error.unimplemented,
                     }
