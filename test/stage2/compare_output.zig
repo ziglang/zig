@@ -23,6 +23,12 @@ pub fn addCases(ctx: *TestContext) !void {
 
         case.addError("", &[_][]const u8{":1:1: error: no entry point found"});
 
+        // Incorrect return type
+        case.addError(
+            \\export fn _start() noreturn {
+            \\}
+        , &[_][]const u8{":2:1: error: expected noreturn, found void"});
+
         // Regular old hello world
         case.addCompareOutput(
             \\export fn _start() noreturn {
@@ -702,4 +708,16 @@ pub fn addCases(ctx: *TestContext) !void {
             "1109917696\n",
         );
     }
+
+    ctx.compileError("function redefinition", linux_x64,
+        \\fn entry() void {}
+        \\fn entry() void {}
+    , &[_][]const u8{":2:4: error: redefinition of 'entry'"});
+
+    ctx.compileError("extern variable has no type", linux_x64,
+        \\comptime {
+        \\    _ = foo;
+        \\}
+        \\extern var foo;
+    , &[_][]const u8{":4:1: error: unable to infer variable type"});
 }
