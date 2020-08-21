@@ -580,16 +580,7 @@ pub const TestContext = struct {
                             } else {
                                 std.debug.panic("SPU_2 has no native OS, check the test!", .{});
                             }
-                            var output = std.ArrayList(u8).init(allocator);
-                            //                                defer output.deinit();
-                            const uart = struct {
-                                fn in(_out: usize) !u8 {
-                                    return error.not_implemented;
-                                }
-                                fn out(_output: usize, val: u8) !void {
-                                    try @intToPtr(*std.ArrayList(u8), _output).append(val);
-                                }
-                            };
+
                             var interpreter = std.spu.interpreter(struct {
                                     RAM: [0x10000]u8 = undefined,
 
@@ -611,14 +602,59 @@ pub const TestContext = struct {
                                 .bus = .{},
                             };
 
-                            //defer interpreter.deinit(allocator);
-                            std.debug.print("TODO implement SPU-II test loader\n", .{});
-                            std.process.exit(1);
+                            {
+                                var load_node = update_node.start("load", null);
+                                load_node.activate();
+                                defer load_node.end();
+
+                                var file = try tmp.dir.openFile(bin_name, .{ .read = true });
+                                defer file.close();
+
+                                const header = try std.elf.readHeader(file);
+                                var iterator = header.program_header_iterator(file);
+
+                                var none_loaded = true;
+
+                                while (try iterator.next()) |phdr| {
+                                    if (phdr.p_type != std.elf.PT_LOAD) {
+                                        std.debug.print("Encountered unexpected ELF program header: type {}\n", .{phdr.p_type});
+                                        std.process.exit(1);
+                                    }
+                                    if (phdr.p_paddr != phdr.p_vaddr) {
+                                        std.debug.print("Physical address does not match virtual address in ELF header!\n", .{});
+                                        std.process.exit(1);
+                                    }
+                                    if (phdr.p_filesz != phdr.p_memsz) {
+                                        std.debug.print("Physical size does not match virtual size in ELF header!\n", .{});
+                                        std.process.exit(1);
+                                    }
+                                    if ((try file.pread(interpreter.bus.RAM[phdr.p_paddr .. phdr.p_paddr + phdr.p_filesz], phdr.p_offset)) != phdr.p_filesz) {
+                                        std.debug.print("Read less than expected from ELF file!", .{});
+                                        std.process.exit(1);
+                                    }
+                                    std.log.scoped(.spu2_test).debug("Loaded 0x{x} bytes to 0x{x:0<4}\n", .{ phdr.p_filesz, phdr.p_paddr });
+                                    none_loaded = false;
+                                }
+                                if (none_loaded) {
+                                    std.debug.print("No data found in ELF file!\n", .{});
+                                    std.process.exit(1);
+                                }
+                            }
+
+                            var exec_node = update_node.start("execute", null);
+                            exec_node.activate();
+                            defer exec_node.end();
+
                             // TODO: loop detection? Solve the halting problem? fork() and limit by wall clock?
                             // Limit by emulated cycles?
-                            //   while (!interpreter.undefined0) {
-                            //       try interpreter.ExecuteBlock(100);
-                            //   }
+                            while (!interpreter.undefined0) {
+                                const pre_ip = interpreter.ip;
+                                try interpreter.ExecuteBlock(1);
+                                if (pre_ip == interpreter.ip) {
+                                    std.debug.print("Infinite loop detected in SPU II test!\n", .{});
+                                    std.process.exit(1);
+                                }
+                            }
                         }
                     }
                     var exec_result = x: {
