@@ -2487,7 +2487,7 @@ pub fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) Inn
 fn analyzeVarRef(self: *Module, scope: *Scope, src: usize, tv: TypedValue) InnerError!*Inst {
     const variable = tv.val.cast(Value.Payload.Variable).?.variable;
 
-    const ty = try self.singlePtrType(scope, src, variable.is_mutable, tv.ty, .One);
+    const ty = try self.simplePtrType(scope, src, tv.ty, variable.is_mutable, .One);
     if (!variable.is_mutable and !variable.is_extern) {
         const val_payload = try scope.arena().create(Value.Payload.RefVal);
         val_payload.* = .{ .val = variable.init };
@@ -3191,7 +3191,7 @@ pub fn floatSub(self: *Module, scope: *Scope, float_type: Type, src: usize, lhs:
 }
 
 pub fn simplePtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type, mutable: bool, size: std.builtin.TypeInfo.Pointer.Size) Allocator.Error!Type {
-    if (size == .Slice and elem_ty.eql(Type.initTag(.u8))) {
+    if (!mutable and size == .Slice and elem_ty.eql(Type.initTag(.u8))) {
         return Type.initTag(.const_slice_u8);
     }
     // TODO stage1 type inference bug
