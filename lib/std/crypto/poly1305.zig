@@ -64,7 +64,7 @@ pub const Poly1305 = struct {
             var d2 = @as(u128, h0) * r2 + @as(u128, h1) * r1 + @as(u128, h2) * r0;
 
             // partial reduction
-            var carry = d0 >> 44;
+            var carry = @intCast(u64, d0 >> 44);
             h0 = @truncate(u44, d0);
             d1 += carry;
             carry = @intCast(u64, d1 >> 44);
@@ -75,7 +75,7 @@ pub const Poly1305 = struct {
             h0 += @truncate(u64, carry) * 5;
             carry = h0 >> 44;
             h0 = @truncate(u44, h0);
-            h1 += @truncate(u64, carry);
+            h1 += carry;
         }
         st.h = [_]u64{ h0, h1, h2 };
     }
