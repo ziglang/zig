@@ -25,23 +25,11 @@ const Hash = struct {
     init_u64: ?u64 = null,
 };
 
-const siphash_key = "0123456789abcdef";
-
 const hashes = [_]Hash{
     Hash{
         .ty = hash.Wyhash,
         .name = "wyhash",
         .init_u64 = 0,
-    },
-    Hash{
-        .ty = hash.SipHash64(1, 3),
-        .name = "siphash(1,3)",
-        .init_u8s = siphash_key,
-    },
-    Hash{
-        .ty = hash.SipHash64(2, 4),
-        .name = "siphash(2,4)",
-        .init_u8s = siphash_key,
     },
     Hash{
         .ty = hash.Fnv1a_64,

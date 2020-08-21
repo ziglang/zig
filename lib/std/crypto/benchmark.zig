@@ -60,6 +60,10 @@ const macs = [_]Crypto{
     Crypto{ .ty = crypto.auth.hmac.HmacSha1, .name = "hmac-sha1" },
     Crypto{ .ty = crypto.auth.hmac.sha2.HmacSha256, .name = "hmac-sha256" },
     Crypto{ .ty = crypto.auth.hmac.sha2.HmacSha512, .name = "hmac-sha512" },
+    Crypto{ .ty = crypto.auth.siphash.SipHash64(2, 4), .name = "siphash-2-4" },
+    Crypto{ .ty = crypto.auth.siphash.SipHash64(1, 3), .name = "siphash-1-3" },
+    Crypto{ .ty = crypto.auth.siphash.SipHash128(2, 4), .name = "siphash128-2-4" },
+    Crypto{ .ty = crypto.auth.siphash.SipHash128(1, 3), .name = "siphash128-1-3" },
 };
 
 pub fn benchmarkMac(comptime Mac: anytype, comptime bytes: comptime_int) !u64 {
