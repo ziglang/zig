@@ -1223,6 +1223,10 @@ pub const LibExeObjStep = struct {
 
     /// This may be set in order to override the default install directory
     override_dest_dir: ?InstallDir,
+
+    /// Base address for an executable image.
+    image_base: ?u64 = null,
+
     installed_path: ?[]const u8,
     install_step: ?*InstallArtifactStep,
 
@@ -2006,6 +2010,11 @@ pub const LibExeObjStep = struct {
             try zig_args.append("build_options");
             try zig_args.append(path_from_root);
             try zig_args.append("--pkg-end");
+        }
+
+        if (self.image_base) |image_base| {
+            try zig_args.append("--image-base");
+            try zig_args.append(builder.fmt("{}", .{image_base}));
         }
 
         if (self.filter) |filter| {

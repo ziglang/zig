@@ -1839,6 +1839,10 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     lj->args.append("-error-limit=0");
 
+    if (g->have_image_base) {
+        lj->args.append(buf_ptr(buf_sprintf("--image-base=%" ZIG_PRI_u64, g->image_base)));
+    }
+
     if (g->out_type == OutTypeExe) {
         lj->args.append("-z");
         size_t stack_size = (g->stack_size_override == 0) ? 16777216 : g->stack_size_override;
@@ -2495,6 +2499,10 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
     if (!g->strip_debug_symbols) {
         lj->args.append("-DEBUG");
+    }
+
+    if (g->have_image_base) {
+        lj->args.append(buf_ptr(buf_sprintf("-BASE:%" ZIG_PRI_u64, g->image_base)));
     }
 
     if (g->out_type == OutTypeExe) {

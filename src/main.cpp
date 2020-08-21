@@ -117,8 +117,9 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --bundle-compiler-rt         for static libraries, include compiler-rt symbols\n"
         "  --dynamic-linker [path]      set the path to ld.so\n"
         "  --each-lib-rpath             add rpath for each used dynamic library\n"
-        "  --library [lib]              link against lib\n"
+        "  --image-base [addr]          set base address for executable image\n"
         "  --forbid-library [lib]       make it an error to link against lib\n"
+        "  --library [lib]              link against lib\n"
         "  --library-path [dir]         add a directory to the library search path\n"
         "  --linker-script [path]       use a custom linker script\n"
         "  --version-script [path]      provide a version .map file\n"
@@ -460,6 +461,8 @@ static int main0(int argc, char **argv) {
     bool linker_z_nodelete = false;
     bool linker_z_defs = false;
     size_t stack_size_override = 0;
+    bool have_image_base = false;
+    uint64_t image_base = 0;
 
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
@@ -881,6 +884,14 @@ static int main0(int argc, char **argv) {
                 }
                 is_versioned = true;
                 ver_minor = atoi(buf_ptr(linker_args.at(i)));
+            } else if (buf_eql_str(arg, "--image-base")) {
+                i += 1;
+                if (i >= linker_args.length) {
+                    fprintf(stderr, "expected linker arg after '%s'\n", buf_ptr(arg));
+                    return EXIT_FAILURE;
+                }
+                have_image_base = true;
+                image_base = strtoull(buf_ptr(linker_args.at(i)), NULL, 0);
             } else if (buf_eql_str(arg, "--stack")) {
                 i += 1;
                 if (i >= linker_args.length) {
@@ -1220,6 +1231,9 @@ static int main0(int argc, char **argv) {
                     target_string = argv[i];
                 } else if (strcmp(arg, "-framework") == 0) {
                     frameworks.append(argv[i]);
+                } else if (strcmp(arg, "--image-base") == 0) {
+                    have_image_base = true;
+                    image_base = strtoull(argv[i], NULL, 0);
                 } else if (strcmp(arg, "--linker-script") == 0) {
                     linker_script = argv[i];
                 } else if (strcmp(arg, "--version-script") == 0) {
@@ -1630,6 +1644,8 @@ static int main0(int argc, char **argv) {
             g->linker_bind_global_refs_locally = linker_bind_global_refs_locally;
             g->linker_z_nodelete = linker_z_nodelete;
             g->linker_z_defs = linker_z_defs;
+            g->have_image_base = have_image_base;
+            g->image_base = image_base;
             g->stack_size_override = stack_size_override;
 
             if (override_soname) {

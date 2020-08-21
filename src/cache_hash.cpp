@@ -50,6 +50,15 @@ void cache_int(CacheHash *ch, int x) {
     blake2b_update(&ch->blake, buf, sizeof(int) + 1);
 }
 
+void cache_u64(CacheHash *ch, uint64_t x) {
+    assert(ch->manifest_file_path == nullptr);
+    // + 1 to include the null byte
+    uint8_t buf[sizeof(x) + 1];
+    memcpy(buf, &x, sizeof(x));
+    buf[sizeof(x)] = 0;
+    blake2b_update(&ch->blake, buf, sizeof(x) + 1);
+}
+
 void cache_usize(CacheHash *ch, size_t x) {
     assert(ch->manifest_file_path == nullptr);
     // + 1 to include the null byte

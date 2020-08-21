@@ -2272,6 +2272,9 @@ struct CodeGen {
     const char *linker_script;
     size_t stack_size_override;
 
+    bool have_image_base;
+    uint64_t image_base;
+
     BuildMode build_mode;
     OutType out_type;
     const ZigTarget *zig_target;
