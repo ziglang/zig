@@ -13,7 +13,7 @@ const Module = @import("../Module.zig");
 const link = @import("../link.zig");
 const File = link.File;
 
-pub const base_tag: Tag = File.Tag.macho;
+pub const base_tag: File.Tag = File.Tag.macho;
 
 base: File,
 
@@ -210,3 +210,7 @@ pub fn updateDeclExports(
 ) !void {}
 
 pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {}
+
+pub fn getDeclVAddr(self: *MachO, decl: *const Module.Decl) u64 {
+    @panic("TODO implement getDeclVAddr for MachO");
+}
