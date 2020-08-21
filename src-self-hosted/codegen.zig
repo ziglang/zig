@@ -1642,7 +1642,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// * Deliberately inserting a "meaningless REX" requires explicit usage of
         /// 0x40, and cannot be done via this function.
         fn rex(self: *Self, arg: struct { b: bool = false, w: bool = false, x: bool = false, r: bool = false }) void {
-            std.debug.assert(arch == .x86_64);
+            comptime assert(arch == .x86_64);
             //  From section 2.2.1.2 of the manual, REX is encoded as b0100WRXB.
             var value: u8 = 0x40;
             if (arg.b) {
