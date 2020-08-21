@@ -87,6 +87,13 @@ pub fn resolveGlobalCacheDir(allocator: *mem.Allocator) ![]u8 {
     return fs.getAppDataDir(allocator, appname);
 }
 
+pub fn openGlobalCacheDir() !fs.Dir {
+    var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    const path_name = try resolveGlobalCacheDir(&fba.allocator);
+    return fs.cwd().makeOpenPath(path_name, .{});
+}
+
 var compiler_id_mutex = std.Mutex{};
 var compiler_id: [16]u8 = undefined;
 var compiler_id_computed = false;
@@ -99,11 +106,7 @@ pub fn resolveCompilerId(gpa: *mem.Allocator) ![16]u8 {
         return compiler_id;
     compiler_id_computed = true;
 
-    const global_cache_dir = try resolveGlobalCacheDir(gpa);
-    defer gpa.free(global_cache_dir);
-
-    // TODO Introduce openGlobalCacheDir which returns a dir handle rather than a string.
-    var cache_dir = try fs.cwd().openDir(global_cache_dir, .{});
+    var cache_dir = try openGlobalCacheDir();
     defer cache_dir.close();
 
     var ch = try CacheHash.init(gpa, cache_dir, "exe");
