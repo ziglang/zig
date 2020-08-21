@@ -1485,6 +1485,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 const type_node = var_decl.getTrailer("type_node") orelse
                     break :blk null;
 
+                // Temporary arena for the zir instructions.
                 var type_scope_arena = std.heap.ArenaAllocator.init(self.gpa);
                 defer type_scope_arena.deinit();
                 var type_scope: Scope.GenZIR = .{
@@ -1539,7 +1540,8 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                             try self.coerce(&inner_block.base, some, ret.operand)
                         else
                             ret.operand;
-                        const val = try self.resolveConstValue(&inner_block.base, coerced);
+                        const val = coerced.value() orelse
+                            return self.fail(&block_scope.base, inst.src, "unable to resolve comptime value", .{});
 
                         var_type = explicit_type orelse try ret.operand.ty.copy(block_scope.arena);
                         break :blk try val.copy(block_scope.arena);
@@ -1603,7 +1605,41 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             }
             return type_changed;
         },
-        .Comptime => @panic("TODO comptime decl"),
+        .Comptime => {
+            const comptime_decl = @fieldParentPtr(ast.Node.Comptime, "base", ast_node);
+
+            decl.analysis = .in_progress;
+
+            // A comptime decl does not store any value so we can just deinit this arena after analysis is done.
+            var analysis_arena = std.heap.ArenaAllocator.init(self.gpa);
+            defer analysis_arena.deinit();
+            var gen_scope: Scope.GenZIR = .{
+                .decl = decl,
+                .arena = &analysis_arena.allocator,
+                .parent = decl.scope,
+            };
+            defer gen_scope.instructions.deinit(self.gpa);
+
+            // TODO comptime scope here
+            _ = try astgen.expr(self, &gen_scope.base, .none, comptime_decl.expr);
+
+            var block_scope: Scope.Block = .{
+                .parent = null,
+                .func = null,
+                .decl = decl,
+                .instructions = .{},
+                .arena = &analysis_arena.allocator,
+            };
+            defer block_scope.instructions.deinit(self.gpa);
+
+            _ = try zir_sema.analyzeBody(self, &block_scope.base, .{
+                .instructions = gen_scope.instructions.items,
+            });
+
+            decl.analysis = .complete;
+            decl.generation = self.generation;
+            return true;
+        },
         .Use => @panic("TODO usingnamespace decl"),
         else => unreachable,
     }
@@ -1794,7 +1830,16 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
                 }
             }
         } else if (src_decl.castTag(.Comptime)) |comptime_node| {
-            log.err("TODO: analyze comptime decl", .{});
+            const name_index = self.getNextAnonNameIndex();
+            const name = try std.fmt.allocPrint(self.gpa, "__comptime_{}", .{name_index});
+            defer self.gpa.free(name);
+
+            const name_hash = root_scope.fullyQualifiedNameHash(name);
+            const contents_hash = std.zig.hashSrc(tree.getNodeSource(src_decl));
+
+            const new_decl = try self.createNewDecl(&root_scope.base, name, decl_i, name_hash, contents_hash);
+            root_scope.decls.appendAssumeCapacity(new_decl);
+            self.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
         } else if (src_decl.castTag(.ContainerField)) |container_field| {
             log.err("TODO: analyze container field", .{});
         } else if (src_decl.castTag(.TestDecl)) |test_decl| {
@@ -2429,7 +2474,7 @@ pub fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) Inn
     if (decl_tv.val.tag() == .variable) {
         return self.analyzeVarRef(scope, src, decl_tv);
     }
-    const ty = try self.singlePtrType(scope, src, false, decl_tv.ty);
+    const ty = try self.simplePtrType(scope, src, decl_tv.ty, false, .One);
     const val_payload = try scope.arena().create(Value.Payload.DeclRef);
     val_payload.* = .{ .decl = decl };
 
@@ -2442,7 +2487,7 @@ pub fn analyzeDeclRef(self: *Module, scope: *Scope, src: usize, decl: *Decl) Inn
 fn analyzeVarRef(self: *Module, scope: *Scope, src: usize, tv: TypedValue) InnerError!*Inst {
     const variable = tv.val.cast(Value.Payload.Variable).?.variable;
 
-    const ty = try self.singlePtrType(scope, src, variable.is_mutable, tv.ty);
+    const ty = try self.simplePtrType(scope, src, tv.ty, variable.is_mutable, .One);
     if (!variable.is_mutable and !variable.is_extern) {
         const val_payload = try scope.arena().create(Value.Payload.RefVal);
         val_payload.* = .{ .val = variable.init };
@@ -2766,7 +2811,7 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
 
     // T to ?T
     if (dest_type.zigTypeTag() == .Optional) {
-        var buf: Type.Payload.Pointer = undefined;
+        var buf: Type.Payload.PointerSimple = undefined;
         const child_type = dest_type.optionalChild(&buf);
         if (child_type.eql(inst.ty)) {
             return self.wrapOptional(scope, dest_type, inst);
@@ -3145,11 +3190,56 @@ pub fn floatSub(self: *Module, scope: *Scope, float_type: Type, src: usize, lhs:
     return Value.initPayload(val_payload);
 }
 
-pub fn singlePtrType(self: *Module, scope: *Scope, src: usize, mutable: bool, elem_ty: Type) Allocator.Error!Type {
+pub fn simplePtrType(self: *Module, scope: *Scope, src: usize, elem_ty: Type, mutable: bool, size: std.builtin.TypeInfo.Pointer.Size) Allocator.Error!Type {
+    if (!mutable and size == .Slice and elem_ty.eql(Type.initTag(.u8))) {
+        return Type.initTag(.const_slice_u8);
+    }
+    // TODO stage1 type inference bug
+    const T = Type.Tag;
+
+    const type_payload = try scope.arena().create(Type.Payload.PointerSimple);
+    type_payload.* = .{
+        .base = .{
+            .tag = switch (size) {
+                .One => if (mutable) T.single_mut_pointer else T.single_const_pointer,
+                .Many => if (mutable) T.many_mut_pointer else T.many_const_pointer,
+                .C => if (mutable) T.c_mut_pointer else T.c_const_pointer,
+                .Slice => if (mutable) T.mut_slice else T.const_slice,
+            },
+        },
+        .pointee_type = elem_ty,
+    };
+    return Type.initPayload(&type_payload.base);
+}
+
+pub fn ptrType(
+    self: *Module,
+    scope: *Scope,
+    src: usize,
+    elem_ty: Type,
+    sentinel: ?Value,
+    @"align": u32,
+    bit_offset: u16,
+    host_size: u16,
+    mutable: bool,
+    @"allowzero": bool,
+    @"volatile": bool,
+    size: std.builtin.TypeInfo.Pointer.Size,
+) Allocator.Error!Type {
+    assert(host_size == 0 or bit_offset < host_size * 8);
+
+    // TODO check if type can be represented by simplePtrType
     const type_payload = try scope.arena().create(Type.Payload.Pointer);
     type_payload.* = .{
-        .base = .{ .tag = if (mutable) .single_mut_pointer else .single_const_pointer },
         .pointee_type = elem_ty,
+        .sentinel = sentinel,
+        .@"align" = @"align",
+        .bit_offset = bit_offset,
+        .host_size = host_size,
+        .@"allowzero" = @"allowzero",
+        .mutable = mutable,
+        .@"volatile" = @"volatile",
+        .size = size,
     };
     return Type.initPayload(&type_payload.base);
 }
@@ -3157,7 +3247,7 @@ pub fn singlePtrType(self: *Module, scope: *Scope, src: usize, mutable: bool, el
 pub fn optionalType(self: *Module, scope: *Scope, child_type: Type) Allocator.Error!Type {
     return Type.initPayload(switch (child_type.tag()) {
         .single_const_pointer => blk: {
-            const payload = try scope.arena().create(Type.Payload.Pointer);
+            const payload = try scope.arena().create(Type.Payload.PointerSimple);
             payload.* = .{
                 .base = .{ .tag = .optional_single_const_pointer },
                 .pointee_type = child_type.elemType(),
@@ -3165,7 +3255,7 @@ pub fn optionalType(self: *Module, scope: *Scope, child_type: Type) Allocator.Er
             break :blk &payload.base;
         },
         .single_mut_pointer => blk: {
-            const payload = try scope.arena().create(Type.Payload.Pointer);
+            const payload = try scope.arena().create(Type.Payload.PointerSimple);
             payload.* = .{
                 .base = .{ .tag = .optional_single_mut_pointer },
                 .pointee_type = child_type.elemType(),

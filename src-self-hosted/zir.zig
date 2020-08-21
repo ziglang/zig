@@ -194,10 +194,22 @@ pub const Inst = struct {
         shl,
         /// Integer shift-right. Arithmetic or logical depending on the signedness of the integer type.
         shr,
-        /// Create a const pointer type based on the element type. `*const T`
+        /// Create a const pointer type with element type T. `*const T`
         single_const_ptr_type,
-        /// Create a mutable pointer type based on the element type. `*T`
+        /// Create a mutable pointer type with element type T. `*T`
         single_mut_ptr_type,
+        /// Create a const pointer type with element type T. `[*]const T`
+        many_const_ptr_type,
+        /// Create a mutable pointer type with element type T. `[*]T`
+        many_mut_ptr_type,
+        /// Create a const pointer type with element type T. `[*c]const T`
+        c_const_ptr_type,
+        /// Create a mutable pointer type with element type T. `[*c]T`
+        c_mut_ptr_type,
+        /// Create a mutable slice type with element type T. `[]T`
+        mut_slice_type,
+        /// Create a const slice type with element type T. `[]T`
+        const_slice_type,
         /// Create a pointer type with attributes
         ptr_type,
         /// Write a value to a pointer. For loading, see `deref`.
@@ -262,6 +274,12 @@ pub const Inst = struct {
                 .typeof,
                 .single_const_ptr_type,
                 .single_mut_ptr_type,
+                .many_const_ptr_type,
+                .many_mut_ptr_type,
+                .c_const_ptr_type,
+                .c_mut_ptr_type,
+                .mut_slice_type,
+                .const_slice_type,
                 .optional_type,
                 .unwrap_optional_safe,
                 .unwrap_optional_unsafe,
@@ -400,6 +418,12 @@ pub const Inst = struct {
                 .shr,
                 .single_const_ptr_type,
                 .single_mut_ptr_type,
+                .many_const_ptr_type,
+                .many_mut_ptr_type,
+                .c_const_ptr_type,
+                .c_mut_ptr_type,
+                .mut_slice_type,
+                .const_slice_type,
                 .store,
                 .str,
                 .sub,
@@ -856,9 +880,10 @@ pub const Inst = struct {
             @"align": ?*Inst = null,
             align_bit_start: ?*Inst = null,
             align_bit_end: ?*Inst = null,
-            @"const": bool = true,
+            mutable: bool = true,
             @"volatile": bool = false,
             sentinel: ?*Inst = null,
+            size: std.builtin.TypeInfo.Pointer.Size = .One,
         },
     };
 
@@ -2443,7 +2468,7 @@ const EmitZIR = struct {
                     }
                 },
                 .Optional => {
-                    var buf: Type.Payload.Pointer = undefined;
+                    var buf: Type.Payload.PointerSimple = undefined;
                     const inst = try self.arena.allocator.create(Inst.UnOp);
                     inst.* = .{
                         .base = .{

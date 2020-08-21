@@ -262,6 +262,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .EnumLiteral => return rlWrap(mod, scope, rl, try enumLiteral(mod, scope, node.castTag(.EnumLiteral).?)),
         .MultilineStringLiteral => return rlWrap(mod, scope, rl, try multilineStrLiteral(mod, scope, node.castTag(.MultilineStringLiteral).?)),
         .CharLiteral => return rlWrap(mod, scope, rl, try charLiteral(mod, scope, node.castTag(.CharLiteral).?)),
+        .SliceType => return rlWrap(mod, scope, rl, try sliceType(mod, scope, node.castTag(.SliceType).?)),
 
         .Defer => return mod.failNode(scope, node, "TODO implement astgen.expr for .Defer", .{}),
         .Catch => return mod.failNode(scope, node, "TODO implement astgen.expr for .Catch", .{}),
@@ -275,7 +276,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .NegationWrap => return mod.failNode(scope, node, "TODO implement astgen.expr for .NegationWrap", .{}),
         .Resume => return mod.failNode(scope, node, "TODO implement astgen.expr for .Resume", .{}),
         .Try => return mod.failNode(scope, node, "TODO implement astgen.expr for .Try", .{}),
-        .SliceType => return mod.failNode(scope, node, "TODO implement astgen.expr for .SliceType", .{}),
         .Slice => return mod.failNode(scope, node, "TODO implement astgen.expr for .Slice", .{}),
         .ArrayAccess => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayAccess", .{}),
         .ArrayInitializer => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayInitializer", .{}),
@@ -569,43 +569,67 @@ fn optionalType(mod: *Module, scope: *Scope, node: *ast.Node.SimplePrefixOp) Inn
     return addZIRUnOp(mod, scope, src, .optional_type, operand);
 }
 
+fn sliceType(mod: *Module, scope: *Scope, node: *ast.Node.SliceType) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.op_token].start;
+    return ptrSliceType(mod, scope, src, &node.ptr_info, node.rhs, .Slice);
+}
+
 fn ptrType(mod: *Module, scope: *Scope, node: *ast.Node.PtrType) InnerError!*zir.Inst {
     const tree = scope.tree();
     const src = tree.token_locs[node.op_token].start;
+    return ptrSliceType(mod, scope, src, &node.ptr_info, node.rhs, switch (tree.token_ids[node.op_token]) {
+        .Asterisk, .AsteriskAsterisk => .One,
+        // TODO stage1 type inference bug
+        .LBracket => @as(std.builtin.TypeInfo.Pointer.Size, switch (tree.token_ids[node.op_token + 2]) {
+            .Identifier => .C,
+            else => .Many,
+        }),
+        else => unreachable,
+    });
+}
+
+fn ptrSliceType(mod: *Module, scope: *Scope, src: usize, ptr_info: *ast.PtrInfo, rhs: *ast.Node, size: std.builtin.TypeInfo.Pointer.Size) InnerError!*zir.Inst {
     const meta_type = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.type),
         .val = Value.initTag(.type_type),
     });
 
-    const simple = node.ptr_info.allowzero_token == null and
-        node.ptr_info.align_info == null and
-        node.ptr_info.volatile_token == null and
-        node.ptr_info.sentinel == null;
+    const simple = ptr_info.allowzero_token == null and
+        ptr_info.align_info == null and
+        ptr_info.volatile_token == null and
+        ptr_info.sentinel == null;
 
     if (simple) {
-        const child_type = try expr(mod, scope, .{ .ty = meta_type }, node.rhs);
-        return addZIRUnOp(mod, scope, src, if (node.ptr_info.const_token == null)
-            .single_mut_ptr_type
-        else
-            .single_const_ptr_type, child_type);
+        const child_type = try expr(mod, scope, .{ .ty = meta_type }, rhs);
+        const mutable = ptr_info.const_token == null;
+        // TODO stage1 type inference bug
+        const T = zir.Inst.Tag;
+        return addZIRUnOp(mod, scope, src, switch (size) {
+            .One => if (mutable) T.single_mut_ptr_type else T.single_const_ptr_type,
+            .Many => if (mutable) T.many_mut_ptr_type else T.many_const_ptr_type,
+            .C => if (mutable) T.c_mut_ptr_type else T.c_const_ptr_type,
+            .Slice => if (mutable) T.mut_slice_type else T.mut_slice_type,
+        }, child_type);
     }
 
     var kw_args: std.meta.fieldInfo(zir.Inst.PtrType, "kw_args").field_type = .{};
-    kw_args.@"allowzero" = node.ptr_info.allowzero_token != null;
-    if (node.ptr_info.align_info) |some| {
+    kw_args.size = size;
+    kw_args.@"allowzero" = ptr_info.allowzero_token != null;
+    if (ptr_info.align_info) |some| {
         kw_args.@"align" = try expr(mod, scope, .none, some.node);
         if (some.bit_range) |bit_range| {
             kw_args.align_bit_start = try expr(mod, scope, .none, bit_range.start);
             kw_args.align_bit_end = try expr(mod, scope, .none, bit_range.end);
         }
     }
-    kw_args.@"const" = node.ptr_info.const_token != null;
-    kw_args.@"volatile" = node.ptr_info.volatile_token != null;
-    if (node.ptr_info.sentinel) |some| {
+    kw_args.mutable = ptr_info.const_token == null;
+    kw_args.@"volatile" = ptr_info.volatile_token != null;
+    if (ptr_info.sentinel) |some| {
         kw_args.sentinel = try expr(mod, scope, .none, some);
     }
 
-    const child_type = try expr(mod, scope, .{ .ty = meta_type }, node.rhs);
+    const child_type = try expr(mod, scope, .{ .ty = meta_type }, rhs);
     if (kw_args.sentinel) |some| {
         kw_args.sentinel = try addZIRBinOp(mod, scope, some.src, .as, child_type, some);
     }
@@ -1271,7 +1295,7 @@ fn multilineStrLiteral(mod: *Module, scope: *Scope, node: *ast.Node.MultilineStr
             i += 1;
         }
         const slice = tree.tokenSlice(line);
-        mem.copy(u8, bytes[i..], slice[2..slice.len - 1]);
+        mem.copy(u8, bytes[i..], slice[2 .. slice.len - 1]);
         i += slice.len - 3;
     }
 
