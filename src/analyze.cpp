@@ -2586,7 +2586,6 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
         return ErrorNone;
 
     AstNode *decl_node = enum_type->data.enumeration.decl_node;
-    assert(decl_node->type == NodeTypeContainerDecl);
 
     if (enum_type->data.enumeration.resolve_loop_flag) {
         if (enum_type->data.enumeration.resolve_status != ResolveStatusInvalid) {
@@ -2600,15 +2599,20 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 
     enum_type->data.enumeration.resolve_loop_flag = true;
 
-    assert(!enum_type->data.enumeration.fields);
-    uint32_t field_count = (uint32_t)decl_node->data.container_decl.fields.length;
-    if (field_count == 0) {
-        add_node_error(g, decl_node, buf_sprintf("enums must have 1 or more fields"));
+    uint32_t field_count;
+    if (decl_node->type == NodeTypeContainerDecl) {
+        assert(!enum_type->data.enumeration.fields);
+        field_count = (uint32_t)decl_node->data.container_decl.fields.length;
+        if (field_count == 0) {
+            add_node_error(g, decl_node, buf_sprintf("enums must have 1 or more fields"));
 
-        enum_type->data.enumeration.src_field_count = field_count;
-        enum_type->data.enumeration.fields = nullptr;
-        enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
-        return ErrorSemanticAnalyzeFail;
+            enum_type->data.enumeration.src_field_count = field_count;
+            enum_type->data.enumeration.fields = nullptr;
+            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+            return ErrorSemanticAnalyzeFail;
+        }
+    } else {
+        field_count = enum_type->data.enumeration.src_field_count;
     }
 
     Scope *scope = &enum_type->data.enumeration.decls_scope->base;
@@ -2624,8 +2628,16 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     enum_type->abi_size = tag_int_type->abi_size;
     enum_type->abi_align = tag_int_type->abi_align;
 
-    if (decl_node->data.container_decl.init_arg_expr != nullptr) {
-        ZigType *wanted_tag_int_type = analyze_type_expr(g, scope, decl_node->data.container_decl.init_arg_expr);
+    ZigType *wanted_tag_int_type = nullptr;
+    if (decl_node->type == NodeTypeContainerDecl) {
+        if (decl_node->data.container_decl.init_arg_expr != nullptr) {
+            wanted_tag_int_type = analyze_type_expr(g, scope, decl_node->data.container_decl.init_arg_expr);
+        }
+    } else {
+        wanted_tag_int_type = enum_type->data.enumeration.tag_int_type;
+    }
+
+    if (wanted_tag_int_type != nullptr) {
         if (type_is_invalid(wanted_tag_int_type)) {
             enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
         } else if (wanted_tag_int_type->id != ZigTypeIdInt &&
@@ -2654,7 +2666,6 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
         }
     }
 
-    enum_type->data.enumeration.non_exhaustive = false;
     enum_type->data.enumeration.tag_int_type = tag_int_type;
     enum_type->size_in_bits = tag_int_type->size_in_bits;
     enum_type->abi_size = tag_int_type->abi_size;
@@ -2663,121 +2674,131 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     BigInt bi_one;
     bigint_init_unsigned(&bi_one, 1);
 
-    AstNode *last_field_node = decl_node->data.container_decl.fields.at(field_count - 1);
-    if (buf_eql_str(last_field_node->data.struct_field.name, "_")) {
-        field_count -= 1;
-        if (field_count > 1 && log2_u64(field_count) == enum_type->size_in_bits) {
-            add_node_error(g, last_field_node, buf_sprintf("non-exhaustive enum specifies every value"));
-            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+    if (decl_node->type == NodeTypeContainerDecl) {
+        AstNode *last_field_node = decl_node->data.container_decl.fields.at(field_count - 1);
+        if (buf_eql_str(last_field_node->data.struct_field.name, "_")) {
+            if (last_field_node->data.struct_field.value != nullptr) {
+                add_node_error(g, last_field_node, buf_sprintf("value assigned to '_' field of non-exhaustive enum"));
+                enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+            }
+            if (decl_node->data.container_decl.init_arg_expr == nullptr) {
+                add_node_error(g, decl_node, buf_sprintf("non-exhaustive enum must specify size"));
+                enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+            }
+            enum_type->data.enumeration.non_exhaustive = true;
+        } else {
+            enum_type->data.enumeration.non_exhaustive = false;
         }
-        if (decl_node->data.container_decl.init_arg_expr == nullptr) {
-            add_node_error(g, last_field_node, buf_sprintf("non-exhaustive enum must specify size"));
-            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
-        }
-        if (last_field_node->data.struct_field.value != nullptr) {
-            add_node_error(g, last_field_node, buf_sprintf("value assigned to '_' field of non-exhaustive enum"));
-            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
-        }
-        enum_type->data.enumeration.non_exhaustive = true;
     }
 
-    enum_type->data.enumeration.src_field_count = field_count;
-    enum_type->data.enumeration.fields = heap::c_allocator.allocate<TypeEnumField>(field_count);
-    enum_type->data.enumeration.fields_by_name.init(field_count);
-
-    HashMap<BigInt, AstNode *, bigint_hash, bigint_eql> occupied_tag_values = {};
-    occupied_tag_values.init(field_count);
-
-    TypeEnumField *last_enum_field = nullptr;
-
-    for (uint32_t field_i = 0; field_i < field_count; field_i += 1) {
-        AstNode *field_node = decl_node->data.container_decl.fields.at(field_i);
-        TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[field_i];
-        type_enum_field->name = field_node->data.struct_field.name;
-        type_enum_field->decl_index = field_i;
-        type_enum_field->decl_node = field_node;
-
-        if (field_node->data.struct_field.type != nullptr) {
-            ErrorMsg *msg = add_node_error(g, field_node->data.struct_field.type,
-                buf_sprintf("structs and unions, not enums, support field types"));
-            add_error_note(g, msg, decl_node,
-                    buf_sprintf("consider 'union(enum)' here"));
-        } else if (field_node->data.struct_field.align_expr != nullptr) {
-            ErrorMsg *msg = add_node_error(g, field_node->data.struct_field.align_expr,
-                buf_sprintf("structs and unions, not enums, support field alignment"));
-            add_error_note(g, msg, decl_node,
-                    buf_sprintf("consider 'union(enum)' here"));
-        }
-
-        if (buf_eql_str(type_enum_field->name, "_")) {
-            add_node_error(g, field_node, buf_sprintf("'_' field of non-exhaustive enum must be last"));
+    if (enum_type->data.enumeration.non_exhaustive) {
+        field_count -= 1;
+        if (field_count > 1 && log2_u64(field_count) == enum_type->size_in_bits) {
+            add_node_error(g, decl_node, buf_sprintf("non-exhaustive enum specifies every value"));
             enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
         }
+    }
 
-        auto field_entry = enum_type->data.enumeration.fields_by_name.put_unique(type_enum_field->name, type_enum_field);
-        if (field_entry != nullptr) {
-            ErrorMsg *msg = add_node_error(g, field_node,
-                buf_sprintf("duplicate enum field: '%s'", buf_ptr(type_enum_field->name)));
-            add_error_note(g, msg, field_entry->value->decl_node, buf_sprintf("other field here"));
-            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
-            continue;
-        }
+    if (decl_node->type == NodeTypeContainerDecl) {
+        enum_type->data.enumeration.src_field_count = field_count;
+        enum_type->data.enumeration.fields = heap::c_allocator.allocate<TypeEnumField>(field_count);
+        enum_type->data.enumeration.fields_by_name.init(field_count);
 
-        AstNode *tag_value = field_node->data.struct_field.value;
+        HashMap<BigInt, AstNode *, bigint_hash, bigint_eql> occupied_tag_values = {};
+        occupied_tag_values.init(field_count);
 
-        if (tag_value != nullptr) {
-            // A user-specified value is available
-            ZigValue *result = analyze_const_value(g, scope, tag_value, tag_int_type,
-                    nullptr, UndefBad);
-            if (type_is_invalid(result->type)) {
+        TypeEnumField *last_enum_field = nullptr;
+
+        for (uint32_t field_i = 0; field_i < field_count; field_i += 1) {
+            AstNode *field_node = decl_node->data.container_decl.fields.at(field_i);
+            TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[field_i];
+            type_enum_field->name = field_node->data.struct_field.name;
+            type_enum_field->decl_index = field_i;
+            type_enum_field->decl_node = field_node;
+
+            if (field_node->data.struct_field.type != nullptr) {
+                ErrorMsg *msg = add_node_error(g, field_node->data.struct_field.type,
+                    buf_sprintf("structs and unions, not enums, support field types"));
+                add_error_note(g, msg, decl_node,
+                        buf_sprintf("consider 'union(enum)' here"));
+            } else if (field_node->data.struct_field.align_expr != nullptr) {
+                ErrorMsg *msg = add_node_error(g, field_node->data.struct_field.align_expr,
+                    buf_sprintf("structs and unions, not enums, support field alignment"));
+                add_error_note(g, msg, decl_node,
+                        buf_sprintf("consider 'union(enum)' here"));
+            }
+
+            if (buf_eql_str(type_enum_field->name, "_")) {
+                add_node_error(g, field_node, buf_sprintf("'_' field of non-exhaustive enum must be last"));
+                enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+            }
+
+            auto field_entry = enum_type->data.enumeration.fields_by_name.put_unique(type_enum_field->name, type_enum_field);
+            if (field_entry != nullptr) {
+                ErrorMsg *msg = add_node_error(g, field_node,
+                    buf_sprintf("duplicate enum field: '%s'", buf_ptr(type_enum_field->name)));
+                add_error_note(g, msg, field_entry->value->decl_node, buf_sprintf("other field here"));
                 enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
                 continue;
             }
 
-            assert(result->special != ConstValSpecialRuntime);
-            assert(result->type->id == ZigTypeIdInt || result->type->id == ZigTypeIdComptimeInt);
+            AstNode *tag_value = field_node->data.struct_field.value;
 
-            bigint_init_bigint(&type_enum_field->value, &result->data.x_bigint);
-        } else {
-            // No value was explicitly specified: allocate the last value + 1
-            // or, if this is the first element, zero
-            if (last_enum_field != nullptr) {
-                bigint_add(&type_enum_field->value, &last_enum_field->value, &bi_one);
+            if (tag_value != nullptr) {
+                // A user-specified value is available
+                ZigValue *result = analyze_const_value(g, scope, tag_value, tag_int_type,
+                        nullptr, UndefBad);
+                if (type_is_invalid(result->type)) {
+                    enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+                    continue;
+                }
+
+                assert(result->special != ConstValSpecialRuntime);
+                assert(result->type->id == ZigTypeIdInt || result->type->id == ZigTypeIdComptimeInt);
+
+                bigint_init_bigint(&type_enum_field->value, &result->data.x_bigint);
             } else {
-                bigint_init_unsigned(&type_enum_field->value, 0);
+                // No value was explicitly specified: allocate the last value + 1
+                // or, if this is the first element, zero
+                if (last_enum_field != nullptr) {
+                    bigint_add(&type_enum_field->value, &last_enum_field->value, &bi_one);
+                } else {
+                    bigint_init_unsigned(&type_enum_field->value, 0);
+                }
+
+                // Make sure we can represent this number with tag_int_type
+                if (!bigint_fits_in_bits(&type_enum_field->value,
+                                         tag_int_type->size_in_bits,
+                                         tag_int_type->data.integral.is_signed)) {
+                    enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+
+                    Buf *val_buf = buf_alloc();
+                    bigint_append_buf(val_buf, &type_enum_field->value, 10);
+                    add_node_error(g, field_node,
+                        buf_sprintf("enumeration value %s too large for type '%s'",
+                            buf_ptr(val_buf), buf_ptr(&tag_int_type->name)));
+
+                    break;
+                }
             }
 
-            // Make sure we can represent this number with tag_int_type
-            if (!bigint_fits_in_bits(&type_enum_field->value,
-                                     tag_int_type->size_in_bits,
-                                     tag_int_type->data.integral.is_signed)) {
+            // Make sure the value is unique
+            auto entry = occupied_tag_values.put_unique(type_enum_field->value, field_node);
+            if (entry != nullptr && enum_type->data.enumeration.layout != ContainerLayoutExtern) {
                 enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
 
                 Buf *val_buf = buf_alloc();
                 bigint_append_buf(val_buf, &type_enum_field->value, 10);
-                add_node_error(g, field_node,
-                    buf_sprintf("enumeration value %s too large for type '%s'",
-                        buf_ptr(val_buf), buf_ptr(&tag_int_type->name)));
 
-                break;
+                ErrorMsg *msg = add_node_error(g, field_node,
+                        buf_sprintf("enum tag value %s already taken", buf_ptr(val_buf)));
+                add_error_note(g, msg, entry->value,
+                        buf_sprintf("other occurrence here"));
             }
+
+            last_enum_field = type_enum_field;
         }
-
-        // Make sure the value is unique
-        auto entry = occupied_tag_values.put_unique(type_enum_field->value, field_node);
-        if (entry != nullptr && enum_type->data.enumeration.layout != ContainerLayoutExtern) {
-            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
-
-            Buf *val_buf = buf_alloc();
-            bigint_append_buf(val_buf, &type_enum_field->value, 10);
-
-            ErrorMsg *msg = add_node_error(g, field_node,
-                    buf_sprintf("enum tag value %s already taken", buf_ptr(val_buf)));
-            add_error_note(g, msg, entry->value,
-                    buf_sprintf("other occurrence here"));
-        }
-
-        last_enum_field = type_enum_field;
+        occupied_tag_values.deinit();
     }
 
     if (enum_type->data.enumeration.resolve_status == ResolveStatusInvalid)
@@ -2785,8 +2806,6 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 
     enum_type->data.enumeration.resolve_loop_flag = false;
     enum_type->data.enumeration.resolve_status = ResolveStatusSizeKnown;
-
-    occupied_tag_values.deinit();
 
     return ErrorNone;
 }
