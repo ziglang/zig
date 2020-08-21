@@ -11,6 +11,9 @@ pub fn Interpreter(comptime Bus: type) type {
         /// This is set to true when we hit an undefined0 instruction, allowing it to
         /// be used as a trap for testing purposes
         undefined0: bool = false,
+        /// This is set to true when we hit an undefined1 instruction, allowing it to
+        /// be used as a trap for testing purposes. undefined1 is used as a breakpoint.
+        undefined1: bool = false,
         bus: Bus,
 
         pub fn ExecuteBlock(self: *@This(), comptime size: ?u32) !void {
@@ -122,7 +125,11 @@ pub fn Interpreter(comptime Bus: type) type {
                             // Break out of the loop, and let the caller decide what to do
                             return;
                         },
-                        .undefined1 => return error.BadInstruction,
+                        .undefined1 => {
+                            self.undefined1 = true;
+                            // Break out of the loop, and let the caller decide what to do
+                            return;
+                        },
                         .signext => if ((val0 & 0x80) != 0)
                             (val0 & 0xFF) | 0xFF00
                         else
