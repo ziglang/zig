@@ -4,7 +4,8 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std.zig");
-const Blake3 = std.crypto.hash.Blake3;
+const crypto = std.crypto;
+const Hasher = crypto.onetimeauth.Poly1305;
 const fs = std.fs;
 const base64 = std.base64;
 const ArrayList = std.ArrayList;
@@ -45,7 +46,8 @@ pub const File = struct {
 
 pub const CacheHash = struct {
     allocator: *Allocator,
-    blake3: Blake3,
+    hasher: Hasher,
+    hash_key: [Hasher.minimum_key_length]u8,
     manifest_dir: fs.Dir,
     manifest_file: ?fs.File,
     manifest_dirty: bool,
@@ -54,10 +56,13 @@ pub const CacheHash = struct {
 
     /// Be sure to call release after successful initialization.
     pub fn init(allocator: *Allocator, dir: fs.Dir, manifest_dir_path: []const u8) !CacheHash {
+        const manifest_dir = try dir.makeOpenPath(manifest_dir_path, .{});
+        const hash_key = try hashKey(manifest_dir);
         return CacheHash{
             .allocator = allocator,
-            .blake3 = Blake3.init(.{}),
-            .manifest_dir = try dir.makeOpenPath(manifest_dir_path, .{}),
+            .hash_key = hash_key,
+            .hasher = Hasher.init(&hash_key),
+            .manifest_dir = manifest_dir,
             .manifest_file = null,
             .manifest_dirty = false,
             .files = ArrayList(File).init(allocator),
@@ -65,12 +70,38 @@ pub const CacheHash = struct {
         };
     }
 
+    pub fn hashKey(manifest_dir: fs.Dir) ![Hasher.minimum_key_length]u8 {
+        var key: [Hasher.minimum_key_length]u8 = undefined;
+        const key_file_path = "key";
+        if (manifest_dir.openFile(key_file_path, .{
+            .read = true,
+            .write = false,
+            .lock = .Exclusive,
+        })) |key_file| {
+            defer key_file.close();
+            try key_file.inStream().readNoEof(&key);
+        } else |err| switch (err) {
+            error.FileNotFound => {
+                try crypto.randomBytes(&key);
+                const key_file = try manifest_dir.createFile(key_file_path, .{
+                    .read = false,
+                    .truncate = true,
+                    .lock = .Exclusive,
+                });
+                defer key_file.close();
+                try key_file.outStream().writeAll(&key);
+            },
+            else => |e| return e,
+        }
+        return key;
+    }
+
     /// Record a slice of bytes as an dependency of the process being cached
     pub fn addSlice(self: *CacheHash, val: []const u8) void {
         assert(self.manifest_file == null);
 
-        self.blake3.update(val);
-        self.blake3.update(&[_]u8{0});
+        self.hasher.update(val);
+        self.hasher.update(&[_]u8{0});
     }
 
     /// Convert the input value into bytes and record it as a dependency of the
@@ -133,12 +164,12 @@ pub const CacheHash = struct {
         assert(self.manifest_file == null);
 
         var bin_digest: [BIN_DIGEST_LEN]u8 = undefined;
-        self.blake3.final(&bin_digest);
+        self.hasher.final(&bin_digest);
 
         base64_encoder.encode(self.b64_digest[0..], &bin_digest);
 
-        self.blake3 = Blake3.init(.{});
-        self.blake3.update(&bin_digest);
+        self.hasher = Hasher.init(&self.hash_key);
+        self.hasher.update(&bin_digest);
 
         const manifest_file_path = try fmt.allocPrint(self.allocator, "{}.txt", .{self.b64_digest});
         defer self.allocator.free(manifest_file_path);
@@ -238,7 +269,7 @@ pub const CacheHash = struct {
                 }
 
                 var actual_digest: [BIN_DIGEST_LEN]u8 = undefined;
-                try hashFile(this_file, &actual_digest);
+                try hashFile(this_file, &actual_digest, &Hasher.init(&self.hash_key));
 
                 if (!mem.eql(u8, &cache_hash_file.bin_digest, &actual_digest)) {
                     cache_hash_file.bin_digest = actual_digest;
@@ -248,7 +279,7 @@ pub const CacheHash = struct {
             }
 
             if (!any_file_changed) {
-                self.blake3.update(&cache_hash_file.bin_digest);
+                self.hasher.update(&cache_hash_file.bin_digest);
             }
         }
 
@@ -256,8 +287,8 @@ pub const CacheHash = struct {
             // cache miss
             // keep the manifest file open
             // reset the hash
-            self.blake3 = Blake3.init(.{});
-            self.blake3.update(&bin_digest);
+            self.hasher = Hasher.init(&self.hash_key);
+            self.hasher.update(&bin_digest);
 
             // Remove files not in the initial hash
             for (self.files.items[input_file_count..]) |*file| {
@@ -266,7 +297,7 @@ pub const CacheHash = struct {
             self.files.shrink(input_file_count);
 
             for (self.files.items) |file| {
-                self.blake3.update(&file.bin_digest);
+                self.hasher.update(&file.bin_digest);
             }
             return null;
         }
@@ -304,23 +335,23 @@ pub const CacheHash = struct {
 
             // Hash while reading from disk, to keep the contents in the cpu cache while
             // doing hashing.
-            var blake3 = Blake3.init(.{});
+            var hasher = Hasher.init(&self.hash_key);
             var off: usize = 0;
             while (true) {
                 // give me everything you've got, captain
                 const bytes_read = try file.read(contents[off..]);
                 if (bytes_read == 0) break;
-                blake3.update(contents[off..][0..bytes_read]);
+                hasher.update(contents[off..][0..bytes_read]);
                 off += bytes_read;
             }
-            blake3.final(&ch_file.bin_digest);
+            hasher.final(&ch_file.bin_digest);
 
             ch_file.contents = contents;
         } else {
-            try hashFile(file, &ch_file.bin_digest);
+            try hashFile(file, &ch_file.bin_digest, &Hasher.init(&self.hash_key));
         }
 
-        self.blake3.update(&ch_file.bin_digest);
+        self.hasher.update(&ch_file.bin_digest);
     }
 
     /// Add a file as a dependency of process being cached, after the initial hash has been
@@ -382,7 +413,7 @@ pub const CacheHash = struct {
         // the artifacts to cache.
 
         var bin_digest: [BIN_DIGEST_LEN]u8 = undefined;
-        self.blake3.final(&bin_digest);
+        self.hasher.final(&bin_digest);
 
         var out_digest: [BASE64_DIGEST_LEN]u8 = undefined;
         base64_encoder.encode(&out_digest, &bin_digest);
@@ -433,17 +464,16 @@ pub const CacheHash = struct {
     }
 };
 
-fn hashFile(file: fs.File, bin_digest: []u8) !void {
-    var blake3 = Blake3.init(.{});
+fn hashFile(file: fs.File, bin_digest: []u8, hasher: anytype) !void {
     var buf: [1024]u8 = undefined;
 
     while (true) {
         const bytes_read = try file.read(&buf);
         if (bytes_read == 0) break;
-        blake3.update(buf[0..bytes_read]);
+        hasher.update(buf[0..bytes_read]);
     }
 
-    blake3.final(bin_digest);
+    hasher.final(bin_digest);
 }
 
 /// If the wall clock time, rounded to the same precision as the
