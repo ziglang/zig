@@ -44,6 +44,9 @@ pub const Poly1305 = struct {
         const r0 = st.r[0];
         const r1 = st.r[1];
         const r2 = st.r[2];
+        var h0 = st.h[0];
+        var h1 = st.h[1];
+        var h2 = st.h[2];
         const s1 = r1 * (5 << 2);
         const s2 = r2 * (5 << 2);
         var i: usize = 0;
@@ -51,29 +54,30 @@ pub const Poly1305 = struct {
             // h += m[i]
             const t0 = mem.readIntLittle(u64, m[i..][0..8]);
             const t1 = mem.readIntLittle(u64, m[i + 8 ..][0..8]);
-            st.h[0] += t0 & 0xfffffffffff;
-            st.h[1] += ((t0 >> 44) | (t1 << 20)) & 0xfffffffffff;
-            st.h[2] += (((t1 >> 24)) & 0x3ffffffffff) | hibit;
+            h0 += @truncate(u44, t0);
+            h1 += @truncate(u44, (t0 >> 44) | (t1 << 20));
+            h2 += @truncate(u42, t1 >> 24) | hibit;
 
             // h *= r
-            const d0 = @as(u128, st.h[0]) * @as(u128, r0) + @as(u128, st.h[1]) * @as(u128, s2) + @as(u128, st.h[2]) * @as(u128, s1);
-            var d1 = @as(u128, st.h[0]) * @as(u128, r1) + @as(u128, st.h[1]) * @as(u128, r0) + @as(u128, st.h[2]) * @as(u128, s2);
-            var d2 = @as(u128, st.h[0]) * @as(u128, r2) + @as(u128, st.h[1]) * @as(u128, r1) + @as(u128, st.h[2]) * @as(u128, r0);
+            const d0 = @as(u128, h0) * r0 + @as(u128, h1) * s2 + @as(u128, h2) * s1;
+            var d1 = @as(u128, h0) * r1 + @as(u128, h1) * r0 + @as(u128, h2) * s2;
+            var d2 = @as(u128, h0) * r2 + @as(u128, h1) * r1 + @as(u128, h2) * r0;
 
             // partial reduction
             var carry = d0 >> 44;
-            st.h[0] = @truncate(u64, d0) & 0xfffffffffff;
+            h0 = @truncate(u44, d0);
             d1 += carry;
             carry = @intCast(u64, d1 >> 44);
-            st.h[1] = @truncate(u64, d1) & 0xfffffffffff;
+            h1 = @truncate(u44, d1);
             d2 += carry;
             carry = @intCast(u64, d2 >> 42);
-            st.h[2] = @truncate(u64, d2) & 0x3ffffffffff;
-            st.h[0] += @truncate(u64, carry) * 5;
-            carry = st.h[0] >> 44;
-            st.h[0] &= 0xfffffffffff;
-            st.h[1] += @truncate(u64, carry);
+            h2 = @truncate(u42, d2);
+            h0 += @truncate(u64, carry) * 5;
+            carry = h0 >> 44;
+            h0 = @truncate(u44, h0);
+            h1 += @truncate(u64, carry);
         }
+        st.h = [_]u64{ h0, h1, h2 };
     }
 
     pub fn update(st: *Poly1305, m: []const u8) void {
@@ -124,31 +128,31 @@ pub const Poly1305 = struct {
         }
         // fully carry h
         var carry = st.h[1] >> 44;
-        st.h[1] &= 0xfffffffffff;
+        st.h[1] = @truncate(u44, st.h[1]);
         st.h[2] += carry;
         carry = st.h[2] >> 42;
-        st.h[2] &= 0x3ffffffffff;
+        st.h[2] = @truncate(u42, st.h[2]);
         st.h[0] += carry * 5;
         carry = st.h[0] >> 44;
-        st.h[0] &= 0xfffffffffff;
+        st.h[0] = @truncate(u44, st.h[0]);
         st.h[1] += carry;
         carry = st.h[1] >> 44;
-        st.h[1] &= 0xfffffffffff;
+        st.h[1] = @truncate(u44, st.h[1]);
         st.h[2] += carry;
         carry = st.h[2] >> 42;
-        st.h[2] &= 0x3ffffffffff;
+        st.h[2] = @truncate(u42, st.h[2]);
         st.h[0] += carry * 5;
         carry = st.h[0] >> 44;
-        st.h[0] &= 0xfffffffffff;
+        st.h[0] = @truncate(u44, st.h[0]);
         st.h[1] += carry;
 
         // compute h + -p
         var g0 = st.h[0] + 5;
         carry = g0 >> 44;
-        g0 &= 0xfffffffffff;
+        g0 = @truncate(u44, g0);
         var g1 = st.h[1] + carry;
         carry = g1 >> 44;
-        g1 &= 0xfffffffffff;
+        g1 = @truncate(u44, g1);
         var g2 = st.h[2] + carry -% (1 << 42);
 
         // (hopefully) constant-time select h if h < p, or h + -p if h >= p
@@ -164,14 +168,14 @@ pub const Poly1305 = struct {
         // h = (h + pad)
         const t0 = st.pad[0];
         const t1 = st.pad[1];
-        st.h[0] += (t0 & 0xfffffffffff);
-        carry = (st.h[0] >> 44);
-        st.h[0] &= 0xfffffffffff;
-        st.h[1] += (((t0 >> 44) | (t1 << 20)) & 0xfffffffffff) + carry;
-        carry = (st.h[1] >> 44);
-        st.h[1] &= 0xfffffffffff;
-        st.h[2] += (((t1 >> 24)) & 0x3ffffffffff) + carry;
-        st.h[2] &= 0x3ffffffffff;
+        st.h[0] += @truncate(u44, t0);
+        carry = st.h[0] >> 44;
+        st.h[0] = @truncate(u44, st.h[0]);
+        st.h[1] += @truncate(u44, (t0 >> 44) | (t1 << 20)) + carry;
+        carry = st.h[1] >> 44;
+        st.h[1] = @truncate(u44, st.h[1]);
+        st.h[2] += @truncate(u42, t1 >> 24) + carry;
+        st.h[2] = @truncate(u42, st.h[2]);
 
         // mac = h % (2^128)
         st.h[0] |= st.h[1] << 44;
@@ -180,7 +184,7 @@ pub const Poly1305 = struct {
         mem.writeIntLittle(u64, out[0..8], st.h[0]);
         mem.writeIntLittle(u64, out[8..16], st.h[1]);
 
-        mem.secureZero(u64, &st.r);
+        std.mem.secureZero(u8, @ptrCast([*]u8, st)[0..@sizeOf(Poly1305)]);
     }
 
     pub fn create(out: []u8, msg: []const u8, key: []const u8) void {
