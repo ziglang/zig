@@ -24,7 +24,7 @@ pub usingnamespace switch (builtin.arch) {
 };
 
 pub usingnamespace @import("linux/netlink.zig");
-pub const bpf = @import("linux/bpf.zig");
+pub const BPF = @import("linux/bpf.zig");
 
 const is_mips = builtin.arch.isMIPS();
 

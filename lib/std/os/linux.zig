@@ -1221,6 +1221,10 @@ pub fn copy_file_range(fd_in: fd_t, off_in: ?*i64, fd_out: fd_t, off_out: ?*i64,
     );
 }
 
+pub fn bpf(cmd: BPF.Cmd, attr: *BPF.Attr, size: u32) usize {
+    return syscall3(.bpf, @enumToInt(cmd), @ptrToInt(attr), size);
+}
+
 test "" {
     if (builtin.os.tag == .linux) {
         _ = @import("linux/test.zig");
