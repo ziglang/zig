@@ -614,8 +614,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = C;
         \\}
     , &[_][]const u8{
-        "tmp.zig:4:5: error: non-exhaustive enum must specify size",
-        "error: value assigned to '_' field of non-exhaustive enum",
+        "tmp.zig:4:5: error: value assigned to '_' field of non-exhaustive enum",
+        "error: non-exhaustive enum must specify size",
         "error: non-exhaustive enum specifies every value",
         "error: '_' field of non-exhaustive enum must be last",
     });
