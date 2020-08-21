@@ -8,6 +8,9 @@ const log = std.log.scoped(.link);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
+const trace = @import("../tracy.zig").trace;
+const CodeGen = @import("../codegen.zig").CodeGen;
+const Type = @import("../type.zig").Type;
 
 const Module = @import("../Module.zig");
 const link = @import("../link.zig");
@@ -28,6 +31,17 @@ sections: std.ArrayListUnmanaged(macho.section_64) = std.ArrayListUnmanaged(mach
 entry_addr: ?u64 = null,
 
 error_flags: File.ErrorFlags = File.ErrorFlags{},
+
+pub const DbgInfoTypeRelocsTable = std.HashMapUnmanaged(Type, DbgInfoTypeReloc, Type.hash, Type.eql, true);
+
+const DbgInfoTypeReloc = struct {
+    /// Offset from `TextBlock.dbg_info_off` (the buffer that is local to a Decl).
+    /// This is where the .debug_info tag for the type is.
+    off: u32,
+    /// Offset from `TextBlock.dbg_info_off` (the buffer that is local to a Decl).
+    /// List of DW.AT_type / DW.FORM_ref4 that points to the type.
+    relocs: std.ArrayListUnmanaged(u32),
+};
 
 pub const TextBlock = struct {
     pub const empty = TextBlock{};
@@ -198,7 +212,39 @@ pub fn deinit(self: *MachO) void {
 
 pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {}
 
-pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {}
+pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    var code_buffer = std.ArrayList(u8).init(self.base.allocator);
+    defer code_buffer.deinit();
+
+    var dbg_line_buffer = std.ArrayList(u8).init(self.base.allocator);
+    defer dbg_line_buffer.deinit();
+
+    var dbg_info_buffer = std.ArrayList(u8).init(self.base.allocator);
+    defer dbg_info_buffer.deinit();
+
+    var dbg_info_type_relocs: DbgInfoTypeRelocsTable = .{};
+    defer {
+        for (dbg_info_type_relocs.items()) |*entry| {
+            entry.value.relocs.deinit(self.base.allocator);
+        }
+        dbg_info_type_relocs.deinit(self.base.allocator);
+    }
+
+    const typed_value = decl.typed_value.most_recent.typed_value;
+
+    const res = try CodeGen(.macho).generateSymbol(
+        &self.base,
+        decl.src(),
+        typed_value,
+        &code_buffer,
+        &dbg_line_buffer,
+        &dbg_info_buffer,
+        &dbg_info_type_relocs,
+    );
+}
 
 pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl: *const Module.Decl) !void {}
 
