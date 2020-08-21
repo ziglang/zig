@@ -1776,7 +1776,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// X => extension to the SIB.index field
         /// B => extension to the MODRM.rm field or the SIB.base field
         fn rex(self: *Self, arg: struct { b: bool = false, w: bool = false, x: bool = false, r: bool = false }) void {
-            std.debug.assert(arch == .x86_64);
+            comptime assert(arch == .x86_64);
             //  From section 2.2.1.2 of the manual, REX is encoded as b0100WRXB.
             var value: u8 = 0x40;
             if (arg.b) {
