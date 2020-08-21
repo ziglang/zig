@@ -289,8 +289,6 @@ pub const TypeInfo = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const Error = struct {
         name: []const u8,
-        /// This field is ignored when using @Type().
-        value: comptime_int,
     };
 
     /// This data structure is used by the Zig language code generation and

@@ -25494,9 +25494,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                     error_val->special = ConstValSpecialStatic;
                     error_val->type = type_info_error_type;
 
-                    ZigValue **inner_fields = alloc_const_vals_ptrs(ira->codegen, 2);
-                    inner_fields[1]->special = ConstValSpecialStatic;
-                    inner_fields[1]->type = ira->codegen->builtin_types.entry_num_lit_int;
+                    ZigValue **inner_fields = alloc_const_vals_ptrs(ira->codegen, 1);
 
                     ZigValue *name = nullptr;
                     if (error->cached_error_name_val != nullptr)
@@ -25504,7 +25502,6 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                     if (name == nullptr)
                         name = create_const_str_lit(ira->codegen, &error->name)->data.x_ptr.data.ref.pointee;
                     init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(&error->name), true);
-                    bigint_init_unsigned(&inner_fields[1]->data.x_bigint, error->value);
 
                     error_val->data.x_struct.fields = inner_fields;
                     error_val->parent.id = ConstParentIdArray;
