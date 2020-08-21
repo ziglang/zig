@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // zig run benchmark.zig --release-fast --override-lib-dir ..
 
 const builtin = @import("builtin");
@@ -17,20 +22,20 @@ const Crypto = struct {
 };
 
 const hashes = [_]Crypto{
-    Crypto{ .ty = crypto.Md5, .name = "md5" },
-    Crypto{ .ty = crypto.Sha1, .name = "sha1" },
-    Crypto{ .ty = crypto.Sha256, .name = "sha256" },
-    Crypto{ .ty = crypto.Sha512, .name = "sha512" },
-    Crypto{ .ty = crypto.Sha3_256, .name = "sha3-256" },
-    Crypto{ .ty = crypto.Sha3_512, .name = "sha3-512" },
-    Crypto{ .ty = crypto.gimli.Hash, .name = "gimli-hash" },
-    Crypto{ .ty = crypto.Blake2s256, .name = "blake2s" },
-    Crypto{ .ty = crypto.Blake2b512, .name = "blake2b" },
-    Crypto{ .ty = crypto.Blake3, .name = "blake3" },
+    Crypto{ .ty = crypto.hash.Md5, .name = "md5" },
+    Crypto{ .ty = crypto.hash.Sha1, .name = "sha1" },
+    Crypto{ .ty = crypto.hash.sha2.Sha256, .name = "sha256" },
+    Crypto{ .ty = crypto.hash.sha2.Sha512, .name = "sha512" },
+    Crypto{ .ty = crypto.hash.sha3.Sha3_256, .name = "sha3-256" },
+    Crypto{ .ty = crypto.hash.sha3.Sha3_512, .name = "sha3-512" },
+    Crypto{ .ty = crypto.hash.Gimli, .name = "gimli-hash" },
+    Crypto{ .ty = crypto.hash.blake2.Blake2s256, .name = "blake2s" },
+    Crypto{ .ty = crypto.hash.blake2.Blake2b512, .name = "blake2b" },
+    Crypto{ .ty = crypto.hash.Blake3, .name = "blake3" },
 };
 
 pub fn benchmarkHash(comptime Hash: anytype, comptime bytes: comptime_int) !u64 {
-    var h = Hash.init();
+    var h = Hash.init(.{});
 
     var block: [Hash.digest_length]u8 = undefined;
     prng.random.bytes(block[0..]);
@@ -50,19 +55,20 @@ pub fn benchmarkHash(comptime Hash: anytype, comptime bytes: comptime_int) !u64 
 }
 
 const macs = [_]Crypto{
-    Crypto{ .ty = crypto.Poly1305, .name = "poly1305" },
-    Crypto{ .ty = crypto.HmacMd5, .name = "hmac-md5" },
-    Crypto{ .ty = crypto.HmacSha1, .name = "hmac-sha1" },
-    Crypto{ .ty = crypto.HmacSha256, .name = "hmac-sha256" },
+    Crypto{ .ty = crypto.onetimeauth.Poly1305, .name = "poly1305" },
+    Crypto{ .ty = crypto.auth.hmac.HmacMd5, .name = "hmac-md5" },
+    Crypto{ .ty = crypto.auth.hmac.HmacSha1, .name = "hmac-sha1" },
+    Crypto{ .ty = crypto.auth.hmac.sha2.HmacSha256, .name = "hmac-sha256" },
+    Crypto{ .ty = crypto.auth.hmac.sha2.HmacSha512, .name = "hmac-sha512" },
 };
 
 pub fn benchmarkMac(comptime Mac: anytype, comptime bytes: comptime_int) !u64 {
-    std.debug.assert(32 >= Mac.mac_length and 32 >= Mac.minimum_key_length);
+    std.debug.assert(64 >= Mac.mac_length and 32 >= Mac.minimum_key_length);
 
     var in: [1 * MiB]u8 = undefined;
     prng.random.bytes(in[0..]);
 
-    var key: [32]u8 = undefined;
+    var key: [64]u8 = undefined;
     prng.random.bytes(key[0..]);
 
     var offset: usize = 0;
@@ -79,7 +85,7 @@ pub fn benchmarkMac(comptime Mac: anytype, comptime bytes: comptime_int) !u64 {
     return throughput;
 }
 
-const exchanges = [_]Crypto{Crypto{ .ty = crypto.X25519, .name = "x25519" }};
+const exchanges = [_]Crypto{Crypto{ .ty = crypto.dh.X25519, .name = "x25519" }};
 
 pub fn benchmarkKeyExchange(comptime DhKeyExchange: anytype, comptime exchange_count: comptime_int) !u64 {
     std.debug.assert(DhKeyExchange.minimum_key_length >= DhKeyExchange.secret_length);
@@ -106,7 +112,7 @@ pub fn benchmarkKeyExchange(comptime DhKeyExchange: anytype, comptime exchange_c
     return throughput;
 }
 
-const signatures = [_]Crypto{Crypto{ .ty = crypto.Ed25519, .name = "ed25519" }};
+const signatures = [_]Crypto{Crypto{ .ty = crypto.sign.Ed25519, .name = "ed25519" }};
 
 pub fn benchmarkSignatures(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
     var seed: [Signature.seed_length]u8 = undefined;

@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // The engines provided here should be initialized from an external source. For now, randomBytes
 // from the crypto package is the most suitable. Be sure to use a CSPRNG when required, otherwise using
 // a normal PRNG will be faster and use substantially less stack space.
@@ -732,12 +737,12 @@ test "xoroshiro sequence" {
 // CSPRNG
 pub const Gimli = struct {
     random: Random,
-    state: std.crypto.gimli.State,
+    state: std.crypto.core.Gimli,
 
     pub fn init(init_s: u64) Gimli {
         var self = Gimli{
             .random = Random{ .fillFn = fill },
-            .state = std.crypto.gimli.State{
+            .state = std.crypto.core.Gimli{
                 .data = [_]u32{0} ** (std.crypto.gimli.State.BLOCKBYTES / 4),
             },
         };

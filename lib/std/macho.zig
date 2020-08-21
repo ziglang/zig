@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 pub const mach_header = extern struct {
     magic: u32,
     cputype: cpu_type_t,
@@ -703,3 +708,15 @@ pub const cpu_type_t = integer_t;
 pub const cpu_subtype_t = integer_t;
 pub const integer_t = c_int;
 pub const vm_prot_t = c_int;
+
+/// CPU type targeting 64-bit Intel-based Macs
+pub const CPU_TYPE_X86_64: cpu_type_t = 0x01000007;
+
+/// CPU type targeting 64-bit ARM-based Macs
+pub const CPU_TYPE_ARM64: cpu_type_t = 0x0100000C;
+
+/// All Intel-based Macs
+pub const CPU_SUBTYPE_X86_64_ALL: cpu_subtype_t = 0x3;
+
+/// All ARM-based Macs
+pub const CPU_SUBTYPE_ARM_ALL: cpu_subtype_t = 0x0;

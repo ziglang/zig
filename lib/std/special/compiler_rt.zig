@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std");
 const builtin = std.builtin;
 const is_test = builtin.is_test;
@@ -335,7 +340,7 @@ fn __stack_chk_fail() callconv(.C) noreturn {
     @panic("stack smashing detected");
 }
 
-extern var __stack_chk_guard: usize = blk: {
+var __stack_chk_guard: usize = blk: {
     var buf = [1]u8{0} ** @sizeOf(usize);
     buf[@sizeOf(usize) - 1] = 255;
     buf[@sizeOf(usize) - 2] = '\n';

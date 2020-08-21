@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Gimli is a 384-bit permutation designed to achieve high security with high
 // performance across a broad range of platforms, including 64-bit Intel/AMD
 // server CPUs, 64-bit and 32-bit ARM smartphone CPUs, 32-bit ARM
@@ -104,13 +109,14 @@ pub const Hash = struct {
     state: State,
     buf_off: usize,
 
+    pub const block_length = State.RATE;
+    pub const Options = struct {};
+
     const Self = @This();
 
-    pub fn init() Self {
+    pub fn init(options: Options) Self {
         return Self{
-            .state = State{
-                .data = [_]u32{0} ** (State.BLOCKBYTES / 4),
-            },
+            .state = State{ .data = [_]u32{0} ** (State.BLOCKBYTES / 4) },
             .buf_off = 0,
         };
     }
@@ -155,8 +161,8 @@ pub const Hash = struct {
     }
 };
 
-pub fn hash(out: []u8, in: []const u8) void {
-    var st = Hash.init();
+pub fn hash(out: []u8, in: []const u8, options: Hash.Options) void {
+    var st = Hash.init(options);
     st.update(in);
     st.final(out);
 }
@@ -169,7 +175,7 @@ test "hash" {
     var msg: [58 / 2]u8 = undefined;
     try std.fmt.hexToBytes(&msg, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C");
     var md: [32]u8 = undefined;
-    hash(&md, &msg);
+    hash(&md, &msg, .{});
     htest.assertEqual("1C9A03DC6A5DDC5444CFC6F4B154CFF5CF081633B2CEA4D7D0AE7CCFED5AAA44", &md);
 }
 

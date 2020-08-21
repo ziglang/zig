@@ -680,6 +680,9 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod, B
             AstNode *var_decl = ast_parse_var_decl(pc);
             if (var_decl != nullptr) {
                 assert(var_decl->type == NodeTypeVariableDeclaration);
+                if (first->id == TokenIdKeywordExtern && var_decl->data.variable_declaration.expr != nullptr) {
+                    ast_error(pc, first, "extern variables have no initializers");
+                }
                 var_decl->line = first->start_line;
                 var_decl->column = first->start_column;
                 var_decl->data.variable_declaration.threadlocal_tok = thread_local_kw;

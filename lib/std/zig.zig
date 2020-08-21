@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std.zig");
 const tokenizer = @import("zig/tokenizer.zig");
 
@@ -21,7 +26,7 @@ pub fn hashSrc(src: []const u8) SrcHash {
         std.mem.copy(u8, &out, src);
         std.mem.set(u8, out[src.len..], 0);
     } else {
-        std.crypto.Blake3.hash(src, &out);
+        std.crypto.hash.Blake3.hash(src, &out, .{});
     }
     return out;
 }
@@ -84,7 +89,7 @@ pub fn binNameAlloc(
 /// Slice must be valid utf8 starting and ending with "'" and exactly one codepoint in between.
 pub fn parseCharLiteral(
     slice: []const u8,
-    bad_index: *usize, // populated if error.InvalidCharacter is returned)
+    bad_index: *usize, // populated if error.InvalidCharacter is returned
 ) error{InvalidCharacter}!u32 {
     std.debug.assert(slice.len >= 3 and slice[0] == '\'' and slice[slice.len - 1] == '\'');
 
@@ -101,41 +106,8 @@ pub fn parseCharLiteral(
                     bad_index.* = slice.len - 2;
                     return error.InvalidCharacter;
                 }
-
                 var value: u32 = 0;
                 for (slice[3..5]) |c, i| {
-                    switch (slice[3]) {
-                        '0'...'9' => {
-                            value *= 16;
-                            value += c - '0';
-                        },
-                        'a'...'f' => {
-                            value *= 16;
-                            value += c - 'a';
-                        },
-                        'A'...'F' => {
-                            value *= 16;
-                            value += c - 'a';
-                        },
-                        else => {
-                            bad_index.* = i;
-                            return error.InvalidCharacter;
-                        },
-                    }
-                }
-                return value;
-            },
-            'u' => {
-                if (slice.len < 6 or slice[3] != '{') {
-                    bad_index.* = 2;
-                    return error.InvalidCharacter;
-                }
-                var value: u32 = 0;
-                for (slice[4..]) |c, i| {
-                    if (value > 0x10ffff) {
-                        bad_index.* = i;
-                        return error.InvalidCharacter;
-                    }
                     switch (c) {
                         '0'...'9' => {
                             value *= 16;
@@ -143,17 +115,48 @@ pub fn parseCharLiteral(
                         },
                         'a'...'f' => {
                             value *= 16;
-                            value += c - 'a';
+                            value += c - 'a' + 10;
                         },
                         'A'...'F' => {
                             value *= 16;
-                            value += c - 'A';
+                            value += c - 'A' + 10;
                         },
-                        '}' => break,
                         else => {
-                            bad_index.* = i;
+                            bad_index.* = 3 + i;
                             return error.InvalidCharacter;
                         },
+                    }
+                }
+                return value;
+            },
+            'u' => {
+                if (slice.len < "'\\u{0}'".len or slice[3] != '{' or slice[slice.len - 2] != '}') {
+                    bad_index.* = 2;
+                    return error.InvalidCharacter;
+                }
+                var value: u32 = 0;
+                for (slice[4 .. slice.len - 2]) |c, i| {
+                    switch (c) {
+                        '0'...'9' => {
+                            value *= 16;
+                            value += c - '0';
+                        },
+                        'a'...'f' => {
+                            value *= 16;
+                            value += c - 'a' + 10;
+                        },
+                        'A'...'F' => {
+                            value *= 16;
+                            value += c - 'A' + 10;
+                        },
+                        else => {
+                            bad_index.* = 4 + i;
+                            return error.InvalidCharacter;
+                        },
+                    }
+                    if (value > 0x10ffff) {
+                        bad_index.* = 4 + i;
+                        return error.InvalidCharacter;
                     }
                 }
                 return value;
@@ -161,7 +164,7 @@ pub fn parseCharLiteral(
             else => {
                 bad_index.* = 2;
                 return error.InvalidCharacter;
-            }
+            },
         }
     }
     return std.unicode.utf8Decode(slice[1 .. slice.len - 1]) catch unreachable;
@@ -172,13 +175,23 @@ test "parseCharLiteral" {
     std.testing.expectEqual(try parseCharLiteral("'a'", &bad_index), 'a');
     std.testing.expectEqual(try parseCharLiteral("'ä'", &bad_index), 'ä');
     std.testing.expectEqual(try parseCharLiteral("'\\x00'", &bad_index), 0);
+    std.testing.expectEqual(try parseCharLiteral("'\\x4f'", &bad_index), 0x4f);
+    std.testing.expectEqual(try parseCharLiteral("'\\x4F'", &bad_index), 0x4f);
     std.testing.expectEqual(try parseCharLiteral("'ぁ'", &bad_index), 0x3041);
+    std.testing.expectEqual(try parseCharLiteral("'\\u{0}'", &bad_index), 0);
     std.testing.expectEqual(try parseCharLiteral("'\\u{3041}'", &bad_index), 0x3041);
+    std.testing.expectEqual(try parseCharLiteral("'\\u{7f}'", &bad_index), 0x7f);
+    std.testing.expectEqual(try parseCharLiteral("'\\u{7FFF}'", &bad_index), 0x7FFF);
 
     std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\x0'", &bad_index));
+    std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\x000'", &bad_index));
     std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\y'", &bad_index));
     std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u'", &bad_index));
+    std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\uFFFF'", &bad_index));
+    std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u{}'", &bad_index));
     std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u{FFFFFF}'", &bad_index));
+    std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u{FFFF'", &bad_index));
+    std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u{FFFF}x'", &bad_index));
 }
 
 test "" {

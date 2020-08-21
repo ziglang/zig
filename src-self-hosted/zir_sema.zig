@@ -51,8 +51,14 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .ref => return analyzeInstRef(mod, scope, old_inst.castTag(.ref).?),
         .ret_ptr => return analyzeInstRetPtr(mod, scope, old_inst.castTag(.ret_ptr).?),
         .ret_type => return analyzeInstRetType(mod, scope, old_inst.castTag(.ret_type).?),
-        .single_const_ptr_type => return analyzeInstSingleConstPtrType(mod, scope, old_inst.castTag(.single_const_ptr_type).?),
-        .single_mut_ptr_type => return analyzeInstSingleMutPtrType(mod, scope, old_inst.castTag(.single_mut_ptr_type).?),
+        .single_const_ptr_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.single_const_ptr_type).?, false, .One),
+        .single_mut_ptr_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.single_mut_ptr_type).?, true, .One),
+        .many_const_ptr_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.many_const_ptr_type).?, false, .Many),
+        .many_mut_ptr_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.many_mut_ptr_type).?, true, .Many),
+        .c_const_ptr_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.c_const_ptr_type).?, false, .C),
+        .c_mut_ptr_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.c_mut_ptr_type).?, true, .C),
+        .const_slice_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.const_slice_type).?, false, .Slice),
+        .mut_slice_type => return analyzeInstSimplePtrType(mod, scope, old_inst.castTag(.mut_slice_type).?, true, .Slice),
         .ptr_type => return analyzeInstPtrType(mod, scope, old_inst.castTag(.ptr_type).?),
         .store => return analyzeInstStore(mod, scope, old_inst.castTag(.store).?),
         .str => return analyzeInstStr(mod, scope, old_inst.castTag(.str).?),
@@ -267,6 +273,14 @@ fn resolveType(mod: *Module, scope: *Scope, old_inst: *zir.Inst) !Type {
     return val.toType();
 }
 
+fn resolveInt(mod: *Module, scope: *Scope, old_inst: *zir.Inst, dest_type: Type) !u64 {
+    const new_inst = try resolveInst(mod, scope, old_inst);
+    const coerced = try mod.coerce(scope, dest_type, new_inst);
+    const val = try mod.resolveConstValue(scope, coerced);
+
+    return val.toUnsignedInt();
+}
+
 pub fn resolveInstConst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!TypedValue {
     const new_inst = try resolveInst(mod, scope, old_inst);
     const val = try mod.resolveConstValue(scope, new_inst);
@@ -324,7 +338,7 @@ fn analyzeInstRetPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerErr
 
 fn analyzeInstRef(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const operand = try resolveInst(mod, scope, inst.positionals.operand);
-    const ptr_type = try mod.singlePtrType(scope, inst.base.src, false, operand.ty);
+    const ptr_type = try mod.simplePtrType(scope, inst.base.src, operand.ty, false, .One);
 
     if (operand.value()) |val| {
         const ref_payload = try scope.arena().create(Value.Payload.RefVal);
@@ -366,10 +380,10 @@ fn analyzeInstEnsureResultNonError(mod: *Module, scope: *Scope, inst: *zir.Inst.
 fn analyzeInstAlloc(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const var_type = try resolveType(mod, scope, inst.positionals.operand);
     // TODO this should happen only for var allocs
-    if (!var_type.isValidVarType()) {
+    if (!var_type.isValidVarType(false)) {
         return mod.fail(scope, inst.base.src, "variable of type '{}' must be const or comptime", .{var_type});
     }
-    const ptr_type = try mod.singlePtrType(scope, inst.base.src, true, var_type);
+    const ptr_type = try mod.simplePtrType(scope, inst.base.src, var_type, true, .One);
     const b = try mod.requireRuntimeBlock(scope, inst.base.src);
     return mod.addNoOp(b, inst.base.src, ptr_type, .alloc);
 }
@@ -581,8 +595,7 @@ fn analyzeInstDeclVal(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclVal) Inne
 
 fn analyzeInstDeclValInModule(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclValInModule) InnerError!*Inst {
     const decl = inst.positionals.decl;
-    const ptr = try mod.analyzeDeclRef(scope, inst.base.src, decl);
-    return mod.analyzeDeref(scope, inst.base.src, ptr, inst.base.src);
+    return mod.analyzeDeclRef(scope, inst.base.src, decl);
 }
 
 fn analyzeInstCall(mod: *Module, scope: *Scope, inst: *zir.Inst.Call) InnerError!*Inst {
@@ -724,7 +737,7 @@ fn analyzeInstUnwrapOptional(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp
     }
 
     const child_type = try operand.ty.elemType().optionalChildAlloc(scope.arena());
-    const child_pointer = try mod.singlePtrType(scope, unwrap.base.src, operand.ty.isConstPtr(), child_type);
+    const child_pointer = try mod.simplePtrType(scope, unwrap.base.src, child_type, operand.ty.isConstPtr(), .One);
 
     if (operand.value()) |val| {
         if (val.isNull()) {
@@ -779,7 +792,7 @@ fn analyzeInstFnType(mod: *Module, scope: *Scope, fntype: *zir.Inst.FnType) Inne
     for (fntype.positionals.param_types) |param_type, i| {
         const resolved = try resolveType(mod, scope, param_type);
         // TODO skip for comptime params
-        if (!resolved.isValidVarType()) {
+        if (!resolved.isValidVarType(false)) {
             return mod.fail(scope, param_type.src, "parameter of type '{}' must be declared comptime", .{resolved});
         }
         param_types[i] = resolved;
@@ -941,7 +954,7 @@ fn analyzeInstElemPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) Inne
                 // required a larger index.
                 const elem_ptr = try array_ptr_val.elemPtr(scope.arena(), @intCast(usize, index_u64));
 
-                const type_payload = try scope.arena().create(Type.Payload.Pointer);
+                const type_payload = try scope.arena().create(Type.Payload.PointerSimple);
                 type_payload.* = .{
                     .base = .{ .tag = .single_const_pointer },
                     .pointee_type = array_ptr.ty.elemType().elemType(),
@@ -1312,18 +1325,49 @@ fn analyzeDeclVal(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclVal) InnerErr
     return decl;
 }
 
-fn analyzeInstSingleConstPtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+fn analyzeInstSimplePtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp, mutable: bool, size: std.builtin.TypeInfo.Pointer.Size) InnerError!*Inst {
     const elem_type = try resolveType(mod, scope, inst.positionals.operand);
-    const ty = try mod.singlePtrType(scope, inst.base.src, false, elem_type);
-    return mod.constType(scope, inst.base.src, ty);
-}
-
-fn analyzeInstSingleMutPtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
-    const elem_type = try resolveType(mod, scope, inst.positionals.operand);
-    const ty = try mod.singlePtrType(scope, inst.base.src, true, elem_type);
+    const ty = try mod.simplePtrType(scope, inst.base.src, elem_type, mutable, size);
     return mod.constType(scope, inst.base.src, ty);
 }
 
 fn analyzeInstPtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.PtrType) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement ptr_type", .{});
+    // TODO lazy values
+    const @"align" = if (inst.kw_args.@"align") |some|
+        @truncate(u32, try resolveInt(mod, scope, some, Type.initTag(.u32)))
+    else
+        0;
+    const bit_offset = if (inst.kw_args.align_bit_start) |some|
+        @truncate(u16, try resolveInt(mod, scope, some, Type.initTag(.u16)))
+    else
+        0;
+    const host_size = if (inst.kw_args.align_bit_end) |some|
+        @truncate(u16, try resolveInt(mod, scope, some, Type.initTag(.u16)))
+    else
+        0;
+
+    if (host_size != 0 and bit_offset >= host_size * 8)
+        return mod.fail(scope, inst.base.src, "bit offset starts after end of host integer", .{});
+    
+    const sentinel = if (inst.kw_args.sentinel) |some|
+        (try resolveInstConst(mod, scope, some)).val
+    else
+        null;
+
+    const elem_type = try resolveType(mod, scope, inst.positionals.child_type);
+
+    const ty = try mod.ptrType(
+        scope,
+        inst.base.src,
+        elem_type,
+        sentinel,
+        @"align",
+        bit_offset,
+        host_size,
+        inst.kw_args.mutable,
+        inst.kw_args.@"allowzero",
+        inst.kw_args.@"volatile",
+        inst.kw_args.size,
+    );
+    return mod.constType(scope, inst.base.src, ty);
 }

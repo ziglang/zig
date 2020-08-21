@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 pub const Channel = @import("event/channel.zig").Channel;
 pub const Future = @import("event/future.zig").Future;
 pub const Group = @import("event/group.zig").Group;

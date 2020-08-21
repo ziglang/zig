@@ -194,10 +194,22 @@ pub const Inst = struct {
         shl,
         /// Integer shift-right. Arithmetic or logical depending on the signedness of the integer type.
         shr,
-        /// Create a const pointer type based on the element type. `*const T`
+        /// Create a const pointer type with element type T. `*const T`
         single_const_ptr_type,
-        /// Create a mutable pointer type based on the element type. `*T`
+        /// Create a mutable pointer type with element type T. `*T`
         single_mut_ptr_type,
+        /// Create a const pointer type with element type T. `[*]const T`
+        many_const_ptr_type,
+        /// Create a mutable pointer type with element type T. `[*]T`
+        many_mut_ptr_type,
+        /// Create a const pointer type with element type T. `[*c]const T`
+        c_const_ptr_type,
+        /// Create a mutable pointer type with element type T. `[*c]T`
+        c_mut_ptr_type,
+        /// Create a mutable slice type with element type T. `[]T`
+        mut_slice_type,
+        /// Create a const slice type with element type T. `[]T`
+        const_slice_type,
         /// Create a pointer type with attributes
         ptr_type,
         /// Write a value to a pointer. For loading, see `deref`.
@@ -262,6 +274,12 @@ pub const Inst = struct {
                 .typeof,
                 .single_const_ptr_type,
                 .single_mut_ptr_type,
+                .many_const_ptr_type,
+                .many_mut_ptr_type,
+                .c_const_ptr_type,
+                .c_mut_ptr_type,
+                .mut_slice_type,
+                .const_slice_type,
                 .optional_type,
                 .unwrap_optional_safe,
                 .unwrap_optional_unsafe,
@@ -400,6 +418,12 @@ pub const Inst = struct {
                 .shr,
                 .single_const_ptr_type,
                 .single_mut_ptr_type,
+                .many_const_ptr_type,
+                .many_mut_ptr_type,
+                .c_const_ptr_type,
+                .c_mut_ptr_type,
+                .mut_slice_type,
+                .const_slice_type,
                 .store,
                 .str,
                 .sub,
@@ -856,9 +880,10 @@ pub const Inst = struct {
             @"align": ?*Inst = null,
             align_bit_start: ?*Inst = null,
             align_bit_end: ?*Inst = null,
-            @"const": bool = true,
+            mutable: bool = true,
             @"volatile": bool = false,
             sentinel: ?*Inst = null,
+            size: std.builtin.TypeInfo.Pointer.Size = .One,
         },
     };
 
@@ -1752,6 +1777,9 @@ const EmitZIR = struct {
                 const decl_ref = try self.emitDeclRef(inst.src, declref.decl);
                 try new_body.instructions.append(decl_ref);
                 break :blk decl_ref;
+            } else if (const_inst.val.cast(Value.Payload.Variable)) |var_pl| blk: {
+                const owner_decl = var_pl.variable.owner_decl;
+                break :blk try self.emitDeclVal(inst.src, mem.spanZ(owner_decl.name));
             } else blk: {
                 break :blk (try self.emitTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val })).inst;
             };
@@ -1875,6 +1903,11 @@ const EmitZIR = struct {
         if (typed_value.val.cast(Value.Payload.DeclRef)) |decl_ref| {
             const decl = decl_ref.decl;
             return try self.emitUnnamedDecl(try self.emitDeclRef(src, decl));
+        } else if (typed_value.val.cast(Value.Payload.Variable)) |variable| {
+            return self.emitTypedValue(src, .{
+                .ty = typed_value.ty,
+                .val = variable.variable.init,
+            });
         }
         if (typed_value.val.isUndef()) {
             const as_inst = try self.arena.allocator.create(Inst.BinOp);
@@ -1964,6 +1997,21 @@ const EmitZIR = struct {
                 return self.emitPrimitive(src, .@"true")
             else
                 return self.emitPrimitive(src, .@"false"),
+            .EnumLiteral => {
+                const enum_literal = @fieldParentPtr(Value.Payload.Bytes, "base", typed_value.val.ptr_otherwise);
+                const inst = try self.arena.allocator.create(Inst.Str);
+                inst.* = .{
+                    .base = .{
+                        .src = src,
+                        .tag = .enum_literal,
+                    },
+                    .positionals = .{
+                        .bytes = enum_literal.data,
+                    },
+                    .kw_args = .{},
+                };
+                return self.emitUnnamedDecl(&inst.base);
+            },
             else => |t| std.debug.panic("TODO implement emitTypedValue for {}", .{@tagName(t)}),
         }
     }
@@ -2311,6 +2359,8 @@ const EmitZIR = struct {
                     };
                     break :blk &new_inst.base;
                 },
+
+                .varptr => @panic("TODO"),
             };
             try self.metadata.put(new_inst, .{ .deaths = inst.deaths });
             try instructions.append(new_inst);
@@ -2418,7 +2468,7 @@ const EmitZIR = struct {
                     }
                 },
                 .Optional => {
-                    var buf: Type.Payload.Pointer = undefined;
+                    var buf: Type.Payload.PointerSimple = undefined;
                     const inst = try self.arena.allocator.create(Inst.UnOp);
                     inst.* = .{
                         .base = .{
@@ -2431,6 +2481,51 @@ const EmitZIR = struct {
                         .kw_args = .{},
                     };
                     return self.emitUnnamedDecl(&inst.base);
+                },
+                .Array => {
+                    var len_pl = Value.Payload.Int_u64{ .int = ty.arrayLen() };
+                    const len = Value.initPayload(&len_pl.base);
+
+                    const inst = if (ty.arraySentinel()) |sentinel| blk: {
+                        const inst = try self.arena.allocator.create(Inst.ArrayTypeSentinel);
+                        inst.* = .{
+                            .base = .{
+                                .src = src,
+                                .tag = .array_type,
+                            },
+                            .positionals = .{
+                                .len = (try self.emitTypedValue(src, .{
+                                    .ty = Type.initTag(.usize),
+                                    .val = len,
+                                })).inst,
+                                .sentinel = (try self.emitTypedValue(src, .{
+                                    .ty = ty.elemType(),
+                                    .val = sentinel,
+                                })).inst,
+                                .elem_type = (try self.emitType(src, ty.elemType())).inst,
+                            },
+                            .kw_args = .{},
+                        };
+                        break :blk &inst.base;
+                    } else blk: {
+                        const inst = try self.arena.allocator.create(Inst.BinOp);
+                        inst.* = .{
+                            .base = .{
+                                .src = src,
+                                .tag = .array_type,
+                            },
+                            .positionals = .{
+                                .lhs = (try self.emitTypedValue(src, .{
+                                    .ty = Type.initTag(.usize),
+                                    .val = len,
+                                })).inst,
+                                .rhs = (try self.emitType(src, ty.elemType())).inst,
+                            },
+                            .kw_args = .{},
+                        };
+                        break :blk &inst.base;
+                    };
+                    return self.emitUnnamedDecl(inst);
                 },
                 else => std.debug.panic("TODO implement emitType for {}", .{ty}),
             },

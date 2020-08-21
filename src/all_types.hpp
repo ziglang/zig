@@ -1420,6 +1420,7 @@ struct ZigTypeStruct {
     bool requires_comptime;
     bool resolve_loop_flag_zero_bits;
     bool resolve_loop_flag_other;
+    bool created_by_at_type;
 };
 
 struct ZigTypeOptional {

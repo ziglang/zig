@@ -684,6 +684,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .unreach => return MCValue{ .unreach = {} },
                 .unwrap_optional => return self.genUnwrapOptional(inst.castTag(.unwrap_optional).?),
                 .wrap_optional => return self.genWrapOptional(inst.castTag(.wrap_optional).?),
+                .varptr => return self.genVarPtr(inst.castTag(.varptr).?),
             }
         }
 
@@ -858,6 +859,26 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
+        fn genVarPtr(self: *Self, inst: *ir.Inst.VarPtr) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement varptr for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        fn reuseOperand(inst: *ir.Inst, op_index: ir.Inst.DeathsBitIndex, mcv: MCValue) bool {
+            if (!inst.operandDies(op_index) or !mcv.isMutable())
+                return false;
+
+            // OK we're going to do it, but we need to clear the operand death bit so that
+            // it stays allocated.
+            inst.clearOperandDeath(op_index);
+            return true;
+        }
+
         fn genLoad(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
             const elem_ty = inst.base.ty;
             if (!elem_ty.hasCodeGenBits())
@@ -867,9 +888,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             if (inst.base.isUnused() and !is_volatile)
                 return MCValue.dead;
             const dst_mcv: MCValue = blk: {
-                if (inst.base.operandDies(0) and ptr.isMutable()) {
+                if (reuseOperand(&inst.base, 0, ptr)) {
                     // The MCValue that holds the pointer can be re-used as the value.
-                    // TODO track this in the register/stack allocation metadata.
                     break :blk ptr;
                 } else {
                     break :blk try self.allocRegOrMem(&inst.base);
@@ -966,7 +986,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             var dst_mcv: MCValue = undefined;
             var src_mcv: MCValue = undefined;
             var src_inst: *ir.Inst = undefined;
-            if (inst.operandDies(0) and lhs.isMutable()) {
+            if (reuseOperand(inst, 0, lhs)) {
                 // LHS dies; use it as the destination.
                 // Both operands cannot be memory.
                 src_inst = op_rhs;
@@ -977,7 +997,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     dst_mcv = lhs;
                     src_mcv = rhs;
                 }
-            } else if (inst.operandDies(1) and rhs.isMutable()) {
+            } else if (reuseOperand(inst, 1, rhs)) {
                 // RHS dies; use it as the destination.
                 // Both operands cannot be memory.
                 src_inst = op_lhs;
@@ -2040,7 +2060,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         if (typed_value.val.isNull())
                             return MCValue{ .immediate = 0 };
 
-                        var buf: Type.Payload.Pointer = undefined;
+                        var buf: Type.Payload.PointerSimple = undefined;
                         return self.genTypedValue(src, .{
                             .ty = typed_value.ty.optionalChild(&buf),
                             .val = typed_value.val,

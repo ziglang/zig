@@ -138,7 +138,7 @@ void init_scope(CodeGen *g, Scope *dest, ScopeId id, AstNode *source_node, Scope
     dest->parent = parent;
 }
 
-static ScopeDecls *create_decls_scope(CodeGen *g, AstNode *node, Scope *parent, ZigType *container_type,
+ScopeDecls *create_decls_scope(CodeGen *g, AstNode *node, Scope *parent, ZigType *container_type,
         ZigType *import, Buf *bare_name)
 {
     ScopeDecls *scope = heap::c_allocator.create<ScopeDecls>();
@@ -2821,7 +2821,7 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
 
         src_assert(struct_type->data.structure.fields == nullptr, decl_node);
         struct_type->data.structure.fields = alloc_type_struct_fields(field_count);
-    } else if (is_anon_container(struct_type)) {
+    } else if (is_anon_container(struct_type) || struct_type->data.structure.created_by_at_type) {
         field_count = struct_type->data.structure.src_field_count;
 
         src_assert(field_count == 0 || struct_type->data.structure.fields != nullptr, decl_node);
@@ -2856,7 +2856,7 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
                 return ErrorSemanticAnalyzeFail;
             }
-        } else if (is_anon_container(struct_type)) {
+        } else if (is_anon_container(struct_type) || struct_type->data.structure.created_by_at_type) {
             field_node = type_struct_field->decl_node;
 
             src_assert(type_struct_field->type_entry != nullptr, field_node);
@@ -2883,7 +2883,7 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
             type_struct_field->type_val = field_type_val;
             if (struct_type->data.structure.resolve_status == ResolveStatusInvalid)
                 return ErrorSemanticAnalyzeFail;
-        } else if (is_anon_container(struct_type)) {
+        } else if (is_anon_container(struct_type) || struct_type->data.structure.created_by_at_type) {
             field_type_val = type_struct_field->type_val;
         } else zig_unreachable();
 
@@ -8331,7 +8331,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     ZigLLVMDIFile *di_file;
     ZigLLVMDIScope *di_scope;
     unsigned line;
-    if (decl_node != nullptr) {
+    if (decl_node != nullptr && !struct_type->data.structure.created_by_at_type) {
         Scope *scope = &struct_type->data.structure.decls_scope->base;
         ZigType *import = get_scope_import(scope);
         di_file = import->data.structure.root_struct->di_file;

@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std.zig");
 const builtin = std.builtin;
 const io = std.io;
@@ -558,6 +563,7 @@ fn preadNoEof(file: std.fs.File, buf: []u8, offset: u64) !void {
             error.InputOutput => return error.FileSystem,
             error.Unexpected => return error.Unexpected,
             error.WouldBlock => return error.Unexpected,
+            error.NotOpenForReading => return error.Unexpected,
             error.AccessDenied => return error.Unexpected,
         };
         if (len == 0) return error.UnexpectedEndOfFile;
