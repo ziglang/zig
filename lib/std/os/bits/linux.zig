@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
@@ -19,7 +24,7 @@ pub usingnamespace switch (builtin.arch) {
 };
 
 pub usingnamespace @import("linux/netlink.zig");
-pub const bpf = @import("linux/bpf.zig");
+pub const BPF = @import("linux/bpf.zig");
 
 const is_mips = builtin.arch.isMIPS();
 
@@ -769,6 +774,9 @@ pub fn S_ISLNK(m: u32) bool {
 pub fn S_ISSOCK(m: u32) bool {
     return m & S_IFMT == S_IFSOCK;
 }
+
+pub const UTIME_NOW = 0x3fffffff;
+pub const UTIME_OMIT = 0x3ffffffe;
 
 pub const TFD_NONBLOCK = O_NONBLOCK;
 pub const TFD_CLOEXEC = O_CLOEXEC;

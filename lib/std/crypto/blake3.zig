@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Translated from BLAKE3 reference implementation.
 // Source: https://github.com/BLAKE3-team/BLAKE3
 
@@ -274,6 +279,9 @@ fn parent_cv(
 
 /// An incremental hasher that can accept any number of writes.
 pub const Blake3 = struct {
+    pub const Options = struct { key: ?[KEY_LEN]u8 = null };
+    pub const KdfOptions = struct {};
+
     chunk_state: ChunkState,
     key: [8]u32,
     cv_stack: [54][8]u32 = undefined, // Space for 54 subtree chaining values:
@@ -291,21 +299,20 @@ pub const Blake3 = struct {
         };
     }
 
-    /// Construct a new `Blake3` for the regular hash function.
-    pub fn init() Blake3 {
-        return Blake3.init_internal(IV, 0);
-    }
-
-    /// Construct a new `Blake3` for the keyed hash function.
-    pub fn init_keyed(key: [KEY_LEN]u8) Blake3 {
-        var key_words: [8]u32 = undefined;
-        words_from_little_endian_bytes(key_words[0..], key[0..]);
-        return Blake3.init_internal(key_words, KEYED_HASH);
+    /// Construct a new `Blake3` for the hash function, with an optional key
+    pub fn init(options: Options) Blake3 {
+        if (options.key) |key| {
+            var key_words: [8]u32 = undefined;
+            words_from_little_endian_bytes(key_words[0..], key[0..]);
+            return Blake3.init_internal(key_words, KEYED_HASH);
+        } else {
+            return Blake3.init_internal(IV, 0);
+        }
     }
 
     /// Construct a new `Blake3` for the key derivation function. The context
     /// string should be hardcoded, globally unique, and application-specific.
-    pub fn init_derive_key(context: []const u8) Blake3 {
+    pub fn initKdf(context: []const u8, options: KdfOptions) Blake3 {
         var context_hasher = Blake3.init_internal(IV, DERIVE_KEY_CONTEXT);
         context_hasher.update(context);
         var context_key: [KEY_LEN]u8 = undefined;
@@ -315,16 +322,10 @@ pub const Blake3 = struct {
         return Blake3.init_internal(context_key_words, DERIVE_KEY_MATERIAL);
     }
 
-    pub fn hash(in: []const u8, out: []u8) void {
-        var hasher = Blake3.init();
+    pub fn hash(in: []const u8, out: []u8, options: Options) void {
+        var hasher = Blake3.init(options);
         hasher.update(in);
         hasher.final(out);
-    }
-
-    /// Reset the `Blake3` to its initial state.
-    pub fn reset(self: *Blake3) void {
-        self.chunk_state = ChunkState.init(self.key, 0, self.flags);
-        self.cv_stack_len = 0;
     }
 
     fn push_cv(self: *Blake3, cv: [8]u32) void {
@@ -561,6 +562,9 @@ const reference_test = ReferenceTest{
 };
 
 fn test_blake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) void {
+    // Save initial state
+    const initial_state = hasher.*;
+
     // Setup input pattern
     var input_pattern: [251]u8 = undefined;
     for (input_pattern) |*e, i| e.* = @truncate(u8, i);
@@ -576,18 +580,20 @@ fn test_blake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) void {
     // Read final hash value
     var actual_bytes: [expected_hex.len / 2]u8 = undefined;
     hasher.final(actual_bytes[0..]);
-    hasher.reset();
 
     // Compare to expected value
     var expected_bytes: [expected_hex.len / 2]u8 = undefined;
     fmt.hexToBytes(expected_bytes[0..], expected_hex[0..]) catch unreachable;
     testing.expectEqual(actual_bytes, expected_bytes);
+
+    // Restore initial state
+    hasher.* = initial_state;
 }
 
 test "BLAKE3 reference test cases" {
-    var hash = &Blake3.init();
-    var keyed_hash = &Blake3.init_keyed(reference_test.key.*);
-    var derive_key = &Blake3.init_derive_key(reference_test.context_string);
+    var hash = &Blake3.init(.{});
+    var keyed_hash = &Blake3.init(.{ .key = reference_test.key.* });
+    var derive_key = &Blake3.initKdf(reference_test.context_string, .{});
 
     for (reference_test.cases) |t| {
         test_blake3(hash, t.input_len, t.hash.*);

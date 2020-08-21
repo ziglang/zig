@@ -38,7 +38,7 @@ pub fn build(b: *Builder) !void {
     const test_step = b.step("test", "Run all the tests");
 
     var test_stage2 = b.addTest("src-self-hosted/test.zig");
-    test_stage2.setBuildMode(.Debug); // note this is only the mode of the test harness
+    test_stage2.setBuildMode(mode);
     test_stage2.addPackagePath("stage2_tests", "test/stage2/test.zig");
 
     const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});

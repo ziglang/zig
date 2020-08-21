@@ -42,6 +42,11 @@ pub const Inst = struct {
         return @truncate(u1, self.deaths >> index) != 0;
     }
 
+    pub fn clearOperandDeath(self: *Inst, index: DeathsBitIndex) void {
+        assert(index < deaths_bits);
+        self.deaths &= ~(@as(DeathsInt, 1) << index);
+    }
+
     pub fn specialOperandDeaths(self: Inst) bool {
         return (self.deaths & (1 << deaths_bits)) != 0;
     }
@@ -76,6 +81,7 @@ pub const Inst = struct {
         ref,
         ret,
         retvoid,
+        varptr,
         /// Write a value to a pointer. LHS is pointer, RHS is value.
         store,
         sub,
@@ -130,6 +136,7 @@ pub const Inst = struct {
                 .condbr => CondBr,
                 .constant => Constant,
                 .loop => Loop,
+                .varptr => VarPtr,
             };
         }
 
@@ -426,6 +433,20 @@ pub const Inst = struct {
             return 0;
         }
         pub fn getOperand(self: *const Loop, index: usize) ?*Inst {
+            return null;
+        }
+    };
+
+    pub const VarPtr = struct {
+        pub const base_tag = Tag.varptr;
+
+        base: Inst,
+        variable: *Module.Var,
+
+        pub fn operandCount(self: *const VarPtr) usize {
+            return 0;
+        }
+        pub fn getOperand(self: *const VarPtr, index: usize) ?*Inst {
             return null;
         }
     };

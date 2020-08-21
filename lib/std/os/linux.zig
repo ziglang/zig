@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // This file provides the system interface functions for Linux matching those
 // that are provided by libc, whether or not libc is linked. The following
 // abstractions are made:
@@ -1214,6 +1219,10 @@ pub fn copy_file_range(fd_in: fd_t, off_in: ?*i64, fd_out: fd_t, off_out: ?*i64,
         len,
         flags,
     );
+}
+
+pub fn bpf(cmd: BPF.Cmd, attr: *BPF.Attr, size: u32) usize {
+    return syscall3(.bpf, @enumToInt(cmd), @ptrToInt(attr), size);
 }
 
 test "" {

@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 //! Platform-dependent types and values that are used along with OS-specific APIs.
 //! These are imported into `std.c`, `std.os`, and `std.os.linux`.
 //! Root source files can define `os.bits` and these will additionally be added

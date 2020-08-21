@@ -59,20 +59,20 @@ pub const GenerateSymbolError = error{
 };
 
 pub fn generateSymbol(
-    bin_file: *link.File.Elf,
+    bin_file: *link.File,
     src: usize,
     typed_value: TypedValue,
     code: *std.ArrayList(u8),
     dbg_line: *std.ArrayList(u8),
     dbg_info: *std.ArrayList(u8),
-    dbg_info_type_relocs: *link.File.Elf.DbgInfoTypeRelocsTable,
+    dbg_info_type_relocs: *link.File.DbgInfoTypeRelocsTable,
 ) GenerateSymbolError!Result {
     const tracy = trace(@src());
     defer tracy.end();
 
     switch (typed_value.ty.zigTypeTag()) {
         .Fn => {
-            switch (bin_file.base.options.target.cpu.arch) {
+            switch (bin_file.options.target.cpu.arch) {
                 .wasm32 => unreachable, // has its own code path
                 .wasm64 => unreachable, // has its own code path
                 //.arm => return Function(.arm).generateSymbol(bin_file, src, typed_value, code, dbg_line, dbg_info, dbg_info_type_relocs),
@@ -151,7 +151,7 @@ pub fn generateSymbol(
             }
             return Result{
                 .fail = try ErrorMsg.create(
-                    bin_file.base.allocator,
+                    bin_file.allocator,
                     src,
                     "TODO implement generateSymbol for more kinds of arrays",
                     .{},
@@ -164,12 +164,11 @@ pub fn generateSymbol(
             if (typed_value.val.cast(Value.Payload.DeclRef)) |payload| {
                 const decl = payload.decl;
                 if (decl.analysis != .complete) return error.AnalysisFail;
-                assert(decl.link.elf.local_sym_index != 0);
                 // TODO handle the dependency of this symbol on the decl's vaddr.
                 // If the decl changes vaddr, then this symbol needs to get regenerated.
-                const vaddr = bin_file.local_symbols.items[decl.link.elf.local_sym_index].st_value;
-                const endian = bin_file.base.options.target.cpu.arch.endian();
-                switch (bin_file.base.options.target.cpu.arch.ptrBitWidth()) {
+                const vaddr = bin_file.getDeclVAddr(decl);
+                const endian = bin_file.options.target.cpu.arch.endian();
+                switch (bin_file.options.target.cpu.arch.ptrBitWidth()) {
                     16 => {
                         try code.resize(2);
                         mem.writeInt(u16, code.items[0..2], @intCast(u16, vaddr), endian);
@@ -188,7 +187,7 @@ pub fn generateSymbol(
             }
             return Result{
                 .fail = try ErrorMsg.create(
-                    bin_file.base.allocator,
+                    bin_file.allocator,
                     src,
                     "TODO implement generateSymbol for pointer {}",
                     .{typed_value.val},
@@ -198,7 +197,7 @@ pub fn generateSymbol(
         .Int => {
             // TODO populate .debug_info for the integer
 
-            const info = typed_value.ty.intInfo(bin_file.base.options.target);
+            const info = typed_value.ty.intInfo(bin_file.options.target);
             if (info.bits == 8 and !info.signed) {
                 const x = typed_value.val.toUnsignedInt();
                 try code.append(@intCast(u8, x));
@@ -206,7 +205,7 @@ pub fn generateSymbol(
             }
             return Result{
                 .fail = try ErrorMsg.create(
-                    bin_file.base.allocator,
+                    bin_file.allocator,
                     src,
                     "TODO implement generateSymbol for int type '{}'",
                     .{typed_value.ty},
@@ -216,7 +215,7 @@ pub fn generateSymbol(
         else => |t| {
             return Result{
                 .fail = try ErrorMsg.create(
-                    bin_file.base.allocator,
+                    bin_file.allocator,
                     src,
                     "TODO implement generateSymbol for type '{}'",
                     .{@tagName(t)},
@@ -234,13 +233,13 @@ const InnerError = error{
 fn Function(comptime arch: std.Target.Cpu.Arch) type {
     return struct {
         gpa: *Allocator,
-        bin_file: *link.File.Elf,
+        bin_file: *link.File,
         target: *const std.Target,
         mod_fn: *const Module.Fn,
         code: *std.ArrayList(u8),
         dbg_line: *std.ArrayList(u8),
         dbg_info: *std.ArrayList(u8),
-        dbg_info_type_relocs: *link.File.Elf.DbgInfoTypeRelocsTable,
+        dbg_info_type_relocs: *link.File.DbgInfoTypeRelocsTable,
         err_msg: ?*ErrorMsg,
         args: []MCValue,
         ret_mcv: MCValue,
@@ -405,22 +404,22 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         const Self = @This();
 
         fn generateSymbol(
-            bin_file: *link.File.Elf,
+            bin_file: *link.File,
             src: usize,
             typed_value: TypedValue,
             code: *std.ArrayList(u8),
             dbg_line: *std.ArrayList(u8),
             dbg_info: *std.ArrayList(u8),
-            dbg_info_type_relocs: *link.File.Elf.DbgInfoTypeRelocsTable,
+            dbg_info_type_relocs: *link.File.DbgInfoTypeRelocsTable,
         ) GenerateSymbolError!Result {
             const module_fn = typed_value.val.cast(Value.Payload.Function).?.func;
 
             const fn_type = module_fn.owner_decl.typed_value.most_recent.typed_value.ty;
 
-            var branch_stack = std.ArrayList(Branch).init(bin_file.base.allocator);
+            var branch_stack = std.ArrayList(Branch).init(bin_file.allocator);
             defer {
                 assert(branch_stack.items.len == 1);
-                branch_stack.items[0].deinit(bin_file.base.allocator);
+                branch_stack.items[0].deinit(bin_file.allocator);
                 branch_stack.deinit();
             }
             const branch = try branch_stack.addOne();
@@ -443,8 +442,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             };
 
             var function = Self{
-                .gpa = bin_file.base.allocator,
-                .target = &bin_file.base.options.target,
+                .gpa = bin_file.allocator,
+                .target = &bin_file.options.target,
                 .bin_file = bin_file,
                 .mod_fn = module_fn,
                 .code = code,
@@ -464,7 +463,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .rbrace_src = src_data.rbrace_src,
                 .source = src_data.source,
             };
-            defer function.exitlude_jump_relocs.deinit(bin_file.base.allocator);
+            defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
 
             var call_info = function.resolveCallingConventionValues(src, fn_type) catch |err| switch (err) {
                 error.CodegenFail => return Result{ .fail = function.err_msg.? },
@@ -684,6 +683,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .unreach => return MCValue{ .unreach = {} },
                 .unwrap_optional => return self.genUnwrapOptional(inst.castTag(.unwrap_optional).?),
                 .wrap_optional => return self.genWrapOptional(inst.castTag(.wrap_optional).?),
+                .varptr => return self.genVarPtr(inst.castTag(.varptr).?),
             }
         }
 
@@ -858,6 +858,26 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
         }
 
+        fn genVarPtr(self: *Self, inst: *ir.Inst.VarPtr) !MCValue {
+            // No side effects, so if it's unreferenced, do nothing.
+            if (inst.base.isUnused())
+                return MCValue.dead;
+
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO implement varptr for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        fn reuseOperand(inst: *ir.Inst, op_index: ir.Inst.DeathsBitIndex, mcv: MCValue) bool {
+            if (!inst.operandDies(op_index) or !mcv.isMutable())
+                return false;
+
+            // OK we're going to do it, but we need to clear the operand death bit so that
+            // it stays allocated.
+            inst.clearOperandDeath(op_index);
+            return true;
+        }
+
         fn genLoad(self: *Self, inst: *ir.Inst.UnOp) !MCValue {
             const elem_ty = inst.base.ty;
             if (!elem_ty.hasCodeGenBits())
@@ -867,9 +887,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             if (inst.base.isUnused() and !is_volatile)
                 return MCValue.dead;
             const dst_mcv: MCValue = blk: {
-                if (inst.base.operandDies(0) and ptr.isMutable()) {
+                if (reuseOperand(&inst.base, 0, ptr)) {
                     // The MCValue that holds the pointer can be re-used as the value.
-                    // TODO track this in the register/stack allocation metadata.
                     break :blk ptr;
                 } else {
                     break :blk try self.allocRegOrMem(&inst.base);
@@ -966,7 +985,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             var dst_mcv: MCValue = undefined;
             var src_mcv: MCValue = undefined;
             var src_inst: *ir.Inst = undefined;
-            if (inst.operandDies(0) and lhs.isMutable()) {
+            if (reuseOperand(inst, 0, lhs)) {
                 // LHS dies; use it as the destination.
                 // Both operands cannot be memory.
                 src_inst = op_rhs;
@@ -977,7 +996,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     dst_mcv = lhs;
                     src_mcv = rhs;
                 }
-            } else if (inst.operandDies(1) and rhs.isMutable()) {
+            } else if (reuseOperand(inst, 1, rhs)) {
                 // RHS dies; use it as the destination.
                 // Both operands cannot be memory.
                 src_inst = op_lhs;
@@ -1124,80 +1143,88 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             var info = try self.resolveCallingConventionValues(inst.base.src, inst.func.ty);
             defer info.deinit(self);
 
-            switch (arch) {
-                .x86_64 => {
-                    for (info.args) |mc_arg, arg_i| {
-                        const arg = inst.args[arg_i];
-                        const arg_mcv = try self.resolveInst(inst.args[arg_i]);
-                        // Here we do not use setRegOrMem even though the logic is similar, because
-                        // the function call will move the stack pointer, so the offsets are different.
-                        switch (mc_arg) {
-                            .none => continue,
-                            .register => |reg| {
-                                try self.genSetReg(arg.src, reg, arg_mcv);
-                                // TODO interact with the register allocator to mark the instruction as moved.
-                            },
-                            .stack_offset => {
-                                // Here we need to emit instructions like this:
-                                // mov     qword ptr [rsp + stack_offset], x
-                                return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
-                            },
-                            .ptr_stack_offset => {
-                                return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_stack_offset arg", .{});
-                            },
-                            .ptr_embedded_in_code => {
-                                return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
-                            },
-                            .undef => unreachable,
-                            .immediate => unreachable,
-                            .unreach => unreachable,
-                            .dead => unreachable,
-                            .embedded_in_code => unreachable,
-                            .memory => unreachable,
-                            .compare_flags_signed => unreachable,
-                            .compare_flags_unsigned => unreachable,
+            // Due to incremental compilation, how function calls are generated depends
+            // on linking.
+            if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+                switch (arch) {
+                    .x86_64 => {
+                        for (info.args) |mc_arg, arg_i| {
+                            const arg = inst.args[arg_i];
+                            const arg_mcv = try self.resolveInst(inst.args[arg_i]);
+                            // Here we do not use setRegOrMem even though the logic is similar, because
+                            // the function call will move the stack pointer, so the offsets are different.
+                            switch (mc_arg) {
+                                .none => continue,
+                                .register => |reg| {
+                                    try self.genSetReg(arg.src, reg, arg_mcv);
+                                    // TODO interact with the register allocator to mark the instruction as moved.
+                                },
+                                .stack_offset => {
+                                    // Here we need to emit instructions like this:
+                                    // mov     qword ptr [rsp + stack_offset], x
+                                    return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
+                                },
+                                .ptr_stack_offset => {
+                                    return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_stack_offset arg", .{});
+                                },
+                                .ptr_embedded_in_code => {
+                                    return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
+                                },
+                                .undef => unreachable,
+                                .immediate => unreachable,
+                                .unreach => unreachable,
+                                .dead => unreachable,
+                                .embedded_in_code => unreachable,
+                                .memory => unreachable,
+                                .compare_flags_signed => unreachable,
+                                .compare_flags_unsigned => unreachable,
+                            }
                         }
-                    }
 
-                    if (inst.func.cast(ir.Inst.Constant)) |func_inst| {
-                        if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
-                            const func = func_val.func;
-                            const got = &self.bin_file.program_headers.items[self.bin_file.phdr_got_index.?];
-                            const ptr_bits = self.target.cpu.arch.ptrBitWidth();
-                            const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-                            const got_addr = @intCast(u32, got.p_vaddr + func.owner_decl.link.elf.offset_table_index * ptr_bytes);
-                            // ff 14 25 xx xx xx xx    call [addr]
-                            try self.code.ensureCapacity(self.code.items.len + 7);
-                            self.code.appendSliceAssumeCapacity(&[3]u8{ 0xff, 0x14, 0x25 });
-                            mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), got_addr);
+                        if (inst.func.cast(ir.Inst.Constant)) |func_inst| {
+                            if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
+                                const func = func_val.func;
+                                const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
+                                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+                                const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+                                const got_addr = @intCast(u32, got.p_vaddr + func.owner_decl.link.elf.offset_table_index * ptr_bytes);
+                                // ff 14 25 xx xx xx xx    call [addr]
+                                try self.code.ensureCapacity(self.code.items.len + 7);
+                                self.code.appendSliceAssumeCapacity(&[3]u8{ 0xff, 0x14, 0x25 });
+                                mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), got_addr);
+                            } else {
+                                return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
+                            }
                         } else {
-                            return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
+                            return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
                         }
-                    } else {
-                        return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
-                    }
-                },
-                .riscv64 => {
-                    if (info.args.len > 0) return self.fail(inst.base.src, "TODO implement fn args for {}", .{self.target.cpu.arch});
+                    },
+                    .riscv64 => {
+                        if (info.args.len > 0) return self.fail(inst.base.src, "TODO implement fn args for {}", .{self.target.cpu.arch});
 
-                    if (inst.func.cast(ir.Inst.Constant)) |func_inst| {
-                        if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
-                            const func = func_val.func;
-                            const got = &self.bin_file.program_headers.items[self.bin_file.phdr_got_index.?];
-                            const ptr_bits = self.target.cpu.arch.ptrBitWidth();
-                            const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-                            const got_addr = @intCast(u32, got.p_vaddr + func.owner_decl.link.elf.offset_table_index * ptr_bytes);
+                        if (inst.func.cast(ir.Inst.Constant)) |func_inst| {
+                            if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
+                                const func = func_val.func;
+                                const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
+                                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+                                const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+                                const got_addr = @intCast(u32, got.p_vaddr + func.owner_decl.link.elf.offset_table_index * ptr_bytes);
 
-                            try self.genSetReg(inst.base.src, .ra, .{ .memory = got_addr });
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.jalr(.ra, 0, .ra).toU32());
+                                try self.genSetReg(inst.base.src, .ra, .{ .memory = got_addr });
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.jalr(.ra, 0, .ra).toU32());
+                            } else {
+                                return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
+                            }
                         } else {
-                            return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
+                            return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
                         }
-                    } else {
-                        return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
-                    }
-                },
-                else => return self.fail(inst.base.src, "TODO implement call for {}", .{self.target.cpu.arch}),
+                    },
+                    else => return self.fail(inst.base.src, "TODO implement call for {}", .{self.target.cpu.arch}),
+                }
+            } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                return self.fail(inst.base.src, "TODO implement codegen for call when linking with MachO", .{});
+            } else {
+                unreachable;
             }
 
             return info.return_value;
@@ -2016,10 +2043,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             switch (typed_value.ty.zigTypeTag()) {
                 .Pointer => {
                     if (typed_value.val.cast(Value.Payload.DeclRef)) |payload| {
-                        const got = &self.bin_file.program_headers.items[self.bin_file.phdr_got_index.?];
-                        const decl = payload.decl;
-                        const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
-                        return MCValue{ .memory = got_addr };
+                        if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+                            const decl = payload.decl;
+                            const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
+                            const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
+                            return MCValue{ .memory = got_addr };
+                        } else {
+                            return self.fail(src, "TODO codegen non-ELF const Decl pointer", .{});
+                        }
                     }
                     return self.fail(src, "TODO codegen more kinds of const pointers", .{});
                 },
@@ -2040,7 +2071,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         if (typed_value.val.isNull())
                             return MCValue{ .immediate = 0 };
 
-                        var buf: Type.Payload.Pointer = undefined;
+                        var buf: Type.Payload.PointerSimple = undefined;
                         return self.genTypedValue(src, .{
                             .ty = typed_value.ty.optionalChild(&buf),
                             .val = typed_value.val,
@@ -2147,7 +2178,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         /// TODO support scope overrides. Also note this logic is duplicated with `Module.wantSafety`.
         fn wantSafety(self: *Self) bool {
-            return switch (self.bin_file.base.options.optimize_mode) {
+            return switch (self.bin_file.options.optimize_mode) {
                 .Debug => true,
                 .ReleaseSafe => true,
                 .ReleaseFast => false,
@@ -2158,7 +2189,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn fail(self: *Self, src: usize, comptime format: []const u8, args: anytype) InnerError {
             @setCold(true);
             assert(self.err_msg == null);
-            self.err_msg = try ErrorMsg.create(self.bin_file.base.allocator, src, format, args);
+            self.err_msg = try ErrorMsg.create(self.bin_file.allocator, src, format, args);
             return error.CodegenFail;
         }
 

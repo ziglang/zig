@@ -293,13 +293,14 @@ static void add_uwtable_attr(CodeGen *g, LLVMValueRef fn_val) {
     }
 }
 
-static LLVMLinkage to_llvm_linkage(GlobalLinkageId id) {
+static LLVMLinkage to_llvm_linkage(GlobalLinkageId id, bool is_extern) {
     switch (id) {
         case GlobalLinkageIdInternal:
             return LLVMInternalLinkage;
         case GlobalLinkageIdStrong:
             return LLVMExternalLinkage;
         case GlobalLinkageIdWeak:
+            if (is_extern) return LLVMExternalWeakLinkage;
             return LLVMWeakODRLinkage;
         case GlobalLinkageIdLinkOnce:
             return LLVMLinkOnceODRLinkage;
@@ -522,7 +523,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
     }
 
 
-    LLVMSetLinkage(llvm_fn, to_llvm_linkage(linkage));
+    LLVMSetLinkage(llvm_fn, to_llvm_linkage(linkage, fn->body_node == nullptr));
 
     if (linkage == GlobalLinkageIdInternal) {
         LLVMSetUnnamedAddr(llvm_fn, true);
@@ -7963,7 +7964,7 @@ static void do_code_gen(CodeGen *g) {
                 global_value = LLVMAddGlobal(g->module, get_llvm_type(g, var->var_type), symbol_name);
                 // TODO debug info for the extern variable
 
-                LLVMSetLinkage(global_value, to_llvm_linkage(linkage));
+                LLVMSetLinkage(global_value, to_llvm_linkage(linkage, true));
                 maybe_import_dll(g, global_value, GlobalLinkageIdStrong);
                 LLVMSetAlignment(global_value, var->align_bytes);
                 LLVMSetGlobalConstant(global_value, var->gen_is_const);
@@ -7976,7 +7977,7 @@ static void do_code_gen(CodeGen *g) {
             global_value = var->const_value->llvm_global;
 
             if (exported) {
-                LLVMSetLinkage(global_value, to_llvm_linkage(linkage));
+                LLVMSetLinkage(global_value, to_llvm_linkage(linkage, false));
                 maybe_export_dll(g, global_value, GlobalLinkageIdStrong);
             }
             if (var->section_name) {

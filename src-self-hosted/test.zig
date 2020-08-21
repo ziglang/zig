@@ -10,7 +10,7 @@ const enable_wine: bool = build_options.enable_wine;
 const enable_wasmtime: bool = build_options.enable_wasmtime;
 const glibc_multi_install_dir: ?[]const u8 = build_options.glibc_multi_install_dir;
 
-const cheader = @embedFile("cbe.h");
+const cheader = @embedFile("link/cbe.h");
 
 test "self-hosted" {
     var ctx = TestContext.init();

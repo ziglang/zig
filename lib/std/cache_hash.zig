@@ -1,5 +1,10 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std.zig");
-const Blake3 = std.crypto.Blake3;
+const Blake3 = std.crypto.hash.Blake3;
 const fs = std.fs;
 const base64 = std.base64;
 const ArrayList = std.ArrayList;
@@ -51,7 +56,7 @@ pub const CacheHash = struct {
     pub fn init(allocator: *Allocator, dir: fs.Dir, manifest_dir_path: []const u8) !CacheHash {
         return CacheHash{
             .allocator = allocator,
-            .blake3 = Blake3.init(),
+            .blake3 = Blake3.init(.{}),
             .manifest_dir = try dir.makeOpenPath(manifest_dir_path, .{}),
             .manifest_file = null,
             .manifest_dirty = false,
@@ -132,7 +137,7 @@ pub const CacheHash = struct {
 
         base64_encoder.encode(self.b64_digest[0..], &bin_digest);
 
-        self.blake3 = Blake3.init();
+        self.blake3 = Blake3.init(.{});
         self.blake3.update(&bin_digest);
 
         const manifest_file_path = try fmt.allocPrint(self.allocator, "{}.txt", .{self.b64_digest});
@@ -251,7 +256,7 @@ pub const CacheHash = struct {
             // cache miss
             // keep the manifest file open
             // reset the hash
-            self.blake3 = Blake3.init();
+            self.blake3 = Blake3.init(.{});
             self.blake3.update(&bin_digest);
 
             // Remove files not in the initial hash
@@ -299,7 +304,7 @@ pub const CacheHash = struct {
 
             // Hash while reading from disk, to keep the contents in the cpu cache while
             // doing hashing.
-            var blake3 = Blake3.init();
+            var blake3 = Blake3.init(.{});
             var off: usize = 0;
             while (true) {
                 // give me everything you've got, captain
@@ -429,7 +434,7 @@ pub const CacheHash = struct {
 };
 
 fn hashFile(file: fs.File, bin_digest: []u8) !void {
-    var blake3 = Blake3.init();
+    var blake3 = Blake3.init(.{});
     var buf: [1024]u8 = undefined;
 
     while (true) {

@@ -1,5 +1,65 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 usingnamespace std.os;
 const std = @import("../../../std.zig");
+const expectEqual = std.testing.expectEqual;
+const fd_t = std.os.fd_t;
+const pid_t = std.os.pid_t;
+
+// instruction classes
+pub const LD = 0x00;
+pub const LDX = 0x01;
+pub const ST = 0x02;
+pub const STX = 0x03;
+pub const ALU = 0x04;
+pub const JMP = 0x05;
+pub const RET = 0x06;
+pub const MISC = 0x07;
+
+/// 32-bit
+pub const W = 0x00;
+/// 16-bit
+pub const H = 0x08;
+/// 8-bit
+pub const B = 0x10;
+/// 64-bit
+pub const DW = 0x18;
+
+pub const IMM = 0x00;
+pub const ABS = 0x20;
+pub const IND = 0x40;
+pub const MEM = 0x60;
+pub const LEN = 0x80;
+pub const MSH = 0xa0;
+
+// alu fields
+pub const ADD = 0x00;
+pub const SUB = 0x10;
+pub const MUL = 0x20;
+pub const DIV = 0x30;
+pub const OR = 0x40;
+pub const AND = 0x50;
+pub const LSH = 0x60;
+pub const RSH = 0x70;
+pub const NEG = 0x80;
+pub const MOD = 0x90;
+pub const XOR = 0xa0;
+
+// jmp fields
+pub const JA = 0x00;
+pub const JEQ = 0x10;
+pub const JGT = 0x20;
+pub const JGE = 0x30;
+pub const JSET = 0x40;
+
+//#define BPF_SRC(code)   ((code) & 0x08)
+pub const K = 0x00;
+pub const X = 0x08;
+
+pub const MAXINSNS = 4096;
 
 // instruction classes
 /// jmp mode in word width
@@ -8,8 +68,6 @@ pub const JMP32 = 0x06;
 pub const ALU64 = 0x07;
 
 // ld/ldx fields
-/// double word (64-bit)
-pub const DW = 0x18;
 /// exclusive add
 pub const XADD = 0xc0;
 
@@ -148,6 +206,130 @@ pub const BPF_F_CLONE = 0x200;
 /// flag for BPF_MAP_CREATE command. Enable memory-mapping BPF map
 pub const BPF_F_MMAPABLE = 0x400;
 
+/// These values correspond to "syscalls" within the BPF program's environment
+pub const Helper = enum(i32) {
+    unspec,
+    map_lookup_elem,
+    map_update_elem,
+    map_delete_elem,
+    probe_read,
+    ktime_get_ns,
+    trace_printk,
+    get_prandom_u32,
+    get_smp_processor_id,
+    skb_store_bytes,
+    l3_csum_replace,
+    l4_csum_replace,
+    tail_call,
+    clone_redirect,
+    get_current_pid_tgid,
+    get_current_uid_gid,
+    get_current_comm,
+    get_cgroup_classid,
+    skb_vlan_push,
+    skb_vlan_pop,
+    skb_get_tunnel_key,
+    skb_set_tunnel_key,
+    perf_event_read,
+    redirect,
+    get_route_realm,
+    perf_event_output,
+    skb_load_bytes,
+    get_stackid,
+    csum_diff,
+    skb_get_tunnel_opt,
+    skb_set_tunnel_opt,
+    skb_change_proto,
+    skb_change_type,
+    skb_under_cgroup,
+    get_hash_recalc,
+    get_current_task,
+    probe_write_user,
+    current_task_under_cgroup,
+    skb_change_tail,
+    skb_pull_data,
+    csum_update,
+    set_hash_invalid,
+    get_numa_node_id,
+    skb_change_head,
+    xdp_adjust_head,
+    probe_read_str,
+    get_socket_cookie,
+    get_socket_uid,
+    set_hash,
+    setsockopt,
+    skb_adjust_room,
+    redirect_map,
+    sk_redirect_map,
+    sock_map_update,
+    xdp_adjust_meta,
+    perf_event_read_value,
+    perf_prog_read_value,
+    getsockopt,
+    override_return,
+    sock_ops_cb_flags_set,
+    msg_redirect_map,
+    msg_apply_bytes,
+    msg_cork_bytes,
+    msg_pull_data,
+    bind,
+    xdp_adjust_tail,
+    skb_get_xfrm_state,
+    get_stack,
+    skb_load_bytes_relative,
+    fib_lookup,
+    sock_hash_update,
+    msg_redirect_hash,
+    sk_redirect_hash,
+    lwt_push_encap,
+    lwt_seg6_store_bytes,
+    lwt_seg6_adjust_srh,
+    lwt_seg6_action,
+    rc_repeat,
+    rc_keydown,
+    skb_cgroup_id,
+    get_current_cgroup_id,
+    get_local_storage,
+    sk_select_reuseport,
+    skb_ancestor_cgroup_id,
+    sk_lookup_tcp,
+    sk_lookup_udp,
+    sk_release,
+    map_push_elem,
+    map_pop_elem,
+    map_peek_elem,
+    msg_push_data,
+    msg_pop_data,
+    rc_pointer_rel,
+    spin_lock,
+    spin_unlock,
+    sk_fullsock,
+    tcp_sock,
+    skb_ecn_set_ce,
+    get_listener_sock,
+    skc_lookup_tcp,
+    tcp_check_syncookie,
+    sysctl_get_name,
+    sysctl_get_current_value,
+    sysctl_get_new_value,
+    sysctl_set_new_value,
+    strtol,
+    strtoul,
+    sk_storage_get,
+    sk_storage_delete,
+    send_signal,
+    tcp_gen_syncookie,
+    skb_output,
+    probe_read_user,
+    probe_read_kernel,
+    probe_read_user_str,
+    probe_read_kernel_str,
+    tcp_send_ack,
+    send_signal_thread,
+    jiffies64,
+    _,
+};
+
 /// a single BPF instruction
 pub const Insn = packed struct {
     code: u8,
@@ -158,32 +340,168 @@ pub const Insn = packed struct {
 
     /// r0 - r9 are general purpose 64-bit registers, r10 points to the stack
     /// frame
-    pub const Reg = enum(u4) {
-        r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10
+    pub const Reg = packed enum(u4) { r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10 };
+    const Source = packed enum(u1) { reg, imm };
+    const AluOp = packed enum(u8) {
+        add = ADD,
+        sub = SUB,
+        mul = MUL,
+        div = DIV,
+        op_or = OR,
+        op_and = AND,
+        lsh = LSH,
+        rsh = RSH,
+        neg = NEG,
+        mod = MOD,
+        xor = XOR,
+        mov = MOV,
     };
 
-    const alu = 0x04;
-    const jmp = 0x05;
-    const mov = 0xb0;
-    const k = 0;
-    const exit_code = 0x90;
+    pub const Size = packed enum(u8) {
+        byte = B,
+        half_word = H,
+        word = W,
+        double_word = DW,
+    };
 
-    // TODO: implement more factory functions for the other instructions
-    /// load immediate value into a register
-    pub fn load_imm(dst: Reg, imm: i32) Insn {
+    const JmpOp = packed enum(u8) {
+        ja = JA,
+        jeq = JEQ,
+        jgt = JGT,
+        jge = JGE,
+        jset = JSET,
+    };
+
+    const ImmOrReg = union(Source) {
+        imm: i32,
+        reg: Reg,
+    };
+
+    fn imm_reg(code: u8, dst: Reg, src: anytype, off: i16) Insn {
+        const imm_or_reg = if (@typeInfo(@TypeOf(src)) == .EnumLiteral)
+            ImmOrReg{ .reg = @as(Reg, src) }
+        else
+            ImmOrReg{ .imm = src };
+
+        const src_type = switch (imm_or_reg) {
+            .imm => K,
+            .reg => X,
+        };
+
         return Insn{
-            .code = alu | mov | k,
+            .code = code | src_type,
             .dst = @enumToInt(dst),
+            .src = switch (imm_or_reg) {
+                .imm => 0,
+                .reg => |r| @enumToInt(r),
+            },
+            .off = off,
+            .imm = switch (imm_or_reg) {
+                .imm => |i| i,
+                .reg => 0,
+            },
+        };
+    }
+
+    fn alu(comptime width: comptime_int, op: AluOp, dst: Reg, src: anytype) Insn {
+        const width_bitfield = switch (width) {
+            32 => ALU,
+            64 => ALU64,
+            else => @compileError("width must be 32 or 64"),
+        };
+
+        return imm_reg(width_bitfield | @enumToInt(op), dst, src, 0);
+    }
+
+    pub fn mov(dst: Reg, src: anytype) Insn {
+        return alu(64, .mov, dst, src);
+    }
+
+    pub fn add(dst: Reg, src: anytype) Insn {
+        return alu(64, .add, dst, src);
+    }
+
+    fn jmp(op: JmpOp, dst: Reg, src: anytype, off: i16) Insn {
+        return imm_reg(JMP | @enumToInt(op), dst, src, off);
+    }
+
+    pub fn jeq(dst: Reg, src: anytype, off: i16) Insn {
+        return jmp(.jeq, dst, src, off);
+    }
+
+    pub fn stx_mem(size: Size, dst: Reg, src: Reg, off: i16) Insn {
+        return Insn{
+            .code = STX | @enumToInt(size) | MEM,
+            .dst = @enumToInt(dst),
+            .src = @enumToInt(src),
+            .off = off,
+            .imm = 0,
+        };
+    }
+
+    pub fn xadd(dst: Reg, src: Reg) Insn {
+        return Insn{
+            .code = STX | XADD | DW,
+            .dst = @enumToInt(dst),
+            .src = @enumToInt(src),
+            .off = 0,
+            .imm = 0,
+        };
+    }
+
+    /// direct packet access, R0 = *(uint *)(skb->data + imm32)
+    pub fn ld_abs(size: Size, imm: i32) Insn {
+        return Insn{
+            .code = LD | @enumToInt(size) | ABS,
+            .dst = 0,
             .src = 0,
             .off = 0,
             .imm = imm,
         };
     }
 
+    fn ld_imm_impl1(dst: Reg, src: Reg, imm: u64) Insn {
+        return Insn{
+            .code = LD | DW | IMM,
+            .dst = @enumToInt(dst),
+            .src = @enumToInt(src),
+            .off = 0,
+            .imm = @intCast(i32, @truncate(u32, imm)),
+        };
+    }
+
+    fn ld_imm_impl2(imm: u64) Insn {
+        return Insn{
+            .code = 0,
+            .dst = 0,
+            .src = 0,
+            .off = 0,
+            .imm = @intCast(i32, @truncate(u32, imm >> 32)),
+        };
+    }
+
+    pub fn ld_map_fd1(dst: Reg, map_fd: fd_t) Insn {
+        return ld_imm_impl1(dst, @intToEnum(Reg, PSEUDO_MAP_FD), @intCast(u64, map_fd));
+    }
+
+    pub fn ld_map_fd2(map_fd: fd_t) Insn {
+        return ld_imm_impl2(@intCast(u64, map_fd));
+    }
+
+    pub fn call(helper: Helper) Insn {
+        return Insn{
+            .code = JMP | CALL,
+            .dst = 0,
+            .src = 0,
+            .off = 0,
+            .imm = @enumToInt(helper),
+        };
+    }
+
     /// exit BPF program
     pub fn exit() Insn {
         return Insn{
-            .code = jmp | exit_code,
+            .code = JMP | EXIT,
             .dst = 0,
             .src = 0,
             .off = 0,
@@ -191,6 +509,61 @@ pub const Insn = packed struct {
         };
     }
 };
+
+fn expect_insn(insn: Insn, val: u64) void {
+    expectEqual(@bitCast(u64, insn), val);
+}
+
+test "insn bitsize" {
+    expectEqual(@bitSizeOf(Insn), 64);
+}
+
+// mov instructions
+test "mov imm" {
+    expect_insn(Insn.mov(.r1, 1), 0x00000001000001b7);
+}
+
+test "mov reg" {
+    expect_insn(Insn.mov(.r6, .r1), 0x00000000000016bf);
+}
+
+// alu instructions
+test "add imm" {
+    expect_insn(Insn.add(.r2, -4), 0xfffffffc00000207);
+}
+
+// ld instructions
+test "ld_abs" {
+    expect_insn(Insn.ld_abs(.byte, 42), 0x0000002a00000030);
+}
+
+test "ld_map_fd" {
+    expect_insn(Insn.ld_map_fd1(.r1, 42), 0x0000002a00001118);
+    expect_insn(Insn.ld_map_fd2(42), 0x0000000000000000);
+}
+
+// st instructions
+test "stx_mem" {
+    expect_insn(Insn.stx_mem(.word, .r10, .r0, -4), 0x00000000fffc0a63);
+}
+
+test "xadd" {
+    expect_insn(Insn.xadd(.r0, .r1), 0x00000000000010db);
+}
+
+// jmp instructions
+test "jeq imm" {
+    expect_insn(Insn.jeq(.r0, 0, 2), 0x0000000000020015);
+}
+
+// other instructions
+test "call" {
+    expect_insn(Insn.call(.map_lookup_elem), 0x0000000100000085);
+}
+
+test "exit" {
+    expect_insn(Insn.exit(), 0x0000000000000095);
+}
 
 pub const Cmd = extern enum(usize) {
     map_create,
@@ -600,7 +973,3 @@ pub const Attr = extern union {
     enable_stats: EnableStatsAttr,
     iter_create: IterCreateAttr,
 };
-
-pub fn bpf(cmd: Cmd, attr: *Attr, size: u32) usize {
-    return syscall3(.bpf, @enumToInt(cmd), @ptrToInt(attr), size);
-}

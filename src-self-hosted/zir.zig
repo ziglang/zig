@@ -47,6 +47,10 @@ pub const Inst = struct {
         array_cat,
         /// Array multiplication `a ** b`
         array_mul,
+        /// Create an array type
+        array_type,
+        /// Create an array type with sentinel
+        array_type_sentinel,
         /// Function parameter value. These must be first in a function's main block,
         /// in respective order with the parameters.
         arg,
@@ -58,11 +62,11 @@ pub const Inst = struct {
         bitand,
         /// TODO delete this instruction, it has no purpose.
         bitcast,
-        /// An arbitrary typed pointer, which is to be used as an L-Value, is pointer-casted
-        /// to a new L-Value. The destination type is given by LHS. The cast is to be evaluated
+        /// An arbitrary typed pointer is pointer-casted to a new Pointer.
+        /// The destination type is given by LHS. The cast is to be evaluated
         /// as if it were a bit-cast operation from the operand pointer element type to the
         /// provided destination type.
-        bitcast_lvalue,
+        bitcast_ref,
         /// A typed result location pointer is bitcasted to a new result location pointer.
         /// The new result location pointer has an inferred type.
         bitcast_result_ptr,
@@ -190,10 +194,22 @@ pub const Inst = struct {
         shl,
         /// Integer shift-right. Arithmetic or logical depending on the signedness of the integer type.
         shr,
-        /// Create a const pointer type based on the element type. `*const T`
+        /// Create a const pointer type with element type T. `*const T`
         single_const_ptr_type,
-        /// Create a mutable pointer type based on the element type. `*T`
+        /// Create a mutable pointer type with element type T. `*T`
         single_mut_ptr_type,
+        /// Create a const pointer type with element type T. `[*]const T`
+        many_const_ptr_type,
+        /// Create a mutable pointer type with element type T. `[*]T`
+        many_mut_ptr_type,
+        /// Create a const pointer type with element type T. `[*c]const T`
+        c_const_ptr_type,
+        /// Create a mutable pointer type with element type T. `[*c]T`
+        c_mut_ptr_type,
+        /// Create a mutable slice type with element type T. `[]T`
+        mut_slice_type,
+        /// Create a const slice type with element type T. `[]T`
+        const_slice_type,
         /// Create a pointer type with attributes
         ptr_type,
         /// Write a value to a pointer. For loading, see `deref`.
@@ -225,6 +241,10 @@ pub const Inst = struct {
         unwrap_err_safe,
         /// Same as previous, but without safety checks. Used for orelse, if and while
         unwrap_err_unsafe,
+        /// Takes a *E!T and raises a compiler error if T != void
+        ensure_err_payload_void,
+        /// Enum literal
+        enum_literal,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
@@ -250,21 +270,29 @@ pub const Inst = struct {
                 .ensure_result_non_error,
                 .bitcast_result_ptr,
                 .ref,
-                .bitcast_lvalue,
+                .bitcast_ref,
                 .typeof,
                 .single_const_ptr_type,
                 .single_mut_ptr_type,
+                .many_const_ptr_type,
+                .many_mut_ptr_type,
+                .c_const_ptr_type,
+                .c_mut_ptr_type,
+                .mut_slice_type,
+                .const_slice_type,
                 .optional_type,
                 .unwrap_optional_safe,
                 .unwrap_optional_unsafe,
                 .unwrap_err_safe,
                 .unwrap_err_unsafe,
+                .ensure_err_payload_void,
                 => UnOp,
 
                 .add,
                 .addwrap,
                 .array_cat,
                 .array_mul,
+                .array_type,
                 .bitand,
                 .bitor,
                 .div,
@@ -291,6 +319,7 @@ pub const Inst = struct {
                 => BinOp,
 
                 .arg => Arg,
+                .array_type_sentinel => ArrayTypeSentinel,
                 .block => Block,
                 .@"break" => Break,
                 .breakvoid => BreakVoid,
@@ -317,6 +346,7 @@ pub const Inst = struct {
                 .elemptr => ElemPtr,
                 .condbr => CondBr,
                 .ptr_type => PtrType,
+                .enum_literal => EnumLiteral,
             };
         }
 
@@ -330,12 +360,14 @@ pub const Inst = struct {
                 .alloc_inferred,
                 .array_cat,
                 .array_mul,
+                .array_type,
+                .array_type_sentinel,
                 .arg,
                 .as,
                 .@"asm",
                 .bitand,
                 .bitcast,
-                .bitcast_lvalue,
+                .bitcast_ref,
                 .bitcast_result_ptr,
                 .bitor,
                 .block,
@@ -386,6 +418,12 @@ pub const Inst = struct {
                 .shr,
                 .single_const_ptr_type,
                 .single_mut_ptr_type,
+                .many_const_ptr_type,
+                .many_mut_ptr_type,
+                .c_const_ptr_type,
+                .c_mut_ptr_type,
+                .mut_slice_type,
+                .const_slice_type,
                 .store,
                 .str,
                 .sub,
@@ -398,6 +436,8 @@ pub const Inst = struct {
                 .unwrap_err_safe,
                 .unwrap_err_unsafe,
                 .ptr_type,
+                .ensure_err_payload_void,
+                .enum_literal,
                 => false,
 
                 .@"break",
@@ -840,10 +880,33 @@ pub const Inst = struct {
             @"align": ?*Inst = null,
             align_bit_start: ?*Inst = null,
             align_bit_end: ?*Inst = null,
-            @"const": bool = true,
+            mutable: bool = true,
             @"volatile": bool = false,
             sentinel: ?*Inst = null,
+            size: std.builtin.TypeInfo.Pointer.Size = .One,
         },
+    };
+
+    pub const ArrayTypeSentinel = struct {
+        pub const base_tag = Tag.array_type_sentinel;
+        base: Inst,
+
+        positionals: struct {
+            len: *Inst,
+            sentinel: *Inst,
+            elem_type: *Inst,
+        },
+        kw_args: struct {},
+    };
+
+    pub const EnumLiteral = struct {
+        pub const base_tag = Tag.enum_literal;
+        base: Inst,
+
+        positionals: struct {
+            name: []const u8,
+        },
+        kw_args: struct {},
     };
 };
 
@@ -1714,6 +1777,9 @@ const EmitZIR = struct {
                 const decl_ref = try self.emitDeclRef(inst.src, declref.decl);
                 try new_body.instructions.append(decl_ref);
                 break :blk decl_ref;
+            } else if (const_inst.val.cast(Value.Payload.Variable)) |var_pl| blk: {
+                const owner_decl = var_pl.variable.owner_decl;
+                break :blk try self.emitDeclVal(inst.src, mem.spanZ(owner_decl.name));
             } else blk: {
                 break :blk (try self.emitTypedValue(inst.src, .{ .ty = inst.ty, .val = const_inst.val })).inst;
             };
@@ -1837,6 +1903,11 @@ const EmitZIR = struct {
         if (typed_value.val.cast(Value.Payload.DeclRef)) |decl_ref| {
             const decl = decl_ref.decl;
             return try self.emitUnnamedDecl(try self.emitDeclRef(src, decl));
+        } else if (typed_value.val.cast(Value.Payload.Variable)) |variable| {
+            return self.emitTypedValue(src, .{
+                .ty = typed_value.ty,
+                .val = variable.variable.init,
+            });
         }
         if (typed_value.val.isUndef()) {
             const as_inst = try self.arena.allocator.create(Inst.BinOp);
@@ -1922,6 +1993,25 @@ const EmitZIR = struct {
                 return self.emitUnnamedDecl(&str_inst.base);
             },
             .Void => return self.emitPrimitive(src, .void_value),
+            .Bool => if (typed_value.val.toBool())
+                return self.emitPrimitive(src, .@"true")
+            else
+                return self.emitPrimitive(src, .@"false"),
+            .EnumLiteral => {
+                const enum_literal = @fieldParentPtr(Value.Payload.Bytes, "base", typed_value.val.ptr_otherwise);
+                const inst = try self.arena.allocator.create(Inst.Str);
+                inst.* = .{
+                    .base = .{
+                        .src = src,
+                        .tag = .enum_literal,
+                    },
+                    .positionals = .{
+                        .bytes = enum_literal.data,
+                    },
+                    .kw_args = .{},
+                };
+                return self.emitUnnamedDecl(&inst.base);
+            },
             else => |t| std.debug.panic("TODO implement emitTypedValue for {}", .{@tagName(t)}),
         }
     }
@@ -2269,6 +2359,8 @@ const EmitZIR = struct {
                     };
                     break :blk &new_inst.base;
                 },
+
+                .varptr => @panic("TODO"),
             };
             try self.metadata.put(new_inst, .{ .deaths = inst.deaths });
             try instructions.append(new_inst);
@@ -2376,7 +2468,7 @@ const EmitZIR = struct {
                     }
                 },
                 .Optional => {
-                    var buf: Type.Payload.Pointer = undefined;
+                    var buf: Type.Payload.PointerSimple = undefined;
                     const inst = try self.arena.allocator.create(Inst.UnOp);
                     inst.* = .{
                         .base = .{
@@ -2389,6 +2481,51 @@ const EmitZIR = struct {
                         .kw_args = .{},
                     };
                     return self.emitUnnamedDecl(&inst.base);
+                },
+                .Array => {
+                    var len_pl = Value.Payload.Int_u64{ .int = ty.arrayLen() };
+                    const len = Value.initPayload(&len_pl.base);
+
+                    const inst = if (ty.arraySentinel()) |sentinel| blk: {
+                        const inst = try self.arena.allocator.create(Inst.ArrayTypeSentinel);
+                        inst.* = .{
+                            .base = .{
+                                .src = src,
+                                .tag = .array_type,
+                            },
+                            .positionals = .{
+                                .len = (try self.emitTypedValue(src, .{
+                                    .ty = Type.initTag(.usize),
+                                    .val = len,
+                                })).inst,
+                                .sentinel = (try self.emitTypedValue(src, .{
+                                    .ty = ty.elemType(),
+                                    .val = sentinel,
+                                })).inst,
+                                .elem_type = (try self.emitType(src, ty.elemType())).inst,
+                            },
+                            .kw_args = .{},
+                        };
+                        break :blk &inst.base;
+                    } else blk: {
+                        const inst = try self.arena.allocator.create(Inst.BinOp);
+                        inst.* = .{
+                            .base = .{
+                                .src = src,
+                                .tag = .array_type,
+                            },
+                            .positionals = .{
+                                .lhs = (try self.emitTypedValue(src, .{
+                                    .ty = Type.initTag(.usize),
+                                    .val = len,
+                                })).inst,
+                                .rhs = (try self.emitType(src, ty.elemType())).inst,
+                            },
+                            .kw_args = .{},
+                        };
+                        break :blk &inst.base;
+                    };
+                    return self.emitUnnamedDecl(inst);
                 },
                 else => std.debug.panic("TODO implement emitType for {}", .{ty}),
             },

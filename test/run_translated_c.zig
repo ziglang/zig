@@ -3,6 +3,20 @@ const tests = @import("tests.zig");
 const nl = std.cstr.line_sep;
 
 pub fn addCases(cases: *tests.RunTranslatedCContext) void {
+    cases.add("static variable in block scope",
+        \\#include <stdlib.h>
+        \\int foo() {
+        \\    static int bar;
+        \\    bar += 1;
+        \\    return bar;
+        \\}
+        \\int main() {
+        \\    foo();
+        \\    foo();
+        \\    if (foo() != 3) abort();
+        \\}
+    , "");
+
     cases.add("array initializer",
         \\#include <stdlib.h>
         \\int main(int argc, char **argv) {

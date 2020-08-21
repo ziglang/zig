@@ -62,58 +62,80 @@ pub fn genCode(buf: *ArrayList(u8), decl: *Decl) !void {
     // TODO: check for and handle death of instructions
     const tv = decl.typed_value.most_recent.typed_value;
     const mod_fn = tv.val.cast(Value.Payload.Function).?.func;
-    for (mod_fn.analysis.success.instructions) |inst| try genInst(writer, inst);
+    for (mod_fn.analysis.success.instructions) |inst| try genInst(buf, decl, inst);
 
     // Write 'end' opcode
     try writer.writeByte(0x0B);
 
     // Fill in the size of the generated code to the reserved space at the
     // beginning of the buffer.
-    leb.writeUnsignedFixed(5, buf.items[0..5], @intCast(u32, buf.items.len - 5));
+    const size = buf.items.len - 5 + decl.fn_link.wasm.?.idx_refs.items.len * 5;
+    leb.writeUnsignedFixed(5, buf.items[0..5], @intCast(u32, size));
 }
 
-fn genInst(writer: ArrayList(u8).Writer, inst: *Inst) !void {
+fn genInst(buf: *ArrayList(u8), decl: *Decl, inst: *Inst) !void {
     return switch (inst.tag) {
+        .call => genCall(buf, decl, inst.castTag(.call).?),
+        .constant => genConstant(buf, decl, inst.castTag(.constant).?),
         .dbg_stmt => {},
-        .ret => genRet(writer, inst.castTag(.ret).?),
+        .ret => genRet(buf, decl, inst.castTag(.ret).?),
+        .retvoid => {},
         else => error.TODOImplementMoreWasmCodegen,
     };
 }
 
-fn genRet(writer: ArrayList(u8).Writer, inst: *Inst.UnOp) !void {
-    switch (inst.operand.tag) {
-        .constant => {
-            const constant = inst.operand.castTag(.constant).?;
-            switch (inst.operand.ty.tag()) {
-                .u32 => {
-                    try writer.writeByte(0x41); // i32.const
-                    try leb.writeILEB128(writer, constant.val.toUnsignedInt());
-                },
-                .i32 => {
-                    try writer.writeByte(0x41); // i32.const
-                    try leb.writeILEB128(writer, constant.val.toSignedInt());
-                },
-                .u64 => {
-                    try writer.writeByte(0x42); // i64.const
-                    try leb.writeILEB128(writer, constant.val.toUnsignedInt());
-                },
-                .i64 => {
-                    try writer.writeByte(0x42); // i64.const
-                    try leb.writeILEB128(writer, constant.val.toSignedInt());
-                },
-                .f32 => {
-                    try writer.writeByte(0x43); // f32.const
-                    // TODO: enforce LE byte order
-                    try writer.writeAll(mem.asBytes(&constant.val.toFloat(f32)));
-                },
-                .f64 => {
-                    try writer.writeByte(0x44); // f64.const
-                    // TODO: enforce LE byte order
-                    try writer.writeAll(mem.asBytes(&constant.val.toFloat(f64)));
-                },
-                else => return error.TODOImplementMoreWasmCodegen,
-            }
+fn genConstant(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.Constant) !void {
+    const writer = buf.writer();
+    switch (inst.base.ty.tag()) {
+        .u32 => {
+            try writer.writeByte(0x41); // i32.const
+            try leb.writeILEB128(writer, inst.val.toUnsignedInt());
         },
+        .i32 => {
+            try writer.writeByte(0x41); // i32.const
+            try leb.writeILEB128(writer, inst.val.toSignedInt());
+        },
+        .u64 => {
+            try writer.writeByte(0x42); // i64.const
+            try leb.writeILEB128(writer, inst.val.toUnsignedInt());
+        },
+        .i64 => {
+            try writer.writeByte(0x42); // i64.const
+            try leb.writeILEB128(writer, inst.val.toSignedInt());
+        },
+        .f32 => {
+            try writer.writeByte(0x43); // f32.const
+            // TODO: enforce LE byte order
+            try writer.writeAll(mem.asBytes(&inst.val.toFloat(f32)));
+        },
+        .f64 => {
+            try writer.writeByte(0x44); // f64.const
+            // TODO: enforce LE byte order
+            try writer.writeAll(mem.asBytes(&inst.val.toFloat(f64)));
+        },
+        .void => {},
         else => return error.TODOImplementMoreWasmCodegen,
     }
+}
+
+fn genRet(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.UnOp) !void {
+    try genInst(buf, decl, inst.operand);
+}
+
+fn genCall(buf: *ArrayList(u8), decl: *Decl, inst: *Inst.Call) !void {
+    const func_inst = inst.func.castTag(.constant).?;
+    const func_val = func_inst.val.cast(Value.Payload.Function).?;
+    const target = func_val.func.owner_decl;
+    const target_ty = target.typed_value.most_recent.typed_value.ty;
+
+    if (inst.args.len != 0) return error.TODOImplementMoreWasmCodegen;
+
+    try buf.append(0x10); // call
+
+    // The function index immediate argument will be filled in using this data
+    // in link.Wasm.flush().
+    try decl.fn_link.wasm.?.idx_refs.append(buf.allocator, .{
+        .offset = @intCast(u32, buf.items.len),
+        .decl = target,
+    });
 }

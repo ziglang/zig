@@ -3,6 +3,20 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("extern variable in block scope",
+        \\float bar;
+        \\int foo() {
+        \\    _Thread_local static int bar = 2;
+        \\}
+    , &[_][]const u8{
+        \\pub export var bar: f32 = @import("std").mem.zeroes(f32);
+        \\threadlocal var bar_1: c_int = 2;
+        \\pub export fn foo() c_int {
+        \\    _ = bar_1;
+        \\    return 0;
+        \\}
+    });
+
     cases.add("missing return stmt",
         \\int foo() {}
         \\int bar() {
@@ -466,7 +480,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub extern var extern_var: c_int;
         \\pub const int_var: c_int = 13;
-        \\pub export var foo: c_int = undefined;
+        \\pub export var foo: c_int = @import("std").mem.zeroes(c_int);
     });
 
     cases.add("const ptr initializer",
@@ -480,8 +494,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    static const char v2[] = "2.2.2";
         \\}
     , &[_][]const u8{
+        \\const v2: [*c]const u8 = "2.2.2";
         \\pub export fn foo() void {
-        \\    const v2: [*c]const u8 = "2.2.2";
+        \\    _ = v2;
         \\}
     });
 
@@ -1327,7 +1342,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\static char arr1[] = "hello";
         \\char arr2[] = "hello";
     , &[_][]const u8{
-        \\pub extern var arr0: [*c]u8 = "hello";
+        \\pub export var arr0: [*c]u8 = "hello";
         \\pub var arr1: [*c]u8 = "hello";
         \\pub export var arr2: [*c]u8 = "hello";
     });

@@ -2,6 +2,12 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("reject extern variables with initializers",
+        \\extern var foo: int = 2;
+    , &[_][]const u8{
+        "tmp.zig:1:1: error: extern variables have no initializers",
+    });
+
     cases.addTest("duplicate/unused labels",
         \\comptime {
         \\    blk: { blk: while (false) {} }
@@ -1395,12 +1401,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:36: error: expected type 'std.builtin.TypeInfo', found 'std.builtin.Int'",
     });
 
-    cases.add("Struct unavailable for @Type",
+    cases.add("struct with declarations unavailable for @Type",
         \\export fn entry() void {
-        \\    _ = @Type(@typeInfo(struct { }));
+        \\    _ = @Type(@typeInfo(struct { const foo = 1; }));
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:15: error: @Type not available for 'TypeInfo.Struct'",
+        "tmp.zig:2:15: error: TypeInfo.Struct.decls must be empty for @Type",
     });
 
     cases.add("wrong type for argument tuple to @asyncCall",
