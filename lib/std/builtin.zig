@@ -259,6 +259,7 @@ pub const TypeInfo = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const StructField = struct {
         name: []const u8,
+        offset: ?comptime_int,
         field_type: type,
         default_value: anytype,
     };
