@@ -249,7 +249,7 @@ fn openFile(allocator: *Allocator, file: fs.File, options: link.Options) !Elf {
             .allocator = allocator,
         },
         .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
-            32 => .p32,
+            16, 32 => .p32,
             64 => .p64,
             else => return error.UnsupportedELFArchitecture,
         },
@@ -278,7 +278,7 @@ fn createFile(allocator: *Allocator, file: fs.File, options: link.Options) !Elf 
             .file = file,
         },
         .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
-            32 => .p32,
+            16, 32 => .p32,
             64 => .p64,
             else => return error.UnsupportedELFArchitecture,
         },
