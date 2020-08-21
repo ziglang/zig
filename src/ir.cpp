@@ -26314,7 +26314,8 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
                 get_anon_type_name(ira->codegen, ira->old_irb.exec, "enum", source_instr->scope, source_instr->source_node, &entry->name));
             entry->data.enumeration.decl_node = source_instr->source_node;
             entry->data.enumeration.tag_int_type = tag_type;
-            entry->data.enumeration.decls_scope = create_decls_scope(ira->codegen, nullptr, nullptr, entry, entry, &entry->name);
+            entry->data.enumeration.decls_scope = create_decls_scope(
+                ira->codegen, source_instr->source_node, source_instr->scope, entry, get_scope_import(source_instr->scope), &entry->name);
             entry->data.enumeration.fields = heap::c_allocator.allocate<TypeEnumField>(fields_len);
             entry->data.enumeration.fields_by_name.init(fields_len);
             entry->data.enumeration.src_field_count = fields_len;
