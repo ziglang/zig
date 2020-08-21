@@ -83,7 +83,7 @@ pub const symtab_command = extern struct {
 
 /// The linkedit_data_command contains the offsets and sizes of a blob
 /// of data in the __LINKEDIT segment.
-const linkedit_data_command = extern struct {
+pub const linkedit_data_command = extern struct {
     /// LC_CODE_SIGNATURE, LC_SEGMENT_SPLIT_INFO, LC_FUNCTION_STARTS, LC_DATA_IN_CODE, LC_DYLIB_CODE_SIGN_DRS or LC_LINKER_OPTIMIZATION_HINT.
     cmd: u32,
 
@@ -95,6 +95,28 @@ const linkedit_data_command = extern struct {
 
     /// file size of data in __LINKEDIT segment
     datasize: u32,
+};
+
+/// A program that uses a dynamic linker contains a dylinker_command to identify
+/// the name of the dynamic linker (LC_LOAD_DYLINKER). And a dynamic linker
+/// contains a dylinker_command to identify the dynamic linker (LC_ID_DYLINKER).
+/// A file can have at most one of these.
+/// This struct is also used for the LC_DYLD_ENVIRONMENT load command and contains
+/// string for dyld to treat like an environment variable.
+pub const dylinker_command = extern struct {
+    /// LC_ID_DYLINKER, LC_LOAD_DYLINKER, or LC_DYLD_ENVIRONMENT
+    cmd: u32,
+
+    /// includes pathname string
+    cmdsize: u32,
+
+    /// A variable length string in a load command is represented by an lc_str
+    /// union.  The strings are stored just after the load command structure and
+    /// the offset is from the start of the load command structure.  The size
+    /// of the string is reflected in the cmdsize field of the load command.
+    /// Once again any padded bytes to bring the cmdsize field to a multiple
+    /// of 4 bytes must be zero.
+    name: u32,
 };
 
 /// The segment load command indicates that a part of this file is to be
