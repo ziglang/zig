@@ -6,7 +6,7 @@ const ir = @import("ir.zig");
 const Module = @import("Module.zig");
 const fs = std.fs;
 const elf = std.elf;
-const codegen = @import("codegen.zig");
+const CodeGen = @import("codegen.zig").CodeGen;
 const c_codegen = @import("codegen/c.zig");
 const log = std.log.scoped(.link);
 const DW = std.dwarf;
@@ -2014,7 +2014,16 @@ pub const File = struct {
             } else {
                 // TODO implement .debug_info for global variables
             }
-            const res = try codegen.generateSymbol(self, decl.src(), typed_value, &code_buffer, &dbg_line_buffer, &dbg_info_buffer, &dbg_info_type_relocs);
+
+            const res = try CodeGen(.elf).generateSymbol(
+                &self.base,
+                decl.src(),
+                typed_value,
+                &code_buffer,
+                &dbg_line_buffer,
+                &dbg_info_buffer,
+                &dbg_info_type_relocs
+            );
             const code = switch (res) {
                 .externally_managed => |x| x,
                 .appended => code_buffer.items,
