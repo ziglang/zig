@@ -28,12 +28,6 @@ pub fn SinglyLinkedList(comptime T: type) type {
 
             pub const Data = T;
 
-            pub fn init(data: T) Node {
-                return Node{
-                    .data = data,
-                };
-            }
-
             /// Insert a new node after the current one.
             ///
             /// Arguments:
@@ -175,12 +169,6 @@ pub fn TailQueue(comptime T: type) type {
             prev: ?*Node = null,
             next: ?*Node = null,
             data: T,
-
-            pub fn init(data: T) Node {
-                return Node{
-                    .data = data,
-                };
-            }
         };
 
         first: ?*Node = null,
