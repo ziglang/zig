@@ -2201,7 +2201,7 @@ fn writeSectHeader(self: *Elf, index: usize) !void {
 fn writeOffsetTableEntry(self: *Elf, index: usize) !void {
     const shdr = &self.sections.items[self.got_section_index.?];
     const phdr = &self.program_headers.items[self.phdr_got_index.?];
-    const entry_size: u16 = self.ptrWidthBytes();
+    const entry_size: u16 = self.base.options.target.cpu.arch.ptrBitWidth() / 8;
     if (self.offset_table_count_dirty) {
         // TODO Also detect virtual address collisions.
         const allocated_size = self.allocatedSize(shdr.sh_offset);
@@ -2225,17 +2225,23 @@ fn writeOffsetTableEntry(self: *Elf, index: usize) !void {
     }
     const endian = self.base.options.target.cpu.arch.endian();
     const off = shdr.sh_offset + @as(u64, entry_size) * index;
-    switch (self.ptr_width) {
-        .p32 => {
+    switch (entry_size) {
+        2 => {
+            var buf: [2]u8 = undefined;
+            mem.writeInt(u16, &buf, @intCast(u16, self.offset_table.items[index]), endian);
+            try self.base.file.?.pwriteAll(&buf, off);
+        },
+        4 => {
             var buf: [4]u8 = undefined;
             mem.writeInt(u32, &buf, @intCast(u32, self.offset_table.items[index]), endian);
             try self.base.file.?.pwriteAll(&buf, off);
         },
-        .p64 => {
+        8 => {
             var buf: [8]u8 = undefined;
             mem.writeInt(u64, &buf, self.offset_table.items[index], endian);
             try self.base.file.?.pwriteAll(&buf, off);
         },
+        else => unreachable,
     }
 }
 
