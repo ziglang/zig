@@ -1135,7 +1135,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .riscv64 => {
                     mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ebreak.toU32());
                 },
-                .spu_2 => {},
+                .spu_2 => {
+                    try self.code.resize(self.code.items.len + 2);
+                    var instr = Instruction{ .condition = .always, .input0 = .zero, .input1 = .zero, .modify_flags = false, .output = .discard, .command = .undefined1 };
+                    mem.writeIntLittle(u16, self.code.items[self.code.items.len - 2 ..][0..2], @bitCast(u16, instr));
+                },
                 else => return self.fail(src, "TODO implement @breakpoint() for {}", .{self.target.cpu.arch}),
             }
             return .none;
