@@ -459,29 +459,57 @@ test "std.meta.activeTag" {
     testing.expect(activeTag(u) == UE.Float);
 }
 
-///Given a tagged union type, and an enum, return the type of the union
+/// Given a tagged union type, and an enum, return the type of the union
 /// field corresponding to the enum tag.
-pub fn TagPayloadType(comptime U: type, tag: @TagType(U)) type {
+pub fn TagPayloadType(comptime U: type, comptime tag: @TagType(U)) type {
     testing.expect(trait.is(.Union)(U));
-
-    const info = @typeInfo(U).Union;
-
-    inline for (info.fields) |field_info| {
-        if (field_info.enum_field.?.value == @enumToInt(tag)) return field_info.field_type;
-    }
-    unreachable;
+    return fieldInfo(U, @tagName(tag)).field_type;
 }
 
+/// Given a tagged union and an enum, return the value of the union field
+/// corresponding to the enum tag iff it is the union's active field.
+pub fn tagPayload(u: anytype, comptime tag: @TagType(@TypeOf(u))) ?TagPayloadType(@TypeOf(u), tag) {
+    if (u != tag) return null;
+    return @field(u, @tagName(tag));
+}
+
+const Event = union(enum) {
+    Moved: struct {
+        from: i32,
+        to: i32,
+    },
+    Unmoved: i32,
+};
+
 test "std.meta.TagPayloadType" {
-    const Event = union(enum) {
-        Moved: struct {
-            from: i32,
-            to: i32,
-        },
-    };
     const MovedEvent = TagPayloadType(Event, Event.Moved);
     var e: Event = undefined;
     testing.expect(MovedEvent == @TypeOf(e.Moved));
+}
+
+test "std.meta.tagPayload" {
+    const moved_event = Event{
+        .Moved = .{
+            .from = 100,
+            .to = 45,
+        },
+    };
+    const unmoved_event = Event{
+        .Unmoved = 37,
+    };
+
+    const moved_value = tagPayload(moved_event, .Moved);
+    const moved_null = tagPayload(moved_event, .Unmoved);
+    testing.expect(moved_value != null);
+    testing.expectEqual(moved_value.?.from, 100);
+    testing.expectEqual(moved_value.?.to, 45);
+    testing.expectEqual(moved_null, null);
+
+    const unmoved_value = tagPayload(unmoved_event, .Unmoved);
+    const unmoved_null = tagPayload(unmoved_event, .Moved);
+    testing.expect(unmoved_value != null);
+    testing.expectEqual(unmoved_value.?, 37);
+    testing.expectEqual(unmoved_null, null);
 }
 
 /// Compares two of any type for equality. Containers are compared on a field-by-field basis,
