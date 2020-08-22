@@ -280,3 +280,37 @@ test "Type.Struct" {
     testing.expectEqual(@as(usize, 0), infoC.decls.len);
     testing.expectEqual(@as(bool, false), infoC.is_tuple);
 }
+
+test "Type.Enum" {
+    const Foo = @Type(.{
+        .Enum = .{
+            .layout = .Auto,
+            .tag_type = u8,
+            .fields = &[_]TypeInfo.EnumField{
+                .{ .name = "a", .value = 1 },
+                .{ .name = "b", .value = 5 },
+            },
+            .decls = &[_]TypeInfo.Declaration{},
+            .is_exhaustive = true,
+        },
+    });
+    testing.expectEqual(true, @typeInfo(Foo).Enum.is_exhaustive);
+    testing.expectEqual(@as(u8, 1), @enumToInt(Foo.a));
+    testing.expectEqual(@as(u8, 5), @enumToInt(Foo.b));
+    const Bar = @Type(.{
+        .Enum = .{
+            .layout = .Extern,
+            .tag_type = u32,
+            .fields = &[_]TypeInfo.EnumField{
+                .{ .name = "a", .value = 1 },
+                .{ .name = "b", .value = 5 },
+            },
+            .decls = &[_]TypeInfo.Declaration{},
+            .is_exhaustive = false,
+        },
+    });
+    testing.expectEqual(false, @typeInfo(Bar).Enum.is_exhaustive);
+    testing.expectEqual(@as(u32, 1), @enumToInt(Bar.a));
+    testing.expectEqual(@as(u32, 5), @enumToInt(Bar.b));
+    testing.expectEqual(@as(u32, 6), @enumToInt(@intToEnum(Bar, 6)));
+}

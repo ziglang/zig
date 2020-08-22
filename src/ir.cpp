@@ -26273,7 +26273,75 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
 
             return entry;
         }
-        case ZigTypeIdEnum:
+        case ZigTypeIdEnum: {
+            assert(payload->special == ConstValSpecialStatic);
+            assert(payload->type == ir_type_info_get_type(ira, "Enum", nullptr));
+
+            ZigValue *layout_value = get_const_field(ira, source_instr->source_node, payload, "layout", 0);
+            assert(layout_value->special == ConstValSpecialStatic);
+            assert(layout_value->type == ir_type_info_get_type(ira, "ContainerLayout", nullptr));
+            ContainerLayout layout = (ContainerLayout)bigint_as_u32(&layout_value->data.x_enum_tag);
+
+            ZigType *tag_type = get_const_field_meta_type(ira, source_instr->source_node, payload, "tag_type", 1);
+
+            ZigValue *fields_value = get_const_field(ira, source_instr->source_node, payload, "fields", 2);
+            assert(fields_value->special == ConstValSpecialStatic);
+            assert(is_slice(fields_value->type));
+            ZigValue *fields_ptr = fields_value->data.x_struct.fields[slice_ptr_index];
+            ZigValue *fields_len_value = fields_value->data.x_struct.fields[slice_len_index];
+            size_t fields_len = bigint_as_usize(&fields_len_value->data.x_bigint);
+
+            ZigValue *decls_value = get_const_field(ira, source_instr->source_node, payload, "decls", 3);
+            assert(decls_value->special == ConstValSpecialStatic);
+            assert(is_slice(decls_value->type));
+            ZigValue *decls_len_value = decls_value->data.x_struct.fields[slice_len_index];
+            size_t decls_len = bigint_as_usize(&decls_len_value->data.x_bigint);
+            if (decls_len != 0) {
+                ir_add_error(ira, source_instr, buf_create_from_str("TypeInfo.Enum.decls must be empty for @Type"));
+                return ira->codegen->invalid_inst_gen->value->type;
+            }
+
+            Error err;
+            bool is_exhaustive;
+            if ((err = get_const_field_bool(ira, source_instr->source_node, payload, "is_exhaustive", 4, &is_exhaustive)))
+                return ira->codegen->invalid_inst_gen->value->type;
+
+            ZigType *entry = new_type_table_entry(ZigTypeIdEnum);
+            buf_init_from_buf(&entry->name,
+                get_anon_type_name(ira->codegen, ira->old_irb.exec, "enum", source_instr->scope, source_instr->source_node, &entry->name));
+            entry->data.enumeration.decl_node = source_instr->source_node;
+            entry->data.enumeration.tag_int_type = tag_type;
+            entry->data.enumeration.decls_scope = create_decls_scope(
+                ira->codegen, source_instr->source_node, source_instr->scope, entry, get_scope_import(source_instr->scope), &entry->name);
+            entry->data.enumeration.fields = heap::c_allocator.allocate<TypeEnumField>(fields_len);
+            entry->data.enumeration.fields_by_name.init(fields_len);
+            entry->data.enumeration.src_field_count = fields_len;
+            entry->data.enumeration.layout = layout;
+            entry->data.enumeration.non_exhaustive = !is_exhaustive;
+
+            assert(fields_ptr->data.x_ptr.special == ConstPtrSpecialBaseArray);
+            assert(fields_ptr->data.x_ptr.data.base_array.elem_index == 0);
+            ZigValue *fields_arr = fields_ptr->data.x_ptr.data.base_array.array_val;
+            assert(fields_arr->special == ConstValSpecialStatic);
+            assert(fields_arr->data.x_array.special == ConstArraySpecialNone);
+            for (size_t i = 0; i < fields_len; i++) {
+                ZigValue *field_value = &fields_arr->data.x_array.data.s_none.elements[i];
+                assert(field_value->type == ir_type_info_get_type(ira, "EnumField", nullptr));
+                TypeEnumField *field = &entry->data.enumeration.fields[i];
+                field->name = buf_alloc();
+                if ((err = get_const_field_buf(ira, source_instr->source_node, field_value, "name", 0, field->name)))
+                    return ira->codegen->invalid_inst_gen->value->type;
+                field->decl_index = i;
+                field->decl_node = source_instr->source_node;
+                if (entry->data.enumeration.fields_by_name.put_unique(field->name, field) != nullptr) {
+                    ir_add_error(ira, source_instr, buf_sprintf("duplicate enum field '%s'", buf_ptr(field->name)));
+                    return ira->codegen->invalid_inst_gen->value->type;
+                }
+                field->value = *get_const_field_lit_int(ira, source_instr->source_node, field_value, "value", 1);
+            }
+
+            return entry;
+        }
         case ZigTypeIdUnion:
             ir_add_error(ira, source_instr, buf_sprintf(
                 "TODO implement @Type for 'TypeInfo.%s': see https://github.com/ziglang/zig/issues/2907", type_id_name(tagTypeId)));
