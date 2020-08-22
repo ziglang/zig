@@ -663,6 +663,9 @@ pub const Target = struct {
             renderscript32,
             renderscript64,
             ve,
+            // Stage1 currently assumes that architectures above this comment
+            // map one-to-one with the ZigLLVM_ArchType enum.
+            spu_2,
 
             pub fn isARM(arch: Arch) bool {
                 return switch (arch) {
@@ -761,6 +764,7 @@ pub const Target = struct {
                     .sparcv9 => ._SPARCV9,
                     .s390x => ._S390,
                     .ve => ._NONE,
+                    .spu_2 => ._SPU_2,
                 };
             }
 
@@ -803,6 +807,7 @@ pub const Target = struct {
                     .renderscript64,
                     .shave,
                     .ve,
+                    .spu_2,
                     => .Little,
 
                     .arc,
@@ -827,6 +832,7 @@ pub const Target = struct {
                 switch (arch) {
                     .avr,
                     .msp430,
+                    .spu_2,
                     => return 16,
 
                     .arc,
@@ -1317,12 +1323,13 @@ pub const Target = struct {
                 .bpfeb,
                 .nvptx,
                 .nvptx64,
+                .spu_2,
+                .avr,
                 => return result,
 
                 // TODO go over each item in this list and either move it to the above list, or
                 // implement the standard dynamic linker path code for it.
                 .arc,
-                .avr,
                 .hexagon,
                 .msp430,
                 .r600,

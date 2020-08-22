@@ -14,12 +14,10 @@ const leb128 = std.debug.leb;
 const Package = @import("../Package.zig");
 const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
-const build_options = @import("build_options");
 const link = @import("../link.zig");
 const File = link.File;
 const Elf = @This();
 
-const producer_string = if (std.builtin.is_test) "zig test" else "zig " ++ build_options.version;
 const default_entry_addr = 0x8000000;
 
 // TODO Turn back on zig fmt when https://github.com/ziglang/zig/issues/5948 is implemented.
@@ -249,8 +247,8 @@ fn openFile(allocator: *Allocator, file: fs.File, options: link.Options) !Elf {
             .allocator = allocator,
         },
         .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
-            32 => .p32,
-            64 => .p64,
+            0 ... 32 => .p32,
+            33 ... 64 => .p64,
             else => return error.UnsupportedELFArchitecture,
         },
     };
@@ -278,8 +276,8 @@ fn createFile(allocator: *Allocator, file: fs.File, options: link.Options) !Elf 
             .file = file,
         },
         .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
-            32 => .p32,
-            64 => .p64,
+            0 ... 32 => .p32,
+            33 ... 64 => .p64,
             else => return error.UnsupportedELFArchitecture,
         },
         .shdr_table_dirty = true,
@@ -346,7 +344,7 @@ fn getDebugLineProgramEnd(self: Elf) u32 {
 
 /// Returns end pos of collision, if any.
 fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
-    const small_ptr = self.base.options.target.cpu.arch.ptrBitWidth() == 32;
+    const small_ptr = self.ptr_width == .p32;
     const ehdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Ehdr) else @sizeOf(elf.Elf64_Ehdr);
     if (start < ehdr_size)
         return ehdr_size;
@@ -462,12 +460,13 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         const p_align = 0x1000;
         const off = self.findFreeSpace(file_size, p_align);
         log.debug("found PT_LOAD free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+        const entry_addr: u64 = self.entry_addr orelse if (self.base.options.target.cpu.arch == .spu_2) @as(u64, 0) else default_entry_addr;
         try self.program_headers.append(self.base.allocator, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
             .p_filesz = file_size,
-            .p_vaddr = default_entry_addr,
-            .p_paddr = default_entry_addr,
+            .p_vaddr = entry_addr,
+            .p_paddr = entry_addr,
             .p_memsz = file_size,
             .p_align = p_align,
             .p_flags = elf.PF_X | elf.PF_R,
@@ -486,13 +485,13 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         // TODO instead of hard coding the vaddr, make a function to find a vaddr to put things at.
         // we'll need to re-use that function anyway, in case the GOT grows and overlaps something
         // else in virtual memory.
-        const default_got_addr = if (ptr_size == 2) @as(u32, 0x8000) else 0x4000000;
+        const got_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x4000000 else 0x8000;
         try self.program_headers.append(self.base.allocator, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
             .p_filesz = file_size,
-            .p_vaddr = default_got_addr,
-            .p_paddr = default_got_addr,
+            .p_vaddr = got_addr,
+            .p_paddr = got_addr,
             .p_memsz = file_size,
             .p_align = p_align,
             .p_flags = elf.PF_R,
@@ -863,7 +862,7 @@ pub fn flush(self: *Elf, module: *Module) !void {
         // Write the form for the compile unit, which must match the abbrev table above.
         const name_strp = try self.makeDebugString(self.base.options.root_pkg.root_src_path);
         const comp_dir_strp = try self.makeDebugString(self.base.options.root_pkg.root_src_dir_path);
-        const producer_strp = try self.makeDebugString(producer_string);
+        const producer_strp = try self.makeDebugString(link.producer_string);
         // Currently only one compilation unit is supported, so the address range is simply
         // identical to the main program header virtual address and memory size.
         const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
@@ -2151,29 +2150,28 @@ pub fn deleteExport(self: *Elf, exp: Export) void {
 fn writeProgHeader(self: *Elf, index: usize) !void {
     const foreign_endian = self.base.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
     const offset = self.program_headers.items[index].p_offset;
-    switch (self.base.options.target.cpu.arch.ptrBitWidth()) {
-        32 => {
+    switch (self.ptr_width) {
+        .p32 => {
             var phdr = [1]elf.Elf32_Phdr{progHeaderTo32(self.program_headers.items[index])};
             if (foreign_endian) {
                 bswapAllFields(elf.Elf32_Phdr, &phdr[0]);
             }
             return self.base.file.?.pwriteAll(mem.sliceAsBytes(&phdr), offset);
         },
-        64 => {
+        .p64 => {
             var phdr = [1]elf.Elf64_Phdr{self.program_headers.items[index]};
             if (foreign_endian) {
                 bswapAllFields(elf.Elf64_Phdr, &phdr[0]);
             }
             return self.base.file.?.pwriteAll(mem.sliceAsBytes(&phdr), offset);
         },
-        else => return error.UnsupportedArchitecture,
     }
 }
 
 fn writeSectHeader(self: *Elf, index: usize) !void {
     const foreign_endian = self.base.options.target.cpu.arch.endian() != std.Target.current.cpu.arch.endian();
-    switch (self.base.options.target.cpu.arch.ptrBitWidth()) {
-        32 => {
+    switch (self.ptr_width) {
+        .p32 => {
             var shdr: [1]elf.Elf32_Shdr = undefined;
             shdr[0] = sectHeaderTo32(self.sections.items[index]);
             if (foreign_endian) {
@@ -2182,7 +2180,7 @@ fn writeSectHeader(self: *Elf, index: usize) !void {
             const offset = self.shdr_table_offset.? + index * @sizeOf(elf.Elf32_Shdr);
             return self.base.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
         },
-        64 => {
+        .p64 => {
             var shdr = [1]elf.Elf64_Shdr{self.sections.items[index]};
             if (foreign_endian) {
                 bswapAllFields(elf.Elf64_Shdr, &shdr[0]);
@@ -2190,14 +2188,13 @@ fn writeSectHeader(self: *Elf, index: usize) !void {
             const offset = self.shdr_table_offset.? + index * @sizeOf(elf.Elf64_Shdr);
             return self.base.file.?.pwriteAll(mem.sliceAsBytes(&shdr), offset);
         },
-        else => return error.UnsupportedArchitecture,
     }
 }
 
 fn writeOffsetTableEntry(self: *Elf, index: usize) !void {
     const shdr = &self.sections.items[self.got_section_index.?];
     const phdr = &self.program_headers.items[self.phdr_got_index.?];
-    const entry_size: u16 = self.ptrWidthBytes();
+    const entry_size: u16 = self.archPtrWidthBytes();
     if (self.offset_table_count_dirty) {
         // TODO Also detect virtual address collisions.
         const allocated_size = self.allocatedSize(shdr.sh_offset);
@@ -2221,17 +2218,23 @@ fn writeOffsetTableEntry(self: *Elf, index: usize) !void {
     }
     const endian = self.base.options.target.cpu.arch.endian();
     const off = shdr.sh_offset + @as(u64, entry_size) * index;
-    switch (self.ptr_width) {
-        .p32 => {
+    switch (entry_size) {
+        2 => {
+            var buf: [2]u8 = undefined;
+            mem.writeInt(u16, &buf, @intCast(u16, self.offset_table.items[index]), endian);
+            try self.base.file.?.pwriteAll(&buf, off);
+        },
+        4 => {
             var buf: [4]u8 = undefined;
             mem.writeInt(u32, &buf, @intCast(u32, self.offset_table.items[index]), endian);
             try self.base.file.?.pwriteAll(&buf, off);
         },
-        .p64 => {
+        8 => {
             var buf: [8]u8 = undefined;
             mem.writeInt(u64, &buf, self.offset_table.items[index], endian);
             try self.base.file.?.pwriteAll(&buf, off);
         },
+        else => unreachable,
     }
 }
 
@@ -2344,11 +2347,18 @@ fn writeAllGlobalSymbols(self: *Elf) !void {
     }
 }
 
+/// Always 4 or 8 depending on whether this is 32-bit ELF or 64-bit ELF.
 fn ptrWidthBytes(self: Elf) u8 {
     return switch (self.ptr_width) {
         .p32 => 4,
         .p64 => 8,
     };
+}
+
+/// Does not necessarily match `ptrWidthBytes` for example can be 2 bytes
+/// in a 32-bit ELF file.
+fn archPtrWidthBytes(self: Elf) u8 {
+    return @intCast(u8, self.base.options.target.cpu.arch.ptrBitWidth() / 8);
 }
 
 /// The reloc offset for the virtual address of a function in its Line Number Program.

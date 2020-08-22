@@ -26,6 +26,8 @@ const wasi = std.zig.CrossTarget{
 pub fn addCases(ctx: *TestContext) !void {
     try @import("zir.zig").addCases(ctx);
     try @import("cbe.zig").addCases(ctx);
+    try @import("spu-ii.zig").addCases(ctx);
+
     {
         var case = ctx.exe("hello world with updates", linux_x64);
 

@@ -583,7 +583,10 @@ pub const TestContext = struct {
 
                         switch (case.target.getExternalExecutor()) {
                             .native => try argv.append(exe_path),
-                            .unavailable => return, // No executor available; pass test.
+                            .unavailable => {
+                                try self.runInterpreterIfAvailable(allocator, &exec_node, case, tmp.dir, bin_name);
+                                return; // Pass test.
+                            },
 
                             .qemu => |qemu_bin_name| if (enable_qemu) {
                                 // TODO Ability for test cases to specify whether to link libc.
@@ -635,7 +638,6 @@ pub const TestContext = struct {
                     var test_node = update_node.start("test", null);
                     test_node.activate();
                     defer test_node.end();
-
                     defer allocator.free(exec_result.stdout);
                     defer allocator.free(exec_result.stderr);
                     switch (exec_result.term) {
@@ -654,6 +656,117 @@ pub const TestContext = struct {
                         );
                     }
                 },
+            }
+        }
+    }
+
+    fn runInterpreterIfAvailable(
+        self: *TestContext,
+        gpa: *Allocator,
+        node: *std.Progress.Node,
+        case: Case,
+        tmp_dir: std.fs.Dir,
+        bin_name: []const u8,
+    ) !void {
+        const arch = case.target.cpu_arch orelse return;
+        switch (arch) {
+            .spu_2 => return self.runSpu2Interpreter(gpa, node, case, tmp_dir, bin_name),
+            else => return,
+        }
+    }
+
+    fn runSpu2Interpreter(
+        self: *TestContext,
+        gpa: *Allocator,
+        update_node: *std.Progress.Node,
+        case: Case,
+        tmp_dir: std.fs.Dir,
+        bin_name: []const u8,
+    ) !void {
+        const spu = @import("codegen/spu-mk2.zig");
+        if (case.target.os_tag) |os| {
+            if (os != .freestanding) {
+                std.debug.panic("Only freestanding makes sense for SPU-II tests!", .{});
+            }
+        } else {
+            std.debug.panic("SPU_2 has no native OS, check the test!", .{});
+        }
+
+        var interpreter = spu.Interpreter(struct {
+                RAM: [0x10000]u8 = undefined,
+
+                pub fn read8(bus: @This(), addr: u16) u8 {
+                    return bus.RAM[addr];
+                }
+                pub fn read16(bus: @This(), addr: u16) u16 {
+                    return std.mem.readIntLittle(u16, bus.RAM[addr..][0..2]);
+                }
+
+                pub fn write8(bus: *@This(), addr: u16, val: u8) void {
+                    bus.RAM[addr] = val;
+                }
+
+                pub fn write16(bus: *@This(), addr: u16, val: u16) void {
+                    std.mem.writeIntLittle(u16, bus.RAM[addr..][0..2], val);
+                }
+            }){
+            .bus = .{},
+        };
+
+        {
+            var load_node = update_node.start("load", null);
+            load_node.activate();
+            defer load_node.end();
+
+            var file = try tmp_dir.openFile(bin_name, .{ .read = true });
+            defer file.close();
+
+            const header = try std.elf.readHeader(file);
+            var iterator = header.program_header_iterator(file);
+
+            var none_loaded = true;
+
+            while (try iterator.next()) |phdr| {
+                if (phdr.p_type != std.elf.PT_LOAD) {
+                    std.debug.print("Encountered unexpected ELF program header: type {}\n", .{phdr.p_type});
+                    std.process.exit(1);
+                }
+                if (phdr.p_paddr != phdr.p_vaddr) {
+                    std.debug.print("Physical address does not match virtual address in ELF header!\n", .{});
+                    std.process.exit(1);
+                }
+                if (phdr.p_filesz != phdr.p_memsz) {
+                    std.debug.print("Physical size does not match virtual size in ELF header!\n", .{});
+                    std.process.exit(1);
+                }
+                if ((try file.pread(interpreter.bus.RAM[phdr.p_paddr .. phdr.p_paddr + phdr.p_filesz], phdr.p_offset)) != phdr.p_filesz) {
+                    std.debug.print("Read less than expected from ELF file!", .{});
+                    std.process.exit(1);
+                }
+                std.log.scoped(.spu2_test).debug("Loaded 0x{x} bytes to 0x{x:0<4}\n", .{ phdr.p_filesz, phdr.p_paddr });
+                none_loaded = false;
+            }
+            if (none_loaded) {
+                std.debug.print("No data found in ELF file!\n", .{});
+                std.process.exit(1);
+            }
+        }
+
+        var exec_node = update_node.start("execute", null);
+        exec_node.activate();
+        defer exec_node.end();
+
+        var blocks: u16 = 1000;
+        const block_size = 1000;
+        while (!interpreter.undefined0) {
+            const pre_ip = interpreter.ip;
+            if (blocks > 0) {
+                blocks -= 1;
+                try interpreter.ExecuteBlock(block_size);
+                if (pre_ip == interpreter.ip) {
+                    std.debug.print("Infinite loop detected in SPU II test!\n", .{});
+                    std.process.exit(1);
+                }
             }
         }
     }
