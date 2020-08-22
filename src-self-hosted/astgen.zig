@@ -267,11 +267,12 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .MultilineStringLiteral => return rlWrap(mod, scope, rl, try multilineStrLiteral(mod, scope, node.castTag(.MultilineStringLiteral).?)),
         .CharLiteral => return rlWrap(mod, scope, rl, try charLiteral(mod, scope, node.castTag(.CharLiteral).?)),
         .SliceType => return rlWrap(mod, scope, rl, try sliceType(mod, scope, node.castTag(.SliceType).?)),
+        .ErrorUnion => return rlWrap(mod, scope, rl, try typeInixOp(mod, scope, node.castTag(.ErrorUnion).?, .error_union_type)),
+        .MergeErrorSets => return rlWrap(mod, scope, rl, try typeInixOp(mod, scope, node.castTag(.MergeErrorSets).?, .merge_error_sets)),
+        .AnyFrameType => return rlWrap(mod, scope, rl, try anyFrameType(mod, scope, node.castTag(.AnyFrameType).?)),
 
         .Defer => return mod.failNode(scope, node, "TODO implement astgen.expr for .Defer", .{}),
         .Catch => return mod.failNode(scope, node, "TODO implement astgen.expr for .Catch", .{}),
-        .ErrorUnion => return mod.failNode(scope, node, "TODO implement astgen.expr for .ErrorUnion", .{}),
-        .MergeErrorSets => return mod.failNode(scope, node, "TODO implement astgen.expr for .MergeErrorSets", .{}),
         .Range => return mod.failNode(scope, node, "TODO implement astgen.expr for .Range", .{}),
         .OrElse => return mod.failNode(scope, node, "TODO implement astgen.expr for .OrElse", .{}),
         .Await => return mod.failNode(scope, node, "TODO implement astgen.expr for .Await", .{}),
@@ -290,7 +291,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .AnyType => return mod.failNode(scope, node, "TODO implement astgen.expr for .AnyType", .{}),
         .ErrorType => return mod.failNode(scope, node, "TODO implement astgen.expr for .ErrorType", .{}),
         .FnProto => return mod.failNode(scope, node, "TODO implement astgen.expr for .FnProto", .{}),
-        .AnyFrameType => return mod.failNode(scope, node, "TODO implement astgen.expr for .AnyFrameType", .{}),
         .ErrorSetDecl => return mod.failNode(scope, node, "TODO implement astgen.expr for .ErrorSetDecl", .{}),
         .ContainerDecl => return mod.failNode(scope, node, "TODO implement astgen.expr for .ContainerDecl", .{}),
         .Comptime => return mod.failNode(scope, node, "TODO implement astgen.expr for .Comptime", .{}),
@@ -566,14 +566,13 @@ fn negation(mod: *Module, scope: *Scope, node: *ast.Node.SimplePrefixOp, op_inst
     const tree = scope.tree();
     const src = tree.token_locs[node.op_token].start;
 
-    const lhs = addZIRInstConst(mod, scope, src, .{
+    const lhs = try addZIRInstConst(mod, scope, src, .{
         .ty = Type.initTag(.comptime_int),
         .val = Value.initTag(.zero),
     });
     const rhs = try expr(mod, scope, .none, node.rhs);
 
-    const result = try addZIRBinOp(mod, scope, src, op_inst_tag, lhs, rhs);
-    return rlWrap(mod, scope, rl, result);
+    return addZIRBinOp(mod, scope, src, op_inst_tag, lhs, rhs);
 }
 
 fn addressOf(mod: *Module, scope: *Scope, node: *ast.Node.SimplePrefixOp) InnerError!*zir.Inst {
@@ -701,6 +700,36 @@ fn arrayTypeSentinel(mod: *Module, scope: *Scope, node: *ast.Node.ArrayTypeSenti
         .sentinel = sentinel,
         .elem_type = elem_type,
     }, .{});
+}
+
+fn anyFrameType(mod: *Module, scope: *Scope, node: *ast.Node.AnyFrameType) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.anyframe_token].start;
+    if (node.result) |some| {
+        const meta_type = try addZIRInstConst(mod, scope, src, .{
+            .ty = Type.initTag(.type),
+            .val = Value.initTag(.type_type),
+        });
+        const return_type = try expr(mod, scope, .{ .ty = meta_type}, some.return_type);
+        return addZIRUnOp(mod, scope, src, .anyframe_type, return_type);
+    } else {
+        return addZIRInstConst(mod, scope, src, .{
+            .ty = Type.initTag(.type),
+            .val = Value.initTag(.anyframe_type),
+        });
+    }
+}
+
+fn typeInixOp(mod: *Module, scope: *Scope, node: *ast.Node.SimpleInfixOp, op_inst_tag: zir.Inst.Tag) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.op_token].start;
+    const meta_type = try addZIRInstConst(mod, scope, src, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.type_type),
+    });
+    const error_set = try expr(mod, scope, .{ .ty = meta_type }, node.lhs);
+    const payload = try expr(mod, scope, .{ .ty = meta_type }, node.rhs);
+    return addZIRBinOp(mod, scope, src, op_inst_tag, error_set, payload);
 }
 
 fn enumLiteral(mod: *Module, scope: *Scope, node: *ast.Node.EnumLiteral) !*zir.Inst {

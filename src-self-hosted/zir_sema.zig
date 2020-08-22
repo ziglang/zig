@@ -97,7 +97,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .array_cat => return analyzeInstArrayCat(mod, scope, old_inst.castTag(.array_cat).?),
         .array_mul => return analyzeInstArrayMul(mod, scope, old_inst.castTag(.array_mul).?),
         .bitand => return analyzeInstBitwise(mod, scope, old_inst.castTag(.bitand).?),
-        .bitnot => return analyzeInstBitwise(mod, scope, old_inst.castTag(.bitnot).?),
+        .bitnot => return analyzeInstBitNot(mod, scope, old_inst.castTag(.bitnot).?),
         .bitor => return analyzeInstBitwise(mod, scope, old_inst.castTag(.bitor).?),
         .xor => return analyzeInstBitwise(mod, scope, old_inst.castTag(.xor).?),
         .shl => return analyzeInstShl(mod, scope, old_inst.castTag(.shl).?),
@@ -123,6 +123,9 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .array_type => return analyzeInstArrayType(mod, scope, old_inst.castTag(.array_type).?),
         .array_type_sentinel => return analyzeInstArrayTypeSentinel(mod, scope, old_inst.castTag(.array_type_sentinel).?),
         .enum_literal => return analyzeInstEnumLiteral(mod, scope, old_inst.castTag(.enum_literal).?),
+        .merge_error_sets => return analyzeInstMergeErrorSets(mod, scope, old_inst.castTag(.merge_error_sets).?),
+        .error_union_type => return analyzeInstErrorUnionType(mod, scope, old_inst.castTag(.error_union_type).?),
+        .anyframe_type => return analyzeInstAnyframeType(mod, scope, old_inst.castTag(.anyframe_type).?),
     }
 }
 
@@ -717,6 +720,27 @@ fn analyzeInstArrayTypeSentinel(mod: *Module, scope: *Scope, array: *zir.Inst.Ar
     return mod.constType(scope, array.base.src, try mod.arrayType(scope, len.val.toUnsignedInt(), sentinel.val, elem_type));
 }
 
+fn analyzeInstErrorUnionType(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const error_union = try resolveType(mod, scope, inst.positionals.lhs);
+    const payload = try resolveType(mod, scope, inst.positionals.rhs);
+
+    if (error_union.zigTypeTag() != .ErrorSet) {
+        return mod.fail(scope, inst.base.src, "expected error set type, found {}", .{error_union.elemType()});
+    }
+
+    return mod.constType(scope, inst.base.src, try mod.errorUnionType(scope, error_union, payload));
+}
+
+fn analyzeInstAnyframeType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const return_type = try resolveType(mod, scope, inst.positionals.operand);
+
+    return mod.constType(scope, inst.base.src, try mod.anyframeType(scope, return_type));
+}
+
+fn analyzeInstMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    return mod.fail(scope, inst.base.src, "TODO implement merge_error_sets", .{});
+}
+
 fn analyzeInstEnumLiteral(mod: *Module, scope: *Scope, inst: *zir.Inst.EnumLiteral) InnerError!*Inst {
     const payload = try scope.arena().create(Value.Payload.Bytes);
     payload.* = .{
@@ -982,6 +1006,10 @@ fn analyzeInstShr(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError
 
 fn analyzeInstBitwise(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstBitwise", .{});
+}
+
+fn analyzeInstBitNot(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstBitNot", .{});
 }
 
 fn analyzeInstArrayCat(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
