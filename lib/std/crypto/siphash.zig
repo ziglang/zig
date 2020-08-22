@@ -20,8 +20,10 @@ const mem = std.mem;
 /// SipHash function with 64-bit output.
 ///
 /// Recommended parameters are:
+/// - (c_rounds=4, d_rounds=8) for conservative security; regular hash functions such as BLAKE2 or BLAKE3 are usually a better alternative.
 /// - (c_rounds=2, d_rounds=4) standard parameters.
-/// - (c_rounds=1, d_rounds=2) reduced-round function. Faster, no known implications on its practical security level.
+/// - (c_rounds=1, d_rounds=3) reduced-round function. Faster, no known implications on its practical security level.
+/// - (c_rounds=1, d_rounds=2) fastest option, but the output may be distinguishable from random data with related keys or non-uniform input - not suitable as a PRF.
 ///
 /// SipHash is not a traditional hash function. If the input includes untrusted content, a secret key is absolutely necessary.
 /// And due to its small output size, collisions in SipHash64 can be found with an exhaustive search.
@@ -32,8 +34,11 @@ pub fn SipHash64(comptime c_rounds: usize, comptime d_rounds: usize) type {
 /// SipHash function with 128-bit output.
 ///
 /// Recommended parameters are:
+/// - (c_rounds=4, d_rounds=8) for conservative security; regular hash functions such as BLAKE2 or BLAKE3 are usually a better alternative.
 /// - (c_rounds=2, d_rounds=4) standard parameters.
-/// - (c_rounds=1, d_rounds=2) reduced-round function. Faster, no known implications on its practical security level.
+/// - (c_rounds=1, d_rounds=4) reduced-round function. Recommended to hash very short, similar strings, when a 128-bit PRF output is still required.
+/// - (c_rounds=1, d_rounds=3) reduced-round function. Faster, no known implications on its practical security level.
+/// - (c_rounds=1, d_rounds=2) fastest option, but the output may be distinguishable from random data with related keys or non-uniform input - not suitable as a PRF.
 ///
 /// SipHash is not a traditional hash function. If the input includes untrusted content, a secret key is absolutely necessary.
 pub fn SipHash128(comptime c_rounds: usize, comptime d_rounds: usize) type {
