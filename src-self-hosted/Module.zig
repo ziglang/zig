@@ -3309,6 +3309,28 @@ pub fn arrayType(self: *Module, scope: *Scope, len: u64, sentinel: ?Value, elem_
     return Type.initPayload(&payload.base);
 }
 
+pub fn errorUnionType(self: *Module, scope: *Scope, error_set: Type, payload: Type) Allocator.Error!Type {
+    assert(error_set.zigTypeTag() == .ErrorSet);
+    if (error_set.eql(Type.initTag(.anyerror)) and payload.eql(Type.initTag(.void))) {
+        return Type.initTag(.anyerror_void_error_union);
+    }
+
+    const result = try scope.arena().create(Type.Payload.ErrorUnion);
+    result.* = .{
+        .error_set = error_set,
+        .payload = payload,
+    };
+    return Type.initPayload(&result.base);
+}
+
+pub fn anyframeType(self: *Module, scope: *Scope, return_type: Type) Allocator.Error!Type {
+    const result = try scope.arena().create(Type.Payload.AnyFrame);
+    result.* = .{
+        .return_type = return_type,
+    };
+    return Type.initPayload(&result.base);
+}
+
 pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {
     const zir_module = scope.namespace();
     const source = zir_module.getSource(self) catch @panic("dumpInst failed to get source");
