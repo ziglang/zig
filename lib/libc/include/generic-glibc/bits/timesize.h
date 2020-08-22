@@ -1,4 +1,4 @@
-/* Bit size of the time_t type at glibc build time, general case.
+/* Bit size of the time_t type at glibc build time, x86-64 and x32 case.
    Copyright (C) 2018-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
@@ -16,7 +16,10 @@
    License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
 
-#include <bits/wordsize.h>
-
-/* Size in bits of the 'time_t' type of the default ABI.  */
-#define __TIMESIZE	__WORDSIZE
+#if defined __x86_64__ && defined __ILP32__
+/* For x32, time is 64-bit even though word size is 32-bit.  */
+# define __TIMESIZE	64
+#else
+/* For others, time size is word size.  */
+# define __TIMESIZE	__WORDSIZE
+#endif

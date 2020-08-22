@@ -1,5 +1,4 @@
-/* Define the machine-dependent type `jmp_buf'.  MIPS version.
-   Copyright (C) 1992-2020 Free Software Foundation, Inc.
+/* Copyright (C) 2001-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -13,61 +12,29 @@
    Lesser General Public License for more details.
 
    You should have received a copy of the GNU Lesser General Public
-   License along with the GNU C Library.  If not, see
+   License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
 
-#ifndef _MIPS_BITS_SETJMP_H
-#define _MIPS_BITS_SETJMP_H 1
+/* Define the machine-dependent type `jmp_buf'.  x86-64 version.  */
+#ifndef _BITS_SETJMP_H
+#define _BITS_SETJMP_H  1
 
-#if !defined(_SETJMP_H) && !defined(_PTHREAD_H)
+#if !defined _SETJMP_H && !defined _PTHREAD_H
 # error "Never include <bits/setjmp.h> directly; use <setjmp.h> instead."
 #endif
 
-#include <sgidefs.h>
+#include <bits/wordsize.h>
 
-typedef struct __jmp_buf_internal_tag
-  {
-#if _MIPS_SIM == _ABIO32
-    /* Program counter.  */
-    void *__pc;
+#ifndef _ASM
 
-    /* Stack pointer.  */
-    void *__sp;
+# if __WORDSIZE == 64
+typedef long int __jmp_buf[8];
+# elif defined  __x86_64__
+__extension__ typedef long long int __jmp_buf[8];
+# else
+typedef int __jmp_buf[6];
+# endif
 
-    /* Callee-saved registers s0 through s7.  */
-    int __regs[8];
-
-    /* The frame pointer.  */
-    void *__fp;
-
-    /* The global pointer.  */
-    void *__gp;
-#else
-    /* Program counter.  */
-    __extension__ long long __pc;
-
-    /* Stack pointer.  */
-    __extension__ long long __sp;
-
-    /* Callee-saved registers s0 through s7.  */
-    __extension__ long long __regs[8];
-
-    /* The frame pointer.  */
-    __extension__ long long __fp;
-
-    /* The global pointer.  */
-    __extension__ long long __gp;
 #endif
 
-    /* Unused (was floating point status register).  */
-    int __glibc_reserved1;
-
-    /* Callee-saved floating point registers.  */
-#if _MIPS_SIM == _ABI64
-    double __fpregs[8];
-#else
-    double __fpregs[6];
-#endif
-  } __jmp_buf[1];
-
-#endif /* _MIPS_BITS_SETJMP_H */
+#endif  /* bits/setjmp.h */

@@ -27,6 +27,7 @@
 #include <bits/setjmp.h>
 #include <bits/wordsize.h>
 #include <bits/types/struct_timespec.h>
+#include <bits/types/__sigset_t.h>
 
 
 /* Detach state.  */
@@ -384,6 +385,20 @@ extern int pthread_attr_getaffinity_np (const pthread_attr_t *__attr,
 /* Get the default attributes used by pthread_create in this process.  */
 extern int pthread_getattr_default_np (pthread_attr_t *__attr)
      __THROW __nonnull ((1));
+
+/* Store *SIGMASK as the signal mask for the new thread in *ATTR.  */
+extern int pthread_attr_setsigmask_np (pthread_attr_t *__attr,
+				       const __sigset_t *sigmask);
+
+/* Store the signal mask of *ATTR in *SIGMASK.  If there is no signal
+   mask stored, return PTHREAD_ATTR_NOSIGMASK_NP.  Return zero on
+   success.  */
+extern int pthread_attr_getsigmask_np (const pthread_attr_t *__attr,
+				       __sigset_t *sigmask);
+
+/* Special return value from pthread_attr_getsigmask_np if the signal
+   mask has not been set.  */
+#define PTHREAD_ATTR_NO_SIGMASK_NP (-1)
 
 /* Set the default attributes to be used by pthread_create in this
    process.  */
