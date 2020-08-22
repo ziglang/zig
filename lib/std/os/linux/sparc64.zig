@@ -15,9 +15,9 @@ pub fn syscall0(number: SYS) usize {
         \\ bcc %%xcc, 1f
         \\ neg %%o0
         \\ 1:
-        : [ret] "={%o0}" (-> usize)
-        : [number] "{%g1}" (@enumToInt(number))
-        : "memory", "%o1", "%o2", "%o3", "%o4", "%o5", "%o7"
+        : [ret] "={o0}" (-> usize)
+        : [number] "{g1}" (@enumToInt(number))
+        : "memory", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
 
@@ -27,10 +27,10 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         \\ bcc %%xcc, 1f
         \\ neg %%o0
         \\ 1:
-        : [ret] "={%o0}" (-> usize)
-        : [number] "{%g1}" (@enumToInt(number)),
-          [arg1] "{%o0}" (arg1)
-        : "memory", "%o1", "%o2", "%o3", "%o4", "%o5", "%o7"
+        : [ret] "={o0}" (-> usize)
+        : [number] "{g1}" (@enumToInt(number)),
+          [arg1] "{o0}" (arg1)
+        : "memory", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
 
@@ -40,11 +40,11 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         \\ bcc %%xcc, 1f
         \\ neg %%o0
         \\ 1:
-        : [ret] "={%o0}" (-> usize)
-        : [number] "{%g1}" (@enumToInt(number)),
-          [arg1] "{%o0}" (arg1),
-          [arg2] "{%o1}" (arg2)
-        : "memory", "%o1", "%o2", "%o3", "%o4", "%o5", "%o7"
+        : [ret] "={o0}" (-> usize)
+        : [number] "{g1}" (@enumToInt(number)),
+          [arg1] "{o0}" (arg1),
+          [arg2] "{o1}" (arg2)
+        : "memory", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
 
@@ -54,12 +54,12 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
         \\ bcc %%xcc, 1f
         \\ neg %%o0
         \\ 1:
-        : [ret] "={%o0}" (-> usize)
-        : [number] "{%g1}" (@enumToInt(number)),
-          [arg1] "{%o0}" (arg1),
-          [arg2] "{%o1}" (arg2),
-          [arg3] "{%o2}" (arg3)
-        : "memory", "%o1", "%o2", "%o3", "%o4", "%o5", "%o7"
+        : [ret] "={o0}" (-> usize)
+        : [number] "{g1}" (@enumToInt(number)),
+          [arg1] "{o0}" (arg1),
+          [arg2] "{o1}" (arg2),
+          [arg3] "{o2}" (arg3)
+        : "memory", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
 
@@ -69,13 +69,13 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
         \\ bcc %%xcc, 1f
         \\ neg %%o0
         \\ 1:
-        : [ret] "={%o0}" (-> usize)
-        : [number] "{%g1}" (@enumToInt(number)),
-          [arg1] "{%o0}" (arg1),
-          [arg2] "{%o1}" (arg2),
-          [arg3] "{%o2}" (arg3),
-          [arg4] "{%o3}" (arg4)
-        : "memory", "%o1", "%o2", "%o3", "%o4", "%o5", "%o7"
+        : [ret] "={o0}" (-> usize)
+        : [number] "{g1}" (@enumToInt(number)),
+          [arg1] "{o0}" (arg1),
+          [arg2] "{o1}" (arg2),
+          [arg3] "{o2}" (arg3),
+          [arg4] "{o3}" (arg4)
+        : "memory", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
 
@@ -85,14 +85,14 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
         \\ bcc %%xcc, 1f
         \\ neg %%o0
         \\ 1:
-        : [ret] "={%o0}" (-> usize)
-        : [number] "{%g1}" (@enumToInt(number)),
-          [arg1] "{%o0}" (arg1),
-          [arg2] "{%o1}" (arg2),
-          [arg3] "{%o2}" (arg3),
-          [arg4] "{%o3}" (arg4),
-          [arg5] "{%o4}" (arg5),
-        : "memory", "%o1", "%o2", "%o3", "%o4", "%o5", "%o7"
+        : [ret] "={o0}" (-> usize)
+        : [number] "{g1}" (@enumToInt(number)),
+          [arg1] "{o0}" (arg1),
+          [arg2] "{o1}" (arg2),
+          [arg3] "{o2}" (arg3),
+          [arg4] "{o3}" (arg4),
+          [arg5] "{o4}" (arg5),
+        : "memory", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
 
@@ -110,15 +110,15 @@ pub fn syscall6(
         \\ bcc %%xcc, 1f
         \\ neg %%o0
         \\ 1:
-        : [ret] "={%o0}" (-> usize)
-        : [number] "{%g1}" (@enumToInt(number)),
-          [arg1] "{%o0}" (arg1),
-          [arg2] "{%o1}" (arg2),
-          [arg3] "{%o2}" (arg3),
-          [arg4] "{%o3}" (arg4),
-          [arg5] "{%o4}" (arg5),
-          [arg6] "{%o5}" (arg6),
-        : "memory", "%o1", "%o2", "%o3", "%o4", "%o5", "%o7"
+        : [ret] "={o0}" (-> usize)
+        : [number] "{g1}" (@enumToInt(number)),
+          [arg1] "{o0}" (arg1),
+          [arg2] "{o1}" (arg2),
+          [arg3] "{o2}" (arg3),
+          [arg4] "{o3}" (arg4),
+          [arg5] "{o4}" (arg5),
+          [arg6] "{o5}" (arg6),
+        : "memory", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
 
@@ -130,7 +130,7 @@ pub const restore = restore_rt;
 pub fn restore_rt() callconv(.Naked) void {
     return asm volatile ("t 0x6d"
         :
-        : [number] "{%g1}" (@enumToInt(SYS.rt_sigreturn))
-        : "memory", "%o0", "%o1", "%o2", "%o3", "%o4", "%o5", "%o7"
+        : [number] "{g1}" (@enumToInt(SYS.rt_sigreturn))
+        : "memory", "o0", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }

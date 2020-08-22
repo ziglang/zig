@@ -546,8 +546,6 @@ pub const timezone = extern struct {
 
 pub const Elf_Symndx = u32;
 
-// TODO figure out how to do these on sparc64.
-
 pub const fpstate = extern struct {
     regs: [32]u64,
     fsr: u64,
