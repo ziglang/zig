@@ -253,6 +253,12 @@ pub fn zeroes(comptime T: type) T {
     }
 }
 
+pub const timingSafeEqual = @import("mem/timing_safe.zig");
+
+test "mem.timing_safe" {
+    _ = @import("mem/timing_safe.zig");
+}
+
 test "mem.zeroes" {
     const C_struct = extern struct {
         x: u32,
