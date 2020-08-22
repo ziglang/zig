@@ -147,6 +147,11 @@ fn _start() callconv(.Naked) noreturn {
                 : "r0"
             );
         },
+        .sparcv9 => {
+            starting_stack_ptr = asm (""
+                : [argc] "={o6}" (-> [*]usize)
+            );
+        },
         else => @compileError("unsupported arch"),
     }
     // If LLVM inlines stack variables into _start, they will overwrite
