@@ -544,6 +544,9 @@ pub const timezone = extern struct {
     tz_dsttime: i32,
 };
 
+// TODO I'm not sure if the code below is correct, need someone with more
+// knowledge about sparc64 linux internals to look into.
+
 pub const Elf_Symndx = u32;
 
 pub const fpstate = extern struct {
