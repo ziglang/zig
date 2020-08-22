@@ -80,9 +80,6 @@ pub const valgrind = @import("valgrind.zig");
 pub const zig = @import("zig.zig");
 pub const start = @import("start.zig");
 
-// TODO move this
-pub const spu = @import("spu.zig");
-
 // This forces the start.zig file to be imported, and the comptime logic inside that
 // file decides whether to export any appropriate start symbols.
 comptime {

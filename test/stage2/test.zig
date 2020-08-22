@@ -26,6 +26,8 @@ const wasi = std.zig.CrossTarget{
 pub fn addCases(ctx: *TestContext) !void {
     try @import("zir.zig").addCases(ctx);
     try @import("cbe.zig").addCases(ctx);
+    try @import("spu-ii.zig").addCases(ctx);
+
     {
         var case = ctx.exe("hello world with updates", linux_x64);
 
@@ -785,5 +787,4 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\extern var foo;
     , &[_][]const u8{":4:1: error: unable to infer variable type"});
-    try @import("spu-ii.zig").addCases(ctx);
 }

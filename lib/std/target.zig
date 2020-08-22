@@ -663,7 +663,8 @@ pub const Target = struct {
             renderscript32,
             renderscript64,
             ve,
-            // Non-LLVM targets go here
+            // Stage1 currently assumes that architectures above this comment
+            // map one-to-one with the ZigLLVM_ArchType enum.
             spu_2,
 
             pub fn isARM(arch: Arch) bool {

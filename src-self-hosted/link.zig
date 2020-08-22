@@ -7,7 +7,7 @@ const Package = @import("Package.zig");
 const Type = @import("type.zig").Type;
 const build_options = @import("build_options");
 
-const producer_string = if (std.builtin.is_test) "zig test" else "zig " ++ build_options.version;
+pub const producer_string = if (std.builtin.is_test) "zig test" else "zig " ++ build_options.version;
 
 pub const Options = struct {
     target: std.Target,

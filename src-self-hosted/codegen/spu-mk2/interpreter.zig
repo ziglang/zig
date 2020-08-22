@@ -1,6 +1,9 @@
 const std = @import("std");
 const log = std.log.scoped(.SPU_2_Interpreter);
-usingnamespace @import("defines.zig");
+const spu = @import("../spu-mk2.zig");
+const FlagRegister = spu.FlagRegister;
+const Instruction = spu.Instruction;
+const ExecutionCondition = spu.ExecutionCondition;
 
 pub fn Interpreter(comptime Bus: type) type {
     return struct {
@@ -32,7 +35,7 @@ pub fn Interpreter(comptime Bus: type) type {
                     .when_zero => self.fr.zero,
                     .overflow => self.fr.carry,
                     ExecutionCondition.greater_or_equal_zero => !self.fr.negative,
-                    else => return error.unimplemented,
+                    else => return error.Unimplemented,
                 };
 
                 if (execute) {
@@ -134,7 +137,7 @@ pub fn Interpreter(comptime Bus: type) type {
                             (val0 & 0xFF) | 0xFF00
                         else
                             (val0 & 0xFF),
-                        else => return error.unimplemented,
+                        else => return error.Unimplemented,
                     };
 
                     switch (instruction.output) {
@@ -146,7 +149,7 @@ pub fn Interpreter(comptime Bus: type) type {
                         .jump => {
                             self.ip = output;
                         },
-                        else => return error.unimplemented,
+                        else => return error.Unimplemented,
                     }
                     if (instruction.modify_flags) {
                         self.fr.negative = (output & 0x8000) != 0;
