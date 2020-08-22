@@ -232,6 +232,11 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .BoolAnd => return boolBinOp(mod, scope, rl, node.castTag(.BoolAnd).?),
         .BoolOr => return boolBinOp(mod, scope, rl, node.castTag(.BoolOr).?),
 
+        .BoolNot => return rlWrap(mod, scope, rl, try boolNot(mod, scope, node.castTag(.BoolNot).?)),
+        .BitNot => return rlWrap(mod, scope, rl, try bitNot(mod, scope, node.castTag(.BitNot).?)),
+        .Negation => return rlWrap(mod, scope, rl, try negation(mod, scope, node.castTag(.Negation).?, .sub)),
+        .NegationWrap => return rlWrap(mod, scope, rl, try negation(mod, scope, node.castTag(.NegationWrap).?, .subwrap)),
+
         .Identifier => return try identifier(mod, scope, rl, node.castTag(.Identifier).?),
         .Asm => return rlWrap(mod, scope, rl, try assembly(mod, scope, node.castTag(.Asm).?)),
         .StringLiteral => return rlWrap(mod, scope, rl, try stringLiteral(mod, scope, node.castTag(.StringLiteral).?)),
@@ -244,7 +249,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .While => return whileExpr(mod, scope, rl, node.castTag(.While).?),
         .Period => return rlWrap(mod, scope, rl, try field(mod, scope, node.castTag(.Period).?)),
         .Deref => return rlWrap(mod, scope, rl, try deref(mod, scope, node.castTag(.Deref).?)),
-        .BoolNot => return rlWrap(mod, scope, rl, try boolNot(mod, scope, node.castTag(.BoolNot).?)),
         .AddressOf => return rlWrap(mod, scope, rl, try addressOf(mod, scope, node.castTag(.AddressOf).?)),
         .FloatLiteral => return rlWrap(mod, scope, rl, try floatLiteral(mod, scope, node.castTag(.FloatLiteral).?)),
         .UndefinedLiteral => return rlWrap(mod, scope, rl, try undefLiteral(mod, scope, node.castTag(.UndefinedLiteral).?)),
@@ -271,9 +275,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .Range => return mod.failNode(scope, node, "TODO implement astgen.expr for .Range", .{}),
         .OrElse => return mod.failNode(scope, node, "TODO implement astgen.expr for .OrElse", .{}),
         .Await => return mod.failNode(scope, node, "TODO implement astgen.expr for .Await", .{}),
-        .BitNot => return mod.failNode(scope, node, "TODO implement astgen.expr for .BitNot", .{}),
-        .Negation => return mod.failNode(scope, node, "TODO implement astgen.expr for .Negation", .{}),
-        .NegationWrap => return mod.failNode(scope, node, "TODO implement astgen.expr for .NegationWrap", .{}),
         .Resume => return mod.failNode(scope, node, "TODO implement astgen.expr for .Resume", .{}),
         .Try => return mod.failNode(scope, node, "TODO implement astgen.expr for .Try", .{}),
         .Slice => return mod.failNode(scope, node, "TODO implement astgen.expr for .Slice", .{}),
@@ -552,6 +553,27 @@ fn boolNot(mod: *Module, scope: *Scope, node: *ast.Node.SimplePrefixOp) InnerErr
     });
     const operand = try expr(mod, scope, .{ .ty = bool_type }, node.rhs);
     return addZIRUnOp(mod, scope, src, .boolnot, operand);
+}
+
+fn bitNot(mod: *Module, scope: *Scope, node: *ast.Node.SimplePrefixOp) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.op_token].start;
+    const operand = try expr(mod, scope, .none, node.rhs);
+    return addZIRUnOp(mod, scope, src, .bitnot, operand);
+}
+
+fn negation(mod: *Module, scope: *Scope, node: *ast.Node.SimplePrefixOp, op_inst_tag: zir.Inst.Tag) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.op_token].start;
+
+    const lhs = addZIRInstConst(mod, scope, src, .{
+        .ty = Type.initTag(.comptime_int),
+        .val = Value.initTag(.zero),
+    });
+    const rhs = try expr(mod, scope, .none, node.rhs);
+
+    const result = try addZIRBinOp(mod, scope, src, op_inst_tag, lhs, rhs);
+    return rlWrap(mod, scope, rl, result);
 }
 
 fn addressOf(mod: *Module, scope: *Scope, node: *ast.Node.SimplePrefixOp) InnerError!*zir.Inst {

@@ -70,6 +70,8 @@ pub const Inst = struct {
         /// A typed result location pointer is bitcasted to a new result location pointer.
         /// The new result location pointer has an inferred type.
         bitcast_result_ptr,
+        /// Bitwise NOT. `~`
+        bitnot,
         /// Bitwise OR. `|`
         bitor,
         /// A labeled block of code, which can return a value.

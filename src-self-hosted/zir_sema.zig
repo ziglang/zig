@@ -97,6 +97,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .array_cat => return analyzeInstArrayCat(mod, scope, old_inst.castTag(.array_cat).?),
         .array_mul => return analyzeInstArrayMul(mod, scope, old_inst.castTag(.array_mul).?),
         .bitand => return analyzeInstBitwise(mod, scope, old_inst.castTag(.bitand).?),
+        .bitnot => return analyzeInstBitwise(mod, scope, old_inst.castTag(.bitnot).?),
         .bitor => return analyzeInstBitwise(mod, scope, old_inst.castTag(.bitor).?),
         .xor => return analyzeInstBitwise(mod, scope, old_inst.castTag(.xor).?),
         .shl => return analyzeInstShl(mod, scope, old_inst.castTag(.shl).?),
