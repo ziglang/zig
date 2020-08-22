@@ -11,6 +11,7 @@ const math = std.math;
 const mem = std.mem;
 const debug = std.debug;
 const testing = std.testing;
+const utils = std.crypto.utils;
 
 const salt_length: usize = 16;
 const salt_str_length: usize = 22;
@@ -226,7 +227,7 @@ fn strHashInternal(password: []const u8, rounds_log: u6, salt: [salt_length]u8) 
         state.expand0(passwordZ);
         state.expand0(salt[0..]);
     }
-    mem.secureZero(u8, &password_buf);
+    utils.secureZero(u8, &password_buf);
 
     var cdata = [6]u32{ 0x4f727068, 0x65616e42, 0x65686f6c, 0x64657253, 0x63727944, 0x6f756274 }; // "OrpheanBeholderScryDoubt"
     k = 0;

@@ -4,6 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("../std.zig");
+const utils = std.crypto.utils;
 const mem = std.mem;
 
 pub const Poly1305 = struct {
@@ -195,7 +196,7 @@ pub const Poly1305 = struct {
         mem.writeIntLittle(u64, out[0..8], st.h[0]);
         mem.writeIntLittle(u64, out[8..16], st.h[1]);
 
-        std.mem.secureZero(u8, @ptrCast([*]u8, st)[0..@sizeOf(Poly1305)]);
+        utils.secureZero(u8, @ptrCast([*]u8, st)[0..@sizeOf(Poly1305)]);
     }
 
     pub fn create(out: *[mac_length]u8, msg: []const u8, key: *const [key_length]u8) void {

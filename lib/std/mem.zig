@@ -342,26 +342,6 @@ test "mem.zeroes" {
     testing.expectEqual(@as(u8, 0), c.a);
 }
 
-/// Sets a slice to zeroes.
-/// Prevents the store from being optimized out.
-pub fn secureZero(comptime T: type, s: []T) void {
-    // NOTE: We do not use a volatile slice cast here since LLVM cannot
-    // see that it can be replaced by a memset.
-    const ptr = @ptrCast([*]volatile u8, s.ptr);
-    const length = s.len * @sizeOf(T);
-    @memset(ptr, 0, length);
-}
-
-test "mem.secureZero" {
-    var a = [_]u8{0xfe} ** 8;
-    var b = [_]u8{0xfe} ** 8;
-
-    set(u8, a[0..], 0);
-    secureZero(u8, b[0..]);
-
-    testing.expectEqualSlices(u8, a[0..], b[0..]);
-}
-
 /// Initializes all fields of the struct with their default value, or zero values if no default value is present.
 /// If the field is present in the provided initial values, it will have that value instead.
 /// Structs are initialized recursively.

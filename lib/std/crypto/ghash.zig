@@ -10,6 +10,7 @@ const std = @import("../std.zig");
 const assert = std.debug.assert;
 const math = std.math;
 const mem = std.mem;
+const utils = std.crypto.utils;
 
 /// GHASH is a universal hash function that features multiplication
 /// by a fixed parameter within a Galois field.
@@ -305,7 +306,7 @@ pub const Ghash = struct {
         mem.writeIntBig(u64, out[0..8], st.y1);
         mem.writeIntBig(u64, out[8..16], st.y0);
 
-        mem.secureZero(u8, @ptrCast([*]u8, st)[0..@sizeOf(Ghash)]);
+        utils.secureZero(u8, @ptrCast([*]u8, st)[0..@sizeOf(Ghash)]);
     }
 
     pub fn create(out: *[mac_length]u8, msg: []const u8, key: *const [key_length]u8) void {
