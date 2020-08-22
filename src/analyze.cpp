@@ -1003,6 +1003,7 @@ bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id) {
         g->zig_target->arch == ZigLLVM_x86_64 ||
         target_is_arm(g->zig_target) ||
         target_is_riscv(g->zig_target) ||
+        target_is_sparc(g->zig_target) ||
         target_is_wasm(g->zig_target))
     {
         X64CABIClass abi_class = type_c_abi_x86_64_class(g, fn_type_id->return_type);
@@ -1942,7 +1943,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
             // behaviour when checking expected alignment with `@ptrToInt(fn_ptr)`
             // or similar. This commit proposes to make `align` expressions a
             // compile error when compiled to Wasm architecture.
-            // 
+            //
             // Some references:
             // [1] [Mozilla: WebAssembly Tables](https://developer.mozilla.org/en-US/docs/WebAssembly/Understanding_the_text_format#WebAssembly_tables)
             // [2] [Sunfishcode's Wasm Ref Manual](https://github.com/sunfishcode/wasm-reference-manual/blob/master/WebAssembly.md#indirect-call)
@@ -8946,7 +8947,7 @@ static void resolve_llvm_types_optional(CodeGen *g, ZigType *type, ResolveStatus
                 8 * child_type->abi_align,
                 val_offset_in_bits,
                 ZigLLVM_DIFlags_Zero, child_llvm_di_type);
-    di_element_types[maybe_null_index] = 
+    di_element_types[maybe_null_index] =
         ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(type->llvm_di_type),
                 "maybe", di_file, line,
                 8*g->builtin_types.entry_bool->abi_size,
