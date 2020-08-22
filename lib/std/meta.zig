@@ -691,8 +691,30 @@ pub fn Int(comptime is_signed: bool, comptime bit_count: u16) type {
     });
 }
 
+pub fn Array(comptime len: u32, comptime child: type, comptime s: ?child) type {
+    return @Type(.{
+        .Array = .{
+            .len = len,
+            .child = child,
+            .sentinel = s,
+        },
+    });
+}
+
+test "std.meta.Array" {
+    const a1 = Array(2, u32, null);
+    const a2 = Array(2, u8, 0);
+    var a: a2 = undefined;
+    testing.expect(Child(a1) == u32);
+    testing.expect(sentinel(a1) == null);
+    testing.expect(Child(a2) == u8);
+    testing.expect(sentinel(a2).? == 0);
+    a[0] = 1;
+    testing.expect(a[0] == 1);
+}
+
 pub fn Vector(comptime len: u32, comptime child: type) type {
-    return @Type(TypeInfo{
+    return @Type(.{
         .Vector = .{
             .len = len,
             .child = child,
