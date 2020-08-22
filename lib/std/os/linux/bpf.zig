@@ -4,10 +4,8 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 usingnamespace std.os;
-const std = @import("../../../std.zig");
+const std = @import("../../std.zig");
 const expectEqual = std.testing.expectEqual;
-const fd_t = std.os.fd_t;
-const pid_t = std.os.pid_t;
 
 // instruction classes
 pub const LD = 0x00;
