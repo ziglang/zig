@@ -2,6 +2,25 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("@Type with undefined",
+        \\comptime {
+        \\    _ = @Type(.{ .Array = .{ .len = 0, .child = u8, .sentinel = undefined } });
+        \\}
+        \\comptime {
+        \\    _ = @Type(.{
+        \\        .Struct = .{
+        \\            .fields = undefined,
+        \\            .decls = undefined,
+        \\            .is_tuple = false,
+        \\            .layout = .Auto,
+        \\        },
+        \\    });
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:16: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:5:16: error: use of undefined value here causes undefined behavior",
+    });
+
     cases.add("struct with declarations unavailable for @Type",
         \\export fn entry() void {
         \\    _ = @Type(@typeInfo(struct { const foo = 1; }));
