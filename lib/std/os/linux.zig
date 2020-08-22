@@ -29,6 +29,7 @@ pub usingnamespace switch (builtin.arch) {
 };
 pub usingnamespace @import("bits.zig");
 pub const tls = @import("linux/tls.zig");
+pub const BPF = @import("linux/bpf.zig");
 
 /// Set by startup code, used by `getauxval`.
 pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
