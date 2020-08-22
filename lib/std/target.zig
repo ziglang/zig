@@ -133,9 +133,7 @@ pub const Target = struct {
                     if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.win10_19h1)) {
                         try std.fmt.format(out_stream, "WindowsVersion.{}", .{@tagName(self)});
                     } else {
-                        try std.fmt.format(out_stream, "WindowsVersion(", .{@typeName(@This())});
-                        try std.fmt.format(out_stream, "{}", .{@enumToInt(self)});
-                        try out_stream.writeAll(")");
+                        try std.fmt.format(out_stream, "WindowsVersion({})", .{@enumToInt(self)});
                     }
                 }
             }
