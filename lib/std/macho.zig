@@ -40,6 +40,24 @@ pub const uuid_command = extern struct {
     uuid: [16]u8,
 };
 
+/// The entry_point_command is a replacement for thread_command.
+/// It is used for main executables to specify the location (file offset)
+/// of main(). If -stack_size was used at link time, the stacksize
+/// field will contain the stack size needed for the main thread.
+pub const entry_point_command = struct {
+    /// LC_MAIN only used in MH_EXECUTE filetypes
+    cmd: u32,
+
+    /// sizeof(struct entry_point_command)
+    cmdsize: u32,
+
+    /// file (__TEXT) offset of main()
+    entryoff: u64,
+
+    /// if not zero, initial stack size
+    stacksize: u64,
+};
+
 /// The symtab_command contains the offsets and sizes of the link-edit 4.3BSD
 /// "stab" style symbol table information as described in the header files
 /// <nlist.h> and <stab.h>.
