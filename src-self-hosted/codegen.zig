@@ -934,8 +934,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // If it's in the registers table, need to associate the register with the
                     // new instruction.
                     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-                    const entry = branch.registers.getEntry(toCanonicalReg(reg)).?;
-                    entry.value = .{ .inst = inst };
+                    if (branch.registers.getEntry(toCanonicalReg(reg))) |entry| {
+                        entry.value = .{ .inst = inst };
+                    }
                     log.debug("reusing {} => {*}", .{reg, inst});
                 },
                 .stack_offset => |off| {
