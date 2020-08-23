@@ -704,6 +704,9 @@ pub const Dir = struct {
         if (@hasDecl(os, "O_LARGEFILE")) {
             os_flags |= os.O_LARGEFILE;
         }
+        if (!flags.allow_ctty) {
+            os_flags |= os.O_NOCTTY;
+        }
         os_flags |= if (flags.write and flags.read)
             @as(u32, os.O_RDWR)
         else if (flags.write)
