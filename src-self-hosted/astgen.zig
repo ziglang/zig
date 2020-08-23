@@ -247,7 +247,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .Return => return ret(mod, scope, node.castTag(.Return).?),
         .If => return ifExpr(mod, scope, rl, node.castTag(.If).?),
         .While => return whileExpr(mod, scope, rl, node.castTag(.While).?),
-        .Period => return rlWrap(mod, scope, rl, try field(mod, scope, node.castTag(.Period).?)),
+        .Period => return field(mod, scope, rl, node.castTag(.Period).?),
         .Deref => return rlWrap(mod, scope, rl, try deref(mod, scope, node.castTag(.Deref).?)),
         .AddressOf => return rlWrap(mod, scope, rl, try addressOf(mod, scope, node.castTag(.AddressOf).?)),
         .FloatLiteral => return rlWrap(mod, scope, rl, try floatLiteral(mod, scope, node.castTag(.FloatLiteral).?)),
@@ -270,7 +270,8 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .ErrorUnion => return rlWrap(mod, scope, rl, try typeInixOp(mod, scope, node.castTag(.ErrorUnion).?, .error_union_type)),
         .MergeErrorSets => return rlWrap(mod, scope, rl, try typeInixOp(mod, scope, node.castTag(.MergeErrorSets).?, .merge_error_sets)),
         .AnyFrameType => return rlWrap(mod, scope, rl, try anyFrameType(mod, scope, node.castTag(.AnyFrameType).?)),
-        .ErrorSetDecl => return rlWrap(mod, scope, rl, try errorSetDecl(mod, scope, node.castTag(.ErrorSetDecl).?)),
+        .ErrorSetDecl => return errorSetDecl(mod, scope, rl, node.castTag(.ErrorSetDecl).?),
+        .ErrorType => return rlWrap(mod, scope, rl, try errorType(mod, scope, node.castTag(.ErrorType).?)),
 
         .Defer => return mod.failNode(scope, node, "TODO implement astgen.expr for .Defer", .{}),
         .Catch => return mod.failNode(scope, node, "TODO implement astgen.expr for .Catch", .{}),
@@ -290,7 +291,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .Suspend => return mod.failNode(scope, node, "TODO implement astgen.expr for .Suspend", .{}),
         .Continue => return mod.failNode(scope, node, "TODO implement astgen.expr for .Continue", .{}),
         .AnyType => return mod.failNode(scope, node, "TODO implement astgen.expr for .AnyType", .{}),
-        .ErrorType => return mod.failNode(scope, node, "TODO implement astgen.expr for .ErrorType", .{}),
         .FnProto => return mod.failNode(scope, node, "TODO implement astgen.expr for .FnProto", .{}),
         .ContainerDecl => return mod.failNode(scope, node, "TODO implement astgen.expr for .ContainerDecl", .{}),
         .Comptime => return mod.failNode(scope, node, "TODO implement astgen.expr for .Comptime", .{}),
@@ -722,13 +722,10 @@ fn unwrapOptional(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Si
     const src = tree.token_locs[node.rtoken].start;
 
     const operand = try expr(mod, scope, .ref, node.lhs);
-    const unwrapped_ptr = try addZIRUnOp(mod, scope, src, .unwrap_optional_safe, operand);
-    if (rl == .lvalue or rl == .ref) return unwrapped_ptr;
-
-    return rlWrap(mod, scope, rl, try addZIRUnOp(mod, scope, src, .deref, unwrapped_ptr));
+    return rlWrapPtr(mod, scope, rl, try addZIRUnOp(mod, scope, src, .unwrap_optional_safe, operand));
 }
 
-fn errorSetDecl(mod: *Module, scope: *Scope, node: *ast.Node.ErrorSetDecl) InnerError!*zir.Inst {
+fn errorSetDecl(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.ErrorSetDecl) InnerError!*zir.Inst {
     const tree = scope.tree();
     const src = tree.token_locs[node.error_token].start;
     const decls = node.decls();
@@ -739,7 +736,17 @@ fn errorSetDecl(mod: *Module, scope: *Scope, node: *ast.Node.ErrorSetDecl) Inner
         fields[i] = try identifierTokenString(mod, scope, tag.name_token);
     }
 
-    return addZIRInst(mod, scope, src, zir.Inst.ErrorSet, .{ .fields = fields }, .{});
+    // analyzing the error set results in a decl ref, so we might need to dereference it
+    return rlWrapPtr(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.ErrorSet, .{ .fields = fields }, .{}));
+}
+
+fn errorType(mod: *Module, scope: *Scope, node: *ast.Node.OneToken) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.token].start;
+    return addZIRInstConst(mod, scope, src, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.anyerror_type),
+    });
 }
 
 /// Return whether the identifier names of two tokens are equal. Resolves @"" tokens without allocating.
@@ -779,16 +786,16 @@ pub fn identifierStringInst(mod: *Module, scope: *Scope, node: *ast.Node.OneToke
     return addZIRInst(mod, scope, src, zir.Inst.Str, .{ .bytes = ident_name }, .{});
 }
 
-fn field(mod: *Module, scope: *Scope, node: *ast.Node.SimpleInfixOp) InnerError!*zir.Inst {
-    // TODO introduce lvalues
+fn field(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.SimpleInfixOp) InnerError!*zir.Inst {
     const tree = scope.tree();
     const src = tree.token_locs[node.op_token].start;
 
-    const lhs = try expr(mod, scope, .none, node.lhs);
+    const lhs = try expr(mod, scope, .ref, node.lhs);
     const field_name = try identifierStringInst(mod, scope, node.rhs.castTag(.Identifier).?);
 
     const pointer = try addZIRInst(mod, scope, src, zir.Inst.FieldPtr, .{ .object_ptr = lhs, .field_name = field_name }, .{});
-    return addZIRUnOp(mod, scope, src, .deref, pointer);
+    if (rl == .ref or rl == .lvalue) return pointer;
+    return rlWrap(mod, scope, rl, try addZIRUnOp(mod, scope, src, .deref, pointer));
 }
 
 fn deref(mod: *Module, scope: *Scope, node: *ast.Node.SimpleSuffixOp) InnerError!*zir.Inst {
@@ -1274,12 +1281,7 @@ fn identifier(mod: *Module, scope: *Scope, rl: ResultLoc, ident: *ast.Node.OneTo
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
                 if (mem.eql(u8, local_ptr.name, ident_name)) {
-                    if (rl == .lvalue or rl == .ref) {
-                        return local_ptr.ptr;
-                    } else {
-                        const result = try addZIRUnOp(mod, scope, src, .deref, local_ptr.ptr);
-                        return rlWrap(mod, scope, rl, result);
-                    }
+                    return rlWrapPtr(mod, scope, rl, local_ptr.ptr);
                 }
                 s = local_ptr.parent;
             },
@@ -1289,10 +1291,7 @@ fn identifier(mod: *Module, scope: *Scope, rl: ResultLoc, ident: *ast.Node.OneTo
     }
 
     if (mod.lookupDeclName(scope, ident_name)) |decl| {
-        const result = try addZIRInst(mod, scope, src, zir.Inst.DeclValInModule, .{ .decl = decl }, .{});
-        if (rl == .lvalue or rl == .ref)
-            return result;
-        return rlWrap(mod, scope, rl, try addZIRUnOp(mod, scope, src, .deref, result));
+        return rlWrapPtr(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.DeclValInModule, .{ .decl = decl }, .{}));
     }
 
     return mod.failNode(scope, &ident.base, "use of undeclared identifier '{}'", .{ident_name});
@@ -1884,6 +1883,12 @@ fn rlWrapVoid(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node, resul
         .val = Value.initTag(.void_value),
     });
     return rlWrap(mod, scope, rl, void_inst);
+}
+
+fn rlWrapPtr(mod: *Module, scope: *Scope, rl: ResultLoc, ptr: *zir.Inst) InnerError!*zir.Inst {
+    if (rl == .lvalue or rl == .ref) return ptr;
+
+    return rlWrap(mod, scope, rl, try addZIRUnOp(mod, scope, ptr.src, .deref, ptr));
 }
 
 pub fn addZIRInstSpecial(
