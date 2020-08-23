@@ -91,6 +91,7 @@ pub const Value = extern union {
         float_64,
         float_128,
         enum_literal,
+        error_set,
 
         pub const last_no_payload_tag = Tag.bool_false;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -243,6 +244,9 @@ pub const Value = extern union {
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
+
+            // memory is managed by the declaration
+            .error_set => return self,
         }
     }
 
@@ -346,6 +350,14 @@ pub const Value = extern union {
             .float_32 => return out_stream.print("{}", .{val.cast(Payload.Float_32).?.val}),
             .float_64 => return out_stream.print("{}", .{val.cast(Payload.Float_64).?.val}),
             .float_128 => return out_stream.print("{}", .{val.cast(Payload.Float_128).?.val}),
+            .error_set => {
+                const error_set = val.cast(Payload.ErrorSet).?;
+                try out_stream.writeAll("error{");
+                for (error_set.fields.items()) |entry| {
+                    try out_stream.print("{},", .{entry.value});
+                }
+                return out_stream.writeAll("}");
+            },
         };
     }
 
@@ -437,6 +449,7 @@ pub const Value = extern union {
             .float_64,
             .float_128,
             .enum_literal,
+            .error_set,
             => unreachable,
         };
     }
@@ -503,6 +516,7 @@ pub const Value = extern union {
             .unreachable_value,
             .empty_array,
             .enum_literal,
+            .error_set,
             => unreachable,
 
             .undef => unreachable,
@@ -582,6 +596,7 @@ pub const Value = extern union {
             .unreachable_value,
             .empty_array,
             .enum_literal,
+            .error_set,
             => unreachable,
 
             .undef => unreachable,
@@ -661,6 +676,7 @@ pub const Value = extern union {
             .unreachable_value,
             .empty_array,
             .enum_literal,
+            .error_set,
             => unreachable,
 
             .undef => unreachable,
@@ -767,6 +783,7 @@ pub const Value = extern union {
             .unreachable_value,
             .empty_array,
             .enum_literal,
+            .error_set,
             => unreachable,
 
             .zero,
@@ -850,6 +867,7 @@ pub const Value = extern union {
             .unreachable_value,
             .empty_array,
             .enum_literal,
+            .error_set,
             => unreachable,
 
             .zero,
@@ -1017,6 +1035,7 @@ pub const Value = extern union {
             .void_value,
             .unreachable_value,
             .enum_literal,
+            .error_set,
             => unreachable,
 
             .zero => false,
@@ -1087,6 +1106,7 @@ pub const Value = extern union {
             .unreachable_value,
             .empty_array,
             .enum_literal,
+            .error_set,
             => unreachable,
 
             .zero,
@@ -1230,6 +1250,7 @@ pub const Value = extern union {
             .unreachable_value,
             .empty_array,
             .enum_literal,
+            .error_set,
             => unreachable,
 
             .ref_val => self.cast(Payload.RefVal).?.val,
@@ -1310,6 +1331,7 @@ pub const Value = extern union {
             .void_value,
             .unreachable_value,
             .enum_literal,
+            .error_set,
             => unreachable,
 
             .empty_array => unreachable, // out of bounds array index
@@ -1407,6 +1429,7 @@ pub const Value = extern union {
             .float_128,
             .void_value,
             .enum_literal,
+            .error_set,
             => false,
 
             .undef => unreachable,
@@ -1535,6 +1558,13 @@ pub const Value = extern union {
         pub const Float_128 = struct {
             base: Payload = .{ .tag = .float_128 },
             val: f128,
+        };
+
+        pub const ErrorSet = struct {
+            base: Payload = .{ .tag = .error_set },
+
+            // TODO revisit this when we have the concept of the error tag type
+            fields: std.StringHashMapUnmanaged(u16),
         };
     };
 

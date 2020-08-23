@@ -126,6 +126,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .merge_error_sets => return analyzeInstMergeErrorSets(mod, scope, old_inst.castTag(.merge_error_sets).?),
         .error_union_type => return analyzeInstErrorUnionType(mod, scope, old_inst.castTag(.error_union_type).?),
         .anyframe_type => return analyzeInstAnyframeType(mod, scope, old_inst.castTag(.anyframe_type).?),
+        .error_set => return analyzeInstErrorSet(mod, scope, old_inst.castTag(.error_set).?),
     }
 }
 
@@ -435,6 +436,7 @@ fn analyzeInstStr(mod: *Module, scope: *Scope, str_inst: *zir.Inst.Str) InnerErr
     // The bytes references memory inside the ZIR module, which can get deallocated
     // after semantic analysis is complete. We need the memory to be in the new anonymous Decl's arena.
     var new_decl_arena = std.heap.ArenaAllocator.init(mod.gpa);
+    errdefer new_decl_arena.deinit();
     const arena_bytes = try new_decl_arena.allocator.dupe(u8, str_inst.positionals.bytes);
 
     const ty_payload = try scope.arena().create(Type.Payload.Array_u8_Sentinel0);
@@ -735,6 +737,30 @@ fn analyzeInstAnyframeType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) In
     const return_type = try resolveType(mod, scope, inst.positionals.operand);
 
     return mod.constType(scope, inst.base.src, try mod.anyframeType(scope, return_type));
+}
+
+fn analyzeInstErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) InnerError!*Inst {
+    // The bytes references memory inside the ZIR module, which can get deallocated
+    // after semantic analysis is complete. We need the memory to be in the new anonymous Decl's arena.
+    var new_decl_arena = std.heap.ArenaAllocator.init(mod.gpa);
+    errdefer new_decl_arena.deinit();
+
+    const payload = try scope.arena().create(Value.Payload.ErrorSet);
+    payload.* = .{ .fields = .{} };
+    try payload.fields.ensureCapacity(&new_decl_arena.allocator, inst.positionals.fields.len);
+
+    for (inst.positionals.fields) |field_name| {
+        const value = try mod.getErrorValue(field_name);
+        if (payload.fields.fetchPutAssumeCapacity(field_name, value)) |prev| {
+            return mod.fail(scope, inst.base.src, "duplicate error: '{}'", .{field_name});
+        }
+    }
+    // TODO create name in format "error:line:column"
+    const new_decl = try mod.createAnonymousDecl(scope, &new_decl_arena, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initPayload(&payload.base),
+    });
+    return mod.analyzeDeclRef(scope, inst.base.src, new_decl);
 }
 
 fn analyzeInstMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
@@ -1377,7 +1403,7 @@ fn analyzeInstPtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.PtrType) Inne
 
     if (host_size != 0 and bit_offset >= host_size * 8)
         return mod.fail(scope, inst.base.src, "bit offset starts after end of host integer", .{});
-    
+
     const sentinel = if (inst.kw_args.sentinel) |some|
         (try resolveInstConst(mod, scope, some)).val
     else
