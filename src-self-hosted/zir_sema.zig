@@ -740,8 +740,7 @@ fn analyzeInstAnyframeType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) In
 }
 
 fn analyzeInstErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) InnerError!*Inst {
-    // The bytes references memory inside the ZIR module, which can get deallocated
-    // after semantic analysis is complete. We need the memory to be in the new anonymous Decl's arena.
+    // The declarations arena will store the hashmap.
     var new_decl_arena = std.heap.ArenaAllocator.init(mod.gpa);
     errdefer new_decl_arena.deinit();
 
@@ -750,8 +749,8 @@ fn analyzeInstErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) In
     try payload.fields.ensureCapacity(&new_decl_arena.allocator, inst.positionals.fields.len);
 
     for (inst.positionals.fields) |field_name| {
-        const value = try mod.getErrorValue(field_name);
-        if (payload.fields.fetchPutAssumeCapacity(field_name, value)) |prev| {
+        const entry = try mod.getErrorValue(field_name);
+        if (payload.fields.fetchPutAssumeCapacity(entry.key, entry.value)) |prev| {
             return mod.fail(scope, inst.base.src, "duplicate error: '{}'", .{field_name});
         }
     }
@@ -907,6 +906,38 @@ fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr
                     "no member named '{}' in '{}'",
                     .{ field_name, elem_ty },
                 );
+            }
+        },
+        .Type => {
+            _ = try mod.resolveConstValue(scope, object_ptr);
+            const result = try mod.analyzeDeref(scope, fieldptr.base.src, object_ptr, object_ptr.src);
+            const val = result.value().?;
+            const child_type = val.toType();
+            switch (child_type.zigTypeTag()) {
+                .ErrorSet => {
+                    // TODO resolve inferred error sets
+                    const entry = if (val.cast(Value.Payload.ErrorSet)) |payload|
+                        (payload.fields.getEntry(field_name) orelse
+                            return mod.fail(scope, fieldptr.base.src, "no error named '{}' in '{}'", .{ field_name, child_type })).*
+                    else
+                        try mod.getErrorValue(field_name);
+
+                    const error_payload = try scope.arena().create(Value.Payload.Error);
+                    error_payload.* = .{ 
+                        .name = entry.key,
+                        .value = entry.value,
+                    };
+
+                    const ref_payload = try scope.arena().create(Value.Payload.RefVal);
+                    ref_payload.* = .{ .val = Value.initPayload(&error_payload.base) };
+
+                    // TODO if this is accessing the global error set create a `error{field_name}` type
+                    return mod.constInst(scope, fieldptr.base.src, .{
+                        .ty = try mod.simplePtrType(scope, fieldptr.base.src, child_type, false, .One),
+                        .val = Value.initPayload(&ref_payload.base),
+                    });
+                },
+                else => return mod.fail(scope, fieldptr.base.src, "type '{}' does not support field access", .{child_type}),
             }
         },
         else => return mod.fail(scope, fieldptr.base.src, "type '{}' does not support field access", .{elem_ty}),

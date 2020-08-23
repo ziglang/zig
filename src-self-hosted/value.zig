@@ -92,6 +92,7 @@ pub const Value = extern union {
         float_128,
         enum_literal,
         error_set,
+        @"error",
 
         pub const last_no_payload_tag = Tag.bool_false;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -244,9 +245,10 @@ pub const Value = extern union {
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
+            .@"error" => return self.copyPayloadShallow(allocator, Payload.Error),
 
             // memory is managed by the declaration
-            .error_set => return self,
+            .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
         }
     }
 
@@ -358,6 +360,7 @@ pub const Value = extern union {
                 }
                 return out_stream.writeAll("}");
             },
+            .@"error" => return out_stream.print("error.{}", .{val.cast(Payload.Error).?.name}),
         };
     }
 
@@ -424,6 +427,7 @@ pub const Value = extern union {
             .const_slice_u8_type => Type.initTag(.const_slice_u8),
             .enum_literal_type => Type.initTag(.enum_literal),
             .anyframe_type => Type.initTag(.@"anyframe"),
+            .error_set => @panic("TODO error set to type"),
 
             .undef,
             .zero,
@@ -449,7 +453,7 @@ pub const Value = extern union {
             .float_64,
             .float_128,
             .enum_literal,
-            .error_set,
+            .@"error",
             => unreachable,
         };
     }
@@ -517,6 +521,7 @@ pub const Value = extern union {
             .empty_array,
             .enum_literal,
             .error_set,
+            .@"error",
             => unreachable,
 
             .undef => unreachable,
@@ -597,6 +602,7 @@ pub const Value = extern union {
             .empty_array,
             .enum_literal,
             .error_set,
+            .@"error",
             => unreachable,
 
             .undef => unreachable,
@@ -677,6 +683,7 @@ pub const Value = extern union {
             .empty_array,
             .enum_literal,
             .error_set,
+            .@"error",
             => unreachable,
 
             .undef => unreachable,
@@ -784,6 +791,7 @@ pub const Value = extern union {
             .empty_array,
             .enum_literal,
             .error_set,
+            .@"error",
             => unreachable,
 
             .zero,
@@ -868,6 +876,7 @@ pub const Value = extern union {
             .empty_array,
             .enum_literal,
             .error_set,
+            .@"error",
             => unreachable,
 
             .zero,
@@ -1036,6 +1045,7 @@ pub const Value = extern union {
             .unreachable_value,
             .enum_literal,
             .error_set,
+            .@"error",
             => unreachable,
 
             .zero => false,
@@ -1107,6 +1117,7 @@ pub const Value = extern union {
             .empty_array,
             .enum_literal,
             .error_set,
+            .@"error",
             => unreachable,
 
             .zero,
@@ -1251,6 +1262,7 @@ pub const Value = extern union {
             .empty_array,
             .enum_literal,
             .error_set,
+            .@"error",
             => unreachable,
 
             .ref_val => self.cast(Payload.RefVal).?.val,
@@ -1332,6 +1344,7 @@ pub const Value = extern union {
             .unreachable_value,
             .enum_literal,
             .error_set,
+            .@"error",
             => unreachable,
 
             .empty_array => unreachable, // out of bounds array index
@@ -1430,6 +1443,7 @@ pub const Value = extern union {
             .void_value,
             .enum_literal,
             .error_set,
+            .@"error",
             => false,
 
             .undef => unreachable,
@@ -1565,6 +1579,16 @@ pub const Value = extern union {
 
             // TODO revisit this when we have the concept of the error tag type
             fields: std.StringHashMapUnmanaged(u16),
+        };
+
+        pub const Error = struct {
+            base: Payload = .{ .tag = .@"error" },
+
+            // TODO revisit this when we have the concept of the error tag type
+            /// `name` is owned by `Module` and will be valid for the entire
+            /// duration of the compilation.
+            name: []const u8,
+            value: u16,
         };
     };
 
