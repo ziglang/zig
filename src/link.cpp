@@ -2505,7 +2505,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
         lj->args.append("-DLL");
 
         if (lj->codegen->libc_link_lib != nullptr) {
-            // Windows DLLs need to link the C runtime
+            // Using libC in a Windows DLL requires linking the C runtime
             lj->link_in_crt = true;
         }
     }
@@ -2958,4 +2958,3 @@ void codegen_link(CodeGen *g) {
         exit(1);
     }
 }
-
