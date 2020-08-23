@@ -756,6 +756,7 @@ pub const Type = extern union {
             .fn_ccc_void_no_args, // represents machine code; not a pointer
             .function, // represents machine code; not a pointer
             => return switch (target.cpu.arch) {
+                .arm => 4,
                 .riscv64 => 2,
                 else => 1,
             },

@@ -1399,6 +1399,31 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
                         }
                     },
+                    .arm => {
+                        if (info.args.len > 0) return self.fail(inst.base.src, "TODO implement fn args for {}", .{self.target.cpu.arch});
+
+                        if (inst.func.cast(ir.Inst.Constant)) |func_inst| {
+                            if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
+                                const func = func_val.func;
+                                const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
+                                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+                                const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+                                const got_addr = @intCast(u32, got.p_vaddr + func.owner_decl.link.elf.offset_table_index * ptr_bytes);
+
+                                // TODO only works with leaf functions
+                                // at the moment, which works fine for
+                                // Hello World, but not for real code
+                                // of course. Add pushing lr to stack
+                                // and popping after call
+                                try self.genSetReg(inst.base.src, .lr, .{ .memory = got_addr });
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.blx(.al, .lr).toU32());
+                            } else {
+                                return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
+                            }
+                        } else {
+                            return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
+                        }
+                    },
                     else => return self.fail(inst.base.src, "TODO implement call for {}", .{self.target.cpu.arch}),
                 }
             } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
@@ -1454,6 +1479,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 .riscv64 => {
                     mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.jalr(.zero, 0, .ra).toU32());
+                },
+                .arm => {
+                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.bx(.al, .lr).toU32());
                 },
                 else => return self.fail(src, "TODO implement return for {}", .{self.target.cpu.arch}),
             }
@@ -1705,6 +1733,36 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(inst.base.src, "TODO implement support for more SPU II assembly instructions", .{});
                     }
                 },
+                .arm => {
+                    for (inst.inputs) |input, i| {
+                        if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
+                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
+                        }
+                        const reg_name = input[1 .. input.len - 1];
+                        const reg = parseRegName(reg_name) orelse
+                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                        const arg = try self.resolveInst(inst.args[i]);
+                        try self.genSetReg(inst.base.src, reg, arg);
+                    }
+
+                    if (mem.eql(u8, inst.asm_source, "svc #0")) {
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.svc(.al, 0).toU32());
+                    } else {
+                        return self.fail(inst.base.src, "TODO implement support for more arm assembly instructions", .{});
+                    }
+
+                    if (inst.output) |output| {
+                        if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
+                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{}'", .{output});
+                        }
+                        const reg_name = output[2 .. output.len - 1];
+                        const reg = parseRegName(reg_name) orelse
+                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                        return MCValue{ .register = reg };
+                    } else {
+                        return MCValue.none;
+                    }
+                },
                 .riscv64 => {
                     for (inst.inputs) |input, i| {
                         if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
@@ -1898,6 +1956,58 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         fn genSetReg(self: *Self, src: usize, reg: Register, mcv: MCValue) InnerError!void {
             switch (arch) {
+                .arm => switch (mcv) {
+                    .dead => unreachable,
+                    .ptr_stack_offset => unreachable,
+                    .ptr_embedded_in_code => unreachable,
+                    .unreach, .none => return, // Nothing to do.
+                    .undef => {
+                        if (!self.wantSafety())
+                            return; // The already existing value will do just fine.
+                        // Write the debug undefined value.
+                        return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaa });
+                    },
+                    .immediate => |x| {
+                        // TODO better analysis of x to determine the
+                        // least amount of necessary instructions (use
+                        // more intelligent rotating)
+                        if (x <= math.maxInt(u8)) {
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, 0, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
+                            return;
+                        } else if (x <= math.maxInt(u16)) {
+                            // TODO Use movw Note: Not supported on
+                            // all ARM targets!
+
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, 0, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, 0, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 8), 12)).toU32());
+                        } else if (x <= math.maxInt(u32)) {
+                            // TODO Use movw and movt Note: Not
+                            // supported on all ARM targets! Also TODO
+                            // write constant to code and load
+                            // relative to pc
+
+                            // immediate: 0xaabbccdd
+                            // mov reg, #0xaa
+                            // orr reg, reg, #0xbb, 24
+                            // orr reg, reg, #0xcc, 16
+                            // orr reg, reg, #0xdd, 8
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, 0, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, 0, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 8), 12)).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, 0, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 16), 8)).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, 0, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 24), 4)).toU32());
+                            return;
+                        } else {
+                            return self.fail(src, "ARM registers are 32-bit wide", .{});
+                        }
+                    },
+                    .memory => |addr| {
+                        // The value is in memory at a hard-coded address.
+                        // If the type is a pointer, it means the pointer address is at this memory location.
+                        try self.genSetReg(src, reg, .{ .immediate = addr });
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(.al, reg, reg, Instruction.Offset.none).toU32());
+                    },
+                    else => return self.fail(src, "TODO implement getSetReg for arm {}", .{mcv}),
+                },
                 .riscv64 => switch (mcv) {
                     .dead => unreachable,
                     .ptr_stack_offset => unreachable,

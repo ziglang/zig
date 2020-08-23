@@ -157,7 +157,7 @@ pub const Instruction = union(enum) {
         fixed_2: u22 = 0b0001_0010_1111_1111_1111_00,
         cond: u4,
     },
-    SoftwareInterrupt: packed struct {
+    SupervisorCall: packed struct {
         comment: u24,
         fixed: u4 = 0b1111,
         cond: u4,
@@ -344,7 +344,7 @@ pub const Instruction = union(enum) {
             .SingleDataTransfer => |v| @bitCast(u32, v),
             .Branch => |v| @bitCast(u32, v),
             .BranchExchange => |v| @bitCast(u32, v),
-            .SoftwareInterrupt => |v| @bitCast(u32, v),
+            .SupervisorCall => |v| @bitCast(u32, v),
             .Breakpoint => |v| @intCast(u32, v.imm4) | (@intCast(u32, v.fixed_1) << 4) | (@intCast(u32, v.imm12) << 8) | (@intCast(u32, v.fixed_2_and_cond) << 20),
         };
     }
@@ -355,8 +355,8 @@ pub const Instruction = union(enum) {
         cond: Condition,
         opcode: Opcode,
         s: u1,
-        rn: Register,
         rd: Register,
+        rn: Register,
         op2: Operand,
     ) Instruction {
         return Instruction{
@@ -394,7 +394,7 @@ pub const Instruction = union(enum) {
                 .b = byte_word,
                 .u = up_down,
                 .p = pre_post,
-                .i = if (offset == .Immediate) 1 else 0,
+                .i = if (offset == .Immediate) 0 else 1,
             },
         };
     }
@@ -419,9 +419,9 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn softwareInterrupt(cond: Condition, comment: u24) Instruction {
+    fn supervisorCall(cond: Condition, comment: u24) Instruction {
         return Instruction{
-            .SoftwareInterrupt = .{
+            .SupervisorCall = .{
                 .cond = @enumToInt(cond),
                 .comment = comment,
             },
@@ -536,10 +536,12 @@ pub const Instruction = union(enum) {
         return branchExchange(cond, rn, 1);
     }
 
-    // Software interrupt
+    // Supervisor Call
 
-    pub fn swi(cond: Condition, comment: u24) Instruction {
-        return softwareInterrupt(cond, comment);
+    pub const swi = svc;
+
+    pub fn svc(cond: Condition, comment: u24) Instruction {
+        return supervisorCall(cond, comment);
     }
 
     // Breakpoint
@@ -562,7 +564,7 @@ test "serialize instructions" {
         },
         .{ // mov r4, r2
             .inst = Instruction.mov(.al, 0, .r4, Instruction.Operand.reg(.r2, Instruction.Operand.Shift.none)),
-            .expected = 0b1110_00_0_1101_0_0100_0000_00000000_0010,
+            .expected = 0b1110_00_0_1101_0_0000_0100_00000000_0010,
         },
         .{ // mov r0, #42
             .inst = Instruction.mov(.al, 0, .r0, Instruction.Operand.imm(42, 0)),
@@ -570,11 +572,11 @@ test "serialize instructions" {
         },
         .{ // ldr r0, [r2, #42]
             .inst = Instruction.ldr(.al, .r0, .r2, Instruction.Offset.imm(42)),
-            .expected = 0b1110_01_1_1_1_0_0_1_0010_0000_000000101010,
+            .expected = 0b1110_01_0_1_1_0_0_1_0010_0000_000000101010,
         },
         .{ // str r0, [r3]
             .inst = Instruction.str(.al, .r0, .r3, Instruction.Offset.none),
-            .expected = 0b1110_01_1_1_1_0_0_0_0011_0000_000000000000,
+            .expected = 0b1110_01_0_1_1_0_0_0_0011_0000_000000000000,
         },
         .{ // b #12
             .inst = Instruction.b(.al, 12),
@@ -588,8 +590,8 @@ test "serialize instructions" {
             .inst = Instruction.bx(.al, .lr),
             .expected = 0b1110_0001_0010_1111_1111_1111_0001_1110,
         },
-        .{ // swi #0
-            .inst = Instruction.swi(.al, 0),
+        .{ // svc #0
+            .inst = Instruction.svc(.al, 0),
             .expected = 0b1110_1111_0000_0000_0000_0000_0000_0000,
         },
         .{ // bkpt #42
