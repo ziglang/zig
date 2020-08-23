@@ -94,13 +94,13 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
         .Type,
         .EnumLiteral,
         .Frame,
-        .Float,
         => @compileError("cannot hash this type"),
 
         // Help the optimizer see that hashing an int is easy by inlining!
         // TODO Check if the situation is better after #561 is resolved.
         .Int => @call(.{ .modifier = .always_inline }, hasher.update, .{std.mem.asBytes(&key)}),
 
+        .Float => @compileError("Use std.hash.normalizedFloatHash"),
         .Bool => hash(hasher, @boolToInt(key), strat),
         .Enum => hash(hasher, @enumToInt(key), strat),
         .ErrorSet => hash(hasher, @errorToInt(key), strat),
@@ -383,4 +383,30 @@ test "testHash error union" {
     testing.expect(testHash(f) != testHash(g));
     testing.expect(testHash(f) == testHash(Foo{}));
     testing.expect(testHash(g) == testHash(Errors.Test));
+}
+
+/// Function to hash a float.
+pub fn normalizedFloatHash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
+    const info = @typeInfo(@TypeOf(key));
+    assert(info == .Float);
+
+    var norm_key = if (key == 0.0 and std.math.signbit(key)) 0.0 else key;
+    hash(hasher, @bitCast(meta.Int(false, info.Float.bits), norm_key), strat);
+}
+
+fn testNormalizedFloatHash(key: anytype) u64 {
+    // Any hash could be used here, for testing autoHash.
+    var hasher = Wyhash.init(0);
+    normalizedFloatHash(&hasher, key, .Shallow);
+    return hasher.final();
+}
+
+test "testNormalizedFloatHash" {
+    var a: f32 = -1.0;
+    while (a != 0.0) {
+        a /= 10.0;
+    }
+    var b: f32 = 1.0;
+    b -= 1.0;
+    testing.expectEqual(testNormalizedFloatHash(a), testNormalizedFloatHash(b));
 }
