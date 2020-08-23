@@ -1277,7 +1277,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     mem.writeIntBig(u32, try self.code.addManyAsArray(4), Instruction.bkpt(0).toU32());
                 },
                 else => return self.fail(src, "TODO implement @breakpoint() for {}", .{self.target.cpu.arch}),
-                }
+            }
             return .none;
         }
 
