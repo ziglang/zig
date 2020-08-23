@@ -80,6 +80,9 @@ deletion_set: std.ArrayListUnmanaged(*Decl) = .{},
 root_name: []u8,
 keep_source_files_loaded: bool,
 
+/// Error tags and their values, tag names are duped with mod.gpa.
+global_error_set: std.StringHashMapUnmanaged(u16) = .{},
+
 pub const InnerError = error{ OutOfMemory, AnalysisFail };
 
 const WorkItem = union(enum) {
@@ -928,6 +931,11 @@ pub fn deinit(self: *Module) void {
 
     self.symbol_exports.deinit(gpa);
     self.root_scope.destroy(gpa);
+
+    for (self.global_error_set.items()) |entry| {
+        gpa.free(entry.key);
+    }
+    self.global_error_set.deinit(gpa);
     self.* = undefined;
 }
 
@@ -2070,6 +2078,15 @@ fn createNewDecl(
     new_decl.name = try mem.dupeZ(self.gpa, u8, decl_name);
     self.decl_table.putAssumeCapacityNoClobber(name_hash, new_decl);
     return new_decl;
+}
+
+/// Get error value for error tag `name`.
+pub fn getErrorValue(self: *Module, name: []const u8) !u16 {
+    const new_val = @intCast(u16, self.global_error_set.items().len);
+    if (self.global_error_set.get(name)) |some| return some;
+
+    try self.global_error_set.put(self.gpa, try self.gpa.dupe(u8, name), new_val);
+    return new_val;
 }
 
 /// TODO split this into `requireRuntimeBlock` and `requireFunctionBlock` and audit callsites.
