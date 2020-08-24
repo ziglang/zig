@@ -101,6 +101,7 @@ pub const Target = struct {
             win10_20h1 = 0x0A000008,
             _,
 
+            /// Latest Windows version that the Zig Standard Library is aware of
             pub const latest = WindowsVersion.win10_20h1;
             
             pub const Range = struct {
