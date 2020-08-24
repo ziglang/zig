@@ -893,6 +893,35 @@ test "mem.indexOf" {
     testing.expect(lastIndexOfScalar(u8, "boo", 'o').? == 2);
 }
 
+/// Returns the number of needles inside the haystack
+/// needle.len must be > 0
+/// does not count overlapping needles
+pub fn count(comptime T: type, haystack: []const T, needle: []const T) usize {
+    assert(needle.len > 0);
+    var i: usize = 0;
+    var found: usize = 0;
+
+    while (indexOfPos(T, haystack, i, needle)) |idx| {
+        i = idx + needle.len;
+        found += 1;
+    }
+
+    return found;
+}
+
+test "mem.count" {
+    testing.expect(count(u8, "", "h") == 0);
+    testing.expect(count(u8, "h", "h") == 1);
+    testing.expect(count(u8, "hh", "h") == 2);
+    testing.expect(count(u8, "world!", "hello") == 0);
+    testing.expect(count(u8, "hello world!", "hello") == 1);
+    testing.expect(count(u8, "   abcabc   abc", "abc") == 3);
+    testing.expect(count(u8, "udexdcbvbruhasdrw", "bruh") == 1);
+    testing.expect(count(u8, "foo bar", "o bar") == 1);
+    testing.expect(count(u8, "foofoofoo", "foo") == 3);
+    testing.expect(count(u8, "fffffff", "ff") == 3);
+}
+
 /// Reads an integer from memory with size equal to bytes.len.
 /// T specifies the return type, which must be large enough to store
 /// the result.
