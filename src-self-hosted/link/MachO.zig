@@ -49,6 +49,10 @@ const alloc_den = 3;
 /// Default path to dyld
 const DEFAULT_DYLD_PATH: [*:0]const u8 = "/usr/lib/dyld";
 
+/// We always have to link against libSystem since macOS Catalina (TODO link)
+const LIB_SYSTEM_NAME: [*:0]const u8 = "System";
+const LIB_SYSTEM_PATH: [*:0]const u8 = "/usr/lib/libSystem.B.dylib";
+
 pub const TextBlock = struct {
     pub const empty = TextBlock{};
 };
@@ -226,12 +230,41 @@ pub fn flush(self: *MachO, module: *Module) !void {
 
                 try self.base.file.?.pwriteAll(mem.sliceAsBytes(load_dylinker[0..1]), self.command_file_offset.?);
 
-                const padded_path = try self.base.allocator.alloc(u8, cmdsize - @sizeOf(macho.dylinker_command));
-                defer self.base.allocator.free(padded_path);
-                mem.set(u8, padded_path[0..], 0);
-                mem.copy(u8, padded_path[0..], mem.spanZ(DEFAULT_DYLD_PATH));
+                const file_offset = self.command_file_offset.? + @sizeOf(macho.dylinker_command);
+                try self.addPadding(cmdsize - @sizeOf(macho.dylinker_command), file_offset);
 
-                try self.base.file.?.pwriteAll(padded_path, self.command_file_offset.? + @sizeOf(macho.dylinker_command));
+                try self.base.file.?.pwriteAll(mem.spanZ(DEFAULT_DYLD_PATH), file_offset);
+                self.command_file_offset.? += cmdsize;
+            }
+
+            {
+                // Link against libSystem
+                const cmdsize = commandSize(@intCast(u32, @sizeOf(macho.dylib_command) + mem.lenZ(LIB_SYSTEM_PATH)));
+                const version = std.c.NSVersionOfRunTimeLibrary(LIB_SYSTEM_NAME);
+                const dylib = .{
+                    .name = @sizeOf(macho.dylib_command),
+                    .timestamp = 2, // not sure why not simply 0; this is reverse engineered from Mach-O files
+                    .current_version = version,
+                    .compatibility_version = 0x10000, // not sure why this either; value from reverse engineering
+                };
+                const load_dylib = [1]macho.dylib_command{
+                    .{
+                        .cmd = macho.LC_LOAD_DYLIB,
+                        .cmdsize = cmdsize,
+                        .dylib = dylib,
+                    },
+                };
+                try self.commands.append(self.base.allocator, .{
+                    .cmd = macho.LC_LOAD_DYLIB,
+                    .cmdsize = cmdsize,
+                });
+
+                try self.base.file.?.pwriteAll(mem.sliceAsBytes(load_dylib[0..1]), self.command_file_offset.?);
+
+                const file_offset = self.command_file_offset.? + @sizeOf(macho.dylib_command);
+                try self.addPadding(cmdsize - @sizeOf(macho.dylib_command), file_offset);
+
+                try self.base.file.?.pwriteAll(mem.spanZ(LIB_SYSTEM_PATH), file_offset);
                 self.command_file_offset.? += cmdsize;
             }
         },
@@ -430,4 +463,15 @@ fn commandSize(min_size: u32) u32 {
 
     const div = min_size / @sizeOf(u64);
     return (div + 1) * @sizeOf(u64);
+}
+
+fn addPadding(self: *MachO, size: u32, file_offset: u64) !void {
+    if (size == 0) return;
+
+    const buf = try self.base.allocator.alloc(u8, size);
+    defer self.base.allocator.free(buf);
+
+    mem.set(u8, buf[0..], 0);
+
+    try self.base.file.?.pwriteAll(buf, file_offset);
 }

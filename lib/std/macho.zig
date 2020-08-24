@@ -119,6 +119,38 @@ pub const dylinker_command = extern struct {
     name: u32,
 };
 
+pub const dylib_command = extern struct {
+    /// LC_ID_DYLIB, LC_LOAD_WEAK_DYLIB, LC_LOAD_DYLIB, LC_REEXPORT_DYLIB
+    cmd: u32,
+
+    /// includes pathname string
+    cmdsize: u32,
+
+    /// the library identification
+    dylib: dylib,
+};
+
+/// Dynamicaly linked shared libraries are identified by two things.  The
+/// pathname (the name of the library as found for execution), and the
+/// compatibility version number.  The pathname must match and the compatibility
+/// number in the user of the library must be greater than or equal to the
+/// library being used.  The time stamp is used to record the time a library was
+/// built and copied into user so it can be use to determined if the library used
+/// at runtime is exactly the same as used to built the program.
+pub const dylib = extern struct {
+    /// library's pathname (offset pointing at the end of dylib_command)
+    name: u32,
+
+    /// library's build timestamp
+    timestamp: u32,
+
+    /// library's current version number
+    current_version: u32,
+
+    /// library's compatibility version number
+    compatibility_version: u32,
+};
+
 /// The segment load command indicates that a part of this file is to be
 /// mapped into the task's address space.  The size of this segment in memory,
 /// vmsize, maybe equal to or larger than the amount to map from this file,
