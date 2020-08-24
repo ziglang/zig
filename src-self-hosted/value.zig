@@ -381,11 +381,9 @@ pub const Value = extern union {
     }
 
     /// Asserts that the value is representable as a type.
-    pub fn toType(self: Value) Type {
+    pub fn toType(self: Value, allocator: *Allocator) !Type {
         return switch (self.tag()) {
             .ty => self.cast(Payload.Ty).?.ty,
-            .int_type => @panic("TODO int type to type"),
-
             .u8_type => Type.initTag(.u8),
             .i8_type => Type.initTag(.i8),
             .u16_type => Type.initTag(.u16),
@@ -427,7 +425,25 @@ pub const Value = extern union {
             .const_slice_u8_type => Type.initTag(.const_slice_u8),
             .enum_literal_type => Type.initTag(.enum_literal),
             .anyframe_type => Type.initTag(.@"anyframe"),
-            .error_set => @panic("TODO error set to type"),
+
+            .int_type => {
+                const payload = self.cast(Payload.IntType).?;
+                if (payload.signed) {
+                    const new = try allocator.create(Type.Payload.IntSigned);
+                    new.* = .{ .bits = payload.bits };
+                    return Type.initPayload(&new.base);
+                } else {
+                    const new = try allocator.create(Type.Payload.IntUnsigned);
+                    new.* = .{ .bits = payload.bits };
+                    return Type.initPayload(&new.base);
+                }
+            },
+            .error_set => {
+                const payload = self.cast(Payload.ErrorSet).?;
+                const new = try allocator.create(Type.Payload.ErrorSet);
+                new.* = .{ .decl = payload.decl };
+                return Type.initPayload(&new.base);
+            },
 
             .undef,
             .zero,
@@ -1579,6 +1595,7 @@ pub const Value = extern union {
 
             // TODO revisit this when we have the concept of the error tag type
             fields: std.StringHashMapUnmanaged(u16),
+            decl: *Module.Decl,
         };
 
         pub const Error = struct {

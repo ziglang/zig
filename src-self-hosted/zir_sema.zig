@@ -150,7 +150,7 @@ pub fn analyzeBodyValueAsType(mod: *Module, block_scope: *Scope.Block, body: zir
     for (block_scope.instructions.items) |inst| {
         if (inst.castTag(.ret)) |ret| {
             const val = try mod.resolveConstValue(&block_scope.base, ret.operand);
-            return val.toType();
+            return val.toType(block_scope.base.arena());
         } else {
             return mod.fail(&block_scope.base, inst.src, "unable to resolve comptime value", .{});
         }
@@ -275,7 +275,7 @@ fn resolveType(mod: *Module, scope: *Scope, old_inst: *zir.Inst) !Type {
     const wanted_type = Type.initTag(.@"type");
     const coerced_inst = try mod.coerce(scope, wanted_type, new_inst);
     const val = try mod.resolveConstValue(scope, coerced_inst);
-    return val.toType();
+    return val.toType(scope.arena());
 }
 
 fn resolveInt(mod: *Module, scope: *Scope, old_inst: *zir.Inst, dest_type: Type) !u64 {
@@ -745,7 +745,10 @@ fn analyzeInstErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) In
     errdefer new_decl_arena.deinit();
 
     const payload = try scope.arena().create(Value.Payload.ErrorSet);
-    payload.* = .{ .fields = .{} };
+    payload.* = .{
+        .fields = .{},
+        .decl = undefined, // populated below
+    };
     try payload.fields.ensureCapacity(&new_decl_arena.allocator, inst.positionals.fields.len);
 
     for (inst.positionals.fields) |field_name| {
@@ -759,6 +762,7 @@ fn analyzeInstErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) In
         .ty = Type.initTag(.type),
         .val = Value.initPayload(&payload.base),
     });
+    payload.decl = new_decl;
     return mod.analyzeDeclRef(scope, inst.base.src, new_decl);
 }
 
@@ -939,18 +943,17 @@ fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr
             _ = try mod.resolveConstValue(scope, object_ptr);
             const result = try mod.analyzeDeref(scope, fieldptr.base.src, object_ptr, object_ptr.src);
             const val = result.value().?;
-            const child_type = val.toType();
+            const child_type = try val.toType(scope.arena());
             switch (child_type.zigTypeTag()) {
                 .ErrorSet => {
                     // TODO resolve inferred error sets
                     const entry = if (val.cast(Value.Payload.ErrorSet)) |payload|
                         (payload.fields.getEntry(field_name) orelse
                             return mod.fail(scope, fieldptr.base.src, "no error named '{}' in '{}'", .{ field_name, child_type })).*
-                    else
-                        try mod.getErrorValue(field_name);
+                    else try mod.getErrorValue(field_name);
 
                     const error_payload = try scope.arena().create(Value.Payload.Error);
-                    error_payload.* = .{ 
+                    error_payload.* = .{
                         .name = entry.key,
                         .value = entry.value,
                     };
@@ -958,9 +961,14 @@ fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr
                     const ref_payload = try scope.arena().create(Value.Payload.RefVal);
                     ref_payload.* = .{ .val = Value.initPayload(&error_payload.base) };
 
-                    // TODO if this is accessing the global error set create a `error{field_name}` type
+                    const result_type = if (child_type.tag() == .anyerror) blk: {
+                        const result_payload = try scope.arena().create(Type.Payload.ErrorSetSingle);
+                        result_payload.* = .{ .name = entry.key };
+                        break :blk Type.initPayload(&result_payload.base);
+                    } else child_type;
+
                     return mod.constInst(scope, fieldptr.base.src, .{
-                        .ty = try mod.simplePtrType(scope, fieldptr.base.src, child_type, false, .One),
+                        .ty = try mod.simplePtrType(scope, fieldptr.base.src, result_type, false, .One),
                         .val = Value.initPayload(&ref_payload.base),
                     });
                 },

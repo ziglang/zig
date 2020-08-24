@@ -2016,7 +2016,7 @@ const EmitZIR = struct {
                 return self.emitUnnamedDecl(&as_inst.base);
             },
             .Type => {
-                const ty = typed_value.val.toType();
+                const ty = try typed_value.val.toType(&self.arena.allocator);
                 return self.emitType(src, ty);
             },
             .Fn => {
