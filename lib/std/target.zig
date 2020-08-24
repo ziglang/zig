@@ -77,8 +77,6 @@ pub const Target = struct {
             }
         };
 
-        // TODO do we really need these constants? Versions 19h1 and 19h2 share
-        // the same NTDDI version, we cannot encode them both in this format
         /// Based on NTDDI version constants from
         /// https://docs.microsoft.com/en-us/cpp/porting/modifying-winver-and-win32-winnt
         pub const WindowsVersion = enum(u32) {
