@@ -519,14 +519,14 @@ pub const CrossTarget = struct {
             switch (self.getOsVersionMin()) {
                 .none => {},
                 .semver => |v| try result.outStream().print(".{}", .{v}),
-                .windows => |v| try result.outStream().print(".{s}", .{v}),
+                .windows => |v| try result.outStream().print("{s}", .{v}),
             }
         }
         if (self.os_version_max) |max| {
             switch (max) {
                 .none => {},
                 .semver => |v| try result.outStream().print("...{}", .{v}),
-                .windows => |v| try result.outStream().print("...{s}", .{v}),
+                .windows => |v| try result.outStream().print("..{s}", .{v}),
             }
         }
 
