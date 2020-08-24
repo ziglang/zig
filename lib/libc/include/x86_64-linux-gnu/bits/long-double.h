@@ -18,4 +18,4 @@
 
 /* long double is distinct from double, so there is nothing to
    define here.  */
-#define __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI 0
+#define __LONG_DOUBLE_USES_FLOAT128 0

@@ -1,5 +1,5 @@
-/* Definitions for POSIX memory map interface.  Linux/x86_64 version.
-   Copyright (C) 2001-2020 Free Software Foundation, Inc.
+/* Definitions for POSIX memory map interface.  Linux/generic version.
+   Copyright (C) 1997-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -13,20 +13,18 @@
    Lesser General Public License for more details.
 
    You should have received a copy of the GNU Lesser General Public
-   License along with the GNU C Library; if not, see
+   License along with the GNU C Library.  If not, see
    <https://www.gnu.org/licenses/>.  */
 
 #ifndef _SYS_MMAN_H
 # error "Never use <bits/mman.h> directly; include <sys/mman.h> instead."
 #endif
 
-/* The following definitions basically come from the kernel headers.
-   But the kernel header is not namespace clean.  */
-
-/* Other flags.  */
-#ifdef __USE_MISC
-# define MAP_32BIT	0x40		/* Only give out 32-bit addresses.  */
-#endif
+/* These definitions are appropriate for architectures that, in the
+   Linux kernel, either have no uapi/asm/mman.h, or have one that
+   includes asm-generic/mman.h without any changes or additions
+   relevant to glibc.  If there are additions relevant to glibc, an
+   architecture-specific bits/mman.h is needed.  */
 
 #include <bits/mman-map-flags-generic.h>
 

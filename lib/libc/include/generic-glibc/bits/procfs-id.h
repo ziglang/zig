@@ -1,4 +1,4 @@
-/* Types of pr_uid and pr_gid in struct elf_prpsinfo.  x86 version.
+/* Types of pr_uid and pr_gid in struct elf_prpsinfo.  Generic Linux version.
    Copyright (C) 2018-2020 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
@@ -21,10 +21,5 @@
 # error "Never include <bits/procfs-id.h> directly; use <sys/procfs.h> instead."
 #endif
 
-#if __WORDSIZE == 32
-typedef unsigned short int __pr_uid_t;
-typedef unsigned short int __pr_gid_t;
-#else
 typedef unsigned int __pr_uid_t;
 typedef unsigned int __pr_gid_t;
-#endif

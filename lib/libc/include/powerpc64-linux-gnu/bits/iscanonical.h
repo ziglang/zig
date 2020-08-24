@@ -20,7 +20,7 @@
 # error "Never use <bits/iscanonical.h> directly; include <math.h> instead."
 #endif
 
-#if defined (__NO_LONG_DOUBLE_MATH) || __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
+#ifdef __NO_LONG_DOUBLE_MATH
 # define iscanonical(x) ((void) (__typeof (x)) (x), 1)
 #else
 extern int __iscanonicall (long double __x)

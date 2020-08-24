@@ -397,7 +397,7 @@ extern long int a64l (const char *__s)
    `initstate' and `setstate' functions are those from BSD Unices.
    The `rand' and `srand' functions are required by the ANSI standard.
    We provide both interfaces to the same random number generator.  */
-/* Return a random long integer between 0 and 2^31-1 inclusive.  */
+/* Return a random long integer between 0 and RAND_MAX inclusive.  */
 extern long int random (void) __THROW;
 
 /* Seed the random number generator with the given number.  */
@@ -931,13 +931,12 @@ extern int wctomb (char *__s, wchar_t __wchar) __THROW;
 
 /* Convert a multibyte string to a wide char string.  */
 extern size_t mbstowcs (wchar_t *__restrict  __pwcs,
-			const char *__restrict __s, size_t __n) __THROW
-    __attr_access ((__read_only__, 2));
+			const char *__restrict __s, size_t __n) __THROW;
 /* Convert a wide char string to multibyte string.  */
 extern size_t wcstombs (char *__restrict __s,
 			const wchar_t *__restrict __pwcs, size_t __n)
-     __THROW
-  __attr_access ((__write_only__, 1, 3)) __attr_access ((__read_only__, 2));
+     __THROW;
+
 
 #ifdef __USE_MISC
 /* Determine whether the string value of RESPONSE matches the affirmation
@@ -991,7 +990,7 @@ extern char *ptsname (int __fd) __THROW __wur;
    terminal associated with the master FD is open on in BUF.
    Return 0 on success, otherwise an error number.  */
 extern int ptsname_r (int __fd, char *__buf, size_t __buflen)
-     __THROW __nonnull ((2)) __attr_access ((__write_only__, 2, 3));
+     __THROW __nonnull ((2));
 
 /* Open a master pseudo terminal and return its file descriptor.  */
 extern int getpt (void);
@@ -1017,9 +1016,7 @@ extern int ttyslot (void) __THROW;
 #if __USE_FORTIFY_LEVEL > 0 && defined __fortify_function
 # include <bits/stdlib.h>
 #endif
-
-#include <bits/floatn.h>
-#if defined __LDBL_COMPAT || __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
+#ifdef __LDBL_COMPAT
 # include <bits/stdlib-ldbl.h>
 #endif
 

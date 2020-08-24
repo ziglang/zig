@@ -53,7 +53,7 @@ extern void *memmove (void *__dest, const void *__src, size_t __n)
 #if defined __USE_MISC || defined __USE_XOPEN || __GLIBC_USE (ISOC2X)
 extern void *memccpy (void *__restrict __dest, const void *__restrict __src,
 		      int __c, size_t __n)
-    __THROW __nonnull ((1, 2)) __attr_access ((__write_only__, 1, 4));
+     __THROW __nonnull ((1, 2));
 #endif /* Misc || X/Open.  */
 
 
@@ -108,15 +108,12 @@ extern void *rawmemchr (const void *__s, int __c)
 /* Search N bytes of S for the final occurrence of C.  */
 # ifdef __CORRECT_ISO_CPP_STRING_H_PROTO
 extern "C++" void *memrchr (void *__s, int __c, size_t __n)
-      __THROW __asm ("memrchr") __attribute_pure__ __nonnull ((1))
-      __attr_access ((__read_only__, 1, 3));
+      __THROW __asm ("memrchr") __attribute_pure__ __nonnull ((1));
 extern "C++" const void *memrchr (const void *__s, int __c, size_t __n)
-      __THROW __asm ("memrchr") __attribute_pure__ __nonnull ((1))
-      __attr_access ((__read_only__, 1, 3));
+      __THROW __asm ("memrchr") __attribute_pure__ __nonnull ((1));
 # else
 extern void *memrchr (const void *__s, int __c, size_t __n)
-      __THROW __attribute_pure__ __nonnull ((1))
-      __attr_access ((__read_only__, 1, 3));
+      __THROW __attribute_pure__ __nonnull ((1));
 # endif
 #endif
 
@@ -149,7 +146,7 @@ extern int strcoll (const char *__s1, const char *__s2)
 /* Put a transformation of SRC into no more than N bytes of DEST.  */
 extern size_t strxfrm (char *__restrict __dest,
 		       const char *__restrict __src, size_t __n)
-    __THROW __nonnull ((2)) __attr_access ((__write_only__, 1, 3));
+     __THROW __nonnull ((2));
 
 #ifdef __USE_XOPEN2K8
 /* POSIX.1-2008 extended locale interface (see locale.h).  */
@@ -161,8 +158,7 @@ extern int strcoll_l (const char *__s1, const char *__s2, locale_t __l)
 /* Put a transformation of SRC into no more than N bytes of DEST,
    using sorting rules from L.  */
 extern size_t strxfrm_l (char *__dest, const char *__src, size_t __n,
-			 locale_t __l) __THROW __nonnull ((2, 4))
-     __attr_access ((__write_only__, 1, 3));
+			 locale_t __l) __THROW __nonnull ((2, 4));
 #endif
 
 #if (defined __USE_XOPEN_EXTENDED || defined __USE_XOPEN2K8	\
@@ -372,9 +368,7 @@ extern char *strcasestr (const char *__haystack, const char *__needle)
    HAYSTACK is HAYSTACKLEN bytes long.  */
 extern void *memmem (const void *__haystack, size_t __haystacklen,
 		     const void *__needle, size_t __needlelen)
-     __THROW __attribute_pure__ __nonnull ((1, 3))
-    __attr_access ((__read_only__, 1, 2))
-    __attr_access ((__read_only__, 3, 4));
+     __THROW __attribute_pure__ __nonnull ((1, 3));
 
 /* Copy N bytes of SRC to DEST, return pointer to bytes after the
    last written byte.  */
@@ -415,25 +409,17 @@ extern char *strerror (int __errnum) __THROW;
 #  ifdef __REDIRECT_NTH
 extern int __REDIRECT_NTH (strerror_r,
 			   (int __errnum, char *__buf, size_t __buflen),
-			   __xpg_strerror_r) __nonnull ((2))
-    __attr_access ((__write_only__, 2, 3));
+			   __xpg_strerror_r) __nonnull ((2));
 #  else
 extern int __xpg_strerror_r (int __errnum, char *__buf, size_t __buflen)
-     __THROW __nonnull ((2)) __attr_access ((__write_only__, 2, 3));
+     __THROW __nonnull ((2));
 #   define strerror_r __xpg_strerror_r
 #  endif
 # else
 /* If a temporary buffer is required, at most BUFLEN bytes of BUF will be
    used.  */
 extern char *strerror_r (int __errnum, char *__buf, size_t __buflen)
-     __THROW __nonnull ((2)) __wur  __attr_access ((__write_only__, 2, 3));
-# endif
-
-# ifdef __USE_GNU
-/* Return a string describing the meaning of tthe error in ERR.  */
-extern const char *strerrordesc_np (int __err) __THROW;
-/* Return a string with the error name in ERR.  */
-extern const char *strerrorname_np (int __err) __THROW;
+     __THROW __nonnull ((2)) __wur;
 # endif
 #endif
 
@@ -447,8 +433,7 @@ extern char *strerror_l (int __errnum, locale_t __l) __THROW;
 
 /* Set N bytes of S to 0.  The compiler will not delete a call to this
    function, even if S is dead after the call.  */
-extern void explicit_bzero (void *__s, size_t __n) __THROW __nonnull ((1))
-    __attr_access ((__write_only__, 1, 2));
+extern void explicit_bzero (void *__s, size_t __n) __THROW __nonnull ((1));
 
 /* Return the next DELIM-delimited token from *STRINGP,
    terminating it with a '\0', and update *STRINGP to point past it.  */
@@ -460,14 +445,6 @@ extern char *strsep (char **__restrict __stringp,
 #ifdef	__USE_XOPEN2K8
 /* Return a string describing the meaning of the signal number in SIG.  */
 extern char *strsignal (int __sig) __THROW;
-
-# ifdef __USE_GNU
-/* Return an abbreviation string for the signal number SIG.  */
-extern const char *sigabbrev_np (int __sig) __THROW;
-/* Return a string describing the meaning of the signal number in SIG,
-   the result is not translated.  */
-extern const char *sigdescr_np (int __sig) __THROW;
-# endif
 
 /* Copy SRC to DEST, returning the address of the terminating '\0' in DEST.  */
 extern char *__stpcpy (char *__restrict __dest, const char *__restrict __src)
@@ -494,8 +471,7 @@ extern int strverscmp (const char *__s1, const char *__s2)
 extern char *strfry (char *__string) __THROW __nonnull ((1));
 
 /* Frobnicate N bytes of S.  */
-extern void *memfrob (void *__s, size_t __n) __THROW __nonnull ((1))
-    __attr_access ((__write_only__, 1, 2));
+extern void *memfrob (void *__s, size_t __n) __THROW __nonnull ((1));
 
 # ifndef basename
 /* Return the file name within directory of FILENAME.  We don't

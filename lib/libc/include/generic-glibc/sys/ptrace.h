@@ -1,4 +1,4 @@
-/* `ptrace' debugger support interface.  Linux/x86 version.
+/* `ptrace' debugger support interface.  Linux version.
    Copyright (C) 1996-2020 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
@@ -70,19 +70,23 @@ enum __ptrace_request
   PTRACE_SINGLESTEP = 9,
 #define PT_STEP PTRACE_SINGLESTEP
 
-  /* Get all general purpose registers used by a processes.  */
+  /* Get all general purpose registers used by a processes.
+     This is not supported on all machines.  */
   PTRACE_GETREGS = 12,
 #define PT_GETREGS PTRACE_GETREGS
 
-  /* Set all general purpose registers used by a processes.  */
+  /* Set all general purpose registers used by a processes.
+     This is not supported on all machines.  */
   PTRACE_SETREGS = 13,
 #define PT_SETREGS PTRACE_SETREGS
 
-  /* Get all floating point registers used by a processes.  */
+  /* Get all floating point registers used by a processes.
+     This is not supported on all machines.  */
   PTRACE_GETFPREGS = 14,
 #define PT_GETFPREGS PTRACE_GETFPREGS
 
-  /* Set all floating point registers used by a processes.  */
+  /* Set all floating point registers used by a processes.
+     This is not supported on all machines.  */
   PTRACE_SETFPREGS = 15,
 #define PT_SETFPREGS PTRACE_SETFPREGS
 
@@ -94,43 +98,19 @@ enum __ptrace_request
   PTRACE_DETACH = 17,
 #define PT_DETACH PTRACE_DETACH
 
-  /* Get all extended floating point registers used by a processes.  */
+  /* Get all extended floating point registers used by a processes.
+     This is not supported on all machines.  */
   PTRACE_GETFPXREGS = 18,
 #define PT_GETFPXREGS PTRACE_GETFPXREGS
 
-  /* Set all extended floating point registers used by a processes.  */
+  /* Set all extended floating point registers used by a processes.
+     This is not supported on all machines.  */
   PTRACE_SETFPXREGS = 19,
 #define PT_SETFPXREGS PTRACE_SETFPXREGS
 
   /* Continue and stop at the next entry to or return from syscall.  */
   PTRACE_SYSCALL = 24,
 #define PT_SYSCALL PTRACE_SYSCALL
-
-  /* Get a TLS entry in the GDT.  */
-  PTRACE_GET_THREAD_AREA = 25,
-#define PT_GET_THREAD_AREA PTRACE_GET_THREAD_AREA
-
-  /* Change a TLS entry in the GDT.  */
-  PTRACE_SET_THREAD_AREA = 26,
-#define PT_SET_THREAD_AREA PTRACE_SET_THREAD_AREA
-
-#ifdef __x86_64__
-  /* Access TLS data.  */
-  PTRACE_ARCH_PRCTL = 30,
-# define PT_ARCH_PRCTL PTRACE_ARCH_PRCTL
-#endif
-
-  /* Continue and stop at the next syscall, it will not be executed.  */
-  PTRACE_SYSEMU = 31,
-#define PT_SYSEMU PTRACE_SYSEMU
-
-  /* Single step the process, the next syscall will not be executed.  */
-  PTRACE_SYSEMU_SINGLESTEP = 32,
-#define PT_SYSEMU_SINGLESTEP PTRACE_SYSEMU_SINGLESTEP
-
-  /* Execute process until next taken branch.  */
-  PTRACE_SINGLEBLOCK = 33,
-#define PT_STEPBLOCK PTRACE_SINGLEBLOCK
 
   /* Set ptrace filter options.  */
   PTRACE_SETOPTIONS = 0x4200,

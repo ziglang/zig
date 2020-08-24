@@ -633,11 +633,9 @@ extern int swscanf (const wchar_t *__restrict __s,
      __THROW /* __attribute__ ((__format__ (__wscanf__, 2, 3))) */;
 
 /* For historical reasons, the C99-compliant versions of the scanf
-   functions are at alternative names.  When __LDBL_COMPAT or
-   __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI are in effect, this is handled in
-   bits/wchar-ldbl.h.  */
-#if !__GLIBC_USE (DEPRECATED_SCANF) && !defined __LDBL_COMPAT \
-     && __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 0
+   functions are at alternative names.  When __LDBL_COMPAT is in
+   effect, this is handled in bits/wchar-ldbl.h.  */
+#if !__GLIBC_USE (DEPRECATED_SCANF) && !defined __LDBL_COMPAT
 #  ifdef __REDIRECT
 extern int __REDIRECT (fwscanf, (__FILE *__restrict __stream,
 				 const wchar_t *__restrict __format, ...),
@@ -690,8 +688,7 @@ extern int vswscanf (const wchar_t *__restrict __s,
 /* Same redirection as above for the v*wscanf family.  */
 # if !__GLIBC_USE (DEPRECATED_SCANF) \
      && (!defined __LDBL_COMPAT || !defined __REDIRECT) \
-     && (defined __STRICT_ANSI__ || defined __USE_XOPEN2K) \
-     && __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 0
+     && (defined __STRICT_ANSI__ || defined __USE_XOPEN2K)
 #  ifdef __REDIRECT
 extern int __REDIRECT (vfwscanf, (__FILE *__restrict __s,
 				  const wchar_t *__restrict __format,
@@ -852,8 +849,7 @@ extern size_t wcsftime_l (wchar_t *__restrict __s, size_t __maxsize,
 # include <bits/wchar2.h>
 #endif
 
-#include <bits/floatn.h>
-#if defined __LDBL_COMPAT || __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
+#ifdef __LDBL_COMPAT
 # include <bits/wchar-ldbl.h>
 #endif
 

@@ -5,7 +5,12 @@
 # error "Never use <bits/endianness.h> directly; include <endian.h> instead."
 #endif
 
-/* i386/x86_64 are little-endian.  */
-#define __BYTE_ORDER __LITTLE_ENDIAN
+/* MIPS has selectable endianness.  */
+#ifdef __MIPSEB
+# define __BYTE_ORDER __BIG_ENDIAN
+#endif
+#ifdef __MIPSEL
+# define __BYTE_ORDER __LITTLE_ENDIAN
+#endif
 
 #endif /* bits/endianness.h */

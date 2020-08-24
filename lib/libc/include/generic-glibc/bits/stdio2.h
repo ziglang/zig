@@ -24,12 +24,10 @@
 #endif
 
 extern int __sprintf_chk (char *__restrict __s, int __flag, size_t __slen,
-			  const char *__restrict __format, ...) __THROW
-    __attr_access ((__write_only__, 1, 3));
+			  const char *__restrict __format, ...) __THROW;
 extern int __vsprintf_chk (char *__restrict __s, int __flag, size_t __slen,
 			   const char *__restrict __format,
-			   __gnuc_va_list __ap) __THROW
-    __attr_access ((__write_only__, 1, 3));
+			   __gnuc_va_list __ap) __THROW;
 
 #ifdef __va_arg_pack
 __fortify_function int
@@ -56,8 +54,7 @@ __NTH (vsprintf (char *__restrict __s, const char *__restrict __fmt,
 
 extern int __snprintf_chk (char *__restrict __s, size_t __n, int __flag,
 			   size_t __slen, const char *__restrict __format,
-			   ...) __THROW
-    __attr_access ((__write_only__, 1, 2));
+			   ...) __THROW;
 extern int __vsnprintf_chk (char *__restrict __s, size_t __n, int __flag,
 			    size_t __slen, const char *__restrict __format,
 			    __gnuc_va_list __ap) __THROW;
@@ -244,19 +241,17 @@ gets (char *__str)
 #endif
 
 extern char *__fgets_chk (char *__restrict __s, size_t __size, int __n,
-			  FILE *__restrict __stream)
-    __wur __attr_access ((__write_only__, 1, 3));
+			  FILE *__restrict __stream) __wur;
 extern char *__REDIRECT (__fgets_alias,
 			 (char *__restrict __s, int __n,
-			  FILE *__restrict __stream), fgets)
-    __wur __attr_access ((__write_only__, 1, 2));
+			  FILE *__restrict __stream), fgets) __wur;
 extern char *__REDIRECT (__fgets_chk_warn,
 			 (char *__restrict __s, size_t __size, int __n,
 			  FILE *__restrict __stream), __fgets_chk)
      __wur __warnattr ("fgets called with bigger size than length "
 		       "of destination buffer");
 
-__fortify_function __wur __attr_access ((__write_only__, 1, 2)) char *
+__fortify_function __wur char *
 fgets (char *__restrict __s, int __n, FILE *__restrict __stream)
 {
   if (__bos (__s) != (size_t) -1)
@@ -304,19 +299,17 @@ fread (void *__restrict __ptr, size_t __size, size_t __n,
 
 #ifdef __USE_GNU
 extern char *__fgets_unlocked_chk (char *__restrict __s, size_t __size,
-				   int __n, FILE *__restrict __stream)
-    __wur __attr_access ((__write_only__, 1, 3));
+				   int __n, FILE *__restrict __stream) __wur;
 extern char *__REDIRECT (__fgets_unlocked_alias,
 			 (char *__restrict __s, int __n,
-			  FILE *__restrict __stream), fgets_unlocked)
-    __wur __attr_access ((__write_only__, 1, 2));
+			  FILE *__restrict __stream), fgets_unlocked) __wur;
 extern char *__REDIRECT (__fgets_unlocked_chk_warn,
 			 (char *__restrict __s, size_t __size, int __n,
 			  FILE *__restrict __stream), __fgets_unlocked_chk)
      __wur __warnattr ("fgets_unlocked called with bigger size than length "
 		       "of destination buffer");
 
-__fortify_function __wur __attr_access ((__write_only__, 1, 2)) char *
+__fortify_function __wur char *
 fgets_unlocked (char *__restrict __s, int __n, FILE *__restrict __stream)
 {
   if (__bos (__s) != (size_t) -1)

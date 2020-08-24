@@ -50,11 +50,10 @@ __NTH (realpath (const char *__restrict __name, char *__restrict __resolved))
 
 
 extern int __ptsname_r_chk (int __fd, char *__buf, size_t __buflen,
-			    size_t __nreal) __THROW __nonnull ((2))
-    __attr_access ((__write_only__, 2, 3));
+			    size_t __nreal) __THROW __nonnull ((2));
 extern int __REDIRECT_NTH (__ptsname_r_alias, (int __fd, char *__buf,
 					       size_t __buflen), ptsname_r)
-     __nonnull ((2)) __attr_access ((__write_only__, 2, 3));
+     __nonnull ((2));
 extern int __REDIRECT_NTH (__ptsname_r_chk_warn,
 			   (int __fd, char *__buf, size_t __buflen,
 			    size_t __nreal), __ptsname_r_chk)
@@ -98,13 +97,11 @@ __NTH (wctomb (char *__s, wchar_t __wchar))
 
 extern size_t __mbstowcs_chk (wchar_t *__restrict __dst,
 			      const char *__restrict __src,
-			      size_t __len, size_t __dstlen) __THROW
-    __attr_access ((__write_only__, 1, 3)) __attr_access ((__read_only__, 2));
+			      size_t __len, size_t __dstlen) __THROW;
 extern size_t __REDIRECT_NTH (__mbstowcs_alias,
 			      (wchar_t *__restrict __dst,
 			       const char *__restrict __src,
-			       size_t __len), mbstowcs)
-    __attr_access ((__write_only__, 1, 3)) __attr_access ((__read_only__, 2));
+			       size_t __len), mbstowcs);
 extern size_t __REDIRECT_NTH (__mbstowcs_chk_warn,
 			      (wchar_t *__restrict __dst,
 			       const char *__restrict __src,
@@ -132,13 +129,11 @@ __NTH (mbstowcs (wchar_t *__restrict __dst, const char *__restrict __src,
 
 extern size_t __wcstombs_chk (char *__restrict __dst,
 			      const wchar_t *__restrict __src,
-			      size_t __len, size_t __dstlen) __THROW
-  __attr_access ((__write_only__, 1, 3)) __attr_access ((__read_only__, 2));
+			      size_t __len, size_t __dstlen) __THROW;
 extern size_t __REDIRECT_NTH (__wcstombs_alias,
 			      (char *__restrict __dst,
 			       const wchar_t *__restrict __src,
-			       size_t __len), wcstombs)
-  __attr_access ((__write_only__, 1, 3)) __attr_access ((__read_only__, 2));
+			       size_t __len), wcstombs);
 extern size_t __REDIRECT_NTH (__wcstombs_chk_warn,
 			      (char *__restrict __dst,
 			       const wchar_t *__restrict __src,

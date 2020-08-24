@@ -25,5 +25,3 @@ enum
     EPOLL_CLOEXEC = 02000000
 #define EPOLL_CLOEXEC EPOLL_CLOEXEC
   };
-
-#define __EPOLL_PACKED __attribute__ ((__packed__))

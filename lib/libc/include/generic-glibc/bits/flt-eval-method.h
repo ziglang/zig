@@ -1,4 +1,4 @@
-/* Define __GLIBC_FLT_EVAL_METHOD.  x86 version.
+/* Define __GLIBC_FLT_EVAL_METHOD.
    Copyright (C) 2016-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
@@ -20,14 +20,23 @@
 # error "Never use <bits/flt-eval-method.h> directly; include <math.h> instead."
 #endif
 
+/* __GLIBC_FLT_EVAL_METHOD is the value of FLT_EVAL_METHOD used to
+   determine the evaluation method typedefs such as float_t and
+   double_t.  It must be a value from C11 or TS 18661-3:2015, and not
+   -1.  */
+
+/* In the default version of this header, follow __FLT_EVAL_METHOD__.
+   -1 is mapped to 2 (considering evaluation as long double to be a
+   conservatively safe assumption), and if __FLT_EVAL_METHOD__ is not
+   defined then assume there is no excess precision and use the value
+   0.  */
+
 #ifdef __FLT_EVAL_METHOD__
 # if __FLT_EVAL_METHOD__ == -1
 #  define __GLIBC_FLT_EVAL_METHOD	2
 # else
 #  define __GLIBC_FLT_EVAL_METHOD	__FLT_EVAL_METHOD__
 # endif
-#elif defined __x86_64__
-# define __GLIBC_FLT_EVAL_METHOD	0
 #else
-# define __GLIBC_FLT_EVAL_METHOD	2
+# define __GLIBC_FLT_EVAL_METHOD	0
 #endif

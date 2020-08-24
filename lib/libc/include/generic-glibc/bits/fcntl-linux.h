@@ -290,8 +290,7 @@ struct f_owner_ex
 
 #ifdef __USE_GNU
 /* Hint values for F_{GET,SET}_RW_HINT.  */
-# define RWH_WRITE_LIFE_NOT_SET	0
-# define RWF_WRITE_LIFE_NOT_SET	RWH_WRITE_LIFE_NOT_SET
+# define RWF_WRITE_LIFE_NOT_SET	0
 # define RWH_WRITE_LIFE_NONE	1
 # define RWH_WRITE_LIFE_SHORT	2
 # define RWH_WRITE_LIFE_MEDIUM	3

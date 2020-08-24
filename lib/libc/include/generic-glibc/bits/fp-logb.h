@@ -1,4 +1,4 @@
-/* Define __FP_LOGB0_IS_MIN and __FP_LOGBNAN_IS_MIN.  x86 version.
+/* Define __FP_LOGB0_IS_MIN and __FP_LOGBNAN_IS_MIN.
    Copyright (C) 2016-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
@@ -20,5 +20,9 @@
 # error "Never use <bits/fp-logb.h> directly; include <math.h> instead."
 #endif
 
-#define __FP_LOGB0_IS_MIN	1
-#define __FP_LOGBNAN_IS_MIN	1
+/* __FP_LOGB0_IS_MIN is defined to 1 if FP_ILOGB0 is INT_MIN, and 0 if
+   it is -INT_MAX.  __FP_LOGBNAN_IS_MIN is defined to 1 if FP_ILOGBNAN
+   is INT_MIN, and 0 if it is INT_MAX.  */
+
+#define __FP_LOGB0_IS_MIN	0
+#define __FP_LOGBNAN_IS_MIN	0

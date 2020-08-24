@@ -182,8 +182,7 @@ extern int printf_size_info (const struct printf_info *__restrict
 			     __info, size_t __n, int *__restrict __argtypes)
      __THROW;
 
-#include <bits/floatn.h>
-#if defined __LDBL_COMPAT || __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
+#ifdef __LDBL_COMPAT
 # include <bits/printf-ldbl.h>
 #endif
 

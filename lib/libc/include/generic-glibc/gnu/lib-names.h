@@ -4,14 +4,43 @@
 #ifndef __GNU_LIB_NAMES_H
 #define __GNU_LIB_NAMES_H	1
 
-#if !defined __x86_64__
-# include <gnu/lib-names-32.h>
+#include <sgidefs.h>
+
+#if !defined(__mips_nan2008) && defined(__mips_soft_float) && (_MIPS_SIM == _MIPS_SIM_ABI32)
+# include <gnu/lib-names-o32_soft.h>
 #endif
-#if defined __x86_64__ && defined __LP64__
-# include <gnu/lib-names-64.h>
+#if !defined(__mips_nan2008) && defined(__mips_hard_float) && (_MIPS_SIM == _MIPS_SIM_ABI32)
+# include <gnu/lib-names-o32_hard.h>
 #endif
-#if defined __x86_64__ && defined __ILP32__
-# include <gnu/lib-names-x32.h>
+#if defined(__mips_nan2008) && defined(__mips_soft_float) && (_MIPS_SIM == _MIPS_SIM_ABI32)
+# include <gnu/lib-names-o32_soft_2008.h>
+#endif
+#if defined(__mips_nan2008) && defined(__mips_hard_float) && (_MIPS_SIM == _MIPS_SIM_ABI32)
+# include <gnu/lib-names-o32_hard_2008.h>
+#endif
+#if !defined(__mips_nan2008) && defined(__mips_soft_float) && (_MIPS_SIM == _MIPS_SIM_NABI32)
+# include <gnu/lib-names-n32_soft.h>
+#endif
+#if !defined(__mips_nan2008) && defined(__mips_hard_float) && (_MIPS_SIM == _MIPS_SIM_NABI32)
+# include <gnu/lib-names-n32_hard.h>
+#endif
+#if defined(__mips_nan2008) && defined(__mips_soft_float) && (_MIPS_SIM == _MIPS_SIM_NABI32)
+# include <gnu/lib-names-n32_soft_2008.h>
+#endif
+#if defined(__mips_nan2008) && defined(__mips_hard_float) && (_MIPS_SIM == _MIPS_SIM_NABI32)
+# include <gnu/lib-names-n32_hard_2008.h>
+#endif
+#if !defined(__mips_nan2008) && defined(__mips_soft_float) && (_MIPS_SIM == _MIPS_SIM_ABI64)
+# include <gnu/lib-names-n64_soft.h>
+#endif
+#if !defined(__mips_nan2008) && defined(__mips_hard_float) && (_MIPS_SIM == _MIPS_SIM_ABI64)
+# include <gnu/lib-names-n64_hard.h>
+#endif
+#if defined(__mips_nan2008) && defined(__mips_soft_float) && (_MIPS_SIM == _MIPS_SIM_ABI64)
+# include <gnu/lib-names-n64_soft_2008.h>
+#endif
+#if defined(__mips_nan2008) && defined(__mips_hard_float) && (_MIPS_SIM == _MIPS_SIM_ABI64)
+# include <gnu/lib-names-n64_hard_2008.h>
 #endif
 
 #endif	/* gnu/lib-names.h */
