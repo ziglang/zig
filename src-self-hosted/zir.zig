@@ -43,6 +43,8 @@ pub const Inst = struct {
         alloc,
         /// Same as `alloc` except the type is inferred.
         alloc_inferred,
+        /// Create an `anyframe->T`.
+        anyframe_type,
         /// Array concatenation. `a ++ b`
         array_cat,
         /// Array multiplication `a ** b`
@@ -70,6 +72,8 @@ pub const Inst = struct {
         /// A typed result location pointer is bitcasted to a new result location pointer.
         /// The new result location pointer has an inferred type.
         bitcast_result_ptr,
+        /// Bitwise NOT. `~`
+        bitnot,
         /// Bitwise OR. `|`
         bitor,
         /// A labeled block of code, which can return a value.
@@ -133,6 +137,10 @@ pub const Inst = struct {
         ensure_result_used,
         /// Emits a compile error if an error is ignored.
         ensure_result_non_error,
+        /// Create a `E!T` type.
+        error_union_type,
+        /// Create an error set.
+        error_set,
         /// Export the provided Decl as the provided name in the compilation's output object file.
         @"export",
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
@@ -160,6 +168,8 @@ pub const Inst = struct {
         /// A labeled block of code that loops forever. At the end of the body it is implied
         /// to repeat; no explicit "repeat" instruction terminates loop bodies.
         loop,
+        /// Merge two error sets into one, `E1 || E2`.
+        merge_error_sets,
         /// Ambiguously remainder division or modulus. If the computation would possibly have
         /// a different value depending on whether the operation is remainder division or modulus,
         /// a compile error is emitted. Otherwise the computation is performed.
@@ -286,6 +296,8 @@ pub const Inst = struct {
                 .unwrap_err_safe,
                 .unwrap_err_unsafe,
                 .ensure_err_payload_void,
+                .anyframe_type,
+                .bitnot,
                 => UnOp,
 
                 .add,
@@ -316,6 +328,8 @@ pub const Inst = struct {
                 .bitcast,
                 .coerce_result_ptr,
                 .xor,
+                .error_union_type,
+                .merge_error_sets,
                 => BinOp,
 
                 .arg => Arg,
@@ -347,6 +361,7 @@ pub const Inst = struct {
                 .condbr => CondBr,
                 .ptr_type => PtrType,
                 .enum_literal => EnumLiteral,
+                .error_set => ErrorSet,
             };
         }
 
@@ -438,6 +453,11 @@ pub const Inst = struct {
                 .ptr_type,
                 .ensure_err_payload_void,
                 .enum_literal,
+                .merge_error_sets,
+                .anyframe_type,
+                .error_union_type,
+                .bitnot,
+                .error_set,
                 => false,
 
                 .@"break",
@@ -908,6 +928,16 @@ pub const Inst = struct {
         },
         kw_args: struct {},
     };
+
+    pub const ErrorSet = struct {
+        pub const base_tag = Tag.error_set;
+        base: Inst,
+
+        positionals: struct {
+            fields: [][]const u8,
+        },
+        kw_args: struct {},
+    };
 };
 
 pub const ErrorMsg = struct {
@@ -1141,6 +1171,16 @@ const Writer = struct {
             *Inst.Loop => {
                 const name = self.loop_table.get(param).?;
                 return std.zig.renderStringLiteral(name, stream);
+            },
+            [][]const u8 => {
+                try stream.writeByte('[');
+                for (param) |str, i| {
+                    if (i != 0) {
+                        try stream.writeAll(", ");
+                    }
+                    try std.zig.renderStringLiteral(str, stream);
+                }
+                try stream.writeByte(']');
             },
             else => |T| @compileError("unimplemented: rendering parameter of type " ++ @typeName(T)),
         }
@@ -1538,6 +1578,21 @@ const Parser = struct {
             *Inst.Loop => {
                 const name = try self.parseStringLiteral();
                 return self.loop_table.get(name).?;
+            },
+            [][]const u8 => {
+                try requireEatBytes(self, "[");
+                skipSpace(self);
+                if (eatByte(self, ']')) return &[0][]const u8{};
+
+                var strings = std.ArrayList([]const u8).init(&self.arena.allocator);
+                while (true) {
+                    skipSpace(self);
+                    try strings.append(try self.parseStringLiteral());
+                    skipSpace(self);
+                    if (!eatByte(self, ',')) break;
+                }
+                try requireEatBytes(self, "]");
+                return strings.toOwnedSlice();
             },
             else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),
         }
@@ -1961,7 +2016,7 @@ const EmitZIR = struct {
                 return self.emitUnnamedDecl(&as_inst.base);
             },
             .Type => {
-                const ty = typed_value.val.toType();
+                const ty = try typed_value.val.toType(&self.arena.allocator);
                 return self.emitType(src, ty);
             },
             .Fn => {

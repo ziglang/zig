@@ -80,6 +80,9 @@ deletion_set: std.ArrayListUnmanaged(*Decl) = .{},
 root_name: []u8,
 keep_source_files_loaded: bool,
 
+/// Error tags and their values, tag names are duped with mod.gpa.
+global_error_set: std.StringHashMapUnmanaged(u16) = .{},
+
 pub const InnerError = error{ OutOfMemory, AnalysisFail };
 
 const WorkItem = union(enum) {
@@ -928,6 +931,11 @@ pub fn deinit(self: *Module) void {
 
     self.symbol_exports.deinit(gpa);
     self.root_scope.destroy(gpa);
+
+    for (self.global_error_set.items()) |entry| {
+        gpa.free(entry.key);
+    }
+    self.global_error_set.deinit(gpa);
     self.* = undefined;
 }
 
@@ -2070,6 +2078,18 @@ fn createNewDecl(
     new_decl.name = try mem.dupeZ(self.gpa, u8, decl_name);
     self.decl_table.putAssumeCapacityNoClobber(name_hash, new_decl);
     return new_decl;
+}
+
+/// Get error value for error tag `name`.
+pub fn getErrorValue(self: *Module, name: []const u8) !std.StringHashMapUnmanaged(u16).Entry {
+    const gop = try self.global_error_set.getOrPut(self.gpa, name);
+    if (gop.found_existing)
+        return gop.entry.*;
+    errdefer self.global_error_set.removeAssertDiscard(name);
+
+    gop.entry.key = try self.gpa.dupe(u8, name);
+    gop.entry.value = @intCast(u16, self.global_error_set.items().len - 1);
+    return gop.entry.*;
 }
 
 /// TODO split this into `requireRuntimeBlock` and `requireFunctionBlock` and audit callsites.
@@ -3307,6 +3327,28 @@ pub fn arrayType(self: *Module, scope: *Scope, len: u64, sentinel: ?Value, elem_
         .elem_type = elem_type,
     };
     return Type.initPayload(&payload.base);
+}
+
+pub fn errorUnionType(self: *Module, scope: *Scope, error_set: Type, payload: Type) Allocator.Error!Type {
+    assert(error_set.zigTypeTag() == .ErrorSet);
+    if (error_set.eql(Type.initTag(.anyerror)) and payload.eql(Type.initTag(.void))) {
+        return Type.initTag(.anyerror_void_error_union);
+    }
+
+    const result = try scope.arena().create(Type.Payload.ErrorUnion);
+    result.* = .{
+        .error_set = error_set,
+        .payload = payload,
+    };
+    return Type.initPayload(&result.base);
+}
+
+pub fn anyframeType(self: *Module, scope: *Scope, return_type: Type) Allocator.Error!Type {
+    const result = try scope.arena().create(Type.Payload.AnyFrame);
+    result.* = .{
+        .return_type = return_type,
+    };
+    return Type.initPayload(&result.base);
 }
 
 pub fn dumpInst(self: *Module, scope: *Scope, inst: *Inst) void {

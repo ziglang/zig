@@ -97,6 +97,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .array_cat => return analyzeInstArrayCat(mod, scope, old_inst.castTag(.array_cat).?),
         .array_mul => return analyzeInstArrayMul(mod, scope, old_inst.castTag(.array_mul).?),
         .bitand => return analyzeInstBitwise(mod, scope, old_inst.castTag(.bitand).?),
+        .bitnot => return analyzeInstBitNot(mod, scope, old_inst.castTag(.bitnot).?),
         .bitor => return analyzeInstBitwise(mod, scope, old_inst.castTag(.bitor).?),
         .xor => return analyzeInstBitwise(mod, scope, old_inst.castTag(.xor).?),
         .shl => return analyzeInstShl(mod, scope, old_inst.castTag(.shl).?),
@@ -122,6 +123,10 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .array_type => return analyzeInstArrayType(mod, scope, old_inst.castTag(.array_type).?),
         .array_type_sentinel => return analyzeInstArrayTypeSentinel(mod, scope, old_inst.castTag(.array_type_sentinel).?),
         .enum_literal => return analyzeInstEnumLiteral(mod, scope, old_inst.castTag(.enum_literal).?),
+        .merge_error_sets => return analyzeInstMergeErrorSets(mod, scope, old_inst.castTag(.merge_error_sets).?),
+        .error_union_type => return analyzeInstErrorUnionType(mod, scope, old_inst.castTag(.error_union_type).?),
+        .anyframe_type => return analyzeInstAnyframeType(mod, scope, old_inst.castTag(.anyframe_type).?),
+        .error_set => return analyzeInstErrorSet(mod, scope, old_inst.castTag(.error_set).?),
     }
 }
 
@@ -145,7 +150,7 @@ pub fn analyzeBodyValueAsType(mod: *Module, block_scope: *Scope.Block, body: zir
     for (block_scope.instructions.items) |inst| {
         if (inst.castTag(.ret)) |ret| {
             const val = try mod.resolveConstValue(&block_scope.base, ret.operand);
-            return val.toType();
+            return val.toType(block_scope.base.arena());
         } else {
             return mod.fail(&block_scope.base, inst.src, "unable to resolve comptime value", .{});
         }
@@ -270,7 +275,7 @@ fn resolveType(mod: *Module, scope: *Scope, old_inst: *zir.Inst) !Type {
     const wanted_type = Type.initTag(.@"type");
     const coerced_inst = try mod.coerce(scope, wanted_type, new_inst);
     const val = try mod.resolveConstValue(scope, coerced_inst);
-    return val.toType();
+    return val.toType(scope.arena());
 }
 
 fn resolveInt(mod: *Module, scope: *Scope, old_inst: *zir.Inst, dest_type: Type) !u64 {
@@ -431,6 +436,7 @@ fn analyzeInstStr(mod: *Module, scope: *Scope, str_inst: *zir.Inst.Str) InnerErr
     // The bytes references memory inside the ZIR module, which can get deallocated
     // after semantic analysis is complete. We need the memory to be in the new anonymous Decl's arena.
     var new_decl_arena = std.heap.ArenaAllocator.init(mod.gpa);
+    errdefer new_decl_arena.deinit();
     const arena_bytes = try new_decl_arena.allocator.dupe(u8, str_inst.positionals.bytes);
 
     const ty_payload = try scope.arena().create(Type.Payload.Array_u8_Sentinel0);
@@ -716,6 +722,54 @@ fn analyzeInstArrayTypeSentinel(mod: *Module, scope: *Scope, array: *zir.Inst.Ar
     return mod.constType(scope, array.base.src, try mod.arrayType(scope, len.val.toUnsignedInt(), sentinel.val, elem_type));
 }
 
+fn analyzeInstErrorUnionType(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const error_union = try resolveType(mod, scope, inst.positionals.lhs);
+    const payload = try resolveType(mod, scope, inst.positionals.rhs);
+
+    if (error_union.zigTypeTag() != .ErrorSet) {
+        return mod.fail(scope, inst.base.src, "expected error set type, found {}", .{error_union.elemType()});
+    }
+
+    return mod.constType(scope, inst.base.src, try mod.errorUnionType(scope, error_union, payload));
+}
+
+fn analyzeInstAnyframeType(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const return_type = try resolveType(mod, scope, inst.positionals.operand);
+
+    return mod.constType(scope, inst.base.src, try mod.anyframeType(scope, return_type));
+}
+
+fn analyzeInstErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) InnerError!*Inst {
+    // The declarations arena will store the hashmap.
+    var new_decl_arena = std.heap.ArenaAllocator.init(mod.gpa);
+    errdefer new_decl_arena.deinit();
+
+    const payload = try scope.arena().create(Value.Payload.ErrorSet);
+    payload.* = .{
+        .fields = .{},
+        .decl = undefined, // populated below
+    };
+    try payload.fields.ensureCapacity(&new_decl_arena.allocator, inst.positionals.fields.len);
+
+    for (inst.positionals.fields) |field_name| {
+        const entry = try mod.getErrorValue(field_name);
+        if (payload.fields.fetchPutAssumeCapacity(entry.key, entry.value)) |prev| {
+            return mod.fail(scope, inst.base.src, "duplicate error: '{}'", .{field_name});
+        }
+    }
+    // TODO create name in format "error:line:column"
+    const new_decl = try mod.createAnonymousDecl(scope, &new_decl_arena, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initPayload(&payload.base),
+    });
+    payload.decl = new_decl;
+    return mod.analyzeDeclRef(scope, inst.base.src, new_decl);
+}
+
+fn analyzeInstMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    return mod.fail(scope, inst.base.src, "TODO implement merge_error_sets", .{});
+}
+
 fn analyzeInstEnumLiteral(mod: *Module, scope: *Scope, inst: *zir.Inst.EnumLiteral) InnerError!*Inst {
     const payload = try scope.arena().create(Value.Payload.Bytes);
     payload.* = .{
@@ -858,8 +912,72 @@ fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr
                 );
             }
         },
-        else => return mod.fail(scope, fieldptr.base.src, "type '{}' does not support field access", .{elem_ty}),
+        .Pointer => {
+            const ptr_child = elem_ty.elemType();
+            switch (ptr_child.zigTypeTag()) {
+                .Array => {
+                    if (mem.eql(u8, field_name, "len")) {
+                        const len_payload = try scope.arena().create(Value.Payload.Int_u64);
+                        len_payload.* = .{ .int = ptr_child.arrayLen() };
+
+                        const ref_payload = try scope.arena().create(Value.Payload.RefVal);
+                        ref_payload.* = .{ .val = Value.initPayload(&len_payload.base) };
+
+                        return mod.constInst(scope, fieldptr.base.src, .{
+                            .ty = Type.initTag(.single_const_pointer_to_comptime_int),
+                            .val = Value.initPayload(&ref_payload.base),
+                        });
+                    } else {
+                        return mod.fail(
+                            scope,
+                            fieldptr.positionals.field_name.src,
+                            "no member named '{}' in '{}'",
+                            .{ field_name, elem_ty },
+                        );
+                    }
+                },
+                else => {},
+            }
+        },
+        .Type => {
+            _ = try mod.resolveConstValue(scope, object_ptr);
+            const result = try mod.analyzeDeref(scope, fieldptr.base.src, object_ptr, object_ptr.src);
+            const val = result.value().?;
+            const child_type = try val.toType(scope.arena());
+            switch (child_type.zigTypeTag()) {
+                .ErrorSet => {
+                    // TODO resolve inferred error sets
+                    const entry = if (val.cast(Value.Payload.ErrorSet)) |payload|
+                        (payload.fields.getEntry(field_name) orelse
+                            return mod.fail(scope, fieldptr.base.src, "no error named '{}' in '{}'", .{ field_name, child_type })).*
+                    else try mod.getErrorValue(field_name);
+
+                    const error_payload = try scope.arena().create(Value.Payload.Error);
+                    error_payload.* = .{
+                        .name = entry.key,
+                        .value = entry.value,
+                    };
+
+                    const ref_payload = try scope.arena().create(Value.Payload.RefVal);
+                    ref_payload.* = .{ .val = Value.initPayload(&error_payload.base) };
+
+                    const result_type = if (child_type.tag() == .anyerror) blk: {
+                        const result_payload = try scope.arena().create(Type.Payload.ErrorSetSingle);
+                        result_payload.* = .{ .name = entry.key };
+                        break :blk Type.initPayload(&result_payload.base);
+                    } else child_type;
+
+                    return mod.constInst(scope, fieldptr.base.src, .{
+                        .ty = try mod.simplePtrType(scope, fieldptr.base.src, result_type, false, .One),
+                        .val = Value.initPayload(&ref_payload.base),
+                    });
+                },
+                else => return mod.fail(scope, fieldptr.base.src, "type '{}' does not support field access", .{child_type}),
+            }
+        },
+        else => {},
     }
+    return mod.fail(scope, fieldptr.base.src, "type '{}' does not support field access", .{elem_ty});
 }
 
 fn analyzeInstIntCast(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
@@ -981,6 +1099,10 @@ fn analyzeInstShr(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError
 
 fn analyzeInstBitwise(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstBitwise", .{});
+}
+
+fn analyzeInstBitNot(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstBitNot", .{});
 }
 
 fn analyzeInstArrayCat(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
@@ -1348,7 +1470,7 @@ fn analyzeInstPtrType(mod: *Module, scope: *Scope, inst: *zir.Inst.PtrType) Inne
 
     if (host_size != 0 and bit_offset >= host_size * 8)
         return mod.fail(scope, inst.base.src, "bit offset starts after end of host integer", .{});
-    
+
     const sentinel = if (inst.kw_args.sentinel) |some|
         (try resolveInstConst(mod, scope, some)).val
     else
