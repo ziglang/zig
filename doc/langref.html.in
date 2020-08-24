@@ -10308,6 +10308,7 @@ fn readU32Be() u32 {}
       {#header_close#}
 
       {#header_open|Keyword Reference#}
+      <div class="table-wrapper">
       <table>
         <tr>
           <th>
@@ -10886,6 +10887,7 @@ fn readU32Be() u32 {}
           </td>
         </tr>
       </table>
+      </div>
       {#header_close#}
 
       {#header_open|Grammar#}
