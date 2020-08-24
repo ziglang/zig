@@ -102,6 +102,11 @@
         padding: 0 1em;
       }
 
+      #doc-versions {
+        background: #ececec;
+        padding: 0.1em 0.5em;
+      }
+
       @media screen and (min-width: 1025px) {
         #main-wrapper {
             flex-direction: row;
@@ -183,14 +188,7 @@
   <body>
     <div id="main-wrapper">
       <div id="toc">
-        <a href="https://ziglang.org/documentation/0.1.1/">0.1.1</a> |
-        <a href="https://ziglang.org/documentation/0.2.0/">0.2.0</a> |
-        <a href="https://ziglang.org/documentation/0.3.0/">0.3.0</a> |
-        <a href="https://ziglang.org/documentation/0.4.0/">0.4.0</a> |
-        <a href="https://ziglang.org/documentation/0.5.0/">0.5.0</a> |
-        <a href="https://ziglang.org/documentation/0.6.0/">0.6.0</a> |
-        master
-        <h1>Contents</h1>
+        <h2>Contents</h2>
         {#nav#}
       </div>
       <div id="contents-wrapper"><div id="contents">
@@ -210,22 +208,32 @@
       </ul>
       <p>
       Often the most efficient way to learn something new is to see examples, so
-      this documentation shows how to use each of Zig's features. It is
-      all on one page so you can search with your browser's search tool.
-      </p>
-      <p>
-      If you search for something specific in this documentation and do not find it,
-      please <a href="https://github.com/ziglang/www.ziglang.org/issues/new?title=I%20searched%20for%20___%20in%20the%20docs%20and%20didn%27t%20find%20it">file an issue</a> or <a href="https://webchat.freenode.net/?channels=%23zig">say something on IRC</a>.
-      </p>
-      <p>
-      The code samples in this document are compiled and tested as part of the main test suite of Zig.
+      this documentation shows how to use each of Zig's features.
+      Code samples are compiled and tested as part of the main test suite of Zig.
       </p>
       <p>
       This HTML document depends on no external files, so you can use it offline.
+      It is all on one page and can be searched with your browser's search tool.
+      If you search for something specific in this documentation and do not find it,
+      please <a href="https://github.com/ziglang/www.ziglang.org/issues/new?title=I%20searched%20for%20___%20in%20the%20docs%20and%20didn%27t%20find%20it">file an issue</a> or <a href="https://webchat.freenode.net/?channels=%23zig">say something on IRC</a>.
       </p>
-      <p>
-      <a href="https://github.com/ziglang/zig/wiki/FAQ#where-is-the-documentation-for-the-zig-standard-library">Where is the documentation for the Zig standard library?</a>
-      </p>
+
+      <div id="doc-versions">
+        <p>
+          <b>You are reading the documentation for the Zig master branch.</b><br>
+          Documentation for previous release versions of Zig is accessible from the links below.<br>
+          <a href="https://ziglang.org/documentation/0.1.1/">0.1.1</a> |
+          <a href="https://ziglang.org/documentation/0.2.0/">0.2.0</a> |
+          <a href="https://ziglang.org/documentation/0.3.0/">0.3.0</a> |
+          <a href="https://ziglang.org/documentation/0.4.0/">0.4.0</a> |
+          <a href="https://ziglang.org/documentation/0.5.0/">0.5.0</a> |
+          <a href="https://ziglang.org/documentation/0.6.0/">0.6.0</a>
+        </p>
+        <p>
+          <a href="https://github.com/ziglang/zig/wiki/FAQ#where-is-the-documentation-for-the-zig-standard-library">Where is the documentation for the Zig standard library?</a>
+        </p>
+      </div>
+
       {#header_close#}
 
       {#header_open|Hello World#}
@@ -849,13 +857,31 @@ test "init with undefined" {
       A variable is a unit of {#link|Memory#} storage.
       </p>
       <p>
-      Variables are never allowed to shadow identifiers from an outer scope.
-      </p>
-      <p>
       It is generally preferable to use {#syntax#}const{#endsyntax#} rather than
       {#syntax#}var{#endsyntax#} when declaring a variable. This causes less work for both
       humans and computers to do when reading code, and creates more optimization opportunities.
       </p>
+
+      {#header_open|Identifiers#}
+      <p>
+      Variable identifiers are never allowed to shadow identifiers from an outer scope.
+      </p>
+      <p>
+      Identifiers must start with an alphabetic character or underscore and may be followed
+      by any number of alphanumeric characters or underscores.
+      They must not overlap with any keywords. See {#link|Keyword Reference#}.
+      </p>
+      <p>
+      If a name that does not fit these requirements is needed, such as for linking with external libraries, the {#syntax#}@""{#endsyntax#} syntax may be used.
+      {#code_begin|syntax#}
+const @"identifier with spaces in it" = 0xff;
+const @"1SmallStep4Man" = 112358;
+pub extern "c" fn @"error"() c_void;
+pub extern "c" fn @"fstat$INODE64"(fd: fd_t, buf: *Stat) c_int;
+      {#code_end#}
+      </p>
+      {#header_close#}
+
       {#header_open|Global Variables#}
       <p>
       Global variables are considered to be a top level declaration, which means that they are
@@ -3329,7 +3355,7 @@ test "switch simple" {
         1, 2, 3 => 0,
 
         // Ranges can be specified using the ... syntax. These are inclusive
-        // both ends.
+        // of both ends.
         5...100 => 1,
 
         // Branches can be arbitrarily complex.
@@ -6039,8 +6065,7 @@ test "variable values" {
       generic data structure.
       </p>
       <p>
-      Here is an example of a generic {#syntax#}List{#endsyntax#} data structure, that we will instantiate with
-          the type {#syntax#}i32{#endsyntax#}. In Zig we refer to the type as {#syntax#}List(i32){#endsyntax#}.
+      Here is an example of a generic {#syntax#}List{#endsyntax#} data structure.
       </p>
       {#code_begin|syntax#}
 fn List(comptime T: type) type {
@@ -6051,25 +6076,49 @@ fn List(comptime T: type) type {
 }
       {#code_end#}
       <p>
-      That's it. It's a function that returns an anonymous {#syntax#}struct{#endsyntax#}. For the purposes of error messages
-          and debugging, Zig infers the name {#syntax#}"List(i32)"{#endsyntax#} from the function name and parameters invoked when creating
-      the anonymous struct.
+      That's it. It's a function that returns an anonymous {#syntax#}struct{#endsyntax#}.
       </p>
       <p>
-      To keep the language small and uniform, all aggregate types in Zig are anonymous. To give a type
-      a name, we assign it to a constant:
+      A type of {#syntax#}List(i32){#endsyntax#} could be instantiated as such:
       </p>
       {#code_begin|syntax#}
-const Node = struct {
-    next: *Node,
-    name: []u8,
+var buffer: [10]i32 = undefined;
+var list = List(i32){
+    .items = &buffer,
+    .len = 0,
 };
       {#code_end#}
       <p>
-      This works because all top level declarations are order-independent, and as long as there isn't
-      an actual infinite regression, values can refer to themselves, directly or indirectly. In this case,
-      {#syntax#}Node{#endsyntax#} refers to itself as a pointer, which is not actually an infinite regression, so
-      it works fine.
+      To keep the language small and uniform, all aggregate types in Zig are anonymous.
+      For the purposes of error messages and debugging, Zig infers the name
+      {#syntax#}"List(i32)"{#endsyntax#} from the function name and parameters invoked when creating
+      the struct.
+      </p>
+      <p>
+      To explicitly give a type a name, we assign it to a constant.
+      </p>
+      {#code_begin|syntax#}
+const Node = struct {
+    next: ?*Node,
+    name: []const u8,
+};
+
+var node_a = Node{
+    .next = null,
+    .name = &"Node A",
+};
+
+var node_b = Node{
+    .next = &node_a,
+    .name = &"Node B",
+};
+      {#code_end#}
+      <p>
+      In this example, the {#syntax#}Node{#endsyntax#} struct refers to itself.
+      This works because all top level declarations are order-independent.
+      As long as the compiler can determine the size of the struct, it is free to refer to itself.
+      In this case, {#syntax#}Node{#endsyntax#} refers to itself as a pointer, which has a
+      well-defined size at compile time, so it works fine.
       </p>
       {#header_close#}
       {#header_open|Case Study: printf in Zig#}
