@@ -24,7 +24,7 @@
 
 __BEGIN_DECLS
 
-#include <bits/pthreadtypes-arch.h>
+#include <bits/thread-shared-types.h>
 #include <bits/types/struct_timespec.h>
 
 #ifndef __cplusplus
@@ -32,10 +32,10 @@ __BEGIN_DECLS
 #endif
 
 #define TSS_DTOR_ITERATIONS 4
-typedef unsigned int tss_t;
+typedef __tss_t tss_t;
 typedef void (*tss_dtor_t) (void*);
 
-typedef unsigned long int thrd_t;
+typedef __thrd_t thrd_t;
 typedef int (*thrd_start_t) (void*);
 
 /* Exit and error codes.  */
@@ -56,11 +56,8 @@ enum
   mtx_timed     = 2
 };
 
-typedef struct
-{
-  int __data __ONCE_ALIGNMENT;
-} once_flag;
-#define ONCE_FLAG_INIT { 0 }
+typedef __once_flag once_flag;
+#define ONCE_FLAG_INIT __ONCE_FLAG_INIT
 
 typedef union
 {

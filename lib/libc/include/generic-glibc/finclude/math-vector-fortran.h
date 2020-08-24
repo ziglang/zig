@@ -16,4 +16,28 @@
 !   License along with the GNU C Library; if not, see
 !   <https://www.gnu.org/licenses/>.
 
-! No SIMD math functions are available for this platform.
+!GCC$ builtin (cos) attributes simd (notinbranch) if('x86_64')
+!GCC$ builtin (cosf) attributes simd (notinbranch) if('x86_64')
+!GCC$ builtin (sin) attributes simd (notinbranch) if('x86_64')
+!GCC$ builtin (sinf) attributes simd (notinbranch) if('x86_64')
+!GCC$ builtin (sincos) attributes simd (notinbranch) if('x86_64')
+!GCC$ builtin (sincosf) attributes simd (notinbranch) if('x86_64')
+!GCC$ builtin (log) attributes simd (notinbranch) if('x86_64')
+!GCC$ builtin (logf) attributes simd (notinbranch) if('x86_64')
+!GCC$ builtin (exp) attributes simd (notinbranch) if('x86_64')
+!GCC$ builtin (expf) attributes simd (notinbranch) if('x86_64')
+!GCC$ builtin (pow) attributes simd (notinbranch) if('x86_64')
+!GCC$ builtin (powf) attributes simd (notinbranch) if('x86_64')
+
+!GCC$ builtin (cos) attributes simd (notinbranch) if('x32')
+!GCC$ builtin (cosf) attributes simd (notinbranch) if('x32')
+!GCC$ builtin (sin) attributes simd (notinbranch) if('x32')
+!GCC$ builtin (sinf) attributes simd (notinbranch) if('x32')
+!GCC$ builtin (sincos) attributes simd (notinbranch) if('x32')
+!GCC$ builtin (sincosf) attributes simd (notinbranch) if('x32')
+!GCC$ builtin (log) attributes simd (notinbranch) if('x32')
+!GCC$ builtin (logf) attributes simd (notinbranch) if('x32')
+!GCC$ builtin (exp) attributes simd (notinbranch) if('x32')
+!GCC$ builtin (expf) attributes simd (notinbranch) if('x32')
+!GCC$ builtin (pow) attributes simd (notinbranch) if('x32')
+!GCC$ builtin (powf) attributes simd (notinbranch) if('x32')

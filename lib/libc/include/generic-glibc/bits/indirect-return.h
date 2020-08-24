@@ -1,4 +1,4 @@
-/* Definition of __INDIRECT_RETURN.  Generic version.
+/* Definition of __INDIRECT_RETURN.  x86 version.
    Copyright (C) 2018-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
@@ -20,6 +20,18 @@
 # error "Never include <bits/indirect-return.h> directly; use <ucontext.h> instead."
 #endif
 
-/* __INDIRECT_RETURN is used on swapcontext to indicate if it requires
-   special compiler treatment.  */
-#define __INDIRECT_RETURN
+/* On x86, swapcontext returns via indirect branch when the shadow stack
+   is enabled.  Define __INDIRECT_RETURN to indicate whether swapcontext
+   returns via indirect branch.  */
+#if defined __CET__ && (__CET__ & 2) != 0
+# if __glibc_has_attribute (__indirect_return__)
+#  define __INDIRECT_RETURN __attribute__ ((__indirect_return__))
+# else
+/* Newer compilers provide the indirect_return attribute, but without
+   it we can use returns_twice to affect the optimizer in the same
+   way and avoid unsafe optimizations.  */
+#  define __INDIRECT_RETURN __attribute__ ((__returns_twice__))
+# endif
+#else
+# define __INDIRECT_RETURN
+#endif

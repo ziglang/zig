@@ -22,7 +22,6 @@
 #include <bits/types.h>
 #include <bits/wordsize.h>
 #include <bits/shmlba.h>
-#include <bits/shm-pad.h>
 
 /* Permission flag for shmget.  */
 #define SHM_R		0400		/* or S_IRUGO from <linux/stat.h> */
@@ -43,39 +42,7 @@ __BEGIN_DECLS
 /* Type to count number of attaches.  */
 typedef __syscall_ulong_t shmatt_t;
 
-#if __SHM_PAD_BEFORE_TIME
-# define __SHM_PAD_TIME(NAME, RES)				\
-  unsigned long int __glibc_reserved ## RES; __time_t NAME
-#elif __SHM_PAD_AFTER_TIME
-# define __SHM_PAD_TIME(NAME, RES)				\
-  __time_t NAME; unsigned long int __glibc_reserved ## RES
-#else
-# define __SHM_PAD_TIME(NAME, RES)		\
-  __time_t NAME
-#endif
-
-/* Data structure describing a shared memory segment.  */
-struct shmid_ds
-  {
-    struct ipc_perm shm_perm;		/* operation permission struct */
-#if !__SHM_SEGSZ_AFTER_TIME
-    size_t shm_segsz;			/* size of segment in bytes */
-#endif
-    __SHM_PAD_TIME (shm_atime, 1);	/* time of last shmat() */
-    __SHM_PAD_TIME (shm_dtime, 2);	/* time of last shmdt() */
-    __SHM_PAD_TIME (shm_ctime, 3);	/* time of last change by shmctl() */
-#if __SHM_PAD_BETWEEN_TIME_AND_SEGSZ
-    unsigned long int __glibc_reserved4;
-#endif
-#if __SHM_SEGSZ_AFTER_TIME
-    size_t shm_segsz;			/* size of segment in bytes */
-#endif
-    __pid_t shm_cpid;			/* pid of creator */
-    __pid_t shm_lpid;			/* pid of last shmop */
-    shmatt_t shm_nattch;		/* number of current attaches */
-    __syscall_ulong_t __glibc_reserved5;
-    __syscall_ulong_t __glibc_reserved6;
-  };
+#include <bits/types/struct_shmid_ds.h>
 
 #ifdef __USE_MISC
 

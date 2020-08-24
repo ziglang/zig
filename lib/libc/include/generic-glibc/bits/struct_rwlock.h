@@ -1,5 +1,6 @@
-/* MIPS internal rwlock struct definitions.
+/* x86 internal rwlock struct definitions.
    Copyright (C) 2019-2020 Free Software Foundation, Inc.
+
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -27,45 +28,38 @@ struct __pthread_rwlock_arch_t
   unsigned int __writers_futex;
   unsigned int __pad3;
   unsigned int __pad4;
-#if _MIPS_SIM == _ABI64
+#ifdef __x86_64__
   int __cur_writer;
   int __shared;
-  unsigned long int __pad1;
+  signed char __rwelision;
+# ifdef  __ILP32__
+  unsigned char __pad1[3];
+#  define __PTHREAD_RWLOCK_ELISION_EXTRA 0, { 0, 0, 0 }
+# else
+  unsigned char __pad1[7];
+#  define __PTHREAD_RWLOCK_ELISION_EXTRA 0, { 0, 0, 0, 0, 0, 0, 0 }
+# endif
   unsigned long int __pad2;
   /* FLAGS must stay at this position in the structure to maintain
      binary compatibility.  */
   unsigned int __flags;
-# else
-# if __BYTE_ORDER == __BIG_ENDIAN
-  unsigned char __pad1;
-  unsigned char __pad2;
-  unsigned char __shared;
-  /* FLAGS must stay at this position in the structure to maintain
-     binary compatibility.  */
-  unsigned char __flags;
-# else
+#else /* __x86_64__  */
   /* FLAGS must stay at this position in the structure to maintain
      binary compatibility.  */
   unsigned char __flags;
   unsigned char __shared;
-  unsigned char __pad1;
+  signed char __rwelision;
   unsigned char __pad2;
-# endif
   int __cur_writer;
 #endif
 };
 
-#if _MIPS_SIM == _ABI64
+#ifdef __x86_64__
 # define __PTHREAD_RWLOCK_INITIALIZER(__flags) \
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, __flags
+  0, 0, 0, 0, 0, 0, 0, 0, __PTHREAD_RWLOCK_ELISION_EXTRA, 0, __flags
 #else
-# if __BYTE_ORDER == __BIG_ENDIAN
-#  define __PTHREAD_RWLOCK_INITIALIZER(__flags) \
-  0, 0, 0, 0, 0, 0, 0, 0, 0, __flags, 0
-# else
-#  define __PTHREAD_RWLOCK_INITIALIZER(__flags) \
+# define __PTHREAD_RWLOCK_INITIALIZER(__flags) \
   0, 0, 0, 0, 0, 0, __flags, 0, 0, 0, 0
-# endif
 #endif
 
 #endif

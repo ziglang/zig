@@ -21,21 +21,43 @@
 #endif
 
 #ifdef	__USE_ISOC99
+# ifdef __LDBL_COMPAT
 __LDBL_REDIR1_DECL (strtold, strtod)
+# else
+__LDBL_REDIR1_DECL (strtold, __strtoieee128)
+# endif
 #endif
 
 #ifdef __USE_GNU
+# ifdef __LDBL_COMPAT
 __LDBL_REDIR1_DECL (strtold_l, strtod_l)
+# else
+__LDBL_REDIR1_DECL (strtold_l, __strtoieee128_l)
+# endif
 #endif
 
 #if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
+# ifdef __LDBL_COMPAT
 __LDBL_REDIR1_DECL (strfroml, strfromd)
+# else
+__LDBL_REDIR1_DECL (strfroml, __strfromieee128)
+# endif
 #endif
 
 #ifdef __USE_MISC
+# if defined __LDBL_COMPAT
 __LDBL_REDIR1_DECL (qecvt, ecvt)
 __LDBL_REDIR1_DECL (qfcvt, fcvt)
 __LDBL_REDIR1_DECL (qgcvt, gcvt)
 __LDBL_REDIR1_DECL (qecvt_r, ecvt_r)
 __LDBL_REDIR1_DECL (qfcvt_r, fcvt_r)
+# elif __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
+__LDBL_REDIR1_DECL (qecvt, __qecvtieee128)
+__LDBL_REDIR1_DECL (qfcvt, __qfcvtieee128)
+__LDBL_REDIR1_DECL (qgcvt, __qgcvtieee128)
+__LDBL_REDIR1_DECL (qecvt_r, __qecvtieee128_r)
+__LDBL_REDIR1_DECL (qfcvt_r, __qfcvtieee128_r)
+# else
+#  error bits/stdlib-ldbl.h included when no ldbl redirections are required.
+# endif
 #endif
