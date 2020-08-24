@@ -1540,14 +1540,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genCondBr(self: *Self, inst: *ir.Inst.CondBr) !MCValue {
-            // TODO Rework this so that the arch-independent logic isn't buried and duplicated.
-            switch (arch) {
-                .x86_64 => {
+            const cond = try self.resolveInst(inst.condition);
+
+            // TODO deal with liveness / deaths condbr's then_entry_deaths and else_entry_deaths
+            const reloc: Reloc = switch (arch) {
+                .i386, .x86_64 => reloc: {
                     try self.code.ensureCapacity(self.code.items.len + 6);
 
-                    const cond = try self.resolveInst(inst.condition);
-                    switch (cond) {
-                        .compare_flags_signed => |cmp_op| {
+                    const opcode: u8 = switch (cond) {
+                        .compare_flags_signed => |cmp_op| blk: {
                             // Here we map to the opposite opcode because the jump is to the false branch.
                             const opcode: u8 = switch (cmp_op) {
                                 .gte => 0x8c,
@@ -1557,9 +1558,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 .lte => 0x8f,
                                 .eq => 0x85,
                             };
-                            return self.genX86CondBr(inst, opcode);
+                            break :blk opcode;
                         },
-                        .compare_flags_unsigned => |cmp_op| {
+                        .compare_flags_unsigned => |cmp_op| blk: {
                             // Here we map to the opposite opcode because the jump is to the false branch.
                             const opcode: u8 = switch (cmp_op) {
                                 .gte => 0x82,
@@ -1569,9 +1570,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 .lte => 0x87,
                                 .eq => 0x85,
                             };
-                            return self.genX86CondBr(inst, opcode);
+                            break :blk opcode;
                         },
-                        .register => |reg| {
+                        .register => |reg| blk: {
                             // test reg, 1
                             // TODO detect al, ax, eax
                             try self.code.ensureCapacity(self.code.items.len + 4);
@@ -1583,20 +1584,17 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 @as(u8, 0xC0) | (0 << 3) | @truncate(u3, reg.id()),
                                 0x01,
                             });
-                            return self.genX86CondBr(inst, 0x84);
+                            break :blk 0x84;
                         },
                         else => return self.fail(inst.base.src, "TODO implement condbr {} when condition is {}", .{ self.target.cpu.arch, @tagName(cond) }),
-                    }
+                    };
+                    self.code.appendSliceAssumeCapacity(&[_]u8{ 0x0f, opcode });
+                    const reloc = Reloc{ .rel32 = self.code.items.len };
+                    self.code.items.len += 4;
+                    break :reloc reloc;
                 },
-                else => return self.fail(inst.base.src, "TODO implement condbr for {}", .{self.target.cpu.arch}),
-            }
-        }
-
-        fn genX86CondBr(self: *Self, inst: *ir.Inst.CondBr, opcode: u8) !MCValue {
-            // TODO deal with liveness / deaths condbr's then_entry_deaths and else_entry_deaths
-            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x0f, opcode });
-            const reloc = Reloc{ .rel32 = self.code.items.len };
-            self.code.items.len += 4;
+                else => return self.fail(inst.base.src, "TODO implement condbr {}", .{ self.target.cpu.arch }),
+            };
             try self.genBody(inst.then_body);
             try self.performReloc(inst.base.src, reloc);
             try self.genBody(inst.else_body);
