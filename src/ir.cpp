@@ -20695,8 +20695,13 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
                 if ((return_type->id == ZigTypeIdErrorUnion || return_type->id == ZigTypeIdErrorSet) &&
                     expected_return_type->id != ZigTypeIdErrorUnion && expected_return_type->id != ZigTypeIdErrorSet)
                 {
-                    add_error_note(ira->codegen, ira->new_irb.exec->first_err_trace_msg,
-                        ira->explicit_return_type_source_node, buf_create_from_str("function cannot return an error"));
+                    if (call_result_loc->id == ResultLocIdReturn) {
+                        add_error_note(ira->codegen, ira->new_irb.exec->first_err_trace_msg, 
+                            ira->explicit_return_type_source_node, buf_sprintf("function cannot return an error"));
+                    } else {
+                        add_error_note(ira->codegen, ira->new_irb.exec->first_err_trace_msg, result_loc->base.source_node,
+                            buf_sprintf("cannot store an error in type '%s'", buf_ptr(&expected_return_type->name)));
+                    }
                 }
                 return ira->codegen->invalid_inst_gen;
             }

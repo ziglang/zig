@@ -158,8 +158,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn baz() void {
         \\    try bar();
         \\}
-        \\export fn quux() u32 {
+        \\export fn qux() u32 {
         \\    return bar();
+        \\}
+        \\export fn quux() u32 {
+        \\    var buf: u32 = 0;
+        \\    buf = bar();
         \\}
     , &[_][]const u8{
         "tmp.zig:2:17: error: expected type 'u32', found 'error{Ohno}'",
@@ -167,7 +171,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:8:5: error: expected type 'void', found '@TypeOf(bar).ReturnType.ErrorSet'",
         "tmp.zig:7:17: note: function cannot return an error",
         "tmp.zig:11:15: error: expected type 'u32', found '@TypeOf(bar).ReturnType.ErrorSet!u32'",
-        "tmp.zig:10:18: note: function cannot return an error",
+        "tmp.zig:10:17: note: function cannot return an error",
+        "tmp.zig:15:14: error: expected type 'u32', found '@TypeOf(bar).ReturnType.ErrorSet!u32'",
+        "tmp.zig:14:5: note: cannot store an error in type 'u32'",
     });
 
     cases.addTest("int/float conversion to comptime_int/float",
