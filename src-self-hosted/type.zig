@@ -3,6 +3,7 @@ const Value = @import("value.zig").Value;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Target = std.Target;
+const Module = @import("Module.zig");
 
 /// This is the raw data, with no bookkeeping, no memory awareness, no de-duplication.
 /// It's important for this type to be small.
@@ -52,7 +53,7 @@ pub const Type = extern union {
             .bool => return .Bool,
             .void => return .Void,
             .type => return .Type,
-            .anyerror => return .ErrorSet,
+            .error_set, .error_set_single, .anyerror => return .ErrorSet,
             .comptime_int => return .ComptimeInt,
             .comptime_float => return .ComptimeFloat,
             .noreturn => return .NoReturn,
@@ -436,6 +437,8 @@ pub const Type = extern union {
                 };
                 return Type{ .ptr_otherwise = &new_payload.base };
             },
+            .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
+            .error_set_single => return self.copyPayloadShallow(allocator, Payload.ErrorSetSingle),
         }
     }
 
@@ -657,6 +660,14 @@ pub const Type = extern union {
                     ty = payload.payload;
                     continue;
                 },
+                .error_set => {
+                    const payload = @fieldParentPtr(Payload.ErrorSet, "base", ty.ptr_otherwise);
+                    return out_stream.writeAll(std.mem.spanZ(payload.decl.name));
+                },
+                .error_set_single => {
+                    const payload = @fieldParentPtr(Payload.ErrorSetSingle, "base", ty.ptr_otherwise);
+                    return out_stream.print("error{{{}}}", .{payload.name});
+                },
             }
             unreachable;
         }
@@ -753,6 +764,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => true,
             // TODO lazy types
             .array => self.elemType().hasCodeGenBits() and self.arrayLen() != 0,
@@ -848,7 +861,11 @@ pub const Type = extern union {
             .f128 => return 16,
             .c_longdouble => return 16,
 
-            .anyerror_void_error_union, .anyerror => return 2, // TODO revisit this when we have the concept of the error tag type
+            .error_set,
+            .error_set_single,
+            .anyerror_void_error_union,
+            .anyerror,
+            => return 2, // TODO revisit this when we have the concept of the error tag type
 
             .array, .array_sentinel => return self.elemType().abiAlignment(target),
 
@@ -981,7 +998,11 @@ pub const Type = extern union {
             .f128 => return 16,
             .c_longdouble => return 16,
 
-            .anyerror_void_error_union, .anyerror => return 2, // TODO revisit this when we have the concept of the error tag type
+            .error_set,
+            .error_set_single,
+            .anyerror_void_error_union,
+            .anyerror,
+            => return 2, // TODO revisit this when we have the concept of the error tag type
 
             .int_signed, .int_unsigned => {
                 const bits: u16 = if (self.cast(Payload.IntSigned)) |pl|
@@ -1084,6 +1105,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => false,
 
             .single_const_pointer,
@@ -1156,6 +1179,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => false,
 
             .const_slice,
@@ -1225,6 +1250,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => false,
 
             .single_const_pointer,
@@ -1303,6 +1330,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => false,
 
             .pointer => {
@@ -1418,6 +1447,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => unreachable,
 
             .array => self.cast(Payload.Array).?.elem_type,
@@ -1543,6 +1574,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => unreachable,
 
             .array => self.cast(Payload.Array).?.len,
@@ -1614,6 +1647,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => unreachable,
 
             .array, .array_u8 => return null,
@@ -1683,6 +1718,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => false,
 
             .int_signed,
@@ -1755,6 +1792,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => false,
 
             .int_unsigned,
@@ -1817,6 +1856,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => unreachable,
 
             .int_unsigned => .{ .signed = false, .bits = self.cast(Payload.IntUnsigned).?.bits },
@@ -1897,6 +1938,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => false,
 
             .usize,
@@ -2006,6 +2049,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => unreachable,
         };
     }
@@ -2081,6 +2126,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => unreachable,
         }
     }
@@ -2155,6 +2202,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => unreachable,
         }
     }
@@ -2229,6 +2278,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => unreachable,
         };
     }
@@ -2300,6 +2351,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => unreachable,
         };
     }
@@ -2371,6 +2424,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => unreachable,
         };
     }
@@ -2442,6 +2497,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => false,
         };
     }
@@ -2497,6 +2554,8 @@ pub const Type = extern union {
             .anyframe_T,
             .@"anyframe",
             .error_union,
+            .error_set,
+            .error_set_single,
             => return null,
 
             .void => return Value.initTag(.void_value),
@@ -2604,6 +2663,8 @@ pub const Type = extern union {
             .@"anyframe",
             .anyframe_T,
             .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
             => return false,
 
             .c_const_pointer,
@@ -2687,6 +2748,8 @@ pub const Type = extern union {
         optional_single_const_pointer,
         error_union,
         anyframe_T,
+        error_set,
+        error_set_single,
 
         pub const last_no_payload_tag = Tag.const_slice_u8;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -2780,6 +2843,19 @@ pub const Type = extern union {
             base: Payload = .{ .tag = .anyframe_T },
 
             return_type: Type,
+        };
+
+        pub const ErrorSet = struct {
+            base: Payload = .{ .tag = .error_set },
+
+            decl: *Module.Decl,
+        };
+
+        pub const ErrorSetSingle = struct {
+            base: Payload = .{ .tag = .error_set_single },
+
+            /// memory is owned by `Module`
+            name: []const u8,
         };
     };
 };
