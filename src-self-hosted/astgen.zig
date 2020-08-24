@@ -18,9 +18,7 @@ pub const ResultLoc = union(enum) {
     /// The expression has an inferred type, and it will be evaluated as an rvalue.
     none,
     /// The expression must generate a pointer rather than a value. For example, the left hand side
-    /// of an assignment uses an "LValue" result location.
-    lvalue,
-    /// The expression must generate a pointer
+    /// of an assignment uses this kind of result location.
     ref,
     /// The expression will be type coerced into this type, but it will be evaluated as an rvalue.
     ty: *zir.Inst,
@@ -46,134 +44,136 @@ pub fn typeExpr(mod: *Module, scope: *Scope, type_node: *ast.Node) InnerError!*z
     return expr(mod, scope, type_rl, type_node);
 }
 
+fn lvalExpr(mod: *Module, scope: *Scope, node: *ast.Node) InnerError!*zir.Inst {
+    switch (node.tag) {
+        .Root => unreachable,
+        .Use => unreachable,
+        .TestDecl => unreachable,
+        .DocComment => unreachable,
+        .VarDecl => unreachable,
+        .SwitchCase => unreachable,
+        .SwitchElse => unreachable,
+        .Else => unreachable,
+        .Payload => unreachable,
+        .PointerPayload => unreachable,
+        .PointerIndexPayload => unreachable,
+        .ErrorTag => unreachable,
+        .FieldInitializer => unreachable,
+        .ContainerField => unreachable,
+
+        .Assign,
+        .AssignBitAnd,
+        .AssignBitOr,
+        .AssignBitShiftLeft,
+        .AssignBitShiftRight,
+        .AssignBitXor,
+        .AssignDiv,
+        .AssignSub,
+        .AssignSubWrap,
+        .AssignMod,
+        .AssignAdd,
+        .AssignAddWrap,
+        .AssignMul,
+        .AssignMulWrap,
+        .Add,
+        .AddWrap,
+        .Sub,
+        .SubWrap,
+        .Mul,
+        .MulWrap,
+        .Div,
+        .Mod,
+        .BitAnd,
+        .BitOr,
+        .BitShiftLeft,
+        .BitShiftRight,
+        .BitXor,
+        .BangEqual,
+        .EqualEqual,
+        .GreaterThan,
+        .GreaterOrEqual,
+        .LessThan,
+        .LessOrEqual,
+        .ArrayCat,
+        .ArrayMult,
+        .BoolAnd,
+        .BoolOr,
+        .Asm,
+        .StringLiteral,
+        .IntegerLiteral,
+        .Call,
+        .Unreachable,
+        .Return,
+        .If,
+        .While,
+        .BoolNot,
+        .AddressOf,
+        .FloatLiteral,
+        .UndefinedLiteral,
+        .BoolLiteral,
+        .NullLiteral,
+        .OptionalType,
+        .Block,
+        .LabeledBlock,
+        .Break,
+        .PtrType,
+        .GroupedExpression,
+        .ArrayType,
+        .ArrayTypeSentinel,
+        .EnumLiteral,
+        .MultilineStringLiteral,
+        .CharLiteral,
+        .Defer,
+        .Catch,
+        .ErrorUnion,
+        .MergeErrorSets,
+        .Range,
+        .OrElse,
+        .Await,
+        .BitNot,
+        .Negation,
+        .NegationWrap,
+        .Resume,
+        .Try,
+        .SliceType,
+        .Slice,
+        .ArrayInitializer,
+        .ArrayInitializerDot,
+        .StructInitializer,
+        .StructInitializerDot,
+        .Switch,
+        .For,
+        .Suspend,
+        .Continue,
+        .AnyType,
+        .ErrorType,
+        .FnProto,
+        .AnyFrameType,
+        .ErrorSetDecl,
+        .ContainerDecl,
+        .Comptime,
+        .Nosuspend,
+        => return mod.failNode(scope, node, "invalid left-hand side to assignment", .{}),
+
+        // @field can be assigned to
+        .BuiltinCall => {
+            const call = node.castTag(.BuiltinCall).?;
+            const tree = scope.tree();
+            const builtin_name = tree.tokenSlice(call.builtin_token);
+
+            if (!mem.eql(u8, builtin_name, "@field")) {
+                return mod.failNode(scope, node, "invalid left-hand side to assignment", .{});
+            }
+        },
+
+        // can be assigned to
+        .UnwrapOptional, .Deref, .Period, .ArrayAccess, .Identifier => {},
+    }
+    return expr(mod, scope, .ref, node);
+}
+
 /// Turn Zig AST into untyped ZIR istructions.
 pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerError!*zir.Inst {
-    if (rl == .lvalue) {
-        switch (node.tag) {
-            .Root => unreachable,
-            .Use => unreachable,
-            .TestDecl => unreachable,
-            .DocComment => unreachable,
-            .VarDecl => unreachable,
-            .SwitchCase => unreachable,
-            .SwitchElse => unreachable,
-            .Else => unreachable,
-            .Payload => unreachable,
-            .PointerPayload => unreachable,
-            .PointerIndexPayload => unreachable,
-            .ErrorTag => unreachable,
-            .FieldInitializer => unreachable,
-            .ContainerField => unreachable,
-
-            .Assign,
-            .AssignBitAnd,
-            .AssignBitOr,
-            .AssignBitShiftLeft,
-            .AssignBitShiftRight,
-            .AssignBitXor,
-            .AssignDiv,
-            .AssignSub,
-            .AssignSubWrap,
-            .AssignMod,
-            .AssignAdd,
-            .AssignAddWrap,
-            .AssignMul,
-            .AssignMulWrap,
-            .Add,
-            .AddWrap,
-            .Sub,
-            .SubWrap,
-            .Mul,
-            .MulWrap,
-            .Div,
-            .Mod,
-            .BitAnd,
-            .BitOr,
-            .BitShiftLeft,
-            .BitShiftRight,
-            .BitXor,
-            .BangEqual,
-            .EqualEqual,
-            .GreaterThan,
-            .GreaterOrEqual,
-            .LessThan,
-            .LessOrEqual,
-            .ArrayCat,
-            .ArrayMult,
-            .BoolAnd,
-            .BoolOr,
-            .Asm,
-            .StringLiteral,
-            .IntegerLiteral,
-            .Call,
-            .Unreachable,
-            .Return,
-            .If,
-            .While,
-            .BoolNot,
-            .AddressOf,
-            .FloatLiteral,
-            .UndefinedLiteral,
-            .BoolLiteral,
-            .NullLiteral,
-            .OptionalType,
-            .Block,
-            .LabeledBlock,
-            .Break,
-            .PtrType,
-            .GroupedExpression,
-            .ArrayType,
-            .ArrayTypeSentinel,
-            .EnumLiteral,
-            .MultilineStringLiteral,
-            .CharLiteral,
-            .Defer,
-            .Catch,
-            .ErrorUnion,
-            .MergeErrorSets,
-            .Range,
-            .OrElse,
-            .Await,
-            .BitNot,
-            .Negation,
-            .NegationWrap,
-            .Resume,
-            .Try,
-            .SliceType,
-            .Slice,
-            .ArrayInitializer,
-            .ArrayInitializerDot,
-            .StructInitializer,
-            .StructInitializerDot,
-            .Switch,
-            .For,
-            .Suspend,
-            .Continue,
-            .AnyType,
-            .ErrorType,
-            .FnProto,
-            .AnyFrameType,
-            .ErrorSetDecl,
-            .ContainerDecl,
-            .Comptime,
-            .Nosuspend,
-            => return mod.failNode(scope, node, "invalid left-hand side to assignment", .{}),
-
-            // @field can be assigned to
-            .BuiltinCall => {
-                const call = node.castTag(.BuiltinCall).?;
-                const tree = scope.tree();
-                const builtin_name = tree.tokenSlice(call.builtin_token);
-
-                if (!mem.eql(u8, builtin_name, "@field")) {
-                    return mod.failNode(scope, node, "invalid left-hand side to assignment", .{});
-                }
-            },
-
-            // can be assigned to
-            .UnwrapOptional, .Deref, .Period, .ArrayAccess, .Identifier => {},
-        }
-    }
     switch (node.tag) {
         .Root => unreachable, // Top-level declaration.
         .Use => unreachable, // Top-level declaration.
@@ -317,7 +317,7 @@ fn breakExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowExpr
                                 // proper type inference requires peer type resolution on the block's
                                 // break operand expressions.
                                 const branch_rl: ResultLoc = switch (label.result_loc) {
-                                    .discard, .none, .ty, .ptr, .lvalue, .ref => label.result_loc,
+                                    .discard, .none, .ty, .ptr, .ref => label.result_loc,
                                     .inferred_ptr, .bitcasted_ptr, .block_ptr => .{ .block_ptr = label.block_inst },
                                 };
                                 const operand = try expr(mod, parent_scope, branch_rl, rhs);
@@ -524,7 +524,7 @@ fn assign(mod: *Module, scope: *Scope, infix_node: *ast.Node.SimpleInfixOp) Inne
             return;
         }
     }
-    const lvalue = try expr(mod, scope, .lvalue, infix_node.lhs);
+    const lvalue = try lvalExpr(mod, scope, infix_node.lhs);
     _ = try expr(mod, scope, .{ .ptr = lvalue }, infix_node.rhs);
 }
 
@@ -534,7 +534,7 @@ fn assignOp(
     infix_node: *ast.Node.SimpleInfixOp,
     op_inst_tag: zir.Inst.Tag,
 ) InnerError!void {
-    const lhs_ptr = try expr(mod, scope, .lvalue, infix_node.lhs);
+    const lhs_ptr = try lvalExpr(mod, scope, infix_node.lhs);
     const lhs = try addZIRUnOp(mod, scope, lhs_ptr.src, .deref, lhs_ptr);
     const lhs_type = try addZIRUnOp(mod, scope, lhs_ptr.src, .typeof, lhs);
     const rhs = try expr(mod, scope, .{ .ty = lhs_type }, infix_node.rhs);
@@ -794,7 +794,7 @@ fn field(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.SimpleInfix
     const field_name = try identifierStringInst(mod, scope, node.rhs.castTag(.Identifier).?);
 
     const pointer = try addZIRInst(mod, scope, src, zir.Inst.FieldPtr, .{ .object_ptr = lhs, .field_name = field_name }, .{});
-    if (rl == .ref or rl == .lvalue) return pointer;
+    if (rl == .ref) return pointer;
     return rlWrap(mod, scope, rl, try addZIRUnOp(mod, scope, src, .deref, pointer));
 }
 
@@ -1020,7 +1020,7 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
     // proper type inference requires peer type resolution on the if's
     // branches.
     const branch_rl: ResultLoc = switch (rl) {
-        .discard, .none, .ty, .ptr, .lvalue, .ref => rl,
+        .discard, .none, .ty, .ptr, .ref => rl,
         .inferred_ptr, .bitcasted_ptr, .block_ptr => .{ .block_ptr = block },
     };
 
@@ -1150,7 +1150,7 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
     // proper type inference requires peer type resolution on the while's
     // branches.
     const branch_rl: ResultLoc = switch (rl) {
-        .discard, .none, .ty, .ptr, .lvalue, .ref => rl,
+        .discard, .none, .ty, .ptr, .ref => rl,
         .inferred_ptr, .bitcasted_ptr, .block_ptr => .{ .block_ptr = while_block },
     };
 
@@ -1535,7 +1535,6 @@ fn as(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCall) I
             _ = try addZIRUnOp(mod, scope, result.src, .ensure_result_non_error, result);
             return result;
         },
-        .lvalue => unreachable,
         .ref => {
             const result = try expr(mod, scope, .{ .ty = dest_type }, params[1]);
             return addZIRUnOp(mod, scope, result.src, .ref, result);
@@ -1583,7 +1582,6 @@ fn bitCast(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCa
             _ = try addZIRUnOp(mod, scope, result.src, .ensure_result_non_error, result);
             return result;
         },
-        .lvalue => unreachable,
         .ref => {
             const operand = try expr(mod, scope, .ref, params[1]);
             const result = try addZIRBinOp(mod, scope, src, .bitcast_ref, dest_type, operand);
@@ -1851,7 +1849,7 @@ fn rlWrap(mod: *Module, scope: *Scope, rl: ResultLoc, result: *zir.Inst) InnerEr
             _ = try addZIRUnOp(mod, scope, result.src, .ensure_result_non_error, result);
             return result;
         },
-        .lvalue, .ref => {
+        .ref => {
             // We need a pointer but we have a value.
             return addZIRUnOp(mod, scope, result.src, .ref, result);
         },
@@ -1886,7 +1884,7 @@ fn rlWrapVoid(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node, resul
 }
 
 fn rlWrapPtr(mod: *Module, scope: *Scope, rl: ResultLoc, ptr: *zir.Inst) InnerError!*zir.Inst {
-    if (rl == .lvalue or rl == .ref) return ptr;
+    if (rl == .ref) return ptr;
 
     return rlWrap(mod, scope, rl, try addZIRUnOp(mod, scope, ptr.src, .deref, ptr));
 }
