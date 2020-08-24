@@ -908,6 +908,33 @@ fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr
                 );
             }
         },
+        .Pointer => {
+            const ptr_child = elem_ty.elemType();
+            switch (ptr_child.zigTypeTag()) {
+                .Array => {
+                    if (mem.eql(u8, field_name, "len")) {
+                        const len_payload = try scope.arena().create(Value.Payload.Int_u64);
+                        len_payload.* = .{ .int = ptr_child.arrayLen() };
+
+                        const ref_payload = try scope.arena().create(Value.Payload.RefVal);
+                        ref_payload.* = .{ .val = Value.initPayload(&len_payload.base) };
+
+                        return mod.constInst(scope, fieldptr.base.src, .{
+                            .ty = Type.initTag(.single_const_pointer_to_comptime_int),
+                            .val = Value.initPayload(&ref_payload.base),
+                        });
+                    } else {
+                        return mod.fail(
+                            scope,
+                            fieldptr.positionals.field_name.src,
+                            "no member named '{}' in '{}'",
+                            .{ field_name, elem_ty },
+                        );
+                    }
+                },
+                else => {},
+            }
+        },
         .Type => {
             _ = try mod.resolveConstValue(scope, object_ptr);
             const result = try mod.analyzeDeref(scope, fieldptr.base.src, object_ptr, object_ptr.src);
@@ -940,8 +967,9 @@ fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr
                 else => return mod.fail(scope, fieldptr.base.src, "type '{}' does not support field access", .{child_type}),
             }
         },
-        else => return mod.fail(scope, fieldptr.base.src, "type '{}' does not support field access", .{elem_ty}),
+        else => {},
     }
+    return mod.fail(scope, fieldptr.base.src, "type '{}' does not support field access", .{elem_ty});
 }
 
 fn analyzeInstIntCast(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
