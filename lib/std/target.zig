@@ -77,6 +77,8 @@ pub const Target = struct {
             }
         };
 
+        // TODO do we really need these constants? Versions 19h1 and 19h2 share
+        // the same NTDDI version, we cannot encode them both in this format
         /// Based on NTDDI version constants from
         /// https://docs.microsoft.com/en-us/cpp/porting/modifying-winver-and-win32-winnt
         pub const WindowsVersion = enum(u32) {
@@ -96,8 +98,11 @@ pub const Target = struct {
             win10_rs4 = 0x0A000005,
             win10_rs5 = 0x0A000006,
             win10_19h1 = 0x0A000007,
+            win10_20h1 = 0x0A000008,
             _,
 
+            pub const latest = WindowsVersion.win10_20h1;
+            
             pub const Range = struct {
                 min: WindowsVersion,
                 max: WindowsVersion,
@@ -124,16 +129,17 @@ pub const Target = struct {
                 out_stream: anytype,
             ) !void {
                 if (fmt.len > 0 and fmt[0] == 's') {
-                    if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.win10_19h1)) {
-                        try std.fmt.format(out_stream, ".{}", .{@tagName(self)});
+                    if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.latest)) {
+                        try std.fmt.format(out_stream, "{}", .{@tagName(self)});
                     } else {
-                        try std.fmt.format(out_stream, "@intToEnum(Target.Os.WindowsVersion, {})", .{@enumToInt(self)});
+                        // TODO this breaks CrossTarget.parse
+                        try std.fmt.format(out_stream, "@intToEnum(Target.Os.WindowsVersion, 0x{X:0>8})", .{@enumToInt(self)});
                     }
                 } else {
-                    if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.win10_19h1)) {
+                    if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.latest)) {
                         try std.fmt.format(out_stream, "WindowsVersion.{}", .{@tagName(self)});
                     } else {
-                        try std.fmt.format(out_stream, "WindowsVersion({})", .{@enumToInt(self)});
+                        try std.fmt.format(out_stream, "WindowsVersion(0x{X:0>8})", .{@enumToInt(self)});
                     }
                 }
             }
@@ -278,7 +284,7 @@ pub const Target = struct {
                     .windows => return .{
                         .windows = .{
                             .min = .win8_1,
-                            .max = .win10_19h1,
+                            .max = WindowsVersion.latest,
                         },
                     },
                 }

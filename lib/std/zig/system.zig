@@ -249,7 +249,7 @@ pub const NativeTargetInfo = struct {
                         // values
                         const known_build_numbers = [_]u32{
                             10240, 10586, 14393, 15063, 16299, 17134, 17763,
-                            18362, 18363,
+                            18362, 19041,
                         };
                         var last_idx: usize = 0;
                         for (known_build_numbers) |build, i| {
