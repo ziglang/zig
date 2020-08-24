@@ -10322,7 +10322,8 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}align{#endsyntax#}</pre>
           </td>
           <td>
-            {#syntax#}align{#endsyntax#} can be used to specify the alignment of a pointer. It can also be used after a variable or function declaration to specify the alignment of pointers to that variable or function.
+            {#syntax#}align{#endsyntax#} can be used to specify the alignment of a pointer.
+            It can also be used after a variable or function declaration to specify the alignment of pointers to that variable or function.
             <ul>
               <li>See also {#link|Alignment#}</li>
             </ul>
@@ -10366,7 +10367,8 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}anytype{#endsyntax#}</pre>
           </td>
           <td>
-            Function parameters can be declared with {#syntax#}anytype{#endsyntax#} in place of the type. The parameter type will be inferred where the function is called.
+            Function parameters and struct fields can be declared with {#syntax#}anytype{#endsyntax#} in place of the type.
+            The type will be inferred where the function is called or the struct is instantiated.
             <ul>
               <li>See also {#link|Function Parameter Type Inference#}</li>
             </ul>
@@ -10399,7 +10401,8 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}await{#endsyntax#}</pre>
           </td>
           <td>
-            {#syntax#}await{#endsyntax#} can be used to suspend the current function until the frame provided after the {#syntax#}await{#endsyntax#} completes. {#syntax#}await{#endsyntax#} copies the value returned from the target function's frame to the caller.
+            {#syntax#}await{#endsyntax#} can be used to suspend the current function until the frame provided after the {#syntax#}await{#endsyntax#} completes.
+            {#syntax#}await{#endsyntax#} copies the value returned from the target function's frame to the caller.
             <ul>
               <li>See also {#link|Async Functions#}</li>
             </ul>
@@ -10410,8 +10413,8 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}break{#endsyntax#}</pre>
           </td>
           <td>
-            {#syntax#}break{#endsyntax#} can be used to exit a loop before iteration completes naturally.
-            It can also be used with a block label to return a value from the block.
+            {#syntax#}break{#endsyntax#} can be used with a block label to return a value from the block.
+            It can also be used to exit a loop before iteration completes naturally.
             <ul>
               <li>See also {#link|blocks#}, {#link|while#}, {#link|for#}</li>
             </ul>
@@ -10422,7 +10425,8 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}catch{#endsyntax#}</pre>
           </td>
           <td>
-            {#syntax#}catch{#endsyntax#} can be used to provide a default value for an error union, or capture its error value in an expression.
+            {#syntax#}catch{#endsyntax#} can be used to evaluate an expression if the expression before it evaluates to an error.
+            The expression after the {#syntax#}catch{#endsyntax#} can optionally capture the error value.
             <ul>
               <li>See also {#link|catch#}, {#link|Operators#}</li>
             </ul>
@@ -10446,6 +10450,7 @@ fn readU32Be() u32 {}
           </td>
           <td>
             {#syntax#}const{#endsyntax#} declares a variable that can not be modified.
+            Used as a pointer attribute, it denotes the value referenced by the pointer cannot be modified.
             <ul>
               <li>See also {#link|Variables#}</li>
             </ul>
@@ -10467,7 +10472,7 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}defer{#endsyntax#}</pre>
           </td>
           <td>
-            {#syntax#}defer{#endsyntax#} will execute an expression at the end of the current block.
+            {#syntax#}defer{#endsyntax#} will execute an expression when control flow leaves the current block.
             <ul>
               <li>See also {#link|defer#}</li>
             </ul>
@@ -10478,7 +10483,8 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}else{#endsyntax#}</pre>
           </td>
           <td>
-            {#syntax#}else{#endsyntax#} can be used to provide an alternate branch for {#syntax#}if{#endsyntax#}, {#syntax#}switch{#endsyntax#}, {#syntax#}while{#endsyntax#}, and {#syntax#}for{#endsyntax#} expressions.
+            {#syntax#}else{#endsyntax#} can be used to provide an alternate branch for {#syntax#}if{#endsyntax#}, {#syntax#}switch{#endsyntax#},
+            {#syntax#}while{#endsyntax#}, and {#syntax#}for{#endsyntax#} expressions.
             <ul>
               <li>If used after an if expression, the else branch will be executed if the test value returns false, null, or an error.</li>
               <li>If used within a switch expression, the else branch will be executed if the test value matches no other cases.</li>
@@ -10492,7 +10498,7 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}enum{#endsyntax#}</pre>
           </td>
           <td>
-            {#syntax#}enum{#endsyntax#} defines an anonymous enum type.
+            {#syntax#}enum{#endsyntax#} defines an enum type.
             <ul>
               <li>See also {#link|enum#}</li>
             </ul>
@@ -10503,7 +10509,7 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}errdefer{#endsyntax#}</pre>
           </td>
           <td>
-            {#syntax#}errdefer{#endsyntax#} will execute an expression at the end of the current block if and only if the block returns an error.
+            {#syntax#}errdefer{#endsyntax#} will execute an expression when control flow leaves the current block if the function returns an error.
             <ul>
               <li>See also {#link|errdefer#}</li>
             </ul>
@@ -10514,7 +10520,7 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}error{#endsyntax#}</pre>
           </td>
           <td>
-            {#syntax#}error{#endsyntax#} defines an anonymous error type.
+            {#syntax#}error{#endsyntax#} defines an error type.
             <ul>
               <li>See also {#link|Errors#}</li>
             </ul>
@@ -10525,7 +10531,8 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}export{#endsyntax#}</pre>
           </td>
           <td>
-            {#syntax#}export{#endsyntax#} makes a function externally visible in the generated object file, and makes it use the C ABI.
+            {#syntax#}export{#endsyntax#} makes a function or variable externally visible in the generated object file.
+            Exported functions default to the C calling convention.
             <ul>
               <li>See also {#link|Functions#}</li>
             </ul>
@@ -10536,7 +10543,8 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}extern{#endsyntax#}</pre>
           </td>
           <td>
-            {#syntax#}extern{#endsyntax#} can be used to declare a function that will be resolved at link time, when linking statically, or at runtime, when linking dynamically.
+            {#syntax#}extern{#endsyntax#} can be used to declare a function or variable that will be resolved at link time, when linking statically
+            or at runtime, when linking dynamically.
             <ul>
               <li>See also {#link|Functions#}</li>
             </ul>
@@ -10569,7 +10577,7 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}for{#endsyntax#}</pre>
           </td>
           <td>
-            A {#syntax#}for{#endsyntax#} expression can be used to iterate over the elements of a slice or array.
+            A {#syntax#}for{#endsyntax#} expression can be used to iterate over the elements of a slice, array, or tuple.
             <ul>
               <li>See also {#link|for#}</li>
             </ul>
@@ -10648,7 +10656,7 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}orelse{#endsyntax#}</pre>
           </td>
           <td>
-            {#syntax#}orelse{#endsyntax#} can be used to provide a default value for an optional expression if it evaluates to null.
+            {#syntax#}orelse{#endsyntax#} can be used to evaluate an expression if the expression before it evaluates to null.
             <ul>
               <li>See also {#link|Optionals#}, {#link|Operators#}</li>
             </ul>
@@ -10659,7 +10667,8 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}packed{#endsyntax#}</pre>
           </td>
           <td>
-            The {#syntax#}packed{#endsyntax#} keyword before a struct definition changes the struct's in-memory layout to the guaranteed {#syntax#}packed{#endsyntax#} layout.
+            The {#syntax#}packed{#endsyntax#} keyword before a struct definition changes the struct's in-memory layout
+            to the guaranteed {#syntax#}packed{#endsyntax#} layout.
             <ul>
               <li>See also {#link|packed struct#}</li>
             </ul>
@@ -10670,7 +10679,8 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}pub{#endsyntax#}</pre>
           </td>
           <td>
-            The {#syntax#}pub{#endsyntax#} in front of a top level declaration makes the declaration available to reference from a different file than the one it is declared in.
+            The {#syntax#}pub{#endsyntax#} in front of a top level declaration makes the declaration available
+            to reference from a different file than the one it is declared in.
             <ul>
               <li>See also {#link|import#}</li>
             </ul>
@@ -10714,7 +10724,7 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}struct{#endsyntax#}</pre>
           </td>
           <td>
-            {#syntax#}struct{#endsyntax#} defines an anonymous struct.
+            {#syntax#}struct{#endsyntax#} defines a struct.
             <ul>
               <li>See also {#link|struct#}</li>
             </ul>
@@ -10726,7 +10736,8 @@ fn readU32Be() u32 {}
           </td>
           <td>
             {#syntax#}suspend{#endsyntax#} will cause control flow to return to the call site or resumer of the function.
-            {#syntax#}suspend{#endsyntax#} can also be used before a block within a function, to allow the function access to it's frame before control flow returns to the call site.
+            {#syntax#}suspend{#endsyntax#} can also be used before a block within a function,
+            to allow the function access to its frame before control flow returns to the call site.
             <ul>
               <li>See also {#link|Suspend and Resume#}</li>
             </ul>
@@ -10737,7 +10748,8 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}switch{#endsyntax#}</pre>
           </td>
           <td>
-            A {#syntax#}switch{#endsyntax#} expression can be used to test values of a common type. {#syntax#}switch{#endsyntax#} cases can capture field values of a {#link|Tagged union#}.
+            A {#syntax#}switch{#endsyntax#} expression can be used to test values of a common type.
+            {#syntax#}switch{#endsyntax#} cases can capture field values of a {#link|Tagged union#}.
             <ul>
               <li>See also {#link|switch#}</li>
             </ul>
@@ -10748,7 +10760,8 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}test{#endsyntax#}</pre>
           </td>
           <td>
-            The {#syntax#}test{#endsyntax#} keyword can be used to denote a top-level block of code used to make sure behavior meets expectations.
+            The {#syntax#}test{#endsyntax#} keyword can be used to denote a top-level block of code
+            used to make sure behavior meets expectations.
             <ul>
               <li>See also {#link|Zig Test#}</li>
             </ul>
@@ -10805,7 +10818,7 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}union{#endsyntax#}</pre>
           </td>
           <td>
-            {#syntax#}union{#endsyntax#} defines an anonymous union.
+            {#syntax#}union{#endsyntax#} defines a union.
             <ul>
               <li>See also {#link|union#}</li>
             </ul>
@@ -10816,6 +10829,7 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}unreachable{#endsyntax#}</pre>
           </td>
           <td>
+            {#syntax#}unreachable{#endsyntax#} can be used to assert that control flow will never happen upon a particular location.
             Depending on the build mode, {#syntax#}unreachable{#endsyntax#} may emit a panic.
             <ul>
               <li>Emits a panic in {#syntax#}Debug{#endsyntax#} and {#syntax#}ReleaseSafe{#endsyntax#} mode, or when using <code>zig test</code>.</li>
@@ -10829,7 +10843,8 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}usingnamespace{#endsyntax#}</pre>
           </td>
           <td>
-            {#syntax#}usingnamespace{#endsyntax#} is a top-level declaration that imports all the public declarations of the operand, which must be a struct, union, or enum, into the current scope.
+            {#syntax#}usingnamespace{#endsyntax#} is a top-level declaration that imports all the public declarations of the operand,
+            which must be a struct, union, or enum, into the current scope.
             <ul>
               <li>See also {#link|usingnamespace#}</li>
             </ul>
@@ -10863,7 +10878,8 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}while{#endsyntax#}</pre>
           </td>
           <td>
-            A {#syntax#}while{#endsyntax#} expression can be used to repeatedly test a boolean, optional, or error union expression, and cease looping when that expression evaluates to false, null, or an error, respectively.
+            A {#syntax#}while{#endsyntax#} expression can be used to repeatedly test a boolean, optional, or error union expression,
+            and cease looping when that expression evaluates to false, null, or an error, respectively.
             <ul>
               <li>See also {#link|while#}</li>
             </ul>
