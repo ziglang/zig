@@ -1428,57 +1428,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 }
             } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
                 switch (arch) {
-                    // .x86_64 => {
-                    //     for (info.args) |mc_arg, arg_i| {
-                    //         const arg = inst.args[arg_i];
-                    //         const arg_mcv = try self.resolveInst(inst.args[arg_i]);
-                    //         // Here we do not use setRegOrMem even though the logic is similar, because
-                    //         // the function call will move the stack pointer, so the offsets are different.
-                    //         switch (mc_arg) {
-                    //             .none => continue,
-                    //             .register => |reg| {
-                    //                 try self.genSetReg(arg.src, reg, arg_mcv);
-                    //                 // TODO interact with the register allocator to mark the instruction as moved.
-                    //             },
-                    //             .stack_offset => {
-                    //                 // Here we need to emit instructions like this:
-                    //                 // mov     qword ptr [rsp + stack_offset], x
-                    //                 return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
-                    //             },
-                    //             .ptr_stack_offset => {
-                    //                 return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_stack_offset arg", .{});
-                    //             },
-                    //             .ptr_embedded_in_code => {
-                    //                 return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
-                    //             },
-                    //             .undef => unreachable,
-                    //             .immediate => unreachable,
-                    //             .unreach => unreachable,
-                    //             .dead => unreachable,
-                    //             .embedded_in_code => unreachable,
-                    //             .memory => unreachable,
-                    //             .compare_flags_signed => unreachable,
-                    //             .compare_flags_unsigned => unreachable,
-                    //         }
-                    //     }
-
-                    //     if (inst.func.cast(ir.Inst.Constant)) |func_inst| {
-                    //         if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
-                    //             const func = func_val.func;
-                    //             const got = &macho_file.segment_cmds.items[macho_file.seg_got_index.?];
-                    //             const ptr_bytes: u64 = 8;
-                    //             const got_addr = @intCast(u32, got.vmaddrs + func.owner_decl.link.macho.offset_table_index * ptr_bytes);
-                    //             // 01 xx xx xx xx    call [addr]
-                    //             try self.code.ensureCapacity(self.code.items.len + 5);
-                    //             self.code.appendSliceAssumeCapacity(&[1]u8{ 0x1 });
-                    //             mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), got_addr);
-                    //         } else {
-                    //             return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
-                    //         }
-                    //     } else {
-                    //         return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
-                    //     }
-                    // },
                     .x86_64 => return self.fail(inst.base.src, "TODO implement codegen for call when linking with MachO for x86_64 arch", .{}),
                     .aarch64 => return self.fail(inst.base.src, "TODO implement codegen for call when linking with MachO for aarch64 arch", .{}),
                     else => unreachable,

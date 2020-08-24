@@ -16,6 +16,8 @@ const Module = @import("../Module.zig");
 const link = @import("../link.zig");
 const File = link.File;
 
+const is_darwin = std.Target.current.os.tag.isDarwin();
+
 pub const base_tag: File.Tag = File.Tag.macho;
 
 base: File,
@@ -42,16 +44,27 @@ seg_table_dirty: bool = false,
 
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 
+/// TODO ultimately this will be propagated down from main() and set (in this form or another)
+/// when user links against system lib.
+link_against_system: bool = false,
+
 /// `alloc_num / alloc_den` is the factor of padding when allocating.
 const alloc_num = 4;
 const alloc_den = 3;
 
 /// Default path to dyld
+/// TODO instead of hardcoding it, we should probably look through some env vars and search paths
+/// instead but this will do for now.
 const DEFAULT_DYLD_PATH: [*:0]const u8 = "/usr/lib/dyld";
 
-/// We always have to link against libSystem since macOS Catalina (TODO link)
+/// Default lib search path
+/// TODO instead of hardcoding it, we should probably look through some env vars and search paths
+/// instead but this will do for now.
+const DEFAULT_LIB_SEARCH_PATH: []const u8 = "/usr/lib";
+
 const LIB_SYSTEM_NAME: [*:0]const u8 = "System";
-const LIB_SYSTEM_PATH: [*:0]const u8 = "/usr/lib/libSystem.B.dylib";
+/// TODO we should search for libSystem and fail if it doesn't exist, instead of hardcoding it
+const LIB_SYSTEM_PATH: [*:0]const u8 = DEFAULT_LIB_SEARCH_PATH ++ "/libSystem.B.dylib";
 
 pub const TextBlock = struct {
     pub const empty = TextBlock{};
@@ -212,74 +225,81 @@ pub fn flush(self: *MachO, module: *Module) !void {
 
     switch (self.base.options.output_mode) {
         .Exe => {
-            {
-                // We need to add LC_LOAD_DYLINKER and LC_LOAD_DYLIB since we always
-                // have to link against libSystem.dylib
-                const cmdsize = commandSize(@intCast(u32, @sizeOf(macho.dylinker_command) + mem.lenZ(DEFAULT_DYLD_PATH)));
-                const load_dylinker = [1]macho.dylinker_command{
-                    .{
-                        .cmd = macho.LC_LOAD_DYLINKER,
-                        .cmdsize = cmdsize,
-                        .name = @sizeOf(macho.dylinker_command),
-                    },
-                };
-                try self.commands.append(self.base.allocator, .{
-                    .cmd = macho.LC_LOAD_DYLINKER,
-                    .cmdsize = cmdsize,
-                });
+            if (self.link_against_system) {
+                if (is_darwin) {
+                    {
+                        // Specify path to dynamic linker dyld
+                        const cmdsize = commandSize(@intCast(u32, @sizeOf(macho.dylinker_command) + mem.lenZ(DEFAULT_DYLD_PATH)));
+                        const load_dylinker = [1]macho.dylinker_command{
+                            .{
+                                .cmd = macho.LC_LOAD_DYLINKER,
+                                .cmdsize = cmdsize,
+                                .name = @sizeOf(macho.dylinker_command),
+                            },
+                        };
+                        try self.commands.append(self.base.allocator, .{
+                            .cmd = macho.LC_LOAD_DYLINKER,
+                            .cmdsize = cmdsize,
+                        });
 
-                try self.base.file.?.pwriteAll(mem.sliceAsBytes(load_dylinker[0..1]), self.command_file_offset.?);
+                        try self.base.file.?.pwriteAll(mem.sliceAsBytes(load_dylinker[0..1]), self.command_file_offset.?);
 
-                const file_offset = self.command_file_offset.? + @sizeOf(macho.dylinker_command);
-                try self.addPadding(cmdsize - @sizeOf(macho.dylinker_command), file_offset);
+                        const file_offset = self.command_file_offset.? + @sizeOf(macho.dylinker_command);
+                        try self.addPadding(cmdsize - @sizeOf(macho.dylinker_command), file_offset);
 
-                try self.base.file.?.pwriteAll(mem.spanZ(DEFAULT_DYLD_PATH), file_offset);
-                self.command_file_offset.? += cmdsize;
-            }
+                        try self.base.file.?.pwriteAll(mem.spanZ(DEFAULT_DYLD_PATH), file_offset);
+                        self.command_file_offset.? += cmdsize;
+                    }
 
-            {
-                // Link against libSystem
-                const cmdsize = commandSize(@intCast(u32, @sizeOf(macho.dylib_command) + mem.lenZ(LIB_SYSTEM_PATH)));
-                const version = std.c.NSVersionOfRunTimeLibrary(LIB_SYSTEM_NAME);
-                const dylib = .{
-                    .name = @sizeOf(macho.dylib_command),
-                    .timestamp = 2, // not sure why not simply 0; this is reverse engineered from Mach-O files
-                    .current_version = version,
-                    .compatibility_version = 0x10000, // not sure why this either; value from reverse engineering
-                };
-                const load_dylib = [1]macho.dylib_command{
-                    .{
-                        .cmd = macho.LC_LOAD_DYLIB,
-                        .cmdsize = cmdsize,
-                        .dylib = dylib,
-                    },
-                };
-                try self.commands.append(self.base.allocator, .{
-                    .cmd = macho.LC_LOAD_DYLIB,
-                    .cmdsize = cmdsize,
-                });
+                    {
+                        // Link against libSystem
+                        const cmdsize = commandSize(@intCast(u32, @sizeOf(macho.dylib_command) + mem.lenZ(LIB_SYSTEM_PATH)));
+                        // According to Apple's manual, we should obtain current libSystem version using libc call
+                        // NSVersionOfRunTimeLibrary.
+                        const version = std.c.NSVersionOfRunTimeLibrary(LIB_SYSTEM_NAME);
+                        const dylib = .{
+                            .name = @sizeOf(macho.dylib_command),
+                            .timestamp = 2, // not sure why not simply 0; this is reverse engineered from Mach-O files
+                            .current_version = version,
+                            .compatibility_version = 0x10000, // not sure why this either; value from reverse engineering
+                        };
+                        const load_dylib = [1]macho.dylib_command{
+                            .{
+                                .cmd = macho.LC_LOAD_DYLIB,
+                                .cmdsize = cmdsize,
+                                .dylib = dylib,
+                            },
+                        };
+                        try self.commands.append(self.base.allocator, .{
+                            .cmd = macho.LC_LOAD_DYLIB,
+                            .cmdsize = cmdsize,
+                        });
 
-                try self.base.file.?.pwriteAll(mem.sliceAsBytes(load_dylib[0..1]), self.command_file_offset.?);
+                        try self.base.file.?.pwriteAll(mem.sliceAsBytes(load_dylib[0..1]), self.command_file_offset.?);
 
-                const file_offset = self.command_file_offset.? + @sizeOf(macho.dylib_command);
-                try self.addPadding(cmdsize - @sizeOf(macho.dylib_command), file_offset);
+                        const file_offset = self.command_file_offset.? + @sizeOf(macho.dylib_command);
+                        try self.addPadding(cmdsize - @sizeOf(macho.dylib_command), file_offset);
 
-                try self.base.file.?.pwriteAll(mem.spanZ(LIB_SYSTEM_PATH), file_offset);
-                self.command_file_offset.? += cmdsize;
+                        try self.base.file.?.pwriteAll(mem.spanZ(LIB_SYSTEM_PATH), file_offset);
+                        self.command_file_offset.? += cmdsize;
+                    }
+                } else {
+                    @panic("linking against libSystem on non-native target is unsupported");
+                }
             }
         },
         .Obj => return error.TODOImplementWritingObjFiles,
         .Lib => return error.TODOImplementWritingLibFiles,
     }
 
-    // if (self.entry_addr == null and self.base.options.output_mode == .Exe) {
-    //     log.debug("flushing. no_entry_point_found = true\n", .{});
-    //     self.error_flags.no_entry_point_found = true;
-    // } else {
-    log.debug("flushing. no_entry_point_found = false\n", .{});
-    self.error_flags.no_entry_point_found = false;
-    try self.writeMachOHeader();
-    // }
+    if (self.entry_addr == null and self.base.options.output_mode == .Exe) {
+        log.debug("flushing. no_entry_point_found = true\n", .{});
+        self.error_flags.no_entry_point_found = true;
+    } else {
+        log.debug("flushing. no_entry_point_found = false\n", .{});
+        self.error_flags.no_entry_point_found = false;
+        try self.writeMachOHeader();
+    }
 }
 
 pub fn deinit(self: *MachO) void {
@@ -290,51 +310,7 @@ pub fn deinit(self: *MachO) void {
 
 pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {}
 
-pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
-    // const tracy = trace(@src());
-    // defer tracy.end();
-
-    // var code_buffer = std.ArrayList(u8).init(self.base.allocator);
-    // defer code_buffer.deinit();
-
-    // var dbg_line_buffer = std.ArrayList(u8).init(self.base.allocator);
-    // defer dbg_line_buffer.deinit();
-
-    // var dbg_info_buffer = std.ArrayList(u8).init(self.base.allocator);
-    // defer dbg_info_buffer.deinit();
-
-    // var dbg_info_type_relocs: File.DbgInfoTypeRelocsTable = .{};
-    // defer {
-    //     for (dbg_info_type_relocs.items()) |*entry| {
-    //         entry.value.relocs.deinit(self.base.allocator);
-    //     }
-    //     dbg_info_type_relocs.deinit(self.base.allocator);
-    // }
-
-    // const typed_value = decl.typed_value.most_recent.typed_value;
-    // log.debug("typed_value = {}", .{typed_value});
-
-    // const res = try codegen.generateSymbol(
-    //     &self.base,
-    //     decl.src(),
-    //     typed_value,
-    //     &code_buffer,
-    //     &dbg_line_buffer,
-    //     &dbg_info_buffer,
-    //     &dbg_info_type_relocs,
-    // );
-    // log.debug("res = {}", .{res});
-
-    // const code = switch (res) {
-    //     .externally_managed => |x| x,
-    //     .appended => code_buffer.items,
-    //     .fail => |em| {
-    //         decl.analysis = .codegen_failure;
-    //         try module.failed_decls.put(module.gpa, decl, em);
-    //         return;
-    //     },
-    // };
-}
+pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {}
 
 pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl: *const Module.Decl) !void {}
 
@@ -351,105 +327,7 @@ pub fn getDeclVAddr(self: *MachO, decl: *const Module.Decl) u64 {
     @panic("TODO implement getDeclVAddr for MachO");
 }
 
-pub fn populateMissingMetadata(self: *MachO) !void {
-    // if (self.seg_load_re_index == null) {
-    //     self.seg_load_re_index = @intCast(u16, self.segment_cmds.items.len);
-    //     const file_size = self.base.options.program_code_size_hint;
-    //     const p_align = 0x1000;
-    //     const off = self.findFreeSpace(file_size, p_align);
-    //     log.debug("found LC_SEGMENT_64 free space 0x{x} to 0x{x}", .{ off, off + file_size });
-    //     try self.segment_cmds.append(self.base.allocator, .{});
-    //     self.entry_addr = null;
-    //     self.seg_table_dirty = true;
-    // }
-    // if (self.seg_got_index == null) {
-    //     self.seg_got_index = @intCast(u16, self.segment_cmds.items.len);
-    //     const file_size = 8 * self.base.options.symbol_count_hint;
-    //     // Apple recommends to page align for better performance.
-    //     // TODO This is not necessarily true for MH_OBJECT which means we
-    //     // could potentially shave off a couple of bytes when generating
-    //     // only object files.
-    //     const p_align = 0x1000;
-    //     const off = self.findFreeSpace(file_size, p_align);
-    //     log.debug("found LC_SEGMENT_64 free space 0x{x} to 0x{x}", .{ off, off + file_size });
-    //     const default_vmaddr = 0x4000000;
-    //     try self.segment_cmds.append(self.base.allocator, .{
-    //         .cmd = macho.LC_SEGMENT_64,
-    //         .cmdsize = @sizeOf(macho.segment_command_64),
-    //         .segname = self.makeString("__TEXT"),
-    //         .vmaddr = default_vmaddr,
-    //         .vmsize = file_size,
-    //         .fileoff = off,
-    //         .filesize = file_size,
-    //         .maxprot = 0x5,
-    //         .initprot = 0x5,
-    //         .nsects = 0,
-    //         .flags = 0,
-    //     });
-    //     self.seg_table_dirty = true;
-    // }
-}
-
-/// Returns end pos of collision, if any.
-fn detectAllocCollision(self: *MachO, start: u64, size: u64) ?u64 {
-    const header_size: u64 = @sizeOf(macho.mach_header_64);
-    if (start < header_size)
-        return header_size;
-
-    const end = start + satMul(size, alloc_num) / alloc_den;
-
-    // if (self.sec_table_offset) |off| {
-    //     const section_size: u64 = @sizeOf(macho.section_64);
-    //     const tight_size = self.sections.items.len * section_size;
-    //     const increased_size = satMul(tight_size, alloc_num) / alloc_den;
-    //     const test_end = off + increased_size;
-    //     if (end > off and start < test_end) {
-    //         return test_end;
-    //     }
-    // }
-
-    // if (self.seg_table_offset) |off| {
-    //     const segment_size: u64 = @sizeOf(macho.segment_command_64);
-    //     const tight_size = self.segment_cmds.items.len * segment_size;
-    //     const increased_size = satMul(tight_size, alloc_num) / alloc_den;
-    //     const test_end = off + increased_size;
-    //     if (end > off and start < test_end) {
-    //         return test_end;
-    //     }
-    // }
-
-    // for (self.sections.items) |section| {
-    //     const increased_size = satMul(section.size, alloc_num) / alloc_den;
-    //     const test_end = section.offset + increased_size;
-    //     if (end > section.offset and start < test_end) {
-    //         return test_end;
-    //     }
-    // }
-
-    for (self.segments.items) |segment| {
-        const increased_size = satMul(segment.filesize, alloc_num) / alloc_den;
-        const test_end = segment_cmd.fileoff + increased_size;
-        if (end > segment_cmd.fileoff and start < test_end) {
-            return test_end;
-        }
-    }
-
-    return null;
-}
-
-fn findFreeSpace(self: *MachO, object_size: u64, min_alignment: u16) u64 {
-    var start: u64 = 0;
-    while (self.detectAllocCollision(start, object_size)) |item_end| {
-        start = mem.alignForwardGeneric(u64, item_end, min_alignment);
-    }
-    return start;
-}
-
-/// Saturating multiplication
-fn satMul(a: anytype, b: anytype) @TypeOf(a, b) {
-    const T = @TypeOf(a, b);
-    return std.math.mul(T, a, b) catch std.math.maxInt(T);
-}
+pub fn populateMissingMetadata(self: *MachO) !void {}
 
 fn makeString(comptime bytes: []const u8) [16]u8 {
     var buf: [16]u8 = undefined;
