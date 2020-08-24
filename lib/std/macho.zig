@@ -797,3 +797,16 @@ pub const CPU_SUBTYPE_X86_64_ALL: cpu_subtype_t = 0x3;
 
 /// All ARM-based Macs
 pub const CPU_SUBTYPE_ARM_ALL: cpu_subtype_t = 0x0;
+
+// Protection values defined as bits within the vm_prot_t type
+/// No VM protection
+pub const VM_PROT_NONE: vm_prot_t = 0x0;
+
+/// VM read permission
+pub const VM_PROT_READ: vm_prot_t = 0x1;
+
+/// VM write permission
+pub const VM_PROT_WRITE: vm_prot_t = 0x2;
+
+/// VM execute permission
+pub const VM_PROT_EXECUTE: vm_prot_t = 0x4;

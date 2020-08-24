@@ -30,23 +30,25 @@ command_file_offset: ?u64 = null,
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
 /// Same order as in the file.
 segments: std.ArrayListUnmanaged(macho.segment_command_64) = std.ArrayListUnmanaged(macho.segment_command_64){},
+/// Section (headers) *always* follow segment (load commands) directly!
 sections: std.ArrayListUnmanaged(macho.section_64) = std.ArrayListUnmanaged(macho.section_64){},
-segment_table_offset: ?u64 = null,
+
+/// Offset (index) into __TEXT segment load command.
+text_segment_offset: ?u64 = null,
+/// Offset (index) into __LINKEDIT segment load command.
+linkedit_segment_offset: ?u664 = null,
 
 /// Entry point load command
 entry_point_cmd: ?macho.entry_point_command = null,
 entry_addr: ?u64 = null,
 
-/// Default VM start address set at 4GB
+/// The first 4GB of process' memory is reserved for the null (__PAGEZERO) segment.
+/// This is also the start address for our binary.
 vm_start_address: u64 = 0x100000000,
 
 seg_table_dirty: bool = false,
 
 error_flags: File.ErrorFlags = File.ErrorFlags{},
-
-/// TODO ultimately this will be propagated down from main() and set (in this form or another)
-/// when user links against system lib.
-link_against_system: bool = false,
 
 /// `alloc_num / alloc_den` is the factor of padding when allocating.
 const alloc_num = 4;
@@ -138,8 +140,8 @@ fn createFile(allocator: *Allocator, file: fs.File, options: link.Options) !Mach
                 .vmsize = self.vm_start_address,
                 .fileoff = 0,
                 .filesize = 0,
-                .maxprot = 0,
-                .initprot = 0,
+                .maxprot = macho.VM_PROT_NONE,
+                .initprot = macho.VM_PROT_NONE,
                 .nsects = 0,
                 .flags = 0,
             };
@@ -225,66 +227,62 @@ pub fn flush(self: *MachO, module: *Module) !void {
 
     switch (self.base.options.output_mode) {
         .Exe => {
-            if (self.link_against_system) {
-                if (is_darwin) {
-                    {
-                        // Specify path to dynamic linker dyld
-                        const cmdsize = commandSize(@intCast(u32, @sizeOf(macho.dylinker_command) + mem.lenZ(DEFAULT_DYLD_PATH)));
-                        const load_dylinker = [1]macho.dylinker_command{
-                            .{
-                                .cmd = macho.LC_LOAD_DYLINKER,
-                                .cmdsize = cmdsize,
-                                .name = @sizeOf(macho.dylinker_command),
-                            },
-                        };
-                        try self.commands.append(self.base.allocator, .{
+            if (is_darwin) {
+                {
+                    // Specify path to dynamic linker dyld
+                    const cmdsize = commandSize(@sizeOf(macho.dylinker_command) + mem.lenZ(DEFAULT_DYLD_PATH));
+                    const load_dylinker = [1]macho.dylinker_command{
+                        .{
                             .cmd = macho.LC_LOAD_DYLINKER,
                             .cmdsize = cmdsize,
-                        });
+                            .name = @sizeOf(macho.dylinker_command),
+                        },
+                    };
+                    try self.commands.append(self.base.allocator, .{
+                        .cmd = macho.LC_LOAD_DYLINKER,
+                        .cmdsize = cmdsize,
+                    });
 
-                        try self.base.file.?.pwriteAll(mem.sliceAsBytes(load_dylinker[0..1]), self.command_file_offset.?);
+                    try self.base.file.?.pwriteAll(mem.sliceAsBytes(load_dylinker[0..1]), self.command_file_offset.?);
 
-                        const file_offset = self.command_file_offset.? + @sizeOf(macho.dylinker_command);
-                        try self.addPadding(cmdsize - @sizeOf(macho.dylinker_command), file_offset);
+                    const file_offset = self.command_file_offset.? + @sizeOf(macho.dylinker_command);
+                    try self.addPadding(cmdsize - @sizeOf(macho.dylinker_command), file_offset);
 
-                        try self.base.file.?.pwriteAll(mem.spanZ(DEFAULT_DYLD_PATH), file_offset);
-                        self.command_file_offset.? += cmdsize;
-                    }
+                    try self.base.file.?.pwriteAll(mem.spanZ(DEFAULT_DYLD_PATH), file_offset);
+                    self.command_file_offset.? += cmdsize;
+                }
 
-                    {
-                        // Link against libSystem
-                        const cmdsize = commandSize(@intCast(u32, @sizeOf(macho.dylib_command) + mem.lenZ(LIB_SYSTEM_PATH)));
-                        // According to Apple's manual, we should obtain current libSystem version using libc call
-                        // NSVersionOfRunTimeLibrary.
-                        const version = std.c.NSVersionOfRunTimeLibrary(LIB_SYSTEM_NAME);
-                        const dylib = .{
-                            .name = @sizeOf(macho.dylib_command),
-                            .timestamp = 2, // not sure why not simply 0; this is reverse engineered from Mach-O files
-                            .current_version = version,
-                            .compatibility_version = 0x10000, // not sure why this either; value from reverse engineering
-                        };
-                        const load_dylib = [1]macho.dylib_command{
-                            .{
-                                .cmd = macho.LC_LOAD_DYLIB,
-                                .cmdsize = cmdsize,
-                                .dylib = dylib,
-                            },
-                        };
-                        try self.commands.append(self.base.allocator, .{
+                {
+                    // Link against libSystem
+                    const cmdsize = commandSize(@sizeOf(macho.dylib_command) + mem.lenZ(LIB_SYSTEM_PATH));
+                    // According to Apple's manual, we should obtain current libSystem version using libc call
+                    // NSVersionOfRunTimeLibrary.
+                    const version = std.c.NSVersionOfRunTimeLibrary(LIB_SYSTEM_NAME);
+                    const dylib = .{
+                        .name = @sizeOf(macho.dylib_command),
+                        .timestamp = 2, // not sure why not simply 0; this is reverse engineered from Mach-O files
+                        .current_version = version,
+                        .compatibility_version = 0x10000, // not sure why this either; value from reverse engineering
+                    };
+                    const load_dylib = [1]macho.dylib_command{
+                        .{
                             .cmd = macho.LC_LOAD_DYLIB,
                             .cmdsize = cmdsize,
-                        });
+                            .dylib = dylib,
+                        },
+                    };
+                    try self.commands.append(self.base.allocator, .{
+                        .cmd = macho.LC_LOAD_DYLIB,
+                        .cmdsize = cmdsize,
+                    });
 
-                        try self.base.file.?.pwriteAll(mem.sliceAsBytes(load_dylib[0..1]), self.command_file_offset.?);
+                    try self.base.file.?.pwriteAll(mem.sliceAsBytes(load_dylib[0..1]), self.command_file_offset.?);
 
-                        const file_offset = self.command_file_offset.? + @sizeOf(macho.dylib_command);
-                        try self.addPadding(cmdsize - @sizeOf(macho.dylib_command), file_offset);
+                    const file_offset = self.command_file_offset.? + @sizeOf(macho.dylib_command);
+                    try self.addPadding(cmdsize - @sizeOf(macho.dylib_command), file_offset);
 
-                        try self.base.file.?.pwriteAll(mem.spanZ(LIB_SYSTEM_PATH), file_offset);
-                        self.command_file_offset.? += cmdsize;
-                    }
-                } else {
-                    @panic("linking against libSystem on non-native target is unsupported");
+                    try self.base.file.?.pwriteAll(mem.spanZ(LIB_SYSTEM_PATH), file_offset);
+                    self.command_file_offset.? += cmdsize;
                 }
             }
         },
@@ -327,20 +325,53 @@ pub fn getDeclVAddr(self: *MachO, decl: *const Module.Decl) u64 {
     @panic("TODO implement getDeclVAddr for MachO");
 }
 
-pub fn populateMissingMetadata(self: *MachO) !void {}
+pub fn populateMissingMetadata(self: *MachO) !void {
+    if (self.text_segment_offset == null) {
+        self.text_segment_offset = @intCast(u64, self.segments.items.len);
+        const file_size = alignSize(u64, self.base.options.program_code_size_hint, 0x1000);
+        log.debug("vmsize/filesize = {}", .{file_size});
+        const file_offset = 0;
+        const vm_address = self.vm_start_address; // the end of __PAGEZERO segment in VM
+        const protection = macho.VM_PROT_READ | macho.VM_PROT_EXECUTE;
+        const cmdsize = commandSize(@sizeOf(macho.segment_command_64));
+        const text_segment = .{
+            .cmd = macho.LC_SEGMENT_64,
+            .cmdsize = cmdsize,
+            .segname = makeString("__TEXT"),
+            .vmaddr = vm_address,
+            .vmsize = file_size,
+            .fileoff = 0, // __TEXT segment *always* starts at 0 file offset
+            .filesize = 0, //file_size,
+            .maxprot = protection,
+            .initprot = protection,
+            .nsects = 0,
+            .flags = 0,
+        };
+        try self.commands.append(self.base.allocator, .{
+            .cmd = macho.LC_SEGMENT_64,
+            .cmdsize = cmdsize,
+        });
+        try self.segments.append(self.base.allocator, text_segment);
+    }
+}
 
 fn makeString(comptime bytes: []const u8) [16]u8 {
-    var buf: [16]u8 = undefined;
+    var buf = [_]u8{0} ** 16;
     if (bytes.len > buf.len) @compileError("MachO segment/section name too long");
     mem.copy(u8, buf[0..], bytes);
     return buf;
 }
 
-fn commandSize(min_size: u32) u32 {
-    if (min_size % @sizeOf(u64) == 0) return min_size;
+fn alignSize(comptime Int: type, min_size: anytype, alignment: Int) Int {
+    const size = @intCast(Int, min_size);
+    if (size % alignment == 0) return size;
 
-    const div = min_size / @sizeOf(u64);
-    return (div + 1) * @sizeOf(u64);
+    const div = size / alignment;
+    return (div + 1) * alignment;
+}
+
+fn commandSize(min_size: anytype) u32 {
+    return alignSize(u32, min_size, @sizeOf(u64));
 }
 
 fn addPadding(self: *MachO, size: u32, file_offset: u64) !void {
