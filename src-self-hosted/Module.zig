@@ -2082,14 +2082,14 @@ fn createNewDecl(
 
 /// Get error value for error tag `name`.
 pub fn getErrorValue(self: *Module, name: []const u8) !std.StringHashMapUnmanaged(u16).Entry {
-    const new_val = @intCast(u16, self.global_error_set.items().len);
-    if (self.global_error_set.getEntry(name)) |some| return some.*;
+    const gop = try self.global_error_set.getOrPut(self.gpa, name);
+    if (gop.found_existing)
+        return gop.entry.*;
+    errdefer self.global_error_set.removeAssertDiscard(name);
 
-    const duped = try self.gpa.dupe(u8, name);
-    errdefer self.gpa.free(duped);
-
-    try self.global_error_set.put(self.gpa, duped, new_val);
-    return self.global_error_set.getEntry(duped).?.*;
+    gop.entry.key = try self.gpa.dupe(u8, name);
+    gop.entry.value = @intCast(u16, self.global_error_set.items().len - 1);
+    return gop.entry.*;
 }
 
 /// TODO split this into `requireRuntimeBlock` and `requireFunctionBlock` and audit callsites.
