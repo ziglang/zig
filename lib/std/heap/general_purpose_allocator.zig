@@ -433,8 +433,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 const bucket_slice = @ptrCast([*]align(@alignOf(BucketHeader)) u8, bucket)[0..bucket_size];
                 self.backing_allocator.free(bucket_slice);
             } else {
-                // TODO Set the slot data to undefined.
-                // Related: https://github.com/ziglang/zig/issues/4298
+                @memset(bucket.page + slot_index * size_class, undefined, size_class);
             }
         }
 
@@ -567,6 +566,9 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             const new_aligned_size = math.max(new_size, old_align);
             const new_size_class = math.ceilPowerOfTwoAssert(usize, new_aligned_size);
             if (new_size_class <= size_class) {
+                if (old_mem.len > new_size) {
+                    @memset(old_mem.ptr + new_size, undefined, old_mem.len - new_size);
+                }
                 return new_size;
             }
             return error.OutOfMemory;
