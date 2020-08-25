@@ -744,26 +744,26 @@ pub const Chacha20Poly1305 = struct {
     pub const key_length = 32;
 
     /// c: ciphertext: output buffer should be of size m.len
-    /// at: authentication tag: output MAC
+    /// tag: authentication tag: output MAC
     /// m: message
     /// ad: Associated Data
     /// npub: public nonce
     /// k: private key
-    pub fn encrypt(c: []u8, at: *[tag_length]u8, m: []const u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) void {
+    pub fn encrypt(c: []u8, tag: *[tag_length]u8, m: []const u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) void {
         assert(c.len == m.len);
-        return chacha20poly1305SealDetached(c, at, m, ad, k, npub);
+        return chacha20poly1305SealDetached(c, tag, m, ad, k, npub);
     }
 
     /// m: message: output buffer should be of size c.len
     /// c: ciphertext
-    /// at: authentication tag
+    /// tag: authentication tag
     /// ad: Associated Data
     /// npub: public nonce
     /// k: private key
     /// NOTE: the check of the authentication tag is currently not done in constant time
-    pub fn decrypt(m: []u8, c: []const u8, at: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) !void {
+    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) !void {
         assert(c.len == m.len);
-        return try chacha20poly1305OpenDetached(m, c, at[0..], ad, k, npub);
+        return try chacha20poly1305OpenDetached(m, c, tag[0..], ad, k, npub);
     }
 };
 
@@ -773,26 +773,26 @@ pub const XChacha20Poly1305 = struct {
     pub const key_length = 32;
 
     /// c: ciphertext: output buffer should be of size m.len
-    /// at: authentication tag: output MAC
+    /// tag: authentication tag: output MAC
     /// m: message
     /// ad: Associated Data
     /// npub: public nonce
     /// k: private key
-    pub fn encrypt(c: []u8, at: *[tag_length]u8, m: []const u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) void {
+    pub fn encrypt(c: []u8, tag: *[tag_length]u8, m: []const u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) void {
         assert(c.len == m.len);
-        return xchacha20poly1305SealDetached(c, at, m, ad, k, npub);
+        return xchacha20poly1305SealDetached(c, tag, m, ad, k, npub);
     }
 
     /// m: message: output buffer should be of size c.len
     /// c: ciphertext
-    /// at: authentication tag
+    /// tag: authentication tag
     /// ad: Associated Data
     /// npub: public nonce
     /// k: private key
     /// NOTE: the check of the authentication tag is currently not done in constant time
-    pub fn decrypt(m: []u8, c: []const u8, at: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) !void {
+    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) !void {
         assert(c.len == m.len);
-        return try xchacha20poly1305OpenDetached(m, c, at[0..], ad, k, npub);
+        return try xchacha20poly1305OpenDetached(m, c, tag[0..], ad, k, npub);
     }
 };
 

@@ -228,12 +228,12 @@ pub const Aead = struct {
     }
 
     /// c: ciphertext: output buffer should be of size m.len
-    /// at: authentication tag: output MAC
+    /// tag: authentication tag: output MAC
     /// m: message
     /// ad: Associated Data
     /// npub: public nonce
     /// k: private key
-    pub fn encrypt(c: []u8, at: *[tag_length]u8, m: []const u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) void {
+    pub fn encrypt(c: []u8, tag: *[tag_length]u8, m: []const u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) void {
         assert(c.len == m.len);
 
         var state = Aead.init(ad, npub, k);
@@ -269,17 +269,17 @@ pub const Aead = struct {
 
         // After the final non-full block of plaintext, the first 16 bytes
         // of the state are output as an authentication tag.
-        std.mem.copy(u8, at, buf[0..State.RATE]);
+        std.mem.copy(u8, tag, buf[0..State.RATE]);
     }
 
     /// m: message: output buffer should be of size c.len
     /// c: ciphertext
-    /// at: authentication tag
+    /// tag: authentication tag
     /// ad: Associated Data
     /// npub: public nonce
     /// k: private key
     /// NOTE: the check of the authentication tag is currently not done in constant time
-    pub fn decrypt(m: []u8, c: []const u8, at: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) !void {
+    pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) !void {
         assert(c.len == m.len);
 
         var state = Aead.init(ad, npub, k);
@@ -312,7 +312,7 @@ pub const Aead = struct {
         // After the final non-full block of plaintext, the first 16 bytes
         // of the state are the authentication tag.
         // TODO: use a constant-time equality check here, see https://github.com/ziglang/zig/issues/1776
-        if (!mem.eql(u8, buf[0..State.RATE], &at)) {
+        if (!mem.eql(u8, buf[0..State.RATE], &tag)) {
             @memset(m.ptr, undefined, m.len);
             return error.InvalidMessage;
         }
@@ -332,13 +332,13 @@ test "cipher" {
         const pt: [0]u8 = undefined;
 
         var ct: [pt.len]u8 = undefined;
-        var at: [16]u8 = undefined;
-        Aead.encrypt(&ct, &at, &pt, &ad, nonce, key);
+        var tag: [16]u8 = undefined;
+        Aead.encrypt(&ct, &tag, &pt, &ad, nonce, key);
         htest.assertEqual("", &ct);
-        htest.assertEqual("14DA9BB7120BF58B985A8E00FDEBA15B", &at);
+        htest.assertEqual("14DA9BB7120BF58B985A8E00FDEBA15B", &tag);
 
         var pt2: [pt.len]u8 = undefined;
-        try Aead.decrypt(&pt2, &ct, at, &ad, nonce, key);
+        try Aead.decrypt(&pt2, &ct, tag, &ad, nonce, key);
         testing.expectEqualSlices(u8, &pt, &pt2);
     }
     { // test vector (34) from NIST KAT submission.
@@ -347,13 +347,13 @@ test "cipher" {
         try std.fmt.hexToBytes(&pt, "00");
 
         var ct: [pt.len]u8 = undefined;
-        var at: [16]u8 = undefined;
-        Aead.encrypt(&ct, &at, &pt, &ad, nonce, key);
+        var tag: [16]u8 = undefined;
+        Aead.encrypt(&ct, &tag, &pt, &ad, nonce, key);
         htest.assertEqual("7F", &ct);
-        htest.assertEqual("80492C317B1CD58A1EDC3A0D3E9876FC", &at);
+        htest.assertEqual("80492C317B1CD58A1EDC3A0D3E9876FC", &tag);
 
         var pt2: [pt.len]u8 = undefined;
-        try Aead.decrypt(&pt2, &ct, at, &ad, nonce, key);
+        try Aead.decrypt(&pt2, &ct, tag, &ad, nonce, key);
         testing.expectEqualSlices(u8, &pt, &pt2);
     }
     { // test vector (106) from NIST KAT submission.
@@ -363,13 +363,13 @@ test "cipher" {
         try std.fmt.hexToBytes(&pt, "000102");
 
         var ct: [pt.len]u8 = undefined;
-        var at: [16]u8 = undefined;
-        Aead.encrypt(&ct, &at, &pt, &ad, nonce, key);
+        var tag: [16]u8 = undefined;
+        Aead.encrypt(&ct, &tag, &pt, &ad, nonce, key);
         htest.assertEqual("484D35", &ct);
-        htest.assertEqual("030BBEA23B61C00CED60A923BDCF9147", &at);
+        htest.assertEqual("030BBEA23B61C00CED60A923BDCF9147", &tag);
 
         var pt2: [pt.len]u8 = undefined;
-        try Aead.decrypt(&pt2, &ct, at, &ad, nonce, key);
+        try Aead.decrypt(&pt2, &ct, tag, &ad, nonce, key);
         testing.expectEqualSlices(u8, &pt, &pt2);
     }
     { // test vector (790) from NIST KAT submission.
@@ -379,13 +379,13 @@ test "cipher" {
         try std.fmt.hexToBytes(&pt, "000102030405060708090A0B0C0D0E0F10111213141516");
 
         var ct: [pt.len]u8 = undefined;
-        var at: [16]u8 = undefined;
-        Aead.encrypt(&ct, &at, &pt, &ad, nonce, key);
+        var tag: [16]u8 = undefined;
+        Aead.encrypt(&ct, &tag, &pt, &ad, nonce, key);
         htest.assertEqual("6815B4A0ECDAD01596EAD87D9E690697475D234C6A13D1", &ct);
-        htest.assertEqual("DFE23F1642508290D68245279558B2FB", &at);
+        htest.assertEqual("DFE23F1642508290D68245279558B2FB", &tag);
 
         var pt2: [pt.len]u8 = undefined;
-        try Aead.decrypt(&pt2, &ct, at, &ad, nonce, key);
+        try Aead.decrypt(&pt2, &ct, tag, &ad, nonce, key);
         testing.expectEqualSlices(u8, &pt, &pt2);
     }
     { // test vector (1057) from NIST KAT submission.
@@ -394,13 +394,13 @@ test "cipher" {
         try std.fmt.hexToBytes(&pt, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F");
 
         var ct: [pt.len]u8 = undefined;
-        var at: [16]u8 = undefined;
-        Aead.encrypt(&ct, &at, &pt, &ad, nonce, key);
+        var tag: [16]u8 = undefined;
+        Aead.encrypt(&ct, &tag, &pt, &ad, nonce, key);
         htest.assertEqual("7F8A2CF4F52AA4D6B2E74105C30A2777B9D0C8AEFDD555DE35861BD3011F652F", &ct);
-        htest.assertEqual("7256456FA935AC34BBF55AE135F33257", &at);
+        htest.assertEqual("7256456FA935AC34BBF55AE135F33257", &tag);
 
         var pt2: [pt.len]u8 = undefined;
-        try Aead.decrypt(&pt2, &ct, at, &ad, nonce, key);
+        try Aead.decrypt(&pt2, &ct, tag, &ad, nonce, key);
         testing.expectEqualSlices(u8, &pt, &pt2);
     }
 }
