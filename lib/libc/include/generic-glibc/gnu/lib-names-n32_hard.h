@@ -19,8 +19,6 @@
 #define LIBNSS_FILES_SO                 "libnss_files.so.2"
 #define LIBNSS_HESIOD_SO                "libnss_hesiod.so.2"
 #define LIBNSS_LDAP_SO                  "libnss_ldap.so.2"
-#define LIBNSS_NISPLUS_SO               "libnss_nisplus.so.2"
-#define LIBNSS_NIS_SO                   "libnss_nis.so.2"
 #define LIBNSS_TEST1_SO                 "libnss_test1.so.2"
 #define LIBNSS_TEST2_SO                 "libnss_test2.so.2"
 #define LIBPTHREAD_SO                   "libpthread.so.0"

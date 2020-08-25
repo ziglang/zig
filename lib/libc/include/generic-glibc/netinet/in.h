@@ -87,8 +87,12 @@ enum
 #define IPPROTO_UDPLITE		IPPROTO_UDPLITE
     IPPROTO_MPLS = 137,    /* MPLS in IP.  */
 #define IPPROTO_MPLS		IPPROTO_MPLS
+    IPPROTO_ETHERNET = 143, /* Ethernet-within-IPv6 Encapsulation.  */
+#define IPPROTO_ETHERNET	IPPROTO_ETHERNET
     IPPROTO_RAW = 255,	   /* Raw IP packets.  */
 #define IPPROTO_RAW		IPPROTO_RAW
+    IPPROTO_MPTCP = 262,   /* Multipath TCP connection.  */
+#define IPPROTO_MPTCP		IPPROTO_MPTCP
     IPPROTO_MAX
   };
 

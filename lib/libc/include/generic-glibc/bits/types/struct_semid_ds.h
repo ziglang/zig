@@ -1,5 +1,5 @@
-/* Define where padding goes in struct semid_ds.  MIPS version.
-   Copyright (C) 2018-2020 Free Software Foundation, Inc.
+/* x86 implementation of the semaphore struct semid_ds.
+   Copyright (C) 1995-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -17,8 +17,18 @@
    <https://www.gnu.org/licenses/>.  */
 
 #ifndef _SYS_SEM_H
-# error "Never use <bits/sem-pad.h> directly; include <sys/sem.h> instead."
+# error "Never include <bits/types/struct_semid_ds.h> directly; use <sys/sem.h> instead."
 #endif
 
-#define __SEM_PAD_AFTER_TIME 0
-#define __SEM_PAD_BEFORE_TIME 0
+/* Data structure describing a set of semaphores.  */
+struct semid_ds
+{
+  struct ipc_perm sem_perm;   /* operation permission struct */
+  __time_t sem_otime;  /* last semop() time */
+  __syscall_ulong_t __sem_otime_high;
+  __time_t sem_ctime;  /* last time changed by semctl() */
+  __syscall_ulong_t __sem_ctime_high;
+  __syscall_ulong_t sem_nsems;    /* number of semaphores in set */
+  __syscall_ulong_t __glibc_reserved3;
+  __syscall_ulong_t __glibc_reserved4;
+};
