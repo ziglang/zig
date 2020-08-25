@@ -7,6 +7,7 @@
 
 const builtin = @import("builtin");
 const std = @import("std");
+const mem = std.mem;
 const time = std.time;
 const Timer = time.Timer;
 const crypto = std.crypto;
@@ -20,14 +21,6 @@ const Crypto = struct {
     ty: type,
     name: []const u8,
 };
-
-fn blackBox(x: anytype) void {
-    asm volatile (""
-        :
-        : [x] "rm" (x)
-        : "memory"
-    );
-}
 
 const hashes = [_]Crypto{
     Crypto{ .ty = crypto.hash.Md5, .name = "md5" },
@@ -54,7 +47,7 @@ pub fn benchmarkHash(comptime Hash: anytype, comptime bytes: comptime_int) !u64 
     while (offset < bytes) : (offset += block.len) {
         h.update(block[0..]);
     }
-    blackBox(&h);
+    mem.forceEval(&h);
     const end = timer.read();
 
     const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
@@ -89,7 +82,7 @@ pub fn benchmarkMac(comptime Mac: anytype, comptime bytes: comptime_int) !u64 {
     const start = timer.lap();
     while (offset < bytes) : (offset += in.len) {
         Mac.create(mac[0..], in[0..], key[0..]);
-        blackBox(&mac);
+        mem.forceEval(&mac);
     }
     const end = timer.read();
 
@@ -116,7 +109,7 @@ pub fn benchmarkKeyExchange(comptime DhKeyExchange: anytype, comptime exchange_c
         var i: usize = 0;
         while (i < exchange_count) : (i += 1) {
             _ = DhKeyExchange.create(out[0..], out[0..], in[0..]);
-            blackBox(&out);
+            mem.forceEval(&out);
         }
     }
     const end = timer.read();
@@ -141,7 +134,7 @@ pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count
         var i: usize = 0;
         while (i < signatures_count) : (i += 1) {
             const s = try Signature.sign(&msg, key_pair, null);
-            blackBox(&s);
+            mem.forceEval(&s);
         }
     }
     const end = timer.read();
@@ -177,7 +170,7 @@ pub fn benchmarkAead(comptime Aead: anytype, comptime bytes: comptime_int) !u64 
         Aead.encrypt(in[0..], tag[0..], in[0..], &[_]u8{}, nonce, key);
         Aead.decrypt(in[0..], in[0..], tag, &[_]u8{}, nonce, key) catch unreachable;
     }
-    blackBox(&in);
+    mem.forceEval(&in);
     const end = timer.read();
 
     const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
