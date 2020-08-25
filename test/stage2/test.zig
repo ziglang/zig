@@ -18,6 +18,11 @@ const linux_riscv64 = std.zig.CrossTarget{
     .os_tag = .linux,
 };
 
+const linux_arm = std.zig.CrossTarget{
+    .cpu_arch = .arm,
+    .os_tag = .linux,
+};
+
 const wasi = std.zig.CrossTarget{
     .cpu_arch = .wasm32,
     .os_tag = .wasi,
@@ -26,6 +31,8 @@ const wasi = std.zig.CrossTarget{
 pub fn addCases(ctx: *TestContext) !void {
     try @import("zir.zig").addCases(ctx);
     try @import("cbe.zig").addCases(ctx);
+    try @import("spu-ii.zig").addCases(ctx);
+
     {
         var case = ctx.exe("hello world with updates", linux_x64);
 
@@ -171,6 +178,41 @@ pub fn addCases(ctx: *TestContext) !void {
             \\        : [number] "{a7}" (94),
             \\          [arg1] "{a0}" (0)
             \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "Hello, World!\n",
+        );
+    }
+
+    {
+        var case = ctx.exe("hello world", linux_arm);
+        // Regular old hello world
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    print();
+            \\    exit();
+            \\}
+            \\
+            \\fn print() void {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (4),
+            \\          [arg1] "{r0}" (1),
+            \\          [arg2] "{r1}" (@ptrToInt("Hello, World!\n")),
+            \\          [arg3] "{r2}" (14)
+            \\        : "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("svc #0"
+            \\        :
+            \\        : [number] "{r7}" (1),
+            \\          [arg1] "{r0}" (0)
+            \\        : "memory"
             \\    );
             \\    unreachable;
             \\}
@@ -580,6 +622,58 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    };
             \\    const y = x + a; // 113
             \\    const z = y + a; // 116
+            \\    return z;
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+
+        // Spilling registers to the stack.
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    assert(add(3, 4) == 791);
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn add(a: u32, b: u32) u32 {
+            \\    const x: u32 = blk: {
+            \\        const c = a + b; // 7
+            \\        const d = a + c; // 10
+            \\        const e = d + b; // 14
+            \\        const f = d + e; // 24
+            \\        const g = e + f; // 38
+            \\        const h = f + g; // 62
+            \\        const i = g + h; // 100
+            \\        const j = i + d; // 110
+            \\        const k = i + j; // 210
+            \\        const l = k + c; // 217
+            \\        const m = l + d; // 227
+            \\        const n = m + e; // 241
+            \\        const o = n + f; // 265
+            \\        const p = o + g; // 303
+            \\        const q = p + h; // 365
+            \\        const r = q + i; // 465
+            \\        const s = r + j; // 575
+            \\        const t = s + k; // 785
+            \\        break :blk t;
+            \\    };
+            \\    const y = x + a; // 788
+            \\    const z = y + a; // 791
             \\    return z;
             \\}
             \\

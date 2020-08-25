@@ -11,6 +11,7 @@ const macho = std.macho;
 usingnamespace @import("../os/bits.zig");
 
 extern "c" fn __error() *c_int;
+pub extern "c" fn NSVersionOfRunTimeLibrary(library_name: [*:0]const u8) u32;
 pub extern "c" fn _NSGetExecutablePath(buf: [*]u8, bufsize: *u32) c_int;
 pub extern "c" fn _dyld_image_count() u32;
 pub extern "c" fn _dyld_get_image_header(image_index: u32) ?*mach_header;

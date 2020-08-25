@@ -101,6 +101,10 @@ pub const File = struct {
         /// if `std.io.is_async`. It allows the use of `nosuspend` when calling functions
         /// related to opening the file, reading, writing, and locking.
         intended_io_mode: io.ModeOverride = io.default_mode,
+
+        /// Set this to allow the opened file to automatically become the
+        /// controlling TTY for the current process.
+        allow_ctty: bool = false,
     };
 
     /// TODO https://github.com/ziglang/zig/issues/3802

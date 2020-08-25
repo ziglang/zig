@@ -153,7 +153,6 @@ fn testErrorSet() void {
     expect(error_set_info == .ErrorSet);
     expect(error_set_info.ErrorSet.?.len == 3);
     expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "First"));
-    expect(error_set_info.ErrorSet.?[2].value == @errorToInt(TestErrorSet.Third));
 
     const error_union_info = @typeInfo(TestErrorSet!usize);
     expect(error_union_info == .ErrorUnion);

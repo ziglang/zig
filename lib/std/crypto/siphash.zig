@@ -3,25 +3,44 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-// Siphash
 //
-// SipHash is a moderately fast, non-cryptographic keyed hash function designed for resistance
-// against hash flooding DoS attacks.
+// SipHash is a moderately fast pseudorandom function, returning a 64-bit or 128-bit tag for an arbitrary long input.
+//
+// Typical use cases include:
+// - protection against against DoS attacks for hash tables and bloom filters
+// - authentication of short-lived messages in online protocols
 //
 // https://131002.net/siphash/
-
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
 
-const Endian = std.builtin.Endian;
-
+/// SipHash function with 64-bit output.
+///
+/// Recommended parameters are:
+/// - (c_rounds=4, d_rounds=8) for conservative security; regular hash functions such as BLAKE2 or BLAKE3 are usually a better alternative.
+/// - (c_rounds=2, d_rounds=4) standard parameters.
+/// - (c_rounds=1, d_rounds=3) reduced-round function. Faster, no known implications on its practical security level.
+/// - (c_rounds=1, d_rounds=2) fastest option, but the output may be distinguishable from random data with related keys or non-uniform input - not suitable as a PRF.
+///
+/// SipHash is not a traditional hash function. If the input includes untrusted content, a secret key is absolutely necessary.
+/// And due to its small output size, collisions in SipHash64 can be found with an exhaustive search.
 pub fn SipHash64(comptime c_rounds: usize, comptime d_rounds: usize) type {
     return SipHash(u64, c_rounds, d_rounds);
 }
 
+/// SipHash function with 128-bit output.
+///
+/// Recommended parameters are:
+/// - (c_rounds=4, d_rounds=8) for conservative security; regular hash functions such as BLAKE2 or BLAKE3 are usually a better alternative.
+/// - (c_rounds=2, d_rounds=4) standard parameters.
+/// - (c_rounds=1, d_rounds=4) reduced-round function. Recommended to hash very short, similar strings, when a 128-bit PRF output is still required.
+/// - (c_rounds=1, d_rounds=3) reduced-round function. Faster, no known implications on its practical security level.
+/// - (c_rounds=1, d_rounds=2) fastest option, but the output may be distinguishable from random data with related keys or non-uniform input - not suitable as a PRF.
+///
+/// SipHash is not a traditional hash function. If the input includes untrusted content, a secret key is absolutely necessary.
 pub fn SipHash128(comptime c_rounds: usize, comptime d_rounds: usize) type {
     return SipHash(u128, c_rounds, d_rounds);
 }
@@ -146,30 +165,31 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             d.v2 = math.rotl(u64, d.v2, @as(u64, 32));
         }
 
-        pub fn hash(key: []const u8, input: []const u8) T {
-            const aligned_len = input.len - (input.len % 8);
-
+        pub fn hash(msg: []const u8, key: []const u8) T {
+            const aligned_len = msg.len - (msg.len % 8);
             var c = Self.init(key);
-            @call(.{ .modifier = .always_inline }, c.update, .{input[0..aligned_len]});
-            return @call(.{ .modifier = .always_inline }, c.final, .{input[aligned_len..]});
+            @call(.{ .modifier = .always_inline }, c.update, .{msg[0..aligned_len]});
+            return @call(.{ .modifier = .always_inline }, c.final, .{msg[aligned_len..]});
         }
     };
 }
 
-pub fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize) type {
+fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize) type {
     assert(T == u64 or T == u128);
     assert(c_rounds > 0 and d_rounds > 0);
 
     return struct {
         const State = SipHashStateless(T, c_rounds, d_rounds);
         const Self = @This();
-        const digest_size = 64;
-        const block_size = 64;
+        pub const minimum_key_length = 16;
+        pub const mac_length = @sizeOf(T);
+        pub const block_length = 8;
 
         state: State,
         buf: [8]u8,
         buf_len: usize,
 
+        /// Initialize a state for a SipHash function
         pub fn init(key: []const u8) Self {
             return Self{
                 .state = State.init(key),
@@ -178,6 +198,7 @@ pub fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: us
             };
         }
 
+        /// Add data to the state
         pub fn update(self: *Self, b: []const u8) void {
             var off: usize = 0;
 
@@ -196,12 +217,27 @@ pub fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: us
             self.buf_len += @intCast(u8, b[off + aligned_len ..].len);
         }
 
-        pub fn final(self: *Self) T {
+        /// Return an authentication tag for the current state
+        pub fn final(self: *Self, out: []u8) void {
+            std.debug.assert(out.len >= mac_length);
+            mem.writeIntLittle(T, out[0..mac_length], self.state.final(self.buf[0..self.buf_len]));
+        }
+
+        /// Return an authentication tag for a message and a key
+        pub fn create(out: []u8, msg: []const u8, key: []const u8) void {
+            var ctx = Self.init(key);
+            ctx.update(msg);
+            ctx.final(out[0..]);
+        }
+
+        /// Return an authentication tag for the current state, as an integer
+        pub fn finalInt(self: *Self) T {
             return self.state.final(self.buf[0..self.buf_len]);
         }
 
-        pub fn hash(key: []const u8, input: []const u8) T {
-            return State.hash(key, input);
+        /// Return an authentication tag for a message and a key, as an integer
+        pub fn toInt(msg: []const u8, key: []const u8) T {
+            return State.hash(msg, key);
         }
     };
 }
@@ -284,8 +320,9 @@ test "siphash64-2-4 sanity" {
     for (vectors) |vector, i| {
         buffer[i] = @intCast(u8, i);
 
-        const expected = mem.readIntLittle(u64, &vector);
-        testing.expectEqual(siphash.hash(test_key, buffer[0..i]), expected);
+        var out: [siphash.mac_length]u8 = undefined;
+        siphash.create(&out, buffer[0..i], test_key);
+        testing.expectEqual(out, vector);
     }
 }
 
@@ -363,8 +400,9 @@ test "siphash128-2-4 sanity" {
     for (vectors) |vector, i| {
         buffer[i] = @intCast(u8, i);
 
-        const expected = mem.readIntLittle(u128, &vector);
-        testing.expectEqual(siphash.hash(test_key, buffer[0..i]), expected);
+        var out: [siphash.mac_length]u8 = undefined;
+        siphash.create(&out, buffer[0..i], test_key[0..]);
+        testing.expectEqual(out, vector);
     }
 }
 
@@ -379,14 +417,14 @@ test "iterative non-divisible update" {
 
     var end: usize = 9;
     while (end < buf.len) : (end += 9) {
-        const non_iterative_hash = Siphash.hash(key, buf[0..end]);
+        const non_iterative_hash = Siphash.toInt(buf[0..end], key[0..]);
 
-        var wy = Siphash.init(key);
+        var siphash = Siphash.init(key);
         var i: usize = 0;
         while (i < end) : (i += 7) {
-            wy.update(buf[i..std.math.min(i + 7, end)]);
+            siphash.update(buf[i..std.math.min(i + 7, end)]);
         }
-        const iterative_hash = wy.final();
+        const iterative_hash = siphash.finalInt();
 
         std.testing.expectEqual(iterative_hash, non_iterative_hash);
     }

@@ -18,6 +18,7 @@ pub const hash = struct {
 /// Authentication (MAC) functions.
 pub const auth = struct {
     pub const hmac = @import("crypto/hmac.zig");
+    pub const siphash = @import("crypto/siphash.zig");
 };
 
 /// Authenticated Encryption with Associated Data
@@ -80,6 +81,7 @@ test "crypto" {
     _ = @import("crypto/sha1.zig");
     _ = @import("crypto/sha2.zig");
     _ = @import("crypto/sha3.zig");
+    _ = @import("crypto/siphash.zig");
     _ = @import("crypto/25519/curve25519.zig");
     _ = @import("crypto/25519/ed25519.zig");
     _ = @import("crypto/25519/edwards25519.zig");

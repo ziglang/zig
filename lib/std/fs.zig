@@ -686,21 +686,28 @@ pub const Dir = struct {
             return self.openFileW(path_w.span(), flags);
         }
 
+        var os_flags: u32 = os.O_CLOEXEC;
         // Use the O_ locking flags if the os supports them
         // (Or if it's darwin, as darwin's `open` doesn't support the O_SYNC flag)
         const has_flock_open_flags = @hasDecl(os, "O_EXLOCK") and !is_darwin;
-        const nonblocking_lock_flag = if (has_flock_open_flags and flags.lock_nonblocking)
-            os.O_NONBLOCK | os.O_SYNC
-        else
-            @as(u32, 0);
-        const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
-            .None => @as(u32, 0),
-            .Shared => os.O_SHLOCK | nonblocking_lock_flag,
-            .Exclusive => os.O_EXLOCK | nonblocking_lock_flag,
-        } else 0;
-
-        const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
-        const os_flags = lock_flag | O_LARGEFILE | os.O_CLOEXEC | if (flags.write and flags.read)
+        if (has_flock_open_flags) {
+            const nonblocking_lock_flag = if (flags.lock_nonblocking)
+                os.O_NONBLOCK | os.O_SYNC
+            else
+                @as(u32, 0);
+            os_flags |= switch (flags.lock) {
+                .None => @as(u32, 0),
+                .Shared => os.O_SHLOCK | nonblocking_lock_flag,
+                .Exclusive => os.O_EXLOCK | nonblocking_lock_flag,
+            };
+        }
+        if (@hasDecl(os, "O_LARGEFILE")) {
+            os_flags |= os.O_LARGEFILE;
+        }
+        if (!flags.allow_ctty) {
+            os_flags |= os.O_NOCTTY;
+        }
+        os_flags |= if (flags.write and flags.read)
             @as(u32, os.O_RDWR)
         else if (flags.write)
             @as(u32, os.O_WRONLY)

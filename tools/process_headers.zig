@@ -15,6 +15,7 @@ const Arch = std.Target.Cpu.Arch;
 const Abi = std.Target.Abi;
 const OsTag = std.Target.Os.Tag;
 const assert = std.debug.assert;
+const Sha256 = std.crypto.hash.sha2.Sha256;
 
 const LibCTarget = struct {
     name: []const u8,
@@ -313,7 +314,7 @@ pub fn main() !void {
     var max_bytes_saved: usize = 0;
     var total_bytes: usize = 0;
 
-    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    var hasher = Sha256.init(.{});
 
     for (libc_targets) |libc_target| {
         const dest_target = DestTarget{
@@ -359,7 +360,7 @@ pub fn main() !void {
                             const trimmed = std.mem.trim(u8, raw_bytes, " \r\n\t");
                             total_bytes += raw_bytes.len;
                             const hash = try allocator.alloc(u8, 32);
-                            hasher.reset();
+                            hasher = Sha256.init(.{});
                             hasher.update(rel_path);
                             hasher.update(trimmed);
                             hasher.final(hash);

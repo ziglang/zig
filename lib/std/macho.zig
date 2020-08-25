@@ -40,6 +40,24 @@ pub const uuid_command = extern struct {
     uuid: [16]u8,
 };
 
+/// The entry_point_command is a replacement for thread_command.
+/// It is used for main executables to specify the location (file offset)
+/// of main(). If -stack_size was used at link time, the stacksize
+/// field will contain the stack size needed for the main thread.
+pub const entry_point_command = struct {
+    /// LC_MAIN only used in MH_EXECUTE filetypes
+    cmd: u32,
+
+    /// sizeof(struct entry_point_command)
+    cmdsize: u32,
+
+    /// file (__TEXT) offset of main()
+    entryoff: u64,
+
+    /// if not zero, initial stack size
+    stacksize: u64,
+};
+
 /// The symtab_command contains the offsets and sizes of the link-edit 4.3BSD
 /// "stab" style symbol table information as described in the header files
 /// <nlist.h> and <stab.h>.
@@ -65,7 +83,7 @@ pub const symtab_command = extern struct {
 
 /// The linkedit_data_command contains the offsets and sizes of a blob
 /// of data in the __LINKEDIT segment.
-const linkedit_data_command = extern struct {
+pub const linkedit_data_command = extern struct {
     /// LC_CODE_SIGNATURE, LC_SEGMENT_SPLIT_INFO, LC_FUNCTION_STARTS, LC_DATA_IN_CODE, LC_DYLIB_CODE_SIGN_DRS or LC_LINKER_OPTIMIZATION_HINT.
     cmd: u32,
 
@@ -77,6 +95,65 @@ const linkedit_data_command = extern struct {
 
     /// file size of data in __LINKEDIT segment
     datasize: u32,
+};
+
+/// A program that uses a dynamic linker contains a dylinker_command to identify
+/// the name of the dynamic linker (LC_LOAD_DYLINKER). And a dynamic linker
+/// contains a dylinker_command to identify the dynamic linker (LC_ID_DYLINKER).
+/// A file can have at most one of these.
+/// This struct is also used for the LC_DYLD_ENVIRONMENT load command and contains
+/// string for dyld to treat like an environment variable.
+pub const dylinker_command = extern struct {
+    /// LC_ID_DYLINKER, LC_LOAD_DYLINKER, or LC_DYLD_ENVIRONMENT
+    cmd: u32,
+
+    /// includes pathname string
+    cmdsize: u32,
+
+    /// A variable length string in a load command is represented by an lc_str
+    /// union.  The strings are stored just after the load command structure and
+    /// the offset is from the start of the load command structure.  The size
+    /// of the string is reflected in the cmdsize field of the load command.
+    /// Once again any padded bytes to bring the cmdsize field to a multiple
+    /// of 4 bytes must be zero.
+    name: u32,
+};
+
+/// A dynamically linked shared library (filetype == MH_DYLIB in the mach header)
+/// contains a dylib_command (cmd == LC_ID_DYLIB) to identify the library.
+/// An object that uses a dynamically linked shared library also contains a
+/// dylib_command (cmd == LC_LOAD_DYLIB, LC_LOAD_WEAK_DYLIB, or
+/// LC_REEXPORT_DYLIB) for each library it uses.
+pub const dylib_command = extern struct {
+    /// LC_ID_DYLIB, LC_LOAD_WEAK_DYLIB, LC_LOAD_DYLIB, LC_REEXPORT_DYLIB
+    cmd: u32,
+
+    /// includes pathname string
+    cmdsize: u32,
+
+    /// the library identification
+    dylib: dylib,
+};
+
+/// Dynamicaly linked shared libraries are identified by two things.  The
+/// pathname (the name of the library as found for execution), and the
+/// compatibility version number.  The pathname must match and the compatibility
+/// number in the user of the library must be greater than or equal to the
+/// library being used.  The time stamp is used to record the time a library was
+/// built and copied into user so it can be use to determined if the library used
+/// at runtime is exactly the same as used to built the program.
+pub const dylib = extern struct {
+    /// library's pathname (offset pointing at the end of dylib_command)
+    name: u32,
+
+    /// library's build timestamp
+    timestamp: u32,
+
+    /// library's current version number
+    current_version: u32,
+
+    /// library's compatibility version number
+    compatibility_version: u32,
 };
 
 /// The segment load command indicates that a part of this file is to be

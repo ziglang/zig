@@ -4,7 +4,8 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std.zig");
-const Blake3 = std.crypto.hash.Blake3;
+const crypto = std.crypto;
+const Hasher = crypto.auth.siphash.SipHash128(1, 3); // provides enough collision resistance for the CacheHash use cases, while being one of our fastest options right now
 const fs = std.fs;
 const base64 = std.base64;
 const ArrayList = std.ArrayList;
@@ -16,9 +17,8 @@ const Allocator = std.mem.Allocator;
 
 const base64_encoder = fs.base64_encoder;
 const base64_decoder = fs.base64_decoder;
-/// This is 70 more bits than UUIDs. For an analysis of probability of collisions, see:
-/// https://en.wikipedia.org/wiki/Universally_unique_identifier#Collisions
-const BIN_DIGEST_LEN = 24;
+/// This is 128 bits - Even with 2^54 cache entries, the probably of a collision would be under 10^-6
+const BIN_DIGEST_LEN = 16;
 const BASE64_DIGEST_LEN = base64.Base64Encoder.calcSize(BIN_DIGEST_LEN);
 
 const MANIFEST_FILE_SIZE_MAX = 50 * 1024 * 1024;
@@ -43,9 +43,13 @@ pub const File = struct {
     }
 };
 
+/// CacheHash manages project-local `zig-cache` directories.
+/// This is not a general-purpose cache.
+/// It was designed to be fast and simple, not to withstand attacks using specially-crafted input.
 pub const CacheHash = struct {
     allocator: *Allocator,
-    blake3: Blake3,
+    hasher_init: Hasher, // initial state, that can be copied
+    hasher: Hasher, // current state for incremental hashing
     manifest_dir: fs.Dir,
     manifest_file: ?fs.File,
     manifest_dirty: bool,
@@ -54,9 +58,11 @@ pub const CacheHash = struct {
 
     /// Be sure to call release after successful initialization.
     pub fn init(allocator: *Allocator, dir: fs.Dir, manifest_dir_path: []const u8) !CacheHash {
+        const hasher_init = Hasher.init(&[_]u8{0} ** Hasher.minimum_key_length);
         return CacheHash{
             .allocator = allocator,
-            .blake3 = Blake3.init(.{}),
+            .hasher_init = hasher_init,
+            .hasher = hasher_init,
             .manifest_dir = try dir.makeOpenPath(manifest_dir_path, .{}),
             .manifest_file = null,
             .manifest_dirty = false,
@@ -69,8 +75,8 @@ pub const CacheHash = struct {
     pub fn addSlice(self: *CacheHash, val: []const u8) void {
         assert(self.manifest_file == null);
 
-        self.blake3.update(val);
-        self.blake3.update(&[_]u8{0});
+        self.hasher.update(val);
+        self.hasher.update(&[_]u8{0});
     }
 
     /// Convert the input value into bytes and record it as a dependency of the
@@ -133,12 +139,12 @@ pub const CacheHash = struct {
         assert(self.manifest_file == null);
 
         var bin_digest: [BIN_DIGEST_LEN]u8 = undefined;
-        self.blake3.final(&bin_digest);
+        self.hasher.final(&bin_digest);
 
         base64_encoder.encode(self.b64_digest[0..], &bin_digest);
 
-        self.blake3 = Blake3.init(.{});
-        self.blake3.update(&bin_digest);
+        self.hasher = self.hasher_init;
+        self.hasher.update(&bin_digest);
 
         const manifest_file_path = try fmt.allocPrint(self.allocator, "{}.txt", .{self.b64_digest});
         defer self.allocator.free(manifest_file_path);
@@ -238,7 +244,7 @@ pub const CacheHash = struct {
                 }
 
                 var actual_digest: [BIN_DIGEST_LEN]u8 = undefined;
-                try hashFile(this_file, &actual_digest);
+                try hashFile(this_file, &actual_digest, self.hasher_init);
 
                 if (!mem.eql(u8, &cache_hash_file.bin_digest, &actual_digest)) {
                     cache_hash_file.bin_digest = actual_digest;
@@ -248,7 +254,7 @@ pub const CacheHash = struct {
             }
 
             if (!any_file_changed) {
-                self.blake3.update(&cache_hash_file.bin_digest);
+                self.hasher.update(&cache_hash_file.bin_digest);
             }
         }
 
@@ -256,8 +262,8 @@ pub const CacheHash = struct {
             // cache miss
             // keep the manifest file open
             // reset the hash
-            self.blake3 = Blake3.init(.{});
-            self.blake3.update(&bin_digest);
+            self.hasher = self.hasher_init;
+            self.hasher.update(&bin_digest);
 
             // Remove files not in the initial hash
             for (self.files.items[input_file_count..]) |*file| {
@@ -266,7 +272,7 @@ pub const CacheHash = struct {
             self.files.shrink(input_file_count);
 
             for (self.files.items) |file| {
-                self.blake3.update(&file.bin_digest);
+                self.hasher.update(&file.bin_digest);
             }
             return null;
         }
@@ -304,23 +310,23 @@ pub const CacheHash = struct {
 
             // Hash while reading from disk, to keep the contents in the cpu cache while
             // doing hashing.
-            var blake3 = Blake3.init(.{});
+            var hasher = self.hasher_init;
             var off: usize = 0;
             while (true) {
                 // give me everything you've got, captain
                 const bytes_read = try file.read(contents[off..]);
                 if (bytes_read == 0) break;
-                blake3.update(contents[off..][0..bytes_read]);
+                hasher.update(contents[off..][0..bytes_read]);
                 off += bytes_read;
             }
-            blake3.final(&ch_file.bin_digest);
+            hasher.final(&ch_file.bin_digest);
 
             ch_file.contents = contents;
         } else {
-            try hashFile(file, &ch_file.bin_digest);
+            try hashFile(file, &ch_file.bin_digest, self.hasher_init);
         }
 
-        self.blake3.update(&ch_file.bin_digest);
+        self.hasher.update(&ch_file.bin_digest);
     }
 
     /// Add a file as a dependency of process being cached, after the initial hash has been
@@ -382,7 +388,7 @@ pub const CacheHash = struct {
         // the artifacts to cache.
 
         var bin_digest: [BIN_DIGEST_LEN]u8 = undefined;
-        self.blake3.final(&bin_digest);
+        self.hasher.final(&bin_digest);
 
         var out_digest: [BASE64_DIGEST_LEN]u8 = undefined;
         base64_encoder.encode(&out_digest, &bin_digest);
@@ -433,17 +439,17 @@ pub const CacheHash = struct {
     }
 };
 
-fn hashFile(file: fs.File, bin_digest: []u8) !void {
-    var blake3 = Blake3.init(.{});
+fn hashFile(file: fs.File, bin_digest: []u8, hasher_init: anytype) !void {
     var buf: [1024]u8 = undefined;
 
+    var hasher = hasher_init;
     while (true) {
         const bytes_read = try file.read(&buf);
         if (bytes_read == 0) break;
-        blake3.update(buf[0..bytes_read]);
+        hasher.update(buf[0..bytes_read]);
     }
 
-    blake3.final(bin_digest);
+    hasher.final(bin_digest);
 }
 
 /// If the wall clock time, rounded to the same precision as the
@@ -507,7 +513,7 @@ test "cache file and then recall it" {
         _ = try ch.addFile(temp_file, null);
 
         // There should be nothing in the cache
-        testing.expectEqual(@as(?[32]u8, null), try ch.hit());
+        testing.expectEqual(@as(?[BASE64_DIGEST_LEN]u8, null), try ch.hit());
 
         digest1 = ch.final();
     }
@@ -575,7 +581,7 @@ test "check that changing a file makes cache fail" {
         const temp_file_idx = try ch.addFile(temp_file, 100);
 
         // There should be nothing in the cache
-        testing.expectEqual(@as(?[32]u8, null), try ch.hit());
+        testing.expectEqual(@as(?[BASE64_DIGEST_LEN]u8, null), try ch.hit());
 
         testing.expect(mem.eql(u8, original_temp_file_contents, ch.files.items[temp_file_idx].contents.?));
 
@@ -592,7 +598,7 @@ test "check that changing a file makes cache fail" {
         const temp_file_idx = try ch.addFile(temp_file, 100);
 
         // A file that we depend on has been updated, so the cache should not contain an entry for it
-        testing.expectEqual(@as(?[32]u8, null), try ch.hit());
+        testing.expectEqual(@as(?[BASE64_DIGEST_LEN]u8, null), try ch.hit());
 
         // The cache system does not keep the contents of re-hashed input files.
         testing.expect(ch.files.items[temp_file_idx].contents == null);
@@ -625,7 +631,7 @@ test "no file inputs" {
         ch.add("1234");
 
         // There should be nothing in the cache
-        testing.expectEqual(@as(?[32]u8, null), try ch.hit());
+        testing.expectEqual(@as(?[BASE64_DIGEST_LEN]u8, null), try ch.hit());
 
         digest1 = ch.final();
     }
@@ -672,7 +678,7 @@ test "CacheHashes with files added after initial hash work" {
         _ = try ch.addFile(temp_file1, null);
 
         // There should be nothing in the cache
-        testing.expectEqual(@as(?[32]u8, null), try ch.hit());
+        testing.expectEqual(@as(?[BASE64_DIGEST_LEN]u8, null), try ch.hit());
 
         _ = try ch.addFilePost(temp_file2);
 
@@ -705,7 +711,7 @@ test "CacheHashes with files added after initial hash work" {
         _ = try ch.addFile(temp_file1, null);
 
         // A file that we depend on has been updated, so the cache should not contain an entry for it
-        testing.expectEqual(@as(?[32]u8, null), try ch.hit());
+        testing.expectEqual(@as(?[BASE64_DIGEST_LEN]u8, null), try ch.hit());
 
         _ = try ch.addFilePost(temp_file2);
 

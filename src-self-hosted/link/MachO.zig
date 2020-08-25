@@ -6,28 +6,65 @@ const assert = std.debug.assert;
 const fs = std.fs;
 const log = std.log.scoped(.link);
 const macho = std.macho;
+const codegen = @import("../codegen.zig");
 const math = std.math;
 const mem = std.mem;
+const trace = @import("../tracy.zig").trace;
+const Type = @import("../type.zig").Type;
 
 const Module = @import("../Module.zig");
 const link = @import("../link.zig");
 const File = link.File;
 
+const is_darwin = std.Target.current.os.tag.isDarwin();
+
 pub const base_tag: File.Tag = File.Tag.macho;
 
 base: File,
 
-/// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
-/// Same order as in the file.
-segment_cmds: std.ArrayListUnmanaged(macho.segment_command_64) = std.ArrayListUnmanaged(macho.segment_command_64){},
+/// List of all load command headers that are in the file.
+/// We use it to track number and size of all commands needed by the header.
+commands: std.ArrayListUnmanaged(macho.load_command) = std.ArrayListUnmanaged(macho.load_command){},
+command_file_offset: ?u64 = null,
 
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
 /// Same order as in the file.
+segments: std.ArrayListUnmanaged(macho.segment_command_64) = std.ArrayListUnmanaged(macho.segment_command_64){},
 sections: std.ArrayListUnmanaged(macho.section_64) = std.ArrayListUnmanaged(macho.section_64){},
+segment_table_offset: ?u64 = null,
 
+/// Entry point load command
+entry_point_cmd: ?macho.entry_point_command = null,
 entry_addr: ?u64 = null,
 
+/// Default VM start address set at 4GB
+vm_start_address: u64 = 0x100000000,
+
+seg_table_dirty: bool = false,
+
 error_flags: File.ErrorFlags = File.ErrorFlags{},
+
+/// TODO ultimately this will be propagated down from main() and set (in this form or another)
+/// when user links against system lib.
+link_against_system: bool = false,
+
+/// `alloc_num / alloc_den` is the factor of padding when allocating.
+const alloc_num = 4;
+const alloc_den = 3;
+
+/// Default path to dyld
+/// TODO instead of hardcoding it, we should probably look through some env vars and search paths
+/// instead but this will do for now.
+const DEFAULT_DYLD_PATH: [*:0]const u8 = "/usr/lib/dyld";
+
+/// Default lib search path
+/// TODO instead of hardcoding it, we should probably look through some env vars and search paths
+/// instead but this will do for now.
+const DEFAULT_LIB_SEARCH_PATH: []const u8 = "/usr/lib";
+
+const LIB_SYSTEM_NAME: [*:0]const u8 = "System";
+/// TODO we should search for libSystem and fail if it doesn't exist, instead of hardcoding it
+const LIB_SYSTEM_PATH: [*:0]const u8 = DEFAULT_LIB_SEARCH_PATH ++ "/libSystem.B.dylib";
 
 pub const TextBlock = struct {
     pub const empty = TextBlock{};
@@ -80,12 +117,6 @@ fn openFile(allocator: *Allocator, file: fs.File, options: link.Options) !MachO 
 /// Truncates the existing file contents and overwrites the contents.
 /// Returns an error if `file` is not already open with +read +write +seek abilities.
 fn createFile(allocator: *Allocator, file: fs.File, options: link.Options) !MachO {
-    switch (options.output_mode) {
-        .Exe => {},
-        .Obj => {},
-        .Lib => return error.TODOImplementWritingLibFiles,
-    }
-
     var self: MachO = .{
         .base = .{
             .file = file,
@@ -96,31 +127,35 @@ fn createFile(allocator: *Allocator, file: fs.File, options: link.Options) !Mach
     };
     errdefer self.deinit();
 
-    if (options.output_mode == .Exe) {
-        // The first segment command for executables is always a __PAGEZERO segment.
-        try self.segment_cmds.append(allocator, .{
-            .cmd = macho.LC_SEGMENT_64,
-            .cmdsize = @sizeOf(macho.segment_command_64),
-            .segname = self.makeString("__PAGEZERO"),
-            .vmaddr = 0,
-            .vmsize = 0,
-            .fileoff = 0,
-            .filesize = 0,
-            .maxprot = 0,
-            .initprot = 0,
-            .nsects = 0,
-            .flags = 0,
-        });
+    switch (options.output_mode) {
+        .Exe => {
+            // The first segment command for executables is always a __PAGEZERO segment.
+            const pagezero = .{
+                .cmd = macho.LC_SEGMENT_64,
+                .cmdsize = commandSize(@sizeOf(macho.segment_command_64)),
+                .segname = makeString("__PAGEZERO"),
+                .vmaddr = 0,
+                .vmsize = self.vm_start_address,
+                .fileoff = 0,
+                .filesize = 0,
+                .maxprot = 0,
+                .initprot = 0,
+                .nsects = 0,
+                .flags = 0,
+            };
+            try self.commands.append(allocator, .{
+                .cmd = pagezero.cmd,
+                .cmdsize = pagezero.cmdsize,
+            });
+            try self.segments.append(allocator, pagezero);
+        },
+        .Obj => return error.TODOImplementWritingObjFiles,
+        .Lib => return error.TODOImplementWritingLibFiles,
     }
 
-    return self;
-}
+    try self.populateMissingMetadata();
 
-fn makeString(self: *MachO, comptime bytes: []const u8) [16]u8 {
-    var buf: [16]u8 = undefined;
-    if (bytes.len > buf.len) @compileError("MachO segment/section name too long");
-    mem.copy(u8, buf[0..], bytes);
-    return buf;
+    return self;
 }
 
 fn writeMachOHeader(self: *MachO) !void {
@@ -156,10 +191,14 @@ fn writeMachOHeader(self: *MachO) !void {
     };
     hdr.filetype = filetype;
 
-    // TODO consider other commands
-    const ncmds = try math.cast(u32, self.segment_cmds.items.len);
+    const ncmds = try math.cast(u32, self.commands.items.len);
     hdr.ncmds = ncmds;
-    hdr.sizeofcmds = ncmds * @sizeOf(macho.segment_command_64);
+
+    var sizeof_cmds: u32 = 0;
+    for (self.commands.items) |cmd| {
+        sizeof_cmds += cmd.cmdsize;
+    }
+    hdr.sizeofcmds = sizeof_cmds;
 
     // TODO should these be set to something else?
     hdr.flags = 0;
@@ -169,16 +208,88 @@ fn writeMachOHeader(self: *MachO) !void {
 }
 
 pub fn flush(self: *MachO, module: *Module) !void {
-    // TODO implement flush
+    // Save segments first
     {
-        const buf = try self.base.allocator.alloc(macho.segment_command_64, self.segment_cmds.items.len);
+        const buf = try self.base.allocator.alloc(macho.segment_command_64, self.segments.items.len);
         defer self.base.allocator.free(buf);
 
+        self.command_file_offset = @sizeOf(macho.mach_header_64);
+
         for (buf) |*seg, i| {
-            seg.* = self.segment_cmds.items[i];
+            seg.* = self.segments.items[i];
+            self.command_file_offset.? += self.segments.items[i].cmdsize;
         }
 
         try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), @sizeOf(macho.mach_header_64));
+    }
+
+    switch (self.base.options.output_mode) {
+        .Exe => {
+            if (self.link_against_system) {
+                if (is_darwin) {
+                    {
+                        // Specify path to dynamic linker dyld
+                        const cmdsize = commandSize(@intCast(u32, @sizeOf(macho.dylinker_command) + mem.lenZ(DEFAULT_DYLD_PATH)));
+                        const load_dylinker = [1]macho.dylinker_command{
+                            .{
+                                .cmd = macho.LC_LOAD_DYLINKER,
+                                .cmdsize = cmdsize,
+                                .name = @sizeOf(macho.dylinker_command),
+                            },
+                        };
+                        try self.commands.append(self.base.allocator, .{
+                            .cmd = macho.LC_LOAD_DYLINKER,
+                            .cmdsize = cmdsize,
+                        });
+
+                        try self.base.file.?.pwriteAll(mem.sliceAsBytes(load_dylinker[0..1]), self.command_file_offset.?);
+
+                        const file_offset = self.command_file_offset.? + @sizeOf(macho.dylinker_command);
+                        try self.addPadding(cmdsize - @sizeOf(macho.dylinker_command), file_offset);
+
+                        try self.base.file.?.pwriteAll(mem.spanZ(DEFAULT_DYLD_PATH), file_offset);
+                        self.command_file_offset.? += cmdsize;
+                    }
+
+                    {
+                        // Link against libSystem
+                        const cmdsize = commandSize(@intCast(u32, @sizeOf(macho.dylib_command) + mem.lenZ(LIB_SYSTEM_PATH)));
+                        // According to Apple's manual, we should obtain current libSystem version using libc call
+                        // NSVersionOfRunTimeLibrary.
+                        const version = std.c.NSVersionOfRunTimeLibrary(LIB_SYSTEM_NAME);
+                        const dylib = .{
+                            .name = @sizeOf(macho.dylib_command),
+                            .timestamp = 2, // not sure why not simply 0; this is reverse engineered from Mach-O files
+                            .current_version = version,
+                            .compatibility_version = 0x10000, // not sure why this either; value from reverse engineering
+                        };
+                        const load_dylib = [1]macho.dylib_command{
+                            .{
+                                .cmd = macho.LC_LOAD_DYLIB,
+                                .cmdsize = cmdsize,
+                                .dylib = dylib,
+                            },
+                        };
+                        try self.commands.append(self.base.allocator, .{
+                            .cmd = macho.LC_LOAD_DYLIB,
+                            .cmdsize = cmdsize,
+                        });
+
+                        try self.base.file.?.pwriteAll(mem.sliceAsBytes(load_dylib[0..1]), self.command_file_offset.?);
+
+                        const file_offset = self.command_file_offset.? + @sizeOf(macho.dylib_command);
+                        try self.addPadding(cmdsize - @sizeOf(macho.dylib_command), file_offset);
+
+                        try self.base.file.?.pwriteAll(mem.spanZ(LIB_SYSTEM_PATH), file_offset);
+                        self.command_file_offset.? += cmdsize;
+                    }
+                } else {
+                    @panic("linking against libSystem on non-native target is unsupported");
+                }
+            }
+        },
+        .Obj => return error.TODOImplementWritingObjFiles,
+        .Lib => return error.TODOImplementWritingLibFiles,
     }
 
     if (self.entry_addr == null and self.base.options.output_mode == .Exe) {
@@ -192,7 +303,8 @@ pub fn flush(self: *MachO, module: *Module) !void {
 }
 
 pub fn deinit(self: *MachO) void {
-    self.segment_cmds.deinit(self.base.allocator);
+    self.commands.deinit(self.base.allocator);
+    self.segments.deinit(self.base.allocator);
     self.sections.deinit(self.base.allocator);
 }
 
@@ -213,4 +325,31 @@ pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {}
 
 pub fn getDeclVAddr(self: *MachO, decl: *const Module.Decl) u64 {
     @panic("TODO implement getDeclVAddr for MachO");
+}
+
+pub fn populateMissingMetadata(self: *MachO) !void {}
+
+fn makeString(comptime bytes: []const u8) [16]u8 {
+    var buf: [16]u8 = undefined;
+    if (bytes.len > buf.len) @compileError("MachO segment/section name too long");
+    mem.copy(u8, buf[0..], bytes);
+    return buf;
+}
+
+fn commandSize(min_size: u32) u32 {
+    if (min_size % @sizeOf(u64) == 0) return min_size;
+
+    const div = min_size / @sizeOf(u64);
+    return (div + 1) * @sizeOf(u64);
+}
+
+fn addPadding(self: *MachO, size: u32, file_offset: u64) !void {
+    if (size == 0) return;
+
+    const buf = try self.base.allocator.alloc(u8, size);
+    defer self.base.allocator.free(buf);
+
+    mem.set(u8, buf[0..], 0);
+
+    try self.base.file.?.pwriteAll(buf, file_offset);
 }

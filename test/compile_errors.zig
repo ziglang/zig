@@ -2,6 +2,41 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("@Type with undefined",
+        \\comptime {
+        \\    _ = @Type(.{ .Array = .{ .len = 0, .child = u8, .sentinel = undefined } });
+        \\}
+        \\comptime {
+        \\    _ = @Type(.{
+        \\        .Struct = .{
+        \\            .fields = undefined,
+        \\            .decls = undefined,
+        \\            .is_tuple = false,
+        \\            .layout = .Auto,
+        \\        },
+        \\    });
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:16: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:5:16: error: use of undefined value here causes undefined behavior",
+    });
+
+    cases.add("struct with declarations unavailable for @Type",
+        \\export fn entry() void {
+        \\    _ = @Type(@typeInfo(struct { const foo = 1; }));
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:15: error: TypeInfo.Struct.decls must be empty for @Type",
+    });
+
+    cases.add("enum with declarations unavailable for @Type",
+        \\export fn entry() void {
+        \\    _ = @Type(@typeInfo(enum { foo, const bar = 1; }));
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:15: error: TypeInfo.Enum.decls must be empty for @Type",
+    });
+
     cases.addTest("reject extern variables with initializers",
         \\extern var foo: int = 2;
     , &[_][]const u8{
@@ -123,8 +158,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn baz() void {
         \\    try bar();
         \\}
-        \\export fn quux() u32 {
+        \\export fn qux() u32 {
         \\    return bar();
+        \\}
+        \\export fn quux() u32 {
+        \\    var buf: u32 = 0;
+        \\    buf = bar();
         \\}
     , &[_][]const u8{
         "tmp.zig:2:17: error: expected type 'u32', found 'error{Ohno}'",
@@ -132,7 +171,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:8:5: error: expected type 'void', found '@TypeOf(bar).ReturnType.ErrorSet'",
         "tmp.zig:7:17: note: function cannot return an error",
         "tmp.zig:11:15: error: expected type 'u32', found '@TypeOf(bar).ReturnType.ErrorSet!u32'",
-        "tmp.zig:10:18: note: function cannot return an error",
+        "tmp.zig:10:17: note: function cannot return an error",
+        "tmp.zig:15:14: error: expected type 'u32', found '@TypeOf(bar).ReturnType.ErrorSet!u32'",
+        "tmp.zig:14:5: note: cannot store an error in type 'u32'",
     });
 
     cases.addTest("int/float conversion to comptime_int/float",
@@ -598,8 +639,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = C;
         \\}
     , &[_][]const u8{
-        "tmp.zig:4:5: error: non-exhaustive enum must specify size",
-        "error: value assigned to '_' field of non-exhaustive enum",
+        "tmp.zig:4:5: error: value assigned to '_' field of non-exhaustive enum",
+        "error: non-exhaustive enum must specify size",
         "error: non-exhaustive enum specifies every value",
         "error: '_' field of non-exhaustive enum must be last",
     });
@@ -1400,15 +1441,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         "tmp.zig:3:36: error: expected type 'std.builtin.TypeInfo', found 'std.builtin.Int'",
     });
-
-    cases.add("struct with declarations unavailable for @Type",
-        \\export fn entry() void {
-        \\    _ = @Type(@typeInfo(struct { const foo = 1; }));
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:2:15: error: TypeInfo.Struct.decls must be empty for @Type",
-    });
-
     cases.add("wrong type for argument tuple to @asyncCall",
         \\export fn entry1() void {
         \\    var frame: @Frame(foo) = undefined;
