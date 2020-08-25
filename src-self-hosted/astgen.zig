@@ -274,6 +274,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .ErrorSetDecl => return errorSetDecl(mod, scope, rl, node.castTag(.ErrorSetDecl).?),
         .ErrorType => return rlWrap(mod, scope, rl, try errorType(mod, scope, node.castTag(.ErrorType).?)),
         .For => return forExpr(mod, scope, rl, node.castTag(.For).?),
+        .ArrayAccess => return arrayAccess(mod, scope, rl, node.castTag(.ArrayAccess).?),
 
         .Defer => return mod.failNode(scope, node, "TODO implement astgen.expr for .Defer", .{}),
         .Catch => return mod.failNode(scope, node, "TODO implement astgen.expr for .Catch", .{}),
@@ -283,7 +284,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .Resume => return mod.failNode(scope, node, "TODO implement astgen.expr for .Resume", .{}),
         .Try => return mod.failNode(scope, node, "TODO implement astgen.expr for .Try", .{}),
         .Slice => return mod.failNode(scope, node, "TODO implement astgen.expr for .Slice", .{}),
-        .ArrayAccess => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayAccess", .{}),
         .ArrayInitializer => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayInitializer", .{}),
         .ArrayInitializerDot => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayInitializerDot", .{}),
         .StructInitializer => return mod.failNode(scope, node, "TODO implement astgen.expr for .StructInitializer", .{}),
@@ -795,6 +795,16 @@ fn field(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.SimpleInfix
     const field_name = try identifierStringInst(mod, scope, node.rhs.castTag(.Identifier).?);
 
     return rlWrapPtr(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.FieldPtr, .{ .object_ptr = lhs, .field_name = field_name }, .{}));
+}
+
+fn arrayAccess(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.ArrayAccess) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.rtoken].start;
+
+    const array_ptr = try expr(mod, scope, .ref, node.lhs);
+    const index = try expr(mod, scope, .none, node.index_expr);
+
+    return rlWrapPtr(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.ElemPtr, .{ .array_ptr = array_ptr, .index = index }, .{}));
 }
 
 fn deref(mod: *Module, scope: *Scope, node: *ast.Node.SimpleSuffixOp) InnerError!*zir.Inst {
