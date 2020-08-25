@@ -466,11 +466,30 @@ pub fn TagPayloadType(comptime U: type, comptime tag: @TagType(U)) type {
     return fieldInfo(U, @tagName(tag)).field_type;
 }
 
-/// Given a tagged union and an enum, return the value of the union field
+/// Given a pointer-to-tagged union type, and an enum, return the type of
+/// a pointer to the union field corresponding to the enum tag.
+pub fn TagPayloadPtrType(comptime P: type, comptime tag: @TagType(Child(P))) type {
+    testing.expect(trait.isSingleItemPtr(P));
+    const U = Child(P);
+    // This fails if you simply do `dummy: U = undefined` due to comptime UB checks.
+    var dummy: U align(alignment(P)) = @unionInit(U, @tagName(tag), undefined);
+    const ptr = @as(P, &dummy);
+    return @TypeOf(&@field(ptr, @tagName(tag)));
+}
+
+/// Given a tagged union, and an enum, return the value of the union field
 /// corresponding to the enum tag iff it is the union's active field.
 pub fn tagPayload(u: anytype, comptime tag: @TagType(@TypeOf(u))) ?TagPayloadType(@TypeOf(u), tag) {
     if (u != tag) return null;
     return @field(u, @tagName(tag));
+}
+
+/// Given a pointer to a tagged union, and an enum, return a pointer to the
+/// union field derived from the pointer to the union, corresponding to the
+/// enum tag, iff the enum tag is the union's active field.
+pub fn tagPayloadPtr(u: anytype, comptime tag: @TagType(Child(@TypeOf(u)))) ?TagPayloadPtrType(@TypeOf(u), tag) {
+    if (u.* != tag) return null;
+    return &@field(u, @tagName(tag));
 }
 
 const Event = union(enum) {
@@ -485,6 +504,19 @@ test "std.meta.TagPayloadType" {
     const MovedEvent = TagPayloadType(Event, Event.Moved);
     var e: Event = undefined;
     testing.expect(MovedEvent == @TypeOf(e.Moved));
+}
+
+test "std.meta.TagPayloadPtrType" {
+    const MovedEvent = TagPayloadPtrType(*Event, Event.Moved);
+    const ConstMovedEvent = TagPayloadPtrType(*const Event, Event.Moved);
+    const AlignedMovedEvent = TagPayloadPtrType(*const volatile align(64) Event, Event.Moved);
+    var e: Event = undefined;
+    const e_const: Event = undefined;
+    testing.expect(MovedEvent == @TypeOf(&e.Moved));
+    testing.expect(MovedEvent == *TagPayloadType(Event, Event.Moved));
+    testing.expect(ConstMovedEvent == @TypeOf(&e_const.Moved));
+    testing.expect(ConstMovedEvent == *const TagPayloadType(Event, Event.Moved));
+    testing.expect(AlignedMovedEvent == *const volatile TagPayloadType(Event, Event.Moved));
 }
 
 test "std.meta.tagPayload" {
@@ -509,6 +541,35 @@ test "std.meta.tagPayload" {
     const unmoved_null = tagPayload(unmoved_event, .Moved);
     testing.expect(unmoved_value != null);
     testing.expectEqual(unmoved_value.?, 37);
+    testing.expectEqual(unmoved_null, null);
+}
+
+test "std.meta.tagPayloadPtr" {
+    var moved_event = Event{
+        .Moved = .{
+            .from = 100,
+            .to = 45,
+        },
+    };
+    const unmoved_event = Event{
+        .Unmoved = 37,
+    };
+
+    const moved_ptr = tagPayloadPtr(&moved_event, .Moved);
+    const moved_null = tagPayloadPtr(&moved_event, .Unmoved);
+    testing.expect(moved_ptr != null);
+    testing.expectEqual(moved_ptr.?.from, 100);
+    testing.expectEqual(moved_ptr.?.to, 45);
+    testing.expectEqual(@TypeOf(moved_ptr), ?*TagPayloadType(Event, .Moved));
+    testing.expectEqual(@TypeOf(moved_null), ?*TagPayloadType(Event, .Unmoved));
+    testing.expectEqual(moved_null, null);
+
+    const unmoved_ptr = tagPayloadPtr(&unmoved_event, .Unmoved);
+    const unmoved_null = tagPayloadPtr(&unmoved_event, .Moved);
+    testing.expect(unmoved_ptr != null);
+    testing.expectEqual(unmoved_ptr.?.*, 37);
+    testing.expectEqual(@TypeOf(unmoved_ptr), ?*const TagPayloadType(Event, .Unmoved));
+    testing.expectEqual(@TypeOf(unmoved_null), ?*const TagPayloadType(Event, .Moved));
     testing.expectEqual(unmoved_null, null);
 }
 
