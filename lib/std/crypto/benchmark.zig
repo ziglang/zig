@@ -47,7 +47,7 @@ pub fn benchmarkHash(comptime Hash: anytype, comptime bytes: comptime_int) !u64 
     while (offset < bytes) : (offset += block.len) {
         h.update(block[0..]);
     }
-    mem.forceEval(&h);
+    mem.doNotOptimizeAway(&h);
     const end = timer.read();
 
     const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
@@ -82,7 +82,7 @@ pub fn benchmarkMac(comptime Mac: anytype, comptime bytes: comptime_int) !u64 {
     const start = timer.lap();
     while (offset < bytes) : (offset += in.len) {
         Mac.create(mac[0..], in[0..], key[0..]);
-        mem.forceEval(&mac);
+        mem.doNotOptimizeAway(&mac);
     }
     const end = timer.read();
 
@@ -109,7 +109,7 @@ pub fn benchmarkKeyExchange(comptime DhKeyExchange: anytype, comptime exchange_c
         var i: usize = 0;
         while (i < exchange_count) : (i += 1) {
             _ = DhKeyExchange.create(out[0..], out[0..], in[0..]);
-            mem.forceEval(&out);
+            mem.doNotOptimizeAway(&out);
         }
     }
     const end = timer.read();
@@ -134,7 +134,7 @@ pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count
         var i: usize = 0;
         while (i < signatures_count) : (i += 1) {
             const s = try Signature.sign(&msg, key_pair, null);
-            mem.forceEval(&s);
+            mem.doNotOptimizeAway(&s);
         }
     }
     const end = timer.read();
@@ -170,7 +170,7 @@ pub fn benchmarkAead(comptime Aead: anytype, comptime bytes: comptime_int) !u64 
         Aead.encrypt(in[0..], tag[0..], in[0..], &[_]u8{}, nonce, key);
         Aead.decrypt(in[0..], in[0..], tag, &[_]u8{}, nonce, key) catch unreachable;
     }
-    mem.forceEval(&in);
+    mem.doNotOptimizeAway(&in);
     const end = timer.read();
 
     const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;

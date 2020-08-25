@@ -67,7 +67,7 @@ fn tanh32(x: f32) f32 {
     }
     // |x| is subnormal
     else {
-        math.forceEval(x * x);
+        math.doNotOptimizeAway(x * x);
         t = x;
     }
 
@@ -112,7 +112,7 @@ fn tanh64(x: f64) f64 {
     }
     // |x| is subnormal
     else {
-        math.forceEval(@floatCast(f32, x));
+        math.doNotOptimizeAway(@floatCast(f32, x));
         t = x;
     }
 

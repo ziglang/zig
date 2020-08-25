@@ -72,7 +72,7 @@ fn atan32(x_: f32) f32 {
         // |x| < 2^(-12)
         if (ix < 0x39800000) {
             if (ix < 0x00800000) {
-                math.forceEval(x * x);
+                math.doNotOptimizeAway(x * x);
             }
             return x;
         }
@@ -170,7 +170,7 @@ fn atan64(x_: f64) f64 {
         // |x| < 2^(-27)
         if (ix < 0x3E400000) {
             if (ix < 0x00100000) {
-                math.forceEval(@floatCast(f32, x));
+                math.doNotOptimizeAway(@floatCast(f32, x));
             }
             return x;
         }

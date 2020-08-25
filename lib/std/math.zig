@@ -109,8 +109,8 @@ pub fn approxEq(comptime T: type, x: T, y: T, epsilon: T) bool {
     return fabs(x - y) < epsilon;
 }
 
-pub fn forceEval(value: anytype) void {
-    mem.forceEval(value);
+pub fn doNotOptimizeAway(value: anytype) void {
+    mem.doNotOptimizeAway(value);
 }
 
 pub fn raiseInvalid() void {

@@ -2161,7 +2161,7 @@ pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
 /// Force an evaluation of the expression; this tries to prevent
 /// the compiler from optimizing the computation away even if the
 /// result eventually gets discarded.
-pub fn forceEval(val: anytype) void {
+pub fn doNotOptimizeAway(val: anytype) void {
     asm volatile (""
         :
         : [val] "rm" (val)
