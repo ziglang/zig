@@ -43,10 +43,11 @@ pub fn addCases(ctx: *TestContext) !void {
         \\
         \\@entry = fn(@fnty, {
         \\  %a = str("\x32\x08\x01\x0a")
-        \\  %eptr0 = elemptr(%a, @0)
-        \\  %eptr1 = elemptr(%a, @1)
-        \\  %eptr2 = elemptr(%a, @2)
-        \\  %eptr3 = elemptr(%a, @3)
+        \\  %a_ref = ref(%a)
+        \\  %eptr0 = elemptr(%a_ref, @0)
+        \\  %eptr1 = elemptr(%a_ref, @1)
+        \\  %eptr2 = elemptr(%a_ref, @2)
+        \\  %eptr3 = elemptr(%a_ref, @3)
         \\  %v0 = deref(%eptr0)
         \\  %v1 = deref(%eptr1)
         \\  %v2 = deref(%eptr2)

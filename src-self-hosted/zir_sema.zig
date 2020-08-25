@@ -1076,9 +1076,19 @@ fn analyzeInstElemPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) Inne
     const array_ptr = try resolveInst(mod, scope, inst.positionals.array_ptr);
     const uncasted_index = try resolveInst(mod, scope, inst.positionals.index);
     const elem_index = try mod.coerce(scope, Type.initTag(.usize), uncasted_index);
+    
+    const elem_ty = switch (array_ptr.ty.zigTypeTag()) {
+        .Pointer => array_ptr.ty.elemType(),
+        else => return mod.fail(scope, inst.positionals.array_ptr.src, "expected pointer, found '{}'", .{array_ptr.ty}),
+    };
+    if (!elem_ty.isIndexable()) {
+        return mod.fail(scope, inst.base.src, "array access of non-array type '{}'", .{elem_ty});
+    }
 
-    if (array_ptr.ty.isSinglePointer() and array_ptr.ty.elemType().zigTypeTag() == .Array) {
-        if (array_ptr.value()) |array_ptr_val| {
+    if (elem_ty.isSinglePointer() and elem_ty.elemType().zigTypeTag() == .Array) {
+        // we have to deref the ptr operand to get the actual array pointer
+        const array_ptr_deref = try mod.analyzeDeref(scope, inst.base.src, array_ptr, inst.positionals.array_ptr.src);
+        if (array_ptr_deref.value()) |array_ptr_val| {
             if (elem_index.value()) |index_val| {
                 // Both array pointer and index are compile-time known.
                 const index_u64 = index_val.toUnsignedInt();
@@ -1089,7 +1099,7 @@ fn analyzeInstElemPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) Inne
                 const type_payload = try scope.arena().create(Type.Payload.PointerSimple);
                 type_payload.* = .{
                     .base = .{ .tag = .single_const_pointer },
-                    .pointee_type = array_ptr.ty.elemType().elemType(),
+                    .pointee_type = elem_ty.elemType().elemType(),
                 };
 
                 return mod.constInst(scope, inst.base.src, .{
