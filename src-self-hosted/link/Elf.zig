@@ -1348,6 +1348,7 @@ fn freeTextBlock(self: *Elf, text_block: *TextBlock) void {
     var already_have_free_list_node = false;
     {
         var i: usize = 0;
+        // TODO turn text_block_free_list into a hash map
         while (i < self.text_block_free_list.items.len) {
             if (self.text_block_free_list.items[i] == text_block) {
                 _ = self.text_block_free_list.swapRemove(i);
@@ -1359,10 +1360,18 @@ fn freeTextBlock(self: *Elf, text_block: *TextBlock) void {
             i += 1;
         }
     }
+    // TODO process free list for dbg info just like we do above for vaddrs
 
     if (self.last_text_block == text_block) {
         // TODO shrink the .text section size here
         self.last_text_block = text_block.prev;
+    }
+    if (self.dbg_info_decl_first == text_block) {
+        self.dbg_info_decl_first = text_block.dbg_info_next;
+    }
+    if (self.dbg_info_decl_last == text_block) {
+        // TODO shrink the .debug_info section size here
+        self.dbg_info_decl_last = text_block.dbg_info_prev;
     }
 
     if (text_block.prev) |prev| {
@@ -1381,6 +1390,20 @@ fn freeTextBlock(self: *Elf, text_block: *TextBlock) void {
         next.prev = text_block.prev;
     } else {
         text_block.next = null;
+    }
+
+    if (text_block.dbg_info_prev) |prev| {
+        prev.dbg_info_next = text_block.dbg_info_next;
+
+        // TODO the free list logic like we do for text blocks above
+    } else {
+        text_block.dbg_info_prev = null;
+    }
+
+    if (text_block.dbg_info_next) |next| {
+        next.dbg_info_prev = text_block.dbg_info_prev;
+    } else {
+        text_block.dbg_info_next = null;
     }
 }
 
@@ -1583,10 +1606,10 @@ pub fn freeDecl(self: *Elf, decl: *Module.Decl) void {
         next.prev = null;
     }
     if (self.dbg_line_fn_first == &decl.fn_link.elf) {
-        self.dbg_line_fn_first = null;
+        self.dbg_line_fn_first = decl.fn_link.elf.next;
     }
     if (self.dbg_line_fn_last == &decl.fn_link.elf) {
-        self.dbg_line_fn_last = null;
+        self.dbg_line_fn_last = decl.fn_link.elf.prev;
     }
 }
 
