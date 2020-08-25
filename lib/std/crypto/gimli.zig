@@ -180,10 +180,14 @@ test "hash" {
 }
 
 pub const Aead = struct {
+    pub const tag_length = State.RATE;
+    pub const nonce_length = 16;
+    pub const key_length = 32;
+
     /// ad: Associated Data
     /// npub: public nonce
     /// k: private key
-    fn init(ad: []const u8, npub: [16]u8, k: [32]u8) State {
+    fn init(ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) State {
         var state = State{
             .data = undefined,
         };
@@ -229,7 +233,7 @@ pub const Aead = struct {
     /// ad: Associated Data
     /// npub: public nonce
     /// k: private key
-    pub fn encrypt(c: []u8, at: *[State.RATE]u8, m: []const u8, ad: []const u8, npub: [16]u8, k: [32]u8) void {
+    pub fn encrypt(c: []u8, at: *[tag_length]u8, m: []const u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) void {
         assert(c.len == m.len);
 
         var state = Aead.init(ad, npub, k);
@@ -275,7 +279,7 @@ pub const Aead = struct {
     /// npub: public nonce
     /// k: private key
     /// NOTE: the check of the authentication tag is currently not done in constant time
-    pub fn decrypt(m: []u8, c: []const u8, at: [State.RATE]u8, ad: []const u8, npub: [16]u8, k: [32]u8) !void {
+    pub fn decrypt(m: []u8, c: []const u8, at: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) !void {
         assert(c.len == m.len);
 
         var state = Aead.init(ad, npub, k);

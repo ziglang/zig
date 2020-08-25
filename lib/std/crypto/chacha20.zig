@@ -47,7 +47,7 @@ fn initContext(key: [8]u32, d: [4]u32) [16]u32 {
 }
 
 // The chacha family of ciphers are based on the salsa family.
-fn chacha20Core(x: []u32, input: [16]u32) void {
+inline fn chacha20Core(x: []u32, input: [16]u32) void {
     for (x) |_, i|
         x[i] = input[i];
 
