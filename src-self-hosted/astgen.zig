@@ -1235,6 +1235,7 @@ fn forExpr(mod: *Module, scope: *Scope, rl: ResultLoc, for_node: *ast.Node.For) 
         break :blk index_ptr;
     };
     const array_ptr = try expr(mod, &for_scope.base, .ref, for_node.array_expr);
+    _ = try addZIRUnOp(mod, &for_scope.base, for_node.array_expr.firstToken(), .ensure_indexable, array_ptr);
     const cond_src = tree.token_locs[for_node.array_expr.firstToken()].start;
     const len_ptr = try addZIRInst(mod, &for_scope.base, cond_src, zir.Inst.FieldPtr, .{
         .object_ptr = array_ptr,

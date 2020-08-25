@@ -48,6 +48,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .declval_in_module => return analyzeInstDeclValInModule(mod, scope, old_inst.castTag(.declval_in_module).?),
         .ensure_result_used => return analyzeInstEnsureResultUsed(mod, scope, old_inst.castTag(.ensure_result_used).?),
         .ensure_result_non_error => return analyzeInstEnsureResultNonError(mod, scope, old_inst.castTag(.ensure_result_non_error).?),
+        .ensure_indexable => return analyzeInstEnsureIndexable(mod, scope, old_inst.castTag(.ensure_indexable).?),
         .ref => return analyzeInstRef(mod, scope, old_inst.castTag(.ref).?),
         .ret_ptr => return analyzeInstRetPtr(mod, scope, old_inst.castTag(.ret_ptr).?),
         .ret_type => return analyzeInstRetType(mod, scope, old_inst.castTag(.ret_type).?),
@@ -379,6 +380,19 @@ fn analyzeInstEnsureResultNonError(mod: *Module, scope: *Scope, inst: *zir.Inst.
     switch (operand.ty.zigTypeTag()) {
         .ErrorSet, .ErrorUnion => return mod.fail(scope, operand.src, "error is discarded", .{}),
         else => return mod.constVoid(scope, operand.src),
+    }
+}
+
+fn analyzeInstEnsureIndexable(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const operand = try resolveInst(mod, scope, inst.positionals.operand);
+    const elem_ty = operand.ty.elemType();
+    if (elem_ty.isIndexable()) {
+        return mod.constVoid(scope, operand.src);
+    } else {
+        // TODO error notes
+        // error: type '{}' does not support indexing
+        // note: for loop operand must be an array, a slice or a tuple
+        return mod.fail(scope, operand.src, "for loop operand must be an array, a slice or a tuple", .{});
     }
 }
 

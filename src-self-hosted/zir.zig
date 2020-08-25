@@ -137,6 +137,8 @@ pub const Inst = struct {
         ensure_result_used,
         /// Emits a compile error if an error is ignored.
         ensure_result_non_error,
+        /// Emits a compile error if operand cannot be indexed.
+        ensure_indexable,
         /// Create a `E!T` type.
         error_union_type,
         /// Create an error set.
@@ -278,6 +280,7 @@ pub const Inst = struct {
                 .alloc,
                 .ensure_result_used,
                 .ensure_result_non_error,
+                .ensure_indexable,
                 .bitcast_result_ptr,
                 .ref,
                 .bitcast_ref,
@@ -409,6 +412,7 @@ pub const Inst = struct {
                 .elemptr,
                 .ensure_result_used,
                 .ensure_result_non_error,
+                .ensure_indexable,
                 .@"export",
                 .floatcast,
                 .fieldptr,

@@ -2675,6 +2675,13 @@ pub const Type = extern union {
         };
     }
 
+    pub fn isIndexable(self: Type) bool {
+        const zig_tag = self.zigTypeTag();
+        // TODO tuples are indexable
+        return zig_tag == .Array or zig_tag == .Vector or self.isSlice() or
+            (self.isSinglePointer() and self.elemType().zigTypeTag() == .Array);
+    }
+
     /// This enum does not directly correspond to `std.builtin.TypeId` because
     /// it has extra enum tags in it, as a way of using less memory. For example,
     /// even though Zig recognizes `*align(10) i32` and `*i32` both as Pointer types
