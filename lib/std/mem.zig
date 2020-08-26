@@ -920,6 +920,7 @@ test "mem.count" {
     testing.expect(count(u8, "foo bar", "o bar") == 1);
     testing.expect(count(u8, "foofoofoo", "foo") == 3);
     testing.expect(count(u8, "fffffff", "ff") == 3);
+    testing.expect(count(u8, "owowowu", "owowu") == 1);
 }
 
 /// Reads an integer from memory with size equal to bytes.len.
