@@ -395,17 +395,11 @@ pub fn formatType(
             }
             const info = @typeInfo(T).Union;
             if (info.tag_type) |UnionTagType| {
-                const tag_info = @typeInfo(UnionTagType).Enum;
                 try writer.writeAll("{ .");
                 try writer.writeAll(@tagName(@as(UnionTagType, value)));
                 try writer.writeAll(" = ");
                 inline for (info.fields) |u_field| {
-                    comptime var tag_value: @TagType(UnionTagType) = undefined;
-                    inline for (tag_info.fields) |e_field| {
-                        if (comptime mem.eql(u8, u_field.name, e_field.name))
-                            tag_value = e_field.value;
-                    }
-                    if (@enumToInt(@as(UnionTagType, value)) == tag_value) {
+                    if (value == @field(UnionTagType, u_field.name)) {
                         try formatType(@field(value, u_field.name), fmt, options, writer, max_depth - 1);
                     }
                 }

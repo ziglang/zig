@@ -467,14 +467,8 @@ pub fn TagPayloadType(comptime U: type, tag: @TagType(U)) type {
     const info = @typeInfo(U).Union;
     const tag_info = @typeInfo(@TagType(U)).Enum;
 
-    comptime var name: []const u8 = undefined;
-    inline for (tag_info.fields) |enum_field_info| {
-        if (@enumToInt(tag) == enum_field_info.value)
-            name = enum_field_info.name;
-    }
-
     inline for (info.fields) |field_info| {
-        if (comptime mem.eql(u8, field_info.name, name))
+        if (comptime mem.eql(u8, field_info.name, @tagName(tag)))
             return field_info.field_type;
     }
 
@@ -518,14 +512,8 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
                 const tag_b = activeTag(b);
                 if (tag_a != tag_b) return false;
 
-                const tag_info = @typeInfo(Tag).Enum;
                 inline for (info.fields) |field_info| {
-                    comptime var tag_value: @TagType(Tag) = undefined;
-                    inline for (tag_info.fields) |enum_field_info| {
-                        if (comptime mem.eql(u8, field_info.name, enum_field_info.name))
-                            tag_value = enum_field_info.value;
-                    }
-                    if (tag_value == @enumToInt(tag_a)) {
+                    if (@field(Tag, field_info.name) == tag_a) {
                         return eql(@field(a, field_info.name), @field(b, field_info.name));
                     }
                 }

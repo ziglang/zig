@@ -149,7 +149,6 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                 .Union => {
                     const info = @typeInfo(C).Union;
                     if (info.tag_type) |TagType| {
-                        const tag_info = @typeInfo(TagType).Enum;
                         //we avoid duplicate iteration over the enum tags
                         // by getting the int directly and casting it without
                         // safety. If it is bad, it will be caught anyway.
@@ -157,13 +156,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                         const tag = try self.deserializeInt(TagInt);
 
                         inline for (info.fields) |field_info| {
-                            comptime var tag_value: TagInt = undefined;
-                            inline for (tag_info.fields) |enum_field_info| {
-                                if (comptime std.mem.eql(u8, field_info.name, enum_field_info.name)) {
-                                    tag_value = enum_field_info.value;
-                                }
-                            }
-                            if (tag_value == tag) {
+                            if (@enumToInt(@field(TagType, field_info.name)) == tag) {
                                 const name = field_info.name;
                                 const FieldType = field_info.field_type;
                                 ptr.* = @unionInit(C, name, undefined);
@@ -321,20 +314,13 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
                 .Union => {
                     const info = @typeInfo(T).Union;
                     if (info.tag_type) |TagType| {
-                        const tag_info = @typeInfo(TagType).Enum;
                         const active_tag = meta.activeTag(value);
                         try self.serialize(active_tag);
                         //This inline loop is necessary because active_tag is a runtime
                         // value, but @field requires a comptime value. Our alternative
                         // is to check each field for a match
                         inline for (info.fields) |field_info| {
-                            comptime var tag_value: @TagType(TagType) = undefined;
-                            inline for (tag_info.fields) |enum_field_info| {
-                                if (comptime std.mem.eql(u8, field_info.name, enum_field_info.name)) {
-                                    tag_value = enum_field_info.value;
-                                }
-                            }
-                            if (tag_value == @enumToInt(active_tag)) {
+                            if (@field(TagType, field_info.name) == active_tag) {
                                 const name = field_info.name;
                                 const FieldType = field_info.field_type;
                                 try self.serialize(@field(value, name));
