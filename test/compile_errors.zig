@@ -10,6 +10,78 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:37: error: expected type '[:1]const u8', found '*const [2:2]u8'",
     });
 
+    cases.add("@Type for tagged union with extra union field",
+        \\const TypeInfo = @import("builtin").TypeInfo;
+        \\const Tag = @Type(.{
+        \\    .Enum = .{
+        \\        .layout = .Auto,
+        \\        .tag_type = u1,
+        \\        .fields = &[_]TypeInfo.EnumField{
+        \\            .{ .name = "signed", .value = 0 },
+        \\            .{ .name = "unsigned", .value = 1 },
+        \\        },
+        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\        .is_exhaustive = true,
+        \\    },
+        \\});
+        \\const Tagged = @Type(.{
+        \\    .Union = .{
+        \\        .layout = .Auto,
+        \\        .tag_type = Tag,
+        \\        .fields = &[_]TypeInfo.UnionField{
+        \\            .{ .name = "signed", .field_type = i32 },
+        \\            .{ .name = "unsigned", .field_type = u32 },
+        \\            .{ .name = "arst", .field_type = f32 },
+        \\        },
+        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\    },
+        \\});
+        \\export fn entry() void {
+        \\    var tagged = Tagged{ .signed = -1 };
+        \\    tagged = .{ .unsigned = 1 };
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:14:23: error: enum field not found: 'arst'",
+        "tmp.zig:2:20: note: enum declared here",
+        "tmp.zig:27:24: note: referenced here",
+    });
+
+    cases.add("@Type for tagged union with extra enum field",
+        \\const TypeInfo = @import("builtin").TypeInfo;
+        \\const Tag = @Type(.{
+        \\    .Enum = .{
+        \\        .layout = .Auto,
+        \\        .tag_type = u2,
+        \\        .fields = &[_]TypeInfo.EnumField{
+        \\            .{ .name = "signed", .value = 0 },
+        \\            .{ .name = "unsigned", .value = 1 },
+        \\            .{ .name = "arst", .field_type = 2 },
+        \\        },
+        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\        .is_exhaustive = true,
+        \\    },
+        \\});
+        \\const Tagged = @Type(.{
+        \\    .Union = .{
+        \\        .layout = .Auto,
+        \\        .tag_type = Tag,
+        \\        .fields = &[_]TypeInfo.UnionField{
+        \\            .{ .name = "signed", .field_type = i32 },
+        \\            .{ .name = "unsigned", .field_type = u32 },
+        \\        },
+        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\    },
+        \\});
+        \\export fn entry() void {
+        \\    var tagged = Tagged{ .signed = -1 };
+        \\    tagged = .{ .unsigned = 1 };
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:9:32: error: no member named 'field_type' in struct 'std.builtin.EnumField'",
+        "tmp.zig:18:21: note: referenced here",
+        "tmp.zig:27:18: note: referenced here",
+    });
+
     cases.add("@Type with undefined",
         \\comptime {
         \\    _ = @Type(.{ .Array = .{ .len = 0, .child = u8, .sentinel = undefined } });
@@ -7419,7 +7491,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add( // fixed bug #2032
-        "compile diagnostic string for top level decl type",
+    "compile diagnostic string for top level decl type",
         \\export fn entry() void {
         \\    var foo: u32 = @This(){};
         \\}

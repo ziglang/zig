@@ -198,8 +198,6 @@ fn testUnion() void {
     expect(typeinfo_info.Union.layout == .Auto);
     expect(typeinfo_info.Union.tag_type.? == TypeId);
     expect(typeinfo_info.Union.fields.len == 25);
-    expect(typeinfo_info.Union.fields[4].enum_field != null);
-    expect(typeinfo_info.Union.fields[4].enum_field.?.value == 4);
     expect(typeinfo_info.Union.fields[4].field_type == @TypeOf(@typeInfo(u8).Int));
     expect(typeinfo_info.Union.decls.len == 21);
 
@@ -213,7 +211,6 @@ fn testUnion() void {
     expect(notag_union_info.Union.tag_type == null);
     expect(notag_union_info.Union.layout == .Auto);
     expect(notag_union_info.Union.fields.len == 2);
-    expect(notag_union_info.Union.fields[0].enum_field == null);
     expect(notag_union_info.Union.fields[1].field_type == u32);
 
     const TestExternUnion = extern union {
@@ -223,7 +220,6 @@ fn testUnion() void {
     const extern_union_info = @typeInfo(TestExternUnion);
     expect(extern_union_info.Union.layout == .Extern);
     expect(extern_union_info.Union.tag_type == null);
-    expect(extern_union_info.Union.fields[0].enum_field == null);
     expect(extern_union_info.Union.fields[0].field_type == *c_void);
 }
 
