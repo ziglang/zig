@@ -231,10 +231,20 @@ pub fn Reader(
             return mem.readVarInt(ReturnType, bytes, endian);
         }
 
-        pub fn skipBytes(self: Self, num_bytes: u64) !void {
-            var i: u64 = 0;
-            while (i < num_bytes) : (i += 1) {
-                _ = try self.readByte();
+        /// Optional parameters for `skipBytes`
+        pub const SkipBytesOptions = struct {
+            buf_size: usize = 512,
+        };
+
+        /// Reads `num_bytes` bytes from the stream and discards them
+        pub fn skipBytes(self: Self, num_bytes: usize, comptime options: SkipBytesOptions) !void {
+            var buf: [options.buf_size]u8 = undefined;
+            var remaining = num_bytes;
+
+            while (remaining > 0) {
+                const amt = std.math.min(remaining, options.buf_size);
+                try self.readNoEof(buf[0..amt]);
+                remaining -= amt;
             }
         }
 
@@ -297,4 +307,12 @@ test "Reader.isBytes" {
     const reader = std.io.fixedBufferStream("foobar").reader();
     testing.expectEqual(true, try reader.isBytes("foo"));
     testing.expectEqual(false, try reader.isBytes("qux"));
+}
+
+test "Reader.skipBytes" {
+    const reader = std.io.fixedBufferStream("foobar").reader();
+    try reader.skipBytes(3, .{});
+    testing.expect(try reader.isBytes("bar"));
+    try reader.skipBytes(0, .{});
+    testing.expectError(error.EndOfStream, reader.skipBytes(1, .{}));
 }
