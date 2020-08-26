@@ -802,7 +802,7 @@ fn catchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Catch) 
         const err_name = tree.tokenSlice(payload.castTag(.Payload).?.error_symbol.firstToken());
         if (mem.eql(u8, err_name, "_"))
             break :blk &err_scope.base;
-    
+
         const unwrapped_err_ptr = try addZIRUnOp(mod, &err_scope.base, src, .unwrap_err_code, err_union_ptr);
         err_val_scope = .{
             .parent = &err_scope.base,
@@ -1374,7 +1374,8 @@ fn forExpr(mod: *Module, scope: *Scope, rl: ResultLoc, for_node: *ast.Node.For) 
         .ty = Type.initTag(.usize),
         .val = Value.initTag(.one),
     });
-    const index_plus_one = try addZIRBinOp(mod, &loop_scope.base, for_src, .add, index, one);
+    const index_2 = try addZIRUnOp(mod, &loop_scope.base, cond_src, .deref, index_ptr);
+    const index_plus_one = try addZIRBinOp(mod, &loop_scope.base, for_src, .add, index_2, one);
     _ = try addZIRBinOp(mod, &loop_scope.base, for_src, .store, index_ptr, index_plus_one);
 
     // looping stuff
@@ -1382,7 +1383,7 @@ fn forExpr(mod: *Module, scope: *Scope, rl: ResultLoc, for_node: *ast.Node.For) 
         .instructions = try for_scope.arena.dupe(*zir.Inst, loop_scope.instructions.items),
     });
     const for_block = try addZIRInstBlock(mod, scope, for_src, .{
-        .instructions = try scope.arena().dupe(*zir.Inst, for_scope.instructions.items),
+        .instructions = try for_scope.arena.dupe(*zir.Inst, for_scope.instructions.items),
     });
 
     // while body
@@ -1404,7 +1405,7 @@ fn forExpr(mod: *Module, scope: *Scope, rl: ResultLoc, for_node: *ast.Node.For) 
         .inferred_ptr, .bitcasted_ptr, .block_ptr => .{ .block_ptr = for_block },
     };
 
-    var index_scope: Scope.LocalVal = undefined;
+    var index_scope: Scope.LocalPtr = undefined;
     const then_sub_scope = blk: {
         const payload = for_node.payload.castTag(.PointerIndexPayload).?;
         const is_ptr = payload.ptr_token != null;
@@ -1422,11 +1423,12 @@ fn forExpr(mod: *Module, scope: *Scope, rl: ResultLoc, for_node: *ast.Node.For) 
         if (mem.eql(u8, index_name, "_")) {
             break :blk &then_scope.base;
         }
+        // TODO make this const without an extra copy?
         index_scope = .{
             .parent = &then_scope.base,
             .gen_zir = &then_scope,
             .name = index_name,
-            .inst = index,
+            .ptr = index_ptr,
         };
         break :blk &index_scope.base;
     };

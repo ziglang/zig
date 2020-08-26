@@ -829,6 +829,16 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             // No side effects, so if it's unreferenced, do nothing.
             if (inst.base.isUnused())
                 return MCValue.dead;
+            
+            const operand = try self.resolveInst(inst.operand);
+            const info_a = inst.operand.ty.intInfo(self.target.*);
+            const info_b = inst.base.ty.intInfo(self.target.*);
+            if (info_a.signed != info_b.signed)
+                return self.fail(inst.base.src, "TODO gen intcast sign safety in semantic analysis", .{});
+
+            if (info_a.bits == info_b.bits)
+                return operand;
+
             switch (arch) {
                 else => return self.fail(inst.base.src, "TODO implement intCast for {}", .{self.target.cpu.arch}),
             }
@@ -2039,14 +2049,28 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), x);
                             },
                             8 => {
-                                return self.fail(src, "TODO implement set abi_size=8 stack variable with immediate", .{});
+                                // We have a positive stack offset value but we want a twos complement negative
+                                // offset from rbp, which is at the top of the stack frame.
+                                const negative_offset = @intCast(i8, -@intCast(i32, adj_off));
+                                const twos_comp = @bitCast(u8, negative_offset);
+
+                                // 64 bit write to memory would take two mov's anyways so we
+                                // insted just use two 32 bit writes to avoid register allocation
+                                try self.code.ensureCapacity(self.code.items.len + 14);
+                                var buf: [8]u8 = undefined;
+                                mem.writeIntLittle(u64, &buf, x_big);
+
+                                // mov    DWORD PTR [rbp+offset+4], immediate
+                                self.code.appendSliceAssumeCapacity(&[_]u8{ 0xc7, 0x45, twos_comp + 4});
+                                self.code.appendSliceAssumeCapacity(buf[4..8]);
+
+                                // mov    DWORD PTR [rbp+offset], immediate
+                                self.code.appendSliceAssumeCapacity(&[_]u8{ 0xc7, 0x45, twos_comp });
+                                self.code.appendSliceAssumeCapacity(buf[0..4]);
                             },
                             else => {
                                 return self.fail(src, "TODO implement set abi_size=large stack variable with immediate", .{});
                             },
-                        }
-                        if (x_big <= math.maxInt(u32)) {} else {
-                            return self.fail(src, "TODO implement set stack variable with large immediate", .{});
                         }
                     },
                     .embedded_in_code => |code_offset| {
