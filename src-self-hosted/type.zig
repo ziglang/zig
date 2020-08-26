@@ -771,8 +771,8 @@ pub const Type = extern union {
             .array => self.elemType().hasCodeGenBits() and self.arrayLen() != 0,
             .array_u8 => self.arrayLen() != 0,
             .array_sentinel, .single_const_pointer, .single_mut_pointer, .many_const_pointer, .many_mut_pointer, .c_const_pointer, .c_mut_pointer, .const_slice, .mut_slice, .pointer => self.elemType().hasCodeGenBits(),
-            .int_signed => self.cast(Payload.IntSigned).?.bits == 0,
-            .int_unsigned => self.cast(Payload.IntUnsigned).?.bits == 0,
+            .int_signed => self.cast(Payload.IntSigned).?.bits != 0,
+            .int_unsigned => self.cast(Payload.IntUnsigned).?.bits != 0,
 
             .error_union => {
                 const payload = self.cast(Payload.ErrorUnion).?;

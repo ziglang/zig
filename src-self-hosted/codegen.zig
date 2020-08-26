@@ -273,8 +273,22 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// across each runtime branch upon joining.
         branch_stack: *std.ArrayList(Branch),
 
+        /// The key must be canonical register.
+        registers: std.AutoHashMapUnmanaged(Register, *ir.Inst) = .{},
+        free_registers: FreeRegInt = math.maxInt(FreeRegInt),
+        /// Maps offset to what is stored there.
+        stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .{},
+
+        /// Offset from the stack base, representing the end of the stack frame.
+        max_end_stack: u32 = 0,
+        /// Represents the current end stack offset. If there is no existing slot
+        /// to place a new stack allocation, it goes here, and then bumps `max_end_stack`.
+        next_stack_offset: u32 = 0,
+
         const MCValue = union(enum) {
             /// No runtime bits. `void` types, empty structs, u0, enums with 1 tag, etc.
+            /// TODO Look into deleting this tag and using `dead` instead, since every use
+            /// of MCValue.none should be instead looking at the type and noticing it is 0 bits.
             none,
             /// Control flow will not allow this value to be observed.
             unreach,
@@ -346,71 +360,55 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         const Branch = struct {
             inst_table: std.AutoHashMapUnmanaged(*ir.Inst, MCValue) = .{},
-            /// The key must be canonical register.
-            registers: std.AutoHashMapUnmanaged(Register, RegisterAllocation) = .{},
-            free_registers: FreeRegInt = math.maxInt(FreeRegInt),
-
-            /// Maps offset to what is stored there.
-            stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .{},
-            /// Offset from the stack base, representing the end of the stack frame.
-            max_end_stack: u32 = 0,
-            /// Represents the current end stack offset. If there is no existing slot
-            /// to place a new stack allocation, it goes here, and then bumps `max_end_stack`.
-            next_stack_offset: u32 = 0,
-
-            fn markRegUsed(self: *Branch, reg: Register) void {
-                if (FreeRegInt == u0) return;
-                const index = reg.allocIndex() orelse return;
-                const ShiftInt = math.Log2Int(FreeRegInt);
-                const shift = @intCast(ShiftInt, index);
-                self.free_registers &= ~(@as(FreeRegInt, 1) << shift);
-            }
-
-            fn markRegFree(self: *Branch, reg: Register) void {
-                if (FreeRegInt == u0) return;
-                const index = reg.allocIndex() orelse return;
-                const ShiftInt = math.Log2Int(FreeRegInt);
-                const shift = @intCast(ShiftInt, index);
-                self.free_registers |= @as(FreeRegInt, 1) << shift;
-            }
-
-            /// Before calling, must ensureCapacity + 1 on branch.registers.
-            /// Returns `null` if all registers are allocated.
-            fn allocReg(self: *Branch, inst: *ir.Inst) ?Register {
-                const free_index = @ctz(FreeRegInt, self.free_registers);
-                if (free_index >= callee_preserved_regs.len) {
-                    return null;
-                }
-                self.free_registers &= ~(@as(FreeRegInt, 1) << free_index);
-                const reg = callee_preserved_regs[free_index];
-                self.registers.putAssumeCapacityNoClobber(reg, .{ .inst = inst });
-                log.debug("alloc {} => {*}", .{reg, inst});
-                return reg;
-            }
-
-            /// Does not track the register.
-            fn findUnusedReg(self: *Branch) ?Register {
-                const free_index = @ctz(FreeRegInt, self.free_registers);
-                if (free_index >= callee_preserved_regs.len) {
-                    return null;
-                }
-                return callee_preserved_regs[free_index];
-            }
 
             fn deinit(self: *Branch, gpa: *Allocator) void {
                 self.inst_table.deinit(gpa);
-                self.registers.deinit(gpa);
-                self.stack.deinit(gpa);
                 self.* = undefined;
             }
         };
 
-        const RegisterAllocation = struct {
-            inst: *ir.Inst,
-        };
+        fn markRegUsed(self: *Self, reg: Register) void {
+            if (FreeRegInt == u0) return;
+            const index = reg.allocIndex() orelse return;
+            const ShiftInt = math.Log2Int(FreeRegInt);
+            const shift = @intCast(ShiftInt, index);
+            self.free_registers &= ~(@as(FreeRegInt, 1) << shift);
+        }
+
+        fn markRegFree(self: *Self, reg: Register) void {
+            if (FreeRegInt == u0) return;
+            const index = reg.allocIndex() orelse return;
+            const ShiftInt = math.Log2Int(FreeRegInt);
+            const shift = @intCast(ShiftInt, index);
+            self.free_registers |= @as(FreeRegInt, 1) << shift;
+        }
+
+        /// Before calling, must ensureCapacity + 1 on self.registers.
+        /// Returns `null` if all registers are allocated.
+        fn allocReg(self: *Self, inst: *ir.Inst) ?Register {
+            const free_index = @ctz(FreeRegInt, self.free_registers);
+            if (free_index >= callee_preserved_regs.len) {
+                return null;
+            }
+            self.free_registers &= ~(@as(FreeRegInt, 1) << free_index);
+            const reg = callee_preserved_regs[free_index];
+            self.registers.putAssumeCapacityNoClobber(reg, inst);
+            log.debug("alloc {} => {*}", .{reg, inst});
+            return reg;
+        }
+
+        /// Does not track the register.
+        fn findUnusedReg(self: *Self) ?Register {
+            const free_index = @ctz(FreeRegInt, self.free_registers);
+            if (free_index >= callee_preserved_regs.len) {
+                return null;
+            }
+            return callee_preserved_regs[free_index];
+        }
 
         const StackAllocation = struct {
             inst: *ir.Inst,
+            /// TODO do we need size? should be determined by inst.ty.abiSize()
             size: u32,
         };
 
@@ -435,8 +433,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 branch_stack.items[0].deinit(bin_file.allocator);
                 branch_stack.deinit();
             }
-            const branch = try branch_stack.addOne();
-            branch.* = .{};
+            try branch_stack.append(.{});
 
             const src_data: struct {lbrace_src: usize, rbrace_src: usize, source: []const u8} = blk: {
                 if (module_fn.owner_decl.scope.cast(Module.Scope.File)) |scope_file| {
@@ -476,6 +473,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .rbrace_src = src_data.rbrace_src,
                 .source = src_data.source,
             };
+            defer function.registers.deinit(bin_file.allocator);
+            defer function.stack.deinit(bin_file.allocator);
             defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
 
             var call_info = function.resolveCallingConventionValues(src, fn_type) catch |err| switch (err) {
@@ -487,7 +486,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             function.args = call_info.args;
             function.ret_mcv = call_info.return_value;
             function.stack_align = call_info.stack_align;
-            branch.max_end_stack = call_info.stack_byte_count;
+            function.max_end_stack = call_info.stack_byte_count;
 
             function.gen() catch |err| switch (err) {
                 error.CodegenFail => return Result{ .fail = function.err_msg.? },
@@ -523,7 +522,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         try self.dbgSetPrologueEnd();
                         try self.genBody(self.mod_fn.analysis.success);
 
-                        const stack_end = self.branch_stack.items[0].max_end_stack;
+                        const stack_end = self.max_end_stack;
                         if (stack_end > math.maxInt(i32))
                             return self.fail(self.src, "too much stack used in call parameters", .{});
                         const aligned_stack_end = mem.alignForward(stack_end, self.stack_align);
@@ -580,13 +579,15 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genBody(self: *Self, body: ir.Body) InnerError!void {
-            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-            const inst_table = &branch.inst_table;
             for (body.instructions) |inst| {
+                try self.ensureProcessDeathCapacity(@popCount(@TypeOf(inst.deaths), inst.deaths));
+
                 const mcv = try self.genFuncInst(inst);
-                log.debug("{*} => {}", .{inst, mcv});
-                // TODO don't put void or dead things in here
-                try inst_table.putNoClobber(self.gpa, inst, mcv);
+                if (!inst.isUnused()) {
+                    log.debug("{*} => {}", .{inst, mcv});
+                    const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+                    try branch.inst_table.putNoClobber(self.gpa, inst, mcv);
+                }
 
                 var i: ir.Inst.DeathsBitIndex = 0;
                 while (inst.getOperand(i)) |operand| : (i += 1) {
@@ -628,19 +629,26 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             self.dbg_line.appendAssumeCapacity(DW.LNS_copy);
         }
 
+        /// Asserts there is already capacity to insert into top branch inst_table.
         fn processDeath(self: *Self, inst: *ir.Inst) void {
+            if (inst.tag == .constant) return; // Constants are immortal.
+            // When editing this function, note that the logic must synchronize with `reuseOperand`.
+            const prev_value = self.getResolvedInstValue(inst);
             const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-            const entry = branch.inst_table.getEntry(inst) orelse return;
-            const prev_value = entry.value;
-            entry.value = .dead;
+            branch.inst_table.putAssumeCapacity(inst, .dead);
             switch (prev_value) {
                 .register => |reg| {
                     const canon_reg = toCanonicalReg(reg);
-                    _ = branch.registers.remove(canon_reg);
-                    branch.markRegFree(canon_reg);
+                    _ = self.registers.remove(canon_reg);
+                    self.markRegFree(canon_reg);
                 },
                 else => {}, // TODO process stack allocation death
             }
+        }
+
+        fn ensureProcessDeathCapacity(self: *Self, additional_count: usize) !void {
+            const table = &self.branch_stack.items[self.branch_stack.items.len - 1].inst_table;
+            try table.ensureCapacity(self.gpa, table.items().len + additional_count);
         }
 
         /// Adds a Type to the .debug_info at the current position. The bytes will be populated later,
@@ -705,13 +713,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn allocMem(self: *Self, inst: *ir.Inst, abi_size: u32, abi_align: u32) !u32 {
             if (abi_align > self.stack_align)
                 self.stack_align = abi_align;
-            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
             // TODO find a free slot instead of always appending
-            const offset = mem.alignForwardGeneric(u32, branch.next_stack_offset, abi_align);
-            branch.next_stack_offset = offset + abi_size;
-            if (branch.next_stack_offset > branch.max_end_stack)
-                branch.max_end_stack = branch.next_stack_offset;
-            try branch.stack.putNoClobber(self.gpa, offset, .{
+            const offset = mem.alignForwardGeneric(u32, self.next_stack_offset, abi_align);
+            self.next_stack_offset = offset + abi_size;
+            if (self.next_stack_offset > self.max_end_stack)
+                self.max_end_stack = self.next_stack_offset;
+            try self.stack.putNoClobber(self.gpa, offset, .{
                 .inst = inst,
                 .size = abi_size,
             });
@@ -737,15 +744,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const abi_align = elem_ty.abiAlignment(self.target.*);
             if (abi_align > self.stack_align)
                 self.stack_align = abi_align;
-            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
 
             if (reg_ok) {
                 // Make sure the type can fit in a register before we try to allocate one.
                 const ptr_bits = arch.ptrBitWidth();
                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                 if (abi_size <= ptr_bytes) {
-                    try branch.registers.ensureCapacity(self.gpa, branch.registers.items().len + 1);
-                    if (branch.allocReg(inst)) |reg| {
+                    try self.registers.ensureCapacity(self.gpa, self.registers.items().len + 1);
+                    if (self.allocReg(inst)) |reg| {
                         return MCValue{ .register = registerAlias(reg, abi_size) };
                     }
                 }
@@ -758,20 +764,18 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// allocated. A second call to `copyToTmpRegister` may return the same register.
         /// This can have a side effect of spilling instructions to the stack to free up a register.
         fn copyToTmpRegister(self: *Self, src: usize, mcv: MCValue) !Register {
-            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-
-            const reg = branch.findUnusedReg() orelse b: {
+            const reg = self.findUnusedReg() orelse b: {
                 // We'll take over the first register. Move the instruction that was previously
                 // there to a stack allocation.
                 const reg = callee_preserved_regs[0];
-                const regs_entry = branch.registers.remove(reg).?;
-                const spilled_inst = regs_entry.value.inst;
+                const regs_entry = self.registers.remove(reg).?;
+                const spilled_inst = regs_entry.value;
 
                 const stack_mcv = try self.allocRegOrMem(spilled_inst, false);
-                const inst_entry = branch.inst_table.getEntry(spilled_inst).?;
-                const reg_mcv = inst_entry.value;
+                const reg_mcv = self.getResolvedInstValue(spilled_inst);
                 assert(reg == toCanonicalReg(reg_mcv.register));
-                inst_entry.value = stack_mcv;
+                const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+                try branch.inst_table.put(self.gpa, spilled_inst, stack_mcv);
                 try self.genSetStack(src, spilled_inst.ty, stack_mcv.stack_offset, reg_mcv);
 
                 break :b reg;
@@ -784,22 +788,21 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// `reg_owner` is the instruction that gets associated with the register in the register table.
         /// This can have a side effect of spilling instructions to the stack to free up a register.
         fn copyToNewRegister(self: *Self, reg_owner: *ir.Inst, mcv: MCValue) !MCValue {
-            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-            try branch.registers.ensureCapacity(self.gpa, branch.registers.items().len + 1);
+            try self.registers.ensureCapacity(self.gpa, self.registers.items().len + 1);
 
-            const reg = branch.allocReg(reg_owner) orelse b: {
+            const reg = self.allocReg(reg_owner) orelse b: {
                 // We'll take over the first register. Move the instruction that was previously
                 // there to a stack allocation.
                 const reg = callee_preserved_regs[0];
-                const regs_entry = branch.registers.getEntry(reg).?;
-                const spilled_inst = regs_entry.value.inst;
-                regs_entry.value = .{ .inst = reg_owner };
+                const regs_entry = self.registers.getEntry(reg).?;
+                const spilled_inst = regs_entry.value;
+                regs_entry.value = reg_owner;
 
                 const stack_mcv = try self.allocRegOrMem(spilled_inst, false);
-                const inst_entry = branch.inst_table.getEntry(spilled_inst).?;
-                const reg_mcv = inst_entry.value;
+                const reg_mcv = self.getResolvedInstValue(spilled_inst);
                 assert(reg == toCanonicalReg(reg_mcv.register));
-                inst_entry.value = stack_mcv;
+                const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+                try branch.inst_table.put(self.gpa, spilled_inst, stack_mcv);
                 try self.genSetStack(reg_owner.src, spilled_inst.ty, stack_mcv.stack_offset, reg_mcv);
 
                 break :b reg;
@@ -934,9 +937,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .register => |reg| {
                     // If it's in the registers table, need to associate the register with the
                     // new instruction.
-                    const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-                    if (branch.registers.getEntry(toCanonicalReg(reg))) |entry| {
-                        entry.value = .{ .inst = inst };
+                    if (self.registers.getEntry(toCanonicalReg(reg))) |entry| {
+                        entry.value = inst;
                     }
                     log.debug("reusing {} => {*}", .{reg, inst});
                 },
@@ -949,6 +951,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             // Prevent the operand deaths processing code from deallocating it.
             inst.clearOperandDeath(op_index);
+
+            // That makes us responsible for doing the rest of the stuff that processDeath would have done.
+            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+            branch.inst_table.putAssumeCapacity(inst.getOperand(op_index).?, .dead);
 
             return true;
         }
@@ -1231,8 +1237,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             if (inst.base.isUnused())
                 return MCValue.dead;
 
-            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-            try branch.registers.ensureCapacity(self.gpa, branch.registers.items().len + 1);
+            try self.registers.ensureCapacity(self.gpa, self.registers.items().len + 1);
 
             const result = self.args[self.arg_index];
             self.arg_index += 1;
@@ -1240,8 +1245,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const name_with_null = inst.name[0..mem.lenZ(inst.name) + 1];
             switch (result) {
                 .register => |reg| {
-                    branch.registers.putAssumeCapacityNoClobber(toCanonicalReg(reg), .{ .inst = &inst.base });
-                    branch.markRegUsed(reg);
+                    self.registers.putAssumeCapacityNoClobber(toCanonicalReg(reg), &inst.base);
+                    self.markRegUsed(reg);
 
                     try self.dbg_info.ensureCapacity(self.dbg_info.items.len + 8 + name_with_null.len);
                     self.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
@@ -1536,18 +1541,19 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         fn genDbgStmt(self: *Self, inst: *ir.Inst.NoOp) !MCValue {
             try self.dbgAdvancePCAndLine(inst.base.src);
-            return MCValue.none;
+            assert(inst.base.isUnused());
+            return MCValue.dead;
         }
 
         fn genCondBr(self: *Self, inst: *ir.Inst.CondBr) !MCValue {
-            // TODO Rework this so that the arch-independent logic isn't buried and duplicated.
-            switch (arch) {
-                .x86_64 => {
+            const cond = try self.resolveInst(inst.condition);
+
+            const reloc: Reloc = switch (arch) {
+                .i386, .x86_64 => reloc: {
                     try self.code.ensureCapacity(self.code.items.len + 6);
 
-                    const cond = try self.resolveInst(inst.condition);
-                    switch (cond) {
-                        .compare_flags_signed => |cmp_op| {
+                    const opcode: u8 = switch (cond) {
+                        .compare_flags_signed => |cmp_op| blk: {
                             // Here we map to the opposite opcode because the jump is to the false branch.
                             const opcode: u8 = switch (cmp_op) {
                                 .gte => 0x8c,
@@ -1557,9 +1563,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 .lte => 0x8f,
                                 .eq => 0x85,
                             };
-                            return self.genX86CondBr(inst, opcode);
+                            break :blk opcode;
                         },
-                        .compare_flags_unsigned => |cmp_op| {
+                        .compare_flags_unsigned => |cmp_op| blk: {
                             // Here we map to the opposite opcode because the jump is to the false branch.
                             const opcode: u8 = switch (cmp_op) {
                                 .gte => 0x82,
@@ -1569,9 +1575,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 .lte => 0x87,
                                 .eq => 0x85,
                             };
-                            return self.genX86CondBr(inst, opcode);
+                            break :blk opcode;
                         },
-                        .register => |reg| {
+                        .register => |reg| blk: {
                             // test reg, 1
                             // TODO detect al, ax, eax
                             try self.code.ensureCapacity(self.code.items.len + 4);
@@ -1583,23 +1589,128 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 @as(u8, 0xC0) | (0 << 3) | @truncate(u3, reg.id()),
                                 0x01,
                             });
-                            return self.genX86CondBr(inst, 0x84);
+                            break :blk 0x84;
                         },
                         else => return self.fail(inst.base.src, "TODO implement condbr {} when condition is {}", .{ self.target.cpu.arch, @tagName(cond) }),
-                    }
+                    };
+                    self.code.appendSliceAssumeCapacity(&[_]u8{ 0x0f, opcode });
+                    const reloc = Reloc{ .rel32 = self.code.items.len };
+                    self.code.items.len += 4;
+                    break :reloc reloc;
                 },
-                else => return self.fail(inst.base.src, "TODO implement condbr for {}", .{self.target.cpu.arch}),
-            }
-        }
+                else => return self.fail(inst.base.src, "TODO implement condbr {}", .{ self.target.cpu.arch }),
+            };
 
-        fn genX86CondBr(self: *Self, inst: *ir.Inst.CondBr, opcode: u8) !MCValue {
-            // TODO deal with liveness / deaths condbr's then_entry_deaths and else_entry_deaths
-            self.code.appendSliceAssumeCapacity(&[_]u8{ 0x0f, opcode });
-            const reloc = Reloc{ .rel32 = self.code.items.len };
-            self.code.items.len += 4;
+            // Capture the state of register and stack allocation state so that we can revert to it.
+            const parent_next_stack_offset = self.next_stack_offset;
+            const parent_free_registers = self.free_registers;
+            var parent_stack = try self.stack.clone(self.gpa);
+            defer parent_stack.deinit(self.gpa);
+            var parent_registers = try self.registers.clone(self.gpa);
+            defer parent_registers.deinit(self.gpa);
+
+            try self.branch_stack.append(.{});
+
+            const then_deaths = inst.thenDeaths();
+            try self.ensureProcessDeathCapacity(then_deaths.len);
+            for (then_deaths) |operand| {
+                self.processDeath(operand);
+            }
             try self.genBody(inst.then_body);
+
+            // Revert to the previous register and stack allocation state.
+
+            var saved_then_branch = self.branch_stack.pop();
+            defer saved_then_branch.deinit(self.gpa);
+
+            self.registers.deinit(self.gpa);
+            self.registers = parent_registers;
+            parent_registers = .{};
+
+            self.stack.deinit(self.gpa);
+            self.stack = parent_stack;
+            parent_stack = .{};
+
+            self.next_stack_offset = parent_next_stack_offset;
+            self.free_registers = parent_free_registers;
+
             try self.performReloc(inst.base.src, reloc);
+            const else_branch = self.branch_stack.addOneAssumeCapacity();
+            else_branch.* = .{};
+
+            const else_deaths = inst.elseDeaths();
+            try self.ensureProcessDeathCapacity(else_deaths.len);
+            for (else_deaths) |operand| {
+                self.processDeath(operand);
+            }
             try self.genBody(inst.else_body);
+
+            // At this point, each branch will possibly have conflicting values for where
+            // each instruction is stored. They agree, however, on which instructions are alive/dead.
+            // We use the first ("then") branch as canonical, and here emit
+            // instructions into the second ("else") branch to make it conform.
+            // We continue respect the data structure semantic guarantees of the else_branch so
+            // that we can use all the code emitting abstractions. This is why at the bottom we
+            // assert that parent_branch.free_registers equals the saved_then_branch.free_registers
+            // rather than assigning it.
+            const parent_branch = &self.branch_stack.items[self.branch_stack.items.len - 2];
+            try parent_branch.inst_table.ensureCapacity(self.gpa, parent_branch.inst_table.items().len +
+                else_branch.inst_table.items().len);
+            for (else_branch.inst_table.items()) |else_entry| {
+                const canon_mcv = if (saved_then_branch.inst_table.remove(else_entry.key)) |then_entry| blk: {
+                    // The instruction's MCValue is overridden in both branches.
+                    parent_branch.inst_table.putAssumeCapacity(else_entry.key, then_entry.value);
+                    if (else_entry.value == .dead) {
+                        assert(then_entry.value == .dead);
+                        continue;
+                    }
+                    break :blk then_entry.value;
+                } else blk: {
+                    if (else_entry.value == .dead)
+                        continue;
+                    // The instruction is only overridden in the else branch.
+                    var i: usize = self.branch_stack.items.len - 2;
+                    while (true) {
+                        i -= 1; // If this overflows, the question is: why wasn't the instruction marked dead?
+                        if (self.branch_stack.items[i].inst_table.get(else_entry.key)) |mcv| {
+                            assert(mcv != .dead);
+                            break :blk mcv;
+                        }
+                    }
+                };
+                log.debug("consolidating else_entry {*} {}=>{}", .{else_entry.key, else_entry.value, canon_mcv});
+                // TODO make sure the destination stack offset / register does not already have something
+                // going on there.
+                try self.setRegOrMem(inst.base.src, else_entry.key.ty, canon_mcv, else_entry.value);
+                // TODO track the new register / stack allocation
+            }
+            try parent_branch.inst_table.ensureCapacity(self.gpa, parent_branch.inst_table.items().len +
+                saved_then_branch.inst_table.items().len);
+            for (saved_then_branch.inst_table.items()) |then_entry| {
+                // We already deleted the items from this table that matched the else_branch.
+                // So these are all instructions that are only overridden in the then branch.
+                parent_branch.inst_table.putAssumeCapacity(then_entry.key, then_entry.value);
+                if (then_entry.value == .dead)
+                    continue;
+                const parent_mcv = blk: {
+                    var i: usize = self.branch_stack.items.len - 2;
+                    while (true) {
+                        i -= 1;
+                        if (self.branch_stack.items[i].inst_table.get(then_entry.key)) |mcv| {
+                            assert(mcv != .dead);
+                            break :blk mcv;
+                        }
+                    }
+                };
+                log.debug("consolidating then_entry {*} {}=>{}", .{then_entry.key, parent_mcv, then_entry.value});
+                // TODO make sure the destination stack offset / register does not already have something
+                // going on there.
+                try self.setRegOrMem(inst.base.src, then_entry.key.ty, parent_mcv, then_entry.value);
+                // TODO track the new register / stack allocation
+            }
+
+            self.branch_stack.pop().deinit(self.gpa);
+
             return MCValue.unreach;
         }
 
@@ -1673,11 +1784,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             switch (reloc) {
                 .rel32 => |pos| {
                     const amt = self.code.items.len - (pos + 4);
-                    // If it wouldn't jump at all, elide it.
-                    if (amt == 0) {
-                        self.code.items.len -= 5;
-                        return;
-                    }
+                    // Here it would be tempting to implement testing for amt == 0 and then elide the
+                    // jump. However, that will cause a problem because other jumps may assume that they
+                    // can jump to this code. Or maybe I didn't understand something when I was debugging.
+                    // It could be worth another look. Anyway, that's why that isn't done here. Probably the
+                    // best place to elide jumps will be in semantic analysis, by inlining blocks that only
+                    // only have 1 break instruction.
                     const s32_amt = math.cast(i32, amt) catch
                         return self.fail(src, "unable to perform relocation: jump too far", .{});
                     mem.writeIntLittle(i32, self.code.items[pos..][0..4], s32_amt);
@@ -2282,8 +2394,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn resolveInst(self: *Self, inst: *ir.Inst) !MCValue {
+            // If the type has no codegen bits, no need to store it.
+            if (!inst.ty.hasCodeGenBits())
+                return MCValue.none;
+
             // Constants have static lifetimes, so they are always memoized in the outer most table.
-            if (inst.cast(ir.Inst.Constant)) |const_inst| {
+            if (inst.castTag(.constant)) |const_inst| {
                 const branch = &self.branch_stack.items[0];
                 const gop = try branch.inst_table.getOrPut(self.gpa, inst);
                 if (!gop.found_existing) {
@@ -2292,6 +2408,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 return gop.entry.value;
             }
 
+            return self.getResolvedInstValue(inst);
+        }
+
+        fn getResolvedInstValue(self: *Self, inst: *ir.Inst) MCValue {
             // Treat each stack item as a "layer" on top of the previous one.
             var i: usize = self.branch_stack.items.len;
             while (true) {

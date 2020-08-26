@@ -83,6 +83,7 @@ pub fn build(b: *Builder) !void {
         }
 
         const log_scopes = b.option([]const []const u8, "log", "Which log scopes to enable") orelse &[0][]const u8{};
+        const zir_dumps = b.option([]const []const u8, "dump-zir", "Which functions to dump ZIR for before codegen") orelse &[0][]const u8{};
 
         const opt_version_string = b.option([]const u8, "version-string", "Override Zig version string. Default is to find out with git.");
         const version = if (opt_version_string) |version| version else v: {
@@ -103,6 +104,7 @@ pub fn build(b: *Builder) !void {
         exe.addBuildOption([]const u8, "version", version);
 
         exe.addBuildOption([]const []const u8, "log_scopes", log_scopes);
+        exe.addBuildOption([]const []const u8, "zir_dumps", zir_dumps);
         exe.addBuildOption(bool, "enable_tracy", tracy != null);
         if (tracy) |tracy_path| {
             const client_cpp = fs.path.join(

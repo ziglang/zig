@@ -13,7 +13,8 @@ const Scope = Module.Scope;
 const InnerError = Module.InnerError;
 
 pub const ResultLoc = union(enum) {
-    /// The expression is the right-hand side of assignment to `_`.
+    /// The expression is the right-hand side of assignment to `_`. Only the side-effects of the
+    /// expression should be generated.
     discard,
     /// The expression has an inferred type, and it will be evaluated as an rvalue.
     none,
