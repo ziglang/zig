@@ -253,6 +253,8 @@ pub const Inst = struct {
         unwrap_err_safe,
         /// Same as previous, but without safety checks. Used for orelse, if and while
         unwrap_err_unsafe,
+        /// Gets the error code value of an error union
+        unwrap_err_code,
         /// Takes a *E!T and raises a compiler error if T != void
         ensure_err_payload_void,
         /// Enum literal
@@ -298,6 +300,7 @@ pub const Inst = struct {
                 .unwrap_optional_unsafe,
                 .unwrap_err_safe,
                 .unwrap_err_unsafe,
+                .unwrap_err_code,
                 .ensure_err_payload_void,
                 .anyframe_type,
                 .bitnot,
@@ -454,6 +457,7 @@ pub const Inst = struct {
                 .unwrap_optional_unsafe,
                 .unwrap_err_safe,
                 .unwrap_err_unsafe,
+                .unwrap_err_code,
                 .ptr_type,
                 .ensure_err_payload_void,
                 .enum_literal,
