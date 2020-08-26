@@ -110,6 +110,7 @@ pub const Rational = struct {
 
             var j: usize = start;
             while (j < str.len - i - 1) : (j += 1) {
+                try self.p.ensureMulCapacity(self.p.toConst(), base);
                 try self.p.mul(self.p.toConst(), base);
             }
 
