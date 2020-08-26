@@ -3,21 +3,22 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-// The engines provided here should be initialized from an external source. For now, randomBytes
-// from the crypto package is the most suitable. Be sure to use a CSPRNG when required, otherwise using
-// a normal PRNG will be faster and use substantially less stack space.
-//
-// ```
-// var buf: [8]u8 = undefined;
-// try std.crypto.randomBytes(buf[0..]);
-// const seed = mem.readIntLittle(u64, buf[0..8]);
-//
-// var r = DefaultPrng.init(seed);
-//
-// const s = r.random.int(u64);
-// ```
-//
-// TODO(tiehuis): Benchmark these against other reference implementations.
+
+//! The engines provided here should be initialized from an external source. For now, randomBytes
+//! from the crypto package is the most suitable. Be sure to use a CSPRNG when required, otherwise using
+//! a normal PRNG will be faster and use substantially less stack space.
+//!
+//! ```
+//! var buf: [8]u8 = undefined;
+//! try std.crypto.randomBytes(buf[0..]);
+//! const seed = mem.readIntLittle(u64, buf[0..8]);
+//!
+//! var r = DefaultPrng.init(seed);
+//!
+//! const s = r.random.int(u64);
+//! ```
+//!
+//! TODO(tiehuis): Benchmark these against other reference implementations.
 
 const std = @import("std.zig");
 const builtin = @import("builtin");
@@ -29,10 +30,10 @@ const math = std.math;
 const ziggurat = @import("rand/ziggurat.zig");
 const maxInt = std.math.maxInt;
 
-// When you need fast unbiased random numbers
+/// Fast unbiased random numbers.
 pub const DefaultPrng = Xoroshiro128;
 
-// When you need cryptographically secure random numbers
+/// Cryptographically secure random numbers.
 pub const DefaultCsprng = Isaac64;
 
 pub const Random = struct {
