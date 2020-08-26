@@ -402,41 +402,6 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             }
         }
 
-        fn freeSlot(
-            self: *Self,
-            bucket: *BucketHeader,
-            bucket_index: usize,
-            size_class: usize,
-            slot_index: SlotIndex,
-            used_byte: *u8,
-            used_bit_index: u3,
-            trace_addr: usize,
-        ) void {
-            // Capture stack trace to be the "first free", in case a double free happens.
-            bucket.captureStackTrace(trace_addr, size_class, slot_index, .free);
-
-            used_byte.* &= ~(@as(u8, 1) << used_bit_index);
-            bucket.used_count -= 1;
-            if (bucket.used_count == 0) {
-                if (bucket.next == bucket) {
-                    // it's the only bucket and therefore the current one
-                    self.buckets[bucket_index] = null;
-                } else {
-                    bucket.next.prev = bucket.prev;
-                    bucket.prev.next = bucket.next;
-                    self.buckets[bucket_index] = bucket.prev;
-                }
-                if (!config.never_unmap) {
-                    self.backing_allocator.free(bucket.page[0..page_size]);
-                }
-                const bucket_size = bucketSize(size_class);
-                const bucket_slice = @ptrCast([*]align(@alignOf(BucketHeader)) u8, bucket)[0..bucket_size];
-                self.backing_allocator.free(bucket_slice);
-            } else {
-                @memset(bucket.page + slot_index * size_class, undefined, size_class);
-            }
-        }
-
         /// This function assumes the object is in the large object storage regardless
         /// of the parameters.
         fn resizeLarge(
@@ -560,7 +525,29 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 }
             }
             if (new_size == 0) {
-                self.freeSlot(bucket, bucket_index, size_class, slot_index, used_byte, used_bit_index, ret_addr);
+                // Capture stack trace to be the "first free", in case a double free happens.
+                bucket.captureStackTrace(ret_addr, size_class, slot_index, .free);
+
+                used_byte.* &= ~(@as(u8, 1) << used_bit_index);
+                bucket.used_count -= 1;
+                if (bucket.used_count == 0) {
+                    if (bucket.next == bucket) {
+                        // it's the only bucket and therefore the current one
+                        self.buckets[bucket_index] = null;
+                    } else {
+                        bucket.next.prev = bucket.prev;
+                        bucket.prev.next = bucket.next;
+                        self.buckets[bucket_index] = bucket.prev;
+                    }
+                    if (!config.never_unmap) {
+                        self.backing_allocator.free(bucket.page[0..page_size]);
+                    }
+                    const bucket_size = bucketSize(size_class);
+                    const bucket_slice = @ptrCast([*]align(@alignOf(BucketHeader)) u8, bucket)[0..bucket_size];
+                    self.backing_allocator.free(bucket_slice);
+                } else {
+                    @memset(old_mem.ptr, undefined, old_mem.len);
+                }
                 return @as(usize, 0);
             }
             const new_aligned_size = math.max(new_size, old_align);
