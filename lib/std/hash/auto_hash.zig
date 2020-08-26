@@ -136,12 +136,17 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
 
         .Union => |info| {
             if (info.tag_type) |tag_type| {
+                const tag_info = @typeInfo(tag_type).Enum;
                 const tag = meta.activeTag(key);
                 const s = hash(hasher, tag, strat);
                 inline for (info.fields) |field| {
-                    const enum_field = field.enum_field.?;
-                    if (enum_field.value == @enumToInt(tag)) {
-                        hash(hasher, @field(key, enum_field.name), strat);
+                    comptime var tag_value: @TagType(tag_type) = undefined;
+                    inline for (tag_info.fields) |enum_field| {
+                        if (comptime mem.eql(u8, field.name, enum_field.name))
+                            tag_value = enum_field.value;
+                    }
+                    if (@enumToInt(tag) == tag_value) {
+                        hash(hasher, @field(key, field.name), strat);
                         // TODO use a labelled break when it does not crash the compiler. cf #2908
                         // break :blk;
                         return;

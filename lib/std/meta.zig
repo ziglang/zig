@@ -465,10 +465,19 @@ pub fn TagPayloadType(comptime U: type, tag: @TagType(U)) type {
     testing.expect(trait.is(.Union)(U));
 
     const info = @typeInfo(U).Union;
+    const tag_info = @typeInfo(@TagType(U)).Enum;
+
+    comptime var name: []const u8 = undefined;
+    inline for (tag_info.fields) |enum_field_info| {
+        if (@enumToInt(tag) == enum_field_info.value)
+            name = enum_field_info.name;
+    }
 
     inline for (info.fields) |field_info| {
-        if (field_info.enum_field.?.value == @enumToInt(tag)) return field_info.field_type;
+        if (comptime mem.eql(u8, field_info.name, name))
+            return field_info.field_type;
     }
+
     unreachable;
 }
 
@@ -504,15 +513,20 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
             }
         },
         .Union => |info| {
-            if (info.tag_type) |_| {
+            if (info.tag_type) |Tag| {
                 const tag_a = activeTag(a);
                 const tag_b = activeTag(b);
                 if (tag_a != tag_b) return false;
 
+                const tag_info = @typeInfo(Tag).Enum;
                 inline for (info.fields) |field_info| {
-                    const enum_field = field_info.enum_field.?;
-                    if (enum_field.value == @enumToInt(tag_a)) {
-                        return eql(@field(a, enum_field.name), @field(b, enum_field.name));
+                    comptime var tag_value: @TagType(Tag) = undefined;
+                    inline for (tag_info.fields) |enum_field_info| {
+                        if (comptime mem.eql(u8, field_info.name, enum_field_info.name))
+                            tag_value = enum_field_info.value;
+                    }
+                    if (tag_value == @enumToInt(tag_a)) {
+                        return eql(@field(a, field_info.name), @field(b, field_info.name));
                     }
                 }
                 return false;
