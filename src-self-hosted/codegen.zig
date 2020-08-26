@@ -632,6 +632,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// Asserts there is already capacity to insert into top branch inst_table.
         fn processDeath(self: *Self, inst: *ir.Inst) void {
             if (inst.tag == .constant) return; // Constants are immortal.
+            // When editing this function, note that the logic must synchronize with `reuseOperand`.
             const prev_value = self.getResolvedInstValue(inst);
             const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
             branch.inst_table.putAssumeCapacity(inst, .dead);
@@ -950,6 +951,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
             // Prevent the operand deaths processing code from deallocating it.
             inst.clearOperandDeath(op_index);
+
+            // That makes us responsible for doing the rest of the stuff that processDeath would have done.
+            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+            branch.inst_table.putAssumeCapacity(inst.getOperand(op_index).?, .dead);
 
             return true;
         }
@@ -1666,7 +1671,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // The instruction is only overridden in the else branch.
                     var i: usize = self.branch_stack.items.len - 2;
                     while (true) {
-                        i -= 1;
+                        i -= 1; // If this overflows, the question is: why wasn't the instruction marked dead?
                         if (self.branch_stack.items[i].inst_table.get(else_entry.key)) |mcv| {
                             assert(mcv != .dead);
                             break :blk mcv;

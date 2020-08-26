@@ -954,6 +954,7 @@ pub const Module = struct {
 
     pub const MetaData = struct {
         deaths: ir.Inst.DeathsInt,
+        addr: usize,
     };
 
     pub const BodyMetaData = struct {
@@ -1152,6 +1153,12 @@ const Writer = struct {
                     try self.writeInstToStream(stream, inst);
                     if (self.module.metadata.get(inst)) |metadata| {
                         try stream.print(" ; deaths=0b{b}", .{metadata.deaths});
+                        // This is conditionally compiled in because addresses mess up the tests due
+                        // to Address Space Layout Randomization. It's super useful when debugging
+                        // codegen.zig though.
+                        if (!std.builtin.is_test) {
+                            try stream.print(" 0x{x}", .{metadata.addr});
+                        }
                     }
                     self.indent -= 2;
                     try stream.writeByte('\n');
@@ -2417,7 +2424,10 @@ const EmitZIR = struct {
 
                 .varptr => @panic("TODO"),
             };
-            try self.metadata.put(new_inst, .{ .deaths = inst.deaths });
+            try self.metadata.put(new_inst, .{
+                .deaths = inst.deaths,
+                .addr = @ptrToInt(inst),
+            });
             try instructions.append(new_inst);
             try inst_table.put(inst, new_inst);
         }
