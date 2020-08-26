@@ -120,6 +120,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .unwrap_optional_unsafe => return analyzeInstUnwrapOptional(mod, scope, old_inst.castTag(.unwrap_optional_unsafe).?, false),
         .unwrap_err_safe => return analyzeInstUnwrapErr(mod, scope, old_inst.castTag(.unwrap_err_safe).?, true),
         .unwrap_err_unsafe => return analyzeInstUnwrapErr(mod, scope, old_inst.castTag(.unwrap_err_unsafe).?, false),
+        .unwrap_err_code => return analyzeInstUnwrapErrCode(mod, scope, old_inst.castTag(.unwrap_err_code).?),
         .ensure_err_payload_void => return analyzeInstEnsureErrPayloadVoid(mod, scope, old_inst.castTag(.ensure_err_payload_void).?),
         .array_type => return analyzeInstArrayType(mod, scope, old_inst.castTag(.array_type).?),
         .array_type_sentinel => return analyzeInstArrayTypeSentinel(mod, scope, old_inst.castTag(.array_type_sentinel).?),
@@ -800,11 +801,12 @@ fn analyzeInstUnwrapOptional(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp
     const operand = try resolveInst(mod, scope, unwrap.positionals.operand);
     assert(operand.ty.zigTypeTag() == .Pointer);
 
-    if (operand.ty.elemType().zigTypeTag() != .Optional) {
-        return mod.fail(scope, unwrap.base.src, "expected optional type, found {}", .{operand.ty.elemType()});
+    const elem_type = operand.ty.elemType();
+    if (elem_type.zigTypeTag() != .Optional) {
+        return mod.fail(scope, unwrap.base.src, "expected optional type, found {}", .{elem_type});
     }
 
-    const child_type = try operand.ty.elemType().optionalChildAlloc(scope.arena());
+    const child_type = try elem_type.optionalChildAlloc(scope.arena());
     const child_pointer = try mod.simplePtrType(scope, unwrap.base.src, child_type, operand.ty.isConstPtr(), .One);
 
     if (operand.value()) |val| {
@@ -827,6 +829,10 @@ fn analyzeInstUnwrapOptional(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp
 
 fn analyzeInstUnwrapErr(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp, safety_check: bool) InnerError!*Inst {
     return mod.fail(scope, unwrap.base.src, "TODO implement analyzeInstUnwrapErr", .{});
+}
+
+fn analyzeInstUnwrapErrCode(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp) InnerError!*Inst {
+    return mod.fail(scope, unwrap.base.src, "TODO implement analyzeInstUnwrapErrCode", .{});
 }
 
 fn analyzeInstEnsureErrPayloadVoid(mod: *Module, scope: *Scope, unwrap: *zir.Inst.UnOp) InnerError!*Inst {
@@ -964,7 +970,8 @@ fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr
                     const entry = if (val.cast(Value.Payload.ErrorSet)) |payload|
                         (payload.fields.getEntry(field_name) orelse
                             return mod.fail(scope, fieldptr.base.src, "no error named '{}' in '{}'", .{ field_name, child_type })).*
-                    else try mod.getErrorValue(field_name);
+                    else
+                        try mod.getErrorValue(field_name);
 
                     const error_payload = try scope.arena().create(Value.Payload.Error);
                     error_payload.* = .{
@@ -1298,17 +1305,7 @@ fn analyzeInstCmp(
     {
         // comparing null with optionals
         const opt_operand = if (lhs_ty_tag == .Optional) lhs else rhs;
-        if (opt_operand.value()) |opt_val| {
-            const is_null = opt_val.isNull();
-            return mod.constBool(scope, inst.base.src, if (op == .eq) is_null else !is_null);
-        }
-        const b = try mod.requireRuntimeBlock(scope, inst.base.src);
-        const inst_tag: Inst.Tag = switch (op) {
-            .eq => .isnull,
-            .neq => .isnonnull,
-            else => unreachable,
-        };
-        return mod.addUnOp(b, inst.base.src, Type.initTag(.bool), inst_tag, opt_operand);
+        return mod.analyzeIsNull(scope, inst.base.src, opt_operand, op == .neq);
     } else if (is_equality_cmp and
         ((lhs_ty_tag == .Null and rhs.ty.isCPtr()) or (rhs_ty_tag == .Null and lhs.ty.isCPtr())))
     {
@@ -1356,8 +1353,9 @@ fn analyzeInstIsNonNull(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp, inver
     return mod.analyzeIsNull(scope, inst.base.src, operand, invert_logic);
 }
 
-fn analyzeInstIsErr(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp, invert_logic: bool) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstIsErr", .{});
+fn analyzeInstIsErr(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const operand = try resolveInst(mod, scope, inst.positionals.operand);
+    return mod.analyzeIsErr(scope, inst.base.src, operand);
 }
 
 fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerError!*Inst {
