@@ -106,7 +106,7 @@ fn expm1_32(x_: f32) f32 {
     // |x| < 2^(-25)
     else if (hx < 0x33000000) {
         if (hx < 0x00800000) {
-            math.forceEval(x * x);
+            math.doNotOptimizeAway(x * x);
         }
         return x;
     } else {
@@ -237,7 +237,7 @@ fn expm1_64(x_: f64) f64 {
     // |x| < 2^(-54)
     else if (hx < 0x3C900000) {
         if (hx < 0x00100000) {
-            math.forceEval(@floatCast(f32, x));
+            math.doNotOptimizeAway(@floatCast(f32, x));
         }
         return x;
     } else {

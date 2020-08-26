@@ -2158,6 +2158,17 @@ pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
     return alignBackwardGeneric(T, addr + (alignment - 1), alignment);
 }
 
+/// Force an evaluation of the expression; this tries to prevent
+/// the compiler from optimizing the computation away even if the
+/// result eventually gets discarded.
+pub fn doNotOptimizeAway(val: anytype) void {
+    asm volatile (""
+        :
+        : [val] "rm" (val)
+        : "memory"
+    );
+}
+
 test "alignForward" {
     testing.expect(alignForward(1, 1) == 1);
     testing.expect(alignForward(2, 1) == 2);

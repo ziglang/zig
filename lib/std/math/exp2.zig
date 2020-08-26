@@ -70,7 +70,7 @@ fn exp2_32(x: f32) f32 {
         // x < -126
         if (u >= 0x80000000) {
             if (u >= 0xC3160000 or u & 0x000FFFF != 0) {
-                math.forceEval(-0x1.0p-149 / x);
+                math.doNotOptimizeAway(-0x1.0p-149 / x);
             }
             // x <= -150
             if (u >= 0x3160000) {
@@ -393,7 +393,7 @@ fn exp2_64(x: f64) f64 {
         if (ux >> 63 != 0) {
             // underflow
             if (x <= -1075 or x - 0x1.0p52 + 0x1.0p52 != x) {
-                math.forceEval(@floatCast(f32, -0x1.0p-149 / x));
+                math.doNotOptimizeAway(@floatCast(f32, -0x1.0p-149 / x));
             }
             if (x <= -1075) {
                 return 0;

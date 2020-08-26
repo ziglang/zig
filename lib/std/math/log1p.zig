@@ -62,7 +62,7 @@ fn log1p_32(x: f32) f32 {
         if ((ix << 1) < (0x33800000 << 1)) {
             // underflow if subnormal
             if (ix & 0x7F800000 == 0) {
-                math.forceEval(x * x);
+                math.doNotOptimizeAway(x * x);
             }
             return x;
         }

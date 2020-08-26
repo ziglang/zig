@@ -5,6 +5,7 @@
 // and substantial portions of the software.
 const std = @import("std.zig");
 const assert = std.debug.assert;
+const mem = std.mem;
 const testing = std.testing;
 
 /// Euler's number (e)
@@ -108,34 +109,8 @@ pub fn approxEq(comptime T: type, x: T, y: T, epsilon: T) bool {
     return fabs(x - y) < epsilon;
 }
 
-// TODO: Hide the following in an internal module.
-pub fn forceEval(value: anytype) void {
-    const T = @TypeOf(value);
-    switch (T) {
-        f16 => {
-            var x: f16 = undefined;
-            const p = @ptrCast(*volatile f16, &x);
-            p.* = x;
-        },
-        f32 => {
-            var x: f32 = undefined;
-            const p = @ptrCast(*volatile f32, &x);
-            p.* = x;
-        },
-        f64 => {
-            var x: f64 = undefined;
-            const p = @ptrCast(*volatile f64, &x);
-            p.* = x;
-        },
-        f128 => {
-            var x: f128 = undefined;
-            const p = @ptrCast(*volatile f128, &x);
-            p.* = x;
-        },
-        else => {
-            @compileError("forceEval not implemented for " ++ @typeName(T));
-        },
-    }
+pub fn doNotOptimizeAway(value: anytype) void {
+    mem.doNotOptimizeAway(value);
 }
 
 pub fn raiseInvalid() void {

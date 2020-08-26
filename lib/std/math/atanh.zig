@@ -45,7 +45,7 @@ fn atanh_32(x: f32) f32 {
         if (u < 0x3F800000 - (32 << 23)) {
             // underflow
             if (u < (1 << 23)) {
-                math.forceEval(y * y);
+                math.doNotOptimizeAway(y * y);
             }
         }
         // |x| < 0.5
@@ -74,7 +74,7 @@ fn atanh_64(x: f64) f64 {
         if (e < 0x3FF - 32) {
             // underflow
             if (e == 0) {
-                math.forceEval(@floatCast(f32, y));
+                math.doNotOptimizeAway(@floatCast(f32, y));
             }
         }
         // |x| < 0.5

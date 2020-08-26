@@ -46,7 +46,7 @@ fn trunc32(x: f32) f32 {
     if (u & m == 0) {
         return x;
     } else {
-        math.forceEval(x + 0x1p120);
+        math.doNotOptimizeAway(x + 0x1p120);
         return @bitCast(f32, u & ~m);
     }
 }
@@ -67,7 +67,7 @@ fn trunc64(x: f64) f64 {
     if (u & m == 0) {
         return x;
     } else {
-        math.forceEval(x + 0x1p120);
+        math.doNotOptimizeAway(x + 0x1p120);
         return @bitCast(f64, u & ~m);
     }
 }
@@ -88,7 +88,7 @@ fn trunc128(x: f128) f128 {
     if (u & m == 0) {
         return x;
     } else {
-        math.forceEval(x + 0x1p120);
+        math.doNotOptimizeAway(x + 0x1p120);
         return @bitCast(f128, u & ~m);
     }
 }
