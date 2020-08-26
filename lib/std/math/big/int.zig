@@ -15,6 +15,8 @@ const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 const assert = std.debug.assert;
 
+const debug_safety = false;
+
 /// Returns the number of limbs needed to store `scalar`, which must be a
 /// primitive integer value.
 pub fn calcLimbLen(scalar: anytype) usize {
@@ -57,7 +59,7 @@ pub fn calcSetStringLimbCount(base: u8, string_len: usize) usize {
 
 /// a + b * c + *carry, sets carry to the overflow bits
 pub fn addMulLimbWithCarry(a: Limb, b: Limb, c: Limb, carry: *Limb) Limb {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(debug_safety);
     var r1: Limb = undefined;
 
     // r1 = a + *carry
@@ -1529,8 +1531,7 @@ pub const Managed = struct {
     /// self's allocator is used for temporary storage to boost multiplication performance.
     pub fn setString(self: *Managed, base: u8, value: []const u8) !void {
         if (base < 2 or base > 16) return error.InvalidBase;
-        const den = (@sizeOf(Limb) * 8 / base);
-        try self.ensureCapacity((value.len + (den - 1)) / den);
+        try self.ensureCapacity(calcSetStringLimbCount(base, value.len));
         const limbs_buffer = try self.allocator.alloc(Limb, calcSetStringLimbsBufferLen(base, value.len));
         defer self.allocator.free(limbs_buffer);
         var m = self.toMutable();
@@ -1646,17 +1647,19 @@ pub const Managed = struct {
     /// rma = a * b
     ///
     /// rma, a and b may be aliases. However, it is more efficient if rma does not alias a or b.
+    /// If rma aliases a or b, then caller must call `rma.ensureMulCapacity` prior to calling `mul`.
     ///
     /// Returns an error if memory could not be allocated.
     ///
     /// rma's allocator is used for temporary storage to speed up the multiplication.
     pub fn mul(rma: *Managed, a: Const, b: Const) !void {
-        try rma.ensureCapacity(a.limbs.len + b.limbs.len + 1);
         var alias_count: usize = 0;
         if (rma.limbs.ptr == a.limbs.ptr)
             alias_count += 1;
         if (rma.limbs.ptr == b.limbs.ptr)
             alias_count += 1;
+        assert(alias_count == 0 or rma.limbs.len >= a.limbs.len + b.limbs.len + 1);
+        try rma.ensureMulCapacity(a, b);
         var m = rma.toMutable();
         if (alias_count == 0) {
             m.mulNoAlias(a, b, rma.allocator);
@@ -1667,6 +1670,10 @@ pub const Managed = struct {
             m.mul(a, b, limbs_buffer, rma.allocator);
         }
         rma.setMetadata(m.positive, m.len);
+    }
+
+    pub fn ensureMulCapacity(rma: *Managed, a: Const, b: Const) !void {
+        try rma.ensureCapacity(a.limbs.len + b.limbs.len + 1);
     }
 
     /// q = a / b (rem r)
@@ -1773,7 +1780,7 @@ pub const Managed = struct {
 ///
 /// r MUST NOT alias any of a or b.
 fn llmulacc(opt_allocator: ?*Allocator, r: []Limb, a: []const Limb, b: []const Limb) void {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(debug_safety);
 
     const a_norm = a[0..llnormalize(a)];
     const b_norm = b[0..llnormalize(b)];
@@ -1806,7 +1813,7 @@ fn llmulacc(opt_allocator: ?*Allocator, r: []Limb, a: []const Limb, b: []const L
 ///
 /// r MUST NOT alias any of a or b.
 fn llmulacc_karatsuba(allocator: *Allocator, r: []Limb, x: []const Limb, y: []const Limb) error{OutOfMemory}!void {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(debug_safety);
 
     assert(r.len >= x.len + y.len + 1);
 
@@ -1873,7 +1880,7 @@ fn llmulacc_karatsuba(allocator: *Allocator, r: []Limb, x: []const Limb, y: []co
 
 // r = r + a
 fn llaccum(r: []Limb, a: []const Limb) Limb {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(debug_safety);
     assert(r.len != 0 and a.len != 0);
     assert(r.len >= a.len);
 
@@ -1896,7 +1903,7 @@ fn llaccum(r: []Limb, a: []const Limb) Limb {
 
 /// Returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively for limbs.
 pub fn llcmp(a: []const Limb, b: []const Limb) i8 {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(debug_safety);
     const a_len = llnormalize(a);
     const b_len = llnormalize(b);
     if (a_len < b_len) {
@@ -1923,12 +1930,12 @@ pub fn llcmp(a: []const Limb, b: []const Limb) i8 {
 }
 
 fn llmulDigit(acc: []Limb, y: []const Limb, xi: Limb) void {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(debug_safety);
     if (xi == 0) {
         return;
     }
 
-    var carry: usize = 0;
+    var carry: Limb = 0;
     var a_lo = acc[0..y.len];
     var a_hi = acc[y.len..];
 
@@ -1945,7 +1952,7 @@ fn llmulDigit(acc: []Limb, y: []const Limb, xi: Limb) void {
 
 /// returns the min length the limb could be.
 fn llnormalize(a: []const Limb) usize {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(debug_safety);
     var j = a.len;
     while (j > 0) : (j -= 1) {
         if (a[j - 1] != 0) {
@@ -1959,7 +1966,7 @@ fn llnormalize(a: []const Limb) usize {
 
 /// Knuth 4.3.1, Algorithm S.
 fn llsub(r: []Limb, a: []const Limb, b: []const Limb) void {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
     assert(a.len > b.len or (a.len == b.len and a[a.len - 1] >= b[b.len - 1]));
     assert(r.len >= a.len);
@@ -1983,7 +1990,7 @@ fn llsub(r: []Limb, a: []const Limb, b: []const Limb) void {
 
 /// Knuth 4.3.1, Algorithm A.
 fn lladd(r: []Limb, a: []const Limb, b: []const Limb) void {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
     assert(a.len >= b.len);
     assert(r.len >= a.len + 1);
@@ -2007,7 +2014,7 @@ fn lladd(r: []Limb, a: []const Limb, b: []const Limb) void {
 
 /// Knuth 4.3.1, Exercise 16.
 fn lldiv1(quo: []Limb, rem: *Limb, a: []const Limb, b: Limb) void {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(debug_safety);
     assert(a.len > 1 or a[0] >= b);
     assert(quo.len >= a.len);
 
@@ -2033,7 +2040,7 @@ fn lldiv1(quo: []Limb, rem: *Limb, a: []const Limb, b: Limb) void {
 }
 
 fn llshl(r: []Limb, a: []const Limb, shift: usize) void {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(debug_safety);
     assert(a.len >= 1);
     assert(r.len >= a.len + (shift / Limb.bit_count) + 1);
 
@@ -2060,7 +2067,7 @@ fn llshl(r: []Limb, a: []const Limb, shift: usize) void {
 }
 
 fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(debug_safety);
     assert(a.len >= 1);
     assert(r.len >= a.len - (shift / Limb.bit_count));
 
@@ -2084,7 +2091,7 @@ fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
 }
 
 fn llor(r: []Limb, a: []const Limb, b: []const Limb) void {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(debug_safety);
     assert(r.len >= a.len);
     assert(a.len >= b.len);
 
@@ -2098,7 +2105,7 @@ fn llor(r: []Limb, a: []const Limb, b: []const Limb) void {
 }
 
 fn lland(r: []Limb, a: []const Limb, b: []const Limb) void {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(debug_safety);
     assert(r.len >= b.len);
     assert(a.len >= b.len);
 
