@@ -16,8 +16,6 @@ const Module = @import("../Module.zig");
 const link = @import("../link.zig");
 const File = link.File;
 
-const is_darwin = std.Target.current.os.tag.isDarwin();
-
 pub const base_tag: File.Tag = File.Tag.macho;
 
 base: File,
@@ -227,63 +225,61 @@ pub fn flush(self: *MachO, module: *Module) !void {
 
     switch (self.base.options.output_mode) {
         .Exe => {
-            if (is_darwin) {
-                {
-                    // Specify path to dynamic linker dyld
-                    const cmdsize = commandSize(@sizeOf(macho.dylinker_command) + mem.lenZ(DEFAULT_DYLD_PATH));
-                    const load_dylinker = [1]macho.dylinker_command{
-                        .{
-                            .cmd = macho.LC_LOAD_DYLINKER,
-                            .cmdsize = cmdsize,
-                            .name = @sizeOf(macho.dylinker_command),
-                        },
-                    };
-                    try self.commands.append(self.base.allocator, .{
+            {
+                // Specify path to dynamic linker dyld
+                const cmdsize = commandSize(@sizeOf(macho.dylinker_command) + mem.lenZ(DEFAULT_DYLD_PATH));
+                const load_dylinker = [1]macho.dylinker_command{
+                    .{
                         .cmd = macho.LC_LOAD_DYLINKER,
                         .cmdsize = cmdsize,
-                    });
+                        .name = @sizeOf(macho.dylinker_command),
+                    },
+                };
+                try self.commands.append(self.base.allocator, .{
+                    .cmd = macho.LC_LOAD_DYLINKER,
+                    .cmdsize = cmdsize,
+                });
 
-                    try self.base.file.?.pwriteAll(mem.sliceAsBytes(load_dylinker[0..1]), self.command_file_offset.?);
+                try self.base.file.?.pwriteAll(mem.sliceAsBytes(load_dylinker[0..1]), self.command_file_offset.?);
 
-                    const file_offset = self.command_file_offset.? + @sizeOf(macho.dylinker_command);
-                    try self.addPadding(cmdsize - @sizeOf(macho.dylinker_command), file_offset);
+                const file_offset = self.command_file_offset.? + @sizeOf(macho.dylinker_command);
+                try self.addPadding(cmdsize - @sizeOf(macho.dylinker_command), file_offset);
 
-                    try self.base.file.?.pwriteAll(mem.spanZ(DEFAULT_DYLD_PATH), file_offset);
-                    self.command_file_offset.? += cmdsize;
-                }
+                try self.base.file.?.pwriteAll(mem.spanZ(DEFAULT_DYLD_PATH), file_offset);
+                self.command_file_offset.? += cmdsize;
+            }
 
-                {
-                    // Link against libSystem
-                    const cmdsize = commandSize(@sizeOf(macho.dylib_command) + mem.lenZ(LIB_SYSTEM_PATH));
-                    // According to Apple's manual, we should obtain current libSystem version using libc call
-                    // NSVersionOfRunTimeLibrary.
-                    const version = std.c.NSVersionOfRunTimeLibrary(LIB_SYSTEM_NAME);
-                    const dylib = .{
-                        .name = @sizeOf(macho.dylib_command),
-                        .timestamp = 2, // not sure why not simply 0; this is reverse engineered from Mach-O files
-                        .current_version = version,
-                        .compatibility_version = 0x10000, // not sure why this either; value from reverse engineering
-                    };
-                    const load_dylib = [1]macho.dylib_command{
-                        .{
-                            .cmd = macho.LC_LOAD_DYLIB,
-                            .cmdsize = cmdsize,
-                            .dylib = dylib,
-                        },
-                    };
-                    try self.commands.append(self.base.allocator, .{
+            {
+                // Link against libSystem
+                const cmdsize = commandSize(@sizeOf(macho.dylib_command) + mem.lenZ(LIB_SYSTEM_PATH));
+                // TODO Find a way to work out runtime version from the OS version triple stored in std.Target.
+                // In the meantime, we're gonna hardcode to the minimum compatibility version of 1.0.0.
+                const min_version = 0x10000;
+                const dylib = .{
+                    .name = @sizeOf(macho.dylib_command),
+                    .timestamp = 2, // not sure why not simply 0; this is reverse engineered from Mach-O files
+                    .current_version = min_version,
+                    .compatibility_version = min_version,
+                };
+                const load_dylib = [1]macho.dylib_command{
+                    .{
                         .cmd = macho.LC_LOAD_DYLIB,
                         .cmdsize = cmdsize,
-                    });
+                        .dylib = dylib,
+                    },
+                };
+                try self.commands.append(self.base.allocator, .{
+                    .cmd = macho.LC_LOAD_DYLIB,
+                    .cmdsize = cmdsize,
+                });
 
-                    try self.base.file.?.pwriteAll(mem.sliceAsBytes(load_dylib[0..1]), self.command_file_offset.?);
+                try self.base.file.?.pwriteAll(mem.sliceAsBytes(load_dylib[0..1]), self.command_file_offset.?);
 
-                    const file_offset = self.command_file_offset.? + @sizeOf(macho.dylib_command);
-                    try self.addPadding(cmdsize - @sizeOf(macho.dylib_command), file_offset);
+                const file_offset = self.command_file_offset.? + @sizeOf(macho.dylib_command);
+                try self.addPadding(cmdsize - @sizeOf(macho.dylib_command), file_offset);
 
-                    try self.base.file.?.pwriteAll(mem.spanZ(LIB_SYSTEM_PATH), file_offset);
-                    self.command_file_offset.? += cmdsize;
-                }
+                try self.base.file.?.pwriteAll(mem.spanZ(LIB_SYSTEM_PATH), file_offset);
+                self.command_file_offset.? += cmdsize;
             }
         },
         .Obj => return error.TODOImplementWritingObjFiles,
