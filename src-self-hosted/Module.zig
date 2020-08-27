@@ -2572,7 +2572,8 @@ pub fn analyzeIsNull(
 ) InnerError!*Inst {
     if (operand.value()) |opt_val| {
         const is_null = opt_val.isNull();
-        return self.constBool(scope, src, invert_logic);
+        const bool_value = if (invert_logic) !is_null else is_null;
+        return self.constBool(scope, src, bool_value);
     }
     const b = try self.requireRuntimeBlock(scope, src);
     const inst_tag: Inst.Tag = if (invert_logic) .isnonnull else .isnull;
