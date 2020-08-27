@@ -26222,14 +26222,19 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
             assert(payload->type == ir_type_info_get_type(ira, "Union", nullptr));
 
             ZigValue *layout_value = get_const_field(ira, source_instr->source_node, payload, "layout", 0);
+            if (layout_value == nullptr)
+                return ira->codegen->invalid_inst_gen->value->type;
             assert(layout_value->special == ConstValSpecialStatic);
             assert(layout_value->type == ir_type_info_get_type(ira, "ContainerLayout", nullptr));
             ContainerLayout layout = (ContainerLayout)bigint_as_u32(&layout_value->data.x_enum_tag);
 
             ZigType *tag_type = get_const_field_meta_type_optional(ira, source_instr->source_node, payload, "tag_type", 1);
+            if (tag_type != nullptr && type_is_invalid(tag_type)) {
+                return ira->codegen->invalid_inst_gen->value->type;
+            }
             if (tag_type != nullptr && tag_type->id != ZigTypeIdEnum) {
                 ir_add_error(ira, source_instr, buf_sprintf(
-                    "union tag type must be an enum, not %s", type_id_name(tag_type->id)));
+                    "expected enum type, found '%s'", type_id_name(tag_type->id)));
                 return ira->codegen->invalid_inst_gen->value->type;
             }
 

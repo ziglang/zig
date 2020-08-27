@@ -2603,16 +2603,16 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     if (decl_node->type == NodeTypeContainerDecl) {
         assert(!enum_type->data.enumeration.fields);
         field_count = (uint32_t)decl_node->data.container_decl.fields.length;
-        if (field_count == 0) {
-            add_node_error(g, decl_node, buf_sprintf("enums must have 1 or more fields"));
-
-            enum_type->data.enumeration.src_field_count = field_count;
-            enum_type->data.enumeration.fields = nullptr;
-            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
-            return ErrorSemanticAnalyzeFail;
-        }
     } else {
-        field_count = enum_type->data.enumeration.src_field_count;
+        field_count = enum_type->data.enumeration.src_field_count + enum_type->data.enumeration.non_exhaustive;
+    }
+
+    if (field_count == 0) {
+        add_node_error(g, decl_node, buf_sprintf("enums must have 1 or more fields"));
+        enum_type->data.enumeration.src_field_count = field_count;
+        enum_type->data.enumeration.fields = nullptr;
+        enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+        return ErrorSemanticAnalyzeFail;
     }
 
     Scope *scope = &enum_type->data.enumeration.decls_scope->base;
@@ -3072,18 +3072,19 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
     if (decl_node->type == NodeTypeContainerDecl) {
         assert(union_type->data.unionation.fields == nullptr);
         field_count = (uint32_t)decl_node->data.container_decl.fields.length;
-        if (field_count == 0) {
-            add_node_error(g, decl_node, buf_sprintf("unions must have 1 or more fields"));
-            union_type->data.unionation.src_field_count = field_count;
-            union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-            return ErrorSemanticAnalyzeFail;
-        }
         union_type->data.unionation.src_field_count = field_count;
         union_type->data.unionation.fields = heap::c_allocator.allocate<TypeUnionField>(field_count);
         union_type->data.unionation.fields_by_name.init(field_count);
     } else {
-        assert(union_type->data.unionation.fields != nullptr);
         field_count = union_type->data.unionation.src_field_count;
+        assert(field_count == 0 || union_type->data.unionation.fields != nullptr);
+    }
+
+    if (field_count == 0) {
+        add_node_error(g, decl_node, buf_sprintf("unions must have 1 or more fields"));
+        union_type->data.unionation.src_field_count = field_count;
+        union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+        return ErrorSemanticAnalyzeFail;
     }
 
     Scope *scope = &union_type->data.unionation.decls_scope->base;
@@ -3217,47 +3218,47 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
                 }
                 assert(field_type_val->special != ConstValSpecialRuntime);
                 union_field->type_val = field_type_val;
-                if (union_type->data.unionation.resolve_status == ResolveStatusInvalid)
-                    return ErrorSemanticAnalyzeFail;
-
-                bool field_is_opaque_type;
-                if ((err = type_val_resolve_is_opaque_type(g, field_type_val, &field_is_opaque_type))) {
-                    union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-                    return ErrorSemanticAnalyzeFail;
-                }
-                if (field_is_opaque_type) {
-                    add_node_error(g, field_node,
-                        buf_create_from_str(
-                            "opaque types have unknown size and therefore cannot be directly embedded in unions"));
-                    union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-                    return ErrorSemanticAnalyzeFail;
-                }
-
-                switch (type_val_resolve_requires_comptime(g, field_type_val)) {
-                    case ReqCompTimeInvalid:
-                        if (g->trace_err != nullptr) {
-                            g->trace_err = add_error_note(g, g->trace_err, field_node,
-                                buf_create_from_str("while checking this field"));
-                        }
-                        union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-                        return ErrorSemanticAnalyzeFail;
-                    case ReqCompTimeYes:
-                        union_type->data.unionation.requires_comptime = true;
-                        break;
-                    case ReqCompTimeNo:
-                        break;
-                }
-
-                if ((err = type_val_resolve_zero_bits(g, field_type_val, union_type, nullptr, &is_zero_bits[i]))) {
-                    union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-                    return ErrorSemanticAnalyzeFail;
-                }
             }
 
             if (field_node->data.struct_field.value != nullptr && !is_auto_enum) {
                 ErrorMsg *msg = add_node_error(g, field_node->data.struct_field.value,
                         buf_create_from_str("untagged union field assignment"));
                 add_error_note(g, msg, decl_node, buf_create_from_str("consider 'union(enum)' here"));
+            }
+        }
+
+        if (union_field->type_val != nullptr) {
+            bool field_is_opaque_type;
+            if ((err = type_val_resolve_is_opaque_type(g, union_field->type_val, &field_is_opaque_type))) {
+                union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
+            }
+            if (field_is_opaque_type) {
+                add_node_error(g, union_field->decl_node,
+                    buf_create_from_str(
+                        "opaque types have unknown size and therefore cannot be directly embedded in unions"));
+                union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
+            }
+
+            switch (type_val_resolve_requires_comptime(g, union_field->type_val)) {
+                case ReqCompTimeInvalid:
+                    if (g->trace_err != nullptr) {
+                        g->trace_err = add_error_note(g, g->trace_err, union_field->decl_node,
+                            buf_create_from_str("while checking this field"));
+                    }
+                    union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+                    return ErrorSemanticAnalyzeFail;
+                case ReqCompTimeYes:
+                    union_type->data.unionation.requires_comptime = true;
+                    break;
+                case ReqCompTimeNo:
+                    break;
+            }
+
+            if ((err = type_val_resolve_zero_bits(g, union_field->type_val, union_type, nullptr, &is_zero_bits[i]))) {
+                union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
             }
         }
 

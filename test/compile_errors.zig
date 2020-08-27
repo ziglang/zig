@@ -10,6 +10,63 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:37: error: expected type '[:1]const u8', found '*const [2:2]u8'",
     });
 
+    cases.add("@Type for union with opaque field",
+        \\const TypeInfo = @import("builtin").TypeInfo;
+        \\const Untagged = @Type(.{
+        \\    .Union = .{
+        \\        .layout = .Auto,
+        \\        .tag_type = null,
+        \\        .fields = &[_]TypeInfo.UnionField{
+        \\            .{ .name = "foo", .field_type = @Type(.Opaque) },
+        \\        },
+        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\    },
+        \\});
+        \\export fn entry() void {
+        \\    _ = Untagged{};
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:25: error: opaque types have unknown size and therefore cannot be directly embedded in unions",
+        "tmp.zig:13:17: note: referenced here",
+    });
+
+    cases.add("@Type for union with zero fields",
+        \\const TypeInfo = @import("builtin").TypeInfo;
+        \\const Untagged = @Type(.{
+        \\    .Union = .{
+        \\        .layout = .Auto,
+        \\        .tag_type = null,
+        \\        .fields = &[_]TypeInfo.UnionField{},
+        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\    },
+        \\});
+        \\export fn entry() void {
+        \\    _ = Untagged{};
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:25: error: unions must have 1 or more fields",
+        "tmp.zig:11:17: note: referenced here",
+    });
+
+    cases.add("@Type for exhaustive enum with zero fields",
+        \\const TypeInfo = @import("builtin").TypeInfo;
+        \\const Tag = @Type(.{
+        \\    .Enum = .{
+        \\        .layout = .Auto,
+        \\        .tag_type = u1,
+        \\        .fields = &[_]TypeInfo.EnumField{},
+        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\        .is_exhaustive = true,
+        \\    },
+        \\});
+        \\export fn entry() void {
+        \\    _ = @intToEnum(Tag, 0);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:20: error: enums must have 1 or more fields",
+        "tmp.zig:12:9: note: referenced here",
+    });
+
     cases.add("@Type for tagged union with extra union field",
         \\const TypeInfo = @import("builtin").TypeInfo;
         \\const Tag = @Type(.{
