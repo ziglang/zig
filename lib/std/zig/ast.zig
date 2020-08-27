@@ -921,17 +921,17 @@ pub const Node = struct {
             semicolon_token: TokenIndex,
         };
 
-        pub fn getTrailer(self: *const VarDecl, comptime name: []const u8) ?TrailerFlags.Field(name) {
+        pub fn getTrailer(self: *const VarDecl, comptime field: TrailerFlags.FieldEnum) ?TrailerFlags.Field(field) {
             const trailers_start = @ptrCast([*]const u8, self) + @sizeOf(VarDecl);
-            return self.trailer_flags.get(trailers_start, name);
+            return self.trailer_flags.get(trailers_start, field);
         }
 
-        pub fn setTrailer(self: *VarDecl, comptime name: []const u8, value: TrailerFlags.Field(name)) void {
+        pub fn setTrailer(self: *VarDecl, comptime field: TrailerFlags.FieldEnum, value: TrailerFlags.Field(field)) void {
             const trailers_start = @ptrCast([*]u8, self) + @sizeOf(VarDecl);
-            self.trailer_flags.set(trailers_start, name, value);
+            self.trailer_flags.set(trailers_start, field, value);
         }
 
-        pub fn create(allocator: *mem.Allocator, required: RequiredFields, trailers: anytype) !*VarDecl {
+        pub fn create(allocator: *mem.Allocator, required: RequiredFields, trailers: TrailerFlags.InitStruct) !*VarDecl {
             const trailer_flags = TrailerFlags.init(trailers);
             const bytes = try allocator.alignedAlloc(u8, @alignOf(VarDecl), sizeInBytes(trailer_flags));
             const var_decl = @ptrCast(*VarDecl, bytes.ptr);
@@ -954,22 +954,22 @@ pub const Node = struct {
         pub fn iterate(self: *const VarDecl, index: usize) ?*Node {
             var i = index;
 
-            if (self.getTrailer("type_node")) |type_node| {
+            if (self.getTrailer(.type_node)) |type_node| {
                 if (i < 1) return type_node;
                 i -= 1;
             }
 
-            if (self.getTrailer("align_node")) |align_node| {
+            if (self.getTrailer(.align_node)) |align_node| {
                 if (i < 1) return align_node;
                 i -= 1;
             }
 
-            if (self.getTrailer("section_node")) |section_node| {
+            if (self.getTrailer(.section_node)) |section_node| {
                 if (i < 1) return section_node;
                 i -= 1;
             }
 
-            if (self.getTrailer("init_node")) |init_node| {
+            if (self.getTrailer(.init_node)) |init_node| {
                 if (i < 1) return init_node;
                 i -= 1;
             }
@@ -978,11 +978,11 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: *const VarDecl) TokenIndex {
-            if (self.getTrailer("visib_token")) |visib_token| return visib_token;
-            if (self.getTrailer("thread_local_token")) |thread_local_token| return thread_local_token;
-            if (self.getTrailer("comptime_token")) |comptime_token| return comptime_token;
-            if (self.getTrailer("extern_export_token")) |extern_export_token| return extern_export_token;
-            assert(self.getTrailer("lib_name") == null);
+            if (self.getTrailer(.visib_token)) |visib_token| return visib_token;
+            if (self.getTrailer(.thread_local_token)) |thread_local_token| return thread_local_token;
+            if (self.getTrailer(.comptime_token)) |comptime_token| return comptime_token;
+            if (self.getTrailer(.extern_export_token)) |extern_export_token| return extern_export_token;
+            assert(self.getTrailer(.lib_name) == null);
             return self.mut_token;
         }
 
@@ -1320,34 +1320,34 @@ pub const Node = struct {
             std.debug.print("{*} flags: {b} name_token: {} {*} params_len: {}\n", .{
                 self,
                 self.trailer_flags.bits,
-                self.getTrailer("name_token"),
+                self.getTrailer(.name_token),
                 self.trailer_flags.ptrConst(trailers_start, "name_token"),
                 self.params_len,
             });
         }
 
         pub fn body(self: *const FnProto) ?*Node {
-            return self.getTrailer("body_node");
+            return self.getTrailer(.body_node);
         }
 
-        pub fn getTrailer(self: *const FnProto, comptime name: []const u8) ?TrailerFlags.Field(name) {
+        pub fn getTrailer(self: *const FnProto, comptime field: TrailerFlags.FieldEnum) ?TrailerFlags.Field(field) {
             const trailers_start = @alignCast(
                 @alignOf(ParamDecl),
                 @ptrCast([*]const u8, self) + @sizeOf(FnProto) + @sizeOf(ParamDecl) * self.params_len,
             );
-            return self.trailer_flags.get(trailers_start, name);
+            return self.trailer_flags.get(trailers_start, field);
         }
 
-        pub fn setTrailer(self: *FnProto, comptime name: []const u8, value: TrailerFlags.Field(name)) void {
+        pub fn setTrailer(self: *FnProto, comptime field: TrailerFlags.FieldEnum, value: TrailerFlags.Field(field)) void {
             const trailers_start = @alignCast(
                 @alignOf(ParamDecl),
                 @ptrCast([*]u8, self) + @sizeOf(FnProto) + @sizeOf(ParamDecl) * self.params_len,
             );
-            self.trailer_flags.set(trailers_start, name, value);
+            self.trailer_flags.set(trailers_start, field, value);
         }
 
         /// After this the caller must initialize the params list.
-        pub fn create(allocator: *mem.Allocator, required: RequiredFields, trailers: anytype) !*FnProto {
+        pub fn create(allocator: *mem.Allocator, required: RequiredFields, trailers: TrailerFlags.InitStruct) !*FnProto {
             const trailer_flags = TrailerFlags.init(trailers);
             const bytes = try allocator.alignedAlloc(u8, @alignOf(FnProto), sizeInBytes(
                 required.params_len,
@@ -1376,7 +1376,7 @@ pub const Node = struct {
         pub fn iterate(self: *const FnProto, index: usize) ?*Node {
             var i = index;
 
-            if (self.getTrailer("lib_name")) |lib_name| {
+            if (self.getTrailer(.lib_name)) |lib_name| {
                 if (i < 1) return lib_name;
                 i -= 1;
             }
@@ -1394,12 +1394,12 @@ pub const Node = struct {
             }
             i -= params_len;
 
-            if (self.getTrailer("align_expr")) |align_expr| {
+            if (self.getTrailer(.align_expr)) |align_expr| {
                 if (i < 1) return align_expr;
                 i -= 1;
             }
 
-            if (self.getTrailer("section_expr")) |section_expr| {
+            if (self.getTrailer(.section_expr)) |section_expr| {
                 if (i < 1) return section_expr;
                 i -= 1;
             }
@@ -1421,9 +1421,9 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: *const FnProto) TokenIndex {
-            if (self.getTrailer("visib_token")) |visib_token| return visib_token;
-            if (self.getTrailer("extern_export_inline_token")) |extern_export_inline_token| return extern_export_inline_token;
-            assert(self.getTrailer("lib_name") == null);
+            if (self.getTrailer(.visib_token)) |visib_token| return visib_token;
+            if (self.getTrailer(.extern_export_inline_token)) |extern_export_inline_token| return extern_export_inline_token;
+            assert(self.getTrailer(.lib_name) == null);
             return self.fn_token;
         }
 
@@ -2673,24 +2673,24 @@ pub const Node = struct {
         };
 
         pub fn getRHS(self: *const ControlFlowExpression) ?*Node {
-            return self.getTrailer("rhs");
+            return self.getTrailer(.rhs);
         }
 
         pub fn getLabel(self: *const ControlFlowExpression) ?TokenIndex {
-            return self.getTrailer("label");
+            return self.getTrailer(.label);
         }
 
-        pub fn getTrailer(self: *const ControlFlowExpression, comptime name: []const u8) ?TrailerFlags.Field(name) {
+        pub fn getTrailer(self: *const ControlFlowExpression, comptime field: TrailerFlags.FieldEnum) ?TrailerFlags.Field(field) {
             const trailers_start = @ptrCast([*]const u8, self) + @sizeOf(ControlFlowExpression);
-            return self.trailer_flags.get(trailers_start, name);
+            return self.trailer_flags.get(trailers_start, field);
         }
 
-        pub fn setTrailer(self: *ControlFlowExpression, comptime name: []const u8, value: TrailerFlags.Field(name)) void {
+        pub fn setTrailer(self: *ControlFlowExpression, comptime field: TrailerFlags.FieldEnum, value: TrailerFlags.Field(field)) void {
             const trailers_start = @ptrCast([*]u8, self) + @sizeOf(ControlFlowExpression);
-            self.trailer_flags.set(trailers_start, name, value);
+            self.trailer_flags.set(trailers_start, field, value);
         }
 
-        pub fn create(allocator: *mem.Allocator, required: RequiredFields, trailers: anytype) !*ControlFlowExpression {
+        pub fn create(allocator: *mem.Allocator, required: RequiredFields, trailers: TrailerFlags.InitStruct) !*ControlFlowExpression {
             const trailer_flags = TrailerFlags.init(trailers);
             const bytes = try allocator.alignedAlloc(u8, @alignOf(ControlFlowExpression), sizeInBytes(trailer_flags));
             const ctrl_flow_expr = @ptrCast(*ControlFlowExpression, bytes.ptr);
