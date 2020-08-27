@@ -1443,7 +1443,57 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 }
             } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
                 switch (arch) {
-                    .x86_64 => return self.fail(inst.base.src, "TODO implement codegen for call when linking with MachO for x86_64 arch", .{}),
+                    .x86_64 => {
+                        for (info.args) |mc_arg, arg_i| {
+                            const arg = inst.args[arg_i];
+                            const arg_mcv = try self.resolveInst(inst.args[arg_i]);
+                            // Here we do not use setRegOrMem even though the logic is similar, because
+                            // the function call will move the stack pointer, so the offsets are different.
+                            switch (mc_arg) {
+                                .none => continue,
+                                .register => |reg| {
+                                    try self.genSetReg(arg.src, reg, arg_mcv);
+                                    // TODO interact with the register allocator to mark the instruction as moved.
+                                },
+                                .stack_offset => {
+                                    // Here we need to emit instructions like this:
+                                    // mov     qword ptr [rsp + stack_offset], x
+                                    return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
+                                },
+                                .ptr_stack_offset => {
+                                    return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_stack_offset arg", .{});
+                                },
+                                .ptr_embedded_in_code => {
+                                    return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
+                                },
+                                .undef => unreachable,
+                                .immediate => unreachable,
+                                .unreach => unreachable,
+                                .dead => unreachable,
+                                .embedded_in_code => unreachable,
+                                .memory => unreachable,
+                                .compare_flags_signed => unreachable,
+                                .compare_flags_unsigned => unreachable,
+                            }
+                        }
+
+                        if (inst.func.cast(ir.Inst.Constant)) |func_inst| {
+                            if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
+                                const func = func_val.func;
+                                const got = &macho_file.sections.items[macho_file.got_section_index.?];
+                                const ptr_bytes = 8;
+                                const got_addr = @intCast(u32, got.addr + func.owner_decl.link.macho.offset_table_index.? * ptr_bytes);
+                                // ff 14 25 xx xx xx xx    call [addr]
+                                try self.code.ensureCapacity(self.code.items.len + 7);
+                                self.code.appendSliceAssumeCapacity(&[3]u8{ 0xff, 0x14, 0x25 });
+                                mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), got_addr);
+                            } else {
+                                return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
+                            }
+                        } else {
+                            return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
+                        }
+                    },
                     .aarch64 => return self.fail(inst.base.src, "TODO implement codegen for call when linking with MachO for aarch64 arch", .{}),
                     else => unreachable,
                 }
@@ -2485,6 +2535,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             const decl = payload.decl;
                             const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
                             const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
+                            return MCValue{ .memory = got_addr };
+                        } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                            const decl = payload.decl;
+                            const got = &macho_file.sections.items[macho_file.got_section_index.?];
+                            const got_addr = got.addr + decl.link.macho.offset_table_index.? * ptr_bytes;
                             return MCValue{ .memory = got_addr };
                         } else {
                             return self.fail(src, "TODO codegen non-ELF const Decl pointer", .{});
