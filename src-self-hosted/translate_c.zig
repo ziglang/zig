@@ -675,7 +675,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     }
 
     const body_node = try block_scope.complete(rp.c);
-    proto_node.setTrailer("body_node", body_node);
+    proto_node.setTrailer(.body_node, body_node);
     return addTopLevelDecl(c, fn_name, &proto_node.base);
 }
 
@@ -4493,7 +4493,7 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
     const block_lbrace = try appendToken(c, .LBrace, "{");
 
     const return_kw = try appendToken(c, .Keyword_return, "return");
-    const unwrap_expr = try transCreateNodeUnwrapNull(c, ref.cast(ast.Node.VarDecl).?.getTrailer("init_node").?);
+    const unwrap_expr = try transCreateNodeUnwrapNull(c, ref.cast(ast.Node.VarDecl).?.getTrailer(.init_node).?);
 
     const call_expr = try c.createCall(unwrap_expr, fn_params.items.len);
     const call_params = call_expr.params();
@@ -6361,7 +6361,7 @@ fn getContainer(c: *Context, node: *ast.Node) ?*ast.Node {
             const ident = node.castTag(.Identifier).?;
             if (c.global_scope.sym_table.get(tokenSlice(c, ident.token))) |value| {
                 if (value.cast(ast.Node.VarDecl)) |var_decl|
-                    return getContainer(c, var_decl.getTrailer("init_node").?);
+                    return getContainer(c, var_decl.getTrailer(.init_node).?);
             }
         },
 
@@ -6390,7 +6390,7 @@ fn getContainerTypeOf(c: *Context, ref: *ast.Node) ?*ast.Node {
     if (ref.castTag(.Identifier)) |ident| {
         if (c.global_scope.sym_table.get(tokenSlice(c, ident.token))) |value| {
             if (value.cast(ast.Node.VarDecl)) |var_decl| {
-                if (var_decl.getTrailer("type_node")) |ty|
+                if (var_decl.getTrailer(.type_node)) |ty|
                     return getContainer(c, ty);
             }
         }
@@ -6412,7 +6412,7 @@ fn getContainerTypeOf(c: *Context, ref: *ast.Node) ?*ast.Node {
 }
 
 fn getFnProto(c: *Context, ref: *ast.Node) ?*ast.Node.FnProto {
-    const init = if (ref.cast(ast.Node.VarDecl)) |v| v.getTrailer("init_node").? else return null;
+    const init = if (ref.cast(ast.Node.VarDecl)) |v| v.getTrailer(.init_node).? else return null;
     if (getContainerTypeOf(c, init)) |ty_node| {
         if (ty_node.castTag(.OptionalType)) |prefix| {
             if (prefix.rhs.cast(ast.Node.FnProto)) |fn_proto| {
