@@ -8,6 +8,7 @@ const meta = std.meta;
 const testing = std.testing;
 const mem = std.mem;
 const assert = std.debug.assert;
+const TypeInfo = std.builtin.TypeInfo;
 
 /// This is useful for saving memory when allocating an object that has many
 /// optional components. The optional objects are allocated sequentially in
@@ -17,91 +18,127 @@ pub fn TrailerFlags(comptime Fields: type) type {
     return struct {
         bits: Int,
 
-        pub const Int = @Type(.{ .Int = .{ .bits = bit_count, .is_signed = false } });
+        pub const Int = meta.Int(false, bit_count);
         pub const bit_count = @typeInfo(Fields).Struct.fields.len;
+
+        pub const FieldEnum = blk: {
+            comptime var fields: []const TypeInfo.EnumField = &[_]TypeInfo.EnumField{};
+            inline for (@typeInfo(Fields).Struct.fields) |struct_field, i| {
+                const field = TypeInfo.EnumField{ .name = struct_field.name, .value = i };
+                fields = fields ++ [_]TypeInfo.EnumField{field};
+            }
+            break :blk @Type(.{
+                .Enum = .{
+                    .layout = .Auto,
+                    .tag_type = std.math.IntFittingRange(0, bit_count - 1),
+                    .fields = fields,
+                    .decls = &[_]TypeInfo.Declaration{},
+                    .is_exhaustive = true,
+                },
+            });
+        };
+
+        pub const InitStruct = blk: {
+            comptime var fields: []const TypeInfo.StructField = &[_]TypeInfo.StructField{};
+            inline for (@typeInfo(Fields).Struct.fields) |struct_field, i| {
+                const field = TypeInfo.StructField{
+                    .name = struct_field.name,
+                    .field_type = ?struct_field.field_type,
+                    .default_value = @as(??struct_field.field_type, @as(?struct_field.field_type, null)),
+                };
+                fields = fields ++ [_]TypeInfo.StructField{field};
+            }
+            break :blk @Type(.{
+                .Struct = .{
+                    .layout = .Auto,
+                    .fields = fields,
+                    .decls = &[_]TypeInfo.Declaration{},
+                    .is_tuple = false,
+                },
+            });
+        };
 
         pub const Self = @This();
 
-        pub fn has(self: Self, comptime name: []const u8) bool {
-            const field_index = meta.fieldIndex(Fields, name).?;
+        pub fn has(self: Self, comptime field: FieldEnum) bool {
+            const field_index = @enumToInt(field);
             return (self.bits & (1 << field_index)) != 0;
         }
 
-        pub fn get(self: Self, p: [*]align(@alignOf(Fields)) const u8, comptime name: []const u8) ?Field(name) {
-            if (!self.has(name))
+        pub fn get(self: Self, p: [*]align(@alignOf(Fields)) const u8, comptime field: FieldEnum) ?Field(field) {
+            if (!self.has(field))
                 return null;
-            return self.ptrConst(p, name).*;
+            return self.ptrConst(p, field).*;
         }
 
-        pub fn setFlag(self: *Self, comptime name: []const u8) void {
-            const field_index = meta.fieldIndex(Fields, name).?;
+        pub fn setFlag(self: *Self, comptime field: FieldEnum) void {
+            const field_index = @enumToInt(field);
             self.bits |= 1 << field_index;
         }
 
         /// `fields` is a struct with each field set to an optional value.
         /// Missing fields are assumed to be `null`.
         /// Only the non-null bits are observed and are used to set the flag bits.
-        pub fn init(fields: anytype) Self {
+        pub fn init(fields: InitStruct) Self {
             var self: Self = .{ .bits = 0 };
-            inline for (@typeInfo(@TypeOf(fields)).Struct.fields) |field| {
-                const opt: ?Field(field.name) = @field(fields, field.name);
-                const field_index = meta.fieldIndex(Fields, field.name).?;
-                self.bits |= @as(Int, @boolToInt(opt != null)) << field_index;
+            inline for (@typeInfo(Fields).Struct.fields) |field, i| {
+                if (@field(fields, field.name)) |_|
+                    self.bits |= 1 << i;
             }
             return self;
         }
 
         /// `fields` is a struct with each field set to an optional value (same as `init`).
         /// Missing fields are assumed to be `null`.
-        pub fn setMany(self: Self, p: [*]align(@alignOf(Fields)) u8, fields: anytype) void {
-            inline for (@typeInfo(@TypeOf(fields)).Struct.fields) |field| {
-                const opt: ?Field(field.name) = @field(fields, field.name);
-                if (opt) |value| {
-                    self.set(p, field.name, value);
-                }
+        pub fn setMany(self: Self, p: [*]align(@alignOf(Fields)) u8, fields: InitStruct) void {
+            inline for (@typeInfo(Fields).Struct.fields) |field, i| {
+                if (@field(fields, field.name)) |value|
+                    self.set(p, @intToEnum(FieldEnum, i), value);
             }
         }
 
         pub fn set(
             self: Self,
             p: [*]align(@alignOf(Fields)) u8,
-            comptime name: []const u8,
-            value: Field(name),
+            comptime field: FieldEnum,
+            value: Field(field),
         ) void {
-            self.ptr(p, name).* = value;
+            self.ptr(p, field).* = value;
         }
 
-        pub fn ptr(self: Self, p: [*]align(@alignOf(Fields)) u8, comptime name: []const u8) *Field(name) {
-            if (@sizeOf(Field(name)) == 0)
+        pub fn ptr(self: Self, p: [*]align(@alignOf(Fields)) u8, comptime field: FieldEnum) *Field(field) {
+            if (@sizeOf(Field(field)) == 0)
                 return undefined;
-            const off = self.offset(p, name);
-            return @ptrCast(*Field(name), @alignCast(@alignOf(Field(name)), p + off));
+            const off = self.offset(p, field);
+            return @ptrCast(*Field(field), @alignCast(@alignOf(Field(field)), p + off));
         }
 
-        pub fn ptrConst(self: Self, p: [*]align(@alignOf(Fields)) const u8, comptime name: []const u8) *const Field(name) {
-            if (@sizeOf(Field(name)) == 0)
+        pub fn ptrConst(self: Self, p: [*]align(@alignOf(Fields)) const u8, comptime field: FieldEnum) *const Field(field) {
+            if (@sizeOf(Field(field)) == 0)
                 return undefined;
-            const off = self.offset(p, name);
-            return @ptrCast(*const Field(name), @alignCast(@alignOf(Field(name)), p + off));
+            const off = self.offset(p, field);
+            return @ptrCast(*const Field(field), @alignCast(@alignOf(Field(field)), p + off));
         }
 
-        pub fn offset(self: Self, p: [*]align(@alignOf(Fields)) const u8, comptime name: []const u8) usize {
+        pub fn offset(self: Self, p: [*]align(@alignOf(Fields)) const u8, comptime field: FieldEnum) usize {
             var off: usize = 0;
-            inline for (@typeInfo(Fields).Struct.fields) |field, i| {
+            inline for (@typeInfo(Fields).Struct.fields) |field_info, i| {
                 const active = (self.bits & (1 << i)) != 0;
-                if (comptime mem.eql(u8, field.name, name)) {
+                if (i == @enumToInt(field)) {
                     assert(active);
-                    return mem.alignForwardGeneric(usize, off, @alignOf(field.field_type));
+                    return mem.alignForwardGeneric(usize, off, @alignOf(field_info.field_type));
                 } else if (active) {
-                    off = mem.alignForwardGeneric(usize, off, @alignOf(field.field_type));
-                    off += @sizeOf(field.field_type);
+                    off = mem.alignForwardGeneric(usize, off, @alignOf(field_info.field_type));
+                    off += @sizeOf(field_info.field_type);
                 }
             }
-            @compileError("no field named " ++ name ++ " in type " ++ @typeName(Fields));
         }
 
-        pub fn Field(comptime name: []const u8) type {
-            return meta.fieldInfo(Fields, name).field_type;
+        pub fn Field(comptime field: FieldEnum) type {
+            inline for (@typeInfo(Fields).Struct.fields) |field_info, i| {
+                if (i == @enumToInt(field))
+                    return field_info.field_type;
+            }
         }
 
         pub fn sizeInBytes(self: Self) usize {
@@ -125,6 +162,8 @@ test "TrailerFlags" {
         b: bool,
         c: u64,
     });
+    testing.expectEqual(u2, @TagType(Flags.FieldEnum));
+
     var flags = Flags.init(.{
         .b = true,
         .c = 1234,
@@ -132,19 +171,19 @@ test "TrailerFlags" {
     const slice = try testing.allocator.allocAdvanced(u8, 8, flags.sizeInBytes(), .exact);
     defer testing.allocator.free(slice);
 
-    flags.set(slice.ptr, "b", false);
-    flags.set(slice.ptr, "c", 12345678);
+    flags.set(slice.ptr, .b, false);
+    flags.set(slice.ptr, .c, 12345678);
 
-    testing.expect(flags.get(slice.ptr, "a") == null);
-    testing.expect(!flags.get(slice.ptr, "b").?);
-    testing.expect(flags.get(slice.ptr, "c").? == 12345678);
+    testing.expect(flags.get(slice.ptr, .a) == null);
+    testing.expect(!flags.get(slice.ptr, .b).?);
+    testing.expect(flags.get(slice.ptr, .c).? == 12345678);
 
     flags.setMany(slice.ptr, .{
         .b = true,
         .c = 5678,
     });
 
-    testing.expect(flags.get(slice.ptr, "a") == null);
-    testing.expect(flags.get(slice.ptr, "b").?);
-    testing.expect(flags.get(slice.ptr, "c").? == 5678);
+    testing.expect(flags.get(slice.ptr, .a) == null);
+    testing.expect(flags.get(slice.ptr, .b).?);
+    testing.expect(flags.get(slice.ptr, .c).? == 5678);
 }
