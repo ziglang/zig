@@ -1226,6 +1226,27 @@ pub fn bpf(cmd: BPF.Cmd, attr: *BPF.Attr, size: u32) usize {
     return syscall3(.bpf, @enumToInt(cmd), @ptrToInt(attr), size);
 }
 
+pub fn sync() void {
+    _ = syscall0(.sync);
+    return;
+}
+
+pub fn syncfs(fd: fd_t) usize {
+    return syscall1(.syncfs, @bitCast(usize, @as(isize, fd)));
+}
+
+pub fn fsync(fd: fd_t) usize {
+    return syscall1(.fsync, @bitCast(usize, @as(isize, fd)));
+}
+
+pub fn fdatasync(fd: fd_t) usize {
+    return syscall1(.fdatasync, @bitCast(usize, @as(isize, fd)));
+}
+
+pub fn reboot(magic2: LINUX_REBOOT_MAGIC2, cmd: LINUX_REBOOT_CMD, arg: ?[*:0]const u8) usize {
+    return syscall4(.reboot, 0xfee1dead, @enumToInt(magic2), @enumToInt(cmd), @ptrToInt(arg));
+}
+
 test "" {
     if (builtin.os.tag == .linux) {
         _ = @import("linux/test.zig");

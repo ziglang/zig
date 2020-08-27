@@ -1770,3 +1770,21 @@ pub const ifreq = extern struct {
         data: ?[*]u8,
     },
 };
+
+pub const LINUX_REBOOT_MAGIC2 = enum(u32) {
+    MAGIC2 = 0x28121969,
+    MAGIC2A = 0x05121996,
+    MAGIC2B = 0x16041998,
+    MAGIC2C = 0x20112000,
+};
+
+pub const LINUX_REBOOT_CMD = enum(u32) {
+    CAD_OFF = 0,
+    CAD_ON = 0x89abcdef,
+    HALT = 0xcdef0123,
+    KEXEC = 0x45584543,
+    POWER_OFF = 0x4321fedc,
+    RESTART = 0x1234567,
+    RESTART2 = 0xa1b2c3d4,
+    SW_SUSPEND = 0xd000fce1,
+};
