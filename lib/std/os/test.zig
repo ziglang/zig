@@ -125,7 +125,20 @@ test "symlink with relative paths" {
     try cwd.writeFile("file.txt", "nonsense");
 
     if (builtin.os.tag == .windows) {
-        try os.windows.CreateSymbolicLink(cwd.fd, &[_]u16{ 's', 'y', 'm', 'l', 'i', 'n', 'k', 'e', 'd' }, &[_]u16{ 'f', 'i', 'l', 'e', '.', 't', 'x', 't' }, false);
+        os.windows.CreateSymbolicLink(
+            cwd.fd,
+            &[_]u16{ 's', 'y', 'm', 'l', 'i', 'n', 'k', 'e', 'd' },
+            &[_]u16{ 'f', 'i', 'l', 'e', '.', 't', 'x', 't' },
+            false,
+        ) catch |err| switch (err) {
+            // Symlink requires admin privileges on windows, so this test can legitimately fail.
+            error.AccessDenied => {
+                try cwd.deleteFile("file.txt");
+                try cwd.deleteFile("symlinked");
+                return error.SkipZigTest;
+            },
+            else => return err,
+        };
     } else {
         try os.symlink("file.txt", "symlinked");
     }
@@ -183,7 +196,16 @@ test "readlinkat" {
 
     // create a symbolic link
     if (builtin.os.tag == .windows) {
-        try os.windows.CreateSymbolicLink(tmp.dir.fd, &[_]u16{ 'l', 'i', 'n', 'k' }, &[_]u16{ 'f', 'i', 'l', 'e', '.', 't', 'x', 't' }, false);
+        os.windows.CreateSymbolicLink(
+            tmp.dir.fd,
+            &[_]u16{ 'l', 'i', 'n', 'k' },
+            &[_]u16{ 'f', 'i', 'l', 'e', '.', 't', 'x', 't' },
+            false,
+        ) catch |err| switch (err) {
+            // Symlink requires admin privileges on windows, so this test can legitimately fail.
+            error.AccessDenied => return error.SkipZigTest,
+            else => return err,
+        };
     } else {
         try os.symlinkat("file.txt", tmp.dir.fd, "link");
     }
