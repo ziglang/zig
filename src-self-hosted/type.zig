@@ -163,7 +163,7 @@ pub const Type = extern union {
                 // Hot path for common case:
                 if (a.castPointer()) |a_payload| {
                     if (b.castPointer()) |b_payload| {
-                        return eql(a_payload.pointee_type, b_payload.pointee_type);
+                        return a.tag() == b.tag() and eql(a_payload.pointee_type, b_payload.pointee_type);
                     }
                 }
                 const is_slice_a = isSlice(a);
@@ -189,7 +189,7 @@ pub const Type = extern union {
             .Array => {
                 if (a.arrayLen() != b.arrayLen())
                     return false;
-                if (a.elemType().eql(b.elemType()))
+                if (!a.elemType().eql(b.elemType()))
                     return false;
                 const sentinel_a = a.arraySentinel();
                 const sentinel_b = b.arraySentinel();
@@ -501,9 +501,9 @@ pub const Type = extern union {
                 .noreturn,
                 => return out_stream.writeAll(@tagName(t)),
 
-                .enum_literal => return out_stream.writeAll("@TypeOf(.EnumLiteral)"),
-                .@"null" => return out_stream.writeAll("@TypeOf(null)"),
-                .@"undefined" => return out_stream.writeAll("@TypeOf(undefined)"),
+                .enum_literal => return out_stream.writeAll("@Type(.EnumLiteral)"),
+                .@"null" => return out_stream.writeAll("@Type(.Null)"),
+                .@"undefined" => return out_stream.writeAll("@Type(.Undefined)"),
 
                 .@"anyframe" => return out_stream.writeAll("anyframe"),
                 .anyerror_void_error_union => return out_stream.writeAll("anyerror!void"),

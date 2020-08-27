@@ -1239,6 +1239,12 @@ fn analyzeInstArithmetic(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) Inn
 
     if (casted_lhs.value()) |lhs_val| {
         if (casted_rhs.value()) |rhs_val| {
+            if (lhs_val.isUndef() or rhs_val.isUndef()) {
+                return mod.constInst(scope, inst.base.src, .{
+                    .ty = resolved_type,
+                    .val = Value.initTag(.undef),
+                });
+            }
             return analyzeInstComptimeOp(mod, scope, scalar_type, inst, lhs_val, rhs_val);
         }
     }

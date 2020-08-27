@@ -2801,6 +2801,12 @@ pub fn resolvePeerTypes(self: *Module, scope: *Scope, instructions: []*Inst) !Ty
             prev_inst = next_inst;
             continue;
         }
+        if (next_inst.ty.zigTypeTag() == .Undefined)
+            continue;
+        if (prev_inst.ty.zigTypeTag() == .Undefined) {
+            prev_inst = next_inst;
+            continue;
+        }
         if (prev_inst.ty.isInt() and
             next_inst.ty.isInt() and
             prev_inst.ty.isSignedInt() == next_inst.ty.isSignedInt())
