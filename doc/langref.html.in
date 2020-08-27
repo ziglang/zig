@@ -10308,14 +10308,586 @@ fn readU32Be() u32 {}
       {#header_close#}
 
       {#header_open|Keyword Reference#}
-      <p>
-      TODO the rest of the keywords. Most of these can just be links to the relevant section.
-      </p>
-      {#header_open|Keyword: pub#}
-      <p>The {#syntax#}pub{#endsyntax#} in front of a top level declaration makes the
-      declaration available to reference from a different file than the one it is declared in.</p>
-      {#see_also|@import#}
-      {#header_close#}
+      <div class="table-wrapper">
+      <table>
+        <tr>
+          <th>
+            Keyword
+          </th>
+          <th>
+            Description
+          </th>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}align{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}align{#endsyntax#} can be used to specify the alignment of a pointer.
+            It can also be used after a variable or function declaration to specify the alignment of pointers to that variable or function.
+            <ul>
+              <li>See also {#link|Alignment#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}allowzero{#endsyntax#}</pre>
+          </td>
+          <td>
+            The pointer attribute {#syntax#}allowzero{#endsyntax#} allows a pointer to have address zero.
+            <ul>
+              <li>See also {#link|allowzero#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}and{#endsyntax#}</pre>
+          </td>
+          <td>
+            The boolean operator {#syntax#}and{#endsyntax#}.
+            <ul>
+              <li>See also {#link|Operators#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}anyframe{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}anyframe{#endsyntax#} can be used as a type for variables which hold pointers to function frames.
+            <ul>
+              <li>See also {#link|Async Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}anytype{#endsyntax#}</pre>
+          </td>
+          <td>
+            Function parameters and struct fields can be declared with {#syntax#}anytype{#endsyntax#} in place of the type.
+            The type will be inferred where the function is called or the struct is instantiated.
+            <ul>
+              <li>See also {#link|Function Parameter Type Inference#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}asm{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}asm{#endsyntax#} begins an inline assembly expression. This allows for directly controlling the machine code generated on compilation.
+            <ul>
+              <li>See also {#link|Assembly#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}async{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}async{#endsyntax#} can be used before a function call to get a pointer to the function's frame when it suspends.
+            <ul>
+              <li>See also {#link|Async Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}await{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}await{#endsyntax#} can be used to suspend the current function until the frame provided after the {#syntax#}await{#endsyntax#} completes.
+            {#syntax#}await{#endsyntax#} copies the value returned from the target function's frame to the caller.
+            <ul>
+              <li>See also {#link|Async Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}break{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}break{#endsyntax#} can be used with a block label to return a value from the block.
+            It can also be used to exit a loop before iteration completes naturally.
+            <ul>
+              <li>See also {#link|blocks#}, {#link|while#}, {#link|for#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}catch{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}catch{#endsyntax#} can be used to evaluate an expression if the expression before it evaluates to an error.
+            The expression after the {#syntax#}catch{#endsyntax#} can optionally capture the error value.
+            <ul>
+              <li>See also {#link|catch#}, {#link|Operators#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}comptime{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}comptime{#endsyntax#} before a declaration can be used to label variables or function parameters as known at compile time.
+            It can also be used to guarantee an expression is run at compile time.
+            <ul>
+              <li>See also {#link|comptime#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}const{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}const{#endsyntax#} declares a variable that can not be modified.
+            Used as a pointer attribute, it denotes the value referenced by the pointer cannot be modified.
+            <ul>
+              <li>See also {#link|Variables#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}continue{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}continue{#endsyntax#} can be used in a loop to jump back to the beginning of the loop.
+            <ul>
+              <li>See also {#link|while#}, {#link|for#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}defer{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}defer{#endsyntax#} will execute an expression when control flow leaves the current block.
+            <ul>
+              <li>See also {#link|defer#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}else{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}else{#endsyntax#} can be used to provide an alternate branch for {#syntax#}if{#endsyntax#}, {#syntax#}switch{#endsyntax#},
+            {#syntax#}while{#endsyntax#}, and {#syntax#}for{#endsyntax#} expressions.
+            <ul>
+              <li>If used after an if expression, the else branch will be executed if the test value returns false, null, or an error.</li>
+              <li>If used within a switch expression, the else branch will be executed if the test value matches no other cases.</li>
+              <li>If used after a loop expression, the else branch will be executed if the loop finishes without breaking.</li>
+              <li>See also {#link|if#}, {#link|switch#}, {#link|while#}, {#link|for#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}enum{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}enum{#endsyntax#} defines an enum type.
+            <ul>
+              <li>See also {#link|enum#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}errdefer{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}errdefer{#endsyntax#} will execute an expression when control flow leaves the current block if the function returns an error.
+            <ul>
+              <li>See also {#link|errdefer#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}error{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}error{#endsyntax#} defines an error type.
+            <ul>
+              <li>See also {#link|Errors#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}export{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}export{#endsyntax#} makes a function or variable externally visible in the generated object file.
+            Exported functions default to the C calling convention.
+            <ul>
+              <li>See also {#link|Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}extern{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}extern{#endsyntax#} can be used to declare a function or variable that will be resolved at link time, when linking statically
+            or at runtime, when linking dynamically.
+            <ul>
+              <li>See also {#link|Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}false{#endsyntax#}</pre>
+          </td>
+          <td>
+            The boolean value {#syntax#}false{#endsyntax#}.
+            <ul>
+              <li>See also {#link|Primitive Values#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}fn{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}fn{#endsyntax#} declares a function.
+            <ul>
+              <li>See also {#link|Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}for{#endsyntax#}</pre>
+          </td>
+          <td>
+            A {#syntax#}for{#endsyntax#} expression can be used to iterate over the elements of a slice, array, or tuple.
+            <ul>
+              <li>See also {#link|for#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}if{#endsyntax#}</pre>
+          </td>
+          <td>
+            An {#syntax#}if{#endsyntax#} expression can test boolean expressions, optional values, or error unions.
+            For optional values or error unions, the if expression can capture the unwrapped value.
+            <ul>
+              <li>See also {#link|if#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}inline{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}inline{#endsyntax#} can be used to label a loop expression such that it will be unrolled at compile time.
+            It can also be used to force a function to be inlined at all call sites.
+            <ul>
+              <li>See also {#link|inline while#}, {#link|inline for#}, {#link|Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}noalias{#endsyntax#}</pre>
+          </td>
+          <td>
+            The {#syntax#}noalias{#endsyntax#} keyword.
+            <ul>
+              <li>TODO add documentation for noalias</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}nosuspend{#endsyntax#}</pre>
+          </td>
+          <td>
+            The {#syntax#}nosuspend{#endsyntax#} keyword.
+            <ul>
+              <li>TODO add documentation for nosuspend</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}null{#endsyntax#}</pre>
+          </td>
+          <td>
+            The optional value {#syntax#}null{#endsyntax#}.
+            <ul>
+              <li>See also {#link|null#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}or{#endsyntax#}</pre>
+          </td>
+          <td>
+            The boolean operator {#syntax#}or{#endsyntax#}.
+            <ul>
+              <li>See also {#link|Operators#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}orelse{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}orelse{#endsyntax#} can be used to evaluate an expression if the expression before it evaluates to null.
+            <ul>
+              <li>See also {#link|Optionals#}, {#link|Operators#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}packed{#endsyntax#}</pre>
+          </td>
+          <td>
+            The {#syntax#}packed{#endsyntax#} keyword before a struct definition changes the struct's in-memory layout
+            to the guaranteed {#syntax#}packed{#endsyntax#} layout.
+            <ul>
+              <li>See also {#link|packed struct#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}pub{#endsyntax#}</pre>
+          </td>
+          <td>
+            The {#syntax#}pub{#endsyntax#} in front of a top level declaration makes the declaration available
+            to reference from a different file than the one it is declared in.
+            <ul>
+              <li>See also {#link|import#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}resume{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}resume{#endsyntax#} will continue execution of a function frame after the point the function was suspended.
+            <ul>
+              <li>See also {#link|Suspend and Resume#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}return{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}return{#endsyntax#} exits a function with a value.
+            <ul>
+              <li>See also {#link|Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}linksection{#endsyntax#}</pre>
+          </td>
+          <td>
+            The {#syntax#}linksection{#endsyntax#} keyword.
+            <ul>
+              <li>TODO add documentation for linksection</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}struct{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}struct{#endsyntax#} defines a struct.
+            <ul>
+              <li>See also {#link|struct#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}suspend{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}suspend{#endsyntax#} will cause control flow to return to the call site or resumer of the function.
+            {#syntax#}suspend{#endsyntax#} can also be used before a block within a function,
+            to allow the function access to its frame before control flow returns to the call site.
+            <ul>
+              <li>See also {#link|Suspend and Resume#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}switch{#endsyntax#}</pre>
+          </td>
+          <td>
+            A {#syntax#}switch{#endsyntax#} expression can be used to test values of a common type.
+            {#syntax#}switch{#endsyntax#} cases can capture field values of a {#link|Tagged union#}.
+            <ul>
+              <li>See also {#link|switch#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}test{#endsyntax#}</pre>
+          </td>
+          <td>
+            The {#syntax#}test{#endsyntax#} keyword can be used to denote a top-level block of code
+            used to make sure behavior meets expectations.
+            <ul>
+              <li>See also {#link|Zig Test#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}threadlocal{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}threadlocal{#endsyntax#} can be used to specify a variable as thread-local.
+            <ul>
+              <li>See also {#link|Thread Local Variables#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}true{#endsyntax#}</pre>
+          </td>
+          <td>
+            The boolean value {#syntax#}true{#endsyntax#}.
+            <ul>
+              <li>See also {#link|Primitive Values#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}try{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}try{#endsyntax#} evaluates an error union expression.
+            If it is an error, it returns from the current function with the same error.
+            Otherwise, the expression results in the unwrapped value.
+            <ul>
+              <li>See also {#link|try#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}undefined{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}undefined{#endsyntax#} can be used to leave a value uninitialized.
+            <ul>
+              <li>See also {#link|undefined#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}union{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}union{#endsyntax#} defines a union.
+            <ul>
+              <li>See also {#link|union#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}unreachable{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}unreachable{#endsyntax#} can be used to assert that control flow will never happen upon a particular location.
+            Depending on the build mode, {#syntax#}unreachable{#endsyntax#} may emit a panic.
+            <ul>
+              <li>Emits a panic in {#syntax#}Debug{#endsyntax#} and {#syntax#}ReleaseSafe{#endsyntax#} mode, or when using <code>zig test</code>.</li>
+              <li>Does not emit a panic in {#syntax#}ReleaseFast{#endsyntax#} mode, unless <code>zig test</code> is being used.</li>
+              <li>See also {#link|unreachable#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}usingnamespace{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}usingnamespace{#endsyntax#} is a top-level declaration that imports all the public declarations of the operand,
+            which must be a struct, union, or enum, into the current scope.
+            <ul>
+              <li>See also {#link|usingnamespace#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}var{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}var{#endsyntax#} declares a variable that may be modified.
+            <ul>
+              <li>See also {#link|Variables#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}volatile{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}volatile{#endsyntax#} can be used to denote loads or stores of a pointer have side effects.
+            It can also modify an inline assembly expression to denote it has side effects.
+            <ul>
+              <li>See also {#link|volatile#}, {#link|Assembly#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}while{#endsyntax#}</pre>
+          </td>
+          <td>
+            A {#syntax#}while{#endsyntax#} expression can be used to repeatedly test a boolean, optional, or error union expression,
+            and cease looping when that expression evaluates to false, null, or an error, respectively.
+            <ul>
+              <li>See also {#link|while#}</li>
+            </ul>
+          </td>
+        </tr>
+      </table>
+      </div>
       {#header_close#}
 
       {#header_open|Grammar#}
