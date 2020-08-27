@@ -1321,7 +1321,7 @@ pub const Node = struct {
                 self,
                 self.trailer_flags.bits,
                 self.getTrailer(.name_token),
-                self.trailer_flags.ptrConst(trailers_start, "name_token"),
+                self.trailer_flags.ptrConst(trailers_start, .name_token),
                 self.params_len,
             });
         }

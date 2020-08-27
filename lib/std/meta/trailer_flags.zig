@@ -22,16 +22,14 @@ pub fn TrailerFlags(comptime Fields: type) type {
         pub const bit_count = @typeInfo(Fields).Struct.fields.len;
 
         pub const FieldEnum = blk: {
-            comptime var fields: []const TypeInfo.EnumField = &[_]TypeInfo.EnumField{};
-            inline for (@typeInfo(Fields).Struct.fields) |struct_field, i| {
-                const field = TypeInfo.EnumField{ .name = struct_field.name, .value = i };
-                fields = fields ++ [_]TypeInfo.EnumField{field};
-            }
+            comptime var fields: [bit_count]TypeInfo.EnumField = undefined;
+            inline for (@typeInfo(Fields).Struct.fields) |struct_field, i|
+                fields[i] = .{ .name = struct_field.name, .value = i };
             break :blk @Type(.{
                 .Enum = .{
                     .layout = .Auto,
                     .tag_type = std.math.IntFittingRange(0, bit_count - 1),
-                    .fields = fields,
+                    .fields = &fields,
                     .decls = &[_]TypeInfo.Declaration{},
                     .is_exhaustive = true,
                 },
@@ -39,19 +37,21 @@ pub fn TrailerFlags(comptime Fields: type) type {
         };
 
         pub const InitStruct = blk: {
-            comptime var fields: []const TypeInfo.StructField = &[_]TypeInfo.StructField{};
+            comptime var fields: [bit_count]TypeInfo.StructField = undefined;
             inline for (@typeInfo(Fields).Struct.fields) |struct_field, i| {
-                const field = TypeInfo.StructField{
+                fields[i] = TypeInfo.StructField{
                     .name = struct_field.name,
                     .field_type = ?struct_field.field_type,
-                    .default_value = @as(??struct_field.field_type, @as(?struct_field.field_type, null)),
+                    .default_value = @as(
+                        ??struct_field.field_type,
+                        @as(?struct_field.field_type, null),
+                    ),
                 };
-                fields = fields ++ [_]TypeInfo.StructField{field};
             }
             break :blk @Type(.{
                 .Struct = .{
                     .layout = .Auto,
-                    .fields = fields,
+                    .fields = &fields,
                     .decls = &[_]TypeInfo.Declaration{},
                     .is_tuple = false,
                 },
@@ -77,7 +77,6 @@ pub fn TrailerFlags(comptime Fields: type) type {
         }
 
         /// `fields` is a struct with each field set to an optional value.
-        /// Missing fields are assumed to be `null`.
         /// Only the non-null bits are observed and are used to set the flag bits.
         pub fn init(fields: InitStruct) Self {
             var self: Self = .{ .bits = 0 };
@@ -89,7 +88,6 @@ pub fn TrailerFlags(comptime Fields: type) type {
         }
 
         /// `fields` is a struct with each field set to an optional value (same as `init`).
-        /// Missing fields are assumed to be `null`.
         pub fn setMany(self: Self, p: [*]align(@alignOf(Fields)) u8, fields: InitStruct) void {
             inline for (@typeInfo(Fields).Struct.fields) |field, i| {
                 if (@field(fields, field.name)) |value|
