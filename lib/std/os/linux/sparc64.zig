@@ -1,5 +1,23 @@
 usingnamespace @import("../bits.zig");
 
+pub fn syscall_pipe(fd: *[2]i32) usize {
+    return asm volatile (
+        \\ mov %%o0, %%o2
+        \\ t 0x6d
+        \\ bcc %%xcc, 1f
+        \\ nop
+        \\ ba 2f
+        \\ neg %%o0
+        \\ 1:
+        \\ st %%o0, [%%o2]
+        \\ st %%o1, [%%o2 + 4]
+        \\ clr %%o0
+        \\ 2:
+        : [ret] "={o0}" (-> usize)
+        : [number] "{$2}" (@enumToInt(SYS.pipe))
+        : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
+    );
+}
 
 pub fn syscall0(number: SYS) usize {
     return asm volatile (
@@ -10,7 +28,7 @@ pub fn syscall0(number: SYS) usize {
         \\ 1:
         : [ret] "={o0}" (-> usize)
         : [number] "{g1}" (@enumToInt(number))
-        : "memory", "o1", "o2", "o3", "o4", "o5", "o7"
+        : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
 
@@ -24,7 +42,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={o0}" (-> usize)
         : [number] "{g1}" (@enumToInt(number)),
           [arg1] "{o0}" (arg1)
-        : "memory", "o1", "o2", "o3", "o4", "o5", "o7"
+        : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
 
@@ -39,7 +57,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{g1}" (@enumToInt(number)),
           [arg1] "{o0}" (arg1),
           [arg2] "{o1}" (arg2)
-        : "memory", "o1", "o2", "o3", "o4", "o5", "o7"
+        : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
 
@@ -55,7 +73,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{o0}" (arg1),
           [arg2] "{o1}" (arg2),
           [arg3] "{o2}" (arg3)
-        : "memory", "o1", "o2", "o3", "o4", "o5", "o7"
+        : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
 
@@ -72,7 +90,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{o1}" (arg2),
           [arg3] "{o2}" (arg3),
           [arg4] "{o3}" (arg4)
-        : "memory", "o1", "o2", "o3", "o4", "o5", "o7"
+        : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
 
@@ -90,7 +108,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{o2}" (arg3),
           [arg4] "{o3}" (arg4),
           [arg5] "{o4}" (arg5),
-        : "memory", "o1", "o2", "o3", "o4", "o5", "o7"
+        : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
 
@@ -117,7 +135,7 @@ pub fn syscall6(
           [arg4] "{o3}" (arg4),
           [arg5] "{o4}" (arg5),
           [arg6] "{o5}" (arg6),
-        : "memory", "o1", "o2", "o3", "o4", "o5", "o7"
+        : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
 
@@ -130,6 +148,6 @@ pub fn restore_rt() callconv(.Naked) void {
     return asm volatile ("t 0x6d"
         :
         : [number] "{g1}" (@enumToInt(SYS.rt_sigreturn))
-        : "memory", "o0", "o1", "o2", "o3", "o4", "o5", "o7"
+        : "memory", "xcc", "o0", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
