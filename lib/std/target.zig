@@ -694,6 +694,13 @@ pub const Target = struct {
                 };
             }
 
+            pub fn isSPARC(arch: Arch) bool {
+                return switch (arch) {
+                    .sparcv8, .sparcv9 => true,
+                    else => false,
+                };
+            }
+
             pub fn parseCpuModel(arch: Arch, cpu_name: []const u8) !*const Cpu.Model {
                 for (arch.allCpuModels()) |cpu| {
                     if (mem.eql(u8, cpu_name, cpu.name)) {
