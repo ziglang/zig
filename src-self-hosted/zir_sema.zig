@@ -132,6 +132,8 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .error_union_type => return analyzeInstErrorUnionType(mod, scope, old_inst.castTag(.error_union_type).?),
         .anyframe_type => return analyzeInstAnyframeType(mod, scope, old_inst.castTag(.anyframe_type).?),
         .error_set => return analyzeInstErrorSet(mod, scope, old_inst.castTag(.error_set).?),
+        .slice => return analyzeInstSlice(mod, scope, old_inst.castTag(.slice).?),
+        .slice_start => return analyzeInstSliceStart(mod, scope, old_inst.castTag(.slice_start).?),
     }
 }
 
@@ -1170,6 +1172,14 @@ fn analyzeInstElemPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) Inne
     }
 
     return mod.fail(scope, inst.base.src, "TODO implement more analyze elemptr", .{});
+}
+
+fn analyzeInstSlice(mod: *Module, scope: *Scope, inst: *zir.Inst.Slice) InnerError!*Inst {
+    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstSlice", .{});
+}
+
+fn analyzeInstSliceStart(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstSliceStart", .{});
 }
 
 fn analyzeInstShl(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {

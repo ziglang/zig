@@ -275,6 +275,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .ErrorType => return rlWrap(mod, scope, rl, try errorType(mod, scope, node.castTag(.ErrorType).?)),
         .For => return forExpr(mod, scope, rl, node.castTag(.For).?),
         .ArrayAccess => return arrayAccess(mod, scope, rl, node.castTag(.ArrayAccess).?),
+        .Slice => return rlWrap(mod, scope, rl, try sliceExpr(mod, scope, node.castTag(.Slice).?)),
         .Catch => return catchExpr(mod, scope, rl, node.castTag(.Catch).?),
         .Comptime => return comptimeKeyword(mod, scope, rl, node.castTag(.Comptime).?),
         .OrElse => return orelseExpr(mod, scope, rl, node.castTag(.OrElse).?),
@@ -284,7 +285,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .Await => return mod.failNode(scope, node, "TODO implement astgen.expr for .Await", .{}),
         .Resume => return mod.failNode(scope, node, "TODO implement astgen.expr for .Resume", .{}),
         .Try => return mod.failNode(scope, node, "TODO implement astgen.expr for .Try", .{}),
-        .Slice => return mod.failNode(scope, node, "TODO implement astgen.expr for .Slice", .{}),
         .ArrayInitializer => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayInitializer", .{}),
         .ArrayInitializerDot => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayInitializerDot", .{}),
         .StructInitializer => return mod.failNode(scope, node, "TODO implement astgen.expr for .StructInitializer", .{}),
@@ -949,6 +949,36 @@ fn arrayAccess(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Array
     const index = try expr(mod, scope, .none, node.index_expr);
 
     return rlWrapPtr(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.ElemPtr, .{ .array_ptr = array_ptr, .index = index }, .{}));
+}
+
+fn sliceExpr(mod: *Module, scope: *Scope, node: *ast.Node.Slice) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.rtoken].start;
+
+    const usize_type = try addZIRInstConst(mod, scope, src, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initTag(.usize_type),
+    });
+
+    const array_ptr = try expr(mod, scope, .ref, node.lhs);
+    const start = try expr(mod, scope, .{ .ty = usize_type }, node.start);
+
+    if (node.end == null and node.sentinel == null) {
+        return try addZIRBinOp(mod, scope, src, .slice_start, array_ptr, start);
+    }
+
+    const end = if (node.end) |end| try expr(mod, scope, .{ .ty = usize_type }, end) else null;
+    // we could get the child type here, but it is easier to just do it in semantic analysis.
+    const sentinel = if (node.sentinel) |sentinel| try expr(mod, scope, .none, sentinel) else null;
+
+    return try addZIRInst(
+        mod,
+        scope,
+        src,
+        zir.Inst.Slice,
+        .{ .array_ptr = array_ptr, .start = start },
+        .{ .end = end, .sentinel = sentinel },
+    );
 }
 
 fn deref(mod: *Module, scope: *Scope, node: *ast.Node.SimpleSuffixOp) InnerError!*zir.Inst {

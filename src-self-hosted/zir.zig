@@ -231,6 +231,10 @@ pub const Inst = struct {
         const_slice_type,
         /// Create a pointer type with attributes
         ptr_type,
+        /// Slice operation `array_ptr[start..end:sentinel]`
+        slice,
+        /// Slice operation with just start `lhs[rhs..]`
+        slice_start,
         /// Write a value to a pointer. For loading, see `deref`.
         store,
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
@@ -343,6 +347,7 @@ pub const Inst = struct {
                 .xor,
                 .error_union_type,
                 .merge_error_sets,
+                .slice_start,
                 => BinOp,
 
                 .block,
@@ -380,6 +385,7 @@ pub const Inst = struct {
                 .ptr_type => PtrType,
                 .enum_literal => EnumLiteral,
                 .error_set => ErrorSet,
+                .slice => Slice,
             };
         }
 
@@ -481,6 +487,8 @@ pub const Inst = struct {
                 .error_union_type,
                 .bitnot,
                 .error_set,
+                .slice,
+                .slice_start,
                 => false,
 
                 .@"break",
@@ -960,6 +968,20 @@ pub const Inst = struct {
             fields: [][]const u8,
         },
         kw_args: struct {},
+    };
+
+    pub const Slice = struct {
+        pub const base_tag = Tag.slice;
+        base: Inst,
+
+        positionals: struct {
+            array_ptr: *Inst,
+            start: *Inst,
+        },
+        kw_args: struct {
+            end: ?*Inst = null,
+            sentinel: ?*Inst = null,
+        },
     };
 };
 
