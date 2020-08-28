@@ -621,6 +621,26 @@ fn testDivFloor() void {
     testing.expect((divFloor(f32, -5.0, 3.0) catch unreachable) == -2.0);
 }
 
+pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
+    @setRuntimeSafety(false);
+    if (numerator <= 0) return divTrunc(T, numerator, denominator);
+    return (try divFloor(T, numerator - 1, denominator)) + 1;
+}
+
+test "math.divCeil" {
+    testDivCeil();
+    comptime testDivCeil();
+}
+fn testDivCeil() void {
+    testing.expect((divCeil(i32, 5, 3) catch unreachable) == 2);
+    testing.expect((divCeil(i32, -5, 3) catch unreachable) == -1);
+    testing.expectError(error.DivisionByZero, divCeil(i8, -5, 0));
+    testing.expectError(error.Overflow, divCeil(i8, -128, -1));
+
+    testing.expect((divCeil(f32, 5.0, 3.0) catch unreachable) == 2.0);
+    testing.expect((divCeil(f32, -5.0, 3.0) catch unreachable) == -1.0);
+}
+
 pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
