@@ -623,12 +623,16 @@ fn testDivFloor() void {
 
 pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
-    if (numerator <= 0) return divTrunc(T, numerator, denominator);
-    if (@typeInfo(T) == .Float) {
-        if (denominator == 0) return error.DivisionByZero;
-        return @ceil(numerator / denominator);
+    if (denominator == 0) return error.DivisionByZero;
+    if (@typeInfo(T) == .Float) return @ceil(numerator / denominator);
+    if (T.is_signed and numerator < 0 and denominator < 0) {
+        if (numerator == minInt(T) and denominator == -1)
+            return error.Overflow;
+        return @divFloor(numerator + 1, denominator) + 1;
     }
-    return (try divFloor(T, numerator - 1, denominator)) + 1;
+    if (numerator > 0 and denominator > 0)
+        return @divFloor(numerator - 1, denominator) + 1;
+    return @divTrunc(numerator, denominator);
 }
 
 test "math.divCeil" {
@@ -638,11 +642,18 @@ test "math.divCeil" {
 fn testDivCeil() void {
     testing.expect((divCeil(i32, 5, 3) catch unreachable) == 2);
     testing.expect((divCeil(i32, -5, 3) catch unreachable) == -1);
+    testing.expect((divCeil(i32, 5, -3) catch unreachable) == -1);
+    testing.expect((divCeil(i32, -5, -3) catch unreachable) == 2);
+    testing.expect((divCeil(i32, 0, 5) catch unreachable) == 0);
+    testing.expect((divCeil(u32, 0, 5) catch unreachable) == 0);
     testing.expectError(error.DivisionByZero, divCeil(i8, -5, 0));
     testing.expectError(error.Overflow, divCeil(i8, -128, -1));
 
+    testing.expect((divCeil(f32, 0.0, 5.0) catch unreachable) == 0.0);
     testing.expect((divCeil(f32, 5.0, 3.0) catch unreachable) == 2.0);
     testing.expect((divCeil(f32, -5.0, 3.0) catch unreachable) == -1.0);
+    testing.expect((divCeil(f32, 5.0, -3.0) catch unreachable) == -1.0);
+    testing.expect((divCeil(f32, -5.0, -3.0) catch unreachable) == 2.0);
 }
 
 pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
