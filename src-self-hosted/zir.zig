@@ -2596,7 +2596,7 @@ const EmitZIR = struct {
                     var len_pl = Value.Payload.Int_u64{ .int = ty.arrayLen() };
                     const len = Value.initPayload(&len_pl.base);
 
-                    const inst = if (ty.arraySentinel()) |sentinel| blk: {
+                    const inst = if (ty.sentinel()) |sentinel| blk: {
                         const inst = try self.arena.allocator.create(Inst.ArrayTypeSentinel);
                         inst.* = .{
                             .base = .{

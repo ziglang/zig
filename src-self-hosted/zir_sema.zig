@@ -1175,11 +1175,19 @@ fn analyzeInstElemPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) Inne
 }
 
 fn analyzeInstSlice(mod: *Module, scope: *Scope, inst: *zir.Inst.Slice) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstSlice", .{});
+    const array_ptr = try resolveInst(mod, scope, inst.positionals.array_ptr);
+    const start = try resolveInst(mod, scope, inst.positionals.start);
+    const end = if (inst.kw_args.end) |end| try resolveInst(mod, scope, end) else null;
+    const sentinel = if (inst.kw_args.sentinel) |sentinel| try resolveInst(mod, scope, sentinel) else null;
+
+    return mod.analyzeSlice(scope, inst.base.src, array_ptr, start, end, sentinel);
 }
 
 fn analyzeInstSliceStart(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement analyzeInstSliceStart", .{});
+    const array_ptr = try resolveInst(mod, scope, inst.positionals.lhs);
+    const start = try resolveInst(mod, scope, inst.positionals.rhs);
+
+    return mod.analyzeSlice(scope, inst.base.src, array_ptr, start, null, null);
 }
 
 fn analyzeInstShl(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {

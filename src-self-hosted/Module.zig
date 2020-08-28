@@ -2591,6 +2591,72 @@ pub fn analyzeIsErr(self: *Module, scope: *Scope, src: usize, operand: *Inst) In
     return self.fail(scope, src, "TODO implement analysis of iserr", .{});
 }
 
+pub fn analyzeSlice(self: *Module, scope: *Scope, src: usize, array_ptr: *Inst, start: *Inst, end_opt: ?*Inst, sentinel_opt: ?*Inst) InnerError!*Inst {
+    const ptr_child = switch (array_ptr.ty.zigTypeTag()) {
+        .Pointer => array_ptr.ty.elemType(),
+        else => return self.fail(scope, src, "expected pointer, found '{}'", .{array_ptr.ty}),
+    };
+
+    var array_type = ptr_child;
+    const elem_type = switch (ptr_child.zigTypeTag()) {
+        .Array => ptr_child.elemType(),
+        .Pointer => blk: {
+            if (ptr_child.isSinglePointer()) {
+                if (ptr_child.elemType().zigTypeTag() == .Array) {
+                    array_type = ptr_child.elemType();
+                    break :blk ptr_child.elemType().elemType();
+                }
+
+                return self.fail(scope, src, "slice of single-item pointer", .{});
+            }
+            break :blk ptr_child.elemType();
+        },
+        else => return self.fail(scope, src, "slice of non-array type '{}'", .{ptr_child}),
+    };
+
+    const slice_sentinel = if (sentinel_opt) |sentinel| blk: {
+        const casted = try self.coerce(scope, elem_type, sentinel);
+        break :blk try self.resolveConstValue(scope, casted);
+    } else null;
+
+    var return_ptr_size: std.builtin.TypeInfo.Pointer.Size = .Slice;
+    var return_elem_type = elem_type;
+    if (end_opt) |end| {
+        if (end.value()) |end_val| {
+            if (start.value()) |start_val| {
+                const start_u64 = start_val.toUnsignedInt();
+                const end_u64 = end_val.toUnsignedInt();
+                if (start_u64 > end_u64) {
+                    return self.fail(scope, src, "out of bounds slice", .{});
+                }
+
+                const len = end_u64 - start_u64;
+                const array_sentinel = if (array_type.zigTypeTag() == .Array and end_u64 == array_type.arrayLen())
+                    array_type.sentinel()
+                else
+                    slice_sentinel;
+                return_elem_type = try self.arrayType(scope, len, array_sentinel, elem_type);
+                return_ptr_size = .One;
+            }
+        }
+    }
+    const return_type = try self.ptrType(
+        scope,
+        src,
+        return_elem_type,
+        if (end_opt == null) slice_sentinel else null,
+        0, // TODO alignment
+        0,
+        0,
+        !ptr_child.isConstPtr(),
+        ptr_child.isAllowzeroPtr(),
+        ptr_child.isVolatilePtr(),
+        return_ptr_size,
+    );
+
+    return self.fail(scope, src, "TODO implement analysis of slice", .{});
+}
+
 /// Asserts that lhs and rhs types are both numeric.
 pub fn cmpNumeric(
     self: *Module,

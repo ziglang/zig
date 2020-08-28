@@ -132,7 +132,7 @@ pub fn generateSymbol(
         .Array => {
             // TODO populate .debug_info for the array
             if (typed_value.val.cast(Value.Payload.Bytes)) |payload| {
-                if (typed_value.ty.arraySentinel()) |sentinel| {
+                if (typed_value.ty.sentinel()) |sentinel| {
                     try code.ensureCapacity(code.items.len + payload.data.len + 1);
                     code.appendSliceAssumeCapacity(payload.data);
                     const prev_len = code.items.len;
