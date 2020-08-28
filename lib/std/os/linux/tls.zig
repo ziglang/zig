@@ -49,7 +49,7 @@ const TLSVariant = enum {
 
 const tls_variant = switch (builtin.arch) {
     .arm, .armeb, .aarch64, .aarch64_be, .riscv32, .riscv64, .mips, .mipsel => TLSVariant.VariantI,
-    .x86_64, .i386 => TLSVariant.VariantII,
+    .x86_64, .i386, .sparcv9 => TLSVariant.VariantII,
     else => @compileError("undefined tls_variant for this architecture"),
 };
 
@@ -159,6 +159,13 @@ pub fn setThreadPointer(addr: usize) void {
         .mips, .mipsel => {
             const rc = std.os.linux.syscall1(.set_thread_area, addr);
             assert(rc == 0);
+        },
+        .sparcv9 => {
+            asm volatile (
+                \\ mov %[addr], %%g7
+                :
+                : [addr] "r" (addr)
+            );
         },
         else => @compileError("Unsupported architecture"),
     }
