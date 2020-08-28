@@ -624,7 +624,10 @@ fn testDivFloor() void {
 pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (numerator <= 0) return divTrunc(T, numerator, denominator);
-    if (@typeInfo(T) == .Float) return @ceil(numerator / denominator);
+    if (@typeInfo(T) == .Float) {
+        if (denominator == 0) return error.DivisionByZero;
+        return @ceil(numerator / denominator);
+    }
     return (try divFloor(T, numerator - 1, denominator)) + 1;
 }
 
