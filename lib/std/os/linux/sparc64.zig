@@ -1,18 +1,11 @@
 usingnamespace @import("../bits.zig");
 
-// TODO: Handle the case of pipe(2) returning multiple values.
-// From syscall(2)'s manual page:
-// Some architectures (namely, Alpha, IA-64, MIPS, SuperH, sparc/32, and sparc/64)
-// use an additional register ("Retval2" in the above table) to pass back a second
-// return value from the pipe(2) system call; Alpha uses this technique in the
-// architecture-specific getxpid(2), getxuid(2), and getxgid(2) system calls
-// as well. Other architectures do not use the second return value register in
-// the system call interface, even if it is defined in the System V ABI.
 
 pub fn syscall0(number: SYS) usize {
     return asm volatile (
         \\ t   0x6d
         \\ bcc %%xcc, 1f
+        \\ nop
         \\ neg %%o0
         \\ 1:
         : [ret] "={o0}" (-> usize)
@@ -25,6 +18,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
     return asm volatile (
         \\ t   0x6d
         \\ bcc %%xcc, 1f
+        \\ nop
         \\ neg %%o0
         \\ 1:
         : [ret] "={o0}" (-> usize)
@@ -38,6 +32,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
     return asm volatile (
         \\ t   0x6d
         \\ bcc %%xcc, 1f
+        \\ nop
         \\ neg %%o0
         \\ 1:
         : [ret] "={o0}" (-> usize)
@@ -52,6 +47,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
     return asm volatile (
         \\ t   0x6d
         \\ bcc %%xcc, 1f
+        \\ nop
         \\ neg %%o0
         \\ 1:
         : [ret] "={o0}" (-> usize)
@@ -67,6 +63,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
     return asm volatile (
         \\ t   0x6d
         \\ bcc %%xcc, 1f
+        \\ nop
         \\ neg %%o0
         \\ 1:
         : [ret] "={o0}" (-> usize)
@@ -83,6 +80,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
     return asm volatile (
         \\ t   0x6d
         \\ bcc %%xcc, 1f
+        \\ nop
         \\ neg %%o0
         \\ 1:
         : [ret] "={o0}" (-> usize)
@@ -108,6 +106,7 @@ pub fn syscall6(
     return asm volatile (
         \\ t   0x6d
         \\ bcc %%xcc, 1f
+        \\ nop
         \\ neg %%o0
         \\ 1:
         : [ret] "={o0}" (-> usize)
