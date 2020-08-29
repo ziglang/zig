@@ -567,38 +567,40 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             const held = self.mutex.acquire();
             defer held.release();
 
-            const prev_req_bytes = self.total_requested_bytes;
+            const new_aligned_size = math.max(len, ptr_align);
+            const mem_slice = blk: {
+                if (new_aligned_size > largest_bucket_object_size) {
+                    try self.large_allocations.ensureCapacity(
+                        self.backing_allocator,
+                        self.large_allocations.entries.items.len + 1,
+                    );
+
+                    const slice = try self.backing_allocator.allocFn(self.backing_allocator, len, ptr_align, len_align, ret_addr);
+
+                    const gop = self.large_allocations.getOrPutAssumeCapacity(@ptrToInt(slice.ptr));
+                    assert(!gop.found_existing); // This would mean the kernel double-mapped pages.
+                    gop.entry.value.bytes = slice;
+                    collectStackTrace(ret_addr, &gop.entry.value.stack_addresses);
+
+                    break :blk slice;
+                } else {
+                    const new_size_class = math.ceilPowerOfTwoAssert(usize, new_aligned_size);
+                    const ptr = try self.allocSlot(new_size_class, ret_addr);
+                    break :blk ptr[0..len];
+                }
+            };
+
             if (config.enable_memory_limit) {
-                const new_req_bytes = prev_req_bytes + len;
+                // The backing allocator may return a memory block bigger than
+                // `len`, use the effective size for bookkeeping purposes
+                const new_req_bytes = self.total_requested_bytes + mem_slice.len;
                 if (new_req_bytes > self.requested_memory_limit) {
                     return error.OutOfMemory;
                 }
                 self.total_requested_bytes = new_req_bytes;
             }
-            errdefer if (config.enable_memory_limit) {
-                self.total_requested_bytes = prev_req_bytes;
-            };
 
-            const new_aligned_size = math.max(len, ptr_align);
-            if (new_aligned_size > largest_bucket_object_size) {
-                try self.large_allocations.ensureCapacity(
-                    self.backing_allocator,
-                    self.large_allocations.entries.items.len + 1,
-                );
-
-                const slice = try self.backing_allocator.allocFn(self.backing_allocator, len, ptr_align, len_align, ret_addr);
-
-                const gop = self.large_allocations.getOrPutAssumeCapacity(@ptrToInt(slice.ptr));
-                assert(!gop.found_existing); // This would mean the kernel double-mapped pages.
-                gop.entry.value.bytes = slice;
-                collectStackTrace(ret_addr, &gop.entry.value.stack_addresses);
-
-                return slice;
-            } else {
-                const new_size_class = math.ceilPowerOfTwoAssert(usize, new_aligned_size);
-                const ptr = try self.allocSlot(new_size_class, ret_addr);
-                return ptr[0..len];
-            }
+            return mem_slice;
         }
 
         fn createBucket(self: *Self, size_class: usize, bucket_index: usize) Error!*BucketHeader {
