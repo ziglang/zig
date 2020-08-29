@@ -3,7 +3,7 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-const __floattisf = @import("floattisf.zig").__floattisf;
+const __floattisf = @import("floatXisf.zig").__floattisf;
 const testing = @import("std").testing;
 
 fn test__floattisf(a: i128, expected: f32) void {
