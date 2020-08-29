@@ -374,7 +374,7 @@ pub fn faccessat(dirfd: i32, path: [*:0]const u8, mode: u32, flags: u32) usize {
 }
 
 pub fn pipe(fd: *[2]i32) usize {
-    if (comptime builtin.arch.isMIPS() || comptime builtin.arch.isSPARC()) {
+    if (comptime (builtin.arch.isMIPS() || builtin.arch.isSPARC())) {
         return syscall_pipe(fd);
     } else if (@hasField(SYS, "pipe")) {
         return syscall1(.pipe, @ptrToInt(fd));
