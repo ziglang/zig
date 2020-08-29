@@ -160,11 +160,6 @@ pub const cpu = struct {
         .llvm_name = "f934",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const generic = CpuModel{
-        .name = "generic",
-        .llvm_name = "generic",
-        .features = featureSet(&[_]Feature{}),
-    };
     pub const gr712rc = CpuModel{
         .name = "gr712rc",
         .llvm_name = "gr712rc",
