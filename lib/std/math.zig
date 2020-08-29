@@ -646,31 +646,31 @@ test "math.divCeil" {
     comptime testDivCeil();
 }
 fn testDivCeil() void {
-    testing.expect((divCeil(i32, 5, 3) catch unreachable) == 2);
-    testing.expect((divCeil(i32, -5, 3) catch unreachable) == -1);
-    testing.expect((divCeil(i32, 5, -3) catch unreachable) == -1);
-    testing.expect((divCeil(i32, -5, -3) catch unreachable) == 2);
-    testing.expect((divCeil(i32, 0, 5) catch unreachable) == 0);
-    testing.expect((divCeil(u32, 0, 5) catch unreachable) == 0);
+    testing.expectEqual(divCeil(i32, 5, 3) catch unreachable, 2);
+    testing.expectEqual(divCeil(i32, -5, 3) catch unreachable, -1);
+    testing.expectEqual(divCeil(i32, 5, -3) catch unreachable, -1);
+    testing.expectEqual(divCeil(i32, -5, -3) catch unreachable, 2);
+    testing.expectEqual(divCeil(i32, 0, 5) catch unreachable, 0);
+    testing.expectEqual(divCeil(u32, 0, 5) catch unreachable, 0);
     testing.expectError(error.DivisionByZero, divCeil(i8, -5, 0));
     testing.expectError(error.Overflow, divCeil(i8, -128, -1));
 
-    testing.expect((divCeil(f32, 0.0, 5.0) catch unreachable) == 0.0);
-    testing.expect((divCeil(f32, 5.0, 3.0) catch unreachable) == 2.0);
-    testing.expect((divCeil(f32, -5.0, 3.0) catch unreachable) == -1.0);
-    testing.expect((divCeil(f32, 5.0, -3.0) catch unreachable) == -1.0);
-    testing.expect((divCeil(f32, -5.0, -3.0) catch unreachable) == 2.0);
+    testing.expectEqual(divCeil(f32, 0.0, 5.0) catch unreachable, 0.0);
+    testing.expectEqual(divCeil(f32, 5.0, 3.0) catch unreachable, 2.0);
+    testing.expectEqual(divCeil(f32, -5.0, 3.0) catch unreachable, -1.0);
+    testing.expectEqual(divCeil(f32, 5.0, -3.0) catch unreachable, -1.0);
+    testing.expectEqual(divCeil(f32, -5.0, -3.0) catch unreachable, 2.0);
 
-    testing.expect((divCeil(comptime_int, 23, 4) catch unreachable) == 6);
-    testing.expect((divCeil(comptime_int, -23, 4) catch unreachable) == -5);
-    testing.expect((divCeil(comptime_int, 23, -4) catch unreachable) == -5);
-    testing.expect((divCeil(comptime_int, -23, -4) catch unreachable) == 6);
+    testing.expectEqual(divCeil(comptime_int, 23, 4) catch unreachable, 6);
+    testing.expectEqual(divCeil(comptime_int, -23, 4) catch unreachable, -5);
+    testing.expectEqual(divCeil(comptime_int, 23, -4) catch unreachable, -5);
+    testing.expectEqual(divCeil(comptime_int, -23, -4) catch unreachable, 6);
     testing.expectError(error.DivisionByZero, divCeil(comptime_int, 23, 0));
 
-    testing.expect((divCeil(comptime_float, 23.0, 4.0) catch unreachable) == 6.0);
-    testing.expect((divCeil(comptime_float, -23.0, 4.0) catch unreachable) == -5.0);
-    testing.expect((divCeil(comptime_float, 23.0, -4.0) catch unreachable) == -5.0);
-    testing.expect((divCeil(comptime_float, -23.0, -4.0) catch unreachable) == 6.0);
+    testing.expectEqual(divCeil(comptime_float, 23.0, 4.0) catch unreachable, 6.0);
+    testing.expectEqual(divCeil(comptime_float, -23.0, 4.0) catch unreachable, -5.0);
+    testing.expectEqual(divCeil(comptime_float, 23.0, -4.0) catch unreachable, -5.0);
+    testing.expectEqual(divCeil(comptime_float, -23.0, -4.0) catch unreachable, 6.0);
     testing.expectError(error.DivisionByZero, divCeil(comptime_float, 23.0, 0.0));
 }
 
