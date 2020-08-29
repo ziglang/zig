@@ -624,15 +624,21 @@ fn testDivFloor() void {
 pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
-    if (@typeInfo(T) == .Float) return @ceil(numerator / denominator);
-    if (T.is_signed and numerator < 0 and denominator < 0) {
-        if (numerator == minInt(T) and denominator == -1)
-            return error.Overflow;
-        return @divFloor(numerator + 1, denominator) + 1;
+    const info = @typeInfo(T);
+    switch (info) {
+        .ComptimeFloat, .Float => return @ceil(numerator / denominator),
+        .ComptimeInt, .Int => {
+            if (numerator < 0 and denominator < 0) {
+                if (info == .Int and numerator == minInt(T) and denominator == -1)
+                    return error.Overflow;
+                return @divFloor(numerator + 1, denominator) + 1;
+            }
+            if (numerator > 0 and denominator > 0)
+                return @divFloor(numerator - 1, denominator) + 1;
+            return @divTrunc(numerator, denominator);
+        },
+        else => @compileError("divCeil unsupported on " ++ @typeName(T)),
     }
-    if (numerator > 0 and denominator > 0)
-        return @divFloor(numerator - 1, denominator) + 1;
-    return @divTrunc(numerator, denominator);
 }
 
 test "math.divCeil" {
@@ -654,6 +660,18 @@ fn testDivCeil() void {
     testing.expect((divCeil(f32, -5.0, 3.0) catch unreachable) == -1.0);
     testing.expect((divCeil(f32, 5.0, -3.0) catch unreachable) == -1.0);
     testing.expect((divCeil(f32, -5.0, -3.0) catch unreachable) == 2.0);
+
+    testing.expect((divCeil(comptime_int, 23, 4) catch unreachable) == 6);
+    testing.expect((divCeil(comptime_int, -23, 4) catch unreachable) == -5);
+    testing.expect((divCeil(comptime_int, 23, -4) catch unreachable) == -5);
+    testing.expect((divCeil(comptime_int, -23, -4) catch unreachable) == 6);
+    testing.expectError(error.DivisionByZero, divCeil(comptime_int, 23, 0));
+
+    testing.expect((divCeil(comptime_float, 23.0, 4.0) catch unreachable) == 6.0);
+    testing.expect((divCeil(comptime_float, -23.0, 4.0) catch unreachable) == -5.0);
+    testing.expect((divCeil(comptime_float, 23.0, -4.0) catch unreachable) == -5.0);
+    testing.expect((divCeil(comptime_float, -23.0, -4.0) catch unreachable) == 6.0);
+    testing.expectError(error.DivisionByZero, divCeil(comptime_float, 23.0, 0.0));
 }
 
 pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
