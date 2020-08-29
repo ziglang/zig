@@ -151,7 +151,7 @@ export fn stage2_free_clang_errors(errors_ptr: [*]translate_c.ClangErrMsg, error
 
 export fn stage2_render_ast(tree: *ast.Tree, output_file: *FILE) Error {
     const c_out_stream = std.io.cOutStream(output_file);
-    _ = std.zig.render(std.heap.c_allocator, c_out_stream, tree) catch |e| switch (e) {
+    _ = std.zig.render(std.heap.c_allocator, &c_out_stream, tree) catch |e| switch (e) {
         error.WouldBlock => unreachable, // stage1 opens stuff in exclusively blocking mode
         error.NotOpenForWriting => unreachable,
         error.SystemResources => return .SystemResources,
