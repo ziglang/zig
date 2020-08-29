@@ -623,7 +623,10 @@ fn testDivFloor() void {
 
 pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
-    if (denominator == 0) return error.DivisionByZero;
+    if (!(comptime std.meta.trait.isNumber(T)))
+        @compileError("divCeil unsupported on " ++ @typeName(T));
+    if (denominator == 0)
+        return error.DivisionByZero;
     const info = @typeInfo(T);
     switch (info) {
         .ComptimeFloat, .Float => return @ceil(numerator / denominator),
@@ -637,7 +640,7 @@ pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
                 return @divFloor(numerator - 1, denominator) + 1;
             return @divTrunc(numerator, denominator);
         },
-        else => @compileError("divCeil unsupported on " ++ @typeName(T)),
+        else => unreachable,
     }
 }
 
