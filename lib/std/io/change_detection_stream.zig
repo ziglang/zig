@@ -3,26 +3,27 @@ const io = std.io;
 const mem = std.mem;
 const assert = std.debug.assert;
 
-pub fn ChangeDetectionStream(comptime OutStreamType: type) type {
+/// Used to detect if the data written to a stream differs from a source buffer
+pub fn ChangeDetectionStream(comptime WriterType: type) type {
     return struct {
         const Self = @This();
-        pub const Error = OutStreamType.Error;
-        pub const OutStream = io.OutStream(*Self, Error, write);
+        pub const Error = WriterType.Error;
+        pub const Writer = io.Writer(*Self, Error, write);
 
         anything_changed: bool = false,
-        out_stream: *OutStreamType,
+        writer_pointer: *WriterType,
         source_index: usize,
         source: []const u8,
 
-        pub fn init(source: []const u8, out_stream: *OutStreamType) Self {
+        pub fn init(source: []const u8, writer_pointer: *WriterType) Self {
             return Self{
-                .out_stream = out_stream,
+                .writer_pointer = writer_pointer,
                 .source_index = 0,
                 .source = source,
             };
         }
 
-        pub fn outStream(self: *Self) OutStream {
+        pub fn writer(self: *Self) Writer {
             return .{ .context = self };
         }
 
@@ -40,7 +41,7 @@ pub fn ChangeDetectionStream(comptime OutStreamType: type) type {
                 }
             }
 
-            return self.out_stream.write(bytes);
+            return self.writer_pointer.write(bytes);
         }
 
         pub fn changeDetected(self: *Self) bool {

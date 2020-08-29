@@ -3,13 +3,15 @@ const io = std.io;
 const mem = std.mem;
 const assert = std.debug.assert;
 
-pub fn AutoIndentingStream(comptime indent_delta: u8, comptime OutStreamType: type) type {
+/// Automatically inserts indentation of written data by keeping
+/// track of the current indentation level
+pub fn AutoIndentingStream(comptime indent_delta: u8, comptime WriterType: type) type {
     return struct {
         const Self = @This();
-        pub const Error = OutStreamType.Error;
-        pub const OutStream = io.Writer(*Self, Error, write);
+        pub const Error = WriterType.Error;
+        pub const Writer = io.Writer(*Self, Error, write);
 
-        out_stream: *OutStreamType,
+        writer_pointer: *WriterType,
         current_line_empty: bool = true,
         indent_stack: [255]u8 = undefined,
         indent_stack_top: u8 = 0,
@@ -17,11 +19,11 @@ pub fn AutoIndentingStream(comptime indent_delta: u8, comptime OutStreamType: ty
         applied_indent: u8 = 0, // the most recently applied indent
         indent_next_line: u8 = 0, // not used until the next line
 
-        pub fn init(out_stream: *OutStreamType) Self {
-            return Self{ .out_stream = out_stream };
+        pub fn init(writer_pointer: *WriterType) Self {
+            return Self{ .writer_pointer = writer_pointer };
         }
 
-        pub fn writer(self: *Self) OutStream {
+        pub fn writer(self: *Self) Writer {
             return .{ .context = self };
         }
 
@@ -34,7 +36,10 @@ pub fn AutoIndentingStream(comptime indent_delta: u8, comptime OutStreamType: ty
         }
 
         fn writeNoIndent(self: *Self, bytes: []const u8) Error!usize {
-            try self.out_stream.outStream().writeAll(bytes);
+            if (bytes.len == 0)
+                return @as(usize, 0);
+
+            try self.writer_pointer.outStream().writeAll(bytes);
             if (bytes[bytes.len - 1] == '\n')
                 self.resetLine();
             return bytes.len;
@@ -98,7 +103,7 @@ pub fn AutoIndentingStream(comptime indent_delta: u8, comptime OutStreamType: ty
         fn applyIndent(self: *Self) Error!void {
             const current_indent = self.currentIndent();
             if (self.current_line_empty and current_indent > 0) {
-                try self.out_stream.outStream().writeByteNTimes(' ', current_indent);
+                try self.writer_pointer.outStream().writeByteNTimes(' ', current_indent);
                 self.applied_indent = current_indent;
             }
 

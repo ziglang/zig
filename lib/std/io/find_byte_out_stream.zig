@@ -2,21 +2,21 @@ const std = @import("../std.zig");
 const io = std.io;
 const assert = std.debug.assert;
 
-// An OutStream that returns whether the given character has been written to it.
-// The contents are not written to anything.
-pub fn FindByteOutStream(comptime OutStreamType: type) type {
+/// An OutStream that returns whether the given character has been written to it.
+/// The contents are not written to anything.
+pub fn FindByteOutStream(comptime WriterType: type) type {
     return struct {
         const Self = @This();
-        pub const Error = OutStreamType.Error;
+        pub const Error = WriterType.Error;
         pub const OutStream = io.OutStream(*Self, Error, write);
 
-        out_stream: *OutStreamType,
+        writer_pointer: *WriterType,
         byte_found: bool,
         byte: u8,
 
-        pub fn init(byte: u8, out_stream: *OutStreamType) Self {
+        pub fn init(byte: u8, writer_pointer: *WriterType) Self {
             return Self{
-                .out_stream = out_stream,
+                .writer_pointer = writer_pointer,
                 .byte = byte,
                 .byte_found = false,
             };
@@ -34,7 +34,7 @@ pub fn FindByteOutStream(comptime OutStreamType: type) type {
                     break :blk false;
                 };
             }
-            return self.out_stream.writer().write(bytes);
+            return self.writer_pointer.writer().write(bytes);
         }
     };
 }
