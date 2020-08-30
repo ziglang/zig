@@ -522,8 +522,12 @@ fn renderExpression(
                 break :blk if (loc.line == 0) op_space else Space.Newline;
             };
 
-            try renderToken(tree, ais, infix_op_node.op_token, after_op_space);
-            ais.pushIndentOneShot();
+            {
+                try ais.pushIndent();
+                defer ais.popIndent();
+                try renderToken(tree, ais, infix_op_node.op_token, after_op_space);
+            }
+            try ais.pushIndentOneShot();
             return renderExpression(allocator, ais, tree, infix_op_node.rhs, space);
         },
 
@@ -1873,7 +1877,12 @@ fn renderExpression(
 
             if (src_has_newline) {
                 const after_rparen_space = if (if_node.payload == null) Space.Newline else Space.Space;
-                try renderToken(tree, ais, rparen, after_rparen_space); // )
+
+                {
+                    try ais.pushIndent();
+                    defer ais.popIndent();
+                    try renderToken(tree, ais, rparen, after_rparen_space); // )
+                }
 
                 if (if_node.payload) |payload| {
                     try renderExpression(allocator, ais, tree, payload, Space.Newline);
