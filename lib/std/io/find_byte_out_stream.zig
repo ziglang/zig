@@ -8,7 +8,7 @@ pub fn FindByteOutStream(comptime WriterType: type) type {
     return struct {
         const Self = @This();
         pub const Error = WriterType.Error;
-        pub const OutStream = io.OutStream(*Self, Error, write);
+        pub const Writer = io.Writer(*Self, Error, write);
 
         writer_pointer: *WriterType,
         byte_found: bool,
@@ -22,7 +22,7 @@ pub fn FindByteOutStream(comptime WriterType: type) type {
             };
         }
 
-        pub fn outStream(self: *Self) OutStream {
+        pub fn writer(self: *Self) Writer {
             return .{ .context = self };
         }
 

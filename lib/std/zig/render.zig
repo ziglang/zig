@@ -24,7 +24,8 @@ pub fn render(allocator: *mem.Allocator, stream: anytype, tree: *ast.Tree) (meta
 
     var s = stream.*;
     var change_detection_stream = std.io.changeDetectionStream(tree.source, &s);
-    var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, &change_detection_stream);
+    var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, &change_detection_stream, allocator);
+    defer auto_indenting_stream.deinit();
 
     try renderRoot(allocator, &auto_indenting_stream, tree);
 
@@ -388,11 +389,11 @@ fn renderExpression(
             }
 
             if (block.statements.len == 0) {
-                stream.pushIndentNextLine();
+                try stream.pushIndentNextLine();
                 defer stream.popIndent();
                 try renderToken(tree, stream, block.lbrace, Space.None);
             } else {
-                stream.pushIndentNextLine();
+                try stream.pushIndentNextLine();
                 defer stream.popIndent();
 
                 try renderToken(tree, stream, block.lbrace, Space.Newline);
@@ -462,7 +463,7 @@ fn renderExpression(
                 try renderExpression(allocator, stream, tree, payload, Space.Space);
             }
 
-            stream.pushIndentOneShot();
+            try stream.pushIndentOneShot();
             return renderExpression(allocator, stream, tree, infix_op_node.rhs, space);
         },
 
@@ -523,7 +524,7 @@ fn renderExpression(
             };
 
             try renderToken(tree, stream, infix_op_node.op_token, after_op_space);
-            stream.pushIndentOneShot();
+            try stream.pushIndentOneShot();
             return renderExpression(allocator, stream, tree, infix_op_node.rhs, space);
         },
 
@@ -717,7 +718,7 @@ fn renderExpression(
                 }
 
                 {
-                    stream.pushIndent();
+                    try stream.pushIndent();
                     defer stream.popIndent();
                     try renderToken(tree, stream, lbrace, Space.None);
                 }
@@ -782,7 +783,8 @@ fn renderExpression(
 
                 // Null stream for counting the printed length of each expression
                 var counting_stream = std.io.countingOutStream(std.io.null_out_stream);
-                var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, &counting_stream);
+                var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, &counting_stream, allocator);
+                defer auto_indenting_stream.deinit();
 
                 for (exprs) |expr, i| {
                     counting_stream.bytes_written = 0;
@@ -794,7 +796,7 @@ fn renderExpression(
                 }
 
                 {
-                    stream.pushIndentNextLine();
+                    try stream.pushIndentNextLine();
                     defer stream.popIndent();
                     try renderToken(tree, stream, lbrace, Space.Newline);
 
@@ -878,7 +880,7 @@ fn renderExpression(
                 }
 
                 {
-                    stream.pushIndentNextLine();
+                    try stream.pushIndentNextLine();
                     defer stream.popIndent();
                     try renderToken(tree, stream, lbrace, Space.None);
                 }
@@ -900,7 +902,8 @@ fn renderExpression(
                 // render field expressions until a LF is found
                 for (field_inits) |field_init| {
                     var find_stream = std.io.findByteOutStream('\n', &std.io.null_out_stream);
-                    var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, &find_stream);
+                    var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, &find_stream, allocator);
+                    defer auto_indenting_stream.deinit();
 
                     try renderExpression(allocator, &auto_indenting_stream, tree, field_init, Space.None);
                     if (find_stream.byte_found) break :blk false;
@@ -960,7 +963,7 @@ fn renderExpression(
                     .node => |node| try renderExpression(allocator, stream, tree, node, Space.None),
                 }
 
-                stream.pushIndentNextLine();
+                try stream.pushIndentNextLine();
                 defer stream.popIndent();
 
                 try renderToken(tree, stream, lbrace, Space.Newline);
@@ -1008,7 +1011,7 @@ fn renderExpression(
 
                 const params = call.params();
                 for (params) |param_node, i| {
-                    stream.pushIndent();
+                    try stream.pushIndent();
                     defer stream.popIndent();
 
                     if (i + 1 < params.len) {
@@ -1028,7 +1031,7 @@ fn renderExpression(
 
             const params = call.params();
             for (params) |param_node, i| {
-                if (param_node.*.tag == .MultilineStringLiteral) stream.pushIndentOneShot();
+                if (param_node.*.tag == .MultilineStringLiteral) try stream.pushIndentOneShot();
 
                 try renderExpression(allocator, stream, tree, param_node, Space.None);
 
@@ -1055,7 +1058,7 @@ fn renderExpression(
             {
                 const new_space = if (ends_with_comment) Space.Newline else Space.None;
 
-                stream.pushIndent();
+                try stream.pushIndent();
                 defer stream.popIndent();
                 try renderExpression(allocator, stream, tree, suffix_op.index_expr, new_space);
             }
@@ -1191,7 +1194,7 @@ fn renderExpression(
 
             try renderToken(tree, stream, grouped_expr.lparen, Space.None);
             {
-                stream.pushIndentOneShot();
+                try stream.pushIndentOneShot();
                 try renderExpression(allocator, stream, tree, grouped_expr.expr, Space.None);
             }
             return renderToken(tree, stream, grouped_expr.rparen, space);
@@ -1251,7 +1254,7 @@ fn renderExpression(
 
             if (container_decl.fields_and_decls_len == 0) {
                 {
-                    stream.pushIndentNextLine();
+                    try stream.pushIndentNextLine();
                     defer stream.popIndent();
                     try renderToken(tree, stream, container_decl.lbrace_token, Space.None); // {
                 }
@@ -1286,7 +1289,7 @@ fn renderExpression(
 
             if (src_has_trailing_comma or !src_has_only_fields) {
                 // One declaration per line
-                stream.pushIndentNextLine();
+                try stream.pushIndentNextLine();
                 defer stream.popIndent();
                 try renderToken(tree, stream, container_decl.lbrace_token, .Newline); // {
 
@@ -1302,7 +1305,7 @@ fn renderExpression(
                 // their own line
                 try renderToken(tree, stream, container_decl.lbrace_token, .Newline); // {
 
-                stream.pushIndent();
+                try stream.pushIndent();
                 defer stream.popIndent();
 
                 for (fields_and_decls) |decl, i| {
@@ -1358,7 +1361,7 @@ fn renderExpression(
 
             if (src_has_trailing_comma) {
                 {
-                    stream.pushIndent();
+                    try stream.pushIndent();
                     defer stream.popIndent();
 
                     try renderToken(tree, stream, lbrace, Space.Newline); // {
@@ -1448,7 +1451,7 @@ fn renderExpression(
                 }
             } else {
                 // one param per line
-                stream.pushIndent();
+                try stream.pushIndent();
                 defer stream.popIndent();
                 try renderToken(tree, stream, lparen, Space.Newline); // (
 
@@ -1527,7 +1530,7 @@ fn renderExpression(
                 }
             } else {
                 // one param per line
-                stream.pushIndent();
+                try stream.pushIndent();
                 defer stream.popIndent();
                 try renderToken(tree, stream, lparen, Space.Newline); // (
 
@@ -1624,7 +1627,7 @@ fn renderExpression(
             try renderToken(tree, stream, rparen, Space.Space); // )
 
             {
-                stream.pushIndentNextLine();
+                try stream.pushIndentNextLine();
                 defer stream.popIndent();
                 try renderToken(tree, stream, lbrace, Space.Newline); // {
 
@@ -1708,7 +1711,7 @@ fn renderExpression(
             if (same_line) {
                 return renderExpression(allocator, stream, tree, else_node.body, space);
             } else {
-                stream.pushIndent();
+                try stream.pushIndent();
                 defer stream.popIndent();
                 return renderExpression(allocator, stream, tree, else_node.body, space);
             }
@@ -1772,7 +1775,7 @@ fn renderExpression(
             }
 
             {
-                if (!body_is_block) stream.pushIndent();
+                if (!body_is_block) try stream.pushIndent();
                 defer if (!body_is_block) stream.popIndent();
                 try renderExpression(allocator, stream, tree, while_node.body, after_body_space);
             }
@@ -1823,7 +1826,7 @@ fn renderExpression(
             };
 
             {
-                if (!body_on_same_line) stream.pushIndent();
+                if (!body_on_same_line) try stream.pushIndent();
                 defer if (!body_on_same_line) stream.popIndent();
                 try renderExpression(allocator, stream, tree, for_node.body, space_after_body); // { body }
             }
@@ -1879,7 +1882,7 @@ fn renderExpression(
                     const else_is_block = nodeIsBlock(@"else".body);
 
                     {
-                        stream.pushIndent();
+                        try stream.pushIndent();
                         defer stream.popIndent();
                         try renderExpression(allocator, stream, tree, if_node.body, Space.Newline);
                     }
@@ -1900,12 +1903,12 @@ fn renderExpression(
                             try renderExpression(allocator, stream, tree, payload, Space.Newline);
                         }
 
-                        stream.pushIndent();
+                        try stream.pushIndent();
                         defer stream.popIndent();
                         return renderExpression(allocator, stream, tree, @"else".body, space);
                     }
                 } else {
-                    stream.pushIndent();
+                    try stream.pushIndent();
                     defer stream.popIndent();
                     return renderExpression(allocator, stream, tree, if_node.body, space);
                 }
@@ -1946,7 +1949,7 @@ fn renderExpression(
             }
 
             asmblk: {
-                stream.pushIndent();
+                try stream.pushIndent();
                 defer stream.popIndent();
 
                 if (asm_node.outputs.len == 0 and asm_node.inputs.len == 0 and asm_node.clobbers.len == 0) {
@@ -1965,7 +1968,7 @@ fn renderExpression(
                 } else blk: {
                     try renderToken(tree, stream, colon1, Space.Space); // :
 
-                    stream.pushIndentN(2);
+                    try stream.pushIndentN(2);
                     defer stream.popIndent();
 
                     for (asm_node.outputs) |*asm_output, i| {
@@ -1996,7 +1999,7 @@ fn renderExpression(
                     break :blk tree.nextToken(colon2);
                 } else blk: {
                     try renderToken(tree, stream, colon2, Space.Space); // :
-                    stream.pushIndentN(2);
+                    try stream.pushIndentN(2);
                     defer stream.popIndent();
                     for (asm_node.inputs) |*asm_input, i| {
                         if (i + 1 < asm_node.inputs.len) {
@@ -2022,7 +2025,7 @@ fn renderExpression(
                 };
 
                 try renderToken(tree, stream, colon3, Space.Space); // :
-                stream.pushIndentN(2);
+                try stream.pushIndentN(2);
                 defer stream.popIndent();
                 for (asm_node.clobbers) |clobber_node, i| {
                     if (i + 1 >= asm_node.clobbers.len) {
@@ -2075,7 +2078,7 @@ fn renderArrayType(
     const new_space = if (ends_with_comment) Space.Newline else Space.None;
     {
         const do_indent = (starts_with_comment or ends_with_comment);
-        if (do_indent) stream.pushIndent();
+        if (do_indent) try stream.pushIndent();
         defer if (do_indent) stream.popIndent();
 
         try renderToken(tree, stream, lbracket, Space.None); // [
@@ -2209,7 +2212,7 @@ fn renderVarDecl(
     if (var_decl.getTrailer("init_node")) |init_node| {
         const s = if (init_node.tag == .MultilineStringLiteral) Space.None else Space.Space;
         try renderToken(tree, stream, var_decl.getTrailer("eq_token").?, s); // =
-        stream.pushIndentOneShot();
+        try stream.pushIndentOneShot();
         try renderExpression(allocator, stream, tree, init_node, Space.None);
     }
 
