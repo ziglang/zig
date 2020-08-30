@@ -401,7 +401,7 @@ pub const ChildProcess = struct {
                 // end with eventfd
                 break :blk [2]os.fd_t{ fd, fd };
             } else {
-                break :blk try os.pipe();
+                break :blk try os.pipe2(os.O_CLOEXEC);
             }
         };
         errdefer destroyPipe(err_pipe);
