@@ -1661,7 +1661,7 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
                 // TODO Look into improving the performance here by adding a token-index-to-line
                 // lookup table. Currently this involves scanning over the source code for newlines.
                 const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
-                const block = fn_proto.body().?.castTag(.Block).?;
+                const block = fn_proto.getBodyNode().?.castTag(.Block).?;
                 const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
                 break :blk @intCast(u28, line_delta);
             } else if (decl.scope.cast(Module.Scope.ZIRModule)) |zir_module| {
@@ -2160,7 +2160,7 @@ pub fn updateDeclLineNumber(self: *Elf, module: *Module, decl: *const Module.Dec
     // TODO Look into improving the performance here by adding a token-index-to-line
     // lookup table. Currently this involves scanning over the source code for newlines.
     const fn_proto = file_ast_decls[decl.src_index].castTag(.FnProto).?;
-    const block = fn_proto.body().?.castTag(.Block).?;
+    const block = fn_proto.getBodyNode().?.castTag(.Block).?;
     const line_delta = std.zig.lineDelta(tree.source, 0, tree.token_locs[block.lbrace].start);
     const casted_line_off = @intCast(u28, line_delta);
 
