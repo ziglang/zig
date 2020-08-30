@@ -1762,7 +1762,7 @@ fn renderExpression(
             }
 
             if (while_node.payload) |payload| {
-                const payload_space = Space.Space; //if (while_node.continue_expr != null) Space.Space else block_start_space;
+                const payload_space = if (while_node.continue_expr != null) Space.Space else block_start_space;
                 try renderExpression(allocator, ais, tree, payload, payload_space);
             }
 
