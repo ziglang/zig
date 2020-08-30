@@ -1301,8 +1301,10 @@ test "zig fmt: array literal with hint" {
         \\const a = []u8{
         \\    1, 2,
         \\    3, 4,
-        \\    5, 6, // blah
-        \\    7, 8,
+        \\    5,
+        \\    6, // blah
+        \\    7,
+        \\    8,
         \\};
         \\const a = []u8{
         \\    1, 2,
@@ -3439,6 +3441,44 @@ test "zig fmt: " {
         \\            log.crit(.river_status, "out of memory", .{});
         \\            return;
         \\        };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: allow trailing line comments to do manual array formatting" {
+    try testCanonical(
+        \\fn foo() void {
+        \\    self.code.appendSliceAssumeCapacity(&[_]u8{
+        \\        0x55, // push rbp
+        \\        0x48, 0x89, 0xe5, // mov rbp, rsp
+        \\        0x48, 0x81, 0xec, // sub rsp, imm32 (with reloc)
+        \\    });
+        \\
+        \\    di_buf.appendAssumeCapacity(&[_]u8{
+        \\        1, DW.TAG_compile_unit, DW.CHILDREN_no, // header
+        \\        DW.AT_stmt_list, DW_FORM_data4, // form value pairs
+        \\        DW.AT_low_pc,    DW_FORM_addr,
+        \\        DW.AT_high_pc,   DW_FORM_addr,
+        \\        DW.AT_name,      DW_FORM_strp,
+        \\        DW.AT_comp_dir,  DW_FORM_strp,
+        \\        DW.AT_producer,  DW_FORM_strp,
+        \\        DW.AT_language,  DW_FORM_data2,
+        \\        0, 0, // sentinel
+        \\    });
+        \\
+        \\    self.code.appendSliceAssumeCapacity(&[_]u8{
+        \\        0x55, // push rbp
+        \\        0x48, 0x89, 0xe5, // mov rbp, rsp
+        \\        // How do we handle this?
+        \\        //0x48, 0x81, 0xec, // sub rsp, imm32 (with reloc)
+        \\        // Here's a blank line, should that be allowed?
+        \\
+        \\        0x48, 0x89, 0xe5,
+        \\        0x33, 0x45,
+        \\        // Now the comment breaks a single line -- how do we handle this?
+        \\        0x88,
+        \\    });
         \\}
         \\
     );

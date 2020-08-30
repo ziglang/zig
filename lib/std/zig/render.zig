@@ -523,11 +523,11 @@ fn renderExpression(
             };
 
             {
-                try ais.pushIndent();
+                ais.pushIndent();
                 defer ais.popIndent();
                 try renderToken(tree, ais, infix_op_node.op_token, after_op_space);
             }
-            try ais.pushIndentOneShot();
+            ais.pushIndentOneShot();
             return renderExpression(allocator, ais, tree, infix_op_node.rhs, space);
         },
 
@@ -746,109 +746,130 @@ fn renderExpression(
             }
 
             // scan to find row size
-            const maybe_row_size: ?usize = blk: {
-                var count: usize = 1;
-                for (exprs) |expr, i| {
-                    if (i + 1 < exprs.len) {
-                        const expr_last_token = expr.lastToken() + 1;
-                        const loc = tree.tokenLocation(tree.token_locs[expr_last_token].end, exprs[i + 1].firstToken());
-                        if (loc.line != 0) break :blk count;
-                        count += 1;
-                    } else {
-                        const expr_last_token = expr.lastToken();
-                        const loc = tree.tokenLocation(tree.token_locs[expr_last_token].end, rtoken);
-                        if (loc.line == 0) {
-                            // all on one line
-                            const src_has_trailing_comma = trailblk: {
-                                const maybe_comma = tree.prevToken(rtoken);
-                                break :trailblk tree.token_ids[maybe_comma] == .Comma;
-                            };
-                            if (src_has_trailing_comma) {
-                                break :blk 1; // force row size 1
-                            } else {
-                                break :blk null; // no newlines
-                            }
-                        }
-                        break :blk count;
-                    }
-                }
-                unreachable;
-            };
-
-            if (maybe_row_size) |row_size| {
-                // A place to store the width of each expression and its column's maximum
-                var widths = try allocator.alloc(usize, exprs.len + row_size);
-                defer allocator.free(widths);
-                mem.set(usize, widths, 0);
-
-                var expr_widths = widths[0 .. widths.len - row_size];
-                var column_widths = widths[widths.len - row_size ..];
-
-                // Null ais for counting the printed length of each expression
-                var counting_stream = std.io.countingOutStream(std.io.null_out_stream);
-                var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, counting_stream.writer());
-
-                for (exprs) |expr, i| {
-                    counting_stream.bytes_written = 0;
-                    try renderExpression(allocator, &auto_indenting_stream, tree, expr, Space.None);
-                    const width = @intCast(usize, counting_stream.bytes_written);
-                    const col = i % row_size;
-                    column_widths[col] = std.math.max(column_widths[col], width);
-                    expr_widths[i] = width;
-                }
-
+            if (rowSize(tree, exprs, rtoken, false) != null) {
                 {
                     ais.pushIndentNextLine();
                     defer ais.popIndent();
                     try renderToken(tree, ais, lbrace, Space.Newline);
 
-                    var col: usize = 1;
-                    for (exprs) |expr, i| {
-                        if (i + 1 < exprs.len) {
-                            const next_expr = exprs[i + 1];
-                            try renderExpression(allocator, ais, tree, expr, Space.None);
+                    var expr_index: usize = 0;
+                    while (rowSize(tree, exprs[expr_index..], rtoken, true)) |row_size| {
+                        const row_exprs = exprs[expr_index..];
+                        // A place to store the width of each expression and its column's maximum
+                        var widths = try allocator.alloc(usize, row_exprs.len + row_size);
+                        defer allocator.free(widths);
+                        mem.set(usize, widths, 0);
 
-                            const comma = tree.nextToken(expr.*.lastToken());
+                        var expr_widths = widths[0 .. widths.len - row_size];
+                        var column_widths = widths[widths.len - row_size ..];
 
-                            if (col != row_size) {
-                                try renderToken(tree, ais, comma, Space.Space); // ,
+                        // Null stream for counting the printed length of each expression
+                        var counting_stream = std.io.countingOutStream(std.io.null_out_stream);
+                        var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, counting_stream.writer());
 
-                                const padding = column_widths[i % row_size] - expr_widths[i];
-                                try ais.writer().writeByteNTimes(' ', padding);
-
-                                col += 1;
-                                continue;
+                        // Find next row with trailing comment (if any) to end the current section then
+                        var section_end = sec_end: {
+                            var this_line_first_expr: usize = 0;
+                            var this_line_size = rowSize(tree, row_exprs, rtoken, true);
+                            for (row_exprs) |expr, i| {
+                                // Ignore comment on first line of this section
+                                if (i == 0 or tree.tokensOnSameLine(row_exprs[0].firstToken(), expr.lastToken())) continue;
+                                // Track start of line containing comment
+                                if (!tree.tokensOnSameLine(row_exprs[this_line_first_expr].firstToken(), expr.lastToken())) {
+                                    this_line_first_expr = i;
+                                    this_line_size = rowSize(tree, row_exprs[this_line_first_expr..], rtoken, true);
+                                }
+                                if (expr.lastToken() + 2 < tree.token_ids.len) {
+                                    if (tree.token_ids[expr.lastToken() + 1] == .Comma and
+                                        tree.token_ids[expr.lastToken() + 2] == .LineComment and
+                                        tree.tokensOnSameLine(expr.lastToken(), expr.lastToken() + 2))
+                                    {
+                                        var comment_token_loc = tree.token_locs[expr.lastToken() + 2];
+                                        const comment_is_empty = mem.trimRight(u8, tree.tokenSliceLoc(comment_token_loc), " ").len == 2;
+                                        if (!comment_is_empty) {
+                                            // Found row ending in comment
+                                            break :sec_end i - this_line_size.? + 1;
+                                        }
+                                    }
+                                }
                             }
-                            col = 1;
+                            break :sec_end row_exprs.len;
+                        };
+                        expr_index += section_end;
 
-                            if (tree.token_ids[tree.nextToken(comma)] != .MultilineStringLiteralLine) {
-                                try renderToken(tree, ais, comma, Space.Newline); // ,
-                            } else {
-                                try renderToken(tree, ais, comma, Space.None); // ,
-                            }
+                        const section_exprs = row_exprs[0..section_end];
 
-                            try renderExtraNewline(tree, ais, next_expr);
-                        } else {
-                            try renderExpression(allocator, ais, tree, expr, Space.Comma); // ,
+                        // Calculate size of columns in current section
+                        for (section_exprs) |expr, i| {
+                            counting_stream.bytes_written = 0;
+                            try renderExpression(allocator, &auto_indenting_stream, tree, expr, Space.None);
+                            const width = @intCast(usize, counting_stream.bytes_written);
+                            const col = i % row_size;
+                            column_widths[col] = std.math.max(column_widths[col], width);
+                            expr_widths[i] = width;
                         }
-                    }
-                }
-                return renderToken(tree, ais, rtoken, space);
-            } else {
-                try renderToken(tree, ais, lbrace, Space.Space);
-                for (exprs) |expr, i| {
-                    if (i + 1 < exprs.len) {
-                        const next_expr = exprs[i + 1];
-                        try renderExpression(allocator, ais, tree, expr, Space.None);
-                        const comma = tree.nextToken(expr.*.lastToken());
-                        try renderToken(tree, ais, comma, Space.Space); // ,
-                    } else {
-                        try renderExpression(allocator, ais, tree, expr, Space.Space);
+
+                        // Render exprs in current section
+                        var col: usize = 1;
+                        for (section_exprs) |expr, i| {
+                            if (i + 1 < section_exprs.len) {
+                                const next_expr = section_exprs[i + 1];
+                                try renderExpression(allocator, ais, tree, expr, Space.None);
+
+                                const comma = tree.nextToken(expr.*.lastToken());
+
+                                if (col != row_size) {
+                                    try renderToken(tree, ais, comma, Space.Space); // ,
+
+                                    const padding = column_widths[i % row_size] - expr_widths[i];
+                                    try ais.writer().writeByteNTimes(' ', padding);
+
+                                    col += 1;
+                                    continue;
+                                }
+                                col = 1;
+
+                                if (tree.token_ids[tree.nextToken(comma)] != .MultilineStringLiteralLine) {
+                                    try renderToken(tree, ais, comma, Space.Newline); // ,
+                                } else {
+                                    try renderToken(tree, ais, comma, Space.None); // ,
+                                }
+
+                                try renderExtraNewline(tree, ais, next_expr);
+                            } else {
+                                const maybe_comma = tree.nextToken(expr.*.lastToken());
+                                if (tree.token_ids[maybe_comma] == .Comma) {
+                                    try renderExpression(allocator, ais, tree, expr, Space.None); // ,
+                                    try renderToken(tree, ais, maybe_comma, Space.Newline); // ,
+                                } else {
+                                    try renderExpression(allocator, ais, tree, expr, Space.Comma); // ,
+                                }
+                            }
+                        }
+
+                        if (expr_index == exprs.len) {
+                            break;
+                        }
                     }
                 }
 
                 return renderToken(tree, ais, rtoken, space);
             }
+
+            // Single line
+            try renderToken(tree, ais, lbrace, Space.Space);
+            for (exprs) |expr, i| {
+                if (i + 1 < exprs.len) {
+                    const next_expr = exprs[i + 1];
+                    try renderExpression(allocator, ais, tree, expr, Space.None);
+                    const comma = tree.nextToken(expr.*.lastToken());
+                    try renderToken(tree, ais, comma, Space.Space); // ,
+                } else {
+                    try renderExpression(allocator, ais, tree, expr, Space.Space);
+                }
+            }
+
+            return renderToken(tree, ais, rtoken, space);
         },
 
         .StructInitializer, .StructInitializerDot => {
@@ -1879,7 +1900,7 @@ fn renderExpression(
                 const after_rparen_space = if (if_node.payload == null) Space.Newline else Space.Space;
 
                 {
-                    try ais.pushIndent();
+                    ais.pushIndent();
                     defer ais.popIndent();
                     try renderToken(tree, ais, rparen, after_rparen_space); // )
                 }
@@ -2566,4 +2587,34 @@ fn copyFixingWhitespace(ais: anytype, slice: []const u8) @TypeOf(ais.*).Error!vo
         '\r' => {},
         else => try ais.writer().writeByte(byte),
     };
+}
+
+fn rowSize(tree: *ast.Tree, exprs: []*ast.Node, rtoken: ast.TokenIndex, force: bool) ?usize {
+    var count: usize = 1;
+    for (exprs) |expr, i| {
+        if (i + 1 < exprs.len) {
+            const expr_last_token = expr.lastToken() + 1;
+            const loc = tree.tokenLocation(tree.token_locs[expr_last_token].end, exprs[i + 1].firstToken());
+            if (loc.line != 0) return count;
+            count += 1;
+        } else {
+            if (force) return count;
+            const expr_last_token = expr.lastToken();
+            const loc = tree.tokenLocation(tree.token_locs[expr_last_token].end, rtoken);
+            if (loc.line == 0) {
+                // all on one line
+                const src_has_trailing_comma = trailblk: {
+                    const maybe_comma = tree.prevToken(rtoken);
+                    break :trailblk tree.token_ids[maybe_comma] == .Comma;
+                };
+                if (src_has_trailing_comma) {
+                    return 1; // force row size 1
+                } else {
+                    return null; // no newlines
+                }
+            }
+            return count;
+        }
+    }
+    unreachable;
 }
