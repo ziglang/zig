@@ -3374,6 +3374,24 @@ test "zig fmt: test comments in field access chain" {
     );
 }
 
+test "zig fmt: Indent comma correctly after multiline string literals in arg list (trailing comma)" {
+    try testCanonical(
+        \\fn foo() void {
+        \\    z.display_message_dialog(
+        \\        *const [323:0]u8,
+        \\        \\Message Text
+        \\        \\------------
+        \\        \\xxxxxxxxxxxx
+        \\        \\xxxxxxxxxxxx
+        \\        ,
+        \\        g.GtkMessageType.GTK_MESSAGE_WARNING,
+        \\        null,
+        \\    );
+        \\}
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
