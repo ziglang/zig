@@ -81,6 +81,182 @@ pub const symtab_command = extern struct {
     strsize: u32,
 };
 
+/// This is the second set of the symbolic information which is used to support
+/// the data structures for the dynamically link editor.
+///
+/// The original set of symbolic information in the symtab_command which contains
+/// the symbol and string tables must also be present when this load command is
+/// present.  When this load command is present the symbol table is organized
+/// into three groups of symbols:
+///  local symbols (static and debugging symbols) - grouped by module
+///  defined external symbols - grouped by module (sorted by name if not lib)
+///  undefined external symbols (sorted by name if MH_BINDATLOAD is not set,
+///       			    and in order the were seen by the static
+///  			    linker if MH_BINDATLOAD is set)
+/// In this load command there are offsets and counts to each of the three groups
+/// of symbols.
+///
+/// This load command contains a the offsets and sizes of the following new
+/// symbolic information tables:
+///  table of contents
+///  module table
+///  reference symbol table
+///  indirect symbol table
+/// The first three tables above (the table of contents, module table and
+/// reference symbol table) are only present if the file is a dynamically linked
+/// shared library.  For executable and object modules, which are files
+/// containing only one module, the information that would be in these three
+/// tables is determined as follows:
+/// 	table of contents - the defined external symbols are sorted by name
+///  module table - the file contains only one module so everything in the
+///  	       file is part of the module.
+///  reference symbol table - is the defined and undefined external symbols
+///
+/// For dynamically linked shared library files this load command also contains
+/// offsets and sizes to the pool of relocation entries for all sections
+/// separated into two groups:
+///  external relocation entries
+///  local relocation entries
+/// For executable and object modules the relocation entries continue to hang
+/// off the section structures.
+pub const dysymtab_command = extern struct {
+    /// LC_DYSYMTAB
+    cmd: u32,
+
+    /// sizeof(struct dysymtab_command)
+    cmdsize: u32,
+
+    // The symbols indicated by symoff and nsyms of the LC_SYMTAB load command
+    // are grouped into the following three groups:
+    //    local symbols (further grouped by the module they are from)
+    //    defined external symbols (further grouped by the module they are from)
+    //    undefined symbols
+    //
+    // The local symbols are used only for debugging.  The dynamic binding
+    // process may have to use them to indicate to the debugger the local
+    // symbols for a module that is being bound.
+    //
+    // The last two groups are used by the dynamic binding process to do the
+    // binding (indirectly through the module table and the reference symbol
+    // table when this is a dynamically linked shared library file).
+
+    /// index of local symbols
+    ilocalsym: u32,
+
+    /// number of local symbols
+    nlocalsym: u32,
+
+    /// index to externally defined symbols
+    iextdefsym: u32,
+
+    /// number of externally defined symbols
+    nextdefsym: u32,
+
+    /// index to undefined symbols
+    iundefsym: u32,
+
+    /// number of undefined symbols
+    nundefsym: u32,
+
+    // For the for the dynamic binding process to find which module a symbol
+    // is defined in the table of contents is used (analogous to the ranlib
+    // structure in an archive) which maps defined external symbols to modules
+    // they are defined in.  This exists only in a dynamically linked shared
+    // library file.  For executable and object modules the defined external
+    // symbols are sorted by name and is use as the table of contents.
+
+    /// file offset to table of contents
+    tocoff: u32,
+
+    /// number of entries in table of contents
+    ntoc: u32,
+
+    // To support dynamic binding of "modules" (whole object files) the symbol
+    // table must reflect the modules that the file was created from.  This is
+    // done by having a module table that has indexes and counts into the merged
+    // tables for each module.  The module structure that these two entries
+    // refer to is described below.  This exists only in a dynamically linked
+    // shared library file.  For executable and object modules the file only
+    // contains one module so everything in the file belongs to the module.
+
+    /// file offset to module table
+    modtaboff: u32,
+
+    /// number of module table entries
+    nmodtab: u32,
+
+    // To support dynamic module binding the module structure for each module
+    // indicates the external references (defined and undefined) each module
+    // makes.  For each module there is an offset and a count into the
+    // reference symbol table for the symbols that the module references.
+    // This exists only in a dynamically linked shared library file.  For
+    // executable and object modules the defined external symbols and the
+    // undefined external symbols indicates the external references.
+
+    /// offset to referenced symbol table
+    extrefsymoff: u32,
+
+    /// number of referenced symbol table entries
+    nextrefsyms: u32,
+
+    // The sections that contain "symbol pointers" and "routine stubs" have
+    // indexes and (implied counts based on the size of the section and fixed
+    // size of the entry) into the "indirect symbol" table for each pointer
+    // and stub.  For every section of these two types the index into the
+    // indirect symbol table is stored in the section header in the field
+    // reserved1.  An indirect symbol table entry is simply a 32bit index into
+    // the symbol table to the symbol that the pointer or stub is referring to.
+    // The indirect symbol table is ordered to match the entries in the section.
+
+    /// file offset to the indirect symbol table
+    indirectsymoff: u32,
+
+    /// number of indirect symbol table entries
+    nindirectsyms: u32,
+
+    // To support relocating an individual module in a library file quickly the
+    // external relocation entries for each module in the library need to be
+    // accessed efficiently.  Since the relocation entries can't be accessed
+    // through the section headers for a library file they are separated into
+    // groups of local and external entries further grouped by module.  In this
+    // case the presents of this load command who's extreloff, nextrel,
+    // locreloff and nlocrel fields are non-zero indicates that the relocation
+    // entries of non-merged sections are not referenced through the section
+    // structures (and the reloff and nreloc fields in the section headers are
+    // set to zero).
+    //
+    // Since the relocation entries are not accessed through the section headers
+    // this requires the r_address field to be something other than a section
+    // offset to identify the item to be relocated.  In this case r_address is
+    // set to the offset from the vmaddr of the first LC_SEGMENT command.
+    // For MH_SPLIT_SEGS images r_address is set to the the offset from the
+    // vmaddr of the first read-write LC_SEGMENT command.
+    //
+    // The relocation entries are grouped by module and the module table
+    // entries have indexes and counts into them for the group of external
+    // relocation entries for that the module.
+    //
+    // For sections that are merged across modules there must not be any
+    // remaining external relocation entries for them (for merged sections
+    // remaining relocation entries must be local).
+
+    /// offset to external relocation entries
+    extreloff: u32,
+
+    /// number of external relocation entries
+    nextrel: u32,
+
+    // All the local relocation entries are grouped together (they are not
+    // grouped by their module since they are only used if the object is moved
+    // from it staticly link edited address).
+
+    /// offset to local relocation entries
+    locreloff: u32,
+
+    /// number of local relocation entries
+    nlocrel: u32,
+};
+
 /// The linkedit_data_command contains the offsets and sizes of a blob
 /// of data in the __LINKEDIT segment.
 pub const linkedit_data_command = extern struct {
@@ -95,6 +271,127 @@ pub const linkedit_data_command = extern struct {
 
     /// file size of data in __LINKEDIT segment
     datasize: u32,
+};
+
+/// The dyld_info_command contains the file offsets and sizes of
+/// the new compressed form of the information dyld needs to
+/// load the image.  This information is used by dyld on Mac OS X
+/// 10.6 and later.  All information pointed to by this command
+/// is encoded using byte streams, so no endian swapping is needed
+/// to interpret it.
+pub const dyld_info_command = extern struct {
+    /// LC_DYLD_INFO or LC_DYLD_INFO_ONLY
+    cmd: u32,
+
+    /// sizeof(struct dyld_info_command)
+    cmdsize: u32,
+
+    // Dyld rebases an image whenever dyld loads it at an address different
+    // from its preferred address.  The rebase information is a stream
+    // of byte sized opcodes whose symbolic names start with REBASE_OPCODE_.
+    // Conceptually the rebase information is a table of tuples:
+    //    <seg-index, seg-offset, type>
+    // The opcodes are a compressed way to encode the table by only
+    // encoding when a column changes.  In addition simple patterns
+    // like "every n'th offset for m times" can be encoded in a few
+    // bytes.
+
+    /// file offset to rebase info
+    rebase_off: u32,
+
+    /// size of rebase info
+    rebase_size: u32,
+
+    // Dyld binds an image during the loading process, if the image
+    // requires any pointers to be initialized to symbols in other images.
+    // The bind information is a stream of byte sized
+    // opcodes whose symbolic names start with BIND_OPCODE_.
+    // Conceptually the bind information is a table of tuples:
+    //    <seg-index, seg-offset, type, symbol-library-ordinal, symbol-name, addend>
+    // The opcodes are a compressed way to encode the table by only
+    // encoding when a column changes.  In addition simple patterns
+    // like for runs of pointers initialzed to the same value can be
+    // encoded in a few bytes.
+
+    /// file offset to binding info
+    bind_off: u32,
+
+    /// size of binding info
+    bind_size: u32,
+
+    // Some C++ programs require dyld to unique symbols so that all
+    // images in the process use the same copy of some code/data.
+    // This step is done after binding. The content of the weak_bind
+    // info is an opcode stream like the bind_info.  But it is sorted
+    // alphabetically by symbol name.  This enable dyld to walk
+    // all images with weak binding information in order and look
+    // for collisions.  If there are no collisions, dyld does
+    // no updating.  That means that some fixups are also encoded
+    // in the bind_info.  For instance, all calls to "operator new"
+    // are first bound to libstdc++.dylib using the information
+    // in bind_info.  Then if some image overrides operator new
+    // that is detected when the weak_bind information is processed
+    // and the call to operator new is then rebound.
+
+    /// file offset to weak binding info
+    weak_bind_off: u32,
+
+    /// size of weak binding info
+    weak_bind_size: u32,
+
+    // Some uses of external symbols do not need to be bound immediately.
+    // Instead they can be lazily bound on first use.  The lazy_bind
+    // are contains a stream of BIND opcodes to bind all lazy symbols.
+    // Normal use is that dyld ignores the lazy_bind section when
+    // loading an image.  Instead the static linker arranged for the
+    // lazy pointer to initially point to a helper function which
+    // pushes the offset into the lazy_bind area for the symbol
+    // needing to be bound, then jumps to dyld which simply adds
+    // the offset to lazy_bind_off to get the information on what
+    // to bind.
+
+    /// file offset to lazy binding info
+    lazy_bind_off: u32,
+
+    /// size of lazy binding info
+    lazy_bind_size: u32,
+
+    // The symbols exported by a dylib are encoded in a trie.  This
+    // is a compact representation that factors out common prefixes.
+    // It also reduces LINKEDIT pages in RAM because it encodes all
+    // information (name, address, flags) in one small, contiguous range.
+    // The export area is a stream of nodes.  The first node sequentially
+    // is the start node for the trie.
+    //
+    // Nodes for a symbol start with a uleb128 that is the length of
+    // the exported symbol information for the string so far.
+    // If there is no exported symbol, the node starts with a zero byte.
+    // If there is exported info, it follows the length.
+    //
+    // First is a uleb128 containing flags. Normally, it is followed by
+    // a uleb128 encoded offset which is location of the content named
+    // by the symbol from the mach_header for the image.  If the flags
+    // is EXPORT_SYMBOL_FLAGS_REEXPORT, then following the flags is
+    // a uleb128 encoded library ordinal, then a zero terminated
+    // UTF8 string.  If the string is zero length, then the symbol
+    // is re-export from the specified dylib with the same name.
+    // If the flags is EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER, then following
+    // the flags is two uleb128s: the stub offset and the resolver offset.
+    // The stub is used by non-lazy pointers.  The resolver is used
+    // by lazy pointers and must be called to get the actual address to use.
+    //
+    // After the optional exported symbol information is a byte of
+    // how many edges (0-255) that this node has leaving it,
+    // followed by each edge.
+    // Each edge is a zero terminated UTF8 of the addition chars
+    // in the symbol, followed by a uleb128 offset for the node that
+    // edge points to.
+
+    /// file offset to lazy binding info
+    export_off: u32,
+
+    /// size of lazy binding info
+    export_size: u32,
 };
 
 /// A program that uses a dynamic linker contains a dylinker_command to identify
@@ -681,6 +978,24 @@ pub const N_TYPE = 0x0e;
 /// external symbol bit, set for external symbols
 pub const N_EXT = 0x01;
 
+/// symbol is undefined
+pub const N_UNDF = 0x0;
+
+/// symbol is absolute
+pub const N_ABS = 0x2;
+
+/// symbol is defined in the section number given in n_sect
+pub const N_SECT = 0xe;
+
+/// symbol is undefined  and the image is using a prebound
+/// value  for the symbol
+pub const N_PBUD = 0xc;
+
+/// symbol is defined to be the same as another symbol; the n_value
+/// field is an index into the string table specifying the name of the
+/// other symbol
+pub const N_INDR = 0xa;
+
 /// global symbol: name,,NO_SECT,type,0
 pub const N_GSYM = 0x20;
 
@@ -780,6 +1095,35 @@ pub const N_LENG = 0xfe;
 /// generally contain DWARF debugging info.
 /// a debug section
 pub const S_ATTR_DEBUG = 0x02000000;
+
+/// section contains only true machine instructions
+pub const S_ATTR_PURE_INSTRUCTIONS = 0x80000000;
+
+/// section contains coalesced symbols that are not to be in a ranlib
+/// table of contents
+pub const S_ATTR_NO_TOC = 0x40000000;
+
+/// ok to strip static symbols in this section in files with the
+/// MH_DYLDLINK flag
+pub const S_ATTR_STRIP_STATIC_SYMS = 0x20000000;
+
+/// no dead stripping
+pub const S_ATTR_NO_DEAD_STRIP = 0x10000000;
+
+/// blocks are live if they reference live blocks
+pub const S_ATTR_LIVE_SUPPORT = 0x8000000;
+
+/// used with i386 code stubs written on by dyld
+pub const S_ATTR_SELF_MODIFYING_CODE = 0x4000000;
+
+/// section contains some machine instructions
+pub const S_ATTR_SOME_INSTRUCTIONS = 0x400;
+
+/// section has external relocation entries
+pub const S_ATTR_EXT_RELOC = 0x200;
+
+/// section has local relocation entries
+pub const S_ATTR_LOC_RELOC = 0x100;
 
 pub const cpu_type_t = integer_t;
 pub const cpu_subtype_t = integer_t;
