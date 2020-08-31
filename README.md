@@ -14,8 +14,8 @@ A general-purpose programming language and toolchain for maintaining
 
 ## Building from Source
 
-[![Build Status](https://dev.azure.com/ziglang/zig/_apis/build/status/ziglang.zig?branchName=master)](https://dev.azure.com/ziglang/zig/_build/latest?definitionId=1&branchName=master)
-[![latest release](https://img.shields.io/github/v/tag/ziglang/zig?label=latest%20release&sort=semver)](https://ziglang.org/download/)
+[![Build Status](https://dev.azure.com/ziglang/zig/_apis/build/status/ziglang.zig?branchName=master)](https://dev.azure.com/ziglang/zig/_build/latest?definitionId=1&branchName=master) [![latest release](https://img.shields.io/github/v/tag/ziglang/zig?label=latest%20release&sort=semver)](https://ziglang.org/download/)
+
 [![Packaging status](https://repology.org/badge/vertical-allrepos/zig.svg)](https://repology.org/project/zig/versions)
 
 Note that you can
