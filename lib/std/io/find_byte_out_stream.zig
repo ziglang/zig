@@ -10,11 +10,11 @@ pub fn FindByteOutStream(comptime WriterType: type) type {
         pub const Error = WriterType.Error;
         pub const Writer = io.Writer(*Self, Error, write);
 
-        writer_pointer: *WriterType,
+        writer_pointer: *const WriterType,
         byte_found: bool,
         byte: u8,
 
-        pub fn init(byte: u8, writer_pointer: *WriterType) Self {
+        pub fn init(byte: u8, writer_pointer: *const WriterType) Self {
             return Self{
                 .writer_pointer = writer_pointer,
                 .byte = byte,

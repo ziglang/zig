@@ -11,11 +11,11 @@ pub fn ChangeDetectionStream(comptime WriterType: type) type {
         pub const Writer = io.Writer(*Self, Error, write);
 
         anything_changed: bool = false,
-        writer_pointer: *WriterType,
+        writer_pointer: *const WriterType,
         source_index: usize,
         source: []const u8,
 
-        pub fn init(source: []const u8, writer_pointer: *WriterType) Self {
+        pub fn init(source: []const u8, writer_pointer: *const WriterType) Self {
             return Self{
                 .writer_pointer = writer_pointer,
                 .source_index = 0,
