@@ -168,7 +168,7 @@ const Scope = struct {
 
         fn localContains(scope: *Block, name: []const u8) bool {
             for (scope.variables.items) |p| {
-                if (mem.eql(u8, p.name, name))
+                if (mem.eql(u8, p.alias, name))
                     return true;
             }
             return false;

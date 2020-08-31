@@ -3,6 +3,23 @@ const tests = @import("tests.zig");
 const nl = std.cstr.line_sep;
 
 pub fn addCases(cases: *tests.RunTranslatedCContext) void {
+    cases.add("variable shadowing type type",
+        \\#include <stdlib.h>
+        \\int main() {
+        \\    int type = 1;
+        \\    if (type != 1) abort();
+        \\}
+    , "");
+
+    cases.add("assignment as expression",
+        \\#include <stdlib.h>
+        \\int main() {
+        \\    int a, b, c, d = 5;
+        \\    int e = a = b = c = d;
+        \\    if (e != 5) abort();
+        \\}
+    , "");
+
     cases.add("static variable in block scope",
         \\#include <stdlib.h>
         \\int foo() {
