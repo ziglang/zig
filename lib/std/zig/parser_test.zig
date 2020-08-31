@@ -2827,7 +2827,7 @@ test "zig fmt: inline asm" {
         \\    return asm volatile ("syscall"
         \\        : [ret] "={rax}" (-> usize)
         \\        : [number] "{rax}" (number),
-        \\            [arg1] "{rdi}" (arg1)
+        \\          [arg1] "{rdi}" (arg1)
         \\        : "rcx", "r11"
         \\    );
         \\}
@@ -2930,14 +2930,14 @@ test "zig fmt: inline asm parameter alignment" {
         \\        \\ foo
         \\        \\ bar
         \\        : [_] "" (-> usize),
-        \\            [_] "" (-> usize)
+        \\          [_] "" (-> usize)
         \\    );
         \\    asm volatile (
         \\        \\ foo
         \\        \\ bar
         \\        :
         \\        : [_] "" (0),
-        \\            [_] "" (0)
+        \\          [_] "" (0)
         \\    );
         \\    asm volatile (
         \\        \\ foo
@@ -2950,9 +2950,9 @@ test "zig fmt: inline asm parameter alignment" {
         \\        \\ foo
         \\        \\ bar
         \\        : [_] "" (-> usize),
-        \\            [_] "" (-> usize)
+        \\          [_] "" (-> usize)
         \\        : [_] "" (0),
-        \\            [_] "" (0)
+        \\          [_] "" (0)
         \\        : "", ""
         \\    );
         \\}

@@ -11,6 +11,7 @@ const ast = std.zig.ast;
 const Token = std.zig.Token;
 
 const indent_delta = 4;
+const asm_indent_delta = 2;
 
 pub const Error = error{
     /// Ran out of memory allocating call stack frames to complete rendering.
@@ -25,7 +26,6 @@ pub fn render(allocator: *mem.Allocator, stream: anytype, tree: *ast.Tree) (meta
     var s = stream.*;
     var change_detection_stream = std.io.changeDetectionStream(tree.source, &s);
     var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, &change_detection_stream);
-    defer auto_indenting_stream.deinit();
 
     try renderRoot(allocator, &auto_indenting_stream, tree);
 
@@ -784,7 +784,6 @@ fn renderExpression(
                 // Null stream for counting the printed length of each expression
                 var counting_stream = std.io.countingOutStream(std.io.null_out_stream);
                 var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, &counting_stream);
-                defer auto_indenting_stream.deinit();
 
                 for (exprs) |expr, i| {
                     counting_stream.bytes_written = 0;
@@ -903,7 +902,6 @@ fn renderExpression(
                 for (field_inits) |field_init| {
                     var find_stream = std.io.findByteOutStream('\n', &std.io.null_out_stream);
                     var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, &find_stream);
-                    defer auto_indenting_stream.deinit();
 
                     try renderExpression(allocator, &auto_indenting_stream, tree, field_init, Space.None);
                     if (find_stream.byte_found) break :blk false;
@@ -1958,6 +1956,9 @@ fn renderExpression(
                 }
 
                 try renderExpression(allocator, stream, tree, asm_node.template, Space.Newline);
+
+                stream.setIndentDelta(asm_indent_delta);
+                defer stream.setIndentDelta(indent_delta);
 
                 const colon1 = tree.nextToken(asm_node.template.lastToken());
 

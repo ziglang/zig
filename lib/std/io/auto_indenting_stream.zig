@@ -13,7 +13,7 @@ pub fn AutoIndentingStream(comptime WriterType: type) type {
 
         writer_pointer: *WriterType,
 
-        indent_stack: usize = 0,
+        indent_count: usize = 0,
         indent_delta: usize,
         current_line_empty: bool = true,
         indent_one_shot_count: usize = 0, // automatically popped when applied
@@ -23,9 +23,6 @@ pub fn AutoIndentingStream(comptime WriterType: type) type {
         pub fn init(indent_delta: usize, writer_pointer: *WriterType) Self {
             return Self{ .writer_pointer = writer_pointer, .indent_delta = indent_delta };
         }
-
-        /// Release all allocated memory.
-        pub fn deinit(self: Self) void {}
 
         pub fn writer(self: *Self) Writer {
             return .{ .context = self };
@@ -37,6 +34,21 @@ pub fn AutoIndentingStream(comptime WriterType: type) type {
 
             try self.applyIndent();
             return self.writeNoIndent(bytes);
+        }
+
+        // Change the indent delta without changing the final indentation level
+        pub fn setIndentDelta(self: *Self, indent_delta: usize) void {
+            if (self.indent_delta == indent_delta) {
+                return;
+            } else if (self.indent_delta > indent_delta) {
+                assert(self.indent_delta % indent_delta == 0);
+                self.indent_count = self.indent_count * (self.indent_delta / indent_delta);
+            } else {
+                // assert that the current indentation (in spaces) in a multiple of the new delta
+                assert((self.indent_count * self.indent_delta) % indent_delta == 0);
+                self.indent_count = self.indent_count / (indent_delta / self.indent_delta);
+            }
+            self.indent_delta = indent_delta;
         }
 
         fn writeNoIndent(self: *Self, bytes: []const u8) Error!usize {
@@ -68,7 +80,7 @@ pub fn AutoIndentingStream(comptime WriterType: type) type {
         pub fn pushIndent(self: *Self) void {
             // Doesn't actually write any indentation.
             // Just primes the stream to be able to write the correct indentation if it needs to.
-            self.indent_stack += 1;
+            self.indent_count += 1;
         }
 
         /// Push an indent that is automatically popped after being applied
@@ -92,9 +104,9 @@ pub fn AutoIndentingStream(comptime WriterType: type) type {
         }
 
         pub fn popIndent(self: *Self) void {
-            assert(self.indent_stack != 0);
-            self.indent_stack -= 1;
-            self.indent_next_line = std.math.min(self.indent_stack, self.indent_next_line); // Tentative indent may have been popped before there was a newline
+            assert(self.indent_count != 0);
+            self.indent_count -= 1;
+            self.indent_next_line = std.math.min(self.indent_count, self.indent_next_line); // Tentative indent may have been popped before there was a newline
         }
 
         /// Writes ' ' bytes if the current line is empty
@@ -105,7 +117,7 @@ pub fn AutoIndentingStream(comptime WriterType: type) type {
                 self.applied_indent = current_indent;
             }
 
-            self.indent_stack -= self.indent_one_shot_count;
+            self.indent_count -= self.indent_one_shot_count;
             self.indent_one_shot_count = 0;
             self.current_line_empty = false;
         }
@@ -118,9 +130,9 @@ pub fn AutoIndentingStream(comptime WriterType: type) type {
 
         fn currentIndent(self: *Self) usize {
             var indent_current: usize = 0;
-            if (self.indent_stack > 0) {
-                const stack_top = self.indent_stack - self.indent_next_line;
-                indent_current = stack_top * self.indent_delta;
+            if (self.indent_count > 0) {
+                const indent_count = self.indent_count - self.indent_next_line;
+                indent_current = indent_count * self.indent_delta;
             }
             return indent_current;
         }
