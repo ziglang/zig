@@ -27,7 +27,7 @@
 __BEGIN_DECLS
 
 #include <bits/types.h>
-#include <bits/signum.h>
+#include <bits/signum-generic.h>
 
 #include <bits/types/sig_atomic_t.h>
 
@@ -148,7 +148,8 @@ extern void psiginfo (const siginfo_t *__pinfo, const char *__s);
 
 #ifdef __USE_XOPEN_EXTENDED
 # ifdef __GNUC__
-extern int sigpause (int __sig) __asm__ ("__xpg_sigpause");
+extern int sigpause (int __sig) __asm__ ("__xpg_sigpause")
+  __attribute_deprecated_msg__ ("Use the sigsuspend function instead");
 # else
 extern int __sigpause (int __sig_or_mask, int __is_sig);
 /* Remove a signal from the signal mask and suspend the process.  */
@@ -164,7 +165,9 @@ extern int __sigpause (int __sig_or_mask, int __is_sig);
    simply do not work in many situations.  Use `sigprocmask' instead.  */
 
 /* Compute mask for signal SIG.  */
-# define sigmask(sig) ((int)(1u << ((sig) - 1)))
+# define sigmask(sig) \
+  __glibc_macro_warning ("sigmask is deprecated") \
+  ((int)(1u << ((sig) - 1)))
 
 /* Block signals in MASK, returning the old mask.  */
 extern int sigblock (int __mask) __THROW __attribute_deprecated__;
@@ -281,12 +284,6 @@ extern int sigqueue (__pid_t __pid, int __sig, const union sigval __val)
 
 #ifdef __USE_MISC
 
-/* Names of the signals.  This variable exists only for compatibility.
-   Use `strsignal' instead (see <string.h>).  */
-extern const char *const _sys_siglist[_NSIG];
-extern const char *const sys_siglist[_NSIG];
-
-
 /* Get machine-dependent `struct sigcontext' and signal subcodes.  */
 # include <bits/sigcontext.h>
 
@@ -311,7 +308,8 @@ extern int sigreturn (struct sigcontext *__scp) __THROW;
 /* If INTERRUPT is nonzero, make signal SIG interrupt system calls
    (causing them to fail with EINTR); if INTERRUPT is zero, make system
    calls be restarted after signal SIG.  */
-extern int siginterrupt (int __sig, int __interrupt) __THROW;
+extern int siginterrupt (int __sig, int __interrupt) __THROW
+  __attribute_deprecated_msg__ ("Use sigaction with SA_RESTART instead");
 
 # include <bits/sigstack.h>
 # include <bits/ss_flags.h>
@@ -340,16 +338,21 @@ extern int sigstack (struct sigstack *__ss, struct sigstack *__oss)
 /* Simplified interface for signal management.  */
 
 /* Add SIG to the calling process' signal mask.  */
-extern int sighold (int __sig) __THROW;
+extern int sighold (int __sig) __THROW
+  __attribute_deprecated_msg__ ("Use the sigprocmask function instead");
 
 /* Remove SIG from the calling process' signal mask.  */
-extern int sigrelse (int __sig) __THROW;
+extern int sigrelse (int __sig) __THROW
+  __attribute_deprecated_msg__ ("Use the sigprocmask function instead");
 
 /* Set the disposition of SIG to SIG_IGN.  */
-extern int sigignore (int __sig) __THROW;
+extern int sigignore (int __sig) __THROW
+  __attribute_deprecated_msg__ ("Use the signal function instead");
 
 /* Set the disposition of SIG.  */
-extern __sighandler_t sigset (int __sig, __sighandler_t __disp) __THROW;
+extern __sighandler_t sigset (int __sig, __sighandler_t __disp) __THROW
+  __attribute_deprecated_msg__
+    ("Use the signal and sigprocmask functions instead");
 #endif
 
 #if defined __USE_POSIX199506 || defined __USE_UNIX98

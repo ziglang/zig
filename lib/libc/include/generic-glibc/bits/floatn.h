@@ -1,4 +1,4 @@
-/* Macros to control TS 18661-3 glibc features on MIPS platforms.
+/* Macros to control TS 18661-3 glibc features on ldbl-128 platforms.
    Copyright (C) 2017-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
