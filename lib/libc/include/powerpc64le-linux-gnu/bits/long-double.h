@@ -1,5 +1,5 @@
 /* Properties of long double type.  ldbl-opt version.
-   Copyright (C) 2016-2020 Free Software Foundation, Inc.
+   Copyright (C) 2019-2020 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -22,4 +22,5 @@
 #  define __NO_LONG_DOUBLE_MATH		1
 # endif
 #endif
-#define __LONG_DOUBLE_USES_FLOAT128 0
+
+#define __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI (__LDBL_MANT_DIG__ == 113)

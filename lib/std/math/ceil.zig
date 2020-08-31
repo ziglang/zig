@@ -47,14 +47,14 @@ fn ceil32(x: f32) f32 {
         if (u & m == 0) {
             return x;
         }
-        math.forceEval(x + 0x1.0p120);
+        math.doNotOptimizeAway(x + 0x1.0p120);
         if (u >> 31 == 0) {
             u += m;
         }
         u &= ~m;
         return @bitCast(f32, u);
     } else {
-        math.forceEval(x + 0x1.0p120);
+        math.doNotOptimizeAway(x + 0x1.0p120);
         if (u >> 31 != 0) {
             return -0.0;
         } else {
@@ -79,7 +79,7 @@ fn ceil64(x: f64) f64 {
     }
 
     if (e <= 0x3FF - 1) {
-        math.forceEval(y);
+        math.doNotOptimizeAway(y);
         if (u >> 63 != 0) {
             return -0.0;
         } else {
@@ -106,7 +106,7 @@ fn ceil128(x: f128) f128 {
     }
 
     if (e <= 0x3FFF - 1) {
-        math.forceEval(y);
+        math.doNotOptimizeAway(y);
         if (u >> 127 != 0) {
             return -0.0;
         } else {

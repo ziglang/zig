@@ -694,6 +694,68 @@ pub fn addCases(ctx: *TestContext) !void {
             "",
         );
 
+        // Reusing the registers of dead operands playing nicely with conditional branching.
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    assert(add(3, 4) == 791);
+            \\    assert(add(4, 3) == 79);
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn add(a: u32, b: u32) u32 {
+            \\    const x: u32 = if (a < b) blk: {
+            \\        const c = a + b; // 7
+            \\        const d = a + c; // 10
+            \\        const e = d + b; // 14
+            \\        const f = d + e; // 24
+            \\        const g = e + f; // 38
+            \\        const h = f + g; // 62
+            \\        const i = g + h; // 100
+            \\        const j = i + d; // 110
+            \\        const k = i + j; // 210
+            \\        const l = k + c; // 217
+            \\        const m = l + d; // 227
+            \\        const n = m + e; // 241
+            \\        const o = n + f; // 265
+            \\        const p = o + g; // 303
+            \\        const q = p + h; // 365
+            \\        const r = q + i; // 465
+            \\        const s = r + j; // 575
+            \\        const t = s + k; // 785
+            \\        break :blk t;
+            \\    } else blk: {
+            \\        const t = b + b + a; // 10
+            \\        const c = a + t; // 14
+            \\        const d = c + t; // 24
+            \\        const e = d + t; // 34
+            \\        const f = e + t; // 44
+            \\        const g = f + t; // 54
+            \\        const h = c + g; // 68
+            \\        break :blk h + b; // 71
+            \\    };
+            \\    const y = x + a; // 788, 75
+            \\    const z = y + a; // 791, 79
+            \\    return z;
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+
         // Character literals and multiline strings.
         case.addCompareOutput(
             \\export fn _start() noreturn {
@@ -757,6 +819,90 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         ,
             "",
+        );
+
+        // Array access.
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    assert("hello"[0] == 'h');
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+
+        // 64bit set stack
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    var i: u64 = 0xFFEEDDCCBBAA9988;
+            \\    assert(i == 0xFFEEDDCCBBAA9988);
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
+
+        // Basic for loop
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    for ("hello") |_| print();
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn print() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (1),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("hello\n")),
+            \\          [arg3] "{rdx}" (6)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "hello\nhello\nhello\nhello\nhello\n",
         );
     }
 

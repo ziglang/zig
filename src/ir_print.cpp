@@ -306,8 +306,6 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcResolveResult";
         case IrInstSrcIdResetResult:
             return "SrcResetResult";
-        case IrInstSrcIdOpaqueType:
-            return "SrcOpaqueType";
         case IrInstSrcIdSetAlignStack:
             return "SrcSetAlignStack";
         case IrInstSrcIdArgType:
@@ -2315,10 +2313,6 @@ static void ir_print_reset_result(IrPrintSrc *irp, IrInstSrcResetResult *instruc
     fprintf(irp->f, ")");
 }
 
-static void ir_print_opaque_type(IrPrintSrc *irp, IrInstSrcOpaqueType *instruction) {
-    fprintf(irp->f, "@OpaqueType()");
-}
-
 static void ir_print_set_align_stack(IrPrintSrc *irp, IrInstSrcSetAlignStack *instruction) {
     fprintf(irp->f, "@setAlignStack(");
     ir_print_other_inst_src(irp, instruction->align_bytes);
@@ -2910,9 +2904,6 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
             break;
         case IrInstSrcIdResetResult:
             ir_print_reset_result(irp, (IrInstSrcResetResult *)instruction);
-            break;
-        case IrInstSrcIdOpaqueType:
-            ir_print_opaque_type(irp, (IrInstSrcOpaqueType *)instruction);
             break;
         case IrInstSrcIdSetAlignStack:
             ir_print_set_align_stack(irp, (IrInstSrcSetAlignStack *)instruction);

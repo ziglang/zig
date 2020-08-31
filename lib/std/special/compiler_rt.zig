@@ -100,7 +100,8 @@ comptime {
     @export(@import("compiler_rt/floatditf.zig").__floatditf, .{ .name = "__floatditf", .linkage = linkage });
     @export(@import("compiler_rt/floattitf.zig").__floattitf, .{ .name = "__floattitf", .linkage = linkage });
     @export(@import("compiler_rt/floattidf.zig").__floattidf, .{ .name = "__floattidf", .linkage = linkage });
-    @export(@import("compiler_rt/floattisf.zig").__floattisf, .{ .name = "__floattisf", .linkage = linkage });
+    @export(@import("compiler_rt/floatXisf.zig").__floattisf, .{ .name = "__floattisf", .linkage = linkage });
+    @export(@import("compiler_rt/floatXisf.zig").__floatdisf, .{ .name = "__floatdisf", .linkage = linkage });
 
     @export(@import("compiler_rt/floatunditf.zig").__floatunditf, .{ .name = "__floatunditf", .linkage = linkage });
     @export(@import("compiler_rt/floatunsitf.zig").__floatunsitf, .{ .name = "__floatunsitf", .linkage = linkage });
@@ -204,6 +205,7 @@ comptime {
         @export(@import("compiler_rt/extendXfYf2.zig").__aeabi_f2d, .{ .name = "__aeabi_f2d", .linkage = linkage });
         @export(@import("compiler_rt/floatsiXf.zig").__aeabi_i2d, .{ .name = "__aeabi_i2d", .linkage = linkage });
         @export(@import("compiler_rt/floatdidf.zig").__aeabi_l2d, .{ .name = "__aeabi_l2d", .linkage = linkage });
+        @export(@import("compiler_rt/floatXisf.zig").__aeabi_l2f, .{ .name = "__aeabi_l2f", .linkage = linkage });
         @export(@import("compiler_rt/floatunsidf.zig").__aeabi_ui2d, .{ .name = "__aeabi_ui2d", .linkage = linkage });
         @export(@import("compiler_rt/floatundidf.zig").__aeabi_ul2d, .{ .name = "__aeabi_ul2d", .linkage = linkage });
         @export(@import("compiler_rt/floatunsisf.zig").__aeabi_ui2f, .{ .name = "__aeabi_ui2f", .linkage = linkage });

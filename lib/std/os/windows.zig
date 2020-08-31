@@ -164,7 +164,7 @@ pub fn CreateEventExW(attributes: ?*SECURITY_ATTRIBUTES, nameW: [*:0]const u16, 
     }
 }
 
-pub const DeviceIoControlError = error{Unexpected};
+pub const DeviceIoControlError = error{ AccessDenied, Unexpected };
 
 /// A Zig wrapper around `NtDeviceIoControlFile` and `NtFsControlFile` syscalls.
 /// It implements similar behavior to `DeviceIoControl` and is meant to serve
@@ -216,6 +216,7 @@ pub fn DeviceIoControl(
     };
     switch (rc) {
         .SUCCESS => {},
+        .PRIVILEGE_NOT_HELD => return error.AccessDenied,
         .INVALID_PARAMETER => unreachable,
         else => return unexpectedStatus(rc),
     }
@@ -593,6 +594,12 @@ pub const CreateSymbolicLinkError = error{
     Unexpected,
 };
 
+/// Needs either:
+/// - `SeCreateSymbolicLinkPrivilege` privilege
+/// or
+/// - Developper mode on Windows 10
+/// otherwise fails with `error.AccessDenied`. In which case `sym_link_path` may still
+/// be created on the file system but will lack reparse processing data applied to it.
 pub fn CreateSymbolicLink(
     dir: ?HANDLE,
     sym_link_path: []const u16,
@@ -710,7 +717,10 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
     defer CloseHandle(result_handle);
 
     var reparse_buf: [MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
-    _ = try DeviceIoControl(result_handle, FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..]);
+    _ = DeviceIoControl(result_handle, FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..]) catch |err| switch (err) {
+        error.AccessDenied => unreachable,
+        else => |e| return e,
+    };
 
     const reparse_struct = @ptrCast(*const REPARSE_DATA_BUFFER, @alignCast(@alignOf(REPARSE_DATA_BUFFER), &reparse_buf[0]));
     switch (reparse_struct.ReparseTag) {
@@ -992,7 +1002,10 @@ pub fn GetFinalPathNameByHandle(
             input_struct.DeviceNameLength = @intCast(USHORT, volume_name.FileNameLength);
             @memcpy(input_buf[@sizeOf(MOUNTMGR_MOUNT_POINT)..], @ptrCast([*]const u8, &volume_name.FileName[0]), volume_name.FileNameLength);
 
-            try DeviceIoControl(mgmt_handle, IOCTL_MOUNTMGR_QUERY_POINTS, input_buf[0..], output_buf[0..]);
+            DeviceIoControl(mgmt_handle, IOCTL_MOUNTMGR_QUERY_POINTS, input_buf[0..], output_buf[0..]) catch |err| switch (err) {
+                error.AccessDenied => unreachable,
+                else => |e| return e,
+            };
             const mount_points_struct = @ptrCast(*const MOUNTMGR_MOUNT_POINTS, &output_buf[0]);
 
             const mount_points = @ptrCast(

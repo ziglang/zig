@@ -88,6 +88,7 @@ pub const NativePaths = struct {
 
         if (!is_windows) {
             const triple = try Target.current.linuxTriple(allocator);
+            const qual = Target.current.cpu.arch.ptrBitWidth();
 
             // TODO: $ ld --verbose | grep SEARCH_DIR
             // the output contains some paths that end with lib64, maybe include them too?
@@ -95,17 +96,17 @@ pub const NativePaths = struct {
             // TODO: some of these are suspect and should only be added on some systems. audit needed.
 
             try self.addIncludeDir("/usr/local/include");
+            try self.addLibDirFmt("/usr/local/lib{}", .{qual});
             try self.addLibDir("/usr/local/lib");
-            try self.addLibDir("/usr/local/lib64");
 
             try self.addIncludeDirFmt("/usr/include/{}", .{triple});
             try self.addLibDirFmt("/usr/lib/{}", .{triple});
 
             try self.addIncludeDir("/usr/include");
+            try self.addLibDirFmt("/lib{}", .{qual});
             try self.addLibDir("/lib");
-            try self.addLibDir("/lib64");
+            try self.addLibDirFmt("/usr/lib{}", .{qual});
             try self.addLibDir("/usr/lib");
-            try self.addLibDir("/usr/lib64");
 
             // example: on a 64-bit debian-based linux distro, with zlib installed from apt:
             // zlib.h is in /usr/include (added above)

@@ -43,7 +43,7 @@ fn round32(x_: f32) f32 {
         x = -x;
     }
     if (e < 0x7F - 1) {
-        math.forceEval(x + math.f32_toint);
+        math.doNotOptimizeAway(x + math.f32_toint);
         return 0 * @bitCast(f32, u);
     }
 
@@ -76,7 +76,7 @@ fn round64(x_: f64) f64 {
         x = -x;
     }
     if (e < 0x3ff - 1) {
-        math.forceEval(x + math.f64_toint);
+        math.doNotOptimizeAway(x + math.f64_toint);
         return 0 * @bitCast(f64, u);
     }
 
@@ -109,7 +109,7 @@ fn round128(x_: f128) f128 {
         x = -x;
     }
     if (e < 0x3FFF - 1) {
-        math.forceEval(x + math.f64_toint);
+        math.doNotOptimizeAway(x + math.f64_toint);
         return 0 * @bitCast(f128, u);
     }
 

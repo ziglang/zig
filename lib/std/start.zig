@@ -248,7 +248,7 @@ pub fn callMain() u8 {
             return 0;
         },
         .Int => |info| {
-            if (info.bits != 8) {
+            if (info.bits != 8 or info.is_signed) {
                 @compileError(bad_main_ret);
             }
             return root.main();
@@ -264,7 +264,7 @@ pub fn callMain() u8 {
             switch (@typeInfo(@TypeOf(result))) {
                 .Void => return 0,
                 .Int => |info| {
-                    if (info.bits != 8) {
+                    if (info.bits != 8 or info.is_signed) {
                         @compileError(bad_main_ret);
                     }
                     return result;

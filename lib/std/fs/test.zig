@@ -25,12 +25,20 @@ test "Dir.readLink" {
 
     {
         // Create symbolic link by path
-        try tmp.dir.symLink("file.txt", "symlink1", .{});
+        tmp.dir.symLink("file.txt", "symlink1", .{}) catch |err| switch (err) {
+            // Symlink requires admin privileges on windows, so this test can legitimately fail.
+            error.AccessDenied => return error.SkipZigTest,
+            else => return err,
+        };
         try testReadLink(tmp.dir, "file.txt", "symlink1");
     }
     {
         // Create symbolic link by path
-        try tmp.dir.symLink("subdir", "symlink2", .{ .is_directory = true });
+        tmp.dir.symLink("subdir", "symlink2", .{ .is_directory = true }) catch |err| switch (err) {
+            // Symlink requires admin privileges on windows, so this test can legitimately fail.
+            error.AccessDenied => return error.SkipZigTest,
+            else => return err,
+        };
         try testReadLink(tmp.dir, "subdir", "symlink2");
     }
 }
@@ -66,7 +74,11 @@ test "readLinkAbsolute" {
         const symlink_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "symlink1" });
 
         // Create symbolic link by path
-        try fs.symLinkAbsolute(target_path, symlink_path, .{});
+        fs.symLinkAbsolute(target_path, symlink_path, .{}) catch |err| switch (err) {
+            // Symlink requires admin privileges on windows, so this test can legitimately fail.
+            error.AccessDenied => return error.SkipZigTest,
+            else => return err,
+        };
         try testReadLinkAbsolute(target_path, symlink_path);
     }
     {
@@ -74,7 +86,11 @@ test "readLinkAbsolute" {
         const symlink_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "symlink2" });
 
         // Create symbolic link by path
-        try fs.symLinkAbsolute(target_path, symlink_path, .{ .is_directory = true });
+        fs.symLinkAbsolute(target_path, symlink_path, .{ .is_directory = true }) catch |err| switch (err) {
+            // Symlink requires admin privileges on windows, so this test can legitimately fail.
+            error.AccessDenied => return error.SkipZigTest,
+            else => return err,
+        };
         try testReadLinkAbsolute(target_path, symlink_path);
     }
 }

@@ -771,8 +771,8 @@ pub const Type = extern union {
             .array => self.elemType().hasCodeGenBits() and self.arrayLen() != 0,
             .array_u8 => self.arrayLen() != 0,
             .array_sentinel, .single_const_pointer, .single_mut_pointer, .many_const_pointer, .many_mut_pointer, .c_const_pointer, .c_mut_pointer, .const_slice, .mut_slice, .pointer => self.elemType().hasCodeGenBits(),
-            .int_signed => self.cast(Payload.IntSigned).?.bits == 0,
-            .int_unsigned => self.cast(Payload.IntUnsigned).?.bits == 0,
+            .int_signed => self.cast(Payload.IntSigned).?.bits != 0,
+            .int_unsigned => self.cast(Payload.IntUnsigned).?.bits != 0,
 
             .error_union => {
                 const payload = self.cast(Payload.ErrorUnion).?;
@@ -2673,6 +2673,13 @@ pub const Type = extern union {
 
             .pointer => self.cast(Payload.Pointer).?.size == .C,
         };
+    }
+
+    pub fn isIndexable(self: Type) bool {
+        const zig_tag = self.zigTypeTag();
+        // TODO tuples are indexable
+        return zig_tag == .Array or zig_tag == .Vector or self.isSlice() or
+            (self.isSinglePointer() and self.elemType().zigTypeTag() == .Array);
     }
 
     /// This enum does not directly correspond to `std.builtin.TypeId` because

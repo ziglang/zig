@@ -893,6 +893,36 @@ test "mem.indexOf" {
     testing.expect(lastIndexOfScalar(u8, "boo", 'o').? == 2);
 }
 
+/// Returns the number of needles inside the haystack
+/// needle.len must be > 0
+/// does not count overlapping needles
+pub fn count(comptime T: type, haystack: []const T, needle: []const T) usize {
+    assert(needle.len > 0);
+    var i: usize = 0;
+    var found: usize = 0;
+
+    while (indexOfPos(T, haystack, i, needle)) |idx| {
+        i = idx + needle.len;
+        found += 1;
+    }
+
+    return found;
+}
+
+test "mem.count" {
+    testing.expect(count(u8, "", "h") == 0);
+    testing.expect(count(u8, "h", "h") == 1);
+    testing.expect(count(u8, "hh", "h") == 2);
+    testing.expect(count(u8, "world!", "hello") == 0);
+    testing.expect(count(u8, "hello world!", "hello") == 1);
+    testing.expect(count(u8, "   abcabc   abc", "abc") == 3);
+    testing.expect(count(u8, "udexdcbvbruhasdrw", "bruh") == 1);
+    testing.expect(count(u8, "foo bar", "o bar") == 1);
+    testing.expect(count(u8, "foofoofoo", "foo") == 3);
+    testing.expect(count(u8, "fffffff", "ff") == 3);
+    testing.expect(count(u8, "owowowu", "owowu") == 1);
+}
+
 /// Reads an integer from memory with size equal to bytes.len.
 /// T specifies the return type, which must be large enough to store
 /// the result.
@@ -2156,6 +2186,17 @@ pub fn alignForward(addr: usize, alignment: usize) usize {
 /// The alignment must be a power of 2 and greater than 0.
 pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
     return alignBackwardGeneric(T, addr + (alignment - 1), alignment);
+}
+
+/// Force an evaluation of the expression; this tries to prevent
+/// the compiler from optimizing the computation away even if the
+/// result eventually gets discarded.
+pub fn doNotOptimizeAway(val: anytype) void {
+    asm volatile (""
+        :
+        : [val] "rm" (val)
+        : "memory"
+    );
 }
 
 test "alignForward" {

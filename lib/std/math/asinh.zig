@@ -56,7 +56,7 @@ fn asinh32(x: f32) f32 {
     }
     // |x| < 0x1p-12, inexact if x != 0
     else {
-        math.forceEval(x + 0x1.0p120);
+        math.doNotOptimizeAway(x + 0x1.0p120);
     }
 
     return if (s != 0) -rx else rx;
@@ -87,7 +87,7 @@ fn asinh64(x: f64) f64 {
     }
     // |x| < 0x1p-12, inexact if x != 0
     else {
-        math.forceEval(x + 0x1.0p120);
+        math.doNotOptimizeAway(x + 0x1.0p120);
     }
 
     return if (s != 0) -rx else rx;

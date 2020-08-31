@@ -190,7 +190,6 @@ test "Type.ErrorUnion" {
 }
 
 test "Type.Opaque" {
-    testing.expect(@OpaqueType() != @Type(.Opaque));
     testing.expect(@Type(.Opaque) != @Type(.Opaque));
     testing.expect(@typeInfo(@Type(.Opaque)) == .Opaque);
 }
