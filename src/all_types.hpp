@@ -1809,7 +1809,6 @@ enum BuiltinFnId {
     BuiltinFnIdShrExact,
     BuiltinFnIdSetEvalBranchQuota,
     BuiltinFnIdAlignCast,
-    BuiltinFnIdOpaqueType,
     BuiltinFnIdThis,
     BuiltinFnIdSetAlignStack,
     BuiltinFnIdExport,
@@ -2734,7 +2733,6 @@ enum IrInstSrcId {
     IrInstSrcIdImplicitCast,
     IrInstSrcIdResolveResult,
     IrInstSrcIdResetResult,
-    IrInstSrcIdOpaqueType,
     IrInstSrcIdSetAlignStack,
     IrInstSrcIdArgType,
     IrInstSrcIdExport,
@@ -4232,10 +4230,6 @@ struct IrInstGenAlignCast {
     IrInstGen base;
 
     IrInstGen *target;
-};
-
-struct IrInstSrcOpaqueType {
-    IrInstSrc base;
 };
 
 struct IrInstSrcSetAlignStack {

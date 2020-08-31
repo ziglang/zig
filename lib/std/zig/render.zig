@@ -1478,6 +1478,10 @@ fn renderExpression(
         .BuiltinCall => {
             const builtin_call = @fieldParentPtr(ast.Node.BuiltinCall, "base", base);
 
+            // TODO remove after 0.7.0 release
+            if (mem.eql(u8, tree.tokenSlice(builtin_call.builtin_token), "@OpaqueType"))
+                return stream.writeAll("@Type(.Opaque)");
+
             try renderToken(tree, stream, builtin_call.builtin_token, indent, start_col, Space.None); // @name
 
             const src_params_trailing_comma = blk: {

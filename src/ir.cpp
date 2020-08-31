@@ -505,8 +505,6 @@ static void destroy_instruction_src(IrInstSrc *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcResolveResult *>(inst));
         case IrInstSrcIdResetResult:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcResetResult *>(inst));
-        case IrInstSrcIdOpaqueType:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcOpaqueType *>(inst));
         case IrInstSrcIdSetAlignStack:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSetAlignStack *>(inst));
         case IrInstSrcIdArgType:
@@ -1530,10 +1528,6 @@ static constexpr IrInstSrcId ir_inst_id(IrInstSrcResolveResult *) {
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcResetResult *) {
     return IrInstSrcIdResetResult;
-}
-
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcOpaqueType *) {
-    return IrInstSrcIdOpaqueType;
 }
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcSetAlignStack *) {
@@ -4535,12 +4529,6 @@ static IrInstSrc *ir_build_reset_result(IrBuilderSrc *irb, Scope *scope, AstNode
     return &instruction->base;
 }
 
-static IrInstSrc *ir_build_opaque_type(IrBuilderSrc *irb, Scope *scope, AstNode *source_node) {
-    IrInstSrcOpaqueType *instruction = ir_build_instruction<IrInstSrcOpaqueType>(irb, scope, source_node);
-
-    return &instruction->base;
-}
-
 static IrInstSrc *ir_build_set_align_stack(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
         IrInstSrc *align_bytes)
 {
@@ -7309,11 +7297,6 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
 
                 IrInstSrc *align_cast = ir_build_align_cast_src(irb, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(irb, scope, align_cast, lval, result_loc);
-            }
-        case BuiltinFnIdOpaqueType:
-            {
-                IrInstSrc *opaque_type = ir_build_opaque_type(irb, scope, node);
-                return ir_lval_wrap(irb, scope, opaque_type, lval, result_loc);
             }
         case BuiltinFnIdThis:
             {
@@ -30263,15 +30246,6 @@ static IrInstGen *ir_analyze_instruction_align_cast(IrAnalyze *ira, IrInstSrcAli
     return result;
 }
 
-static IrInstGen *ir_analyze_instruction_opaque_type(IrAnalyze *ira, IrInstSrcOpaqueType *instruction) {
-    Buf *bare_name = buf_alloc();
-    Buf *full_name = get_anon_type_name(ira->codegen, ira->old_irb.exec, "opaque",
-            instruction->base.base.scope, instruction->base.base.source_node, bare_name);
-    ZigType *result_type = get_opaque_type(ira->codegen, instruction->base.base.scope,
-            instruction->base.base.source_node, buf_ptr(full_name), bare_name);
-    return ir_const_type(ira, &instruction->base.base, result_type);
-}
-
 static IrInstGen *ir_analyze_instruction_set_align_stack(IrAnalyze *ira, IrInstSrcSetAlignStack *instruction) {
     uint32_t align_bytes;
     IrInstGen *align_bytes_inst = instruction->align_bytes->child;
@@ -31736,8 +31710,6 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
             return ir_analyze_instruction_resolve_result(ira, (IrInstSrcResolveResult *)instruction);
         case IrInstSrcIdResetResult:
             return ir_analyze_instruction_reset_result(ira, (IrInstSrcResetResult *)instruction);
-        case IrInstSrcIdOpaqueType:
-            return ir_analyze_instruction_opaque_type(ira, (IrInstSrcOpaqueType *)instruction);
         case IrInstSrcIdSetAlignStack:
             return ir_analyze_instruction_set_align_stack(ira, (IrInstSrcSetAlignStack *)instruction);
         case IrInstSrcIdArgType:
@@ -32181,7 +32153,6 @@ bool ir_inst_src_has_side_effects(IrInstSrc *instruction) {
         case IrInstSrcIdAlignCast:
         case IrInstSrcIdImplicitCast:
         case IrInstSrcIdResolveResult:
-        case IrInstSrcIdOpaqueType:
         case IrInstSrcIdArgType:
         case IrInstSrcIdTagType:
         case IrInstSrcIdErrorReturnTrace:
