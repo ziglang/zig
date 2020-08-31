@@ -400,9 +400,12 @@ extern int sscanf (const char *__restrict __s,
 		   const char *__restrict __format, ...) __THROW;
 
 /* For historical reasons, the C99-compliant versions of the scanf
-   functions are at alternative names.  When __LDBL_COMPAT is in
-   effect, this is handled in bits/stdio-ldbl.h.  */
-#if !__GLIBC_USE (DEPRECATED_SCANF) && !defined __LDBL_COMPAT
+   functions are at alternative names.  When __LDBL_COMPAT or
+   __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI are in effect, this is handled in
+   bits/stdio-ldbl.h.  */
+#include <bits/floatn.h>
+#if !__GLIBC_USE (DEPRECATED_SCANF) && !defined __LDBL_COMPAT \
+    && __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 0
 # ifdef __REDIRECT
 extern int __REDIRECT (fscanf, (FILE *__restrict __stream,
 				const char *__restrict __format, ...),
@@ -447,7 +450,8 @@ extern int vsscanf (const char *__restrict __s,
 
 /* Same redirection as above for the v*scanf family.  */
 # if !__GLIBC_USE (DEPRECATED_SCANF)
-#  if defined __REDIRECT && !defined __LDBL_COMPAT
+#  if defined __REDIRECT && !defined __LDBL_COMPAT \
+      && __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 0
 extern int __REDIRECT (vfscanf,
 		       (FILE *__restrict __s,
 			const char *__restrict __format, __gnuc_va_list __arg),
@@ -562,7 +566,7 @@ extern int putw (int __w, FILE *__stream);
    This function is a possible cancellation point and therefore not
    marked with __THROW.  */
 extern char *fgets (char *__restrict __s, int __n, FILE *__restrict __stream)
-     __wur;
+     __wur __attr_access ((__write_only__, 1, 2));
 
 #if __GLIBC_USE (DEPRECATED_GETS)
 /* Get a newline-terminated string from stdin, removing the newline.
@@ -585,7 +589,8 @@ extern char *gets (char *__s) __wur __attribute_deprecated__;
    or due to the implementation it is a cancellation point and
    therefore not marked with __THROW.  */
 extern char *fgets_unlocked (char *__restrict __s, int __n,
-			     FILE *__restrict __stream) __wur;
+			     FILE *__restrict __stream) __wur
+    __attr_access ((__write_only__, 1, 2));
 #endif
 
 
@@ -774,12 +779,6 @@ extern int ferror_unlocked (FILE *__stream) __THROW __wur;
    marked with __THROW.  */
 extern void perror (const char *__s);
 
-/* Provide the declarations for `sys_errlist' and `sys_nerr' if they
-   are available on this system.  Even if available, these variables
-   should not be used directly.  The `strerror' function provides
-   all the necessary functionality.  */
-#include <bits/sys_errlist.h>
-
 
 #ifdef	__USE_POSIX
 /* Return the system file descriptor for STREAM.  */
@@ -866,7 +865,9 @@ extern int __overflow (FILE *, int);
 #if __USE_FORTIFY_LEVEL > 0 && defined __fortify_function
 # include <bits/stdio2.h>
 #endif
-#ifdef __LDBL_COMPAT
+
+#include <bits/floatn.h>
+#if defined __LDBL_COMPAT || __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
 # include <bits/stdio-ldbl.h>
 #endif
 

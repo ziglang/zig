@@ -174,12 +174,14 @@ __MATHCALL (fmod,, (_Mdouble_ __x, _Mdouble_ __y));
       && !__MATH_DECLARING_FLOATN
 /* Return 0 if VALUE is finite or NaN, +1 if it
    is +Infinity, -1 if it is -Infinity.  */
-__MATHDECL_1 (int,isinf,, (_Mdouble_ __value)) __attribute__ ((__const__));
+__MATHDECL_ALIAS (int,isinf,, (_Mdouble_ __value), isinf)
+  __attribute__ ((__const__));
 # endif
 
 # if !__MATH_DECLARING_FLOATN
 /* Return nonzero if VALUE is finite and not NaN.  */
-__MATHDECL_1 (int,finite,, (_Mdouble_ __value)) __attribute__ ((__const__));
+__MATHDECL_ALIAS (int,finite,, (_Mdouble_ __value), finite)
+  __attribute__ ((__const__));
 
 /* Return the remainder of X/Y.  */
 __MATHCALL (drem,, (_Mdouble_ __x, _Mdouble_ __y));
@@ -208,7 +210,8 @@ __MATHCALL (nan,, (const char *__tagb));
        || __MATH_DECLARING_DOUBLE == 0)) /* isnanf or isnanl don't.  */ \
       && !__MATH_DECLARING_FLOATN
 /* Return nonzero if VALUE is not a number.  */
-__MATHDECL_1 (int,isnan,, (_Mdouble_ __value)) __attribute__ ((__const__));
+__MATHDECL_ALIAS (int,isnan,, (_Mdouble_ __value), isnan)
+  __attribute__ ((__const__));
 # endif
 #endif
 
