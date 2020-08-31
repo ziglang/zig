@@ -915,23 +915,111 @@ pub const Node = struct {
             init_node: *Node,
         });
 
+        pub fn getDocComments(self: *const VarDecl) ?*DocComment {
+            return self.getTrailer(.doc_comments);
+        }
+
+        pub fn setDocComments(self: *VarDecl, value: *DocComment) void {
+            self.setTrailer(.doc_comments, value);
+        }
+
+        pub fn getVisibToken(self: *const VarDecl) ?TokenIndex {
+            return self.getTrailer(.visib_token);
+        }
+
+        pub fn setVisibToken(self: *VarDecl, value: TokenIndex) void {
+            self.setTrailer(.visib_token, value);
+        }
+
+        pub fn getThreadLocalToken(self: *const VarDecl) ?TokenIndex {
+            return self.getTrailer(.thread_local_token);
+        }
+
+        pub fn setThreadLocalToken(self: *VarDecl, value: TokenIndex) void {
+            self.setTrailer(.thread_local_token, value);
+        }
+
+        pub fn getEqToken(self: *const VarDecl) ?TokenIndex {
+            return self.getTrailer(.eq_token);
+        }
+
+        pub fn setEqToken(self: *VarDecl, value: TokenIndex) void {
+            self.setTrailer(.eq_token, value);
+        }
+
+        pub fn getComptimeToken(self: *const VarDecl) ?TokenIndex {
+            return self.getTrailer(.comptime_token);
+        }
+
+        pub fn setComptimeToken(self: *VarDecl, value: TokenIndex) void {
+            self.setTrailer(.comptime_token, value);
+        }
+
+        pub fn getExternExportToken(self: *const VarDecl) ?TokenIndex {
+            return self.getTrailer(.extern_export_token);
+        }
+
+        pub fn setExternExportToken(self: *VarDecl, value: TokenIndex) void {
+            self.setTrailer(.extern_export_token, value);
+        }
+
+        pub fn getLibName(self: *const VarDecl) ?*Node {
+            return self.getTrailer(.lib_name);
+        }
+
+        pub fn setLibName(self: *VarDecl, value: *Node) void {
+            self.setTrailer(.lib_name, value);
+        }
+
+        pub fn getTypeNode(self: *const VarDecl) ?*Node {
+            return self.getTrailer(.type_node);
+        }
+
+        pub fn setTypeNode(self: *VarDecl, value: *Node) void {
+            self.setTrailer(.type_node, value);
+        }
+
+        pub fn getAlignNode(self: *const VarDecl) ?*Node {
+            return self.getTrailer(.align_node);
+        }
+
+        pub fn setAlignNode(self: *VarDecl, value: *Node) void {
+            self.setTrailer(.align_node, value);
+        }
+
+        pub fn getSectionNode(self: *const VarDecl) ?*Node {
+            return self.getTrailer(.section_node);
+        }
+
+        pub fn setSectionNode(self: *VarDecl, value: *Node) void {
+            self.setTrailer(.section_node, value);
+        }
+
+        pub fn getInitNode(self: *const VarDecl) ?*Node {
+            return self.getTrailer(.init_node);
+        }
+
+        pub fn setInitNode(self: *VarDecl, value: *Node) void {
+            self.setTrailer(.init_node, value);
+        }
+
         pub const RequiredFields = struct {
             mut_token: TokenIndex,
             name_token: TokenIndex,
             semicolon_token: TokenIndex,
         };
 
-        pub fn getTrailer(self: *const VarDecl, comptime name: []const u8) ?TrailerFlags.Field(name) {
+        fn getTrailer(self: *const VarDecl, comptime field: TrailerFlags.FieldEnum) ?TrailerFlags.Field(field) {
             const trailers_start = @ptrCast([*]const u8, self) + @sizeOf(VarDecl);
-            return self.trailer_flags.get(trailers_start, name);
+            return self.trailer_flags.get(trailers_start, field);
         }
 
-        pub fn setTrailer(self: *VarDecl, comptime name: []const u8, value: TrailerFlags.Field(name)) void {
+        fn setTrailer(self: *VarDecl, comptime field: TrailerFlags.FieldEnum, value: TrailerFlags.Field(field)) void {
             const trailers_start = @ptrCast([*]u8, self) + @sizeOf(VarDecl);
-            self.trailer_flags.set(trailers_start, name, value);
+            self.trailer_flags.set(trailers_start, field, value);
         }
 
-        pub fn create(allocator: *mem.Allocator, required: RequiredFields, trailers: anytype) !*VarDecl {
+        pub fn create(allocator: *mem.Allocator, required: RequiredFields, trailers: TrailerFlags.InitStruct) !*VarDecl {
             const trailer_flags = TrailerFlags.init(trailers);
             const bytes = try allocator.alignedAlloc(u8, @alignOf(VarDecl), sizeInBytes(trailer_flags));
             const var_decl = @ptrCast(*VarDecl, bytes.ptr);
@@ -954,22 +1042,22 @@ pub const Node = struct {
         pub fn iterate(self: *const VarDecl, index: usize) ?*Node {
             var i = index;
 
-            if (self.getTrailer("type_node")) |type_node| {
+            if (self.getTypeNode()) |type_node| {
                 if (i < 1) return type_node;
                 i -= 1;
             }
 
-            if (self.getTrailer("align_node")) |align_node| {
+            if (self.getAlignNode()) |align_node| {
                 if (i < 1) return align_node;
                 i -= 1;
             }
 
-            if (self.getTrailer("section_node")) |section_node| {
+            if (self.getSectionNode()) |section_node| {
                 if (i < 1) return section_node;
                 i -= 1;
             }
 
-            if (self.getTrailer("init_node")) |init_node| {
+            if (self.getInitNode()) |init_node| {
                 if (i < 1) return init_node;
                 i -= 1;
             }
@@ -978,11 +1066,11 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: *const VarDecl) TokenIndex {
-            if (self.getTrailer("visib_token")) |visib_token| return visib_token;
-            if (self.getTrailer("thread_local_token")) |thread_local_token| return thread_local_token;
-            if (self.getTrailer("comptime_token")) |comptime_token| return comptime_token;
-            if (self.getTrailer("extern_export_token")) |extern_export_token| return extern_export_token;
-            assert(self.getTrailer("lib_name") == null);
+            if (self.getVisibToken()) |visib_token| return visib_token;
+            if (self.getThreadLocalToken()) |thread_local_token| return thread_local_token;
+            if (self.getComptimeToken()) |comptime_token| return comptime_token;
+            if (self.getExternExportToken()) |extern_export_token| return extern_export_token;
+            assert(self.getLibName() == null);
             return self.mut_token;
         }
 
@@ -1320,34 +1408,126 @@ pub const Node = struct {
             std.debug.print("{*} flags: {b} name_token: {} {*} params_len: {}\n", .{
                 self,
                 self.trailer_flags.bits,
-                self.getTrailer("name_token"),
-                self.trailer_flags.ptrConst(trailers_start, "name_token"),
+                self.getNameToken(),
+                self.trailer_flags.ptrConst(trailers_start, .name_token),
                 self.params_len,
             });
         }
 
-        pub fn body(self: *const FnProto) ?*Node {
-            return self.getTrailer("body_node");
+        pub fn getDocComments(self: *const FnProto) ?*DocComment {
+            return self.getTrailer(.doc_comments);
         }
 
-        pub fn getTrailer(self: *const FnProto, comptime name: []const u8) ?TrailerFlags.Field(name) {
+        pub fn setDocComments(self: *FnProto, value: *DocComment) void {
+            self.setTrailer(.doc_comments, value);
+        }
+
+        pub fn getBodyNode(self: *const FnProto) ?*Node {
+            return self.getTrailer(.body_node);
+        }
+
+        pub fn setBodyNode(self: *FnProto, value: *Node) void {
+            self.setTrailer(.body_node, value);
+        }
+
+        pub fn getLibName(self: *const FnProto) ?*Node {
+            return self.getTrailer(.lib_name);
+        }
+
+        pub fn setLibName(self: *FnProto, value: *Node) void {
+            self.setTrailer(.lib_name, value);
+        }
+
+        pub fn getAlignExpr(self: *const FnProto) ?*Node {
+            return self.getTrailer(.align_expr);
+        }
+
+        pub fn setAlignExpr(self: *FnProto, value: *Node) void {
+            self.setTrailer(.align_expr, value);
+        }
+
+        pub fn getSectionExpr(self: *const FnProto) ?*Node {
+            return self.getTrailer(.section_expr);
+        }
+
+        pub fn setSectionExpr(self: *FnProto, value: *Node) void {
+            self.setTrailer(.section_expr, value);
+        }
+
+        pub fn getCallconvExpr(self: *const FnProto) ?*Node {
+            return self.getTrailer(.callconv_expr);
+        }
+
+        pub fn setCallconvExpr(self: *FnProto, value: *Node) void {
+            self.setTrailer(.callconv_expr, value);
+        }
+
+        pub fn getVisibToken(self: *const FnProto) ?TokenIndex {
+            return self.getTrailer(.visib_token);
+        }
+
+        pub fn setVisibToken(self: *FnProto, value: TokenIndex) void {
+            self.setTrailer(.visib_token, value);
+        }
+
+        pub fn getNameToken(self: *const FnProto) ?TokenIndex {
+            return self.getTrailer(.name_token);
+        }
+
+        pub fn setNameToken(self: *FnProto, value: TokenIndex) void {
+            self.setTrailer(.name_token, value);
+        }
+
+        pub fn getVarArgsToken(self: *const FnProto) ?TokenIndex {
+            return self.getTrailer(.var_args_token);
+        }
+
+        pub fn setVarArgsToken(self: *FnProto, value: TokenIndex) void {
+            self.setTrailer(.var_args_token, value);
+        }
+
+        pub fn getExternExportInlineToken(self: *const FnProto) ?TokenIndex {
+            return self.getTrailer(.extern_export_inline_token);
+        }
+
+        pub fn setExternExportInlineToken(self: *FnProto, value: TokenIndex) void {
+            self.setTrailer(.extern_export_inline_token, value);
+        }
+
+        pub fn getIsExternPrototype(self: *const FnProto) ?void {
+            return self.getTrailer(.is_extern_prototype);
+        }
+
+        pub fn setIsExternPrototype(self: *FnProto, value: void) void {
+            self.setTrailer(.is_extern_prototype, value);
+        }
+
+        pub fn getIsAsync(self: *const FnProto) ?void {
+            return self.getTrailer(.is_async);
+        }
+
+        pub fn setIsAsync(self: *FnProto, value: void) void {
+            self.setTrailer(.is_async, value);
+        }
+
+        fn getTrailer(self: *const FnProto, comptime field: TrailerFlags.FieldEnum) ?TrailerFlags.Field(field) {
             const trailers_start = @alignCast(
                 @alignOf(ParamDecl),
                 @ptrCast([*]const u8, self) + @sizeOf(FnProto) + @sizeOf(ParamDecl) * self.params_len,
             );
-            return self.trailer_flags.get(trailers_start, name);
+            return self.trailer_flags.get(trailers_start, field);
         }
 
-        pub fn setTrailer(self: *FnProto, comptime name: []const u8, value: TrailerFlags.Field(name)) void {
+        fn setTrailer(self: *FnProto, comptime field: TrailerFlags.FieldEnum, value: TrailerFlags.Field(field)) void {
             const trailers_start = @alignCast(
                 @alignOf(ParamDecl),
                 @ptrCast([*]u8, self) + @sizeOf(FnProto) + @sizeOf(ParamDecl) * self.params_len,
             );
-            self.trailer_flags.set(trailers_start, name, value);
+            self.trailer_flags.set(trailers_start, field, value);
         }
 
         /// After this the caller must initialize the params list.
-        pub fn create(allocator: *mem.Allocator, required: RequiredFields, trailers: anytype) !*FnProto {
+        pub fn create(allocator: *mem.Allocator, required: RequiredFields, trailers: TrailerFlags.InitStruct) !*FnProto {
             const trailer_flags = TrailerFlags.init(trailers);
             const bytes = try allocator.alignedAlloc(u8, @alignOf(FnProto), sizeInBytes(
                 required.params_len,
@@ -1376,7 +1556,7 @@ pub const Node = struct {
         pub fn iterate(self: *const FnProto, index: usize) ?*Node {
             var i = index;
 
-            if (self.getTrailer("lib_name")) |lib_name| {
+            if (self.getLibName()) |lib_name| {
                 if (i < 1) return lib_name;
                 i -= 1;
             }
@@ -1394,12 +1574,12 @@ pub const Node = struct {
             }
             i -= params_len;
 
-            if (self.getTrailer("align_expr")) |align_expr| {
+            if (self.getAlignExpr()) |align_expr| {
                 if (i < 1) return align_expr;
                 i -= 1;
             }
 
-            if (self.getTrailer("section_expr")) |section_expr| {
+            if (self.getSectionExpr()) |section_expr| {
                 if (i < 1) return section_expr;
                 i -= 1;
             }
@@ -1412,7 +1592,7 @@ pub const Node = struct {
                 .Invalid => {},
             }
 
-            if (self.body()) |body_node| {
+            if (self.getBodyNode()) |body_node| {
                 if (i < 1) return body_node;
                 i -= 1;
             }
@@ -1421,14 +1601,14 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: *const FnProto) TokenIndex {
-            if (self.getTrailer("visib_token")) |visib_token| return visib_token;
-            if (self.getTrailer("extern_export_inline_token")) |extern_export_inline_token| return extern_export_inline_token;
-            assert(self.getTrailer("lib_name") == null);
+            if (self.getVisibToken()) |visib_token| return visib_token;
+            if (self.getExternExportInlineToken()) |extern_export_inline_token| return extern_export_inline_token;
+            assert(self.getLibName() == null);
             return self.fn_token;
         }
 
         pub fn lastToken(self: *const FnProto) TokenIndex {
-            if (self.body()) |body_node| return body_node.lastToken();
+            if (self.getBodyNode()) |body_node| return body_node.lastToken();
             switch (self.return_type) {
                 .Explicit, .InferErrorSet => |node| return node.lastToken(),
                 .Invalid => |tok| return tok,
@@ -2673,24 +2853,32 @@ pub const Node = struct {
         };
 
         pub fn getRHS(self: *const ControlFlowExpression) ?*Node {
-            return self.getTrailer("rhs");
+            return self.getTrailer(.rhs);
+        }
+
+        pub fn setRHS(self: *ControlFlowExpression, value: *Node) void {
+            self.setTrailer(.rhs, value);
         }
 
         pub fn getLabel(self: *const ControlFlowExpression) ?TokenIndex {
-            return self.getTrailer("label");
+            return self.getTrailer(.label);
         }
 
-        pub fn getTrailer(self: *const ControlFlowExpression, comptime name: []const u8) ?TrailerFlags.Field(name) {
+        pub fn setLabel(self: *ControlFlowExpression, value: TokenIndex) void {
+            self.setTrailer(.label, value);
+        }
+
+        fn getTrailer(self: *const ControlFlowExpression, comptime field: TrailerFlags.FieldEnum) ?TrailerFlags.Field(field) {
             const trailers_start = @ptrCast([*]const u8, self) + @sizeOf(ControlFlowExpression);
-            return self.trailer_flags.get(trailers_start, name);
+            return self.trailer_flags.get(trailers_start, field);
         }
 
-        pub fn setTrailer(self: *ControlFlowExpression, comptime name: []const u8, value: TrailerFlags.Field(name)) void {
+        fn setTrailer(self: *ControlFlowExpression, comptime field: TrailerFlags.FieldEnum, value: TrailerFlags.Field(field)) void {
             const trailers_start = @ptrCast([*]u8, self) + @sizeOf(ControlFlowExpression);
-            self.trailer_flags.set(trailers_start, name, value);
+            self.trailer_flags.set(trailers_start, field, value);
         }
 
-        pub fn create(allocator: *mem.Allocator, required: RequiredFields, trailers: anytype) !*ControlFlowExpression {
+        pub fn create(allocator: *mem.Allocator, required: RequiredFields, trailers: TrailerFlags.InitStruct) !*ControlFlowExpression {
             const trailer_flags = TrailerFlags.init(trailers);
             const bytes = try allocator.alignedAlloc(u8, @alignOf(ControlFlowExpression), sizeInBytes(trailer_flags));
             const ctrl_flow_expr = @ptrCast(*ControlFlowExpression, bytes.ptr);

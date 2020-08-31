@@ -451,16 +451,16 @@ fn varDecl(
     block_arena: *Allocator,
 ) InnerError!*Scope {
     // TODO implement detection of shadowing
-    if (node.getTrailer("comptime_token")) |comptime_token| {
+    if (node.getComptimeToken()) |comptime_token| {
         return mod.failTok(scope, comptime_token, "TODO implement comptime locals", .{});
     }
-    if (node.getTrailer("align_node")) |align_node| {
+    if (node.getAlignNode()) |align_node| {
         return mod.failNode(scope, align_node, "TODO implement alignment on locals", .{});
     }
     const tree = scope.tree();
     const name_src = tree.token_locs[node.name_token].start;
     const ident_name = try identifierTokenString(mod, scope, node.name_token);
-    const init_node = node.getTrailer("init_node") orelse
+    const init_node = node.getInitNode() orelse
         return mod.fail(scope, name_src, "variables must be initialized", .{});
 
     switch (tree.token_ids[node.mut_token]) {
@@ -469,7 +469,7 @@ fn varDecl(
             // or an rvalue as a result location. If it is an rvalue, we can use the instruction as
             // the variable, no memory location needed.
             const result_loc = if (nodeMayNeedMemoryLocation(init_node)) r: {
-                if (node.getTrailer("type_node")) |type_node| {
+                if (node.getTypeNode()) |type_node| {
                     const type_inst = try typeExpr(mod, scope, type_node);
                     const alloc = try addZIRUnOp(mod, scope, name_src, .alloc, type_inst);
                     break :r ResultLoc{ .ptr = alloc };
@@ -478,7 +478,7 @@ fn varDecl(
                     break :r ResultLoc{ .inferred_ptr = alloc };
                 }
             } else r: {
-                if (node.getTrailer("type_node")) |type_node|
+                if (node.getTypeNode()) |type_node|
                     break :r ResultLoc{ .ty = try typeExpr(mod, scope, type_node) }
                 else
                     break :r .none;
@@ -494,7 +494,7 @@ fn varDecl(
             return &sub_scope.base;
         },
         .Keyword_var => {
-            const var_data: struct { result_loc: ResultLoc, alloc: *zir.Inst } = if (node.getTrailer("type_node")) |type_node| a: {
+            const var_data: struct { result_loc: ResultLoc, alloc: *zir.Inst } = if (node.getTypeNode()) |type_node| a: {
                 const type_inst = try typeExpr(mod, scope, type_node);
                 const alloc = try addZIRUnOp(mod, scope, name_src, .alloc, type_inst);
                 break :a .{ .alloc = alloc, .result_loc = .{ .ptr = alloc } };
