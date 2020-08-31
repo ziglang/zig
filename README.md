@@ -17,7 +17,8 @@ A general-purpose programming language and toolchain for maintaining
 [![Build Status](https://dev.azure.com/ziglang/zig/_apis/build/status/ziglang.zig?branchName=master)](https://dev.azure.com/ziglang/zig/_build/latest?definitionId=1&branchName=master)
 
 Note that you can
-[download a binary of master branch](https://ziglang.org/download/#release-master).
+[download a binary of master branch](https://ziglang.org/download/#release-master) or 
+[install Zig from a package manager](https://github.com/ziglang/zig/wiki/Install-Zig-from-a-Package-Manager).
 
 ### Stage 1: Build Zig from C++ Source Code
 
