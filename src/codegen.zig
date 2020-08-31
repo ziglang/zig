@@ -1461,7 +1461,35 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     },
                     .arm => {
-                        if (info.args.len > 0) return self.fail(inst.base.src, "TODO implement fn args for {}", .{self.target.cpu.arch});
+                        for (info.args) |mc_arg, arg_i| {
+                            const arg = inst.args[arg_i];
+                            const arg_mcv = try self.resolveInst(inst.args[arg_i]);
+
+                            switch (mc_arg) {
+                                .none => continue,
+                                .undef => unreachable,
+                                .immediate => unreachable,
+                                .unreach => unreachable,
+                                .dead => unreachable,
+                                .embedded_in_code => unreachable,
+                                .memory => unreachable,
+                                .compare_flags_signed => unreachable,
+                                .compare_flags_unsigned => unreachable,
+                                .register => |reg| {
+                                    try self.genSetReg(arg.src, reg, arg_mcv);
+                                    // TODO interact with the register allocator to mark the instruction as moved.
+                                },
+                                .stack_offset => {
+                                    return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
+                                },
+                                .ptr_stack_offset => {
+                                    return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_stack_offset arg", .{});
+                                },
+                                .ptr_embedded_in_code => {
+                                    return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
+                                },
+                            }
+                        }
 
                         if (inst.func.cast(ir.Inst.Constant)) |func_inst| {
                             if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
@@ -1482,7 +1510,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 // of course. Add pushing lr to stack
                                 // and popping after call
                                 try self.genSetReg(inst.base.src, .lr, .{ .memory = got_addr });
-                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.blx(.al, .lr).toU32());
+
+                                if (Target.arm.featureSetHas(self.target.cpu.features, .has_v5t)) {
+                                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.blx(.al, .lr).toU32());
+                                } else {
+                                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .lr, Instruction.Operand.reg(.pc, Instruction.Operand.Shift.none)).toU32());
+                                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.bx(.al, .lr).toU32());
+                                }
                             } else {
                                 return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
                             }
@@ -2213,14 +2247,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // least amount of necessary instructions (use
                         // more intelligent rotating)
                         if (x <= math.maxInt(u8)) {
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, 0, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
                             return;
                         } else if (x <= math.maxInt(u16)) {
                             // TODO Use movw Note: Not supported on
                             // all ARM targets!
 
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, 0, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, 0, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 8), 12)).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 8), 12)).toU32());
                         } else if (x <= math.maxInt(u32)) {
                             // TODO Use movw and movt Note: Not
                             // supported on all ARM targets! Also TODO
@@ -2232,14 +2266,22 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             // orr reg, reg, #0xbb, 24
                             // orr reg, reg, #0xcc, 16
                             // orr reg, reg, #0xdd, 8
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, 0, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, 0, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 8), 12)).toU32());
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, 0, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 16), 8)).toU32());
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, 0, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 24), 4)).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 8), 12)).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 16), 8)).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 24), 4)).toU32());
                             return;
                         } else {
                             return self.fail(src, "ARM registers are 32-bit wide", .{});
                         }
+                    },
+                    .register => |src_reg| {
+                        // If the registers are the same, nothing to do.
+                        if (src_reg.id() == reg.id())
+                            return;
+
+                        // mov reg, src_reg
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.reg(src_reg, Instruction.Operand.Shift.none)).toU32());
                     },
                     .memory => |addr| {
                         // The value is in memory at a hard-coded address.
@@ -2701,6 +2743,53 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         else => return self.fail(src, "TODO implement function parameters for {} on x86_64", .{cc}),
                     }
                 },
+                .arm => {
+                    switch (cc) {
+                        .Naked => {
+                            assert(result.args.len == 0);
+                            result.return_value = .{ .unreach = {} };
+                            result.stack_byte_count = 0;
+                            result.stack_align = 1;
+                            return result;
+                        },
+                        .Unspecified, .C => {
+                            // ARM Procedure Call Standard, Chapter 6.5
+                            var ncrn: usize = 0; // Next Core Register Number
+                            var nsaa: u32 = 0; // Next stacked argument address
+
+                            for (param_types) |ty, i| {
+                                if (ty.abiAlignment(self.target.*) == 8) {
+                                    // Round up NCRN to the next even number
+                                    ncrn += ncrn % 2;
+                                }
+
+                                const param_size = @intCast(u32, ty.abiSize(self.target.*));
+                                if (std.math.divCeil(u32, param_size, 4) catch unreachable <= 4 - ncrn) {
+                                    if (param_size <= 4) {
+                                        result.args[i] = .{ .register = c_abi_int_param_regs[ncrn] };
+                                        ncrn += 1;
+                                    } else {
+                                        return self.fail(src, "TODO MCValues with multiple registers", .{});
+                                    }
+                                } else {
+                                    ncrn = 4;
+                                    if (ty.abiAlignment(self.target.*) == 8) {
+                                        if (nsaa % 8 != 0) {
+                                            nsaa += 8 - (nsaa % 8);
+                                        }
+                                    }
+
+                                    result.args[i] = .{ .stack_offset = nsaa };
+                                    nsaa += param_size;
+                                }
+                            }
+
+                            result.stack_byte_count = nsaa;
+                            result.stack_align = 4;
+                        },
+                        else => return self.fail(src, "TODO implement function parameters for {} on arm", .{cc}),
+                    }
+                },
                 else => if (param_types.len != 0)
                     return self.fail(src, "TODO implement codegen parameters for {}", .{self.target.cpu.arch}),
             }
@@ -2716,6 +2805,18 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
                         const aliased_reg = registerAlias(c_abi_int_return_regs[0], ret_ty_size);
                         result.return_value = .{ .register = aliased_reg };
+                    },
+                    else => return self.fail(src, "TODO implement function return values for {}", .{cc}),
+                },
+                .arm => switch (cc) {
+                    .Naked => unreachable,
+                    .Unspecified, .C => {
+                        const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
+                        if (ret_ty_size <= 4) {
+                            result.return_value = .{ .register = c_abi_int_return_regs[0] };
+                        } else {
+                            return self.fail(src, "TODO support more return types for ARM backend", .{});
+                        }
                     },
                     else => return self.fail(src, "TODO implement function return values for {}", .{cc}),
                 },
