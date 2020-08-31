@@ -26,6 +26,8 @@ if(ZIG_PREFER_CLANG_CPP_DYLIB)
       LLVM
     PATHS
       ${LLVM_LIBDIRS}
+      /usr/lib/llvm/10/lib
+      /usr/lib/llvm/10/lib64
       /usr/lib/llvm-10/lib
       /usr/local/llvm10/lib
       /usr/local/llvm100/lib
