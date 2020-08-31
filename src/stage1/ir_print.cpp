@@ -214,8 +214,6 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcFloatToInt";
         case IrInstSrcIdBoolToInt:
             return "SrcBoolToInt";
-        case IrInstSrcIdVectorType:
-            return "SrcVectorType";
         case IrInstSrcIdBoolNot:
             return "SrcBoolNot";
         case IrInstSrcIdMemset:
@@ -1689,14 +1687,6 @@ static void ir_print_bool_to_int(IrPrintSrc *irp, IrInstSrcBoolToInt *instructio
     fprintf(irp->f, ")");
 }
 
-static void ir_print_vector_type(IrPrintSrc *irp, IrInstSrcVectorType *instruction) {
-    fprintf(irp->f, "@Vector(");
-    ir_print_other_inst_src(irp, instruction->len);
-    fprintf(irp->f, ", ");
-    ir_print_other_inst_src(irp, instruction->elem_type);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_shuffle_vector(IrPrintSrc *irp, IrInstSrcShuffleVector *instruction) {
     fprintf(irp->f, "@shuffle(");
     ir_print_other_inst_src(irp, instruction->scalar_type);
@@ -2801,9 +2791,6 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
             break;
         case IrInstSrcIdBoolToInt:
             ir_print_bool_to_int(irp, (IrInstSrcBoolToInt *)instruction);
-            break;
-        case IrInstSrcIdVectorType:
-            ir_print_vector_type(irp, (IrInstSrcVectorType *)instruction);
             break;
         case IrInstSrcIdShuffleVector:
             ir_print_shuffle_vector(irp, (IrInstSrcShuffleVector *)instruction);

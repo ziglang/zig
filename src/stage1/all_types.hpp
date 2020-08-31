@@ -1783,7 +1783,6 @@ enum BuiltinFnId {
     BuiltinFnIdIntToErr,
     BuiltinFnIdEnumToInt,
     BuiltinFnIdIntToEnum,
-    BuiltinFnIdVectorType,
     BuiltinFnIdShuffle,
     BuiltinFnIdSplat,
     BuiltinFnIdSetCold,
@@ -2565,7 +2564,6 @@ enum IrInstSrcId {
     IrInstSrcIdIntToFloat,
     IrInstSrcIdFloatToInt,
     IrInstSrcIdBoolToInt,
-    IrInstSrcIdVectorType,
     IrInstSrcIdShuffleVector,
     IrInstSrcIdSplat,
     IrInstSrcIdBoolNot,
@@ -3597,13 +3595,6 @@ struct IrInstSrcBoolToInt {
     IrInstSrc base;
 
     IrInstSrc *target;
-};
-
-struct IrInstSrcVectorType {
-    IrInstSrc base;
-
-    IrInstSrc *len;
-    IrInstSrc *elem_type;
 };
 
 struct IrInstSrcBoolNot {

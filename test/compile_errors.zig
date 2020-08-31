@@ -8104,6 +8104,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("compare optional to non-optional with invalid types",
+        \\const Vector = @import("std").meta.Vector;
         \\export fn inconsistentChildType() void {
         \\    var x: ?i32 = undefined;
         \\    const y: comptime_int = 10;
@@ -8117,8 +8118,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\
         \\export fn optionalVector() void {
-        \\    var x: ?@Vector(10, i32) = undefined;
-        \\    var y: @Vector(10, i32) = undefined;
+        \\    var x: ?Vector(10, i32) = undefined;
+        \\    var y: Vector(10, i32) = undefined;
         \\    _ = (x == y);
         \\}
         \\
@@ -8128,13 +8129,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = (x == y);
         \\}
     , &[_][]const u8{
-        ":4:12: error: cannot compare types '?i32' and 'comptime_int'",
-        ":4:12: note: optional child type 'i32' must be the same as non-optional type 'comptime_int'",
-        ":10:12: error: cannot compare types '?i32' and '?i32'",
-        ":10:12: note: optional to optional comparison is only supported for optional pointer types",
-        ":16:12: error: TODO add comparison of optional vector",
-        ":22:12: error: cannot compare types '?[3]i32' and '[3]i32'",
-        ":22:12: note: operator not supported for type '[3]i32'",
+        "tmp.zig:5:12: error: cannot compare types '?i32' and 'comptime_int'",
+        "tmp.zig:5:12: note: optional child type 'i32' must be the same as non-optional type 'comptime_int'",
+        "tmp.zig:11:12: error: cannot compare types '?i32' and '?i32'",
+        "tmp.zig:11:12: note: optional to optional comparison is only supported for optional pointer types",
+        "tmp.zig:17:12: error: TODO add comparison of optional vector",
+        "tmp.zig:23:12: error: cannot compare types '?[3]i32' and '[3]i32'",
+        "tmp.zig:23:12: note: operator not supported for type '[3]i32'",
     });
 
     cases.add("slice cannot have its bytes reinterpreted",
