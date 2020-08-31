@@ -561,23 +561,24 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             return error.OutOfMemory;
         }
 
+        // Returns true if an allocation of `size` bytes is within the specified
+        // limits if enable_memory_limit is true
+        fn isAllocationAllowed(self: *Self, size: usize) bool {
+            if (config.enable_memory_limit) {
+                const new_req_bytes = self.total_requested_bytes + size;
+                if (new_req_bytes > self.requested_memory_limit)
+                    return false;
+                self.total_requested_bytes = new_req_bytes;
+            }
+
+            return true;
+        }
+
         fn alloc(allocator: *Allocator, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Error![]u8 {
             const self = @fieldParentPtr(Self, "allocator", allocator);
 
             const held = self.mutex.acquire();
             defer held.release();
-
-            const prev_req_bytes = self.total_requested_bytes;
-            if (config.enable_memory_limit) {
-                const new_req_bytes = prev_req_bytes + len;
-                if (new_req_bytes > self.requested_memory_limit) {
-                    return error.OutOfMemory;
-                }
-                self.total_requested_bytes = new_req_bytes;
-            }
-            errdefer if (config.enable_memory_limit) {
-                self.total_requested_bytes = prev_req_bytes;
-            };
 
             const new_aligned_size = math.max(len, ptr_align);
             if (new_aligned_size > largest_bucket_object_size) {
@@ -588,17 +589,30 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
                 const slice = try self.backing_allocator.allocFn(self.backing_allocator, len, ptr_align, len_align, ret_addr);
 
+                // The backing allocator may return a memory block bigger than
+                // `len`, use the effective size for bookkeeping purposes
+                if (!self.isAllocationAllowed(slice.len)) {
+                    // Free the block so no memory is leaked
+                    const new_len = try self.backing_allocator.resizeFn(self.backing_allocator, slice, ptr_align, 0, 0, ret_addr);
+                    assert(new_len == 0);
+                    return error.OutOfMemory;
+                }
+
                 const gop = self.large_allocations.getOrPutAssumeCapacity(@ptrToInt(slice.ptr));
                 assert(!gop.found_existing); // This would mean the kernel double-mapped pages.
                 gop.entry.value.bytes = slice;
                 collectStackTrace(ret_addr, &gop.entry.value.stack_addresses);
 
                 return slice;
-            } else {
-                const new_size_class = math.ceilPowerOfTwoAssert(usize, new_aligned_size);
-                const ptr = try self.allocSlot(new_size_class, ret_addr);
-                return ptr[0..len];
             }
+
+            if (!self.isAllocationAllowed(len)) {
+                return error.OutOfMemory;
+            }
+
+            const new_size_class = math.ceilPowerOfTwoAssert(usize, new_aligned_size);
+            const ptr = try self.allocSlot(new_size_class, ret_addr);
+            return ptr[0..len];
         }
 
         fn createBucket(self: *Self, size_class: usize, bucket_index: usize) Error!*BucketHeader {
