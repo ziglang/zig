@@ -1425,7 +1425,7 @@ fn renderExpression(
 
             // TODO remove after 0.7.0 release
             if (mem.eql(u8, tree.tokenSlice(builtin_call.builtin_token), "@OpaqueType"))
-                return stream.writeAll("@Type(.Opaque)");
+                return stream.writer().writeAll("@Type(.Opaque)");
 
             try renderToken(tree, stream, builtin_call.builtin_token, Space.None); // @name
 
@@ -2184,11 +2184,11 @@ fn renderVarDecl(
         Space.None;
     try renderToken(tree, stream, var_decl.name_token, name_space);
 
-    if (var_decl.getTrailer("type_node")) |type_node| {
+    if (var_decl.getTypeNode()) |type_node| {
         try renderToken(tree, stream, tree.nextToken(var_decl.name_token), Space.Space);
-        const s = if (var_decl.getTrailer("align_node") != null or
-            var_decl.getTrailer("section_node") != null or
-            var_decl.getTrailer("init_node") != null) Space.Space else Space.None;
+        const s = if (var_decl.getAlignNode() != null or
+            var_decl.getSectionNode() != null or
+            var_decl.getInitNode() != null) Space.Space else Space.None;
         try renderExpression(allocator, stream, tree, type_node, s);
     }
 
