@@ -57,6 +57,9 @@ pub const OpenFileOptions = struct {
     /// If false, tries to open path as a reparse point without dereferencing it.
     /// Defaults to true.
     follow_symlinks: bool = true,
+    /// If true, file is also deleted when closed.
+    /// Defaults to false.
+    delete_on_close: bool = false,
 };
 
 /// TODO when share_access_nonblocking is false, this implementation uses
@@ -90,8 +93,9 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
     var io: IO_STATUS_BLOCK = undefined;
     const blocking_flag: ULONG = if (options.io_mode == .blocking) FILE_SYNCHRONOUS_IO_NONALERT else 0;
     const file_or_dir_flag: ULONG = if (options.open_dir) FILE_DIRECTORY_FILE else FILE_NON_DIRECTORY_FILE;
+    const delete_on_close_flag: ULONG = if (options.delete_on_close) FILE_DELETE_ON_CLOSE else 0;
     // If we're not following symlinks, we need to ensure we don't pass in any synchronization flags such as FILE_SYNCHRONOUS_IO_NONALERT.
-    const flags: ULONG = if (options.follow_symlinks) file_or_dir_flag | blocking_flag else file_or_dir_flag | FILE_OPEN_REPARSE_POINT;
+    const flags: ULONG = if (options.follow_symlinks) file_or_dir_flag | delete_on_close_flag | blocking_flag else file_or_dir_flag | delete_on_close_flag | FILE_OPEN_REPARSE_POINT;
 
     var delay: usize = 1;
     while (true) {

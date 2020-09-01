@@ -489,10 +489,11 @@ pub const ChildProcess = struct {
         const nul_handle = if (any_ignore)
             windows.OpenFile(&[_]u16{ 'N', 'U', 'L' }, .{
                 .dir = std.fs.cwd().fd,
-                .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
+                .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE | windows.DELETE,
                 .share_access = windows.FILE_SHARE_READ,
                 .creation = windows.OPEN_EXISTING,
                 .io_mode = .blocking,
+                .delete_on_close = true,
             }) catch |err| switch (err) {
                 error.PathAlreadyExists => unreachable, // not possible for "NUL"
                 error.PipeBusy => unreachable, // not possible for "NUL"
@@ -505,7 +506,7 @@ pub const ChildProcess = struct {
         else
             undefined;
         defer {
-            if (any_ignore) os.close(nul_handle);
+            if (any_ignore) windows.CloseHandle(nul_handle);
         }
         if (any_ignore) {
             try windows.SetHandleInformation(nul_handle, windows.HANDLE_FLAG_INHERIT, 0);
