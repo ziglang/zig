@@ -396,12 +396,12 @@ pub const ChildProcess = struct {
         // and execve from the child process to the parent process.
         const err_pipe = blk: {
             if (builtin.os.tag == .linux) {
-                const fd = try os.eventfd(0, 0);
+                const fd = try os.eventfd(0, os.EFD_CLOEXEC);
                 // There's no distinction between the readable and the writeable
                 // end with eventfd
                 break :blk [2]os.fd_t{ fd, fd };
             } else {
-                break :blk try os.pipe();
+                break :blk try os.pipe2(os.O_CLOEXEC);
             }
         };
         errdefer destroyPipe(err_pipe);

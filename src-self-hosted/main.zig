@@ -912,7 +912,7 @@ pub const info_zen =
     \\ * Reduce the amount one must remember.
     \\ * Minimize energy spent on coding style.
     \\ * Resource deallocation must succeed.
-    \\ * Together we serve end users.
+    \\ * Together we serve the users.
     \\
     \\
 ;

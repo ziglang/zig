@@ -49,6 +49,7 @@ pub fn build(b: *Builder) !void {
     const skip_release_safe = b.option(bool, "skip-release-safe", "Main test suite skips release-safe builds") orelse skip_release;
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
+    const skip_compile_errors = b.option(bool, "skip-compile-errors", "Main test suite skips compile error tests") orelse false;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
     const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse false;
@@ -184,7 +185,9 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(tests.addRunTranslatedCTests(b, test_filter));
     // tests for this feature are disabled until we have the self-hosted compiler available
     // test_step.dependOn(tests.addGenHTests(b, test_filter));
-    test_step.dependOn(tests.addCompileErrorTests(b, test_filter, modes));
+    if (!skip_compile_errors) {
+        test_step.dependOn(tests.addCompileErrorTests(b, test_filter, modes));
+    }
     test_step.dependOn(docs_step);
 }
 

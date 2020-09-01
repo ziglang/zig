@@ -15,7 +15,7 @@ const Arch = std.Target.Cpu.Arch;
 const Abi = std.Target.Abi;
 const OsTag = std.Target.Os.Tag;
 const assert = std.debug.assert;
-const Sha256 = std.crypto.hash.sha2.Sha256;
+const Blake3 = std.crypto.hash.Blake3;
 
 const LibCTarget = struct {
     name: []const u8,
@@ -314,7 +314,7 @@ pub fn main() !void {
     var max_bytes_saved: usize = 0;
     var total_bytes: usize = 0;
 
-    var hasher = Sha256.init(.{});
+    var hasher = Blake3.init(.{});
 
     for (libc_targets) |libc_target| {
         const dest_target = DestTarget{
@@ -360,7 +360,7 @@ pub fn main() !void {
                             const trimmed = std.mem.trim(u8, raw_bytes, " \r\n\t");
                             total_bytes += raw_bytes.len;
                             const hash = try allocator.alloc(u8, 32);
-                            hasher = Sha256.init(.{});
+                            hasher = Blake3.init(.{});
                             hasher.update(rel_path);
                             hasher.update(trimmed);
                             hasher.final(hash);
@@ -412,12 +412,12 @@ pub fn main() !void {
         {
             var hash_it = path_kv.value.iterator();
             while (hash_it.next()) |hash_kv| {
-                const contents = &hash_to_contents.get(hash_kv.value).?;
+                const contents = &hash_to_contents.getEntry(hash_kv.value).?.value;
                 try contents_list.append(contents);
             }
         }
         std.sort.sort(*Contents, contents_list.span(), {}, Contents.hitCountLessThan);
-        var best_contents = contents_list.popOrNull().?;
+        const best_contents = contents_list.popOrNull().?;
         if (best_contents.hit_count > 1) {
             // worth it to make it generic
             const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, generic_name, path_kv.key });
@@ -434,7 +434,7 @@ pub fn main() !void {
         }
         var hash_it = path_kv.value.iterator();
         while (hash_it.next()) |hash_kv| {
-            const contents = &hash_to_contents.get(hash_kv.value).?;
+            const contents = &hash_to_contents.getEntry(hash_kv.value).?.value;
             if (contents.is_generic) continue;
 
             const dest_target = hash_kv.key;

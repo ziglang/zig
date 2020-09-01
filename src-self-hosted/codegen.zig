@@ -439,7 +439,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 if (module_fn.owner_decl.scope.cast(Module.Scope.File)) |scope_file| {
                     const tree = scope_file.contents.tree;
                     const fn_proto = tree.root_node.decls()[module_fn.owner_decl.src_index].castTag(.FnProto).?;
-                    const block = fn_proto.body().?.castTag(.Block).?;
+                    const block = fn_proto.getBodyNode().?.castTag(.Block).?;
                     const lbrace_src = tree.token_locs[block.lbrace].start;
                     const rbrace_src = tree.token_locs[block.rbrace].start;
                     break :blk .{ .lbrace_src = lbrace_src, .rbrace_src = rbrace_src, .source = tree.source };
