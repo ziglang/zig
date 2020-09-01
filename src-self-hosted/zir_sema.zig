@@ -31,7 +31,10 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .arg => return analyzeInstArg(mod, scope, old_inst.castTag(.arg).?),
         .bitcast_ref => return analyzeInstBitCastRef(mod, scope, old_inst.castTag(.bitcast_ref).?),
         .bitcast_result_ptr => return analyzeInstBitCastResultPtr(mod, scope, old_inst.castTag(.bitcast_result_ptr).?),
-        .block => return analyzeInstBlock(mod, scope, old_inst.castTag(.block).?),
+        .block => return analyzeInstBlock(mod, scope, old_inst.castTag(.block).?, false),
+        .block_comptime => return analyzeInstBlock(mod, scope, old_inst.castTag(.block_comptime).?, true),
+        .block_flat => return analyzeInstBlockFlat(mod, scope, old_inst.castTag(.block_flat).?, false),
+        .block_comptime_flat => return analyzeInstBlockFlat(mod, scope, old_inst.castTag(.block_comptime_flat).?, true),
         .@"break" => return analyzeInstBreak(mod, scope, old_inst.castTag(.@"break").?),
         .breakpoint => return analyzeInstBreakpoint(mod, scope, old_inst.castTag(.breakpoint).?),
         .breakvoid => return analyzeInstBreakVoid(mod, scope, old_inst.castTag(.breakvoid).?),
@@ -147,6 +150,7 @@ pub fn analyzeBody(mod: *Module, scope: *Scope, body: zir.Module.Body) !void {
     }
 }
 
+/// TODO improve this to use .block_comptime_flat
 pub fn analyzeBodyValueAsType(mod: *Module, block_scope: *Scope.Block, body: zir.Module.Body) !Type {
     try analyzeBody(mod, &block_scope.base, body);
     for (block_scope.instructions.items) |inst| {
@@ -517,6 +521,7 @@ fn analyzeInstLoop(mod: *Module, scope: *Scope, inst: *zir.Inst.Loop) InnerError
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
+        .is_comptime = parent_block.is_comptime,
     };
     defer child_block.instructions.deinit(mod.gpa);
 
@@ -529,7 +534,29 @@ fn analyzeInstLoop(mod: *Module, scope: *Scope, inst: *zir.Inst.Loop) InnerError
     return &loop_inst.base;
 }
 
-fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerError!*Inst {
+fn analyzeInstBlockFlat(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_comptime: bool) InnerError!*Inst {
+    const parent_block = scope.cast(Scope.Block).?;
+
+    var child_block: Scope.Block = .{
+        .parent = parent_block,
+        .func = parent_block.func,
+        .decl = parent_block.decl,
+        .instructions = .{},
+        .arena = parent_block.arena,
+        .label = null,
+        .is_comptime = parent_block.is_comptime or is_comptime,
+    };
+    defer child_block.instructions.deinit(mod.gpa);
+
+    try analyzeBody(mod, &child_block.base, inst.positionals.body);
+
+    const copied_instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items);
+    try parent_block.instructions.appendSlice(mod.gpa, copied_instructions);
+
+    return copied_instructions[copied_instructions.len - 1];
+}
+
+fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_comptime: bool) InnerError!*Inst {
     const parent_block = scope.cast(Scope.Block).?;
 
     // Reserve space for a Block instruction so that generated Break instructions can
@@ -557,6 +584,7 @@ fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerErr
             .results = .{},
             .block_inst = block_inst,
         }),
+        .is_comptime = is_comptime or parent_block.is_comptime,
     };
     const label = &child_block.label.?;
 
@@ -568,6 +596,28 @@ fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerErr
     // Blocks must terminate with noreturn instruction.
     assert(child_block.instructions.items.len != 0);
     assert(child_block.instructions.items[child_block.instructions.items.len - 1].ty.isNoReturn());
+
+    if (label.results.items.len == 0) {
+        // No need for a block instruction. We can put the new instructions directly into the parent block.
+        const copied_instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items);
+        try parent_block.instructions.appendSlice(mod.gpa, copied_instructions);
+        return copied_instructions[copied_instructions.len - 1];
+    }
+    if (label.results.items.len == 1) {
+        const last_inst_index = child_block.instructions.items.len - 1;
+        const last_inst = child_block.instructions.items[last_inst_index];
+        if (last_inst.breakBlock()) |br_block| {
+            if (br_block == block_inst) {
+                // No need for a block instruction. We can put the new instructions directly into the parent block.
+                // Here we omit the break instruction.
+                const copied_instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items[0..last_inst_index]);
+                try parent_block.instructions.appendSlice(mod.gpa, copied_instructions);
+                return label.results.items[0];
+            }
+        }
+    }
+    // It should be impossible to have the number of results be > 1 in a comptime scope.
+    assert(!child_block.is_comptime); // We should have already got a compile error in the condbr condition.
 
     // Need to set the type and emit the Block instruction. This allows machine code generation
     // to emit a jump instruction to after the block when it encounters the break.
@@ -1083,7 +1133,7 @@ fn analyzeInstElemPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) Inne
     const array_ptr = try resolveInst(mod, scope, inst.positionals.array_ptr);
     const uncasted_index = try resolveInst(mod, scope, inst.positionals.index);
     const elem_index = try mod.coerce(scope, Type.initTag(.usize), uncasted_index);
-    
+
     const elem_ty = switch (array_ptr.ty.zigTypeTag()) {
         .Pointer => array_ptr.ty.elemType(),
         else => return mod.fail(scope, inst.positionals.array_ptr.src, "expected pointer, found '{}'", .{array_ptr.ty}),
@@ -1376,6 +1426,7 @@ fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerE
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
+        .is_comptime = parent_block.is_comptime,
     };
     defer true_block.instructions.deinit(mod.gpa);
     try analyzeBody(mod, &true_block.base, inst.positionals.then_body);
@@ -1386,6 +1437,7 @@ fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerE
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
+        .is_comptime = parent_block.is_comptime,
     };
     defer false_block.instructions.deinit(mod.gpa);
     try analyzeBody(mod, &false_block.base, inst.positionals.else_body);

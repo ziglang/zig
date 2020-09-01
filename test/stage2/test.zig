@@ -274,7 +274,7 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.exe("substracting numbers at runtime", linux_x64);
+        var case = ctx.exe("subtracting numbers at runtime", linux_x64);
         case.addCompareOutput(
             \\export fn _start() noreturn {
             \\    sub(7, 4);

@@ -258,7 +258,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .OptionalType => return rlWrap(mod, scope, rl, try optionalType(mod, scope, node.castTag(.OptionalType).?)),
         .UnwrapOptional => return unwrapOptional(mod, scope, rl, node.castTag(.UnwrapOptional).?),
         .Block => return rlWrapVoid(mod, scope, rl, node, try blockExpr(mod, scope, node.castTag(.Block).?)),
-        .LabeledBlock => return labeledBlockExpr(mod, scope, rl, node.castTag(.LabeledBlock).?),
+        .LabeledBlock => return labeledBlockExpr(mod, scope, rl, node.castTag(.LabeledBlock).?, .block),
         .Break => return rlWrap(mod, scope, rl, try breakExpr(mod, scope, node.castTag(.Break).?)),
         .PtrType => return rlWrap(mod, scope, rl, try ptrType(mod, scope, node.castTag(.PtrType).?)),
         .GroupedExpression => return expr(mod, scope, rl, node.castTag(.GroupedExpression).?.expr),
@@ -276,6 +276,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .For => return forExpr(mod, scope, rl, node.castTag(.For).?),
         .ArrayAccess => return arrayAccess(mod, scope, rl, node.castTag(.ArrayAccess).?),
         .Catch => return catchExpr(mod, scope, rl, node.castTag(.Catch).?),
+        .Comptime => return comptimeKeyword(mod, scope, rl, node.castTag(.Comptime).?),
 
         .Defer => return mod.failNode(scope, node, "TODO implement astgen.expr for .Defer", .{}),
         .Range => return mod.failNode(scope, node, "TODO implement astgen.expr for .Range", .{}),
@@ -294,9 +295,44 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .AnyType => return mod.failNode(scope, node, "TODO implement astgen.expr for .AnyType", .{}),
         .FnProto => return mod.failNode(scope, node, "TODO implement astgen.expr for .FnProto", .{}),
         .ContainerDecl => return mod.failNode(scope, node, "TODO implement astgen.expr for .ContainerDecl", .{}),
-        .Comptime => return mod.failNode(scope, node, "TODO implement astgen.expr for .Comptime", .{}),
         .Nosuspend => return mod.failNode(scope, node, "TODO implement astgen.expr for .Nosuspend", .{}),
     }
+}
+
+fn comptimeKeyword(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Comptime) InnerError!*zir.Inst {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    return comptimeExpr(mod, scope, rl, node.expr);
+}
+
+pub fn comptimeExpr(mod: *Module, parent_scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerError!*zir.Inst {
+    const tree = parent_scope.tree();
+    const src = tree.token_locs[node.firstToken()].start;
+
+    // Optimization for labeled blocks: don't need to have 2 layers of blocks, we can reuse the existing one.
+    if (node.castTag(.LabeledBlock)) |block_node| {
+        return labeledBlockExpr(mod, parent_scope, rl, block_node, .block_comptime);
+    }
+
+    // Make a scope to collect generated instructions in the sub-expression.
+    var block_scope: Scope.GenZIR = .{
+        .parent = parent_scope,
+        .decl = parent_scope.decl().?,
+        .arena = parent_scope.arena(),
+        .instructions = .{},
+    };
+    defer block_scope.instructions.deinit(mod.gpa);
+
+    // No need to capture the result here because block_comptime_flat implies that the final
+    // instruction is the block's result value.
+    _ = try expr(mod, &block_scope.base, rl, node);
+
+    const block = try addZIRInstBlock(mod, parent_scope, src, .block_comptime_flat, .{
+        .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
+    });
+
+    return &block.base;
 }
 
 fn breakExpr(mod: *Module, parent_scope: *Scope, node: *ast.Node.ControlFlowExpression) InnerError!*zir.Inst {
@@ -360,9 +396,12 @@ fn labeledBlockExpr(
     parent_scope: *Scope,
     rl: ResultLoc,
     block_node: *ast.Node.LabeledBlock,
+    zir_tag: zir.Inst.Tag,
 ) InnerError!*zir.Inst {
     const tracy = trace(@src());
     defer tracy.end();
+
+    assert(zir_tag == .block or zir_tag == .block_comptime);
 
     const tree = parent_scope.tree();
     const src = tree.token_locs[block_node.lbrace].start;
@@ -373,7 +412,7 @@ fn labeledBlockExpr(
     const block_inst = try gen_zir.arena.create(zir.Inst.Block);
     block_inst.* = .{
         .base = .{
-            .tag = .block,
+            .tag = zir_tag,
             .src = src,
         },
         .positionals = .{
@@ -773,7 +812,7 @@ fn catchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Catch) 
         .else_body = undefined, // populated below
     }, .{});
 
-    const block = try addZIRInstBlock(mod, scope, src, .{
+    const block = try addZIRInstBlock(mod, scope, src, .block, .{
         .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
     });
 
@@ -946,7 +985,7 @@ fn boolBinOp(
         .else_body = undefined, // populated below
     }, .{});
 
-    const block = try addZIRInstBlock(mod, scope, src, .{
+    const block = try addZIRInstBlock(mod, scope, src, .block, .{
         .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
     });
 
@@ -1095,7 +1134,7 @@ fn ifExpr(mod: *Module, scope: *Scope, rl: ResultLoc, if_node: *ast.Node.If) Inn
         .else_body = undefined, // populated below
     }, .{});
 
-    const block = try addZIRInstBlock(mod, scope, if_src, .{
+    const block = try addZIRInstBlock(mod, scope, if_src, .block, .{
         .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
     });
 
@@ -1218,7 +1257,7 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
         .then_body = undefined, // populated below
         .else_body = undefined, // populated below
     }, .{});
-    const cond_block = try addZIRInstBlock(mod, &loop_scope.base, while_src, .{
+    const cond_block = try addZIRInstBlock(mod, &loop_scope.base, while_src, .block, .{
         .instructions = try loop_scope.arena.dupe(*zir.Inst, continue_scope.instructions.items),
     });
     // TODO avoid emitting the continue expr when there
@@ -1231,7 +1270,7 @@ fn whileExpr(mod: *Module, scope: *Scope, rl: ResultLoc, while_node: *ast.Node.W
     const loop = try addZIRInstLoop(mod, &expr_scope.base, while_src, .{
         .instructions = try expr_scope.arena.dupe(*zir.Inst, loop_scope.instructions.items),
     });
-    const while_block = try addZIRInstBlock(mod, scope, while_src, .{
+    const while_block = try addZIRInstBlock(mod, scope, while_src, .block, .{
         .instructions = try expr_scope.arena.dupe(*zir.Inst, expr_scope.instructions.items),
     });
 
@@ -1365,7 +1404,7 @@ fn forExpr(mod: *Module, scope: *Scope, rl: ResultLoc, for_node: *ast.Node.For) 
         .then_body = undefined, // populated below
         .else_body = undefined, // populated below
     }, .{});
-    const cond_block = try addZIRInstBlock(mod, &loop_scope.base, for_src, .{
+    const cond_block = try addZIRInstBlock(mod, &loop_scope.base, for_src, .block, .{
         .instructions = try loop_scope.arena.dupe(*zir.Inst, cond_scope.instructions.items),
     });
 
@@ -1382,7 +1421,7 @@ fn forExpr(mod: *Module, scope: *Scope, rl: ResultLoc, for_node: *ast.Node.For) 
     const loop = try addZIRInstLoop(mod, &for_scope.base, for_src, .{
         .instructions = try for_scope.arena.dupe(*zir.Inst, loop_scope.instructions.items),
     });
-    const for_block = try addZIRInstBlock(mod, scope, for_src, .{
+    const for_block = try addZIRInstBlock(mod, scope, for_src, .block, .{
         .instructions = try for_scope.arena.dupe(*zir.Inst, for_scope.instructions.items),
     });
 
@@ -2260,6 +2299,30 @@ pub fn addZIRBinOp(
     return &inst.base;
 }
 
+pub fn addZIRInstBlock(
+    mod: *Module,
+    scope: *Scope,
+    src: usize,
+    tag: zir.Inst.Tag,
+    body: zir.Module.Body,
+) !*zir.Inst.Block {
+    const gen_zir = scope.getGenZIR();
+    try gen_zir.instructions.ensureCapacity(mod.gpa, gen_zir.instructions.items.len + 1);
+    const inst = try gen_zir.arena.create(zir.Inst.Block);
+    inst.* = .{
+        .base = .{
+            .tag = tag,
+            .src = src,
+        },
+        .positionals = .{
+            .body = body,
+        },
+        .kw_args = .{},
+    };
+    gen_zir.instructions.appendAssumeCapacity(&inst.base);
+    return inst;
+}
+
 pub fn addZIRInst(
     mod: *Module,
     scope: *Scope,
@@ -2276,12 +2339,6 @@ pub fn addZIRInst(
 pub fn addZIRInstConst(mod: *Module, scope: *Scope, src: usize, typed_value: TypedValue) !*zir.Inst {
     const P = std.meta.fieldInfo(zir.Inst.Const, "positionals").field_type;
     return addZIRInst(mod, scope, src, zir.Inst.Const, P{ .typed_value = typed_value }, .{});
-}
-
-/// TODO The existence of this function is a workaround for a bug in stage1.
-pub fn addZIRInstBlock(mod: *Module, scope: *Scope, src: usize, body: zir.Module.Body) !*zir.Inst.Block {
-    const P = std.meta.fieldInfo(zir.Inst.Block, "positionals").field_type;
-    return addZIRInstSpecial(mod, scope, src, zir.Inst.Block, P{ .body = body }, .{});
 }
 
 /// TODO The existence of this function is a workaround for a bug in stage1.

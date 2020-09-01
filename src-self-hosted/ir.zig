@@ -189,7 +189,7 @@ pub const Inst = struct {
     }
 
     pub fn cmpOperator(base: *Inst) ?std.math.CompareOperator {
-        return switch (self.base.tag) {
+        return switch (base.tag) {
             .cmp_lt => .lt,
             .cmp_lte => .lte,
             .cmp_eq => .eq,
@@ -218,6 +218,14 @@ pub const Inst = struct {
             }
         }
         unreachable;
+    }
+
+    pub fn breakBlock(base: *Inst) ?*Block {
+        return switch (base.tag) {
+            .br => base.castTag(.br).?.block,
+            .brvoid => base.castTag(.brvoid).?.block,
+            else => null,
+        };
     }
 
     pub const NoOp = struct {

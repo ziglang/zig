@@ -725,6 +725,7 @@ pub const Scope = struct {
         /// Points to the arena allocator of DeclAnalysis
         arena: *Allocator,
         label: ?Label = null,
+        is_comptime: bool,
 
         pub const Label = struct {
             zir_block: *zir.Inst.Block,
@@ -1320,6 +1321,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .decl = decl,
                 .instructions = .{},
                 .arena = &decl_arena.allocator,
+                .is_comptime = false,
             };
             defer block_scope.instructions.deinit(self.gpa);
 
@@ -1457,6 +1459,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .decl = decl,
                 .instructions = .{},
                 .arena = &decl_arena.allocator,
+                .is_comptime = true,
             };
             defer block_scope.instructions.deinit(self.gpa);
 
@@ -1528,7 +1531,6 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 defer gen_scope.instructions.deinit(self.gpa);
                 const src = tree.token_locs[init_node.firstToken()].start;
 
-                // TODO comptime scope here
                 const init_inst = try astgen.expr(self, &gen_scope.base, .none, init_node);
                 _ = try astgen.addZIRUnOp(self, &gen_scope.base, src, .@"return", init_inst);
 
@@ -1538,6 +1540,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     .decl = decl,
                     .instructions = .{},
                     .arena = &gen_scope_arena.allocator,
+                    .is_comptime = true,
                 };
                 defer inner_block.instructions.deinit(self.gpa);
                 try zir_sema.analyzeBody(self, &inner_block.base, .{ .instructions = gen_scope.instructions.items });
@@ -1628,8 +1631,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             };
             defer gen_scope.instructions.deinit(self.gpa);
 
-            // TODO comptime scope here
-            _ = try astgen.expr(self, &gen_scope.base, .none, comptime_decl.expr);
+            _ = try astgen.comptimeExpr(self, &gen_scope.base, .none, comptime_decl.expr);
 
             var block_scope: Scope.Block = .{
                 .parent = null,
@@ -1637,6 +1639,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .decl = decl,
                 .instructions = .{},
                 .arena = &analysis_arena.allocator,
+                .is_comptime = true,
             };
             defer block_scope.instructions.deinit(self.gpa);
 
@@ -2007,6 +2010,7 @@ fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
         .decl = decl,
         .instructions = .{},
         .arena = &arena.allocator,
+        .is_comptime = false,
     };
     defer inner_block.instructions.deinit(self.gpa);
 
@@ -3432,6 +3436,7 @@ pub fn addSafetyCheck(mod: *Module, parent_block: *Scope.Block, ok: *Inst, panic
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
+        .is_comptime = parent_block.is_comptime,
     };
     defer fail_block.instructions.deinit(mod.gpa);
 
