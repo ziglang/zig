@@ -106,7 +106,9 @@ pub fn AutoIndentingStream(comptime WriterType: type) type {
         pub fn popIndent(self: *Self) void {
             assert(self.indent_count != 0);
             self.indent_count -= 1;
-            self.indent_next_line = std.math.min(self.indent_count, self.indent_next_line); // Tentative indent may have been popped before there was a newline
+
+            if (self.indent_next_line > 0)
+                self.indent_next_line -= 1;
         }
 
         /// Writes ' ' bytes if the current line is empty
