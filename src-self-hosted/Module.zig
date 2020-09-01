@@ -725,6 +725,7 @@ pub const Scope = struct {
         /// Points to the arena allocator of DeclAnalysis
         arena: *Allocator,
         label: ?Label = null,
+        is_comptime: bool,
 
         pub const Label = struct {
             zir_block: *zir.Inst.Block,
@@ -1307,7 +1308,6 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .return_type = return_type_inst,
                 .param_types = param_types,
             }, .{});
-            _ = try astgen.addZIRUnOp(self, &fn_type_scope.base, fn_src, .@"return", fn_type_inst);
 
             // We need the memory for the Type to go into the arena for the Decl
             var decl_arena = std.heap.ArenaAllocator.init(self.gpa);
@@ -1320,10 +1320,11 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .decl = decl,
                 .instructions = .{},
                 .arena = &decl_arena.allocator,
+                .is_comptime = false,
             };
             defer block_scope.instructions.deinit(self.gpa);
 
-            const fn_type = try zir_sema.analyzeBodyValueAsType(self, &block_scope, .{
+            const fn_type = try zir_sema.analyzeBodyValueAsType(self, &block_scope, fn_type_inst, .{
                 .instructions = fn_type_scope.instructions.items,
             });
             const new_func = try decl_arena.allocator.create(Fn);
@@ -1457,6 +1458,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .decl = decl,
                 .instructions = .{},
                 .arena = &decl_arena.allocator,
+                .is_comptime = true,
             };
             defer block_scope.instructions.deinit(self.gpa);
 
@@ -1489,10 +1491,53 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 return self.failNode(&block_scope.base, sect_expr, "TODO implement function section expression", .{});
             }
 
-            const explicit_type = blk: {
-                const type_node = var_decl.getTypeNode() orelse
-                    break :blk null;
+            const var_info: struct { ty: Type, val: ?Value } = if (var_decl.getInitNode()) |init_node| vi: {
+                var gen_scope_arena = std.heap.ArenaAllocator.init(self.gpa);
+                defer gen_scope_arena.deinit();
+                var gen_scope: Scope.GenZIR = .{
+                    .decl = decl,
+                    .arena = &gen_scope_arena.allocator,
+                    .parent = decl.scope,
+                };
+                defer gen_scope.instructions.deinit(self.gpa);
 
+                const init_result_loc: astgen.ResultLoc = if (var_decl.getTypeNode()) |type_node| rl: {
+                    const src = tree.token_locs[type_node.firstToken()].start;
+                    const type_type = try astgen.addZIRInstConst(self, &gen_scope.base, src, .{
+                        .ty = Type.initTag(.type),
+                        .val = Value.initTag(.type_type),
+                    });
+                    const var_type = try astgen.expr(self, &gen_scope.base, .{ .ty = type_type }, type_node);
+                    break :rl .{ .ty = var_type };
+                } else .none;
+
+                const src = tree.token_locs[init_node.firstToken()].start;
+                const init_inst = try astgen.expr(self, &gen_scope.base, init_result_loc, init_node);
+
+                var inner_block: Scope.Block = .{
+                    .parent = null,
+                    .func = null,
+                    .decl = decl,
+                    .instructions = .{},
+                    .arena = &gen_scope_arena.allocator,
+                    .is_comptime = true,
+                };
+                defer inner_block.instructions.deinit(self.gpa);
+                try zir_sema.analyzeBody(self, &inner_block.base, .{ .instructions = gen_scope.instructions.items });
+
+                // The result location guarantees the type coercion.
+                const analyzed_init_inst = init_inst.analyzed_inst.?;
+                // The is_comptime in the Scope.Block guarantees the result is comptime-known.
+                const val = analyzed_init_inst.value().?;
+
+                const ty = try analyzed_init_inst.ty.copy(block_scope.arena);
+                break :vi .{
+                    .ty = ty,
+                    .val = try val.copy(block_scope.arena),
+                };
+            } else if (!is_extern) {
+                return self.failTok(&block_scope.base, var_decl.firstToken(), "variables must be initialized", .{});
+            } else if (var_decl.getTypeNode()) |type_node| vi: {
                 // Temporary arena for the zir instructions.
                 var type_scope_arena = std.heap.ArenaAllocator.init(self.gpa);
                 defer type_scope_arena.deinit();
@@ -1509,71 +1554,24 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     .val = Value.initTag(.type_type),
                 });
                 const var_type = try astgen.expr(self, &type_scope.base, .{ .ty = type_type }, type_node);
-                _ = try astgen.addZIRUnOp(self, &type_scope.base, src, .@"return", var_type);
-
-                break :blk try zir_sema.analyzeBodyValueAsType(self, &block_scope, .{
+                const ty = try zir_sema.analyzeBodyValueAsType(self, &block_scope, var_type, .{
                     .instructions = type_scope.instructions.items,
                 });
-            };
-
-            var var_type: Type = undefined;
-            const value: ?Value = if (var_decl.getInitNode()) |init_node| blk: {
-                var gen_scope_arena = std.heap.ArenaAllocator.init(self.gpa);
-                defer gen_scope_arena.deinit();
-                var gen_scope: Scope.GenZIR = .{
-                    .decl = decl,
-                    .arena = &gen_scope_arena.allocator,
-                    .parent = decl.scope,
+                break :vi .{
+                    .ty = ty,
+                    .val = null,
                 };
-                defer gen_scope.instructions.deinit(self.gpa);
-                const src = tree.token_locs[init_node.firstToken()].start;
-
-                // TODO comptime scope here
-                const init_inst = try astgen.expr(self, &gen_scope.base, .none, init_node);
-                _ = try astgen.addZIRUnOp(self, &gen_scope.base, src, .@"return", init_inst);
-
-                var inner_block: Scope.Block = .{
-                    .parent = null,
-                    .func = null,
-                    .decl = decl,
-                    .instructions = .{},
-                    .arena = &gen_scope_arena.allocator,
-                };
-                defer inner_block.instructions.deinit(self.gpa);
-                try zir_sema.analyzeBody(self, &inner_block.base, .{ .instructions = gen_scope.instructions.items });
-
-                for (inner_block.instructions.items) |inst| {
-                    if (inst.castTag(.ret)) |ret| {
-                        const coerced = if (explicit_type) |some|
-                            try self.coerce(&inner_block.base, some, ret.operand)
-                        else
-                            ret.operand;
-                        const val = coerced.value() orelse
-                            return self.fail(&block_scope.base, inst.src, "unable to resolve comptime value", .{});
-
-                        var_type = explicit_type orelse try ret.operand.ty.copy(block_scope.arena);
-                        break :blk try val.copy(block_scope.arena);
-                    } else {
-                        return self.fail(&block_scope.base, inst.src, "unable to resolve comptime value", .{});
-                    }
-                }
-                unreachable;
-            } else if (!is_extern) {
-                return self.failTok(&block_scope.base, var_decl.firstToken(), "variables must be initialized", .{});
-            } else if (explicit_type) |some| blk: {
-                var_type = some;
-                break :blk null;
             } else {
                 return self.failTok(&block_scope.base, var_decl.firstToken(), "unable to infer variable type", .{});
             };
 
-            if (is_mutable and !var_type.isValidVarType(is_extern)) {
-                return self.failTok(&block_scope.base, var_decl.firstToken(), "variable of type '{}' must be const", .{var_type});
+            if (is_mutable and !var_info.ty.isValidVarType(is_extern)) {
+                return self.failTok(&block_scope.base, var_decl.firstToken(), "variable of type '{}' must be const", .{var_info.ty});
             }
 
             var type_changed = true;
             if (decl.typedValueManaged()) |tvm| {
-                type_changed = !tvm.typed_value.ty.eql(var_type);
+                type_changed = !tvm.typed_value.ty.eql(var_info.ty);
 
                 tvm.deinit(self.gpa);
             }
@@ -1582,7 +1580,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             const var_payload = try decl_arena.allocator.create(Value.Payload.Variable);
             new_variable.* = .{
                 .owner_decl = decl,
-                .init = value orelse undefined,
+                .init = var_info.val orelse undefined,
                 .is_extern = is_extern,
                 .is_mutable = is_mutable,
                 .is_threadlocal = is_threadlocal,
@@ -1593,7 +1591,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             decl.typed_value = .{
                 .most_recent = .{
                     .typed_value = .{
-                        .ty = var_type,
+                        .ty = var_info.ty,
                         .val = Value.initPayload(&var_payload.base),
                     },
                     .arena = decl_arena_state,
@@ -1628,8 +1626,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             };
             defer gen_scope.instructions.deinit(self.gpa);
 
-            // TODO comptime scope here
-            _ = try astgen.expr(self, &gen_scope.base, .none, comptime_decl.expr);
+            _ = try astgen.comptimeExpr(self, &gen_scope.base, .none, comptime_decl.expr);
 
             var block_scope: Scope.Block = .{
                 .parent = null,
@@ -1637,6 +1634,7 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .decl = decl,
                 .instructions = .{},
                 .arena = &analysis_arena.allocator,
+                .is_comptime = true,
             };
             defer block_scope.instructions.deinit(self.gpa);
 
@@ -2007,6 +2005,7 @@ fn analyzeFnBody(self: *Module, decl: *Decl, func: *Fn) !void {
         .decl = decl,
         .instructions = .{},
         .arena = &arena.allocator,
+        .is_comptime = false,
     };
     defer inner_block.instructions.deinit(self.gpa);
 
@@ -2092,10 +2091,17 @@ pub fn getErrorValue(self: *Module, name: []const u8) !std.StringHashMapUnmanage
     return gop.entry.*;
 }
 
-/// TODO split this into `requireRuntimeBlock` and `requireFunctionBlock` and audit callsites.
-pub fn requireRuntimeBlock(self: *Module, scope: *Scope, src: usize) !*Scope.Block {
+pub fn requireFunctionBlock(self: *Module, scope: *Scope, src: usize) !*Scope.Block {
     return scope.cast(Scope.Block) orelse
         return self.fail(scope, src, "instruction illegal outside function body", .{});
+}
+
+pub fn requireRuntimeBlock(self: *Module, scope: *Scope, src: usize) !*Scope.Block {
+    const block = try self.requireFunctionBlock(scope, src);
+    if (block.is_comptime) {
+        return self.fail(scope, src, "unable to resolve comptime value", .{});
+    }
+    return block;
 }
 
 pub fn resolveConstValue(self: *Module, scope: *Scope, base: *Inst) !Value {
@@ -3432,6 +3438,7 @@ pub fn addSafetyCheck(mod: *Module, parent_block: *Scope.Block, ok: *Inst, panic
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
+        .is_comptime = parent_block.is_comptime,
     };
     defer fail_block.instructions.deinit(mod.gpa);
 

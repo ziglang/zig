@@ -78,6 +78,13 @@ pub const Inst = struct {
         bitor,
         /// A labeled block of code, which can return a value.
         block,
+        /// A block of code, which can return a value. There are no instructions that break out of
+        /// this block; it is implied that the final instruction is the result.
+        block_flat,
+        /// Same as `block` but additionally makes the inner instructions execute at comptime.
+        block_comptime,
+        /// Same as `block_flat` but additionally makes the inner instructions execute at comptime.
+        block_comptime_flat,
         /// Boolean NOT. See also `bitnot`.
         boolnot,
         /// Return a value from a `Block`.
@@ -338,9 +345,14 @@ pub const Inst = struct {
                 .merge_error_sets,
                 => BinOp,
 
+                .block,
+                .block_flat,
+                .block_comptime,
+                .block_comptime_flat,
+                => Block,
+
                 .arg => Arg,
                 .array_type_sentinel => ArrayTypeSentinel,
-                .block => Block,
                 .@"break" => Break,
                 .breakvoid => BreakVoid,
                 .call => Call,
@@ -392,6 +404,9 @@ pub const Inst = struct {
                 .bitcast_result_ptr,
                 .bitor,
                 .block,
+                .block_flat,
+                .block_comptime,
+                .block_comptime_flat,
                 .boolnot,
                 .breakpoint,
                 .call,

@@ -274,7 +274,7 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.exe("substracting numbers at runtime", linux_x64);
+        var case = ctx.exe("subtracting numbers at runtime", linux_x64);
         case.addCompareOutput(
             \\export fn _start() noreturn {
             \\    sub(7, 4);
@@ -967,10 +967,19 @@ pub fn addCases(ctx: *TestContext) !void {
         \\fn entry() void {}
     , &[_][]const u8{":2:4: error: redefinition of 'entry'"});
 
-    ctx.compileError("extern variable has no type", linux_x64,
-        \\comptime {
-        \\    _ = foo;
-        \\}
-        \\extern var foo;
-    , &[_][]const u8{":4:1: error: unable to infer variable type"});
+    {
+        var case = ctx.obj("extern variable has no type", linux_x64);
+        case.addError(
+            \\comptime {
+            \\    _ = foo;
+            \\}
+            \\extern var foo;
+        , &[_][]const u8{":2:5: error: unable to resolve comptime value"});
+        case.addError(
+            \\export fn entry() void {
+            \\    _ = foo;
+            \\}
+            \\extern var foo;
+        , &[_][]const u8{":4:1: error: unable to infer variable type"});
+    }
 }
