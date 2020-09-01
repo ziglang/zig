@@ -1641,6 +1641,8 @@ pub const StreamServer = struct {
         /// by the socket buffer limits, not by the system memory.
         SystemResources,
 
+        Invalid,
+
         ProtocolFailure,
 
         /// Firewall rules forbid connection.
