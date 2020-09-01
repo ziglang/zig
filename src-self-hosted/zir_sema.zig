@@ -150,18 +150,16 @@ pub fn analyzeBody(mod: *Module, scope: *Scope, body: zir.Module.Body) !void {
     }
 }
 
-/// TODO improve this to use .block_comptime_flat
-pub fn analyzeBodyValueAsType(mod: *Module, block_scope: *Scope.Block, body: zir.Module.Body) !Type {
+pub fn analyzeBodyValueAsType(
+    mod: *Module,
+    block_scope: *Scope.Block,
+    zir_result_inst: *zir.Inst,
+    body: zir.Module.Body,
+) !Type {
     try analyzeBody(mod, &block_scope.base, body);
-    for (block_scope.instructions.items) |inst| {
-        if (inst.castTag(.ret)) |ret| {
-            const val = try mod.resolveConstValue(&block_scope.base, ret.operand);
-            return val.toType(block_scope.base.arena());
-        } else {
-            return mod.fail(&block_scope.base, inst.src, "unable to resolve comptime value", .{});
-        }
-    }
-    unreachable;
+    const result_inst = zir_result_inst.analyzed_inst.?;
+    const val = try mod.resolveConstValue(&block_scope.base, result_inst);
+    return val.toType(block_scope.base.arena());
 }
 
 pub fn analyzeZirDecl(mod: *Module, decl: *Decl, src_decl: *zir.Decl) InnerError!bool {
@@ -366,7 +364,7 @@ fn analyzeInstRef(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!
 }
 
 fn analyzeInstRetType(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
-    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    const b = try mod.requireFunctionBlock(scope, inst.base.src);
     const fn_ty = b.func.?.owner_decl.typed_value.most_recent.typed_value.ty;
     const ret_type = fn_ty.fnReturnType();
     return mod.constType(scope, inst.base.src, ret_type);
