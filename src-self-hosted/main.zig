@@ -742,6 +742,7 @@ const FmtError = error{
     LinkQuotaExceeded,
     FileBusy,
     EndOfStream,
+    Unseekable,
     NotOpenForWriting,
 } || fs.File.OpenError;
 
@@ -805,7 +806,7 @@ fn fmtPathFile(
     if (stat.kind == .Directory)
         return error.IsDir;
 
-    const source_code = source_file.readAllAlloc(fmt.gpa, stat.size, max_src_size) catch |err| switch (err) {
+    const source_code = source_file.readAllAlloc(fmt.gpa, max_src_size) catch |err| switch (err) {
         error.ConnectionResetByPeer => unreachable,
         error.ConnectionTimedOut => unreachable,
         error.NotOpenForReading => unreachable,

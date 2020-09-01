@@ -1454,9 +1454,7 @@ pub const Dir = struct {
         var file = try self.openFile(file_path, .{});
         defer file.close();
 
-        const stat_size = try file.getEndPos();
-
-        return file.readAllAllocOptions(allocator, stat_size, max_bytes, alignment, optional_sentinel);
+        return file.readAllAllocOptions(allocator, max_bytes, alignment, optional_sentinel);
     }
 
     pub const DeleteTreeError = error{

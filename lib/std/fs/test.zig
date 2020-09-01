@@ -188,30 +188,29 @@ test "readAllAlloc" {
     var file = try tmp_dir.dir.createFile("test_file", .{ .read = true });
     defer file.close();
 
-    const buf1 = try file.readAllAlloc(testing.allocator, 0, 1024);
+    const buf1 = try file.readAllAlloc(testing.allocator, 1024);
     defer testing.allocator.free(buf1);
     testing.expect(buf1.len == 0);
 
     const write_buf: []const u8 = "this is a test.\nthis is a test.\nthis is a test.\nthis is a test.\n";
     try file.writeAll(write_buf);
     try file.seekTo(0);
-    const file_size = try file.getEndPos();
 
     // max_bytes > file_size
-    const buf2 = try file.readAllAlloc(testing.allocator, file_size, 1024);
+    const buf2 = try file.readAllAlloc(testing.allocator, 1024);
     defer testing.allocator.free(buf2);
     testing.expectEqual(write_buf.len, buf2.len);
     testing.expect(std.mem.eql(u8, write_buf, buf2));
     try file.seekTo(0);
 
     // max_bytes == file_size
-    const buf3 = try file.readAllAlloc(testing.allocator, file_size, write_buf.len);
+    const buf3 = try file.readAllAlloc(testing.allocator, write_buf.len);
     defer testing.allocator.free(buf3);
     testing.expectEqual(write_buf.len, buf3.len);
     testing.expect(std.mem.eql(u8, write_buf, buf3));
 
     // max_bytes < file_size
-    testing.expectError(error.FileTooBig, file.readAllAlloc(testing.allocator, file_size, write_buf.len - 1));
+    testing.expectError(error.FileTooBig, file.readAllAlloc(testing.allocator, write_buf.len - 1));
 }
 
 test "directory operations on files" {
