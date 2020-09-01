@@ -15341,9 +15341,14 @@ static IrInstGen *ir_analyze_cast(IrAnalyze *ira, IrInst *source_instr,
         ZigType *array_type = actual_type->data.pointer.child_type;
         bool const_ok = (slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0
                 || !actual_type->data.pointer.is_const);
+
         if (const_ok && types_match_const_cast_only(ira, slice_ptr_type->data.pointer.child_type,
             array_type->data.array.child_type, source_node,
-            !slice_ptr_type->data.pointer.is_const).id == ConstCastResultIdOk)
+            !slice_ptr_type->data.pointer.is_const).id == ConstCastResultIdOk &&
+            (slice_ptr_type->data.pointer.sentinel == nullptr ||
+             (array_type->data.array.sentinel != nullptr &&
+              const_values_equal(ira->codegen, array_type->data.array.sentinel,
+                  slice_ptr_type->data.pointer.sentinel))))
         {
             // If the pointers both have ABI align, it works.
             // Or if the array length is 0, alignment doesn't matter.
