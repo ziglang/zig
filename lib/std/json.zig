@@ -1637,7 +1637,7 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
         },
         .Struct => |structInfo| {
             inline for (structInfo.fields) |field| {
-                parseFree(field.field_type, @field(value, field.name), options);
+                if (!field.is_comptime) parseFree(field.field_type, @field(value, field.name), options);
             }
         },
         .Array => |arrayInfo| {
