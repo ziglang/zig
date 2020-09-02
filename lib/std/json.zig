@@ -1487,6 +1487,8 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                 if (!field.is_comptime) {
                                   @field(r, field.name) = parsed_value;
                                 } else {
+                                  // As we never set the field to the parsed value, make sure we free it.
+                                  defer parseFree(field.field_type, parsed_value, options);
                                   // We have a comptime field. We need to check the value supplied in the
                                   // json matches what the comptime value is.
                                   if (field.default_value) |default| {
@@ -1496,8 +1498,6 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                       else => {},
                                     }
                                   }
-                                  // As we never set the field to the parsed value, free it now.
-                                  parseFree(field.field_type, parsed_value, options);
                                 }
                                 fields_seen[i] = true;
                                 found = true;
