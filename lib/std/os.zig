@@ -5328,3 +5328,71 @@ pub fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) !fd_t {
         else => |err| return std.os.unexpectedErrno(err),
     }
 }
+
+pub const SyncError = error{
+    InputOutput,
+    NoSpaceLeft,
+    DiskQuota,
+    AccessDenied,
+} || UnexpectedError;
+
+/// Write all pending file contents and metadata modifications to all filesystems.
+pub fn sync() void {
+    system.sync();
+}
+
+/// Write all pending file contents and metadata modifications to the filesystem which contains the specified file.
+pub fn syncfs(fd: fd_t) SyncError!void {
+    const rc = system.syncfs(fd);
+    switch (errno(rc)) {
+        0 => return,
+        EBADF, EINVAL, EROFS => unreachable,
+        EIO => return error.InputOutput,
+        ENOSPC => return error.NoSpaceLeft,
+        EDQUOT => return error.DiskQuota,
+        else => |err| return std.os.unexpectedErrno(err),
+    }
+}
+
+/// Write all pending file contents and metadata modifications for the specified file descriptor to the underlying filesystem.
+pub fn fsync(fd: fd_t) SyncError!void {
+    if (std.Target.current.os.tag == .windows) {
+        if (windows.kernel32.FlushFileBuffers(fd) != 0)
+            return;
+        switch (windows.kernel32.GetLastError()) {
+            .SUCCESS => return,
+            .INVALID_HANDLE => unreachable,
+            .ACCESS_DENIED => return error.AccessDenied, // a sync was performed but the system couldn't update the access time
+            .UNEXP_NET_ERR => return error.InputOutput,
+            else => return error.InputOutput,
+        }
+    }
+    const rc = system.fsync(fd);
+    switch (errno(rc)) {
+        0 => return,
+        EBADF, EINVAL, EROFS => unreachable,
+        EIO => return error.InputOutput,
+        ENOSPC => return error.NoSpaceLeft,
+        EDQUOT => return error.DiskQuota,
+        else => |err| return std.os.unexpectedErrno(err),
+    }
+}
+
+/// Write all pending file contents for the specified file descriptor to the underlying filesystem, but not necessarily the metadata.
+pub fn fdatasync(fd: fd_t) SyncError!void {
+    if (std.Target.current.os.tag == .windows) {
+        return fsync(fd) catch |err| switch (err) {
+            SyncError.AccessDenied => return, // fdatasync doesn't promise that the access time was synced
+            else => return err,
+        };
+    }
+    const rc = system.fdatasync(fd);
+    switch (errno(rc)) {
+        0 => return,
+        EBADF, EINVAL, EROFS => unreachable,
+        EIO => return error.InputOutput,
+        ENOSPC => return error.NoSpaceLeft,
+        EDQUOT => return error.DiskQuota,
+        else => |err| return std.os.unexpectedErrno(err),
+    }
+}
