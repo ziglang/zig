@@ -839,7 +839,8 @@ fn fmtPathFile(
         // As a heuristic, we make enough capacity for the same as the input source.
         try fmt.out_buffer.ensureCapacity(source_code.len);
         fmt.out_buffer.items.len = 0;
-        const anything_changed = try std.zig.render(fmt.gpa, fmt.out_buffer.writer(), tree);
+        const writer = fmt.out_buffer.writer();
+        const anything_changed = try std.zig.render(fmt.gpa, writer, tree);
         if (!anything_changed)
             return; // Good thing we didn't waste any file system access on this.
 
