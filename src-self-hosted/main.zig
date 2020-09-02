@@ -682,13 +682,13 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
             process.exit(1);
         }
         if (check_flag) {
-            const anything_changed = try std.zig.render(gpa, &io.null_out_stream, tree);
+            const anything_changed = try std.zig.render(gpa, io.null_out_stream, tree);
             const code = if (anything_changed) @as(u8, 1) else @as(u8, 0);
             process.exit(code);
         }
 
         const stdout = io.getStdOut().outStream();
-        _ = try std.zig.render(gpa, &stdout, tree);
+        _ = try std.zig.render(gpa, stdout, tree);
         return;
     }
 
@@ -830,7 +830,7 @@ fn fmtPathFile(
     }
 
     if (check_mode) {
-        const anything_changed = try std.zig.render(fmt.gpa, &io.null_out_stream, tree);
+        const anything_changed = try std.zig.render(fmt.gpa, io.null_out_stream, tree);
         if (anything_changed) {
             std.debug.print("{}\n", .{file_path});
             fmt.any_error = true;
@@ -840,7 +840,7 @@ fn fmtPathFile(
         try fmt.out_buffer.ensureCapacity(source_code.len);
         fmt.out_buffer.items.len = 0;
         const writer = fmt.out_buffer.writer();
-        const anything_changed = try std.zig.render(fmt.gpa, &writer, tree);
+        const anything_changed = try std.zig.render(fmt.gpa, writer, tree);
         if (!anything_changed)
             return; // Good thing we didn't waste any file system access on this.
 

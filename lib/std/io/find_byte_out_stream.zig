@@ -4,23 +4,15 @@ const assert = std.debug.assert;
 
 /// An OutStream that returns whether the given character has been written to it.
 /// The contents are not written to anything.
-pub fn FindByteOutStream(comptime WriterType: type) type {
+pub fn FindByteOutStream(comptime UnderlyingWriter: type) type {
     return struct {
         const Self = @This();
-        pub const Error = WriterType.Error;
+        pub const Error = UnderlyingWriter.Error;
         pub const Writer = io.Writer(*Self, Error, write);
 
-        writer_pointer: *const WriterType,
+        underlying_writer: UnderlyingWriter,
         byte_found: bool,
         byte: u8,
-
-        pub fn init(byte: u8, writer_pointer: *const WriterType) Self {
-            return Self{
-                .writer_pointer = writer_pointer,
-                .byte = byte,
-                .byte_found = false,
-            };
-        }
 
         pub fn writer(self: *Self) Writer {
             return .{ .context = self };
@@ -34,11 +26,15 @@ pub fn FindByteOutStream(comptime WriterType: type) type {
                     break :blk false;
                 };
             }
-            return self.writer_pointer.writer().write(bytes);
+            return self.underlying_writer.write(bytes);
         }
     };
 }
-pub fn findByteOutStream(byte: u8, underlying_stream: anytype) FindByteOutStream(@TypeOf(underlying_stream).Child) {
-    comptime assert(@typeInfo(@TypeOf(underlying_stream)) == .Pointer);
-    return FindByteOutStream(@TypeOf(underlying_stream).Child).init(byte, underlying_stream);
+
+pub fn findByteOutStream(byte: u8, underlying_writer: anytype) FindByteOutStream(@TypeOf(underlying_writer)) {
+    return FindByteOutStream(@TypeOf(underlying_writer)){
+        .underlying_writer = underlying_writer,
+        .byte = byte,
+        .byte_found = false,
+    };
 }

@@ -3364,7 +3364,7 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
     errdefer buffer.deinit();
 
     const outStream = buffer.outStream();
-    anything_changed.* = try std.zig.render(allocator, &outStream, tree);
+    anything_changed.* = try std.zig.render(allocator, outStream, tree);
     return buffer.toOwnedSlice();
 }
 fn testTransform(source: []const u8, expected_source: []const u8) !void {

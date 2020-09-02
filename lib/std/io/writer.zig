@@ -18,10 +18,6 @@ pub fn Writer(
         const Self = @This();
         pub const Error = WriteError;
 
-        pub fn writer(self: *const Self) Self {
-            return self.*;
-        }
-
         pub fn write(self: Self, bytes: []const u8) Error!usize {
             return writeFn(self.context, bytes);
         }

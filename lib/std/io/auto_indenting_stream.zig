@@ -5,13 +5,13 @@ const assert = std.debug.assert;
 
 /// Automatically inserts indentation of written data by keeping
 /// track of the current indentation level
-pub fn AutoIndentingStream(comptime WriterType: type) type {
+pub fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
     return struct {
         const Self = @This();
-        pub const Error = WriterType.Error;
+        pub const Error = UnderlyingWriter.Error;
         pub const Writer = io.Writer(*Self, Error, write);
 
-        writer_pointer: *WriterType,
+        underlying_writer: UnderlyingWriter,
 
         indent_count: usize = 0,
         indent_delta: usize,
@@ -19,10 +19,6 @@ pub fn AutoIndentingStream(comptime WriterType: type) type {
         indent_one_shot_count: usize = 0, // automatically popped when applied
         applied_indent: usize = 0, // the most recently applied indent
         indent_next_line: usize = 0, // not used until the next line
-
-        pub fn init(indent_delta: usize, writer_pointer: *WriterType) Self {
-            return Self{ .writer_pointer = writer_pointer, .indent_delta = indent_delta };
-        }
 
         pub fn writer(self: *Self) Writer {
             return .{ .context = self };
@@ -55,7 +51,7 @@ pub fn AutoIndentingStream(comptime WriterType: type) type {
             if (bytes.len == 0)
                 return @as(usize, 0);
 
-            try self.writer_pointer.writer().writeAll(bytes);
+            try self.underlying_writer.writeAll(bytes);
             if (bytes[bytes.len - 1] == '\n')
                 self.resetLine();
             return bytes.len;
@@ -115,7 +111,7 @@ pub fn AutoIndentingStream(comptime WriterType: type) type {
         fn applyIndent(self: *Self) Error!void {
             const current_indent = self.currentIndent();
             if (self.current_line_empty and current_indent > 0) {
-                try self.writer_pointer.writer().writeByteNTimes(' ', current_indent);
+                try self.underlying_writer.writeByteNTimes(' ', current_indent);
                 self.applied_indent = current_indent;
             }
 
@@ -143,8 +139,10 @@ pub fn AutoIndentingStream(comptime WriterType: type) type {
 
 pub fn autoIndentingStream(
     indent_delta: usize,
-    underlying_stream: anytype,
-) AutoIndentingStream(@TypeOf(underlying_stream).Child) {
-    comptime assert(@typeInfo(@TypeOf(underlying_stream)) == .Pointer);
-    return AutoIndentingStream(@TypeOf(underlying_stream).Child).init(indent_delta, underlying_stream);
+    underlying_writer: anytype,
+) AutoIndentingStream(@TypeOf(underlying_writer)) {
+    return AutoIndentingStream(@TypeOf(underlying_writer)){
+        .underlying_writer = underlying_writer,
+        .indent_delta = indent_delta,
+    };
 }

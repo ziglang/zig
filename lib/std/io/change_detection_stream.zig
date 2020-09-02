@@ -10,18 +10,10 @@ pub fn ChangeDetectionStream(comptime WriterType: type) type {
         pub const Error = WriterType.Error;
         pub const Writer = io.Writer(*Self, Error, write);
 
-        anything_changed: bool = false,
-        writer_pointer: *const WriterType,
+        anything_changed: bool,
+        underlying_writer: WriterType,
         source_index: usize,
         source: []const u8,
-
-        pub fn init(source: []const u8, writer_pointer: *const WriterType) Self {
-            return Self{
-                .writer_pointer = writer_pointer,
-                .source_index = 0,
-                .source = source,
-            };
-        }
 
         pub fn writer(self: *Self) Writer {
             return .{ .context = self };
@@ -41,7 +33,7 @@ pub fn ChangeDetectionStream(comptime WriterType: type) type {
                 }
             }
 
-            return self.writer_pointer.write(bytes);
+            return self.underlying_writer.write(bytes);
         }
 
         pub fn changeDetected(self: *Self) bool {
@@ -52,8 +44,12 @@ pub fn ChangeDetectionStream(comptime WriterType: type) type {
 
 pub fn changeDetectionStream(
     source: []const u8,
-    underlying_stream: anytype,
-) ChangeDetectionStream(@TypeOf(underlying_stream).Child) {
-    comptime assert(@typeInfo(@TypeOf(underlying_stream)) == .Pointer);
-    return ChangeDetectionStream(@TypeOf(underlying_stream).Child).init(source, underlying_stream);
+    underlying_writer: anytype,
+) ChangeDetectionStream(@TypeOf(underlying_writer)) {
+    return ChangeDetectionStream(@TypeOf(underlying_writer)){
+        .anything_changed = false,
+        .underlying_writer = underlying_writer,
+        .source_index = 0,
+        .source = source,
+    };
 }
