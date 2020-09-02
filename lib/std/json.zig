@@ -1483,7 +1483,20 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                         parseFree(field.field_type, @field(r, field.name), options);
                                     }
                                 }
-                                @field(r, field.name) = try parse(field.field_type, tokens, options);
+                                var parsed_value = try parse(field.field_type, tokens, options);
+                                if (!field.is_comptime) {
+                                  @field(r, field.name) = parsed_value;
+                                } else {
+                                  // We have a comptime field. We need to check the value supplied in the
+                                  // json matches what the comptime value is.
+                                  if (field.default_value) |default| {
+                                    switch (@typeInfo(field.field_type)) {
+                                      .Bool, .Int, .Float => if (parsed_value != default) return error.ParsedValueNotDefault,
+                                      .Pointer => |pointerInfo| if (!mem.eql(pointerInfo.child, parsed_value, default)) return error.ParsedValueNotDefault,
+                                      else => {},
+                                    }
+                                  }
+                                }
                                 fields_seen[i] = true;
                                 found = true;
                                 break;
@@ -1497,7 +1510,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
             inline for (structInfo.fields) |field, i| {
                 if (!fields_seen[i]) {
                     if (field.default_value) |default| {
-                        @field(r, field.name) = default;
+                        if (!field.is_comptime) @field(r, field.name) = default;
                     } else {
                         return error.MissingField;
                     }
@@ -1749,6 +1762,51 @@ test "parse into tagged union" {
         };
         testing.expectEqual(T{ .B = .{ .y = 42 } }, try parse(T, &TokenStream.init("{\"y\":42}"), ParseOptions{}));
     }
+}
+
+test "parse comptime struct fields" {
+    {
+        const T = struct {
+            comptime number: i32 = 22,
+        };
+        testing.expectEqual(T{ .number = 22 }, try parse(T, &TokenStream.init("{\"number\": 22}"), ParseOptions{}));
+        testing.expectError(error.ParsedValueNotDefault, parse(T, &TokenStream.init("{\"number\": 23}"), ParseOptions{}));
+    }
+    {
+        const T = struct {
+            comptime boolean: bool = false,
+        };
+        testing.expectEqual(T{ .boolean = false }, try parse(T, &TokenStream.init("{\"boolean\": false}"), ParseOptions{}));
+        testing.expectError(error.ParsedValueNotDefault, parse(T, &TokenStream.init("{\"boolean\": true}"), ParseOptions{}));
+    }
+    {
+        const T = struct {
+            comptime float: f32 = 21.8,
+        };
+        testing.expectEqual(T{ .float = 21.8 }, try parse(T, &TokenStream.init("{\"float\": 21.8}"), ParseOptions{}));
+        testing.expectError(error.ParsedValueNotDefault, parse(T, &TokenStream.init("{\"float\": 21.9}"), ParseOptions{}));
+    }
+    {
+        const options = ParseOptions{ .allocator = testing.allocator };
+        const T = struct {
+            comptime @"type": []const u8 = "number",
+        };
+        const r = try parse(T, &TokenStream.init("{\"type\": \"number\"}"), options);
+        testing.expectEqual(T{ .@"type" = "number" }, r);
+        parseFree(T, r, options);
+        const e = parse(T, &TokenStream.init("{\"type\": \"string\"}"), options);
+        testing.expectError(error.ParsedValueNotDefault, e);
+    }
+}
+
+test "parse into union with structs with comptime struct fields" {
+    const T = union(enum) {
+        A: struct { comptime x: i32 = 1 },
+        B: struct { comptime x: i32 = 2 },
+    };
+    testing.expectEqual(T{ .A = .{ .x = 1 } }, try parse(T, &TokenStream.init("{\"x\":1}"), ParseOptions{}));
+    testing.expectEqual(T{ .B = .{ .x = 2 } }, try parse(T, &TokenStream.init("{\"x\":2}"), ParseOptions{}));
+    testing.expectError(error.NoUnionMembersMatched, parse(T, &TokenStream.init("{\"x\":3}"), ParseOptions{}));
 }
 
 test "parseFree descends into tagged union" {
