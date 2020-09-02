@@ -643,8 +643,12 @@ fn analyzeInstBreakVoid(mod: *Module, scope: *Scope, inst: *zir.Inst.BreakVoid) 
 }
 
 fn analyzeInstDbgStmt(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
-    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
-    return mod.addNoOp(b, inst.base.src, Type.initTag(.void), .dbg_stmt);
+    if (scope.cast(Scope.Block)) |b| {
+        if (!b.is_comptime) {
+            return mod.addNoOp(b, inst.base.src, Type.initTag(.void), .dbg_stmt);
+        }
+    }
+    return mod.constVoid(scope, inst.base.src);
 }
 
 fn analyzeInstDeclRefStr(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclRefStr) InnerError!*Inst {
