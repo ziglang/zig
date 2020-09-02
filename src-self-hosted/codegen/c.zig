@@ -110,7 +110,8 @@ const Context = struct {
     }
 
     fn deinit(self: *Context) void {
-        for (self.inst_map.items()) |kv| {
+        var it = self.inst_map.iterator();
+        while (it.next()) |kv| {
             self.file.base.allocator.free(kv.value);
         }
         self.inst_map.deinit();

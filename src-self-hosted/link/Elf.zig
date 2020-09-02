@@ -1629,7 +1629,8 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
 
     var dbg_info_type_relocs: File.DbgInfoTypeRelocsTable = .{};
     defer {
-        for (dbg_info_type_relocs.items()) |*entry| {
+        var it = dbg_info_type_relocs.iterator();
+        while (it.next()) |entry| {
             entry.value.relocs.deinit(self.base.allocator);
         }
         dbg_info_type_relocs.deinit(self.base.allocator);
@@ -1917,7 +1918,8 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     // Now we emit the .debug_info types of the Decl. These will count towards the size of
     // the buffer, so we have to do it before computing the offset, and we can't perform the actual
     // relocations yet.
-    for (dbg_info_type_relocs.items()) |*entry| {
+    var it = dbg_info_type_relocs.iterator();
+    while (it.next()) |entry| {
         entry.value.off = @intCast(u32, dbg_info_buffer.items.len);
         try self.addDbgInfoType(entry.key, &dbg_info_buffer);
     }
@@ -1925,7 +1927,8 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     try self.updateDeclDebugInfoAllocation(text_block, @intCast(u32, dbg_info_buffer.items.len));
 
     // Now that we have the offset assigned we can finally perform type relocations.
-    for (dbg_info_type_relocs.items()) |entry| {
+    it = dbg_info_type_relocs.iterator();
+    while (it.next()) |entry| {
         for (entry.value.relocs.items) |off| {
             mem.writeInt(
                 u32,

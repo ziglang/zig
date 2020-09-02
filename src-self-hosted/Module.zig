@@ -36,17 +36,17 @@ bin_file_path: []const u8,
 /// It's rare for a decl to be exported, so we save memory by having a sparse map of
 /// Decl pointers to details about them being exported.
 /// The Export memory is owned by the `export_owners` table; the slice itself is owned by this table.
-decl_exports: std.AutoHashMapUnmanaged(*Decl, []*Export) = .{},
+decl_exports: std.AutoArrayHashMapUnmanaged(*Decl, []*Export) = .{},
 /// We track which export is associated with the given symbol name for quick
 /// detection of symbol collisions.
-symbol_exports: std.StringHashMapUnmanaged(*Export) = .{},
+symbol_exports: std.StringArrayHashMapUnmanaged(*Export) = .{},
 /// This models the Decls that perform exports, so that `decl_exports` can be updated when a Decl
 /// is modified. Note that the key of this table is not the Decl being exported, but the Decl that
 /// is performing the export of another Decl.
 /// This table owns the Export memory.
-export_owners: std.AutoHashMapUnmanaged(*Decl, []*Export) = .{},
+export_owners: std.AutoArrayHashMapUnmanaged(*Decl, []*Export) = .{},
 /// Maps fully qualified namespaced names to the Decl struct for them.
-decl_table: std.HashMapUnmanaged(Scope.NameHash, *Decl, Scope.name_hash_hash, Scope.name_hash_eql, false) = .{},
+decl_table: std.ArrayHashMapUnmanaged(Scope.NameHash, *Decl, Scope.name_hash_hash, Scope.name_hash_eql, false) = .{},
 
 link_error_flags: link.File.ErrorFlags = .{},
 
@@ -57,13 +57,13 @@ work_queue: std.fifo.LinearFifo(WorkItem, .Dynamic),
 /// The ErrorMsg memory is owned by the decl, using Module's allocator.
 /// Note that a Decl can succeed but the Fn it represents can fail. In this case,
 /// a Decl can have a failed_decls entry but have analysis status of success.
-failed_decls: std.AutoHashMapUnmanaged(*Decl, *ErrorMsg) = .{},
+failed_decls: std.AutoArrayHashMapUnmanaged(*Decl, *ErrorMsg) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `Scope`, using Module's allocator.
-failed_files: std.AutoHashMapUnmanaged(*Scope, *ErrorMsg) = .{},
+failed_files: std.AutoArrayHashMapUnmanaged(*Scope, *ErrorMsg) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `Export`, using Module's allocator.
-failed_exports: std.AutoHashMapUnmanaged(*Export, *ErrorMsg) = .{},
+failed_exports: std.AutoArrayHashMapUnmanaged(*Export, *ErrorMsg) = .{},
 
 /// Incrementing integer used to compare against the corresponding Decl
 /// field to determine whether a Decl's status applies to an ongoing update, or a
@@ -201,9 +201,9 @@ pub const Decl = struct {
     /// typed_value may need to be regenerated.
     dependencies: DepsTable = .{},
 
-    /// The reason this is not `std.AutoHashMapUnmanaged` is a workaround for
+    /// The reason this is not `std.AutoArrayHashMapUnmanaged` is a workaround for
     /// stage1 compiler giving me: `error: struct 'Module.Decl' depends on itself`
-    pub const DepsTable = std.HashMapUnmanaged(*Decl, void, std.hash_map.getAutoHashFn(*Decl), std.hash_map.getAutoEqlFn(*Decl), false);
+    pub const DepsTable = std.ArrayHashMapUnmanaged(*Decl, void, std.array_hash_map.getAutoHashFn(*Decl), std.array_hash_map.getAutoEqlFn(*Decl), false);
 
     pub fn destroy(self: *Decl, gpa: *Allocator) void {
         gpa.free(mem.spanZ(self.name));
@@ -933,7 +933,8 @@ pub fn deinit(self: *Module) void {
     self.symbol_exports.deinit(gpa);
     self.root_scope.destroy(gpa);
 
-    for (self.global_error_set.items()) |entry| {
+    var it = self.global_error_set.iterator();
+    while (it.next()) |entry| {
         gpa.free(entry.key);
     }
     self.global_error_set.deinit(gpa);
@@ -1756,7 +1757,7 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
 
     // Keep track of the decls that we expect to see in this file so that
     // we know which ones have been deleted.
-    var deleted_decls = std.AutoHashMap(*Decl, void).init(self.gpa);
+    var deleted_decls = std.AutoArrayHashMap(*Decl, void).init(self.gpa);
     defer deleted_decls.deinit();
     try deleted_decls.ensureCapacity(root_scope.decls.items.len);
     for (root_scope.decls.items) |file_decl| {
@@ -1877,7 +1878,7 @@ fn analyzeRootZIRModule(self: *Module, root_scope: *Scope.ZIRModule) !void {
 
     // Keep track of the decls that we expect to see in this file so that
     // we know which ones have been deleted.
-    var deleted_decls = std.AutoHashMap(*Decl, void).init(self.gpa);
+    var deleted_decls = std.AutoArrayHashMap(*Decl, void).init(self.gpa);
     defer deleted_decls.deinit();
     try deleted_decls.ensureCapacity(self.decl_table.items().len);
     for (self.decl_table.items()) |entry| {
@@ -2087,7 +2088,7 @@ pub fn getErrorValue(self: *Module, name: []const u8) !std.StringHashMapUnmanage
     errdefer self.global_error_set.removeAssertDiscard(name);
 
     gop.entry.key = try self.gpa.dupe(u8, name);
-    gop.entry.value = @intCast(u16, self.global_error_set.items().len - 1);
+    gop.entry.value = @intCast(u16, self.global_error_set.count() - 1);
     return gop.entry.*;
 }
 

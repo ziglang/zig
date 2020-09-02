@@ -238,7 +238,7 @@ pub const Type = extern union {
         }
     }
 
-    pub fn hash(self: Type) u32 {
+    pub fn hash(self: Type) u64 {
         var hasher = std.hash.Wyhash.init(0);
         const zig_type_tag = self.zigTypeTag();
         std.hash.autoHash(&hasher, zig_type_tag);
@@ -303,7 +303,7 @@ pub const Type = extern union {
                 // TODO implement more type hashing
             },
         }
-        return @truncate(u32, hasher.final());
+        return hasher.final();
     }
 
     pub fn copy(self: Type, allocator: *Allocator) error{OutOfMemory}!Type {

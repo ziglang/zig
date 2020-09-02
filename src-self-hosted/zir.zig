@@ -1049,7 +1049,7 @@ pub const Module = struct {
         defer write.loop_table.deinit();
 
         // First, build a map of *Inst to @ or % indexes
-        try write.inst_table.ensureCapacity(self.decls.len);
+        try write.inst_table.ensureCapacity(@intCast(u32, self.decls.len));
 
         for (self.decls) |decl, decl_i| {
             try write.inst_table.putNoClobber(decl.inst, .{ .inst = decl.inst, .index = null, .name = decl.name });
@@ -1685,7 +1685,7 @@ pub fn emit(allocator: *Allocator, old_module: IrModule) !Module {
         .arena = std.heap.ArenaAllocator.init(allocator),
         .old_module = &old_module,
         .next_auto_name = 0,
-        .names = std.StringHashMap(void).init(allocator),
+        .names = std.StringArrayHashMap(void).init(allocator),
         .primitive_table = std.AutoHashMap(Inst.Primitive.Builtin, *Decl).init(allocator),
         .indent = 0,
         .block_table = std.AutoHashMap(*ir.Inst.Block, *Inst.Block).init(allocator),
@@ -1758,7 +1758,7 @@ const EmitZIR = struct {
     arena: std.heap.ArenaAllocator,
     old_module: *const IrModule,
     decls: std.ArrayListUnmanaged(*Decl),
-    names: std.StringHashMap(void),
+    names: std.StringArrayHashMap(void),
     next_auto_name: usize,
     primitive_table: std.AutoHashMap(Inst.Primitive.Builtin, *Decl),
     indent: usize,

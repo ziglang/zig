@@ -3,11 +3,15 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
+pub const ArrayHashMap = array_hash_map.ArrayHashMap;
+pub const ArrayHashMapUnmanaged = array_hash_map.ArrayHashMapUnmanaged;
 pub const ArrayList = @import("array_list.zig").ArrayList;
 pub const ArrayListAligned = @import("array_list.zig").ArrayListAligned;
 pub const ArrayListAlignedUnmanaged = @import("array_list.zig").ArrayListAlignedUnmanaged;
 pub const ArrayListSentineled = @import("array_list_sentineled.zig").ArrayListSentineled;
 pub const ArrayListUnmanaged = @import("array_list.zig").ArrayListUnmanaged;
+pub const AutoArrayHashMap = array_hash_map.AutoArrayHashMap;
+pub const AutoArrayHashMapUnmanaged = array_hash_map.AutoArrayHashMapUnmanaged;
 pub const AutoHashMap = hash_map.AutoHashMap;
 pub const AutoHashMapUnmanaged = hash_map.AutoHashMapUnmanaged;
 pub const BloomFilter = @import("bloom_filter.zig").BloomFilter;
@@ -32,10 +36,13 @@ pub const SinglyLinkedList = @import("linked_list.zig").SinglyLinkedList;
 pub const SpinLock = @import("spinlock.zig").SpinLock;
 pub const StringHashMap = hash_map.StringHashMap;
 pub const StringHashMapUnmanaged = hash_map.StringHashMapUnmanaged;
+pub const StringArrayHashMap = array_hash_map.StringArrayHashMap;
+pub const StringArrayHashMapUnmanaged = array_hash_map.StringArrayHashMapUnmanaged;
 pub const TailQueue = @import("linked_list.zig").TailQueue;
 pub const Target = @import("target.zig").Target;
 pub const Thread = @import("thread.zig").Thread;
 
+pub const array_hash_map = @import("array_hash_map.zig");
 pub const atomic = @import("atomic.zig");
 pub const base64 = @import("base64.zig");
 pub const build = @import("build.zig");

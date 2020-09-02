@@ -359,7 +359,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         };
 
         const Branch = struct {
-            inst_table: std.AutoHashMapUnmanaged(*ir.Inst, MCValue) = .{},
+            inst_table: std.AutoArrayHashMapUnmanaged(*ir.Inst, MCValue) = .{},
 
             fn deinit(self: *Branch, gpa: *Allocator) void {
                 self.inst_table.deinit(gpa);
@@ -750,7 +750,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 const ptr_bits = arch.ptrBitWidth();
                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                 if (abi_size <= ptr_bytes) {
-                    try self.registers.ensureCapacity(self.gpa, self.registers.items().len + 1);
+                    try self.registers.ensureCapacity(self.gpa, self.registers.count() + 1);
                     if (self.allocReg(inst)) |reg| {
                         return MCValue{ .register = registerAlias(reg, abi_size) };
                     }
@@ -788,7 +788,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         /// `reg_owner` is the instruction that gets associated with the register in the register table.
         /// This can have a side effect of spilling instructions to the stack to free up a register.
         fn copyToNewRegister(self: *Self, reg_owner: *ir.Inst, mcv: MCValue) !MCValue {
-            try self.registers.ensureCapacity(self.gpa, self.registers.items().len + 1);
+            try self.registers.ensureCapacity(self.gpa, @intCast(u32, self.registers.count() + 1));
 
             const reg = self.allocReg(reg_owner) orelse b: {
                 // We'll take over the first register. Move the instruction that was previously
@@ -1247,7 +1247,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             if (inst.base.isUnused())
                 return MCValue.dead;
 
-            try self.registers.ensureCapacity(self.gpa, self.registers.items().len + 1);
+            try self.registers.ensureCapacity(self.gpa, self.registers.count() + 1);
 
             const result = self.args[self.arg_index];
             self.arg_index += 1;

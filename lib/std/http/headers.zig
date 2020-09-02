@@ -123,9 +123,9 @@ pub const Headers = struct {
 
     pub fn deinit(self: *Self) void {
         {
-            for (self.index.items()) |*entry| {
-                const dex = &entry.value;
-                dex.deinit(self.allocator);
+            var it = self.index.iterator();
+            while (it.next()) |entry| {
+                entry.value.deinit(self.allocator);
                 self.allocator.free(entry.key);
             }
             self.index.deinit(self.allocator);
@@ -333,7 +333,8 @@ pub const Headers = struct {
 
     fn rebuildIndex(self: *Self) void {
         // clear out the indexes
-        for (self.index.items()) |*entry| {
+        var it = self.index.iterator();
+        while (it.next()) |entry| {
             entry.value.shrinkRetainingCapacity(0);
         }
         // fill up indexes again; we know capacity is fine from before
