@@ -172,7 +172,7 @@ pub const AT_REMOVEDIR = 0x200;
 
 pub const in_port_t = u16;
 pub const sa_family_t = ws2_32.ADDRESS_FAMILY;
-pub const socklen_t = u32;
+pub const socklen_t = ws2_32.socklen_t;
 
 pub const sockaddr = ws2_32.sockaddr;
 pub const sockaddr_in = ws2_32.sockaddr_in;

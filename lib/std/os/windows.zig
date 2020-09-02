@@ -1153,6 +1153,14 @@ pub fn WSASocketW(
     return rc;
 }
 
+pub fn bind(s: ws2_32.SOCKET, name: *const ws2_32.sockaddr, namelen: ws2_32.socklen_t) i32 {
+    return ws2_32.bind(s, name, namelen);
+}
+
+pub fn listen(s: ws2_32.SOCKET, backlog: u31) i32 {
+    return ws2_32.listen(s, backlog);
+}
+
 pub fn closesocket(s: ws2_32.SOCKET) !void {
     switch (ws2_32.closesocket(s)) {
         0 => {},
@@ -1161,6 +1169,25 @@ pub fn closesocket(s: ws2_32.SOCKET) !void {
         },
         else => unreachable,
     }
+}
+
+pub fn accept(s: ws2_32.SOCKET, name: ?*ws2_32.sockaddr, namelen: ?*ws2_32.socklen_t) ws2_32.SOCKET {
+    assert((name == null) == (namelen == null));
+    if (namelen) |name_length| {
+        var os_namelen: c_int = name_length.*;
+        const sock = ws2_32.accept(s, name, &os_namelen);
+        name_length.* = @intCast(ws2_32.socklen_t, os_namelen);
+        return sock;
+    } else {
+        return ws2_32.accept(s, null, null);
+    }
+}
+
+pub fn getsockname(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.socklen_t) i32 {
+    var os_namelen: c_int = namelen.*;
+    const rc = ws2_32.getsockname(s, name, &os_namelen);
+    namelen.* = @intCast(ws2_32.socklen_t, os_namelen);
+    return rc;
 }
 
 pub fn WSAIoctl(
