@@ -25683,6 +25683,10 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                     }
                     set_optional_payload(inner_fields[2], struct_field->init_val);
 
+                    inner_fields[3]->special = ConstValSpecialStatic;
+                    inner_fields[3]->type = ira->codegen->builtin_types.entry_bool;
+                    inner_fields[3]->data.x_bool = struct_field->is_comptime;
+
                     ZigValue *name = create_const_str_lit(ira->codegen, struct_field->name)->data.x_ptr.data.ref.pointee;
                     init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(struct_field->name), true);
 
@@ -26291,6 +26295,8 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
                             buf_ptr(&field->type_entry->name), buf_ptr(&field->type_entry->name)));
                     return ira->codegen->invalid_inst_gen->value->type;
                 }
+                if ((err = get_const_field_bool(ira, source_instr->source_node, field_value, "is_comptime", 3, &field->is_comptime)))
+                    return ira->codegen->invalid_inst_gen->value->type;
             }
 
             return entry;
