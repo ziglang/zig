@@ -1496,6 +1496,8 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                       else => {},
                                     }
                                   }
+                                  // As we never set the field to the parsed value, free it now.
+                                  parseFree(field.field_type, parsed_value, options);
                                 }
                                 fields_seen[i] = true;
                                 found = true;
