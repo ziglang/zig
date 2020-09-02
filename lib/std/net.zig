@@ -1164,7 +1164,7 @@ fn linuxLookupNameFromDnsSearch(
     }
 
     const search = if (rc.search.isNull() or dots >= rc.ndots or mem.endsWith(u8, name, "."))
-        &[_]u8{}
+        ""
     else
         rc.search.span();
 

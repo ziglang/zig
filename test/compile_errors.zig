@@ -2,6 +2,14 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("slice sentinel mismatch",
+        \\export fn entry() void {
+        \\    const y: [:1]const u8 = &[_:2]u8{ 1, 2 };
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:37: error: expected type '[:1]const u8', found '*const [2:2]u8'",
+    });
+
     cases.add("@Type with undefined",
         \\comptime {
         \\    _ = @Type(.{ .Array = .{ .len = 0, .child = u8, .sentinel = undefined } });
