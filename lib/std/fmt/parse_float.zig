@@ -37,7 +37,9 @@
 const std = @import("../std.zig");
 const ascii = std.ascii;
 
-const max_digits = 25;
+// The mantissa field in FloatRepr is 64bit wide and holds only 19 digits
+// without overflowing
+const max_digits = 19;
 
 const f64_plus_zero: u64 = 0x0000000000000000;
 const f64_minus_zero: u64 = 0x8000000000000000;
@@ -409,6 +411,7 @@ test "fmt.parseFloat" {
             expect(approxEq(T, try parseFloat(T, "123142.1"), 123142.1, epsilon));
             expect(approxEq(T, try parseFloat(T, "-123142.1124"), @as(T, -123142.1124), epsilon));
             expect(approxEq(T, try parseFloat(T, "0.7062146892655368"), @as(T, 0.7062146892655368), epsilon));
+            expect(approxEq(T, try parseFloat(T, "2.71828182845904523536"), @as(T, 2.718281828459045), epsilon));
         }
     }
 }
