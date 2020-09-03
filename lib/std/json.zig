@@ -1495,6 +1495,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                     switch (@typeInfo(field.field_type)) {
                                       .Bool, .Int, .Float => if (parsed_value != default) return error.ParsedValueNotDefault,
                                       .Pointer => |pointerInfo| if (!mem.eql(pointerInfo.child, parsed_value, default)) return error.ParsedValueNotDefault,
+                                      .Array => |arrayInfo| if (!mem.eql(arrayInfo.child, &parsed_value, &default)) return error.ParsedValueNotDefault,
                                       else => {},
                                     }
                                   }
@@ -1798,6 +1799,13 @@ test "parse comptime struct fields" {
         parseFree(T, r, options);
         const e = parse(T, &TokenStream.init("{\"type\": \"string\"}"), options);
         testing.expectError(error.ParsedValueNotDefault, e);
+    }
+    {
+        const T = struct {
+            comptime array: [3]i32 = [3]i32{1,2,3},
+        };
+        testing.expectEqual(T{ .array = undefined }, try parse(T, &TokenStream.init("{\"array\": [1,2,3]}"), ParseOptions{}));
+        testing.expectError(error.ParsedValueNotDefault, parse(T, &TokenStream.init("{\"array\": [1,2,4]}"), ParseOptions{}));
     }
 }
 
