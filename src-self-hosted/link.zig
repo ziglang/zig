@@ -34,7 +34,7 @@ pub const File = struct {
 
     pub const LinkBlock = union {
         elf: Elf.TextBlock,
-        coff: void, // @TODO
+        coff: Coff.TextBlock,
         macho: MachO.TextBlock,
         c: void,
         wasm: void,
@@ -42,7 +42,7 @@ pub const File = struct {
 
     pub const LinkFn = union {
         elf: Elf.SrcFn,
-        coff: void, // @TODO
+        coff: Coff.SrcFn,
         macho: MachO.SrcFn,
         c: void,
         wasm: ?Wasm.FnData,

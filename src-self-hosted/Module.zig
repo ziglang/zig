@@ -2081,14 +2081,14 @@ fn allocateNewDecl(
         .deletion_flag = false,
         .contents_hash = contents_hash,
         .link = switch (self.bin_file.tag) {
-            .coff => .{ .coff = {} }, // @TODO
+            .coff => .{ .coff = link.File.Coff.TextBlock.empty },
             .elf => .{ .elf = link.File.Elf.TextBlock.empty },
             .macho => .{ .macho = link.File.MachO.TextBlock.empty },
             .c => .{ .c = {} },
             .wasm => .{ .wasm = {} },
         },
         .fn_link = switch (self.bin_file.tag) {
-            .coff => .{ .coff = {} }, // @TODO
+            .coff => .{ .coff = {} },
             .elf => .{ .elf = link.File.Elf.SrcFn.empty },
             .macho => .{ .macho = link.File.MachO.SrcFn.empty },
             .c => .{ .c = {} },

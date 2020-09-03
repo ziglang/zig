@@ -524,17 +524,22 @@ fn buildOutputType(
             try stderr.print("\nUnable to parse command: {}\n", .{@errorName(err)});
             continue;
         }) |line| {
-            if (mem.eql(u8, line, "update")) {
+            const actual_line = if (line[line.len - 1] == '\r')
+                line[0 .. line.len - 1]
+            else
+                line;
+
+            if (mem.eql(u8, actual_line, "update")) {
                 if (output_mode == .Exe) {
                     try module.makeBinFileWritable();
                 }
                 try updateModule(gpa, &module, zir_out_path);
-            } else if (mem.eql(u8, line, "exit")) {
+            } else if (mem.eql(u8, actual_line, "exit")) {
                 break;
-            } else if (mem.eql(u8, line, "help")) {
+            } else if (mem.eql(u8, actual_line, "help")) {
                 try stderr.writeAll(repl_help);
             } else {
-                try stderr.print("unknown command: {}\n", .{line});
+                try stderr.print("unknown command: {}\n", .{actual_line});
             }
         } else {
             break;
