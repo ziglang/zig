@@ -915,6 +915,10 @@ pub fn testAllocator(base_allocator: *mem.Allocator) !void {
     testing.expect(slice.len == 10);
 
     allocator.free(slice);
+
+    const zero_bit_ptr = try allocator.create(u0);
+    zero_bit_ptr.* = 0;
+    allocator.destroy(zero_bit_ptr);
 }
 
 pub fn testAllocatorAligned(base_allocator: *mem.Allocator, comptime alignment: u29) !void {
