@@ -720,11 +720,25 @@ pub fn getegid() gid_t {
 }
 
 pub fn seteuid(euid: uid_t) usize {
-    return setresuid(std.math.maxInt(uid_t), euid);
+    // We use setresuid here instead of setreuid to ensure that the saved uid
+    // is not changed. This is what musl and recent glibc versions do as well.
+    //
+    // The setresuid(2) man page says that if -1 is passed the corresponding
+    // id will not be changed. Since uid_t is unsigned, this wraps around to the
+    // max value in C.
+    comptime assert(@typeInfo(uid_t) == .Int and !@typeInfo(uid_t).Int.is_signed);
+    return setresuid(std.math.maxInt(uid_t), euid, std.math.maxInt(uid_t));
 }
 
 pub fn setegid(egid: gid_t) usize {
-    return setregid(std.math.maxInt(gid_t), egid);
+    // We use setresgid here instead of setregid to ensure that the saved uid
+    // is not changed. This is what musl and recent glibc versions do as well.
+    //
+    // The setresgid(2) man page says that if -1 is passed the corresponding
+    // id will not be changed. Since gid_t is unsigned, this wraps around to the
+    // max value in C.
+    comptime assert(@typeInfo(uid_t) == .Int and !@typeInfo(uid_t).Int.is_signed);
+    return setresgid(std.math.maxInt(gid_t), egid, std.math.maxInt(gid_t));
 }
 
 pub fn getresuid(ruid: *uid_t, euid: *uid_t, suid: *uid_t) usize {
