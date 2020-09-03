@@ -2802,7 +2802,8 @@ pub const AcceptError = error{
     /// by the socket buffer limits, not by the system memory.
     SystemResources,
 
-    Invalid,
+    /// Socket is not listening for new connections.
+    SocketNotListening,
 
     ProtocolFailure,
 
@@ -2872,7 +2873,7 @@ pub fn accept(
             EBADF => unreachable, // always a race condition
             ECONNABORTED => return error.ConnectionAborted,
             EFAULT => unreachable,
-            EINVAL => return error.Invalid,
+            EINVAL => return error.SocketNotListening,
             ENOTSOCK => unreachable,
             EMFILE => return error.ProcessFdQuotaExceeded,
             ENFILE => return error.SystemFdQuotaExceeded,

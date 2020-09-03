@@ -1641,7 +1641,8 @@ pub const StreamServer = struct {
         /// by the socket buffer limits, not by the system memory.
         SystemResources,
 
-        Invalid,
+        /// Socket is not listening for new connections.
+        SocketNotListening,
 
         ProtocolFailure,
 
