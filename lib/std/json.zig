@@ -1483,7 +1483,7 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                         parseFree(field.field_type, @field(r, field.name), options);
                                     }
                                 }
-                                var parsed_value = try parse(field.field_type, tokens, options);
+                                const parsed_value = try parse(field.field_type, tokens, options);
                                 if (!field.is_comptime) {
                                   @field(r, field.name) = parsed_value;
                                 } else {
