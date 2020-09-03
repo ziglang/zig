@@ -2512,16 +2512,26 @@ pub fn readlinkatZ(dirfd: fd_t, file_path: [*:0]const u8, out_buffer: []u8) Read
     }
 }
 
-pub const SetIdError = error{
-    ResourceLimitReached,
+pub const SetEidError = error{
     InvalidUserId,
     PermissionDenied,
-} || UnexpectedError;
+};
+
+pub const SetIdError = error{ResourceLimitReached} || SetEidError || UnexpectedError;
 
 pub fn setuid(uid: uid_t) SetIdError!void {
     switch (errno(system.setuid(uid))) {
         0 => return,
         EAGAIN => return error.ResourceLimitReached,
+        EINVAL => return error.InvalidUserId,
+        EPERM => return error.PermissionDenied,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub fn seteuid(uid: uid_t) SetEidError!void {
+    switch (errno(system.seteuid(uid))) {
+        0 => return,
         EINVAL => return error.InvalidUserId,
         EPERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
@@ -2542,6 +2552,15 @@ pub fn setgid(gid: gid_t) SetIdError!void {
     switch (errno(system.setgid(gid))) {
         0 => return,
         EAGAIN => return error.ResourceLimitReached,
+        EINVAL => return error.InvalidUserId,
+        EPERM => return error.PermissionDenied,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub fn setegid(uid: uid_t) SetEidError!void {
+    switch (errno(system.setegid(uid))) {
+        0 => return,
         EINVAL => return error.InvalidUserId,
         EPERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
