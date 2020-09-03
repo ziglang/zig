@@ -60,7 +60,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
 
             const U = std.meta.Int(false, t_bit_count);
             const Log2U = math.Log2Int(U);
-            const int_size = (U.bit_count + 7) / 8;
+            const int_size = (t_bit_count + 7) / 8;
 
             if (packing == .Bit) {
                 const result = try self.in_stream.readBitsNoEof(U, t_bit_count);
@@ -73,7 +73,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
 
             if (int_size == 1) {
                 if (t_bit_count == 8) return @bitCast(T, buffer[0]);
-                const PossiblySignedByte = std.meta.Int(T.is_signed, 8);
+                const PossiblySignedByte = std.meta.Int(@typeInfo(T).Int.is_signed, 8);
                 return @truncate(T, @bitCast(PossiblySignedByte, buffer[0]));
             }
 
@@ -247,7 +247,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
 
             const U = std.meta.Int(false, t_bit_count);
             const Log2U = math.Log2Int(U);
-            const int_size = (U.bit_count + 7) / 8;
+            const int_size = (t_bit_count + 7) / 8;
 
             const u_value = @bitCast(U, value);
 

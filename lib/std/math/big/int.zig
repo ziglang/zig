@@ -6,6 +6,7 @@
 const std = @import("../../std.zig");
 const math = std.math;
 const Limb = std.math.big.Limb;
+const limb_bits = @typeInfo(Limb).Int.bits;
 const DoubleLimb = std.math.big.DoubleLimb;
 const SignedDoubleLimb = std.math.big.SignedDoubleLimb;
 const Log2Limb = std.math.big.Log2Limb;
@@ -28,7 +29,7 @@ pub fn calcLimbLen(scalar: anytype) usize {
         },
         .ComptimeInt => {
             const w_value = if (scalar < 0) -scalar else scalar;
-            return @divFloor(math.log2(w_value), Limb.bit_count) + 1;
+            return @divFloor(math.log2(w_value), limb_bits) + 1;
         },
         else => @compileError("parameter must be a primitive integer type"),
     }
@@ -54,7 +55,7 @@ pub fn calcSetStringLimbsBufferLen(base: u8, string_len: usize) usize {
 }
 
 pub fn calcSetStringLimbCount(base: u8, string_len: usize) usize {
-    return (string_len + (Limb.bit_count / base - 1)) / (Limb.bit_count / base);
+    return (string_len + (limb_bits / base - 1)) / (limb_bits / base);
 }
 
 /// a + b * c + *carry, sets carry to the overflow bits
@@ -68,7 +69,7 @@ pub fn addMulLimbWithCarry(a: Limb, b: Limb, c: Limb, carry: *Limb) Limb {
     // r2 = b * c
     const bc = @as(DoubleLimb, math.mulWide(Limb, b, c));
     const r2 = @truncate(Limb, bc);
-    const c2 = @truncate(Limb, bc >> Limb.bit_count);
+    const c2 = @truncate(Limb, bc >> limb_bits);
 
     // r1 = r1 + r2
     const c3: Limb = @boolToInt(@addWithOverflow(Limb, r1, r2, &r1));
@@ -181,7 +182,7 @@ pub const Mutable = struct {
 
         switch (@typeInfo(T)) {
             .Int => |info| {
-                const UT = if (T.is_signed) std.meta.Int(false, T.bit_count - 1) else T;
+                const UT = if (info.is_signed) std.meta.Int(false, info.bits - 1) else T;
 
                 const needed_limbs = @sizeOf(UT) / @sizeOf(Limb);
                 assert(needed_limbs <= self.limbs.len); // value too big
@@ -190,7 +191,7 @@ pub const Mutable = struct {
 
                 var w_value: UT = if (value < 0) @intCast(UT, -value) else @intCast(UT, value);
 
-                if (info.bits <= Limb.bit_count) {
+                if (info.bits <= limb_bits) {
                     self.limbs[0] = @as(Limb, w_value);
                     self.len += 1;
                 } else {
@@ -200,15 +201,15 @@ pub const Mutable = struct {
                         self.len += 1;
 
                         // TODO: shift == 64 at compile-time fails. Fails on u128 limbs.
-                        w_value >>= Limb.bit_count / 2;
-                        w_value >>= Limb.bit_count / 2;
+                        w_value >>= limb_bits / 2;
+                        w_value >>= limb_bits / 2;
                     }
                 }
             },
             .ComptimeInt => {
                 comptime var w_value = if (value < 0) -value else value;
 
-                const req_limbs = @divFloor(math.log2(w_value), Limb.bit_count) + 1;
+                const req_limbs = @divFloor(math.log2(w_value), limb_bits) + 1;
                 assert(req_limbs <= self.limbs.len); // value too big
 
                 self.len = req_limbs;
@@ -217,14 +218,14 @@ pub const Mutable = struct {
                 if (w_value <= maxInt(Limb)) {
                     self.limbs[0] = w_value;
                 } else {
-                    const mask = (1 << Limb.bit_count) - 1;
+                    const mask = (1 << limb_bits) - 1;
 
                     comptime var i = 0;
                     inline while (w_value != 0) : (i += 1) {
                         self.limbs[i] = w_value & mask;
 
-                        w_value >>= Limb.bit_count / 2;
-                        w_value >>= Limb.bit_count / 2;
+                        w_value >>= limb_bits / 2;
+                        w_value >>= limb_bits / 2;
                     }
                 }
             },
@@ -506,7 +507,7 @@ pub const Mutable = struct {
     /// `a.limbs.len + (shift / (@sizeOf(Limb) * 8))`.
     pub fn shiftLeft(r: *Mutable, a: Const, shift: usize) void {
         llshl(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
-        r.normalize(a.limbs.len + (shift / Limb.bit_count) + 1);
+        r.normalize(a.limbs.len + (shift / limb_bits) + 1);
         r.positive = a.positive;
     }
 
@@ -516,7 +517,7 @@ pub const Mutable = struct {
     /// Asserts there is enough memory to fit the result. The upper bound Limb count is
     /// `a.limbs.len - (shift / (@sizeOf(Limb) * 8))`.
     pub fn shiftRight(r: *Mutable, a: Const, shift: usize) void {
-        if (a.limbs.len <= shift / Limb.bit_count) {
+        if (a.limbs.len <= shift / limb_bits) {
             r.len = 1;
             r.positive = true;
             r.limbs[0] = 0;
@@ -524,7 +525,7 @@ pub const Mutable = struct {
         }
 
         const r_len = llshr(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
-        r.len = a.limbs.len - (shift / Limb.bit_count);
+        r.len = a.limbs.len - (shift / limb_bits);
         r.positive = a.positive;
     }
 
@@ -772,7 +773,7 @@ pub const Mutable = struct {
         }
 
         if (ab_zero_limb_count != 0) {
-            rem.shiftLeft(rem.toConst(), ab_zero_limb_count * Limb.bit_count);
+            rem.shiftLeft(rem.toConst(), ab_zero_limb_count * limb_bits);
         }
     }
 
@@ -803,10 +804,10 @@ pub const Mutable = struct {
         };
         tmp.limbs[0] = 0;
 
-        // Normalize so y > Limb.bit_count / 2 (i.e. leading bit is set) and even
+        // Normalize so y > limb_bits / 2 (i.e. leading bit is set) and even
         var norm_shift = @clz(Limb, y.limbs[y.len - 1]);
         if (norm_shift == 0 and y.toConst().isOdd()) {
-            norm_shift = Limb.bit_count;
+            norm_shift = limb_bits;
         }
         x.shiftLeft(x.toConst(), norm_shift);
         y.shiftLeft(y.toConst(), norm_shift);
@@ -820,7 +821,7 @@ pub const Mutable = struct {
         mem.set(Limb, q.limbs[0..q.len], 0);
 
         // 2.
-        tmp.shiftLeft(y.toConst(), Limb.bit_count * (n - t));
+        tmp.shiftLeft(y.toConst(), limb_bits * (n - t));
         while (x.toConst().order(tmp.toConst()) != .lt) {
             q.limbs[n - t] += 1;
             x.sub(x.toConst(), tmp.toConst());
@@ -833,7 +834,7 @@ pub const Mutable = struct {
             if (x.limbs[i] == y.limbs[t]) {
                 q.limbs[i - t - 1] = maxInt(Limb);
             } else {
-                const num = (@as(DoubleLimb, x.limbs[i]) << Limb.bit_count) | @as(DoubleLimb, x.limbs[i - 1]);
+                const num = (@as(DoubleLimb, x.limbs[i]) << limb_bits) | @as(DoubleLimb, x.limbs[i - 1]);
                 const z = @intCast(Limb, num / @as(DoubleLimb, y.limbs[t]));
                 q.limbs[i - t - 1] = if (z > maxInt(Limb)) maxInt(Limb) else @as(Limb, z);
             }
@@ -862,11 +863,11 @@ pub const Mutable = struct {
             // 3.3
             tmp.set(q.limbs[i - t - 1]);
             tmp.mul(tmp.toConst(), y.toConst(), mul_limb_buf, allocator);
-            tmp.shiftLeft(tmp.toConst(), Limb.bit_count * (i - t - 1));
+            tmp.shiftLeft(tmp.toConst(), limb_bits * (i - t - 1));
             x.sub(x.toConst(), tmp.toConst());
 
             if (!x.positive) {
-                tmp.shiftLeft(y.toConst(), Limb.bit_count * (i - t - 1));
+                tmp.shiftLeft(y.toConst(), limb_bits * (i - t - 1));
                 x.add(x.toConst(), tmp.toConst());
                 q.limbs[i - t - 1] -= 1;
             }
@@ -949,7 +950,7 @@ pub const Const = struct {
 
     /// Returns the number of bits required to represent the absolute value of an integer.
     pub fn bitCountAbs(self: Const) usize {
-        return (self.limbs.len - 1) * Limb.bit_count + (Limb.bit_count - @clz(Limb, self.limbs[self.limbs.len - 1]));
+        return (self.limbs.len - 1) * limb_bits + (limb_bits - @clz(Limb, self.limbs[self.limbs.len - 1]));
     }
 
     /// Returns the number of bits required to represent the integer in twos-complement form.
@@ -1019,10 +1020,10 @@ pub const Const = struct {
     /// Returns an error if self cannot be narrowed into the requested type without truncation.
     pub fn to(self: Const, comptime T: type) ConvertError!T {
         switch (@typeInfo(T)) {
-            .Int => {
-                const UT = std.meta.Int(false, T.bit_count);
+            .Int => |info| {
+                const UT = std.meta.Int(false, info.bits);
 
-                if (self.bitCountTwosComp() > T.bit_count) {
+                if (self.bitCountTwosComp() > info.bits) {
                     return error.TargetTooSmall;
                 }
 
@@ -1033,12 +1034,12 @@ pub const Const = struct {
                 } else {
                     for (self.limbs[0..self.limbs.len]) |_, ri| {
                         const limb = self.limbs[self.limbs.len - ri - 1];
-                        r <<= Limb.bit_count;
+                        r <<= limb_bits;
                         r |= limb;
                     }
                 }
 
-                if (!T.is_signed) {
+                if (!info.is_signed) {
                     return if (self.positive) @intCast(T, r) else error.NegativeIntoUnsigned;
                 } else {
                     if (self.positive) {
@@ -1149,7 +1150,7 @@ pub const Const = struct {
 
             outer: for (self.limbs[0..self.limbs.len]) |limb| {
                 var shift: usize = 0;
-                while (shift < Limb.bit_count) : (shift += base_shift) {
+                while (shift < limb_bits) : (shift += base_shift) {
                     const r = @intCast(u8, (limb >> @intCast(Log2Limb, shift)) & @as(Limb, base - 1));
                     const ch = std.fmt.digitToChar(r, uppercase);
                     string[digits_len] = ch;
@@ -1295,7 +1296,7 @@ pub const Const = struct {
 /// Memory is allocated as needed to ensure operations never overflow. The range
 /// is bounded only by available memory.
 pub const Managed = struct {
-    pub const sign_bit: usize = 1 << (usize.bit_count - 1);
+    pub const sign_bit: usize = 1 << (@typeInfo(usize).Int.bits - 1);
 
     /// Default number of limbs to allocate on creation of a `Managed`.
     pub const default_capacity = 4;
@@ -1716,7 +1717,7 @@ pub const Managed = struct {
 
     /// r = a << shift, in other words, r = a * 2^shift
     pub fn shiftLeft(r: *Managed, a: Managed, shift: usize) !void {
-        try r.ensureCapacity(a.len() + (shift / Limb.bit_count) + 1);
+        try r.ensureCapacity(a.len() + (shift / limb_bits) + 1);
         var m = r.toMutable();
         m.shiftLeft(a.toConst(), shift);
         r.setMetadata(m.positive, m.len);
@@ -1724,13 +1725,13 @@ pub const Managed = struct {
 
     /// r = a >> shift
     pub fn shiftRight(r: *Managed, a: Managed, shift: usize) !void {
-        if (a.len() <= shift / Limb.bit_count) {
+        if (a.len() <= shift / limb_bits) {
             r.metadata = 1;
             r.limbs[0] = 0;
             return;
         }
 
-        try r.ensureCapacity(a.len() - (shift / Limb.bit_count));
+        try r.ensureCapacity(a.len() - (shift / limb_bits));
         var m = r.toMutable();
         m.shiftRight(a.toConst(), shift);
         r.setMetadata(m.positive, m.len);
@@ -2021,7 +2022,7 @@ fn lldiv1(quo: []Limb, rem: *Limb, a: []const Limb, b: Limb) void {
     rem.* = 0;
     for (a) |_, ri| {
         const i = a.len - ri - 1;
-        const pdiv = ((@as(DoubleLimb, rem.*) << Limb.bit_count) | a[i]);
+        const pdiv = ((@as(DoubleLimb, rem.*) << limb_bits) | a[i]);
 
         if (pdiv == 0) {
             quo[i] = 0;
@@ -2042,10 +2043,10 @@ fn lldiv1(quo: []Limb, rem: *Limb, a: []const Limb, b: Limb) void {
 fn llshl(r: []Limb, a: []const Limb, shift: usize) void {
     @setRuntimeSafety(debug_safety);
     assert(a.len >= 1);
-    assert(r.len >= a.len + (shift / Limb.bit_count) + 1);
+    assert(r.len >= a.len + (shift / limb_bits) + 1);
 
-    const limb_shift = shift / Limb.bit_count + 1;
-    const interior_limb_shift = @intCast(Log2Limb, shift % Limb.bit_count);
+    const limb_shift = shift / limb_bits + 1;
+    const interior_limb_shift = @intCast(Log2Limb, shift % limb_bits);
 
     var carry: Limb = 0;
     var i: usize = 0;
@@ -2057,7 +2058,7 @@ fn llshl(r: []Limb, a: []const Limb, shift: usize) void {
         r[dst_i] = carry | @call(.{ .modifier = .always_inline }, math.shr, .{
             Limb,
             src_digit,
-            Limb.bit_count - @intCast(Limb, interior_limb_shift),
+            limb_bits - @intCast(Limb, interior_limb_shift),
         });
         carry = (src_digit << interior_limb_shift);
     }
@@ -2069,10 +2070,10 @@ fn llshl(r: []Limb, a: []const Limb, shift: usize) void {
 fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
     @setRuntimeSafety(debug_safety);
     assert(a.len >= 1);
-    assert(r.len >= a.len - (shift / Limb.bit_count));
+    assert(r.len >= a.len - (shift / limb_bits));
 
-    const limb_shift = shift / Limb.bit_count;
-    const interior_limb_shift = @intCast(Log2Limb, shift % Limb.bit_count);
+    const limb_shift = shift / limb_bits;
+    const interior_limb_shift = @intCast(Log2Limb, shift % limb_bits);
 
     var carry: Limb = 0;
     var i: usize = 0;
@@ -2085,7 +2086,7 @@ fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
         carry = @call(.{ .modifier = .always_inline }, math.shl, .{
             Limb,
             src_digit,
-            Limb.bit_count - @intCast(Limb, interior_limb_shift),
+            limb_bits - @intCast(Limb, interior_limb_shift),
         });
     }
 }
@@ -2135,7 +2136,7 @@ fn fixedIntFromSignedDoubleLimb(A: SignedDoubleLimb, storage: []Limb) Mutable {
     const A_is_positive = A >= 0;
     const Au = @intCast(DoubleLimb, if (A < 0) -A else A);
     storage[0] = @truncate(Limb, Au);
-    storage[1] = @truncate(Limb, Au >> Limb.bit_count);
+    storage[1] = @truncate(Limb, Au >> limb_bits);
     return .{
         .limbs = storage[0..2],
         .positive = A_is_positive,

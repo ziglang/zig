@@ -846,7 +846,7 @@ pub const SIG_ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
 pub const SIG_DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
 pub const SIG_IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
 
-pub const empty_sigset = [_]u32{0} ** sigset_t.len;
+pub const empty_sigset = [_]u32{0} ** @typeInfo(sigset_t).Array.len;
 
 pub const signalfd_siginfo = extern struct {
     signo: u32,

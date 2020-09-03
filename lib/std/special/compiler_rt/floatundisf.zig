@@ -15,7 +15,7 @@ pub fn __floatundisf(arg: u64) callconv(.C) f32 {
     if (arg == 0) return 0;
 
     var a = arg;
-    const N: usize = @TypeOf(a).bit_count;
+    const N: usize = @typeInfo(@TypeOf(a)).Int.bits;
     // Number of significant digits
     const sd = N - @clz(u64, a);
     // 8 exponent

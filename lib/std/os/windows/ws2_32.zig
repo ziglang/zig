@@ -12,7 +12,7 @@ pub const SOCKET_ERROR = -1;
 pub const WSADESCRIPTION_LEN = 256;
 pub const WSASYS_STATUS_LEN = 128;
 
-pub const WSADATA = if (usize.bit_count == u64.bit_count)
+pub const WSADATA = if (@sizeOf(usize) == @sizeOf(u64))
     extern struct {
         wVersion: WORD,
         wHighVersion: WORD,

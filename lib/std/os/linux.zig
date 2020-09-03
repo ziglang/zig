@@ -815,17 +815,19 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
     return 0;
 }
 
+const usize_bits = @typeInfo(usize).Int.bits;
+
 pub fn sigaddset(set: *sigset_t, sig: u6) void {
     const s = sig - 1;
     // shift in musl: s&8*sizeof *set->__bits-1
-    const shift = @intCast(u5, s & (usize.bit_count - 1));
+    const shift = @intCast(u5, s & (usize_bits - 1));
     const val = @intCast(u32, 1) << shift;
-    (set.*)[@intCast(usize, s) / usize.bit_count] |= val;
+    (set.*)[@intCast(usize, s) / usize_bits] |= val;
 }
 
 pub fn sigismember(set: *const sigset_t, sig: u6) bool {
     const s = sig - 1;
-    return ((set.*)[@intCast(usize, s) / usize.bit_count] & (@intCast(usize, 1) << (s & (usize.bit_count - 1)))) != 0;
+    return ((set.*)[@intCast(usize, s) / usize_bits] & (@intCast(usize, 1) << (s & (usize_bits - 1)))) != 0;
 }
 
 pub fn getsockname(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
