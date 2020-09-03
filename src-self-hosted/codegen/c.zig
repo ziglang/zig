@@ -85,7 +85,7 @@ fn genArray(file: *C, decl: *Decl) !void {
     const name = try map(file.base.allocator, mem.span(decl.name));
     defer file.base.allocator.free(name);
     if (tv.val.cast(Value.Payload.Bytes)) |payload|
-        if (tv.ty.arraySentinel()) |sentinel|
+        if (tv.ty.sentinel()) |sentinel|
             if (sentinel.toUnsignedInt() == 0)
                 try file.constants.writer().print("const char *const {} = \"{}\";\n", .{ name, payload.data })
             else

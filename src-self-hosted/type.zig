@@ -163,7 +163,7 @@ pub const Type = extern union {
                 // Hot path for common case:
                 if (a.castPointer()) |a_payload| {
                     if (b.castPointer()) |b_payload| {
-                        return eql(a_payload.pointee_type, b_payload.pointee_type);
+                        return a.tag() == b.tag() and eql(a_payload.pointee_type, b_payload.pointee_type);
                     }
                 }
                 const is_slice_a = isSlice(a);
@@ -189,10 +189,10 @@ pub const Type = extern union {
             .Array => {
                 if (a.arrayLen() != b.arrayLen())
                     return false;
-                if (a.elemType().eql(b.elemType()))
+                if (!a.elemType().eql(b.elemType()))
                     return false;
-                const sentinel_a = a.arraySentinel();
-                const sentinel_b = b.arraySentinel();
+                const sentinel_a = a.sentinel();
+                const sentinel_b = b.sentinel();
                 if (sentinel_a) |sa| {
                     if (sentinel_b) |sb| {
                         return sa.eql(sb);
@@ -501,9 +501,9 @@ pub const Type = extern union {
                 .noreturn,
                 => return out_stream.writeAll(@tagName(t)),
 
-                .enum_literal => return out_stream.writeAll("@TypeOf(.EnumLiteral)"),
-                .@"null" => return out_stream.writeAll("@TypeOf(null)"),
-                .@"undefined" => return out_stream.writeAll("@TypeOf(undefined)"),
+                .enum_literal => return out_stream.writeAll("@Type(.EnumLiteral)"),
+                .@"null" => return out_stream.writeAll("@Type(.Null)"),
+                .@"undefined" => return out_stream.writeAll("@Type(.Undefined)"),
 
                 .@"anyframe" => return out_stream.writeAll("anyframe"),
                 .anyerror_void_error_union => return out_stream.writeAll("anyerror!void"),
@@ -630,8 +630,8 @@ pub const Type = extern union {
                     const payload = @fieldParentPtr(Payload.Pointer, "base", ty.ptr_otherwise);
                     if (payload.sentinel) |some| switch (payload.size) {
                         .One, .C => unreachable,
-                        .Many => try out_stream.writeAll("[*:{}]"),
-                        .Slice => try out_stream.writeAll("[:{}]"),
+                        .Many => try out_stream.print("[*:{}]", .{some}),
+                        .Slice => try out_stream.print("[:{}]", .{some}),
                     } else switch (payload.size) {
                         .One => try out_stream.writeAll("*"),
                         .Many => try out_stream.writeAll("[*]"),
@@ -1341,6 +1341,81 @@ pub const Type = extern union {
         };
     }
 
+    pub fn isAllowzeroPtr(self: Type) bool {
+        return switch (self.tag()) {
+            .u8,
+            .i8,
+            .u16,
+            .i16,
+            .u32,
+            .i32,
+            .u64,
+            .i64,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .@"null",
+            .@"undefined",
+            .array,
+            .array_sentinel,
+            .array_u8,
+            .array_u8_sentinel_0,
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .function,
+            .int_unsigned,
+            .int_signed,
+            .single_mut_pointer,
+            .single_const_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            .single_const_pointer_to_comptime_int,
+            .const_slice_u8,
+            .optional,
+            .optional_single_mut_pointer,
+            .optional_single_const_pointer,
+            .enum_literal,
+            .error_union,
+            .@"anyframe",
+            .anyframe_T,
+            .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
+            => false,
+
+            .pointer => {
+                const payload = @fieldParentPtr(Payload.Pointer, "base", self.ptr_otherwise);
+                return payload.@"allowzero";
+            },
+        };
+    }
+
     /// Asserts that the type is an optional
     pub fn isPtrLikeOptional(self: Type) bool {
         switch (self.tag()) {
@@ -1585,8 +1660,8 @@ pub const Type = extern union {
         };
     }
 
-    /// Asserts the type is an array or vector.
-    pub fn arraySentinel(self: Type) ?Value {
+    /// Asserts the type is an array, pointer or vector.
+    pub fn sentinel(self: Type) ?Value {
         return switch (self.tag()) {
             .u8,
             .i8,
@@ -1626,16 +1701,8 @@ pub const Type = extern union {
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
             .function,
-            .pointer,
-            .single_const_pointer,
-            .single_mut_pointer,
-            .many_const_pointer,
-            .many_mut_pointer,
-            .c_const_pointer,
-            .c_mut_pointer,
             .const_slice,
             .mut_slice,
-            .single_const_pointer_to_comptime_int,
             .const_slice_u8,
             .int_unsigned,
             .int_signed,
@@ -1651,7 +1718,18 @@ pub const Type = extern union {
             .error_set_single,
             => unreachable,
 
-            .array, .array_u8 => return null,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .single_const_pointer_to_comptime_int,
+            .array,
+            .array_u8,
+            => return null,
+
+            .pointer => return self.cast(Payload.Pointer).?.sentinel,
             .array_sentinel => return self.cast(Payload.ArraySentinel).?.sentinel,
             .array_u8_sentinel_0 => return Value.initTag(.zero),
         };

@@ -132,7 +132,7 @@ pub fn generateSymbol(
         .Array => {
             // TODO populate .debug_info for the array
             if (typed_value.val.cast(Value.Payload.Bytes)) |payload| {
-                if (typed_value.ty.arraySentinel()) |sentinel| {
+                if (typed_value.ty.sentinel()) |sentinel| {
                     try code.ensureCapacity(code.items.len + payload.data.len + 1);
                     code.appendSliceAssumeCapacity(payload.data);
                     const prev_len = code.items.len;
@@ -436,8 +436,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             try branch_stack.append(.{});
 
             const src_data: struct {lbrace_src: usize, rbrace_src: usize, source: []const u8} = blk: {
-                if (module_fn.owner_decl.scope.cast(Module.Scope.File)) |scope_file| {
-                    const tree = scope_file.contents.tree;
+                if (module_fn.owner_decl.scope.cast(Module.Scope.Container)) |container_scope| {
+                    const tree = container_scope.file_scope.contents.tree;
                     const fn_proto = tree.root_node.decls()[module_fn.owner_decl.src_index].castTag(.FnProto).?;
                     const block = fn_proto.getBodyNode().?.castTag(.Block).?;
                     const lbrace_src = tree.token_locs[block.lbrace].start;
