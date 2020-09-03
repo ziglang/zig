@@ -4630,7 +4630,7 @@ pub const SendError = error{
 /// possible to send more data.
 pub fn sendto(
     /// The file descriptor of the sending socket.
-    sockfd: fd_t,
+    sockfd: socket_t,
     /// Message to send.
     buf: []const u8,
     flags: u32,
@@ -4639,32 +4639,43 @@ pub fn sendto(
 ) SendError!usize {
     while (true) {
         const rc = system.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen);
-        switch (errno(rc)) {
-            0 => return @intCast(usize, rc),
-
-            EACCES => return error.AccessDenied,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdWritable(sockfd);
-                continue;
+        if (builtin.os.tag == .windows) {
+            if (rc == windows.ws2_32.SOCKET_ERROR) {
+                switch (windows.ws2_32.WSAGetLastError()) {
+                    // TODO: handle errors
+                    else => |err| return windows.unexpectedWSAError(err),
+                }
             } else {
-                return error.WouldBlock;
-            },
-            EALREADY => return error.FastOpenAlreadyInProgress,
-            EBADF => unreachable, // always a race condition
-            ECONNRESET => return error.ConnectionResetByPeer,
-            EDESTADDRREQ => unreachable, // The socket is not connection-mode, and no peer address is set.
-            EFAULT => unreachable, // An invalid user space address was specified for an argument.
-            EINTR => continue,
-            EINVAL => unreachable, // Invalid argument passed.
-            EISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
-            EMSGSIZE => return error.MessageTooBig,
-            ENOBUFS => return error.SystemResources,
-            ENOMEM => return error.SystemResources,
-            ENOTCONN => unreachable, // The socket is not connected, and no target has been given.
-            ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
-            EOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
-            EPIPE => return error.BrokenPipe,
-            else => |err| return unexpectedErrno(err),
+                return @intCast(usize, rc);
+            }
+        } else {
+            switch (errno(rc)) {
+                0 => return @intCast(usize, rc),
+
+                EACCES => return error.AccessDenied,
+                EAGAIN => if (std.event.Loop.instance) |loop| {
+                    loop.waitUntilFdWritable(sockfd);
+                    continue;
+                } else {
+                    return error.WouldBlock;
+                },
+                EALREADY => return error.FastOpenAlreadyInProgress,
+                EBADF => unreachable, // always a race condition
+                ECONNRESET => return error.ConnectionResetByPeer,
+                EDESTADDRREQ => unreachable, // The socket is not connection-mode, and no peer address is set.
+                EFAULT => unreachable, // An invalid user space address was specified for an argument.
+                EINTR => continue,
+                EINVAL => unreachable, // Invalid argument passed.
+                EISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
+                EMSGSIZE => return error.MessageTooBig,
+                ENOBUFS => return error.SystemResources,
+                ENOMEM => return error.SystemResources,
+                ENOTCONN => unreachable, // The socket is not connected, and no target has been given.
+                ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+                EOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
+                EPIPE => return error.BrokenPipe,
+                else => |err| return unexpectedErrno(err),
+            }
         }
     }
 }
@@ -4690,7 +4701,7 @@ pub fn sendto(
 /// possible to send more data.
 pub fn send(
     /// The file descriptor of the sending socket.
-    sockfd: fd_t,
+    sockfd: socket_t,
     buf: []const u8,
     flags: u32,
 ) SendError!usize {
@@ -5125,8 +5136,12 @@ pub const RecvFromError = error{
     SystemResources,
 } || UnexpectedError;
 
+pub fn recv(sock: socket_t, buf: []u8, flags: u32) RecvFromError!usize {
+    return recvfrom(sock, buf, flags, null, null);
+}
+
 pub fn recvfrom(
-    sockfd: fd_t,
+    sockfd: socket_t,
     buf: []u8,
     flags: u32,
     src_addr: ?*sockaddr,
@@ -5134,23 +5149,34 @@ pub fn recvfrom(
 ) RecvFromError!usize {
     while (true) {
         const rc = system.recvfrom(sockfd, buf.ptr, buf.len, flags, src_addr, addrlen);
-        switch (errno(rc)) {
-            0 => return @intCast(usize, rc),
-            EBADF => unreachable, // always a race condition
-            EFAULT => unreachable,
-            EINVAL => unreachable,
-            ENOTCONN => unreachable,
-            ENOTSOCK => unreachable,
-            EINTR => continue,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdReadable(sockfd);
-                continue;
+        if (builtin.os.tag == .windows) {
+            if (rc == windows.ws2_32.SOCKET_ERROR) {
+                switch (windows.ws2_32.WSAGetLastError()) {
+                    // TODO: handle errors
+                    else => |err| return windows.unexpectedWSAError(err),
+                }
             } else {
-                return error.WouldBlock;
-            },
-            ENOMEM => return error.SystemResources,
-            ECONNREFUSED => return error.ConnectionRefused,
-            else => |err| return unexpectedErrno(err),
+                return @intCast(usize, rc);
+            }
+        } else {
+            switch (errno(rc)) {
+                0 => return @intCast(usize, rc),
+                EBADF => unreachable, // always a race condition
+                EFAULT => unreachable,
+                EINVAL => unreachable,
+                ENOTCONN => unreachable,
+                ENOTSOCK => unreachable,
+                EINTR => continue,
+                EAGAIN => if (std.event.Loop.instance) |loop| {
+                    loop.waitUntilFdReadable(sockfd);
+                    continue;
+                } else {
+                    return error.WouldBlock;
+                },
+                ENOMEM => return error.SystemResources,
+                ECONNREFUSED => return error.ConnectionRefused,
+                else => |err| return unexpectedErrno(err),
+            }
         }
     }
 }

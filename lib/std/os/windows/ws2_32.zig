@@ -786,7 +786,7 @@ pub extern "ws2_32" fn WSASendTo(
     lpNumberOfBytesSent: ?*DWORD,
     dwFlags: DWORD,
     lpTo: ?*const sockaddr,
-    iTolen: socklen_t,
+    iTolen: c_int,
     lpOverlapped: ?*WSAOVERLAPPED,
     lpCompletionRoutine: ?WSAOVERLAPPED_COMPLETION_ROUTINE,
 ) callconv(.Stdcall) c_int;
