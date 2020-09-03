@@ -555,3 +555,23 @@ test "signalfd" {
         return error.SkipZigTest;
     _ = std.os.signalfd;
 }
+
+test "sync" {
+    if (builtin.os.tag != .linux and builtin.os.tag != .windows)
+        return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const test_out_file = "os_tmp_test";
+    const file = try tmp.dir.createFile(test_out_file, .{});
+    defer {
+        file.close();
+        tmp.dir.deleteFile(test_out_file) catch {};
+    }
+
+    try os.syncfs(file.handle);
+    try os.fsync(file.handle);
+    try os.fdatasync(file.handle);
+    os.sync();
+}
