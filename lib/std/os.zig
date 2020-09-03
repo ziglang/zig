@@ -2802,6 +2802,9 @@ pub const AcceptError = error{
     /// by the socket buffer limits, not by the system memory.
     SystemResources,
 
+    /// Socket is not listening for new connections.
+    SocketNotListening,
+
     ProtocolFailure,
 
     /// Firewall rules forbid connection.
@@ -2870,7 +2873,7 @@ pub fn accept(
             EBADF => unreachable, // always a race condition
             ECONNABORTED => return error.ConnectionAborted,
             EFAULT => unreachable,
-            EINVAL => unreachable,
+            EINVAL => return error.SocketNotListening,
             ENOTSOCK => unreachable,
             EMFILE => return error.ProcessFdQuotaExceeded,
             ENFILE => return error.SystemFdQuotaExceeded,
