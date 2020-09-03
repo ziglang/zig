@@ -2518,7 +2518,7 @@ pub const SetIdError = error{
     PermissionDenied,
 } || UnexpectedError;
 
-pub fn setuid(uid: u32) SetIdError!void {
+pub fn setuid(uid: uid_t) SetIdError!void {
     switch (errno(system.setuid(uid))) {
         0 => return,
         EAGAIN => return error.ResourceLimitReached,
@@ -2528,7 +2528,7 @@ pub fn setuid(uid: u32) SetIdError!void {
     }
 }
 
-pub fn setreuid(ruid: u32, euid: u32) SetIdError!void {
+pub fn setreuid(ruid: uid_t, euid: uid_t) SetIdError!void {
     switch (errno(system.setreuid(ruid, euid))) {
         0 => return,
         EAGAIN => return error.ResourceLimitReached,
@@ -2538,7 +2538,7 @@ pub fn setreuid(ruid: u32, euid: u32) SetIdError!void {
     }
 }
 
-pub fn setgid(gid: u32) SetIdError!void {
+pub fn setgid(gid: gid_t) SetIdError!void {
     switch (errno(system.setgid(gid))) {
         0 => return,
         EAGAIN => return error.ResourceLimitReached,
@@ -2548,7 +2548,7 @@ pub fn setgid(gid: u32) SetIdError!void {
     }
 }
 
-pub fn setregid(rgid: u32, egid: u32) SetIdError!void {
+pub fn setregid(rgid: gid_t, egid: gid_t) SetIdError!void {
     switch (errno(system.setregid(rgid, egid))) {
         0 => return,
         EAGAIN => return error.ResourceLimitReached,
