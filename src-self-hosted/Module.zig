@@ -125,7 +125,7 @@ pub const Decl = struct {
     /// mapping them to an address in the output file.
     /// Memory owned by this decl, using Module's allocator.
     name: [*:0]const u8,
-    /// The direct parent container of the Decl. This is either a `Scope.File` or `Scope.ZIRModule`.
+    /// The direct parent container of the Decl. This is either a `Scope.Container` or `Scope.ZIRModule`.
     /// Reference to externally owned memory.
     scope: *Scope,
     /// The AST Node decl index or ZIR Inst index that contains this declaration.
@@ -217,9 +217,10 @@ pub const Decl = struct {
 
     pub fn src(self: Decl) usize {
         switch (self.scope.tag) {
-            .file => {
-                const file = @fieldParentPtr(Scope.File, "base", self.scope);
-                const tree = file.contents.tree;
+            .container => {
+                const container = @fieldParentPtr(Scope.Container, "base", self.scope);
+                const tree = container.file_scope.contents.tree;
+                // TODO Container should have it's own decls()
                 const decl_node = tree.root_node.decls()[self.src_index];
                 return tree.token_locs[decl_node.firstToken()].start;
             },
@@ -229,6 +230,7 @@ pub const Decl = struct {
                 const src_decl = module.decls[self.src_index];
                 return src_decl.inst.src;
             },
+            .file,
             .block => unreachable,
             .gen_zir => unreachable,
             .local_val => unreachable,
@@ -359,6 +361,7 @@ pub const Scope = struct {
             .local_ptr => return self.cast(LocalPtr).?.gen_zir.arena,
             .zir_module => return &self.cast(ZIRModule).?.contents.module.arena.allocator,
             .file => unreachable,
+            .container => unreachable,
         }
     }
 
@@ -368,15 +371,16 @@ pub const Scope = struct {
         return switch (self.tag) {
             .block => self.cast(Block).?.decl,
             .gen_zir => self.cast(GenZIR).?.decl,
-            .local_val => return self.cast(LocalVal).?.gen_zir.decl,
-            .local_ptr => return self.cast(LocalPtr).?.gen_zir.decl,
+            .local_val => self.cast(LocalVal).?.gen_zir.decl,
+            .local_ptr => self.cast(LocalPtr).?.gen_zir.decl,
             .decl => self.cast(DeclAnalysis).?.decl,
             .zir_module => null,
             .file => null,
+            .container => null,
         };
     }
 
-    /// Asserts the scope has a parent which is a ZIRModule or File and
+    /// Asserts the scope has a parent which is a ZIRModule or Container and
     /// returns it.
     pub fn namespace(self: *Scope) *Scope {
         switch (self.tag) {
@@ -385,7 +389,8 @@ pub const Scope = struct {
             .local_val => return self.cast(LocalVal).?.gen_zir.decl.scope,
             .local_ptr => return self.cast(LocalPtr).?.gen_zir.decl.scope,
             .decl => return self.cast(DeclAnalysis).?.decl.scope,
-            .zir_module, .file => return self,
+            .file => return &self.cast(File).?.root_container.base,
+            .zir_module, .container => return self,
         }
     }
 
@@ -399,8 +404,9 @@ pub const Scope = struct {
             .local_val => unreachable,
             .local_ptr => unreachable,
             .decl => unreachable,
+            .file => unreachable,
             .zir_module => return self.cast(ZIRModule).?.fullyQualifiedNameHash(name),
-            .file => return self.cast(File).?.fullyQualifiedNameHash(name),
+            .container => return self.cast(Container).?.fullyQualifiedNameHash(name),
         }
     }
 
@@ -409,11 +415,12 @@ pub const Scope = struct {
         switch (self.tag) {
             .file => return self.cast(File).?.contents.tree,
             .zir_module => unreachable,
-            .decl => return self.cast(DeclAnalysis).?.decl.scope.cast(File).?.contents.tree,
-            .block => return self.cast(Block).?.decl.scope.cast(File).?.contents.tree,
-            .gen_zir => return self.cast(GenZIR).?.decl.scope.cast(File).?.contents.tree,
-            .local_val => return self.cast(LocalVal).?.gen_zir.decl.scope.cast(File).?.contents.tree,
-            .local_ptr => return self.cast(LocalPtr).?.gen_zir.decl.scope.cast(File).?.contents.tree,
+            .decl => return self.cast(DeclAnalysis).?.decl.scope.cast(Container).?.file_scope.contents.tree,
+            .block => return self.cast(Block).?.decl.scope.cast(Container).?.file_scope.contents.tree,
+            .gen_zir => return self.cast(GenZIR).?.decl.scope.cast(Container).?.file_scope.contents.tree,
+            .local_val => return self.cast(LocalVal).?.gen_zir.decl.scope.cast(Container).?.file_scope.contents.tree,
+            .local_ptr => return self.cast(LocalPtr).?.gen_zir.decl.scope.cast(Container).?.file_scope.contents.tree,
+            .container => return self.cast(Container).?.file_scope.contents.tree,
         }
     }
 
@@ -427,13 +434,15 @@ pub const Scope = struct {
             .decl => unreachable,
             .zir_module => unreachable,
             .file => unreachable,
+            .container => unreachable,
         };
     }
 
-    /// Asserts the scope has a parent which is a ZIRModule or File and
+    /// Asserts the scope has a parent which is a ZIRModule, Contaienr or File and
     /// returns the sub_file_path field.
     pub fn subFilePath(base: *Scope) []const u8 {
         switch (base.tag) {
+            .container => return @fieldParentPtr(Container, "base", base).file_scope.sub_file_path,
             .file => return @fieldParentPtr(File, "base", base).sub_file_path,
             .zir_module => return @fieldParentPtr(ZIRModule, "base", base).sub_file_path,
             .block => unreachable,
@@ -453,11 +462,13 @@ pub const Scope = struct {
             .local_val => unreachable,
             .local_ptr => unreachable,
             .decl => unreachable,
+            .container => unreachable,
         }
     }
 
     pub fn getSource(base: *Scope, module: *Module) ![:0]const u8 {
         switch (base.tag) {
+            .container => return @fieldParentPtr(Container, "base", base).file_scope.getSource(module),
             .file => return @fieldParentPtr(File, "base", base).getSource(module),
             .zir_module => return @fieldParentPtr(ZIRModule, "base", base).getSource(module),
             .gen_zir => unreachable,
@@ -471,8 +482,9 @@ pub const Scope = struct {
     /// Asserts the scope is a namespace Scope and removes the Decl from the namespace.
     pub fn removeDecl(base: *Scope, child: *Decl) void {
         switch (base.tag) {
-            .file => return @fieldParentPtr(File, "base", base).removeDecl(child),
+            .container => return @fieldParentPtr(Container, "base", base).removeDecl(child),
             .zir_module => return @fieldParentPtr(ZIRModule, "base", base).removeDecl(child),
+            .file => unreachable,
             .block => unreachable,
             .gen_zir => unreachable,
             .local_val => unreachable,
@@ -499,6 +511,7 @@ pub const Scope = struct {
             .local_val => unreachable,
             .local_ptr => unreachable,
             .decl => unreachable,
+            .container => unreachable,
         }
     }
 
@@ -515,11 +528,45 @@ pub const Scope = struct {
         zir_module,
         /// .zig source code.
         file,
+        /// struct, enum or union, every .file contains one of these.
+        container,
         block,
         decl,
         gen_zir,
         local_val,
         local_ptr,
+    };
+
+    pub const Container = struct {
+        pub const base_tag: Tag = .container;
+        base: Scope = Scope{ .tag = base_tag },
+
+        file_scope: *Scope.File,
+
+        /// Direct children of the file.
+        decls: ArrayListUnmanaged(*Decl),
+
+        // TODO implement container types and put this in a status union
+        // ty: Type
+
+        pub fn deinit(self: *Container, gpa: *Allocator) void {
+            self.decls.deinit(gpa);
+            self.* = undefined;
+        }
+
+        pub fn removeDecl(self: *Container, child: *Decl) void {
+            for (self.decls.items) |item, i| {
+                if (item == child) {
+                    _ = self.decls.swapRemove(i);
+                    return;
+                }
+            }
+        }
+
+        pub fn fullyQualifiedNameHash(self: *Container, name: []const u8) NameHash {
+            // TODO container scope qualified names.
+            return std.zig.hashSrc(name);
+        }
     };
 
     pub const File = struct {
@@ -544,8 +591,7 @@ pub const Scope = struct {
             loaded_success,
         },
 
-        /// Direct children of the file.
-        decls: ArrayListUnmanaged(*Decl),
+        root_container: Container,
 
         pub fn unload(self: *File, gpa: *Allocator) void {
             switch (self.status) {
@@ -569,18 +615,9 @@ pub const Scope = struct {
         }
 
         pub fn deinit(self: *File, gpa: *Allocator) void {
-            self.decls.deinit(gpa);
+            self.root_container.deinit(gpa);
             self.unload(gpa);
             self.* = undefined;
-        }
-
-        pub fn removeDecl(self: *File, child: *Decl) void {
-            for (self.decls.items) |item, i| {
-                if (item == child) {
-                    _ = self.decls.swapRemove(i);
-                    return;
-                }
-            }
         }
 
         pub fn dumpSrc(self: *File, src: usize) void {
@@ -603,11 +640,6 @@ pub const Scope = struct {
                 },
                 .bytes => |bytes| return bytes,
             }
-        }
-
-        pub fn fullyQualifiedNameHash(self: *File, name: []const u8) NameHash {
-            // We don't have struct scopes yet so this is currently just a simple name hash.
-            return std.zig.hashSrc(name);
         }
     };
 
@@ -861,7 +893,10 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
                 .source = .{ .unloaded = {} },
                 .contents = .{ .not_available = {} },
                 .status = .never_loaded,
-                .decls = .{},
+                .root_container = .{
+                    .file_scope = root_scope,
+                    .decls = .{},
+                },
             };
             break :blk &root_scope.base;
         } else if (mem.endsWith(u8, options.root_pkg.root_src_path, ".zir")) {
@@ -969,7 +1004,7 @@ pub fn update(self: *Module) !void {
     // to force a refresh we unload now.
     if (self.root_scope.cast(Scope.File)) |zig_file| {
         zig_file.unload(self.gpa);
-        self.analyzeRootSrcFile(zig_file) catch |err| switch (err) {
+        self.analyzeContainer(&zig_file.root_container) catch |err| switch (err) {
             error.AnalysisFail => {
                 assert(self.totalErrorCount() != 0);
             },
@@ -1237,8 +1272,8 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const file_scope = decl.scope.cast(Scope.File).?;
-    const tree = try self.getAstTree(file_scope);
+    const container_scope = decl.scope.cast(Scope.Container).?;
+    const tree = try self.getAstTree(container_scope);
     const ast_node = tree.root_node.decls()[decl.src_index];
     switch (ast_node.tag) {
         .FnProto => {
@@ -1698,9 +1733,11 @@ fn getSrcModule(self: *Module, root_scope: *Scope.ZIRModule) !*zir.Module {
     }
 }
 
-fn getAstTree(self: *Module, root_scope: *Scope.File) !*ast.Tree {
+fn getAstTree(self: *Module, container_scope: *Scope.Container) !*ast.Tree {
     const tracy = trace(@src());
     defer tracy.end();
+
+    const root_scope = container_scope.file_scope;
 
     switch (root_scope.status) {
         .never_loaded, .unloaded_success => {
@@ -1743,24 +1780,24 @@ fn getAstTree(self: *Module, root_scope: *Scope.File) !*ast.Tree {
     }
 }
 
-fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
+fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     // We may be analyzing it for the first time, or this may be
     // an incremental update. This code handles both cases.
-    const tree = try self.getAstTree(root_scope);
+    const tree = try self.getAstTree(container_scope);
     const decls = tree.root_node.decls();
 
     try self.work_queue.ensureUnusedCapacity(decls.len);
-    try root_scope.decls.ensureCapacity(self.gpa, decls.len);
+    try container_scope.decls.ensureCapacity(self.gpa, decls.len);
 
     // Keep track of the decls that we expect to see in this file so that
     // we know which ones have been deleted.
     var deleted_decls = std.AutoArrayHashMap(*Decl, void).init(self.gpa);
     defer deleted_decls.deinit();
-    try deleted_decls.ensureCapacity(root_scope.decls.items.len);
-    for (root_scope.decls.items) |file_decl| {
+    try deleted_decls.ensureCapacity(container_scope.decls.items.len);
+    for (container_scope.decls.items) |file_decl| {
         deleted_decls.putAssumeCapacityNoClobber(file_decl, {});
     }
 
@@ -1773,7 +1810,7 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
 
             const name_loc = tree.token_locs[name_tok];
             const name = tree.tokenSliceLoc(name_loc);
-            const name_hash = root_scope.fullyQualifiedNameHash(name);
+            const name_hash = container_scope.fullyQualifiedNameHash(name);
             const contents_hash = std.zig.hashSrc(tree.getNodeSource(src_decl));
             if (self.decl_table.get(name_hash)) |decl| {
                 // Update the AST Node index of the decl, even if its contents are unchanged, it may
@@ -1801,8 +1838,8 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
                     }
                 }
             } else {
-                const new_decl = try self.createNewDecl(&root_scope.base, name, decl_i, name_hash, contents_hash);
-                root_scope.decls.appendAssumeCapacity(new_decl);
+                const new_decl = try self.createNewDecl(&container_scope.base, name, decl_i, name_hash, contents_hash);
+                container_scope.decls.appendAssumeCapacity(new_decl);
                 if (fn_proto.getExternExportInlineToken()) |maybe_export_token| {
                     if (tree.token_ids[maybe_export_token] == .Keyword_export) {
                         self.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
@@ -1812,7 +1849,7 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
         } else if (src_decl.castTag(.VarDecl)) |var_decl| {
             const name_loc = tree.token_locs[var_decl.name_token];
             const name = tree.tokenSliceLoc(name_loc);
-            const name_hash = root_scope.fullyQualifiedNameHash(name);
+            const name_hash = container_scope.fullyQualifiedNameHash(name);
             const contents_hash = std.zig.hashSrc(tree.getNodeSource(src_decl));
             if (self.decl_table.get(name_hash)) |decl| {
                 // Update the AST Node index of the decl, even if its contents are unchanged, it may
@@ -1828,8 +1865,8 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
                     decl.contents_hash = contents_hash;
                 }
             } else {
-                const new_decl = try self.createNewDecl(&root_scope.base, name, decl_i, name_hash, contents_hash);
-                root_scope.decls.appendAssumeCapacity(new_decl);
+                const new_decl = try self.createNewDecl(&container_scope.base, name, decl_i, name_hash, contents_hash);
+                container_scope.decls.appendAssumeCapacity(new_decl);
                 if (var_decl.getExternExportToken()) |maybe_export_token| {
                     if (tree.token_ids[maybe_export_token] == .Keyword_export) {
                         self.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
@@ -1841,11 +1878,11 @@ fn analyzeRootSrcFile(self: *Module, root_scope: *Scope.File) !void {
             const name = try std.fmt.allocPrint(self.gpa, "__comptime_{}", .{name_index});
             defer self.gpa.free(name);
 
-            const name_hash = root_scope.fullyQualifiedNameHash(name);
+            const name_hash = container_scope.fullyQualifiedNameHash(name);
             const contents_hash = std.zig.hashSrc(tree.getNodeSource(src_decl));
 
-            const new_decl = try self.createNewDecl(&root_scope.base, name, decl_i, name_hash, contents_hash);
-            root_scope.decls.appendAssumeCapacity(new_decl);
+            const new_decl = try self.createNewDecl(&container_scope.base, name, decl_i, name_hash, contents_hash);
+            container_scope.decls.appendAssumeCapacity(new_decl);
             self.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
         } else if (src_decl.castTag(.ContainerField)) |container_field| {
             log.err("TODO: analyze container field", .{});
@@ -3124,6 +3161,7 @@ fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *Err
             self.failed_files.putAssumeCapacityNoClobber(scope, err_msg);
         },
         .file => unreachable,
+        .container => unreachable,
     }
     return error.AnalysisFail;
 }
