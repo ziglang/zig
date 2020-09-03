@@ -485,8 +485,8 @@ pub const ChildProcess = struct {
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
 
         const nul_handle = if (any_ignore)
-            windows.OpenFile(&[_]u16{ 'N', 'U', 'L' }, .{
-                .dir = std.fs.cwd().fd,
+            // "\Device\Null" or "\??\NUL"
+            windows.OpenFile(&[_]u16{ '\\', 'D', 'e', 'v', 'i', 'c', 'e', '\\', 'N', 'u', 'l', 'l' }, .{
                 .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
                 .share_access = windows.FILE_SHARE_READ,
                 .creation = windows.OPEN_EXISTING,
