@@ -230,8 +230,7 @@ pub const Decl = struct {
                 const src_decl = module.decls[self.src_index];
                 return src_decl.inst.src;
             },
-            .file,
-            .block => unreachable,
+            .file, .block => unreachable,
             .gen_zir => unreachable,
             .local_val => unreachable,
             .local_ptr => unreachable,
@@ -544,7 +543,7 @@ pub const Scope = struct {
         file_scope: *Scope.File,
 
         /// Direct children of the file.
-        decls: ArrayListUnmanaged(*Decl),
+        decls: std.AutoArrayHashMapUnmanaged(*Decl, void),
 
         // TODO implement container types and put this in a status union
         // ty: Type
@@ -555,12 +554,7 @@ pub const Scope = struct {
         }
 
         pub fn removeDecl(self: *Container, child: *Decl) void {
-            for (self.decls.items) |item, i| {
-                if (item == child) {
-                    _ = self.decls.swapRemove(i);
-                    return;
-                }
-            }
+            _ = self.decls.remove(child);
         }
 
         pub fn fullyQualifiedNameHash(self: *Container, name: []const u8) NameHash {
@@ -1796,9 +1790,9 @@ fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void {
     // we know which ones have been deleted.
     var deleted_decls = std.AutoArrayHashMap(*Decl, void).init(self.gpa);
     defer deleted_decls.deinit();
-    try deleted_decls.ensureCapacity(container_scope.decls.items.len);
-    for (container_scope.decls.items) |file_decl| {
-        deleted_decls.putAssumeCapacityNoClobber(file_decl, {});
+    try deleted_decls.ensureCapacity(container_scope.decls.items().len);
+    for (container_scope.decls.items()) |entry| {
+        deleted_decls.putAssumeCapacityNoClobber(entry.key, {});
     }
 
     for (decls) |src_decl, decl_i| {
@@ -1839,7 +1833,7 @@ fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void {
                 }
             } else {
                 const new_decl = try self.createNewDecl(&container_scope.base, name, decl_i, name_hash, contents_hash);
-                container_scope.decls.appendAssumeCapacity(new_decl);
+                container_scope.decls.putAssumeCapacity(new_decl, {});
                 if (fn_proto.getExternExportInlineToken()) |maybe_export_token| {
                     if (tree.token_ids[maybe_export_token] == .Keyword_export) {
                         self.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
@@ -1866,7 +1860,7 @@ fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void {
                 }
             } else {
                 const new_decl = try self.createNewDecl(&container_scope.base, name, decl_i, name_hash, contents_hash);
-                container_scope.decls.appendAssumeCapacity(new_decl);
+                container_scope.decls.putAssumeCapacity(new_decl, {});
                 if (var_decl.getExternExportToken()) |maybe_export_token| {
                     if (tree.token_ids[maybe_export_token] == .Keyword_export) {
                         self.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
@@ -1882,7 +1876,7 @@ fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void {
             const contents_hash = std.zig.hashSrc(tree.getNodeSource(src_decl));
 
             const new_decl = try self.createNewDecl(&container_scope.base, name, decl_i, name_hash, contents_hash);
-            container_scope.decls.appendAssumeCapacity(new_decl);
+            container_scope.decls.putAssumeCapacity(new_decl, {});
             self.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl });
         } else if (src_decl.castTag(.ContainerField)) |container_field| {
             log.err("TODO: analyze container field", .{});
