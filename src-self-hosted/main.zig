@@ -13,7 +13,6 @@ const Package = @import("Package.zig");
 const zir = @import("zir.zig");
 const build_options = @import("build_options");
 const warn = std.log.warn;
-const info = std.log.info;
 
 fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.log.emerg(format, args);
@@ -67,10 +66,16 @@ pub fn log(
             return;
     }
 
-    const prefix = "[" ++ @tagName(level) ++ "] " ++ "(" ++ @tagName(scope) ++ "): ";
+    const level_txt = switch (level) {
+        .emerg => "error",
+        .warn => "warning",
+        else => @tagName(level),
+    };
+    const prefix1 = level_txt ++ ": ";
+    const prefix2 = if (scope == .default) "" else "(" ++ @tagName(scope) ++ "): ";
 
     // Print the message to stderr, silently ignoring any errors
-    std.debug.print(prefix ++ format ++ "\n", args);
+    std.debug.print(prefix1 ++ prefix2 ++ format ++ "\n", args);
 }
 
 var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
@@ -486,8 +491,6 @@ pub fn buildOutputType(
             }
         }
     } else {
-        if (!build_options.have_llvm)
-            fatal("`zig cc` and `zig c++` unavailable: compiler not built with LLVM extensions enabled", .{});
         emit_h = false;
         strip = true;
         ensure_libc_on_non_freestanding = true;
@@ -994,7 +997,7 @@ fn updateModule(gpa: *Allocator, module: *Module, zir_out_path: ?[]const u8) !vo
             });
         }
     } else {
-        info("Update completed in {} ms", .{update_nanos / std.time.ns_per_ms});
+        std.log.info("Update completed in {} ms", .{update_nanos / std.time.ns_per_ms});
     }
 
     if (zir_out_path) |zop| {
@@ -1401,6 +1404,8 @@ extern "c" fn ZigClang_main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 
 /// TODO make it so the return value can be !noreturn
 fn punt_to_clang(arena: *Allocator, args: []const []const u8) error{OutOfMemory} {
+    if (!build_options.have_llvm)
+        fatal("`zig cc` and `zig c++` unavailable: compiler not built with LLVM extensions enabled", .{});
     // Convert the args to the format Clang expects.
     const argv = try arena.alloc(?[*:0]u8, args.len + 1);
     for (args) |arg, i| {
