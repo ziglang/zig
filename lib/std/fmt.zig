@@ -82,6 +82,8 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 /// This allows user types to be formatted in a logical manner instead of dumping all fields of the type.
 ///
 /// A user type may be a `struct`, `vector`, `union` or `enum` type.
+///
+/// To print literal curly braces, escape them by writing them twice, eg `{{` or `}}`.
 pub fn format(
     writer: anytype,
     comptime fmt: []const u8,
