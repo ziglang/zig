@@ -725,8 +725,10 @@ pub fn buildOutputType(
             }
         }
 
-        if (want_sanitize_c == true and build_mode == .ReleaseFast) {
-            build_mode = .ReleaseSafe;
+        if (want_sanitize_c) |wsc| {
+            if (wsc and build_mode == .ReleaseFast) {
+                build_mode = .ReleaseSafe;
+            }
         }
 
         if (only_pp_or_asm) {
