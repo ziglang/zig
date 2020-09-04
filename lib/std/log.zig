@@ -127,6 +127,10 @@ fn log(
     if (@enumToInt(message_level) <= @enumToInt(level)) {
         if (@hasDecl(root, "log")) {
             root.log(message_level, scope, format, args);
+        } else if (std.Target.current.os.tag == .freestanding) {
+            // On freestanding one must provide a log function; we do not have
+            // any I/O configured.
+            return;
         } else if (builtin.mode != .ReleaseSmall) {
             const held = std.debug.getStderrMutex().acquire();
             defer held.release();
