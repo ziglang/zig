@@ -2381,6 +2381,11 @@ pub fn analyzeSlice(self: *Module, scope: *Scope, src: usize, array_ptr: *Inst, 
     return self.fail(scope, src, "TODO implement analysis of slice", .{});
 }
 
+pub fn analyzeImport(self: *Module, scope: *Scope, src: usize, target_string: []const u8) InnerError!*Inst {
+    // TODO actually try to import
+    return self.constType(scope, src, Type.initTag(.empty_struct));
+}
+
 /// Asserts that lhs and rhs types are both numeric.
 pub fn cmpNumeric(
     self: *Module,

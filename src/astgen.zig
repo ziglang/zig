@@ -1973,6 +1973,15 @@ fn bitCast(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCa
     }
 }
 
+fn import(mod: *Module, scope: *Scope, call: *ast.Node.BuiltinCall) InnerError!*zir.Inst {
+    try ensureBuiltinParamCount(mod, scope, call, 1);
+    const tree = scope.tree();
+    const src = tree.token_locs[call.builtin_token].start;
+    const params = call.params();
+    const target = try expr(mod, scope, .none, params[0]);
+    return addZIRUnOp(mod, scope, src, .import, target);
+}
+
 fn builtinCall(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.BuiltinCall) InnerError!*zir.Inst {
     const tree = scope.tree();
     const builtin_name = tree.tokenSlice(call.builtin_token);
@@ -1995,6 +2004,8 @@ fn builtinCall(mod: *Module, scope: *Scope, rl: ResultLoc, call: *ast.Node.Built
     } else if (mem.eql(u8, builtin_name, "@breakpoint")) {
         const src = tree.token_locs[call.builtin_token].start;
         return rlWrap(mod, scope, rl, try addZIRNoOp(mod, scope, src, .breakpoint));
+    } else if (mem.eql(u8, builtin_name, "@import")) {
+        return rlWrap(mod, scope, rl, try import(mod, scope, call));
     } else {
         return mod.failTok(scope, call.builtin_token, "invalid builtin function: '{}'", .{builtin_name});
     }

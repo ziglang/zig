@@ -89,6 +89,8 @@ pub const Type = extern union {
             .anyerror_void_error_union, .error_union => return .ErrorUnion,
 
             .anyframe_T, .@"anyframe" => return .AnyFrame,
+
+            .empty_struct => return .Struct,
         }
     }
 
@@ -352,6 +354,7 @@ pub const Type = extern union {
             .enum_literal,
             .anyerror_void_error_union,
             .@"anyframe",
+            .empty_struct,
             => unreachable,
 
             .array_u8_sentinel_0 => return self.copyPayloadShallow(allocator, Payload.Array_u8_Sentinel0),
@@ -505,6 +508,7 @@ pub const Type = extern union {
                 .@"null" => return out_stream.writeAll("@Type(.Null)"),
                 .@"undefined" => return out_stream.writeAll("@Type(.Undefined)"),
 
+                .empty_struct => return out_stream.writeAll("struct {}"),
                 .@"anyframe" => return out_stream.writeAll("anyframe"),
                 .anyerror_void_error_union => return out_stream.writeAll("anyerror!void"),
                 .const_slice_u8 => return out_stream.writeAll("[]const u8"),
@@ -788,6 +792,7 @@ pub const Type = extern union {
             .@"null",
             .@"undefined",
             .enum_literal,
+            .empty_struct,
             => false,
         };
     }
@@ -910,6 +915,7 @@ pub const Type = extern union {
             .@"null",
             .@"undefined",
             .enum_literal,
+            .empty_struct,
             => unreachable,
         };
     }
@@ -932,6 +938,7 @@ pub const Type = extern union {
             .@"undefined" => unreachable,
             .enum_literal => unreachable,
             .single_const_pointer_to_comptime_int => unreachable,
+            .empty_struct => unreachable,
 
             .u8,
             .i8,
@@ -1107,6 +1114,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => false,
 
             .single_const_pointer,
@@ -1181,6 +1189,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => false,
 
             .const_slice,
@@ -1252,6 +1261,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => false,
 
             .single_const_pointer,
@@ -1332,6 +1342,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => false,
 
             .pointer => {
@@ -1407,6 +1418,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => false,
 
             .pointer => {
@@ -1524,6 +1536,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
 
             .array => self.cast(Payload.Array).?.elem_type,
@@ -1651,6 +1664,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
 
             .array => self.cast(Payload.Array).?.len,
@@ -1716,6 +1730,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
 
             .single_const_pointer,
@@ -1798,6 +1813,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => false,
 
             .int_signed,
@@ -1872,6 +1888,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => false,
 
             .int_unsigned,
@@ -1936,6 +1953,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
 
             .int_unsigned => .{ .signed = false, .bits = self.cast(Payload.IntUnsigned).?.bits },
@@ -2018,6 +2036,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => false,
 
             .usize,
@@ -2129,6 +2148,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
         };
     }
@@ -2206,6 +2226,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
         }
     }
@@ -2282,6 +2303,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
         }
     }
@@ -2358,6 +2380,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
         };
     }
@@ -2431,6 +2454,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
         };
     }
@@ -2504,6 +2528,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
         };
     }
@@ -2577,6 +2602,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => false,
         };
     }
@@ -2636,6 +2662,7 @@ pub const Type = extern union {
             .error_set_single,
             => return null,
 
+            .empty_struct => return Value.initTag(.empty_struct_value),
             .void => return Value.initTag(.void_value),
             .noreturn => return Value.initTag(.unreachable_value),
             .@"null" => return Value.initTag(.null_value),
@@ -2743,6 +2770,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => return false,
 
             .c_const_pointer,
@@ -2809,6 +2837,7 @@ pub const Type = extern union {
         single_const_pointer_to_comptime_int,
         anyerror_void_error_union,
         @"anyframe",
+        empty_struct,
         const_slice_u8, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
 

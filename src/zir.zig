@@ -161,6 +161,8 @@ pub const Inst = struct {
         @"fn",
         /// Returns a function type.
         fntype,
+        /// @import(operand)
+        import,
         /// Integer literal.
         int,
         /// Convert an integer value to another integer type, asserting that the destination type
@@ -315,6 +317,7 @@ pub const Inst = struct {
                 .ensure_err_payload_void,
                 .anyframe_type,
                 .bitnot,
+                .import,
                 => UnOp,
 
                 .add,
@@ -489,6 +492,7 @@ pub const Inst = struct {
                 .error_set,
                 .slice,
                 .slice_start,
+                .import,
                 => false,
 
                 .@"break",

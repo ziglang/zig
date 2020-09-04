@@ -134,6 +134,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .error_set => return analyzeInstErrorSet(mod, scope, old_inst.castTag(.error_set).?),
         .slice => return analyzeInstSlice(mod, scope, old_inst.castTag(.slice).?),
         .slice_start => return analyzeInstSliceStart(mod, scope, old_inst.castTag(.slice_start).?),
+        .import => return analyzeInstImport(mod, scope, old_inst.castTag(.import).?),
     }
 }
 
@@ -1188,6 +1189,12 @@ fn analyzeInstSliceStart(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) Inn
     const start = try resolveInst(mod, scope, inst.positionals.rhs);
 
     return mod.analyzeSlice(scope, inst.base.src, array_ptr, start, null, null);
+}
+
+fn analyzeInstImport(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const operand = try resolveConstString(mod, scope, inst.positionals.operand);
+
+    return mod.analyzeImport(scope, inst.base.src, operand);
 }
 
 fn analyzeInstShl(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
