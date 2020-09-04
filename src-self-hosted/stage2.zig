@@ -414,6 +414,23 @@ export fn stage2_env(argc: c_int, argv: [*]const [*:0]const u8) c_int {
     return 0;
 }
 
+export fn stage2_cc(argc: c_int, argv: [*]const [*:0]const u8, is_cpp: bool) c_int {
+    const allocator = std.heap.c_allocator;
+
+    var args_list = argvToArrayList(allocator, argc, argv) catch |err| {
+        std.debug.print("unable to parse arguments: {}\n", .{@errorName(err)});
+        return -1;
+    };
+    defer args_list.deinit();
+
+    self_hosted_main.buildOutputType(allocator, allocator, args_list.items, if (is_cpp) .cpp else .cc) catch |err| {
+        std.debug.print("zig cc failure: {}\n", .{@errorName(err)});
+        return -1;
+    };
+
+    return 0;
+}
+
 // ABI warning
 export fn stage2_cmd_targets(
     zig_triple: ?[*:0]const u8,
@@ -1036,269 +1053,6 @@ fn convertSlice(slice: [][:0]u8, ptr: *[*][*:0]u8, len: *usize) !void {
         new_slice[i] = item.ptr;
     }
     ptr.* = new_slice.ptr;
-}
-
-const clang_args = @import("clang_options.zig").list;
-
-// ABI warning
-pub const ClangArgIterator = extern struct {
-    has_next: bool,
-    zig_equivalent: ZigEquivalent,
-    only_arg: [*:0]const u8,
-    second_arg: [*:0]const u8,
-    other_args_ptr: [*]const [*:0]const u8,
-    other_args_len: usize,
-    argv_ptr: [*]const [*:0]const u8,
-    argv_len: usize,
-    next_index: usize,
-    root_args: ?*Args,
-
-    // ABI warning
-    pub const ZigEquivalent = extern enum {
-        target,
-        o,
-        c,
-        other,
-        positional,
-        l,
-        ignore,
-        driver_punt,
-        pic,
-        no_pic,
-        nostdlib,
-        nostdlib_cpp,
-        shared,
-        rdynamic,
-        wl,
-        pp_or_asm,
-        optimize,
-        debug,
-        sanitize,
-        linker_script,
-        verbose_cmds,
-        for_linker,
-        linker_input_z,
-        lib_dir,
-        mcpu,
-        dep_file,
-        framework_dir,
-        framework,
-        nostdlibinc,
-    };
-
-    const Args = struct {
-        next_index: usize,
-        argv_ptr: [*]const [*:0]const u8,
-        argv_len: usize,
-    };
-
-    pub fn init(argv: []const [*:0]const u8) ClangArgIterator {
-        return .{
-            .next_index = 2, // `zig cc foo` this points to `foo`
-            .has_next = argv.len > 2,
-            .zig_equivalent = undefined,
-            .only_arg = undefined,
-            .second_arg = undefined,
-            .other_args_ptr = undefined,
-            .other_args_len = undefined,
-            .argv_ptr = argv.ptr,
-            .argv_len = argv.len,
-            .root_args = null,
-        };
-    }
-
-    pub fn next(self: *ClangArgIterator) !void {
-        assert(self.has_next);
-        assert(self.next_index < self.argv_len);
-        // In this state we know that the parameter we are looking at is a root parameter
-        // rather than an argument to a parameter.
-        self.other_args_ptr = self.argv_ptr + self.next_index;
-        self.other_args_len = 1; // We adjust this value below when necessary.
-        var arg = mem.span(self.argv_ptr[self.next_index]);
-        self.incrementArgIndex();
-
-        if (mem.startsWith(u8, arg, "@")) {
-            if (self.root_args != null) return error.NestedResponseFile;
-
-            // This is a "compiler response file". We must parse the file and treat its
-            // contents as command line parameters.
-            const allocator = std.heap.c_allocator;
-            const max_bytes = 10 * 1024 * 1024; // 10 MiB of command line arguments is a reasonable limit
-            const resp_file_path = arg[1..];
-            const resp_contents = fs.cwd().readFileAlloc(allocator, resp_file_path, max_bytes) catch |err| {
-                std.debug.warn("unable to read response file '{}': {}\n", .{ resp_file_path, @errorName(err) });
-                process.exit(1);
-            };
-            defer allocator.free(resp_contents);
-            // TODO is there a specification for this file format? Let's find it and make this parsing more robust
-            // at the very least I'm guessing this needs to handle quotes and `#` comments.
-            var it = mem.tokenize(resp_contents, " \t\r\n");
-            var resp_arg_list = std.ArrayList([*:0]const u8).init(allocator);
-            defer resp_arg_list.deinit();
-            {
-                errdefer {
-                    for (resp_arg_list.span()) |item| {
-                        allocator.free(mem.span(item));
-                    }
-                }
-                while (it.next()) |token| {
-                    const dupe_token = try mem.dupeZ(allocator, u8, token);
-                    errdefer allocator.free(dupe_token);
-                    try resp_arg_list.append(dupe_token);
-                }
-                const args = try allocator.create(Args);
-                errdefer allocator.destroy(args);
-                args.* = .{
-                    .next_index = self.next_index,
-                    .argv_ptr = self.argv_ptr,
-                    .argv_len = self.argv_len,
-                };
-                self.root_args = args;
-            }
-            const resp_arg_slice = resp_arg_list.toOwnedSlice();
-            self.next_index = 0;
-            self.argv_ptr = resp_arg_slice.ptr;
-            self.argv_len = resp_arg_slice.len;
-
-            if (resp_arg_slice.len == 0) {
-                self.resolveRespFileArgs();
-                return;
-            }
-
-            self.has_next = true;
-            self.other_args_ptr = self.argv_ptr + self.next_index;
-            self.other_args_len = 1; // We adjust this value below when necessary.
-            arg = mem.span(self.argv_ptr[self.next_index]);
-            self.incrementArgIndex();
-        }
-        if (!mem.startsWith(u8, arg, "-")) {
-            self.zig_equivalent = .positional;
-            self.only_arg = arg.ptr;
-            return;
-        }
-
-        find_clang_arg: for (clang_args) |clang_arg| switch (clang_arg.syntax) {
-            .flag => {
-                const prefix_len = clang_arg.matchEql(arg);
-                if (prefix_len > 0) {
-                    self.zig_equivalent = clang_arg.zig_equivalent;
-                    self.only_arg = arg.ptr + prefix_len;
-
-                    break :find_clang_arg;
-                }
-            },
-            .joined, .comma_joined => {
-                // joined example: --target=foo
-                // comma_joined example: -Wl,-soname,libsoundio.so.2
-                const prefix_len = clang_arg.matchStartsWith(arg);
-                if (prefix_len != 0) {
-                    self.zig_equivalent = clang_arg.zig_equivalent;
-                    self.only_arg = arg.ptr + prefix_len; // This will skip over the "--target=" part.
-
-                    break :find_clang_arg;
-                }
-            },
-            .joined_or_separate => {
-                // Examples: `-lfoo`, `-l foo`
-                const prefix_len = clang_arg.matchStartsWith(arg);
-                if (prefix_len == arg.len) {
-                    if (self.next_index >= self.argv_len) {
-                        std.debug.warn("Expected parameter after '{}'\n", .{arg});
-                        process.exit(1);
-                    }
-                    self.only_arg = self.argv_ptr[self.next_index];
-                    self.incrementArgIndex();
-                    self.other_args_len += 1;
-                    self.zig_equivalent = clang_arg.zig_equivalent;
-
-                    break :find_clang_arg;
-                } else if (prefix_len != 0) {
-                    self.zig_equivalent = clang_arg.zig_equivalent;
-                    self.only_arg = arg.ptr + prefix_len;
-
-                    break :find_clang_arg;
-                }
-            },
-            .joined_and_separate => {
-                // Example: `-Xopenmp-target=riscv64-linux-unknown foo`
-                const prefix_len = clang_arg.matchStartsWith(arg);
-                if (prefix_len != 0) {
-                    self.only_arg = arg.ptr + prefix_len;
-                    if (self.next_index >= self.argv_len) {
-                        std.debug.warn("Expected parameter after '{}'\n", .{arg});
-                        process.exit(1);
-                    }
-                    self.second_arg = self.argv_ptr[self.next_index];
-                    self.incrementArgIndex();
-                    self.other_args_len += 1;
-                    self.zig_equivalent = clang_arg.zig_equivalent;
-                    break :find_clang_arg;
-                }
-            },
-            .separate => if (clang_arg.matchEql(arg) > 0) {
-                if (self.next_index >= self.argv_len) {
-                    std.debug.warn("Expected parameter after '{}'\n", .{arg});
-                    process.exit(1);
-                }
-                self.only_arg = self.argv_ptr[self.next_index];
-                self.incrementArgIndex();
-                self.other_args_len += 1;
-                self.zig_equivalent = clang_arg.zig_equivalent;
-                break :find_clang_arg;
-            },
-            .remaining_args_joined => {
-                const prefix_len = clang_arg.matchStartsWith(arg);
-                if (prefix_len != 0) {
-                    @panic("TODO");
-                }
-            },
-            .multi_arg => if (clang_arg.matchEql(arg) > 0) {
-                @panic("TODO");
-            },
-        }
-        else {
-            std.debug.warn("Unknown Clang option: '{}'\n", .{arg});
-            process.exit(1);
-        }
-    }
-
-    fn incrementArgIndex(self: *ClangArgIterator) void {
-        self.next_index += 1;
-        self.resolveRespFileArgs();
-    }
-
-    fn resolveRespFileArgs(self: *ClangArgIterator) void {
-        const allocator = std.heap.c_allocator;
-        if (self.next_index >= self.argv_len) {
-            if (self.root_args) |root_args| {
-                self.next_index = root_args.next_index;
-                self.argv_ptr = root_args.argv_ptr;
-                self.argv_len = root_args.argv_len;
-
-                allocator.destroy(root_args);
-                self.root_args = null;
-            }
-            if (self.next_index >= self.argv_len) {
-                self.has_next = false;
-            }
-        }
-    }
-};
-
-export fn stage2_clang_arg_iterator(
-    result: *ClangArgIterator,
-    argc: usize,
-    argv: [*]const [*:0]const u8,
-) void {
-    result.* = ClangArgIterator.init(argv[0..argc]);
-}
-
-export fn stage2_clang_arg_next(it: *ClangArgIterator) Error {
-    it.next() catch |err| switch (err) {
-        error.NestedResponseFile => return .NestedResponseFile,
-        error.OutOfMemory => return .OutOfMemory,
-    };
-    return .None;
 }
 
 export const stage2_is_zig0 = false;

@@ -7,9 +7,7 @@ pub const CliArg = struct {
     name: []const u8,
     syntax: Syntax,
 
-    /// TODO we're going to want to change this when we start shipping self-hosted because this causes
-    /// all the functions in stage2.zig to get exported.
-    zig_equivalent: @import("stage2.zig").ClangArgIterator.ZigEquivalent,
+    zig_equivalent: @import("main.zig").ClangArgIterator.ZigEquivalent,
 
     /// Prefixed by "-"
     pd1: bool = false,

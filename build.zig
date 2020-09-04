@@ -9,6 +9,7 @@ const ArrayList = std.ArrayList;
 const io = std.io;
 const fs = std.fs;
 const InstallDirectoryOptions = std.build.InstallDirectoryOptions;
+const assert = std.debug.assert;
 
 const zig_version = std.builtin.Version{ .major = 0, .minor = 6, .patch = 0 };
 
@@ -57,11 +58,13 @@ pub fn build(b: *Builder) !void {
 
     if (!only_install_lib_files) {
         var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
+        exe.install();
         exe.setBuildMode(mode);
         exe.setTarget(target);
         test_step.dependOn(&exe.step);
         b.default_step.dependOn(&exe.step);
 
+        exe.addBuildOption(bool, "have_llvm", enable_llvm);
         if (enable_llvm) {
             const config_h_text = if (config_h_path_option) |config_h_path|
                 try std.fs.cwd().readFileAlloc(b.allocator, toNativePathSep(b, config_h_path), max_config_h_bytes)
@@ -73,11 +76,8 @@ pub fn build(b: *Builder) !void {
 
             try configureStage2(b, exe, ctx);
         }
-        if (!only_install_lib_files) {
-            exe.install();
-        }
         const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
-        const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse false;
+        const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse enable_llvm;
         if (link_libc) {
             exe.linkLibC();
             test_stage2.linkLibC();
@@ -323,17 +323,13 @@ fn configureStage2(b: *Builder, exe: anytype, ctx: Context) !void {
     exe.addIncludeDir("src");
     exe.addIncludeDir(ctx.cmake_binary_dir);
     addCppLib(b, exe, ctx.cmake_binary_dir, "zig_cpp");
-    if (ctx.lld_include_dir.len != 0) {
-        exe.addIncludeDir(ctx.lld_include_dir);
+    assert(ctx.lld_include_dir.len != 0);
+    exe.addIncludeDir(ctx.lld_include_dir);
+    {
         var it = mem.tokenize(ctx.lld_libraries, ";");
         while (it.next()) |lib| {
             exe.addObjectFile(lib);
         }
-    } else {
-        addCppLib(b, exe, ctx.cmake_binary_dir, "embedded_lld_wasm");
-        addCppLib(b, exe, ctx.cmake_binary_dir, "embedded_lld_elf");
-        addCppLib(b, exe, ctx.cmake_binary_dir, "embedded_lld_coff");
-        addCppLib(b, exe, ctx.cmake_binary_dir, "embedded_lld_lib");
     }
     {
         var it = mem.tokenize(ctx.clang_libraries, ";");
@@ -343,42 +339,51 @@ fn configureStage2(b: *Builder, exe: anytype, ctx: Context) !void {
     }
     dependOnLib(b, exe, ctx.llvm);
 
-    if (exe.target.getOsTag() == .linux) {
-        // First we try to static link against gcc libstdc++. If that doesn't work,
-        // we fall back to -lc++ and cross our fingers.
-        addCxxKnownPath(b, ctx, exe, "libstdc++.a", "") catch |err| switch (err) {
-            error.RequiredLibraryNotFound => {
-                exe.linkSystemLibrary("c++");
-            },
-            else => |e| return e,
-        };
+    // Boy, it sure would be nice to simply linkSystemLibrary("c++") and rely on zig's
+    // ability to provide libc++ right? Well thanks to C++ not having a stable ABI this
+    // will cause linker errors. It would work in the situation when `zig cc` is used to
+    // build LLVM, Clang, and LLD, however when depending on them as system libraries, system
+    // libc++ must be used.
+    const cross_compile = false; // TODO
+    if (cross_compile) {
+        // In this case we assume that zig cc was used to build the LLVM, Clang, LLD dependencies.
+        exe.linkSystemLibrary("c++");
+    } else {
+        if (exe.target.getOsTag() == .linux) {
+            // First we try to static link against gcc libstdc++. If that doesn't work,
+            // we fall back to -lc++ and cross our fingers.
+            addCxxKnownPath(b, ctx, exe, "libstdc++.a", "") catch |err| switch (err) {
+                error.RequiredLibraryNotFound => {
+                    exe.linkSystemLibrary("c++");
+                },
+                else => |e| return e,
+            };
 
-        exe.linkSystemLibrary("pthread");
-    } else if (exe.target.isFreeBSD()) {
-        try addCxxKnownPath(b, ctx, exe, "libc++.a", null);
-        exe.linkSystemLibrary("pthread");
-    } else if (exe.target.isDarwin()) {
-        if (addCxxKnownPath(b, ctx, exe, "libgcc_eh.a", "")) {
-            // Compiler is GCC.
-            try addCxxKnownPath(b, ctx, exe, "libstdc++.a", null);
             exe.linkSystemLibrary("pthread");
-            // TODO LLD cannot perform this link.
-            // See https://github.com/ziglang/zig/issues/1535
-            exe.enableSystemLinkerHack();
-        } else |err| switch (err) {
-            error.RequiredLibraryNotFound => {
-                // System compiler, not gcc.
-                exe.linkSystemLibrary("c++");
-            },
-            else => |e| return e,
+        } else if (exe.target.isFreeBSD()) {
+            try addCxxKnownPath(b, ctx, exe, "libc++.a", null);
+            exe.linkSystemLibrary("pthread");
+        } else if (exe.target.isDarwin()) {
+            if (addCxxKnownPath(b, ctx, exe, "libgcc_eh.a", "")) {
+                // Compiler is GCC.
+                try addCxxKnownPath(b, ctx, exe, "libstdc++.a", null);
+                exe.linkSystemLibrary("pthread");
+                // TODO LLD cannot perform this link.
+                // See https://github.com/ziglang/zig/issues/1535
+                exe.enableSystemLinkerHack();
+            } else |err| switch (err) {
+                error.RequiredLibraryNotFound => {
+                    // System compiler, not gcc.
+                    exe.linkSystemLibrary("c++");
+                },
+                else => |e| return e,
+            }
+        }
+
+        if (ctx.dia_guids_lib.len != 0) {
+            exe.addObjectFile(ctx.dia_guids_lib);
         }
     }
-
-    if (ctx.dia_guids_lib.len != 0) {
-        exe.addObjectFile(ctx.dia_guids_lib);
-    }
-
-    exe.linkSystemLibrary("c");
 }
 
 fn addCxxKnownPath(

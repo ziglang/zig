@@ -32,6 +32,11 @@ int stage2_env(int argc, char** argv) {
     stage2_panic(msg, strlen(msg));
 }
 
+int stage2_cc(int argc, char** argv, bool is_cpp) {
+    const char *msg = "stage0 called stage2_cc";
+    stage2_panic(msg, strlen(msg));
+}
+
 void stage2_attach_segfault_handler(void) { }
 
 void stage2_panic(const char *ptr, size_t len) {
@@ -314,18 +319,6 @@ enum Error stage2_detect_native_paths(struct Stage2NativePaths *native_paths) {
     native_paths->warnings_len = 0;
 
     return ErrorNone;
-}
-
-void stage2_clang_arg_iterator(struct Stage2ClangArgIterator *it,
-        size_t argc, char **argv)
-{
-    const char *msg = "stage0 called stage2_clang_arg_iterator";
-    stage2_panic(msg, strlen(msg));
-}
-
-enum Error stage2_clang_arg_next(struct Stage2ClangArgIterator *it) {
-    const char *msg = "stage0 called stage2_clang_arg_next";
-    stage2_panic(msg, strlen(msg));
 }
 
 const bool stage2_is_zig0 = true;
