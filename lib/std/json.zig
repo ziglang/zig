@@ -1485,20 +1485,11 @@ fn parseInternal(comptime T: type, token: Token, tokens: *TokenStream, options: 
                                 }
                                 const parsed_value = try parse(field.field_type, tokens, options);
                                 if (!field.is_comptime) {
-                                  @field(r, field.name) = parsed_value;
+                                    @field(r, field.name) = parsed_value;
                                 } else {
-                                  // As we never set the field to the parsed value, make sure we free it.
-                                  defer parseFree(field.field_type, parsed_value, options);
-                                  // We have a comptime field. We need to check the value supplied in the
-                                  // json matches what the comptime value is.
-                                  if (field.default_value) |default| {
-                                    switch (@typeInfo(field.field_type)) {
-                                      .Bool, .Int, .Float => if (parsed_value != default) return error.ParsedValueNotDefault,
-                                      .Pointer => |pointerInfo| if (!mem.eql(pointerInfo.child, parsed_value, default)) return error.ParsedValueNotDefault,
-                                      .Array => |arrayInfo| if (!mem.eql(arrayInfo.child, &parsed_value, &default)) return error.ParsedValueNotDefault,
-                                      else => {},
-                                    }
-                                  }
+                                    // As we never set the field to the parsed value, make sure we free it.
+                                    defer parseFree(field.field_type, parsed_value, options);
+                                    try validateComptimeStructField(field.field_type, field, parsed_value, options);
                                 }
                                 fields_seen[i] = true;
                                 found = true;
@@ -1668,6 +1659,24 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
     }
 }
 
+// validateComptimeStructField checks that the parsed value of a comptime
+// struct field matches what we're expecting.
+fn validateComptimeStructField(comptime T: type, field: std.builtin.TypeInfo.StructField, value: T, options: ParseOptions) !void {
+    if (field.default_value) |default| {
+        switch (@typeInfo(field.field_type)) {
+          .Bool, .Int, .Float => if (value != default) return error.ParsedValueNotDefault,
+          .Pointer => |pointerInfo| if (!mem.eql(pointerInfo.child, value, default)) return error.ParsedValueNotDefault,
+          .Array => |arrayInfo| if (!mem.eql(arrayInfo.child, &value, &default)) return error.ParsedValueNotDefault,
+          .Struct => |structInfo| {
+            inline for (structInfo.fields) |structField| {
+              try validateComptimeStructField(structField.field_type, structField, @field(value, structField.name), options);
+            }
+          },
+          else => {},
+        }
+    }
+}
+
 test "parse" {
     testing.expectEqual(false, try parse(bool, &TokenStream.init("false"), ParseOptions{}));
     testing.expectEqual(true, try parse(bool, &TokenStream.init("true"), ParseOptions{}));
@@ -1806,6 +1815,57 @@ test "parse comptime struct fields" {
         };
         testing.expectEqual(T{ .array = undefined }, try parse(T, &TokenStream.init("{\"array\": [1,2,3]}"), ParseOptions{}));
         testing.expectError(error.ParsedValueNotDefault, parse(T, &TokenStream.init("{\"array\": [1,2,4]}"), ParseOptions{}));
+    }
+    {
+        // If we have comptime on a child field but not higher up y is fixed and must always be 6 but x can vary
+        const T = struct {
+            structure: struct { x: i32, comptime y: i32 = 6 } = undefined,
+        };
+        const r1 = try parse(T, &TokenStream.init("{\"structure\": {\"x\": 5, \"y\": 6}}"), ParseOptions{});
+        testing.expectEqual(r1.structure.x, 5);
+        testing.expectEqual(r1.structure.y, 6);
+        const r2 = try parse(T, &TokenStream.init("{\"structure\": {\"x\": 15, \"y\": 6}}"), ParseOptions{});
+        testing.expectEqual(r2.structure.x, 15);
+        testing.expectEqual(r2.structure.y, 6);
+        testing.expectError(error.ParsedValueNotDefault, parse(T, &TokenStream.init("{\"structure\": {\"x\": 5, \"y\": 7}}"), ParseOptions{}));
+
+        const U = struct {
+            comptime structure: struct { x: i32 = 5, comptime y: i32 = 6 } = .{ .x = 5, .y = 6 },
+        };
+        const s1 = try parse(U, &TokenStream.init("{\"structure\": {\"x\": 5, \"y\": 6}}"), ParseOptions{});
+        testing.expectEqual(s1.structure.x, 5);
+        testing.expectEqual(s1.structure.y, 6);
+        testing.expectError(error.ParsedValueNotDefault, parse(U, &TokenStream.init("{\"structure\": {\"x\": 15, \"y\": 6}}"), ParseOptions{}));
+        testing.expectError(error.ParsedValueNotDefault, parse(U, &TokenStream.init("{\"structure\": {\"x\": 5, \"y\": 7}}"), ParseOptions{}));   
+    }
+    {
+        const options = ParseOptions{ .allocator = testing.allocator };
+
+        // Field x is not fixed by comptime, only field y needs to "world" in the json to parse
+        const T = struct {
+            structure: struct { x: []const u8 = "hello", comptime y: []const u8 = "world" } = .{ .x = "right_hand_hello", .y = "world" },
+        };
+        const r1 = try parse(T, &TokenStream.init("{\"structure\": {\"x\": \"hello\", \"y\": \"world\"}}"), options);
+        defer parseFree(T, r1, options);
+        testing.expectEqualStrings(r1.structure.x, "hello");
+        testing.expectEqualStrings(r1.structure.y, "world");
+
+        const r2 = try parse(T, &TokenStream.init("{\"structure\": {\"x\": \"bye\", \"y\": \"world\"}}"), options);
+        defer parseFree(T, r2, options);
+        testing.expectEqualStrings(r2.structure.x, "bye");
+        testing.expectEqualStrings(r2.structure.y, "world");
+        testing.expectError(error.ParsedValueNotDefault, parse(T, &TokenStream.init("{\"structure\": {\"x\": \"hello\", \"y\": \"universe\"}}"), options));
+
+        // Field x is fixed by comptime, i.e. we only parse if x field in json is "hello" and y field is "world"
+        const U = struct {
+            comptime structure: struct { x: []const u8 = "hello", comptime y: []const u8 = "world" } = .{ .x = "right_hand_hello", .y = "world" },
+        };
+        const s1 = try parse(U, &TokenStream.init("{\"structure\": {\"x\": \"hello\", \"y\": \"world\"}}"), options);
+        // This correctly parses (i.e. doesn't return error.ParsedValueNotDefault) but the actual value is as set by the rhs above
+        testing.expectEqualStrings(s1.structure.x, "right_hand_hello");
+        testing.expectEqualStrings(s1.structure.y, "world");
+        testing.expectError(error.ParsedValueNotDefault, parse(U, &TokenStream.init("{\"structure\": {\"x\": \"bye\", \"y\": \"world\"}}"), options));
+        testing.expectError(error.ParsedValueNotDefault, parse(U, &TokenStream.init("{\"structure\": {\"x\": \"hello\", \"y\": \"universe\"}}"), options));
     }
 }
 
