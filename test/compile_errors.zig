@@ -176,11 +176,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         "tmp.zig:2:17: error: expected type 'u32', found 'error{Ohno}'",
         "tmp.zig:1:17: note: function cannot return an error",
-        "tmp.zig:8:5: error: expected type 'void', found '@TypeOf(bar).ReturnType.ErrorSet'",
+        "tmp.zig:8:5: error: expected type 'void', found '@typeInfo(@typeInfo(@TypeOf(bar)).Fn.return_type.?).ErrorUnion.error_set'",
         "tmp.zig:7:17: note: function cannot return an error",
-        "tmp.zig:11:15: error: expected type 'u32', found '@TypeOf(bar).ReturnType.ErrorSet!u32'",
+        "tmp.zig:11:15: error: expected type 'u32', found '@typeInfo(@typeInfo(@TypeOf(bar)).Fn.return_type.?).ErrorUnion.error_set!u32'",
         "tmp.zig:10:17: note: function cannot return an error",
-        "tmp.zig:15:14: error: expected type 'u32', found '@TypeOf(bar).ReturnType.ErrorSet!u32'",
+        "tmp.zig:15:14: error: expected type 'u32', found '@typeInfo(@typeInfo(@TypeOf(bar)).Fn.return_type.?).ErrorUnion.error_set!u32'",
         "tmp.zig:14:5: note: cannot store an error in type 'u32'",
     });
 
@@ -1224,7 +1224,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    };
         \\}
     , &[_][]const u8{
-        "tmp.zig:11:25: error: expected type 'u32', found '@TypeOf(get_uval).ReturnType.ErrorSet!u32'",
+        "tmp.zig:11:25: error: expected type 'u32', found '@typeInfo(@typeInfo(@TypeOf(get_uval)).Fn.return_type.?).ErrorUnion.error_set!u32'",
     });
 
     cases.add("assigning to struct or union fields that are not optionals with a function that returns an optional",
@@ -1929,7 +1929,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const info = @TypeOf(slice).unknown;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:32: error: type '[]i32' does not support field access",
+        "tmp.zig:3:32: error: type 'type' does not support field access",
     });
 
     cases.add("peer cast then implicit cast const pointer to mutable C pointer",
@@ -3542,7 +3542,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:14: error: duplicate switch value: '@TypeOf(foo).ReturnType.ErrorSet.Foo'",
+        "tmp.zig:5:14: error: duplicate switch value: '@typeInfo(@typeInfo(@TypeOf(foo)).Fn.return_type.?).ErrorUnion.error_set.Foo'",
         "tmp.zig:3:14: note: other value is here",
     });
 
@@ -3674,7 +3674,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    try foo();
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: cannot resolve inferred error set '@TypeOf(foo).ReturnType.ErrorSet': function 'foo' not fully analyzed yet",
+        "tmp.zig:5:5: error: cannot resolve inferred error set '@typeInfo(@typeInfo(@TypeOf(foo)).Fn.return_type.?).ErrorUnion.error_set': function 'foo' not fully analyzed yet",
     });
 
     cases.add("implicit cast of error set not a subset",
@@ -7204,15 +7204,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     , &[_][]const u8{
         "tmp.zig:7:24: error: accessing union field 'Bar' while field 'Baz' is set",
-    });
-
-    cases.add("getting return type of generic function",
-        \\fn generic(a: anytype) void {}
-        \\comptime {
-        \\    _ = @TypeOf(generic).ReturnType;
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:3:25: error: ReturnType has not been resolved because 'fn(anytype) anytype' is generic",
     });
 
     cases.add("unsupported modifier at start of asm output constraint",
