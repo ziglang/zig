@@ -83,7 +83,7 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 ///
 /// A user type may be a `struct`, `vector`, `union` or `enum` type.
 ///
-/// To print literal curly braces, escape them by writing them twice, eg `{{` or `}}`.
+/// To print literal curly braces, escape them by writing them twice, e.g. `{{` or `}}`.
 pub fn format(
     writer: anytype,
     comptime fmt: []const u8,
