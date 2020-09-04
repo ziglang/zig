@@ -1457,7 +1457,10 @@ pub const Dir = struct {
         var file = try self.openFile(file_path, .{});
         defer file.close();
 
-        const stat_size = size_hint orelse try file.getEndPos();
+        // If the file size doesn't fit a usize it'll be certainly greater than
+        // `max_bytes`
+        const stat_size = size_hint orelse math.cast(usize, try file.getEndPos()) catch
+            return error.FileTooBig;
 
         return file.readToEndAllocOptions(allocator, max_bytes, stat_size, alignment, optional_sentinel);
     }
