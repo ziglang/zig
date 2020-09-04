@@ -46,6 +46,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
                         ??struct_field.field_type,
                         @as(?struct_field.field_type, null),
                     ),
+                    .is_comptime = false,
                 };
             }
             break :blk @Type(.{

@@ -29,7 +29,7 @@ const is_mips = builtin.arch.isMIPS();
 
 pub const pid_t = i32;
 pub const fd_t = i32;
-pub const uid_t = i32;
+pub const uid_t = u32;
 pub const gid_t = u32;
 pub const clock_t = isize;
 
@@ -853,7 +853,7 @@ pub const signalfd_siginfo = extern struct {
     errno: i32,
     code: i32,
     pid: u32,
-    uid: u32,
+    uid: uid_t,
     fd: i32,
     tid: u32,
     band: u32,
@@ -1491,10 +1491,10 @@ pub const Statx = extern struct {
     nlink: u32,
 
     /// User ID of owner
-    uid: u32,
+    uid: uid_t,
 
     /// Group ID of owner
-    gid: u32,
+    gid: gid_t,
 
     /// File type and mode
     mode: u16,

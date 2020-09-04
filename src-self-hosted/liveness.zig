@@ -15,7 +15,7 @@ pub fn analyze(
 
     var table = std.AutoHashMap(*ir.Inst, void).init(gpa);
     defer table.deinit();
-    try table.ensureCapacity(body.instructions.len);
+    try table.ensureCapacity(@intCast(u32, body.instructions.len));
     try analyzeWithTable(arena, &table, null, body);
 }
 
@@ -84,8 +84,11 @@ fn analyzeInst(
             try analyzeWithTable(arena, table, &then_table, inst.then_body);
 
             // Reset the table back to its state from before the branch.
-            for (then_table.items()) |entry| {
-                table.removeAssertDiscard(entry.key);
+            {
+                var it = then_table.iterator();
+                while (it.next()) |entry| {
+                    table.removeAssertDiscard(entry.key);
+                }
             }
 
             var else_table = std.AutoHashMap(*ir.Inst, void).init(table.allocator);
@@ -97,28 +100,36 @@ fn analyzeInst(
             var else_entry_deaths = std.ArrayList(*ir.Inst).init(table.allocator);
             defer else_entry_deaths.deinit();
 
-            for (else_table.items()) |entry| {
-                const else_death = entry.key;
-                if (!then_table.contains(else_death)) {
-                    try then_entry_deaths.append(else_death);
+            {
+                var it = else_table.iterator();
+                while (it.next()) |entry| {
+                    const else_death = entry.key;
+                    if (!then_table.contains(else_death)) {
+                        try then_entry_deaths.append(else_death);
+                    }
                 }
             }
             // This loop is the same, except it's for the then branch, and it additionally
             // has to put its items back into the table to undo the reset.
-            for (then_table.items()) |entry| {
-                const then_death = entry.key;
-                if (!else_table.contains(then_death)) {
-                    try else_entry_deaths.append(then_death);
+            {
+                var it = then_table.iterator();
+                while (it.next()) |entry| {
+                    const then_death = entry.key;
+                    if (!else_table.contains(then_death)) {
+                        try else_entry_deaths.append(then_death);
+                    }
+                    _ = try table.put(then_death, {});
                 }
-                _ = try table.put(then_death, {});
             }
             // Now we have to correctly populate new_set.
             if (new_set) |ns| {
-                try ns.ensureCapacity(ns.items().len + then_table.items().len + else_table.items().len);
-                for (then_table.items()) |entry| {
+                try ns.ensureCapacity(@intCast(u32, ns.count() + then_table.count() + else_table.count()));
+                var it = then_table.iterator();
+                while (it.next()) |entry| {
                     _ = ns.putAssumeCapacity(entry.key, {});
                 }
-                for (else_table.items()) |entry| {
+                it = else_table.iterator();
+                while (it.next()) |entry| {
                     _ = ns.putAssumeCapacity(entry.key, {});
                 }
             }

@@ -26,6 +26,8 @@ if(ZIG_PREFER_CLANG_CPP_DYLIB)
       LLVM
     PATHS
       ${LLVM_LIBDIRS}
+      /usr/lib/llvm/11/lib
+      /usr/lib/llvm/11/lib64
       /usr/lib/llvm-11/lib
       /usr/local/llvm11/lib
       /usr/local/llvm110/lib

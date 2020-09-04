@@ -418,3 +418,9 @@ test "Struct.is_tuple" {
     expect(@typeInfo(@TypeOf(.{0})).Struct.is_tuple);
     expect(!@typeInfo(@TypeOf(.{ .a = 0 })).Struct.is_tuple);
 }
+
+test "StructField.is_comptime" {
+    const info = @typeInfo(struct { x: u8 = 3, comptime y: u32 = 5 }).Struct;
+    expect(!info.fields[0].is_comptime);
+    expect(info.fields[1].is_comptime);
+}

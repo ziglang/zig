@@ -31,7 +31,10 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .arg => return analyzeInstArg(mod, scope, old_inst.castTag(.arg).?),
         .bitcast_ref => return analyzeInstBitCastRef(mod, scope, old_inst.castTag(.bitcast_ref).?),
         .bitcast_result_ptr => return analyzeInstBitCastResultPtr(mod, scope, old_inst.castTag(.bitcast_result_ptr).?),
-        .block => return analyzeInstBlock(mod, scope, old_inst.castTag(.block).?),
+        .block => return analyzeInstBlock(mod, scope, old_inst.castTag(.block).?, false),
+        .block_comptime => return analyzeInstBlock(mod, scope, old_inst.castTag(.block_comptime).?, true),
+        .block_flat => return analyzeInstBlockFlat(mod, scope, old_inst.castTag(.block_flat).?, false),
+        .block_comptime_flat => return analyzeInstBlockFlat(mod, scope, old_inst.castTag(.block_comptime_flat).?, true),
         .@"break" => return analyzeInstBreak(mod, scope, old_inst.castTag(.@"break").?),
         .breakpoint => return analyzeInstBreakpoint(mod, scope, old_inst.castTag(.breakpoint).?),
         .breakvoid => return analyzeInstBreakVoid(mod, scope, old_inst.castTag(.breakvoid).?),
@@ -129,6 +132,8 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .error_union_type => return analyzeInstErrorUnionType(mod, scope, old_inst.castTag(.error_union_type).?),
         .anyframe_type => return analyzeInstAnyframeType(mod, scope, old_inst.castTag(.anyframe_type).?),
         .error_set => return analyzeInstErrorSet(mod, scope, old_inst.castTag(.error_set).?),
+        .slice => return analyzeInstSlice(mod, scope, old_inst.castTag(.slice).?),
+        .slice_start => return analyzeInstSliceStart(mod, scope, old_inst.castTag(.slice_start).?),
     }
 }
 
@@ -147,17 +152,16 @@ pub fn analyzeBody(mod: *Module, scope: *Scope, body: zir.Module.Body) !void {
     }
 }
 
-pub fn analyzeBodyValueAsType(mod: *Module, block_scope: *Scope.Block, body: zir.Module.Body) !Type {
+pub fn analyzeBodyValueAsType(
+    mod: *Module,
+    block_scope: *Scope.Block,
+    zir_result_inst: *zir.Inst,
+    body: zir.Module.Body,
+) !Type {
     try analyzeBody(mod, &block_scope.base, body);
-    for (block_scope.instructions.items) |inst| {
-        if (inst.castTag(.ret)) |ret| {
-            const val = try mod.resolveConstValue(&block_scope.base, ret.operand);
-            return val.toType(block_scope.base.arena());
-        } else {
-            return mod.fail(&block_scope.base, inst.src, "unable to resolve comptime value", .{});
-        }
-    }
-    unreachable;
+    const result_inst = zir_result_inst.analyzed_inst.?;
+    const val = try mod.resolveConstValue(&block_scope.base, result_inst);
+    return val.toType(block_scope.base.arena());
 }
 
 pub fn analyzeZirDecl(mod: *Module, decl: *Decl, src_decl: *zir.Decl) InnerError!bool {
@@ -362,7 +366,7 @@ fn analyzeInstRef(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!
 }
 
 fn analyzeInstRetType(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
-    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    const b = try mod.requireFunctionBlock(scope, inst.base.src);
     const fn_ty = b.func.?.owner_decl.typed_value.most_recent.typed_value.ty;
     const ret_type = fn_ty.fnReturnType();
     return mod.constType(scope, inst.base.src, ret_type);
@@ -517,6 +521,7 @@ fn analyzeInstLoop(mod: *Module, scope: *Scope, inst: *zir.Inst.Loop) InnerError
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
+        .is_comptime = parent_block.is_comptime,
     };
     defer child_block.instructions.deinit(mod.gpa);
 
@@ -529,7 +534,29 @@ fn analyzeInstLoop(mod: *Module, scope: *Scope, inst: *zir.Inst.Loop) InnerError
     return &loop_inst.base;
 }
 
-fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerError!*Inst {
+fn analyzeInstBlockFlat(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_comptime: bool) InnerError!*Inst {
+    const parent_block = scope.cast(Scope.Block).?;
+
+    var child_block: Scope.Block = .{
+        .parent = parent_block,
+        .func = parent_block.func,
+        .decl = parent_block.decl,
+        .instructions = .{},
+        .arena = parent_block.arena,
+        .label = null,
+        .is_comptime = parent_block.is_comptime or is_comptime,
+    };
+    defer child_block.instructions.deinit(mod.gpa);
+
+    try analyzeBody(mod, &child_block.base, inst.positionals.body);
+
+    const copied_instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items);
+    try parent_block.instructions.appendSlice(mod.gpa, copied_instructions);
+
+    return copied_instructions[copied_instructions.len - 1];
+}
+
+fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_comptime: bool) InnerError!*Inst {
     const parent_block = scope.cast(Scope.Block).?;
 
     // Reserve space for a Block instruction so that generated Break instructions can
@@ -557,6 +584,7 @@ fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerErr
             .results = .{},
             .block_inst = block_inst,
         }),
+        .is_comptime = is_comptime or parent_block.is_comptime,
     };
     const label = &child_block.label.?;
 
@@ -568,6 +596,28 @@ fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block) InnerErr
     // Blocks must terminate with noreturn instruction.
     assert(child_block.instructions.items.len != 0);
     assert(child_block.instructions.items[child_block.instructions.items.len - 1].ty.isNoReturn());
+
+    if (label.results.items.len == 0) {
+        // No need for a block instruction. We can put the new instructions directly into the parent block.
+        const copied_instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items);
+        try parent_block.instructions.appendSlice(mod.gpa, copied_instructions);
+        return copied_instructions[copied_instructions.len - 1];
+    }
+    if (label.results.items.len == 1) {
+        const last_inst_index = child_block.instructions.items.len - 1;
+        const last_inst = child_block.instructions.items[last_inst_index];
+        if (last_inst.breakBlock()) |br_block| {
+            if (br_block == block_inst) {
+                // No need for a block instruction. We can put the new instructions directly into the parent block.
+                // Here we omit the break instruction.
+                const copied_instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items[0..last_inst_index]);
+                try parent_block.instructions.appendSlice(mod.gpa, copied_instructions);
+                return label.results.items[0];
+            }
+        }
+    }
+    // It should be impossible to have the number of results be > 1 in a comptime scope.
+    assert(!child_block.is_comptime); // We should have already got a compile error in the condbr condition.
 
     // Need to set the type and emit the Block instruction. This allows machine code generation
     // to emit a jump instruction to after the block when it encounters the break.
@@ -595,8 +645,12 @@ fn analyzeInstBreakVoid(mod: *Module, scope: *Scope, inst: *zir.Inst.BreakVoid) 
 }
 
 fn analyzeInstDbgStmt(mod: *Module, scope: *Scope, inst: *zir.Inst.NoOp) InnerError!*Inst {
-    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
-    return mod.addNoOp(b, inst.base.src, Type.initTag(.void), .dbg_stmt);
+    if (scope.cast(Scope.Block)) |b| {
+        if (!b.is_comptime) {
+            return mod.addNoOp(b, inst.base.src, Type.initTag(.void), .dbg_stmt);
+        }
+    }
+    return mod.constVoid(scope, inst.base.src);
 }
 
 fn analyzeInstDeclRefStr(mod: *Module, scope: *Scope, inst: *zir.Inst.DeclRefStr) InnerError!*Inst {
@@ -764,7 +818,7 @@ fn analyzeInstErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) In
         .fields = .{},
         .decl = undefined, // populated below
     };
-    try payload.fields.ensureCapacity(&new_decl_arena.allocator, inst.positionals.fields.len);
+    try payload.fields.ensureCapacity(&new_decl_arena.allocator, @intCast(u32, inst.positionals.fields.len));
 
     for (inst.positionals.fields) |field_name| {
         const entry = try mod.getErrorValue(field_name);
@@ -1083,7 +1137,7 @@ fn analyzeInstElemPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) Inne
     const array_ptr = try resolveInst(mod, scope, inst.positionals.array_ptr);
     const uncasted_index = try resolveInst(mod, scope, inst.positionals.index);
     const elem_index = try mod.coerce(scope, Type.initTag(.usize), uncasted_index);
-    
+
     const elem_ty = switch (array_ptr.ty.zigTypeTag()) {
         .Pointer => array_ptr.ty.elemType(),
         else => return mod.fail(scope, inst.positionals.array_ptr.src, "expected pointer, found '{}'", .{array_ptr.ty}),
@@ -1118,6 +1172,22 @@ fn analyzeInstElemPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) Inne
     }
 
     return mod.fail(scope, inst.base.src, "TODO implement more analyze elemptr", .{});
+}
+
+fn analyzeInstSlice(mod: *Module, scope: *Scope, inst: *zir.Inst.Slice) InnerError!*Inst {
+    const array_ptr = try resolveInst(mod, scope, inst.positionals.array_ptr);
+    const start = try resolveInst(mod, scope, inst.positionals.start);
+    const end = if (inst.kw_args.end) |end| try resolveInst(mod, scope, end) else null;
+    const sentinel = if (inst.kw_args.sentinel) |sentinel| try resolveInst(mod, scope, sentinel) else null;
+
+    return mod.analyzeSlice(scope, inst.base.src, array_ptr, start, end, sentinel);
+}
+
+fn analyzeInstSliceStart(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const array_ptr = try resolveInst(mod, scope, inst.positionals.lhs);
+    const start = try resolveInst(mod, scope, inst.positionals.rhs);
+
+    return mod.analyzeSlice(scope, inst.base.src, array_ptr, start, null, null);
 }
 
 fn analyzeInstShl(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
@@ -1187,6 +1257,12 @@ fn analyzeInstArithmetic(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) Inn
 
     if (casted_lhs.value()) |lhs_val| {
         if (casted_rhs.value()) |rhs_val| {
+            if (lhs_val.isUndef() or rhs_val.isUndef()) {
+                return mod.constInst(scope, inst.base.src, .{
+                    .ty = resolved_type,
+                    .val = Value.initTag(.undef),
+                });
+            }
             return analyzeInstComptimeOp(mod, scope, scalar_type, inst, lhs_val, rhs_val);
         }
     }
@@ -1376,6 +1452,7 @@ fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerE
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
+        .is_comptime = parent_block.is_comptime,
     };
     defer true_block.instructions.deinit(mod.gpa);
     try analyzeBody(mod, &true_block.base, inst.positionals.then_body);
@@ -1386,6 +1463,7 @@ fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerE
         .decl = parent_block.decl,
         .instructions = .{},
         .arena = parent_block.arena,
+        .is_comptime = parent_block.is_comptime,
     };
     defer false_block.instructions.deinit(mod.gpa);
     try analyzeBody(mod, &false_block.base, inst.positionals.else_body);

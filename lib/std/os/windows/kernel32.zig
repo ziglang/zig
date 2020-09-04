@@ -287,3 +287,5 @@ pub extern "kernel32" fn K32GetWsChangesEx(hProcess: HANDLE, lpWatchInfoEx: PPSA
 pub extern "kernel32" fn K32InitializeProcessForWsWatch(hProcess: HANDLE) callconv(.Stdcall) BOOL;
 pub extern "kernel32" fn K32QueryWorkingSet(hProcess: HANDLE, pv: PVOID, cb: DWORD) callconv(.Stdcall) BOOL;
 pub extern "kernel32" fn K32QueryWorkingSetEx(hProcess: HANDLE, pv: PVOID, cb: DWORD) callconv(.Stdcall) BOOL;
+
+pub extern "kernel32" fn FlushFileBuffers(hFile: HANDLE) callconv(.Stdcall) BOOL;

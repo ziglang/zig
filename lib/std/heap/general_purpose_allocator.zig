@@ -325,7 +325,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                         break;
                 }
             }
-            for (self.large_allocations.items()) |*large_alloc| {
+            var it = self.large_allocations.iterator();
+            while (it.next()) |large_alloc| {
                 log.err("Memory leak detected: {}", .{large_alloc.value.getStackTrace()});
                 leaks = true;
             }
@@ -584,7 +585,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             if (new_aligned_size > largest_bucket_object_size) {
                 try self.large_allocations.ensureCapacity(
                     self.backing_allocator,
-                    self.large_allocations.entries.items.len + 1,
+                    self.large_allocations.count() + 1,
                 );
 
                 const slice = try self.backing_allocator.allocFn(self.backing_allocator, len, ptr_align, len_align, ret_addr);

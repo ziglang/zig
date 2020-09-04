@@ -20,7 +20,8 @@ pub const BufSet = struct {
     }
 
     pub fn deinit(self: *BufSet) void {
-        for (self.hash_map.items()) |entry| {
+        var it = self.hash_map.iterator();
+        while (it.next()) |entry| {
             self.free(entry.key);
         }
         self.hash_map.deinit();

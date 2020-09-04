@@ -15342,9 +15342,14 @@ static IrInstGen *ir_analyze_cast(IrAnalyze *ira, IrInst *source_instr,
         ZigType *array_type = actual_type->data.pointer.child_type;
         bool const_ok = (slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0
                 || !actual_type->data.pointer.is_const);
+
         if (const_ok && types_match_const_cast_only(ira, slice_ptr_type->data.pointer.child_type,
             array_type->data.array.child_type, source_node,
-            !slice_ptr_type->data.pointer.is_const).id == ConstCastResultIdOk)
+            !slice_ptr_type->data.pointer.is_const).id == ConstCastResultIdOk &&
+            (slice_ptr_type->data.pointer.sentinel == nullptr ||
+             (array_type->data.array.sentinel != nullptr &&
+              const_values_equal(ira->codegen, array_type->data.array.sentinel,
+                  slice_ptr_type->data.pointer.sentinel))))
         {
             // If the pointers both have ABI align, it works.
             // Or if the array length is 0, alignment doesn't matter.
@@ -25684,6 +25689,10 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                     }
                     set_optional_payload(inner_fields[2], struct_field->init_val);
 
+                    inner_fields[3]->special = ConstValSpecialStatic;
+                    inner_fields[3]->type = ira->codegen->builtin_types.entry_bool;
+                    inner_fields[3]->data.x_bool = struct_field->is_comptime;
+
                     ZigValue *name = create_const_str_lit(ira->codegen, struct_field->name)->data.x_ptr.data.ref.pointee;
                     init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(struct_field->name), true);
 
@@ -26292,6 +26301,8 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
                             buf_ptr(&field->type_entry->name), buf_ptr(&field->type_entry->name)));
                     return ira->codegen->invalid_inst_gen->value->type;
                 }
+                if ((err = get_const_field_bool(ira, source_instr->source_node, field_value, "is_comptime", 3, &field->is_comptime)))
+                    return ira->codegen->invalid_inst_gen->value->type;
             }
 
             return entry;

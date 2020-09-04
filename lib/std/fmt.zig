@@ -66,6 +66,7 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 ///   - output numeric value in hexadecimal notation
 /// - `s`: print a pointer-to-many as a c-string, use zero-termination
 /// - `B` and `Bi`: output a memory size in either metric (1000) or power-of-two (1024) based notation. works for both float and integer values.
+/// - `e` and `E`: if printing a string, escape non-printable characters
 /// - `e`: output floating point value in scientific notation
 /// - `d`: output numeric value in decimal notation
 /// - `b`: output integer value in binary notation
@@ -597,6 +598,16 @@ pub fn formatText(
     } else if (comptime (std.mem.eql(u8, fmt, "x") or std.mem.eql(u8, fmt, "X"))) {
         for (bytes) |c| {
             try formatInt(c, 16, fmt[0] == 'X', FormatOptions{ .width = 2, .fill = '0' }, writer);
+        }
+        return;
+    } else if (comptime (std.mem.eql(u8, fmt, "e") or std.mem.eql(u8, fmt, "E"))) {
+        for (bytes) |c| {
+            if (std.ascii.isPrint(c)) {
+                try writer.writeByte(c);
+            } else {
+                try writer.writeAll("\\x");
+                try formatInt(c, 16, fmt[0] == 'E', FormatOptions{ .width = 2, .fill = '0' }, writer);
+            }
         }
         return;
     } else {
@@ -1317,6 +1328,12 @@ test "slice" {
 
     try testFmt("buf: Test \n", "buf: {s:5}\n", .{"Test"});
     try testFmt("buf: Test\n Other text", "buf: {s}\n Other text", .{"Test"});
+}
+
+test "escape non-printable" {
+    try testFmt("abc", "{e}", .{"abc"});
+    try testFmt("ab\\xffc", "{e}", .{"ab\xffc"});
+    try testFmt("ab\\xFFc", "{E}", .{"ab\xffc"});
 }
 
 test "pointer" {

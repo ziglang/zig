@@ -301,15 +301,15 @@ pub const Value = extern union {
             .comptime_int_type => return out_stream.writeAll("comptime_int"),
             .comptime_float_type => return out_stream.writeAll("comptime_float"),
             .noreturn_type => return out_stream.writeAll("noreturn"),
-            .null_type => return out_stream.writeAll("@TypeOf(null)"),
-            .undefined_type => return out_stream.writeAll("@TypeOf(undefined)"),
+            .null_type => return out_stream.writeAll("@Type(.Null)"),
+            .undefined_type => return out_stream.writeAll("@Type(.Undefined)"),
             .fn_noreturn_no_args_type => return out_stream.writeAll("fn() noreturn"),
             .fn_void_no_args_type => return out_stream.writeAll("fn() void"),
             .fn_naked_noreturn_no_args_type => return out_stream.writeAll("fn() callconv(.Naked) noreturn"),
             .fn_ccc_void_no_args_type => return out_stream.writeAll("fn() callconv(.C) void"),
             .single_const_pointer_to_comptime_int_type => return out_stream.writeAll("*const comptime_int"),
             .const_slice_u8_type => return out_stream.writeAll("[]const u8"),
-            .enum_literal_type => return out_stream.writeAll("@TypeOf(.EnumLiteral)"),
+            .enum_literal_type => return out_stream.writeAll("@Type(.EnumLiteral)"),
             .anyframe_type => return out_stream.writeAll("anyframe"),
 
             .null_value => return out_stream.writeAll("null"),
@@ -358,7 +358,8 @@ pub const Value = extern union {
             .error_set => {
                 const error_set = val.cast(Payload.ErrorSet).?;
                 try out_stream.writeAll("error{");
-                for (error_set.fields.items()) |entry| {
+                var it = error_set.fields.iterator();
+                while (it.next()) |entry| {
                     try out_stream.print("{},", .{entry.value});
                 }
                 return out_stream.writeAll("}");

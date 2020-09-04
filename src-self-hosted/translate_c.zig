@@ -19,23 +19,9 @@ pub const Error = error{OutOfMemory};
 const TypeError = Error || error{UnsupportedType};
 const TransError = TypeError || error{UnsupportedTranslation};
 
-const DeclTable = std.HashMap(usize, []const u8, addrHash, addrEql, false);
+const DeclTable = std.AutoArrayHashMap(usize, []const u8);
 
-fn addrHash(x: usize) u32 {
-    switch (@typeInfo(usize).Int.bits) {
-        32 => return x,
-        // pointers are usually aligned so we ignore the bits that are probably all 0 anyway
-        // usually the larger bits of addr space are unused so we just chop em off
-        64 => return @truncate(u32, x >> 4),
-        else => @compileError("unreachable"),
-    }
-}
-
-fn addrEql(a: usize, b: usize) bool {
-    return a == b;
-}
-
-const SymbolTable = std.StringHashMap(*ast.Node);
+const SymbolTable = std.StringArrayHashMap(*ast.Node);
 const AliasList = std.ArrayList(struct {
     alias: []const u8,
     name: []const u8,
@@ -285,7 +271,7 @@ pub const Context = struct {
     /// a list of names that we found by visiting all the top level decls without
     /// translating them. The other maps are updated as we translate; this one is updated
     /// up front in a pre-processing step.
-    global_names: std.StringHashMap(void),
+    global_names: std.StringArrayHashMap(void),
 
     fn getMangle(c: *Context) u32 {
         c.mangle_count += 1;
@@ -380,7 +366,7 @@ pub fn translate(
         .alias_list = AliasList.init(gpa),
         .global_scope = try arena.allocator.create(Scope.Root),
         .clang_context = ZigClangASTUnit_getASTContext(ast_unit).?,
-        .global_names = std.StringHashMap(void).init(gpa),
+        .global_names = std.StringArrayHashMap(void).init(gpa),
         .token_ids = .{},
         .token_locs = .{},
         .errors = .{},
@@ -6424,7 +6410,8 @@ fn getFnProto(c: *Context, ref: *ast.Node) ?*ast.Node.FnProto {
 }
 
 fn addMacros(c: *Context) !void {
-    for (c.global_scope.macro_table.items()) |kv| {
+    var it = c.global_scope.macro_table.iterator();
+    while (it.next()) |kv| {
         if (getFnProto(c, kv.value)) |proto_node| {
             // If a macro aliases a global variable which is a function pointer, we conclude that
             // the macro is intended to represent a function that assumes the function pointer
