@@ -68,7 +68,7 @@ pub const File = struct {
     pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: Options) !*File {
         switch (options.object_format) {
             .unknown => unreachable,
-            .coff => return Coff.openPath(allocator, dir, sub_path, options),
+            .coff, .pe => return Coff.openPath(allocator, dir, sub_path, options),
             .elf => return Elf.openPath(allocator, dir, sub_path, options),
             .macho => return MachO.openPath(allocator, dir, sub_path, options),
             .wasm => return Wasm.openPath(allocator, dir, sub_path, options),

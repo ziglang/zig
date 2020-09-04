@@ -153,8 +153,8 @@ const usage_build_generic =
     \\    elf                     Executable and Linking Format
     \\    c                       Compile to C source code
     \\    wasm                    WebAssembly
+    \\    pe                      Portable Executable (Windows)
     \\    coff   (planned)        Common Object File Format (Windows)
-    \\    pe     (planned)        Portable Executable (Windows)
     \\    macho  (planned)        macOS relocatables
     \\    hex    (planned)        Intel IHEX
     \\    raw    (planned)        Dump machine code directly
@@ -451,7 +451,7 @@ fn buildOutputType(
         } else if (mem.eql(u8, ofmt, "coff")) {
             break :blk .coff;
         } else if (mem.eql(u8, ofmt, "pe")) {
-            break :blk .coff;
+            break :blk .pe;
         } else if (mem.eql(u8, ofmt, "macho")) {
             break :blk .macho;
         } else if (mem.eql(u8, ofmt, "wasm")) {
@@ -524,10 +524,7 @@ fn buildOutputType(
             try stderr.print("\nUnable to parse command: {}\n", .{@errorName(err)});
             continue;
         }) |line| {
-            const actual_line = if (line[line.len - 1] == '\r')
-                line[0 .. line.len - 1]
-            else
-                line;
+            const actual_line = mem.trimRight(u8, line, "\r\n ");
 
             if (mem.eql(u8, actual_line, "update")) {
                 if (output_mode == .Exe) {
