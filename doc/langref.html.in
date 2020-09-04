@@ -6889,7 +6889,7 @@ fn func(y: *i32) void {
       This builtin function atomically dereferences a pointer and returns the value.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
       {#header_close#}
@@ -6899,7 +6899,7 @@ fn func(y: *i32) void {
       This builtin function atomically modifies memory and then returns the previous value.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
       <p>
@@ -6925,7 +6925,7 @@ fn func(y: *i32) void {
       This builtin function atomically stores a value.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
       {#header_close#}
@@ -7208,7 +7208,7 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
       more efficiently in machine instructions.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
       <p>{#syntax#}@TypeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
@@ -7237,7 +7237,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       However if you need a stronger guarantee, use {#link|@cmpxchgStrong#}.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
       <p>{#syntax#}@TypeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>

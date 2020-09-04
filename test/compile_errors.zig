@@ -899,7 +899,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @cmpxchgWeak(f32, &x, 1, 2, .SeqCst, .SeqCst);
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:22: error: expected integer, enum or pointer type, found 'f32'",
+        "tmp.zig:3:22: error: expected bool, integer, enum or pointer type, found 'f32'",
     });
 
     cases.add("atomicrmw with float op not .Xchg, .Add or .Sub",

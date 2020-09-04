@@ -26752,7 +26752,7 @@ static IrInstGen *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstSrcCmpxch
 
     if (operand_type->id == ZigTypeIdFloat) {
         ir_add_error(ira, &instruction->type_value->child->base,
-            buf_sprintf("expected integer, enum or pointer type, found '%s'", buf_ptr(&operand_type->name)));
+            buf_sprintf("expected bool, integer, enum or pointer type, found '%s'", buf_ptr(&operand_type->name)));
         return ira->codegen->invalid_inst_gen;
     }
 
@@ -30407,7 +30407,7 @@ static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstGen *op) {
             return ira->codegen->builtin_types.entry_invalid;
         if (operand_ptr_type == nullptr) {
             ir_add_error(ira, &op->base,
-                buf_sprintf("expected integer, float, enum or pointer type, found '%s'",
+                buf_sprintf("expected bool, integer, float, enum or pointer type, found '%s'",
                     buf_ptr(&operand_type->name)));
             return ira->codegen->builtin_types.entry_invalid;
         }
