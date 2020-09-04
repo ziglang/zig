@@ -770,8 +770,16 @@ pub fn buildOutputType(
     const root_name = if (provided_name) |n| n else blk: {
         if (root_src_file) |file| {
             const basename = fs.path.basename(file);
-            var it = mem.split(basename, ".");
-            break :blk it.next() orelse basename;
+            break :blk mem.split(basename, ".").next().?;
+        } else if (c_source_files.items.len == 1) {
+            const basename = fs.path.basename(c_source_files.items[0]);
+            break :blk mem.split(basename, ".").next().?;
+        } else if (link_objects.items.len == 1) {
+            const basename = fs.path.basename(link_objects.items[0]);
+            break :blk mem.split(basename, ".").next().?;
+        } else if (emit_bin == .yes) {
+            const basename = fs.path.basename(emit_bin.yes);
+            break :blk mem.split(basename, ".").next().?;
         } else {
             fatal("--name [name] not provided and unable to infer", .{});
         }
