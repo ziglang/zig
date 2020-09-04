@@ -1820,6 +1820,9 @@ fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void {
                         try self.markOutdatedDecl(decl);
                         decl.contents_hash = contents_hash;
                     } else switch (self.bin_file.tag) {
+                        .coff => {
+                            // TODO Implement for COFF
+                        },
                         .elf => if (decl.fn_link.elf.len != 0) {
                             // TODO Look into detecting when this would be unnecessary by storing enough state
                             // in `Decl` to notice that the line number did not change.
@@ -2078,12 +2081,14 @@ fn allocateNewDecl(
         .deletion_flag = false,
         .contents_hash = contents_hash,
         .link = switch (self.bin_file.tag) {
+            .coff => .{ .coff = link.File.Coff.TextBlock.empty },
             .elf => .{ .elf = link.File.Elf.TextBlock.empty },
             .macho => .{ .macho = link.File.MachO.TextBlock.empty },
             .c => .{ .c = {} },
             .wasm => .{ .wasm = {} },
         },
         .fn_link = switch (self.bin_file.tag) {
+            .coff => .{ .coff = {} },
             .elf => .{ .elf = link.File.Elf.SrcFn.empty },
             .macho => .{ .macho = link.File.MachO.SrcFn.empty },
             .c => .{ .c = {} },
