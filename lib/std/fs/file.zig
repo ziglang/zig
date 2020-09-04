@@ -363,25 +363,29 @@ pub const File = struct {
         try os.futimens(self.handle, &times);
     }
 
+    /// Reads all the bytes from the current position to the end of the file.
     /// On success, caller owns returned buffer.
     /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
-    pub fn readAllAlloc(self: File, allocator: *mem.Allocator, max_bytes: usize) ![]u8 {
-        return self.readAllAllocOptions(allocator, max_bytes, @alignOf(u8), null);
+    pub fn readToEndAlloc(self: File, allocator: *mem.Allocator, max_bytes: usize) ![]u8 {
+        return self.readToEndAllocOptions(allocator, max_bytes, null, @alignOf(u8), null);
     }
 
+    /// Reads all the bytes from the current position to the end of the file.
     /// On success, caller owns returned buffer.
     /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
+    /// If `size_hint` is specified the initial buffer size is calculated using
+    /// that value, otherwise an arbitrary value is used instead.
     /// Allows specifying alignment and a sentinel value.
-    pub fn readAllAllocOptions(
+    pub fn readToEndAllocOptions(
         self: File,
         allocator: *mem.Allocator,
         max_bytes: usize,
+        size_hint: ?usize,
         comptime alignment: u29,
         comptime optional_sentinel: ?u8,
     ) !(if (optional_sentinel) |s| [:s]align(alignment) u8 else []align(alignment) u8) {
-        const stat_size = try self.getEndPos();
-        const size = math.cast(usize, stat_size) catch math.maxInt(usize);
-        if (size > max_bytes) return error.FileTooBig;
+        // If no size hint is provided fall back to the size=0 code path
+        const size = size_hint orelse 0;
 
         // The file size returned by stat is used as hint to set the buffer
         // size. If the reported size is zero, as it happens on Linux for files

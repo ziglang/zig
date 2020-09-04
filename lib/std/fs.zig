@@ -1437,24 +1437,29 @@ pub const Dir = struct {
     /// On success, caller owns returned buffer.
     /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
     pub fn readFileAlloc(self: Dir, allocator: *mem.Allocator, file_path: []const u8, max_bytes: usize) ![]u8 {
-        return self.readFileAllocOptions(allocator, file_path, max_bytes, @alignOf(u8), null);
+        return self.readFileAllocOptions(allocator, file_path, max_bytes, null, @alignOf(u8), null);
     }
 
     /// On success, caller owns returned buffer.
     /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
+    /// If `size_hint` is specified the initial buffer size is calculated using
+    /// that value, otherwise the effective file size is used instead.
     /// Allows specifying alignment and a sentinel value.
     pub fn readFileAllocOptions(
         self: Dir,
         allocator: *mem.Allocator,
         file_path: []const u8,
         max_bytes: usize,
+        size_hint: ?usize,
         comptime alignment: u29,
         comptime optional_sentinel: ?u8,
     ) !(if (optional_sentinel) |s| [:s]align(alignment) u8 else []align(alignment) u8) {
         var file = try self.openFile(file_path, .{});
         defer file.close();
 
-        return file.readAllAllocOptions(allocator, max_bytes, alignment, optional_sentinel);
+        const stat_size = size_hint orelse try file.getEndPos();
+
+        return file.readToEndAllocOptions(allocator, max_bytes, stat_size, alignment, optional_sentinel);
     }
 
     pub const DeleteTreeError = error{
