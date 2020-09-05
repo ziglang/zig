@@ -850,29 +850,38 @@ pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, val
 pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     return indexOfPos(T, haystack, 0, needle);
 }
-
 /// Find the index in a slice of a sub-slice, searching from the end backwards.
 /// To start looking at a different index, slice the haystack first.
-/// TODO is there even a better algorithm for this?
+// Reverse boyer-moore-horspool algorithm
 pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
-    if (needle.len > haystack.len) return null;
+    if (needle.len > haystack.len or needle.len == 0) return null;
 
-    var i: usize = haystack.len - needle.len;
-    while (true) : (i -= 1) {
-        if (mem.eql(T, haystack[i .. i + needle.len], needle)) return i;
-        if (i == 0) return null;
+    var i: usize = needle.len - 1;
+    while (i < haystack.len) {
+        const reverseIndex = haystack.len - i - 1;
+        if (indexOfScalar(T, needle, haystack[reverseIndex])) |index| {
+            const haystackIndex = reverseIndex - index;
+            if (haystackIndex + needle.len <= haystack.len and mem.eql(T, haystack[haystackIndex .. haystackIndex + needle.len], needle)) return haystackIndex;
+        }
+        i += needle.len;
     }
+
+    return null;
 }
 
-// TODO boyer-moore algorithm
+// Boyer-moore-horspool algorithm
 pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
-    if (needle.len > haystack.len) return null;
+    if (needle.len > haystack.len or needle.len == 0) return null;
 
-    var i: usize = start_index;
-    const end = haystack.len - needle.len;
-    while (i <= end) : (i += 1) {
-        if (eql(T, haystack[i .. i + needle.len], needle)) return i;
+    var i: usize = start_index + needle.len - 1;
+    while (i < haystack.len) {
+        if (lastIndexOfScalar(T, needle, haystack[i])) |index| {
+            const haystackIndex = i - index;
+            if (haystackIndex + needle.len <= haystack.len and mem.eql(T, haystack[haystackIndex .. haystackIndex + needle.len], needle)) return haystackIndex;
+        }
+        i += needle.len;
     }
+
     return null;
 }
 
