@@ -888,13 +888,13 @@ fn boyerMooreHorspoolPreprocess(pattern: []const u8, table: []usize) void {
 /// To start looking at a different index, slice the haystack first.
 // Reverse boyer-moore-horspool algorithm
 pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
-    if (haystack.len < 32 or needle.len <= 2)
+    if (!isValidAlign(T.bit_count) or haystack.len < 32 or needle.len <= 2)
         return lastIndexOfNaive(T, haystack, needle);
 
     if (needle.len > haystack.len or needle.len == 0) return null;
 
-    const haystackU8 = @bitCast([]const u8, haystack);
-    const needleU8 = @bitCast([]const u8, needle);
+    const haystackU8 = sliceAsBytes(haystack);
+    const needleU8 = sliceAsBytes(needle);
 
     var table: [256]usize = undefined;
     boyerMooreHorspoolPreprocess(needleU8, table[0..]);
@@ -911,13 +911,13 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
 
 // Boyer-moore-horspool algorithm
 pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
-    if (haystack.len < 32 or needle.len <= 2)
+    if (!isValidAlign(T.bit_count) or haystack.len < 32 or needle.len <= 2)
         return indexOfPosNaive(T, haystack, start_index, needle);
 
     if (needle.len > haystack.len or needle.len == 0) return null;
 
-    const haystackU8 = @bitCast([]const u8, haystack);
-    const needleU8 = @bitCast([]const u8, needle);
+    const haystackU8 = sliceAsBytes(haystack);
+    const needleU8 = sliceAsBytes(needle);
 
     var table: [256]usize = undefined;
     boyerMooreHorspoolPreprocess(needleU8, table[0..]);
