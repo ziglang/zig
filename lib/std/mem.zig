@@ -895,7 +895,8 @@ fn boyerMooreHorspoolPreprocess(pattern: []const u8, table: *[256]usize) void {
 /// To start looking at a different index, slice the haystack first.
 // Reverse boyer-moore-horspool algorithm
 pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
-    if (needle.len > haystack.len or needle.len == 0) return null;
+    if (needle.len > haystack.len) return null;
+    if (needle.len == 0) return haystack.len;
 
     if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 32 or needle.len <= 2)
         return lastIndexOfLinear(T, haystack, needle);
@@ -919,7 +920,8 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
 
 // Boyer-moore-horspool algorithm
 pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
-    if (needle.len > haystack.len or needle.len == 0) return null;
+    if (needle.len > haystack.len) return null;
+    if (needle.len == 0) return 0;
 
     if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 32 or needle.len <= 2)
         return indexOfPosLinear(T, haystack, start_index, needle);
@@ -944,6 +946,9 @@ test "mem.indexOf" {
     testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten", "three four").? == 8);
     testing.expect(indexOf(u8, "one two three four five six seven eight nine ten", "two two") == null);
     testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten", "two two") == null);
+
+    testing.expect(indexOf(u8, "one two three four five six seven eight nine ten", "").? == 0);
+    testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten", "").? == 48);
 
     testing.expect(indexOf(u8, "one two three four", "four").? == 14);
     testing.expect(lastIndexOf(u8, "one two three two four", "two").? == 14);
