@@ -870,7 +870,7 @@ fn indexOfPosLinear(comptime T: type, haystack: []const T, start_index: usize, n
     return null;
 }
 
-fn boyerMooreHorspoolPreprocessReverse(pattern: []const u8, table: []usize) void {
+fn boyerMooreHorspoolPreprocessReverse(pattern: []const u8, table: *[256]usize) void {
     for (table) |*c| {
         c.* = pattern.len;
     }
@@ -881,7 +881,7 @@ fn boyerMooreHorspoolPreprocessReverse(pattern: []const u8, table: []usize) void
     }
 }
 
-fn boyerMooreHorspoolPreprocess(pattern: []const u8, table: []usize) void {
+fn boyerMooreHorspoolPreprocess(pattern: []const u8, table: *[256]usize) void {
     for (table) |*c| {
         c.* = pattern.len;
     }
