@@ -7,8 +7,8 @@ const builtin = @import("builtin");
 
 pub fn _alldiv(a: i64, b: i64) callconv(.Stdcall) i64 {
     @setRuntimeSafety(builtin.is_test);
-    const s_a = a >> (i64.bit_count - 1);
-    const s_b = b >> (i64.bit_count - 1);
+    const s_a = a >> (64 - 1);
+    const s_b = b >> (64 - 1);
 
     const an = (a ^ s_a) -% s_a;
     const bn = (b ^ s_b) -% s_b;

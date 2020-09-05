@@ -93,7 +93,7 @@ pub fn format(
     if (@typeInfo(@TypeOf(args)) != .Struct) {
         @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
     }
-    if (args.len > ArgSetType.bit_count) {
+    if (args.len > @typeInfo(ArgSetType).Int.bits) {
         @compileError("32 arguments max are supported per format call");
     }
 
@@ -327,7 +327,7 @@ pub fn formatType(
     max_depth: usize,
 ) @TypeOf(writer).Error!void {
     if (comptime std.mem.eql(u8, fmt, "*")) {
-        try writer.writeAll(@typeName(@TypeOf(value).Child));
+        try writer.writeAll(@typeName(@typeInfo(@TypeOf(value)).Pointer.child));
         try writer.writeAll("@");
         try formatInt(@ptrToInt(value), 16, false, FormatOptions{}, writer);
         return;
@@ -432,12 +432,12 @@ pub fn formatType(
                     if (info.child == u8) {
                         return formatText(value, fmt, options, writer);
                     }
-                    return format(writer, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
+                    return format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) });
                 },
                 .Enum, .Union, .Struct => {
                     return formatType(value.*, fmt, options, writer, max_depth);
                 },
-                else => return format(writer, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) }),
+                else => return format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) }),
             },
             .Many, .C => {
                 if (ptr_info.sentinel) |sentinel| {
@@ -448,7 +448,7 @@ pub fn formatType(
                         return formatText(mem.span(value), fmt, options, writer);
                     }
                 }
-                return format(writer, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
+                return format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) });
             },
             .Slice => {
                 if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
@@ -538,7 +538,7 @@ pub fn formatIntValue(
         radix = 10;
         uppercase = false;
     } else if (comptime std.mem.eql(u8, fmt, "c")) {
-        if (@TypeOf(int_value).bit_count <= 8) {
+        if (@typeInfo(@TypeOf(int_value)).Int.bits <= 8) {
             return formatAsciiChar(@as(u8, int_value), options, writer);
         } else {
             @compileError("Cannot print integer that is larger than 8 bits as a ascii");
@@ -947,7 +947,7 @@ pub fn formatInt(
     } else
         value;
 
-    if (@TypeOf(int_value).is_signed) {
+    if (@typeInfo(@TypeOf(int_value)).Int.is_signed) {
         return formatIntSigned(int_value, base, uppercase, options, writer);
     } else {
         return formatIntUnsigned(int_value, base, uppercase, options, writer);
@@ -989,9 +989,10 @@ fn formatIntUnsigned(
     writer: anytype,
 ) !void {
     assert(base >= 2);
-    var buf: [math.max(@TypeOf(value).bit_count, 1)]u8 = undefined;
-    const min_int_bits = comptime math.max(@TypeOf(value).bit_count, @TypeOf(base).bit_count);
-    const MinInt = std.meta.Int(@TypeOf(value).is_signed, min_int_bits);
+    const value_info = @typeInfo(@TypeOf(value)).Int;
+    var buf: [math.max(value_info.bits, 1)]u8 = undefined;
+    const min_int_bits = comptime math.max(value_info.bits, @typeInfo(@TypeOf(base)).Int.bits);
+    const MinInt = std.meta.Int(value_info.is_signed, min_int_bits);
     var a: MinInt = value;
     var index: usize = buf.len;
 

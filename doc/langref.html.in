@@ -2156,7 +2156,7 @@ test "pointer casting" {
 
 test "pointer child type" {
     // pointer types have a `child` field which tells you the type they point to.
-    assert((*u32).Child == u32);
+    assert(@typeInfo(*u32).Pointer.child == u32);
 }
       {#code_end#}
       {#header_open|Alignment#}
@@ -2184,7 +2184,7 @@ test "variable alignment" {
     assert(@TypeOf(&x) == *i32);
     assert(*i32 == *align(align_of_i32) i32);
     if (std.Target.current.cpu.arch == .x86_64) {
-        assert((*i32).alignment == 4);
+        assert(@typeInfo(*i32).Pointer.alignment == 4);
     }
 }
       {#code_end#}
@@ -2202,7 +2202,7 @@ const assert = @import("std").debug.assert;
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
-    assert(@TypeOf(&foo).alignment == 4);
+    assert(@typeInfo(@TypeOf(&foo)).Pointer.alignment == 4);
     assert(@TypeOf(&foo) == *align(4) u8);
     const as_pointer_to_array: *[1]u8 = &foo;
     const as_slice: []u8 = as_pointer_to_array;
@@ -4310,8 +4310,8 @@ test "fn type inference" {
 const assert = @import("std").debug.assert;
 
 test "fn reflection" {
-    assert(@TypeOf(assert).ReturnType == void);
-    assert(@TypeOf(assert).is_var_args == false);
+    assert(@typeInfo(@TypeOf(assert)).Fn.return_type.? == void);
+    assert(@typeInfo(@TypeOf(assert)).Fn.is_var_args == false);
 }
       {#code_end#}
       {#header_close#}
@@ -4611,10 +4611,10 @@ test "error union" {
     foo = error.SomeError;
 
     // Use compile-time reflection to access the payload type of an error union:
-    comptime assert(@TypeOf(foo).Payload == i32);
+    comptime assert(@typeInfo(@TypeOf(foo)).ErrorUnion.payload == i32);
 
     // Use compile-time reflection to access the error set type of an error union:
-    comptime assert(@TypeOf(foo).ErrorSet == anyerror);
+    comptime assert(@typeInfo(@TypeOf(foo)).ErrorUnion.error_set == anyerror);
 }
       {#code_end#}
       {#header_open|Merging Error Sets#}
@@ -4991,7 +4991,7 @@ test "optional type" {
     foo = 1234;
 
     // Use compile-time reflection to access the child type of the optional:
-    comptime assert(@TypeOf(foo).Child == i32);
+    comptime assert(@typeInfo(@TypeOf(foo)).Optional.child == i32);
 }
       {#code_end#}
       {#header_close#}
@@ -7211,7 +7211,7 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
-      <p>{#syntax#}@TypeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
+      <p>{#syntax#}@typeInfo(@TypeOf(ptr)).Pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       {#see_also|Compile Variables|cmpxchgWeak#}
       {#header_close#}
       {#header_open|@cmpxchgWeak#}
@@ -7240,7 +7240,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
-      <p>{#syntax#}@TypeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
+      <p>{#syntax#}@typeInfo(@TypeOf(ptr)).Pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       {#see_also|Compile Variables|cmpxchgStrong#}
       {#header_close#}
 

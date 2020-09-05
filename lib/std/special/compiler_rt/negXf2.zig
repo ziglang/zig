@@ -24,9 +24,8 @@ pub fn __aeabi_dneg(arg: f64) callconv(.AAPCS) f64 {
 }
 
 fn negXf2(comptime T: type, a: T) T {
-    const Z = std.meta.Int(false, T.bit_count);
+    const Z = std.meta.Int(false, @typeInfo(T).Float.bits);
 
-    const typeWidth = T.bit_count;
     const significandBits = std.math.floatMantissaBits(T);
     const exponentBits = std.math.floatExponentBits(T);
 

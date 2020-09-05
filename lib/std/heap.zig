@@ -952,7 +952,7 @@ pub fn testAllocatorLargeAlignment(base_allocator: *mem.Allocator) mem.Allocator
     //  very near usize?
     if (mem.page_size << 2 > maxInt(usize)) return;
 
-    const USizeShift = std.meta.Int(false, std.math.log2(usize.bit_count));
+    const USizeShift = std.meta.Int(false, std.math.log2(std.meta.bitCount(usize)));
     const large_align = @as(u29, mem.page_size << 2);
 
     var align_mask: usize = undefined;

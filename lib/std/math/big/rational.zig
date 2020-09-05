@@ -136,7 +136,7 @@ pub const Rational = struct {
         // Translated from golang.go/src/math/big/rat.go.
         debug.assert(@typeInfo(T) == .Float);
 
-        const UnsignedInt = std.meta.Int(false, T.bit_count);
+        const UnsignedInt = std.meta.Int(false, @typeInfo(T).Float.bits);
         const f_bits = @bitCast(UnsignedInt, f);
 
         const exponent_bits = math.floatExponentBits(T);
@@ -194,8 +194,8 @@ pub const Rational = struct {
         // TODO: Indicate whether the result is not exact.
         debug.assert(@typeInfo(T) == .Float);
 
-        const fsize = T.bit_count;
-        const BitReprType = std.meta.Int(false, T.bit_count);
+        const fsize = @typeInfo(T).Float.bits;
+        const BitReprType = std.meta.Int(false, fsize);
 
         const msize = math.floatMantissaBits(T);
         const msize1 = msize + 1;
@@ -475,16 +475,18 @@ pub const Rational = struct {
 fn extractLowBits(a: Int, comptime T: type) T {
     testing.expect(@typeInfo(T) == .Int);
 
-    if (T.bit_count <= Limb.bit_count) {
+    const t_bits = @typeInfo(T).Int.bits;
+    const limb_bits = @typeInfo(Limb).Int.bits;
+    if (t_bits <= limb_bits) {
         return @truncate(T, a.limbs[0]);
     } else {
         var r: T = 0;
         comptime var i: usize = 0;
 
-        // Remainder is always 0 since if T.bit_count >= Limb.bit_count -> Limb | T and both
+        // Remainder is always 0 since if t_bits >= limb_bits -> Limb | T and both
         // are powers of two.
-        inline while (i < T.bit_count / Limb.bit_count) : (i += 1) {
-            r |= math.shl(T, a.limbs[i], i * Limb.bit_count);
+        inline while (i < t_bits / limb_bits) : (i += 1) {
+            r |= math.shl(T, a.limbs[i], i * limb_bits);
         }
 
         return r;

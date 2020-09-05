@@ -11,10 +11,9 @@ const wideMultiply = @import("divdf3.zig").wideMultiply;
 
 pub fn __divtf3(a: f128, b: f128) callconv(.C) f128 {
     @setRuntimeSafety(builtin.is_test);
-    const Z = std.meta.Int(false, f128.bit_count);
-    const SignedZ = std.meta.Int(true, f128.bit_count);
+    const Z = std.meta.Int(false, 128);
+    const SignedZ = std.meta.Int(true, 128);
 
-    const typeWidth = f128.bit_count;
     const significandBits = std.math.floatMantissaBits(f128);
     const exponentBits = std.math.floatExponentBits(f128);
 

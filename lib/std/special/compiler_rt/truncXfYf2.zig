@@ -50,7 +50,7 @@ fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t {
 
     // Various constants whose values follow from the type parameters.
     // Any reasonable optimizer will fold and propagate all of these.
-    const srcBits = src_t.bit_count;
+    const srcBits = @typeInfo(src_t).Float.bits;
     const srcExpBits = srcBits - srcSigBits - 1;
     const srcInfExp = (1 << srcExpBits) - 1;
     const srcExpBias = srcInfExp >> 1;
@@ -65,7 +65,7 @@ fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t {
     const srcQNaN = 1 << (srcSigBits - 1);
     const srcNaNCode = srcQNaN - 1;
 
-    const dstBits = dst_t.bit_count;
+    const dstBits = @typeInfo(dst_t).Float.bits;
     const dstExpBits = dstBits - dstSigBits - 1;
     const dstInfExp = (1 << dstExpBits) - 1;
     const dstExpBias = dstInfExp >> 1;

@@ -14,8 +14,8 @@ const compiler_rt = @import("../compiler_rt.zig");
 pub fn __modti3(a: i128, b: i128) callconv(.C) i128 {
     @setRuntimeSafety(builtin.is_test);
 
-    const s_a = a >> (i128.bit_count - 1); // s = a < 0 ? -1 : 0
-    const s_b = b >> (i128.bit_count - 1); // s = b < 0 ? -1 : 0
+    const s_a = a >> (128 - 1); // s = a < 0 ? -1 : 0
+    const s_b = b >> (128 - 1); // s = b < 0 ? -1 : 0
 
     const an = (a ^ s_a) -% s_a; // negate if s == -1
     const bn = (b ^ s_b) -% s_b; // negate if s == -1
