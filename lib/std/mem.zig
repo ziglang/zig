@@ -897,9 +897,7 @@ fn boyerMooreHorspoolPreprocess(pattern: []const u8, table: *[256]usize) void {
 pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     if (needle.len > haystack.len or needle.len == 0) return null;
 
-    // byte comparison with float doesn't work because +0.0 and -0.0 and considered
-    // equal but their byte representations are not equal.
-    if (@typeInfo(T) == .Float or haystack.len < 32 or needle.len <= 2)
+    if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 32 or needle.len <= 2)
         return lastIndexOfLinear(T, haystack, needle);
 
     const haystack_bytes = sliceAsBytes(haystack);
@@ -923,9 +921,7 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
 pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
     if (needle.len > haystack.len or needle.len == 0) return null;
 
-    // byte comparison with float doesn't work because +0.0 and -0.0 and considered
-    // equal but their byte representations are not equal.
-    if (@typeInfo(T) == .Float or haystack.len < 32 or needle.len <= 2)
+    if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 32 or needle.len <= 2)
         return indexOfPosLinear(T, haystack, start_index, needle);
 
     const haystack_bytes = sliceAsBytes(haystack);
