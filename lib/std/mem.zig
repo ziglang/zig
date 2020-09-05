@@ -930,7 +930,7 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
     var skip_table: [256]usize = undefined;
     boyerMooreHorspoolPreprocess(needle_bytes, skip_table[0..]);
 
-    var i: usize = start_index;
+    var i: usize = start_index * @sizeOf(T);
     while (i <= haystack_bytes.len - needle_bytes.len) {
         if (mem.eql(u8, haystack_bytes[i .. i + needle_bytes.len], needle_bytes)) return i;
         i += skip_table[haystack_bytes[i + needle_bytes.len - 1]];
