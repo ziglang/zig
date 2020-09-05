@@ -850,20 +850,56 @@ pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, val
 pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     return indexOfPos(T, haystack, 0, needle);
 }
+
+/// Find the index in a slice of a sub-slice, searching from the end backwards.
+/// To start looking at a different index, slice the haystack first.
+fn lastIndexOfNaive(comptime T: type, haystack: []const T, needle: []const T) ?usize {
+    if (needle.len > haystack.len) return null;
+
+    var i: usize = haystack.len - needle.len;
+    while (true) : (i -= 1) {
+        if (mem.eql(T, haystack[i .. i + needle.len], needle)) return i;
+        if (i == 0) return null;
+    }
+}
+
+fn indexOfPosNaive(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
+    if (needle.len > haystack.len) return null;
+
+    var i: usize = start_index;
+    const end = haystack.len - needle.len;
+    while (i <= end) : (i += 1) {
+        if (eql(T, haystack[i .. i + needle.len], needle)) return i;
+    }
+    return null;
+}
+
+fn boyerMooreHorspoolPreprocess(pattern: []const u8, table: []usize) void {
+    for (table) |*c| {
+        c.* = pattern.len;
+    }
+
+    var i: usize = 0;
+    while (i < pattern.len - 1) : (i += 1) {
+        table[pattern[i]] = pattern.len - 1 - i;
+    }
+}
 /// Find the index in a slice of a sub-slice, searching from the end backwards.
 /// To start looking at a different index, slice the haystack first.
 // Reverse boyer-moore-horspool algorithm
 pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
-    if (needle.len > haystack.len or needle.len == 0) return null;
+    if (T != u8 or haystack.len < 32 or needle.len <= 2)
+        return lastIndexOfNaive(T, haystack, needle);
 
-    var i: usize = needle.len - 1;
-    while (i < haystack.len) {
-        const reverseIndex = haystack.len - i - 1;
-        if (indexOfScalar(T, needle, haystack[reverseIndex])) |index| {
-            const haystackIndex = reverseIndex - index;
-            if (haystackIndex + needle.len <= haystack.len and mem.eql(T, haystack[haystackIndex .. haystackIndex + needle.len], needle)) return haystackIndex;
-        }
-        i += needle.len;
+    if (needle.len > haystack.len or needle.len == 0) return null;
+    var table: [256]usize = undefined;
+    boyerMooreHorspoolPreprocess(needle, table[0..]);
+
+    var i: usize = 0;
+    while (i <= haystack.len - needle.len) {
+        const reverseIndex = haystack.len - i - needle.len - 1;
+        if (mem.eql(T, haystack[reverseIndex .. reverseIndex + needle.len], needle)) return i;
+        i += table[haystack[reverseIndex + needle.len - 1]];
     }
 
     return null;
@@ -871,15 +907,17 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
 
 // Boyer-moore-horspool algorithm
 pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
-    if (needle.len > haystack.len or needle.len == 0) return null;
+    if (T != u8 or haystack.len < 32 or needle.len <= 2)
+        return indexOfPosNaive(T, haystack, start_index, needle);
 
-    var i: usize = start_index + needle.len - 1;
-    while (i < haystack.len) {
-        if (lastIndexOfScalar(T, needle, haystack[i])) |index| {
-            const haystackIndex = i - index;
-            if (haystackIndex + needle.len <= haystack.len and mem.eql(T, haystack[haystackIndex .. haystackIndex + needle.len], needle)) return haystackIndex;
-        }
-        i += needle.len;
+    if (needle.len > haystack.len or needle.len == 0) return null;
+    var table: [256]usize = undefined;
+    boyerMooreHorspoolPreprocess(needle, table[0..]);
+
+    var i: usize = start_index;
+    while (i <= haystack.len - needle.len) {
+        if (mem.eql(T, haystack[i .. i + needle.len], needle)) return i;
+        i += table[haystack[i + needle.len - 1]];
     }
 
     return null;
