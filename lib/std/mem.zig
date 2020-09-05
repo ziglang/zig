@@ -876,6 +876,8 @@ fn boyerMooreHorspoolPreprocessReverse(pattern: []const u8, table: *[256]usize) 
     }
 
     var i: usize = pattern.len - 1;
+    // The first item is intentionally ignored and the skip size will be pattern.len.
+    // This is the standard way boyer-moore-horspool is implemented.
     while (i > 0) : (i -= 1) {
         table[pattern[i]] = i;
     }
@@ -887,6 +889,8 @@ fn boyerMooreHorspoolPreprocess(pattern: []const u8, table: *[256]usize) void {
     }
 
     var i: usize = 0;
+    // The last item is intentionally ignored and the skip size will be pattern.len.
+    // This is the standard way boyer-moore-horspool is implemented.
     while (i < pattern.len - 1) : (i += 1) {
         table[pattern[i]] = pattern.len - 1 - i;
     }
