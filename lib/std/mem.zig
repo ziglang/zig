@@ -888,18 +888,22 @@ fn boyerMooreHorspoolPreprocess(pattern: []const u8, table: []usize) void {
 /// To start looking at a different index, slice the haystack first.
 // Reverse boyer-moore-horspool algorithm
 pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
-    if (T != u8 or haystack.len < 32 or needle.len <= 2)
+    if (haystack.len < 32 or needle.len <= 2)
         return lastIndexOfNaive(T, haystack, needle);
 
     if (needle.len > haystack.len or needle.len == 0) return null;
+
+    const haystackU8 = @bitCast([]const u8, haystack);
+    const needleU8 = @bitCast([]const u8, needle);
+
     var table: [256]usize = undefined;
-    boyerMooreHorspoolPreprocess(needle, table[0..]);
+    boyerMooreHorspoolPreprocess(needleU8, table[0..]);
 
     var i: usize = 0;
-    while (i <= haystack.len - needle.len) {
-        const reverseIndex = haystack.len - i - needle.len - 1;
-        if (mem.eql(T, haystack[reverseIndex .. reverseIndex + needle.len], needle)) return i;
-        i += table[haystack[reverseIndex + needle.len - 1]];
+    while (i <= haystackU8.len - needleU8.len) {
+        const reverseIndex = haystackU8.len - i - needleU8.len - 1;
+        if (mem.eql(u8, haystackU8[reverseIndex .. reverseIndex + needleU8.len], needleU8)) return i;
+        i += table[haystackU8[reverseIndex + needleU8.len - 1]];
     }
 
     return null;
@@ -907,17 +911,21 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
 
 // Boyer-moore-horspool algorithm
 pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
-    if (T != u8 or haystack.len < 32 or needle.len <= 2)
+    if (haystack.len < 32 or needle.len <= 2)
         return indexOfPosNaive(T, haystack, start_index, needle);
 
     if (needle.len > haystack.len or needle.len == 0) return null;
+
+    const haystackU8 = @bitCast([]const u8, haystack);
+    const needleU8 = @bitCast([]const u8, needle);
+
     var table: [256]usize = undefined;
-    boyerMooreHorspoolPreprocess(needle, table[0..]);
+    boyerMooreHorspoolPreprocess(needleU8, table[0..]);
 
     var i: usize = start_index;
-    while (i <= haystack.len - needle.len) {
-        if (mem.eql(T, haystack[i .. i + needle.len], needle)) return i;
-        i += table[haystack[i + needle.len - 1]];
+    while (i <= haystackU8.len - needleU8.len) {
+        if (mem.eql(u8, haystackU8[i .. i + needleU8.len], needleU8)) return i;
+        i += table[haystackU8[i + needleU8.len - 1]];
     }
 
     return null;
