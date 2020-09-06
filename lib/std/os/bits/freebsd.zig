@@ -688,31 +688,34 @@ pub const NOTE_NSECONDS = 0x00000008;
 /// timeout is absolute
 pub const NOTE_ABSTIME = 0x00000010;
 
-pub const TIOCEXCL = 0x2000740d;
-pub const TIOCNXCL = 0x2000740e;
-pub const TIOCSCTTY = 0x20007461;
-pub const TIOCGPGRP = 0x40047477;
-pub const TIOCSPGRP = 0x80047476;
-pub const TIOCOUTQ = 0x40047473;
-pub const TIOCSTI = 0x80017472;
-pub const TIOCGWINSZ = 0x40087468;
-pub const TIOCSWINSZ = 0x80087467;
-pub const TIOCMGET = 0x4004746a;
-pub const TIOCMBIS = 0x8004746c;
-pub const TIOCMBIC = 0x8004746b;
-pub const TIOCMSET = 0x8004746d;
-pub const FIONREAD = 0x4004667f;
-pub const TIOCCONS = 0x80047462;
-pub const TIOCPKT = 0x80047470;
-pub const FIONBIO = 0x8004667e;
-pub const TIOCNOTTY = 0x20007471;
-pub const TIOCSETD = 0x8004741b;
-pub const TIOCGETD = 0x4004741a;
-pub const TIOCSBRK = 0x2000747b;
-pub const TIOCCBRK = 0x2000747a;
-pub const TIOCGSID = 0x40047463;
-pub const TIOCGPTN = 0x4004740f;
-pub const TIOCSIG = 0x2004745f;
+pub const ioctl_request = extern enum(c_uint) {
+    TIOCEXCL = 0x2000740d,
+    TIOCNXCL = 0x2000740e,
+    TIOCSCTTY = 0x20007461,
+    TIOCGPGRP = 0x40047477,
+    TIOCSPGRP = 0x80047476,
+    TIOCOUTQ = 0x40047473,
+    TIOCSTI = 0x80017472,
+    TIOCGWINSZ = 0x40087468,
+    TIOCSWINSZ = 0x80087467,
+    TIOCMGET = 0x4004746a,
+    TIOCMBIS = 0x8004746c,
+    TIOCMBIC = 0x8004746b,
+    TIOCMSET = 0x8004746d,
+    FIONREAD = 0x4004667f,
+    TIOCCONS = 0x80047462,
+    TIOCPKT = 0x80047470,
+    FIONBIO = 0x8004667e,
+    TIOCNOTTY = 0x20007471,
+    TIOCSETD = 0x8004741b,
+    TIOCGETD = 0x4004741a,
+    TIOCSBRK = 0x2000747b,
+    TIOCCBRK = 0x2000747a,
+    TIOCGSID = 0x40047463,
+    TIOCGPTN = 0x4004740f,
+    TIOCSIG = 0x2004745f,
+    _,
+};
 
 pub fn WEXITSTATUS(s: u32) u32 {
     return (s & 0xff00) >> 8;

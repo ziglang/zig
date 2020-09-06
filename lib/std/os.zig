@@ -2608,15 +2608,9 @@ pub fn isatty(handle: fd_t) bool {
         return true;
     }
     if (builtin.os.tag == .linux) {
-        while (true) {
-            var wsz: linux.winsize = undefined;
-            const fd = @bitCast(usize, @as(isize, handle));
-            switch (linux.syscall3(.ioctl, fd, linux.TIOCGWINSZ, @ptrToInt(&wsz))) {
-                0 => return true,
-                EINTR => continue,
-                else => return false,
-            }
-        }
+        const fd = @bitCast(usize, @as(isize, handle));
+        _ = ioctl_TIOCGWINSZ(fd) catch return false;
+        return true;
     }
     unreachable;
 }
@@ -3084,7 +3078,7 @@ pub fn connect(sockfd: socket_t, sock_addr: *const sockaddr, len: socklen_t) Con
             .WSAECONNREFUSED => return error.ConnectionRefused,
             .WSAETIMEDOUT => return error.ConnectionTimedOut,
             .WSAEHOSTUNREACH // TODO: should we return NetworkUnreachable in this case as well?
-                , .WSAENETUNREACH => return error.NetworkUnreachable,
+            , .WSAENETUNREACH => return error.NetworkUnreachable,
             .WSAEFAULT => unreachable,
             .WSAEINVAL => unreachable,
             .WSAEISCONN => unreachable,
@@ -5321,11 +5315,32 @@ const IoCtl_SIOCGIFINDEX_Error = error{
 } || UnexpectedError;
 
 pub fn ioctl_SIOCGIFINDEX(fd: fd_t, ifr: *ifreq) IoCtl_SIOCGIFINDEX_Error!void {
+    ioctl(fd, .SIOCGIFINDEX, @ptrToInt(ifr)) catch |err| switch (err) {
+        error.NotATerminal => unreachable,
+        else => |er| return er,
+    };
+}
+
+const IoCtl_TIOCGWINSZ_Error = error{
+    FileSystem,
+    NotATerminal,
+} || UnexpectedError;
+
+pub fn ioctl_TIOCGWINSZ(fd: fd_t) IoCtl_TIOCGWINSZ_Error!winsize {
+    var res: winsize = undefined;
+    ioctl(fd, .TIOCGWINSZ, @ptrToInt(&res)) catch |err| switch (err) {
+        error.InterfaceNotFound => unreachable,
+        else => |er| return er,
+    };
+    return res;
+}
+
+pub fn ioctl(fd: std.os.fd_t, request: ioctl_request, pointer: usize) !void {
     while (true) {
-        switch (errno(system.ioctl(fd, SIOCGIFINDEX, @ptrToInt(ifr)))) {
+        switch (errno(system.ioctl(fd, request, pointer))) {
             0 => return,
             EINVAL => unreachable, // Bad parameters.
-            ENOTTY => unreachable,
+            ENOTTY => return error.NotATerminal,
             ENXIO => unreachable,
             EBADF => unreachable, // Always a race condition.
             EFAULT => unreachable, // Bad pointer parameter.
