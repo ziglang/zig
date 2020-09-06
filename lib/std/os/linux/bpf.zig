@@ -611,7 +611,7 @@ pub const Insn = packed struct {
     }
 
     pub fn st(comptime size: Size, dst: Reg, off: i16, imm: i32) Insn {
-        if (size == .double_word) @compileError("TODO: implement st_dw");
+        if (size == .double_word) @compileError("TODO: need to determine how to correctly handle double words");
         return Insn{
             .code = MEM | @enumToInt(size) | ST,
             .dst = @enumToInt(dst),
