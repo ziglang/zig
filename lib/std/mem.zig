@@ -927,7 +927,7 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
     if (needle.len > haystack.len) return null;
     if (needle.len == 0) return 0;
 
-    if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 32 or needle.len <= 2)
+    if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
         return indexOfPosLinear(T, haystack, start_index, needle);
 
     const haystack_bytes = sliceAsBytes(haystack);
