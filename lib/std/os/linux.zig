@@ -1219,7 +1219,7 @@ pub fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) usi
 }
 
 pub fn ioctl(fd: fd_t, request: ioctl_request, arg: usize) usize {
-    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), request, arg);
+    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), @enumToInt(request), arg);
 }
 
 pub fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) usize {

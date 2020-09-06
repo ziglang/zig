@@ -520,6 +520,7 @@ pub const DT_SOCK = 12;
 pub const DT_WHT = 14;
 
 pub const ioctl_request = extern enum(c_uint) {
+    pub const FIONREAD = ioctl_request.TIOCINQ;
     TCGETS = if (is_mips) 0x540D else 0x5401,
     TCSETS = 0x5402,
     TCSETSW = 0x5403,
@@ -546,8 +547,7 @@ pub const ioctl_request = extern enum(c_uint) {
     TIOCMSET = 0x5418,
     TIOCGSOFTCAR = 0x5419,
     TIOCSSOFTCAR = 0x541A,
-    FIONREAD = if (is_mips) 0x467F else 0x541B,
-    TIOCINQ = FIONREAD,
+    TIOCINQ = if (is_mips) 0x467F else 0x541B,
     TIOCLINUX = 0x541C,
     TIOCCONS = 0x541D,
     TIOCGSERIAL = 0x541E,

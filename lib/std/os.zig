@@ -2608,8 +2608,7 @@ pub fn isatty(handle: fd_t) bool {
         return true;
     }
     if (builtin.os.tag == .linux) {
-        const fd = @bitCast(usize, @as(isize, handle));
-        _ = ioctl_TIOCGWINSZ(fd) catch return false;
+        _ = ioctl_TIOCGWINSZ(handle) catch return false;
         return true;
     }
     unreachable;
