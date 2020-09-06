@@ -626,6 +626,7 @@ pub const Scope = struct {
                         module.gpa,
                         self.sub_file_path,
                         std.math.maxInt(u32),
+                        null,
                         1,
                         0,
                     );
@@ -723,6 +724,7 @@ pub const Scope = struct {
                         module.gpa,
                         self.sub_file_path,
                         std.math.maxInt(u32),
+                        null,
                         1,
                         0,
                     );
