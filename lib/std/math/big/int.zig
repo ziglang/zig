@@ -1449,7 +1449,7 @@ pub const Managed = struct {
         for (self.limbs[0..self.len()]) |limb| {
             std.debug.warn("{x} ", .{limb});
         }
-        std.debug.warn("capacity={} positive={}\n", .{ self.limbs.len, self.positive });
+        std.debug.warn("capacity={} positive={}\n", .{ self.limbs.len, self.isPositive() });
     }
 
     /// Negate the sign.
