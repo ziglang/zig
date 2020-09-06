@@ -536,16 +536,6 @@ pub const Insn = packed struct {
         return jmp(.jsle, dst, src, off);
     }
 
-    pub fn stx_mem(size: Size, dst: Reg, src: Reg, off: i16) Insn {
-        return Insn{
-            .code = STX | @enumToInt(size) | MEM,
-            .dst = @enumToInt(dst),
-            .src = @enumToInt(src),
-            .off = off,
-            .imm = 0,
-        };
-    }
-
     pub fn xadd(dst: Reg, src: Reg) Insn {
         return Insn{
             .code = STX | XADD | DW,
