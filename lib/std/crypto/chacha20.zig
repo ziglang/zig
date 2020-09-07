@@ -7,10 +7,8 @@
 
 const std = @import("../std.zig");
 const mem = std.mem;
-const endian = std.endian;
 const assert = std.debug.assert;
 const testing = std.testing;
-const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 const Poly1305 = std.crypto.onetimeauth.Poly1305;
 
