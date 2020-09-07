@@ -800,6 +800,7 @@ pub const MapType = extern enum(u32) {
     /// value size: 0
     /// max entries: size of ringbuf, must be power of 2
     ringbuf,
+
     _,
 };
 
