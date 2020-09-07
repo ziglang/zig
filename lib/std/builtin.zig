@@ -596,15 +596,47 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
     }
 }
 
-pub const VaList = if (os.tag != .windows and cpu.arch == .x86_64)
-    extern struct {
-        gp_offset: c_uint,
-        fp_offset: c_uint,
-        overflow_arg_area: *c_void,
-        reg_save_area: *c_void,
-    }
-else
-    @compileError("VaList not supported on this target yet");
+pub const VaList = switch (cpu.arch) {
+    .aarch64 => switch (os.tag) {
+        .windows => *c_char,
+        .ios, .macosx, .tvos, .watchos => *c_char,
+        else => extern struct {
+            __stack: *c_void,
+            __gr_top: *c_void,
+            __vr_top: *c_void,
+            __gr_offs: c_int,
+            __vr_offs: c_int,
+        },
+    },
+    .sparc, .wasm32, .wasm64 => *c_void,
+    .powerpc => switch (os.tag) {
+        .ios, .macosx, .tvos, .watchos, .aix => *c_char,
+        else => extern struct {
+            gpr: u8,
+            fpr: u8,
+            reserved: u16,
+            overflow_arg_area: *c_void,
+            reg_save_area: *c_void,
+        },
+    },
+    .s390x => extern struct {
+        __gpr: c_long,
+        __fpr: c_long,
+        __overflow_arg_area: *c_void,
+        __reg_save_area: *c_void,
+    },
+    .i386 => *c_char,
+    .x86_64 => switch (os.tag) {
+        .windows => *c_char,
+        else => extern struct {
+            gp_offset: c_uint,
+            fp_offset: c_uint,
+            overflow_arg_area: *c_void,
+            reg_save_area: *c_void,
+        },
+    },
+    else => @compileError("VaList not supported for this target yet"),
+};
 
 const std = @import("std.zig");
 const root = @import("root");
