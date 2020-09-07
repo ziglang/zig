@@ -316,31 +316,8 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    var dbg_line_buffer = std.ArrayList(u8).init(self.base.allocator);
-    defer dbg_line_buffer.deinit();
-
-    var dbg_info_buffer = std.ArrayList(u8).init(self.base.allocator);
-    defer dbg_info_buffer.deinit();
-
-    var dbg_info_type_relocs: File.DbgInfoTypeRelocsTable = .{};
-    defer {
-        var it = dbg_info_type_relocs.iterator();
-        while (it.next()) |entry| {
-            entry.value.relocs.deinit(self.base.allocator);
-        }
-        dbg_info_type_relocs.deinit(self.base.allocator);
-    }
-
     const typed_value = decl.typed_value.most_recent.typed_value;
-    const res = try codegen.generateSymbol(
-        &self.base,
-        decl.src(),
-        typed_value,
-        &code_buffer,
-        &dbg_line_buffer,
-        &dbg_info_buffer,
-        &dbg_info_type_relocs,
-    );
+    const res = try codegen.generateSymbol(&self.base, decl.src(), typed_value, &code_buffer, .none);
 
     const code = switch (res) {
         .externally_managed => |x| x,

@@ -5,7 +5,7 @@ const builtin = @import("builtin");
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
-    comptime expect(@TypeOf(&foo).alignment == 4);
+    comptime expect(@typeInfo(@TypeOf(&foo)).Pointer.alignment == 4);
     comptime expect(@TypeOf(&foo) == *align(4) u8);
     {
         const slice = @as(*[1]u8, &foo)[0..];

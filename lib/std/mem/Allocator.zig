@@ -159,7 +159,7 @@ fn moveBytes(
 /// Returns a pointer to undefined memory.
 /// Call `destroy` with the result to free the memory.
 pub fn create(self: *Allocator, comptime T: type) Error!*T {
-    if (@sizeOf(T) == 0) return &(T{});
+    if (@sizeOf(T) == 0) return @as(*T, undefined);
     const slice = try self.allocAdvancedWithRetAddr(T, null, 1, .exact, @returnAddress());
     return &slice[0];
 }
@@ -167,11 +167,11 @@ pub fn create(self: *Allocator, comptime T: type) Error!*T {
 /// `ptr` should be the return value of `create`, or otherwise
 /// have the same address and alignment property.
 pub fn destroy(self: *Allocator, ptr: anytype) void {
-    const T = @TypeOf(ptr).Child;
+    const info = @typeInfo(@TypeOf(ptr)).Pointer;
+    const T = info.child;
     if (@sizeOf(T) == 0) return;
     const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
-    const ptr_align = @typeInfo(@TypeOf(ptr)).Pointer.alignment;
-    _ = self.shrinkBytes(non_const_ptr[0..@sizeOf(T)], ptr_align, 0, 0, @returnAddress());
+    _ = self.shrinkBytes(non_const_ptr[0..@sizeOf(T)], info.alignment, 0, 0, @returnAddress());
 }
 
 /// Allocates an array of `n` items of type `T` and sets all the

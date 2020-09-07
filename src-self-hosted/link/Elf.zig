@@ -1735,7 +1735,13 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     } else {
         // TODO implement .debug_info for global variables
     }
-    const res = try codegen.generateSymbol(&self.base, decl.src(), typed_value, &code_buffer, &dbg_line_buffer, &dbg_info_buffer, &dbg_info_type_relocs);
+    const res = try codegen.generateSymbol(&self.base, decl.src(), typed_value, &code_buffer, .{
+        .dwarf = .{
+            .dbg_line = &dbg_line_buffer,
+            .dbg_info = &dbg_info_buffer,
+            .dbg_info_type_relocs = &dbg_info_type_relocs,
+        },
+    });
     const code = switch (res) {
         .externally_managed => |x| x,
         .appended => code_buffer.items,

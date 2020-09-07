@@ -24,12 +24,6 @@ test "call disabled extern fn" {
     disabledExternFn();
 }
 
-test "floating point primitive bit counts" {
-    expect(f16.bit_count == 16);
-    expect(f32.bit_count == 32);
-    expect(f64.bit_count == 64);
-}
-
 test "short circuit" {
     testShortCircuit(false, true);
     comptime testShortCircuit(false, true);
@@ -575,10 +569,6 @@ test "slice string literal has correct type" {
     comptime expect(@TypeOf("aoeu"[runtime_zero..]) == [:0]const u8);
     const array = [_]i32{ 1, 2, 3, 4 };
     comptime expect(@TypeOf(array[runtime_zero..]) == []const i32);
-}
-
-test "pointer child field" {
-    expect((*u32).Child == u32);
 }
 
 test "struct inside function" {

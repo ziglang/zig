@@ -12,9 +12,8 @@ const builtin = @import("builtin");
 
 pub fn __divsf3(a: f32, b: f32) callconv(.C) f32 {
     @setRuntimeSafety(builtin.is_test);
-    const Z = std.meta.Int(false, f32.bit_count);
+    const Z = std.meta.Int(false, 32);
 
-    const typeWidth = f32.bit_count;
     const significandBits = std.math.floatMantissaBits(f32);
     const exponentBits = std.math.floatExponentBits(f32);
 
@@ -190,9 +189,9 @@ pub fn __divsf3(a: f32, b: f32) callconv(.C) f32 {
     }
 }
 
-fn normalize(comptime T: type, significand: *std.meta.Int(false, T.bit_count)) i32 {
+fn normalize(comptime T: type, significand: *std.meta.Int(false, @typeInfo(T).Float.bits)) i32 {
     @setRuntimeSafety(builtin.is_test);
-    const Z = std.meta.Int(false, T.bit_count);
+    const Z = std.meta.Int(false, @typeInfo(T).Float.bits);
     const significandBits = std.math.floatMantissaBits(T);
     const implicitBit = @as(Z, 1) << significandBits;
 

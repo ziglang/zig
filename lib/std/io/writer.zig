@@ -53,7 +53,7 @@ pub fn Writer(
         /// Write a native-endian integer.
         /// TODO audit non-power-of-two int sizes
         pub fn writeIntNative(self: Self, comptime T: type, value: T) Error!void {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
+            var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
             mem.writeIntNative(T, &bytes, value);
             return self.writeAll(&bytes);
         }
@@ -61,28 +61,28 @@ pub fn Writer(
         /// Write a foreign-endian integer.
         /// TODO audit non-power-of-two int sizes
         pub fn writeIntForeign(self: Self, comptime T: type, value: T) Error!void {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
+            var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
             mem.writeIntForeign(T, &bytes, value);
             return self.writeAll(&bytes);
         }
 
         /// TODO audit non-power-of-two int sizes
         pub fn writeIntLittle(self: Self, comptime T: type, value: T) Error!void {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
+            var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
             mem.writeIntLittle(T, &bytes, value);
             return self.writeAll(&bytes);
         }
 
         /// TODO audit non-power-of-two int sizes
         pub fn writeIntBig(self: Self, comptime T: type, value: T) Error!void {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
+            var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
             mem.writeIntBig(T, &bytes, value);
             return self.writeAll(&bytes);
         }
 
         /// TODO audit non-power-of-two int sizes
         pub fn writeInt(self: Self, comptime T: type, value: T, endian: builtin.Endian) Error!void {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
+            var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
             mem.writeInt(T, &bytes, value, endian);
             return self.writeAll(&bytes);
         }

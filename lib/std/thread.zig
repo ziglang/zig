@@ -166,7 +166,7 @@ pub const Thread = struct {
                 fn threadMain(raw_arg: windows.LPVOID) callconv(.C) windows.DWORD {
                     const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), raw_arg)).*;
 
-                    switch (@typeInfo(@TypeOf(startFn).ReturnType)) {
+                    switch (@typeInfo(@typeInfo(@TypeOf(startFn)).Fn.return_type.?)) {
                         .NoReturn => {
                             startFn(arg);
                         },
@@ -227,7 +227,7 @@ pub const Thread = struct {
             fn linuxThreadMain(ctx_addr: usize) callconv(.C) u8 {
                 const arg = if (@sizeOf(Context) == 0) {} else @intToPtr(*const Context, ctx_addr).*;
 
-                switch (@typeInfo(@TypeOf(startFn).ReturnType)) {
+                switch (@typeInfo(@typeInfo(@TypeOf(startFn)).Fn.return_type.?)) {
                     .NoReturn => {
                         startFn(arg);
                     },
@@ -259,7 +259,7 @@ pub const Thread = struct {
             fn posixThreadMain(ctx: ?*c_void) callconv(.C) ?*c_void {
                 const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), ctx)).*;
 
-                switch (@typeInfo(@TypeOf(startFn).ReturnType)) {
+                switch (@typeInfo(@typeInfo(@TypeOf(startFn)).Fn.return_type.?)) {
                     .NoReturn => {
                         startFn(arg);
                     },

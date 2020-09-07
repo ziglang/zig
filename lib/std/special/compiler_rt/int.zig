@@ -219,7 +219,7 @@ fn test_one_divsi3(a: i32, b: i32, expected_q: i32) void {
 pub fn __udivsi3(n: u32, d: u32) callconv(.C) u32 {
     @setRuntimeSafety(builtin.is_test);
 
-    const n_uword_bits: c_uint = u32.bit_count;
+    const n_uword_bits: c_uint = 32;
     // special cases
     if (d == 0) return 0; // ?!
     if (n == 0) return 0;

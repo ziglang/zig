@@ -275,9 +275,7 @@ pub const ChildProcess = struct {
     }
 
     fn handleWaitResult(self: *ChildProcess, status: u32) void {
-        // TODO https://github.com/ziglang/zig/issues/3190
-        var term = self.cleanupAfterWait(status);
-        self.term = term;
+        self.term = self.cleanupAfterWait(status);
     }
 
     fn cleanupStreams(self: *ChildProcess) void {
@@ -487,8 +485,8 @@ pub const ChildProcess = struct {
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
 
         const nul_handle = if (any_ignore)
-            windows.OpenFile(&[_]u16{ 'N', 'U', 'L' }, .{
-                .dir = std.fs.cwd().fd,
+            // "\Device\Null" or "\??\NUL"
+            windows.OpenFile(&[_]u16{ '\\', 'D', 'e', 'v', 'i', 'c', 'e', '\\', 'N', 'u', 'l', 'l' }, .{
                 .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
                 .share_access = windows.FILE_SHARE_READ,
                 .creation = windows.OPEN_EXISTING,

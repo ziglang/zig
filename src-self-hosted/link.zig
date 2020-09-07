@@ -34,6 +34,7 @@ pub const File = struct {
 
     pub const LinkBlock = union {
         elf: Elf.TextBlock,
+        coff: Coff.TextBlock,
         macho: MachO.TextBlock,
         c: void,
         wasm: void,
@@ -41,6 +42,7 @@ pub const File = struct {
 
     pub const LinkFn = union {
         elf: Elf.SrcFn,
+        coff: Coff.SrcFn,
         macho: MachO.SrcFn,
         c: void,
         wasm: ?Wasm.FnData,
@@ -66,7 +68,7 @@ pub const File = struct {
     pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: Options) !*File {
         switch (options.object_format) {
             .unknown => unreachable,
-            .coff => return error.TODOImplementCoff,
+            .coff, .pe => return Coff.openPath(allocator, dir, sub_path, options),
             .elf => return Elf.openPath(allocator, dir, sub_path, options),
             .macho => return MachO.openPath(allocator, dir, sub_path, options),
             .wasm => return Wasm.openPath(allocator, dir, sub_path, options),
@@ -85,7 +87,7 @@ pub const File = struct {
 
     pub fn makeWritable(base: *File, dir: fs.Dir, sub_path: []const u8) !void {
         switch (base.tag) {
-            .elf, .macho => {
+            .coff, .elf, .macho => {
                 if (base.file != null) return;
                 base.file = try dir.createFile(sub_path, .{
                     .truncate = false,
@@ -112,6 +114,7 @@ pub const File = struct {
     /// after allocateDeclIndexes for any given Decl.
     pub fn updateDecl(base: *File, module: *Module, decl: *Module.Decl) !void {
         switch (base.tag) {
+            .coff => return @fieldParentPtr(Coff, "base", base).updateDecl(module, decl),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDecl(module, decl),
             .c => return @fieldParentPtr(C, "base", base).updateDecl(module, decl),
@@ -121,6 +124,7 @@ pub const File = struct {
 
     pub fn updateDeclLineNumber(base: *File, module: *Module, decl: *Module.Decl) !void {
         switch (base.tag) {
+            .coff => return @fieldParentPtr(Coff, "base", base).updateDeclLineNumber(module, decl),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDeclLineNumber(module, decl),
             .c, .wasm => {},
@@ -131,6 +135,7 @@ pub const File = struct {
     /// any given Decl.
     pub fn allocateDeclIndexes(base: *File, decl: *Module.Decl) !void {
         switch (base.tag) {
+            .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl),
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
             .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl),
             .c, .wasm => {},
@@ -140,6 +145,7 @@ pub const File = struct {
     pub fn deinit(base: *File) void {
         if (base.file) |f| f.close();
         switch (base.tag) {
+            .coff => @fieldParentPtr(Coff, "base", base).deinit(),
             .elf => @fieldParentPtr(Elf, "base", base).deinit(),
             .macho => @fieldParentPtr(MachO, "base", base).deinit(),
             .c => @fieldParentPtr(C, "base", base).deinit(),
@@ -149,6 +155,11 @@ pub const File = struct {
 
     pub fn destroy(base: *File) void {
         switch (base.tag) {
+            .coff => {
+                const parent = @fieldParentPtr(Coff, "base", base);
+                parent.deinit();
+                base.allocator.destroy(parent);
+            },
             .elf => {
                 const parent = @fieldParentPtr(Elf, "base", base);
                 parent.deinit();
@@ -177,6 +188,7 @@ pub const File = struct {
         defer tracy.end();
 
         try switch (base.tag) {
+            .coff => @fieldParentPtr(Coff, "base", base).flush(module),
             .elf => @fieldParentPtr(Elf, "base", base).flush(module),
             .macho => @fieldParentPtr(MachO, "base", base).flush(module),
             .c => @fieldParentPtr(C, "base", base).flush(module),
@@ -186,6 +198,7 @@ pub const File = struct {
 
     pub fn freeDecl(base: *File, decl: *Module.Decl) void {
         switch (base.tag) {
+            .coff => @fieldParentPtr(Coff, "base", base).freeDecl(decl),
             .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl),
             .macho => @fieldParentPtr(MachO, "base", base).freeDecl(decl),
             .c => unreachable,
@@ -195,6 +208,7 @@ pub const File = struct {
 
     pub fn errorFlags(base: *File) ErrorFlags {
         return switch (base.tag) {
+            .coff => @fieldParentPtr(Coff, "base", base).error_flags,
             .elf => @fieldParentPtr(Elf, "base", base).error_flags,
             .macho => @fieldParentPtr(MachO, "base", base).error_flags,
             .c => return .{ .no_entry_point_found = false },
@@ -211,6 +225,7 @@ pub const File = struct {
         exports: []const *Module.Export,
     ) !void {
         switch (base.tag) {
+            .coff => return @fieldParentPtr(Coff, "base", base).updateDeclExports(module, decl, exports),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl, exports),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDeclExports(module, decl, exports),
             .c => return {},
@@ -220,6 +235,7 @@ pub const File = struct {
 
     pub fn getDeclVAddr(base: *File, decl: *const Module.Decl) u64 {
         switch (base.tag) {
+            .coff => return @fieldParentPtr(Coff, "base", base).getDeclVAddr(decl),
             .elf => return @fieldParentPtr(Elf, "base", base).getDeclVAddr(decl),
             .macho => return @fieldParentPtr(MachO, "base", base).getDeclVAddr(decl),
             .c => unreachable,
@@ -228,6 +244,7 @@ pub const File = struct {
     }
 
     pub const Tag = enum {
+        coff,
         elf,
         macho,
         c,
@@ -239,6 +256,7 @@ pub const File = struct {
     };
 
     pub const C = @import("link/C.zig");
+    pub const Coff = @import("link/Coff.zig");
     pub const Elf = @import("link/Elf.zig");
     pub const MachO = @import("link/MachO.zig");
     pub const Wasm = @import("link/Wasm.zig");

@@ -949,7 +949,7 @@ pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: builtin.
 /// This function cannot fail and cannot cause undefined behavior.
 /// Assumes the endianness of memory is native. This means the function can
 /// simply pointer cast memory.
-pub fn readIntNative(comptime T: type, bytes: *const [@divExact(T.bit_count, 8)]u8) T {
+pub fn readIntNative(comptime T: type, bytes: *const [@divExact(@typeInfo(T).Int.bits, 8)]u8) T {
     return @ptrCast(*align(1) const T, bytes).*;
 }
 
@@ -957,7 +957,7 @@ pub fn readIntNative(comptime T: type, bytes: *const [@divExact(T.bit_count, 8)]
 /// The bit count of T must be evenly divisible by 8.
 /// This function cannot fail and cannot cause undefined behavior.
 /// Assumes the endianness of memory is foreign, so it must byte-swap.
-pub fn readIntForeign(comptime T: type, bytes: *const [@divExact(T.bit_count, 8)]u8) T {
+pub fn readIntForeign(comptime T: type, bytes: *const [@divExact(@typeInfo(T).Int.bits, 8)]u8) T {
     return @byteSwap(T, readIntNative(T, bytes));
 }
 
@@ -971,18 +971,18 @@ pub const readIntBig = switch (builtin.endian) {
     .Big => readIntNative,
 };
 
-/// Asserts that bytes.len >= T.bit_count / 8. Reads the integer starting from index 0
+/// Asserts that bytes.len >= @typeInfo(T).Int.bits / 8. Reads the integer starting from index 0
 /// and ignores extra bytes.
 /// The bit count of T must be evenly divisible by 8.
 /// Assumes the endianness of memory is native. This means the function can
 /// simply pointer cast memory.
 pub fn readIntSliceNative(comptime T: type, bytes: []const u8) T {
-    const n = @divExact(T.bit_count, 8);
+    const n = @divExact(@typeInfo(T).Int.bits, 8);
     assert(bytes.len >= n);
     return readIntNative(T, bytes[0..n]);
 }
 
-/// Asserts that bytes.len >= T.bit_count / 8. Reads the integer starting from index 0
+/// Asserts that bytes.len >= @typeInfo(T).Int.bits / 8. Reads the integer starting from index 0
 /// and ignores extra bytes.
 /// The bit count of T must be evenly divisible by 8.
 /// Assumes the endianness of memory is foreign, so it must byte-swap.
@@ -1003,7 +1003,7 @@ pub const readIntSliceBig = switch (builtin.endian) {
 /// Reads an integer from memory with bit count specified by T.
 /// The bit count of T must be evenly divisible by 8.
 /// This function cannot fail and cannot cause undefined behavior.
-pub fn readInt(comptime T: type, bytes: *const [@divExact(T.bit_count, 8)]u8, endian: builtin.Endian) T {
+pub fn readInt(comptime T: type, bytes: *const [@divExact(@typeInfo(T).Int.bits, 8)]u8, endian: builtin.Endian) T {
     if (endian == builtin.endian) {
         return readIntNative(T, bytes);
     } else {
@@ -1011,11 +1011,11 @@ pub fn readInt(comptime T: type, bytes: *const [@divExact(T.bit_count, 8)]u8, en
     }
 }
 
-/// Asserts that bytes.len >= T.bit_count / 8. Reads the integer starting from index 0
+/// Asserts that bytes.len >= @typeInfo(T).Int.bits / 8. Reads the integer starting from index 0
 /// and ignores extra bytes.
 /// The bit count of T must be evenly divisible by 8.
 pub fn readIntSlice(comptime T: type, bytes: []const u8, endian: builtin.Endian) T {
-    const n = @divExact(T.bit_count, 8);
+    const n = @divExact(@typeInfo(T).Int.bits, 8);
     assert(bytes.len >= n);
     return readInt(T, bytes[0..n], endian);
 }
@@ -1060,7 +1060,7 @@ test "readIntBig and readIntLittle" {
 /// accepts any integer bit width.
 /// This function stores in native endian, which means it is implemented as a simple
 /// memory store.
-pub fn writeIntNative(comptime T: type, buf: *[(T.bit_count + 7) / 8]u8, value: T) void {
+pub fn writeIntNative(comptime T: type, buf: *[(@typeInfo(T).Int.bits + 7) / 8]u8, value: T) void {
     @ptrCast(*align(1) T, buf).* = value;
 }
 
@@ -1068,7 +1068,7 @@ pub fn writeIntNative(comptime T: type, buf: *[(T.bit_count + 7) / 8]u8, value: 
 /// This function always succeeds, has defined behavior for all inputs, but
 /// the integer bit width must be divisible by 8.
 /// This function stores in foreign endian, which means it does a @byteSwap first.
-pub fn writeIntForeign(comptime T: type, buf: *[@divExact(T.bit_count, 8)]u8, value: T) void {
+pub fn writeIntForeign(comptime T: type, buf: *[@divExact(@typeInfo(T).Int.bits, 8)]u8, value: T) void {
     writeIntNative(T, buf, @byteSwap(T, value));
 }
 
@@ -1085,7 +1085,7 @@ pub const writeIntBig = switch (builtin.endian) {
 /// Writes an integer to memory, storing it in twos-complement.
 /// This function always succeeds, has defined behavior for all inputs, but
 /// the integer bit width must be divisible by 8.
-pub fn writeInt(comptime T: type, buffer: *[@divExact(T.bit_count, 8)]u8, value: T, endian: builtin.Endian) void {
+pub fn writeInt(comptime T: type, buffer: *[@divExact(@typeInfo(T).Int.bits, 8)]u8, value: T, endian: builtin.Endian) void {
     if (endian == builtin.endian) {
         return writeIntNative(T, buffer, value);
     } else {
@@ -1094,19 +1094,19 @@ pub fn writeInt(comptime T: type, buffer: *[@divExact(T.bit_count, 8)]u8, value:
 }
 
 /// Writes a twos-complement little-endian integer to memory.
-/// Asserts that buf.len >= T.bit_count / 8.
+/// Asserts that buf.len >= @typeInfo(T).Int.bits / 8.
 /// The bit count of T must be divisible by 8.
 /// Any extra bytes in buffer after writing the integer are set to zero. To
 /// avoid the branch to check for extra buffer bytes, use writeIntLittle
 /// instead.
 pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
-    assert(buffer.len >= @divExact(T.bit_count, 8));
+    assert(buffer.len >= @divExact(@typeInfo(T).Int.bits, 8));
 
-    if (T.bit_count == 0)
+    if (@typeInfo(T).Int.bits == 0)
         return set(u8, buffer, 0);
 
     // TODO I want to call writeIntLittle here but comptime eval facilities aren't good enough
-    const uint = std.meta.Int(false, T.bit_count);
+    const uint = std.meta.Int(false, @typeInfo(T).Int.bits);
     var bits = @truncate(uint, value);
     for (buffer) |*b| {
         b.* = @truncate(u8, bits);
@@ -1115,18 +1115,18 @@ pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
 }
 
 /// Writes a twos-complement big-endian integer to memory.
-/// Asserts that buffer.len >= T.bit_count / 8.
+/// Asserts that buffer.len >= @typeInfo(T).Int.bits / 8.
 /// The bit count of T must be divisible by 8.
 /// Any extra bytes in buffer before writing the integer are set to zero. To
 /// avoid the branch to check for extra buffer bytes, use writeIntBig instead.
 pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
-    assert(buffer.len >= @divExact(T.bit_count, 8));
+    assert(buffer.len >= @divExact(@typeInfo(T).Int.bits, 8));
 
-    if (T.bit_count == 0)
+    if (@typeInfo(T).Int.bits == 0)
         return set(u8, buffer, 0);
 
     // TODO I want to call writeIntBig here but comptime eval facilities aren't good enough
-    const uint = std.meta.Int(false, T.bit_count);
+    const uint = std.meta.Int(false, @typeInfo(T).Int.bits);
     var bits = @truncate(uint, value);
     var index: usize = buffer.len;
     while (index != 0) {
@@ -1147,13 +1147,13 @@ pub const writeIntSliceForeign = switch (builtin.endian) {
 };
 
 /// Writes a twos-complement integer to memory, with the specified endianness.
-/// Asserts that buf.len >= T.bit_count / 8.
+/// Asserts that buf.len >= @typeInfo(T).Int.bits / 8.
 /// The bit count of T must be evenly divisible by 8.
 /// Any extra bytes in buffer not part of the integer are set to zero, with
 /// respect to endianness. To avoid the branch to check for extra buffer bytes,
 /// use writeInt instead.
 pub fn writeIntSlice(comptime T: type, buffer: []u8, value: T, endian: builtin.Endian) void {
-    comptime assert(T.bit_count % 8 == 0);
+    comptime assert(@typeInfo(T).Int.bits % 8 == 0);
     return switch (endian) {
         .Little => writeIntSliceLittle(T, buffer, value),
         .Big => writeIntSliceBig(T, buffer, value),
