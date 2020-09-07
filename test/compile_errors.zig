@@ -2,6 +2,31 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("@vaArg on non extern type",
+        \\export fn entry(arg: c_int, ...) void {
+        \\    var ap = @vaStart();
+        \\    defer @vaEnd(&ap);
+        \\    _ = @vaArg(&ap, ?i32);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:4:9: error: cannot use @vaArg on non-C-ABI-compatible type '?i32'",
+    });
+
+    cases.add("variadic function without non-variadic parameter",
+        \\export fn entry(...) void {}
+    , &[_][]const u8{
+        "tmp.zig:1:1: error: variadic function must have at least 1 non-variadic parameter",
+    });
+
+    cases.add("non-extern function with var args",
+        \\fn foo(_: c_int, ...) void {}
+        \\export fn entry() void {
+        \\    foo();
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:1:18: error: var args only allowed in functions with C calling convention",
+    });
+
     cases.add("slice sentinel mismatch",
         \\export fn entry() void {
         \\    const x = @import("std").meta.Vector(3, f32){ 25, 75, 5, 0 };
@@ -401,15 +426,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     , &[_][]const u8{
         "tmp.zig:6:5: error: declarations are not allowed between container fields",
-    });
-
-    cases.add("non-extern function with var args",
-        \\fn foo(args: ...) void {}
-        \\export fn entry() void {
-        \\    foo();
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:1:1: error: non-extern function is variadic",
     });
 
     cases.addTest("invalid int casts",
@@ -7556,7 +7572,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add( // fixed bug #2032
-        "compile diagnostic string for top level decl type",
+    "compile diagnostic string for top level decl type",
         \\export fn entry() void {
         \\    var foo: u32 = @This(){};
         \\}

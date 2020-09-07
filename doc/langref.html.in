@@ -8545,6 +8545,46 @@ fn foo(comptime T: type, ptr: *T) T {
       {#syntax#}@unionInit{#endsyntax#} forwards its {#link|result location|Result Location Semantics#} to {#syntax#}init_expr{#endsyntax#}.
       </p>
       {#header_close#}
+
+      {#header_open|@vaStart#}
+      <pre>{#syntax#}@vaStart() builtin.VaList{#endsyntax#}</pre>
+      <p>This function begins processing of C variadic arguments. Call {#syntax#}@vaEnd{#endsyntax#} to clean up.</p>
+      {#code_begin|test#}
+fn add(count: c_int, ...) callconv(.C) c_int {
+    var ap = @vaStart();
+    defer @vaEnd(&ap);
+    var i: usize = 0;
+    var sum: c_int = 0;
+    while (i < count) : (i += 1) {
+        sum += @vaArg(&ap, c_int);
+    }
+    return sum;
+}
+
+test "variadic function" {
+    const expectEqual = @import("std").testing.expectEqual;
+    expectEqual(@as(c_int, 0), add(0));
+    expectEqual(@as(c_int, 1), add(1, @as(c_int, 1)));
+    expectEqual(@as(c_int, 3), add(2, @as(c_int, 1), @as(c_int, 2)));
+}
+      {#code_end#}
+      {#header_close#}
+
+      {#header_open|@vaArg#}
+      <pre>{#syntax#}@vaArg(ap: *builtin.VaList, comptime T: type) T{#endsyntax#}</pre>
+      <p>This function processes a variadic argument of type T.</p>
+      {#header_close#}
+
+      {#header_open|@vaEnd#}
+      <pre>{#syntax#}@vaEnd(ap: *builtin.VaList) void{#endsyntax#}</pre>
+      <p>Cleans up a VaList from {#syntax#}@vaStart{#endsyntax#} or {#syntax#}@vaCopy{#endsyntax#}.</p>
+      {#header_close#}
+
+      {#header_open|@vaCopy#}
+      <pre>{#syntax#}@vaCopy(ap: *builtin.VaList) builtin.VaList{#endsyntax#}</pre>
+      <p>This function copies a VaList. Call {#syntax#}@vaEnd{#endsyntax#} to clean up.</p>
+      {#header_close#}
+
       {#header_close#}
 
       {#header_open|Opaque Types#}

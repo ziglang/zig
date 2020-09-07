@@ -566,6 +566,14 @@ static void destroy_instruction_src(IrInstSrc *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcWasmMemoryGrow *>(inst));
         case IrInstSrcIdSrc:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSrc *>(inst));
+        case IrInstSrcIdVaStart:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcVaStart *>(inst));
+        case IrInstSrcIdVaArg:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcVaArg *>(inst));
+        case IrInstSrcIdVaEnd:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcVaEnd *>(inst));
+        case IrInstSrcIdVaCopy:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcVaCopy *>(inst));
     }
     zig_unreachable();
 }
@@ -750,6 +758,14 @@ void destroy_instruction_gen(IrInstGen *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstGenWasmMemorySize *>(inst));
         case IrInstGenIdWasmMemoryGrow:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstGenWasmMemoryGrow *>(inst));
+        case IrInstGenIdVaStart:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenVaStart *>(inst));
+        case IrInstGenIdVaArg:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenVaArg *>(inst));
+        case IrInstGenIdVaEnd:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenVaEnd *>(inst));
+        case IrInstGenIdVaCopy:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenVaCopy *>(inst));
     }
     zig_unreachable();
 }
@@ -1635,6 +1651,22 @@ static constexpr IrInstSrcId ir_inst_id(IrInstSrcSrc *) {
     return IrInstSrcIdSrc;
 }
 
+static constexpr IrInstSrcId ir_inst_id(IrInstSrcVaStart *) {
+  return IrInstSrcIdVaStart;
+}
+
+static constexpr IrInstSrcId ir_inst_id(IrInstSrcVaArg *) {
+  return IrInstSrcIdVaArg;
+}
+
+static constexpr IrInstSrcId ir_inst_id(IrInstSrcVaEnd *) {
+  return IrInstSrcIdVaEnd;
+}
+
+static constexpr IrInstSrcId ir_inst_id(IrInstSrcVaCopy *) {
+  return IrInstSrcIdVaCopy;
+}
+
 static constexpr IrInstGenId ir_inst_id(IrInstGenDeclVar *) {
     return IrInstGenIdDeclVar;
 }
@@ -1985,6 +2017,22 @@ static constexpr IrInstGenId ir_inst_id(IrInstGenWasmMemorySize *) {
 
 static constexpr IrInstGenId ir_inst_id(IrInstGenWasmMemoryGrow *) {
   return IrInstGenIdWasmMemoryGrow;
+}
+
+static constexpr IrInstGenId ir_inst_id(IrInstGenVaStart *) {
+    return IrInstGenIdVaStart;
+}
+
+static constexpr IrInstGenId ir_inst_id(IrInstGenVaArg *) {
+    return IrInstGenIdVaArg;
+}
+
+static constexpr IrInstGenId ir_inst_id(IrInstGenVaEnd *) {
+    return IrInstGenIdVaEnd;
+}
+
+static constexpr IrInstGenId ir_inst_id(IrInstGenVaCopy *) {
+    return IrInstGenIdVaCopy;
 }
 
 template<typename T>
@@ -5057,6 +5105,89 @@ static IrInstSrc *ir_build_src(IrBuilderSrc *irb, Scope *scope, AstNode *source_
     return &instruction->base;
 }
 
+static IrInstSrc *ir_build_va_start_src(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, LVal lval, ResultLoc *result_loc) {
+    IrInstSrcVaStart *instruction = ir_build_instruction<IrInstSrcVaStart>(irb, scope, source_node);
+    instruction->result_loc = result_loc;
+
+    return &instruction->base;
+}
+
+static IrInstGen *ir_build_va_start_gen(IrAnalyze *ira, IrInst *source_instr, IrInstGen *ap) {
+    IrInstGenVaStart *instruction = ir_build_inst_gen<IrInstGenVaStart>(
+        &ira->new_irb, source_instr->scope, source_instr->source_node);
+    instruction->base.value->type = get_builtin_type(ira->codegen, "VaList");
+    instruction->ap = ap;
+
+    ir_ref_inst_gen(ap);
+
+    return &instruction->base;
+}
+
+static IrInstSrc *ir_build_va_arg_src(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, IrInstSrc *ap, IrInstSrc *type) {
+    IrInstSrcVaArg *instruction = ir_build_instruction<IrInstSrcVaArg>(irb, scope, source_node);
+    instruction->ap = ap;
+    instruction->type = type;
+
+    ir_ref_instruction(ap, irb->current_basic_block);
+    ir_ref_instruction(type, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstGen *ir_build_va_arg_gen(IrAnalyze *ira, IrInst *source_instr, IrInstGen *ap, ZigType *type) {
+    IrInstGenVaArg *instruction = ir_build_inst_gen<IrInstGenVaArg>(
+        &ira->new_irb, source_instr->scope, source_instr->source_node);
+    instruction->base.value->type = type;
+    instruction->ap = ap;
+
+    ir_ref_inst_gen(ap);
+
+    return &instruction->base;
+}
+
+static IrInstSrc *ir_build_va_end_src(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, IrInstSrc *ap) {
+    IrInstSrcVaEnd *instruction = ir_build_instruction<IrInstSrcVaEnd>(irb, scope, source_node);
+    instruction->ap = ap;
+
+    ir_ref_instruction(ap, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstGen *ir_build_va_end_gen(IrAnalyze *ira, IrInst *source_instr, IrInstGen *ap) {
+    IrInstGenVaEnd *instruction = ir_build_inst_gen<IrInstGenVaEnd>(
+        &ira->new_irb, source_instr->scope, source_instr->source_node);
+    instruction->base.value->type = ira->codegen->builtin_types.entry_void;
+    instruction->ap = ap;
+
+    ir_ref_inst_gen(ap);
+
+    return &instruction->base;
+}
+
+static IrInstSrc *ir_build_va_copy_src(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, LVal lval, ResultLoc *result_loc, IrInstSrc *src) {
+    IrInstSrcVaCopy *instruction = ir_build_instruction<IrInstSrcVaCopy>(irb, scope, source_node);
+    instruction->result_loc = result_loc;
+    instruction->src = src;
+
+    ir_ref_instruction(src, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstGen *ir_build_va_copy_gen(IrAnalyze *ira, IrInst *source_instr, IrInstGen *dest, IrInstGen *src) {
+    IrInstGenVaCopy *instruction = ir_build_inst_gen<IrInstGenVaCopy>(
+        &ira->new_irb, source_instr->scope, source_instr->source_node);
+    instruction->base.value->type = get_builtin_type(ira->codegen, "VaList");
+    instruction->dest = dest;
+    instruction->src = src;
+
+    ir_ref_inst_gen(dest);
+    ir_ref_inst_gen(src);
+
+    return &instruction->base;
+}
+
 static void ir_count_defers(IrBuilderSrc *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
     results[ReturnKindUnconditional] = 0;
     results[ReturnKindError] = 0;
@@ -7520,6 +7651,44 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
             {
                 IrInstSrc *src_inst = ir_build_src(irb, scope, node);
                 return ir_lval_wrap(irb, scope, src_inst, lval, result_loc);
+            }
+        case BuiltinFnIdVaStart:
+            {
+                return ir_build_va_start_src(irb, scope, node, lval, result_loc);
+            }
+        case BuiltinFnIdVaArg:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstSrc *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_inst_src)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstSrc *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_inst_src)
+                    return arg1_value;
+
+                IrInstSrc *result = ir_build_va_arg_src(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, result, lval, result_loc);
+            }
+        case BuiltinFnIdVaEnd:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstSrc *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_inst_src)
+                    return arg0_value;
+
+                IrInstSrc *result = ir_build_va_end_src(irb, scope, node, arg0_value);
+                return ir_lval_wrap(irb, scope, result, lval, result_loc);
+            }
+        case BuiltinFnIdVaCopy:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstSrc *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_inst_src)
+                    return arg0_value;
+
+                return ir_build_va_copy_src(irb, scope, node, lval, result_loc, arg0_value);
             }
     }
     zig_unreachable();
@@ -9997,6 +10166,11 @@ static IrInstSrc *ir_gen_fn_proto(IrBuilderSrc *irb, Scope *parent_scope, AstNod
         } else {
             param_types[i] = nullptr;
         }
+    }
+
+    if (is_var_args && node->data.fn_proto.params.length < 2) {
+        add_node_error(irb->codegen, node,
+            buf_sprintf("variadic function must have at least one regular argument"));
     }
 
     IrInstSrc *align_value = nullptr;
@@ -31310,6 +31484,86 @@ static IrInstGen *ir_analyze_instruction_src(IrAnalyze *ira, IrInstSrcSrc *instr
     return ir_const_move(ira, &instruction->base.base, result);
 }
 
+static IrInstGen *ir_analyze_instruction_va_start(IrAnalyze *ira, IrInstSrcVaStart *instruction) {
+    ZigType *va_list_type = get_builtin_type(ira->codegen, "VaList");
+
+    IrInstGen *result_loc = ir_resolve_result(ira, &instruction->base.base,
+            instruction->result_loc, va_list_type, nullptr, true, false);
+    if (type_is_invalid(result_loc->value->type) ||
+        result_loc->value->type->id == ZigTypeIdUnreachable)
+    {
+        return result_loc;
+    }
+
+    return ir_build_va_start_gen(ira, &instruction->base.base, result_loc);
+}
+
+static IrInstGen *ir_analyze_instruction_va_arg(IrAnalyze *ira, IrInstSrcVaArg *instruction) {
+    ZigType *va_list_type = get_builtin_type(ira->codegen, "VaList");
+    ZigType *va_list_ptr_type = get_pointer_to_type(ira->codegen, va_list_type, false);
+
+    IrInstGen *ap = instruction->ap->child;
+    if (type_is_invalid(ap->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    IrInstGen *casted_ap = ir_implicit_cast(ira, ap, va_list_ptr_type);
+    if (type_is_invalid(casted_ap->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    ZigType *type = ir_resolve_type(ira, instruction->type->child);
+    if (type_is_invalid(type))
+        return ira->codegen->invalid_inst_gen;
+
+    bool allowed;
+    if (type_allowed_in_extern(ira->codegen, type, &allowed) != ErrorNone)
+        return ira->codegen->invalid_inst_gen;
+
+    if (!allowed) {
+        ir_add_error(ira, &instruction->base.base,
+            buf_sprintf("cannot use @vaArg on non-C-ABI-compatible type '%s'", buf_ptr(&type->name)));
+    }
+
+    return ir_build_va_arg_gen(ira, &instruction->base.base, casted_ap, type);
+}
+
+static IrInstGen *ir_analyze_instruction_va_end(IrAnalyze *ira, IrInstSrcVaEnd *instruction) {
+    ZigType *va_list_type = get_builtin_type(ira->codegen, "VaList");
+    ZigType *va_list_ptr_type = get_pointer_to_type(ira->codegen, va_list_type, false);
+
+    IrInstGen *ap = instruction->ap->child;
+    if (type_is_invalid(ap->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    IrInstGen *casted_ap = ir_implicit_cast(ira, ap, va_list_ptr_type);
+    if (type_is_invalid(casted_ap->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    return ir_build_va_end_gen(ira, &instruction->base.base, casted_ap);
+}
+
+static IrInstGen *ir_analyze_instruction_va_copy(IrAnalyze *ira, IrInstSrcVaCopy *instruction) {
+    ZigType *va_list_type = get_builtin_type(ira->codegen, "VaList");
+    ZigType *va_list_ptr_type = get_pointer_to_type(ira->codegen, va_list_type, false);
+
+    IrInstGen *result_loc = ir_resolve_result(ira, &instruction->base.base,
+            instruction->result_loc, va_list_type, nullptr, true, false);
+    if (type_is_invalid(result_loc->value->type) ||
+        result_loc->value->type->id == ZigTypeIdUnreachable)
+    {
+        return result_loc;
+    }
+
+    IrInstGen *src = instruction->src->child;
+    if (type_is_invalid(src->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    IrInstGen *casted_src = ir_implicit_cast(ira, src, va_list_ptr_type);
+    if (type_is_invalid(casted_src->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    return ir_build_va_copy_gen(ira, &instruction->base.base, result_loc, casted_src);
+}
+
 static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruction) {
     switch (instruction->id) {
         case IrInstSrcIdInvalid:
@@ -31583,6 +31837,14 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
             return ir_analyze_instruction_wasm_memory_grow(ira, (IrInstSrcWasmMemoryGrow *)instruction);
         case IrInstSrcIdSrc:
             return ir_analyze_instruction_src(ira, (IrInstSrcSrc *)instruction);
+        case IrInstSrcIdVaStart:
+            return ir_analyze_instruction_va_start(ira, (IrInstSrcVaStart *)instruction);
+        case IrInstSrcIdVaArg:
+            return ir_analyze_instruction_va_arg(ira, (IrInstSrcVaArg *)instruction);
+        case IrInstSrcIdVaEnd:
+            return ir_analyze_instruction_va_end(ira, (IrInstSrcVaEnd *)instruction);
+        case IrInstSrcIdVaCopy:
+            return ir_analyze_instruction_va_copy(ira, (IrInstSrcVaCopy *)instruction);
     }
     zig_unreachable();
 }
@@ -31659,7 +31921,7 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutableSrc *old_exec, IrExecutableGen
         }
         IrInstGen *new_instruction = ir_analyze_instruction_base(ira, old_instruction);
         if (new_instruction != nullptr) {
-            ir_assert(new_instruction->value->type != nullptr || new_instruction->value->type != nullptr, &old_instruction->base);
+            ir_assert(new_instruction->value->type != nullptr, &old_instruction->base);
             old_instruction->child = new_instruction;
 
             if (type_is_invalid(new_instruction->value->type)) {
@@ -31760,6 +32022,10 @@ bool ir_inst_gen_has_side_effects(IrInstGen *instruction) {
         case IrInstGenIdAwait:
         case IrInstGenIdSpillBegin:
         case IrInstGenIdWasmMemoryGrow:
+        case IrInstGenIdVaStart:
+        case IrInstGenIdVaArg:
+        case IrInstGenIdVaEnd:
+        case IrInstGenIdVaCopy:
             return true;
 
         case IrInstGenIdPhi:
@@ -31894,6 +32160,10 @@ bool ir_inst_src_has_side_effects(IrInstSrc *instruction) {
         case IrInstSrcIdAwait:
         case IrInstSrcIdSpillBegin:
         case IrInstSrcIdWasmMemoryGrow:
+        case IrInstSrcIdVaStart:
+        case IrInstSrcIdVaArg:
+        case IrInstSrcIdVaEnd:
+        case IrInstSrcIdVaCopy:
             return true;
 
         case IrInstSrcIdPhi:

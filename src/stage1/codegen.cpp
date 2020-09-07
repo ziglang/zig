@@ -1009,6 +1009,45 @@ static LLVMValueRef gen_wasm_memory_grow(CodeGen *g) {
     return g->wasm_memory_grow;
 }
 
+static LLVMValueRef gen_va_start(CodeGen *g) {
+    if (g->va_start)
+        return g->va_start;
+
+    LLVMTypeRef param = LLVMPointerType(LLVMInt8Type(), 0);
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), &param, 1, false);
+    g->va_start = LLVMAddFunction(g->module, "llvm.va_start", fn_type);
+    assert(LLVMGetIntrinsicID(g->va_start));
+
+    return g->va_start;
+}
+
+static LLVMValueRef gen_va_end(CodeGen *g) {
+    if (g->va_end)
+        return g->va_end;
+
+    LLVMTypeRef param = LLVMPointerType(LLVMInt8Type(), 0);
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), &param, 1, false);
+    g->va_end = LLVMAddFunction(g->module, "llvm.va_end", fn_type);
+    assert(LLVMGetIntrinsicID(g->va_end));
+
+    return g->va_end;
+}
+
+static LLVMValueRef gen_va_copy(CodeGen *g) {
+    if (g->va_copy)
+        return g->va_copy;
+
+    LLVMTypeRef params[] = {
+        LLVMPointerType(LLVMInt8Type(), 0),
+        LLVMPointerType(LLVMInt8Type(), 0),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), params, 2, false);
+    g->va_copy = LLVMAddFunction(g->module, "llvm.va_copy", fn_type);
+    assert(LLVMGetIntrinsicID(g->va_copy));
+
+    return g->va_copy;
+}
+
 static LLVMValueRef get_stacksave_fn_val(CodeGen *g) {
     if (g->stacksave_fn_val)
         return g->stacksave_fn_val;
@@ -5560,6 +5599,33 @@ static LLVMValueRef ir_render_wasm_memory_grow(CodeGen *g, IrExecutableGen *exec
     return val;
 }
 
+static LLVMValueRef ir_render_va_start(CodeGen *g, IrExecutableGen *executable, IrInstGenVaStart *instruction) {
+    LLVMValueRef ap = ir_llvm_value(g, instruction->ap);
+    LLVMValueRef casted_ap = LLVMBuildBitCast(g->builder, ap, LLVMPointerType(LLVMInt8Type(), 0), "");
+    return LLVMBuildCall(g->builder, gen_va_start(g), &casted_ap, 1, "");
+}
+
+static LLVMValueRef ir_render_va_arg(CodeGen *g, IrExecutableGen *executable, IrInstGenVaArg *instruction) {
+    LLVMValueRef ap = ir_llvm_value(g, instruction->ap);
+    LLVMValueRef casted_ap = LLVMBuildBitCast(g->builder, ap, LLVMPointerType(LLVMInt8Type(), 0), "");
+    return LLVMBuildVAArg(g->builder, casted_ap, get_llvm_type(g, instruction->base.value->type), "");
+}
+
+static LLVMValueRef ir_render_va_end(CodeGen *g, IrExecutableGen *executable, IrInstGenVaEnd *instruction) {
+    LLVMValueRef ap = ir_llvm_value(g, instruction->ap);
+    LLVMValueRef casted_ap = LLVMBuildBitCast(g->builder, ap, LLVMPointerType(LLVMInt8Type(), 0), "");
+    return LLVMBuildCall(g->builder, gen_va_end(g), &casted_ap, 1, "");
+}
+
+static LLVMValueRef ir_render_va_copy(CodeGen *g, IrExecutableGen *executable, IrInstGenVaCopy *instruction) {
+    LLVMTypeRef i8_ptr_type = LLVMPointerType(LLVMInt8Type(), 0);
+    LLVMValueRef params[] = {
+        LLVMBuildBitCast(g->builder, ir_llvm_value(g, instruction->dest), i8_ptr_type, ""),
+        LLVMBuildBitCast(g->builder, ir_llvm_value(g, instruction->src), i8_ptr_type, ""),
+    };
+    return LLVMBuildCall(g->builder, gen_va_copy(g), params, 2, "");
+}
+
 static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutableGen *executable, IrInstGenSlice *instruction) {
     Error err;
 
@@ -6780,6 +6846,14 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutableGen *executabl
             return ir_render_wasm_memory_size(g, executable, (IrInstGenWasmMemorySize *) instruction);
         case IrInstGenIdWasmMemoryGrow:
             return ir_render_wasm_memory_grow(g, executable, (IrInstGenWasmMemoryGrow *) instruction);
+        case IrInstGenIdVaStart:
+            return ir_render_va_start(g, executable, (IrInstGenVaStart *) instruction);
+        case IrInstGenIdVaArg:
+            return ir_render_va_arg(g, executable, (IrInstGenVaArg *) instruction);
+        case IrInstGenIdVaEnd:
+            return ir_render_va_end(g, executable, (IrInstGenVaEnd *) instruction);
+        case IrInstGenIdVaCopy:
+            return ir_render_va_copy(g, executable, (IrInstGenVaCopy *) instruction);
     }
     zig_unreachable();
 }
@@ -8630,6 +8704,10 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdWasmMemorySize, "wasmMemorySize", 1);
     create_builtin_fn(g, BuiltinFnIdWasmMemoryGrow, "wasmMemoryGrow", 2);
     create_builtin_fn(g, BuiltinFnIdSrc, "src", 0);
+    create_builtin_fn(g, BuiltinFnIdVaStart, "vaStart", 0);
+    create_builtin_fn(g, BuiltinFnIdVaArg, "vaArg", 2);
+    create_builtin_fn(g, BuiltinFnIdVaEnd, "vaEnd", 1);
+    create_builtin_fn(g, BuiltinFnIdVaCopy, "vaCopy", 1);
 }
 
 static const char *bool_to_str(bool b) {

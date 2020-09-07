@@ -596,5 +596,15 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
     }
 }
 
+pub const VaList = if (os.tag != .windows and cpu.arch == .x86_64)
+    extern struct {
+        gp_offset: c_uint,
+        fp_offset: c_uint,
+        overflow_arg_area: *c_void,
+        reg_save_area: *c_void,
+    }
+else
+    @compileError("VaList not supported on this target yet");
+
 const std = @import("std.zig");
 const root = @import("root");

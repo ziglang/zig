@@ -3534,6 +3534,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             get_fully_qualified_decl_name(g, &fn_table_entry->symbol_name, &tld_fn->base, false);
         }
 
+        bool fn_is_var_args = false;
         if (!is_extern) {
             fn_table_entry->fndef_scope = create_fndef_scope(g,
                 fn_table_entry->body_node, tld_fn->base.parent_scope, fn_table_entry);
@@ -3541,13 +3542,27 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             for (size_t i = 0; i < fn_proto->params.length; i += 1) {
                 AstNode *param_node = fn_proto->params.at(i);
                 assert(param_node->type == NodeTypeParamDecl);
-                if (param_node->data.param_decl.name == nullptr) {
+                bool has_name = param_node->data.param_decl.name != nullptr;
+                bool is_var_args = param_node->data.param_decl.is_var_args;
+                fn_is_var_args = fn_is_var_args || is_var_args;
+                if (!has_name && !is_var_args) {
                     add_node_error(g, param_node, buf_sprintf("missing parameter name"));
+                }
+                if (has_name && is_var_args) {
+                    add_node_error(g, param_node, buf_sprintf("variadic parameter name not allowed"));
                 }
             }
         } else {
             fn_table_entry->inferred_async_node = inferred_async_none;
             g->external_symbol_names.put_unique(tld_fn->base.name, &tld_fn->base);
+        }
+
+        if (fn_is_var_args && fn_proto->params.length < 2) {
+            add_node_error(g, source_node,
+                buf_sprintf("variadic function must have at least 1 non-variadic parameter"));
+            fn_table_entry->type_entry = g->builtin_types.entry_invalid;
+            tld_fn->base.resolution = TldResolutionInvalid;
+            return;
         }
 
         Scope *child_scope = fn_table_entry->fndef_scope ? &fn_table_entry->fndef_scope->base : tld_fn->base.parent_scope;
@@ -3670,12 +3685,6 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
             tld->source_node->data.fn_proto.fn_def_node == nullptr)
         {
             add_node_error(g, tld->source_node, buf_sprintf("non-extern function has no body"));
-            return;
-        }
-        if (!tld->source_node->data.fn_proto.is_extern &&
-            tld->source_node->data.fn_proto.is_var_args)
-        {
-            add_node_error(g, tld->source_node, buf_sprintf("non-extern function is variadic"));
             return;
         }
     } else if (tld->id == TldIdUsingNamespace) {

@@ -358,6 +358,14 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcWasmMemoryGrow";
         case IrInstSrcIdSrc:
             return "SrcSrc";
+        case IrInstSrcIdVaStart:
+            return "SrcVaStart";
+        case IrInstSrcIdVaArg:
+            return "SrcVaArg";
+        case IrInstSrcIdVaEnd:
+            return "SrcVaEnd";
+        case IrInstSrcIdVaCopy:
+            return "SrcVaCopy";
     }
     zig_unreachable();
 }
@@ -542,6 +550,14 @@ const char* ir_inst_gen_type_str(IrInstGenId id) {
             return "GenWasmMemorySize";
         case IrInstGenIdWasmMemoryGrow:
             return "GenWasmMemoryGrow";
+        case IrInstGenIdVaStart:
+            return "GenVaStart";
+        case IrInstGenIdVaArg:
+            return "GenVaArg";
+        case IrInstGenIdVaEnd:
+            return "GenVaEnd";
+        case IrInstGenIdVaCopy:
+            return "GenVaCopy";
     }
     zig_unreachable();
 }
@@ -1744,6 +1760,59 @@ static void ir_print_wasm_memory_grow(IrPrintGen *irp, IrInstGenWasmMemoryGrow *
 
 static void ir_print_builtin_src(IrPrintSrc *irp, IrInstSrcSrc *instruction) {
     fprintf(irp->f, "@src()");
+}
+
+static void ir_print_builtin_va_start(IrPrintSrc *irp, IrInstSrcVaStart *instruction) {
+    fprintf(irp->f, "@vaStart(");
+    fprintf(irp->f, ")result=");
+    ir_print_result_loc(irp, instruction->result_loc);
+}
+
+static void ir_print_builtin_va_start(IrPrintGen *irp, IrInstGenVaStart *instruction) {
+    fprintf(irp->f, "@vaStart(");
+    ir_print_other_inst_gen(irp, instruction->ap);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_builtin_va_arg(IrPrintSrc *irp, IrInstSrcVaArg *instruction) {
+    fprintf(irp->f, "@vaArg(");
+    ir_print_other_inst_src(irp, instruction->ap);
+    fprintf(irp->f, ", ");
+    ir_print_other_inst_src(irp, instruction->type);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_builtin_va_arg(IrPrintGen *irp, IrInstGenVaArg *instruction) {
+    fprintf(irp->f, "@vaArg(");
+    ir_print_other_inst_gen(irp, instruction->ap);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_builtin_va_end(IrPrintSrc *irp, IrInstSrcVaEnd *instruction) {
+    fprintf(irp->f, "@vaEnd(");
+    ir_print_other_inst_src(irp, instruction->ap);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_builtin_va_end(IrPrintGen *irp, IrInstGenVaEnd *instruction) {
+    fprintf(irp->f, "@vaEnd(");
+    ir_print_other_inst_gen(irp, instruction->ap);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_builtin_va_copy(IrPrintSrc *irp, IrInstSrcVaCopy *instruction) {
+    fprintf(irp->f, "@vaCopy(");
+    ir_print_other_inst_src(irp, instruction->src);
+    fprintf(irp->f, ")result=");
+    ir_print_result_loc(irp, instruction->result_loc);
+}
+
+static void ir_print_builtin_va_copy(IrPrintGen *irp, IrInstGenVaCopy *instruction) {
+    fprintf(irp->f, "@vaCopy(");
+    ir_print_other_inst_gen(irp, instruction->dest);
+    fprintf(irp->f, ", ");
+    ir_print_other_inst_gen(irp, instruction->src);
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_memset(IrPrintSrc *irp, IrInstSrcMemset *instruction) {
@@ -2995,6 +3064,18 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
         case IrInstSrcIdSrc:
             ir_print_builtin_src(irp, (IrInstSrcSrc *)instruction);
             break;
+        case IrInstSrcIdVaStart:
+            ir_print_builtin_va_start(irp, (IrInstSrcVaStart *)instruction);
+            break;
+        case IrInstSrcIdVaArg:
+            ir_print_builtin_va_arg(irp, (IrInstSrcVaArg *)instruction);
+            break;
+        case IrInstSrcIdVaEnd:
+            ir_print_builtin_va_end(irp, (IrInstSrcVaEnd *)instruction);
+            break;
+        case IrInstSrcIdVaCopy:
+            ir_print_builtin_va_copy(irp, (IrInstSrcVaCopy *)instruction);
+            break;
     }
     fprintf(irp->f, "\n");
 }
@@ -3267,6 +3348,18 @@ static void ir_print_inst_gen(IrPrintGen *irp, IrInstGen *instruction, bool trai
             break;
         case IrInstGenIdWasmMemoryGrow:
             ir_print_wasm_memory_grow(irp, (IrInstGenWasmMemoryGrow *)instruction);
+            break;
+        case IrInstGenIdVaStart:
+            ir_print_builtin_va_start(irp, (IrInstGenVaStart *)instruction);
+            break;
+        case IrInstGenIdVaArg:
+            ir_print_builtin_va_arg(irp, (IrInstGenVaArg *)instruction);
+            break;
+        case IrInstGenIdVaEnd:
+            ir_print_builtin_va_end(irp, (IrInstGenVaEnd *)instruction);
+            break;
+        case IrInstGenIdVaCopy:
+            ir_print_builtin_va_copy(irp, (IrInstGenVaCopy *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
