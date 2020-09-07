@@ -31486,6 +31486,8 @@ static IrInstGen *ir_analyze_instruction_src(IrAnalyze *ira, IrInstSrcSrc *instr
 
 static IrInstGen *ir_analyze_instruction_va_start(IrAnalyze *ira, IrInstSrcVaStart *instruction) {
     ZigType *va_list_type = get_builtin_type(ira->codegen, "VaList");
+    if (type_is_invalid(va_list_type))
+        return ira->codegen->invalid_inst_gen;
 
     IrInstGen *result_loc = ir_resolve_result(ira, &instruction->base.base,
             instruction->result_loc, va_list_type, nullptr, true, false);
@@ -31500,6 +31502,9 @@ static IrInstGen *ir_analyze_instruction_va_start(IrAnalyze *ira, IrInstSrcVaSta
 
 static IrInstGen *ir_analyze_instruction_va_arg(IrAnalyze *ira, IrInstSrcVaArg *instruction) {
     ZigType *va_list_type = get_builtin_type(ira->codegen, "VaList");
+    if (type_is_invalid(va_list_type))
+        return ira->codegen->invalid_inst_gen;
+
     ZigType *va_list_ptr_type = get_pointer_to_type(ira->codegen, va_list_type, false);
 
     IrInstGen *ap = instruction->ap->child;
@@ -31528,6 +31533,9 @@ static IrInstGen *ir_analyze_instruction_va_arg(IrAnalyze *ira, IrInstSrcVaArg *
 
 static IrInstGen *ir_analyze_instruction_va_end(IrAnalyze *ira, IrInstSrcVaEnd *instruction) {
     ZigType *va_list_type = get_builtin_type(ira->codegen, "VaList");
+    if (type_is_invalid(va_list_type))
+        return ira->codegen->invalid_inst_gen;
+
     ZigType *va_list_ptr_type = get_pointer_to_type(ira->codegen, va_list_type, false);
 
     IrInstGen *ap = instruction->ap->child;
@@ -31543,6 +31551,9 @@ static IrInstGen *ir_analyze_instruction_va_end(IrAnalyze *ira, IrInstSrcVaEnd *
 
 static IrInstGen *ir_analyze_instruction_va_copy(IrAnalyze *ira, IrInstSrcVaCopy *instruction) {
     ZigType *va_list_type = get_builtin_type(ira->codegen, "VaList");
+    if (type_is_invalid(va_list_type))
+        return ira->codegen->invalid_inst_gen;
+
     ZigType *va_list_ptr_type = get_pointer_to_type(ira->codegen, va_list_type, false);
 
     IrInstGen *result_loc = ir_resolve_result(ira, &instruction->base.base,

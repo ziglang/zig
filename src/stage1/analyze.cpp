@@ -7941,8 +7941,9 @@ ZigValue *get_builtin_value(CodeGen *codegen, const char *name) {
 
 ZigType *get_builtin_type(CodeGen *codegen, const char *name) {
     ZigValue *type_val = get_builtin_value(codegen, name);
-    assert(type_val->type->id == ZigTypeIdMetaType);
-    return type_val->data.x_type;
+    return type_val->type->id == ZigTypeIdMetaType
+        ? type_val->data.x_type
+        : codegen->builtin_types.entry_invalid;
 }
 
 bool type_is_global_error_set(ZigType *err_set_type) {
