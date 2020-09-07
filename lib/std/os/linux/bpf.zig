@@ -3,9 +3,13 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-usingnamespace std.os;
+usingnamespace std.os.linux;
 const std = @import("../../std.zig");
+const errno = getErrno;
+const unexpectedErrno = std.os.unexpectedErrno;
 const expectEqual = std.testing.expectEqual;
+const expectError = std.testing.expectError;
+const expect = std.testing.expect;
 
 // instruction classes
 pub const LD = 0x00;
@@ -1323,7 +1327,7 @@ pub const ProgAttachAttr = extern struct {
 };
 
 /// struct used by Cmd.prog_test_run command
-pub const TestAttr = extern struct {
+pub const TestRunAttr = extern struct {
     prog_fd: fd_t,
     retval: u32,
 
@@ -1484,3 +1488,176 @@ pub const Attr = extern union {
     enable_stats: EnableStatsAttr,
     iter_create: IterCreateAttr,
 };
+
+pub const Log = struct {
+    level: u32,
+    buf: []u8,
+};
+
+pub fn map_create(map_type: MapType, key_size: u32, value_size: u32, max_entries: u32) !fd_t {
+    var attr = Attr{
+        .map_create = std.mem.zeroes(MapCreateAttr),
+    };
+
+    attr.map_create.map_type = @enumToInt(map_type);
+    attr.map_create.key_size = key_size;
+    attr.map_create.value_size = value_size;
+    attr.map_create.max_entries = max_entries;
+
+    const rc = bpf(.map_create, &attr, @sizeOf(MapCreateAttr));
+    return switch (errno(rc)) {
+        0 => @intCast(fd_t, rc),
+        EINVAL => error.MapTypeOrAttrInvalid,
+        ENOMEM => error.SystemResources,
+        EPERM => error.AccessDenied,
+        else => |err| unexpectedErrno(rc),
+    };
+}
+
+test "map_create" {
+    const map = try map_create(.hash, 4, 4, 32);
+    defer std.os.close(map);
+}
+
+pub fn map_lookup_elem(fd: fd_t, key: []const u8, value: []u8) !void {
+    var attr = Attr{
+        .map_elem = std.mem.zeroes(MapElemAttr),
+    };
+
+    attr.map_elem.map_fd = fd;
+    attr.map_elem.key = @ptrToInt(key.ptr);
+    attr.map_elem.result.value = @ptrToInt(value.ptr);
+
+    const rc = bpf(.map_lookup_elem, &attr, @sizeOf(MapElemAttr));
+    switch (errno(rc)) {
+        0 => return,
+        EBADF => return error.BadFd,
+        EFAULT => unreachable,
+        EINVAL => return error.FieldInAttrNeedsZeroing,
+        ENOENT => return error.NotFound,
+        EPERM => return error.AccessDenied,
+        else => |err| return unexpectedErrno(rc),
+    }
+}
+
+pub fn map_update_elem(fd: fd_t, key: []const u8, value: []const u8, flags: u64) !void {
+    var attr = Attr{
+        .map_elem = std.mem.zeroes(MapElemAttr),
+    };
+
+    attr.map_elem.map_fd = fd;
+    attr.map_elem.key = @ptrToInt(key.ptr);
+    attr.map_elem.result = .{ .value = @ptrToInt(value.ptr) };
+    attr.map_elem.flags = flags;
+
+    const rc = bpf(.map_update_elem, &attr, @sizeOf(MapElemAttr));
+    switch (errno(rc)) {
+        0 => return,
+        E2BIG => return error.ReachedMaxEntries,
+        EBADF => return error.BadFd,
+        EFAULT => unreachable,
+        EINVAL => return error.FieldInAttrNeedsZeroing,
+        ENOMEM => return error.SystemResources,
+        EPERM => return error.AccessDenied,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub fn map_delete_elem(fd: fd_t, key: []const u8) !void {
+    var attr = Attr{
+        .map_elem = std.mem.zeroes(MapElemAttr),
+    };
+
+    attr.map_elem.map_fd = fd;
+    attr.map_elem.key = @ptrToInt(key.ptr);
+
+    const rc = bpf(.map_delete_elem, &attr, @sizeOf(MapElemAttr));
+    switch (errno(rc)) {
+        0 => return,
+        EBADF => return error.BadFd,
+        EFAULT => unreachable,
+        EINVAL => return error.FieldInAttrNeedsZeroing,
+        ENOENT => return error.NotFound,
+        EPERM => return error.AccessDenied,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+test "map lookup, update, and delete" {
+    const key_size = 4;
+    const value_size = 4;
+    const map = try map_create(.hash, key_size, value_size, 1);
+    defer std.os.close(map);
+
+    const key = std.mem.zeroes([key_size]u8);
+    var value = std.mem.zeroes([value_size]u8);
+
+    // fails looking up value that doesn't exist
+    expectError(error.NotFound, map_lookup_elem(map, &key, &value));
+
+    // succeed at updating and looking up element
+    try map_update_elem(map, &key, &value, 0);
+    try map_lookup_elem(map, &key, &value);
+
+    // fails inserting more than max entries
+    const second_key = [key_size]u8{ 0, 0, 0, 1 };
+    expectError(error.ReachedMaxEntries, map_update_elem(map, &second_key, &value, 0));
+
+    // succeed at deleting an existing elem
+    try map_delete_elem(map, &key);
+    expectError(error.NotFound, map_lookup_elem(map, &key, &value));
+
+    // fail at deleting a non-existing elem
+    expectError(error.NotFound, map_delete_elem(map, &key));
+}
+
+pub fn prog_load(
+    prog_type: ProgType,
+    insns: []const Insn,
+    log: ?*Log,
+    license: []const u8,
+    kern_version: u32,
+) !fd_t {
+    var attr = Attr{
+        .prog_load = std.mem.zeroes(ProgLoadAttr),
+    };
+
+    attr.prog_load.prog_type = @enumToInt(prog_type);
+    attr.prog_load.insns = @ptrToInt(insns.ptr);
+    attr.prog_load.insn_cnt = @intCast(u32, insns.len);
+    attr.prog_load.license = @ptrToInt(license.ptr);
+    attr.prog_load.kern_version = kern_version;
+
+    if (log) |l| {
+        attr.prog_load.log_buf = @ptrToInt(l.buf.ptr);
+        attr.prog_load.log_size = @intCast(u32, l.buf.len);
+        attr.prog_load.log_level = l.level;
+    }
+
+    const rc = bpf(.prog_load, &attr, @sizeOf(ProgLoadAttr));
+    return switch (errno(rc)) {
+        0 => @intCast(fd_t, rc),
+        EACCES => error.UnsafeProgram,
+        EFAULT => unreachable,
+        EINVAL => error.InvalidProgram,
+        EPERM => error.AccessDenied,
+        else => |err| unexpectedErrno(err),
+    };
+}
+
+test "prog_load" {
+    // this should fail because it does not set r0 before exiting
+    const bad_prog = [_]Insn{
+        Insn.exit(),
+    };
+
+    const good_prog = [_]Insn{
+        Insn.mov(.r0, 0),
+        Insn.exit(),
+    };
+
+    const prog = try prog_load(.socket_filter, &good_prog, null, "MIT", 0);
+    defer std.os.close(prog);
+
+    expectError(error.UnsafeProgram, prog_load(.socket_filter, &bad_prog, null, "MIT", 0));
+}
