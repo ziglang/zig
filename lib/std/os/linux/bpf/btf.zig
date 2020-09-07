@@ -56,22 +56,22 @@ pub const Type = packed struct {
 
 /// For some kinds, Type is immediately followed by extra data
 pub const Kind = enum(u4) {
-    Unknown,
-    Int,
-    Ptr,
-    Array,
-    Struct,
-    Union,
-    Enum,
-    Fwd,
-    Typedef,
-    Volatile,
-    Const,
-    Restrict,
-    Func,
-    FuncProto,
-    Var,
-    DataSec,
+    unknown,
+    int,
+    ptr,
+    array,
+    structure,
+    kind_union,
+    enumeration,
+    fwd,
+    typedef,
+    kind_volatile,
+    constant,
+    restrict,
+    func,
+    funcProto,
+    variable,
+    dataSec,
 };
 
 /// Int kind is followed by this struct
@@ -80,9 +80,9 @@ pub const IntInfo = packed struct {
     unused: u8,
     offset: u8,
     encoding: enum(u4) {
-        Signed = 1 << 0,
-        Char = 1 << 1,
-        Bool = 1 << 2,
+        signed = 1 << 0,
+        char = 1 << 1,
+        boolean = 1 << 2,
     },
 };
 
@@ -125,15 +125,15 @@ pub const Param = packed struct {
 };
 
 pub const VarLinkage = enum {
-    Static,
-    GlobalAllocated,
-    GlobalExtern,
+    static,
+    global_allocated,
+    global_extern,
 };
 
 pub const FuncLinkage = enum {
-    Static,
-    Global,
-    Extern,
+    static,
+    global,
+    external,
 };
 
 /// Var kind is followd by a single Var struct to describe additional
