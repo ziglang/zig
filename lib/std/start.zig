@@ -67,7 +67,7 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
     uefi.handle = handle;
     uefi.system_table = system_table;
 
-    switch (@typeInfo(@TypeOf(read)).Fn.return_type.?) {
+    switch (@typeInfo(@TypeOf(root.main)).Fn.return_type.?) {
         noreturn => {
             root.main();
         },
