@@ -62,6 +62,7 @@ pub const MAXINSNS = 4096;
 // instruction classes
 /// jmp mode in word width
 pub const JMP32 = 0x06;
+
 /// alu mode in double word width
 pub const ALU64 = 0x07;
 
@@ -72,14 +73,17 @@ pub const XADD = 0xc0;
 // alu/jmp fields
 /// mov reg to reg
 pub const MOV = 0xb0;
+
 /// sign extending arithmetic shift right */
 pub const ARSH = 0xc0;
 
 // change endianness of a register
 /// flags for endianness conversion:
 pub const END = 0xd0;
+
 /// convert to little-endian */
 pub const TO_LE = 0x00;
+
 /// convert to big-endian
 pub const TO_BE = 0x08;
 pub const FROM_LE = TO_LE;
@@ -88,29 +92,39 @@ pub const FROM_BE = TO_BE;
 // jmp encodings
 /// jump != *
 pub const JNE = 0x50;
+
 /// LT is unsigned, '<'
 pub const JLT = 0xa0;
+
 /// LE is unsigned, '<=' *
 pub const JLE = 0xb0;
+
 /// SGT is signed '>', GT in x86
 pub const JSGT = 0x60;
+
 /// SGE is signed '>=', GE in x86
 pub const JSGE = 0x70;
+
 /// SLT is signed, '<'
 pub const JSLT = 0xc0;
+
 /// SLE is signed, '<='
 pub const JSLE = 0xd0;
+
 /// function call
 pub const CALL = 0x80;
+
 /// function return
 pub const EXIT = 0x90;
 
 /// Flag for prog_attach command. If a sub-cgroup installs some bpf program, the
 /// program in this cgroup yields to sub-cgroup program.
 pub const F_ALLOW_OVERRIDE = 0x1;
+
 /// Flag for prog_attach command. If a sub-cgroup installs some bpf program,
 /// that cgroup program gets run in addition to the program in this cgroup.
 pub const F_ALLOW_MULTI = 0x2;
+
 /// Flag for prog_attach command.
 pub const F_REPLACE = 0x4;
 
@@ -164,47 +178,61 @@ pub const PSEUDO_CALL = 1;
 
 /// flag for BPF_MAP_UPDATE_ELEM command. create new element or update existing
 pub const ANY = 0;
+
 /// flag for BPF_MAP_UPDATE_ELEM command. create new element if it didn't exist
 pub const NOEXIST = 1;
+
 /// flag for BPF_MAP_UPDATE_ELEM command. update existing element
 pub const EXIST = 2;
+
 /// flag for BPF_MAP_UPDATE_ELEM command. spin_lock-ed map_lookup/map_update
 pub const F_LOCK = 4;
 
 /// flag for BPF_MAP_CREATE command */
 pub const BPF_F_NO_PREALLOC = 0x1;
+
 /// flag for BPF_MAP_CREATE command. Instead of having one common LRU list in
 /// the BPF_MAP_TYPE_LRU_[PERCPU_]HASH map, use a percpu LRU list which can
 /// scale and perform better.  Note, the LRU nodes (including free nodes) cannot
 /// be moved across different LRU lists.
 pub const BPF_F_NO_COMMON_LRU = 0x2;
+
 /// flag for BPF_MAP_CREATE command. Specify numa node during map creation
 pub const BPF_F_NUMA_NODE = 0x4;
+
 /// flag for BPF_MAP_CREATE command. Flags for BPF object read access from
 /// syscall side
 pub const BPF_F_RDONLY = 0x8;
+
 /// flag for BPF_MAP_CREATE command. Flags for BPF object write access from
 /// syscall side
 pub const BPF_F_WRONLY = 0x10;
+
 /// flag for BPF_MAP_CREATE command. Flag for stack_map, store build_id+offset
 /// instead of pointer
 pub const BPF_F_STACK_BUILD_ID = 0x20;
+
 /// flag for BPF_MAP_CREATE command. Zero-initialize hash function seed. This
 /// should only be used for testing.
 pub const BPF_F_ZERO_SEED = 0x40;
+
 /// flag for BPF_MAP_CREATE command Flags for accessing BPF object from program
 /// side.
 pub const BPF_F_RDONLY_PROG = 0x80;
+
 /// flag for BPF_MAP_CREATE command. Flags for accessing BPF object from program
 /// side.
 pub const BPF_F_WRONLY_PROG = 0x100;
+
 /// flag for BPF_MAP_CREATE command. Clone map from listener for newly accepted
 /// socket
 pub const BPF_F_CLONE = 0x200;
+
 /// flag for BPF_MAP_CREATE command. Enable memory-mapping BPF map
 pub const BPF_F_MMAPABLE = 0x400;
 
-/// These values correspond to "syscalls" within the BPF program's environment
+/// These values correspond to "syscalls" within the BPF program's environment,
+/// each one is documented in std.os.linux.BPF.kern
 pub const Helper = enum(i32) {
     unspec,
     map_lookup_elem,
@@ -325,6 +353,29 @@ pub const Helper = enum(i32) {
     tcp_send_ack,
     send_signal_thread,
     jiffies64,
+    read_branch_records,
+    get_ns_current_pid_tgid,
+    xdp_output,
+    get_netns_cookie,
+    get_current_ancestor_cgroup_id,
+    sk_assign,
+    ktime_get_boot_ns,
+    seq_printf,
+    seq_write,
+    sk_cgroup_id,
+    sk_ancestor_cgroup_id,
+    ringbuf_output,
+    ringbuf_reserve,
+    ringbuf_submit,
+    ringbuf_discard,
+    ringbuf_query,
+    csum_level,
+    skc_to_tcp6_sock,
+    skc_to_tcp_sock,
+    skc_to_tcp_timewait_sock,
+    skc_to_tcp_request_sock,
+    skc_to_udp6_sock,
+    get_task_stack,
     _,
 };
 
@@ -564,39 +615,123 @@ test "exit" {
 }
 
 pub const Cmd = extern enum(usize) {
+    /// Create  a map and return a file descriptor that refers to the map.  The
+    /// close-on-exec file descriptor flag is automatically enabled for the new
+    /// file descriptor.
+    ///
+    /// uses MapCreateAttr
     map_create,
+
+    /// Look up an element by key in a specified map and return its value.
+    ///
+    /// uses MapElemAttr
     map_lookup_elem,
+
+    /// Create or update an element (key/value pair) in a specified map.
+    ///
+    /// uses MapElemAttr
     map_update_elem,
+
+    /// Look up and delete an element by key in a specified map.
+    ///
+    /// uses MapElemAttr
     map_delete_elem,
+
+    /// Look up an element by key in a specified map and return the key of the
+    /// next element.
     map_get_next_key,
+
+    /// Verify and load an eBPF program, returning a new file descriptor
+    /// associated with  the  program.   The close-on-exec file descriptor flag
+    /// is automatically enabled for the new file descriptor.
+    ///
+    /// uses ProgLoadAttr
     prog_load,
+
+    /// Pin a map or eBPF program to a path within the minimal BPF filesystem
+    ///
+    /// uses ObjAttr
     obj_pin,
+
+    /// Get the file descriptor of a BPF object pinned to a certain path
+    ///
+    /// uses ObjAttr
     obj_get,
+
+    /// uses ProgAttachAttr
     prog_attach,
+
+    /// uses ProgAttachAttr
     prog_detach,
+
+    /// uses TestRunAttr
     prog_test_run,
+
+    /// uses GetIdAttr
     prog_get_next_id,
+
+    /// uses GetIdAttr
     map_get_next_id,
+
+    /// uses GetIdAttr
     prog_get_fd_by_id,
+
+    /// uses GetIdAttr
     map_get_fd_by_id,
+
+    /// uses InfoAttr
     obj_get_info_by_fd,
+
+    /// uses QueryAttr
     prog_query,
+
+    /// uses RawTracepointAttr
     raw_tracepoint_open,
+
+    /// uses BtfLoadAttr
     btf_load,
+
+    /// uses GetIdAttr
     btf_get_fd_by_id,
+
+    /// uses TaskFdQueryAttr
     task_fd_query,
+
+    /// uses MapElemAttr
     map_lookup_and_delete_elem,
     map_freeze,
+
+    /// uses GetIdAttr
     btf_get_next_id,
+
+    /// uses MapBatchAttr
     map_lookup_batch,
+
+    /// uses MapBatchAttr
     map_lookup_and_delete_batch,
+
+    /// uses MapBatchAttr
     map_update_batch,
+
+    /// uses MapBatchAttr
     map_delete_batch,
+
+    /// uses LinkCreateAttr
     link_create,
+
+    /// uses LinkUpdateAttr
     link_update,
+
+    /// uses GetIdAttr
     link_get_fd_by_id,
+
+    /// uses GetIdAttr
     link_get_next_id,
+
+    /// uses EnableStatsAttr
     enable_stats,
+
+    /// uses IterCreateAttr
     iter_create,
     link_detach,
     _,
@@ -630,42 +765,137 @@ pub const MapType = extern enum(u32) {
     sk_storage,
     devmap_hash,
     struct_ops,
+
+    /// An ordered and shared CPU version of perf_event_array. They have
+    /// similar semantics:
+    ///     - variable length records
+    ///     - no blocking: when full, reservation fails
+    ///     - memory mappable for ease and speed
+    ///     - epoll notifications for new data, but can busy poll
+    ///
+    /// Ringbufs give BPF programs two sets of APIs:
+    ///     - ringbuf_output() allows copy data from one place to a ring
+    ///     buffer, similar to bpf_perf_event_output()
+    ///     - ringbuf_reserve()/ringbuf_commit()/ringbuf_discard() split the
+    ///     process into two steps. First a fixed amount of space is reserved,
+    ///     if that is successful then the program gets a pointer to a chunk of
+    ///     memory and can be submitted with commit() or discarded with
+    ///     discard()
+    ///
+    /// ringbuf_output() will incurr an extra memory copy, but allows to submit
+    /// records of the length that's not known beforehand, and is an easy
+    /// replacement for perf_event_outptu().
+    ///
+    /// ringbuf_reserve() avoids the extra memory copy but requires a known size
+    /// of memory beforehand.
+    ///
+    /// ringbuf_query() allows to query properties of the map, 4 are currently
+    /// supported:
+    ///     - BPF_RB_AVAIL_DATA: amount of unconsumed data in ringbuf
+    ///     - BPF_RB_RING_SIZE: returns size of ringbuf
+    ///     - BPF_RB_CONS_POS/BPF_RB_PROD_POS returns current logical position
+    ///     of consumer and producer respectively
+    ///
+    /// key size: 0
+    /// value size: 0
+    /// max entries: size of ringbuf, must be power of 2
     ringbuf,
     _,
 };
 
 pub const ProgType = extern enum(u32) {
     unspec,
+
+    /// context type: __sk_buff
     socket_filter,
+
+    /// context type: bpf_user_pt_regs_t
     kprobe,
+
+    /// context type: __sk_buff
     sched_cls,
+
+    /// context type: __sk_buff
     sched_act,
+
+    /// context type: u64
     tracepoint,
+
+    /// context type: xdp_md
     xdp,
+
+    /// context type: bpf_perf_event_data
     perf_event,
+
+    /// context type: __sk_buff
     cgroup_skb,
+
+    /// context type: bpf_sock
     cgroup_sock,
+
+    /// context type: __sk_buff
     lwt_in,
+
+    /// context type: __sk_buff
     lwt_out,
+
+    /// context type: __sk_buff
     lwt_xmit,
+
+    /// context type: bpf_sock_ops
     sock_ops,
+
+    /// context type: __sk_buff
     sk_skb,
+
+    /// context type: bpf_cgroup_dev_ctx
     cgroup_device,
+
+    /// context type: sk_msg_md
     sk_msg,
+
+    /// context type: bpf_raw_tracepoint_args
     raw_tracepoint,
+
+    /// context type: bpf_sock_addr
     cgroup_sock_addr,
+
+    /// context type: __sk_buff
     lwt_seg6local,
+
+    /// context type: u32
     lirc_mode2,
+
+    /// context type: sk_reuseport_md
     sk_reuseport,
+
+    /// context type: __sk_buff
     flow_dissector,
+
+    /// context type: bpf_sysctl
     cgroup_sysctl,
+
+    /// context type: bpf_raw_tracepoint_args
     raw_tracepoint_writable,
+
+    /// context type: bpf_sockopt
     cgroup_sockopt,
+
+    /// context type: void *
     tracing,
+
+    /// context type: void *
     struct_ops,
+
+    /// context type: void *
     ext,
+
+    /// context type: void *
     lsm,
+
+    /// context type: bpf_sk_lookup
     sk_lookup,
+    _,
 };
 
 pub const AttachType = extern enum(u32) {
@@ -715,27 +945,38 @@ const obj_name_len = 16;
 pub const MapCreateAttr = extern struct {
     /// one of MapType
     map_type: u32,
+
     /// size of key in bytes
     key_size: u32,
+
     /// size of value in bytes
     value_size: u32,
+
     /// max number of entries in a map
     max_entries: u32,
+
     /// .map_create related flags
     map_flags: u32,
+
     /// fd pointing to the inner map
     inner_map_fd: fd_t,
+
     /// numa node (effective only if MapCreateFlags.numa_node is set)
     numa_node: u32,
     map_name: [obj_name_len]u8,
+
     /// ifindex of netdev to create on
     map_ifindex: u32,
+
     /// fd pointing to a BTF type data
     btf_fd: fd_t,
+
     /// BTF type_id of the key
     btf_key_type_id: u32,
+
     /// BTF type_id of the value
     bpf_value_type_id: u32,
+
     /// BTF type_id of a kernel struct stored as the map value
     btf_vmlinux_value_type_id: u32,
 };
@@ -755,10 +996,12 @@ pub const MapElemAttr = extern struct {
 pub const MapBatchAttr = extern struct {
     /// start batch, NULL to start from beginning
     in_batch: u64,
+
     /// output: next start batch
     out_batch: u64,
     keys: u64,
     values: u64,
+
     /// input/output:
     /// input: # of key/value elements
     /// output: # of filled elements
@@ -775,35 +1018,49 @@ pub const ProgLoadAttr = extern struct {
     insn_cnt: u32,
     insns: u64,
     license: u64,
+
     /// verbosity level of verifier
     log_level: u32,
+
     /// size of user buffer
     log_size: u32,
+
     /// user supplied buffer
     log_buf: u64,
+
     /// not used
     kern_version: u32,
     prog_flags: u32,
     prog_name: [obj_name_len]u8,
-    /// ifindex of netdev to prep for. For some prog types expected attach
-    /// type must be known at load time to verify attach type specific parts
-    /// of prog (context accesses, allowed helpers, etc).
+
+    /// ifindex of netdev to prep for.
     prog_ifindex: u32,
+
+    /// For some prog types expected attach type must be known at load time to
+    /// verify attach type specific parts of prog (context accesses, allowed
+    /// helpers, etc).
     expected_attach_type: u32,
+
     /// fd pointing to BTF type data
     prog_btf_fd: fd_t,
+
     /// userspace bpf_func_info size
     func_info_rec_size: u32,
     func_info: u64,
+
     /// number of bpf_func_info records
     func_info_cnt: u32,
+
     /// userspace bpf_line_info size
     line_info_rec_size: u32,
     line_info: u64,
+
     /// number of bpf_line_info records
     line_info_cnt: u32,
+
     /// in-kernel BTF type id to attach to
     attact_btf_id: u32,
+
     /// 0 to attach to vmlinux
     attach_prog_id: u32,
 };
@@ -819,10 +1076,13 @@ pub const ObjAttr = extern struct {
 pub const ProgAttachAttr = extern struct {
     /// container object to attach to
     target_fd: fd_t,
+
     /// eBPF program to attach
     attach_bpf_fd: fd_t,
+
     attach_type: u32,
     attach_flags: u32,
+
     // TODO: BPF_F_REPLACE flags
     /// previously attached eBPF program to replace if .replace is used
     replace_bpf_fd: fd_t,
@@ -832,16 +1092,20 @@ pub const ProgAttachAttr = extern struct {
 pub const TestAttr = extern struct {
     prog_fd: fd_t,
     retval: u32,
+
     /// input: len of data_in
     data_size_in: u32,
+
     /// input/output: len of data_out. returns ENOSPC if data_out is too small.
     data_size_out: u32,
     data_in: u64,
     data_out: u64,
     repeat: u32,
     duration: u32,
+
     /// input: len of ctx_in
     ctx_size_in: u32,
+
     /// input/output: len of ctx_out. returns ENOSPC if ctx_out is too small.
     ctx_size_out: u32,
     ctx_in: u64,
@@ -894,26 +1158,35 @@ pub const BtfLoadAttr = extern struct {
     btf_log_level: u32,
 };
 
+/// struct used by Cmd.task_fd_query
 pub const TaskFdQueryAttr = extern struct {
     /// input: pid
     pid: pid_t,
+
     /// input: fd
     fd: fd_t,
+
     /// input: flags
     flags: u32,
+
     /// input/output: buf len
     buf_len: u32,
+
     /// input/output:
     ///     tp_name for tracepoint
     ///     symbol for kprobe
     ///     filename for uprobe
     buf: u64,
+
     /// output: prod_id
     prog_id: u32,
+
     /// output: BPF_FD_TYPE
     fd_type: u32,
+
     /// output: probe_offset
     probe_offset: u64,
+
     /// output: probe_addr
     probe_addr: u64,
 };
@@ -922,9 +1195,11 @@ pub const TaskFdQueryAttr = extern struct {
 pub const LinkCreateAttr = extern struct {
     /// eBPF program to attach
     prog_fd: fd_t,
+
     /// object to attach to
     target_fd: fd_t,
     attach_type: u32,
+
     /// extra flags
     flags: u32,
 };
@@ -932,10 +1207,13 @@ pub const LinkCreateAttr = extern struct {
 /// struct used by Cmd.link_update command
 pub const LinkUpdateAttr = extern struct {
     link_fd: fd_t,
+
     /// new program to update link with
     new_prog_fd: fd_t,
+
     /// extra flags
     flags: u32,
+
     /// expected link's program fd, it is specified only if BPF_F_REPLACE is
     /// set in flags
     old_prog_fd: fd_t,
@@ -952,6 +1230,7 @@ pub const IterCreateAttr = extern struct {
     flags: u32,
 };
 
+/// Mega struct that is passed to the bpf() syscall
 pub const Attr = extern union {
     map_create: MapCreateAttr,
     map_elem: MapElemAttr,
