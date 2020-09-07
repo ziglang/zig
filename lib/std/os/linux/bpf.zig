@@ -5,7 +5,6 @@
 // and substantial portions of the software.
 usingnamespace std.os;
 const std = @import("../../std.zig");
-const builtin = @import("builtin");
 const expectEqual = std.testing.expectEqual;
 
 // instruction classes
@@ -631,7 +630,7 @@ pub const Insn = packed struct {
         };
     }
 
-    fn endian_swap(endian: builtin.Endian, comptime size: Size, dst: Reg) Insn {
+    fn endian_swap(endian: std.builtin.Endian, comptime size: Size, dst: Reg) Insn {
         return Insn{
             .code = switch (endian) {
                 .Big => 0xdc,
