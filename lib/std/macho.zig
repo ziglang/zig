@@ -647,6 +647,32 @@ pub const nlist_64 = extern struct {
     n_value: u64,
 };
 
+/// Format of a relocation entry of a Mach-O file.  Modified from the 4.3BSD
+/// format.  The modifications from the original format were changing the value
+/// of the r_symbolnum field for "local" (r_extern == 0) relocation entries.
+/// This modification is required to support symbols in an arbitrary number of
+/// sections not just the three sections (text, data and bss) in a 4.3BSD file.
+/// Also the last 4 bits have had the r_type tag added to them.
+pub const relocation_info = packed struct {
+    /// offset in the section to what is being relocated
+    r_address: i32,
+
+    /// symbol index if r_extern == 1 or section ordinal if r_extern == 0
+    r_symbolnum: u24,
+
+    /// was relocated pc relative already
+    r_pcrel: u1,
+
+    /// 0=byte, 1=word, 2=long, 3=quad
+    r_length: u2,
+
+    /// does not include value of sym referenced
+    r_extern: u1,
+
+    /// if not 0, machine specific relocation type
+    r_type: u4,
+};
+
 /// After MacOS X 10.1 when a new load command is added that is required to be
 /// understood by the dynamic linker for the image to execute properly the
 /// LC_REQ_DYLD bit will be or'ed into the load command constant.  If the dynamic
@@ -1086,13 +1112,58 @@ pub const N_ECOML = 0xe8;
 /// second stab entry with length information
 pub const N_LENG = 0xfe;
 
-/// If a segment contains any sections marked with S_ATTR_DEBUG then all
-/// sections in that segment must have this attribute.  No section other than
-/// a section marked with this attribute may reference the contents of this
-/// section.  A section with this attribute may contain no symbols and must have
-/// a section type S_REGULAR.  The static linker will not copy section contents
-/// from sections with this attribute into its output file.  These sections
-/// generally contain DWARF debugging info.
+// For the two types of symbol pointers sections and the symbol stubs section
+// they have indirect symbol table entries.  For each of the entries in the
+// section the indirect symbol table entries, in corresponding order in the
+// indirect symbol table, start at the index stored in the reserved1 field
+// of the section structure.  Since the indirect symbol table entries
+// correspond to the entries in the section the number of indirect symbol table
+// entries is inferred from the size of the section divided by the size of the
+// entries in the section.  For symbol pointers sections the size of the entries
+// in the section is 4 bytes and for symbol stubs sections the byte size of the
+// stubs is stored in the reserved2 field of the section structure.
+
+/// section with only non-lazy symbol pointers
+pub const S_NON_LAZY_SYMBOL_POINTERS = 0x6;
+
+/// section with only lazy symbol pointers
+pub const S_LAZY_SYMBOL_POINTERS = 0x7;
+
+/// section with only symbol stubs, byte size of stub in the reserved2 field
+pub const S_SYMBOL_STUBS = 0x8;
+
+/// section with only function pointers for initialization
+pub const S_MOD_INIT_FUNC_POINTERS = 0x9;
+
+/// section with only function pointers for termination
+pub const S_MOD_TERM_FUNC_POINTERS = 0xa;
+
+/// section contains symbols that are to be coalesced
+pub const S_COALESCED = 0xb;
+
+/// zero fill on demand section (that can be larger than 4 gigabytes)
+pub const S_GB_ZEROFILL = 0xc;
+
+/// section with only pairs of function pointers for interposing
+pub const S_INTERPOSING = 0xd;
+
+/// section with only 16 byte literals
+pub const S_16BYTE_LITERALS = 0xe;
+
+/// section contains DTrace Object Format
+pub const S_DTRACE_DOF = 0xf;
+
+/// section with only lazy symbol pointers to lazy loaded dylibs
+pub const S_LAZY_DYLIB_SYMBOL_POINTERS = 0x10;
+
+// If a segment contains any sections marked with S_ATTR_DEBUG then all
+// sections in that segment must have this attribute.  No section other than
+// a section marked with this attribute may reference the contents of this
+// section.  A section with this attribute may contain no symbols and must have
+// a section type S_REGULAR.  The static linker will not copy section contents
+// from sections with this attribute into its output file.  These sections
+// generally contain DWARF debugging info.
+
 /// a debug section
 pub const S_ATTR_DEBUG = 0x02000000;
 
@@ -1154,3 +1225,35 @@ pub const VM_PROT_WRITE: vm_prot_t = 0x2;
 
 /// VM execute permission
 pub const VM_PROT_EXECUTE: vm_prot_t = 0x4;
+
+pub const reloc_type_x86_64 = packed enum(u4) {
+    /// for absolute addresses
+    X86_64_RELOC_UNSIGNED = 0,
+
+    /// for signed 32-bit displacement
+    X86_64_RELOC_SIGNED,
+
+    /// a CALL/JMP instruction with 32-bit displacement
+    X86_64_RELOC_BRANCH,
+
+    /// a MOVQ load of a GOT entry
+    X86_64_RELOC_GOT_LOAD,
+
+    /// other GOT references
+    X86_64_RELOC_GOT,
+
+    /// must be followed by a X86_64_RELOC_UNSIGNED
+    X86_64_RELOC_SUBTRACTOR,
+
+    /// for signed 32-bit displacement with a -1 addend
+    X86_64_RELOC_SIGNED_1,
+
+    /// for signed 32-bit displacement with a -2 addend
+    X86_64_RELOC_SIGNED_2,
+
+    /// for signed 32-bit displacement with a -4 addend
+    X86_64_RELOC_SIGNED_4,
+
+    /// for thread local variables
+    X86_64_RELOC_TLV,
+};
