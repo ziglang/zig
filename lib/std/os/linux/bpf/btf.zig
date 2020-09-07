@@ -34,7 +34,7 @@ pub const max_vlen = 0xffff;
 
 pub const Type = packed struct {
     name_off: u32,
-    info: struct {
+    info: packed struct {
         /// number of struct's members
         vlen: u16,
 
