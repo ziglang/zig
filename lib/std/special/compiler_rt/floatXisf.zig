@@ -12,15 +12,16 @@ const FLT_MANT_DIG = 24;
 fn __floatXisf(comptime T: type, arg: T) f32 {
     @setRuntimeSafety(builtin.is_test);
 
-    const Z = std.meta.Int(false, T.bit_count);
-    const S = std.meta.Int(false, T.bit_count - @clz(Z, @as(Z, T.bit_count) - 1));
+    const bits = @typeInfo(T).Int.bits;
+    const Z = std.meta.Int(false, bits);
+    const S = std.meta.Int(false, bits - @clz(Z, @as(Z, bits) - 1));
 
     if (arg == 0) {
         return @as(f32, 0.0);
     }
 
     var ai = arg;
-    const N: u32 = T.bit_count;
+    const N: u32 = bits;
     const si = ai >> @intCast(S, (N - 1));
     ai = ((ai ^ si) -% si);
     var a = @bitCast(Z, ai);
@@ -66,7 +67,7 @@ fn __floatXisf(comptime T: type, arg: T) f32 {
         // a is now rounded to FLT_MANT_DIG bits
     }
 
-    const s = @bitCast(Z, arg) >> (T.bit_count - 32);
+    const s = @bitCast(Z, arg) >> (@typeInfo(T).Int.bits - 32);
     const r = (@intCast(u32, s) & 0x80000000) | // sign
         (@intCast(u32, (e + 127)) << 23) | // exponent
         (@truncate(u32, a) & 0x007fffff); // mantissa-high

@@ -67,7 +67,7 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
     uefi.handle = handle;
     uefi.system_table = system_table;
 
-    switch (@TypeOf(root.main).ReturnType) {
+    switch (@typeInfo(@TypeOf(root.main)).Fn.return_type.?) {
         noreturn => {
             root.main();
         },
@@ -239,7 +239,7 @@ fn callMainAsync(loop: *std.event.Loop) callconv(.Async) u8 {
 // This is not marked inline because it is called with @asyncCall when
 // there is an event loop.
 pub fn callMain() u8 {
-    switch (@typeInfo(@TypeOf(root.main).ReturnType)) {
+    switch (@typeInfo(@typeInfo(@TypeOf(root.main)).Fn.return_type.?)) {
         .NoReturn => {
             root.main();
         },

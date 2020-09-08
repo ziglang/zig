@@ -23,13 +23,13 @@ test "big.int comptime_int set" {
     var a = try Managed.initSet(testing.allocator, s);
     defer a.deinit();
 
-    const s_limb_count = 128 / Limb.bit_count;
+    const s_limb_count = 128 / @typeInfo(Limb).Int.bits;
 
     comptime var i: usize = 0;
     inline while (i < s_limb_count) : (i += 1) {
         const result = @as(Limb, s & maxInt(Limb));
-        s >>= Limb.bit_count / 2;
-        s >>= Limb.bit_count / 2;
+        s >>= @typeInfo(Limb).Int.bits / 2;
+        s >>= @typeInfo(Limb).Int.bits / 2;
         testing.expect(a.limbs[i] == result);
     }
 }

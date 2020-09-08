@@ -1656,8 +1656,8 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
         try dbg_line_buffer.ensureCapacity(26);
 
         const line_off: u28 = blk: {
-            if (decl.scope.cast(Module.Scope.File)) |scope_file| {
-                const tree = scope_file.contents.tree;
+            if (decl.scope.cast(Module.Scope.Container)) |container_scope| {
+                const tree = container_scope.file_scope.contents.tree;
                 const file_ast_decls = tree.root_node.decls();
                 // TODO Look into improving the performance here by adding a token-index-to-line
                 // lookup table. Currently this involves scanning over the source code for newlines.
@@ -1735,7 +1735,13 @@ pub fn updateDecl(self: *Elf, module: *Module, decl: *Module.Decl) !void {
     } else {
         // TODO implement .debug_info for global variables
     }
-    const res = try codegen.generateSymbol(&self.base, decl.src(), typed_value, &code_buffer, &dbg_line_buffer, &dbg_info_buffer, &dbg_info_type_relocs);
+    const res = try codegen.generateSymbol(&self.base, decl.src(), typed_value, &code_buffer, .{
+        .dwarf = .{
+            .dbg_line = &dbg_line_buffer,
+            .dbg_info = &dbg_info_buffer,
+            .dbg_info_type_relocs = &dbg_info_type_relocs,
+        },
+    });
     const code = switch (res) {
         .externally_managed => |x| x,
         .appended => code_buffer.items,
@@ -2157,8 +2163,8 @@ pub fn updateDeclLineNumber(self: *Elf, module: *Module, decl: *const Module.Dec
     const tracy = trace(@src());
     defer tracy.end();
 
-    const scope_file = decl.scope.cast(Module.Scope.File).?;
-    const tree = scope_file.contents.tree;
+    const container_scope = decl.scope.cast(Module.Scope.Container).?;
+    const tree = container_scope.file_scope.contents.tree;
     const file_ast_decls = tree.root_node.decls();
     // TODO Look into improving the performance here by adding a token-index-to-line
     // lookup table. Currently this involves scanning over the source code for newlines.

@@ -15341,9 +15341,14 @@ static IrInstGen *ir_analyze_cast(IrAnalyze *ira, IrInst *source_instr,
         ZigType *array_type = actual_type->data.pointer.child_type;
         bool const_ok = (slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0
                 || !actual_type->data.pointer.is_const);
+
         if (const_ok && types_match_const_cast_only(ira, slice_ptr_type->data.pointer.child_type,
             array_type->data.array.child_type, source_node,
-            !slice_ptr_type->data.pointer.is_const).id == ConstCastResultIdOk)
+            !slice_ptr_type->data.pointer.is_const).id == ConstCastResultIdOk &&
+            (slice_ptr_type->data.pointer.sentinel == nullptr ||
+             (array_type->data.array.sentinel != nullptr &&
+              const_values_equal(ira->codegen, array_type->data.array.sentinel,
+                  slice_ptr_type->data.pointer.sentinel))))
         {
             // If the pointers both have ABI align, it works.
             // Or if the array length is 0, alignment doesn't matter.
@@ -22830,167 +22835,9 @@ static IrInstGen *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstSrcFiel
             bool ptr_is_volatile = false;
             return ir_get_const_ptr(ira, &field_ptr_instruction->base.base, const_val,
                     err_set_type, ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
-        } else if (child_type->id == ZigTypeIdInt) {
-            if (buf_eql_str(field_name, "bit_count")) {
-                bool ptr_is_const = true;
-                bool ptr_is_volatile = false;
-                return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                    create_const_unsigned_negative(ira->codegen, ira->codegen->builtin_types.entry_num_lit_int,
-                        child_type->data.integral.bit_count, false),
-                    ira->codegen->builtin_types.entry_num_lit_int,
-                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
-            } else if (buf_eql_str(field_name, "is_signed")) {
-                bool ptr_is_const = true;
-                bool ptr_is_volatile = false;
-                return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                    create_const_bool(ira->codegen, child_type->data.integral.is_signed),
-                    ira->codegen->builtin_types.entry_bool,
-                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
-            } else {
-                ir_add_error(ira, &field_ptr_instruction->base.base,
-                    buf_sprintf("type '%s' has no member called '%s'",
-                        buf_ptr(&child_type->name), buf_ptr(field_name)));
-                return ira->codegen->invalid_inst_gen;
-            }
-        } else if (child_type->id == ZigTypeIdFloat) {
-            if (buf_eql_str(field_name, "bit_count")) {
-                bool ptr_is_const = true;
-                bool ptr_is_volatile = false;
-                return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                    create_const_unsigned_negative(ira->codegen, ira->codegen->builtin_types.entry_num_lit_int,
-                        child_type->data.floating.bit_count, false),
-                    ira->codegen->builtin_types.entry_num_lit_int,
-                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
-            } else {
-                ir_add_error(ira, &field_ptr_instruction->base.base,
-                    buf_sprintf("type '%s' has no member called '%s'",
-                        buf_ptr(&child_type->name), buf_ptr(field_name)));
-                return ira->codegen->invalid_inst_gen;
-            }
-        } else if (child_type->id == ZigTypeIdPointer) {
-            if (buf_eql_str(field_name, "Child")) {
-                bool ptr_is_const = true;
-                bool ptr_is_volatile = false;
-                return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                    create_const_type(ira->codegen, child_type->data.pointer.child_type),
-                    ira->codegen->builtin_types.entry_type,
-                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
-            } else if (buf_eql_str(field_name, "alignment")) {
-                bool ptr_is_const = true;
-                bool ptr_is_volatile = false;
-                if ((err = type_resolve(ira->codegen, child_type->data.pointer.child_type,
-                                ResolveStatusAlignmentKnown)))
-                {
-                    return ira->codegen->invalid_inst_gen;
-                }
-                return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                    create_const_unsigned_negative(ira->codegen, ira->codegen->builtin_types.entry_num_lit_int,
-                        get_ptr_align(ira->codegen, child_type), false),
-                    ira->codegen->builtin_types.entry_num_lit_int,
-                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
-            } else {
-                ir_add_error(ira, &field_ptr_instruction->base.base,
-                    buf_sprintf("type '%s' has no member called '%s'",
-                        buf_ptr(&child_type->name), buf_ptr(field_name)));
-                return ira->codegen->invalid_inst_gen;
-            }
-        } else if (child_type->id == ZigTypeIdArray) {
-            if (buf_eql_str(field_name, "Child")) {
-                bool ptr_is_const = true;
-                bool ptr_is_volatile = false;
-                return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                    create_const_type(ira->codegen, child_type->data.array.child_type),
-                    ira->codegen->builtin_types.entry_type,
-                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
-            } else if (buf_eql_str(field_name, "len")) {
-                bool ptr_is_const = true;
-                bool ptr_is_volatile = false;
-                return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                    create_const_unsigned_negative(ira->codegen, ira->codegen->builtin_types.entry_num_lit_int,
-                        child_type->data.array.len, false),
-                    ira->codegen->builtin_types.entry_num_lit_int,
-                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
-            } else {
-                ir_add_error(ira, &field_ptr_instruction->base.base,
-                    buf_sprintf("type '%s' has no member called '%s'",
-                        buf_ptr(&child_type->name), buf_ptr(field_name)));
-                return ira->codegen->invalid_inst_gen;
-            }
-        } else if (child_type->id == ZigTypeIdErrorUnion) {
-            if (buf_eql_str(field_name, "Payload")) {
-                bool ptr_is_const = true;
-                bool ptr_is_volatile = false;
-                return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                    create_const_type(ira->codegen, child_type->data.error_union.payload_type),
-                    ira->codegen->builtin_types.entry_type,
-                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
-            } else if (buf_eql_str(field_name, "ErrorSet")) {
-                bool ptr_is_const = true;
-                bool ptr_is_volatile = false;
-                return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                    create_const_type(ira->codegen, child_type->data.error_union.err_set_type),
-                    ira->codegen->builtin_types.entry_type,
-                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
-            } else {
-                ir_add_error(ira, &field_ptr_instruction->base.base,
-                    buf_sprintf("type '%s' has no member called '%s'",
-                        buf_ptr(&child_type->name), buf_ptr(field_name)));
-                return ira->codegen->invalid_inst_gen;
-            }
-        } else if (child_type->id == ZigTypeIdOptional) {
-            if (buf_eql_str(field_name, "Child")) {
-                bool ptr_is_const = true;
-                bool ptr_is_volatile = false;
-                return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                    create_const_type(ira->codegen, child_type->data.maybe.child_type),
-                    ira->codegen->builtin_types.entry_type,
-                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
-            } else {
-                ir_add_error(ira, &field_ptr_instruction->base.base,
-                    buf_sprintf("type '%s' has no member called '%s'",
-                        buf_ptr(&child_type->name), buf_ptr(field_name)));
-                return ira->codegen->invalid_inst_gen;
-            }
-        } else if (child_type->id == ZigTypeIdFn) {
-            if (buf_eql_str(field_name, "ReturnType")) {
-                if (child_type->data.fn.fn_type_id.return_type == nullptr) {
-                    // Return type can only ever be null, if the function is generic
-                    assert(child_type->data.fn.is_generic);
-
-                    ir_add_error(ira, &field_ptr_instruction->base.base,
-                        buf_sprintf("ReturnType has not been resolved because '%s' is generic", buf_ptr(&child_type->name)));
-                    return ira->codegen->invalid_inst_gen;
-                }
-
-                bool ptr_is_const = true;
-                bool ptr_is_volatile = false;
-                return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                    create_const_type(ira->codegen, child_type->data.fn.fn_type_id.return_type),
-                    ira->codegen->builtin_types.entry_type,
-                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
-            } else if (buf_eql_str(field_name, "is_var_args")) {
-                bool ptr_is_const = true;
-                bool ptr_is_volatile = false;
-                return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                    create_const_bool(ira->codegen, child_type->data.fn.fn_type_id.is_var_args),
-                    ira->codegen->builtin_types.entry_bool,
-                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
-            } else if (buf_eql_str(field_name, "arg_count")) {
-                bool ptr_is_const = true;
-                bool ptr_is_volatile = false;
-                return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                    create_const_usize(ira->codegen, child_type->data.fn.fn_type_id.param_count),
-                    ira->codegen->builtin_types.entry_usize,
-                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
-            } else {
-                ir_add_error(ira, &field_ptr_instruction->base.base,
-                    buf_sprintf("type '%s' has no member called '%s'",
-                        buf_ptr(&child_type->name), buf_ptr(field_name)));
-                return ira->codegen->invalid_inst_gen;
-            }
         } else {
             ir_add_error(ira, &field_ptr_instruction->base.base,
-                buf_sprintf("type '%s' does not support field access", buf_ptr(&child_type->name)));
+                buf_sprintf("type '%s' does not support field access", buf_ptr(&container_type->name)));
             return ira->codegen->invalid_inst_gen;
         }
     } else if (field_ptr_instruction->initializing) {
@@ -26747,7 +26594,7 @@ static IrInstGen *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstSrcCmpxch
 
     if (operand_type->id == ZigTypeIdFloat) {
         ir_add_error(ira, &instruction->type_value->child->base,
-            buf_sprintf("expected integer, enum or pointer type, found '%s'", buf_ptr(&operand_type->name)));
+            buf_sprintf("expected bool, integer, enum or pointer type, found '%s'", buf_ptr(&operand_type->name)));
         return ira->codegen->invalid_inst_gen;
     }
 
@@ -30402,7 +30249,7 @@ static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstGen *op) {
             return ira->codegen->builtin_types.entry_invalid;
         if (operand_ptr_type == nullptr) {
             ir_add_error(ira, &op->base,
-                buf_sprintf("expected integer, float, enum or pointer type, found '%s'",
+                buf_sprintf("expected bool, integer, float, enum or pointer type, found '%s'",
                     buf_ptr(&operand_type->name)));
             return ira->codegen->builtin_types.entry_invalid;
         }

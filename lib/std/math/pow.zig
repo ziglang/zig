@@ -128,7 +128,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     if (yf != 0 and x < 0) {
         return math.nan(T);
     }
-    if (yi >= 1 << (T.bit_count - 1)) {
+    if (yi >= 1 << (@typeInfo(T).Float.bits - 1)) {
         return math.exp(y * math.ln(x));
     }
 
@@ -150,7 +150,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     var xe = r2.exponent;
     var x1 = r2.significand;
 
-    var i = @floatToInt(std.meta.Int(true, T.bit_count), yi);
+    var i = @floatToInt(std.meta.Int(true, @typeInfo(T).Float.bits), yi);
     while (i != 0) : (i >>= 1) {
         const overflow_shift = math.floatExponentBits(T) + 1;
         if (xe < -(1 << overflow_shift) or (1 << overflow_shift) < xe) {

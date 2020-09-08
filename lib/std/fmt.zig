@@ -66,6 +66,7 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 ///   - output numeric value in hexadecimal notation
 /// - `s`: print a pointer-to-many as a c-string, use zero-termination
 /// - `B` and `Bi`: output a memory size in either metric (1000) or power-of-two (1024) based notation. works for both float and integer values.
+/// - `e` and `E`: if printing a string, escape non-printable characters
 /// - `e`: output floating point value in scientific notation
 /// - `d`: output numeric value in decimal notation
 /// - `b`: output integer value in binary notation
@@ -81,6 +82,8 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 /// This allows user types to be formatted in a logical manner instead of dumping all fields of the type.
 ///
 /// A user type may be a `struct`, `vector`, `union` or `enum` type.
+///
+/// To print literal curly braces, escape them by writing them twice, e.g. `{{` or `}}`.
 pub fn format(
     writer: anytype,
     comptime fmt: []const u8,
@@ -90,7 +93,7 @@ pub fn format(
     if (@typeInfo(@TypeOf(args)) != .Struct) {
         @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
     }
-    if (args.len > ArgSetType.bit_count) {
+    if (args.len > @typeInfo(ArgSetType).Int.bits) {
         @compileError("32 arguments max are supported per format call");
     }
 
@@ -324,7 +327,7 @@ pub fn formatType(
     max_depth: usize,
 ) @TypeOf(writer).Error!void {
     if (comptime std.mem.eql(u8, fmt, "*")) {
-        try writer.writeAll(@typeName(@TypeOf(value).Child));
+        try writer.writeAll(@typeName(@typeInfo(@TypeOf(value)).Pointer.child));
         try writer.writeAll("@");
         try formatInt(@ptrToInt(value), 16, false, FormatOptions{}, writer);
         return;
@@ -429,12 +432,12 @@ pub fn formatType(
                     if (info.child == u8) {
                         return formatText(value, fmt, options, writer);
                     }
-                    return format(writer, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
+                    return format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) });
                 },
                 .Enum, .Union, .Struct => {
                     return formatType(value.*, fmt, options, writer, max_depth);
                 },
-                else => return format(writer, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) }),
+                else => return format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) }),
             },
             .Many, .C => {
                 if (ptr_info.sentinel) |sentinel| {
@@ -445,7 +448,7 @@ pub fn formatType(
                         return formatText(mem.span(value), fmt, options, writer);
                     }
                 }
-                return format(writer, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
+                return format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) });
             },
             .Slice => {
                 if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
@@ -535,7 +538,7 @@ pub fn formatIntValue(
         radix = 10;
         uppercase = false;
     } else if (comptime std.mem.eql(u8, fmt, "c")) {
-        if (@TypeOf(int_value).bit_count <= 8) {
+        if (@typeInfo(@TypeOf(int_value)).Int.bits <= 8) {
             return formatAsciiChar(@as(u8, int_value), options, writer);
         } else {
             @compileError("Cannot print integer that is larger than 8 bits as a ascii");
@@ -597,6 +600,16 @@ pub fn formatText(
     } else if (comptime (std.mem.eql(u8, fmt, "x") or std.mem.eql(u8, fmt, "X"))) {
         for (bytes) |c| {
             try formatInt(c, 16, fmt[0] == 'X', FormatOptions{ .width = 2, .fill = '0' }, writer);
+        }
+        return;
+    } else if (comptime (std.mem.eql(u8, fmt, "e") or std.mem.eql(u8, fmt, "E"))) {
+        for (bytes) |c| {
+            if (std.ascii.isPrint(c)) {
+                try writer.writeByte(c);
+            } else {
+                try writer.writeAll("\\x");
+                try formatInt(c, 16, fmt[0] == 'E', FormatOptions{ .width = 2, .fill = '0' }, writer);
+            }
         }
         return;
     } else {
@@ -934,7 +947,7 @@ pub fn formatInt(
     } else
         value;
 
-    if (@TypeOf(int_value).is_signed) {
+    if (@typeInfo(@TypeOf(int_value)).Int.is_signed) {
         return formatIntSigned(int_value, base, uppercase, options, writer);
     } else {
         return formatIntUnsigned(int_value, base, uppercase, options, writer);
@@ -976,9 +989,10 @@ fn formatIntUnsigned(
     writer: anytype,
 ) !void {
     assert(base >= 2);
-    var buf: [math.max(@TypeOf(value).bit_count, 1)]u8 = undefined;
-    const min_int_bits = comptime math.max(@TypeOf(value).bit_count, @TypeOf(base).bit_count);
-    const MinInt = std.meta.Int(@TypeOf(value).is_signed, min_int_bits);
+    const value_info = @typeInfo(@TypeOf(value)).Int;
+    var buf: [math.max(value_info.bits, 1)]u8 = undefined;
+    const min_int_bits = comptime math.max(value_info.bits, @typeInfo(@TypeOf(base)).Int.bits);
+    const MinInt = std.meta.Int(value_info.is_signed, min_int_bits);
     var a: MinInt = value;
     var index: usize = buf.len;
 
@@ -1317,6 +1331,12 @@ test "slice" {
 
     try testFmt("buf: Test \n", "buf: {s:5}\n", .{"Test"});
     try testFmt("buf: Test\n Other text", "buf: {s}\n Other text", .{"Test"});
+}
+
+test "escape non-printable" {
+    try testFmt("abc", "{e}", .{"abc"});
+    try testFmt("ab\\xffc", "{e}", .{"ab\xffc"});
+    try testFmt("ab\\xFFc", "{E}", .{"ab\xffc"});
 }
 
 test "pointer" {

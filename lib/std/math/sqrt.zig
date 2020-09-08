@@ -36,10 +36,10 @@ pub fn sqrt(x: anytype) Sqrt(@TypeOf(x)) {
     }
 }
 
-fn sqrt_int(comptime T: type, value: T) std.meta.Int(false, T.bit_count / 2) {
+fn sqrt_int(comptime T: type, value: T) std.meta.Int(false, @typeInfo(T).Int.bits / 2) {
     var op = value;
     var res: T = 0;
-    var one: T = 1 << (T.bit_count - 2);
+    var one: T = 1 << (@typeInfo(T).Int.bits - 2);
 
     // "one" starts at the highest power of four <= than the argument.
     while (one > op) {
@@ -55,7 +55,7 @@ fn sqrt_int(comptime T: type, value: T) std.meta.Int(false, T.bit_count / 2) {
         one >>= 2;
     }
 
-    const ResultType = std.meta.Int(false, T.bit_count / 2);
+    const ResultType = std.meta.Int(false, @typeInfo(T).Int.bits / 2);
     return @intCast(ResultType, res);
 }
 

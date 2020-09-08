@@ -1164,7 +1164,7 @@ fn linuxLookupNameFromDnsSearch(
     }
 
     const search = if (rc.search.isNull() or dots >= rc.ndots or mem.endsWith(u8, name, "."))
-        &[_]u8{}
+        ""
     else
         rc.search.span();
 
@@ -1640,6 +1640,9 @@ pub const StreamServer = struct {
         /// Not enough free memory.  This often means that the memory allocation  is  limited
         /// by the socket buffer limits, not by the system memory.
         SystemResources,
+
+        /// Socket is not listening for new connections.
+        SocketNotListening,
 
         ProtocolFailure,
 

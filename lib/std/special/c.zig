@@ -516,11 +516,12 @@ export fn roundf(a: f32) f32 {
 fn generic_fmod(comptime T: type, x: T, y: T) T {
     @setRuntimeSafety(false);
 
-    const uint = std.meta.Int(false, T.bit_count);
+    const bits = @typeInfo(T).Float.bits;
+    const uint = std.meta.Int(false, bits);
     const log2uint = math.Log2Int(uint);
     const digits = if (T == f32) 23 else 52;
     const exp_bits = if (T == f32) 9 else 12;
-    const bits_minus_1 = T.bit_count - 1;
+    const bits_minus_1 = bits - 1;
     const mask = if (T == f32) 0xff else 0x7ff;
     var ux = @bitCast(uint, x);
     var uy = @bitCast(uint, y);

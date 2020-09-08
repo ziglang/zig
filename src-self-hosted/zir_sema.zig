@@ -132,6 +132,8 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .error_union_type => return analyzeInstErrorUnionType(mod, scope, old_inst.castTag(.error_union_type).?),
         .anyframe_type => return analyzeInstAnyframeType(mod, scope, old_inst.castTag(.anyframe_type).?),
         .error_set => return analyzeInstErrorSet(mod, scope, old_inst.castTag(.error_set).?),
+        .slice => return analyzeInstSlice(mod, scope, old_inst.castTag(.slice).?),
+        .slice_start => return analyzeInstSliceStart(mod, scope, old_inst.castTag(.slice_start).?),
     }
 }
 
@@ -1172,6 +1174,22 @@ fn analyzeInstElemPtr(mod: *Module, scope: *Scope, inst: *zir.Inst.ElemPtr) Inne
     return mod.fail(scope, inst.base.src, "TODO implement more analyze elemptr", .{});
 }
 
+fn analyzeInstSlice(mod: *Module, scope: *Scope, inst: *zir.Inst.Slice) InnerError!*Inst {
+    const array_ptr = try resolveInst(mod, scope, inst.positionals.array_ptr);
+    const start = try resolveInst(mod, scope, inst.positionals.start);
+    const end = if (inst.kw_args.end) |end| try resolveInst(mod, scope, end) else null;
+    const sentinel = if (inst.kw_args.sentinel) |sentinel| try resolveInst(mod, scope, sentinel) else null;
+
+    return mod.analyzeSlice(scope, inst.base.src, array_ptr, start, end, sentinel);
+}
+
+fn analyzeInstSliceStart(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const array_ptr = try resolveInst(mod, scope, inst.positionals.lhs);
+    const start = try resolveInst(mod, scope, inst.positionals.rhs);
+
+    return mod.analyzeSlice(scope, inst.base.src, array_ptr, start, null, null);
+}
+
 fn analyzeInstShl(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
     return mod.fail(scope, inst.base.src, "TODO implement analyzeInstShl", .{});
 }
@@ -1239,6 +1257,12 @@ fn analyzeInstArithmetic(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) Inn
 
     if (casted_lhs.value()) |lhs_val| {
         if (casted_rhs.value()) |rhs_val| {
+            if (lhs_val.isUndef() or rhs_val.isUndef()) {
+                return mod.constInst(scope, inst.base.src, .{
+                    .ty = resolved_type,
+                    .val = Value.initTag(.undef),
+                });
+            }
             return analyzeInstComptimeOp(mod, scope, scalar_type, inst, lhs_val, rhs_val);
         }
     }

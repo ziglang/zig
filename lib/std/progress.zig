@@ -197,7 +197,7 @@ pub const Progress = struct {
             var maybe_node: ?*Node = &self.root;
             while (maybe_node) |node| {
                 if (need_ellipse) {
-                    self.bufWrite(&end, "...", .{});
+                    self.bufWrite(&end, "... ", .{});
                 }
                 need_ellipse = false;
                 if (node.name.len != 0 or node.estimated_total_items != null) {
@@ -218,7 +218,7 @@ pub const Progress = struct {
                 maybe_node = node.recently_updated_child;
             }
             if (need_ellipse) {
-                self.bufWrite(&end, "...", .{});
+                self.bufWrite(&end, "... ", .{});
             }
         }
 
@@ -253,7 +253,7 @@ pub const Progress = struct {
         const bytes_needed_for_esc_codes_at_end = if (std.builtin.os.tag == .windows) 0 else 11;
         const max_end = self.output_buffer.len - bytes_needed_for_esc_codes_at_end;
         if (end.* > max_end) {
-            const suffix = "...";
+            const suffix = "... ";
             self.columns_written = self.columns_written - (end.* - max_end) + suffix.len;
             std.mem.copy(u8, self.output_buffer[max_end..], suffix);
             end.* = max_end + suffix.len;

@@ -2,16 +2,18 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 fn ShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, comptime V: type) type {
-    expect(Key == std.meta.Int(false, Key.bit_count));
-    expect(Key.bit_count >= mask_bit_count);
+    const key_bits = @typeInfo(Key).Int.bits;
+    expect(Key == std.meta.Int(false, key_bits));
+    expect(key_bits >= mask_bit_count);
+    const shard_key_bits = mask_bit_count;
     const ShardKey = std.meta.Int(false, mask_bit_count);
-    const shift_amount = Key.bit_count - ShardKey.bit_count;
+    const shift_amount = key_bits - shard_key_bits;
     return struct {
         const Self = @This();
-        shards: [1 << ShardKey.bit_count]?*Node,
+        shards: [1 << shard_key_bits]?*Node,
 
         pub fn create() Self {
-            return Self{ .shards = [_]?*Node{null} ** (1 << ShardKey.bit_count) };
+            return Self{ .shards = [_]?*Node{null} ** (1 << shard_key_bits) };
         }
 
         fn getShardKey(key: Key) ShardKey {

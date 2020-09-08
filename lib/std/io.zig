@@ -169,6 +169,15 @@ pub const BitOutStream = BitWriter;
 /// Deprecated: use `bitWriter`
 pub const bitOutStream = bitWriter;
 
+pub const AutoIndentingStream = @import("io/auto_indenting_stream.zig").AutoIndentingStream;
+pub const autoIndentingStream = @import("io/auto_indenting_stream.zig").autoIndentingStream;
+
+pub const ChangeDetectionStream = @import("io/change_detection_stream.zig").ChangeDetectionStream;
+pub const changeDetectionStream = @import("io/change_detection_stream.zig").changeDetectionStream;
+
+pub const FindByteOutStream = @import("io/find_byte_out_stream.zig").FindByteOutStream;
+pub const findByteOutStream = @import("io/find_byte_out_stream.zig").findByteOutStream;
+
 pub const Packing = @import("io/serialization.zig").Packing;
 
 pub const Serializer = @import("io/serialization.zig").Serializer;

@@ -1175,6 +1175,7 @@ pub const Tokenizer = struct {
                 },
                 .num_dot_dec => switch (c) {
                     '.' => {
+                        result.id = .IntegerLiteral;
                         self.index -= 1;
                         state = .start;
                         break;
@@ -1183,7 +1184,6 @@ pub const Tokenizer = struct {
                         state = .float_exponent_unsigned;
                     },
                     '0'...'9' => {
-                        result.id = .FloatLiteral;
                         state = .float_fraction_dec;
                     },
                     else => {
@@ -1769,6 +1769,7 @@ test "tokenizer - number literals decimal" {
     testTokenize("7", &[_]Token.Id{.IntegerLiteral});
     testTokenize("8", &[_]Token.Id{.IntegerLiteral});
     testTokenize("9", &[_]Token.Id{.IntegerLiteral});
+    testTokenize("1..", &[_]Token.Id{ .IntegerLiteral, .Ellipsis2 });
     testTokenize("0a", &[_]Token.Id{ .Invalid, .Identifier });
     testTokenize("9b", &[_]Token.Id{ .Invalid, .Identifier });
     testTokenize("1z", &[_]Token.Id{ .Invalid, .Identifier });
