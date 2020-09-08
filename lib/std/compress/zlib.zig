@@ -62,7 +62,7 @@ pub fn ZlibStream(comptime ReaderType: type) type {
             };
         }
 
-        fn deinit(self: *Self) void {
+        pub fn deinit(self: *Self) void {
             self.allocator.free(self.window_slice);
         }
 
