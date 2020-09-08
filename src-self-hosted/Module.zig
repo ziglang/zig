@@ -22,11 +22,12 @@ const trace = @import("tracy.zig").trace;
 const liveness = @import("liveness.zig");
 const astgen = @import("astgen.zig");
 const zir_sema = @import("zir_sema.zig");
+const build_options = @import("build_options");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: *Allocator,
-/// Pointer to externally managed resource.
-root_pkg: *Package,
+/// Pointer to externally managed resource. `null` if there is no zig file being compiled.
+root_pkg: ?*Package,
 /// Module owns this resource.
 /// The `Scope` is either a `Scope.ZIRModule` or `Scope.File`.
 root_scope: *Scope,
@@ -48,22 +49,26 @@ export_owners: std.AutoArrayHashMapUnmanaged(*Decl, []*Export) = .{},
 /// Maps fully qualified namespaced names to the Decl struct for them.
 decl_table: std.ArrayHashMapUnmanaged(Scope.NameHash, *Decl, Scope.name_hash_hash, Scope.name_hash_eql, false) = .{},
 
+c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
+
 link_error_flags: link.File.ErrorFlags = .{},
 
 work_queue: std.fifo.LinearFifo(WorkItem, .Dynamic),
 
 /// We optimize memory usage for a compilation with no compile errors by storing the
 /// error messages and mapping outside of `Decl`.
-/// The ErrorMsg memory is owned by the decl, using Module's allocator.
+/// The ErrorMsg memory is owned by the decl, using Module's general purpose allocator.
 /// Note that a Decl can succeed but the Fn it represents can fail. In this case,
 /// a Decl can have a failed_decls entry but have analysis status of success.
 failed_decls: std.AutoArrayHashMapUnmanaged(*Decl, *ErrorMsg) = .{},
 /// Using a map here for consistency with the other fields here.
-/// The ErrorMsg memory is owned by the `Scope`, using Module's allocator.
+/// The ErrorMsg memory is owned by the `Scope`, using Module's general purpose allocator.
 failed_files: std.AutoArrayHashMapUnmanaged(*Scope, *ErrorMsg) = .{},
 /// Using a map here for consistency with the other fields here.
-/// The ErrorMsg memory is owned by the `Export`, using Module's allocator.
+/// The ErrorMsg memory is owned by the `Export`, using Module's general purpose allocator.
 failed_exports: std.AutoArrayHashMapUnmanaged(*Export, *ErrorMsg) = .{},
+/// The ErrorMsg memory is owned by the `CObject`, using Module's general purpose allocator.
+failed_c_objects: std.AutoArrayHashMapUnmanaged(*CObject, *ErrorMsg) = .{},
 
 /// Incrementing integer used to compare against the corresponding Decl
 /// field to determine whether a Decl's status applies to an ongoing update, or a
@@ -79,9 +84,14 @@ deletion_set: std.ArrayListUnmanaged(*Decl) = .{},
 /// Owned by Module.
 root_name: []u8,
 keep_source_files_loaded: bool,
+use_clang: bool,
 
 /// Error tags and their values, tag names are duped with mod.gpa.
 global_error_set: std.StringHashMapUnmanaged(u16) = .{},
+
+c_source_files: []const []const u8,
+clang_argv: []const []const u8,
+cache: std.cache_hash.CacheHash,
 
 pub const InnerError = error{ OutOfMemory, AnalysisFail };
 
@@ -95,6 +105,9 @@ const WorkItem = union(enum) {
     /// The source file containing the Decl has been updated, and so the
     /// Decl may need its line number information updated in the debug info.
     update_line_number: *Decl,
+    /// Invoke the Clang compiler to create an object file, which gets linked
+    /// with the Module.
+    c_object: *CObject,
 };
 
 pub const Export = struct {
@@ -230,6 +243,7 @@ pub const Decl = struct {
                 const src_decl = module.decls[self.src_index];
                 return src_decl.inst.src;
             },
+            .none => unreachable,
             .file, .block => unreachable,
             .gen_zir => unreachable,
             .local_val => unreachable,
@@ -279,6 +293,30 @@ pub const Decl = struct {
 
     fn removeDependency(self: *Decl, other: *Decl) void {
         self.dependencies.removeAssertDiscard(other);
+    }
+};
+
+pub const CObject = struct {
+    /// Relative to cwd. Owned by arena.
+    src_path: []const u8,
+    /// Owned by arena.
+    extra_flags: []const []const u8,
+    arena: std.heap.ArenaAllocator.State,
+    status: union(enum) {
+        new,
+        /// This is the output object path. Owned by gpa.
+        success: []u8,
+        /// There will be a corresponding ErrorMsg in Module.failed_c_objects.
+        /// This is the C source file contents (used for printing error messages). Owned by gpa.
+        failure: []u8,
+    },
+
+    pub fn destroy(self: *CObject, gpa: *Allocator) void {
+        switch (self.status) {
+            .new => {},
+            .failure, .success => |data| gpa.free(data),
+        }
+        self.arena.promote(gpa).deinit();
     }
 };
 
@@ -361,6 +399,7 @@ pub const Scope = struct {
             .zir_module => return &self.cast(ZIRModule).?.contents.module.arena.allocator,
             .file => unreachable,
             .container => unreachable,
+            .none => unreachable,
         }
     }
 
@@ -376,6 +415,7 @@ pub const Scope = struct {
             .zir_module => null,
             .file => null,
             .container => null,
+            .none => unreachable,
         };
     }
 
@@ -390,6 +430,7 @@ pub const Scope = struct {
             .decl => return self.cast(DeclAnalysis).?.decl.scope,
             .file => return &self.cast(File).?.root_container.base,
             .zir_module, .container => return self,
+            .none => unreachable,
         }
     }
 
@@ -406,6 +447,7 @@ pub const Scope = struct {
             .file => unreachable,
             .zir_module => return self.cast(ZIRModule).?.fullyQualifiedNameHash(name),
             .container => return self.cast(Container).?.fullyQualifiedNameHash(name),
+            .none => unreachable,
         }
     }
 
@@ -414,6 +456,7 @@ pub const Scope = struct {
         switch (self.tag) {
             .file => return self.cast(File).?.contents.tree,
             .zir_module => unreachable,
+            .none => unreachable,
             .decl => return self.cast(DeclAnalysis).?.decl.scope.cast(Container).?.file_scope.contents.tree,
             .block => return self.cast(Block).?.decl.scope.cast(Container).?.file_scope.contents.tree,
             .gen_zir => return self.cast(GenZIR).?.decl.scope.cast(Container).?.file_scope.contents.tree,
@@ -434,6 +477,7 @@ pub const Scope = struct {
             .zir_module => unreachable,
             .file => unreachable,
             .container => unreachable,
+            .none => unreachable,
         };
     }
 
@@ -444,6 +488,7 @@ pub const Scope = struct {
             .container => return @fieldParentPtr(Container, "base", base).file_scope.sub_file_path,
             .file => return @fieldParentPtr(File, "base", base).sub_file_path,
             .zir_module => return @fieldParentPtr(ZIRModule, "base", base).sub_file_path,
+            .none => unreachable,
             .block => unreachable,
             .gen_zir => unreachable,
             .local_val => unreachable,
@@ -456,6 +501,7 @@ pub const Scope = struct {
         switch (base.tag) {
             .file => return @fieldParentPtr(File, "base", base).unload(gpa),
             .zir_module => return @fieldParentPtr(ZIRModule, "base", base).unload(gpa),
+            .none => {},
             .block => unreachable,
             .gen_zir => unreachable,
             .local_val => unreachable,
@@ -470,6 +516,7 @@ pub const Scope = struct {
             .container => return @fieldParentPtr(Container, "base", base).file_scope.getSource(module),
             .file => return @fieldParentPtr(File, "base", base).getSource(module),
             .zir_module => return @fieldParentPtr(ZIRModule, "base", base).getSource(module),
+            .none => unreachable,
             .gen_zir => unreachable,
             .local_val => unreachable,
             .local_ptr => unreachable,
@@ -483,6 +530,7 @@ pub const Scope = struct {
         switch (base.tag) {
             .container => return @fieldParentPtr(Container, "base", base).removeDecl(child),
             .zir_module => return @fieldParentPtr(ZIRModule, "base", base).removeDecl(child),
+            .none => unreachable,
             .file => unreachable,
             .block => unreachable,
             .gen_zir => unreachable,
@@ -504,6 +552,10 @@ pub const Scope = struct {
                 const scope_zir_module = @fieldParentPtr(ZIRModule, "base", base);
                 scope_zir_module.deinit(gpa);
                 gpa.destroy(scope_zir_module);
+            },
+            .none => {
+                const scope_none = @fieldParentPtr(None, "base", base);
+                gpa.destroy(scope_none);
             },
             .block => unreachable,
             .gen_zir => unreachable,
@@ -527,6 +579,8 @@ pub const Scope = struct {
         zir_module,
         /// .zig source code.
         file,
+        /// There is no .zig or .zir source code being compiled in this Module.
+        none,
         /// struct, enum or union, every .file contains one of these.
         container,
         block,
@@ -622,7 +676,7 @@ pub const Scope = struct {
         pub fn getSource(self: *File, module: *Module) ![:0]const u8 {
             switch (self.source) {
                 .unloaded => {
-                    const source = try module.root_pkg.root_src_dir.readFileAllocOptions(
+                    const source = try module.root_pkg.?.root_src_dir.readFileAllocOptions(
                         module.gpa,
                         self.sub_file_path,
                         std.math.maxInt(u32),
@@ -636,6 +690,12 @@ pub const Scope = struct {
                 .bytes => |bytes| return bytes,
             }
         }
+    };
+
+    /// For when there is no top level scope because there are no .zig files being compiled.
+    pub const None = struct {
+        pub const base_tag: Tag = .none;
+        base: Scope = Scope{ .tag = base_tag },
     };
 
     pub const ZIRModule = struct {
@@ -720,7 +780,7 @@ pub const Scope = struct {
         pub fn getSource(self: *ZIRModule, module: *Module) ![:0]const u8 {
             switch (self.source) {
                 .unloaded => {
-                    const source = try module.root_pkg.root_src_dir.readFileAllocOptions(
+                    const source = try module.root_pkg.?.root_src_dir.readFileAllocOptions(
                         module.gpa,
                         self.sub_file_path,
                         std.math.maxInt(u32),
@@ -855,19 +915,80 @@ pub const AllErrors = struct {
 pub const InitOptions = struct {
     target: std.Target,
     root_name: []const u8,
-    root_pkg: *Package,
+    root_pkg: ?*Package,
     output_mode: std.builtin.OutputMode,
     bin_file_dir: ?std.fs.Dir = null,
     bin_file_path: []const u8,
+    emit_h: ?[]const u8 = null,
     link_mode: ?std.builtin.LinkMode = null,
     object_format: ?std.builtin.ObjectFormat = null,
     optimize_mode: std.builtin.Mode = .Debug,
     keep_source_files_loaded: bool = false,
+    clang_argv: []const []const u8 = &[0][]const u8{},
+    lib_dirs: []const []const u8 = &[0][]const u8{},
+    rpath_list: []const []const u8 = &[0][]const u8{},
+    c_source_files: []const []const u8 = &[0][]const u8{},
+    link_objects: []const []const u8 = &[0][]const u8{},
+    framework_dirs: []const []const u8 = &[0][]const u8{},
+    frameworks: []const []const u8 = &[0][]const u8{},
+    system_libs: []const []const u8 = &[0][]const u8{},
+    have_libc: bool = false,
+    have_libcpp: bool = false,
+    want_pic: ?bool = null,
+    want_sanitize_c: ?bool = null,
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
+    use_clang: ?bool = null,
+    rdynamic: bool = false,
+    strip: bool = false,
+    linker_script: ?[]const u8 = null,
+    version_script: ?[]const u8 = null,
+    disable_c_depfile: bool = false,
+    override_soname: ?[]const u8 = null,
+    linker_optimization: ?[]const u8 = null,
+    linker_gc_sections: ?bool = null,
+    linker_allow_shlib_undefined: ?bool = null,
+    linker_bind_global_refs_locally: ?bool = null,
+    linker_z_nodelete: bool = false,
+    linker_z_defs: bool = false,
+    stack_size_override: u64 = 0,
+    compiler_id: [16]u8,
 };
 
 pub fn init(gpa: *Allocator, options: InitOptions) !Module {
     const root_name = try gpa.dupe(u8, options.root_name);
     errdefer gpa.free(root_name);
+
+    const ofmt = options.object_format orelse options.target.getObjectFormat();
+
+    // Make a decision on whether to use LLD or our own linker.
+    const use_lld = if (options.use_lld) |explicit| explicit else blk: {
+        if (!build_options.have_llvm)
+            break :blk false;
+
+        if (ofmt == .c)
+            break :blk false;
+
+        // Our linker can't handle objects or most advanced options yet.
+        if (options.link_objects.len != 0 or
+            options.c_source_files.len != 0 or
+            options.frameworks.len != 0 or
+            options.system_libs.len != 0 or
+            options.have_libc or options.have_libcpp or
+            options.linker_script != null or options.version_script != null)
+        {
+            break :blk true;
+        }
+        break :blk false;
+    };
+
+    // Make a decision on whether to use LLVM or our own backend.
+    const use_llvm = if (options.use_llvm) |explicit| explicit else blk: {
+        // We would want to prefer LLVM for release builds when it is available, however
+        // we don't have an LLVM backend yet :)
+        // We would also want to prefer LLVM for architectures that we don't have self-hosted support for too.
+        break :blk false;
+    };
 
     const bin_file_dir = options.bin_file_dir orelse std.fs.cwd();
     const bin_file = try link.File.openPath(gpa, bin_file_dir, options.bin_file_path, .{
@@ -876,39 +997,130 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
         .target = options.target,
         .output_mode = options.output_mode,
         .link_mode = options.link_mode orelse .Static,
-        .object_format = options.object_format orelse options.target.getObjectFormat(),
+        .object_format = ofmt,
         .optimize_mode = options.optimize_mode,
+        .use_lld = use_lld,
+        .use_llvm = use_llvm,
+        .objects = options.link_objects,
+        .frameworks = options.frameworks,
+        .framework_dirs = options.framework_dirs,
+        .system_libs = options.system_libs,
+        .lib_dirs = options.lib_dirs,
+        .rpath_list = options.rpath_list,
+        .strip = options.strip,
     });
     errdefer bin_file.destroy();
 
     const root_scope = blk: {
-        if (mem.endsWith(u8, options.root_pkg.root_src_path, ".zig")) {
-            const root_scope = try gpa.create(Scope.File);
-            root_scope.* = .{
-                .sub_file_path = options.root_pkg.root_src_path,
-                .source = .{ .unloaded = {} },
-                .contents = .{ .not_available = {} },
-                .status = .never_loaded,
-                .root_container = .{
-                    .file_scope = root_scope,
+        if (options.root_pkg) |root_pkg| {
+            if (mem.endsWith(u8, root_pkg.root_src_path, ".zig")) {
+                const root_scope = try gpa.create(Scope.File);
+                root_scope.* = .{
+                    .sub_file_path = root_pkg.root_src_path,
+                    .source = .{ .unloaded = {} },
+                    .contents = .{ .not_available = {} },
+                    .status = .never_loaded,
+                    .root_container = .{
+                        .file_scope = root_scope,
+                        .decls = .{},
+                    },
+                };
+                break :blk &root_scope.base;
+            } else if (mem.endsWith(u8, root_pkg.root_src_path, ".zir")) {
+                const root_scope = try gpa.create(Scope.ZIRModule);
+                root_scope.* = .{
+                    .sub_file_path = root_pkg.root_src_path,
+                    .source = .{ .unloaded = {} },
+                    .contents = .{ .not_available = {} },
+                    .status = .never_loaded,
                     .decls = .{},
-                },
-            };
-            break :blk &root_scope.base;
-        } else if (mem.endsWith(u8, options.root_pkg.root_src_path, ".zir")) {
-            const root_scope = try gpa.create(Scope.ZIRModule);
-            root_scope.* = .{
-                .sub_file_path = options.root_pkg.root_src_path,
-                .source = .{ .unloaded = {} },
-                .contents = .{ .not_available = {} },
-                .status = .never_loaded,
-                .decls = .{},
-            };
-            break :blk &root_scope.base;
+                };
+                break :blk &root_scope.base;
+            } else {
+                unreachable;
+            }
         } else {
-            unreachable;
+            const root_scope = try gpa.create(Scope.None);
+            root_scope.* = .{};
+            break :blk &root_scope.base;
         }
     };
+
+    // We put everything into the cache hash except for the root source file, because we want to
+    // find the same binary and incrementally update it even if the file contents changed.
+    const cache_dir = if (options.root_pkg) |root_pkg| root_pkg.root_src_dir else std.fs.cwd();
+    var cache = try std.cache_hash.CacheHash.init(gpa, cache_dir, "zig-cache");
+    errdefer cache.release();
+
+    // Now we will prepare hash state initializations to avoid redundantly computing hashes.
+    // First we add common things between things that apply to zig source and all c source files.
+    cache.add(options.compiler_id);
+    cache.add(options.optimize_mode);
+    cache.add(options.target.cpu.arch);
+    cache.addBytes(options.target.cpu.model.name);
+    cache.add(options.target.cpu.features.ints);
+    cache.add(options.target.os.tag);
+    switch (options.target.os.tag) {
+        .linux => {
+            cache.add(options.target.os.version_range.linux.range.min);
+            cache.add(options.target.os.version_range.linux.range.max);
+            cache.add(options.target.os.version_range.linux.glibc);
+        },
+        .windows => {
+            cache.add(options.target.os.version_range.windows.min);
+            cache.add(options.target.os.version_range.windows.max);
+        },
+        .freebsd,
+        .macosx,
+        .ios,
+        .tvos,
+        .watchos,
+        .netbsd,
+        .openbsd,
+        .dragonfly,
+        => {
+            cache.add(options.target.os.version_range.semver.min);
+            cache.add(options.target.os.version_range.semver.max);
+        },
+        else => {},
+    }
+    cache.add(options.target.abi);
+    cache.add(ofmt);
+    // TODO PIC (see detect_pic from codegen.cpp)
+    cache.add(bin_file.options.link_mode);
+    cache.add(options.strip);
+
+    // Make a decision on whether to use Clang for translate-c and compiling C files.
+    const use_clang = if (options.use_clang) |explicit| explicit else blk: {
+        if (build_options.have_llvm) {
+            // Can't use it if we don't have it!
+            break :blk false;
+        }
+        // It's not planned to do our own translate-c or C compilation.
+        break :blk true;
+    };
+    var c_object_table = std.AutoArrayHashMapUnmanaged(*CObject, void){};
+    errdefer {
+        for (c_object_table.items()) |entry| entry.key.destroy(gpa);
+        c_object_table.deinit(gpa);
+    }
+    // Add a `CObject` for each `c_source_files`.
+    try c_object_table.ensureCapacity(gpa, options.c_source_files.len);
+    for (options.c_source_files) |c_source_file| {
+        var local_arena = std.heap.ArenaAllocator.init(gpa);
+        errdefer local_arena.deinit();
+
+        const c_object = try local_arena.allocator.create(CObject);
+        const src_path = try local_arena.allocator.dupe(u8, c_source_file);
+
+        c_object.* = .{
+            .status = .{ .new = {} },
+            .src_path = src_path,
+            .extra_flags = &[0][]const u8{},
+            .arena = local_arena.state,
+        };
+        c_object_table.putAssumeCapacityNoClobber(c_object, {});
+    }
 
     return Module{
         .gpa = gpa,
@@ -920,6 +1132,11 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
         .bin_file = bin_file,
         .work_queue = std.fifo.LinearFifo(WorkItem, .Dynamic).init(gpa),
         .keep_source_files_loaded = options.keep_source_files_loaded,
+        .use_clang = use_clang,
+        .clang_argv = options.clang_argv,
+        .c_source_files = options.c_source_files,
+        .cache = cache,
+        .c_object_table = c_object_table,
     };
 }
 
@@ -935,10 +1152,20 @@ pub fn deinit(self: *Module) void {
     }
     self.decl_table.deinit(gpa);
 
+    for (self.c_object_table.items()) |entry| {
+        entry.key.destroy(gpa);
+    }
+    self.c_object_table.deinit(gpa);
+
     for (self.failed_decls.items()) |entry| {
         entry.value.destroy(gpa);
     }
     self.failed_decls.deinit(gpa);
+
+    for (self.failed_c_objects.items()) |entry| {
+        entry.value.destroy(gpa);
+    }
+    self.failed_c_objects.deinit(gpa);
 
     for (self.failed_files.items()) |entry| {
         entry.value.destroy(gpa);
@@ -969,6 +1196,7 @@ pub fn deinit(self: *Module) void {
         gpa.free(entry.key);
     }
     self.global_error_set.deinit(gpa);
+    self.cache.release();
     self.* = undefined;
 }
 
@@ -995,7 +1223,15 @@ pub fn update(self: *Module) !void {
 
     self.generation += 1;
 
-    // TODO Use the cache hash file system to detect which source files changed.
+    // For compiling C objects, we rely on the cache hash system to avoid duplicating work.
+    // TODO Look into caching this data in memory to improve performance.
+    // Add a WorkItem for each C object.
+    try self.work_queue.ensureUnusedCapacity(self.c_object_table.items().len);
+    for (self.c_object_table.items()) |entry| {
+        self.work_queue.writeItemAssumeCapacity(.{ .c_object = entry.key });
+    }
+
+    // TODO Detect which source files changed.
     // Until then we simulate a full cache miss. Source files could have been loaded for any reason;
     // to force a refresh we unload now.
     if (self.root_scope.cast(Scope.File)) |zig_file| {
@@ -1053,6 +1289,7 @@ pub fn makeBinFileWritable(self: *Module) !void {
 
 pub fn totalErrorCount(self: *Module) usize {
     const total = self.failed_decls.items().len +
+        self.failed_c_objects.items().len +
         self.failed_files.items().len +
         self.failed_exports.items().len;
     return if (total == 0) @boolToInt(self.link_error_flags.no_entry_point_found) else total;
@@ -1065,6 +1302,12 @@ pub fn getAllErrorsAlloc(self: *Module) !AllErrors {
     var errors = std.ArrayList(AllErrors.Message).init(self.gpa);
     defer errors.deinit();
 
+    for (self.failed_c_objects.items()) |entry| {
+        const c_object = entry.key;
+        const err_msg = entry.value;
+        const source = c_object.status.failure;
+        try AllErrors.add(&arena, &errors, c_object.src_path, source, err_msg.*);
+    }
     for (self.failed_files.items()) |entry| {
         const scope = entry.key;
         const err_msg = entry.value;
@@ -1085,8 +1328,14 @@ pub fn getAllErrorsAlloc(self: *Module) !AllErrors {
     }
 
     if (errors.items.len == 0 and self.link_error_flags.no_entry_point_found) {
+        const global_err_src_path = blk: {
+            if (self.root_pkg) |root_pkg| break :blk root_pkg.root_src_path;
+            if (self.c_source_files.len != 0) break :blk self.c_source_files[0];
+            if (self.bin_file.options.objects.len != 0) break :blk self.bin_file.options.objects[0];
+            break :blk "(no file)";
+        };
         try errors.append(.{
-            .src_path = self.root_pkg.root_src_path,
+            .src_path = global_err_src_path,
             .line = 0,
             .column = 0,
             .byte_offset = 0,
@@ -1174,6 +1423,41 @@ pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
                 ));
                 decl.analysis = .codegen_failure_retryable;
             };
+        },
+        .c_object => |c_object| {
+            // Free the previous attempt.
+            switch (c_object.status) {
+                .new => {},
+                .success => |o_file_path| {
+                    self.gpa.free(o_file_path);
+                    c_object.status = .{ .new = {} };
+                },
+                .failure => |source| {
+                    self.failed_c_objects.removeAssertDiscard(c_object);
+                    self.gpa.free(source);
+
+                    c_object.status = .{ .new = {} };
+                },
+            }
+            if (!build_options.have_llvm) {
+                try self.failed_c_objects.ensureCapacity(self.gpa, self.failed_c_objects.items().len + 1);
+                self.failed_c_objects.putAssumeCapacityNoClobber(c_object, try ErrorMsg.create(
+                    self.gpa,
+                    0,
+                    "clang not available: compiler not built with LLVM extensions enabled",
+                    .{},
+                ));
+                c_object.status = .{ .failure = "" };
+                continue;
+            }
+            try self.failed_c_objects.ensureCapacity(self.gpa, self.failed_c_objects.items().len + 1);
+            self.failed_c_objects.putAssumeCapacityNoClobber(c_object, try ErrorMsg.create(
+                self.gpa,
+                0,
+                "TODO: implement invoking clang to compile C source files",
+                .{},
+            ));
+            c_object.status = .{ .failure = "" };
         },
     };
 }
@@ -3161,6 +3445,7 @@ fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *Err
             zir_module.status = .loaded_sema_failure;
             self.failed_files.putAssumeCapacityNoClobber(scope, err_msg);
         },
+        .none => unreachable,
         .file => unreachable,
         .container => unreachable,
     }

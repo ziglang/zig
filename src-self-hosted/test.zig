@@ -9,6 +9,7 @@ const enable_qemu: bool = build_options.enable_qemu;
 const enable_wine: bool = build_options.enable_wine;
 const enable_wasmtime: bool = build_options.enable_wasmtime;
 const glibc_multi_install_dir: ?[]const u8 = build_options.glibc_multi_install_dir;
+const introspect = @import("introspect.zig");
 
 const cheader = @embedFile("link/cbe.h");
 
@@ -435,7 +436,10 @@ pub const TestContext = struct {
         const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
         defer root_pkg.destroy();
 
-        const bin_name = try std.zig.binNameAlloc(arena, "test_case", target, case.output_mode, null);
+        const ofmt: ?std.builtin.ObjectFormat = if (case.cbe) .c else null;
+        const bin_name = try std.zig.binNameAlloc(arena, "test_case", target, case.output_mode, null, ofmt);
+
+        const compiler_id = try introspect.resolveCompilerId(arena);
 
         var module = try Module.init(allocator, .{
             .root_name = "test_case",
@@ -450,7 +454,8 @@ pub const TestContext = struct {
             .bin_file_path = bin_name,
             .root_pkg = root_pkg,
             .keep_source_files_loaded = true,
-            .object_format = if (case.cbe) .c else null,
+            .object_format = ofmt,
+            .compiler_id = compiler_id,
         });
         defer module.deinit();
 
@@ -693,23 +698,23 @@ pub const TestContext = struct {
         }
 
         var interpreter = spu.Interpreter(struct {
-                RAM: [0x10000]u8 = undefined,
+            RAM: [0x10000]u8 = undefined,
 
-                pub fn read8(bus: @This(), addr: u16) u8 {
-                    return bus.RAM[addr];
-                }
-                pub fn read16(bus: @This(), addr: u16) u16 {
-                    return std.mem.readIntLittle(u16, bus.RAM[addr..][0..2]);
-                }
+            pub fn read8(bus: @This(), addr: u16) u8 {
+                return bus.RAM[addr];
+            }
+            pub fn read16(bus: @This(), addr: u16) u16 {
+                return std.mem.readIntLittle(u16, bus.RAM[addr..][0..2]);
+            }
 
-                pub fn write8(bus: *@This(), addr: u16, val: u8) void {
-                    bus.RAM[addr] = val;
-                }
+            pub fn write8(bus: *@This(), addr: u16, val: u8) void {
+                bus.RAM[addr] = val;
+            }
 
-                pub fn write16(bus: *@This(), addr: u16, val: u16) void {
-                    std.mem.writeIntLittle(u16, bus.RAM[addr..][0..2], val);
-                }
-            }){
+            pub fn write16(bus: *@This(), addr: u16, val: u16) void {
+                std.mem.writeIntLittle(u16, bus.RAM[addr..][0..2], val);
+            }
+        }){
             .bus = .{},
         };
 

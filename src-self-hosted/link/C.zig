@@ -25,6 +25,9 @@ error_msg: *Module.ErrorMsg = undefined,
 pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: link.Options) !*File {
     assert(options.object_format == .c);
 
+    if (options.use_llvm) return error.LLVM_HasNoCBackend;
+    if (options.use_lld) return error.LLD_HasNoCBackend;
+
     const file = try dir.createFile(sub_path, .{ .truncate = true, .read = true, .mode = link.determineMode(options) });
     errdefer file.close();
 

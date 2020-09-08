@@ -16,14 +16,36 @@ pub const Options = struct {
     object_format: std.builtin.ObjectFormat,
     optimize_mode: std.builtin.Mode,
     root_name: []const u8,
-    root_pkg: *const Package,
+    root_pkg: ?*const Package,
     /// Used for calculating how much space to reserve for symbols in case the binary file
     /// does not already have a symbol table.
     symbol_count_hint: u64 = 32,
     /// Used for calculating how much space to reserve for executable program code in case
-    /// the binary file deos not already have such a section.
+    /// the binary file does not already have such a section.
     program_code_size_hint: u64 = 256 * 1024,
     entry_addr: ?u64 = null,
+    /// Set to `true` to omit debug info.
+    strip: bool = false,
+    /// If this is true then this link code is responsible for outputting an object
+    /// file and then using LLD to link it together with the link options and other objects.
+    /// Otherwise (depending on `use_llvm`) this link code directly outputs and updates the final binary.
+    use_lld: bool = false,
+    /// If this is true then this link code is responsible for making an LLVM IR Module,
+    /// outputting it to an object file, and then linking that together with link options and
+    /// other objects.
+    /// Otherwise (depending on `use_lld`) this link code directly outputs and updates the final binary.
+    use_llvm: bool = false,
+
+    objects: []const []const u8 = &[0][]const u8{},
+    framework_dirs: []const []const u8 = &[0][]const u8{},
+    frameworks: []const []const u8 = &[0][]const u8{},
+    system_libs: []const []const u8 = &[0][]const u8{},
+    lib_dirs: []const []const u8 = &[0][]const u8{},
+    rpath_list: []const []const u8 = &[0][]const u8{},
+
+    pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
+        return if (options.use_lld) .Obj else options.output_mode;
+    }
 };
 
 pub const File = struct {
@@ -67,14 +89,13 @@ pub const File = struct {
     /// and does not cause Illegal Behavior. This operation is not atomic.
     pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: Options) !*File {
         switch (options.object_format) {
-            .unknown => unreachable,
             .coff, .pe => return Coff.openPath(allocator, dir, sub_path, options),
             .elf => return Elf.openPath(allocator, dir, sub_path, options),
             .macho => return MachO.openPath(allocator, dir, sub_path, options),
             .wasm => return Wasm.openPath(allocator, dir, sub_path, options),
             .c => return C.openPath(allocator, dir, sub_path, options),
-            .hex => return error.TODOImplementHex,
-            .raw => return error.TODOImplementRaw,
+            .hex => return error.HexObjectFormatUnimplemented,
+            .raw => return error.RawObjectFormatUnimplemented,
         }
     }
 

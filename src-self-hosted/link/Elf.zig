@@ -219,6 +219,9 @@ pub const SrcFn = struct {
 pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: link.Options) !*File {
     assert(options.object_format == .elf);
 
+    if (options.use_llvm) return error.LLVM_BackendIsTODO_ForELF; // TODO
+    if (options.use_lld) return error.LLD_LinkingIsTODOForELF; // TODO
+
     const file = try dir.createFile(sub_path, .{ .truncate = false, .read = true, .mode = link.determineMode(options) });
     errdefer file.close();
 
@@ -235,7 +238,7 @@ pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, option
 
 /// Returns error.IncrFailed if incremental update could not be performed.
 fn openFile(allocator: *Allocator, file: fs.File, options: link.Options) !Elf {
-    switch (options.output_mode) {
+    switch (options.effectiveOutputMode()) {
         .Exe => {},
         .Obj => {},
         .Lib => return error.IncrFailed,
@@ -264,7 +267,7 @@ fn openFile(allocator: *Allocator, file: fs.File, options: link.Options) !Elf {
 /// Truncates the existing file contents and overwrites the contents.
 /// Returns an error if `file` is not already open with +read +write +seek abilities.
 fn createFile(allocator: *Allocator, file: fs.File, options: link.Options) !Elf {
-    switch (options.output_mode) {
+    switch (options.effectiveOutputMode()) {
         .Exe => {},
         .Obj => {},
         .Lib => return error.TODOImplementWritingLibFiles,
@@ -861,8 +864,8 @@ pub fn flush(self: *Elf, module: *Module) !void {
             },
         }
         // Write the form for the compile unit, which must match the abbrev table above.
-        const name_strp = try self.makeDebugString(self.base.options.root_pkg.root_src_path);
-        const comp_dir_strp = try self.makeDebugString(self.base.options.root_pkg.root_src_dir_path);
+        const name_strp = try self.makeDebugString(self.base.options.root_pkg.?.root_src_path);
+        const comp_dir_strp = try self.makeDebugString(self.base.options.root_pkg.?.root_src_dir_path);
         const producer_strp = try self.makeDebugString(link.producer_string);
         // Currently only one compilation unit is supported, so the address range is simply
         // identical to the main program header virtual address and memory size.
@@ -1031,7 +1034,7 @@ pub fn flush(self: *Elf, module: *Module) !void {
             0, // include_directories (none except the compilation unit cwd)
         });
         // file_names[0]
-        di_buf.appendSliceAssumeCapacity(self.base.options.root_pkg.root_src_path); // relative path name
+        di_buf.appendSliceAssumeCapacity(self.base.options.root_pkg.?.root_src_path); // relative path name
         di_buf.appendSliceAssumeCapacity(&[_]u8{
             0, // null byte for the relative path name
             0, // directory_index
@@ -1195,7 +1198,7 @@ pub fn flush(self: *Elf, module: *Module) !void {
         }
         self.shdr_table_dirty = false;
     }
-    if (self.entry_addr == null and self.base.options.output_mode == .Exe) {
+    if (self.entry_addr == null and self.base.options.effectiveOutputMode() == .Exe) {
         log.debug("flushing. no_entry_point_found = true\n", .{});
         self.error_flags.no_entry_point_found = true;
     } else {
@@ -1255,7 +1258,7 @@ fn writeElfHeader(self: *Elf) !void {
 
     assert(index == 16);
 
-    const elf_type = switch (self.base.options.output_mode) {
+    const elf_type = switch (self.base.options.effectiveOutputMode()) {
         .Exe => elf.ET.EXEC,
         .Obj => elf.ET.REL,
         .Lib => switch (self.base.options.link_mode) {
@@ -2430,8 +2433,8 @@ fn dbgLineNeededHeaderBytes(self: Elf) u32 {
         directory_count * 8 + file_name_count * 8 +
     // These are encoded as DW.FORM_string rather than DW.FORM_strp as we would like
     // because of a workaround for readelf and gdb failing to understand DWARFv5 correctly.
-        self.base.options.root_pkg.root_src_dir_path.len +
-        self.base.options.root_pkg.root_src_path.len);
+        self.base.options.root_pkg.?.root_src_dir_path.len +
+        self.base.options.root_pkg.?.root_src_path.len);
 }
 
 fn dbgInfoNeededHeaderBytes(self: Elf) u32 {

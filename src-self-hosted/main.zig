@@ -13,6 +13,7 @@ const Package = @import("Package.zig");
 const zir = @import("zir.zig");
 const build_options = @import("build_options");
 const warn = std.log.warn;
+const introspect = @import("introspect.zig");
 
 fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.log.emerg(format, args);
@@ -231,7 +232,6 @@ pub fn buildOutputType(
     var root_src_file: ?[]const u8 = null;
     var version: std.builtin.Version = .{ .major = 0, .minor = 0, .patch = 0 };
     var strip = false;
-    var emit_h = true;
     var watch = false;
     var debug_tokenize = false;
     var debug_ast_tree = false;
@@ -248,6 +248,7 @@ pub fn buildOutputType(
     var target_dynamic_linker: ?[]const u8 = null;
     var target_ofmt: ?[]const u8 = null;
     var output_mode: std.builtin.OutputMode = undefined;
+    var emit_h: Emit = undefined;
     var ensure_libc_on_non_freestanding = false;
     var ensure_libcpp_on_non_freestanding = false;
     var have_libc = false;
@@ -269,6 +270,9 @@ pub fn buildOutputType(
     var linker_z_nodelete = false;
     var linker_z_defs = false;
     var stack_size_override: u64 = 0;
+    var use_llvm: ?bool = null;
+    var use_lld: ?bool = null;
+    var use_clang: ?bool = null;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -296,6 +300,10 @@ pub fn buildOutputType(
 
     if (arg_mode == .build) {
         output_mode = arg_mode.build;
+        emit_h = switch (output_mode) {
+            .Exe => .no,
+            .Obj, .Lib => .yes_default_path,
+        };
 
         const args = all_args[2..];
         var i: usize = 0;
@@ -416,6 +424,18 @@ pub fn buildOutputType(
                     want_pic = true;
                 } else if (mem.eql(u8, arg, "-fno-PIC")) {
                     want_pic = false;
+                } else if (mem.eql(u8, arg, "-fLLVM")) {
+                    use_llvm = true;
+                } else if (mem.eql(u8, arg, "-fno-LLVM")) {
+                    use_llvm = false;
+                } else if (mem.eql(u8, arg, "-fLLD")) {
+                    use_lld = true;
+                } else if (mem.eql(u8, arg, "-fno-LLD")) {
+                    use_lld = false;
+                } else if (mem.eql(u8, arg, "-fClang")) {
+                    use_clang = true;
+                } else if (mem.eql(u8, arg, "-fno-Clang")) {
+                    use_clang = false;
                 } else if (mem.eql(u8, arg, "-rdynamic")) {
                     rdynamic = true;
                 } else if (mem.eql(u8, arg, "-femit-bin")) {
@@ -430,6 +450,12 @@ pub fn buildOutputType(
                     emit_zir = .{ .yes = arg["-femit-zir=".len..] };
                 } else if (mem.eql(u8, arg, "-fno-emit-zir")) {
                     emit_zir = .no;
+                } else if (mem.eql(u8, arg, "-femit-h")) {
+                    emit_h = .yes_default_path;
+                } else if (mem.startsWith(u8, arg, "-femit-h=")) {
+                    emit_h = .{ .yes = arg["-femit-h=".len..] };
+                } else if (mem.eql(u8, arg, "-fno-emit-h")) {
+                    emit_h = .no;
                 } else if (mem.eql(u8, arg, "-dynamic")) {
                     link_mode = .Dynamic;
                 } else if (mem.eql(u8, arg, "-static")) {
@@ -491,7 +517,7 @@ pub fn buildOutputType(
             }
         }
     } else {
-        emit_h = false;
+        emit_h = .no;
         strip = true;
         ensure_libc_on_non_freestanding = true;
         ensure_libcpp_on_non_freestanding = arg_mode == .cpp;
@@ -874,14 +900,6 @@ pub fn buildOutputType(
         }
     }
 
-    if (system_libs.items.len != 0) {
-        fatal("linking against system libraries not yet supported", .{});
-    }
-
-    const src_path = root_src_file orelse {
-        fatal("expected at least one file argument", .{});
-    };
-
     const object_format: ?std.Target.ObjectFormat = blk: {
         const ofmt = target_ofmt orelse break :blk null;
         if (mem.eql(u8, ofmt, "elf")) {
@@ -909,11 +927,14 @@ pub fn buildOutputType(
         .no => {
             fatal("-fno-emit-bin not supported yet", .{});
         },
-        .yes_default_path => if (object_format != null and object_format.? == .c)
-            try std.fmt.allocPrint(arena, "{}.c", .{root_name})
-        else
-            try std.zig.binNameAlloc(arena, root_name, target_info.target, output_mode, link_mode),
-
+        .yes_default_path => try std.zig.binNameAlloc(
+            arena,
+            root_name,
+            target_info.target,
+            output_mode,
+            link_mode,
+            object_format,
+        ),
         .yes => |p| p,
     };
 
@@ -930,10 +951,25 @@ pub fn buildOutputType(
         .yes => |p| p,
     };
 
-    const root_pkg = try Package.create(gpa, fs.cwd(), ".", src_path);
-    defer root_pkg.destroy();
+    const root_pkg = if (root_src_file) |src_path| try Package.create(gpa, fs.cwd(), ".", src_path) else null;
+    defer if (root_pkg) |pkg| pkg.destroy();
 
-    var module = try Module.init(gpa, .{
+    const emit_h_path: ?[]const u8 = switch (emit_h) {
+        .yes => |p| p,
+        .no => null,
+        .yes_default_path => try std.fmt.allocPrint(arena, "{}.h", .{root_name}),
+    };
+
+    // TODO Remove this, we'll have this error emitted lazily only if the features would end
+    // up actually getting used.
+    //if (!build_options.have_llvm) {
+    //    if ((use_llvm orelse false) or (use_lld orelse false) or (use_clang orelse false))
+    //        fatal("-fLLVM, -fLLD, and -fClang unavailable: compiler not built with LLVM extensions enabled", .{});
+    //}
+
+    const compiler_id = try introspect.resolveCompilerId(gpa);
+
+    var module = Module.init(gpa, .{
         .root_name = root_name,
         .target = target_info.target,
         .output_mode = output_mode,
@@ -944,7 +980,39 @@ pub fn buildOutputType(
         .object_format = object_format,
         .optimize_mode = build_mode,
         .keep_source_files_loaded = zir_out_path != null,
-    });
+        .clang_argv = clang_argv.items,
+        .lib_dirs = lib_dirs.items,
+        .rpath_list = rpath_list.items,
+        .c_source_files = c_source_files.items,
+        .link_objects = link_objects.items,
+        .framework_dirs = framework_dirs.items,
+        .frameworks = frameworks.items,
+        .system_libs = system_libs.items,
+        .emit_h = emit_h_path,
+        .have_libc = have_libc,
+        .have_libcpp = have_libcpp,
+        .want_pic = want_pic,
+        .want_sanitize_c = want_sanitize_c,
+        .use_llvm = use_llvm,
+        .use_lld = use_lld,
+        .use_clang = use_clang,
+        .rdynamic = rdynamic,
+        .linker_script = linker_script,
+        .version_script = version_script,
+        .disable_c_depfile = disable_c_depfile,
+        .override_soname = override_soname,
+        .linker_optimization = linker_optimization,
+        .linker_gc_sections = linker_gc_sections,
+        .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
+        .linker_bind_global_refs_locally = linker_bind_global_refs_locally,
+        .linker_z_nodelete = linker_z_nodelete,
+        .linker_z_defs = linker_z_defs,
+        .stack_size_override = stack_size_override,
+        .compiler_id = compiler_id,
+        .strip = strip,
+    }) catch |err| {
+        fatal("unable to initialize module: {}", .{@errorName(err)});
+    };
     defer module.deinit();
 
     const stdin = std.io.getStdIn().inStream();

@@ -52,6 +52,9 @@ funcs: std.ArrayListUnmanaged(*Module.Decl) = .{},
 pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: link.Options) !*link.File {
     assert(options.object_format == .wasm);
 
+    if (options.use_llvm) return error.LLVM_BackendIsTODO_ForWasm; // TODO
+    if (options.use_lld) return error.LLD_LinkingIsTODO_ForWasm; // TODO
+
     // TODO: read the file and keep vaild parts instead of truncating
     const file = try dir.createFile(sub_path, .{ .truncate = true, .read = true });
     errdefer file.close();

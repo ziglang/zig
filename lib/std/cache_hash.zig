@@ -5,7 +5,6 @@
 // and substantial portions of the software.
 const std = @import("std.zig");
 const crypto = std.crypto;
-const Hasher = crypto.auth.siphash.SipHash128(1, 3); // provides enough collision resistance for the CacheHash use cases, while being one of our fastest options right now
 const fs = std.fs;
 const base64 = std.base64;
 const ArrayList = std.ArrayList;
@@ -22,6 +21,14 @@ const BIN_DIGEST_LEN = 16;
 const BASE64_DIGEST_LEN = base64.Base64Encoder.calcSize(BIN_DIGEST_LEN);
 
 const MANIFEST_FILE_SIZE_MAX = 50 * 1024 * 1024;
+
+/// The type used for hashing file contents. Currently, this is SipHash128(1, 3), because it
+/// provides enough collision resistance for the CacheHash use cases, while being one of our
+/// fastest options right now.
+pub const Hasher = crypto.auth.siphash.SipHash128(1, 3);
+
+/// Initial state, that can be copied.
+pub const hasher_init: Hasher = Hasher.init(&[_]u8{0} ** Hasher.minimum_key_length);
 
 pub const File = struct {
     path: ?[]const u8,
@@ -45,52 +52,82 @@ pub const File = struct {
 
 /// CacheHash manages project-local `zig-cache` directories.
 /// This is not a general-purpose cache.
-/// It was designed to be fast and simple, not to withstand attacks using specially-crafted input.
+/// It is designed to be fast and simple, not to withstand attacks using specially-crafted input.
 pub const CacheHash = struct {
     allocator: *Allocator,
-    hasher_init: Hasher, // initial state, that can be copied
-    hasher: Hasher, // current state for incremental hashing
+    /// Current state for incremental hashing.
+    hasher: Hasher,
     manifest_dir: fs.Dir,
     manifest_file: ?fs.File,
     manifest_dirty: bool,
+    owns_manifest_dir: bool,
     files: ArrayList(File),
     b64_digest: [BASE64_DIGEST_LEN]u8,
 
     /// Be sure to call release after successful initialization.
     pub fn init(allocator: *Allocator, dir: fs.Dir, manifest_dir_path: []const u8) !CacheHash {
-        const hasher_init = Hasher.init(&[_]u8{0} ** Hasher.minimum_key_length);
         return CacheHash{
             .allocator = allocator,
-            .hasher_init = hasher_init,
             .hasher = hasher_init,
             .manifest_dir = try dir.makeOpenPath(manifest_dir_path, .{}),
             .manifest_file = null,
             .manifest_dirty = false,
+            .owns_manifest_dir = true,
+            .files = ArrayList(File).init(allocator),
+            .b64_digest = undefined,
+        };
+    }
+
+    /// Allows one to fork a CacheHash instance into another one, which does not require an additional
+    /// directory handle to be opened. The new instance inherits the hash state.
+    pub fn clone(self: CacheHash) CacheHash {
+        assert(self.manifest_file == null);
+        assert(files.items.len == 0);
+        return .{
+            .allocator = self.allocator,
+            .hasher = self.hasher,
+            .manifest_dir = self.manifest_dir,
+            .manifest_file = null,
+            .manifest_dirty = false,
+            .owns_manifest_dir = false,
             .files = ArrayList(File).init(allocator),
             .b64_digest = undefined,
         };
     }
 
     /// Record a slice of bytes as an dependency of the process being cached
-    pub fn addSlice(self: *CacheHash, val: []const u8) void {
+    pub fn addBytes(self: *CacheHash, bytes: []const u8) void {
         assert(self.manifest_file == null);
 
-        self.hasher.update(val);
-        self.hasher.update(&[_]u8{0});
+        self.hasher.update(mem.asBytes(&bytes.len));
+        self.hasher.update(bytes);
     }
 
-    /// Convert the input value into bytes and record it as a dependency of the
-    /// process being cached
-    pub fn add(self: *CacheHash, val: anytype) void {
+    pub fn addListOfBytes(self: *CacheHash, list_of_bytes: []const []const u8) void {
         assert(self.manifest_file == null);
 
-        const valPtr = switch (@typeInfo(@TypeOf(val))) {
-            .Int => &val,
-            .Pointer => val,
-            else => &val,
-        };
+        self.add(list_of_bytes.items.len);
+        for (list_of_bytes) |bytes| self.addBytes(bytes);
+    }
 
-        self.addSlice(mem.asBytes(valPtr));
+    /// Convert the input value into bytes and record it as a dependency of the process being cached.
+    pub fn add(self: *CacheHash, x: anytype) void {
+        assert(self.manifest_file == null);
+
+        switch (@TypeOf(x)) {
+            std.builtin.Version => {
+                self.add(x.major);
+                self.add(x.minor);
+                self.add(x.patch);
+                return;
+            },
+            else => {},
+        }
+
+        switch (@typeInfo(@TypeOf(x))) {
+            .Bool, .Int, .Enum, .Array => self.addBytes(mem.asBytes(&x)),
+            else => @compileError("unable to hash type " ++ @typeName(@TypeOf(x))),
+        }
     }
 
     /// Add a file as a dependency of process being cached. When `CacheHash.hit` is
@@ -122,7 +159,7 @@ pub const CacheHash = struct {
             .bin_digest = undefined,
         };
 
-        self.addSlice(resolved_path);
+        self.addBytes(resolved_path);
 
         return idx;
     }
@@ -143,7 +180,7 @@ pub const CacheHash = struct {
 
         base64_encoder.encode(self.b64_digest[0..], &bin_digest);
 
-        self.hasher = self.hasher_init;
+        self.hasher = hasher_init;
         self.hasher.update(&bin_digest);
 
         const manifest_file_path = try fmt.allocPrint(self.allocator, "{}.txt", .{self.b64_digest});
@@ -244,7 +281,7 @@ pub const CacheHash = struct {
                 }
 
                 var actual_digest: [BIN_DIGEST_LEN]u8 = undefined;
-                try hashFile(this_file, &actual_digest, self.hasher_init);
+                try hashFile(this_file, &actual_digest);
 
                 if (!mem.eql(u8, &cache_hash_file.bin_digest, &actual_digest)) {
                     cache_hash_file.bin_digest = actual_digest;
@@ -262,7 +299,7 @@ pub const CacheHash = struct {
             // cache miss
             // keep the manifest file open
             // reset the hash
-            self.hasher = self.hasher_init;
+            self.hasher = hasher_init;
             self.hasher.update(&bin_digest);
 
             // Remove files not in the initial hash
@@ -310,7 +347,7 @@ pub const CacheHash = struct {
 
             // Hash while reading from disk, to keep the contents in the cpu cache while
             // doing hashing.
-            var hasher = self.hasher_init;
+            var hasher = hasher_init;
             var off: usize = 0;
             while (true) {
                 // give me everything you've got, captain
@@ -323,7 +360,7 @@ pub const CacheHash = struct {
 
             ch_file.contents = contents;
         } else {
-            try hashFile(file, &ch_file.bin_digest, self.hasher_init);
+            try hashFile(file, &ch_file.bin_digest);
         }
 
         self.hasher.update(&ch_file.bin_digest);
@@ -435,11 +472,12 @@ pub const CacheHash = struct {
             file.deinit(self.allocator);
         }
         self.files.deinit();
-        self.manifest_dir.close();
+        if (self.owns_manifest_dir)
+            self.manifest_dir.close();
     }
 };
 
-fn hashFile(file: fs.File, bin_digest: []u8, hasher_init: anytype) !void {
+fn hashFile(file: fs.File, bin_digest: []u8) !void {
     var buf: [1024]u8 = undefined;
 
     var hasher = hasher_init;
@@ -509,7 +547,7 @@ test "cache file and then recall it" {
 
         ch.add(true);
         ch.add(@as(u16, 1234));
-        ch.add("1234");
+        ch.addBytes("1234");
         _ = try ch.addFile(temp_file, null);
 
         // There should be nothing in the cache
@@ -523,7 +561,7 @@ test "cache file and then recall it" {
 
         ch.add(true);
         ch.add(@as(u16, 1234));
-        ch.add("1234");
+        ch.addBytes("1234");
         _ = try ch.addFile(temp_file, null);
 
         // Cache hit! We just "built" the same file
@@ -577,7 +615,7 @@ test "check that changing a file makes cache fail" {
         var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
         defer ch.release();
 
-        ch.add("1234");
+        ch.addBytes("1234");
         const temp_file_idx = try ch.addFile(temp_file, 100);
 
         // There should be nothing in the cache
@@ -594,7 +632,7 @@ test "check that changing a file makes cache fail" {
         var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
         defer ch.release();
 
-        ch.add("1234");
+        ch.addBytes("1234");
         const temp_file_idx = try ch.addFile(temp_file, 100);
 
         // A file that we depend on has been updated, so the cache should not contain an entry for it
@@ -628,7 +666,7 @@ test "no file inputs" {
         var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
         defer ch.release();
 
-        ch.add("1234");
+        ch.addBytes("1234");
 
         // There should be nothing in the cache
         testing.expectEqual(@as(?[BASE64_DIGEST_LEN]u8, null), try ch.hit());
@@ -639,7 +677,7 @@ test "no file inputs" {
         var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
         defer ch.release();
 
-        ch.add("1234");
+        ch.addBytes("1234");
 
         digest2 = (try ch.hit()).?;
     }
@@ -674,7 +712,7 @@ test "CacheHashes with files added after initial hash work" {
         var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
         defer ch.release();
 
-        ch.add("1234");
+        ch.addBytes("1234");
         _ = try ch.addFile(temp_file1, null);
 
         // There should be nothing in the cache
@@ -688,7 +726,7 @@ test "CacheHashes with files added after initial hash work" {
         var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
         defer ch.release();
 
-        ch.add("1234");
+        ch.addBytes("1234");
         _ = try ch.addFile(temp_file1, null);
 
         digest2 = (try ch.hit()).?;
@@ -707,7 +745,7 @@ test "CacheHashes with files added after initial hash work" {
         var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
         defer ch.release();
 
-        ch.add("1234");
+        ch.addBytes("1234");
         _ = try ch.addFile(temp_file1, null);
 
         // A file that we depend on has been updated, so the cache should not contain an entry for it

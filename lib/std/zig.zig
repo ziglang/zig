@@ -71,17 +71,52 @@ pub fn binNameAlloc(
     target: std.Target,
     output_mode: std.builtin.OutputMode,
     link_mode: ?std.builtin.LinkMode,
+    object_format: ?std.Target.ObjectFormat,
 ) error{OutOfMemory}![]u8 {
-    switch (output_mode) {
-        .Exe => return std.fmt.allocPrint(allocator, "{}{}", .{ root_name, target.exeFileExt() }),
-        .Lib => {
-            const suffix = switch (link_mode orelse .Static) {
-                .Static => target.staticLibSuffix(),
-                .Dynamic => target.dynamicLibSuffix(),
-            };
-            return std.fmt.allocPrint(allocator, "{}{}{}", .{ target.libPrefix(), root_name, suffix });
+    switch (object_format orelse target.getObjectFormat()) {
+        .coff, .pe => switch (output_mode) {
+            .Exe => {
+                const suffix = switch (target.os.tag) {
+                    .uefi => ".efi",
+                    else => ".exe",
+                };
+                return std.fmt.allocPrint(allocator, "{}{}", .{ root_name, suffix });
+            },
+            .Lib => {
+                const suffix = switch (link_mode orelse .Static) {
+                    .Static => ".lib",
+                    .Dynamic => ".dll",
+                };
+                return std.fmt.allocPrint(allocator, "{}{}{}", .{ target.libPrefix(), root_name, suffix });
+            },
+            .Obj => return std.fmt.allocPrint(allocator, "{}.obj", .{root_name}),
         },
-        .Obj => return std.fmt.allocPrint(allocator, "{}{}", .{ root_name, target.oFileExt() }),
+        .elf => switch (output_mode) {
+            .Exe => return allocator.dupe(u8, root_name),
+            .Lib => {
+                const suffix = switch (link_mode orelse .Static) {
+                    .Static => ".a",
+                    .Dynamic => ".so",
+                };
+                return std.fmt.allocPrint(allocator, "{}{}{}", .{ target.libPrefix(), root_name, suffix });
+            },
+            .Obj => return std.fmt.allocPrint(allocator, "{}.o", .{root_name}),
+        },
+        .macho => switch (output_mode) {
+            .Exe => return allocator.dupe(u8, root_name),
+            .Lib => {
+                const suffix = switch (link_mode orelse .Static) {
+                    .Static => ".a",
+                    .Dynamic => ".dylib",
+                };
+                return std.fmt.allocPrint(allocator, "{}{}{}", .{ target.libPrefix(), root_name, suffix });
+            },
+            .Obj => return std.fmt.allocPrint(allocator, "{}.o", .{root_name}),
+        },
+        .wasm => return std.fmt.allocPrint(allocator, "{}.wasm", .{root_name}),
+        .c => return std.fmt.allocPrint(allocator, "{}.c", .{root_name}),
+        .hex => return std.fmt.allocPrint(allocator, "{}.ihex", .{root_name}),
+        .raw => return std.fmt.allocPrint(allocator, "{}.bin", .{root_name}),
     }
 }
 

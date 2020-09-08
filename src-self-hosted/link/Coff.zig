@@ -113,6 +113,9 @@ pub const SrcFn = void;
 pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: link.Options) !*link.File {
     assert(options.object_format == .coff);
 
+    if (options.use_llvm) return error.LLVM_BackendIsTODO_ForCoff; // TODO
+    if (options.use_lld) return error.LLD_LinkingIsTODO_ForCoff; // TODO
+
     const file = try dir.createFile(sub_path, .{ .truncate = false, .read = true, .mode = link.determineMode(options) });
     errdefer file.close();
 

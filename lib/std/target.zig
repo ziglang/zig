@@ -465,8 +465,6 @@ pub const Target = struct {
     };
 
     pub const ObjectFormat = enum {
-        /// TODO Get rid of this one.
-        unknown,
         coff,
         pe,
         elf,
