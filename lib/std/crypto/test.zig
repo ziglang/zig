@@ -5,7 +5,6 @@
 // and substantial portions of the software.
 const std = @import("../std.zig");
 const testing = std.testing;
-const mem = std.mem;
 const fmt = std.fmt;
 
 // Hash using the specified hasher `H` asserting `expected == H(input)`.

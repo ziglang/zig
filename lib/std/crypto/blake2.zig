@@ -3,10 +3,10 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-const mem = @import("../mem.zig");
-const builtin = @import("builtin");
-const debug = @import("../debug.zig");
-const math = @import("../math.zig");
+const std = @import("../std.zig");
+const mem = std.mem;
+const math = std.math;
+const debug = std.debug;
 const htest = @import("test.zig");
 
 const RoundParam = struct {
