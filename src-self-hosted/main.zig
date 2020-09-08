@@ -960,13 +960,7 @@ pub fn buildOutputType(
         .yes_default_path => try std.fmt.allocPrint(arena, "{}.h", .{root_name}),
     };
 
-    // TODO Remove this, we'll have this error emitted lazily only if the features would end
-    // up actually getting used.
-    //if (!build_options.have_llvm) {
-    //    if ((use_llvm orelse false) or (use_lld orelse false) or (use_clang orelse false))
-    //        fatal("-fLLVM, -fLLD, and -fClang unavailable: compiler not built with LLVM extensions enabled", .{});
-    //}
-
+    // TODO look into implementing compiler_id at build time so we don't have to compute it at runtime.
     const compiler_id = try introspect.resolveCompilerId(gpa);
 
     var module = Module.init(gpa, .{

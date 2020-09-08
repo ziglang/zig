@@ -1048,6 +1048,8 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
 
     // We put everything into the cache hash except for the root source file, because we want to
     // find the same binary and incrementally update it even if the file contents changed.
+    // TODO Look into storing this information in memory rather than on disk and solving
+    // serialization/deserialization of *all* incremental compilation state in a more generic way.
     const cache_dir = if (options.root_pkg) |root_pkg| root_pkg.root_src_dir else std.fs.cwd();
     var cache = try std.cache_hash.CacheHash.init(gpa, cache_dir, "zig-cache");
     errdefer cache.release();
