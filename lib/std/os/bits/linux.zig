@@ -1590,6 +1590,123 @@ pub const RR_A = 1;
 pub const RR_CNAME = 5;
 pub const RR_AAAA = 28;
 
+/// Turn off Nagle's algorithm
+pub const TCP_NODELAY = 1;
+/// Limit MSS
+pub const TCP_MAXSEG = 2;
+/// Never send partially complete segments.
+pub const TCP_CORK = 3;
+/// Start keeplives after this period, in seconds
+pub const TCP_KEEPIDLE = 4;
+/// Interval between keepalives
+pub const TCP_KEEPINTVL = 5;
+/// Number of keepalives before death
+pub const TCP_KEEPCNT = 6;
+/// Number of SYN retransmits
+pub const TCP_SYNCNT = 7;
+/// Life time of orphaned FIN-WAIT-2 state
+pub const TCP_LINGER2 = 8;
+/// Wake up listener only when data arrive
+pub const TCP_DEFER_ACCEPT = 9;
+/// Bound advertised window
+pub const TCP_WINDOW_CLAMP = 10;
+/// Information about this connection.
+pub const TCP_INFO = 11;
+/// Block/reenable quick acks
+pub const TCP_QUICKACK = 12;
+/// Congestion control algorithm
+pub const TCP_CONGESTION = 13;
+/// TCP MD5 Signature (RFC2385)
+pub const TCP_MD5SIG = 14;
+/// Use linear timeouts for thin streams
+pub const TCP_THIN_LINEAR_TIMEOUTS = 16;
+/// Fast retrans. after 1 dupack
+pub const TCP_THIN_DUPACK = 17;
+/// How long for loss retry before timeout
+pub const TCP_USER_TIMEOUT = 18;
+/// TCP sock is under repair right now
+pub const TCP_REPAIR = 19;
+pub const TCP_REPAIR_QUEUE = 20;
+pub const TCP_QUEUE_SEQ = 21;
+pub const TCP_REPAIR_OPTIONS = 22;
+/// Enable FastOpen on listeners
+pub const TCP_FASTOPEN = 23;
+pub const TCP_TIMESTAMP = 24;
+/// limit number of unsent bytes in write queue
+pub const TCP_NOTSENT_LOWAT = 25;
+/// Get Congestion Control (optional) info
+pub const TCP_CC_INFO = 26;
+/// Record SYN headers for new connections
+pub const TCP_SAVE_SYN = 27;
+/// Get SYN headers recorded for connection
+pub const TCP_SAVED_SYN = 28;
+/// Get/set window parameters
+pub const TCP_REPAIR_WINDOW = 29;
+/// Attempt FastOpen with connect
+pub const TCP_FASTOPEN_CONNECT = 30;
+/// Attach a ULP to a TCP connection
+pub const TCP_ULP = 31;
+/// TCP MD5 Signature with extensions
+pub const TCP_MD5SIG_EXT = 32;
+/// Set the key for Fast Open (cookie)
+pub const TCP_FASTOPEN_KEY = 33;
+/// Enable TFO without a TFO cookie
+pub const TCP_FASTOPEN_NO_COOKIE = 34;
+pub const TCP_ZEROCOPY_RECEIVE = 35;
+/// Notify bytes available to read as a cmsg on read
+pub const TCP_INQ = 36;
+pub const TCP_CM_INQ = TCP_INQ;
+/// delay outgoing packets by XX usec
+pub const TCP_TX_DELAY = 37;
+
+pub const TCP_REPAIR_ON = 1;
+pub const TCP_REPAIR_OFF = 0;
+/// Turn off without window probes
+pub const TCP_REPAIR_OFF_NO_WP = -1;
+
+pub const tcp_repair_opt = extern struct {
+    opt_code: u32,
+    opt_val: u32,
+};
+
+pub const tcp_repair_window = extern struct {
+    snd_wl1: u32,
+    snd_wnd: u32,
+    max_window: u32,
+    rcv_wnd: u32,
+    rcv_wup: u32,
+};
+
+pub const TcpRepairOption = extern enum {
+    TCP_NO_QUEUE,
+    TCP_RECV_QUEUE,
+    TCP_SEND_QUEUE,
+    TCP_QUEUES_NR,
+};
+
+/// why fastopen failed from client perspective
+pub const tcp_fastopen_client_fail = extern enum {
+    /// catch-all
+    TFO_STATUS_UNSPEC,
+    /// if not in TFO_CLIENT_NO_COOKIE mode
+    TFO_COOKIE_UNAVAILABLE,
+    /// SYN-ACK did not ack SYN data
+    TFO_DATA_NOT_ACKED,
+    /// SYN-ACK did not ack SYN data after timeout
+    TFO_SYN_RETRANSMITTED,
+};
+
+/// for TCP_INFO socket option
+pub const TCPI_OPT_TIMESTAMPS = 1;
+pub const TCPI_OPT_SACK = 2;
+pub const TCPI_OPT_WSCALE = 4;
+/// ECN was negociated at TCP session init
+pub const TCPI_OPT_ECN = 8;
+/// we received at least one packet with ECT
+pub const TCPI_OPT_ECN_SEEN = 16;
+/// SYN-ACK acked data in SYN sent or rcvd
+pub const TCPI_OPT_SYN_DATA = 32;
+
 pub const nfds_t = usize;
 pub const pollfd = extern struct {
     fd: fd_t,
