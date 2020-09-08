@@ -56,69 +56,6 @@ pub fn build(b: *Builder) !void {
     const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse false;
     const config_h_path_option = b.option([]const u8, "config_h", "Path to the generated config.h");
 
-    if (!only_install_lib_files) {
-        var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
-        exe.install();
-        exe.setBuildMode(mode);
-        exe.setTarget(target);
-        test_step.dependOn(&exe.step);
-        b.default_step.dependOn(&exe.step);
-
-        exe.addBuildOption(bool, "have_llvm", enable_llvm);
-        if (enable_llvm) {
-            const config_h_text = if (config_h_path_option) |config_h_path|
-                try std.fs.cwd().readFileAlloc(b.allocator, toNativePathSep(b, config_h_path), max_config_h_bytes)
-            else
-                try findAndReadConfigH(b);
-
-            var ctx = parseConfigH(b, config_h_text);
-            ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
-
-            try configureStage2(b, exe, ctx);
-        }
-        const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
-        const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse enable_llvm;
-        if (link_libc) {
-            exe.linkLibC();
-            test_stage2.linkLibC();
-        }
-
-        const log_scopes = b.option([]const []const u8, "log", "Which log scopes to enable") orelse &[0][]const u8{};
-        const zir_dumps = b.option([]const []const u8, "dump-zir", "Which functions to dump ZIR for before codegen") orelse &[0][]const u8{};
-
-        const opt_version_string = b.option([]const u8, "version-string", "Override Zig version string. Default is to find out with git.");
-        const version = if (opt_version_string) |version| version else v: {
-            var code: u8 = undefined;
-            const version_untrimmed = b.execAllowFail(&[_][]const u8{
-                "git",    "-C",          b.build_root,     "name-rev", "HEAD",
-                "--tags", "--name-only", "--no-undefined", "--always",
-            }, &code, .Ignore) catch |err| {
-                std.debug.print(
-                    \\Unable to determine zig version string: {}
-                    \\Provide the zig version string explicitly using the `version-string` build option.
-                , .{err});
-                std.process.exit(1);
-            };
-            const trimmed = mem.trim(u8, version_untrimmed, " \n\r");
-            break :v b.fmt("{}.{}.{}+{}", .{ zig_version.major, zig_version.minor, zig_version.patch, trimmed });
-        };
-        exe.addBuildOption([]const u8, "version", version);
-
-        exe.addBuildOption([]const []const u8, "log_scopes", log_scopes);
-        exe.addBuildOption([]const []const u8, "zir_dumps", zir_dumps);
-        exe.addBuildOption(bool, "enable_tracy", tracy != null);
-        if (tracy) |tracy_path| {
-            const client_cpp = fs.path.join(
-                b.allocator,
-                &[_][]const u8{ tracy_path, "TracyClient.cpp" },
-            ) catch unreachable;
-            exe.addIncludeDir(tracy_path);
-            exe.addCSourceFile(client_cpp, &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" });
-            exe.linkSystemLibraryName("c++");
-            exe.linkLibC();
-        }
-    }
-
     b.installDirectory(InstallDirectoryOptions{
         .source_dir = "lib",
         .install_dir = .Lib,
@@ -132,6 +69,91 @@ pub fn build(b: *Builder) !void {
         },
     });
 
+    if (only_install_lib_files)
+        return;
+
+    var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
+    exe.install();
+    exe.setBuildMode(mode);
+    exe.setTarget(target);
+    test_step.dependOn(&exe.step);
+    b.default_step.dependOn(&exe.step);
+
+    exe.addBuildOption(bool, "have_llvm", enable_llvm);
+    if (enable_llvm) {
+        const config_h_text = if (config_h_path_option) |config_h_path|
+            try std.fs.cwd().readFileAlloc(b.allocator, toNativePathSep(b, config_h_path), max_config_h_bytes)
+        else
+            try findAndReadConfigH(b);
+
+        var ctx = parseConfigH(b, config_h_text);
+        ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
+
+        try configureStage2(b, exe, ctx);
+    }
+    const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
+    const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse enable_llvm;
+    if (link_libc) {
+        exe.linkLibC();
+        test_stage2.linkLibC();
+    }
+
+    const log_scopes = b.option([]const []const u8, "log", "Which log scopes to enable") orelse &[0][]const u8{};
+    const zir_dumps = b.option([]const []const u8, "dump-zir", "Which functions to dump ZIR for before codegen") orelse &[0][]const u8{};
+
+    const opt_version_string = b.option([]const u8, "version-string", "Override Zig version string. Default is to find out with git.");
+    const version = if (opt_version_string) |version| version else v: {
+        const version_string = b.fmt("{}.{}.{}", .{ zig_version.major, zig_version.minor, zig_version.patch });
+
+        var code: u8 = undefined;
+        const git_sha_untrimmed = b.execAllowFail(&[_][]const u8{
+            "git",    "-C",          b.build_root,     "name-rev", "HEAD",
+            "--tags", "--name-only", "--no-undefined", "--always",
+        }, &code, .Ignore) catch {
+            break :v version_string;
+        };
+        const git_sha_trimmed = mem.trim(u8, git_sha_untrimmed, " \n\r");
+        // Detect dirty changes.
+        const diff_untrimmed = b.execAllowFail(&[_][]const u8{
+            "git", "-C", b.build_root, "diff", "HEAD",
+        }, &code, .Ignore) catch |err| {
+            std.debug.print("Error executing git diff: {}", .{err});
+            std.process.exit(1);
+        };
+        const trimmed_diff = mem.trim(u8, diff_untrimmed, " \n\r");
+        const dirty_suffix = if (trimmed_diff.len == 0) "" else s: {
+            const dirty_hash = std.hash.Wyhash.hash(0, trimmed_diff);
+            break :s b.fmt("dirty{x}", .{@truncate(u32, dirty_hash)});
+        };
+
+        // This will look like e.g. "0.6.0^0" for a tag commit.
+        if (mem.endsWith(u8, git_sha_trimmed, "^0")) {
+            const git_ver_string = git_sha_trimmed[0 .. git_sha_trimmed.len - 2];
+            if (!mem.eql(u8, git_ver_string, version_string)) {
+                std.debug.print("Expected git tag '{}', found '{}'", .{ version_string, git_ver_string });
+                std.process.exit(1);
+            }
+            break :v b.fmt("{}{}", .{ version_string, dirty_suffix });
+        } else {
+            break :v b.fmt("{}+{}{}", .{ version_string, git_sha_trimmed, dirty_suffix });
+        }
+    };
+    exe.addBuildOption([]const u8, "version", version);
+
+    exe.addBuildOption([]const []const u8, "log_scopes", log_scopes);
+    exe.addBuildOption([]const []const u8, "zir_dumps", zir_dumps);
+    exe.addBuildOption(bool, "enable_tracy", tracy != null);
+    if (tracy) |tracy_path| {
+        const client_cpp = fs.path.join(
+            b.allocator,
+            &[_][]const u8{ tracy_path, "TracyClient.cpp" },
+        ) catch unreachable;
+        exe.addIncludeDir(tracy_path);
+        exe.addCSourceFile(client_cpp, &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" });
+        exe.linkSystemLibraryName("c++");
+        exe.linkLibC();
+    }
+
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
 
     const is_wine_enabled = b.option(bool, "enable-wine", "Use Wine to run cross compiled Windows tests") orelse false;
@@ -144,6 +166,7 @@ pub fn build(b: *Builder) !void {
     test_stage2.addBuildOption(bool, "enable_wine", is_wine_enabled);
     test_stage2.addBuildOption(bool, "enable_wasmtime", is_wasmtime_enabled);
     test_stage2.addBuildOption(?[]const u8, "glibc_multi_install_dir", glibc_multi_dir);
+    test_stage2.addBuildOption([]const u8, "version", version);
 
     const test_stage2_step = b.step("test-stage2", "Run the stage2 compiler tests");
     test_stage2_step.dependOn(&test_stage2.step);

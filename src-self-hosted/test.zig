@@ -9,7 +9,6 @@ const enable_qemu: bool = build_options.enable_qemu;
 const enable_wine: bool = build_options.enable_wine;
 const enable_wasmtime: bool = build_options.enable_wasmtime;
 const glibc_multi_install_dir: ?[]const u8 = build_options.glibc_multi_install_dir;
-const introspect = @import("introspect.zig");
 
 const cheader = @embedFile("link/cbe.h");
 
@@ -439,8 +438,6 @@ pub const TestContext = struct {
         const ofmt: ?std.builtin.ObjectFormat = if (case.cbe) .c else null;
         const bin_name = try std.zig.binNameAlloc(arena, "test_case", target, case.output_mode, null, ofmt);
 
-        const compiler_id = try introspect.resolveCompilerId(arena);
-
         var module = try Module.init(allocator, .{
             .root_name = "test_case",
             .target = target,
@@ -455,7 +452,6 @@ pub const TestContext = struct {
             .root_pkg = root_pkg,
             .keep_source_files_loaded = true,
             .object_format = ofmt,
-            .compiler_id = compiler_id,
         });
         defer module.deinit();
 

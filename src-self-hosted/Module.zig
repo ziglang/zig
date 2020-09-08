@@ -952,7 +952,6 @@ pub const InitOptions = struct {
     linker_z_nodelete: bool = false,
     linker_z_defs: bool = false,
     stack_size_override: u64 = 0,
-    compiler_id: [16]u8,
 };
 
 pub fn init(gpa: *Allocator, options: InitOptions) !Module {
@@ -1056,7 +1055,7 @@ pub fn init(gpa: *Allocator, options: InitOptions) !Module {
 
     // Now we will prepare hash state initializations to avoid redundantly computing hashes.
     // First we add common things between things that apply to zig source and all c source files.
-    cache.add(options.compiler_id);
+    cache.addBytes(build_options.version);
     cache.add(options.optimize_mode);
     cache.add(options.target.cpu.arch);
     cache.addBytes(options.target.cpu.model.name);

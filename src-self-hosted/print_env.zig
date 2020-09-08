@@ -16,10 +16,6 @@ pub fn cmdEnv(gpa: *Allocator, args: []const []const u8, stdout: anytype) !void 
     const global_cache_dir = try introspect.resolveGlobalCacheDir(gpa);
     defer gpa.free(global_cache_dir);
 
-    const compiler_id_digest = try introspect.resolveCompilerId(gpa);
-    var compiler_id_buf: [compiler_id_digest.len * 2]u8 = undefined;
-    const compiler_id = std.fmt.bufPrint(&compiler_id_buf, "{x}", .{compiler_id_digest}) catch unreachable;
-
     var bos = std.io.bufferedOutStream(stdout);
     const bos_stream = bos.outStream();
 
@@ -31,9 +27,6 @@ pub fn cmdEnv(gpa: *Allocator, args: []const []const u8, stdout: anytype) !void 
 
     try jws.objectField("std_dir");
     try jws.emitString(zig_std_dir);
-
-    try jws.objectField("id");
-    try jws.emitString(compiler_id);
 
     try jws.objectField("global_cache_dir");
     try jws.emitString(global_cache_dir);

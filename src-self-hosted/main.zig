@@ -960,9 +960,6 @@ pub fn buildOutputType(
         .yes_default_path => try std.fmt.allocPrint(arena, "{}.h", .{root_name}),
     };
 
-    // TODO look into implementing compiler_id at build time so we don't have to compute it at runtime.
-    const compiler_id = try introspect.resolveCompilerId(gpa);
-
     var module = Module.init(gpa, .{
         .root_name = root_name,
         .target = target_info.target,
@@ -1002,7 +999,6 @@ pub fn buildOutputType(
         .linker_z_nodelete = linker_z_nodelete,
         .linker_z_defs = linker_z_defs,
         .stack_size_override = stack_size_override,
-        .compiler_id = compiler_id,
         .strip = strip,
     }) catch |err| {
         fatal("unable to initialize module: {}", .{@errorName(err)});
