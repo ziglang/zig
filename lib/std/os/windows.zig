@@ -1154,7 +1154,7 @@ pub fn WSASocketW(
 }
 
 pub fn bind(s: ws2_32.SOCKET, name: *const ws2_32.sockaddr, namelen: ws2_32.socklen_t) i32 {
-    return ws2_32.bind(s, name, namelen);
+    return ws2_32.bind(s, name, @intCast(i32, namelen));
 }
 
 pub fn listen(s: ws2_32.SOCKET, backlog: u31) i32 {
@@ -1173,27 +1173,17 @@ pub fn closesocket(s: ws2_32.SOCKET) !void {
 
 pub fn accept(s: ws2_32.SOCKET, name: ?*ws2_32.sockaddr, namelen: ?*ws2_32.socklen_t) ws2_32.SOCKET {
     assert((name == null) == (namelen == null));
-    if (namelen) |name_length| {
-        var os_namelen: c_int = name_length.*;
-        const sock = ws2_32.accept(s, name, &os_namelen);
-        name_length.* = @intCast(ws2_32.socklen_t, os_namelen);
-        return sock;
-    } else {
-        return ws2_32.accept(s, null, null);
-    }
+    return ws2_32.accept(s, name, @ptrCast(?*i32, namelen));
 }
 
 pub fn getsockname(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.socklen_t) i32 {
-    var os_namelen: c_int = namelen.*;
-    const rc = ws2_32.getsockname(s, name, &os_namelen);
-    namelen.* = @intCast(ws2_32.socklen_t, os_namelen);
-    return rc;
+    return ws2_32.getsockname(s, name, @ptrCast(*i32, namelen));
 }
 
 pub fn sendto(s: ws2_32.SOCKET, buf: [*]const u8, len: usize, flags: u32, to: ?*const ws2_32.sockaddr, to_len: ws2_32.socklen_t) i32 {
     var buffer = ws2_32.WSABUF{ .len = @truncate(u31, len), .buf = @intToPtr([*]u8, @ptrToInt(buf)) };
     var bytes_send: DWORD = undefined;
-    if (ws2_32.WSASendTo(s, @ptrCast([*]ws2_32.WSABUF, &buffer), 1, &bytes_send, flags, to, to_len, null, null) == ws2_32.SOCKET_ERROR) {
+    if (ws2_32.WSASendTo(s, @ptrCast([*]ws2_32.WSABUF, &buffer), 1, &bytes_send, flags, to, @intCast(i32, to_len), null, null) == ws2_32.SOCKET_ERROR) {
         return ws2_32.SOCKET_ERROR;
     } else {
         return @as(i32, @intCast(u31, bytes_send));

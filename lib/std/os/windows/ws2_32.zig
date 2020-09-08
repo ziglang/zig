@@ -116,7 +116,7 @@ pub const WSAOVERLAPPED_COMPLETION_ROUTINE = fn (dwError: DWORD, cbTransferred: 
 pub const ADDRESS_FAMILY = u16;
 
 // Microsoft use the signed c_int for this, but it should never be negative
-pub const socklen_t = u31;
+pub const socklen_t = u32;
 
 pub const AF_UNSPEC = 0;
 pub const AF_UNIX = 1;

@@ -3114,7 +3114,7 @@ pub const ConnectError = error{
 /// Initiate a connection on a socket.
 pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) ConnectError!void {
     if (builtin.os.tag == .windows) {
-        const rc = windows.ws2_32.connect(sock, sock_addr, len);
+        const rc = windows.ws2_32.connect(sock, sock_addr, @intCast(i32, len));
         if (rc == 0) return;
         switch (windows.ws2_32.WSAGetLastError()) {
             .WSAEADDRINUSE => return error.AddressInUse,
