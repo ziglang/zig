@@ -2761,6 +2761,7 @@ pub fn bind(sock: socket_t, addr: *const sockaddr, len: socklen_t) BindError!voi
                 // TODO: handle errors
                 else => |err| return windows.unexpectedWSAError(err),
             }
+            unreachable;
         }
         return;
     } else {
@@ -2782,6 +2783,7 @@ pub fn bind(sock: socket_t, addr: *const sockaddr, len: socklen_t) BindError!voi
             else => |err| return unexpectedErrno(err),
         }
     }
+    unreachable;
 }
 
 const ListenError = error{
