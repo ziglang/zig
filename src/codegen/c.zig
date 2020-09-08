@@ -160,6 +160,8 @@ fn genFn(file: *C, decl: *Decl) !void {
             if (switch (inst.tag) {
                 .assembly => try genAsm(&ctx, inst.castTag(.assembly).?),
                 .call => try genCall(&ctx, inst.castTag(.call).?),
+                .add => try genBinOp(&ctx, inst.cast(Inst.BinOp).?, "+"),
+                .sub => try genBinOp(&ctx, inst.cast(Inst.BinOp).?, "-"),
                 .ret => try genRet(&ctx, inst.castTag(.ret).?),
                 .retvoid => try genRetVoid(&ctx),
                 .arg => try genArg(&ctx),
@@ -204,6 +206,19 @@ fn genIntCast(ctx: *Context, inst: *Inst.UnOp) !?[]u8 {
     try writer.print(" {} = (", .{name});
     try renderType(ctx, writer, inst.base.ty);
     try writer.print("){};\n", .{from});
+    return name;
+}
+
+fn genBinOp(ctx: *Context, inst: *Inst.BinOp, comptime operator: []const u8) !?[]u8 {
+    if (inst.base.isUnused())
+        return null;
+    const lhs = ctx.resolveInst(inst.lhs);
+    const rhs = ctx.resolveInst(inst.rhs);
+    const writer = ctx.file.main.writer();
+    const name = try ctx.name();
+    try writer.writeAll(indentation ++ "const ");
+    try renderType(ctx, writer, inst.base.ty);
+    try writer.print(" {} = {} " ++ operator ++ " {};\n", .{ name, lhs, rhs });
     return name;
 }
 
