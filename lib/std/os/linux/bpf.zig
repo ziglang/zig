@@ -11,6 +11,8 @@ const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;
 const expect = std.testing.expect;
 
+pub const btf = @import("bpf/btf.zig");
+
 // instruction classes
 pub const LD = 0x00;
 pub const LDX = 0x01;
