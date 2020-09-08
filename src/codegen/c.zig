@@ -11,6 +11,8 @@ const C = link.File.C;
 const Decl = Module.Decl;
 const mem = std.mem;
 
+const indentation = "    ";
+
 /// Maps a name from Zig source to C. Currently, this will always give the same
 /// output for any given input, sometimes resulting in broken identifiers.
 fn map(allocator: *std.mem.Allocator, name: []const u8) ![]const u8 {
@@ -87,6 +89,7 @@ fn genArray(file: *C, decl: *Decl) !void {
     if (tv.val.cast(Value.Payload.Bytes)) |payload|
         if (tv.ty.sentinel()) |sentinel|
             if (sentinel.toUnsignedInt() == 0)
+            // TODO: static by default
                 try file.constants.writer().print("const char *const {} = \"{}\";\n", .{ name, payload.data })
             else
                 return file.fail(decl.src(), "TODO byte arrays with non-zero sentinels", .{})
@@ -166,7 +169,7 @@ fn genArg(ctx: *Context) !?[]u8 {
 }
 
 fn genRetVoid(ctx: *Context) !?[]u8 {
-    try ctx.file.main.writer().print("    return;\n", .{});
+    try ctx.file.main.writer().print(indentation ++ "return;\n", .{});
     return null;
 }
 
@@ -182,7 +185,7 @@ fn genIntCast(ctx: *Context, inst: *Inst.UnOp) !?[]u8 {
     const name = try ctx.name();
     const from = ctx.inst_map.get(op) orelse
         return ctx.file.fail(ctx.decl.src(), "Internal error in C backend: intCast argument not found in inst_map", .{});
-    try writer.writeAll("    const ");
+    try writer.writeAll(indentation ++ "const ");
     try renderType(ctx, writer, inst.base.ty);
     try writer.print(" {} = (", .{name});
     try renderType(ctx, writer, inst.base.ty);
@@ -193,7 +196,7 @@ fn genIntCast(ctx: *Context, inst: *Inst.UnOp) !?[]u8 {
 fn genCall(ctx: *Context, inst: *Inst.Call) !?[]u8 {
     const writer = ctx.file.main.writer();
     const header = ctx.file.header.writer();
-    try writer.writeAll("    ");
+    try writer.writeAll(indentation);
     if (inst.func.castTag(.constant)) |func_inst| {
         if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
             const target = func_val.func.owner_decl;
@@ -242,13 +245,13 @@ fn genBreak(ctx: *Context, inst: *Inst.NoOp) !?[]u8 {
 }
 
 fn genUnreach(ctx: *Context, inst: *Inst.NoOp) !?[]u8 {
-    try ctx.file.main.writer().writeAll("    zig_unreachable();\n");
+    try ctx.file.main.writer().writeAll(indentation ++ "zig_unreachable();\n");
     return null;
 }
 
 fn genAsm(ctx: *Context, as: *Inst.Assembly) !?[]u8 {
     const writer = ctx.file.main.writer();
-    try writer.writeAll("    ");
+    try writer.writeAll(indentation);
     for (as.inputs) |i, index| {
         if (i[0] == '{' and i[i.len - 1] == '}') {
             const reg = i[1 .. i.len - 1];
