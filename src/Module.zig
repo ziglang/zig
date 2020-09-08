@@ -2661,6 +2661,11 @@ pub fn resolvePeerTypes(self: *Module, scope: *Scope, instructions: []*Inst) !Ty
             continue;
         }
 
+        if (prev_inst.ty.zigTypeTag() == .ComptimeInt and next_inst.ty.isInt()) {
+            prev_inst = next_inst;
+            continue;
+        }
+
         // TODO error notes pointing out each type
         return self.fail(scope, next_inst.src, "incompatible types: '{}' and '{}'", .{ prev_inst.ty, next_inst.ty });
     }
