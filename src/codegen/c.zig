@@ -109,6 +109,18 @@ const Context = struct {
     argdex: usize = 0,
     unnamed_index: usize = 0,
 
+    fn resolveInst(self: *Context, inst: *Inst) ![]u8 {
+        if (inst.cast(Inst.Constant)) |const_inst| {
+            var out = std.ArrayList(u8).init(&self.arena.allocator);
+            try renderValue(self, out.writer(), inst.ty, const_inst.val);
+            return out.toOwnedSlice();
+        }
+        if (self.inst_map.get(inst)) |val| {
+            return val;
+        }
+        return self.file.fail(inst.src, "Internal error: failed to resolve inst!", .{});
+    }
+
     fn name(self: *Context) ![]u8 {
         const val = try std.fmt.allocPrint(&self.arena.allocator, "__temp_{}", .{self.unnamed_index});
         self.unnamed_index += 1;
@@ -186,8 +198,7 @@ fn genIntCast(ctx: *Context, inst: *Inst.UnOp) !?[]u8 {
     const op = inst.operand;
     const writer = ctx.file.main.writer();
     const name = try ctx.name();
-    const from = ctx.inst_map.get(op) orelse
-        return ctx.file.fail(ctx.decl.src(), "Internal error in C backend: intCast argument not found in inst_map", .{});
+    const from = try ctx.resolveInst(inst.operand);
     try writer.writeAll(indentation ++ "const ");
     try renderType(ctx, writer, inst.base.ty);
     try writer.print(" {} = (", .{name});
@@ -223,7 +234,8 @@ fn genCall(ctx: *Context, inst: *Inst.Call) !?[]u8 {
                     if (arg.cast(Inst.Constant)) |con| {
                         try renderValue(ctx, writer, arg.ty, con.val);
                     } else {
-                        return ctx.file.fail(ctx.decl.src(), "TODO call pass arg {}", .{arg});
+                        const val = try ctx.resolveInst(arg);
+                        try writer.print("{}", .{val});
                     }
                 }
             }
