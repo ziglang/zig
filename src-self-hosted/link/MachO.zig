@@ -500,9 +500,8 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
     const addr = blk: {
         if (self.last_text_block) |last| {
             const last_symbol = self.symbol_table.items[last.symbol_table_index.?];
-            const ideal_capacity = last.size * alloc_num / alloc_den;
-            const ideal_capacity_end_addr = last_symbol.n_value + ideal_capacity;
-            const new_start_addr = mem.alignForwardGeneric(u64, ideal_capacity_end_addr, alignment);
+            const end_addr = last_symbol.n_value + last.size;
+            const new_start_addr = mem.alignForwardGeneric(u64, end_addr, alignment);
             block_placement = last;
             break :blk new_start_addr;
         } else {
