@@ -2906,21 +2906,21 @@ pub fn accept(
                     loop.waitUntilFdReadable(sock);
                     continue;
                 } else {
-                  return error.WouldBlock;
-              },
-              EBADF => unreachable, // always a race condition
-              ECONNABORTED => return error.ConnectionAborted,
-              EFAULT => unreachable,
-              EINVAL => return error.SocketNotListening,
-              ENOTSOCK => unreachable,
-              EMFILE => return error.ProcessFdQuotaExceeded,
-              ENFILE => return error.SystemFdQuotaExceeded,
-              ENOBUFS => return error.SystemResources,
-              ENOMEM => return error.SystemResources,
-              EOPNOTSUPP => unreachable,
-              EPROTO => return error.ProtocolFailure,
-              EPERM => return error.BlockedByFirewall,
-              else => |err| return unexpectedErrno(err),
+                    return error.WouldBlock;
+                },
+                EBADF => unreachable, // always a race condition
+                ECONNABORTED => return error.ConnectionAborted,
+                EFAULT => unreachable,
+                EINVAL => return error.SocketNotListening,
+                ENOTSOCK => unreachable,
+                EMFILE => return error.ProcessFdQuotaExceeded,
+                ENFILE => return error.SystemFdQuotaExceeded,
+                ENOBUFS => return error.SystemResources,
+                ENOMEM => return error.SystemResources,
+                EOPNOTSUPP => unreachable,
+                EPROTO => return error.ProtocolFailure,
+                EPERM => return error.BlockedByFirewall,
+                else => |err| return unexpectedErrno(err),
             }
         }
     } else unreachable;
@@ -3120,7 +3120,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .WSAECONNREFUSED => return error.ConnectionRefused,
             .WSAETIMEDOUT => return error.ConnectionTimedOut,
             .WSAEHOSTUNREACH // TODO: should we return NetworkUnreachable in this case as well?
-                , .WSAENETUNREACH => return error.NetworkUnreachable,
+            , .WSAENETUNREACH => return error.NetworkUnreachable,
             .WSAEFAULT => unreachable,
             .WSAEINVAL => unreachable,
             .WSAEISCONN => unreachable,
