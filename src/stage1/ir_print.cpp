@@ -1763,8 +1763,7 @@ static void ir_print_builtin_src(IrPrintSrc *irp, IrInstSrcSrc *instruction) {
 }
 
 static void ir_print_builtin_va_start(IrPrintSrc *irp, IrInstSrcVaStart *instruction) {
-    fprintf(irp->f, "@vaStart(");
-    fprintf(irp->f, ")result=");
+    fprintf(irp->f, "@vaStart()result=");
     ir_print_result_loc(irp, instruction->result_loc);
 }
 

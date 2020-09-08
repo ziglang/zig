@@ -7659,7 +7659,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
         case BuiltinFnIdVaArg:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                IrInstSrc *arg0_value = ir_gen_node_extra(irb, arg0_node, scope, LValPtr, nullptr);
                 if (arg0_value == irb->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -7674,7 +7674,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
         case BuiltinFnIdVaEnd:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                IrInstSrc *arg0_value = ir_gen_node_extra(irb, arg0_node, scope, LValPtr, nullptr);
                 if (arg0_value == irb->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -7684,7 +7684,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
         case BuiltinFnIdVaCopy:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                IrInstSrc *arg0_value = ir_gen_node_extra(irb, arg0_node, scope, LValPtr, nullptr);
                 if (arg0_value == irb->codegen->invalid_inst_src)
                     return arg0_value;
 
@@ -31484,6 +31484,32 @@ static IrInstGen *ir_analyze_instruction_src(IrAnalyze *ira, IrInstSrcSrc *instr
     return ir_const_move(ira, &instruction->base.base, result);
 }
 
+static IrInstGen *get_va_list_ref(IrAnalyze *ira, IrInst *source_instr, IrInstGen *ap) {
+    if (type_is_invalid(ap->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    ZigType *va_list_type = get_builtin_type(ira->codegen, "VaList");
+    if (type_is_invalid(va_list_type))
+        return ira->codegen->invalid_inst_gen;
+
+    ZigType *va_list_ref_type;
+    if (va_list_type->id == ZigTypeIdArray)
+        va_list_ref_type = get_pointer_to_type(ira->codegen, va_list_type->data.array.child_type, false);
+    else
+        va_list_ref_type = get_pointer_to_type(ira->codegen, va_list_type, false);
+
+    if (va_list_type->id == ZigTypeIdArray)
+        ap = ir_analyze_ptr_cast(ira, source_instr, ap, &ap->base, va_list_ref_type, source_instr, false, false);
+    if (type_is_invalid(ap->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    ap = ir_implicit_cast(ira, ap, va_list_ref_type);
+    if (type_is_invalid(ap->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    return ap;
+}
+
 static IrInstGen *ir_analyze_instruction_va_start(IrAnalyze *ira, IrInstSrcVaStart *instruction) {
     ZigType *va_list_type = get_builtin_type(ira->codegen, "VaList");
     if (type_is_invalid(va_list_type))
@@ -31501,18 +31527,8 @@ static IrInstGen *ir_analyze_instruction_va_start(IrAnalyze *ira, IrInstSrcVaSta
 }
 
 static IrInstGen *ir_analyze_instruction_va_arg(IrAnalyze *ira, IrInstSrcVaArg *instruction) {
-    ZigType *va_list_type = get_builtin_type(ira->codegen, "VaList");
-    if (type_is_invalid(va_list_type))
-        return ira->codegen->invalid_inst_gen;
-
-    ZigType *va_list_ptr_type = get_pointer_to_type(ira->codegen, va_list_type, false);
-
-    IrInstGen *ap = instruction->ap->child;
+    IrInstGen *ap = get_va_list_ref(ira, &instruction->base.base, instruction->ap->child);
     if (type_is_invalid(ap->value->type))
-        return ira->codegen->invalid_inst_gen;
-
-    IrInstGen *casted_ap = ir_implicit_cast(ira, ap, va_list_ptr_type);
-    if (type_is_invalid(casted_ap->value->type))
         return ira->codegen->invalid_inst_gen;
 
     ZigType *type = ir_resolve_type(ira, instruction->type->child);
@@ -31528,33 +31544,21 @@ static IrInstGen *ir_analyze_instruction_va_arg(IrAnalyze *ira, IrInstSrcVaArg *
             buf_sprintf("cannot use @vaArg on non-C-ABI-compatible type '%s'", buf_ptr(&type->name)));
     }
 
-    return ir_build_va_arg_gen(ira, &instruction->base.base, casted_ap, type);
+    return ir_build_va_arg_gen(ira, &instruction->base.base, ap, type);
 }
 
 static IrInstGen *ir_analyze_instruction_va_end(IrAnalyze *ira, IrInstSrcVaEnd *instruction) {
-    ZigType *va_list_type = get_builtin_type(ira->codegen, "VaList");
-    if (type_is_invalid(va_list_type))
-        return ira->codegen->invalid_inst_gen;
-
-    ZigType *va_list_ptr_type = get_pointer_to_type(ira->codegen, va_list_type, false);
-
-    IrInstGen *ap = instruction->ap->child;
+    IrInstGen *ap = get_va_list_ref(ira, &instruction->base.base, instruction->ap->child);
     if (type_is_invalid(ap->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    IrInstGen *casted_ap = ir_implicit_cast(ira, ap, va_list_ptr_type);
-    if (type_is_invalid(casted_ap->value->type))
-        return ira->codegen->invalid_inst_gen;
-
-    return ir_build_va_end_gen(ira, &instruction->base.base, casted_ap);
+    return ir_build_va_end_gen(ira, &instruction->base.base, ap);
 }
 
 static IrInstGen *ir_analyze_instruction_va_copy(IrAnalyze *ira, IrInstSrcVaCopy *instruction) {
     ZigType *va_list_type = get_builtin_type(ira->codegen, "VaList");
     if (type_is_invalid(va_list_type))
         return ira->codegen->invalid_inst_gen;
-
-    ZigType *va_list_ptr_type = get_pointer_to_type(ira->codegen, va_list_type, false);
 
     IrInstGen *result_loc = ir_resolve_result(ira, &instruction->base.base,
             instruction->result_loc, va_list_type, nullptr, true, false);
@@ -31564,15 +31568,11 @@ static IrInstGen *ir_analyze_instruction_va_copy(IrAnalyze *ira, IrInstSrcVaCopy
         return result_loc;
     }
 
-    IrInstGen *src = instruction->src->child;
+    IrInstGen *src = get_va_list_ref(ira, &instruction->base.base, instruction->src->child);
     if (type_is_invalid(src->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    IrInstGen *casted_src = ir_implicit_cast(ira, src, va_list_ptr_type);
-    if (type_is_invalid(casted_src->value->type))
-        return ira->codegen->invalid_inst_gen;
-
-    return ir_build_va_copy_gen(ira, &instruction->base.base, result_loc, casted_src);
+    return ir_build_va_copy_gen(ira, &instruction->base.base, result_loc, src);
 }
 
 static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruction) {

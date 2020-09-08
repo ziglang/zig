@@ -8552,11 +8552,11 @@ fn foo(comptime T: type, ptr: *T) T {
       {#code_begin|test#}
 fn add(count: c_int, ...) callconv(.C) c_int {
     var ap = @vaStart();
-    defer @vaEnd(&ap);
+    defer @vaEnd(ap);
     var i: usize = 0;
     var sum: c_int = 0;
     while (i < count) : (i += 1) {
-        sum += @vaArg(&ap, c_int);
+        sum += @vaArg(ap, c_int);
     }
     return sum;
 }
@@ -8571,17 +8571,17 @@ test "variadic function" {
       {#header_close#}
 
       {#header_open|@vaArg#}
-      <pre>{#syntax#}@vaArg(ap: *builtin.VaList, comptime T: type) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@vaArg(ap: builtin.VaList, comptime T: type) T{#endsyntax#}</pre>
       <p>This function processes a variadic argument of type T.</p>
       {#header_close#}
 
       {#header_open|@vaEnd#}
-      <pre>{#syntax#}@vaEnd(ap: *builtin.VaList) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@vaEnd(ap: builtin.VaList) void{#endsyntax#}</pre>
       <p>Cleans up a VaList from {#syntax#}@vaStart{#endsyntax#} or {#syntax#}@vaCopy{#endsyntax#}.</p>
       {#header_close#}
 
       {#header_open|@vaCopy#}
-      <pre>{#syntax#}@vaCopy(ap: *builtin.VaList) builtin.VaList{#endsyntax#}</pre>
+      <pre>{#syntax#}@vaCopy(ap: builtin.VaList) builtin.VaList{#endsyntax#}</pre>
       <p>This function copies a VaList. Call {#syntax#}@vaEnd{#endsyntax#} to clean up.</p>
       {#header_close#}
 

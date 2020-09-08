@@ -2,35 +2,45 @@ const std = @import("std");
 
 fn simple(_: c_int, ...) callconv(.C) c_int {
     var ap = @vaStart();
-    defer @vaEnd(&ap);
-    return @vaArg(&ap, c_int);
+    defer @vaEnd(ap);
+    return @vaArg(ap, c_int);
 }
 
 fn add(count: c_int, ...) callconv(.C) c_int {
     var ap = @vaStart();
-    defer @vaEnd(&ap);
+    std.debug.warn("{}\n", .{ap});
+    defer @vaEnd(ap);
     var i: usize = 0;
     var sum: c_int = 0;
     while (i < count) : (i += 1) {
-        sum += @vaArg(&ap, c_int);
+        sum += @vaArg(ap, c_int);
     }
     return sum;
 }
 
 fn printf(list_ptr: *c_void, format: [*:0]const u8, ...) callconv(.C) void {
     var ap = @vaStart();
-    defer @vaEnd(&ap);
+    defer @vaEnd(ap);
+    vprintf(list_ptr, format, ap);
+}
+
+fn vprintf(
+    list_ptr: *c_void,
+    format: [*:0]const u8,
+    ap_arg: std.builtin.VaList,
+) callconv(.C) void {
+    var ap = ap_arg;
     const list = @ptrCast(
         *std.ArrayList(u8),
         @alignCast(@alignOf(*std.ArrayList(u8)), list_ptr),
     );
     for (std.mem.span(format)) |c| switch (c) {
         's' => {
-            const arg = @vaArg(&ap, [*:0]const u8);
+            const arg = @vaArg(ap, [*:0]const u8);
             list.writer().print("{}", .{arg}) catch return;
         },
         'd' => {
-            const arg = @vaArg(&ap, c_int);
+            const arg = @vaArg(ap, c_int);
             list.writer().print("{}", .{arg}) catch return;
         },
         else => unreachable,

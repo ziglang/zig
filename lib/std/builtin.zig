@@ -598,9 +598,9 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
 
 pub const VaList = switch (cpu.arch) {
     .aarch64 => switch (os.tag) {
-        .windows => *c_char,
-        .ios, .macosx, .tvos, .watchos => *c_char,
-        else => extern struct {
+        .windows => *u8,
+        .ios, .macosx, .tvos, .watchos => *u8,
+        else => [1]extern struct {
             __stack: *c_void,
             __gr_top: *c_void,
             __vr_top: *c_void,
@@ -610,8 +610,8 @@ pub const VaList = switch (cpu.arch) {
     },
     .sparc, .wasm32, .wasm64 => *c_void,
     .powerpc => switch (os.tag) {
-        .ios, .macosx, .tvos, .watchos, .aix => *c_char,
-        else => extern struct {
+        .ios, .macosx, .tvos, .watchos, .aix => *u8,
+        else => [1]extern struct {
             gpr: u8,
             fpr: u8,
             reserved: u16,
@@ -619,16 +619,16 @@ pub const VaList = switch (cpu.arch) {
             reg_save_area: *c_void,
         },
     },
-    .s390x => extern struct {
+    .s390x => [1]extern struct {
         __gpr: c_long,
         __fpr: c_long,
         __overflow_arg_area: *c_void,
         __reg_save_area: *c_void,
     },
-    .i386 => *c_char,
+    .i386 => *u8,
     .x86_64 => switch (os.tag) {
-        .windows => *c_char,
-        else => extern struct {
+        .windows => *u8,
+        else => [1]extern struct {
             gp_offset: c_uint,
             fp_offset: c_uint,
             overflow_arg_area: *c_void,
