@@ -1058,21 +1058,22 @@ fn renderExpression(
             };
 
             if (src_has_trailing_comma) {
-                try renderToken(tree, ais, lparen, Space.Newline);
-
-                const params = call.params();
-                for (params) |param_node, i| {
+                {
                     ais.pushIndent();
                     defer ais.popIndent();
 
-                    if (i + 1 < params.len) {
-                        const next_node = params[i + 1];
-                        try renderExpression(allocator, ais, tree, param_node, Space.None);
-                        const comma = tree.nextToken(param_node.lastToken());
-                        try renderToken(tree, ais, comma, Space.Newline); // ,
-                        try renderExtraNewline(tree, ais, next_node);
-                    } else {
-                        try renderExpression(allocator, ais, tree, param_node, Space.Comma);
+                    try renderToken(tree, ais, lparen, Space.Newline); // (
+                    const params = call.params();
+                    for (params) |param_node, i| {
+                        if (i + 1 < params.len) {
+                            const next_node = params[i + 1];
+                            try renderExpression(allocator, ais, tree, param_node, Space.None);
+                            const comma = tree.nextToken(param_node.lastToken());
+                            try renderToken(tree, ais, comma, Space.Newline); // ,
+                            try renderExtraNewline(tree, ais, next_node);
+                        } else {
+                            try renderExpression(allocator, ais, tree, param_node, Space.Comma);
+                        }
                     }
                 }
                 return renderToken(tree, ais, call.rtoken, space);
@@ -1082,7 +1083,10 @@ fn renderExpression(
 
             const params = call.params();
             for (params) |param_node, i| {
-                if (param_node.*.tag == .MultilineStringLiteral) ais.pushIndentOneShot();
+                const maybe_comment = param_node.firstToken() - 1;
+                if (param_node.*.tag == .MultilineStringLiteral or tree.token_ids[maybe_comment] == .LineComment) {
+                    ais.pushIndentOneShot();
+                }
 
                 try renderExpression(allocator, ais, tree, param_node, Space.None);
 
@@ -1092,7 +1096,7 @@ fn renderExpression(
                     try renderToken(tree, ais, comma, Space.Space);
                 }
             }
-            return renderToken(tree, ais, call.rtoken, space);
+            return renderToken(tree, ais, call.rtoken, space); // )
         },
 
         .ArrayAccess => {
@@ -1497,6 +1501,10 @@ fn renderExpression(
                 // render all on one line, no trailing comma
                 const params = builtin_call.params();
                 for (params) |param_node, i| {
+                    const maybe_comment = param_node.firstToken() - 1;
+                    if (param_node.*.tag == .MultilineStringLiteral or tree.token_ids[maybe_comment] == .LineComment) {
+                        ais.pushIndentOneShot();
+                    }
                     try renderExpression(allocator, ais, tree, param_node, Space.None);
 
                     if (i + 1 < params.len) {
@@ -1548,19 +1556,20 @@ fn renderExpression(
             assert(tree.token_ids[lparen] == .LParen);
 
             const rparen = tree.prevToken(
-            // the first token for the annotation expressions is the left
-            // parenthesis, hence the need for two prevToken
-            if (fn_proto.getAlignExpr()) |align_expr|
-                tree.prevToken(tree.prevToken(align_expr.firstToken()))
-            else if (fn_proto.getSectionExpr()) |section_expr|
-                tree.prevToken(tree.prevToken(section_expr.firstToken()))
-            else if (fn_proto.getCallconvExpr()) |callconv_expr|
-                tree.prevToken(tree.prevToken(callconv_expr.firstToken()))
-            else switch (fn_proto.return_type) {
-                .Explicit => |node| node.firstToken(),
-                .InferErrorSet => |node| tree.prevToken(node.firstToken()),
-                .Invalid => unreachable,
-            });
+                // the first token for the annotation expressions is the left
+                // parenthesis, hence the need for two prevToken
+                if (fn_proto.getAlignExpr()) |align_expr|
+                    tree.prevToken(tree.prevToken(align_expr.firstToken()))
+                else if (fn_proto.getSectionExpr()) |section_expr|
+                    tree.prevToken(tree.prevToken(section_expr.firstToken()))
+                else if (fn_proto.getCallconvExpr()) |callconv_expr|
+                    tree.prevToken(tree.prevToken(callconv_expr.firstToken()))
+                else switch (fn_proto.return_type) {
+                    .Explicit => |node| node.firstToken(),
+                    .InferErrorSet => |node| tree.prevToken(node.firstToken()),
+                    .Invalid => unreachable,
+                },
+            );
             assert(tree.token_ids[rparen] == .RParen);
 
             const src_params_trailing_comma = blk: {

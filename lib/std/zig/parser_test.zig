@@ -3543,6 +3543,46 @@ test "zig fmt: multiline string literals should play nice with array initializer
     );
 }
 
+test "zig fmt: use of comments and Multiline string literals may force the parameters over multiple lines" {
+    try testCanonical(
+        \\pub fn makeMemUndefined(qzz: []u8) i1 {
+        \\    cases.add( // fixed bug #2032
+        \\        "compile diagnostic string for top level decl type",
+        \\        \\export fn entry() void {
+        \\        \\    var foo: u32 = @This(){};
+        \\        \\}
+        \\    , &[_][]const u8{
+        \\        "tmp.zig:2:27: error: type 'u32' does not support array initialization",
+        \\    });
+        \\    @compileError(
+        \\        \\ unknown-length pointers and C pointers cannot be hashed deeply.
+        \\        \\ Consider providing your own hash function.
+        \\        \\ unknown-length pointers and C pointers cannot be hashed deeply.
+        \\        \\ Consider providing your own hash function.
+        \\    );
+        \\    return @intCast(i1, doMemCheckClientRequestExpr(0, // default return
+        \\        .MakeMemUndefined, @ptrToInt(qzz.ptr), qzz.len, 0, 0, 0));
+        \\}
+        \\
+        \\// This looks like garbage don't do this
+        \\const rparen = tree.prevToken(
+        \\// the first token for the annotation expressions is the left
+        \\// parenthesis, hence the need for two prevToken
+        \\    if (fn_proto.getAlignExpr()) |align_expr|
+        \\    tree.prevToken(tree.prevToken(align_expr.firstToken()))
+        \\else if (fn_proto.getSectionExpr()) |section_expr|
+        \\    tree.prevToken(tree.prevToken(section_expr.firstToken()))
+        \\else if (fn_proto.getCallconvExpr()) |callconv_expr|
+        \\    tree.prevToken(tree.prevToken(callconv_expr.firstToken()))
+        \\else switch (fn_proto.return_type) {
+        \\    .Explicit => |node| node.firstToken(),
+        \\    .InferErrorSet => |node| tree.prevToken(node.firstToken()),
+        \\    .Invalid => unreachable,
+        \\});
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
