@@ -76,7 +76,7 @@ global_error_set: std.StringHashMapUnmanaged(u16) = .{},
 generation: u32 = 0,
 
 /// Keys are fully qualified paths
-import_table: std.StringHashMapUnmanaged(*Scope.File) = .{},
+import_table: std.StringArrayHashMapUnmanaged(*Scope.File) = .{},
 
 stage1_flags: packed struct {
     have_winmain: bool = false,
@@ -541,6 +541,7 @@ pub const Scope = struct {
             self.decls.deinit(gpa);
             // TODO either Container of File should have an arena for sub_file_path and ty
             gpa.destroy(self.ty.cast(Type.Payload.EmptyStruct).?);
+            gpa.free(self.file_scope.sub_file_path);
             self.* = undefined;
         }
 
@@ -857,6 +858,11 @@ pub fn deinit(self: *Module) void {
         gpa.free(entry.key);
     }
     self.global_error_set.deinit(gpa);
+
+    for (self.import_table.items()) |entry| {
+        entry.value.base.destroy(gpa);
+    }
+    self.import_table.deinit(gpa);
 }
 
 fn freeExportList(gpa: *Allocator, export_list: []*Export) void {
