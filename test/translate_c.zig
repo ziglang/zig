@@ -2761,12 +2761,15 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("macro cast",
         \\#define FOO(bar) baz((void *)(baz))
         \\#define BAR (void*) a
+        \\#define BAZ (uint32_t)(2)
     , &[_][]const u8{
         \\pub inline fn FOO(bar: anytype) @TypeOf(baz((@import("std").meta.cast(?*c_void, baz)))) {
         \\    return baz((@import("std").meta.cast(?*c_void, baz)));
         \\}
     ,
         \\pub const BAR = (@import("std").meta.cast(?*c_void, a));
+    ,
+        \\pub const BAZ = (@import("std").meta.cast(u32, 2));
     });
 
     cases.add("macro with cast to unsigned short, long, and long long",

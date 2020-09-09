@@ -5881,7 +5881,7 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.N
         },
         .Identifier => {
             const mangled_name = scope.getAlias(slice);
-            return transCreateNodeIdentifier(c, mangled_name);
+            return transCreateNodeIdentifier(c, checkForBuiltinTypedef(mangled_name) orelse mangled_name);
         },
         .LParen => {
             const inner_node = try parseCExpr(c, m, scope);
