@@ -132,8 +132,6 @@ pub usingnamespace switch (builtin.os.tag) {
     },
 };
 
-pub extern "c" fn setreuid(ruid: c_uint, euid: c_uint) c_int;
-pub extern "c" fn setregid(rgid: c_uint, egid: c_uint) c_int;
 pub extern "c" fn rmdir(path: [*:0]const u8) c_int;
 pub extern "c" fn getenv(name: [*:0]const u8) ?[*:0]u8;
 pub extern "c" fn sysctl(name: [*]const c_int, namelen: c_uint, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) c_int;
@@ -237,8 +235,15 @@ pub usingnamespace switch (builtin.os.tag) {
 
 pub extern "c" fn kill(pid: pid_t, sig: c_int) c_int;
 pub extern "c" fn getdirentries(fd: fd_t, buf_ptr: [*]u8, nbytes: usize, basep: *i64) isize;
-pub extern "c" fn setgid(ruid: c_uint, euid: c_uint) c_int;
-pub extern "c" fn setuid(uid: c_uint) c_int;
+
+pub extern "c" fn setuid(uid: uid_t) c_int;
+pub extern "c" fn setgid(gid: gid_t) c_int;
+pub extern "c" fn seteuid(euid: uid_t) c_int;
+pub extern "c" fn setegid(egid: gid_t) c_int;
+pub extern "c" fn setreuid(ruid: uid_t, euid: uid_t) c_int;
+pub extern "c" fn setregid(rgid: gid_t, egid: gid_t) c_int;
+pub extern "c" fn setresuid(ruid: uid_t, euid: uid_t, suid: uid_t) c_int;
+pub extern "c" fn setresgid(rgid: gid_t, egid: gid_t, sgid: gid_t) c_int;
 
 pub extern "c" fn aligned_alloc(alignment: usize, size: usize) ?*c_void;
 pub extern "c" fn malloc(usize) ?*c_void;
