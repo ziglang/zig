@@ -747,6 +747,10 @@ fn renderExpression(
                         defer allocator.free(widths);
                         mem.set(usize, widths, 0);
 
+                        var expr_newlines = try allocator.alloc(bool, row_exprs.len);
+                        defer allocator.free(expr_newlines);
+                        mem.set(bool, expr_newlines, false);
+
                         var expr_widths = widths[0 .. widths.len - row_size];
                         var column_widths = widths[widths.len - row_size ..];
 
@@ -791,7 +795,7 @@ fn renderExpression(
                         var auto_indenting_stream = std.io.autoIndentingStream(indent_delta, counting_stream.writer());
 
                         // Calculate size of columns in current section
-                        var c: usize = 0;
+                        var column_counter: usize = 0;
                         var single_line = true;
                         for (section_exprs) |expr, i| {
                             if (i + 1 < section_exprs.len) {
@@ -800,40 +804,42 @@ fn renderExpression(
                                 try renderExpression(allocator, &auto_indenting_stream, tree, expr, Space.None);
                                 const width = @intCast(usize, counting_stream.bytes_written);
                                 expr_widths[i] = width;
+                                expr_newlines[i] = line_find_stream.byte_found;
 
                                 if (!line_find_stream.byte_found) {
-                                    const col = c % row_size;
-                                    column_widths[col] = std.math.max(column_widths[col], width);
+                                    const column = column_counter % row_size;
+                                    column_widths[column] = std.math.max(column_widths[column], width);
 
                                     const expr_last_token = expr.*.lastToken() + 1;
                                     const next_expr = section_exprs[i + 1];
                                     const loc = tree.tokenLocation(tree.token_locs[expr_last_token].start, next_expr.*.firstToken());
                                     if (loc.line == 0) {
-                                        c += 1;
+                                        column_counter += 1;
                                     } else {
                                         single_line = false;
-                                        c = 0;
+                                        column_counter = 0;
                                     }
                                 } else {
                                     single_line = false;
-                                    c = 0;
+                                    column_counter = 0;
                                 }
                             } else {
                                 counting_stream.bytes_written = 0;
                                 try renderExpression(allocator, &auto_indenting_stream, tree, expr, Space.None);
                                 const width = @intCast(usize, counting_stream.bytes_written);
                                 expr_widths[i] = width;
+                                expr_newlines[i] = line_find_stream.byte_found;
 
                                 if (!line_find_stream.byte_found) {
-                                    const col = c % row_size;
-                                    column_widths[col] = std.math.max(column_widths[col], width);
+                                    const column = column_counter % row_size;
+                                    column_widths[column] = std.math.max(column_widths[column], width);
                                 }
                                 break;
                             }
                         }
 
                         // Render exprs in current section
-                        c = 0;
+                        column_counter = 0;
                         var last_col_index: usize = row_size - 1;
                         for (section_exprs) |expr, i| {
                             if (i + 1 < section_exprs.len) {
@@ -842,18 +848,15 @@ fn renderExpression(
 
                                 const comma = tree.nextToken(expr.*.lastToken());
 
-                                if (c != last_col_index) {
-                                    line_find_stream.byte_found = false;
-                                    try renderExpression(allocator, &auto_indenting_stream, tree, expr, Space.None);
-                                    try renderExpression(allocator, &auto_indenting_stream, tree, next_expr, Space.None);
-                                    if (!line_find_stream.byte_found) {
+                                if (column_counter != last_col_index) {
+                                    if (!expr_newlines[i] and !expr_newlines[i + 1]) {
                                         // Neither the current or next expression is multiline
                                         try renderToken(tree, ais, comma, Space.Space); // ,
-                                        assert(column_widths[c % row_size] >= expr_widths[i]);
-                                        const padding = column_widths[c % row_size] - expr_widths[i];
+                                        assert(column_widths[column_counter % row_size] >= expr_widths[i]);
+                                        const padding = column_widths[column_counter % row_size] - expr_widths[i];
                                         try ais.writer().writeByteNTimes(' ', padding);
 
-                                        c += 1;
+                                        column_counter += 1;
                                         continue;
                                     }
                                 }
@@ -862,7 +865,7 @@ fn renderExpression(
                                     continue;
                                 }
 
-                                c = 0;
+                                column_counter = 0;
                                 try renderToken(tree, ais, comma, Space.Newline); // ,
                                 try renderExtraNewline(tree, ais, next_expr);
                             } else {
@@ -1091,7 +1094,6 @@ fn renderExpression(
                 try renderExpression(allocator, ais, tree, param_node, Space.None);
 
                 if (i + 1 < params.len) {
-                    const next_param = params[i + 1];
                     const comma = tree.nextToken(param_node.lastToken());
                     try renderToken(tree, ais, comma, Space.Space);
                 }
