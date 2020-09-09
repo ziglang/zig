@@ -22,13 +22,13 @@ need_stddef: bool = false,
 need_stdint: bool = false,
 error_msg: *Module.ErrorMsg = undefined,
 
-pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: link.Options) !*File {
+pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*File {
     assert(options.object_format == .c);
 
-    if (options.use_llvm) return error.LLVM_HasNoCBackend;
-    if (options.use_lld) return error.LLD_HasNoCBackend;
+    if (options.use_llvm) return error.LLVMHasNoCBackend;
+    if (options.use_lld) return error.LLDHasNoCBackend;
 
-    const file = try dir.createFile(sub_path, .{ .truncate = true, .read = true, .mode = link.determineMode(options) });
+    const file = try options.dir.createFile(sub_path, .{ .truncate = true, .read = true, .mode = link.determineMode(options) });
     errdefer file.close();
 
     var c_file = try allocator.create(C);

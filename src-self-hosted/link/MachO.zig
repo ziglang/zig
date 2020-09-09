@@ -134,13 +134,17 @@ pub const SrcFn = struct {
     pub const empty = SrcFn{};
 };
 
-pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: link.Options) !*File {
+pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*File {
     assert(options.object_format == .macho);
 
     if (options.use_llvm) return error.LLVM_BackendIsTODO_ForMachO; // TODO
     if (options.use_lld) return error.LLD_LinkingIsTODO_ForMachO; // TODO
 
-    const file = try dir.createFile(sub_path, .{ .truncate = false, .read = true, .mode = link.determineMode(options) });
+    const file = try options.dir.createFile(sub_path, .{
+        .truncate = false,
+        .read = true,
+        .mode = link.determineMode(options),
+    });
     errdefer file.close();
 
     var macho_file = try allocator.create(MachO);

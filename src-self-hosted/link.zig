@@ -10,6 +10,12 @@ const build_options = @import("build_options");
 pub const producer_string = if (std.builtin.is_test) "zig test" else "zig " ++ build_options.version;
 
 pub const Options = struct {
+    dir: fs.Dir,
+    /// Redundant with dir. Needed when linking with LLD because we have to pass paths rather
+    /// than file descriptors. `null` means cwd. OK to pass `null` when `use_lld` is `false`.
+    dir_path: ?[]const u8,
+    /// Path to the output file, relative to dir.
+    sub_path: []const u8,
     target: std.Target,
     output_mode: std.builtin.OutputMode,
     link_mode: std.builtin.LinkMode,
@@ -56,6 +62,9 @@ pub const File = struct {
     options: Options,
     file: ?fs.File,
     allocator: *Allocator,
+    /// When linking with LLD, this linker code will output an object file only at
+    /// this location, and then this path can be placed on the LLD linker line.
+    intermediary_basename: ?[]const u8 = null,
 
     pub const LinkBlock = union {
         elf: Elf.TextBlock,
@@ -90,16 +99,29 @@ pub const File = struct {
     /// incremental linking fails, falls back to truncating the file and
     /// rewriting it. A malicious file is detected as incremental link failure
     /// and does not cause Illegal Behavior. This operation is not atomic.
-    pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: Options) !*File {
-        switch (options.object_format) {
-            .coff, .pe => return Coff.openPath(allocator, dir, sub_path, options),
-            .elf => return Elf.openPath(allocator, dir, sub_path, options),
-            .macho => return MachO.openPath(allocator, dir, sub_path, options),
-            .wasm => return Wasm.openPath(allocator, dir, sub_path, options),
-            .c => return C.openPath(allocator, dir, sub_path, options),
+    pub fn openPath(allocator: *Allocator, options: Options) !*File {
+        const use_lld = build_options.have_llvm and options.use_lld; // comptime known false when !have_llvm
+        const sub_path = if (use_lld) blk: {
+            // Open a temporary object file, not the final output file because we want to link with LLD.
+            break :blk try std.fmt.allocPrint(allocator, "{}{}", .{ options.sub_path, options.target.oFileExt() });
+        } else options.sub_path;
+        errdefer if (use_lld) allocator.free(sub_path);
+
+        const file: *File = switch (options.object_format) {
+            .coff, .pe => try Coff.openPath(allocator, sub_path, options),
+            .elf => try Elf.openPath(allocator, sub_path, options),
+            .macho => try MachO.openPath(allocator, sub_path, options),
+            .wasm => try Wasm.openPath(allocator, sub_path, options),
+            .c => try C.openPath(allocator, sub_path, options),
             .hex => return error.HexObjectFormatUnimplemented,
             .raw => return error.RawObjectFormatUnimplemented,
+        };
+
+        if (use_lld) {
+            file.intermediary_basename = sub_path;
         }
+
+        return file;
     }
 
     pub fn cast(base: *File, comptime T: type) ?*T {
@@ -109,11 +131,11 @@ pub const File = struct {
         return @fieldParentPtr(T, "base", base);
     }
 
-    pub fn makeWritable(base: *File, dir: fs.Dir, sub_path: []const u8) !void {
+    pub fn makeWritable(base: *File) !void {
         switch (base.tag) {
             .coff, .elf, .macho => {
                 if (base.file != null) return;
-                base.file = try dir.createFile(sub_path, .{
+                base.file = try base.options.dir.createFile(base.options.sub_path, .{
                     .truncate = false,
                     .read = true,
                     .mode = determineMode(base.options),
@@ -125,12 +147,16 @@ pub const File = struct {
 
     pub fn makeExecutable(base: *File) !void {
         switch (base.tag) {
-            .c => unreachable,
-            .wasm => {},
-            else => if (base.file) |f| {
+            .coff, .elf, .macho => if (base.file) |f| {
+                if (base.intermediary_basename != null) {
+                    // The file we have open is not the final file that we want to
+                    // make executable, so we don't have to close it.
+                    return;
+                }
                 f.close();
                 base.file = null;
             },
+            .c, .wasm => {},
         }
     }
 
@@ -167,7 +193,6 @@ pub const File = struct {
     }
 
     pub fn deinit(base: *File) void {
-        if (base.file) |f| f.close();
         switch (base.tag) {
             .coff => @fieldParentPtr(Coff, "base", base).deinit(),
             .elf => @fieldParentPtr(Elf, "base", base).deinit(),
@@ -175,6 +200,8 @@ pub const File = struct {
             .c => @fieldParentPtr(C, "base", base).deinit(),
             .wasm => @fieldParentPtr(Wasm, "base", base).deinit(),
         }
+        if (base.file) |f| f.close();
+        if (base.intermediary_basename) |sub_path| base.allocator.free(sub_path);
     }
 
     pub fn destroy(base: *File) void {
@@ -292,7 +319,7 @@ pub fn determineMode(options: Options) fs.File.Mode {
     // more leniently. As another data point, C's fopen seems to open files with the
     // 666 mode.
     const executable_mode = if (std.Target.current.os.tag == .windows) 0 else 0o777;
-    switch (options.output_mode) {
+    switch (options.effectiveOutputMode()) {
         .Lib => return switch (options.link_mode) {
             .Dynamic => executable_mode,
             .Static => fs.File.default_mode,

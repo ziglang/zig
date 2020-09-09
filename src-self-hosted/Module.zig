@@ -35,8 +35,6 @@ root_pkg: ?*Package,
 /// The `Scope` is either a `Scope.ZIRModule` or `Scope.File`.
 root_scope: *Scope,
 bin_file: *link.File,
-bin_file_dir: std.fs.Dir,
-bin_file_path: []const u8,
 /// It's rare for a decl to be exported, so we save memory by having a sparse map of
 /// Decl pointers to details about them being exported.
 /// The Export memory is owned by the `export_owners` table; the slice itself is owned by this table.
@@ -934,6 +932,7 @@ pub const InitOptions = struct {
     root_pkg: ?*Package,
     output_mode: std.builtin.OutputMode,
     rand: *std.rand.Random,
+    bin_file_dir_path: ?[]const u8 = null,
     bin_file_dir: ?std.fs.Dir = null,
     bin_file_path: []const u8,
     emit_h: ?[]const u8 = null,
@@ -1018,8 +1017,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Module {
             break :blk false;
         };
 
-        const bin_file_dir = options.bin_file_dir orelse std.fs.cwd();
-        const bin_file = try link.File.openPath(gpa, bin_file_dir, options.bin_file_path, .{
+        const bin_file = try link.File.openPath(gpa, .{
+            .dir = options.bin_file_dir orelse std.fs.cwd(),
+            .dir_path = options.bin_file_dir_path,
+            .sub_path = options.bin_file_path,
             .root_name = root_name,
             .root_pkg = options.root_pkg,
             .target = options.target,
@@ -1165,8 +1166,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Module {
             .root_name = root_name,
             .root_pkg = options.root_pkg,
             .root_scope = root_scope,
-            .bin_file_dir = bin_file_dir,
-            .bin_file_path = options.bin_file_path,
             .bin_file = bin_file,
             .work_queue = std.fifo.LinearFifo(WorkItem, .Dynamic).init(gpa),
             .keep_source_files_loaded = options.keep_source_files_loaded,
@@ -1350,7 +1349,7 @@ pub fn makeBinFileExecutable(self: *Module) !void {
 }
 
 pub fn makeBinFileWritable(self: *Module) !void {
-    return self.bin_file.makeWritable(self.bin_file_dir, self.bin_file_path);
+    return self.bin_file.makeWritable();
 }
 
 pub fn totalErrorCount(self: *Module) usize {

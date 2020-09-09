@@ -1000,6 +1000,7 @@ pub fn buildOutputType(
         .target = target_info.target,
         .output_mode = output_mode,
         .root_pkg = root_pkg,
+        .bin_file_dir_path = null,
         .bin_file_dir = fs.cwd(),
         .bin_file_path = bin_path,
         .link_mode = link_mode,

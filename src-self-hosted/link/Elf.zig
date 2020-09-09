@@ -216,65 +216,28 @@ pub const SrcFn = struct {
     };
 };
 
-pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: link.Options) !*File {
+pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*File {
     assert(options.object_format == .elf);
 
     if (options.use_llvm) return error.LLVMBackendUnimplementedForELF; // TODO
 
-    if (build_options.have_llvm and options.use_lld) {
-        std.debug.print("TODO open a temporary object file, not the final output file because we want to link with LLD\n", .{});
-    }
-
-    const file = try dir.createFile(sub_path, .{ .truncate = false, .read = true, .mode = link.determineMode(options) });
+    const file = try options.dir.createFile(sub_path, .{
+        .truncate = false,
+        .read = true,
+        .mode = link.determineMode(options),
+    });
     errdefer file.close();
 
     var elf_file = try allocator.create(Elf);
     errdefer allocator.destroy(elf_file);
 
-    elf_file.* = openFile(allocator, file, options) catch |err| switch (err) {
-        error.IncrFailed => try createFile(allocator, file, options),
-        else => |e| return e,
-    };
-
+    elf_file.* = try createFile(allocator, file, options);
     return &elf_file.base;
-}
-
-/// Returns error.IncrFailed if incremental update could not be performed.
-fn openFile(allocator: *Allocator, file: fs.File, options: link.Options) !Elf {
-    switch (options.effectiveOutputMode()) {
-        .Exe => {},
-        .Obj => {},
-        .Lib => return error.IncrFailed,
-    }
-    var self: Elf = .{
-        .base = .{
-            .file = file,
-            .tag = .elf,
-            .options = options,
-            .allocator = allocator,
-        },
-        .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
-            0 ... 32 => .p32,
-            33 ... 64 => .p64,
-            else => return error.UnsupportedELFArchitecture,
-        },
-    };
-    errdefer self.deinit();
-
-    // TODO implement reading the elf file
-    return error.IncrFailed;
-    //try self.populateMissingMetadata();
-    //return self;
 }
 
 /// Truncates the existing file contents and overwrites the contents.
 /// Returns an error if `file` is not already open with +read +write +seek abilities.
 fn createFile(allocator: *Allocator, file: fs.File, options: link.Options) !Elf {
-    switch (options.effectiveOutputMode()) {
-        .Exe => {},
-        .Obj => {},
-        .Lib => return error.TODOImplementWritingLibFiles,
-    }
     var self: Elf = .{
         .base = .{
             .tag = .elf,
@@ -753,6 +716,10 @@ pub fn flush(self: *Elf, module: *Module) !void {
         }
         std.debug.print("TODO create an LLD command line and invoke it\n", .{});
     } else {
+        switch (self.base.options.effectiveOutputMode()) {
+            .Exe, .Obj => {},
+            .Lib => return error.TODOImplementWritingLibFiles,
+        }
         return self.flushInner(module);
     }
 }
