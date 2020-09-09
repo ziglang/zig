@@ -2750,6 +2750,13 @@ pub const BindError = error{
 
     /// The socket inode would reside on a read-only filesystem.
     ReadOnlyFileSystem,
+
+    /// The network subsystem has failed.
+    NetworkSubsystemFailed,
+
+    FileDescriptorNotASocket,
+
+    AlreadyBound,
 } || UnexpectedError;
 
 /// addr is `*const T` where T is one of the sockaddr
@@ -2758,7 +2765,15 @@ pub fn bind(sock: socket_t, addr: *const sockaddr, len: socklen_t) BindError!voi
     if (builtin.os.tag == .windows) {
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
-                // TODO: handle errors
+                .WSANOTINITIALISED => unreachable, // not initialized WSA
+                .WSAEACCES => return error.AccessDenied,
+                .WSAEADDRINUSE => return error.AddressInUse,
+                .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
+                .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                .WSAEFAULT => unreachable, // invalid pointers
+                .WSAEINVAL => return error.AlreadyBound,
+                .WSAENOBUFS => return error.SystemResources,
+                .WSAENETDOWN => return error.NetworkSubsystemFailed,
                 else => |err| return windows.unexpectedWSAError(err),
             }
             unreachable;
@@ -2799,6 +2814,19 @@ const ListenError = error{
 
     /// The socket is not of a type that supports the listen() operation.
     OperationNotSupported,
+
+    /// The network subsystem has failed.
+    NetworkSubsystemFailed,
+
+    /// Ran out of system resources
+    /// On Windows it can either run out of socket descriptors or buffer space
+    SystemResources,
+
+    /// Already connected
+    AlreadyConnected,
+
+    /// Socket has not been bound yet
+    SocketNotBound,
 } || UnexpectedError;
 
 pub fn listen(sock: socket_t, backlog: u31) ListenError!void {
@@ -2806,7 +2834,15 @@ pub fn listen(sock: socket_t, backlog: u31) ListenError!void {
     if (builtin.os.tag == .windows) {
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
-                // TODO: handle errors
+                .WSANOTINITIALISED => unreachable, // not initialized WSA
+                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAEADDRINUSE => return error.AddressInUse,
+                .WSAEISCONN => return error.AlreadyConnected,
+                .WSAEINVAL => return error.SocketNotBound,
+                .WSAEMFILE, .WSAENOBUFS => return error.SystemResources,
+                .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                .WSAEOPNOTSUPP => return error.OperationNotSupported,
+                .WSAEINPROGRESS => unreachable,
                 else => |err| return windows.unexpectedWSAError(err),
             }
         }
@@ -2825,6 +2861,9 @@ pub fn listen(sock: socket_t, backlog: u31) ListenError!void {
 
 pub const AcceptError = error{
     ConnectionAborted,
+
+    /// The file descriptor sockfd does not refer to a socket.
+    FileDescriptorNotASocket,
 
     /// The per-process limit on the number of open file descriptors has been reached.
     ProcessFdQuotaExceeded,
@@ -2851,6 +2890,16 @@ pub const AcceptError = error{
     /// Permission to create a socket of the specified type and/or
     /// protocol is denied.
     PermissionDenied,
+
+    /// An incoming connection was indicated, but was subsequently terminated by the
+    /// remote peer prior to accepting the call.
+    ConnectionResetByPeer,
+
+    /// The network subsystem has failed.
+    NetworkSubsystemFailed,
+
+    /// The referenced socket is not a type that supports connection-oriented service.
+    OperationNotSupported,
 } || UnexpectedError;
 
 /// Accept a connection on a socket.
@@ -2892,7 +2941,15 @@ pub fn accept(
         if (builtin.os.tag == .windows) {
             if (rc == windows.ws2_32.INVALID_SOCKET) {
                 switch (windows.ws2_32.WSAGetLastError()) {
-                    // TODO: handle errors
+                    .WSANOTINITIALISED => unreachable, // not initialized WSA
+                    .WSAECONNRESET => return error.ConnectionResetByPeer,
+                    .WSAEFAULT => unreachable,
+                    .WSAEINVAL => return error.SocketNotListening,
+                    .WSAEMFILE => return error.ProcessFdQuotaExceeded,
+                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                    .WSAENOBUFS => return error.FileDescriptorNotASocket,
+                    .WSAEOPNOTSUPP => return error.OperationNotSupported,
+                    .WSAEWOULDBLOCK => return error.WouldBlock,
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             } else {
@@ -3044,6 +3101,14 @@ pub fn eventfd(initval: u32, flags: u32) EventFdError!i32 {
 pub const GetSockNameError = error{
     /// Insufficient resources were available in the system to perform the operation.
     SystemResources,
+
+    /// The network subsystem has failed.
+    NetworkSubsystemFailed,
+
+    /// Socket hasn't been bound yet
+    SocketNotBound,
+
+    FileDescriptorNotASocket,
 } || UnexpectedError;
 
 pub fn getsockname(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSockNameError!void {
@@ -3051,7 +3116,11 @@ pub fn getsockname(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSock
     if (builtin.os.tag == .windows) {
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
-                // TODO: handle errors
+                .WSANOTINITIALISED => unreachable,
+                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAEFAULT => unreachable, // addr or addrlen have invalid pointers or addrlen points to an incorrect value
+                .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                .WSAEINVAL => return error.SocketNotBound,
                 else => |err| return windows.unexpectedWSAError(err),
             }
         }
@@ -3064,7 +3133,7 @@ pub fn getsockname(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSock
             EBADF => unreachable, // always a race condition
             EFAULT => unreachable,
             EINVAL => unreachable, // invalid parameters
-            ENOTSOCK => unreachable,
+            ENOTSOCK => return error.FileDescriptorNotASocket,
             ENOBUFS => return error.SystemResources,
         }
     }
@@ -4011,7 +4080,10 @@ fn setSockFlags(sock: socket_t, flags: u32) !void {
             var mode: c_ulong = 1;
             if (windows.ws2_32.ioctlsocket(sock, windows.ws2_32.FIONBIO, &mode) == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
-                    // TODO: handle errors
+                    .WSANOTINITIALISED => unreachable,
+                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                    .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                    // TODO: handle more errors
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             }
@@ -4625,6 +4697,8 @@ pub const SendError = error{
     /// The  local  end  has been shut down on a connection oriented socket.  In this case, the
     /// process will also receive a SIGPIPE unless MSG_NOSIGNAL is set.
     BrokenPipe,
+
+    FileDescriptorNotASocket,
 } || UnexpectedError;
 
 /// Transmit a message to another socket.
@@ -4666,7 +4740,12 @@ pub fn sendto(
         if (builtin.os.tag == .windows) {
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
-                    // TODO: handle errors
+                    .WSAEACCES => return error.AccessDenied,
+                    .WSAECONNRESET => return error.ConnectionResetByPeer,
+                    .WSAEMSGSIZE => return error.MessageTooBig,
+                    .WSAENOBUFS => return error.SystemResources,
+                    .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                    // TODO: handle more errors
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             } else {
@@ -5158,6 +5237,20 @@ pub const RecvFromError = error{
 
     /// Could not allocate kernel memory.
     SystemResources,
+
+    ConnectionResetByPeer,
+
+    /// The socket has not been bound.
+    SocketNotBound,
+
+    /// The UDP message was too big for the buffer and part of it has been discarded
+    MessageTooBig,
+
+    /// The network subsystem has failed.
+    NetworkSubsystemFailed,
+
+    /// The socket is not connected (connection-oriented sockets only).
+    SocketNotConnected,
 } || UnexpectedError;
 
 pub fn recv(sock: socket_t, buf: []u8, flags: u32) RecvFromError!usize {
@@ -5176,7 +5269,14 @@ pub fn recvfrom(
         if (builtin.os.tag == .windows) {
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
-                    // TODO: handle errors
+                    .WSANOTINITIALISED => unreachable,
+                    .WSAECONNRESET => return error.ConnectionResetByPeer,
+                    .WSAEINVAL => return error.SocketNotBound,
+                    .WSAEMSGSIZE => return error.MessageTooBig,
+                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAEWOULDBLOCK => return error.WouldBlock,
+                    // TODO: handle more errors
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             } else {
