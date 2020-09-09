@@ -32,6 +32,20 @@ const LoadCommand = union(enum) {
             .Dysymtab => |x| x.cmdsize,
         };
     }
+
+    pub fn write(self: LoadCommand, file: *fs.File, offset: u64) !void {
+        return switch (self) {
+            .Segment => |cmd| writeGeneric(cmd, file, offset),
+            .LinkeditData => |cmd| writeGeneric(cmd, file, offset),
+            .Symtab => |cmd| writeGeneric(cmd, file, offset),
+            .Dysymtab => |cmd| writeGeneric(cmd, file, offset),
+        };
+    }
+
+    fn writeGeneric(cmd: anytype, file: *fs.File, offset: u64) !void {
+        const slice = [1]@TypeOf(cmd){cmd};
+        return file.pwriteAll(mem.sliceAsBytes(slice[0..1]), offset);
+    }
 };
 
 base: File,
@@ -258,8 +272,7 @@ pub fn flush(self: *MachO, module: *Module) !void {
 
             var last_cmd_offset: usize = @sizeOf(macho.mach_header_64);
             for (self.load_commands.items) |cmd| {
-                const cmd_to_write = [1]@TypeOf(cmd){cmd};
-                try self.base.file.?.pwriteAll(mem.sliceAsBytes(cmd_to_write[0..1]), last_cmd_offset);
+                try cmd.write(&self.base.file.?, last_cmd_offset);
                 last_cmd_offset += cmd.cmdsize();
             }
             const off = @sizeOf(macho.mach_header_64) + @sizeOf(macho.segment_command_64);
@@ -346,19 +359,18 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         .n_desc = 0,
         .n_value = addr,
     };
-    self.offset_table.items[decl.link.macho.offset_table_index.?] = addr;
 
+    // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
+    const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
+    try self.updateDeclExports(module, decl, decl_exports);
     try self.writeSymbol(decl.link.macho.symbol_table_index.?);
 
     const text_section = self.sections.items[self.text_section_index.?];
     const section_offset = symbol.n_value - text_section.addr;
     const file_offset = text_section.offset + section_offset;
     log.debug("file_offset 0x{x}\n", .{file_offset});
-    try self.base.file.?.pwriteAll(code, file_offset);
 
-    // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
-    const decl_exports = module.decl_exports.get(decl) orelse &[0]*Module.Export{};
-    return self.updateDeclExports(module, decl, decl_exports);
+    try self.base.file.?.pwriteAll(code, file_offset);
 }
 
 pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl: *const Module.Decl) !void {}
@@ -374,7 +386,7 @@ pub fn updateDeclExports(
 
     if (decl.link.macho.symbol_table_index == null) return;
 
-    var decl_sym = self.symbol_table.items[decl.link.macho.symbol_table_index.?];
+    const decl_sym = &self.symbol_table.items[decl.link.macho.symbol_table_index.?];
     // TODO implement
     if (exports.len == 0) return;
 
@@ -488,9 +500,8 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
     const addr = blk: {
         if (self.last_text_block) |last| {
             const last_symbol = self.symbol_table.items[last.symbol_table_index.?];
-            const ideal_capacity = last.size * alloc_num / alloc_den;
-            const ideal_capacity_end_addr = last_symbol.n_value + ideal_capacity;
-            const new_start_addr = mem.alignForwardGeneric(u64, ideal_capacity_end_addr, alignment);
+            const end_addr = last_symbol.n_value + last.size;
+            const new_start_addr = mem.alignForwardGeneric(u64, end_addr, alignment);
             block_placement = last;
             break :blk new_start_addr;
         } else {
@@ -504,10 +515,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
         const text_capacity = self.allocatedSize(text_section.offset);
         const needed_size = (addr + new_block_size) - text_section.addr;
         log.debug("text capacity 0x{x}, needed size 0x{x}\n", .{ text_capacity, needed_size });
-
-        if (needed_size > text_capacity) {
-            // TODO handle growth
-        }
+        assert(needed_size <= text_capacity); // TODO handle growth
 
         self.last_text_block = text_block;
         text_section.size = needed_size;
@@ -659,7 +667,7 @@ fn writeSymbol(self: *MachO, index: usize) !void {
     defer tracy.end();
 
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
-    var sym = [1]macho.nlist_64{self.symbol_table.items[index]};
+    const sym = [1]macho.nlist_64{self.symbol_table.items[index]};
     const off = symtab.symoff + @sizeOf(macho.nlist_64) * index;
     log.debug("writing symbol {} at 0x{x}\n", .{ sym[0], off });
     try self.base.file.?.pwriteAll(mem.sliceAsBytes(sym[0..1]), off);
