@@ -52,9 +52,8 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Release all allocated memory.
         pub fn deinit(self: *Self) void {
-            var unmanaged = self.toUnmanaged();
-            defer self.* = unmanaged.toManaged(self.allocator);
-            return unmanaged.deinit(self.allocator);
+            self.toUnmanaged().deinit(self.allocator);
+            self.* = undefined;
         }
 
         /// Deprecated: use `items` field directly.
