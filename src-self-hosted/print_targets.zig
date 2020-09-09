@@ -4,59 +4,10 @@ const io = std.io;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const Target = std.Target;
+const target = @import("target.zig");
 const assert = std.debug.assert;
 
 const introspect = @import("introspect.zig");
-
-// TODO this is hard-coded until self-hosted gains this information canonically
-const available_libcs = [_][]const u8{
-    "aarch64_be-linux-gnu",
-    "aarch64_be-linux-musl",
-    "aarch64_be-windows-gnu",
-    "aarch64-linux-gnu",
-    "aarch64-linux-musl",
-    "aarch64-windows-gnu",
-    "armeb-linux-gnueabi",
-    "armeb-linux-gnueabihf",
-    "armeb-linux-musleabi",
-    "armeb-linux-musleabihf",
-    "armeb-windows-gnu",
-    "arm-linux-gnueabi",
-    "arm-linux-gnueabihf",
-    "arm-linux-musleabi",
-    "arm-linux-musleabihf",
-    "arm-windows-gnu",
-    "i386-linux-gnu",
-    "i386-linux-musl",
-    "i386-windows-gnu",
-    "mips64el-linux-gnuabi64",
-    "mips64el-linux-gnuabin32",
-    "mips64el-linux-musl",
-    "mips64-linux-gnuabi64",
-    "mips64-linux-gnuabin32",
-    "mips64-linux-musl",
-    "mipsel-linux-gnu",
-    "mipsel-linux-musl",
-    "mips-linux-gnu",
-    "mips-linux-musl",
-    "powerpc64le-linux-gnu",
-    "powerpc64le-linux-musl",
-    "powerpc64-linux-gnu",
-    "powerpc64-linux-musl",
-    "powerpc-linux-gnu",
-    "powerpc-linux-musl",
-    "riscv64-linux-gnu",
-    "riscv64-linux-musl",
-    "s390x-linux-gnu",
-    "s390x-linux-musl",
-    "sparc-linux-gnu",
-    "sparcv9-linux-gnu",
-    "wasm32-freestanding-musl",
-    "x86_64-linux-gnu",
-    "x86_64-linux-gnux32",
-    "x86_64-linux-musl",
-    "x86_64-windows-gnu",
-};
 
 pub fn cmdTargets(
     allocator: *Allocator,
@@ -127,9 +78,13 @@ pub fn cmdTargets(
 
     try jws.objectField("libc");
     try jws.beginArray();
-    for (available_libcs) |libc| {
+    for (target.available_libcs) |libc| {
+        const tmp = try std.fmt.allocPrint(allocator, "{}-{}-{}", .{
+            @tagName(libc.arch), @tagName(libc.os), @tagName(libc.abi),
+        });
+        defer allocator.free(tmp);
         try jws.arrayElem();
-        try jws.emitString(libc);
+        try jws.emitString(tmp);
     }
     try jws.endArray();
 

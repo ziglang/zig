@@ -33,13 +33,14 @@ const usage =
     \\
     \\Commands:
     \\
-    \\  build-exe  [source]      Create executable from source or object files
-    \\  build-lib  [source]      Create library from source or object files
-    \\  build-obj  [source]      Create object from source or assembly
+    \\  build-exe   [source]     Create executable from source or object files
+    \\  build-lib   [source]     Create library from source or object files
+    \\  build-obj   [source]     Create object from source or assembly
     \\  cc                       Use Zig as a drop-in C compiler
     \\  c++                      Use Zig as a drop-in C++ compiler
     \\  env                      Print lib path, std path, compiler id and version
-    \\  fmt        [source]      Parse file and render in canonical zig format
+    \\  fmt         [source]     Parse file and render in canonical zig format
+    \\  translate-c [source]     Convert C code to Zig code
     \\  targets                  List available compilation targets
     \\  version                  Print version number and exit
     \\  zen                      Print zen of zig and exit
@@ -47,15 +48,21 @@ const usage =
     \\
 ;
 
+pub const log_level: std.log.Level = switch (std.builtin.mode) {
+    .Debug => .debug,
+    .ReleaseSafe, .ReleaseFast => .info,
+    .ReleaseSmall => .crit,
+};
+
 pub fn log(
     comptime level: std.log.Level,
     comptime scope: @TypeOf(.EnumLiteral),
     comptime format: []const u8,
     args: anytype,
 ) void {
-    // Hide anything more verbose than warn unless it was added with `-Dlog=foo`.
+    // Hide debug messages unless added with `-Dlog=foo`.
     if (@enumToInt(level) > @enumToInt(std.log.level) or
-        @enumToInt(level) > @enumToInt(std.log.Level.warn))
+        @enumToInt(level) > @enumToInt(std.log.Level.info))
     {
         const scope_name = @tagName(scope);
         const ok = comptime for (build_options.log_scopes) |log_scope| {
@@ -67,13 +74,15 @@ pub fn log(
             return;
     }
 
+    // We only recognize 4 log levels in this application.
     const level_txt = switch (level) {
-        .emerg => "error",
-        .warn => "warning",
-        else => @tagName(level),
+        .emerg, .alert, .crit => "error",
+        .err, .warn => "warning",
+        .notice, .info => "info",
+        .debug => "debug",
     };
-    const prefix1 = level_txt ++ ": ";
-    const prefix2 = if (scope == .default) "" else "(" ++ @tagName(scope) ++ "): ";
+    const prefix1 = level_txt;
+    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
 
     // Print the message to stderr, silently ignoring any errors
     std.debug.print(prefix1 ++ prefix2 ++ format ++ "\n", args);
@@ -93,8 +102,8 @@ pub fn main() !void {
     const args = try process.argsAlloc(arena);
 
     if (args.len <= 1) {
-        std.debug.print("expected command argument\n\n{}", .{usage});
-        process.exit(1);
+        std.log.info("{}", .{usage});
+        fatal("expected command argument", .{});
     }
 
     const cmd = args[1];
@@ -109,6 +118,8 @@ pub fn main() !void {
         return buildOutputType(gpa, arena, args, .cc);
     } else if (mem.eql(u8, cmd, "c++")) {
         return buildOutputType(gpa, arena, args, .cpp);
+    } else if (mem.eql(u8, cmd, "translate-c")) {
+        return buildOutputType(gpa, arena, args, .translate_c);
     } else if (mem.eql(u8, cmd, "clang") or
         mem.eql(u8, cmd, "-cc1") or mem.eql(u8, cmd, "-cc1as"))
     {
@@ -128,8 +139,8 @@ pub fn main() !void {
     } else if (mem.eql(u8, cmd, "help")) {
         try io.getStdOut().writeAll(usage);
     } else {
-        std.debug.print("unknown command: {}\n\n{}", .{ args[1], usage });
-        process.exit(1);
+        std.log.info("{}", .{usage});
+        fatal("unknown command: {}", .{args[1]});
     }
 }
 
@@ -223,6 +234,7 @@ pub fn buildOutputType(
         build: std.builtin.OutputMode,
         cc,
         cpp,
+        translate_c,
     },
 ) !void {
     var color: Color = .Auto;
@@ -251,8 +263,8 @@ pub fn buildOutputType(
     var emit_h: Emit = undefined;
     var ensure_libc_on_non_freestanding = false;
     var ensure_libcpp_on_non_freestanding = false;
-    var have_libc = false;
-    var have_libcpp = false;
+    var link_libc = false;
+    var link_libcpp = false;
     var want_native_include_dirs = false;
     var enable_cache: ?bool = null;
     var want_pic: ?bool = null;
@@ -298,13 +310,20 @@ pub fn buildOutputType(
     var frameworks = std.ArrayList([]const u8).init(gpa);
     defer frameworks.deinit();
 
-    if (arg_mode == .build) {
-        output_mode = arg_mode.build;
-        emit_h = switch (output_mode) {
-            .Exe => .no,
-            .Obj, .Lib => .yes_default_path,
+    if (arg_mode == .build or arg_mode == .translate_c) {
+        output_mode = switch (arg_mode) {
+            .build => |m| m,
+            .translate_c => .Obj,
+            else => unreachable,
         };
-
+        switch (arg_mode) {
+            .build => switch (output_mode) {
+                .Exe => emit_h = .no,
+                .Obj, .Lib => emit_h = .yes_default_path,
+            },
+            .translate_c => emit_h = .no,
+            else => unreachable,
+        }
         const args = all_args[2..];
         var i: usize = 0;
         while (i < args.len) : (i += 1) {
@@ -499,7 +518,7 @@ pub fn buildOutputType(
                 mem.endsWith(u8, arg, ".lib"))
             {
                 try link_objects.append(arg);
-            } else if (hasAsmExt(arg) or hasCExt(arg) or hasCppExt(arg)) {
+            } else if (Module.hasAsmExt(arg) or Module.hasCExt(arg) or Module.hasCppExt(arg)) {
                 try c_source_files.append(arg);
             } else if (mem.endsWith(u8, arg, ".so") or
                 mem.endsWith(u8, arg, ".dylib") or
@@ -543,7 +562,7 @@ pub fn buildOutputType(
                     try clang_argv.appendSlice(it.other_args);
                 },
                 .positional => {
-                    const file_ext = classify_file_ext(mem.spanZ(it.only_arg));
+                    const file_ext = Module.classifyFileExt(mem.spanZ(it.only_arg));
                     switch (file_ext) {
                         .assembly, .c, .cpp, .ll, .bc, .h => try c_source_files.append(it.only_arg),
                         .unknown => try link_objects.append(it.only_arg),
@@ -819,28 +838,28 @@ pub fn buildOutputType(
         .diagnostics = &diags,
     }) catch |err| switch (err) {
         error.UnknownCpuModel => {
-            std.debug.print("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
-                diags.cpu_name.?,
-                @tagName(diags.arch.?),
-            });
-            for (diags.arch.?.allCpuModels()) |cpu| {
-                std.debug.print(" {}\n", .{cpu.name});
+            help: {
+                var help_text = std.ArrayList(u8).init(arena);
+                for (diags.arch.?.allCpuModels()) |cpu| {
+                    help_text.writer().print(" {}\n", .{cpu.name}) catch break :help;
+                }
+                std.log.info("Available CPUs for architecture '{}': {}", .{
+                    @tagName(diags.arch.?), help_text.items,
+                });
             }
-            process.exit(1);
+            fatal("Unknown CPU: '{}'", .{diags.cpu_name.?});
         },
         error.UnknownCpuFeature => {
-            std.debug.print(
-                \\Unknown CPU feature: '{}'
-                \\Available CPU features for architecture '{}':
-                \\
-            , .{
-                diags.unknown_feature_name,
-                @tagName(diags.arch.?),
-            });
-            for (diags.arch.?.allFeaturesList()) |feature| {
-                std.debug.print(" {}: {}\n", .{ feature.name, feature.description });
+            help: {
+                var help_text = std.ArrayList(u8).init(arena);
+                for (diags.arch.?.allFeaturesList()) |feature| {
+                    help_text.writer().print(" {}: {}\n", .{ feature.name, feature.description }) catch break :help;
+                }
+                std.log.info("Available CPU features for architecture '{}': {}", .{
+                    @tagName(diags.arch.?), help_text.items,
+                });
             }
-            process.exit(1);
+            fatal("Unknown CPU feature: '{}'", .{diags.unknown_feature_name});
         },
         else => |e| return e,
     };
@@ -849,14 +868,16 @@ pub fn buildOutputType(
     if (target_info.cpu_detection_unimplemented) {
         // TODO We want to just use detected_info.target but implementing
         // CPU model & feature detection is todo so here we rely on LLVM.
+        // TODO The workaround to use LLVM to detect features needs to be used for
+        // `zig targets` as well.
         fatal("CPU features detection is not yet available for this system without LLVM extensions", .{});
     }
 
     if (target_info.target.os.tag != .freestanding) {
         if (ensure_libc_on_non_freestanding)
-            have_libc = true;
+            link_libc = true;
         if (ensure_libcpp_on_non_freestanding)
-            have_libcpp = true;
+            link_libcpp = true;
     }
 
     // Now that we have target info, we can find out if any of the system libraries
@@ -867,12 +888,12 @@ pub fn buildOutputType(
         while (i < system_libs.items.len) {
             const lib_name = system_libs.items[i];
             if (is_libc_lib_name(target_info.target, lib_name)) {
-                have_libc = true;
+                link_libc = true;
                 _ = system_libs.orderedRemove(i);
                 continue;
             }
             if (is_libcpp_lib_name(target_info.target, lib_name)) {
-                have_libcpp = true;
+                link_libcpp = true;
                 _ = system_libs.orderedRemove(i);
                 continue;
             }
@@ -960,7 +981,21 @@ pub fn buildOutputType(
         .yes_default_path => try std.fmt.allocPrint(arena, "{}.h", .{root_name}),
     };
 
-    var module = Module.init(gpa, .{
+    const self_exe_path = try fs.selfExePathAlloc(arena);
+    const zig_lib_dir = introspect.resolveZigLibDir(gpa) catch |err| {
+        fatal("unable to find zig installation directory: {}\n", .{@errorName(err)});
+    };
+    defer gpa.free(zig_lib_dir);
+
+    const random_seed = blk: {
+        var random_seed: u64 = undefined;
+        try std.crypto.randomBytes(mem.asBytes(&random_seed));
+        break :blk random_seed;
+    };
+    var default_prng = std.rand.DefaultPrng.init(random_seed);
+
+    const module = Module.create(gpa, .{
+        .zig_lib_dir = zig_lib_dir,
         .root_name = root_name,
         .target = target_info.target,
         .output_mode = output_mode,
@@ -980,8 +1015,8 @@ pub fn buildOutputType(
         .frameworks = frameworks.items,
         .system_libs = system_libs.items,
         .emit_h = emit_h_path,
-        .have_libc = have_libc,
-        .have_libcpp = have_libcpp,
+        .link_libc = link_libc,
+        .link_libcpp = link_libcpp,
         .want_pic = want_pic,
         .want_sanitize_c = want_sanitize_c,
         .use_llvm = use_llvm,
@@ -1000,16 +1035,19 @@ pub fn buildOutputType(
         .linker_z_defs = linker_z_defs,
         .stack_size_override = stack_size_override,
         .strip = strip,
+        .self_exe_path = self_exe_path,
+        .rand = &default_prng.random,
+        .clang_passthrough_mode = arg_mode != .build,
     }) catch |err| {
-        fatal("unable to initialize module: {}", .{@errorName(err)});
+        fatal("unable to create module: {}", .{@errorName(err)});
     };
-    defer module.deinit();
+    defer module.destroy();
 
     const stdin = std.io.getStdIn().inStream();
     const stderr = std.io.getStdErr().outStream();
     var repl_buf: [1024]u8 = undefined;
 
-    try updateModule(gpa, &module, zir_out_path);
+    try updateModule(gpa, module, zir_out_path);
 
     if (build_options.have_llvm and only_pp_or_asm) {
         // this may include dumping the output to stdout
@@ -1031,7 +1069,7 @@ pub fn buildOutputType(
                 if (output_mode == .Exe) {
                     try module.makeBinFileWritable();
                 }
-                try updateModule(gpa, &module, zir_out_path);
+                try updateModule(gpa, module, zir_out_path);
             } else if (mem.eql(u8, actual_line, "exit")) {
                 break;
             } else if (mem.eql(u8, actual_line, "help")) {
@@ -1062,12 +1100,10 @@ fn updateModule(gpa: *Allocator, module: *Module, zir_out_path: ?[]const u8) !vo
                 full_err_msg.msg,
             });
         }
-    } else {
-        std.log.info("Update completed in {} ms", .{update_nanos / std.time.ns_per_ms});
     }
 
     if (zir_out_path) |zop| {
-        var new_zir_module = try zir.emit(gpa, module.*);
+        var new_zir_module = try zir.emit(gpa, module);
         defer new_zir_module.deinit(gpa);
 
         const baf = try io.BufferedAtomicFile.create(gpa, fs.cwd(), zop, .{});
@@ -1421,50 +1457,6 @@ pub const info_zen =
     \\
     \\
 ;
-
-const FileExt = enum {
-    c,
-    cpp,
-    h,
-    ll,
-    bc,
-    assembly,
-    unknown,
-};
-
-fn hasCExt(filename: []const u8) bool {
-    return mem.endsWith(u8, filename, ".c");
-}
-
-fn hasCppExt(filename: []const u8) bool {
-    return mem.endsWith(u8, filename, ".C") or
-        mem.endsWith(u8, filename, ".cc") or
-        mem.endsWith(u8, filename, ".cpp") or
-        mem.endsWith(u8, filename, ".cxx");
-}
-
-fn hasAsmExt(filename: []const u8) bool {
-    return mem.endsWith(u8, filename, ".s") or mem.endsWith(u8, filename, ".S");
-}
-
-fn classify_file_ext(filename: []const u8) FileExt {
-    if (hasCExt(filename)) {
-        return .c;
-    } else if (hasCppExt(filename)) {
-        return .cpp;
-    } else if (mem.endsWith(u8, filename, ".ll")) {
-        return .ll;
-    } else if (mem.endsWith(u8, filename, ".bc")) {
-        return .bc;
-    } else if (hasAsmExt(filename)) {
-        return .assembly;
-    } else if (mem.endsWith(u8, filename, ".h")) {
-        return .h;
-    } else {
-        // TODO look for .so, .so.X, .so.X.Y, .so.X.Y.Z
-        return .unknown;
-    }
-}
 
 extern "c" fn ZigClang_main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 

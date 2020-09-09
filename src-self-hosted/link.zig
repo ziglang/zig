@@ -35,6 +35,9 @@ pub const Options = struct {
     /// other objects.
     /// Otherwise (depending on `use_lld`) this link code directly outputs and updates the final binary.
     use_llvm: bool = false,
+    link_libc: bool = false,
+    link_libcpp: bool = false,
+    function_sections: bool = false,
 
     objects: []const []const u8 = &[0][]const u8{},
     framework_dirs: []const []const u8 = &[0][]const u8{},

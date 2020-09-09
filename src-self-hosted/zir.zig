@@ -1700,12 +1700,12 @@ const Parser = struct {
     }
 };
 
-pub fn emit(allocator: *Allocator, old_module: IrModule) !Module {
+pub fn emit(allocator: *Allocator, old_module: *IrModule) !Module {
     var ctx: EmitZIR = .{
         .allocator = allocator,
         .decls = .{},
         .arena = std.heap.ArenaAllocator.init(allocator),
-        .old_module = &old_module,
+        .old_module = old_module,
         .next_auto_name = 0,
         .names = std.StringArrayHashMap(void).init(allocator),
         .primitive_table = std.AutoHashMap(Inst.Primitive.Builtin, *Decl).init(allocator),
@@ -2539,7 +2539,7 @@ const EmitZIR = struct {
                     return self.emitUnnamedDecl(&fntype_inst.base);
                 },
                 .Int => {
-                    const info = ty.intInfo(self.old_module.target());
+                    const info = ty.intInfo(self.old_module.getTarget());
                     const signed = try self.emitPrimitive(src, if (info.signed) .@"true" else .@"false");
                     const bits_payload = try self.arena.allocator.create(Value.Payload.Int_u64);
                     bits_payload.* = .{ .int = info.bits };

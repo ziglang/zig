@@ -219,8 +219,11 @@ pub const SrcFn = struct {
 pub fn openPath(allocator: *Allocator, dir: fs.Dir, sub_path: []const u8, options: link.Options) !*File {
     assert(options.object_format == .elf);
 
-    if (options.use_llvm) return error.LLVM_BackendIsTODO_ForELF; // TODO
-    if (options.use_lld) return error.LLD_LinkingIsTODOForELF; // TODO
+    if (options.use_llvm) return error.LLVMBackendUnimplementedForELF; // TODO
+
+    if (build_options.have_llvm and options.use_lld) {
+        std.debug.print("TODO open a temporary object file, not the final output file because we want to link with LLD\n", .{});
+    }
 
     const file = try dir.createFile(sub_path, .{ .truncate = false, .read = true, .mode = link.determineMode(options) });
     errdefer file.close();
@@ -741,8 +744,21 @@ pub const abbrev_base_type = 4;
 pub const abbrev_pad1 = 5;
 pub const abbrev_parameter = 6;
 
-/// Commit pending changes and write headers.
 pub fn flush(self: *Elf, module: *Module) !void {
+    if (build_options.have_llvm and self.base.options.use_lld) {
+        // If there is no Zig code to compile, then we should skip flushing the output file because it
+        // will not be part of the linker line anyway.
+        if (module.root_pkg != null) {
+            try self.flushInner(module);
+        }
+        std.debug.print("TODO create an LLD command line and invoke it\n", .{});
+    } else {
+        return self.flushInner(module);
+    }
+}
+
+/// Commit pending changes and write headers.
+fn flushInner(self: *Elf, module: *Module) !void {
     const target_endian = self.base.options.target.cpu.arch.endian();
     const foreign_endian = target_endian != std.Target.current.cpu.arch.endian();
     const ptr_width_bytes: u8 = self.ptrWidthBytes();

@@ -78,7 +78,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -fno-emit-asm                (default) do not output .s (assembly code)\n"
         "  -femit-llvm-ir               produce a .ll file with LLVM IR\n"
         "  -fno-emit-llvm-ir            (default) do not produce a .ll file with LLVM IR\n"
-        "  -femit-h                      generate a C header file (.h)\n"
+        "  -femit-h                     generate a C header file (.h)\n"
         "  -fno-emit-h                  (default) do not generate a C header file (.h)\n"
         "  --libc [file]                Provide a file which specifies libc paths\n"
         "  --name [name]                override output name\n"

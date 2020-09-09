@@ -4,6 +4,7 @@ const Module = @import("Module.zig");
 const Allocator = std.mem.Allocator;
 const zir = @import("zir.zig");
 const Package = @import("Package.zig");
+const introspect = @import("introspect.zig");
 const build_options = @import("build_options");
 const enable_qemu: bool = build_options.enable_qemu;
 const enable_wine: bool = build_options.enable_wine;
@@ -406,6 +407,16 @@ pub const TestContext = struct {
         const root_node = try progress.start("tests", self.cases.items.len);
         defer root_node.end();
 
+        const zig_lib_dir = try introspect.resolveZigLibDir(std.testing.allocator);
+        defer std.testing.allocator.free(zig_lib_dir);
+
+        const random_seed = blk: {
+            var random_seed: u64 = undefined;
+            try std.crypto.randomBytes(std.mem.asBytes(&random_seed));
+            break :blk random_seed;
+        };
+        var default_prng = std.rand.DefaultPrng.init(random_seed);
+
         for (self.cases.items) |case| {
             var prg_node = root_node.start(case.name, case.updates.items.len);
             prg_node.activate();
@@ -416,11 +427,18 @@ pub const TestContext = struct {
             progress.initial_delay_ns = 0;
             progress.refresh_rate_ns = 0;
 
-            try self.runOneCase(std.testing.allocator, &prg_node, case);
+            try self.runOneCase(std.testing.allocator, &prg_node, case, zig_lib_dir, &default_prng.random);
         }
     }
 
-    fn runOneCase(self: *TestContext, allocator: *Allocator, root_node: *std.Progress.Node, case: Case) !void {
+    fn runOneCase(
+        self: *TestContext,
+        allocator: *Allocator,
+        root_node: *std.Progress.Node,
+        case: Case,
+        zig_lib_dir: []const u8,
+        rand: *std.rand.Random,
+    ) !void {
         const target_info = try std.zig.system.NativeTargetInfo.detect(allocator, case.target);
         const target = target_info.target;
 
@@ -438,7 +456,9 @@ pub const TestContext = struct {
         const ofmt: ?std.builtin.ObjectFormat = if (case.cbe) .c else null;
         const bin_name = try std.zig.binNameAlloc(arena, "test_case", target, case.output_mode, null, ofmt);
 
-        var module = try Module.init(allocator, .{
+        const module = try Module.create(allocator, .{
+            .zig_lib_dir = zig_lib_dir,
+            .rand = rand,
             .root_name = "test_case",
             .target = target,
             // TODO: support tests for object file building, and library builds
@@ -453,7 +473,7 @@ pub const TestContext = struct {
             .keep_source_files_loaded = true,
             .object_format = ofmt,
         });
-        defer module.deinit();
+        defer module.destroy();
 
         for (case.updates.items) |update, update_index| {
             var update_node = root_node.start("update", 3);
