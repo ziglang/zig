@@ -54,8 +54,10 @@ fn renderValue(ctx: *Context, writer: std.ArrayList(u8).Writer, T: Type, val: Va
 fn renderFunctionSignature(ctx: *Context, writer: std.ArrayList(u8).Writer, decl: *Decl) !void {
     const tv = decl.typed_value.most_recent.typed_value;
     try renderType(ctx, writer, tv.ty.fnReturnType());
-    const name = try map(ctx.file.base.allocator, mem.spanZ(decl.name));
-    defer ctx.file.base.allocator.free(name);
+    // Use the child allocator directly, as we know the name can be freed before
+    // the rest of the arena.
+    const name = try map(ctx.arena.child_allocator, mem.spanZ(decl.name));
+    defer ctx.arena.child_allocator.free(name);
     try writer.print(" {}(", .{name});
     var param_len = tv.ty.fnParamLen();
     if (param_len == 0)
@@ -102,22 +104,18 @@ fn genArray(file: *C, decl: *Decl) !void {
 const Context = struct {
     file: *C,
     decl: *Decl,
-    inst_map: std.AutoHashMap(*Inst, []u8),
+    inst_map: *std.AutoHashMap(*Inst, []u8),
+    arena: *std.heap.ArenaAllocator,
     argdex: usize = 0,
     unnamed_index: usize = 0,
 
     fn name(self: *Context) ![]u8 {
-        const val = try std.fmt.allocPrint(self.file.base.allocator, "__temp_{}", .{self.unnamed_index});
+        const val = try std.fmt.allocPrint(&self.arena.allocator, "__temp_{}", .{self.unnamed_index});
         self.unnamed_index += 1;
         return val;
     }
 
     fn deinit(self: *Context) void {
-        var it = self.inst_map.iterator();
-        while (it.next()) |kv| {
-            self.file.base.allocator.free(kv.value);
-        }
-        self.inst_map.deinit();
         self.* = undefined;
     }
 };
@@ -126,10 +124,15 @@ fn genFn(file: *C, decl: *Decl) !void {
     const writer = file.main.writer();
     const tv = decl.typed_value.most_recent.typed_value;
 
+    var arena = std.heap.ArenaAllocator.init(file.base.allocator);
+    defer arena.deinit();
+    var inst_map = std.AutoHashMap(*Inst, []u8).init(&arena.allocator);
+    defer inst_map.deinit();
     var ctx = Context{
         .file = file,
         .decl = decl,
-        .inst_map = std.AutoHashMap(*Inst, []u8).init(file.base.allocator),
+        .arena = &arena,
+        .inst_map = &inst_map,
     };
     defer ctx.deinit();
 
@@ -163,7 +166,7 @@ fn genFn(file: *C, decl: *Decl) !void {
 }
 
 fn genArg(ctx: *Context) !?[]u8 {
-    const name = try std.fmt.allocPrint(ctx.file.base.allocator, "arg{}", .{ctx.argdex});
+    const name = try std.fmt.allocPrint(&ctx.arena.allocator, "arg{}", .{ctx.argdex});
     ctx.argdex += 1;
     return name;
 }
