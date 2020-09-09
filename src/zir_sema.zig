@@ -1048,6 +1048,19 @@ fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr
                         .val = Value.initPayload(&ref_payload.base),
                     });
                 },
+                .Struct => {
+                    const container_scope = child_type.getContainerScope();
+                    if (mod.lookupDeclName(&container_scope.base, field_name)) |decl| {
+                        // TODO if !decl.is_pub and inDifferentFiles() "{} is private"
+                        return mod.analyzeDeclRef(scope, fieldptr.base.src, decl);
+                    }
+
+                    if (&container_scope.file_scope.base == mod.root_scope) {
+                        return mod.fail(scope, fieldptr.base.src, "root source file has no member called '{}'", .{field_name});
+                    } else {
+                        return mod.fail(scope, fieldptr.base.src, "container '{}' has no member called '{}'", .{ child_type, field_name });
+                    }
+                },
                 else => return mod.fail(scope, fieldptr.base.src, "type '{}' does not support field access", .{child_type}),
             }
         },
@@ -1203,8 +1216,8 @@ fn analyzeInstImport(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerErr
         },
         else => {
             // TODO user friendly error to string
-            return mod.fail(scope, inst.base.src, "unable to open '{}': {}", .{operand, @errorName(err)});
-        }
+            return mod.fail(scope, inst.base.src, "unable to open '{}': {}", .{ operand, @errorName(err) });
+        },
     };
     return mod.constType(scope, inst.base.src, file_scope.root_container.ty);
 }

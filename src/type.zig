@@ -441,7 +441,7 @@ pub const Type = extern union {
             },
             .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
             .error_set_single => return self.copyPayloadShallow(allocator, Payload.ErrorSetSingle),
-            .empty_struct  => return self.copyPayloadShallow(allocator, Payload.EmptyStruct),
+            .empty_struct => return self.copyPayloadShallow(allocator, Payload.EmptyStruct),
         }
     }
 
@@ -2787,6 +2787,80 @@ pub const Type = extern union {
         // TODO tuples are indexable
         return zig_tag == .Array or zig_tag == .Vector or self.isSlice() or
             (self.isSinglePointer() and self.elemType().zigTypeTag() == .Array);
+    }
+
+    /// Asserts that the type is a container. (note: ErrorSet is not a container).
+    pub fn getContainerScope(self: Type) *Module.Scope.Container {
+        return switch (self.tag()) {
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_longdouble,
+            .comptime_int,
+            .comptime_float,
+            .u8,
+            .i8,
+            .u16,
+            .i16,
+            .u32,
+            .i32,
+            .u64,
+            .i64,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .bool,
+            .type,
+            .anyerror,
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .function,
+            .single_const_pointer_to_comptime_int,
+            .const_slice_u8,
+            .c_void,
+            .void,
+            .noreturn,
+            .@"null",
+            .@"undefined",
+            .int_unsigned,
+            .int_signed,
+            .array,
+            .array_sentinel,
+            .array_u8,
+            .array_u8_sentinel_0,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            .optional,
+            .optional_single_mut_pointer,
+            .optional_single_const_pointer,
+            .enum_literal,
+            .error_union,
+            .@"anyframe",
+            .anyframe_T,
+            .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .pointer,
+            => unreachable,
+
+            .empty_struct => self.cast(Type.Payload.EmptyStruct).?.scope,
+        };
     }
 
     /// This enum does not directly correspond to `std.builtin.TypeId` because
