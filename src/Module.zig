@@ -75,6 +75,9 @@ global_error_set: std.StringHashMapUnmanaged(u16) = .{},
 /// previous analysis.
 generation: u32 = 0,
 
+/// Keys are fully qualified paths
+import_table: std.StringHashMapUnmanaged(*Scope.File) = .{},
+
 stage1_flags: packed struct {
     have_winmain: bool = false,
     have_wwinmain: bool = false,
@@ -208,7 +211,7 @@ pub const Decl = struct {
             .container => {
                 const container = @fieldParentPtr(Scope.Container, "base", self.scope);
                 const tree = container.file_scope.contents.tree;
-                // TODO Container should have it's own decls()
+                // TODO Container should have its own decls()
                 const decl_node = tree.root_node.decls()[self.src_index];
                 return tree.token_locs[decl_node.firstToken()].start;
             },
@@ -532,12 +535,12 @@ pub const Scope = struct {
 
         /// Direct children of the file.
         decls: std.AutoArrayHashMapUnmanaged(*Decl, void),
-
-        // TODO implement container types and put this in a status union
-        // ty: Type
+        ty: Type,
 
         pub fn deinit(self: *Container, gpa: *Allocator) void {
             self.decls.deinit(gpa);
+            // TODO either Container of File should have an arena for sub_file_path and ty
+            gpa.destroy(self.ty.cast(Type.Payload.EmptyStruct).?);
             self.* = undefined;
         }
 
@@ -2381,9 +2384,41 @@ pub fn analyzeSlice(self: *Module, scope: *Scope, src: usize, array_ptr: *Inst, 
     return self.fail(scope, src, "TODO implement analysis of slice", .{});
 }
 
-pub fn analyzeImport(self: *Module, scope: *Scope, src: usize, target_string: []const u8) InnerError!*Inst {
-    // TODO actually try to import
-    return self.constType(scope, src, Type.initTag(.empty_struct));
+pub fn analyzeImport(self: *Module, scope: *Scope, src: usize, target_string: []const u8) !*Scope.File {
+    // TODO if (package_table.get(target_string)) |pkg|
+
+    const file_path = try std.fs.path.join(scope.arena(), &[_][]const u8{ self.root_pkg.root_src_dir_path, target_string });
+
+    if (self.import_table.get(file_path)) |some| {
+        return some;
+    }
+
+    // TODO check for imports outside of pkg path
+    if (false) return error.ImportOutsidePkgPath;
+
+    // TODO Scope.Container arena for ty and sub_file_path
+    const struct_payload = try self.gpa.create(Type.Payload.EmptyStruct);
+    const file_scope = try self.gpa.create(Scope.File);
+    struct_payload.* = .{ .scope = &file_scope.root_container };
+    file_scope.* = .{
+        .sub_file_path = try self.gpa.dupe(u8, file_path),
+        .source = .{ .unloaded = {} },
+        .contents = .{ .not_available = {} },
+        .status = .never_loaded,
+        .root_container = .{
+            .file_scope = file_scope,
+            .decls = .{},
+            .ty = Type.initPayload(&struct_payload.base),
+        },
+    };
+    self.analyzeContainer(&file_scope.root_container) catch |err| switch (err) {
+        error.AnalysisFail => {
+            assert(self.totalErrorCount() != 0);
+        },
+        else => |e| return e,
+    };
+    try self.import_table.put(self.gpa, file_scope.sub_file_path, file_scope);
+    return file_scope;
 }
 
 /// Asserts that lhs and rhs types are both numeric.

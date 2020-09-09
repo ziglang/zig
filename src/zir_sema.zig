@@ -1194,7 +1194,19 @@ fn analyzeInstSliceStart(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) Inn
 fn analyzeInstImport(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
     const operand = try resolveConstString(mod, scope, inst.positionals.operand);
 
-    return mod.analyzeImport(scope, inst.base.src, operand);
+    const file_scope = mod.analyzeImport(scope, inst.base.src, operand) catch |err| switch (err) {
+        // error.ImportOutsidePkgPath => {
+        //     return mod.fail(scope, inst.base.src, "import of file outside package path: '{}'", .{operand});
+        // },
+        error.FileNotFound => {
+            return mod.fail(scope, inst.base.src, "unable to find '{}'", .{operand});
+        },
+        else => {
+            // TODO user friendly error to string
+            return mod.fail(scope, inst.base.src, "unable to open '{}': {}", .{operand, @errorName(err)});
+        }
+    };
+    return mod.constType(scope, inst.base.src, file_scope.root_container.ty);
 }
 
 fn analyzeInstShl(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {

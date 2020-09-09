@@ -354,7 +354,6 @@ pub const Type = extern union {
             .enum_literal,
             .anyerror_void_error_union,
             .@"anyframe",
-            .empty_struct,
             => unreachable,
 
             .array_u8_sentinel_0 => return self.copyPayloadShallow(allocator, Payload.Array_u8_Sentinel0),
@@ -442,6 +441,7 @@ pub const Type = extern union {
             },
             .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
             .error_set_single => return self.copyPayloadShallow(allocator, Payload.ErrorSetSingle),
+            .empty_struct  => return self.copyPayloadShallow(allocator, Payload.EmptyStruct),
         }
     }
 
@@ -508,6 +508,7 @@ pub const Type = extern union {
                 .@"null" => return out_stream.writeAll("@Type(.Null)"),
                 .@"undefined" => return out_stream.writeAll("@Type(.Undefined)"),
 
+                // TODO this should print the structs name
                 .empty_struct => return out_stream.writeAll("struct {}"),
                 .@"anyframe" => return out_stream.writeAll("anyframe"),
                 .anyerror_void_error_union => return out_stream.writeAll("anyerror!void"),
@@ -2837,7 +2838,6 @@ pub const Type = extern union {
         single_const_pointer_to_comptime_int,
         anyerror_void_error_union,
         @"anyframe",
-        empty_struct,
         const_slice_u8, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
 
@@ -2864,6 +2864,7 @@ pub const Type = extern union {
         anyframe_T,
         error_set,
         error_set_single,
+        empty_struct,
 
         pub const last_no_payload_tag = Tag.const_slice_u8;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -2970,6 +2971,14 @@ pub const Type = extern union {
 
             /// memory is owned by `Module`
             name: []const u8,
+        };
+
+        /// Mostly used for namespace like structs with zero fields.
+        /// Most commonly used for files.
+        pub const EmptyStruct = struct {
+            base: Payload = .{ .tag = .empty_struct },
+
+            scope: *Module.Scope.Container,
         };
     };
 };

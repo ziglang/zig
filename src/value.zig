@@ -314,6 +314,7 @@ pub const Value = extern union {
             .enum_literal_type => return out_stream.writeAll("@Type(.EnumLiteral)"),
             .anyframe_type => return out_stream.writeAll("anyframe"),
 
+            // TODO this should print `NAME{}`
             .empty_struct_value => return out_stream.writeAll("struct {}{}"),
             .null_value => return out_stream.writeAll("null"),
             .undef => return out_stream.writeAll("undefined"),
