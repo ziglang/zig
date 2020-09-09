@@ -2515,9 +2515,9 @@ pub fn readlinkatZ(dirfd: fd_t, file_path: [*:0]const u8, out_buffer: []u8) Read
 pub const SetEidError = error{
     InvalidUserId,
     PermissionDenied,
-};
+} || UnexpectedError;
 
-pub const SetIdError = error{ResourceLimitReached} || SetEidError || UnexpectedError;
+pub const SetIdError = error{ResourceLimitReached} || SetEidError;
 
 pub fn setuid(uid: uid_t) SetIdError!void {
     switch (errno(system.setuid(uid))) {
