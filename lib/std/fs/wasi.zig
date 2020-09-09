@@ -86,7 +86,7 @@ pub const PreopenList = struct {
     }
 
     /// Release all allocated memory.
-    pub fn deinit(pm: Self) void {
+    pub fn deinit(pm: *Self) void {
         for (pm.buffer.items) |preopen| {
             switch (preopen.@"type") {
                 PreopenType.Dir => |path| pm.buffer.allocator.free(path),

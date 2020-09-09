@@ -439,7 +439,7 @@ pub const DwarfInfo = struct {
             const next_unit_pos = this_unit_offset + next_offset;
 
             while ((try seekable.getPos()) < next_unit_pos) {
-                const die_obj = (try di.parseDie(in, abbrev_table, is_64)) orelse continue;
+                var die_obj = (try di.parseDie(in, abbrev_table, is_64)) orelse continue;
                 defer die_obj.attrs.deinit();
 
                 const after_die_offset = try seekable.getPos();

@@ -24,14 +24,15 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
     }
     return struct {
         const Self = @This();
+        pub const Unmanaged = ArrayListAlignedUnmanaged(T, alignment);
 
         /// Content of the ArrayList
         items: Slice,
         capacity: usize,
         allocator: *Allocator,
 
-        pub const Slice = if (alignment) |a| ([]align(a) T) else []T;
-        pub const SliceConst = if (alignment) |a| ([]align(a) const T) else []const T;
+        pub const Slice = Unmanaged.Slice;
+        pub const SliceConst = Unmanaged.SliceConst;
 
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn init(allocator: *Allocator) Self {
@@ -45,18 +46,15 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Initialize with capacity to hold at least num elements.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn initCapacity(allocator: *Allocator, num: usize) !Self {
-            var self = Self.init(allocator);
-
-            const new_memory = try self.allocator.allocAdvanced(T, alignment, num, .at_least);
-            self.items.ptr = new_memory.ptr;
-            self.capacity = new_memory.len;
-
-            return self;
+            var unmanaged = try Unmanaged.initCapacity(allocator, num);
+            return unmanaged.toManaged(allocator);
         }
 
         /// Release all allocated memory.
-        pub fn deinit(self: Self) void {
-            self.allocator.free(self.allocatedSlice());
+        pub fn deinit(self: *Self) void {
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.deinit(self.allocator);
         }
 
         /// Deprecated: use `items` field directly.
@@ -85,117 +83,89 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             };
         }
 
-        pub fn toUnmanaged(self: Self) ArrayListAlignedUnmanaged(T, alignment) {
+        pub fn toUnmanaged(self: Self) Unmanaged {
             return .{ .items = self.items, .capacity = self.capacity };
         }
 
         /// The caller owns the returned memory. ArrayList becomes empty.
         pub fn toOwnedSlice(self: *Self) Slice {
-            const allocator = self.allocator;
-            const result = allocator.shrink(self.allocatedSlice(), self.items.len);
-            self.* = init(allocator);
-            return result;
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.toOwnedSlice(self.allocator);
         }
 
         /// Insert `item` at index `n` by moving `list[n .. list.len]` to make room.
         /// This operation is O(N).
         pub fn insert(self: *Self, n: usize, item: T) !void {
-            try self.ensureCapacity(self.items.len + 1);
-            self.items.len += 1;
-
-            mem.copyBackwards(T, self.items[n + 1 .. self.items.len], self.items[n .. self.items.len - 1]);
-            self.items[n] = item;
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.insert(self.allocator, n, item);
         }
 
         /// Insert slice `items` at index `i` by moving `list[i .. list.len]` to make room.
         /// This operation is O(N).
         pub fn insertSlice(self: *Self, i: usize, items: SliceConst) !void {
-            try self.ensureCapacity(self.items.len + items.len);
-            self.items.len += items.len;
-
-            mem.copyBackwards(T, self.items[i + items.len .. self.items.len], self.items[i .. self.items.len - items.len]);
-            mem.copy(T, self.items[i .. i + items.len], items);
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.insertSlice(self.allocator, i, items);
         }
 
         /// Replace range of elements `list[start..start+len]` with `new_items`
         /// grows list if `len < new_items.len`. may allocate
         /// shrinks list if `len > new_items.len`
         pub fn replaceRange(self: *Self, start: usize, len: usize, new_items: SliceConst) !void {
-            const after_range = start + len;
-            const range = self.items[start..after_range];
-
-            if (range.len == new_items.len)
-                mem.copy(T, range, new_items)
-            else if (range.len < new_items.len) {
-                const first = new_items[0..range.len];
-                const rest = new_items[range.len..];
-
-                mem.copy(T, range, first);
-                try self.insertSlice(after_range, rest);
-            } else {
-                mem.copy(T, range, new_items);
-                const after_subrange = start + new_items.len;
-
-                for (self.items[after_range..]) |item, i| {
-                    self.items[after_subrange..][i] = item;
-                }
-
-                self.items.len -= len - new_items.len;
-            }
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.replaceRange(self.allocator, start, len, new_items);
         }
 
         /// Extend the list by 1 element. Allocates more memory as necessary.
         pub fn append(self: *Self, item: T) !void {
-            const new_item_ptr = try self.addOne();
-            new_item_ptr.* = item;
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.append(self.allocator, item);
         }
 
         /// Extend the list by 1 element, but asserting `self.capacity`
         /// is sufficient to hold an additional item.
         pub fn appendAssumeCapacity(self: *Self, item: T) void {
-            const new_item_ptr = self.addOneAssumeCapacity();
-            new_item_ptr.* = item;
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            unmanaged.appendAssumeCapacity(item);
         }
 
         /// Remove the element at index `i` from the list and return its value.
         /// Asserts the array has at least one item.
         /// This operation is O(N).
         pub fn orderedRemove(self: *Self, i: usize) T {
-            const newlen = self.items.len - 1;
-            if (newlen == i) return self.pop();
-
-            const old_item = self.items[i];
-            for (self.items[i..newlen]) |*b, j| b.* = self.items[i + 1 + j];
-            self.items[newlen] = undefined;
-            self.items.len = newlen;
-            return old_item;
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.orderedRemove(i);
         }
 
         /// Removes the element at the specified index and returns it.
         /// The empty slot is filled from the end of the list.
         /// This operation is O(1).
         pub fn swapRemove(self: *Self, i: usize) T {
-            if (self.items.len - 1 == i) return self.pop();
-
-            const old_item = self.items[i];
-            self.items[i] = self.pop();
-            return old_item;
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.swapRemove(i);
         }
 
         /// Append the slice of items to the list. Allocates more
         /// memory as necessary.
         pub fn appendSlice(self: *Self, items: SliceConst) !void {
-            try self.ensureCapacity(self.items.len + items.len);
-            self.appendSliceAssumeCapacity(items);
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.appendSlice(self.allocator, items);
         }
 
         /// Append the slice of items to the list, asserting the capacity is already
         /// enough to store the new items.
         pub fn appendSliceAssumeCapacity(self: *Self, items: SliceConst) void {
-            const oldlen = self.items.len;
-            const newlen = self.items.len + items.len;
-            self.items.len = newlen;
-            mem.copy(T, self.items[oldlen..], items);
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            unmanaged.appendSliceAssumeCapacity(items);
         }
 
         pub usingnamespace if (T != u8) struct {} else struct {
@@ -220,126 +190,113 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Append a value to the list `n` times.
         /// Allocates more memory as necessary.
         pub fn appendNTimes(self: *Self, value: T, n: usize) !void {
-            const old_len = self.items.len;
-            try self.resize(self.items.len + n);
-            mem.set(T, self.items[old_len..self.items.len], value);
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.appendNTimes(self.allocator, value, n);
         }
 
         /// Append a value to the list `n` times.
         /// Asserts the capacity is enough.
         pub fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
-            const new_len = self.items.len + n;
-            assert(new_len <= self.capacity);
-            mem.set(T, self.items.ptr[self.items.len..new_len], value);
-            self.items.len = new_len;
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            unmanaged.appendNTimesAssumeCapacity(value, n);
         }
 
         /// Adjust the list's length to `new_len`.
         /// Does not initialize added items if any.
         pub fn resize(self: *Self, new_len: usize) !void {
-            try self.ensureCapacity(new_len);
-            self.items.len = new_len;
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.resize(self.allocator, new_len);
         }
 
         /// Reduce allocated capacity to `new_len`.
         /// Invalidates element pointers.
         pub fn shrink(self: *Self, new_len: usize) void {
-            assert(new_len <= self.items.len);
-
-            self.items = self.allocator.realloc(self.allocatedSlice(), new_len) catch |e| switch (e) {
-                error.OutOfMemory => { // no problem, capacity is still correct then.
-                    self.items.len = new_len;
-                    return;
-                },
-            };
-            self.capacity = new_len;
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            unmanaged.shrink(self.allocator, new_len);
         }
 
         /// Reduce length to `new_len`.
         /// Invalidates element pointers.
         /// Keeps capacity the same.
         pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
-            assert(new_len <= self.items.len);
-            self.items.len = new_len;
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            unmanaged.shrinkRetainingCapacity(new_len);
         }
 
         pub fn ensureCapacity(self: *Self, new_capacity: usize) !void {
-            var better_capacity = self.capacity;
-            if (better_capacity >= new_capacity) return;
-
-            while (true) {
-                better_capacity += better_capacity / 2 + 8;
-                if (better_capacity >= new_capacity) break;
-            }
-
-            // TODO This can be optimized to avoid needlessly copying undefined memory.
-            const new_memory = try self.allocator.reallocAtLeast(self.allocatedSlice(), better_capacity);
-            self.items.ptr = new_memory.ptr;
-            self.capacity = new_memory.len;
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.ensureCapacity(self.allocator, new_capacity);
         }
 
         /// Increases the array's length to match the full capacity that is already allocated.
         /// The new elements have `undefined` values. This operation does not invalidate any
         /// element pointers.
         pub fn expandToCapacity(self: *Self) void {
-            self.items.len = self.capacity;
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            unmanaged.expandToCapacity();
         }
 
         /// Increase length by 1, returning pointer to the new item.
         /// The returned pointer becomes invalid when the list is resized.
         pub fn addOne(self: *Self) !*T {
-            const newlen = self.items.len + 1;
-            try self.ensureCapacity(newlen);
-            return self.addOneAssumeCapacity();
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.addOne(self.allocator);
         }
 
         /// Increase length by 1, returning pointer to the new item.
         /// Asserts that there is already space for the new item without allocating more.
         /// The returned pointer becomes invalid when the list is resized.
         pub fn addOneAssumeCapacity(self: *Self) *T {
-            assert(self.items.len < self.capacity);
-
-            self.items.len += 1;
-            return &self.items[self.items.len - 1];
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.addOneAssumeCapacity();
         }
 
         /// Resize the array, adding `n` new elements, which have `undefined` values.
         /// The return value is an array pointing to the newly allocated elements.
         pub fn addManyAsArray(self: *Self, comptime n: usize) !*[n]T {
-            const prev_len = self.items.len;
-            try self.resize(self.items.len + n);
-            return self.items[prev_len..][0..n];
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.addManyAsArray(self.allocator, n);
         }
 
         /// Resize the array, adding `n` new elements, which have `undefined` values.
         /// The return value is an array pointing to the newly allocated elements.
         /// Asserts that there is already space for the new item without allocating more.
         pub fn addManyAsArrayAssumeCapacity(self: *Self, comptime n: usize) *[n]T {
-            assert(self.items.len + n <= self.capacity);
-            const prev_len = self.items.len;
-            self.items.len += n;
-            return self.items[prev_len..][0..n];
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.addManyAsArrayAssumeCapacity(n);
         }
 
         /// Remove and return the last element from the list.
         /// Asserts the list has at least one item.
         pub fn pop(self: *Self) T {
-            const val = self.items[self.items.len - 1];
-            self.items.len -= 1;
-            return val;
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.pop();
         }
 
         /// Remove and return the last element from the list.
         /// If the list is empty, returns `null`.
         pub fn popOrNull(self: *Self) ?T {
-            if (self.items.len == 0) return null;
-            return self.pop();
+            var unmanaged = self.toUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.popOrNull();
         }
 
         // For a nicer API, `items.len` is the length, not the capacity.
         // This requires "unsafe" slicing.
         fn allocatedSlice(self: Self) Slice {
-            return self.items.ptr[0..self.capacity];
+            return self.toUnmanaged.allocatedSlice();
         }
     };
 }
@@ -371,7 +328,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         pub fn initCapacity(allocator: *Allocator, num: usize) !Self {
             var self = Self{};
 
-            const new_memory = try self.allocator.allocAdvanced(T, alignment, num, .at_least);
+            const new_memory = try allocator.allocAdvanced(T, alignment, num, .at_least);
             self.items.ptr = new_memory.ptr;
             self.capacity = new_memory.len;
 
@@ -419,10 +376,28 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Replace range of elements `list[start..start+len]` with `new_items`
         /// grows list if `len < new_items.len`. may allocate
         /// shrinks list if `len > new_items.len`
-        pub fn replaceRange(self: *Self, start: usize, len: usize, new_items: SliceConst) !void {
-            var managed = self.toManaged(allocator);
-            try managed.replaceRange(start, len, new_items);
-            self.* = managed.toUnmanaged();
+        pub fn replaceRange(self: *Self, allocator: *Allocator, start: usize, len: usize, new_items: SliceConst) !void {
+            const after_range = start + len;
+            const range = self.items[start..after_range];
+
+            if (range.len == new_items.len)
+                mem.copy(T, range, new_items)
+            else if (range.len < new_items.len) {
+                const first = new_items[0..range.len];
+                const rest = new_items[range.len..];
+
+                mem.copy(T, range, first);
+                try self.insertSlice(allocator, after_range, rest);
+            } else {
+                mem.copy(T, range, new_items);
+                const after_subrange = start + new_items.len;
+
+                for (self.items[after_range..]) |item, i| {
+                    self.items[after_subrange..][i] = item;
+                }
+
+                self.items.len -= len - new_items.len;
+            }
         }
 
         /// Extend the list by 1 element. Allocates more memory as necessary.
