@@ -593,8 +593,10 @@ pub fn getUserInfo(name: []const u8) !UserInfo {
 /// TODO this reads /etc/passwd. But sometimes the user/id mapping is in something else
 /// like NIS, AD, etc. See `man nss` or look at an strace for `id myuser`.
 pub fn posixGetUserInfo(name: []const u8) !UserInfo {
-    var reader = try io.Reader.open("/etc/passwd", null);
-    defer reader.close();
+    const file = try std.fs.openFileAbsolute("/etc/passwd", .{});
+    defer file.close();
+
+    const reader = file.reader();
 
     const State = enum {
         Start,
@@ -650,8 +652,8 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
                             '0'...'9' => byte - '0',
                             else => return error.CorruptPasswordFile,
                         };
-                        if (@mulWithOverflow(u32, uid, 10, *uid)) return error.CorruptPasswordFile;
-                        if (@addWithOverflow(u32, uid, digit, *uid)) return error.CorruptPasswordFile;
+                        if (@mulWithOverflow(u32, uid, 10, &uid)) return error.CorruptPasswordFile;
+                        if (@addWithOverflow(u32, uid, digit, &uid)) return error.CorruptPasswordFile;
                     },
                 },
                 .ReadGroupId => switch (byte) {
@@ -666,8 +668,8 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
                             '0'...'9' => byte - '0',
                             else => return error.CorruptPasswordFile,
                         };
-                        if (@mulWithOverflow(u32, gid, 10, *gid)) return error.CorruptPasswordFile;
-                        if (@addWithOverflow(u32, gid, digit, *gid)) return error.CorruptPasswordFile;
+                        if (@mulWithOverflow(u32, gid, 10, &gid)) return error.CorruptPasswordFile;
+                        if (@addWithOverflow(u32, gid, digit, &gid)) return error.CorruptPasswordFile;
                     },
                 },
             }
