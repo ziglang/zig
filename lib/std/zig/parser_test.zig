@@ -3583,6 +3583,24 @@ test "zig fmt: use of comments and Multiline string literals may force the param
     );
 }
 
+test "zig fmt: single argument trailing commas in @builtins()" {
+    try testCanonical(
+        \\pub fn foo(qzz: []u8) i1 {
+        \\    @panic(
+        \\        foo,
+        \\    );
+        \\    panic(
+        \\        foo,
+        \\    );
+        \\    @panic(
+        \\        foo,
+        \\        bar,
+        \\    );
+        \\}
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;

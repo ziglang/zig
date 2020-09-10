@@ -1489,7 +1489,7 @@ fn renderExpression(
             try renderToken(tree, ais, builtin_call.builtin_token, Space.None); // @name
 
             const src_params_trailing_comma = blk: {
-                if (builtin_call.params_len < 2) break :blk false;
+                if (builtin_call.params_len == 0) break :blk false;
                 const last_node = builtin_call.params()[builtin_call.params_len - 1];
                 const maybe_comma = tree.nextToken(last_node.lastToken());
                 break :blk tree.token_ids[maybe_comma] == .Comma;
