@@ -195,7 +195,7 @@ pub fn PriorityQueue(comptime T: type) type {
             count: usize,
 
             pub fn next(it: *Iterator) ?T {
-                if (it.count > it.queue.len - 1) return null;
+                if (it.count >= it.queue.len) return null;
                 const out = it.count;
                 it.count += 1;
                 return it.queue.items[out];
@@ -427,4 +427,13 @@ test "std.PriorityQueue: remove at index" {
     expectEqual(queue.remove(), 1);
     expectEqual(queue.remove(), 3);
     expectEqual(queue.removeOrNull(), null);
+}
+
+test "std.PriorityQueue: iterator while empty" {
+    var queue = PQ.init(testing.allocator, lessThan);
+    defer queue.deinit();
+
+    var it = queue.iterator();
+
+    expectEqual(it.next(), null);
 }
