@@ -25,6 +25,7 @@ pub usingnamespace switch (builtin.arch) {
 };
 
 pub usingnamespace @import("linux/netlink.zig");
+pub usingnamespace @import("linux/prctl.zig");
 
 const is_mips = builtin.arch.isMIPS();
 
