@@ -740,14 +740,16 @@ pub const File = struct {
     }
 
     pub const Reader = io.Reader(File, ReadError, read);
+
     /// Deprecated: use `Reader`
     pub const InStream = Reader;
 
-    pub fn reader(file: File) io.Reader(File, ReadError, read) {
+    pub fn reader(file: File) Reader {
         return .{ .context = file };
     }
+
     /// Deprecated: use `reader`
-    pub fn inStream(file: File) io.InStream(File, ReadError, read) {
+    pub fn inStream(file: File) Reader {
         return .{ .context = file };
     }
 
