@@ -733,14 +733,14 @@ fn renderExpression(
             }
 
             // scan to find row size
-            if (rowSize(tree, exprs, rtoken, false) != null) {
+            if (rowSize(tree, exprs, rtoken) != null) {
                 {
                     ais.pushIndentNextLine();
                     defer ais.popIndent();
                     try renderToken(tree, ais, lbrace, Space.Newline);
 
                     var expr_index: usize = 0;
-                    while (rowSize(tree, exprs[expr_index..], rtoken, true)) |row_size| {
+                    while (rowSize(tree, exprs[expr_index..], rtoken)) |row_size| {
                         const row_exprs = exprs[expr_index..];
                         // A place to store the width of each expression and its column's maximum
                         var widths = try allocator.alloc(usize, row_exprs.len + row_size);
@@ -757,14 +757,14 @@ fn renderExpression(
                         // Find next row with trailing comment (if any) to end the current section
                         var section_end = sec_end: {
                             var this_line_first_expr: usize = 0;
-                            var this_line_size = rowSize(tree, row_exprs, rtoken, true);
+                            var this_line_size = rowSize(tree, row_exprs, rtoken);
                             for (row_exprs) |expr, i| {
                                 // Ignore comment on first line of this section
                                 if (i == 0 or tree.tokensOnSameLine(row_exprs[0].firstToken(), expr.lastToken())) continue;
                                 // Track start of line containing comment
                                 if (!tree.tokensOnSameLine(row_exprs[this_line_first_expr].firstToken(), expr.lastToken())) {
                                     this_line_first_expr = i;
-                                    this_line_size = rowSize(tree, row_exprs[this_line_first_expr..], rtoken, true);
+                                    this_line_size = rowSize(tree, row_exprs[this_line_first_expr..], rtoken);
                                 }
 
                                 const maybe_comma = expr.lastToken() + 1;
@@ -860,7 +860,7 @@ fn renderExpression(
                                         continue;
                                     }
                                 }
-                                if (single_line) {
+                                if (single_line and row_size != 1) {
                                     try renderToken(tree, ais, comma, Space.Space); // ,
                                     continue;
                                 }
@@ -1087,7 +1087,8 @@ fn renderExpression(
             const params = call.params();
             for (params) |param_node, i| {
                 const maybe_comment = param_node.firstToken() - 1;
-                if (param_node.*.tag == .MultilineStringLiteral or tree.token_ids[maybe_comment] == .LineComment) {
+                const maybe_multiline_string = param_node.firstToken();
+                if (tree.token_ids[maybe_multiline_string] == .MultilineStringLiteralLine or tree.token_ids[maybe_comment] == .LineComment) {
                     ais.pushIndentOneShot();
                 }
 
@@ -2629,7 +2630,16 @@ fn copyFixingWhitespace(ais: anytype, slice: []const u8) @TypeOf(ais.*).Error!vo
     };
 }
 
-fn rowSize(tree: *ast.Tree, exprs: []*ast.Node, rtoken: ast.TokenIndex, force: bool) ?usize {
+fn rowSize(tree: *ast.Tree, exprs: []*ast.Node, rtoken: ast.TokenIndex) ?usize {
+    const first_token = exprs[0].firstToken();
+    const first_loc = tree.tokenLocation(tree.token_locs[first_token].start, rtoken);
+    if (first_loc.line == 0) {
+        const maybe_comma = tree.prevToken(rtoken);
+        if (tree.token_ids[maybe_comma] == .Comma)
+            return 1;
+        return null; // no newlines
+    }
+
     var count: usize = 1;
     for (exprs) |expr, i| {
         if (i + 1 < exprs.len) {
@@ -2638,21 +2648,6 @@ fn rowSize(tree: *ast.Tree, exprs: []*ast.Node, rtoken: ast.TokenIndex, force: b
             if (loc.line != 0) return count;
             count += 1;
         } else {
-            if (force) return count;
-            const expr_last_token = expr.lastToken();
-            const loc = tree.tokenLocation(tree.token_locs[expr_last_token].start, rtoken);
-            if (loc.line == 0) {
-                // all on one line
-                const src_has_trailing_comma = trailblk: {
-                    const maybe_comma = tree.prevToken(rtoken);
-                    break :trailblk tree.token_ids[maybe_comma] == .Comma;
-                };
-                if (src_has_trailing_comma) {
-                    return 1; // force row size 1
-                } else {
-                    return null; // no newlines
-                }
-            }
             return count;
         }
     }

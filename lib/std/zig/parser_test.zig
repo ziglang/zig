@@ -3516,9 +3516,13 @@ test "zig fmt: multiline string literals should play nice with array initializer
         \\        .{(
         \\            \\xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
         \\        )},
-        \\        .{ "xxxxxxx", "xxx", (
-        \\            \\ xxx
-        \\        ), "xxx", "xxx" },
+        \\        .{
+        \\            "xxxxxxx", "xxx",
+        \\            (
+        \\                \\ xxx
+        \\            ),
+        \\            "xxx",     "xxx",
+        \\        },
         \\        .{ "xxxxxxx", "xxx", "xxx", "xxx" }, .{ "xxxxxxx", "xxx", "xxx", "xxx" },
         \\        "aaaaaaa", "bbbbbb", "ccccc", // -
         \\        "dddd",    ("eee"),  ("fff"),
@@ -3595,6 +3599,37 @@ test "zig fmt: single argument trailing commas in @builtins()" {
         \\    @panic(
         \\        foo,
         \\        bar,
+        \\    );
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: trailing comma should force multiline 1 column" {
+    try testTransform(
+        \\pub const UUID_NULL: uuid_t = [16]u8{0,0,0,0,};
+        \\
+    ,
+        \\pub const UUID_NULL: uuid_t = [16]u8{
+        \\    0,
+        \\    0,
+        \\    0,
+        \\    0,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: function params should align nicely" {
+    try testCanonical(
+        \\pub fn foo() void {
+        \\    cases.addRuntimeSafety("slicing operator with sentinel",
+        \\        \\const std = @import("std");
+        \\        ++ check_panic_msg ++
+        \\        \\pub fn main() void {
+        \\        \\    var buf = [4]u8{'a','b','c',0};
+        \\        \\    const slice = buf[0..:0];
+        \\        \\}
         \\    );
         \\}
         \\
