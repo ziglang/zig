@@ -5208,6 +5208,9 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
 }
 
 pub const PollError = error{
+    /// The network subsystem has failed.
+    NetworkSubsystemFailed,
+
     /// The kernel had no space to allocate file descriptor tables.
     SystemResources,
 } || UnexpectedError;
@@ -5215,14 +5218,29 @@ pub const PollError = error{
 pub fn poll(fds: []pollfd, timeout: i32) PollError!usize {
     while (true) {
         const rc = system.poll(fds.ptr, fds.len, timeout);
-        switch (errno(rc)) {
-            0 => return @intCast(usize, rc),
-            EFAULT => unreachable,
-            EINTR => continue,
-            EINVAL => unreachable,
-            ENOMEM => return error.SystemResources,
-            else => |err| return unexpectedErrno(err),
+        if (builtin.os.tag == .windows) {
+            if (rc == windows.ws2_32.SOCKET_ERROR) {
+                switch (windows.ws2_32.WSAGetLastError()) {
+                    .WSANOTINITIALISED => unreachable,
+                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                    .WSAENOBUFS => return error.SystemResources,
+                    // TODO: handle more errors
+                    else => |err| return windows.unexpectedWSAError(err),
+                }
+            } else {
+                return @intCast(usize, rc);
+            }
+        } else {
+            switch (errno(rc)) {
+                0 => return @intCast(usize, rc),
+                EFAULT => unreachable,
+                EINTR => continue,
+                EINVAL => unreachable,
+                ENOMEM => return error.SystemResources,
+                else => |err| return unexpectedErrno(err),
+            }
         }
+        unreachable;
     }
 }
 

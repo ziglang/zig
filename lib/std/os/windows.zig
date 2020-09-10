@@ -1201,6 +1201,10 @@ pub fn recvfrom(s: ws2_32.SOCKET, buf: [*]u8, len: usize, flags: u32, from: ?*ws
     }
 }
 
+pub fn poll(fds: [*]ws2_32.pollfd, n: usize, timeout: i32) i32 {
+    return ws2_32.WSAPoll(fds, @intCast(u32, n), timeout);
+}
+
 pub fn WSAIoctl(
     s: ws2_32.SOCKET,
     dwIoControlCode: DWORD,
