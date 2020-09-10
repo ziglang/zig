@@ -26,7 +26,7 @@ pub const SYS = extern enum(usize) {
     mknod = 14,
     chmod = 15,
     lchown = 16,
-    sys_break = 17, // sys_ prepended to avoid clashing with keyword
+    @"break" = 17,
     oldstat = 18,
     lseek = 19,
     getpid = 20,
@@ -574,7 +574,7 @@ pub const vrregset = extern struct {
     _pad1: [2]u32,
     vscr_word_be: u32,
     vrsave: u32,
-    _pad2: [3]u32
+    _pad2: [3]u32,
 };
 pub const vrregset_t = vrregset;
 
@@ -588,7 +588,7 @@ pub const mcontext_t = extern struct {
     gp_regs: gregset_t,
     fp_regs: fpregset_t,
     v_regs: *vrregset_t,
-    vmx_reserve: [34+34+32+1]i64,
+    vmx_reserve: [34 + 34 + 32 + 1]i64,
 };
 
 pub const ucontext_t = extern struct {
