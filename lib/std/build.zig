@@ -1048,6 +1048,7 @@ pub const Builder = struct {
             .Bin => self.exe_dir,
             .Lib => self.lib_dir,
             .Header => self.h_dir,
+            .Custom => |path| fs.path.join(self.allocator, &[_][]const u8{ self.install_path, path }) catch unreachable,
         };
         return fs.path.resolve(
             self.allocator,
@@ -1212,6 +1213,8 @@ pub const LibExeObjStep = struct {
     is_linking_libc: bool = false,
     vcpkg_bin_path: ?[]const u8 = null,
 
+    /// This may be set in order to override the default install directory
+    override_dest_dir: ?InstallDir,
     installed_path: ?[]const u8,
     install_step: ?*InstallArtifactStep,
 
@@ -1348,6 +1351,7 @@ pub const LibExeObjStep = struct {
             .rdynamic = false,
             .output_dir = null,
             .single_threaded = false,
+            .override_dest_dir = null,
             .installed_path = null,
             .install_step = null,
         };
@@ -2309,17 +2313,17 @@ pub const InstallArtifactStep = struct {
             .builder = builder,
             .step = Step.init(.InstallArtifact, builder.fmt("install {}", .{artifact.step.name}), builder.allocator, make),
             .artifact = artifact,
-            .dest_dir = switch (artifact.kind) {
+            .dest_dir = artifact.override_dest_dir orelse switch (artifact.kind) {
                 .Obj => unreachable,
                 .Test => unreachable,
-                .Exe => .Bin,
-                .Lib => .Lib,
+                .Exe => InstallDir{ .Bin = {} },
+                .Lib => InstallDir{ .Lib = {} },
             },
             .pdb_dir = if (artifact.producesPdbFile()) blk: {
                 if (artifact.kind == .Exe) {
-                    break :blk InstallDir.Bin;
+                    break :blk InstallDir{ .Bin = {} };
                 } else {
-                    break :blk InstallDir.Lib;
+                    break :blk InstallDir{ .Lib = {} };
                 }
             } else null,
             .h_dir = if (artifact.kind == .Lib and artifact.emit_h) .Header else null,
@@ -2615,11 +2619,13 @@ const VcpkgRootStatus = enum {
 
 pub const VcpkgLinkage = std.builtin.LinkMode;
 
-pub const InstallDir = enum {
-    Prefix,
-    Lib,
-    Bin,
-    Header,
+pub const InstallDir = union(enum) {
+    Prefix: void,
+    Lib: void,
+    Bin: void,
+    Header: void,
+    /// A path relative to the prefix
+    Custom: []const u8,
 };
 
 pub const InstalledFile = struct {
