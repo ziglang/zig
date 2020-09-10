@@ -472,6 +472,7 @@ pub const TestContext = struct {
             .root_pkg = root_pkg,
             .keep_source_files_loaded = true,
             .object_format = ofmt,
+            .is_native_os = case.target.isNativeOs(),
         });
         defer module.destroy();
 

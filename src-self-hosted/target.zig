@@ -109,3 +109,28 @@ pub fn canBuildLibC(target: std.Target) bool {
     }
     return false;
 }
+
+pub fn cannotDynamicLink(target: std.Target) bool {
+    return switch (target.os.tag) {
+        .freestanding, .other => true,
+        else => false,
+    };
+}
+
+pub fn osRequiresLibC(target: std.Target) bool {
+    // On Darwin, we always link libSystem which contains libc.
+    // Similarly on FreeBSD and NetBSD we always link system libc
+    // since this is the stable syscall interface.
+    return switch (target.os.tag) {
+        .freebsd, .netbsd, .dragonfly, .macosx, .ios, .watchos, .tvos => true,
+        else => false,
+    };
+}
+
+pub fn requiresPIE(target: std.Target) bool {
+    return target.isAndroid();
+}
+
+pub fn libc_needs_crti_crtn(target: std.Target) bool {
+    return !(target.cpu.arch.isRISCV() or target.isAndroid());
+}

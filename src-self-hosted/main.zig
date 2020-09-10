@@ -14,6 +14,7 @@ const zir = @import("zir.zig");
 const build_options = @import("build_options");
 const warn = std.log.warn;
 const introspect = @import("introspect.zig");
+const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
 fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.log.emerg(format, args);
@@ -33,18 +34,22 @@ const usage =
     \\
     \\Commands:
     \\
-    \\  build-exe   [source]     Create executable from source or object files
-    \\  build-lib   [source]     Create library from source or object files
-    \\  build-obj   [source]     Create object from source or assembly
-    \\  cc                       Use Zig as a drop-in C compiler
-    \\  c++                      Use Zig as a drop-in C++ compiler
-    \\  env                      Print lib path, std path, compiler id and version
-    \\  fmt         [source]     Parse file and render in canonical zig format
-    \\  translate-c [source]     Convert C code to Zig code
-    \\  targets                  List available compilation targets
-    \\  version                  Print version number and exit
-    \\  zen                      Print zen of zig and exit
+    \\  build-exe        Create executable from source or object files
+    \\  build-lib        Create library from source or object files
+    \\  build-obj        Create object from source or assembly
+    \\  cc               Use Zig as a drop-in C compiler
+    \\  c++              Use Zig as a drop-in C++ compiler
+    \\  env              Print lib path, std path, compiler id and version
+    \\  fmt              Parse file and render in canonical zig format
+    \\  libc             Display native libc paths file or validate one
+    \\  translate-c      Convert C code to Zig code
+    \\  targets          List available compilation targets
+    \\  version          Print version number and exit
+    \\  zen              Print zen of zig and exit
     \\
+    \\General Options:
+    \\
+    \\  --help           Print command-specific usage
     \\
 ;
 
@@ -126,6 +131,8 @@ pub fn main() !void {
         return punt_to_clang(arena, args);
     } else if (mem.eql(u8, cmd, "fmt")) {
         return cmdFmt(gpa, cmd_args);
+    } else if (mem.eql(u8, cmd, "libc")) {
+        return cmdLibC(gpa, cmd_args);
     } else if (mem.eql(u8, cmd, "targets")) {
         const info = try std.zig.system.NativeTargetInfo.detect(arena, .{});
         const stdout = io.getStdOut().outStream();
@@ -184,7 +191,6 @@ const usage_build_generic =
     \\    ReleaseSmall            Optimize for small binary, safety off
     \\  -fPIC                     Force-enable Position Independent Code
     \\  -fno-PIC                  Force-disable Position Independent Code
-    \\  --dynamic                 Force output to be dynamically linked
     \\  --strip                   Exclude debug symbols
     \\  -ofmt=[mode]              Override target object format
     \\    elf                     Executable and Linking Format
@@ -199,6 +205,7 @@ const usage_build_generic =
     \\  -isystem  [dir]           Add directory to SYSTEM include search path
     \\  -I[dir]                   Add directory to include search path
     \\  -D[macro]=[value]         Define C [macro] to [value] (1 if [value] omitted)
+    \\  --libc [file]             Provide a file which specifies libc paths
     \\
     \\Link Options:
     \\  -l[lib], --library [lib]  Link against system library
@@ -208,6 +215,9 @@ const usage_build_generic =
     \\  --version [ver]           Dynamic library semver
     \\  -rdynamic                 Add all symbols to the dynamic symbol table
     \\  -rpath [path]             Add directory to the runtime library search path
+    \\  --eh-frame-hdr            Enable C++ exception handling by passing --eh-frame-hdr to linker
+    \\  -dynamic                  Force output to be dynamically linked
+    \\  -static                   Force output to be statically linked
     \\
     \\Debug Options (Zig Compiler Development):
     \\  -ftime-report             Print timing diagnostics
@@ -217,6 +227,14 @@ const usage_build_generic =
     \\  --debug-ir                verbose Zig IR
     \\  --debug-link              verbose linking
     \\  --debug-codegen           verbose machine code generation
+    \\
+;
+
+const repl_help =
+    \\Commands:
+    \\  update   Detect changes to source files and update output files.
+    \\    help   Print this text
+    \\    exit   Quit this repl
     \\
 ;
 
@@ -275,22 +293,26 @@ pub fn buildOutputType(
     var version_script: ?[]const u8 = null;
     var disable_c_depfile = false;
     var override_soname: ?[]const u8 = null;
-    var linker_optimization: ?[]const u8 = null;
     var linker_gc_sections: ?bool = null;
     var linker_allow_shlib_undefined: ?bool = null;
     var linker_bind_global_refs_locally: ?bool = null;
     var linker_z_nodelete = false;
     var linker_z_defs = false;
-    var stack_size_override: u64 = 0;
+    var stack_size_override: ?u64 = null;
     var use_llvm: ?bool = null;
     var use_lld: ?bool = null;
     var use_clang: ?bool = null;
+    var link_eh_frame_hdr = false;
+    var libc_paths_file: ?[]const u8 = null;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
 
     var clang_argv = std.ArrayList([]const u8).init(gpa);
     defer clang_argv.deinit();
+
+    var lld_argv = std.ArrayList([]const u8).init(gpa);
+    defer lld_argv.deinit();
 
     var lib_dirs = std.ArrayList([]const u8).init(gpa);
     defer lib_dirs.deinit();
@@ -414,15 +436,11 @@ pub fn buildOutputType(
                         fatal("unable to parse --version '{}': {}", .{ args[i], @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "-target")) {
-                    if (i + 1 >= args.len) {
-                        fatal("expected parameter after -target", .{});
-                    }
+                    if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                     i += 1;
                     target_arch_os_abi = args[i];
                 } else if (mem.eql(u8, arg, "-mcpu")) {
-                    if (i + 1 >= args.len) {
-                        fatal("expected parameter after -mcpu", .{});
-                    }
+                    if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                     i += 1;
                     target_mcpu = args[i];
                 } else if (mem.startsWith(u8, arg, "-ofmt=")) {
@@ -430,11 +448,13 @@ pub fn buildOutputType(
                 } else if (mem.startsWith(u8, arg, "-mcpu=")) {
                     target_mcpu = arg["-mcpu=".len..];
                 } else if (mem.eql(u8, arg, "--dynamic-linker")) {
-                    if (i + 1 >= args.len) {
-                        fatal("expected parameter after --dynamic-linker", .{});
-                    }
+                    if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                     i += 1;
                     target_dynamic_linker = args[i];
+                } else if (mem.eql(u8, arg, "--libc")) {
+                    if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
+                    i += 1;
+                    libc_paths_file = args[i];
                 } else if (mem.eql(u8, arg, "--watch")) {
                     watch = true;
                 } else if (mem.eql(u8, arg, "-ftime-report")) {
@@ -481,6 +501,8 @@ pub fn buildOutputType(
                     link_mode = .Static;
                 } else if (mem.eql(u8, arg, "--strip")) {
                     strip = true;
+                } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
+                    link_eh_frame_hdr = true;
                 } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                     linker_bind_global_refs_locally = true;
                 } else if (mem.eql(u8, arg, "--debug-tokenize")) {
@@ -565,7 +587,7 @@ pub fn buildOutputType(
                     const file_ext = Module.classifyFileExt(mem.spanZ(it.only_arg));
                     switch (file_ext) {
                         .assembly, .c, .cpp, .ll, .bc, .h => try c_source_files.append(it.only_arg),
-                        .unknown => try link_objects.append(it.only_arg),
+                        .unknown, .so => try link_objects.append(it.only_arg),
                     }
                 },
                 .l => {
@@ -716,7 +738,7 @@ pub fn buildOutputType(
                 }
                 version_script = linker_args.items[i];
             } else if (mem.startsWith(u8, arg, "-O")) {
-                linker_optimization = arg;
+                try lld_argv.append(arg);
             } else if (mem.eql(u8, arg, "--gc-sections")) {
                 linker_gc_sections = true;
             } else if (mem.eql(u8, arg, "--no-gc-sections")) {
@@ -994,10 +1016,21 @@ pub fn buildOutputType(
     };
     var default_prng = std.rand.DefaultPrng.init(random_seed);
 
+    var libc_installation: ?LibCInstallation = null;
+    defer if (libc_installation) |*l| l.deinit(gpa);
+
+    if (libc_paths_file) |paths_file| {
+        libc_installation = LibCInstallation.parse(gpa, paths_file, io.getStdErr().writer()) catch |err| {
+            fatal("unable to parse libc paths file: {}", .{@errorName(err)});
+        };
+    }
+
     const module = Module.create(gpa, .{
         .zig_lib_dir = zig_lib_dir,
         .root_name = root_name,
         .target = target_info.target,
+        .is_native_os = cross_target.isNativeOs(),
+        .dynamic_linker = target_info.dynamic_linker.get(),
         .output_mode = output_mode,
         .root_pkg = root_pkg,
         .bin_file_dir_path = null,
@@ -1008,6 +1041,7 @@ pub fn buildOutputType(
         .optimize_mode = build_mode,
         .keep_source_files_loaded = zir_out_path != null,
         .clang_argv = clang_argv.items,
+        .lld_argv = lld_argv.items,
         .lib_dirs = lib_dirs.items,
         .rpath_list = rpath_list.items,
         .c_source_files = c_source_files.items,
@@ -1028,17 +1062,19 @@ pub fn buildOutputType(
         .version_script = version_script,
         .disable_c_depfile = disable_c_depfile,
         .override_soname = override_soname,
-        .linker_optimization = linker_optimization,
         .linker_gc_sections = linker_gc_sections,
         .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
         .linker_bind_global_refs_locally = linker_bind_global_refs_locally,
         .linker_z_nodelete = linker_z_nodelete,
         .linker_z_defs = linker_z_defs,
+        .link_eh_frame_hdr = link_eh_frame_hdr,
         .stack_size_override = stack_size_override,
         .strip = strip,
         .self_exe_path = self_exe_path,
         .rand = &default_prng.random,
         .clang_passthrough_mode = arg_mode != .build,
+        .version = version,
+        .libc_installation = if (libc_installation) |*lci| lci else null,
     }) catch |err| {
         fatal("unable to create module: {}", .{@errorName(err)});
     };
@@ -1116,16 +1152,64 @@ fn updateModule(gpa: *Allocator, module: *Module, zir_out_path: ?[]const u8) !vo
     }
 }
 
-const repl_help =
-    \\Commands:
-    \\  update   Detect changes to source files and update output files.
-    \\    help   Print this text
-    \\    exit   Quit this repl
+pub const usage_libc =
+    \\Usage: zig libc
+    \\
+    \\    Detect the native libc installation and print the resulting
+    \\    paths to stdout. You can save this into a file and then edit
+    \\    the paths to create a cross compilation libc kit. Then you
+    \\    can pass `--libc [file]` for Zig to use it.
+    \\
+    \\Usage: zig libc [paths_file]
+    \\
+    \\    Parse a libc installation text file and validate it.
     \\
 ;
 
+pub fn cmdLibC(gpa: *Allocator, args: []const []const u8) !void {
+    var input_file: ?[]const u8 = null;
+    {
+        var i: usize = 0;
+        while (i < args.len) : (i += 1) {
+            const arg = args[i];
+            if (mem.startsWith(u8, arg, "-")) {
+                if (mem.eql(u8, arg, "--help")) {
+                    const stdout = io.getStdOut().writer();
+                    try stdout.writeAll(usage_libc);
+                    process.exit(0);
+                } else {
+                    fatal("unrecognized parameter: '{}'", .{arg});
+                }
+            } else if (input_file != null) {
+                fatal("unexpected extra parameter: '{}'", .{arg});
+            } else {
+                input_file = arg;
+            }
+        }
+    }
+    if (input_file) |libc_file| {
+        const stderr = std.io.getStdErr().writer();
+        var libc = LibCInstallation.parse(gpa, libc_file, stderr) catch |err| {
+            fatal("unable to parse libc file: {}", .{@errorName(err)});
+        };
+        defer libc.deinit(gpa);
+    } else {
+        var libc = LibCInstallation.findNative(.{
+            .allocator = gpa,
+            .verbose = true,
+        }) catch |err| {
+            fatal("unable to detect native libc: {}", .{@errorName(err)});
+        };
+        defer libc.deinit(gpa);
+
+        var bos = io.bufferedOutStream(io.getStdOut().writer());
+        try libc.render(bos.writer());
+        try bos.flush();
+    }
+}
+
 pub const usage_fmt =
-    \\usage: zig fmt [file]...
+    \\Usage: zig fmt [file]...
     \\
     \\   Formats the input files and modifies them in-place.
     \\   Arguments can be files or directories, which are searched

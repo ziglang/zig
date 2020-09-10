@@ -18,6 +18,7 @@ const link = @import("../link.zig");
 const File = link.File;
 const Elf = @This();
 const build_options = @import("build_options");
+const target_util = @import("../target.zig");
 
 const default_entry_addr = 0x8000000;
 
@@ -709,12 +710,7 @@ pub const abbrev_parameter = 6;
 
 pub fn flush(self: *Elf, module: *Module) !void {
     if (build_options.have_llvm and self.base.options.use_lld) {
-        // If there is no Zig code to compile, then we should skip flushing the output file because it
-        // will not be part of the linker line anyway.
-        if (module.root_pkg != null) {
-            try self.flushInner(module);
-        }
-        std.debug.print("TODO create an LLD command line and invoke it\n", .{});
+        return self.linkWithLLD(module);
     } else {
         switch (self.base.options.effectiveOutputMode()) {
             .Exe, .Obj => {},
@@ -1200,6 +1196,275 @@ fn flushInner(self: *Elf, module: *Module) !void {
     assert(!self.shdr_table_dirty);
     assert(!self.shstrtab_dirty);
     assert(!self.debug_strtab_dirty);
+}
+
+fn linkWithLLD(self: *Elf, module: *Module) !void {
+    // If there is no Zig code to compile, then we should skip flushing the output file because it
+    // will not be part of the linker line anyway.
+    if (module.root_pkg != null) {
+        try self.flushInner(module);
+    }
+    var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
+    defer arena_allocator.deinit();
+    const arena = &arena_allocator.allocator;
+
+    const target = self.base.options.target;
+    const is_obj = self.base.options.output_mode == .Obj;
+
+    // Create an LLD command line and invoke it.
+    var argv = std.ArrayList([]const u8).init(self.base.allocator);
+    defer argv.deinit();
+    // Even though we're calling LLD as a library it thinks the first argument is its own exe name.
+    try argv.append("lld");
+    if (is_obj) {
+        try argv.append("-r");
+    }
+    if (self.base.options.output_mode == .Lib and
+        self.base.options.link_mode == .Static and
+        !target.isWasm())
+    {
+        // TODO port the code from link.cpp
+        return error.TODOMakeArchive;
+    }
+    const link_in_crt = self.base.options.link_libc and self.base.options.output_mode == .Exe;
+
+    try argv.append("-error-limit=0");
+
+    if (self.base.options.output_mode == .Exe) {
+        try argv.append("-z");
+        const stack_size = self.base.options.stack_size_override orelse 16777216;
+        const arg = try std.fmt.allocPrint(arena, "stack-size={}", .{stack_size});
+        try argv.append(arg);
+    }
+
+    if (self.base.options.linker_script) |linker_script| {
+        try argv.append("-T");
+        try argv.append(linker_script);
+    }
+
+    const gc_sections = self.base.options.gc_sections orelse !is_obj;
+    if (gc_sections) {
+        try argv.append("--gc-sections");
+    }
+
+    if (self.base.options.eh_frame_hdr) {
+        try argv.append("--eh-frame-hdr");
+    }
+
+    if (self.base.options.rdynamic) {
+        try argv.append("--export-dynamic");
+    }
+
+    try argv.appendSlice(self.base.options.extra_lld_args);
+
+    if (self.base.options.z_nodelete) {
+        try argv.append("-z");
+        try argv.append("nodelete");
+    }
+    if (self.base.options.z_defs) {
+        try argv.append("-z");
+        try argv.append("defs");
+    }
+
+    if (getLDMOption(target)) |ldm| {
+        // Any target ELF will use the freebsd osabi if suffixed with "_fbsd".
+        const arg = if (target.os.tag == .freebsd)
+            try std.fmt.allocPrint(arena, "{}_fbsd", .{ldm})
+        else
+            ldm;
+        try argv.append("-m");
+        try argv.append(arg);
+    }
+
+    const is_lib = self.base.options.output_mode == .Lib;
+    const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
+    if (self.base.options.link_mode == .Static) {
+        if (target.cpu.arch.isARM() or target.cpu.arch.isThumb()) {
+            try argv.append("-Bstatic");
+        } else {
+            try argv.append("-static");
+        }
+    } else if (is_dyn_lib) {
+        try argv.append("-shared");
+    }
+
+    if (target_util.requiresPIE(target) and self.base.options.output_mode == .Exe) {
+        try argv.append("-pie");
+    }
+
+    const full_out_path = if (self.base.options.dir_path) |dir_path|
+        try std.fs.path.join(arena, &[_][]const u8{dir_path, self.base.options.sub_path})
+    else 
+        self.base.options.sub_path;
+    try argv.append("-o");
+    try argv.append(full_out_path);
+
+    if (link_in_crt) {
+        const crt1o: []const u8 = o: {
+            if (target.os.tag == .netbsd) {
+                break :o "crt0.o";
+            } else if (target.isAndroid()) {
+                if (self.base.options.link_mode == .Dynamic) {
+                    break :o "crtbegin_dynamic.o";
+                } else {
+                    break :o "crtbegin_static.o";
+                }
+            } else if (self.base.options.link_mode == .Static) {
+                break :o "crt1.o";
+            } else {
+                break :o "Scrt1.o";
+            }
+        };
+        try argv.append(try module.get_libc_crt_file(arena, crt1o));
+        if (target_util.libc_needs_crti_crtn(target)) {
+            try argv.append(try module.get_libc_crt_file(arena, "crti.o"));
+        }
+    }
+
+    // TODO rpaths
+    //for (size_t i = 0; i < g->rpath_list.length; i += 1) {
+    //    Buf *rpath = g->rpath_list.at(i);
+    //    add_rpath(lj, rpath);
+    //}
+    //if (g->each_lib_rpath) {
+    //    for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
+    //        const char *lib_dir = g->lib_dirs.at(i);
+    //        for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
+    //            LinkLib *link_lib = g->link_libs_list.at(i);
+    //            if (buf_eql_str(link_lib->name, "c")) {
+    //                continue;
+    //            }
+    //            bool does_exist;
+    //            Buf *test_path = buf_sprintf("%s/lib%s.so", lib_dir, buf_ptr(link_lib->name));
+    //            if (os_file_exists(test_path, &does_exist) != ErrorNone) {
+    //                zig_panic("link: unable to check if file exists: %s", buf_ptr(test_path));
+    //            }
+    //            if (does_exist) {
+    //                add_rpath(lj, buf_create_from_str(lib_dir));
+    //                break;
+    //            }
+    //        }
+    //    }
+    //}
+
+    for (self.base.options.lib_dirs) |lib_dir| {
+        try argv.append("-L");
+        try argv.append(lib_dir);
+    }
+
+    if (self.base.options.link_libc) {
+        if (self.base.options.libc_installation) |libc_installation| {
+            try argv.append("-L");
+            try argv.append(libc_installation.crt_dir.?);
+        }
+
+        if (self.base.options.link_mode == .Dynamic and (is_dyn_lib or self.base.options.output_mode == .Exe)) {
+            if (self.base.options.dynamic_linker) |dynamic_linker| {
+                try argv.append("-dynamic-linker");
+                try argv.append(dynamic_linker);
+            }
+        }
+    }
+
+    if (is_dyn_lib) {
+        const soname = self.base.options.override_soname orelse
+            try std.fmt.allocPrint(arena, "lib{}.so.{}", .{self.base.options.root_name,
+                self.base.options.version.major,});
+        try argv.append("-soname");
+        try argv.append(soname);
+
+        if (self.base.options.version_script) |version_script| {
+            try argv.append("-version-script");
+            try argv.append(version_script);
+        }
+    }
+
+    // Positional arguments to the linker such as object files.
+    try argv.appendSlice(self.base.options.objects);
+
+    // TODO compiler-rt and libc
+    //if (!g->is_dummy_so && (g->out_type == OutTypeExe || is_dyn_lib)) {
+    //    if (g->libc_link_lib == nullptr) {
+    //        Buf *libc_a_path = build_c(g, OutTypeLib, lj->build_dep_prog_node);
+    //        try argv.append(buf_ptr(libc_a_path));
+    //    }
+
+    //    Buf *compiler_rt_o_path = build_compiler_rt(g, OutTypeLib, lj->build_dep_prog_node);
+    //    try argv.append(buf_ptr(compiler_rt_o_path));
+    //}
+
+    // Shared libraries.
+    try argv.ensureCapacity(argv.items.len + self.base.options.system_libs.len);
+    for (self.base.options.system_libs) |link_lib| {
+        // By this time, we depend on these libs being dynamically linked libraries and not static libraries
+        // (the check for that needs to be earlier), but they could be full paths to .so files, in which
+        // case we want to avoid prepending "-l".
+        const ext = Module.classifyFileExt(link_lib);
+        const arg = if (ext == .so) link_lib else try std.fmt.allocPrint(arena, "-l{}", .{link_lib});
+        argv.appendAssumeCapacity(arg);
+    }
+
+    if (!is_obj) {
+        // libc++ dep
+        if (self.base.options.link_libcpp) {
+            try argv.append(module.libcxxabi_static_lib.?);
+            try argv.append(module.libcxx_static_lib.?);
+        }
+
+        // libc dep
+        if (self.base.options.link_libc) {
+            if (self.base.options.libc_installation != null) {
+                if (self.base.options.link_mode == .Static) {
+                    try argv.append("--start-group");
+                    try argv.append("-lc");
+                    try argv.append("-lm");
+                    try argv.append("--end-group");
+                } else {
+                    try argv.append("-lc");
+                    try argv.append("-lm");
+                }
+
+                if (target.os.tag == .freebsd or target.os.tag == .netbsd) {
+                    try argv.append("-lpthread");
+                }
+            } else if (target.isGnuLibC()) {
+                try argv.append(module.libunwind_static_lib.?);
+                // TODO here we need to iterate over the glibc libs and add the .so files to the linker line.
+                std.log.warn("TODO port add_glibc_libs to stage2", .{});
+                try argv.append(try module.get_libc_crt_file(arena, "libc_nonshared.a"));
+            } else if (target.isMusl()) {
+                try argv.append(module.libunwind_static_lib.?);
+                try argv.append(module.libc_static_lib.?);
+            } else if (self.base.options.link_libcpp) {
+                try argv.append(module.libunwind_static_lib.?);
+            } else {
+                unreachable; // Compiler was supposed to emit an error for not being able to provide libc.
+            }
+        }
+    }
+
+    // crt end
+    if (link_in_crt) {
+        if (target.isAndroid()) {
+            try argv.append(try module.get_libc_crt_file(arena, "crtend_android.o"));
+        } else if (target_util.libc_needs_crti_crtn(target)) {
+            try argv.append(try module.get_libc_crt_file(arena, "crtn.o"));
+        }
+    }
+
+    const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
+    if (allow_shlib_undefined) {
+        try argv.append("--allow-shlib-undefined");
+    }
+
+    if (self.base.options.bind_global_refs_locally) {
+        try argv.append("-Bsymbolic");
+    }
+
+    for (argv.items) |arg| {
+        std.debug.print("{} ", .{arg});
+    }
+    @panic("invoke LLD");
 }
 
 fn writeDwarfAddrAssumeCapacity(self: *Elf, buf: *std.ArrayList(u8), addr: u64) void {
@@ -2615,4 +2880,37 @@ fn sectHeaderTo32(shdr: elf.Elf64_Shdr) elf.Elf32_Shdr {
         .sh_addralign = @intCast(u32, shdr.sh_addralign),
         .sh_entsize = @intCast(u32, shdr.sh_entsize),
     };
+}
+
+fn getLDMOption(target: std.Target) ?[]const u8 {
+    switch (target.cpu.arch) {
+        .i386 => return "elf_i386",
+        .aarch64 => return "aarch64linux",
+        .aarch64_be => return "aarch64_be_linux",
+        .arm, .thumb => return "armelf_linux_eabi",
+        .armeb, .thumbeb => return "armebelf_linux_eabi",
+        .powerpc => return "elf32ppclinux",
+        .powerpc64 => return "elf64ppc",
+        .powerpc64le => return "elf64lppc",
+        .sparc, .sparcel => return "elf32_sparc",
+        .sparcv9 => return "elf64_sparc",
+        .mips => return "elf32btsmip",
+        .mipsel => return "elf32ltsmip",
+        .mips64 => return "elf64btsmip",
+        .mips64el => return "elf64ltsmip",
+        .s390x => return "elf64_s390",
+        .x86_64 => {
+            if (target.abi == .gnux32) {
+                return "elf32_x86_64";
+            }
+            // Any target elf will use the freebsd osabi if suffixed with "_fbsd".
+            if (target.os.tag == .freebsd) {
+                return "elf_x86_64_fbsd";
+            }
+            return "elf_x86_64";
+        },
+        .riscv32 => return "elf32lriscv",
+        .riscv64 => return "elf64lriscv",
+        else => return null,
+    }
 }

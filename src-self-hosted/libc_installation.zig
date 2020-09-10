@@ -11,6 +11,8 @@ const is_gnu = Target.current.isGnu();
 
 usingnamespace @import("windows_sdk.zig");
 
+// TODO Rework this abstraction to use std.log instead of taking a stderr stream.
+
 /// See the render function implementation for documentation of the fields.
 pub const LibCInstallation = struct {
     include_dir: ?[]const u8 = null,

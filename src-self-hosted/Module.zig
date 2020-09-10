@@ -24,6 +24,7 @@ const liveness = @import("liveness.zig");
 const astgen = @import("astgen.zig");
 const zir_sema = @import("zir_sema.zig");
 const build_options = @import("build_options");
+const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: *Allocator,
@@ -82,8 +83,6 @@ next_anon_name_index: usize = 0,
 /// contains Decls that need to be deleted if they end up having no references to them.
 deletion_set: std.ArrayListUnmanaged(*Decl) = .{},
 
-/// Owned by Module.
-root_name: []u8,
 keep_source_files_loaded: bool,
 use_clang: bool,
 sanitize_c: bool,
@@ -105,6 +104,19 @@ zig_lib_dir: []const u8,
 zig_cache_dir_path: []const u8,
 libc_include_dir_list: []const []const u8,
 rand: *std.rand.Random,
+
+/// Populated when we build libc++.a. A WorkItem to build this is placed in the queue
+/// and resolved before calling linker.flush().
+libcxx_static_lib: ?[]const u8 = null,
+/// Populated when we build libc++abi.a. A WorkItem to build this is placed in the queue
+/// and resolved before calling linker.flush().
+libcxxabi_static_lib: ?[]const u8 = null,
+/// Populated when we build libunwind.a. A WorkItem to build this is placed in the queue
+/// and resolved before calling linker.flush().
+libunwind_static_lib: ?[]const u8 = null,
+/// Populated when we build c.a. A WorkItem to build this is placed in the queue
+/// and resolved before calling linker.flush().
+libc_static_lib: ?[]const u8 = null,
 
 pub const InnerError = error{ OutOfMemory, AnalysisFail };
 
@@ -932,6 +944,7 @@ pub const InitOptions = struct {
     root_pkg: ?*Package,
     output_mode: std.builtin.OutputMode,
     rand: *std.rand.Random,
+    dynamic_linker: ?[]const u8 = null,
     bin_file_dir_path: ?[]const u8 = null,
     bin_file_dir: ?std.fs.Dir = null,
     bin_file_path: []const u8,
@@ -941,6 +954,7 @@ pub const InitOptions = struct {
     optimize_mode: std.builtin.Mode = .Debug,
     keep_source_files_loaded: bool = false,
     clang_argv: []const []const u8 = &[0][]const u8{},
+    lld_argv: []const []const u8 = &[0][]const u8{},
     lib_dirs: []const []const u8 = &[0][]const u8{},
     rpath_list: []const []const u8 = &[0][]const u8{},
     c_source_files: []const []const u8 = &[0][]const u8{},
@@ -957,10 +971,11 @@ pub const InitOptions = struct {
     use_clang: ?bool = null,
     rdynamic: bool = false,
     strip: bool = false,
+    is_native_os: bool,
+    link_eh_frame_hdr: bool = false,
     linker_script: ?[]const u8 = null,
     version_script: ?[]const u8 = null,
     override_soname: ?[]const u8 = null,
-    linker_optimization: ?[]const u8 = null,
     linker_gc_sections: ?bool = null,
     function_sections: ?bool = null,
     linker_allow_shlib_undefined: ?bool = null,
@@ -969,8 +984,10 @@ pub const InitOptions = struct {
     linker_z_nodelete: bool = false,
     linker_z_defs: bool = false,
     clang_passthrough_mode: bool = false,
-    stack_size_override: u64 = 0,
+    stack_size_override: ?u64 = null,
     self_exe_path: ?[]const u8 = null,
+    version: std.builtin.Version = .{ .major = 0, .minor = 0, .patch = 0 },
+    libc_installation: ?*const LibCInstallation = null,
 };
 
 pub fn create(gpa: *Allocator, options: InitOptions) !*Module {
@@ -1002,6 +1019,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Module {
                 options.frameworks.len != 0 or
                 options.system_libs.len != 0 or
                 options.link_libc or options.link_libcpp or
+                options.link_eh_frame_hdr or
                 options.linker_script != null or options.version_script != null)
             {
                 break :blk true;
@@ -1017,6 +1035,35 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Module {
             break :blk false;
         };
 
+        const must_dynamic_link = dl: {
+            if (target_util.cannotDynamicLink(options.target))
+                break :dl false;
+            if (target_util.osRequiresLibC(options.target))
+                break :dl true;
+            if (options.link_libc and options.target.isGnuLibC())
+                break :dl true;
+            if (options.system_libs.len != 0)
+                break :dl true;
+
+            break :dl false;
+        };
+        const default_link_mode: std.builtin.LinkMode = if (must_dynamic_link) .Dynamic else .Static;
+        const link_mode: std.builtin.LinkMode = if (options.link_mode) |lm| blk: {
+            if (lm == .Static and must_dynamic_link) {
+                return error.UnableToStaticLink;
+            }
+            break :blk lm;
+        } else default_link_mode;
+
+        const libc_dirs = try detectLibCIncludeDirs(
+            arena,
+            options.zig_lib_dir,
+            options.target,
+            options.is_native_os,
+            options.link_libc,
+            options.libc_installation,
+        );
+
         const bin_file = try link.File.openPath(gpa, .{
             .dir = options.bin_file_dir orelse std.fs.cwd(),
             .dir_path = options.bin_file_dir_path,
@@ -1024,8 +1071,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Module {
             .root_name = root_name,
             .root_pkg = options.root_pkg,
             .target = options.target,
+            .dynamic_linker = options.dynamic_linker,
             .output_mode = options.output_mode,
-            .link_mode = options.link_mode orelse .Static,
+            .link_mode = link_mode,
             .object_format = ofmt,
             .optimize_mode = options.optimize_mode,
             .use_lld = use_lld,
@@ -1039,7 +1087,22 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Module {
             .lib_dirs = options.lib_dirs,
             .rpath_list = options.rpath_list,
             .strip = options.strip,
+            .is_native_os = options.is_native_os,
             .function_sections = options.function_sections orelse false,
+            .allow_shlib_undefined = options.linker_allow_shlib_undefined,
+            .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
+            .z_nodelete = options.linker_z_nodelete,
+            .z_defs = options.linker_z_defs,
+            .stack_size_override = options.stack_size_override,
+            .linker_script = options.linker_script,
+            .version_script = options.version_script,
+            .gc_sections = options.linker_gc_sections,
+            .eh_frame_hdr = options.link_eh_frame_hdr,
+            .rdynamic = options.rdynamic,
+            .extra_lld_args = options.lld_argv,
+            .override_soname = options.override_soname,
+            .version = options.version,
+            .libc_installation = libc_dirs.libc_installation,
         });
         errdefer bin_file.destroy();
 
@@ -1146,13 +1209,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Module {
             break :blk true;
         };
 
-        const libc_include_dir_list = try detectLibCIncludeDirs(
-            arena,
-            options.zig_lib_dir,
-            options.target,
-            options.link_libc,
-        );
-
         const sanitize_c: bool = options.want_sanitize_c orelse switch (options.optimize_mode) {
             .Debug, .ReleaseSafe => true,
             .ReleaseSmall, .ReleaseFast => false,
@@ -1163,7 +1219,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Module {
             .arena_state = arena_allocator.state,
             .zig_lib_dir = options.zig_lib_dir,
             .zig_cache_dir_path = zig_cache_dir_path,
-            .root_name = root_name,
             .root_pkg = options.root_pkg,
             .root_scope = root_scope,
             .bin_file = bin_file,
@@ -1174,7 +1229,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Module {
             .c_source_files = options.c_source_files,
             .cache = cache,
             .self_exe_path = options.self_exe_path,
-            .libc_include_dir_list = libc_include_dir_list,
+            .libc_include_dir_list = libc_dirs.libc_include_dir_list,
             .sanitize_c = sanitize_c,
             .rand = options.rand,
             .clang_passthrough_mode = options.clang_passthrough_mode,
@@ -1544,7 +1599,10 @@ fn buildCObject(mod: *Module, c_object: *CObject) !void {
     // directly to the output file.
     const direct_o = mod.c_source_files.len == 1 and mod.root_pkg == null and
         mod.bin_file.options.output_mode == .Obj and mod.bin_file.options.objects.len == 0;
-    const o_basename_noext = if (direct_o) mod.root_name else mem.split(c_source_basename, ".").next().?;
+    const o_basename_noext = if (direct_o)
+        mod.bin_file.options.root_name
+    else
+        mem.split(c_source_basename, ".").next().?;
     const o_basename = try std.fmt.allocPrint(arena, "{}{}", .{ o_basename_noext, mod.getTarget().oFileExt() });
 
     // We can't know the digest until we do the C compiler invocation, so we need a temporary filename.
@@ -1749,7 +1807,7 @@ fn addCCArgs(
                 try argv.append(p);
             }
         },
-        .assembly, .ll, .bc, .unknown => {},
+        .so, .assembly, .ll, .bc, .unknown => {},
     }
     // TODO CLI args for cpu features when compiling assembly
     //for (size_t i = 0; i < g->zig_target->llvm_cpu_features_asm_len; i += 1) {
@@ -4259,6 +4317,7 @@ pub const FileExt = enum {
     ll,
     bc,
     assembly,
+    so,
     unknown,
 };
 
@@ -4290,10 +4349,36 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .assembly;
     } else if (mem.endsWith(u8, filename, ".h")) {
         return .h;
-    } else {
-        // TODO look for .so, .so.X, .so.X.Y, .so.X.Y.Z
-        return .unknown;
+    } else if (mem.endsWith(u8, filename, ".so")) {
+        return .so;
     }
+    // Look for .so.X, .so.X.Y, .so.X.Y.Z
+    var it = mem.split(filename, ".");
+    _ = it.next().?;
+    var so_txt = it.next() orelse return .unknown;
+    while (!mem.eql(u8, so_txt, "so")) {
+        so_txt = it.next() orelse return .unknown;
+    }
+    const n1 = it.next() orelse return .unknown;
+    const n2 = it.next();
+    const n3 = it.next();
+
+    _ = std.fmt.parseInt(u32, n1, 10) catch return .unknown;
+    if (n2) |x| _ = std.fmt.parseInt(u32, x, 10) catch return .unknown;
+    if (n3) |x| _ = std.fmt.parseInt(u32, x, 10) catch return .unknown;
+    if (it.next() != null) return .unknown;
+
+    return .so;
+}
+
+test "classifyFileExt" {
+    std.testing.expectEqual(FileExt.cpp, classifyFileExt("foo.cc"));
+    std.testing.expectEqual(FileExt.unknown, classifyFileExt("foo.nim"));
+    std.testing.expectEqual(FileExt.so, classifyFileExt("foo.so"));
+    std.testing.expectEqual(FileExt.so, classifyFileExt("foo.so.1"));
+    std.testing.expectEqual(FileExt.so, classifyFileExt("foo.so.1.2"));
+    std.testing.expectEqual(FileExt.so, classifyFileExt("foo.so.1.2.3"));
+    std.testing.expectEqual(FileExt.unknown, classifyFileExt("foo.so.1.2.3~"));
 }
 
 fn haveFramePointer(mod: *Module) bool {
@@ -4303,16 +4388,29 @@ fn haveFramePointer(mod: *Module) bool {
     };
 }
 
+const LibCDirs = struct {
+    libc_include_dir_list: []const []const u8,
+    libc_installation: ?*const LibCInstallation,
+};
+
 fn detectLibCIncludeDirs(
     arena: *Allocator,
     zig_lib_dir: []const u8,
     target: Target,
+    is_native_os: bool,
     link_libc: bool,
-) ![]const []const u8 {
-    if (!link_libc) return &[0][]u8{};
+    libc_installation: ?*const LibCInstallation,
+) !LibCDirs {
+    if (!link_libc) {
+        return LibCDirs{
+            .libc_include_dir_list = &[0][]u8{},
+            .libc_installation = null,
+        };
+    }
 
-    // TODO Support --libc file explicitly providing libc paths. Or not? Maybe we are better off
-    // deleting that feature.
+    if (libc_installation) |lci| {
+        return detectLibCFromLibCInstallation(arena, target, lci);
+    }
 
     if (target_util.canBuildLibC(target)) {
         const generic_name = target_util.libCGenericName(target);
@@ -4348,9 +4446,52 @@ fn detectLibCIncludeDirs(
         list[1] = generic_include_dir;
         list[2] = arch_os_include_dir;
         list[3] = generic_os_include_dir;
-        return list;
+        return LibCDirs{
+            .libc_include_dir_list = list,
+            .libc_installation = null,
+        };
     }
 
-    // TODO finish porting detect_libc from codegen.cpp
-    return error.LibCDetectionUnimplemented;
+    if (is_native_os) {
+        const libc = try arena.create(LibCInstallation);
+        libc.* = try LibCInstallation.findNative(.{ .allocator = arena });
+        return detectLibCFromLibCInstallation(arena, target, libc);
+    }
+
+    return LibCDirs{
+        .libc_include_dir_list = &[0][]u8{},
+        .libc_installation = null,
+    };
+}
+
+fn detectLibCFromLibCInstallation(arena: *Allocator, target: Target, lci: *const LibCInstallation) !LibCDirs {
+    var list = std.ArrayList([]const u8).init(arena);
+    try list.ensureCapacity(4);
+
+    list.appendAssumeCapacity(lci.include_dir.?);
+
+    const is_redundant = mem.eql(u8, lci.sys_include_dir.?, lci.include_dir.?);
+    if (!is_redundant) list.appendAssumeCapacity(lci.sys_include_dir.?);
+
+    if (target.os.tag == .windows) {
+        if (std.fs.path.dirname(lci.include_dir.?)) |include_dir_parent| {
+            const um_dir = try std.fs.path.join(arena, &[_][]const u8{ include_dir_parent, "um" });
+            list.appendAssumeCapacity(um_dir);
+
+            const shared_dir = try std.fs.path.join(arena, &[_][]const u8{ include_dir_parent, "shared" });
+            list.appendAssumeCapacity(shared_dir);
+        }
+    }
+    return LibCDirs{
+        .libc_include_dir_list = list.items,
+        .libc_installation = lci,
+    };
+}
+
+pub fn get_libc_crt_file(mod: *Module, arena: *Allocator, basename: []const u8) ![]const u8 {
+    // TODO port support for building crt files from stage1
+    const lci = mod.bin_file.options.libc_installation orelse return error.LibCInstallationNotAvailable;
+    const crt_dir_path = lci.crt_dir orelse return error.LibCInstallationMissingCRTDir;
+    const full_path = try std.fs.path.join(arena, &[_][]const u8{ crt_dir_path, basename });
+    return full_path;
 }

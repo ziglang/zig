@@ -6,6 +6,7 @@ const trace = @import("tracy.zig").trace;
 const Package = @import("Package.zig");
 const Type = @import("type.zig").Type;
 const build_options = @import("build_options");
+const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
 pub const producer_string = if (std.builtin.is_test) "zig test" else "zig " ++ build_options.version;
 
@@ -23,6 +24,7 @@ pub const Options = struct {
     optimize_mode: std.builtin.Mode,
     root_name: []const u8,
     root_pkg: ?*const Package,
+    dynamic_linker: ?[]const u8 = null,
     /// Used for calculating how much space to reserve for symbols in case the binary file
     /// does not already have a symbol table.
     symbol_count_hint: u64 = 32,
@@ -30,6 +32,7 @@ pub const Options = struct {
     /// the binary file does not already have such a section.
     program_code_size_hint: u64 = 256 * 1024,
     entry_addr: ?u64 = null,
+    stack_size_override: ?u64 = null,
     /// Set to `true` to omit debug info.
     strip: bool = false,
     /// If this is true then this link code is responsible for outputting an object
@@ -44,6 +47,19 @@ pub const Options = struct {
     link_libc: bool = false,
     link_libcpp: bool = false,
     function_sections: bool = false,
+    eh_frame_hdr: bool = false,
+    rdynamic: bool = false,
+    z_nodelete: bool = false,
+    z_defs: bool = false,
+    bind_global_refs_locally: bool,
+    is_native_os: bool,
+    gc_sections: ?bool = null,
+    allow_shlib_undefined: ?bool = null,
+    linker_script: ?[]const u8 = null,
+    version_script: ?[]const u8 = null,
+    override_soname: ?[]const u8 = null,
+    /// Extra args passed directly to LLD. Ignored when not linking with LLD.
+    extra_lld_args: []const []const u8 = &[0][]const u8,
 
     objects: []const []const u8 = &[0][]const u8{},
     framework_dirs: []const []const u8 = &[0][]const u8{},
@@ -51,6 +67,9 @@ pub const Options = struct {
     system_libs: []const []const u8 = &[0][]const u8{},
     lib_dirs: []const []const u8 = &[0][]const u8{},
     rpath_list: []const []const u8 = &[0][]const u8{},
+
+    version: std.builtin.Version,
+    libc_installation: ?*const LibCInstallation,
 
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
