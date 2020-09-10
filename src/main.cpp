@@ -416,6 +416,7 @@ static int main0(int argc, char **argv) {
     const char *test_filter = nullptr;
     const char *test_name_prefix = nullptr;
     bool test_evented_io = false;
+    bool is_versioned = false;
     size_t ver_major = 0;
     size_t ver_minor = 0;
     size_t ver_patch = 0;
@@ -870,6 +871,7 @@ static int main0(int argc, char **argv) {
                     fprintf(stderr, "expected linker arg after '%s'\n", buf_ptr(arg));
                     return EXIT_FAILURE;
                 }
+                is_versioned = true;
                 ver_major = atoi(buf_ptr(linker_args.at(i)));
             } else if (buf_eql_str(arg, "--minor-image-version")) {
                 i += 1;
@@ -877,6 +879,7 @@ static int main0(int argc, char **argv) {
                     fprintf(stderr, "expected linker arg after '%s'\n", buf_ptr(arg));
                     return EXIT_FAILURE;
                 }
+                is_versioned = true;
                 ver_minor = atoi(buf_ptr(linker_args.at(i)));
             } else if (buf_eql_str(arg, "--stack")) {
                 i += 1;
@@ -1228,10 +1231,13 @@ static int main0(int argc, char **argv) {
                 } else if (strcmp(arg, "--test-name-prefix") == 0) {
                     test_name_prefix = argv[i];
                 } else if (strcmp(arg, "--ver-major") == 0) {
+                    is_versioned = true;
                     ver_major = atoi(argv[i]);
                 } else if (strcmp(arg, "--ver-minor") == 0) {
+                    is_versioned = true;
                     ver_minor = atoi(argv[i]);
                 } else if (strcmp(arg, "--ver-patch") == 0) {
+                    is_versioned = true;
                     ver_patch = atoi(argv[i]);
                 } else if (strcmp(arg, "--test-cmd") == 0) {
                     test_exec_args.append(argv[i]);
@@ -1590,7 +1596,7 @@ static int main0(int argc, char **argv) {
             g->emit_llvm_ir = emit_llvm_ir;
 
             codegen_set_out_name(g, buf_out_name);
-            codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
+            codegen_set_lib_version(g, is_versioned, ver_major, ver_minor, ver_patch);
             g->want_single_threaded = want_single_threaded;
             codegen_set_linker_script(g, linker_script);
             g->version_script_path = version_script; 
