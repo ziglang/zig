@@ -1777,6 +1777,7 @@ static const char *getLDMOption(const ZigTarget *t) {
             return "elf32btsmip";
         case ZigLLVM_mipsel:
             return "elf32ltsmip";
+        case ZigLLVM_mips64:
             return "elf64btsmip";
         case ZigLLVM_mips64el:
             return "elf64ltsmip";
