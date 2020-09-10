@@ -853,6 +853,9 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_riscv32:
         case ZigLLVM_riscv64:
         case ZigLLVM_mipsel:
+        case ZigLLVM_ppc:
+        case ZigLLVM_ppc64:
+        case ZigLLVM_ppc64le:
             return "sp";
 
         case ZigLLVM_wasm32:
@@ -879,7 +882,6 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_msp430:
         case ZigLLVM_nvptx:
         case ZigLLVM_nvptx64:
-        case ZigLLVM_ppc64le:
         case ZigLLVM_r600:
         case ZigLLVM_renderscript32:
         case ZigLLVM_renderscript64:
@@ -893,8 +895,6 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_tce:
         case ZigLLVM_tcele:
         case ZigLLVM_xcore:
-        case ZigLLVM_ppc:
-        case ZigLLVM_ppc64:
         case ZigLLVM_ve:
             zig_panic("TODO populate this table with stack pointer register name for this CPU architecture");
     }
@@ -1323,6 +1323,11 @@ bool target_is_riscv(const ZigTarget *target) {
 bool target_is_mips(const ZigTarget *target) {
     return target->arch == ZigLLVM_mips || target->arch == ZigLLVM_mipsel ||
         target->arch == ZigLLVM_mips64 || target->arch == ZigLLVM_mips64el;
+}
+
+bool target_is_ppc(const ZigTarget *target) {
+    return target->arch == ZigLLVM_ppc || target->arch == ZigLLVM_ppc64 ||
+        target->arch == ZigLLVM_ppc64le;
 }
 
 unsigned target_fn_align(const ZigTarget *target) {
