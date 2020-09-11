@@ -112,8 +112,9 @@ void codegen_set_strip(CodeGen *g, bool strip) {
     }
 }
 
-void codegen_set_out_name(CodeGen *g, Buf *out_name) {
+void codegen_set_out_name(CodeGen *g, Buf *out_name, bool omit_lib_prefix) {
     g->root_out_name = out_name;
+    g->omit_lib_prefix = omit_lib_prefix;
 }
 
 void codegen_add_lib_dir(CodeGen *g, const char *dir) {
@@ -10773,6 +10774,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     }
     cache_buf(ch, compiler_id);
     cache_buf(ch, g->root_out_name);
+    cache_bool(ch, g->omit_lib_prefix);
     cache_buf(ch, g->zig_lib_dir);
     cache_buf(ch, g->zig_std_dir);
     cache_list_of_link_lib(ch, g->link_libs_list.items, g->link_libs_list.length);
@@ -10893,7 +10895,9 @@ static void resolve_out_paths(CodeGen *g) {
             case OutTypeLib:
                 buf_append_str(o_basename, target_o_file_ext(g->zig_target));
                 buf_resize(out_basename, 0);
-                buf_append_str(out_basename, target_lib_file_prefix(g->zig_target));
+                if (!g->omit_lib_prefix) {
+                    buf_append_str(out_basename, target_lib_file_prefix(g->zig_target));
+                }
                 buf_append_buf(out_basename, g->root_out_name);
                 buf_append_str(out_basename, target_lib_file_ext(g->zig_target, !g->is_dynamic, g->is_versioned,
                             g->version_major, g->version_minor, g->version_patch));

@@ -82,6 +82,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -fno-emit-h                  (default) do not generate a C header file (.h)\n"
         "  --libc [file]                Provide a file which specifies libc paths\n"
         "  --name [name]                override output name\n"
+        "  --omit-lib-prefix            never prefix the name of generated libraries with \"lib\"\n"
         "  --output-dir [dir]           override output directory (defaults to cwd)\n"
         "  --pkg-begin [name] [path]    make pkg available to import and push current pkg\n"
         "  --pkg-end                    pop current pkg\n"
@@ -384,6 +385,7 @@ static int main0(int argc, char **argv) {
     bool is_dynamic = false;
     OutType out_type = OutTypeUnknown;
     const char *out_name = nullptr;
+    bool omit_lib_prefix = false;
     bool verbose_tokenize = false;
     bool verbose_ast = false;
     bool verbose_link = false;
@@ -554,7 +556,7 @@ static int main0(int argc, char **argv) {
                 BuildModeDebug, override_lib_dir, nullptr, &full_cache_dir, false, root_progress_node);
         g->valgrind_support = valgrind_support;
         g->enable_time_report = timing_info;
-        codegen_set_out_name(g, buf_create_from_str("build"));
+        codegen_set_out_name(g, buf_create_from_str("build"), false);
 
         args.items[2] = buf_ptr(&build_file_dirname);
         args.items[3] = buf_ptr(&full_cache_dir);
@@ -1028,6 +1030,8 @@ static int main0(int argc, char **argv) {
                 linker_bind_global_refs_locally = OptionalBoolTrue;
             } else if (strcmp(arg, "--test-cmd-bin") == 0) {
                 test_exec_args.append(nullptr);
+            } else if (strcmp(arg, "--omit-lib-prefix") == 0) {
+                omit_lib_prefix = true;
             } else if (arg[1] == 'D' && arg[2] != 0) {
                 clang_argv.append("-D");
                 clang_argv.append(&arg[2]);
@@ -1595,7 +1599,7 @@ static int main0(int argc, char **argv) {
             g->emit_asm = emit_asm;
             g->emit_llvm_ir = emit_llvm_ir;
 
-            codegen_set_out_name(g, buf_out_name);
+            codegen_set_out_name(g, buf_out_name, omit_lib_prefix);
             codegen_set_lib_version(g, is_versioned, ver_major, ver_minor, ver_patch);
             g->want_single_threaded = want_single_threaded;
             codegen_set_linker_script(g, linker_script);

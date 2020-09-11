@@ -2303,6 +2303,7 @@ struct CodeGen {
     bool test_is_evented;
     bool linker_z_nodelete;
     bool linker_z_defs;
+    bool omit_lib_prefix;
 
     Buf *root_out_name;
     Buf *test_filter;
