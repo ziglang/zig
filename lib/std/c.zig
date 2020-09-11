@@ -340,3 +340,5 @@ pub extern "c" fn sync() void;
 pub extern "c" fn syncfs(fd: c_int) c_int;
 pub extern "c" fn fsync(fd: c_int) c_int;
 pub extern "c" fn fdatasync(fd: c_int) c_int;
+
+pub extern "c" fn prctl(option: c_int, ...) c_int;
