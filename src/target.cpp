@@ -779,7 +779,7 @@ const char *target_lib_file_prefix(const ZigTarget *target) {
     }
 }
 
-const char *target_lib_file_ext(const ZigTarget *target, bool is_static,
+const char *target_lib_file_ext(const ZigTarget *target, bool is_static, bool is_versioned,
         size_t version_major, size_t version_minor, size_t version_patch)
 {
     if (target_is_wasm(target)) {
@@ -799,11 +799,19 @@ const char *target_lib_file_ext(const ZigTarget *target, bool is_static,
         if (is_static) {
             return ".a";
         } else if (target_os_is_darwin(target->os)) {
-            return buf_ptr(buf_sprintf(".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".dylib",
-                        version_major, version_minor, version_patch));
+            if (is_versioned) {
+                return buf_ptr(buf_sprintf(".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".dylib",
+                            version_major, version_minor, version_patch));
+            } else {
+                return ".dylib";
+            }
         } else {
-            return buf_ptr(buf_sprintf(".so.%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize,
-                        version_major, version_minor, version_patch));
+            if (is_versioned) {
+                return buf_ptr(buf_sprintf(".so.%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize,
+                            version_major, version_minor, version_patch));
+            } else {
+                return ".so";
+            }
         }
     }
 }

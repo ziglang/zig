@@ -335,7 +335,7 @@ Error glibc_build_dummies_and_maps(CodeGen *g, const ZigGLibCAbi *glibc_abi, con
         bool is_ld = (strcmp(lib->name, "ld") == 0);
 
         CodeGen *child_gen = create_child_codegen(g, zig_file_path, OutTypeLib, nullptr, lib->name, progress_node);
-        codegen_set_lib_version(child_gen, lib->sover, 0, 0);
+        codegen_set_lib_version(child_gen, true, lib->sover, 0, 0);
         child_gen->is_dynamic = true;
         child_gen->is_dummy_so = true;
         child_gen->version_script_path = map_file_path;

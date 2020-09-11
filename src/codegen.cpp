@@ -90,7 +90,8 @@ void codegen_set_test_name_prefix(CodeGen *g, Buf *prefix) {
     g->test_name_prefix = prefix;
 }
 
-void codegen_set_lib_version(CodeGen *g, size_t major, size_t minor, size_t patch) {
+void codegen_set_lib_version(CodeGen *g, bool is_versioned, size_t major, size_t minor, size_t patch) {
+    g->is_versioned = is_versioned;
     g->version_major = major;
     g->version_minor = minor;
     g->version_patch = patch;
@@ -10823,6 +10824,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->emit_bin);
     cache_bool(ch, g->emit_llvm_ir);
     cache_bool(ch, g->emit_asm);
+    cache_bool(ch, g->is_versioned);
     cache_usize(ch, g->version_major);
     cache_usize(ch, g->version_minor);
     cache_usize(ch, g->version_patch);
@@ -10893,7 +10895,7 @@ static void resolve_out_paths(CodeGen *g) {
                 buf_resize(out_basename, 0);
                 buf_append_str(out_basename, target_lib_file_prefix(g->zig_target));
                 buf_append_buf(out_basename, g->root_out_name);
-                buf_append_str(out_basename, target_lib_file_ext(g->zig_target, !g->is_dynamic,
+                buf_append_str(out_basename, target_lib_file_ext(g->zig_target, !g->is_dynamic, g->is_versioned,
                             g->version_major, g->version_minor, g->version_patch));
                 break;
         }
