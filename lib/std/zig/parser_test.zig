@@ -3392,6 +3392,43 @@ test "zig fmt: Indent comma correctly after multiline string literals in arg lis
     );
 }
 
+test "zig fmt: Control flow statement as body of blockless if" {
+    try testCanonical(
+        \\pub fn main() void {
+        \\    const zoom_node = if (focused_node == layout_first)
+        \\        if (it.next()) {
+        \\            if (!node.view.pending.float and !node.view.pending.fullscreen) break node;
+        \\        } else null
+        \\    else
+        \\        focused_node;
+        \\
+        \\    const zoom_node = if (focused_node == layout_first) while (it.next()) |node| {
+        \\        if (!node.view.pending.float and !node.view.pending.fullscreen) break node;
+        \\    } else null else
+        \\        focused_node;
+        \\
+        \\    const zoom_node = if (focused_node == layout_first)
+        \\        if (it.next()) {
+        \\            if (!node.view.pending.float and !node.view.pending.fullscreen) break node;
+        \\        } else null;
+        \\
+        \\    const zoom_node = if (focused_node == layout_first) while (it.next()) |node| {
+        \\        if (!node.view.pending.float and !node.view.pending.fullscreen) break node;
+        \\    };
+        \\
+        \\    const zoom_node = if (focused_node == layout_first) for (nodes) |node| {
+        \\        break node;
+        \\    };
+        \\
+        \\    const zoom_node = if (focused_node == layout_first) switch (nodes) {
+        \\        0 => 0,
+        \\    } else
+        \\        focused_node;
+        \\}
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
