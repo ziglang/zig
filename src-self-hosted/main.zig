@@ -16,7 +16,7 @@ const warn = std.log.warn;
 const introspect = @import("introspect.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
-fn fatal(comptime format: []const u8, args: anytype) noreturn {
+pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.log.emerg(format, args);
     process.exit(1);
 }

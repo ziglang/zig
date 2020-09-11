@@ -6,8 +6,9 @@ const Allocator = mem.Allocator;
 const Target = std.Target;
 const target = @import("target.zig");
 const assert = std.debug.assert;
-
+const glibc = @import("glibc.zig");
 const introspect = @import("introspect.zig");
+const fatal = @import("main.zig").fatal;
 
 pub fn cmdTargets(
     allocator: *Allocator,
@@ -16,33 +17,16 @@ pub fn cmdTargets(
     stdout: anytype,
     native_target: Target,
 ) !void {
-    const available_glibcs = blk: {
-        const zig_lib_dir = introspect.resolveZigLibDir(allocator) catch |err| {
-            std.debug.print("unable to find zig installation directory: {}\n", .{@errorName(err)});
-            std.process.exit(1);
-        };
-        defer allocator.free(zig_lib_dir);
-
-        var dir = try std.fs.cwd().openDir(zig_lib_dir, .{});
-        defer dir.close();
-
-        const vers_txt = try dir.readFileAlloc(allocator, "libc" ++ std.fs.path.sep_str ++ "glibc" ++ std.fs.path.sep_str ++ "vers.txt", 10 * 1024);
-        defer allocator.free(vers_txt);
-
-        var list = std.ArrayList(std.builtin.Version).init(allocator);
-        defer list.deinit();
-
-        var it = mem.tokenize(vers_txt, "\r\n");
-        while (it.next()) |line| {
-            const prefix = "GLIBC_";
-            assert(mem.startsWith(u8, line, prefix));
-            const adjusted_line = line[prefix.len..];
-            const ver = try std.builtin.Version.parse(adjusted_line);
-            try list.append(ver);
-        }
-        break :blk list.toOwnedSlice();
+    const zig_lib_dir_path = introspect.resolveZigLibDir(allocator) catch |err| {
+        fatal("unable to find zig installation directory: {}\n", .{@errorName(err)});
     };
-    defer allocator.free(available_glibcs);
+    defer allocator.free(zig_lib_dir_path);
+
+    var zig_lib_dir = try fs.cwd().openDir(zig_lib_dir_path, .{});
+    defer zig_lib_dir.close();
+
+    const glibc_abi = try glibc.loadMetaData(allocator, zig_lib_dir);
+    errdefer glibc_abi.destroy(allocator);
 
     var bos = io.bufferedOutStream(stdout);
     const bos_stream = bos.outStream();
@@ -90,10 +74,10 @@ pub fn cmdTargets(
 
     try jws.objectField("glibc");
     try jws.beginArray();
-    for (available_glibcs) |glibc| {
+    for (glibc_abi.all_versions) |ver| {
         try jws.arrayElem();
 
-        const tmp = try std.fmt.allocPrint(allocator, "{}", .{glibc});
+        const tmp = try std.fmt.allocPrint(allocator, "{}", .{ver});
         defer allocator.free(tmp);
         try jws.emitString(tmp);
     }
@@ -170,7 +154,6 @@ pub fn cmdTargets(
     try jws.emitString(@tagName(native_target.os.tag));
     try jws.objectField("abi");
     try jws.emitString(@tagName(native_target.abi));
-    // TODO implement native glibc version detection in self-hosted
     try jws.endObject();
 
     try jws.endObject();

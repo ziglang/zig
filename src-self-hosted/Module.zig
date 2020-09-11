@@ -1256,6 +1256,14 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Module {
         mod.c_object_table.putAssumeCapacityNoClobber(c_object, {});
     }
 
+    // If we need to build glibc for the target, add work items for it.
+    if (mod.bin_file.options.link_libc and
+        mod.bin_file.options.libc_installation == null and
+        mod.bin_file.options.target.isGnuLibC())
+    {
+        try mod.addBuildingGLibCWorkItems();
+    }
+
     return mod;
 }
 
@@ -4494,4 +4502,9 @@ pub fn get_libc_crt_file(mod: *Module, arena: *Allocator, basename: []const u8) 
     const crt_dir_path = lci.crt_dir orelse return error.LibCInstallationMissingCRTDir;
     const full_path = try std.fs.path.join(arena, &[_][]const u8{ crt_dir_path, basename });
     return full_path;
+}
+
+fn addBuildingGLibCWorkItems(mod: *Module) !void {
+    // crti.o, crtn.o, start.os, abi-note.o, Scrt1.o, libc_nonshared.a
+    try mod.work_queue.ensureUnusedCapacity(6);
 }
