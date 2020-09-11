@@ -389,7 +389,7 @@ pub const TestContext = struct {
     }
 
     fn deinit(self: *TestContext) void {
-        for (self.cases.items) |case| {
+        for (self.cases.items) |*case| {
             for (case.updates.items) |u| {
                 if (u.case == .Error) {
                     case.updates.allocator.free(u.case.Error);
