@@ -128,6 +128,7 @@ pub fn build(b: *Builder) !void {
             "README.md",
             ".z.0",
             ".z.9",
+            ".gz",
             "rfc1951.txt",
         },
     });
