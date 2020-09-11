@@ -825,12 +825,18 @@ ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, Zi
 }
 
 ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
+    Error err;
     assert(ptr_type->id == ZigTypeIdPointer);
     assert(ptr_type->data.pointer.ptr_len == PtrLenUnknown);
 
     ZigType **parent_pointer = &ptr_type->data.pointer.slice_parent;
     if (*parent_pointer) {
         return *parent_pointer;
+    }
+
+    // We use the pointer type's abi size below, so we have to resolve it now.
+    if ((err = type_resolve(g, ptr_type, ResolveStatusSizeKnown))) {
+        codegen_report_errors_and_exit(g);
     }
 
     ZigType *entry = new_type_table_entry(ZigTypeIdStruct);
