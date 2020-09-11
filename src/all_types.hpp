@@ -2302,6 +2302,7 @@ struct CodeGen {
     bool test_is_evented;
     bool linker_z_nodelete;
     bool linker_z_defs;
+    bool is_full_out_name; // if full a prefix/extension should not be added
 
     Buf *root_out_name;
     Buf *test_filter;

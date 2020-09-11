@@ -28,7 +28,7 @@ void codegen_set_each_lib_rpath(CodeGen *codegen, bool each_lib_rpath);
 
 void codegen_set_strip(CodeGen *codegen, bool strip);
 void codegen_set_errmsg_color(CodeGen *codegen, ErrColor err_color);
-void codegen_set_out_name(CodeGen *codegen, Buf *out_name);
+void codegen_set_out_name(CodeGen *codegen, Buf *out_name, bool full);
 void codegen_add_lib_dir(CodeGen *codegen, const char *dir);
 void codegen_add_forbidden_lib(CodeGen *codegen, Buf *lib);
 LinkLib *codegen_add_link_lib(CodeGen *codegen, Buf *lib);

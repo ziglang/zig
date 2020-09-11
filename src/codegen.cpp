@@ -111,8 +111,9 @@ void codegen_set_strip(CodeGen *g, bool strip) {
     }
 }
 
-void codegen_set_out_name(CodeGen *g, Buf *out_name) {
+void codegen_set_out_name(CodeGen *g, Buf *out_name, bool full) {
     g->root_out_name = out_name;
+    g->is_full_out_name = full;
 }
 
 void codegen_add_lib_dir(CodeGen *g, const char *dir) {
@@ -10772,6 +10773,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     }
     cache_buf(ch, compiler_id);
     cache_buf(ch, g->root_out_name);
+    cache_bool(ch, g->is_full_out_name);
     cache_buf(ch, g->zig_lib_dir);
     cache_buf(ch, g->zig_std_dir);
     cache_list_of_link_lib(ch, g->link_libs_list.items, g->link_libs_list.length);
@@ -10871,32 +10873,37 @@ static void resolve_out_paths(CodeGen *g) {
     if (g->emit_bin) {
         Buf *out_basename = buf_create_from_buf(g->root_out_name);
         Buf *o_basename = buf_create_from_buf(g->root_out_name);
-        switch (g->out_type) {
-            case OutTypeUnknown:
-                zig_unreachable();
-            case OutTypeObj:
-                if (need_llvm_module(g) && g->link_objects.length != 0 && !g->enable_cache &&
-                    buf_eql_buf(o_basename, out_basename))
-                {
-                    // make it not collide with main output object
-                    buf_append_str(o_basename, ".root");
-                }
-                buf_append_str(o_basename, target_o_file_ext(g->zig_target));
-                buf_append_str(out_basename, target_o_file_ext(g->zig_target));
-                break;
-            case OutTypeExe:
-                buf_append_str(o_basename, target_o_file_ext(g->zig_target));
-                buf_append_str(out_basename, target_exe_file_ext(g->zig_target));
-                break;
-            case OutTypeLib:
-                buf_append_str(o_basename, target_o_file_ext(g->zig_target));
-                buf_resize(out_basename, 0);
-                buf_append_str(out_basename, target_lib_file_prefix(g->zig_target));
-                buf_append_buf(out_basename, g->root_out_name);
-                buf_append_str(out_basename, target_lib_file_ext(g->zig_target, !g->is_dynamic,
-                            g->version_major, g->version_minor, g->version_patch));
-                break;
+
+        if (!g->is_full_out_name) {
+            switch (g->out_type) {
+                case OutTypeUnknown:
+                    zig_unreachable();
+                case OutTypeObj:
+                    buf_append_str(out_basename, target_o_file_ext(g->zig_target));
+                    break;
+                case OutTypeExe:
+                    buf_append_str(out_basename, target_exe_file_ext(g->zig_target));
+                    break;
+                case OutTypeLib:
+                    buf_resize(out_basename, 0);
+                    buf_append_str(out_basename, target_lib_file_prefix(g->zig_target));
+                    buf_append_buf(out_basename, g->root_out_name);
+                    buf_append_str(out_basename, target_lib_file_ext(g->zig_target, !g->is_dynamic,
+                                g->version_major, g->version_minor, g->version_patch));
+                    break;
+            }
         }
+
+        buf_append_str(o_basename, target_o_file_ext(g->zig_target));
+        if (need_llvm_module(g) && g->link_objects.length != 0 && !g->enable_cache &&
+            buf_eql_buf(o_basename, out_basename))
+        {
+            // make it not collide with main output object
+            buf_resize(o_basename, 0);
+            buf_append_str(o_basename, ".root");
+            buf_append_str(o_basename, target_o_file_ext(g->zig_target));
+        }
+
         os_path_join(g->output_dir, o_basename, &g->o_file_output_path);
         os_path_join(g->output_dir, out_basename, &g->bin_file_output_path);
     }
