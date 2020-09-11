@@ -138,10 +138,10 @@ test "compressed data" {
         "5ebf4b5b7fe1c3a0c0ab9aa3ac8c0f3853a7dc484905e76e03b0b0f301350009",
     );
     // Compressed with compression level = 9 and fixed Huffman codes
-    // try testReader(
-    //     @embedFile("rfc1951.txt.fixed.z.9"),
-    //     "5ebf4b5b7fe1c3a0c0ab9aa3ac8c0f3853a7dc484905e76e03b0b0f301350009",
-    // );
+    try testReader(
+        @embedFile("rfc1951.txt.fixed.z.9"),
+        "5ebf4b5b7fe1c3a0c0ab9aa3ac8c0f3853a7dc484905e76e03b0b0f301350009",
+    );
 }
 
 test "sanity checks" {
