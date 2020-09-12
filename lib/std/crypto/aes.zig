@@ -149,20 +149,16 @@ fn AESImpl(comptime keysize: usize) type {
             mem.writeIntBig(u32, dst[12..16], s3);
         }
 
-        // Apply sbox0 to each byte in w.
-        fn subw(w: u32) u32 {
-            return @as(u32, sbox0[w >> 24]) << 24
-                | @as(u32, sbox0[w >> 16 & 0xff]) << 16
-                | @as(u32, sbox0[w >> 8 & 0xff]) << 8
-                | @as(u32, sbox0[w & 0xff]);
-        }
-
-        fn rotw(w: u32) u32 {
-            return w << 8 | w >> 24;
-        }
-
         // Key expansion algorithm. See FIPS-197, Figure 11.
         fn expandKeyEncrypt(key: Key) ExpKey {
+            const subw = struct {
+                // Apply sbox0 to each byte in w.
+                fn func(w: u32) u32 {
+                    return @as(u32, sbox0[w >> 24]) << 24 | @as(u32, sbox0[w >> 16 & 0xff]) << 16
+                        | @as(u32, sbox0[w >> 8 & 0xff]) << 8 | @as(u32, sbox0[w & 0xff]);
+                }
+            }.func;
+
             var enc: ExpKey = undefined;
             var i: usize = 0;
             while (i < numIntsInKey) : (i += 1) {
@@ -171,7 +167,7 @@ fn AESImpl(comptime keysize: usize) type {
             while (i < enc.len) : (i += 1) {
                 var t = enc[i - 1];
                 if (i % numIntsInKey == 0) {
-                    t = subw(rotw(t)) ^ (@as(u32, powx[i / numIntsInKey - 1]) << 24);
+                    t = subw(std.math.rotl(u32, t, 8)) ^ (@as(u32, powx[i / numIntsInKey - 1]) << 24);
                 } else if (numIntsInKey > 6 and i % numIntsInKey == 4) {
                     t = subw(t);
                 }
