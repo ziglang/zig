@@ -59,8 +59,8 @@ enum ZigLLVMABIType {
 };
 
 ZIG_EXTERN_C LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Triple,
-    const char *CPU, const char *Features, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
-    LLVMCodeModel CodeModel, bool function_sections, ZigLLVMABIType float_abi, const char *abi_name);
+    const char *CPU, const char *Features, enum LLVMCodeGenOptLevel Level, enum LLVMRelocMode Reloc,
+    enum LLVMCodeModel CodeModel, bool function_sections, enum ZigLLVMABIType float_abi, const char *abi_name);
 
 ZIG_EXTERN_C LLVMTypeRef ZigLLVMTokenTypeInContext(LLVMContextRef context_ref);
 
