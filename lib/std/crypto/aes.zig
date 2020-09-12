@@ -26,8 +26,8 @@ fn AESImpl(comptime keysize: usize) type {
         // Number of rounds is set by length of expanded key; - 2: one above, one more below
         const numRounds = expKeyIntsLen / 4 - 2; // NR
 
-        const Key = [keyBytesLen]u8;
-        const ExpKey = [expKeyIntsLen]u32;
+        pub const Key = [keyBytesLen]u8;
+        const ExpKey = [expKeyIntsLen]u32; // for internal use
 
         enc: Encrypt,
         dec: Decrypt,
