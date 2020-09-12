@@ -25,6 +25,7 @@ pub usingnamespace switch (builtin.arch) {
     .arm => @import("linux/arm-eabi.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
+    .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
     else => struct {},
 };
 pub usingnamespace @import("bits.zig");
@@ -1256,6 +1257,10 @@ pub fn fsync(fd: fd_t) usize {
 
 pub fn fdatasync(fd: fd_t) usize {
     return syscall1(.fdatasync, @bitCast(usize, @as(isize, fd)));
+}
+
+pub fn prctl(option: i32, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
+    return syscall5(.prctl, @bitCast(usize, @as(isize, option)), arg2, arg3, arg4, arg5);
 }
 
 test "" {

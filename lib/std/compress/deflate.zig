@@ -21,47 +21,120 @@ const MAXDCODES = 30;
 const MAXCODES = MAXLCODES + MAXDCODES;
 const FIXLCODES = 288;
 
+// The maximum length of a Huffman code's prefix we can decode using the fast
+// path. The factor 9 is inherited from Zlib, tweaking the value showed little
+// or no changes in the profiler output.
+const PREFIX_LUT_BITS = 9;
+
 const Huffman = struct {
+    // Number of codes for each possible length
     count: [MAXBITS + 1]u16,
+    // Mapping between codes and symbols
     symbol: [MAXCODES]u16,
 
-    fn construct(self: *Huffman, length: []const u16) !void {
+    // The decoding process uses a trick explained by Mark Adler in [1].
+    // We basically precompute for a fixed number of codes (0 <= x <= 2^N-1)
+    // the symbol and the effective code length we'd get if the decoder was run
+    // on the given N-bit sequence.
+    // A code with length 0 means the sequence is not a valid prefix for this
+    // canonical Huffman code and we have to decode it using a slower method.
+    //
+    // [1] https://github.com/madler/zlib/blob/v1.2.11/doc/algorithm.txt#L58
+    prefix_lut: [1 << PREFIX_LUT_BITS]u16,
+    prefix_lut_len: [1 << PREFIX_LUT_BITS]u16,
+    // The following info refer to the codes of length PREFIX_LUT_BITS+1 and are
+    // used to bootstrap the bit-by-bit reading method if the fast-path fails.
+    last_code: u16,
+    last_index: u16,
+
+    fn construct(self: *Huffman, code_length: []const u16) !void {
         for (self.count) |*val| {
             val.* = 0;
         }
 
-        for (length) |val| {
-            self.count[val] += 1;
+        for (code_length) |len| {
+            self.count[len] += 1;
         }
 
-        if (self.count[0] == length.len)
+        // All zero.
+        if (self.count[0] == code_length.len)
             return;
 
         var left: isize = 1;
         for (self.count[1..]) |val| {
+            // Each added bit doubles the amount of codes.
             left *= 2;
+            // Make sure the number of codes with this length isn't too high.
             left -= @as(isize, @bitCast(i16, val));
             if (left < 0)
                 return error.InvalidTree;
         }
 
-        var offs: [MAXBITS + 1]u16 = undefined;
+        // Compute the offset of the first symbol represented by a code of a
+        // given length in the symbol table, together with the first canonical
+        // Huffman code for that length.
+        var offset: [MAXBITS + 1]u16 = undefined;
+        var codes: [MAXBITS + 1]u16 = undefined;
         {
+            offset[1] = 0;
+            codes[1] = 0;
             var len: usize = 1;
-            offs[1] = 0;
             while (len < MAXBITS) : (len += 1) {
-                offs[len + 1] = offs[len] + self.count[len];
+                offset[len + 1] = offset[len] + self.count[len];
+                codes[len + 1] = (codes[len] + self.count[len]) << 1;
             }
         }
 
-        for (length) |val, symbol| {
-            if (val != 0) {
-                self.symbol[offs[val]] = @truncate(u16, symbol);
-                offs[val] += 1;
+        self.prefix_lut_len = mem.zeroes(@TypeOf(self.prefix_lut_len));
+
+        for (code_length) |len, symbol| {
+            if (len != 0) {
+                // Fill the symbol table.
+                // The symbols are assigned sequentially for each length.
+                self.symbol[offset[len]] = @truncate(u16, symbol);
+                // Track the last assigned offset
+                offset[len] += 1;
+            }
+
+            if (len == 0 or len > PREFIX_LUT_BITS)
+                continue;
+
+            // Given a Huffman code of length N we have to massage it so
+            // that it becomes an index in the lookup table.
+            // The bit order is reversed as the fast path reads the bit
+            // sequence MSB to LSB using an &, the order is flipped wrt the
+            // one obtained by reading bit-by-bit.
+            // The codes are prefix-free, if the prefix matches we can
+            // safely ignore the trail bits. We do so by replicating the
+            // symbol info for each combination of the trailing bits.
+            const bits_to_fill = @intCast(u5, PREFIX_LUT_BITS - len);
+            const rev_code = bitReverse(codes[len], len);
+            // Track the last used code, but only for lengths < PREFIX_LUT_BITS
+            codes[len] += 1;
+
+            var j: usize = 0;
+            while (j < @as(usize, 1) << bits_to_fill) : (j += 1) {
+                const index = rev_code | (j << @intCast(u5, len));
+                assert(self.prefix_lut_len[index] == 0);
+                self.prefix_lut[index] = @truncate(u16, symbol);
+                self.prefix_lut_len[index] = @truncate(u16, len);
             }
         }
+
+        self.last_code = codes[PREFIX_LUT_BITS + 1];
+        self.last_index = offset[PREFIX_LUT_BITS + 1] - self.count[PREFIX_LUT_BITS + 1];
     }
 };
+
+// Reverse bit-by-bit a N-bit value
+fn bitReverse(x: usize, N: usize) usize {
+    var tmp: usize = 0;
+    var i: usize = 0;
+    while (i < N) : (i += 1) {
+        tmp |= ((x >> @intCast(u5, i)) & 1) << @intCast(u5, N - i - 1);
+    }
+    return tmp;
+}
 
 pub fn InflateStream(comptime ReaderType: type) type {
     return struct {
@@ -83,7 +156,7 @@ pub fn InflateStream(comptime ReaderType: type) type {
         };
         pub const Reader = io.Reader(*Self, Error, read);
 
-        bit_reader: io.BitReader(.Little, ReaderType),
+        inner_reader: ReaderType,
 
         // True if the decoder met the end of the compressed stream, no further
         // data can be decompressed
@@ -135,7 +208,7 @@ pub fn InflateStream(comptime ReaderType: type) type {
 
             // Insert a single byte into the window.
             // Assumes there's enough space.
-            fn appendUnsafe(self: *WSelf, value: u8) void {
+            inline fn appendUnsafe(self: *WSelf, value: u8) void {
                 self.buf[self.wi] = value;
                 self.wi = (self.wi + 1) & (self.buf.len - 1);
                 self.el += 1;
@@ -180,7 +253,7 @@ pub fn InflateStream(comptime ReaderType: type) type {
                 // of the window memory for the non-overlapping case.
                 var i: usize = 0;
                 while (i < N) : (i += 1) {
-                    const index = (self.wi -% distance) % self.buf.len;
+                    const index = (self.wi -% distance) & (self.buf.len - 1);
                     self.appendUnsafe(self.buf[index]);
                 }
 
@@ -196,13 +269,36 @@ pub fn InflateStream(comptime ReaderType: type) type {
         hdist: *Huffman,
         hlen: *Huffman,
 
+        // Temporary buffer for the bitstream, only bits 0..`bits_left` are
+        // considered valid.
+        bits: u32,
+        bits_left: usize,
+
+        fn peekBits(self: *Self, bits: usize) !u32 {
+            while (self.bits_left < bits) {
+                const byte = try self.inner_reader.readByte();
+                self.bits |= @as(u32, byte) << @intCast(u5, self.bits_left);
+                self.bits_left += 8;
+            }
+            return self.bits & ((@as(u32, 1) << @intCast(u5, bits)) - 1);
+        }
+        fn readBits(self: *Self, bits: usize) !u32 {
+            const val = self.peekBits(bits);
+            self.discardBits(bits);
+            return val;
+        }
+        fn discardBits(self: *Self, bits: usize) void {
+            self.bits >>= @intCast(u5, bits);
+            self.bits_left -= bits;
+        }
+
         fn stored(self: *Self) !void {
             // Discard the remaining bits, the lenght field is always
             // byte-aligned (and so is the data)
-            self.bit_reader.alignToByte();
+            self.discardBits(self.bits_left);
 
-            const length = (try self.bit_reader.readBitsNoEof(u16, 16));
-            const length_cpl = (try self.bit_reader.readBitsNoEof(u16, 16));
+            const length = try self.inner_reader.readIntLittle(u16);
+            const length_cpl = try self.inner_reader.readIntLittle(u16);
 
             if (length != ~length_cpl)
                 return error.InvalidStoredSize;
@@ -237,11 +333,11 @@ pub fn InflateStream(comptime ReaderType: type) type {
 
         fn dynamic(self: *Self) !void {
             // Number of length codes
-            const nlen = (try self.bit_reader.readBitsNoEof(usize, 5)) + 257;
+            const nlen = (try self.readBits(5)) + 257;
             // Number of distance codes
-            const ndist = (try self.bit_reader.readBitsNoEof(usize, 5)) + 1;
+            const ndist = (try self.readBits(5)) + 1;
             // Number of code length codes
-            const ncode = (try self.bit_reader.readBitsNoEof(usize, 4)) + 4;
+            const ncode = (try self.readBits(4)) + 4;
 
             if (nlen > MAXLCODES or ndist > MAXDCODES)
                 return error.BadCounts;
@@ -259,7 +355,7 @@ pub fn InflateStream(comptime ReaderType: type) type {
 
                 // Read the code lengths, missing ones are left as zero
                 for (ORDER[0..ncode]) |val| {
-                    lengths[val] = try self.bit_reader.readBitsNoEof(u16, 3);
+                    lengths[val] = @intCast(u16, try self.readBits(3));
                 }
 
                 try lencode.construct(lengths[0..]);
@@ -284,7 +380,7 @@ pub fn InflateStream(comptime ReaderType: type) type {
                         if (i == 0) return error.NoLastLength;
 
                         const last_length = lengths[i - 1];
-                        const repeat = 3 + (try self.bit_reader.readBitsNoEof(usize, 2));
+                        const repeat = 3 + (try self.readBits(2));
                         const last_index = i + repeat;
                         while (i < last_index) : (i += 1) {
                             lengths[i] = last_length;
@@ -292,11 +388,11 @@ pub fn InflateStream(comptime ReaderType: type) type {
                     },
                     17 => {
                         // repeat zero 3..10 times
-                        i += 3 + (try self.bit_reader.readBitsNoEof(usize, 3));
+                        i += 3 + (try self.readBits(3));
                     },
                     18 => {
                         // repeat zero 11..138 times
-                        i += 11 + (try self.bit_reader.readBitsNoEof(usize, 7));
+                        i += 11 + (try self.readBits(7));
                     },
                     else => return error.InvalidSymbol,
                 }
@@ -359,11 +455,11 @@ pub fn InflateStream(comptime ReaderType: type) type {
                         // Length/distance pair
                         const length_symbol = symbol - 257;
                         const length = LENS[length_symbol] +
-                            try self.bit_reader.readBitsNoEof(u16, LEXT[length_symbol]);
+                            @intCast(u16, try self.readBits(LEXT[length_symbol]));
 
                         const distance_symbol = try self.decode(distcode);
                         const distance = DISTS[distance_symbol] +
-                            try self.bit_reader.readBitsNoEof(u16, DEXT[distance_symbol]);
+                            @intCast(u16, try self.readBits(DEXT[distance_symbol]));
 
                         if (distance > self.window.buf.len)
                             return error.InvalidDistance;
@@ -385,13 +481,29 @@ pub fn InflateStream(comptime ReaderType: type) type {
         }
 
         fn decode(self: *Self, h: *Huffman) !u16 {
-            var len: usize = 1;
-            var code: usize = 0;
-            var first: usize = 0;
-            var index: usize = 0;
+            // Fast path, read some bits and hope they're prefixes of some code
+            const prefix = try self.peekBits(PREFIX_LUT_BITS);
+            if (h.prefix_lut_len[prefix] != 0) {
+                self.discardBits(h.prefix_lut_len[prefix]);
+                return h.prefix_lut[prefix];
+            }
+
+            // The sequence we've read is not a prefix of any code of length <=
+            // PREFIX_LUT_BITS, keep decoding it using a slower method
+            self.discardBits(PREFIX_LUT_BITS);
+
+            // Speed up the decoding by starting from the first code length
+            // that's not covered by the table
+            var len: usize = PREFIX_LUT_BITS + 1;
+            var first: usize = h.last_code;
+            var index: usize = h.last_index;
+
+            // Reverse the prefix so that the LSB becomes the MSB and make space
+            // for the next bit
+            var code = bitReverse(prefix, PREFIX_LUT_BITS + 1);
 
             while (len <= MAXBITS) : (len += 1) {
-                code |= try self.bit_reader.readBitsNoEof(usize, 1);
+                code |= try self.readBits(1);
                 const count = h.count[len];
                 if (code < first + count)
                     return h.symbol[index + (code - first)];
@@ -411,8 +523,8 @@ pub fn InflateStream(comptime ReaderType: type) type {
                         // The compressed stream is done
                         if (self.seen_eos) return;
 
-                        const last = try self.bit_reader.readBitsNoEof(u1, 1);
-                        const kind = try self.bit_reader.readBitsNoEof(u2, 2);
+                        const last = @intCast(u1, try self.readBits(1));
+                        const kind = @intCast(u2, try self.readBits(2));
 
                         self.seen_eos = last != 0;
 
@@ -439,7 +551,7 @@ pub fn InflateStream(comptime ReaderType: type) type {
                         var i: usize = 0;
                         while (i < N) : (i += 1) {
                             var tmp: [1]u8 = undefined;
-                            if ((try self.bit_reader.read(&tmp)) != 1) {
+                            if ((try self.inner_reader.read(&tmp)) != 1) {
                                 // Unexpected end of stream, keep this error
                                 // consistent with the use of readBitsNoEof
                                 return error.EndOfStream;
@@ -478,12 +590,14 @@ pub fn InflateStream(comptime ReaderType: type) type {
             assert(math.isPowerOfTwo(window_slice.len));
 
             return Self{
-                .bit_reader = io.bitReader(.Little, source),
+                .inner_reader = source,
                 .window = .{ .buf = window_slice },
                 .seen_eos = false,
                 .state = .DecodeBlockHeader,
                 .hdist = undefined,
                 .hlen = undefined,
+                .bits = 0,
+                .bits_left = 0,
             };
         }
 

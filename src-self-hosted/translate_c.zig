@@ -5899,6 +5899,10 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.N
                     saw_l_paren = true;
                     _ = m.next();
                 },
+                // (type)sizeof(x)
+                .Keyword_sizeof,
+                // (type)alignof(x)
+                .Keyword_alignof,
                 // (type)identifier
                 .Identifier => {},
                 // (type)integer
@@ -6308,6 +6312,40 @@ fn parseCPrefixOpExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.
             const node = try transCreateNodeSimplePrefixOp(c, .AddressOf, .Ampersand, "&");
             node.rhs = try parseCPrefixOpExpr(c, m, scope);
             return &node.base;
+        },
+        .Keyword_sizeof => {
+            const inner = if (m.peek().? == .LParen) blk: {
+                _ = m.next();
+                const inner = try parseCExpr(c, m, scope);
+                if (m.next().? != .RParen) {
+                    try m.fail(c, "unable to translate C expr: expected ')'", .{});
+                    return error.ParseError;
+                }
+                break :blk inner;
+            } else try parseCPrefixOpExpr(c, m, scope);
+
+            const builtin_call = try c.createBuiltinCall("@sizeOf", 1);
+            builtin_call.params()[0] = inner;
+            builtin_call.rparen_token = try appendToken(c, .RParen, ")");
+            return &builtin_call.base;
+        },
+        .Keyword_alignof => {
+            // TODO this won't work if using <stdalign.h>'s
+            // #define alignof _Alignof
+            if (m.next().? != .LParen) {
+                try m.fail(c, "unable to translate C expr: expected '('", .{});
+                return error.ParseError;
+            }
+            const inner = try parseCExpr(c, m, scope);
+            if (m.next().? != .RParen) {
+                try m.fail(c, "unable to translate C expr: expected ')'", .{});
+                return error.ParseError;
+            }
+
+            const builtin_call = try c.createBuiltinCall("@alignOf", 1);
+            builtin_call.params()[0] = inner;
+            builtin_call.rparen_token = try appendToken(c, .RParen, ")");
+            return &builtin_call.base;
         },
         else => {
             m.i -= 1;

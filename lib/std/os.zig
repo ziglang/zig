@@ -2515,9 +2515,9 @@ pub fn readlinkatZ(dirfd: fd_t, file_path: [*:0]const u8, out_buffer: []u8) Read
 pub const SetEidError = error{
     InvalidUserId,
     PermissionDenied,
-};
+} || UnexpectedError;
 
-pub const SetIdError = error{ResourceLimitReached} || SetEidError || UnexpectedError;
+pub const SetIdError = error{ResourceLimitReached} || SetEidError;
 
 pub fn setuid(uid: uid_t) SetIdError!void {
     switch (errno(system.setuid(uid))) {
@@ -5415,6 +5415,45 @@ pub fn fdatasync(fd: fd_t) SyncError!void {
         EIO => return error.InputOutput,
         ENOSPC => return error.NoSpaceLeft,
         EDQUOT => return error.DiskQuota,
+        else => |err| return std.os.unexpectedErrno(err),
+    }
+}
+
+pub const PrctlError = error{
+    /// Can only occur with PR_SET_SECCOMP/SECCOMP_MODE_FILTER or
+    /// PR_SET_MM/PR_SET_MM_EXE_FILE
+    AccessDenied,
+    /// Can only occur with PR_SET_MM/PR_SET_MM_EXE_FILE
+    InvalidFileDescriptor,
+    InvalidAddress,
+    /// Can only occur with PR_SET_SPECULATION_CTRL, PR_MPX_ENABLE_MANAGEMENT,
+    /// or PR_MPX_DISABLE_MANAGEMENT
+    UnsupportedFeature,
+    /// Can only occur wih PR_SET_FP_MODE
+    OperationNotSupported,
+    PermissionDenied,
+} || UnexpectedError;
+
+pub fn prctl(option: i32, args: anytype) PrctlError!u31 {
+    if (@typeInfo(@TypeOf(args)) != .Struct)
+        @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
+    if (args.len > 4)
+        @compileError("prctl takes a maximum of 4 optional arguments");
+
+    var buf: [4]usize = undefined;
+    inline for (args) |arg, i| buf[i] = arg;
+
+    const rc = system.prctl(option, buf[0], buf[1], buf[2], buf[3]);
+    switch (errno(rc)) {
+        0 => return @intCast(u31, rc),
+        EACCES => return error.AccessDenied,
+        EBADF => return error.InvalidFileDescriptor,
+        EFAULT => return error.InvalidAddress,
+        EINVAL => unreachable,
+        ENODEV, ENXIO => return error.UnsupportedFeature,
+        EOPNOTSUPP => return error.OperationNotSupported,
+        EPERM, EBUSY => return error.PermissionDenied,
+        ERANGE => unreachable,
         else => |err| return std.os.unexpectedErrno(err),
     }
 }

@@ -38,7 +38,7 @@ void codegen_set_rdynamic(CodeGen *g, bool rdynamic);
 void codegen_set_linker_script(CodeGen *g, const char *linker_script);
 void codegen_set_test_filter(CodeGen *g, Buf *filter);
 void codegen_set_test_name_prefix(CodeGen *g, Buf *prefix);
-void codegen_set_lib_version(CodeGen *g, size_t major, size_t minor, size_t patch);
+void codegen_set_lib_version(CodeGen *g, bool is_versioned, size_t major, size_t minor, size_t patch);
 void codegen_add_time_event(CodeGen *g, const char *name);
 void codegen_print_timing_report(CodeGen *g, FILE *f);
 void codegen_link(CodeGen *g);

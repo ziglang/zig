@@ -7,3 +7,6 @@ typedef struct Color {
 } Color;
 #define CLITERAL(type)      (type)
 #define LIGHTGRAY  CLITERAL(Color){ 200, 200, 200, 255 }   // Light Gray
+
+#define MY_SIZEOF(x) ((int)sizeof(x))
+#define MY_SIZEOF2(x) ((int)sizeof x)
