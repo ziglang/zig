@@ -386,9 +386,6 @@ test "expand key" {
 }
 
 // constants
-
-const poly = 1 << 8 | 1 << 4 | 1 << 3 | 1 << 1 | 1 << 0;
-
 const powx = [16]u8{
     0x01,
     0x02,
