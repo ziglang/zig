@@ -407,8 +407,9 @@ pub const TestContext = struct {
         const root_node = try progress.start("tests", self.cases.items.len);
         defer root_node.end();
 
-        const zig_lib_dir = try introspect.resolveZigLibDir(std.testing.allocator);
-        defer std.testing.allocator.free(zig_lib_dir);
+        var zig_lib_directory = try introspect.findZigLibDir(std.testing.allocator);
+        defer zig_lib_directory.handle.close();
+        defer std.testing.allocator.free(zig_lib_directory.path.?);
 
         const random_seed = blk: {
             var random_seed: u64 = undefined;
@@ -427,7 +428,7 @@ pub const TestContext = struct {
             progress.initial_delay_ns = 0;
             progress.refresh_rate_ns = 0;
 
-            try self.runOneCase(std.testing.allocator, &prg_node, case, zig_lib_dir, &default_prng.random);
+            try self.runOneCase(std.testing.allocator, &prg_node, case, zig_lib_directory, &default_prng.random);
         }
     }
 
@@ -436,7 +437,7 @@ pub const TestContext = struct {
         allocator: *Allocator,
         root_node: *std.Progress.Node,
         case: Case,
-        zig_lib_dir: []const u8,
+        zig_lib_directory: Module.Directory,
         rand: *std.rand.Random,
     ) !void {
         const target_info = try std.zig.system.NativeTargetInfo.detect(allocator, case.target);
@@ -449,15 +450,32 @@ pub const TestContext = struct {
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();
 
+        var cache_dir = try tmp.dir.makeOpenPath("zig-cache", .{});
+        defer cache_dir.close();
+        const bogus_path = "bogus"; // TODO this will need to be fixed before we can test LLVM extensions
+        const zig_cache_directory: Module.Directory = .{
+            .handle = cache_dir,
+            .path = try std.fs.path.join(arena, &[_][]const u8{ bogus_path, "zig-cache" }),
+        };
+
         const tmp_src_path = if (case.extension == .Zig) "test_case.zig" else if (case.extension == .ZIR) "test_case.zir" else unreachable;
         const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
-        defer root_pkg.destroy();
+        defer root_pkg.destroy(allocator);
 
         const ofmt: ?std.builtin.ObjectFormat = if (case.cbe) .c else null;
         const bin_name = try std.zig.binNameAlloc(arena, "test_case", target, case.output_mode, null, ofmt);
 
+        const emit_directory: Module.Directory = .{
+            .path = bogus_path,
+            .handle = tmp.dir,
+        };
+        const emit_bin: Module.EmitLoc = .{
+            .directory = emit_directory,
+            .basename = bin_name,
+        };
         const module = try Module.create(allocator, .{
-            .zig_lib_dir = zig_lib_dir,
+            .zig_cache_directory = zig_cache_directory,
+            .zig_lib_directory = zig_lib_directory,
             .rand = rand,
             .root_name = "test_case",
             .target = target,
@@ -467,8 +485,7 @@ pub const TestContext = struct {
             .output_mode = case.output_mode,
             // TODO: support testing optimizations
             .optimize_mode = .Debug,
-            .bin_file_dir = tmp.dir,
-            .bin_file_path = bin_name,
+            .emit_bin = emit_bin,
             .root_pkg = root_pkg,
             .keep_source_files_loaded = true,
             .object_format = ofmt,

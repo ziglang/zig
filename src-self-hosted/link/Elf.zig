@@ -19,6 +19,7 @@ const File = link.File;
 const Elf = @This();
 const build_options = @import("build_options");
 const target_util = @import("../target.zig");
+const fatal = @import("main.zig").fatal;
 
 const default_entry_addr = 0x8000000;
 
@@ -222,7 +223,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 
     if (options.use_llvm) return error.LLVMBackendUnimplementedForELF; // TODO
 
-    const file = try options.dir.createFile(sub_path, .{
+    const file = try options.directory.handle.createFile(sub_path, .{
         .truncate = false,
         .read = true,
         .mode = link.determineMode(options),
@@ -844,7 +845,7 @@ fn flushInner(self: *Elf, module: *Module) !void {
         }
         // Write the form for the compile unit, which must match the abbrev table above.
         const name_strp = try self.makeDebugString(self.base.options.root_pkg.?.root_src_path);
-        const comp_dir_strp = try self.makeDebugString(self.base.options.root_pkg.?.root_src_dir_path);
+        const comp_dir_strp = try self.makeDebugString(self.base.options.root_pkg.?.root_src_directory.path.?);
         const producer_strp = try self.makeDebugString(link.producer_string);
         // Currently only one compilation unit is supported, so the address range is simply
         // identical to the main program header virtual address and memory size.
@@ -1199,11 +1200,6 @@ fn flushInner(self: *Elf, module: *Module) !void {
 }
 
 fn linkWithLLD(self: *Elf, module: *Module) !void {
-    // If there is no Zig code to compile, then we should skip flushing the output file because it
-    // will not be part of the linker line anyway.
-    if (module.root_pkg != null) {
-        try self.flushInner(module);
-    }
     var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
     defer arena_allocator.deinit();
     const arena = &arena_allocator.allocator;
@@ -1292,7 +1288,7 @@ fn linkWithLLD(self: *Elf, module: *Module) !void {
         try argv.append("-pie");
     }
 
-    const full_out_path = if (self.base.options.dir_path) |dir_path|
+    const full_out_path = if (self.base.options.directory.path) |dir_path|
         try std.fs.path.join(arena, &[_][]const u8{dir_path, self.base.options.sub_path})
     else 
         self.base.options.sub_path;
@@ -1382,6 +1378,30 @@ fn linkWithLLD(self: *Elf, module: *Module) !void {
     // Positional arguments to the linker such as object files.
     try argv.appendSlice(self.base.options.objects);
 
+    for (module.c_object_table.items()) |entry| {
+        const c_object = entry.key;
+        switch (c_object.status) {
+            .new => unreachable,
+            .failure => return error.NotAllCSourceFilesAvailableToLink,
+            .success => |full_obj_path| {
+                try argv.append(full_obj_path);
+            },
+        }
+    }
+
+    // If there is no Zig code to compile, then we should skip flushing the output file because it
+    // will not be part of the linker line anyway.
+    if (module.root_pkg != null) {
+        try self.flushInner(module);
+
+        const obj_basename = self.base.intermediary_basename.?;
+        const full_obj_path = if (self.base.options.directory.path) |dir_path|
+            try std.fs.path.join(arena, &[_][]const u8{dir_path, obj_basename})
+        else 
+            obj_basename;
+        try argv.append(full_obj_path);
+    }
+
     // TODO compiler-rt and libc
     //if (!g->is_dummy_so && (g->out_type == OutTypeExe || is_dyn_lib)) {
     //    if (g->libc_link_lib == nullptr) {
@@ -1461,10 +1481,31 @@ fn linkWithLLD(self: *Elf, module: *Module) !void {
         try argv.append("-Bsymbolic");
     }
 
-    for (argv.items) |arg| {
-        std.debug.print("{} ", .{arg});
+    if (self.base.options.debug_link) {
+        for (argv.items[0 .. argv.items.len - 1]) |arg| {
+            std.debug.print("{} ", .{arg});
+        }
+        std.debug.print("{}\n", .{argv.items[argv.items.len - 1]});
     }
-    @panic("invoke LLD");
+
+    // Oh, snapplesauce! We need null terminated argv.
+    // TODO allocSentinel crashed stage1 so this is working around it.
+    const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, argv.items.len + 1);
+    new_argv_with_sentinel[argv.items.len] = null;
+    const new_argv = new_argv_with_sentinel[0..argv.items.len: null];
+    for (argv.items) |arg, i| {
+        new_argv[i] = try arena.dupeZ(u8, arg);
+    }
+
+    const ZigLLDLink = @import("../llvm.zig").ZigLLDLink;
+    const ok = ZigLLDLink(.ELF, new_argv.ptr, new_argv.len, append_diagnostic, 0, 0);
+    if (!ok) return error.LLDReportedFailure;
+}
+
+fn append_diagnostic(context: usize, ptr: [*]const u8, len: usize) callconv(.C) void {
+    // TODO collect diagnostics and handle cleanly
+    const msg = ptr[0..len];
+    std.log.err("LLD: {}", .{msg});
 }
 
 fn writeDwarfAddrAssumeCapacity(self: *Elf, buf: *std.ArrayList(u8), addr: u64) void {
@@ -2681,7 +2722,7 @@ fn dbgLineNeededHeaderBytes(self: Elf) u32 {
         directory_count * 8 + file_name_count * 8 +
     // These are encoded as DW.FORM_string rather than DW.FORM_strp as we would like
     // because of a workaround for readelf and gdb failing to understand DWARFv5 correctly.
-        self.base.options.root_pkg.?.root_src_dir_path.len +
+        self.base.options.root_pkg.?.root_src_directory.path.?.len +
         self.base.options.root_pkg.?.root_src_path.len);
 }
 

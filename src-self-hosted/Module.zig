@@ -25,6 +25,8 @@ const astgen = @import("astgen.zig");
 const zir_sema = @import("zir_sema.zig");
 const build_options = @import("build_options");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
+const glibc = @import("glibc.zig");
+const fatal = @import("main.zig").fatal;
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: *Allocator,
@@ -91,17 +93,20 @@ sanitize_c: bool,
 /// Otherwise we attempt to parse the error messages and expose them via the Module API.
 /// This is `true` for `zig cc`, `zig c++`, and `zig translate-c`.
 clang_passthrough_mode: bool,
+/// Whether to print clang argvs to stdout.
+debug_cc: bool,
 
 /// Error tags and their values, tag names are duped with mod.gpa.
 global_error_set: std.StringHashMapUnmanaged(u16) = .{},
 
-c_source_files: []const []const u8,
+c_source_files: []const CSourceFile,
 clang_argv: []const []const u8,
 cache: std.cache_hash.CacheHash,
 /// Path to own executable for invoking `zig clang`.
 self_exe_path: ?[]const u8,
-zig_lib_dir: []const u8,
-zig_cache_dir_path: []const u8,
+zig_lib_directory: Directory,
+zig_cache_directory: Directory,
+zig_cache_artifact_directory: Directory,
 libc_include_dir_list: []const []const u8,
 rand: *std.rand.Random,
 
@@ -118,7 +123,18 @@ libunwind_static_lib: ?[]const u8 = null,
 /// and resolved before calling linker.flush().
 libc_static_lib: ?[]const u8 = null,
 
+/// For example `Scrt1.o` and `libc.so.6`. These are populated after building libc from source,
+/// The set of needed CRT (C runtime) files differs depending on the target and compilation settings.
+/// The key is the basename, and the value is the absolute path to the completed build artifact.
+crt_files: std.StringHashMapUnmanaged([]const u8) = .{},
+
 pub const InnerError = error{ OutOfMemory, AnalysisFail };
+
+/// For passing to a C compiler.
+pub const CSourceFile = struct {
+    src_path: []const u8,
+    extra_flags: []const []const u8 = &[0][]const u8{},
+};
 
 const WorkItem = union(enum) {
     /// Write the machine code for a Decl to the output file.
@@ -133,6 +149,11 @@ const WorkItem = union(enum) {
     /// Invoke the Clang compiler to create an object file, which gets linked
     /// with the Module.
     c_object: *CObject,
+
+    /// one of the glibc static objects
+    glibc_crt_file: glibc.CRTFile,
+    /// one of the glibc shared objects
+    glibc_so: *const glibc.Lib,
 };
 
 pub const Export = struct {
@@ -701,7 +722,7 @@ pub const Scope = struct {
         pub fn getSource(self: *File, module: *Module) ![:0]const u8 {
             switch (self.source) {
                 .unloaded => {
-                    const source = try module.root_pkg.?.root_src_dir.readFileAllocOptions(
+                    const source = try module.root_pkg.?.root_src_directory.handle.readFileAllocOptions(
                         module.gpa,
                         self.sub_file_path,
                         std.math.maxInt(u32),
@@ -805,7 +826,7 @@ pub const Scope = struct {
         pub fn getSource(self: *ZIRModule, module: *Module) ![:0]const u8 {
             switch (self.source) {
                 .unloaded => {
-                    const source = try module.root_pkg.?.root_src_dir.readFileAllocOptions(
+                    const source = try module.root_pkg.?.root_src_directory.handle.readFileAllocOptions(
                         module.gpa,
                         self.sub_file_path,
                         std.math.maxInt(u32),
@@ -937,18 +958,35 @@ pub const AllErrors = struct {
     }
 };
 
+pub const Directory = struct {
+    /// This field is redundant for operations that can act on the open directory handle
+    /// directly, but it is needed when passing the directory to a child process.
+    /// `null` means cwd.
+    path: ?[]const u8,
+    handle: std.fs.Dir,
+};
+
+pub const EmitLoc = struct {
+    /// If this is `null` it means the file will be output to the cache directory.
+    /// When provided, both the open file handle and the path name must outlive the `Module`.
+    directory: ?Module.Directory,
+    /// This may not have sub-directories in it.
+    basename: []const u8,
+};
+
 pub const InitOptions = struct {
-    zig_lib_dir: []const u8,
+    zig_lib_directory: Directory,
+    zig_cache_directory: Directory,
     target: Target,
     root_name: []const u8,
     root_pkg: ?*Package,
     output_mode: std.builtin.OutputMode,
     rand: *std.rand.Random,
     dynamic_linker: ?[]const u8 = null,
-    bin_file_dir_path: ?[]const u8 = null,
-    bin_file_dir: ?std.fs.Dir = null,
-    bin_file_path: []const u8,
-    emit_h: ?[]const u8 = null,
+    /// `null` means to not emit a binary file.
+    emit_bin: ?EmitLoc,
+    /// `null` means to not emit a C header file.
+    emit_h: ?EmitLoc = null,
     link_mode: ?std.builtin.LinkMode = null,
     object_format: ?std.builtin.ObjectFormat = null,
     optimize_mode: std.builtin.Mode = .Debug,
@@ -957,7 +995,7 @@ pub const InitOptions = struct {
     lld_argv: []const []const u8 = &[0][]const u8{},
     lib_dirs: []const []const u8 = &[0][]const u8{},
     rpath_list: []const []const u8 = &[0][]const u8{},
-    c_source_files: []const []const u8 = &[0][]const u8{},
+    c_source_files: []const CSourceFile = &[0]CSourceFile{},
     link_objects: []const []const u8 = &[0][]const u8{},
     framework_dirs: []const []const u8 = &[0][]const u8{},
     frameworks: []const []const u8 = &[0][]const u8{},
@@ -966,11 +1004,14 @@ pub const InitOptions = struct {
     link_libcpp: bool = false,
     want_pic: ?bool = null,
     want_sanitize_c: ?bool = null,
+    want_stack_check: ?bool = null,
+    want_valgrind: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     use_clang: ?bool = null,
     rdynamic: bool = false,
     strip: bool = false,
+    single_threaded: bool = false,
     is_native_os: bool,
     link_eh_frame_hdr: bool = false,
     linker_script: ?[]const u8 = null,
@@ -984,6 +1025,8 @@ pub const InitOptions = struct {
     linker_z_nodelete: bool = false,
     linker_z_defs: bool = false,
     clang_passthrough_mode: bool = false,
+    debug_cc: bool = false,
+    debug_link: bool = false,
     stack_size_override: ?u64 = null,
     self_exe_path: ?[]const u8 = null,
     version: std.builtin.Version = .{ .major = 0, .minor = 0, .patch = 0 },
@@ -1057,17 +1100,126 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Module {
 
         const libc_dirs = try detectLibCIncludeDirs(
             arena,
-            options.zig_lib_dir,
+            options.zig_lib_directory.path.?,
             options.target,
             options.is_native_os,
             options.link_libc,
             options.libc_installation,
         );
 
+        const must_pic: bool = b: {
+            if (target_util.requiresPIC(options.target, options.link_libc))
+                break :b true;
+            break :b link_mode == .Dynamic;
+        };
+        const pic = options.want_pic orelse must_pic;
+
+        if (options.emit_h != null) fatal("-femit-h not supported yet", .{}); // TODO
+
+        const emit_bin = options.emit_bin orelse fatal("-fno-emit-bin not supported yet", .{}); // TODO
+
+        // Make a decision on whether to use Clang for translate-c and compiling C files.
+        const use_clang = if (options.use_clang) |explicit| explicit else blk: {
+            if (build_options.have_llvm) {
+                // Can't use it if we don't have it!
+                break :blk false;
+            }
+            // It's not planned to do our own translate-c or C compilation.
+            break :blk true;
+        };
+
+        const is_safe_mode = switch (options.optimize_mode) {
+            .Debug, .ReleaseSafe => true,
+            .ReleaseFast, .ReleaseSmall => false,
+        };
+
+        const sanitize_c = options.want_sanitize_c orelse is_safe_mode;
+
+        const stack_check: bool = b: {
+            if (!target_util.supportsStackProbing(options.target))
+                break :b false;
+            break :b options.want_stack_check orelse is_safe_mode;
+        };
+
+        const valgrind: bool = b: {
+            if (!target_util.hasValgrindSupport(options.target))
+                break :b false;
+            break :b options.want_valgrind orelse (options.optimize_mode == .Debug);
+        };
+
+        const single_threaded = options.single_threaded or target_util.isSingleThreaded(options.target);
+
+        // We put everything into the cache hash that *cannot be modified during an incremental update*.
+        // For example, one cannot change the target between updates, but one can change source files,
+        // so the target goes into the cache hash, but source files do not. This is so that we can
+        // find the same binary and incrementally update it even if there are modified source files.
+        // We do this even if outputting to the current directory because (1) this cache_hash instance
+        // will be the "parent" of other cache_hash instances such as for C objects, (2) we need
+        // a place for intermediate build artifacts, such as a .o file to be linked with LLD, and (3)
+        // we need somewhere to store serialization of incremental compilation metadata.
+        var cache = try std.cache_hash.CacheHash.init(gpa, options.zig_cache_directory.handle, "h");
+        errdefer cache.release();
+
+        // Now we will prepare hash state initializations to avoid redundantly computing hashes.
+        // First we add common things between things that apply to zig source and all c source files.
+        cache.addBytes(build_options.version);
+        cache.add(options.optimize_mode);
+        cache.add(options.target.cpu.arch);
+        cache.addBytes(options.target.cpu.model.name);
+        cache.add(options.target.cpu.features.ints);
+        cache.add(options.target.os.tag);
+        switch (options.target.os.tag) {
+            .linux => {
+                cache.add(options.target.os.version_range.linux.range.min);
+                cache.add(options.target.os.version_range.linux.range.max);
+                cache.add(options.target.os.version_range.linux.glibc);
+            },
+            .windows => {
+                cache.add(options.target.os.version_range.windows.min);
+                cache.add(options.target.os.version_range.windows.max);
+            },
+            .freebsd,
+            .macosx,
+            .ios,
+            .tvos,
+            .watchos,
+            .netbsd,
+            .openbsd,
+            .dragonfly,
+            => {
+                cache.add(options.target.os.version_range.semver.min);
+                cache.add(options.target.os.version_range.semver.max);
+            },
+            else => {},
+        }
+        cache.add(options.target.abi);
+        cache.add(ofmt);
+        cache.add(pic);
+        cache.add(stack_check);
+        cache.add(sanitize_c);
+        cache.add(valgrind);
+        cache.add(link_mode);
+        cache.add(options.strip);
+        cache.add(single_threaded);
+        // TODO audit this and make sure everything is in it
+
+        // We don't care whether we find something there, just show us the digest.
+        const digest = (try cache.hit()) orelse cache.final();
+
+        const artifact_sub_dir = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
+        var artifact_dir = try options.zig_cache_directory.handle.makeOpenPath(artifact_sub_dir, .{});
+        errdefer artifact_dir.close();
+        const zig_cache_artifact_directory: Directory = .{
+            .handle = artifact_dir,
+            .path = if (options.zig_cache_directory.path) |p|
+                try std.fs.path.join(arena, &[_][]const u8{ p, artifact_sub_dir })
+            else
+                artifact_sub_dir,
+        };
+
         const bin_file = try link.File.openPath(gpa, .{
-            .dir = options.bin_file_dir orelse std.fs.cwd(),
-            .dir_path = options.bin_file_dir_path,
-            .sub_path = options.bin_file_path,
+            .directory = emit_bin.directory orelse zig_cache_artifact_directory,
+            .sub_path = emit_bin.basename,
             .root_name = root_name,
             .root_pkg = options.root_pkg,
             .target = options.target,
@@ -1103,6 +1255,11 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Module {
             .override_soname = options.override_soname,
             .version = options.version,
             .libc_installation = libc_dirs.libc_installation,
+            .pic = pic,
+            .valgrind = valgrind,
+            .stack_check = stack_check,
+            .single_threaded = single_threaded,
+            .debug_link = options.debug_link,
         });
         errdefer bin_file.destroy();
 
@@ -1142,83 +1299,12 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Module {
             }
         };
 
-        // We put everything into the cache hash except for the root source file, because we want to
-        // find the same binary and incrementally update it even if the file contents changed.
-        // TODO Look into storing this information in memory rather than on disk and solving
-        // serialization/deserialization of *all* incremental compilation state in a more generic way.
-        const cache_parent_dir = if (options.root_pkg) |root_pkg| root_pkg.root_src_dir else std.fs.cwd();
-        var cache_dir = try cache_parent_dir.makeOpenPath("zig-cache", .{});
-        defer cache_dir.close();
-
-        try cache_dir.makePath("tmp");
-        try cache_dir.makePath("o");
-        // We need this string because of sending paths to clang as a child process.
-        const zig_cache_dir_path = if (options.root_pkg) |root_pkg|
-            try std.fmt.allocPrint(arena, "{}" ++ std.fs.path.sep_str ++ "zig-cache", .{root_pkg.root_src_dir_path})
-        else
-            "zig-cache";
-
-        var cache = try std.cache_hash.CacheHash.init(gpa, cache_dir, "h");
-        errdefer cache.release();
-
-        // Now we will prepare hash state initializations to avoid redundantly computing hashes.
-        // First we add common things between things that apply to zig source and all c source files.
-        cache.addBytes(build_options.version);
-        cache.add(options.optimize_mode);
-        cache.add(options.target.cpu.arch);
-        cache.addBytes(options.target.cpu.model.name);
-        cache.add(options.target.cpu.features.ints);
-        cache.add(options.target.os.tag);
-        switch (options.target.os.tag) {
-            .linux => {
-                cache.add(options.target.os.version_range.linux.range.min);
-                cache.add(options.target.os.version_range.linux.range.max);
-                cache.add(options.target.os.version_range.linux.glibc);
-            },
-            .windows => {
-                cache.add(options.target.os.version_range.windows.min);
-                cache.add(options.target.os.version_range.windows.max);
-            },
-            .freebsd,
-            .macosx,
-            .ios,
-            .tvos,
-            .watchos,
-            .netbsd,
-            .openbsd,
-            .dragonfly,
-            => {
-                cache.add(options.target.os.version_range.semver.min);
-                cache.add(options.target.os.version_range.semver.max);
-            },
-            else => {},
-        }
-        cache.add(options.target.abi);
-        cache.add(ofmt);
-        // TODO PIC (see detect_pic from codegen.cpp)
-        cache.add(bin_file.options.link_mode);
-        cache.add(options.strip);
-
-        // Make a decision on whether to use Clang for translate-c and compiling C files.
-        const use_clang = if (options.use_clang) |explicit| explicit else blk: {
-            if (build_options.have_llvm) {
-                // Can't use it if we don't have it!
-                break :blk false;
-            }
-            // It's not planned to do our own translate-c or C compilation.
-            break :blk true;
-        };
-
-        const sanitize_c: bool = options.want_sanitize_c orelse switch (options.optimize_mode) {
-            .Debug, .ReleaseSafe => true,
-            .ReleaseSmall, .ReleaseFast => false,
-        };
-
         mod.* = .{
             .gpa = gpa,
             .arena_state = arena_allocator.state,
-            .zig_lib_dir = options.zig_lib_dir,
-            .zig_cache_dir_path = zig_cache_dir_path,
+            .zig_lib_directory = options.zig_lib_directory,
+            .zig_cache_directory = options.zig_cache_directory,
+            .zig_cache_artifact_directory = zig_cache_artifact_directory,
             .root_pkg = options.root_pkg,
             .root_scope = root_scope,
             .bin_file = bin_file,
@@ -1233,6 +1319,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Module {
             .sanitize_c = sanitize_c,
             .rand = options.rand,
             .clang_passthrough_mode = options.clang_passthrough_mode,
+            .debug_cc = options.debug_cc,
         };
         break :mod mod;
     };
@@ -1245,22 +1332,21 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Module {
         errdefer local_arena.deinit();
 
         const c_object = try local_arena.allocator.create(CObject);
-        const src_path = try local_arena.allocator.dupe(u8, c_source_file);
 
         c_object.* = .{
             .status = .{ .new = {} },
-            .src_path = src_path,
-            .extra_flags = &[0][]const u8{},
+            // TODO why are we duplicating this memory? do we need to?
+            // look into refactoring to turn these 2 fields simply into a CSourceFile
+            .src_path = try local_arena.allocator.dupe(u8, c_source_file.src_path),
+            .extra_flags = try local_arena.allocator.dupe([]const u8, c_source_file.extra_flags),
             .arena = local_arena.state,
         };
         mod.c_object_table.putAssumeCapacityNoClobber(c_object, {});
     }
 
     // If we need to build glibc for the target, add work items for it.
-    if (mod.bin_file.options.link_libc and
-        mod.bin_file.options.libc_installation == null and
-        mod.bin_file.options.target.isGnuLibC())
-    {
+    // We go through the work queue so that building can be done in parallel.
+    if (mod.wantBuildGLibCFromSource()) {
         try mod.addBuildingGLibCWorkItems();
     }
 
@@ -1272,6 +1358,15 @@ pub fn destroy(self: *Module) void {
     const gpa = self.gpa;
     self.deletion_set.deinit(gpa);
     self.work_queue.deinit();
+
+    {
+        var it = self.crt_files.iterator();
+        while (it.next()) |entry| {
+            gpa.free(entry.key);
+            gpa.free(entry.value);
+        }
+        self.crt_files.deinit(gpa);
+    }
 
     for (self.decl_table.items()) |entry| {
         entry.value.destroy(gpa);
@@ -1322,6 +1417,8 @@ pub fn destroy(self: *Module) void {
         gpa.free(entry.key);
     }
     self.global_error_set.deinit(gpa);
+
+    self.zig_cache_artifact_directory.handle.close();
     self.cache.release();
 
     // This destroys `self`.
@@ -1458,7 +1555,7 @@ pub fn getAllErrorsAlloc(self: *Module) !AllErrors {
     if (errors.items.len == 0 and self.link_error_flags.no_entry_point_found) {
         const global_err_src_path = blk: {
             if (self.root_pkg) |root_pkg| break :blk root_pkg.root_src_path;
-            if (self.c_source_files.len != 0) break :blk self.c_source_files[0];
+            if (self.c_source_files.len != 0) break :blk self.c_source_files[0].src_path;
             if (self.bin_file.options.objects.len != 0) break :blk self.bin_file.options.objects[0];
             break :blk "(no file)";
         };
@@ -1581,12 +1678,25 @@ pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
                 },
             };
         },
+        .glibc_crt_file => |crt_file| {
+            glibc.buildCRTFile(self, crt_file) catch |err| {
+                // This is a problem with the Zig installation. It's mostly OK to crash here,
+                // but TODO because it would be even better if we could recover gracefully
+                // from temporary problems such as out-of-disk-space.
+                fatal("unable to build glibc CRT file: {}", .{@errorName(err)});
+            };
+        },
+        .glibc_so => |glibc_lib| {
+            fatal("TODO build glibc shared object '{}.so.{}'", .{ glibc_lib.name, glibc_lib.sover });
+        },
     };
 }
 
 fn buildCObject(mod: *Module, c_object: *CObject) !void {
     const tracy = trace(@src());
     defer tracy.end();
+
+    // TODO this C source file needs its own cache hash instance
 
     if (!build_options.have_llvm) {
         return mod.failCObj(c_object, "clang not available: compiler not built with LLVM extensions enabled", .{});
@@ -1616,6 +1726,9 @@ fn buildCObject(mod: *Module, c_object: *CObject) !void {
     // We can't know the digest until we do the C compiler invocation, so we need a temporary filename.
     const out_obj_path = try mod.tmpFilePath(arena, o_basename);
 
+    var zig_cache_tmp_dir = try mod.zig_cache_directory.handle.makeOpenPath("tmp", .{});
+    defer zig_cache_tmp_dir.close();
+
     try argv.appendSlice(&[_][]const u8{ self_exe_path, "clang", "-c" });
 
     const ext = classifyFileExt(c_object.src_path);
@@ -1628,9 +1741,12 @@ fn buildCObject(mod: *Module, c_object: *CObject) !void {
     try argv.append(c_object.src_path);
     try argv.appendSlice(c_object.extra_flags);
 
-    //for (argv.items) |arg| {
-    //    std.debug.print("{} ", .{arg});
-    //}
+    if (mod.debug_cc) {
+        for (argv.items[0 .. argv.items.len - 1]) |arg| {
+            std.debug.print("{} ", .{arg});
+        }
+        std.debug.print("{}\n", .{argv.items[argv.items.len - 1]});
+    }
 
     const child = try std.ChildProcess.init(argv.items, arena);
     defer child.deinit();
@@ -1689,11 +1805,13 @@ fn buildCObject(mod: *Module, c_object: *CObject) !void {
 
     // TODO handle .d files
 
-    // TODO rename into place
-    std.debug.print("TODO rename {} into cache dir\n", .{out_obj_path});
+    // TODO Add renameat capabilities to the std lib in a higher layer than the posix layer.
+    const tmp_basename = std.fs.path.basename(out_obj_path);
+    try std.os.renameat(zig_cache_tmp_dir.fd, tmp_basename, mod.zig_cache_artifact_directory.handle.fd, o_basename);
 
-    // TODO use the cache file name instead of tmp file name
-    const success_file_path = try mod.gpa.dupe(u8, out_obj_path);
+    const success_file_path = try std.fs.path.join(mod.gpa, &[_][]const u8{
+        mod.zig_cache_artifact_directory.path.?, o_basename,
+    });
     c_object.status = .{ .success = success_file_path };
 }
 
@@ -1702,7 +1820,7 @@ fn tmpFilePath(mod: *Module, arena: *Allocator, suffix: []const u8) error{OutOfM
     return std.fmt.allocPrint(
         arena,
         "{}" ++ s ++ "tmp" ++ s ++ "{x}-{}",
-        .{ mod.zig_cache_dir_path, mod.rand.int(u64), suffix },
+        .{ mod.zig_cache_directory.path.?, mod.rand.int(u64), suffix },
     );
 }
 
@@ -1749,10 +1867,10 @@ fn addCCArgs(
 
     if (mod.bin_file.options.link_libcpp) {
         const libcxx_include_path = try std.fs.path.join(arena, &[_][]const u8{
-            mod.zig_lib_dir, "libcxx", "include",
+            mod.zig_lib_directory.path.?, "libcxx", "include",
         });
         const libcxxabi_include_path = try std.fs.path.join(arena, &[_][]const u8{
-            mod.zig_lib_dir, "libcxxabi", "include",
+            mod.zig_lib_directory.path.?, "libcxxabi", "include",
         });
 
         try argv.append("-isystem");
@@ -1776,7 +1894,7 @@ fn addCCArgs(
             // According to Rich Felker libc headers are supposed to go before C language headers.
             // However as noted by @dimenus, appending libc headers before c_headers breaks intrinsics
             // and other compiler specific items.
-            const c_headers_dir = try std.fs.path.join(arena, &[_][]const u8{ mod.zig_lib_dir, "include" });
+            const c_headers_dir = try std.fs.path.join(arena, &[_][]const u8{ mod.zig_lib_directory.path.?, "include" });
             try argv.append("-isystem");
             try argv.append(c_headers_dir);
 
@@ -1891,10 +2009,9 @@ fn addCCArgs(
         },
     }
 
-    // TODO add CLI args for PIC
-    //if (target_supports_fpic(g->zig_target) and g->have_pic) {
-    //    try argv.append("-fPIC");
-    //}
+    if (target_util.supports_fpic(target) and mod.bin_file.options.pic) {
+        try argv.append("-fPIC");
+    }
 
     try argv.appendSlice(mod.clang_argv);
 }
@@ -4497,7 +4614,9 @@ fn detectLibCFromLibCInstallation(arena: *Allocator, target: Target, lci: *const
 }
 
 pub fn get_libc_crt_file(mod: *Module, arena: *Allocator, basename: []const u8) ![]const u8 {
-    // TODO port support for building crt files from stage1
+    if (mod.wantBuildGLibCFromSource()) {
+        return mod.crt_files.get(basename).?;
+    }
     const lci = mod.bin_file.options.libc_installation orelse return error.LibCInstallationNotAvailable;
     const crt_dir_path = lci.crt_dir orelse return error.LibCInstallationMissingCRTDir;
     const full_path = try std.fs.path.join(arena, &[_][]const u8{ crt_dir_path, basename });
@@ -4505,6 +4624,23 @@ pub fn get_libc_crt_file(mod: *Module, arena: *Allocator, basename: []const u8) 
 }
 
 fn addBuildingGLibCWorkItems(mod: *Module) !void {
-    // crti.o, crtn.o, start.os, abi-note.o, Scrt1.o, libc_nonshared.a
-    try mod.work_queue.ensureUnusedCapacity(6);
+    const static_file_work_items = [_]WorkItem{
+        .{ .glibc_crt_file = .crti_o },
+        .{ .glibc_crt_file = .crtn_o },
+        .{ .glibc_crt_file = .start_os },
+        .{ .glibc_crt_file = .abi_note_o },
+        .{ .glibc_crt_file = .scrt1_o },
+        .{ .glibc_crt_file = .libc_nonshared_a },
+    };
+    try mod.work_queue.ensureUnusedCapacity(static_file_work_items.len + glibc.libs.len);
+    mod.work_queue.writeAssumeCapacity(&static_file_work_items);
+    for (glibc.libs) |*glibc_so| {
+        mod.work_queue.writeItemAssumeCapacity(.{ .glibc_so = glibc_so });
+    }
+}
+
+fn wantBuildGLibCFromSource(mod: *Module) bool {
+    return mod.bin_file.options.link_libc and
+        mod.bin_file.options.libc_installation == null and
+        mod.bin_file.options.target.isGnuLibC();
 }

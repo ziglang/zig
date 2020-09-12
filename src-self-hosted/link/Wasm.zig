@@ -56,7 +56,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     if (options.use_lld) return error.LLD_LinkingIsTODO_ForWasm; // TODO
 
     // TODO: read the file and keep vaild parts instead of truncating
-    const file = try options.dir.createFile(sub_path, .{ .truncate = true, .read = true });
+    const file = try options.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true });
     errdefer file.close();
 
     const wasm = try allocator.create(Wasm);

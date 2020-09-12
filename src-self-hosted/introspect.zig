@@ -1,75 +1,63 @@
-//! Introspection and determination of system libraries needed by zig.
-
 const std = @import("std");
 const mem = std.mem;
 const fs = std.fs;
 const CacheHash = std.cache_hash.CacheHash;
+const Module = @import("Module.zig");
 
-/// Caller must free result
-pub fn testZigInstallPrefix(allocator: *mem.Allocator, test_path: []const u8) ![]u8 {
-    {
-        const test_zig_dir = try fs.path.join(allocator, &[_][]const u8{ test_path, "lib", "zig" });
-        errdefer allocator.free(test_zig_dir);
+/// Returns the sub_path that worked, or `null` if none did.
+/// The path of the returned Directory is relative to `base`.
+/// The handle of the returned Directory is open.
+fn testZigInstallPrefix(base_dir: fs.Dir) ?Module.Directory {
+    const test_index_file = "std" ++ fs.path.sep_str ++ "std.zig";
 
-        const test_index_file = try fs.path.join(allocator, &[_][]const u8{ test_zig_dir, "std", "std.zig" });
-        defer allocator.free(test_index_file);
-
-        if (fs.cwd().openFile(test_index_file, .{})) |file| {
-            file.close();
-            return test_zig_dir;
-        } else |err| switch (err) {
-            error.FileNotFound => {
-                allocator.free(test_zig_dir);
-            },
-            else => |e| return e,
-        }
+    zig_dir: {
+        // Try lib/zig/std/std.zig
+        const lib_zig = "lib" ++ fs.path.sep_str ++ "zig";
+        var test_zig_dir = base_dir.openDir(lib_zig, .{}) catch break :zig_dir;
+        const file = test_zig_dir.openFile(test_index_file, .{}) catch {
+            test_zig_dir.close();
+            break :zig_dir;
+        };
+        file.close();
+        return Module.Directory{ .handle = test_zig_dir, .path = lib_zig };
     }
 
-    // Also try without "zig"
-    const test_zig_dir = try fs.path.join(allocator, &[_][]const u8{ test_path, "lib" });
-    errdefer allocator.free(test_zig_dir);
-
-    const test_index_file = try fs.path.join(allocator, &[_][]const u8{ test_zig_dir, "std", "std.zig" });
-    defer allocator.free(test_index_file);
-
-    const file = try fs.cwd().openFile(test_index_file, .{});
+    // Try lib/std/std.zig
+    var test_zig_dir = base_dir.openDir("lib", .{}) catch return null;
+    const file = test_zig_dir.openFile(test_index_file, .{}) catch {
+        test_zig_dir.close();
+        return null;
+    };
     file.close();
-
-    return test_zig_dir;
+    return Module.Directory{ .handle = test_zig_dir, .path = "lib" };
 }
 
-/// Caller must free result
-pub fn findZigLibDir(allocator: *mem.Allocator) ![]u8 {
-    const self_exe_path = try fs.selfExePathAlloc(allocator);
-    defer allocator.free(self_exe_path);
+/// Both the directory handle and the path are newly allocated resources which the caller now owns.
+pub fn findZigLibDir(gpa: *mem.Allocator) !Module.Directory {
+    const self_exe_path = try fs.selfExePathAlloc(gpa);
+    defer gpa.free(self_exe_path);
 
+    return findZigLibDirFromSelfExe(gpa, self_exe_path);
+}
+
+/// Both the directory handle and the path are newly allocated resources which the caller now owns.
+pub fn findZigLibDirFromSelfExe(
+    allocator: *mem.Allocator,
+    self_exe_path: []const u8,
+) error{ OutOfMemory, FileNotFound }!Module.Directory {
+    const cwd = fs.cwd();
     var cur_path: []const u8 = self_exe_path;
-    while (true) {
-        const test_dir = fs.path.dirname(cur_path) orelse ".";
+    while (fs.path.dirname(cur_path)) |dirname| : (cur_path = dirname) {
+        var base_dir = cwd.openDir(dirname, .{}) catch continue;
+        defer base_dir.close();
 
-        if (mem.eql(u8, test_dir, cur_path)) {
-            break;
-        }
-
-        return testZigInstallPrefix(allocator, test_dir) catch |err| {
-            cur_path = test_dir;
-            continue;
+        const sub_directory = testZigInstallPrefix(base_dir) orelse continue;
+        return Module.Directory{
+            .handle = sub_directory.handle,
+            .path = try fs.path.join(allocator, &[_][]const u8{ dirname, sub_directory.path.? }),
         };
     }
-
     return error.FileNotFound;
-}
-
-pub fn resolveZigLibDir(allocator: *mem.Allocator) ![]u8 {
-    return findZigLibDir(allocator) catch |err| {
-        std.debug.print(
-            \\Unable to find zig lib directory: {}.
-            \\Reinstall Zig or use --zig-install-prefix.
-            \\
-        , .{@errorName(err)});
-
-        return error.ZigLibDirNotFound;
-    };
 }
 
 /// Caller owns returned memory.

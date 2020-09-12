@@ -117,10 +117,10 @@ pub fn cannotDynamicLink(target: std.Target) bool {
     };
 }
 
+/// On Darwin, we always link libSystem which contains libc.
+/// Similarly on FreeBSD and NetBSD we always link system libc
+/// since this is the stable syscall interface.
 pub fn osRequiresLibC(target: std.Target) bool {
-    // On Darwin, we always link libSystem which contains libc.
-    // Similarly on FreeBSD and NetBSD we always link system libc
-    // since this is the stable syscall interface.
     return switch (target.os.tag) {
         .freebsd, .netbsd, .dragonfly, .macosx, .ios, .watchos, .tvos => true,
         else => false,
@@ -131,6 +131,40 @@ pub fn requiresPIE(target: std.Target) bool {
     return target.isAndroid();
 }
 
+/// This function returns whether non-pic code is completely invalid on the given target.
+pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
+    return target.isAndroid() or
+        target.os.tag == .windows or target.os.tag == .uefi or
+        osRequiresLibC(target) or
+        (linking_libc and target.isGnuLibC());
+}
+
+/// This is not whether the target supports Position Independent Code, but whether the -fPIC
+/// C compiler argument is valid to Clang.
+pub fn supports_fpic(target: std.Target) bool {
+    return target.os.tag != .windows;
+}
+
 pub fn libc_needs_crti_crtn(target: std.Target) bool {
     return !(target.cpu.arch.isRISCV() or target.isAndroid());
+}
+
+pub fn isSingleThreaded(target: std.Target) bool {
+    return target.isWasm();
+}
+
+/// Valgrind supports more, but Zig does not support them yet.
+pub fn hasValgrindSupport(target: std.Target) bool {
+    switch (target.cpu.arch) {
+        .x86_64 => {
+            return target.os.tag == .linux or target.isDarwin() or target.os.tag == .solaris or
+                (target.os.tag == .windows and target.abi != .msvc);
+        },
+        else => return false,
+    }
+}
+
+pub fn supportsStackProbing(target: std.Target) bool {
+    return target.os.tag != .windows and target.os.tag != .uefi and
+        (target.cpu.arch == .i386 or target.cpu.arch == .x86_64);
 }

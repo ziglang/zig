@@ -17,16 +17,14 @@ pub fn cmdTargets(
     stdout: anytype,
     native_target: Target,
 ) !void {
-    const zig_lib_dir_path = introspect.resolveZigLibDir(allocator) catch |err| {
+    var zig_lib_directory = introspect.findZigLibDir(allocator) catch |err| {
         fatal("unable to find zig installation directory: {}\n", .{@errorName(err)});
     };
-    defer allocator.free(zig_lib_dir_path);
+    defer zig_lib_directory.handle.close();
+    defer allocator.free(zig_lib_directory.path.?);
 
-    var zig_lib_dir = try fs.cwd().openDir(zig_lib_dir_path, .{});
-    defer zig_lib_dir.close();
-
-    const glibc_abi = try glibc.loadMetaData(allocator, zig_lib_dir);
-    errdefer glibc_abi.destroy(allocator);
+    const glibc_abi = try glibc.loadMetaData(allocator, zig_lib_directory.handle);
+    defer glibc_abi.destroy(allocator);
 
     var bos = io.bufferedOutStream(stdout);
     const bos_stream = bos.outStream();

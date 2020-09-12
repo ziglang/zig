@@ -191,7 +191,14 @@ const usage_build_generic =
     \\    ReleaseSmall            Optimize for small binary, safety off
     \\  -fPIC                     Force-enable Position Independent Code
     \\  -fno-PIC                  Force-disable Position Independent Code
+    \\  -fstack-check             Enable stack probing in unsafe builds
+    \\  -fno-stack-check          Disable stack probing in safe builds
+    \\  -fsanitize-c              Enable C undefined behavior detection in unsafe builds
+    \\  -fno-sanitize-c           Disable C undefined behavior detection in safe builds
+    \\  -fvalgrind                Include valgrind client requests in release builds
+    \\  -fno-valgrind             Omit valgrind client requests in debug builds
     \\  --strip                   Exclude debug symbols
+    \\  --single-threaded         Code assumes it is only used single-threaded
     \\  -ofmt=[mode]              Override target object format
     \\    elf                     Executable and Linking Format
     \\    c                       Compile to C source code
@@ -262,6 +269,7 @@ pub fn buildOutputType(
     var root_src_file: ?[]const u8 = null;
     var version: std.builtin.Version = .{ .major = 0, .minor = 0, .patch = 0 };
     var strip = false;
+    var single_threaded = false;
     var watch = false;
     var debug_tokenize = false;
     var debug_ast_tree = false;
@@ -287,6 +295,8 @@ pub fn buildOutputType(
     var enable_cache: ?bool = null;
     var want_pic: ?bool = null;
     var want_sanitize_c: ?bool = null;
+    var want_stack_check: ?bool = null;
+    var want_valgrind: ?bool = null;
     var rdynamic: bool = false;
     var only_pp_or_asm = false;
     var linker_script: ?[]const u8 = null;
@@ -320,7 +330,7 @@ pub fn buildOutputType(
     var rpath_list = std.ArrayList([]const u8).init(gpa);
     defer rpath_list.deinit();
 
-    var c_source_files = std.ArrayList([]const u8).init(gpa);
+    var c_source_files = std.ArrayList(Module.CSourceFile).init(gpa);
     defer c_source_files.deinit();
 
     var link_objects = std.ArrayList([]const u8).init(gpa);
@@ -463,6 +473,18 @@ pub fn buildOutputType(
                     want_pic = true;
                 } else if (mem.eql(u8, arg, "-fno-PIC")) {
                     want_pic = false;
+                } else if (mem.eql(u8, arg, "-fstack-check")) {
+                    want_stack_check = true;
+                } else if (mem.eql(u8, arg, "-fno-stack-check")) {
+                    want_stack_check = false;
+                } else if (mem.eql(u8, arg, "-fsanitize-c")) {
+                    want_sanitize_c = true;
+                } else if (mem.eql(u8, arg, "-fno-sanitize-c")) {
+                    want_sanitize_c = false;
+                } else if (mem.eql(u8, arg, "-fvalgrind")) {
+                    want_valgrind = true;
+                } else if (mem.eql(u8, arg, "-fno-valgrind")) {
+                    want_valgrind = false;
                 } else if (mem.eql(u8, arg, "-fLLVM")) {
                     use_llvm = true;
                 } else if (mem.eql(u8, arg, "-fno-LLVM")) {
@@ -501,6 +523,8 @@ pub fn buildOutputType(
                     link_mode = .Static;
                 } else if (mem.eql(u8, arg, "--strip")) {
                     strip = true;
+                } else if (mem.eql(u8, arg, "--single-threaded")) {
+                    single_threaded = true;
                 } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
                     link_eh_frame_hdr = true;
                 } else if (mem.eql(u8, arg, "-Bsymbolic")) {
@@ -541,7 +565,8 @@ pub fn buildOutputType(
             {
                 try link_objects.append(arg);
             } else if (Module.hasAsmExt(arg) or Module.hasCExt(arg) or Module.hasCppExt(arg)) {
-                try c_source_files.append(arg);
+                // TODO a way to pass extra flags on the CLI
+                try c_source_files.append(.{ .src_path = arg });
             } else if (mem.endsWith(u8, arg, ".so") or
                 mem.endsWith(u8, arg, ".dylib") or
                 mem.endsWith(u8, arg, ".dll"))
@@ -586,7 +611,7 @@ pub fn buildOutputType(
                 .positional => {
                     const file_ext = Module.classifyFileExt(mem.spanZ(it.only_arg));
                     switch (file_ext) {
-                        .assembly, .c, .cpp, .ll, .bc, .h => try c_source_files.append(it.only_arg),
+                        .assembly, .c, .cpp, .ll, .bc, .h => try c_source_files.append(.{ .src_path = it.only_arg }),
                         .unknown, .so => try link_objects.append(it.only_arg),
                     }
                 },
@@ -812,7 +837,7 @@ pub fn buildOutputType(
             //        .yes => |p| p,
             //        else => c_source_file.source_path,
             //    };
-            //    const basename = std.fs.path.basename(src_path);
+            //    const basename = fs.path.basename(src_path);
             //    c_source_file.preprocessor_only_basename = basename;
             //}
             //emit_bin = .no;
@@ -839,7 +864,7 @@ pub fn buildOutputType(
             const basename = fs.path.basename(file);
             break :blk mem.split(basename, ".").next().?;
         } else if (c_source_files.items.len == 1) {
-            const basename = fs.path.basename(c_source_files.items[0]);
+            const basename = fs.path.basename(c_source_files.items[0].src_path);
             break :blk mem.split(basename, ".").next().?;
         } else if (link_objects.items.len == 1) {
             const basename = fs.path.basename(link_objects.items[0]);
@@ -966,19 +991,71 @@ pub fn buildOutputType(
         }
     };
 
-    const bin_path = switch (emit_bin) {
-        .no => {
-            fatal("-fno-emit-bin not supported yet", .{});
+    var cleanup_emit_bin_dir: ?fs.Dir = null;
+    defer if (cleanup_emit_bin_dir) |*dir| dir.close();
+
+    const emit_bin_loc: ?Module.EmitLoc = switch (emit_bin) {
+        .no => null,
+        .yes_default_path => Module.EmitLoc{
+            .directory = .{ .path = null, .handle = fs.cwd() },
+            .basename = try std.zig.binNameAlloc(
+                arena,
+                root_name,
+                target_info.target,
+                output_mode,
+                link_mode,
+                object_format,
+            ),
         },
-        .yes_default_path => try std.zig.binNameAlloc(
-            arena,
-            root_name,
-            target_info.target,
-            output_mode,
-            link_mode,
-            object_format,
-        ),
-        .yes => |p| p,
+        .yes => |full_path| b: {
+            const basename = fs.path.basename(full_path);
+            if (fs.path.dirname(full_path)) |dirname| {
+                const handle = try fs.cwd().openDir(dirname, .{});
+                cleanup_emit_bin_dir = handle;
+                break :b Module.EmitLoc{
+                    .basename = basename,
+                    .directory = .{
+                        .path = dirname,
+                        .handle = handle,
+                    },
+                };
+            } else {
+                break :b Module.EmitLoc{
+                    .basename = basename,
+                    .directory = .{ .path = null, .handle = fs.cwd() },
+                };
+            }
+        },
+    };
+
+    var cleanup_emit_h_dir: ?fs.Dir = null;
+    defer if (cleanup_emit_h_dir) |*dir| dir.close();
+
+    const emit_h_loc: ?Module.EmitLoc = switch (emit_h) {
+        .no => null,
+        .yes_default_path => Module.EmitLoc{
+            .directory = .{ .path = null, .handle = fs.cwd() },
+            .basename = try std.fmt.allocPrint(arena, "{}.h", .{root_name}),
+        },
+        .yes => |full_path| b: {
+            const basename = fs.path.basename(full_path);
+            if (fs.path.dirname(full_path)) |dirname| {
+                const handle = try fs.cwd().openDir(dirname, .{});
+                cleanup_emit_h_dir = handle;
+                break :b Module.EmitLoc{
+                    .basename = basename,
+                    .directory = .{
+                        .path = dirname,
+                        .handle = handle,
+                    },
+                };
+            } else {
+                break :b Module.EmitLoc{
+                    .basename = basename,
+                    .directory = .{ .path = null, .handle = fs.cwd() },
+                };
+            }
+        },
     };
 
     const zir_out_path: ?[]const u8 = switch (emit_zir) {
@@ -995,19 +1072,13 @@ pub fn buildOutputType(
     };
 
     const root_pkg = if (root_src_file) |src_path| try Package.create(gpa, fs.cwd(), ".", src_path) else null;
-    defer if (root_pkg) |pkg| pkg.destroy();
-
-    const emit_h_path: ?[]const u8 = switch (emit_h) {
-        .yes => |p| p,
-        .no => null,
-        .yes_default_path => try std.fmt.allocPrint(arena, "{}.h", .{root_name}),
-    };
+    defer if (root_pkg) |pkg| pkg.destroy(gpa);
 
     const self_exe_path = try fs.selfExePathAlloc(arena);
-    const zig_lib_dir = introspect.resolveZigLibDir(gpa) catch |err| {
+    var zig_lib_directory = introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
         fatal("unable to find zig installation directory: {}\n", .{@errorName(err)});
     };
-    defer gpa.free(zig_lib_dir);
+    defer zig_lib_directory.handle.close();
 
     const random_seed = blk: {
         var random_seed: u64 = undefined;
@@ -1025,17 +1096,32 @@ pub fn buildOutputType(
         };
     }
 
+    const cache_parent_dir = if (root_pkg) |pkg| pkg.root_src_directory.handle else fs.cwd();
+    var cache_dir = try cache_parent_dir.makeOpenPath("zig-cache", .{});
+    defer cache_dir.close();
+    const zig_cache_directory: Module.Directory = .{
+        .handle = cache_dir,
+        .path = blk: {
+            if (root_pkg) |pkg| {
+                if (pkg.root_src_directory.path) |p| {
+                    break :blk try fs.path.join(arena, &[_][]const u8{ p, "zig-cache" });
+                }
+            }
+            break :blk "zig-cache";
+        },
+    };
+
     const module = Module.create(gpa, .{
-        .zig_lib_dir = zig_lib_dir,
+        .zig_lib_directory = zig_lib_directory,
+        .zig_cache_directory = zig_cache_directory,
         .root_name = root_name,
         .target = target_info.target,
         .is_native_os = cross_target.isNativeOs(),
         .dynamic_linker = target_info.dynamic_linker.get(),
         .output_mode = output_mode,
         .root_pkg = root_pkg,
-        .bin_file_dir_path = null,
-        .bin_file_dir = fs.cwd(),
-        .bin_file_path = bin_path,
+        .emit_bin = emit_bin_loc,
+        .emit_h = emit_h_loc,
         .link_mode = link_mode,
         .object_format = object_format,
         .optimize_mode = build_mode,
@@ -1049,11 +1135,12 @@ pub fn buildOutputType(
         .framework_dirs = framework_dirs.items,
         .frameworks = frameworks.items,
         .system_libs = system_libs.items,
-        .emit_h = emit_h_path,
         .link_libc = link_libc,
         .link_libcpp = link_libcpp,
         .want_pic = want_pic,
         .want_sanitize_c = want_sanitize_c,
+        .want_stack_check = want_stack_check,
+        .want_valgrind = want_valgrind,
         .use_llvm = use_llvm,
         .use_lld = use_lld,
         .use_clang = use_clang,
@@ -1070,11 +1157,14 @@ pub fn buildOutputType(
         .link_eh_frame_hdr = link_eh_frame_hdr,
         .stack_size_override = stack_size_override,
         .strip = strip,
+        .single_threaded = single_threaded,
         .self_exe_path = self_exe_path,
         .rand = &default_prng.random,
         .clang_passthrough_mode = arg_mode != .build,
         .version = version,
         .libc_installation = if (libc_installation) |*lci| lci else null,
+        .debug_cc = debug_cc,
+        .debug_link = debug_link,
     }) catch |err| {
         fatal("unable to create module: {}", .{@errorName(err)});
     };
@@ -1121,9 +1211,7 @@ pub fn buildOutputType(
 }
 
 fn updateModule(gpa: *Allocator, module: *Module, zir_out_path: ?[]const u8) !void {
-    var timer = try std.time.Timer.start();
     try module.update();
-    const update_nanos = timer.read();
 
     var errors = try module.getAllErrorsAlloc();
     defer errors.deinit(module.gpa);

@@ -11,11 +11,9 @@ const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 pub const producer_string = if (std.builtin.is_test) "zig test" else "zig " ++ build_options.version;
 
 pub const Options = struct {
-    dir: fs.Dir,
-    /// Redundant with dir. Needed when linking with LLD because we have to pass paths rather
-    /// than file descriptors. `null` means cwd. OK to pass `null` when `use_lld` is `false`.
-    dir_path: ?[]const u8,
-    /// Path to the output file, relative to dir.
+    /// Where the output will go.
+    directory: Module.Directory,
+    /// Path to the output file, relative to `directory`.
     sub_path: []const u8,
     target: std.Target,
     output_mode: std.builtin.OutputMode,
@@ -53,6 +51,11 @@ pub const Options = struct {
     z_defs: bool = false,
     bind_global_refs_locally: bool,
     is_native_os: bool,
+    pic: bool,
+    valgrind: bool,
+    stack_check: bool,
+    single_threaded: bool,
+    debug_link: bool = false,
     gc_sections: ?bool = null,
     allow_shlib_undefined: ?bool = null,
     linker_script: ?[]const u8 = null,
@@ -154,7 +157,7 @@ pub const File = struct {
         switch (base.tag) {
             .coff, .elf, .macho => {
                 if (base.file != null) return;
-                base.file = try base.options.dir.createFile(base.options.sub_path, .{
+                base.file = try base.options.directory.handle.createFile(base.options.sub_path, .{
                     .truncate = false,
                     .read = true,
                     .mode = determineMode(base.options),

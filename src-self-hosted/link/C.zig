@@ -28,7 +28,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     if (options.use_llvm) return error.LLVMHasNoCBackend;
     if (options.use_lld) return error.LLDHasNoCBackend;
 
-    const file = try options.dir.createFile(sub_path, .{ .truncate = true, .read = true, .mode = link.determineMode(options) });
+    const file = try options.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true, .mode = link.determineMode(options) });
     errdefer file.close();
 
     var c_file = try allocator.create(C);
