@@ -16,8 +16,9 @@ const Allocator = std.mem.Allocator;
 
 const base64_encoder = fs.base64_encoder;
 const base64_decoder = fs.base64_decoder;
-/// This is 128 bits - Even with 2^54 cache entries, the probably of a collision would be under 10^-6
-const BIN_DIGEST_LEN = 16;
+/// 16 would be 128 bits - Even with 2^54 cache entries, the probably of a collision would be under 10^-6
+/// We round up to 18 to avoid the `==` padding after base64 encoding.
+const BIN_DIGEST_LEN = 18;
 const BASE64_DIGEST_LEN = base64.Base64Encoder.calcSize(BIN_DIGEST_LEN);
 
 const MANIFEST_FILE_SIZE_MAX = 50 * 1024 * 1024;
