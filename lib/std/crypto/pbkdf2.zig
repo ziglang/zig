@@ -10,6 +10,14 @@ const debug = std.debug;
 const assert = debug.assert;
 const mem = std.mem;
 
+//! PBKDF2 (Password-Based Key Derivation Function 2) is a specific Key Derivation Function,
+//! intended to turn a weak, human generated password into a strong key, suitable for cryptographic
+//! uses. It does this by salting and stretching the password. Salting injects non-secret random
+//! data, so that identical passwords will be converted into unique keys. Stretching applies a
+//! deliberately slow hashing function to frustrate brute-force guessing.
+//!
+//! PBKDF2 is defined in RFC 2898, and is a recommendation of NIST SP 800-132.
+
 // RFC 2898 Section 5.2
 //
 // FromSpec:
@@ -38,19 +46,33 @@ const mem = std.mem;
 
 // Based on Apple's CommonKeyDerivation, based originally on code by Damien Bergamini.
 
-pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: u32, comptime Hash: type) void {
+/// Given a password, salt, iteration count (rounds), and a pseudo-random function, generates a
+/// derived key in the provided buffer slice.
+///
+/// derivedKey: Slice of appropriate size for generated key. Generally 16 or 32 bytes in length.
+///             May be uninitialized. All bytes will be written.
+///             Maximum size is (2^32 - 1) * Hash.digest_length
+///             It is a programming error to pass buffer longer than the maximum size.
+///
+/// password: Arbitrary sequence of bytes of any length, including empty.
+///
+/// salt: Arbitrary sequence of bytes of any length, including empty. A common length is 8 bytes.
+///
+/// rounds: Iteration count. Must be greater than 0. Common values range from 1,000 to 100,000.
+///
+/// Prf: Pseudo-random function to use. The most common choice is std.crypto.auth.hmac.HmacSha256.
+pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: u32, comptime Prf: type) void {
     assert(rounds >= 1);
 
-    const dkLen = derivedKey.len;
-    const hLen = Hash.digest_length;
-    const Prf = crypto.auth.hmac.Hmac(Hash);
+    const dkLen: u64 = derivedKey.len;
+    const hLen: u32 = Prf.mac_length; // Force type to ensure multiplications can't overflow
 
     // FromSpec:
     //
     //   1. If dkLen > (2^32 - 1) * hLen, output "derived key too long" and
     //      stop.
     //
-    assert(dkLen > 0 and dkLen <= (1 << 32 - 1) * hLen);
+    assert(dkLen > 0 and dkLen <= @as(u64, 1 << 32 - 1) * hLen);
 
     // FromSpec:
     //
@@ -108,7 +130,7 @@ pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: 
         ctx.final(prevBlock[0..]);
 
         // Choose portion of DK to write into (T_n) and initialize
-        const offset: usize = block * hLen;
+        const offset: u64 = @as(u64, block) * hLen;
         const blockLen = if (block != l - 1) hLen else r;
         var dkBlock = derivedKey[offset..(offset + blockLen)];
         mem.copy(u8, dkBlock, prevBlock[0..dkBlock.len]);
@@ -138,7 +160,7 @@ test "RFC 6070 one iteration" {
 
     var derivedKey: [dkLen]u8 = undefined;
 
-    pbkdf2(&derivedKey, p, s, c, crypto.hash.Sha1);
+    pbkdf2(&derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
 
     const expected = "0c60c80f961f0e71f3a9b524af6012062fe037a6";
 
@@ -153,7 +175,7 @@ test "RFC 6070 two iterations" {
 
     var derivedKey: [dkLen]u8 = undefined;
 
-    pbkdf2(&derivedKey, p, s, c, crypto.hash.Sha1);
+    pbkdf2(&derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
 
     const expected = "ea6c014dc72d6f8ccd1ed92ace1d41f0d8de8957";
 
@@ -168,7 +190,7 @@ test "RFC 6070 4096 iterations" {
 
     var derivedKey: [dkLen]u8 = undefined;
 
-    pbkdf2(&derivedKey, p, s, c, crypto.hash.Sha1);
+    pbkdf2(&derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
 
     const expected = "4b007901b765489abead49d926f721d065a429c1";
 
@@ -188,7 +210,7 @@ test "RFC 6070 16,777,216 iterations" {
 
     var derivedKey = [_]u8{0} ** dkLen;
 
-    pbkdf2(&derivedKey, p, s, c, crypto.hash.Sha1);
+    pbkdf2(&derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
 
     const expected = "eefe3d61cd4da4e4e9945b3d6ba2158c2634e984";
 
@@ -203,7 +225,7 @@ test "RFC 6070 multi-block salt and password" {
 
     var derivedKey: [dkLen]u8 = undefined;
 
-    pbkdf2(&derivedKey, p, s, c, crypto.hash.Sha1);
+    pbkdf2(&derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
 
     const expected = "3d2eec4fe41c849b80c8d83662c0e44a8b291a964cf2f07038";
 
@@ -218,7 +240,7 @@ test "RFC 6070 embedded NUL" {
 
     var derivedKey: [dkLen]u8 = undefined;
 
-    pbkdf2(&derivedKey, p, s, c, crypto.hash.Sha1);
+    pbkdf2(&derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
 
     const expected = "56fa6aa75548099dcc37d7f03425e0c3";
 
@@ -226,11 +248,10 @@ test "RFC 6070 embedded NUL" {
 }
 
 test "Very large dkLen" {
-    // These iteration tests are slow so we always skip them. Results have been verified.
+    // This test allocates 8GB of memory and is expected to take several hours to run.
     if (true) {
         return error.SkipZigTest;
     }
-
     const p = "password";
     const s = "salt";
     const c = 1;
@@ -241,7 +262,7 @@ test "Very large dkLen" {
         std.testing.allocator.free(derivedKey);
     }
 
-    pbkdf2(derivedKey, p, s, c, crypto.hash.Sha1);
+    pbkdf2(derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
 
     const expected = "0c60c80f961f0e71f3a9b524af6012062fe037a6";
 
