@@ -5,11 +5,14 @@
 // and substantial portions of the software.
 usingnamespace std.os.linux;
 const std = @import("../../std.zig");
+const perf = std.os.linux.perf;
+
 const errno = getErrno;
 const unexpectedErrno = std.os.unexpectedErrno;
 const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;
 const expect = std.testing.expect;
+const Channel = std.event.Channel;
 
 pub const btf = @import("bpf/btf.zig");
 pub const kern = @import("bpf/kern.zig");
@@ -1663,4 +1666,186 @@ test "prog_load" {
     defer std.os.close(prog);
 
     expectError(error.UnsafeProgram, prog_load(.socket_filter, &bad_prog, null, "MIT", 0));
+}
+
+pub fn PerfBuffer(comptime T: type) type {
+    return struct {
+        allocator: *std.mem.Allocator,
+        fd: fd_t,
+        bufs: std.ArrayListUnmanaged(CpuBuf),
+        channel: Channel(Payload),
+        channel_buf: []Payload,
+
+        const Self = @This();
+
+        const Tag = enum {
+            sample,
+            lost,
+        };
+
+        pub const Payload = union(Tag) {
+            sample: struct {
+                cpu: i32,
+                data: []u8,
+            },
+            lost: struct {
+                cpu: i32,
+                cnt: usize,
+            },
+        };
+
+        const CpuBuf = struct {
+            cpu: i32,
+            fd: fd_t,
+            base: []align(4096) u8,
+            frame: @Frame(process),
+
+            const Self = @This();
+
+            pub fn init(cpu: i32, mmap_size: usize) !Self {
+                const attr = std.mem.zeroes(perf.EventAttr);
+
+                attr.config = perf.COUNT_SW_BPF_OUTPUT;
+                attr.type = perf.TYPE_SOFTWARE;
+                attr.sample_type = perf.SAMPLE_RAW;
+                attr.sample_period = 1;
+                attr.wakeup_events = 1;
+
+                const rc = std.os.syscall5(.perf_event_open, &attr, -1, cpu, -1, perf.FLAG_FD_CLOEXEC);
+                const fd = switch (std.os.linux.getErrno(rc)) {
+                    0...std.math.maxInt(@TypeOf(rc)) => @intCast(fd_t, rc),
+                    else => |errno| std.os.unexpectedErrno(errno),
+                };
+                errdefer std.os.close(fd);
+
+                try ioctl(fd, perf.EVENT_IOC_ENABLE, 0);
+                return .{
+                    .cpu = cpu,
+                    .fd = fd,
+                    .base = try std.os.mmap(
+                        null,
+                        mmap_size + std.mem.page_size,
+                        PROT_READ | PROT_WRITE,
+                        MAP_SHARED,
+                        fd,
+                        0,
+                    ),
+                };
+            }
+
+            fn process(self: Self, allocator: *Allocator, channel: *Channel(Payload)) callconv(.Async) void {
+                while (true) {
+                    std.event.loop.instance.?.waitUntilFdWritable(self.fd);
+
+                    const header = @ptrCast(perf.MmapPage, self.base.ptr);
+                    var data_head = ring_buffer_read_head(header);
+                    var data_tail = header.data_tail;
+
+                    const base = self.base[std.mem.page_size..];
+                    var ehdr: *perf.EventHeader = undefined;
+
+                    while (data_head != data_tail) {
+                        ehdr = @ptrCast(*perf.EventHeader, &base[data_tail]);
+
+                        switch (ehdr.type) {
+                            perf.RECORD_SAMPLE => {
+                                var buf = try allocator.alloc(u8, ehdr.size);
+
+                                // copy first chunk
+
+                                // if wrapped around
+                                if (@ptrToInt(ehdr) + ehdr.size > @ptrToInt(base.ptr) + self.mmap_size) {
+                                    // copy optional second chunk
+                                }
+
+                                channel.put(Payload{
+                                    .sample = .{
+                                        .cpu = self.cpu,
+                                        .data = buf,
+                                    },
+                                });
+                            },
+                            perf.RECORD_LOST => {
+                                const lost = @ptrCast(*perf.SampleLost, ehdr);
+                                channel.put(Payload{
+                                    .lost = .{
+                                        .cpu = self.cpu,
+                                        .cnt = lost.count,
+                                    },
+                                });
+                            },
+                            else => |val| {
+                                std.log.info("Unknown perf sample type: {}\n", .{val});
+                            },
+                        }
+                    }
+
+                    ring_buffer_write_tail(header, data_tail);
+                }
+            }
+
+            pub fn deinit(self: Self) void {
+                std.os.munmap(self.base);
+                ioctl(self.fd, perf.EVENT_IOC_DISABLE, 0) catch {};
+                std.os.close(self.fd);
+            }
+        };
+
+        pub fn init(allocator: *Allocator, map: PerfEventArray, page_cnt: usize) !Self {
+            // page count must be power of two
+            if (@popCount(usize, page_cnt) != 1) {
+                return error.PageCountSize;
+            }
+
+            const cpu_count = std.math.min(map.max_entries, std.Thread.cpuCount());
+
+            var ret: Self = undefined;
+            ret.allocator = allocator;
+            ret.channel_buf = try allocator.alloc(Payload, cpu_count);
+            ret.channel.init(&Channel_buf);
+            errdefer channel.deinit();
+
+            ret.bufs = try std.ArrayListUnmanaged(CpuBuf).initCapacity(allocator, cpu_count);
+            errdefer {
+                for (bufs.items) |buf| buf.deinit(allocator);
+                bufs.deinit(allocator);
+            }
+
+            var i: usize = 0;
+            while (i < cpu_count) : (i += 0) {
+                ret.bufs.appendAssumeCapacity(try CpuBuf.init(i, std.mem.page_size * page_cnt));
+                try bpf.map_update_elem(map.fd, cpu, ret.bufs.items[i].fd, 0);
+            }
+
+            return ret;
+        }
+
+        pub fn deinit(self: Self) void {
+            self.channel.deinit();
+            for (self.bufs.items) |buf| buf.deinit(self.allocator);
+
+            self.bufs.deinit(allocator);
+            self.channel.deinit();
+            allocator.free(self.channel_buf);
+        }
+
+        // TODO: make a simpler poll method -- we will run into issues regarding the
+        // size of the channel
+
+        pub fn run(self: Self) callconv(.Async) void {
+            for (self.bufs.items) |*buf| {
+                buf.frame = async buf.process(&self.channel);
+            }
+        }
+    };
+}
+
+pub fn main() anyerror!void {
+    const cpu_count_from_thread = try std.Thread.cpuCount();
+    std.debug.print("from Thread: {}\n", .{cpu_count_from_thread});
+}
+
+test "perf buffer" {
+    const perf_event_array = try bpf.PerfEventArray.init();
+    var perf_buffer = try PerfBuffer.init(perf_event_array, 64);
 }
