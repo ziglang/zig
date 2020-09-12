@@ -230,13 +230,12 @@ fn EncryptCtx(comptime AES: type) type {
             var ctrbuf = iv;
             var n: usize = 0;
 
-            const len16 = src.len - (src.len & 15);
-            while (n < len16) {
+            // iterate block by block
+            while (n < src.len) : (n += 16) {
                 ctx.encrypt(keystream[0..], ctrbuf[0..]);
                 var ctr_i = std.mem.readIntBig(u128, ctrbuf[0..]);
                 std.mem.writeIntBig(u128, ctrbuf[0..], ctr_i +% 1);
                 xorBytes(src[n..][0..16], &keystream, dst[n..][0..16]);
-                n += 16;
             }
         }
     };
