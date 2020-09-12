@@ -95,11 +95,10 @@ pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: 
     //
     //            DK = T_1 || T_2 ||  ...  || T_l<0..r-1>
 
-    var prevBlock: [hLen]u8 = undefined;
-    var newBlock: [hLen]u8 = undefined;
-
     var block: u32 = 0; // Spec limits to u32
     while (block < l) : (block += 1) {
+        var prevBlock: [hLen]u8 = undefined;
+        var newBlock: [hLen]u8 = undefined;
 
         // U_1 = PRF (P, S || INT (i))
         const blockIndex = mem.toBytes(mem.nativeToBig(u32, block + 1)); // Block index starts at 0001
@@ -109,15 +108,15 @@ pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: 
         ctx.final(prevBlock[0..]);
 
         // Choose portion of DK to write into (T_n) and initialize
-        const offset = block * hLen;
+        const offset: usize = block * hLen;
         const blockLen = if (block != l - 1) hLen else r;
         var dkBlock = derivedKey[offset..(offset + blockLen)];
-        mem.copy(u8, dkBlock[0..], prevBlock[0..dkBlock.len]);
+        mem.copy(u8, dkBlock, prevBlock[0..dkBlock.len]);
 
         var i: u32 = 1;
         while (i < rounds) : (i += 1) {
             // U_c = PRF (P, U_{c-1})
-            Prf.create(newBlock[0..], prevBlock[0..], password);
+            Prf.create(&newBlock, prevBlock[0..], password);
             mem.copy(u8, prevBlock[0..], newBlock[0..]);
 
             // F (P, S, c, i) = U_1 \xor U_2 \xor ... \xor U_c
@@ -222,6 +221,29 @@ test "RFC 6070 embedded NUL" {
     pbkdf2(&derivedKey, p, s, c, crypto.hash.Sha1);
 
     const expected = "56fa6aa75548099dcc37d7f03425e0c3";
+
+    htest.assertEqual(expected, derivedKey[0..]);
+}
+
+test "Very large dkLen" {
+    // These iteration tests are slow so we always skip them. Results have been verified.
+    if (true) {
+        return error.SkipZigTest;
+    }
+
+    const p = "password";
+    const s = "salt";
+    const c = 1;
+    const dkLen = 1 << 33;
+
+    var derivedKey = try std.testing.allocator.alloc(u8, dkLen);
+    defer {
+        std.testing.allocator.free(derivedKey);
+    }
+
+    pbkdf2(derivedKey, p, s, c, crypto.hash.Sha1);
+
+    const expected = "0c60c80f961f0e71f3a9b524af6012062fe037a6";
 
     htest.assertEqual(expected, derivedKey[0..]);
 }
