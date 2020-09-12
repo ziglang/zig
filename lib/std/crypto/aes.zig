@@ -235,7 +235,7 @@ fn EncryptCtx(comptime AES: type) type {
                 ctx.encrypt(keystream[0..], ctrbuf[0..]);
                 var ctr_i = std.mem.readIntBig(u128, ctrbuf[0..]);
                 std.mem.writeIntBig(u128, ctrbuf[0..], ctr_i +% 1);
-                xorBytes(src[n..][0..16], &keystream, dst[n..][0..16]);
+                xorBytes(&keystream, src[n..][0..16], dst[n..][0..16]);
             }
         }
     };
