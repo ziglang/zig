@@ -9,216 +9,262 @@ const std = @import("../std.zig");
 const mem = std.mem;
 const testing = std.testing;
 
-// Apply sbox0 to each byte in w.
-fn subw(w: u32) u32 {
-    return @as(u32, sbox0[w >> 24]) << 24 | @as(u32, sbox0[w >> 16 & 0xff]) << 16 | @as(u32, sbox0[w >> 8 & 0xff]) << 8 | @as(u32, sbox0[w & 0xff]);
-}
+pub const AES128 = AESImpl(128);
+pub const AES256 = AESImpl(256);
 
-fn rotw(w: u32) u32 {
-    return w << 8 | w >> 24;
-}
-
-// Encrypt one block from src into dst, using the expanded key xk.
-fn encryptBlock(xk: []const u32, dst: []u8, src: []const u8) void {
-    var s0 = mem.readIntBig(u32, src[0..4]);
-    var s1 = mem.readIntBig(u32, src[4..8]);
-    var s2 = mem.readIntBig(u32, src[8..12]);
-    var s3 = mem.readIntBig(u32, src[12..16]);
-
-    // First round just XORs input with key.
-    s0 ^= xk[0];
-    s1 ^= xk[1];
-    s2 ^= xk[2];
-    s3 ^= xk[3];
-
-    // Middle rounds shuffle using tables.
-    // Number of rounds is set by length of expanded key.
-    var nr = xk.len / 4 - 2; // - 2: one above, one more below
-    var k: usize = 4;
-    var t0: u32 = undefined;
-    var t1: u32 = undefined;
-    var t2: u32 = undefined;
-    var t3: u32 = undefined;
-    var r: usize = 0;
-    while (r < nr) : (r += 1) {
-        t0 = xk[k + 0] ^ te0[@truncate(u8, s0 >> 24)] ^ te1[@truncate(u8, s1 >> 16)] ^ te2[@truncate(u8, s2 >> 8)] ^ te3[@truncate(u8, s3)];
-        t1 = xk[k + 1] ^ te0[@truncate(u8, s1 >> 24)] ^ te1[@truncate(u8, s2 >> 16)] ^ te2[@truncate(u8, s3 >> 8)] ^ te3[@truncate(u8, s0)];
-        t2 = xk[k + 2] ^ te0[@truncate(u8, s2 >> 24)] ^ te1[@truncate(u8, s3 >> 16)] ^ te2[@truncate(u8, s0 >> 8)] ^ te3[@truncate(u8, s1)];
-        t3 = xk[k + 3] ^ te0[@truncate(u8, s3 >> 24)] ^ te1[@truncate(u8, s0 >> 16)] ^ te2[@truncate(u8, s1 >> 8)] ^ te3[@truncate(u8, s2)];
-        k += 4;
-        s0 = t0;
-        s1 = t1;
-        s2 = t2;
-        s3 = t3;
-    }
-
-    // Last round uses s-box directly and XORs to produce output.
-    s0 = @as(u32, sbox0[t0 >> 24]) << 24 | @as(u32, sbox0[t1 >> 16 & 0xff]) << 16 | @as(u32, sbox0[t2 >> 8 & 0xff]) << 8 | @as(u32, sbox0[t3 & 0xff]);
-    s1 = @as(u32, sbox0[t1 >> 24]) << 24 | @as(u32, sbox0[t2 >> 16 & 0xff]) << 16 | @as(u32, sbox0[t3 >> 8 & 0xff]) << 8 | @as(u32, sbox0[t0 & 0xff]);
-    s2 = @as(u32, sbox0[t2 >> 24]) << 24 | @as(u32, sbox0[t3 >> 16 & 0xff]) << 16 | @as(u32, sbox0[t0 >> 8 & 0xff]) << 8 | @as(u32, sbox0[t1 & 0xff]);
-    s3 = @as(u32, sbox0[t3 >> 24]) << 24 | @as(u32, sbox0[t0 >> 16 & 0xff]) << 16 | @as(u32, sbox0[t1 >> 8 & 0xff]) << 8 | @as(u32, sbox0[t2 & 0xff]);
-
-    s0 ^= xk[k + 0];
-    s1 ^= xk[k + 1];
-    s2 ^= xk[k + 2];
-    s3 ^= xk[k + 3];
-
-    mem.writeIntBig(u32, dst[0..4], s0);
-    mem.writeIntBig(u32, dst[4..8], s1);
-    mem.writeIntBig(u32, dst[8..12], s2);
-    mem.writeIntBig(u32, dst[12..16], s3);
-}
-
-// Decrypt one block from src into dst, using the expanded key xk.
-pub fn decryptBlock(xk: []const u32, dst: []u8, src: []const u8) void {
-    var s0 = mem.readIntBig(u32, src[0..4]);
-    var s1 = mem.readIntBig(u32, src[4..8]);
-    var s2 = mem.readIntBig(u32, src[8..12]);
-    var s3 = mem.readIntBig(u32, src[12..16]);
-
-    // First round just XORs input with key.
-    s0 ^= xk[0];
-    s1 ^= xk[1];
-    s2 ^= xk[2];
-    s3 ^= xk[3];
-
-    // Middle rounds shuffle using tables.
-    // Number of rounds is set by length of expanded key.
-    var nr = xk.len / 4 - 2; // - 2: one above, one more below
-    var k: usize = 4;
-    var t0: u32 = undefined;
-    var t1: u32 = undefined;
-    var t2: u32 = undefined;
-    var t3: u32 = undefined;
-    var r: usize = 0;
-    while (r < nr) : (r += 1) {
-        t0 = xk[k + 0] ^ td0[@truncate(u8, s0 >> 24)] ^ td1[@truncate(u8, s3 >> 16)] ^ td2[@truncate(u8, s2 >> 8)] ^ td3[@truncate(u8, s1)];
-        t1 = xk[k + 1] ^ td0[@truncate(u8, s1 >> 24)] ^ td1[@truncate(u8, s0 >> 16)] ^ td2[@truncate(u8, s3 >> 8)] ^ td3[@truncate(u8, s2)];
-        t2 = xk[k + 2] ^ td0[@truncate(u8, s2 >> 24)] ^ td1[@truncate(u8, s1 >> 16)] ^ td2[@truncate(u8, s0 >> 8)] ^ td3[@truncate(u8, s3)];
-        t3 = xk[k + 3] ^ td0[@truncate(u8, s3 >> 24)] ^ td1[@truncate(u8, s2 >> 16)] ^ td2[@truncate(u8, s1 >> 8)] ^ td3[@truncate(u8, s0)];
-        k += 4;
-        s0 = t0;
-        s1 = t1;
-        s2 = t2;
-        s3 = t3;
-    }
-
-    // Last round uses s-box directly and XORs to produce output.
-    s0 = @as(u32, sbox1[t0 >> 24]) << 24 | @as(u32, sbox1[t3 >> 16 & 0xff]) << 16 | @as(u32, sbox1[t2 >> 8 & 0xff]) << 8 | @as(u32, sbox1[t1 & 0xff]);
-    s1 = @as(u32, sbox1[t1 >> 24]) << 24 | @as(u32, sbox1[t0 >> 16 & 0xff]) << 16 | @as(u32, sbox1[t3 >> 8 & 0xff]) << 8 | @as(u32, sbox1[t2 & 0xff]);
-    s2 = @as(u32, sbox1[t2 >> 24]) << 24 | @as(u32, sbox1[t1 >> 16 & 0xff]) << 16 | @as(u32, sbox1[t0 >> 8 & 0xff]) << 8 | @as(u32, sbox1[t3 & 0xff]);
-    s3 = @as(u32, sbox1[t3 >> 24]) << 24 | @as(u32, sbox1[t2 >> 16 & 0xff]) << 16 | @as(u32, sbox1[t1 >> 8 & 0xff]) << 8 | @as(u32, sbox1[t0 & 0xff]);
-
-    s0 ^= xk[k + 0];
-    s1 ^= xk[k + 1];
-    s2 ^= xk[k + 2];
-    s3 ^= xk[k + 3];
-
-    mem.writeIntBig(u32, dst[0..4], s0);
-    mem.writeIntBig(u32, dst[4..8], s1);
-    mem.writeIntBig(u32, dst[8..12], s2);
-    mem.writeIntBig(u32, dst[12..16], s3);
-}
-
-fn xorBytes(dst: []u8, a: []const u8, b: []const u8) usize {
-    var n = std.math.min(dst.len, std.math.min(a.len, b.len));
-    for (dst[0..n]) |_, i| {
-        dst[i] = a[i] ^ b[i];
-    }
-    return n;
-}
-
-pub const AES128 = AES(128);
-pub const AES256 = AES(256);
-
-fn AES(comptime keysize: usize) type {
+fn AESImpl(comptime keysize: usize) type {
     return struct {
         const Self = @This();
 
-        pub const Encrypt = AESEncrypt(keysize);
-        pub const Decrypt = AESDecrypt(keysize);
+        pub const Encrypt = EncryptCtx(Self);
+        pub const Decrypt = DecryptCtx(Self);
 
-        const nn = (keysize / 8) + 28;
+        const keyBytesLen = keysize / 8;
+        const numIntsInKey = keyBytesLen / 4; // NK
+        // Length of expanded key int array
+        const expKeyIntsLen = (keysize / 8) + 28; // NN
+        // Number of rounds is set by length of expanded key; - 2: one above, one more below
+        const numRounds = expKeyIntsLen / 4 - 2; // NR
+
+        const Key = [keyBytesLen]u8;
+        const ExpKey = [expKeyIntsLen]u32;
+
         enc: Encrypt,
         dec: Decrypt,
 
-        pub fn init(key: [keysize / 8]u8) Self {
-            var ctx: Self = undefined;
-            ctx.enc = Encrypt.init(key);
-            ctx.dec = ctx.enc.toDecrypt();
-            return ctx;
+        pub fn init(key: Key) Self {
+            var aes: Self = undefined;
+            aes.enc = Encrypt.init(key);
+            aes.dec = Decrypt.initFromEnc(aes.enc.expkey);
+            return aes;
         }
 
-        pub fn encrypt(ctx: Self, dst: []u8, src: []const u8) void {
-            ctx.enc.encrypt(dst, src);
+        pub fn encrypt(aes: Self, dst: []u8, src: []const u8) void {
+            aes.enc.encrypt(dst, src);
         }
-        pub fn decrypt(ctx: Self, dst: []u8, src: []const u8) void {
-            ctx.dec.decrypt(dst, src);
+
+        pub fn decrypt(aes: Self, dst: []u8, src: []const u8) void {
+            aes.dec.decrypt(dst, src);
         }
-        pub fn ctr(ctx: Self, dst: []u8, src: []const u8, iv: [16]u8) void {
-            ctx.enc.ctr(dst, src, iv);
+
+        pub fn ctr(aes: Self, dst: []u8, src: []const u8, iv: [16]u8) void {
+            aes.enc.ctr(dst, src, iv);
+        }
+
+        // Encrypt one block from src into dst, using the expanded key xk.
+        fn encryptBlock(xk: ExpKey, src: *const [16]u8, dst: *[16]u8) void {
+            var s0 = mem.readIntBig(u32, src[0..4]);
+            var s1 = mem.readIntBig(u32, src[4..8]);
+            var s2 = mem.readIntBig(u32, src[8..12]);
+            var s3 = mem.readIntBig(u32, src[12..16]);
+
+            // First round just XORs input with key.
+            s0 ^= xk[0];
+            s1 ^= xk[1];
+            s2 ^= xk[2];
+            s3 ^= xk[3];
+
+            // Middle rounds shuffle using tables.
+            var k: usize = 4;
+            var t0: u32 = undefined;
+            var t1: u32 = undefined;
+            var t2: u32 = undefined;
+            var t3: u32 = undefined;
+            var r: usize = 0;
+            while (r < numRounds) : (r += 1) {
+                t0 = xk[k + 0] ^ te0[@truncate(u8, s0 >> 24)] ^ te1[@truncate(u8, s1 >> 16)] ^ te2[@truncate(u8, s2 >> 8)] ^ te3[@truncate(u8, s3)];
+                t1 = xk[k + 1] ^ te0[@truncate(u8, s1 >> 24)] ^ te1[@truncate(u8, s2 >> 16)] ^ te2[@truncate(u8, s3 >> 8)] ^ te3[@truncate(u8, s0)];
+                t2 = xk[k + 2] ^ te0[@truncate(u8, s2 >> 24)] ^ te1[@truncate(u8, s3 >> 16)] ^ te2[@truncate(u8, s0 >> 8)] ^ te3[@truncate(u8, s1)];
+                t3 = xk[k + 3] ^ te0[@truncate(u8, s3 >> 24)] ^ te1[@truncate(u8, s0 >> 16)] ^ te2[@truncate(u8, s1 >> 8)] ^ te3[@truncate(u8, s2)];
+                k += 4;
+                s0 = t0;
+                s1 = t1;
+                s2 = t2;
+                s3 = t3;
+            }
+
+            // Last round uses s-box directly and XORs to produce output.
+            s0 = @as(u32, sbox0[t0 >> 24]) << 24 | @as(u32, sbox0[t1 >> 16 & 0xff]) << 16 | @as(u32, sbox0[t2 >> 8 & 0xff]) << 8 | @as(u32, sbox0[t3 & 0xff]);
+            s1 = @as(u32, sbox0[t1 >> 24]) << 24 | @as(u32, sbox0[t2 >> 16 & 0xff]) << 16 | @as(u32, sbox0[t3 >> 8 & 0xff]) << 8 | @as(u32, sbox0[t0 & 0xff]);
+            s2 = @as(u32, sbox0[t2 >> 24]) << 24 | @as(u32, sbox0[t3 >> 16 & 0xff]) << 16 | @as(u32, sbox0[t0 >> 8 & 0xff]) << 8 | @as(u32, sbox0[t1 & 0xff]);
+            s3 = @as(u32, sbox0[t3 >> 24]) << 24 | @as(u32, sbox0[t0 >> 16 & 0xff]) << 16 | @as(u32, sbox0[t1 >> 8 & 0xff]) << 8 | @as(u32, sbox0[t2 & 0xff]);
+
+            s0 ^= xk[k + 0];
+            s1 ^= xk[k + 1];
+            s2 ^= xk[k + 2];
+            s3 ^= xk[k + 3];
+
+            mem.writeIntBig(u32, dst[0..4], s0);
+            mem.writeIntBig(u32, dst[4..8], s1);
+            mem.writeIntBig(u32, dst[8..12], s2);
+            mem.writeIntBig(u32, dst[12..16], s3);
+        }
+
+        // Decrypt one block from src into dst, using the expanded key xk.
+        fn decryptBlock(xk: ExpKey, src: *const [16]u8, dst: *[16]u8) void {
+            var s0 = mem.readIntBig(u32, src[0..4]);
+            var s1 = mem.readIntBig(u32, src[4..8]);
+            var s2 = mem.readIntBig(u32, src[8..12]);
+            var s3 = mem.readIntBig(u32, src[12..16]);
+
+            // First round just XORs input with key.
+            s0 ^= xk[0];
+            s1 ^= xk[1];
+            s2 ^= xk[2];
+            s3 ^= xk[3];
+
+            // Middle rounds shuffle using tables.
+            var k: usize = 4;
+            var t0: u32 = undefined;
+            var t1: u32 = undefined;
+            var t2: u32 = undefined;
+            var t3: u32 = undefined;
+            var r: usize = 0;
+            while (r < numRounds) : (r += 1) {
+                t0 = xk[k + 0] ^ td0[@truncate(u8, s0 >> 24)] ^ td1[@truncate(u8, s3 >> 16)] ^ td2[@truncate(u8, s2 >> 8)] ^ td3[@truncate(u8, s1)];
+                t1 = xk[k + 1] ^ td0[@truncate(u8, s1 >> 24)] ^ td1[@truncate(u8, s0 >> 16)] ^ td2[@truncate(u8, s3 >> 8)] ^ td3[@truncate(u8, s2)];
+                t2 = xk[k + 2] ^ td0[@truncate(u8, s2 >> 24)] ^ td1[@truncate(u8, s1 >> 16)] ^ td2[@truncate(u8, s0 >> 8)] ^ td3[@truncate(u8, s3)];
+                t3 = xk[k + 3] ^ td0[@truncate(u8, s3 >> 24)] ^ td1[@truncate(u8, s2 >> 16)] ^ td2[@truncate(u8, s1 >> 8)] ^ td3[@truncate(u8, s0)];
+                k += 4;
+                s0 = t0;
+                s1 = t1;
+                s2 = t2;
+                s3 = t3;
+            }
+
+            // Last round uses s-box directly and XORs to produce output.
+            s0 = @as(u32, sbox1[t0 >> 24]) << 24 | @as(u32, sbox1[t3 >> 16 & 0xff]) << 16 | @as(u32, sbox1[t2 >> 8 & 0xff]) << 8 | @as(u32, sbox1[t1 & 0xff]);
+            s1 = @as(u32, sbox1[t1 >> 24]) << 24 | @as(u32, sbox1[t0 >> 16 & 0xff]) << 16 | @as(u32, sbox1[t3 >> 8 & 0xff]) << 8 | @as(u32, sbox1[t2 & 0xff]);
+            s2 = @as(u32, sbox1[t2 >> 24]) << 24 | @as(u32, sbox1[t1 >> 16 & 0xff]) << 16 | @as(u32, sbox1[t0 >> 8 & 0xff]) << 8 | @as(u32, sbox1[t3 & 0xff]);
+            s3 = @as(u32, sbox1[t3 >> 24]) << 24 | @as(u32, sbox1[t2 >> 16 & 0xff]) << 16 | @as(u32, sbox1[t1 >> 8 & 0xff]) << 8 | @as(u32, sbox1[t0 & 0xff]);
+
+            s0 ^= xk[k + 0];
+            s1 ^= xk[k + 1];
+            s2 ^= xk[k + 2];
+            s3 ^= xk[k + 3];
+
+            mem.writeIntBig(u32, dst[0..4], s0);
+            mem.writeIntBig(u32, dst[4..8], s1);
+            mem.writeIntBig(u32, dst[8..12], s2);
+            mem.writeIntBig(u32, dst[12..16], s3);
+        }
+
+        // Apply sbox0 to each byte in w.
+        fn subw(w: u32) u32 {
+            return @as(u32, sbox0[w >> 24]) << 24
+                | @as(u32, sbox0[w >> 16 & 0xff]) << 16
+                | @as(u32, sbox0[w >> 8 & 0xff]) << 8
+                | @as(u32, sbox0[w & 0xff]);
+        }
+
+        fn rotw(w: u32) u32 {
+            return w << 8 | w >> 24;
+        }
+
+        // Key expansion algorithm. See FIPS-197, Figure 11.
+        fn expandKeyEncrypt(key: Key) ExpKey {
+            var enc: ExpKey = undefined;
+            var i: usize = 0;
+            while (i < numIntsInKey) : (i += 1) {
+                enc[i] = mem.readIntBig(u32, key[4 * i ..][0..4]);
+            }
+            while (i < enc.len) : (i += 1) {
+                var t = enc[i - 1];
+                if (i % numIntsInKey == 0) {
+                    t = subw(rotw(t)) ^ (@as(u32, powx[i / numIntsInKey - 1]) << 24);
+                } else if (numIntsInKey > 6 and i % numIntsInKey == 4) {
+                    t = subw(t);
+                }
+                enc[i] = enc[i - numIntsInKey] ^ t;
+            }
+            return enc;
+        }
+
+        fn expandKeyDecrypt(enc: ExpKey) ExpKey {
+            var dec: ExpKey = undefined;
+            var i: usize = 0;
+            while (i < expKeyIntsLen) : (i += 4) {
+                const ei = expKeyIntsLen - i - 4;
+                var j: usize = 0;
+                while (j < 4) : (j += 1) {
+                    var x = enc[ei + j];
+                    if (i > 0 and i + 4 < expKeyIntsLen) {
+                        x = td0[sbox0[x >> 24]] ^ td1[sbox0[x >> 16 & 0xff]] ^ td2[sbox0[x >> 8 & 0xff]] ^ td3[sbox0[x & 0xff]];
+                    }
+                    dec[i + j] = x;
+                }
+            }
+            return dec;
         }
     };
 }
 
-fn AESEncrypt(comptime keysize: usize) type {
+fn EncryptCtx(comptime AES: type) type {
     return struct {
         const Self = @This();
 
-        const Decrypt = AESDecrypt(keysize);
+        expkey: AES.ExpKey,
 
-        const nn = (keysize / 8) + 28;
-        enc: [nn]u32,
-
-        pub fn init(key: [keysize / 8]u8) Self {
+        pub fn init(key: AES.Key) Self {
             var ctx: Self = undefined;
-            expandKeyEncrypt(&key, ctx.enc[0..]);
+            ctx.expkey = AES.expandKeyEncrypt(key);
             return ctx;
         }
 
-        pub fn toDecrypt(ctx: Self) Decrypt {
-            var dec: Decrypt = undefined;
-            expandKeyDecrypt(ctx.enc[0..], dec.dec[0..]);
-            return dec;
+        pub fn encrypt(ctx: Self, dst: []u8, src: []const u8) void {
+            AES.encryptBlock(ctx.expkey, src[0..16], dst[0..16]);
         }
 
-        pub fn encrypt(ctx: Self, dst: []u8, src: []const u8) void {
-            encryptBlock(ctx.enc[0..], dst, src);
+        fn xorBytes(noalias a: *const [16]u8, b: *const [16]u8, dst: *[16]u8) void {
+            // without noalias optimizer sometimes fails to vectorize the loop,
+            // the Vector type produces non optimal instructions on targets that
+            // do not have simd and does not work at comptime
+            for (dst[0..16]) |_, i| {
+                dst[i] = a[i] ^ b[i];
+            }
         }
+
+        // TODO split into its own struct
         pub fn ctr(ctx: Self, dst: []u8, src: []const u8, iv: [16]u8) void {
+            // for performance reasons length is multiple of block size, ask user to zero-extend src
+            std.debug.assert(src.len % 16 == 0);
             std.debug.assert(dst.len >= src.len);
 
             var keystream: [16]u8 = undefined;
             var ctrbuf = iv;
             var n: usize = 0;
-            while (n < src.len) {
+
+            const len16 = src.len - (src.len & 15);
+            while (n < len16) {
                 ctx.encrypt(keystream[0..], ctrbuf[0..]);
                 var ctr_i = std.mem.readIntBig(u128, ctrbuf[0..]);
                 std.mem.writeIntBig(u128, ctrbuf[0..], ctr_i +% 1);
-
-                n += xorBytes(dst[n..], src[n..], &keystream);
+                xorBytes(src[n..][0..16], &keystream, dst[n..][0..16]);
+                n += 16;
             }
         }
     };
 }
 
-fn AESDecrypt(comptime keysize: usize) type {
+fn DecryptCtx(comptime AES: type) type {
     return struct {
         const Self = @This();
 
-        const nn = (keysize / 8) + 28;
-        dec: [nn]u32,
+        expkey: AES.ExpKey,
 
-        pub fn init(key: [keysize / 8]u8) Self {
+        fn initFromEnc(enc: AES.ExpKey) Self {
             var ctx: Self = undefined;
-            var enc: [nn]u32 = undefined;
-            expandKeyEncrypt(key[0..], enc[0..]);
-            expandKeyDecrypt(enc[0..], ctx.dec[0..]);
+            ctx.expkey = AES.expandKeyDecrypt(enc);
             return ctx;
         }
 
+        pub fn init(key: AES.Key) Self {
+            const enc = AES.expandKeyEncrypt(key);
+            return initFromEnc(enc);
+        }
+
         pub fn decrypt(ctx: Self, dst: []u8, src: []const u8) void {
-            decryptBlock(ctx.dec[0..], dst, src);
+            AES.decryptBlock(ctx.expkey, src[0..16], dst[0..16]);
         }
     };
 }
@@ -306,41 +352,8 @@ test "decrypt" {
     }
 }
 
-// Key expansion algorithm. See FIPS-197, Figure 11.
-fn expandKeyEncrypt(key: []const u8, enc: []u32) void {
-    var i: usize = 0;
-    var nk = key.len / 4;
-    while (i < nk) : (i += 1) {
-        enc[i] = mem.readIntBig(u32, key[4 * i ..][0..4]);
-    }
-    while (i < enc.len) : (i += 1) {
-        var t = enc[i - 1];
-        if (i % nk == 0) {
-            t = subw(rotw(t)) ^ (@as(u32, powx[i / nk - 1]) << 24);
-        } else if (nk > 6 and i % nk == 4) {
-            t = subw(t);
-        }
-        enc[i] = enc[i - nk] ^ t;
-    }
-}
-
-fn expandKeyDecrypt(enc: []const u32, dec: []u32) void {
-    var i: usize = 0;
-    var n = enc.len;
-    while (i < n) : (i += 4) {
-        var ei = n - i - 4;
-        var j: usize = 0;
-        while (j < 4) : (j += 1) {
-            var x = enc[ei + j];
-            if (i > 0 and i + 4 < n) {
-                x = td0[sbox0[x >> 24]] ^ td1[sbox0[x >> 16 & 0xff]] ^ td2[sbox0[x >> 8 & 0xff]] ^ td3[sbox0[x & 0xff]];
-            }
-            dec[i + j] = x;
-        }
-    }
-}
-
 test "expand key" {
+    // TODO test 256 bit
     const key = [_]u8{ 0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c };
     const exp_enc = [_]u32{
         0x2b7e1516, 0x28aed2a6, 0xabf71588, 0x09cf4f3c,
@@ -370,8 +383,8 @@ test "expand key" {
     };
     var enc: [exp_enc.len]u32 = undefined;
     var dec: [exp_dec.len]u32 = undefined;
-    expandKeyEncrypt(key[0..], enc[0..]);
-    expandKeyDecrypt(enc[0..], dec[0..]);
+    enc = AES128.expandKeyEncrypt(key);
+    dec = AES128.expandKeyDecrypt(enc);
     testing.expectEqualSlices(u32, exp_enc[0..], enc[0..]);
     testing.expectEqualSlices(u32, exp_dec[0..], dec[0..]);
 }
