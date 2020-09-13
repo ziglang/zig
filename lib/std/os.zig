@@ -320,6 +320,7 @@ pub const ReadError = error{
 /// Linux has a limit on how many bytes may be transferred in one `read` call, which is `0x7ffff000`
 /// on both 64-bit and 32-bit systems. This is due to using a signed C int as the return value, as
 /// well as stuffing the errno codes into the last `4096` values. This is noted on the `read` man page.
+/// The limit on Darwin is `0x7fffffff`, trying to read more than that returns EINVAL.
 /// For POSIX the limit is `math.maxInt(isize)`.
 pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     if (builtin.os.tag == .windows) {
@@ -353,6 +354,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     // Prevents EINVAL.
     const max_count = switch (std.Target.current.os.tag) {
         .linux => 0x7ffff000,
+        .macosx, .ios, .watchos, .tvos => math.maxInt(i32),
         else => math.maxInt(isize),
     };
     const adjusted_len = math.min(max_count, buf.len);
@@ -693,6 +695,7 @@ pub const WriteError = error{
 /// Linux has a limit on how many bytes may be transferred in one `write` call, which is `0x7ffff000`
 /// on both 64-bit and 32-bit systems. This is due to using a signed C int as the return value, as
 /// well as stuffing the errno codes into the last `4096` values. This is noted on the `write` man page.
+/// The limit on Darwin is `0x7fffffff`, trying to read more than that returns EINVAL.
 /// The corresponding POSIX limit is `math.maxInt(isize)`.
 pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
     if (builtin.os.tag == .windows) {
@@ -726,6 +729,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
 
     const max_count = switch (std.Target.current.os.tag) {
         .linux => 0x7ffff000,
+        .macosx, .ios, .watchos, .tvos => math.maxInt(i32),
         else => math.maxInt(isize),
     };
     const adjusted_len = math.min(max_count, bytes.len);
@@ -851,6 +855,7 @@ pub const PWriteError = WriteError || error{Unseekable};
 /// Linux has a limit on how many bytes may be transferred in one `pwrite` call, which is `0x7ffff000`
 /// on both 64-bit and 32-bit systems. This is due to using a signed C int as the return value, as
 /// well as stuffing the errno codes into the last `4096` values. This is noted on the `write` man page.
+/// The limit on Darwin is `0x7fffffff`, trying to write more than that returns EINVAL.
 /// The corresponding POSIX limit is `math.maxInt(isize)`.
 pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
     if (std.Target.current.os.tag == .windows) {
@@ -888,6 +893,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
     // Prevent EINVAL.
     const max_count = switch (std.Target.current.os.tag) {
         .linux => 0x7ffff000,
+        .macosx, .ios, .watchos, .tvos => math.maxInt(i32),
         else => math.maxInt(isize),
     };
     const adjusted_len = math.min(max_count, bytes.len);
@@ -3084,7 +3090,7 @@ pub fn connect(sockfd: socket_t, sock_addr: *const sockaddr, len: socklen_t) Con
             .WSAECONNREFUSED => return error.ConnectionRefused,
             .WSAETIMEDOUT => return error.ConnectionTimedOut,
             .WSAEHOSTUNREACH // TODO: should we return NetworkUnreachable in this case as well?
-                , .WSAENETUNREACH => return error.NetworkUnreachable,
+            , .WSAENETUNREACH => return error.NetworkUnreachable,
             .WSAEFAULT => unreachable,
             .WSAEINVAL => unreachable,
             .WSAEISCONN => unreachable,
@@ -4711,6 +4717,7 @@ fn count_iovec_bytes(iovs: []const iovec_const) usize {
 /// Linux has a limit on how many bytes may be transferred in one `sendfile` call, which is `0x7ffff000`
 /// on both 64-bit and 32-bit systems. This is due to using a signed C int as the return value, as
 /// well as stuffing the errno codes into the last `4096` values. This is cited on the `sendfile` man page.
+/// The limit on Darwin is `0x7fffffff`, trying to write more than that returns EINVAL.
 /// The corresponding POSIX limit on this is `math.maxInt(isize)`.
 pub fn sendfile(
     out_fd: fd_t,
@@ -4733,6 +4740,7 @@ pub fn sendfile(
     });
     const max_count = switch (std.Target.current.os.tag) {
         .linux => 0x7ffff000,
+        .macosx, .ios, .watchos, .tvos => math.maxInt(i32),
         else => math.maxInt(size_t),
     };
 
