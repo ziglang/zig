@@ -47,20 +47,75 @@ comptime {
 ///
 /// PBKDF2 is defined in RFC 2898, and is a recommendation of NIST SP 800-132.
 ///
-/// derivedKey: Slice of appropriate size for generated key. Generally 16 or 32 bytes in length.
-///             May be uninitialized. All bytes will be written.
-///             Maximum size is (2^32 - 1) * Hash.digest_length
-///             It is a programming error to pass buffer longer than the maximum size.
+/// The length of `derivedKey` determines thesize for the generated key. Generally 16 or 32 bytes
+/// in length. May be uninitialized. All bytes will be written. Maximum size is
+/// `(2^32 - 1) * Hash.digest_length`.
 ///
-/// password: Arbitrary sequence of bytes of any length, including empty.
+/// `password` and `salt` are arbitrary sequence of bytes of any length, including empty.
 ///
-/// salt: Arbitrary sequence of bytes of any length, including empty. A common length is 8 bytes.
+/// `rounds` must be greater than 0.
 ///
-/// rounds: Iteration count. Must be greater than 0. Common values range from 1,000 to 100,000.
-///         Larger iteration counts improve security by increasing the time required to compute
-///         the derivedKey. It is common to tune this parameter to achieve approximately 100ms.
+/// Example with deterministic salt:
+/// ```
+/// // Global salt, used across system
+/// const appSalt = "com.example.mygreatapp";
 ///
-/// Prf: Pseudo-random function to use. A common choice is std.crypto.auth.hmac.HmacSha256.
+/// // Unique user id, used in salt
+/// const user = "user@example.com";
+///
+/// // User's password.
+/// const password = "password";
+///
+/// // Compute per-use-salt using appSalt and user identifier.
+/// const salt = appSalt ++ ":" ++ user;
+///
+/// // Common values are between 1,000 and 100,000. Most systems target 100ms computation time.
+/// const rounds = 10_000;
+///
+/// // Pseudo-random function. Common choice is HmacSha256
+/// const prf = std.crypto.auth.hmac.sha2.HmacSha256;
+
+/// // Stretch weak password into strong AES-256 key
+/// var derivedKey: [256 / 8]u8 = undefined;
+/// pbkdf2(&derivedKey, password, salt, rounds, prf);
+/// ```
+///
+/// Example with random salt:
+/// ```
+/// // User's password.
+/// const password = "password";
+///
+/// // Random salt
+/// var salt: [8]u8 = undefined;
+/// try std.crypto.randomBytes(&salt);
+///
+///  // Common values are between 1,000 and 100,000. Most systems target 100ms computation time.
+/// const rounds = 10_000;
+///
+/// // Pseudo-random function. Common choice is HmacSha256
+/// const prf = std.crypto.auth.hmac.sha2.HmacSha256;
+///
+/// // Stretch weak password into hash to store in database
+/// var hash: [32]u8 = undefined;
+/// pbkdf2(&hash, password, &salt, rounds, prf);
+///
+/// // Combine salt and hash in base64 to store
+/// const base64 = std.base64;
+/// const encoder = base64.standard_encoder;
+///
+/// var saltB64: [base64.Base64Encoder.calcSize(salt.len)]u8 = undefined;
+/// encoder.encode(&saltB64, &salt);
+///
+/// var hashB64: [base64.Base64Encoder.calcSize(hash.len)]u8 = undefined;
+/// encoder.encode(&hashB64, &hash);
+/// 
+/// const allocator = std.heap.page_allocator;
+/// const output = try mem.concat(allocator, u8, &[_][]const u8{&saltB64, ":", &hashB64});
+///
+/// // ... Store output in database ...
+///
+/// allocator.free(output);
+/// ```
 pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: u32, comptime Prf: type) void {
     assert(rounds >= 1);
 
@@ -264,4 +319,33 @@ test "Very large dkLen" {
 
     pbkdf2(derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
     // Just verify this doesn't crash with an overflow
+}
+
+test "" {
+// Global salt, used across system
+ const appSalt = "com.example.mygreatapp";
+
+ // Unique user id, used in salt
+ const user = "user@example.com";
+
+ // User's password.
+ const password = "password";
+
+ // Compute per-use-salt using appSalt and user identifier.
+ const salt = appSalt ++ ":" ++ user;
+
+ // Common values are between 1,000 and 100,000. Most systems target 100ms computation time.
+ const rounds = 10_000;
+
+ // Pseudo-random function. Common choice is HmacSha256
+ const prf = std.crypto.auth.hmac.sha2.HmacSha256;
+
+ // Stretch weak password into strong AES-256 key
+ var derivedKey: [256 / 8]u8 = undefined;
+ pbkdf2(&derivedKey, password, salt, rounds, prf);
+
+}
+
+test "x" {
+
 }
