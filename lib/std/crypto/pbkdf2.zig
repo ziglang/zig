@@ -5,15 +5,8 @@
 // and substantial portions of the software.
 
 const std = @import("std");
-const crypto = std.crypto;
-const debug = std.debug;
-const assert = debug.assert;
 const mem = std.mem;
-
-// Exports
-comptime {
-    _ = crypto.kdf.pbkdf2;
-}
+const maxInt = std.math.maxInt;
 
 // RFC 2898 Section 5.2
 //
@@ -48,8 +41,8 @@ comptime {
 /// PBKDF2 is defined in RFC 2898, and is a recommendation of NIST SP 800-132.
 ///
 /// derivedKey: Slice of appropriate size for generated key. Generally 16 or 32 bytes in length.
-///             May be uninitialized. All bytes will be written.
-///             Maximum size is (2^32 - 1) * Hash.digest_length
+///             May be uninitialized. All bytes will be overwritten.
+///             Maximum size is `maxInt(u32) * Hash.digest_length`
 ///             It is a programming error to pass buffer longer than the maximum size.
 ///
 /// password: Arbitrary sequence of bytes of any length, including empty.
@@ -60,29 +53,41 @@ comptime {
 ///         Larger iteration counts improve security by increasing the time required to compute
 ///         the derivedKey. It is common to tune this parameter to achieve approximately 100ms.
 ///
-/// Prf: Pseudo-random function to use. A common choice is std.crypto.auth.hmac.HmacSha256.
-pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: u32, comptime Prf: type) void {
-    assert(rounds >= 1);
+/// Prf: Pseudo-random function to use. A common choice is `std.crypto.auth.hmac.HmacSha256`.
+pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: u32, comptime Prf: type) !void {
+    if (rounds < 1) return error.TooFewRounds;
 
-    const dkLen: u64 = derivedKey.len;
-    const hLen: u32 = Prf.mac_length; // Force type to ensure multiplications can't overflow
+    const dkLen = derivedKey.len;
+    const hLen = Prf.mac_length;
 
     // FromSpec:
     //
-    //   1. If dkLen > (2^32 - 1) * hLen, output "derived key too long" and
+    //   1. If dkLen > maxInt(u32) * hLen, output "derived key too long" and
     //      stop.
     //
-    assert(dkLen > 0 and dkLen <= @as(u64, 1 << 32 - 1) * hLen);
+    if (comptime (maxInt(usize) < maxInt(u32) * hLen) and (dkLen > @as(usize, maxInt(u32) * hLen))) {
+        // If maxInt(usize) is less than `maxInt(u32) * hLen` then dkLen is always inbounds
+        // This also asserts hLen >= 1
+        return error.DerivedKeyTooLong;
+    }
 
     // FromSpec:
     //
-    //   2. Let l be the number of hLen-octet blocks in the derived key,
-    //      rounding up, and let r be the number of octets in the last
+    //   2. Let l be the number of hLen-long blocks of bytes in the derived key,
+    //      rounding up, and let r be the number of bytes in the last
     //      block
     //
-    const l = (dkLen + hLen - 1) / hLen;
-    var r = dkLen % hLen;
-    r = if (r != 0) r else hLen;
+
+    // l will not overflow, proof:
+    // let `L(dkLen, hLen) = (dkLen + hLen - 1) / hLen`
+    // then `L^-1(l, hLen) = l*hLen - hLen + 1`
+    // 1) L^-1(maxInt(u32), hLen) <= maxInt(u32)*hLen
+    // 2) maxInt(u32)*hLen - hLen + 1 <= maxInt(u32)*hLen // subtract maxInt(u32)*hLen + 1
+    // 3) -hLen <= -1 // multiply by -1
+    // 4) hLen >= 1
+    const r_ = dkLen % hLen;
+    const l = @intCast(u32, (dkLen / hLen) + if (r_ == 0) 0 else 1); // original: (dkLen + hLen - 1) / hLen
+    const r = if (r_ == 0) hLen else r_;
 
     // FromSpec:
     //
@@ -116,7 +121,6 @@ pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: 
     //  produce a derived key DK:
     //
     //            DK = T_1 || T_2 ||  ...  || T_l<0..r-1>
-
     var block: u32 = 0; // Spec limits to u32
     while (block < l) : (block += 1) {
         var prevBlock: [hLen]u8 = undefined;
@@ -130,9 +134,9 @@ pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: 
         ctx.final(prevBlock[0..]);
 
         // Choose portion of DK to write into (T_n) and initialize
-        const offset: usize = @as(usize, block) * hLen;
+        const offset = block * hLen;
         const blockLen = if (block != l - 1) hLen else r;
-        var dkBlock = derivedKey[offset..(offset + blockLen)];
+        const dkBlock: []u8 = derivedKey[offset..][0..blockLen];
         mem.copy(u8, dkBlock, prevBlock[0..dkBlock.len]);
 
         var i: u32 = 1;
@@ -150,6 +154,7 @@ pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: 
 }
 
 const htest = @import("test.zig");
+const HmacSha1 = std.crypto.auth.hmac.HmacSha1;
 
 // RFC 6070 PBKDF2 HMAC-SHA1 Test Vectors
 test "RFC 6070 one iteration" {
@@ -160,7 +165,7 @@ test "RFC 6070 one iteration" {
 
     var derivedKey: [dkLen]u8 = undefined;
 
-    pbkdf2(&derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
+    try pbkdf2(&derivedKey, p, s, c, HmacSha1);
 
     const expected = "0c60c80f961f0e71f3a9b524af6012062fe037a6";
 
@@ -175,7 +180,7 @@ test "RFC 6070 two iterations" {
 
     var derivedKey: [dkLen]u8 = undefined;
 
-    pbkdf2(&derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
+    try pbkdf2(&derivedKey, p, s, c, HmacSha1);
 
     const expected = "ea6c014dc72d6f8ccd1ed92ace1d41f0d8de8957";
 
@@ -190,7 +195,7 @@ test "RFC 6070 4096 iterations" {
 
     var derivedKey: [dkLen]u8 = undefined;
 
-    pbkdf2(&derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
+    try pbkdf2(&derivedKey, p, s, c, HmacSha1);
 
     const expected = "4b007901b765489abead49d926f721d065a429c1";
 
@@ -210,7 +215,7 @@ test "RFC 6070 16,777,216 iterations" {
 
     var derivedKey = [_]u8{0} ** dkLen;
 
-    pbkdf2(&derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
+    try pbkdf2(&derivedKey, p, s, c, HmacSha1);
 
     const expected = "eefe3d61cd4da4e4e9945b3d6ba2158c2634e984";
 
@@ -225,7 +230,7 @@ test "RFC 6070 multi-block salt and password" {
 
     var derivedKey: [dkLen]u8 = undefined;
 
-    pbkdf2(&derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
+    try pbkdf2(&derivedKey, p, s, c, HmacSha1);
 
     const expected = "3d2eec4fe41c849b80c8d83662c0e44a8b291a964cf2f07038";
 
@@ -240,7 +245,7 @@ test "RFC 6070 embedded NUL" {
 
     var derivedKey: [dkLen]u8 = undefined;
 
-    pbkdf2(&derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
+    try pbkdf2(&derivedKey, p, s, c, );
 
     const expected = "56fa6aa75548099dcc37d7f03425e0c3";
 
@@ -262,6 +267,6 @@ test "Very large dkLen" {
         std.testing.allocator.free(derivedKey);
     }
 
-    pbkdf2(derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
+    try pbkdf2(derivedKey, p, s, c, HmacSha1);
     // Just verify this doesn't crash with an overflow
 }
