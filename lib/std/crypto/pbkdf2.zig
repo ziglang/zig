@@ -59,15 +59,15 @@ pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: 
 
     const dkLen = derivedKey.len;
     const hLen = Prf.mac_length;
+    comptime std.debug.assert(hLen >= 1);
 
     // FromSpec:
     //
     //   1. If dkLen > maxInt(u32) * hLen, output "derived key too long" and
     //      stop.
     //
-    if (comptime (maxInt(usize) < maxInt(u32) * hLen) and (dkLen > @as(usize, maxInt(u32) * hLen))) {
+    if (comptime (maxInt(usize) > maxInt(u32) * hLen) and (dkLen > @as(usize, maxInt(u32) * hLen))) {
         // If maxInt(usize) is less than `maxInt(u32) * hLen` then dkLen is always inbounds
-        // This also asserts hLen >= 1
         return error.DerivedKeyTooLong;
     }
 
