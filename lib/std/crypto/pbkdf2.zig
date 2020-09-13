@@ -86,7 +86,7 @@ pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: 
     // 3) -hLen <= -1 // multiply by -1
     // 4) hLen >= 1
     const r_ = dkLen % hLen;
-    const l = @intCast(u32, (dkLen / hLen) + if (r_ == 0) 0 else 1); // original: (dkLen + hLen - 1) / hLen
+    const l = @intCast(u32, (dkLen / hLen) + @as(u1, if (r_ == 0) 0 else 1)); // original: (dkLen + hLen - 1) / hLen
     const r = if (r_ == 0) hLen else r_;
 
     // FromSpec:
@@ -245,7 +245,7 @@ test "RFC 6070 embedded NUL" {
 
     var derivedKey: [dkLen]u8 = undefined;
 
-    try pbkdf2(&derivedKey, p, s, c, );
+    try pbkdf2(&derivedKey, p, s, c, HmacSha1);
 
     const expected = "56fa6aa75548099dcc37d7f03425e0c3";
 
