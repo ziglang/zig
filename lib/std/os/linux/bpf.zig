@@ -1668,6 +1668,47 @@ test "prog_load" {
     expectError(error.UnsafeProgram, prog_load(.socket_filter, &bad_prog, null, "MIT", 0));
 }
 
+pub fn MapInfo(comptime definition: kern.MapDef) type {
+    return struct {
+        fd: ?fd_t,
+
+        const def = definition;
+    };
+}
+pub const MapInfo = struct {
+    fd: ?fd_t,
+    comptime def: kern.MapDef,
+};
+
+pub fn Map(comptime Key: type, comptime Value: type) type {
+    return struct {
+        fd: fd_t,
+
+        const Self = @This();
+
+        pub fn init(info: anytype) !Self {
+            if (info.def.key_size != @sizeOf(Key)) @compileError("key size does not match");
+            if (info.def.value_size != @sizeOf(Value)) @compileError("value size does not match");
+
+            if (info.fd == null) {
+                return error.MapFdNotCreated;
+            }
+
+            return .{ .fd = fd.? };
+        }
+    };
+}
+
+pub const PerfEventArray = struct {
+    base: Map(u32, u32),
+
+    pub fn init(info: anytype) !Self {
+        return .{
+            .base = try Map(u32, u32).init(info),
+        };
+    }
+};
+
 pub fn PerfBuffer(comptime T: type) type {
     return struct {
         allocator: *std.mem.Allocator,
@@ -1838,6 +1879,6 @@ pub fn PerfBuffer(comptime T: type) type {
 }
 
 test "perf buffer" {
-    const perf_event_array = try bpf.PerfEventArray.init();
+    const perf_event_array = try bpf.PerfEventArray.init(64);
     var perf_buffer = try PerfBuffer.init(perf_event_array, 64);
 }
