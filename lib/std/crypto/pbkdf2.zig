@@ -130,7 +130,7 @@ pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: 
         ctx.final(prevBlock[0..]);
 
         // Choose portion of DK to write into (T_n) and initialize
-        const offset: u64 = @as(u64, block) * hLen;
+        const offset: usize = @as(usize, block) * hLen;
         const blockLen = if (block != l - 1) hLen else r;
         var dkBlock = derivedKey[offset..(offset + blockLen)];
         mem.copy(u8, dkBlock, prevBlock[0..dkBlock.len]);
