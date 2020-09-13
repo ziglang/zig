@@ -10,6 +10,11 @@ const debug = std.debug;
 const assert = debug.assert;
 const mem = std.mem;
 
+// Exports
+comptime {
+    _ = crypto.kdf.pbkdf2;
+}
+
 // RFC 2898 Section 5.2
 //
 // FromSpec:
@@ -155,7 +160,7 @@ test "RFC 6070 one iteration" {
 
     var derivedKey: [dkLen]u8 = undefined;
 
-    std.crypto.kdf.pbkdf2(&derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
+    pbkdf2(&derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
 
     const expected = "0c60c80f961f0e71f3a9b524af6012062fe037a6";
 
