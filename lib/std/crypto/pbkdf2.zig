@@ -56,8 +56,6 @@ const mem = std.mem;
 ///         the derivedKey. It is common to tune this parameter to achieve approximately 100ms.
 ///
 /// Prf: Pseudo-random function to use. A common choice is std.crypto.auth.hmac.HmacSha256.
-///
-/// PBKDF2 is defined in RFC 2898, and is a recommendation of NIST SP 800-132.
 pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: u32, comptime Prf: type) void {
     assert(rounds >= 1);
 
