@@ -35,7 +35,11 @@ pub const onetimeauth = struct {
     pub const Poly1305 = @import("crypto/poly1305.zig").Poly1305;
 };
 
-/// Key derivation functions
+/// A Key Derivation Function (KDF) is intended to turn a weak, human generated password into a
+/// strong key, suitable for cryptographic uses. It does this by salting and stretching the
+/// password. Salting injects non-secret random data, so that identical passwords will be converted
+/// into unique keys. Stretching applies a deliberately slow hashing function to frustrate
+/// brute-force guessing.
 pub const kdf = struct {
     pub const pbkdf2 = @import("crypto/pbkdf2.zig").pbkdf2;
 };

@@ -10,14 +10,6 @@ const debug = std.debug;
 const assert = debug.assert;
 const mem = std.mem;
 
-//! PBKDF2 (Password-Based Key Derivation Function 2) is intended to turn a weak, human generated
-//! password into a strong key, suitable for cryptographic uses. It does this by salting and
-//! stretching the password. Salting injects non-secret random data, so that identical passwords
-//! will be converted into unique keys. Stretching applies a deliberately slow hashing function to
-//! frustrate brute-force guessing.
-//!
-//! PBKDF2 is defined in RFC 2898, and is a recommendation of NIST SP 800-132.
-
 // RFC 2898 Section 5.2
 //
 // FromSpec:
@@ -48,6 +40,8 @@ const mem = std.mem;
 
 /// Apply PBKDF2 to generate a key from a password.
 ///
+/// PBKDF2 is defined in RFC 2898, and is a recommendation of NIST SP 800-132.
+///
 /// derivedKey: Slice of appropriate size for generated key. Generally 16 or 32 bytes in length.
 ///             May be uninitialized. All bytes will be written.
 ///             Maximum size is (2^32 - 1) * Hash.digest_length
@@ -62,6 +56,8 @@ const mem = std.mem;
 ///         the derivedKey. It is common to tune this parameter to achieve approximately 100ms.
 ///
 /// Prf: Pseudo-random function to use. A common choice is std.crypto.auth.hmac.HmacSha256.
+///
+/// PBKDF2 is defined in RFC 2898, and is a recommendation of NIST SP 800-132.
 pub fn pbkdf2(derivedKey: []u8, password: []const u8, salt: []const u8, rounds: u32, comptime Prf: type) void {
     assert(rounds >= 1);
 
@@ -161,7 +157,7 @@ test "RFC 6070 one iteration" {
 
     var derivedKey: [dkLen]u8 = undefined;
 
-    pbkdf2(&derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
+    std.crypto.kdf.pbkdf2(&derivedKey, p, s, c, crypto.auth.hmac.HmacSha1);
 
     const expected = "0c60c80f961f0e71f3a9b524af6012062fe037a6";
 
