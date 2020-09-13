@@ -1829,20 +1829,12 @@ pub fn PerfBuffer(comptime T: type) type {
             allocator.free(self.channel_buf);
         }
 
-        // TODO: make a simpler poll method -- we will run into issues regarding the
-        // size of the channel
-
         pub fn run(self: Self) callconv(.Async) void {
             for (self.bufs.items) |*buf| {
                 buf.frame = async buf.process(&self.channel);
             }
         }
     };
-}
-
-pub fn main() anyerror!void {
-    const cpu_count_from_thread = try std.Thread.cpuCount();
-    std.debug.print("from Thread: {}\n", .{cpu_count_from_thread});
 }
 
 test "perf buffer" {
