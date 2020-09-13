@@ -35,10 +35,7 @@ pub const onetimeauth = struct {
     pub const Poly1305 = @import("crypto/poly1305.zig").Poly1305;
 };
 
-/// Key derivation functions
-pub const kdf = struct {
-    pub const pbkdf2 = @import("crypto/pbkdf2.zig").pbkdf2;
-};
+pub const kdf = @import("crypto/kdf.zig");
 
 /// Core functions, that should rarely be used directly by applications.
 pub const core = struct {
@@ -82,7 +79,7 @@ test "crypto" {
     _ = @import("crypto/gimli.zig");
     _ = @import("crypto/hmac.zig");
     _ = @import("crypto/md5.zig");
-    _ = @import("crypto/pbkdf2.zig");
+    _ = @import("crypto/kdf.zig");
     _ = @import("crypto/poly1305.zig");
     _ = @import("crypto/sha1.zig");
     _ = @import("crypto/sha2.zig");
