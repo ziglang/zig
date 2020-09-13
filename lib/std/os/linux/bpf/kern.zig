@@ -6,8 +6,8 @@
 const std = @import("../../../std.zig");
 
 const in_bpf_program = switch (std.builtin.arch) {
-    .bpfel, .bpfeb => false,
-    else => true,
+    .bpfel, .bpfeb => true,
+    else => false,
 };
 
 pub const helpers = if (in_bpf_program) @import("helpers.zig") else struct {};
