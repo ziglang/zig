@@ -79,7 +79,7 @@ const std = @import("std.zig");
 pub const randomBytes = std.os.getrandom;
 
 test "crypto" {
-    inline for (std.meta.declarations(std)) |decl| {
+    inline for (std.meta.declarations(@This())) |decl| {
         switch (decl.data) {
             .Type => |t| {
                 std.meta.refAllDecls(t);
