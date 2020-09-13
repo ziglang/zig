@@ -10,11 +10,11 @@ const debug = std.debug;
 const assert = debug.assert;
 const mem = std.mem;
 
-//! PBKDF2 (Password-Based Key Derivation Function 2) is a specific Key Derivation Function,
-//! intended to turn a weak, human generated password into a strong key, suitable for cryptographic
-//! uses. It does this by salting and stretching the password. Salting injects non-secret random
-//! data, so that identical passwords will be converted into unique keys. Stretching applies a
-//! deliberately slow hashing function to frustrate brute-force guessing.
+//! PBKDF2 (Password-Based Key Derivation Function 2) is intended to turn a weak, human generated
+//! password into a strong key, suitable for cryptographic uses. It does this by salting and
+//! stretching the password. Salting injects non-secret random data, so that identical passwords
+//! will be converted into unique keys. Stretching applies a deliberately slow hashing function to
+//! frustrate brute-force guessing.
 //!
 //! PBKDF2 is defined in RFC 2898, and is a recommendation of NIST SP 800-132.
 
@@ -46,8 +46,7 @@ const mem = std.mem;
 
 // Based on Apple's CommonKeyDerivation, based originally on code by Damien Bergamini.
 
-/// Given a password, salt, iteration count (rounds), and a pseudo-random function, generates a
-/// derived key in the provided buffer slice.
+/// Apply PBKDF2 to generate a key from a password.
 ///
 /// derivedKey: Slice of appropriate size for generated key. Generally 16 or 32 bytes in length.
 ///             May be uninitialized. All bytes will be written.
