@@ -1265,11 +1265,9 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     try ch.addOptionalFile(self.base.options.linker_script);
     try ch.addOptionalFile(self.base.options.version_script);
     try ch.addListOfFiles(self.base.options.objects);
-    for (comp.c_object_table.items()) |entry| switch (entry.key.status) {
-        .new => unreachable,
-        .failure => return error.NotAllCSourceFilesAvailableToLink,
-        .success => |success| _ = try ch.addFile(success.object_path, null),
-    };
+    for (comp.c_object_table.items()) |entry| {
+        _ = try ch.addFile(entry.key.status.success.object_path, null);
+    }
     try ch.addOptionalFile(module_obj_path);
     // We can skip hashing libc and libc++ components that we are in charge of building from Zig
     // installation sources because they are always a product of the compiler version + target information.
@@ -1494,11 +1492,9 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     // Positional arguments to the linker such as object files.
     try argv.appendSlice(self.base.options.objects);
 
-    for (comp.c_object_table.items()) |entry| switch (entry.key.status) {
-        .new => unreachable,
-        .failure => unreachable, // Checked during cache hashing.
-        .success => |success| try argv.append(success.object_path),
-    };
+    for (comp.c_object_table.items()) |entry| {
+        try argv.append(entry.key.status.success.object_path);
+    }
 
     if (module_obj_path) |p| {
         try argv.append(p);

@@ -228,12 +228,8 @@ const usage_build_generic =
     \\
     \\Debug Options (Zig Compiler Development):
     \\  -ftime-report             Print timing diagnostics
-    \\  --debug-tokenize          verbose tokenization
-    \\  --debug-ast-tree          verbose parsing into an AST (tree view)
-    \\  --debug-ast-fmt           verbose parsing into an AST (render source)
-    \\  --debug-ir                verbose Zig IR
-    \\  --debug-link              verbose linking
-    \\  --debug-codegen           verbose machine code generation
+    \\  --debug-link              Verbose linker invocation
+    \\  --debug-cc                Verbose C compiler invocation
     \\
 ;
 
@@ -272,12 +268,7 @@ pub fn buildOutputType(
     var strip = false;
     var single_threaded = false;
     var watch = false;
-    var debug_tokenize = false;
-    var debug_ast_tree = false;
-    var debug_ast_fmt = false;
     var debug_link = false;
-    var debug_ir = false;
-    var debug_codegen = false;
     var debug_cc = false;
     var time_report = false;
     var emit_bin: Emit = .yes_default_path;
@@ -531,18 +522,8 @@ pub fn buildOutputType(
                     link_eh_frame_hdr = true;
                 } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                     linker_bind_global_refs_locally = true;
-                } else if (mem.eql(u8, arg, "--debug-tokenize")) {
-                    debug_tokenize = true;
-                } else if (mem.eql(u8, arg, "--debug-ast-tree")) {
-                    debug_ast_tree = true;
-                } else if (mem.eql(u8, arg, "--debug-ast-fmt")) {
-                    debug_ast_fmt = true;
                 } else if (mem.eql(u8, arg, "--debug-link")) {
                     debug_link = true;
-                } else if (mem.eql(u8, arg, "--debug-ir")) {
-                    debug_ir = true;
-                } else if (mem.eql(u8, arg, "--debug-codegen")) {
-                    debug_codegen = true;
                 } else if (mem.eql(u8, arg, "--debug-cc")) {
                     debug_cc = true;
                 } else if (mem.startsWith(u8, arg, "-T")) {
@@ -1222,12 +1203,7 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, zir_out_path: ?[]const u8) 
 
     if (errors.list.len != 0) {
         for (errors.list) |full_err_msg| {
-            std.debug.print("{}:{}:{}: error: {}\n", .{
-                full_err_msg.src_path,
-                full_err_msg.line + 1,
-                full_err_msg.column + 1,
-                full_err_msg.msg,
-            });
+            full_err_msg.renderToStdErr();
         }
     }
 

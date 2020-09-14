@@ -156,6 +156,15 @@ pub const AllErrors = struct {
         column: usize,
         byte_offset: usize,
         msg: []const u8,
+
+        pub fn renderToStdErr(self: Message) void {
+            std.debug.print("{}:{}:{}: error: {}\n", .{
+                self.src_path,
+                self.line + 1,
+                self.column + 1,
+                self.msg,
+            });
+        }
     };
 
     pub fn deinit(self: *AllErrors, gpa: *Allocator) void {
@@ -693,6 +702,12 @@ pub fn update(self: *Compilation) !void {
         }
     }
 
+    if (self.totalErrorCount() != 0) {
+        // Skip flushing.
+        self.link_error_flags = .{};
+        return;
+    }
+
     // This is needed before reading the error flags.
     try self.bin_file.flush(self);
 
@@ -957,12 +972,14 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         mem.split(c_source_basename, ".").next().?;
     const o_basename = try std.fmt.allocPrint(arena, "{}{}", .{ o_basename_noext, comp.getTarget().oFileExt() });
 
-    const full_object_path = if (!(try ch.hit()) or comp.disable_c_depfile) blk: {
+    const digest = if ((try ch.hit()) and !comp.disable_c_depfile) ch.final() else blk: {
         var argv = std.ArrayList([]const u8).init(comp.gpa);
         defer argv.deinit();
 
         // We can't know the digest until we do the C compiler invocation, so we need a temporary filename.
         const out_obj_path = try comp.tmpFilePath(arena, o_basename);
+        var zig_cache_tmp_dir = try comp.zig_cache_directory.handle.makeOpenPath("tmp", .{});
+        defer zig_cache_tmp_dir.close();
 
         try argv.appendSlice(&[_][]const u8{ self_exe_path, "clang", "-c" });
 
@@ -1042,25 +1059,23 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
 
         // Rename into place.
         const digest = ch.final();
-        const full_object_path = if (comp.zig_cache_directory.path) |p|
-            try std.fs.path.join(arena, &[_][]const u8{ p, "o", &digest, o_basename })
-        else
-            try std.fs.path.join(arena, &[_][]const u8{ "o", &digest, o_basename });
-        try std.fs.rename(out_obj_path, full_object_path);
+        const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
+        var o_dir = try comp.zig_cache_directory.handle.makeOpenPath(o_sub_path, .{});
+        defer o_dir.close();
+        // TODO Add renameat capabilities to the std lib in a higher layer than the posix layer.
+        const tmp_basename = std.fs.path.basename(out_obj_path);
+        try std.os.renameat(zig_cache_tmp_dir.fd, tmp_basename, o_dir.fd, o_basename);
 
         ch.writeManifest() catch |err| {
             std.log.warn("failed to write cache manifest when compiling '{}': {}", .{ c_object.src_path, @errorName(err) });
         };
-        break :blk full_object_path;
-    } else blk: {
-        const digest = ch.final();
-        const full_object_path = if (comp.zig_cache_directory.path) |p|
-            try std.fs.path.join(arena, &[_][]const u8{ p, "o", &digest, o_basename })
-        else
-            try std.fs.path.join(arena, &[_][]const u8{ "o", &digest, o_basename });
-        break :blk full_object_path;
+        break :blk digest;
     };
 
+    const full_object_path = if (comp.zig_cache_directory.path) |p|
+        try std.fs.path.join(comp.gpa, &[_][]const u8{ p, "o", &digest, o_basename })
+    else
+        try std.fs.path.join(comp.gpa, &[_][]const u8{ "o", &digest, o_basename });
     c_object.status = .{
         .success = .{
             .object_path = full_object_path,

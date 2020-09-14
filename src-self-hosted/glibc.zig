@@ -619,10 +619,27 @@ fn build_libc_object(comp: *Compilation, basename: []const u8, c_source_file: Co
         .c_source_files = &[1]Compilation.CSourceFile{c_source_file},
         .debug_cc = comp.debug_cc,
         .debug_link = comp.bin_file.options.debug_link,
+        .clang_passthrough_mode = comp.clang_passthrough_mode,
     });
     defer sub_compilation.destroy();
 
     try sub_compilation.update();
+
+    // Look for compilation errors in this sub_compilation
+    var errors = try sub_compilation.getAllErrorsAlloc();
+    defer errors.deinit(sub_compilation.gpa);
+
+    if (errors.list.len != 0) {
+        for (errors.list) |full_err_msg| {
+            std.log.err("{}:{}:{}: error: {}\n", .{
+                full_err_msg.src_path,
+                full_err_msg.line + 1,
+                full_err_msg.column + 1,
+                full_err_msg.msg,
+            });
+        }
+        return error.BuildingLibCObjectFailed;
+    }
 
     try comp.crt_files.ensureCapacity(comp.gpa, comp.crt_files.count() + 1);
     const artifact_path = if (sub_compilation.bin_file.options.directory.path) |p|
