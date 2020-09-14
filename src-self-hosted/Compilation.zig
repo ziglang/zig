@@ -17,6 +17,7 @@ const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const glibc = @import("glibc.zig");
 const fatal = @import("main.zig").fatal;
 const Module = @import("Module.zig");
+const Cache = @import("Cache.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: *Allocator,
@@ -46,7 +47,7 @@ disable_c_depfile: bool,
 
 c_source_files: []const CSourceFile,
 clang_argv: []const []const u8,
-cache_parent: *std.cache_hash.Cache,
+cache_parent: *Cache,
 /// Path to own executable for invoking `zig clang`.
 self_exe_path: ?[]const u8,
 zig_lib_directory: Directory,
@@ -78,7 +79,7 @@ owned_link_dir: ?std.fs.Dir,
 pub const InnerError = Module.InnerError;
 
 pub const CRTFile = struct {
-    lock: std.cache_hash.Lock,
+    lock: Cache.Lock,
     full_object_path: []const u8,
 
     fn deinit(self: *CRTFile, gpa: *Allocator) void {
@@ -128,7 +129,7 @@ pub const CObject = struct {
             /// This is a file system lock on the cache hash manifest representing this
             /// object. It prevents other invocations of the Zig compiler from interfering
             /// with this object until released.
-            lock: std.cache_hash.Lock,
+            lock: Cache.Lock,
         },
         /// There will be a corresponding ErrorMsg in Compilation.failed_c_objects.
         failure,
@@ -404,7 +405,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         // find the same binary and incrementally update it even if there are modified source files.
         // We do this even if outputting to the current directory because we need somewhere to store
         // incremental compilation metadata.
-        const cache = try arena.create(std.cache_hash.Cache);
+        const cache = try arena.create(Cache);
         cache.* = .{
             .gpa = gpa,
             .manifest_dir = try options.zig_cache_directory.handle.makeOpenPath("h", .{}),

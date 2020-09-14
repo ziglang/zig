@@ -1,7 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
 const fs = std.fs;
-const CacheHash = std.cache_hash.CacheHash;
 const Compilation = @import("Compilation.zig");
 
 /// Returns the sub_path that worked, or `null` if none did.

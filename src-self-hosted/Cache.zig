@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
-const std = @import("std.zig");
+gpa: *Allocator,
+manifest_dir: fs.Dir,
+hash: HashHelper = .{},
+
+const Cache = @This();
+const std = @import("std");
 const crypto = std.crypto;
 const fs = std.fs;
 const base64 = std.base64;
@@ -12,6 +12,17 @@ const testing = std.testing;
 const mem = std.mem;
 const fmt = std.fmt;
 const Allocator = std.mem.Allocator;
+
+/// Be sure to call `CacheHash.deinit` after successful initialization.
+pub fn obtain(cache: *const Cache) CacheHash {
+    return CacheHash{
+        .cache = cache,
+        .hash = cache.hash,
+        .manifest_file = null,
+        .manifest_dirty = false,
+        .b64_digest = undefined,
+    };
+}
 
 pub const base64_encoder = fs.base64_encoder;
 pub const base64_decoder = fs.base64_decoder;
@@ -47,23 +58,6 @@ pub const File = struct {
             self.contents = null;
         }
         self.* = undefined;
-    }
-};
-
-pub const Cache = struct {
-    gpa: *Allocator,
-    manifest_dir: fs.Dir,
-    hash: HashHelper = .{},
-
-    /// Be sure to call `CacheHash.deinit` after successful initialization.
-    pub fn obtain(cache: *const Cache) CacheHash {
-        return CacheHash{
-            .cache = cache,
-            .hash = cache.hash,
-            .manifest_file = null,
-            .manifest_dirty = false,
-            .b64_digest = undefined,
-        };
     }
 };
 

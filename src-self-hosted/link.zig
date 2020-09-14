@@ -6,6 +6,7 @@ const fs = std.fs;
 const trace = @import("tracy.zig").trace;
 const Package = @import("Package.zig");
 const Type = @import("type.zig").Type;
+const Cache = @import("Cache.zig");
 const build_options = @import("build_options");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
@@ -92,7 +93,7 @@ pub const File = struct {
 
     /// Prevents other processes from clobbering files in the output directory
     /// of this linking operation.
-    lock: ?std.cache_hash.Lock = null,
+    lock: ?Cache.Lock = null,
 
     pub const LinkBlock = union {
         elf: Elf.TextBlock,
@@ -239,7 +240,7 @@ pub const File = struct {
         }
     }
 
-    pub fn toOwnedLock(self: *File) std.cache_hash.Lock {
+    pub fn toOwnedLock(self: *File) Cache.Lock {
         const lock = self.lock.?;
         self.lock = null;
         return lock;
