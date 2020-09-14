@@ -7,19 +7,18 @@ const std = @import("std.zig");
 const crypto = std.crypto;
 const fs = std.fs;
 const base64 = std.base64;
-const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
 const fmt = std.fmt;
 const Allocator = std.mem.Allocator;
 
-const base64_encoder = fs.base64_encoder;
-const base64_decoder = fs.base64_decoder;
+pub const base64_encoder = fs.base64_encoder;
+pub const base64_decoder = fs.base64_decoder;
 /// 16 would be 128 bits - Even with 2^54 cache entries, the probably of a collision would be under 10^-6
 /// We round up to 18 to avoid the `==` padding after base64 encoding.
-const BIN_DIGEST_LEN = 18;
-const BASE64_DIGEST_LEN = base64.Base64Encoder.calcSize(BIN_DIGEST_LEN);
+pub const BIN_DIGEST_LEN = 18;
+pub const BASE64_DIGEST_LEN = base64.Base64Encoder.calcSize(BIN_DIGEST_LEN);
 
 const MANIFEST_FILE_SIZE_MAX = 50 * 1024 * 1024;
 
@@ -51,87 +50,105 @@ pub const File = struct {
     }
 };
 
-/// CacheHash manages project-local `zig-cache` directories.
-/// This is not a general-purpose cache.
-/// It is designed to be fast and simple, not to withstand attacks using specially-crafted input.
-pub const CacheHash = struct {
-    allocator: *Allocator,
-    /// Current state for incremental hashing.
-    hasher: Hasher,
+pub const Cache = struct {
+    gpa: *Allocator,
     manifest_dir: fs.Dir,
-    manifest_file: ?fs.File,
-    manifest_dirty: bool,
-    owns_manifest_dir: bool,
-    files: ArrayList(File),
-    b64_digest: [BASE64_DIGEST_LEN]u8,
+    hash: HashHelper = .{},
 
-    /// Be sure to call release after successful initialization.
-    pub fn init(allocator: *Allocator, dir: fs.Dir, manifest_dir_path: []const u8) !CacheHash {
+    /// Be sure to call `CacheHash.deinit` after successful initialization.
+    pub fn obtain(cache: *const Cache) CacheHash {
         return CacheHash{
-            .allocator = allocator,
-            .hasher = hasher_init,
-            .manifest_dir = try dir.makeOpenPath(manifest_dir_path, .{}),
+            .cache = cache,
+            .hash = cache.hash,
             .manifest_file = null,
             .manifest_dirty = false,
-            .owns_manifest_dir = true,
-            .files = ArrayList(File).init(allocator),
             .b64_digest = undefined,
         };
     }
+};
 
-    /// Allows one to fork a CacheHash instance into another one, which does not require an additional
-    /// directory handle to be opened. The new instance inherits the hash state.
-    pub fn clone(self: CacheHash) CacheHash {
-        assert(self.manifest_file == null);
-        assert(files.items.len == 0);
-        return .{
-            .allocator = self.allocator,
-            .hasher = self.hasher,
-            .manifest_dir = self.manifest_dir,
-            .manifest_file = null,
-            .manifest_dirty = false,
-            .owns_manifest_dir = false,
-            .files = ArrayList(File).init(allocator),
-            .b64_digest = undefined,
-        };
-    }
+pub const HashHelper = struct {
+    hasher: Hasher = hasher_init,
 
     /// Record a slice of bytes as an dependency of the process being cached
-    pub fn addBytes(self: *CacheHash, bytes: []const u8) void {
-        assert(self.manifest_file == null);
-
-        self.hasher.update(mem.asBytes(&bytes.len));
-        self.hasher.update(bytes);
+    pub fn addBytes(hh: *HashHelper, bytes: []const u8) void {
+        hh.hasher.update(mem.asBytes(&bytes.len));
+        hh.hasher.update(bytes);
     }
 
-    pub fn addListOfBytes(self: *CacheHash, list_of_bytes: []const []const u8) void {
-        assert(self.manifest_file == null);
+    pub fn addOptionalBytes(hh: *HashHelper, optional_bytes: ?[]const u8) void {
+        hh.add(optional_bytes != null);
+        hh.addBytes(optional_bytes orelse return);
+    }
 
-        self.add(list_of_bytes.items.len);
-        for (list_of_bytes) |bytes| self.addBytes(bytes);
+    pub fn addListOfBytes(hh: *HashHelper, list_of_bytes: []const []const u8) void {
+        hh.add(list_of_bytes.items.len);
+        for (list_of_bytes) |bytes| hh.addBytes(bytes);
     }
 
     /// Convert the input value into bytes and record it as a dependency of the process being cached.
-    pub fn add(self: *CacheHash, x: anytype) void {
-        assert(self.manifest_file == null);
-
+    pub fn add(hh: *HashHelper, x: anytype) void {
         switch (@TypeOf(x)) {
             std.builtin.Version => {
-                self.add(x.major);
-                self.add(x.minor);
-                self.add(x.patch);
+                hh.add(x.major);
+                hh.add(x.minor);
+                hh.add(x.patch);
                 return;
             },
             else => {},
         }
 
         switch (@typeInfo(@TypeOf(x))) {
-            .Bool, .Int, .Enum, .Array => self.addBytes(mem.asBytes(&x)),
+            .Bool, .Int, .Enum, .Array => hh.addBytes(mem.asBytes(&x)),
             else => @compileError("unable to hash type " ++ @typeName(@TypeOf(x))),
         }
     }
 
-    /// Add a file as a dependency of process being cached. When `CacheHash.hit` is
+    pub fn addOptional(hh: *HashHelper, optional: anytype) void {
+        hh.add(optional != null);
+        hh.add(optional orelse return);
+    }
+
+    /// Returns a base64 encoded hash of the inputs, without modifying state.
+    pub fn peek(hh: HashHelper) [BASE64_DIGEST_LEN]u8 {
+        var copy = hh;
+        return copy.final();
+    }
+
+    /// Returns a base64 encoded hash of the inputs, mutating the state of the hasher.
+    pub fn final(hh: *HashHelper) [BASE64_DIGEST_LEN]u8 {
+        var bin_digest: [BIN_DIGEST_LEN]u8 = undefined;
+        hh.hasher.final(&bin_digest);
+
+        var out_digest: [BASE64_DIGEST_LEN]u8 = undefined;
+        base64_encoder.encode(&out_digest, &bin_digest);
+
+        return out_digest;
+    }
+};
+
+pub const Lock = struct {
+    manifest_file: fs.File,
+
+    pub fn release(lock: *Lock) void {
+        lock.manifest_file.close();
+        lock.* = undefined;
+    }
+};
+
+/// CacheHash manages project-local `zig-cache` directories.
+/// This is not a general-purpose cache.
+/// It is designed to be fast and simple, not to withstand attacks using specially-crafted input.
+pub const CacheHash = struct {
+    cache: *const Cache,
+    /// Current state for incremental hashing.
+    hash: HashHelper,
+    manifest_file: ?fs.File,
+    manifest_dirty: bool,
+    files: std.ArrayListUnmanaged(File) = .{},
+    b64_digest: [BASE64_DIGEST_LEN]u8,
+
+    /// Add a file as a dependency of process being cached. When `hit` is
     /// called, the file's contents will be checked to ensure that it matches
     /// the contents from previous times.
     ///
@@ -139,8 +156,8 @@ pub const CacheHash = struct {
     /// are allowed to take up in memory. If max_file_size is null, then the contents
     /// will not be loaded into memory.
     ///
-    /// Returns the index of the entry in the `CacheHash.files` ArrayList. You can use it
-    /// to access the contents of the file after calling `CacheHash.hit()` like so:
+    /// Returns the index of the entry in the `files` array list. You can use it
+    /// to access the contents of the file after calling `hit()` like so:
     ///
     /// ```
     /// var file_contents = cache_hash.files.items[file_index].contents.?;
@@ -148,8 +165,8 @@ pub const CacheHash = struct {
     pub fn addFile(self: *CacheHash, file_path: []const u8, max_file_size: ?usize) !usize {
         assert(self.manifest_file == null);
 
-        try self.files.ensureCapacity(self.files.items.len + 1);
-        const resolved_path = try fs.path.resolve(self.allocator, &[_][]const u8{file_path});
+        try self.files.ensureCapacity(self.cache.gpa, self.files.items.len + 1);
+        const resolved_path = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});
 
         const idx = self.files.items.len;
         self.files.addOneAssumeCapacity().* = .{
@@ -160,35 +177,53 @@ pub const CacheHash = struct {
             .bin_digest = undefined,
         };
 
-        self.addBytes(resolved_path);
+        self.hash.addBytes(resolved_path);
 
         return idx;
     }
 
-    /// Check the cache to see if the input exists in it. If it exists, a base64 encoding
-    /// of it's hash will be returned; otherwise, null will be returned.
+    pub fn addOptionalFile(self: *CacheHash, optional_file_path: ?[]const u8) !void {
+        self.hash.add(optional_file_path != null);
+        const file_path = optional_file_path orelse return;
+        _ = try self.addFile(file_path, null);
+    }
+
+    pub fn addListOfFiles(self: *CacheHash, list_of_files: []const []const u8) !void {
+        self.hash.add(list_of_files.len);
+        for (list_of_files) |file_path| {
+            _ = try self.addFile(file_path, null);
+        }
+    }
+
+    /// Check the cache to see if the input exists in it. If it exists, returns `true`.
+    /// A base64 encoding of its hash is available by calling `final`.
     ///
     /// This function will also acquire an exclusive lock to the manifest file. This means
     /// that a process holding a CacheHash will block any other process attempting to
     /// acquire the lock.
     ///
-    /// The lock on the manifest file is released when `CacheHash.release` is called.
-    pub fn hit(self: *CacheHash) !?[BASE64_DIGEST_LEN]u8 {
+    /// The lock on the manifest file is released when `deinit` is called. As another
+    /// option, one may call `toOwnedLock` to obtain a smaller object which can represent
+    /// the lock. `deinit` is safe to call whether or not `toOwnedLock` has been called.
+    pub fn hit(self: *CacheHash) !bool {
         assert(self.manifest_file == null);
 
+        const ext = ".txt";
+        var manifest_file_path: [self.b64_digest.len + ext.len]u8 = undefined;
+
         var bin_digest: [BIN_DIGEST_LEN]u8 = undefined;
-        self.hasher.final(&bin_digest);
+        self.hash.hasher.final(&bin_digest);
 
         base64_encoder.encode(self.b64_digest[0..], &bin_digest);
 
-        self.hasher = hasher_init;
-        self.hasher.update(&bin_digest);
+        self.hash.hasher = hasher_init;
+        self.hash.hasher.update(&bin_digest);
 
-        const manifest_file_path = try fmt.allocPrint(self.allocator, "{}.txt", .{self.b64_digest});
-        defer self.allocator.free(manifest_file_path);
+        mem.copy(u8, &manifest_file_path, &self.b64_digest);
+        manifest_file_path[self.b64_digest.len..][0..ext.len].* = ext.*;
 
         if (self.files.items.len != 0) {
-            self.manifest_file = try self.manifest_dir.createFile(manifest_file_path, .{
+            self.manifest_file = try self.cache.manifest_dir.createFile(&manifest_file_path, .{
                 .read = true,
                 .truncate = false,
                 .lock = .Exclusive,
@@ -196,26 +231,26 @@ pub const CacheHash = struct {
         } else {
             // If there are no file inputs, we check if the manifest file exists instead of
             // comparing the hashes on the files used for the cached item
-            self.manifest_file = self.manifest_dir.openFile(manifest_file_path, .{
+            self.manifest_file = self.cache.manifest_dir.openFile(&manifest_file_path, .{
                 .read = true,
                 .write = true,
                 .lock = .Exclusive,
             }) catch |err| switch (err) {
                 error.FileNotFound => {
                     self.manifest_dirty = true;
-                    self.manifest_file = try self.manifest_dir.createFile(manifest_file_path, .{
+                    self.manifest_file = try self.cache.manifest_dir.createFile(&manifest_file_path, .{
                         .read = true,
                         .truncate = false,
                         .lock = .Exclusive,
                     });
-                    return null;
+                    return false;
                 },
                 else => |e| return e,
             };
         }
 
-        const file_contents = try self.manifest_file.?.inStream().readAllAlloc(self.allocator, MANIFEST_FILE_SIZE_MAX);
-        defer self.allocator.free(file_contents);
+        const file_contents = try self.manifest_file.?.inStream().readAllAlloc(self.cache.gpa, MANIFEST_FILE_SIZE_MAX);
+        defer self.cache.gpa.free(file_contents);
 
         const input_file_count = self.files.items.len;
         var any_file_changed = false;
@@ -225,7 +260,7 @@ pub const CacheHash = struct {
             defer idx += 1;
 
             const cache_hash_file = if (idx < input_file_count) &self.files.items[idx] else blk: {
-                const new = try self.files.addOne();
+                const new = try self.files.addOne(self.cache.gpa);
                 new.* = .{
                     .path = null,
                     .contents = null,
@@ -258,7 +293,7 @@ pub const CacheHash = struct {
             }
 
             if (cache_hash_file.path == null) {
-                cache_hash_file.path = try self.allocator.dupe(u8, file_path);
+                cache_hash_file.path = try self.cache.gpa.dupe(u8, file_path);
             }
 
             const this_file = fs.cwd().openFile(cache_hash_file.path.?, .{ .read = true }) catch {
@@ -292,7 +327,7 @@ pub const CacheHash = struct {
             }
 
             if (!any_file_changed) {
-                self.hasher.update(&cache_hash_file.bin_digest);
+                self.hash.hasher.update(&cache_hash_file.bin_digest);
             }
         }
 
@@ -300,19 +335,19 @@ pub const CacheHash = struct {
             // cache miss
             // keep the manifest file open
             // reset the hash
-            self.hasher = hasher_init;
-            self.hasher.update(&bin_digest);
+            self.hash.hasher = hasher_init;
+            self.hash.hasher.update(&bin_digest);
 
             // Remove files not in the initial hash
             for (self.files.items[input_file_count..]) |*file| {
-                file.deinit(self.allocator);
+                file.deinit(self.cache.gpa);
             }
-            self.files.shrink(input_file_count);
+            self.files.shrinkRetainingCapacity(input_file_count);
 
             for (self.files.items) |file| {
-                self.hasher.update(&file.bin_digest);
+                self.hash.hasher.update(&file.bin_digest);
             }
-            return null;
+            return false;
         }
 
         if (idx < input_file_count) {
@@ -321,10 +356,10 @@ pub const CacheHash = struct {
                 const ch_file = &self.files.items[idx];
                 try self.populateFileHash(ch_file);
             }
-            return null;
+            return false;
         }
 
-        return self.final();
+        return true;
     }
 
     fn populateFileHash(self: *CacheHash, ch_file: *File) !void {
@@ -343,8 +378,8 @@ pub const CacheHash = struct {
                 return error.FileTooBig;
             }
 
-            const contents = try self.allocator.alloc(u8, @intCast(usize, ch_file.stat.size));
-            errdefer self.allocator.free(contents);
+            const contents = try self.cache.gpa.alloc(u8, @intCast(usize, ch_file.stat.size));
+            errdefer self.cache.gpa.free(contents);
 
             // Hash while reading from disk, to keep the contents in the cpu cache while
             // doing hashing.
@@ -364,7 +399,7 @@ pub const CacheHash = struct {
             try hashFile(file, &ch_file.bin_digest);
         }
 
-        self.hasher.update(&ch_file.bin_digest);
+        self.hash.hasher.update(&ch_file.bin_digest);
     }
 
     /// Add a file as a dependency of process being cached, after the initial hash has been
@@ -374,10 +409,10 @@ pub const CacheHash = struct {
     pub fn addFilePostFetch(self: *CacheHash, file_path: []const u8, max_file_size: usize) ![]u8 {
         assert(self.manifest_file != null);
 
-        const resolved_path = try fs.path.resolve(self.allocator, &[_][]const u8{file_path});
-        errdefer self.allocator.free(resolved_path);
+        const resolved_path = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});
+        errdefer self.cache.gpa.free(resolved_path);
 
-        const new_ch_file = try self.files.addOne();
+        const new_ch_file = try self.files.addOne(self.cache.gpa);
         new_ch_file.* = .{
             .path = resolved_path,
             .max_file_size = max_file_size,
@@ -385,7 +420,7 @@ pub const CacheHash = struct {
             .bin_digest = undefined,
             .contents = null,
         };
-        errdefer self.files.shrink(self.files.items.len - 1);
+        errdefer self.files.shrinkRetainingCapacity(self.files.items.len - 1);
 
         try self.populateFileHash(new_ch_file);
 
@@ -399,10 +434,10 @@ pub const CacheHash = struct {
     pub fn addFilePost(self: *CacheHash, file_path: []const u8) !void {
         assert(self.manifest_file != null);
 
-        const resolved_path = try fs.path.resolve(self.allocator, &[_][]const u8{file_path});
-        errdefer self.allocator.free(resolved_path);
+        const resolved_path = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});
+        errdefer self.cache.gpa.free(resolved_path);
 
-        const new_ch_file = try self.files.addOne();
+        const new_ch_file = try self.files.addOne(self.cache.gpa);
         new_ch_file.* = .{
             .path = resolved_path,
             .max_file_size = null,
@@ -410,7 +445,7 @@ pub const CacheHash = struct {
             .bin_digest = undefined,
             .contents = null,
         };
-        errdefer self.files.shrink(self.files.items.len - 1);
+        errdefer self.files.shrinkRetainingCapacity(self.files.items.len - 1);
 
         try self.populateFileHash(new_ch_file);
     }
@@ -426,7 +461,7 @@ pub const CacheHash = struct {
         // the artifacts to cache.
 
         var bin_digest: [BIN_DIGEST_LEN]u8 = undefined;
-        self.hasher.final(&bin_digest);
+        self.hash.hasher.final(&bin_digest);
 
         var out_digest: [BASE64_DIGEST_LEN]u8 = undefined;
         base64_encoder.encode(&out_digest, &bin_digest);
@@ -436,45 +471,48 @@ pub const CacheHash = struct {
 
     pub fn writeManifest(self: *CacheHash) !void {
         assert(self.manifest_file != null);
+        if (!self.manifest_dirty) return;
 
         var encoded_digest: [BASE64_DIGEST_LEN]u8 = undefined;
-        var contents = ArrayList(u8).init(self.allocator);
-        var outStream = contents.outStream();
+        var contents = std.ArrayList(u8).init(self.cache.gpa);
+        var writer = contents.writer();
         defer contents.deinit();
 
         for (self.files.items) |file| {
             base64_encoder.encode(encoded_digest[0..], &file.bin_digest);
-            try outStream.print("{} {} {} {} {}\n", .{ file.stat.size, file.stat.inode, file.stat.mtime, encoded_digest[0..], file.path });
+            try writer.print("{} {} {} {} {}\n", .{
+                file.stat.size,
+                file.stat.inode,
+                file.stat.mtime,
+                encoded_digest[0..],
+                file.path,
+            });
         }
 
         try self.manifest_file.?.pwriteAll(contents.items, 0);
         self.manifest_dirty = false;
     }
 
+    /// Obtain only the data needed to maintain a lock on the manifest file.
+    /// The `CacheHash` remains safe to deinit.
+    /// Don't forget to call `writeManifest` before this!
+    pub fn toOwnedLock(self: *CacheHash) Lock {
+        const manifest_file = self.manifest_file.?;
+        self.manifest_file = null;
+        return Lock{ .manifest_file = manifest_file };
+    }
+
     /// Releases the manifest file and frees any memory the CacheHash was using.
     /// `CacheHash.hit` must be called first.
-    ///
-    /// Will also attempt to write to the manifest file if the manifest is dirty.
-    /// Writing to the manifest file can fail, but this function ignores those errors.
-    /// To detect failures from writing the manifest, one may explicitly call
-    /// `writeManifest` before `release`.
-    pub fn release(self: *CacheHash) void {
+    /// Don't forget to call `writeManifest` before this!
+    pub fn deinit(self: *CacheHash) void {
         if (self.manifest_file) |file| {
-            if (self.manifest_dirty) {
-                // To handle these errors, API users should call
-                // writeManifest before release().
-                self.writeManifest() catch {};
-            }
-
             file.close();
         }
-
         for (self.files.items) |*file| {
-            file.deinit(self.allocator);
+            file.deinit(self.cache.gpa);
         }
-        self.files.deinit();
-        if (self.owns_manifest_dir)
-            self.manifest_dir.close();
+        self.files.deinit(self.cache.gpa);
     }
 };
 
@@ -542,31 +580,41 @@ test "cache file and then recall it" {
     var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
     var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
 
-    {
-        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
-        defer ch.release();
+    var cache = Cache{
+        .gpa = testing.allocator,
+        .manifest_dir = try cwd.makeOpenPath(temp_manifest_dir, .{}),
+    };
+    defer cache.manifest_dir.close();
 
-        ch.add(true);
-        ch.add(@as(u16, 1234));
-        ch.addBytes("1234");
+    {
+        var ch = cache.obtain();
+        defer ch.deinit();
+
+        ch.hash.add(true);
+        ch.hash.add(@as(u16, 1234));
+        ch.hash.addBytes("1234");
         _ = try ch.addFile(temp_file, null);
 
         // There should be nothing in the cache
-        testing.expectEqual(@as(?[BASE64_DIGEST_LEN]u8, null), try ch.hit());
+        testing.expectEqual(false, try ch.hit());
 
         digest1 = ch.final();
+        try ch.writeManifest();
     }
     {
-        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
-        defer ch.release();
+        var ch = cache.obtain();
+        defer ch.deinit();
 
-        ch.add(true);
-        ch.add(@as(u16, 1234));
-        ch.addBytes("1234");
+        ch.hash.add(true);
+        ch.hash.add(@as(u16, 1234));
+        ch.hash.addBytes("1234");
         _ = try ch.addFile(temp_file, null);
 
         // Cache hit! We just "built" the same file
-        digest2 = (try ch.hit()).?;
+        testing.expect(try ch.hit());
+        digest2 = ch.final();
+
+        try ch.writeManifest();
     }
 
     testing.expectEqual(digest1, digest2);
@@ -612,37 +660,47 @@ test "check that changing a file makes cache fail" {
     var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
     var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
 
-    {
-        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
-        defer ch.release();
+    var cache = Cache{
+        .gpa = testing.allocator,
+        .manifest_dir = try cwd.makeOpenPath(temp_manifest_dir, .{}),
+    };
+    defer cache.manifest_dir.close();
 
-        ch.addBytes("1234");
+    {
+        var ch = cache.obtain();
+        defer ch.deinit();
+
+        ch.hash.addBytes("1234");
         const temp_file_idx = try ch.addFile(temp_file, 100);
 
         // There should be nothing in the cache
-        testing.expectEqual(@as(?[BASE64_DIGEST_LEN]u8, null), try ch.hit());
+        testing.expectEqual(false, try ch.hit());
 
         testing.expect(mem.eql(u8, original_temp_file_contents, ch.files.items[temp_file_idx].contents.?));
 
         digest1 = ch.final();
+
+        try ch.writeManifest();
     }
 
     try cwd.writeFile(temp_file, updated_temp_file_contents);
 
     {
-        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
-        defer ch.release();
+        var ch = cache.obtain();
+        defer ch.deinit();
 
-        ch.addBytes("1234");
+        ch.hash.addBytes("1234");
         const temp_file_idx = try ch.addFile(temp_file, 100);
 
         // A file that we depend on has been updated, so the cache should not contain an entry for it
-        testing.expectEqual(@as(?[BASE64_DIGEST_LEN]u8, null), try ch.hit());
+        testing.expectEqual(false, try ch.hit());
 
         // The cache system does not keep the contents of re-hashed input files.
         testing.expect(ch.files.items[temp_file_idx].contents == null);
 
         digest2 = ch.final();
+
+        try ch.writeManifest();
     }
 
     testing.expect(!mem.eql(u8, digest1[0..], digest2[0..]));
@@ -663,24 +721,34 @@ test "no file inputs" {
     var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
     var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
 
-    {
-        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
-        defer ch.release();
+    var cache = Cache{
+        .gpa = testing.allocator,
+        .manifest_dir = try cwd.makeOpenPath(temp_manifest_dir, .{}),
+    };
+    defer cache.manifest_dir.close();
 
-        ch.addBytes("1234");
+    {
+        var ch = cache.obtain();
+        defer ch.deinit();
+
+        ch.hash.addBytes("1234");
 
         // There should be nothing in the cache
-        testing.expectEqual(@as(?[BASE64_DIGEST_LEN]u8, null), try ch.hit());
+        testing.expectEqual(false, try ch.hit());
 
         digest1 = ch.final();
+
+        try ch.writeManifest();
     }
     {
-        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
-        defer ch.release();
+        var ch = cache.obtain();
+        defer ch.deinit();
 
-        ch.addBytes("1234");
+        ch.hash.addBytes("1234");
 
-        digest2 = (try ch.hit()).?;
+        testing.expect(try ch.hit());
+        digest2 = ch.final();
+        try ch.writeManifest();
     }
 
     testing.expectEqual(digest1, digest2);
@@ -709,28 +777,38 @@ test "CacheHashes with files added after initial hash work" {
     var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
     var digest3: [BASE64_DIGEST_LEN]u8 = undefined;
 
-    {
-        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
-        defer ch.release();
+    var cache = Cache{
+        .gpa = testing.allocator,
+        .manifest_dir = try cwd.makeOpenPath(temp_manifest_dir, .{}),
+    };
+    defer cache.manifest_dir.close();
 
-        ch.addBytes("1234");
+    {
+        var ch = cache.obtain();
+        defer ch.deinit();
+
+        ch.hash.addBytes("1234");
         _ = try ch.addFile(temp_file1, null);
 
         // There should be nothing in the cache
-        testing.expectEqual(@as(?[BASE64_DIGEST_LEN]u8, null), try ch.hit());
+        testing.expectEqual(false, try ch.hit());
 
         _ = try ch.addFilePost(temp_file2);
 
         digest1 = ch.final();
+        try ch.writeManifest();
     }
     {
-        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
-        defer ch.release();
+        var ch = cache.obtain();
+        defer ch.deinit();
 
-        ch.addBytes("1234");
+        ch.hash.addBytes("1234");
         _ = try ch.addFile(temp_file1, null);
 
-        digest2 = (try ch.hit()).?;
+        testing.expect(try ch.hit());
+        digest2 = ch.final();
+
+        try ch.writeManifest();
     }
     testing.expect(mem.eql(u8, &digest1, &digest2));
 
@@ -743,18 +821,20 @@ test "CacheHashes with files added after initial hash work" {
     }
 
     {
-        var ch = try CacheHash.init(testing.allocator, cwd, temp_manifest_dir);
-        defer ch.release();
+        var ch = cache.obtain();
+        defer ch.deinit();
 
-        ch.addBytes("1234");
+        ch.hash.addBytes("1234");
         _ = try ch.addFile(temp_file1, null);
 
         // A file that we depend on has been updated, so the cache should not contain an entry for it
-        testing.expectEqual(@as(?[BASE64_DIGEST_LEN]u8, null), try ch.hit());
+        testing.expectEqual(false, try ch.hit());
 
         _ = try ch.addFilePost(temp_file2);
 
         digest3 = ch.final();
+
+        try ch.writeManifest();
     }
 
     testing.expect(!mem.eql(u8, &digest1, &digest3));
