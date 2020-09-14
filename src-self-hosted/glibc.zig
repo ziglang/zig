@@ -323,7 +323,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             var args = std.ArrayList([]const u8).init(arena);
             try args.appendSlice(&[_][]const u8{
                 "-I",
-                try lib_path(comp, arena, lib_libc_glibc ++ "glibc" ++ path.sep_str ++ "csu"),
+                try lib_path(comp, arena, lib_libc_glibc ++ "csu"),
             });
             try add_include_dirs(comp, arena, &args);
             try args.appendSlice(&[_][]const u8{
