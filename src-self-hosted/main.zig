@@ -268,6 +268,7 @@ pub fn buildOutputType(
     var link_mode: ?std.builtin.LinkMode = null;
     var root_src_file: ?[]const u8 = null;
     var version: std.builtin.Version = .{ .major = 0, .minor = 0, .patch = 0 };
+    var have_version = false;
     var strip = false;
     var single_threaded = false;
     var watch = false;
@@ -445,6 +446,7 @@ pub fn buildOutputType(
                     version = std.builtin.Version.parse(args[i]) catch |err| {
                         fatal("unable to parse --version '{}': {}", .{ args[i], @errorName(err) });
                     };
+                    have_version = true;
                 } else if (mem.eql(u8, arg, "-target")) {
                     if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                     i += 1;
@@ -799,6 +801,7 @@ pub fn buildOutputType(
                 version.major = std.fmt.parseInt(u32, linker_args.items[i], 10) catch |err| {
                     fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
                 };
+                have_version = true;
             } else if (mem.eql(u8, arg, "--minor-image-version")) {
                 i += 1;
                 if (i >= linker_args.items.len) {
@@ -807,6 +810,7 @@ pub fn buildOutputType(
                 version.minor = std.fmt.parseInt(u32, linker_args.items[i], 10) catch |err| {
                     fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
                 };
+                have_version = true;
             } else if (mem.eql(u8, arg, "--stack")) {
                 i += 1;
                 if (i >= linker_args.items.len) {
@@ -1161,7 +1165,7 @@ pub fn buildOutputType(
         .self_exe_path = self_exe_path,
         .rand = &default_prng.random,
         .clang_passthrough_mode = arg_mode != .build,
-        .version = version,
+        .version = if (have_version) version else null,
         .libc_installation = if (libc_installation) |*lci| lci else null,
         .debug_cc = debug_cc,
         .debug_link = debug_link,
@@ -1228,7 +1232,9 @@ fn updateModule(gpa: *Allocator, module: *Module, zir_out_path: ?[]const u8) !vo
     }
 
     if (zir_out_path) |zop| {
-        var new_zir_module = try zir.emit(gpa, module);
+        const zig_module = module.bin_file.options.zig_module orelse
+            fatal("-femit-zir with no zig source code", .{});
+        var new_zir_module = try zir.emit(gpa, zig_module);
         defer new_zir_module.deinit(gpa);
 
         const baf = try io.BufferedAtomicFile.create(gpa, fs.cwd(), zop, .{});

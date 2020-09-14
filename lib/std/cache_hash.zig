@@ -82,7 +82,7 @@ pub const HashHelper = struct {
     }
 
     pub fn addListOfBytes(hh: *HashHelper, list_of_bytes: []const []const u8) void {
-        hh.add(list_of_bytes.items.len);
+        hh.add(list_of_bytes.len);
         for (list_of_bytes) |bytes| hh.addBytes(bytes);
     }
 

@@ -75,6 +75,13 @@ pub const Target = struct {
                     else => return ".so",
                 }
             }
+
+            pub fn defaultVersionRange(tag: Tag) Os {
+                return .{
+                    .tag = tag,
+                    .version_range = VersionRange.default(tag),
+                };
+            }
         };
 
         /// Based on NTDDI version constants from
@@ -290,11 +297,32 @@ pub const Target = struct {
             }
         };
 
-        pub fn defaultVersionRange(tag: Tag) Os {
-            return .{
-                .tag = tag,
-                .version_range = VersionRange.default(tag),
-            };
+        pub const TaggedVersionRange = union(enum) {
+            none: void,
+            semver: Version.Range,
+            linux: LinuxVersionRange,
+            windows: WindowsVersion.Range,
+        };
+
+        /// Provides a tagged union. `Target` does not store the tag because it is
+        /// redundant with the OS tag; this function abstracts that part away.
+        pub fn getVersionRange(self: Os) TaggedVersionRange {
+            switch (self.tag) {
+                .linux => return TaggedVersionRange{ .linux = self.version_range.linux },
+                .windows => return TaggedVersionRange{ .windows = self.version_range.windows },
+
+                .freebsd,
+                .macosx,
+                .ios,
+                .tvos,
+                .watchos,
+                .netbsd,
+                .openbsd,
+                .dragonfly,
+                => return TaggedVersionRange{ .semver = self.version_range.semver },
+
+                else => return .none,
+            }
         }
 
         /// Checks if system is guaranteed to be at least `version` or older than `version`.

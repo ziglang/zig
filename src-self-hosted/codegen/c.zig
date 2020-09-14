@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const link = @import("../link.zig");
-const Module = @import("../Module.zig");
+const Module = @import("../ZigModule.zig");
 
 const Inst = @import("../ir.zig").Inst;
 const Value = @import("../value.zig").Value;

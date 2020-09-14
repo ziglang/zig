@@ -12,7 +12,8 @@ const mem = std.mem;
 const trace = @import("../tracy.zig").trace;
 const Type = @import("../type.zig").Type;
 
-const Module = @import("../Module.zig");
+const Module = @import("../ZigModule.zig");
+const Compilation = @import("../Module.zig");
 const link = @import("../link.zig");
 const File = link.File;
 
@@ -205,7 +206,7 @@ fn createFile(allocator: *Allocator, file: fs.File, options: link.Options) !Mach
     return self;
 }
 
-pub fn flush(self: *MachO, module: *Module) !void {
+pub fn flush(self: *MachO, comp: *Compilation) !void {
     switch (self.base.options.output_mode) {
         .Exe => {
             var last_cmd_offset: usize = @sizeOf(macho.mach_header_64);

@@ -5,6 +5,7 @@ const mem = std.mem;
 const Module = @import("Module.zig");
 const path = std.fs.path;
 const build_options = @import("build_options");
+const trace = @import("tracy.zig").trace;
 
 pub const Lib = struct {
     name: []const u8,
@@ -54,6 +55,9 @@ pub const LoadMetaDataError = error{
 /// This function will emit a log error when there is a problem with the zig installation and then return
 /// `error.ZigInstallationCorrupt`.
 pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!*ABI {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     errdefer arena_allocator.deinit();
     const arena = &arena_allocator.allocator;
@@ -584,6 +588,9 @@ fn lib_path(mod: *Module, arena: *Allocator, sub_path: []const u8) ![]const u8 {
 }
 
 fn build_libc_object(mod: *Module, basename: []const u8, c_source_file: Module.CSourceFile) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     // TODO: This is extracted into a local variable to work around a stage1 miscompilation.
     const emit_bin = Module.EmitLoc{
         .directory = null, // Put it in the cache directory.
@@ -618,8 +625,11 @@ fn build_libc_object(mod: *Module, basename: []const u8, c_source_file: Module.C
     try sub_module.update();
 
     try mod.crt_files.ensureCapacity(mod.gpa, mod.crt_files.count() + 1);
-    const artifact_path = try std.fs.path.join(mod.gpa, &[_][]const u8{
-        sub_module.zig_cache_artifact_directory.path.?, basename,
-    });
+    const artifact_path = if (sub_module.bin_file.options.directory.path) |p|
+        try std.fs.path.join(mod.gpa, &[_][]const u8{ p, basename })
+    else
+        try mod.gpa.dupe(u8, basename);
+
+    // TODO obtain a lock on the artifact and put that in crt_files as well.
     mod.crt_files.putAssumeCapacityNoClobber(basename, artifact_path);
 }

@@ -6,7 +6,8 @@ const assert = std.debug.assert;
 const fs = std.fs;
 const leb = std.debug.leb;
 
-const Module = @import("../Module.zig");
+const Module = @import("../ZigModule.zig");
+const Compilation = @import("../Module.zig");
 const codegen = @import("../codegen/wasm.zig");
 const link = @import("../link.zig");
 
@@ -126,7 +127,7 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
     decl.fn_link.wasm = null;
 }
 
-pub fn flush(self: *Wasm, module: *Module) !void {
+pub fn flush(self: *Wasm, comp: *Compilation) !void {
     const file = self.base.file.?;
     const header_size = 5 + 1;
 
@@ -164,7 +165,7 @@ pub fn flush(self: *Wasm, module: *Module) !void {
     }
 
     // Export section
-    {
+    if (self.base.options.zig_module) |module| {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
         var count: u32 = 0;

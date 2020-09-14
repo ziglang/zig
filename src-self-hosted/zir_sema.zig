@@ -16,7 +16,7 @@ const TypedValue = @import("TypedValue.zig");
 const assert = std.debug.assert;
 const ir = @import("ir.zig");
 const zir = @import("zir.zig");
-const Module = @import("Module.zig");
+const Module = @import("ZigModule.zig");
 const Inst = ir.Inst;
 const Body = ir.Body;
 const trace = @import("tracy.zig").trace;
@@ -199,10 +199,10 @@ pub fn analyzeZirDecl(mod: *Module, decl: *Decl, src_decl: *zir.Decl) InnerError
         // We don't fully codegen the decl until later, but we do need to reserve a global
         // offset table index for it. This allows us to codegen decls out of dependency order,
         // increasing how many computations can be done in parallel.
-        try mod.bin_file.allocateDeclIndexes(decl);
-        try mod.work_queue.writeItem(.{ .codegen_decl = decl });
+        try mod.comp.bin_file.allocateDeclIndexes(decl);
+        try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl });
     } else if (prev_type_has_bits) {
-        mod.bin_file.freeDecl(decl);
+        mod.comp.bin_file.freeDecl(decl);
     }
 
     return type_changed;

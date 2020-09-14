@@ -7,7 +7,8 @@ const assert = std.debug.assert;
 const fs = std.fs;
 
 const trace = @import("../tracy.zig").trace;
-const Module = @import("../Module.zig");
+const Module = @import("../ZigModule.zig");
+const Compilation = @import("../Module.zig");
 const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");
 
@@ -732,7 +733,7 @@ pub fn updateDeclExports(self: *Coff, module: *Module, decl: *const Module.Decl,
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
-                    try Module.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: ExportOptions.section", .{}),
+                    try Compilation.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: ExportOptions.section", .{}),
                 );
                 continue;
             }
@@ -743,14 +744,14 @@ pub fn updateDeclExports(self: *Coff, module: *Module, decl: *const Module.Decl,
             try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
             module.failed_exports.putAssumeCapacityNoClobber(
                 exp,
-                try Module.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: Exports other than '_start'", .{}),
+                try Compilation.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: Exports other than '_start'", .{}),
             );
             continue;
         }
     }
 }
 
-pub fn flush(self: *Coff, module: *Module) !void {
+pub fn flush(self: *Coff, comp: *Compilation) !void {
     if (self.text_section_size_dirty) {
         // Write the new raw size in the .text header
         var buf: [4]u8 = undefined;

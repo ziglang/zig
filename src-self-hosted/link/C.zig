@@ -2,7 +2,8 @@ const std = @import("std");
 const mem = std.mem;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const Module = @import("../Module.zig");
+const Module = @import("../ZigModule.zig");
+const Compilation = @import("../Module.zig");
 const fs = std.fs;
 const codegen = @import("../codegen/c.zig");
 const link = @import("../link.zig");
@@ -20,7 +21,7 @@ main: std.ArrayList(u8),
 called: std.StringHashMap(void),
 need_stddef: bool = false,
 need_stdint: bool = false,
-error_msg: *Module.ErrorMsg = undefined,
+error_msg: *Compilation.ErrorMsg = undefined,
 
 pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*File {
     assert(options.object_format == .c);
@@ -51,7 +52,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 }
 
 pub fn fail(self: *C, src: usize, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
-    self.error_msg = try Module.ErrorMsg.create(self.base.allocator, src, format, args);
+    self.error_msg = try Compilation.ErrorMsg.create(self.base.allocator, src, format, args);
     return error.AnalysisFail;
 }
 
@@ -71,7 +72,7 @@ pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
     };
 }
 
-pub fn flush(self: *C, module: *Module) !void {
+pub fn flush(self: *C, comp: *Compilation) !void {
     const writer = self.base.file.?.writer();
     try writer.writeAll(@embedFile("cbe.h"));
     var includes = false;

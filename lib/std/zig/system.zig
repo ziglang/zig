@@ -203,7 +203,7 @@ pub const NativeTargetInfo = struct {
     /// deinitialization method.
     /// TODO Remove the Allocator requirement from this function.
     pub fn detect(allocator: *Allocator, cross_target: CrossTarget) DetectError!NativeTargetInfo {
-        var os = Target.Os.defaultVersionRange(cross_target.getOsTag());
+        var os = cross_target.getOsTag().defaultVersionRange();
         if (cross_target.os_tag == null) {
             switch (Target.current.os.tag) {
                 .linux => {

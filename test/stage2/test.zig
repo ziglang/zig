@@ -1,8 +1,11 @@
 const std = @import("std");
 const TestContext = @import("../../src-self-hosted/test.zig").TestContext;
 
-// self-hosted does not yet support PE executable files / COFF object files
-// or mach-o files. So we do these test cases cross compiling for x86_64-linux.
+// Self-hosted has differing levels of support for various architectures. For now we pass explicit
+// target parameters to each test case. At some point we will take this to the next level and have
+// a set of targets that all test cases run on unless specifically overridden. For now, each test
+// case applies to only the specified target.
+
 const linux_x64 = std.zig.CrossTarget{
     .cpu_arch = .x86_64,
     .os_tag = .linux,

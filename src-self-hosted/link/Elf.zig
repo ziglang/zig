@@ -3,7 +3,8 @@ const mem = std.mem;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ir = @import("../ir.zig");
-const Module = @import("../Module.zig");
+const Module = @import("../ZigModule.zig");
+const Compilation = @import("../Module.zig");
 const fs = std.fs;
 const elf = std.elf;
 const codegen = @import("../codegen.zig");
@@ -121,6 +122,9 @@ dbg_line_fn_last: ?*SrcFn = null,
 dbg_info_decl_free_list: std.AutoHashMapUnmanaged(*TextBlock, void) = .{},
 dbg_info_decl_first: ?*TextBlock = null,
 dbg_info_decl_last: ?*TextBlock = null,
+
+/// Prevents other processes from clobbering the output file this is linking.
+lock: ?std.cache_hash.Lock = null,
 
 /// `alloc_num / alloc_den` is the factor of padding when allocating.
 const alloc_num = 4;
@@ -285,7 +289,21 @@ fn createFile(allocator: *Allocator, file: fs.File, options: link.Options) !Elf 
     return self;
 }
 
+pub fn releaseLock(self: *Elf) void {
+    if (self.lock) |*lock| {
+        lock.release();
+        self.lock = null;
+    }
+}
+
+pub fn toOwnedLock(self: *Elf) std.cache_hash.Lock {
+    const lock = self.lock.?;
+    self.lock = null;
+    return lock;
+}
+
 pub fn deinit(self: *Elf) void {
+    self.releaseLock();
     self.sections.deinit(self.base.allocator);
     self.program_headers.deinit(self.base.allocator);
     self.shstrtab.deinit(self.base.allocator);
@@ -709,20 +727,24 @@ pub const abbrev_base_type = 4;
 pub const abbrev_pad1 = 5;
 pub const abbrev_parameter = 6;
 
-pub fn flush(self: *Elf, module: *Module) !void {
+pub fn flush(self: *Elf, comp: *Compilation) !void {
     if (build_options.have_llvm and self.base.options.use_lld) {
-        return self.linkWithLLD(module);
+        return self.linkWithLLD(comp);
     } else {
         switch (self.base.options.effectiveOutputMode()) {
             .Exe, .Obj => {},
             .Lib => return error.TODOImplementWritingLibFiles,
         }
-        return self.flushInner(module);
+        return self.flushInner(comp);
     }
 }
 
 /// Commit pending changes and write headers.
-fn flushInner(self: *Elf, module: *Module) !void {
+fn flushInner(self: *Elf, comp: *Compilation) !void {
+    // TODO This linker code currently assumes there is only 1 compilation unit and it corresponds to the
+    // Zig source code.
+    const zig_module = self.base.options.zig_module orelse return error.LinkingWithoutZigSourceUnimplemented;
+
     const target_endian = self.base.options.target.cpu.arch.endian();
     const foreign_endian = target_endian != std.Target.current.cpu.arch.endian();
     const ptr_width_bytes: u8 = self.ptrWidthBytes();
@@ -844,8 +866,8 @@ fn flushInner(self: *Elf, module: *Module) !void {
             },
         }
         // Write the form for the compile unit, which must match the abbrev table above.
-        const name_strp = try self.makeDebugString(self.base.options.root_pkg.?.root_src_path);
-        const comp_dir_strp = try self.makeDebugString(self.base.options.root_pkg.?.root_src_directory.path.?);
+        const name_strp = try self.makeDebugString(zig_module.root_pkg.root_src_path);
+        const comp_dir_strp = try self.makeDebugString(zig_module.root_pkg.root_src_directory.path.?);
         const producer_strp = try self.makeDebugString(link.producer_string);
         // Currently only one compilation unit is supported, so the address range is simply
         // identical to the main program header virtual address and memory size.
@@ -1014,7 +1036,7 @@ fn flushInner(self: *Elf, module: *Module) !void {
             0, // include_directories (none except the compilation unit cwd)
         });
         // file_names[0]
-        di_buf.appendSliceAssumeCapacity(self.base.options.root_pkg.?.root_src_path); // relative path name
+        di_buf.appendSliceAssumeCapacity(zig_module.root_pkg.root_src_path); // relative path name
         di_buf.appendSliceAssumeCapacity(&[_]u8{
             0, // null byte for the relative path name
             0, // directory_index
@@ -1199,10 +1221,104 @@ fn flushInner(self: *Elf, module: *Module) !void {
     assert(!self.debug_strtab_dirty);
 }
 
-fn linkWithLLD(self: *Elf, module: *Module) !void {
+fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
     defer arena_allocator.deinit();
     const arena = &arena_allocator.allocator;
+
+    const directory = self.base.options.directory; // Just an alias to make it shorter to type.
+
+    // If there is no Zig code to compile, then we should skip flushing the output file because it
+    // will not be part of the linker line anyway.
+    const zig_module_obj_path: ?[]const u8 = if (self.base.options.zig_module) |module| blk: {
+        try self.flushInner(comp);
+
+        const obj_basename = self.base.intermediary_basename.?;
+        const full_obj_path = if (directory.path) |dir_path|
+            try std.fs.path.join(arena, &[_][]const u8{dir_path, obj_basename})
+        else 
+            obj_basename;
+        break :blk full_obj_path;
+    } else null;
+
+    // Here we want to determine whether we can save time by not invoking LLD when the
+    // output is unchanged. None of the linker options or the object files that are being
+    // linked are in the hash that namespaces the directory we are outputting to. Therefore,
+    // we must hash those now, and the resulting digest will form the "id" of the linking
+    // job we are about to perform.
+    // After a successful link, we store the id in the metadata of a symlink named "id.txt" in
+    // the artifact directory. So, now, we check if this symlink exists, and if it matches
+    // our digest. If so, we can skip linking. Otherwise, we proceed with invoking LLD.
+    const id_symlink_basename = "id.txt";
+
+    // We are about to obtain this lock, so here we give other processes a chance first.
+    self.releaseLock();
+
+    var ch = comp.cache_parent.obtain();
+    defer ch.deinit();
+
+    const is_lib = self.base.options.output_mode == .Lib;
+    const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
+    const have_dynamic_linker = self.base.options.link_libc and
+        self.base.options.link_mode == .Dynamic and (is_dyn_lib or self.base.options.output_mode == .Exe);
+
+    try ch.addOptionalFile(self.base.options.linker_script);
+    try ch.addOptionalFile(self.base.options.version_script);
+    try ch.addListOfFiles(self.base.options.objects);
+    for (comp.c_object_table.items()) |entry| switch (entry.key.status) {
+        .new => unreachable,
+        .failure => return error.NotAllCSourceFilesAvailableToLink,
+        .success => |success| _ = try ch.addFile(success.object_path, null),
+    };
+    try ch.addOptionalFile(zig_module_obj_path);
+    // We can skip hashing libc and libc++ components that we are in charge of building from Zig
+    // installation sources because they are always a product of the compiler version + target information.
+    ch.hash.addOptional(self.base.options.stack_size_override);
+    ch.hash.addOptional(self.base.options.gc_sections);
+    ch.hash.add(self.base.options.eh_frame_hdr);
+    ch.hash.add(self.base.options.rdynamic);
+    ch.hash.addListOfBytes(self.base.options.extra_lld_args);
+    ch.hash.addListOfBytes(self.base.options.lib_dirs);
+    ch.hash.add(self.base.options.z_nodelete);
+    ch.hash.add(self.base.options.z_defs);
+    if (self.base.options.link_libc) {
+        ch.hash.add(self.base.options.libc_installation != null);
+        if (self.base.options.libc_installation) |libc_installation| {
+            ch.hash.addBytes(libc_installation.crt_dir.?);
+        }
+        if (have_dynamic_linker) {
+            ch.hash.addOptionalBytes(self.base.options.dynamic_linker);
+        }
+    }
+    if (is_dyn_lib) {
+        ch.hash.addOptionalBytes(self.base.options.override_soname);
+        ch.hash.addOptional(self.base.options.version);
+    }
+    ch.hash.addListOfBytes(self.base.options.system_libs);
+    ch.hash.addOptional(self.base.options.allow_shlib_undefined);
+    ch.hash.add(self.base.options.bind_global_refs_locally);
+
+    // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
+    _ = try ch.hit();
+    const digest = ch.final();
+
+    var prev_digest_buf: [digest.len]u8 = undefined;
+    const prev_digest: []u8 = directory.handle.readLink(id_symlink_basename, &prev_digest_buf) catch blk: {
+        // Handle this as a cache miss.
+        mem.set(u8, &prev_digest_buf, 0);
+        break :blk &prev_digest_buf;
+    };
+    if (mem.eql(u8, prev_digest, &digest)) {
+        // Hot diggity dog! The output binary is already there.
+        self.lock = ch.toOwnedLock();
+        return;
+    }
+
+    // We are about to change the output file to be different, so we invalidate the build hash now.
+    directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => |e| return e,
+    };
 
     const target = self.base.options.target;
     const is_obj = self.base.options.output_mode == .Obj;
@@ -1272,8 +1388,6 @@ fn linkWithLLD(self: *Elf, module: *Module) !void {
         try argv.append(arg);
     }
 
-    const is_lib = self.base.options.output_mode == .Lib;
-    const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
     if (self.base.options.link_mode == .Static) {
         if (target.cpu.arch.isARM() or target.cpu.arch.isThumb()) {
             try argv.append("-Bstatic");
@@ -1288,7 +1402,7 @@ fn linkWithLLD(self: *Elf, module: *Module) !void {
         try argv.append("-pie");
     }
 
-    const full_out_path = if (self.base.options.directory.path) |dir_path|
+    const full_out_path = if (directory.path) |dir_path|
         try std.fs.path.join(arena, &[_][]const u8{dir_path, self.base.options.sub_path})
     else 
         self.base.options.sub_path;
@@ -1311,13 +1425,14 @@ fn linkWithLLD(self: *Elf, module: *Module) !void {
                 break :o "Scrt1.o";
             }
         };
-        try argv.append(try module.get_libc_crt_file(arena, crt1o));
+        try argv.append(try comp.get_libc_crt_file(arena, crt1o));
         if (target_util.libc_needs_crti_crtn(target)) {
-            try argv.append(try module.get_libc_crt_file(arena, "crti.o"));
+            try argv.append(try comp.get_libc_crt_file(arena, "crti.o"));
         }
     }
 
     // TODO rpaths
+    // TODO add to cache hash above too
     //for (size_t i = 0; i < g->rpath_list.length; i += 1) {
     //    Buf *rpath = g->rpath_list.at(i);
     //    add_rpath(lj, rpath);
@@ -1354,7 +1469,7 @@ fn linkWithLLD(self: *Elf, module: *Module) !void {
             try argv.append(libc_installation.crt_dir.?);
         }
 
-        if (self.base.options.link_mode == .Dynamic and (is_dyn_lib or self.base.options.output_mode == .Exe)) {
+        if (have_dynamic_linker) {
             if (self.base.options.dynamic_linker) |dynamic_linker| {
                 try argv.append("-dynamic-linker");
                 try argv.append(dynamic_linker);
@@ -1363,9 +1478,10 @@ fn linkWithLLD(self: *Elf, module: *Module) !void {
     }
 
     if (is_dyn_lib) {
-        const soname = self.base.options.override_soname orelse
-            try std.fmt.allocPrint(arena, "lib{}.so.{}", .{self.base.options.root_name,
-                self.base.options.version.major,});
+        const soname = self.base.options.override_soname orelse if (self.base.options.version) |ver|
+                try std.fmt.allocPrint(arena, "lib{}.so.{}", .{self.base.options.root_name, ver.major})
+            else
+                try std.fmt.allocPrint(arena, "lib{}.so", .{self.base.options.root_name});
         try argv.append("-soname");
         try argv.append(soname);
 
@@ -1378,28 +1494,14 @@ fn linkWithLLD(self: *Elf, module: *Module) !void {
     // Positional arguments to the linker such as object files.
     try argv.appendSlice(self.base.options.objects);
 
-    for (module.c_object_table.items()) |entry| {
-        const c_object = entry.key;
-        switch (c_object.status) {
-            .new => unreachable,
-            .failure => return error.NotAllCSourceFilesAvailableToLink,
-            .success => |full_obj_path| {
-                try argv.append(full_obj_path);
-            },
-        }
-    }
+    for (comp.c_object_table.items()) |entry| switch (entry.key.status) {
+        .new => unreachable,
+        .failure => unreachable, // Checked during cache hashing.
+        .success => |success| try argv.append(success.object_path),
+    };
 
-    // If there is no Zig code to compile, then we should skip flushing the output file because it
-    // will not be part of the linker line anyway.
-    if (module.root_pkg != null) {
-        try self.flushInner(module);
-
-        const obj_basename = self.base.intermediary_basename.?;
-        const full_obj_path = if (self.base.options.directory.path) |dir_path|
-            try std.fs.path.join(arena, &[_][]const u8{dir_path, obj_basename})
-        else 
-            obj_basename;
-        try argv.append(full_obj_path);
+    if (zig_module_obj_path) |p| {
+        try argv.append(p);
     }
 
     // TODO compiler-rt and libc
@@ -1419,7 +1521,7 @@ fn linkWithLLD(self: *Elf, module: *Module) !void {
         // By this time, we depend on these libs being dynamically linked libraries and not static libraries
         // (the check for that needs to be earlier), but they could be full paths to .so files, in which
         // case we want to avoid prepending "-l".
-        const ext = Module.classifyFileExt(link_lib);
+        const ext = Compilation.classifyFileExt(link_lib);
         const arg = if (ext == .so) link_lib else try std.fmt.allocPrint(arena, "-l{}", .{link_lib});
         argv.appendAssumeCapacity(arg);
     }
@@ -1427,8 +1529,8 @@ fn linkWithLLD(self: *Elf, module: *Module) !void {
     if (!is_obj) {
         // libc++ dep
         if (self.base.options.link_libcpp) {
-            try argv.append(module.libcxxabi_static_lib.?);
-            try argv.append(module.libcxx_static_lib.?);
+            try argv.append(comp.libcxxabi_static_lib.?);
+            try argv.append(comp.libcxx_static_lib.?);
         }
 
         // libc dep
@@ -1448,15 +1550,15 @@ fn linkWithLLD(self: *Elf, module: *Module) !void {
                     try argv.append("-lpthread");
                 }
             } else if (target.isGnuLibC()) {
-                try argv.append(module.libunwind_static_lib.?);
+                try argv.append(comp.libunwind_static_lib.?);
                 // TODO here we need to iterate over the glibc libs and add the .so files to the linker line.
                 std.log.warn("TODO port add_glibc_libs to stage2", .{});
-                try argv.append(try module.get_libc_crt_file(arena, "libc_nonshared.a"));
+                try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
             } else if (target.isMusl()) {
-                try argv.append(module.libunwind_static_lib.?);
-                try argv.append(module.libc_static_lib.?);
+                try argv.append(comp.libunwind_static_lib.?);
+                try argv.append(comp.libc_static_lib.?);
             } else if (self.base.options.link_libcpp) {
-                try argv.append(module.libunwind_static_lib.?);
+                try argv.append(comp.libunwind_static_lib.?);
             } else {
                 unreachable; // Compiler was supposed to emit an error for not being able to provide libc.
             }
@@ -1466,9 +1568,9 @@ fn linkWithLLD(self: *Elf, module: *Module) !void {
     // crt end
     if (link_in_crt) {
         if (target.isAndroid()) {
-            try argv.append(try module.get_libc_crt_file(arena, "crtend_android.o"));
+            try argv.append(try comp.get_libc_crt_file(arena, "crtend_android.o"));
         } else if (target_util.libc_needs_crti_crtn(target)) {
-            try argv.append(try module.get_libc_crt_file(arena, "crtn.o"));
+            try argv.append(try comp.get_libc_crt_file(arena, "crtn.o"));
         }
     }
 
@@ -1500,6 +1602,19 @@ fn linkWithLLD(self: *Elf, module: *Module) !void {
     const ZigLLDLink = @import("../llvm.zig").ZigLLDLink;
     const ok = ZigLLDLink(.ELF, new_argv.ptr, new_argv.len, append_diagnostic, 0, 0);
     if (!ok) return error.LLDReportedFailure;
+
+    // Update the dangling symlink "id.txt" with the digest. If it fails we can continue; it only
+    // means that the next invocation will have an unnecessary cache miss.
+    directory.handle.symLink(&digest, id_symlink_basename, .{}) catch |err| {
+        std.log.warn("failed to save linking hash digest symlink: {}", .{@errorName(err)});
+    };
+    // Again failure here only means an unnecessary cache miss.
+    ch.writeManifest() catch |err| {
+        std.log.warn("failed to write cache manifest when linking: {}", .{ @errorName(err) });
+    };
+    // We hang on to this lock so that the output file path can be used without
+    // other processes clobbering it.
+    self.lock = ch.toOwnedLock();
 }
 
 fn append_diagnostic(context: usize, ptr: [*]const u8, len: usize) callconv(.C) void {
@@ -2396,7 +2511,7 @@ pub fn updateDeclExports(
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
-                    try Module.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: ExportOptions.section", .{}),
+                    try Compilation.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: ExportOptions.section", .{}),
                 );
                 continue;
             }
@@ -2414,7 +2529,7 @@ pub fn updateDeclExports(
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
-                    try Module.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: GlobalLinkage.LinkOnce", .{}),
+                    try Compilation.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: GlobalLinkage.LinkOnce", .{}),
                 );
                 continue;
             },
@@ -2722,8 +2837,8 @@ fn dbgLineNeededHeaderBytes(self: Elf) u32 {
         directory_count * 8 + file_name_count * 8 +
     // These are encoded as DW.FORM_string rather than DW.FORM_strp as we would like
     // because of a workaround for readelf and gdb failing to understand DWARFv5 correctly.
-        self.base.options.root_pkg.?.root_src_directory.path.?.len +
-        self.base.options.root_pkg.?.root_src_path.len);
+        self.base.options.zig_module.?.root_pkg.root_src_directory.path.?.len +
+        self.base.options.zig_module.?.root_pkg.root_src_path.len);
 }
 
 fn dbgInfoNeededHeaderBytes(self: Elf) u32 {

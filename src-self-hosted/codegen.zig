@@ -7,8 +7,9 @@ const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
 const TypedValue = @import("TypedValue.zig");
 const link = @import("link.zig");
-const Module = @import("Module.zig");
-const ErrorMsg = Module.ErrorMsg;
+const Module = @import("ZigModule.zig");
+const Compilation = @import("Module.zig");
+const ErrorMsg = Compilation.ErrorMsg;
 const Target = std.Target;
 const Allocator = mem.Allocator;
 const trace = @import("tracy.zig").trace;
@@ -50,7 +51,7 @@ pub const Result = union(enum) {
     appended: void,
     /// The value is available externally, `code` is unused.
     externally_managed: []const u8,
-    fail: *Module.ErrorMsg,
+    fail: *ErrorMsg,
 };
 
 pub const GenerateSymbolError = error{

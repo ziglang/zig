@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const Module = @import("Module.zig");
+const Compilation = @import("Module.zig");
+const ZigModule = @import("ZigModule.zig");
 const fs = std.fs;
 const trace = @import("tracy.zig").trace;
 const Package = @import("Package.zig");
@@ -12,7 +13,7 @@ pub const producer_string = if (std.builtin.is_test) "zig test" else "zig " ++ b
 
 pub const Options = struct {
     /// Where the output will go.
-    directory: Module.Directory,
+    directory: Compilation.Directory,
     /// Path to the output file, relative to `directory`.
     sub_path: []const u8,
     target: std.Target,
@@ -21,7 +22,9 @@ pub const Options = struct {
     object_format: std.builtin.ObjectFormat,
     optimize_mode: std.builtin.Mode,
     root_name: []const u8,
-    root_pkg: ?*const Package,
+    /// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
+    /// TODO rename Module to Compilation and then (as a separate commit) ZigModule to Module.
+    zig_module: ?*ZigModule,
     dynamic_linker: ?[]const u8 = null,
     /// Used for calculating how much space to reserve for symbols in case the binary file
     /// does not already have a symbol table.
@@ -71,7 +74,7 @@ pub const Options = struct {
     lib_dirs: []const []const u8 = &[0][]const u8{},
     rpath_list: []const []const u8 = &[0][]const u8{},
 
-    version: std.builtin.Version,
+    version: ?std.builtin.Version,
     libc_installation: ?*const LibCInstallation,
 
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
@@ -184,7 +187,7 @@ pub const File = struct {
 
     /// May be called before or after updateDeclExports but must be called
     /// after allocateDeclIndexes for any given Decl.
-    pub fn updateDecl(base: *File, module: *Module, decl: *Module.Decl) !void {
+    pub fn updateDecl(base: *File, module: *ZigModule, decl: *ZigModule.Decl) !void {
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDecl(module, decl),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
@@ -194,7 +197,7 @@ pub const File = struct {
         }
     }
 
-    pub fn updateDeclLineNumber(base: *File, module: *Module, decl: *Module.Decl) !void {
+    pub fn updateDeclLineNumber(base: *File, module: *ZigModule, decl: *ZigModule.Decl) !void {
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclLineNumber(module, decl),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl),
@@ -205,7 +208,7 @@ pub const File = struct {
 
     /// Must be called before any call to updateDecl or updateDeclExports for
     /// any given Decl.
-    pub fn allocateDeclIndexes(base: *File, decl: *Module.Decl) !void {
+    pub fn allocateDeclIndexes(base: *File, decl: *ZigModule.Decl) !void {
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl),
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
@@ -256,20 +259,20 @@ pub const File = struct {
         }
     }
 
-    pub fn flush(base: *File, module: *Module) !void {
+    pub fn flush(base: *File, comp: *Compilation) !void {
         const tracy = trace(@src());
         defer tracy.end();
 
         try switch (base.tag) {
-            .coff => @fieldParentPtr(Coff, "base", base).flush(module),
-            .elf => @fieldParentPtr(Elf, "base", base).flush(module),
-            .macho => @fieldParentPtr(MachO, "base", base).flush(module),
-            .c => @fieldParentPtr(C, "base", base).flush(module),
-            .wasm => @fieldParentPtr(Wasm, "base", base).flush(module),
+            .coff => @fieldParentPtr(Coff, "base", base).flush(comp),
+            .elf => @fieldParentPtr(Elf, "base", base).flush(comp),
+            .macho => @fieldParentPtr(MachO, "base", base).flush(comp),
+            .c => @fieldParentPtr(C, "base", base).flush(comp),
+            .wasm => @fieldParentPtr(Wasm, "base", base).flush(comp),
         };
     }
 
-    pub fn freeDecl(base: *File, decl: *Module.Decl) void {
+    pub fn freeDecl(base: *File, decl: *ZigModule.Decl) void {
         switch (base.tag) {
             .coff => @fieldParentPtr(Coff, "base", base).freeDecl(decl),
             .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl),
@@ -293,9 +296,9 @@ pub const File = struct {
     /// allocateDeclIndexes for any given Decl.
     pub fn updateDeclExports(
         base: *File,
-        module: *Module,
-        decl: *const Module.Decl,
-        exports: []const *Module.Export,
+        module: *ZigModule,
+        decl: *const ZigModule.Decl,
+        exports: []const *ZigModule.Export,
     ) !void {
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclExports(module, decl, exports),
@@ -306,7 +309,7 @@ pub const File = struct {
         }
     }
 
-    pub fn getDeclVAddr(base: *File, decl: *const Module.Decl) u64 {
+    pub fn getDeclVAddr(base: *File, decl: *const ZigModule.Decl) u64 {
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).getDeclVAddr(decl),
             .elf => return @fieldParentPtr(Elf, "base", base).getDeclVAddr(decl),
