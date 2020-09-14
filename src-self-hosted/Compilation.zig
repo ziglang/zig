@@ -1548,7 +1548,12 @@ fn addBuildingGLibCWorkItems(comp: *Compilation) !void {
 }
 
 fn wantBuildGLibCFromSource(comp: *Compilation) bool {
-    return comp.bin_file.options.link_libc and
+    const is_exe_or_dyn_lib = switch (comp.bin_file.options.output_mode) {
+        .Obj => false,
+        .Lib => comp.bin_file.options.link_mode == .Dynamic,
+        .Exe => true,
+    };
+    return comp.bin_file.options.link_libc and is_exe_or_dyn_lib and
         comp.bin_file.options.libc_installation == null and
         comp.bin_file.options.target.isGnuLibC();
 }
