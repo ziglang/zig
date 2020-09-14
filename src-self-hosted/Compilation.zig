@@ -427,6 +427,13 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             // modified between incremental updates.
             var hash = cache.hash;
 
+            // Here we put the root source file path name, but *not* with addFile. We want the
+            // hash to be the same regardless of the contents of the source file, because
+            // incremental compilation will handle it, but we do want to namespace different
+            // source file names because they are likely different compilations and therefore this
+            // would be likely to cause cache hits.
+            hash.addBytes(root_pkg.root_src_path);
+            hash.addOptionalBytes(root_pkg.root_src_directory.path);
             hash.add(valgrind);
             hash.add(single_threaded);
             switch (options.target.os.getVersionRange()) {
@@ -512,7 +519,17 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         const bin_directory = emit_bin.directory orelse blk: {
             if (module) |zm| break :blk zm.zig_cache_artifact_directory;
 
-            const digest = cache.hash.peek();
+            // We could use the cache hash as is no problem, however, we increase
+            // the likelihood of cache hits by adding the first C source file
+            // path name (not contents) to the hash. This way if the user is compiling
+            // foo.c and bar.c as separate compilations, they get different cache
+            // directories.
+            var hash = cache.hash;
+            if (options.c_source_files.len >= 1) {
+                hash.addBytes(options.c_source_files[0].src_path);
+            }
+
+            const digest = hash.final();
             const artifact_sub_dir = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
             var artifact_dir = try options.zig_cache_directory.handle.makeOpenPath(artifact_sub_dir, .{});
             owned_link_dir = artifact_dir;

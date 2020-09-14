@@ -1288,15 +1288,15 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     const prev_digest: []u8 = directory.handle.readLink(id_symlink_basename, &prev_digest_buf) catch |err| blk: {
         log.debug("ELF LLD new_digest={} readlink error: {}", .{digest, @errorName(err)});
         // Handle this as a cache miss.
-        mem.set(u8, &prev_digest_buf, 0);
-        break :blk &prev_digest_buf;
+        break :blk prev_digest_buf[0..0];
     };
-    log.debug("ELF LLD prev_digest={} new_digest={}", .{prev_digest, digest});
     if (mem.eql(u8, prev_digest, &digest)) {
+        log.debug("ELF LLD digest={} match - skipping invocation", .{digest});
         // Hot diggity dog! The output binary is already there.
         self.base.lock = ch.toOwnedLock();
         return;
     }
+    log.debug("ELF LLD prev_digest={} new_digest={}", .{prev_digest, digest});
 
     // We are about to change the output file to be different, so we invalidate the build hash now.
     directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
