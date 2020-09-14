@@ -28,7 +28,7 @@ pub const base_tag: link.File.Tag = .coff;
 const msdos_stub = @embedFile("msdos-stub.bin");
 
 base: link.File,
-ptr_width: enum { p32, p64 },
+ptr_width: PtrWidth,
 error_flags: link.File.ErrorFlags = .{},
 
 text_block_free_list: std.ArrayListUnmanaged(*TextBlock) = .{},
@@ -63,6 +63,8 @@ text_section_size_dirty: bool = false,
 /// This flag is set when the virtual size of the whole image file when loaded in memory has changed
 /// and needs to be updated in the optional header.
 size_of_image_dirty: bool = false,
+
+pub const PtrWidth = enum { p32, p64 };
 
 pub const TextBlock = struct {
     /// Offset of the code relative to the start of the text section
@@ -111,7 +113,7 @@ pub const TextBlock = struct {
 
 pub const SrcFn = void;
 
-pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*link.File {
+pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Coff {
     assert(options.object_format == .coff);
 
     if (options.use_llvm) return error.LLVM_BackendIsTODO_ForCoff; // TODO
@@ -124,66 +126,17 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     });
     errdefer file.close();
 
-    var coff_file = try allocator.create(Coff);
-    errdefer allocator.destroy(coff_file);
+    const self = try createEmpty(allocator, options);
+    errdefer self.base.destroy();
 
-    coff_file.* = openFile(allocator, file, options) catch |err| switch (err) {
-        error.IncrFailed => try createFile(allocator, file, options),
-        else => |e| return e,
-    };
+    self.base.file = file;
 
-    return &coff_file.base;
-}
-
-/// Returns error.IncrFailed if incremental update could not be performed.
-fn openFile(allocator: *Allocator, file: fs.File, options: link.Options) !Coff {
-    switch (options.output_mode) {
-        .Exe => {},
-        .Obj => return error.IncrFailed,
-        .Lib => return error.IncrFailed,
-    }
-    var self: Coff = .{
-        .base = .{
-            .file = file,
-            .tag = .coff,
-            .options = options,
-            .allocator = allocator,
-        },
-        .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
-            32 => .p32,
-            64 => .p64,
-            else => return error.UnsupportedELFArchitecture,
-        },
-    };
-    errdefer self.deinit();
-
-    // TODO implement reading the PE/COFF file
-    return error.IncrFailed;
-}
-
-/// Truncates the existing file contents and overwrites the contents.
-/// Returns an error if `file` is not already open with +read +write +seek abilities.
-fn createFile(allocator: *Allocator, file: fs.File, options: link.Options) !Coff {
     // TODO Write object specific relocations, COFF symbol table, then enable object file output.
     switch (options.output_mode) {
         .Exe => {},
         .Obj => return error.TODOImplementWritingObjFiles,
         .Lib => return error.TODOImplementWritingLibFiles,
     }
-    var self: Coff = .{
-        .base = .{
-            .tag = .coff,
-            .options = options,
-            .allocator = allocator,
-            .file = file,
-        },
-        .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
-            32 => .p32,
-            64 => .p64,
-            else => return error.UnsupportedCOFFArchitecture,
-        },
-    };
-    errdefer self.deinit();
 
     var coff_file_header_offset: u32 = 0;
     if (options.output_mode == .Exe) {
@@ -423,6 +376,25 @@ fn createFile(allocator: *Allocator, file: fs.File, options: link.Options) !Coff
     try self.base.file.?.pwriteAll(hdr_data[0..index], self.optional_header_offset);
     try self.base.file.?.setEndPos(self.section_data_offset + default_offset_table_size + default_size_of_code);
 
+    return self;
+}
+
+pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Coff {
+    const ptr_width: PtrWidth = switch (options.target.cpu.arch.ptrBitWidth()) {
+        0...32 => .p32,
+        33...64 => .p64,
+        else => return error.UnsupportedCOFFArchitecture,
+    };
+    const self = try gpa.create(Coff);
+    self.* = .{
+        .base = .{
+            .tag = .coff,
+            .options = options,
+            .allocator = gpa,
+            .file = null,
+        },
+        .ptr_width = ptr_width,
+    };
     return self;
 }
 

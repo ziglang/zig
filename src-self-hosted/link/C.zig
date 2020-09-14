@@ -23,7 +23,7 @@ need_stddef: bool = false,
 need_stdint: bool = false,
 error_msg: *Compilation.ErrorMsg = undefined,
 
-pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*File {
+pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*C {
     assert(options.object_format == .c);
 
     if (options.use_llvm) return error.LLVMHasNoCBackend;
@@ -48,7 +48,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         .called = std.StringHashMap(void).init(allocator),
     };
 
-    return &c_file.base;
+    return c_file;
 }
 
 pub fn fail(self: *C, src: usize, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {

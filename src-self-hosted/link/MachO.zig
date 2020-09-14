@@ -135,7 +135,7 @@ pub const SrcFn = struct {
     pub const empty = SrcFn{};
 };
 
-pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*File {
+pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*MachO {
     assert(options.object_format == .macho);
 
     if (options.use_llvm) return error.LLVM_BackendIsTODO_ForMachO; // TODO
@@ -148,61 +148,32 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     });
     errdefer file.close();
 
-    var macho_file = try allocator.create(MachO);
-    errdefer allocator.destroy(macho_file);
+    const self = try createEmpty(allocator, options);
+    errdefer self.base.destroy();
 
-    macho_file.* = openFile(allocator, file, options) catch |err| switch (err) {
-        error.IncrFailed => try createFile(allocator, file, options),
-        else => |e| return e,
-    };
+    self.base.file = file;
 
-    return &macho_file.base;
-}
-
-/// Returns error.IncrFailed if incremental update could not be performed.
-fn openFile(allocator: *Allocator, file: fs.File, options: link.Options) !MachO {
-    switch (options.output_mode) {
-        .Exe => {},
-        .Obj => {},
-        .Lib => return error.IncrFailed,
-    }
-    var self: MachO = .{
-        .base = .{
-            .file = file,
-            .tag = .macho,
-            .options = options,
-            .allocator = allocator,
-        },
-    };
-    errdefer self.deinit();
-
-    // TODO implement reading the macho file
-    return error.IncrFailed;
-    //try self.populateMissingMetadata();
-    //return self;
-}
-
-/// Truncates the existing file contents and overwrites the contents.
-/// Returns an error if `file` is not already open with +read +write +seek abilities.
-fn createFile(allocator: *Allocator, file: fs.File, options: link.Options) !MachO {
     switch (options.output_mode) {
         .Exe => {},
         .Obj => {},
         .Lib => return error.TODOImplementWritingLibFiles,
     }
 
-    var self: MachO = .{
-        .base = .{
-            .file = file,
-            .tag = .macho,
-            .options = options,
-            .allocator = allocator,
-        },
-    };
-    errdefer self.deinit();
-
     try self.populateMissingMetadata();
 
+    return self;
+}
+
+pub fn createEmpty(gpa: *Allocator, options: link.Options) !*MachO {
+    const self = try gpa.create(MachO);
+    self.* = .{
+        .base = .{
+            .tag = .macho,
+            .options = options,
+            .allocator = gpa,
+            .file = null,
+        },
+    };
     return self;
 }
 

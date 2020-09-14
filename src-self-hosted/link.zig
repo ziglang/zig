@@ -126,17 +126,29 @@ pub const File = struct {
     pub fn openPath(allocator: *Allocator, options: Options) !*File {
         const use_lld = build_options.have_llvm and options.use_lld; // comptime known false when !have_llvm
         const sub_path = if (use_lld) blk: {
+            if (options.module == null) {
+                // No point in opening a file, we would not write anything to it. Initialize with empty.
+                return switch (options.object_format) {
+                    .coff, .pe => &(try Coff.createEmpty(allocator, options)).base,
+                    .elf => &(try Elf.createEmpty(allocator, options)).base,
+                    .macho => &(try MachO.createEmpty(allocator, options)).base,
+                    .wasm => &(try Wasm.createEmpty(allocator, options)).base,
+                    .c => unreachable, // Reported error earlier.
+                    .hex => return error.HexObjectFormatUnimplemented,
+                    .raw => return error.RawObjectFormatUnimplemented,
+                };
+            }
             // Open a temporary object file, not the final output file because we want to link with LLD.
             break :blk try std.fmt.allocPrint(allocator, "{}{}", .{ options.sub_path, options.target.oFileExt() });
         } else options.sub_path;
         errdefer if (use_lld) allocator.free(sub_path);
 
         const file: *File = switch (options.object_format) {
-            .coff, .pe => try Coff.openPath(allocator, sub_path, options),
-            .elf => try Elf.openPath(allocator, sub_path, options),
-            .macho => try MachO.openPath(allocator, sub_path, options),
-            .wasm => try Wasm.openPath(allocator, sub_path, options),
-            .c => try C.openPath(allocator, sub_path, options),
+            .coff, .pe => &(try Coff.openPath(allocator, sub_path, options)).base,
+            .elf => &(try Elf.openPath(allocator, sub_path, options)).base,
+            .macho => &(try MachO.openPath(allocator, sub_path, options)).base,
+            .wasm => &(try Wasm.openPath(allocator, sub_path, options)).base,
+            .c => &(try C.openPath(allocator, sub_path, options)).base,
             .hex => return error.HexObjectFormatUnimplemented,
             .raw => return error.RawObjectFormatUnimplemented,
         };
@@ -216,19 +228,9 @@ pub const File = struct {
         }
     }
 
-    pub fn deinit(base: *File) void {
-        switch (base.tag) {
-            .coff => @fieldParentPtr(Coff, "base", base).deinit(),
-            .elf => @fieldParentPtr(Elf, "base", base).deinit(),
-            .macho => @fieldParentPtr(MachO, "base", base).deinit(),
-            .c => @fieldParentPtr(C, "base", base).deinit(),
-            .wasm => @fieldParentPtr(Wasm, "base", base).deinit(),
-        }
+    pub fn destroy(base: *File) void {
         if (base.file) |f| f.close();
         if (base.intermediary_basename) |sub_path| base.allocator.free(sub_path);
-    }
-
-    pub fn destroy(base: *File) void {
         switch (base.tag) {
             .coff => {
                 const parent = @fieldParentPtr(Coff, "base", base);

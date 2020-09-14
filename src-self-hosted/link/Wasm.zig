@@ -50,7 +50,7 @@ base: link.File,
 /// TODO: can/should we access some data structure in Module directly?
 funcs: std.ArrayListUnmanaged(*Module.Decl) = .{},
 
-pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*link.File {
+pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Wasm {
     assert(options.object_format == .wasm);
 
     if (options.use_llvm) return error.LLVM_BackendIsTODO_ForWasm; // TODO
@@ -60,21 +60,27 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     const file = try options.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true });
     errdefer file.close();
 
-    const wasm = try allocator.create(Wasm);
-    errdefer allocator.destroy(wasm);
+    const wasm = try createEmpty(allocator, options);
+    errdefer wasm.base.destroy();
+
+    wasm.base.file = file;
 
     try file.writeAll(&(spec.magic ++ spec.version));
 
+    return wasm;
+}
+
+pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Wasm {
+    const wasm = try gpa.create(Wasm);
     wasm.* = .{
         .base = .{
             .tag = .wasm,
             .options = options,
-            .file = file,
-            .allocator = allocator,
+            .file = null,
+            .allocator = gpa,
         },
     };
-
-    return &wasm.base;
+    return wasm;
 }
 
 pub fn deinit(self: *Wasm) void {

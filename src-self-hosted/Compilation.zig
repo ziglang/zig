@@ -1072,13 +1072,14 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         break :blk digest;
     };
 
-    const full_object_path = if (comp.zig_cache_directory.path) |p|
-        try std.fs.path.join(comp.gpa, &[_][]const u8{ p, "o", &digest, o_basename })
+    const components = if (comp.zig_cache_directory.path) |p|
+        &[_][]const u8{ p, "o", &digest, o_basename }
     else
-        try std.fs.path.join(comp.gpa, &[_][]const u8{ "o", &digest, o_basename });
+        &[_][]const u8{ "o", &digest, o_basename };
+
     c_object.status = .{
         .success = .{
-            .object_path = full_object_path,
+            .object_path = try std.fs.path.join(comp.gpa, components),
             .lock = ch.toOwnedLock(),
         },
     };

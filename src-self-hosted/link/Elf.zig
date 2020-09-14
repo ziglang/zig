@@ -31,7 +31,7 @@ pub const base_tag: File.Tag = .elf;
 
 base: File,
 
-ptr_width: enum { p32, p64 },
+ptr_width: PtrWidth,
 
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
 /// Same order as in the file.
@@ -136,6 +136,8 @@ const alloc_den = 3;
 const minimum_text_block_size = 64;
 const min_text_capacity = minimum_text_block_size * alloc_num / alloc_den;
 
+pub const PtrWidth = enum { p32, p64 };
+
 pub const TextBlock = struct {
     /// Each decl always gets a local symbol with the fully qualified name.
     /// The vaddr and size are found here directly.
@@ -222,7 +224,7 @@ pub const SrcFn = struct {
     };
 };
 
-pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*File {
+pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Options) !*Elf {
     assert(options.object_format == .elf);
 
     if (options.use_llvm) return error.LLVMBackendUnimplementedForELF; // TODO
@@ -234,31 +236,11 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     });
     errdefer file.close();
 
-    var elf_file = try allocator.create(Elf);
-    errdefer allocator.destroy(elf_file);
+    const self = try createEmpty(allocator, options);
+    errdefer self.base.destroy();
 
-    elf_file.* = try createFile(allocator, file, options);
-    return &elf_file.base;
-}
-
-/// Truncates the existing file contents and overwrites the contents.
-/// Returns an error if `file` is not already open with +read +write +seek abilities.
-fn createFile(allocator: *Allocator, file: fs.File, options: link.Options) !Elf {
-    var self: Elf = .{
-        .base = .{
-            .tag = .elf,
-            .options = options,
-            .allocator = allocator,
-            .file = file,
-        },
-        .ptr_width = switch (options.target.cpu.arch.ptrBitWidth()) {
-            0 ... 32 => .p32,
-            33 ... 64 => .p64,
-            else => return error.UnsupportedELFArchitecture,
-        },
-        .shdr_table_dirty = true,
-    };
-    errdefer self.deinit();
+    self.base.file = file;
+    self.shdr_table_dirty = true;
 
     // Index 0 is always a null symbol.
     try self.local_symbols.append(allocator, .{
@@ -286,6 +268,25 @@ fn createFile(allocator: *Allocator, file: fs.File, options: link.Options) !Elf 
 
     try self.populateMissingMetadata();
 
+    return self;
+}
+
+pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Elf {
+    const ptr_width: PtrWidth = switch (options.target.cpu.arch.ptrBitWidth()) {
+        0 ... 32 => .p32,
+        33 ... 64 => .p64,
+        else => return error.UnsupportedELFArchitecture,
+    };
+    const self = try gpa.create(Elf);
+    self.* = .{
+        .base = .{
+            .tag = .elf,
+            .options = options,
+            .allocator = gpa,
+            .file = null,
+        },
+        .ptr_width = ptr_width,
+    };
     return self;
 }
 
