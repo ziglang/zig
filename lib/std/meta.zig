@@ -795,3 +795,34 @@ test "std.meta.cast" {
     testing.expectEqual(@as(u32, 10), cast(u32, @as(u64, 10)));
     testing.expectEqual(@as(u8, 2), cast(u8, E.Two));
 }
+
+/// Given a value returns its size as C's sizeof operator would.
+/// This is for translate-c and is not intended for general use.
+pub fn sizeof(target: anytype) usize {
+    switch (@typeInfo(@TypeOf(target))) {
+        .Type => return @sizeOf(target),
+        .Float, .Int, .Struct, .Union, .Enum => return @sizeOf(@TypeOf(target)),
+        .ComptimeFloat => return @sizeOf(f64), // TODO c_double #3999
+        .ComptimeInt => {
+            // TODO to get the correct result we have to translate
+            // `1073741824 * 4` as `int(1073741824) *% int(4)` since
+            // sizeof(1073741824 * 4) != sizeof(4294967296).
+            
+            // TODO test if target fits in int, long or long long
+            return @sizeOf(c_int);
+        },
+        else => @compileError("TODO implement std.meta.sizeof for type " ++ @typeName(@TypeOf(target))),
+    }
+}
+
+test "sizeof" {
+    const E = extern enum(c_int) { One, _ };
+    const S = extern struct { a: u32 };
+
+    testing.expect(sizeof(u32) == 4);
+    testing.expect(sizeof(@as(u32, 2)) == 4);
+    testing.expect(sizeof(2) == @sizeOf(c_int));
+    testing.expect(sizeof(E) == @sizeOf(c_int));
+    testing.expect(sizeof(E.One) == @sizeOf(c_int));
+    testing.expect(sizeof(S) == 4);
+}
