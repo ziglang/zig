@@ -535,6 +535,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             var hash = cache.hash;
             if (options.c_source_files.len >= 1) {
                 hash.addBytes(options.c_source_files[0].src_path);
+            } else if (options.link_objects.len >= 1) {
+                hash.addBytes(options.link_objects[0]);
             }
 
             const digest = hash.final();

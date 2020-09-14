@@ -1,4 +1,5 @@
 const std = @import("std");
+const llvm = @import("llvm.zig");
 
 pub const ArchOsAbi = struct {
     arch: std.Target.Cpu.Arch,
@@ -167,4 +168,44 @@ pub fn hasValgrindSupport(target: std.Target) bool {
 pub fn supportsStackProbing(target: std.Target) bool {
     return target.os.tag != .windows and target.os.tag != .uefi and
         (target.cpu.arch == .i386 or target.cpu.arch == .x86_64);
+}
+
+pub fn osToLLVM(os_tag: std.Target.Os.Tag) llvm.OSType {
+    return switch (os_tag) {
+        .freestanding, .other => .UnknownOS,
+        .windows, .uefi => .Win32,
+        .ananas => .Ananas,
+        .cloudabi => .CloudABI,
+        .dragonfly => .DragonFly,
+        .freebsd => .FreeBSD,
+        .fuchsia => .Fuchsia,
+        .ios => .IOS,
+        .kfreebsd => .KFreeBSD,
+        .linux => .Linux,
+        .lv2 => .Lv2,
+        .macosx => .MacOSX,
+        .netbsd => .NetBSD,
+        .openbsd => .OpenBSD,
+        .solaris => .Solaris,
+        .haiku => .Haiku,
+        .minix => .Minix,
+        .rtems => .RTEMS,
+        .nacl => .NaCl,
+        .cnk => .CNK,
+        .aix => .AIX,
+        .cuda => .CUDA,
+        .nvcl => .NVCL,
+        .amdhsa => .AMDHSA,
+        .ps4 => .PS4,
+        .elfiamcu => .ELFIAMCU,
+        .tvos => .TvOS,
+        .watchos => .WatchOS,
+        .mesa3d => .Mesa3D,
+        .contiki => .Contiki,
+        .amdpal => .AMDPAL,
+        .hermit => .HermitCore,
+        .hurd => .Hurd,
+        .wasi => .WASI,
+        .emscripten => .Emscripten,
+    };
 }

@@ -719,12 +719,11 @@ pub fn flush(self: *Elf, comp: *Compilation) !void {
             .Exe, .Obj => {},
             .Lib => return error.TODOImplementWritingLibFiles,
         }
-        return self.flushInner(comp);
+        return self.flushModule(comp);
     }
 }
 
-/// Commit pending changes and write headers.
-fn flushInner(self: *Elf, comp: *Compilation) !void {
+pub fn flushModule(self: *Elf, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1221,7 +1220,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (self.base.options.module) |module| blk: {
-        try self.flushInner(comp);
+        try self.flushModule(comp);
 
         const obj_basename = self.base.intermediary_basename.?;
         const full_obj_path = if (directory.path) |dir_path|
@@ -1239,7 +1238,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     // After a successful link, we store the id in the metadata of a symlink named "id.txt" in
     // the artifact directory. So, now, we check if this symlink exists, and if it matches
     // our digest. If so, we can skip linking. Otherwise, we proceed with invoking LLD.
-    const id_symlink_basename = "id.txt";
+    const id_symlink_basename = "lld.id";
 
     // We are about to obtain this lock, so here we give other processes a chance first.
     self.base.releaseLock();

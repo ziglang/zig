@@ -11,6 +11,7 @@ const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen/wasm.zig");
 const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
+const build_options = @import("build_options");
 
 /// Various magic numbers defined by the wasm spec
 const spec = struct {
@@ -135,6 +136,14 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
 }
 
 pub fn flush(self: *Wasm, comp: *Compilation) !void {
+    if (build_options.have_llvm and self.base.options.use_lld) {
+        return error.WasmLinkingWithLLDUnimplemented;
+    } else {
+        return self.flushModule(comp);
+    }
+}
+
+pub fn flushModule(self: *Wasm, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 

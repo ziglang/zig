@@ -11,6 +11,7 @@ const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");
+const build_options = @import("build_options");
 
 const allocation_padding = 4 / 3;
 const minimum_text_block_size = 64 * allocation_padding;
@@ -724,6 +725,14 @@ pub fn updateDeclExports(self: *Coff, module: *Module, decl: *const Module.Decl,
 }
 
 pub fn flush(self: *Coff, comp: *Compilation) !void {
+    if (build_options.have_llvm and self.base.options.use_lld) {
+        return error.CoffLinkingWithLLDUnimplemented;
+    } else {
+        return self.flushModule(comp);
+    }
+}
+
+pub fn flushModule(self: *Coff, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 

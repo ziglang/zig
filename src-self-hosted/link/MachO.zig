@@ -9,9 +9,10 @@ const macho = std.macho;
 const codegen = @import("../codegen.zig");
 const math = std.math;
 const mem = std.mem;
+
 const trace = @import("../tracy.zig").trace;
 const Type = @import("../type.zig").Type;
-
+const build_options = @import("build_options");
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const link = @import("../link.zig");
@@ -178,6 +179,14 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*MachO {
 }
 
 pub fn flush(self: *MachO, comp: *Compilation) !void {
+    if (build_options.have_llvm and self.base.options.use_lld) {
+        return error.MachOLLDLinkingUnimplemented;
+    } else {
+        return self.flushModule(comp);
+    }
+}
+
+pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 

@@ -1,4 +1,5 @@
 const std = @import("std");
+const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const Compilation = @import("Compilation.zig");
 const Module = @import("Module.zig");
@@ -9,6 +10,7 @@ const Type = @import("type.zig").Type;
 const Cache = @import("Cache.zig");
 const build_options = @import("build_options");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
+const log = std.log.scoped(.link);
 
 pub const producer_string = if (std.builtin.is_test) "zig test" else "zig " ++ build_options.version;
 
@@ -279,9 +281,11 @@ pub const File = struct {
         }
     }
 
+    /// Commit pending changes and write headers. Takes into account final output mode
+    /// and `use_lld`, not only `effectiveOutputMode`.
     pub fn flush(base: *File, comp: *Compilation) !void {
         const use_lld = build_options.have_llvm and base.options.use_lld;
-        if (base.options.output_mode == .Lib and base.options.link_mode == .Static and
+        if (use_lld and base.options.output_mode == .Lib and base.options.link_mode == .Static and
             !base.options.target.isWasm())
         {
             return base.linkAsArchive(comp);
@@ -292,6 +296,18 @@ pub const File = struct {
             .macho => return @fieldParentPtr(MachO, "base", base).flush(comp),
             .c => return @fieldParentPtr(C, "base", base).flush(comp),
             .wasm => return @fieldParentPtr(Wasm, "base", base).flush(comp),
+        }
+    }
+
+    /// Commit pending changes and write headers. Works based on `effectiveOutputMode`
+    /// rather than final output mode.
+    pub fn flushModule(base: *File, comp: *Compilation) !void {
+        switch (base.tag) {
+            .coff => return @fieldParentPtr(Coff, "base", base).flushModule(comp),
+            .elf => return @fieldParentPtr(Elf, "base", base).flushModule(comp),
+            .macho => return @fieldParentPtr(MachO, "base", base).flushModule(comp),
+            .c => return @fieldParentPtr(C, "base", base).flushModule(comp),
+            .wasm => return @fieldParentPtr(Wasm, "base", base).flushModule(comp),
         }
     }
 
@@ -343,9 +359,108 @@ pub const File = struct {
     }
 
     fn linkAsArchive(base: *File, comp: *Compilation) !void {
-        // TODO follow pattern from ELF linkWithLLD
-        // ZigLLVMWriteArchive
-        return error.TODOMakeArchive;
+        const tracy = trace(@src());
+        defer tracy.end();
+
+        var arena_allocator = std.heap.ArenaAllocator.init(base.allocator);
+        defer arena_allocator.deinit();
+        const arena = &arena_allocator.allocator;
+
+        const directory = base.options.directory; // Just an alias to make it shorter to type.
+
+        // If there is no Zig code to compile, then we should skip flushing the output file because it
+        // will not be part of the linker line anyway.
+        const module_obj_path: ?[]const u8 = if (base.options.module) |module| blk: {
+            try base.flushModule(comp);
+
+            const obj_basename = base.intermediary_basename.?;
+            const full_obj_path = if (directory.path) |dir_path|
+                try std.fs.path.join(arena, &[_][]const u8{ dir_path, obj_basename })
+            else
+                obj_basename;
+            break :blk full_obj_path;
+        } else null;
+
+        // This function follows the same pattern as link.Elf.linkWithLLD so if you want some
+        // insight as to what's going on here you can read that function body which is more
+        // well-commented.
+
+        const id_symlink_basename = "llvm-ar.id";
+
+        base.releaseLock();
+
+        var ch = comp.cache_parent.obtain();
+        defer ch.deinit();
+
+        try ch.addListOfFiles(base.options.objects);
+        for (comp.c_object_table.items()) |entry| {
+            _ = try ch.addFile(entry.key.status.success.object_path, null);
+        }
+        try ch.addOptionalFile(module_obj_path);
+
+        // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
+        _ = try ch.hit();
+        const digest = ch.final();
+
+        var prev_digest_buf: [digest.len]u8 = undefined;
+        const prev_digest: []u8 = directory.handle.readLink(id_symlink_basename, &prev_digest_buf) catch |err| b: {
+            log.debug("archive new_digest={} readlink error: {}", .{ digest, @errorName(err) });
+            break :b prev_digest_buf[0..0];
+        };
+        if (mem.eql(u8, prev_digest, &digest)) {
+            log.debug("archive digest={} match - skipping invocation", .{digest});
+            base.lock = ch.toOwnedLock();
+            return;
+        }
+
+        // We are about to change the output file to be different, so we invalidate the build hash now.
+        directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| return e,
+        };
+
+        var object_files = std.ArrayList([*:0]const u8).init(base.allocator);
+        defer object_files.deinit();
+
+        try object_files.ensureCapacity(base.options.objects.len + comp.c_object_table.items().len + 1);
+        for (base.options.objects) |obj_path| {
+            object_files.appendAssumeCapacity(try arena.dupeZ(u8, obj_path));
+        }
+        for (comp.c_object_table.items()) |entry| {
+            object_files.appendAssumeCapacity(try arena.dupeZ(u8, entry.key.status.success.object_path));
+        }
+        if (module_obj_path) |p| {
+            object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));
+        }
+
+        const full_out_path = if (directory.path) |dir_path|
+            try std.fs.path.join(arena, &[_][]const u8{ dir_path, base.options.sub_path })
+        else
+            base.options.sub_path;
+        const full_out_path_z = try arena.dupeZ(u8, full_out_path);
+
+        if (base.options.debug_link) {
+            std.debug.print("ar rcs {}", .{full_out_path_z});
+            for (object_files.items) |arg| {
+                std.debug.print(" {}", .{arg});
+            }
+            std.debug.print("\n", .{});
+        }
+
+        const llvm = @import("llvm.zig");
+        const os_type = @import("target.zig").osToLLVM(base.options.target.os.tag);
+        const bad = llvm.WriteArchive(full_out_path_z, object_files.items.ptr, object_files.items.len, os_type);
+        if (bad) return error.UnableToWriteArchive;
+
+        directory.handle.symLink(&digest, id_symlink_basename, .{}) catch |err| {
+            std.log.warn("failed to save archive hash digest symlink: {}", .{@errorName(err)});
+        };
+
+        ch.writeManifest() catch |err| {
+            std.log.warn("failed to write cache manifest when archiving: {}", .{@errorName(err)});
+        };
+
+        base.lock = ch.toOwnedLock();
     }
 
     pub const Tag = enum {

@@ -74,6 +74,10 @@ pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
 }
 
 pub fn flush(self: *C, comp: *Compilation) !void {
+    return self.flushModule(comp);
+}
+
+pub fn flushModule(self: *C, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
