@@ -1552,8 +1552,6 @@ fn addBuildingGLibCWorkItems(comp: *Compilation) !void {
     const static_file_work_items = [_]WorkItem{
         .{ .glibc_crt_file = .crti_o },
         .{ .glibc_crt_file = .crtn_o },
-        .{ .glibc_crt_file = .start_os },
-        .{ .glibc_crt_file = .abi_note_o },
         .{ .glibc_crt_file = .scrt1_o },
         .{ .glibc_crt_file = .libc_nonshared_a },
     };

@@ -240,8 +240,6 @@ fn findLib(name: []const u8) ?*const Lib {
 pub const CRTFile = enum {
     crti_o,
     crtn_o,
-    start_os,
-    abi_note_o,
     scrt1_o,
     libc_nonshared_a,
 };
@@ -272,11 +270,12 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-g",
                 "-Wa,--noexecstack",
             });
-            const c_source_file: Compilation.CSourceFile = .{
-                .src_path = try start_asm_path(comp, arena, "crti.S"),
-                .extra_flags = args.items,
-            };
-            return build_libc_object(comp, "crti.o", c_source_file);
+            return build_libc_object(comp, "crti.o", &[1]Compilation.CSourceFile{
+                .{
+                    .src_path = try start_asm_path(comp, arena, "crti.S"),
+                    .extra_flags = args.items,
+                },
+            });
         },
         .crtn_o => {
             var args = std.ArrayList([]const u8).init(arena);
@@ -289,59 +288,58 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-g",
                 "-Wa,--noexecstack",
             });
-            const c_source_file: Compilation.CSourceFile = .{
-                .src_path = try start_asm_path(comp, arena, "crtn.S"),
-                .extra_flags = args.items,
-            };
-            return build_libc_object(comp, "crtn.o", c_source_file);
-        },
-        .start_os => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try add_include_dirs(comp, arena, &args);
-            try args.appendSlice(&[_][]const u8{
-                "-D_LIBC_REENTRANT",
-                "-include",
-                try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-modules.h"),
-                "-DMODULE_NAME=libc",
-                "-Wno-nonportable-include-path",
-                "-include",
-                try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
-                "-DPIC",
-                "-DSHARED",
-                "-DTOP_NAMESPACE=glibc",
-                "-DASSEMBLER",
-                "-g",
-                "-Wa,--noexecstack",
+            return build_libc_object(comp, "crtn.o", &[1]Compilation.CSourceFile{
+                .{
+                    .src_path = try start_asm_path(comp, arena, "crtn.S"),
+                    .extra_flags = args.items,
+                },
             });
-            const c_source_file: Compilation.CSourceFile = .{
-                .src_path = try start_asm_path(comp, arena, "start.S"),
-                .extra_flags = args.items,
-            };
-            return build_libc_object(comp, "start.os", c_source_file);
-        },
-        .abi_note_o => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try args.appendSlice(&[_][]const u8{
-                "-I",
-                try lib_path(comp, arena, lib_libc_glibc ++ "csu"),
-            });
-            try add_include_dirs(comp, arena, &args);
-            try args.appendSlice(&[_][]const u8{
-                "-D_LIBC_REENTRANT",
-                "-DMODULE_NAME=libc",
-                "-DTOP_NAMESPACE=glibc",
-                "-DASSEMBLER",
-                "-g",
-                "-Wa,--noexecstack",
-            });
-            const c_source_file: Compilation.CSourceFile = .{
-                .src_path = try lib_path(comp, arena, lib_libc_glibc ++ "csu" ++ path.sep_str ++ "abi-note.S"),
-                .extra_flags = args.items,
-            };
-            return build_libc_object(comp, "abi-note.o", c_source_file);
         },
         .scrt1_o => {
-            return error.Unimplemented; // TODO
+            const start_os: Compilation.CSourceFile = blk: {
+                var args = std.ArrayList([]const u8).init(arena);
+                try add_include_dirs(comp, arena, &args);
+                try args.appendSlice(&[_][]const u8{
+                    "-D_LIBC_REENTRANT",
+                    "-include",
+                    try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-modules.h"),
+                    "-DMODULE_NAME=libc",
+                    "-Wno-nonportable-include-path",
+                    "-include",
+                    try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
+                    "-DPIC",
+                    "-DSHARED",
+                    "-DTOP_NAMESPACE=glibc",
+                    "-DASSEMBLER",
+                    "-g",
+                    "-Wa,--noexecstack",
+                });
+                break :blk .{
+                    .src_path = try start_asm_path(comp, arena, "start.S"),
+                    .extra_flags = args.items,
+                };
+            };
+            const abi_note_o: Compilation.CSourceFile = blk: {
+                var args = std.ArrayList([]const u8).init(arena);
+                try args.appendSlice(&[_][]const u8{
+                    "-I",
+                    try lib_path(comp, arena, lib_libc_glibc ++ "csu"),
+                });
+                try add_include_dirs(comp, arena, &args);
+                try args.appendSlice(&[_][]const u8{
+                    "-D_LIBC_REENTRANT",
+                    "-DMODULE_NAME=libc",
+                    "-DTOP_NAMESPACE=glibc",
+                    "-DASSEMBLER",
+                    "-g",
+                    "-Wa,--noexecstack",
+                });
+                break :blk .{
+                    .src_path = try lib_path(comp, arena, lib_libc_glibc ++ "csu" ++ path.sep_str ++ "abi-note.S"),
+                    .extra_flags = args.items,
+                };
+            };
+            return build_libc_object(comp, "Scrt1.o", &[_]Compilation.CSourceFile{ start_os, abi_note_o });
         },
         .libc_nonshared_a => {
             return error.Unimplemented; // TODO
@@ -587,7 +585,11 @@ fn lib_path(comp: *Compilation, arena: *Allocator, sub_path: []const u8) ![]cons
     return path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, sub_path });
 }
 
-fn build_libc_object(comp: *Compilation, basename: []const u8, c_source_file: Compilation.CSourceFile) !void {
+fn build_libc_object(
+    comp: *Compilation,
+    basename: []const u8,
+    c_source_files: []const Compilation.CSourceFile,
+) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -616,7 +618,7 @@ fn build_libc_object(comp: *Compilation, basename: []const u8, c_source_file: Co
         .strip = comp.bin_file.options.strip,
         .is_native_os = comp.bin_file.options.is_native_os,
         .self_exe_path = comp.self_exe_path,
-        .c_source_files = &[1]Compilation.CSourceFile{c_source_file},
+        .c_source_files = c_source_files,
         .debug_cc = comp.debug_cc,
         .debug_link = comp.bin_file.options.debug_link,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
