@@ -118,7 +118,7 @@ const Context = struct {
         if (self.inst_map.get(inst)) |val| {
             return val;
         }
-        return self.file.fail(inst.src, "Internal error: failed to resolve inst!", .{});
+        unreachable;
     }
 
     fn name(self: *Context) ![]u8 {
