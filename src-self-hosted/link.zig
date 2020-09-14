@@ -90,6 +90,10 @@ pub const File = struct {
     /// this location, and then this path can be placed on the LLD linker line.
     intermediary_basename: ?[]const u8 = null,
 
+    /// Prevents other processes from clobbering files in the output directory
+    /// of this linking operation.
+    lock: ?std.cache_hash.Lock = null,
+
     pub const LinkBlock = union {
         elf: Elf.TextBlock,
         coff: Coff.TextBlock,
@@ -228,7 +232,21 @@ pub const File = struct {
         }
     }
 
+    pub fn releaseLock(self: *File) void {
+        if (self.lock) |*lock| {
+            lock.release();
+            self.lock = null;
+        }
+    }
+
+    pub fn toOwnedLock(self: *File) std.cache_hash.Lock {
+        const lock = self.lock.?;
+        self.lock = null;
+        return lock;
+    }
+
     pub fn destroy(base: *File) void {
+        base.releaseLock();
         if (base.file) |f| f.close();
         if (base.intermediary_basename) |sub_path| base.allocator.free(sub_path);
         switch (base.tag) {

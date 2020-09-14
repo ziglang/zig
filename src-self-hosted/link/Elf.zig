@@ -123,9 +123,6 @@ dbg_info_decl_free_list: std.AutoHashMapUnmanaged(*TextBlock, void) = .{},
 dbg_info_decl_first: ?*TextBlock = null,
 dbg_info_decl_last: ?*TextBlock = null,
 
-/// Prevents other processes from clobbering the output file this is linking.
-lock: ?std.cache_hash.Lock = null,
-
 /// `alloc_num / alloc_den` is the factor of padding when allocating.
 const alloc_num = 4;
 const alloc_den = 3;
@@ -290,21 +287,7 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*Elf {
     return self;
 }
 
-pub fn releaseLock(self: *Elf) void {
-    if (self.lock) |*lock| {
-        lock.release();
-        self.lock = null;
-    }
-}
-
-pub fn toOwnedLock(self: *Elf) std.cache_hash.Lock {
-    const lock = self.lock.?;
-    self.lock = null;
-    return lock;
-}
-
 pub fn deinit(self: *Elf) void {
-    self.releaseLock();
     self.sections.deinit(self.base.allocator);
     self.program_headers.deinit(self.base.allocator);
     self.shstrtab.deinit(self.base.allocator);
@@ -1253,7 +1236,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     const id_symlink_basename = "id.txt";
 
     // We are about to obtain this lock, so here we give other processes a chance first.
-    self.releaseLock();
+    self.base.releaseLock();
 
     var ch = comp.cache_parent.obtain();
     defer ch.deinit();
@@ -1302,14 +1285,16 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     const digest = ch.final();
 
     var prev_digest_buf: [digest.len]u8 = undefined;
-    const prev_digest: []u8 = directory.handle.readLink(id_symlink_basename, &prev_digest_buf) catch blk: {
+    const prev_digest: []u8 = directory.handle.readLink(id_symlink_basename, &prev_digest_buf) catch |err| blk: {
+        log.debug("ELF LLD new_digest={} readlink error: {}", .{digest, @errorName(err)});
         // Handle this as a cache miss.
         mem.set(u8, &prev_digest_buf, 0);
         break :blk &prev_digest_buf;
     };
+    log.debug("ELF LLD prev_digest={} new_digest={}", .{prev_digest, digest});
     if (mem.eql(u8, prev_digest, &digest)) {
         // Hot diggity dog! The output binary is already there.
-        self.lock = ch.toOwnedLock();
+        self.base.lock = ch.toOwnedLock();
         return;
     }
 
@@ -1611,7 +1596,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     };
     // We hang on to this lock so that the output file path can be used without
     // other processes clobbering it.
-    self.lock = ch.toOwnedLock();
+    self.base.lock = ch.toOwnedLock();
 }
 
 fn append_diagnostic(context: usize, ptr: [*]const u8, len: usize) callconv(.C) void {

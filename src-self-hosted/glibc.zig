@@ -648,5 +648,8 @@ fn build_libc_object(comp: *Compilation, basename: []const u8, c_source_file: Co
         try comp.gpa.dupe(u8, basename);
 
     // TODO obtain a lock on the artifact and put that in crt_files as well.
-    comp.crt_files.putAssumeCapacityNoClobber(basename, artifact_path);
+    comp.crt_files.putAssumeCapacityNoClobber(basename, .{
+        .full_object_path = artifact_path,
+        .lock = sub_compilation.bin_file.toOwnedLock(),
+    });
 }

@@ -70,12 +70,23 @@ libc_static_lib: ?[]const u8 = null,
 /// For example `Scrt1.o` and `libc.so.6`. These are populated after building libc from source,
 /// The set of needed CRT (C runtime) files differs depending on the target and compilation settings.
 /// The key is the basename, and the value is the absolute path to the completed build artifact.
-crt_files: std.StringHashMapUnmanaged([]const u8) = .{},
+crt_files: std.StringHashMapUnmanaged(CRTFile) = .{},
 
 /// Keeping track of this possibly open resource so we can close it later.
 owned_link_dir: ?std.fs.Dir,
 
 pub const InnerError = Module.InnerError;
+
+pub const CRTFile = struct {
+    lock: std.cache_hash.Lock,
+    full_object_path: []const u8,
+
+    fn deinit(self: *CRTFile, gpa: *Allocator) void {
+        self.lock.release();
+        gpa.free(self.full_object_path);
+        self.* = undefined;
+    }
+};
 
 /// For passing to a C compiler.
 pub const CSourceFile = struct {
@@ -625,7 +636,7 @@ pub fn destroy(self: *Compilation) void {
         var it = self.crt_files.iterator();
         while (it.next()) |entry| {
             gpa.free(entry.key);
-            gpa.free(entry.value);
+            entry.value.deinit(gpa);
         }
         self.crt_files.deinit(gpa);
     }
@@ -1512,7 +1523,7 @@ fn detectLibCFromLibCInstallation(arena: *Allocator, target: Target, lci: *const
 
 pub fn get_libc_crt_file(comp: *Compilation, arena: *Allocator, basename: []const u8) ![]const u8 {
     if (comp.wantBuildGLibCFromSource()) {
-        return comp.crt_files.get(basename).?;
+        return comp.crt_files.get(basename).?.full_object_path;
     }
     const lci = comp.bin_file.options.libc_installation orelse return error.LibCInstallationNotAvailable;
     const crt_dir_path = lci.crt_dir orelse return error.LibCInstallationMissingCRTDir;
