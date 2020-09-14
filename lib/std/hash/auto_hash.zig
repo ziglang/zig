@@ -139,9 +139,8 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
                 const tag = meta.activeTag(key);
                 const s = hash(hasher, tag, strat);
                 inline for (info.fields) |field| {
-                    const enum_field = field.enum_field.?;
-                    if (enum_field.value == @enumToInt(tag)) {
-                        hash(hasher, @field(key, enum_field.name), strat);
+                    if (@field(tag_type, field.name) == tag) {
+                        hash(hasher, @field(key, field.name), strat);
                         // TODO use a labelled break when it does not crash the compiler. cf #2908
                         // break :blk;
                         return;
