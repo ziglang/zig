@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 const leb = std.debug.leb;
 const mem = std.mem;
 
-const Module = @import("../ZigModule.zig");
+const Module = @import("../Module.zig");
 const Decl = Module.Decl;
 const Inst = @import("../ir.zig").Inst;
 const Type = @import("../type.zig").Type;

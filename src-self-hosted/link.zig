@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Compilation = @import("Compilation.zig");
-const ZigModule = @import("ZigModule.zig");
+const Module = @import("Module.zig");
 const fs = std.fs;
 const trace = @import("tracy.zig").trace;
 const Package = @import("Package.zig");
@@ -23,7 +23,7 @@ pub const Options = struct {
     optimize_mode: std.builtin.Mode,
     root_name: []const u8,
     /// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
-    zig_module: ?*ZigModule,
+    module: ?*Module,
     dynamic_linker: ?[]const u8 = null,
     /// Used for calculating how much space to reserve for symbols in case the binary file
     /// does not already have a symbol table.
@@ -186,7 +186,7 @@ pub const File = struct {
 
     /// May be called before or after updateDeclExports but must be called
     /// after allocateDeclIndexes for any given Decl.
-    pub fn updateDecl(base: *File, module: *ZigModule, decl: *ZigModule.Decl) !void {
+    pub fn updateDecl(base: *File, module: *Module, decl: *Module.Decl) !void {
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDecl(module, decl),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDecl(module, decl),
@@ -196,7 +196,7 @@ pub const File = struct {
         }
     }
 
-    pub fn updateDeclLineNumber(base: *File, module: *ZigModule, decl: *ZigModule.Decl) !void {
+    pub fn updateDeclLineNumber(base: *File, module: *Module, decl: *Module.Decl) !void {
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclLineNumber(module, decl),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl),
@@ -207,7 +207,7 @@ pub const File = struct {
 
     /// Must be called before any call to updateDecl or updateDeclExports for
     /// any given Decl.
-    pub fn allocateDeclIndexes(base: *File, decl: *ZigModule.Decl) !void {
+    pub fn allocateDeclIndexes(base: *File, decl: *Module.Decl) !void {
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl),
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
@@ -271,7 +271,7 @@ pub const File = struct {
         };
     }
 
-    pub fn freeDecl(base: *File, decl: *ZigModule.Decl) void {
+    pub fn freeDecl(base: *File, decl: *Module.Decl) void {
         switch (base.tag) {
             .coff => @fieldParentPtr(Coff, "base", base).freeDecl(decl),
             .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl),
@@ -295,9 +295,9 @@ pub const File = struct {
     /// allocateDeclIndexes for any given Decl.
     pub fn updateDeclExports(
         base: *File,
-        module: *ZigModule,
-        decl: *const ZigModule.Decl,
-        exports: []const *ZigModule.Export,
+        module: *Module,
+        decl: *const Module.Decl,
+        exports: []const *Module.Export,
     ) !void {
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclExports(module, decl, exports),
@@ -308,7 +308,7 @@ pub const File = struct {
         }
     }
 
-    pub fn getDeclVAddr(base: *File, decl: *const ZigModule.Decl) u64 {
+    pub fn getDeclVAddr(base: *File, decl: *const Module.Decl) u64 {
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).getDeclVAddr(decl),
             .elf => return @fieldParentPtr(Elf, "base", base).getDeclVAddr(decl),

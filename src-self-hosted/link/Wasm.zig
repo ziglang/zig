@@ -6,7 +6,7 @@ const assert = std.debug.assert;
 const fs = std.fs;
 const leb = std.debug.leb;
 
-const Module = @import("../ZigModule.zig");
+const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen/wasm.zig");
 const link = @import("../link.zig");
@@ -165,7 +165,7 @@ pub fn flush(self: *Wasm, comp: *Compilation) !void {
     }
 
     // Export section
-    if (self.base.options.zig_module) |module| {
+    if (self.base.options.module) |module| {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
         var count: u32 = 0;

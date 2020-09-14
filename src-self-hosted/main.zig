@@ -1232,9 +1232,9 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, zir_out_path: ?[]const u8) 
     }
 
     if (zir_out_path) |zop| {
-        const zig_module = comp.bin_file.options.zig_module orelse
+        const module = comp.bin_file.options.module orelse
             fatal("-femit-zir with no zig source code", .{});
-        var new_zir_module = try zir.emit(gpa, zig_module);
+        var new_zir_module = try zir.emit(gpa, module);
         defer new_zir_module.deinit(gpa);
 
         const baf = try io.BufferedAtomicFile.create(gpa, fs.cwd(), zop, .{});

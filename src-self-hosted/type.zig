@@ -3,7 +3,7 @@ const Value = @import("value.zig").Value;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Target = std.Target;
-const Module = @import("ZigModule.zig");
+const Module = @import("Module.zig");
 
 /// This is the raw data, with no bookkeeping, no memory awareness, no de-duplication.
 /// It's important for this type to be small.

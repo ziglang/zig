@@ -16,7 +16,7 @@ const build_options = @import("build_options");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const glibc = @import("glibc.zig");
 const fatal = @import("main.zig").fatal;
-const ZigModule = @import("ZigModule.zig");
+const Module = @import("Module.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: *Allocator,
@@ -75,7 +75,7 @@ crt_files: std.StringHashMapUnmanaged([]const u8) = .{},
 /// Keeping track of this possibly open resource so we can close it later.
 owned_link_dir: ?std.fs.Dir,
 
-pub const InnerError = ZigModule.InnerError;
+pub const InnerError = Module.InnerError;
 
 /// For passing to a C compiler.
 pub const CSourceFile = struct {
@@ -85,14 +85,14 @@ pub const CSourceFile = struct {
 
 const WorkItem = union(enum) {
     /// Write the machine code for a Decl to the output file.
-    codegen_decl: *ZigModule.Decl,
+    codegen_decl: *Module.Decl,
     /// The Decl needs to be analyzed and possibly export itself.
     /// It may have already be analyzed, or it may have been determined
     /// to be outdated; in this case perform semantic analysis again.
-    analyze_decl: *ZigModule.Decl,
+    analyze_decl: *Module.Decl,
     /// The source file containing the Decl has been updated, and so the
     /// Decl may need its line number information updated in the debug info.
-    update_line_number: *ZigModule.Decl,
+    update_line_number: *Module.Decl,
     /// Invoke the Clang compiler to create an object file, which gets linked
     /// with the Compilation.
     c_object: *CObject,
@@ -402,7 +402,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(options.output_mode);
         // TODO audit this and make sure everything is in it
 
-        const zig_module: ?*ZigModule = if (options.root_pkg) |root_pkg| blk: {
+        const module: ?*Module = if (options.root_pkg) |root_pkg| blk: {
             // Options that are specific to zig source files, that cannot be
             // modified between incremental updates.
             var hash = cache.hash;
@@ -442,11 +442,11 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             // this is where we would load it. We have open a handle to the directory where
             // the output either already is, or will be.
             // However we currently do not have serialization of such metadata, so for now
-            // we set up an empty ZigModule that does the entire compilation fresh.
+            // we set up an empty Module that does the entire compilation fresh.
 
             const root_scope = rs: {
                 if (mem.endsWith(u8, root_pkg.root_src_path, ".zig")) {
-                    const root_scope = try gpa.create(ZigModule.Scope.File);
+                    const root_scope = try gpa.create(Module.Scope.File);
                     root_scope.* = .{
                         .sub_file_path = root_pkg.root_src_path,
                         .source = .{ .unloaded = {} },
@@ -459,7 +459,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                     };
                     break :rs &root_scope.base;
                 } else if (mem.endsWith(u8, root_pkg.root_src_path, ".zir")) {
-                    const root_scope = try gpa.create(ZigModule.Scope.ZIRModule);
+                    const root_scope = try gpa.create(Module.Scope.ZIRModule);
                     root_scope.* = .{
                         .sub_file_path = root_pkg.root_src_path,
                         .source = .{ .unloaded = {} },
@@ -473,24 +473,24 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 }
             };
 
-            const zig_module = try arena.create(ZigModule);
-            zig_module.* = .{
+            const module = try arena.create(Module);
+            module.* = .{
                 .gpa = gpa,
                 .comp = comp,
                 .root_pkg = root_pkg,
                 .root_scope = root_scope,
                 .zig_cache_artifact_directory = zig_cache_artifact_directory,
             };
-            break :blk zig_module;
+            break :blk module;
         } else null;
-        errdefer if (zig_module) |zm| zm.deinit();
+        errdefer if (module) |zm| zm.deinit();
 
         // For resource management purposes.
         var owned_link_dir: ?std.fs.Dir = null;
         errdefer if (owned_link_dir) |*dir| dir.close();
 
         const bin_directory = emit_bin.directory orelse blk: {
-            if (zig_module) |zm| break :blk zm.zig_cache_artifact_directory;
+            if (module) |zm| break :blk zm.zig_cache_artifact_directory;
 
             const digest = cache.hash.peek();
             const artifact_sub_dir = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
@@ -510,7 +510,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .directory = bin_directory,
             .sub_path = emit_bin.basename,
             .root_name = root_name,
-            .zig_module = zig_module,
+            .module = module,
             .target = options.target,
             .dynamic_linker = options.dynamic_linker,
             .output_mode = options.output_mode,
@@ -605,9 +605,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 }
 
 pub fn destroy(self: *Compilation) void {
-    const optional_zig_module = self.bin_file.options.zig_module;
+    const optional_module = self.bin_file.options.module;
     self.bin_file.destroy();
-    if (optional_zig_module) |zig_module| zig_module.deinit();
+    if (optional_module) |module| module.deinit();
 
     const gpa = self.gpa;
     self.work_queue.deinit();
@@ -655,23 +655,23 @@ pub fn update(self: *Compilation) !void {
         self.work_queue.writeItemAssumeCapacity(.{ .c_object = entry.key });
     }
 
-    if (self.bin_file.options.zig_module) |zig_module| {
-        zig_module.generation += 1;
+    if (self.bin_file.options.module) |module| {
+        module.generation += 1;
 
         // TODO Detect which source files changed.
         // Until then we simulate a full cache miss. Source files could have been loaded for any reason;
         // to force a refresh we unload now.
-        if (zig_module.root_scope.cast(ZigModule.Scope.File)) |zig_file| {
-            zig_file.unload(zig_module.gpa);
-            zig_module.analyzeContainer(&zig_file.root_container) catch |err| switch (err) {
+        if (module.root_scope.cast(Module.Scope.File)) |zig_file| {
+            zig_file.unload(module.gpa);
+            module.analyzeContainer(&zig_file.root_container) catch |err| switch (err) {
                 error.AnalysisFail => {
                     assert(self.totalErrorCount() != 0);
                 },
                 else => |e| return e,
             };
-        } else if (zig_module.root_scope.cast(ZigModule.Scope.ZIRModule)) |zir_module| {
-            zir_module.unload(zig_module.gpa);
-            zig_module.analyzeRootZIRModule(zir_module) catch |err| switch (err) {
+        } else if (module.root_scope.cast(Module.Scope.ZIRModule)) |zir_module| {
+            zir_module.unload(module.gpa);
+            module.analyzeRootZIRModule(zir_module) catch |err| switch (err) {
                 error.AnalysisFail => {
                     assert(self.totalErrorCount() != 0);
                 },
@@ -682,14 +682,14 @@ pub fn update(self: *Compilation) !void {
 
     try self.performAllTheWork();
 
-    if (self.bin_file.options.zig_module) |zig_module| {
+    if (self.bin_file.options.module) |module| {
         // Process the deletion set.
-        while (zig_module.deletion_set.popOrNull()) |decl| {
+        while (module.deletion_set.popOrNull()) |decl| {
             if (decl.dependants.items().len != 0) {
                 decl.deletion_flag = false;
                 continue;
             }
-            try zig_module.deleteDecl(decl);
+            try module.deleteDecl(decl);
         }
     }
 
@@ -701,8 +701,8 @@ pub fn update(self: *Compilation) !void {
     // If there are any errors, we anticipate the source files being loaded
     // to report error messages. Otherwise we unload all source files to save memory.
     if (self.totalErrorCount() == 0 and !self.keep_source_files_loaded) {
-        if (self.bin_file.options.zig_module) |zig_module| {
-            zig_module.root_scope.unload(self.gpa);
+        if (self.bin_file.options.module) |module| {
+            module.root_scope.unload(self.gpa);
         }
     }
 }
@@ -722,10 +722,10 @@ pub fn makeBinFileWritable(self: *Compilation) !void {
 pub fn totalErrorCount(self: *Compilation) usize {
     var total: usize = self.failed_c_objects.items().len;
 
-    if (self.bin_file.options.zig_module) |zig_module| {
-        total += zig_module.failed_decls.items().len +
-            zig_module.failed_exports.items().len +
-            zig_module.failed_files.items().len;
+    if (self.bin_file.options.module) |module| {
+        total += module.failed_decls.items().len +
+            module.failed_exports.items().len +
+            module.failed_files.items().len;
     }
 
     // The "no entry point found" error only counts if there are no other errors.
@@ -748,30 +748,30 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
         const err_msg = entry.value;
         try AllErrors.add(&arena, &errors, c_object.src_path, "", err_msg.*);
     }
-    if (self.bin_file.options.zig_module) |zig_module| {
-        for (zig_module.failed_files.items()) |entry| {
+    if (self.bin_file.options.module) |module| {
+        for (module.failed_files.items()) |entry| {
             const scope = entry.key;
             const err_msg = entry.value;
-            const source = try scope.getSource(zig_module);
+            const source = try scope.getSource(module);
             try AllErrors.add(&arena, &errors, scope.subFilePath(), source, err_msg.*);
         }
-        for (zig_module.failed_decls.items()) |entry| {
+        for (module.failed_decls.items()) |entry| {
             const decl = entry.key;
             const err_msg = entry.value;
-            const source = try decl.scope.getSource(zig_module);
+            const source = try decl.scope.getSource(module);
             try AllErrors.add(&arena, &errors, decl.scope.subFilePath(), source, err_msg.*);
         }
-        for (zig_module.failed_exports.items()) |entry| {
+        for (module.failed_exports.items()) |entry| {
             const decl = entry.key.owner_decl;
             const err_msg = entry.value;
-            const source = try decl.scope.getSource(zig_module);
+            const source = try decl.scope.getSource(module);
             try AllErrors.add(&arena, &errors, decl.scope.subFilePath(), source, err_msg.*);
         }
     }
 
     if (errors.items.len == 0 and self.link_error_flags.no_entry_point_found) {
         const global_err_src_path = blk: {
-            if (self.bin_file.options.zig_module) |zig_module| break :blk zig_module.root_pkg.root_src_path;
+            if (self.bin_file.options.module) |module| break :blk module.root_pkg.root_src_path;
             if (self.c_source_files.len != 0) break :blk self.c_source_files[0].src_path;
             if (self.bin_file.options.objects.len != 0) break :blk self.bin_file.options.objects[0];
             break :blk "(no file)";
@@ -807,10 +807,10 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
             => continue,
 
             .complete, .codegen_failure_retryable => {
-                const zig_module = self.bin_file.options.zig_module.?;
+                const module = self.bin_file.options.module.?;
                 if (decl.typed_value.most_recent.typed_value.val.cast(Value.Payload.Function)) |payload| {
                     switch (payload.func.analysis) {
-                        .queued => zig_module.analyzeFnBody(decl, payload.func) catch |err| switch (err) {
+                        .queued => module.analyzeFnBody(decl, payload.func) catch |err| switch (err) {
                             error.AnalysisFail => {
                                 assert(payload.func.analysis != .in_progress);
                                 continue;
@@ -823,23 +823,23 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
                     }
                     // Here we tack on additional allocations to the Decl's arena. The allocations are
                     // lifetime annotations in the ZIR.
-                    var decl_arena = decl.typed_value.most_recent.arena.?.promote(zig_module.gpa);
+                    var decl_arena = decl.typed_value.most_recent.arena.?.promote(module.gpa);
                     defer decl.typed_value.most_recent.arena.?.* = decl_arena.state;
                     log.debug("analyze liveness of {}\n", .{decl.name});
-                    try liveness.analyze(zig_module.gpa, &decl_arena.allocator, payload.func.analysis.success);
+                    try liveness.analyze(module.gpa, &decl_arena.allocator, payload.func.analysis.success);
                 }
 
                 assert(decl.typed_value.most_recent.typed_value.ty.hasCodeGenBits());
 
-                self.bin_file.updateDecl(zig_module, decl) catch |err| switch (err) {
+                self.bin_file.updateDecl(module, decl) catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,
                     error.AnalysisFail => {
                         decl.analysis = .dependency_failure;
                     },
                     else => {
-                        try zig_module.failed_decls.ensureCapacity(zig_module.gpa, zig_module.failed_decls.items().len + 1);
-                        zig_module.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
-                            zig_module.gpa,
+                        try module.failed_decls.ensureCapacity(module.gpa, module.failed_decls.items().len + 1);
+                        module.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
+                            module.gpa,
                             decl.src(),
                             "unable to codegen: {}",
                             .{@errorName(err)},
@@ -850,18 +850,18 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
             },
         },
         .analyze_decl => |decl| {
-            const zig_module = self.bin_file.options.zig_module.?;
-            zig_module.ensureDeclAnalyzed(decl) catch |err| switch (err) {
+            const module = self.bin_file.options.module.?;
+            module.ensureDeclAnalyzed(decl) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => continue,
             };
         },
         .update_line_number => |decl| {
-            const zig_module = self.bin_file.options.zig_module.?;
-            self.bin_file.updateDeclLineNumber(zig_module, decl) catch |err| {
-                try zig_module.failed_decls.ensureCapacity(zig_module.gpa, zig_module.failed_decls.items().len + 1);
-                zig_module.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
-                    zig_module.gpa,
+            const module = self.bin_file.options.module.?;
+            self.bin_file.updateDeclLineNumber(module, decl) catch |err| {
+                try module.failed_decls.ensureCapacity(module.gpa, module.failed_decls.items().len + 1);
+                module.failed_decls.putAssumeCapacityNoClobber(decl, try ErrorMsg.create(
+                    module.gpa,
                     decl.src(),
                     "unable to update line number: {}",
                     .{@errorName(err)},
@@ -949,7 +949,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
     // Special case when doing build-obj for just one C file. When there are more than one object
     // file and building an object we need to link them together, but with just one it should go
     // directly to the output file.
-    const direct_o = comp.c_source_files.len == 1 and comp.bin_file.options.zig_module == null and
+    const direct_o = comp.c_source_files.len == 1 and comp.bin_file.options.module == null and
         comp.bin_file.options.output_mode == .Obj and comp.bin_file.options.objects.len == 0;
     const o_basename_noext = if (direct_o)
         comp.bin_file.options.root_name

@@ -7,7 +7,7 @@ const assert = std.debug.assert;
 const fs = std.fs;
 
 const trace = @import("../tracy.zig").trace;
-const Module = @import("../ZigModule.zig");
+const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");

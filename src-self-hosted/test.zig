@@ -549,7 +549,7 @@ pub const TestContext = struct {
                         update_node.estimated_total_items = 5;
                         var emit_node = update_node.start("emit", null);
                         emit_node.activate();
-                        var new_zir_module = try zir.emit(allocator, comp.bin_file.options.zig_module.?);
+                        var new_zir_module = try zir.emit(allocator, comp.bin_file.options.module.?);
                         defer new_zir_module.deinit(allocator);
                         emit_node.end();
 

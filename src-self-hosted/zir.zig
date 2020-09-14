@@ -10,7 +10,7 @@ const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
 const TypedValue = @import("TypedValue.zig");
 const ir = @import("ir.zig");
-const IrModule = @import("ZigModule.zig");
+const IrModule = @import("Module.zig");
 
 /// This struct is relevent only for the ZIR Module text format. It is not used for
 /// semantic analysis of Zig source code.

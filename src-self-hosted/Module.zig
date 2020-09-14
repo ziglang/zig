@@ -1,4 +1,3 @@
-//! TODO This is going to get renamed from ZigModule to Module
 const Module = @This();
 const std = @import("std");
 const Compilation = @import("Compilation.zig");

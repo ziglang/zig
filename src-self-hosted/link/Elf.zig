@@ -3,7 +3,7 @@ const mem = std.mem;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ir = @import("../ir.zig");
-const Module = @import("../ZigModule.zig");
+const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const fs = std.fs;
 const elf = std.elf;
@@ -743,7 +743,7 @@ pub fn flush(self: *Elf, comp: *Compilation) !void {
 fn flushInner(self: *Elf, comp: *Compilation) !void {
     // TODO This linker code currently assumes there is only 1 compilation unit and it corresponds to the
     // Zig source code.
-    const zig_module = self.base.options.zig_module orelse return error.LinkingWithoutZigSourceUnimplemented;
+    const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
     const target_endian = self.base.options.target.cpu.arch.endian();
     const foreign_endian = target_endian != std.Target.current.cpu.arch.endian();
@@ -866,8 +866,8 @@ fn flushInner(self: *Elf, comp: *Compilation) !void {
             },
         }
         // Write the form for the compile unit, which must match the abbrev table above.
-        const name_strp = try self.makeDebugString(zig_module.root_pkg.root_src_path);
-        const comp_dir_strp = try self.makeDebugString(zig_module.root_pkg.root_src_directory.path.?);
+        const name_strp = try self.makeDebugString(module.root_pkg.root_src_path);
+        const comp_dir_strp = try self.makeDebugString(module.root_pkg.root_src_directory.path.?);
         const producer_strp = try self.makeDebugString(link.producer_string);
         // Currently only one compilation unit is supported, so the address range is simply
         // identical to the main program header virtual address and memory size.
@@ -1036,7 +1036,7 @@ fn flushInner(self: *Elf, comp: *Compilation) !void {
             0, // include_directories (none except the compilation unit cwd)
         });
         // file_names[0]
-        di_buf.appendSliceAssumeCapacity(zig_module.root_pkg.root_src_path); // relative path name
+        di_buf.appendSliceAssumeCapacity(module.root_pkg.root_src_path); // relative path name
         di_buf.appendSliceAssumeCapacity(&[_]u8{
             0, // null byte for the relative path name
             0, // directory_index
@@ -1230,7 +1230,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const zig_module_obj_path: ?[]const u8 = if (self.base.options.zig_module) |module| blk: {
+    const module_obj_path: ?[]const u8 = if (self.base.options.module) |module| blk: {
         try self.flushInner(comp);
 
         const obj_basename = self.base.intermediary_basename.?;
@@ -1270,7 +1270,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         .failure => return error.NotAllCSourceFilesAvailableToLink,
         .success => |success| _ = try ch.addFile(success.object_path, null),
     };
-    try ch.addOptionalFile(zig_module_obj_path);
+    try ch.addOptionalFile(module_obj_path);
     // We can skip hashing libc and libc++ components that we are in charge of building from Zig
     // installation sources because they are always a product of the compiler version + target information.
     ch.hash.addOptional(self.base.options.stack_size_override);
@@ -1500,7 +1500,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         .success => |success| try argv.append(success.object_path),
     };
 
-    if (zig_module_obj_path) |p| {
+    if (module_obj_path) |p| {
         try argv.append(p);
     }
 
@@ -2837,8 +2837,8 @@ fn dbgLineNeededHeaderBytes(self: Elf) u32 {
         directory_count * 8 + file_name_count * 8 +
     // These are encoded as DW.FORM_string rather than DW.FORM_strp as we would like
     // because of a workaround for readelf and gdb failing to understand DWARFv5 correctly.
-        self.base.options.zig_module.?.root_pkg.root_src_directory.path.?.len +
-        self.base.options.zig_module.?.root_pkg.root_src_path.len);
+        self.base.options.module.?.root_pkg.root_src_directory.path.?.len +
+        self.base.options.module.?.root_pkg.root_src_path.len);
 }
 
 fn dbgInfoNeededHeaderBytes(self: Elf) u32 {

@@ -12,7 +12,7 @@ const mem = std.mem;
 const trace = @import("../tracy.zig").trace;
 const Type = @import("../type.zig").Type;
 
-const Module = @import("../ZigModule.zig");
+const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const link = @import("../link.zig");
 const File = link.File;
