@@ -724,6 +724,9 @@ pub fn updateDeclExports(self: *Coff, module: *Module, decl: *const Module.Decl,
 }
 
 pub fn flush(self: *Coff, comp: *Compilation) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     if (self.text_section_size_dirty) {
         // Write the new raw size in the .text header
         var buf: [4]u8 = undefined;

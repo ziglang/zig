@@ -725,6 +725,9 @@ pub fn flush(self: *Elf, comp: *Compilation) !void {
 
 /// Commit pending changes and write headers.
 fn flushInner(self: *Elf, comp: *Compilation) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     // TODO This linker code currently assumes there is only 1 compilation unit and it corresponds to the
     // Zig source code.
     const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
@@ -1206,6 +1209,9 @@ fn flushInner(self: *Elf, comp: *Compilation) !void {
 }
 
 fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
     defer arena_allocator.deinit();
     const arena = &arena_allocator.allocator;
@@ -1314,13 +1320,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     try argv.append("lld");
     if (is_obj) {
         try argv.append("-r");
-    }
-    if (self.base.options.output_mode == .Lib and
-        self.base.options.link_mode == .Static and
-        !target.isWasm())
-    {
-        // TODO port the code from link.cpp
-        return error.TODOMakeArchive;
     }
     const link_in_crt = self.base.options.link_libc and self.base.options.output_mode == .Exe;
 
@@ -1581,8 +1580,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         new_argv[i] = try arena.dupeZ(u8, arg);
     }
 
-    const ZigLLDLink = @import("../llvm.zig").ZigLLDLink;
-    const ok = ZigLLDLink(.ELF, new_argv.ptr, new_argv.len, append_diagnostic, 0, 0);
+    const llvm = @import("../llvm.zig");
+    const ok = llvm.Link(.ELF, new_argv.ptr, new_argv.len, append_diagnostic, 0, 0);
     if (!ok) return error.LLDReportedFailure;
 
     // Update the dangling symlink "id.txt" with the digest. If it fails we can continue; it only

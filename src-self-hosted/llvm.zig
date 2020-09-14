@@ -1,8 +1,9 @@
 //! We do this instead of @cImport because the self-hosted compiler is easier
 //! to bootstrap if it does not depend on translate-c.
 
+pub const Link = ZigLLDLink;
 pub extern fn ZigLLDLink(
-    oformat: ZigLLVM_ObjectFormatType,
+    oformat: ObjectFormatType,
     args: [*:null]const ?[*:0]const u8,
     arg_count: usize,
     append_diagnostic: fn (context: usize, ptr: [*]const u8, len: usize) callconv(.C) void,
@@ -10,7 +11,7 @@ pub extern fn ZigLLDLink(
     context_stderr: usize,
 ) bool;
 
-pub const ZigLLVM_ObjectFormatType = extern enum(c_int) {
+pub const ObjectFormatType = extern enum(c_int) {
     Unknown,
     COFF,
     ELF,
@@ -18,3 +19,9 @@ pub const ZigLLVM_ObjectFormatType = extern enum(c_int) {
     Wasm,
     XCOFF,
 };
+
+pub const GetHostCPUName = LLVMGetHostCPUName;
+extern fn LLVMGetHostCPUName() ?[*:0]u8;
+
+pub const GetNativeFeatures = ZigLLVMGetNativeFeatures;
+extern fn ZigLLVMGetNativeFeatures() ?[*:0]u8;

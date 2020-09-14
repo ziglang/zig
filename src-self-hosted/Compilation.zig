@@ -305,6 +305,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 options.system_libs.len != 0 or
                 options.link_libc or options.link_libcpp or
                 options.link_eh_frame_hdr or
+                options.output_mode == .Lib or
+                options.lld_argv.len != 0 or
                 options.linker_script != null or options.version_script != null)
             {
                 break :blk true;
@@ -320,12 +322,17 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             break :blk false;
         };
 
+        const is_exe_or_dyn_lib = switch (options.output_mode) {
+            .Obj => false,
+            .Lib => (options.link_mode orelse .Static) == .Dynamic,
+            .Exe => true,
+        };
         const must_dynamic_link = dl: {
             if (target_util.cannotDynamicLink(options.target))
                 break :dl false;
             if (target_util.osRequiresLibC(options.target))
                 break :dl true;
-            if (options.link_libc and options.target.isGnuLibC())
+            if (is_exe_or_dyn_lib and options.link_libc and options.target.isGnuLibC())
                 break :dl true;
             if (options.system_libs.len != 0)
                 break :dl true;

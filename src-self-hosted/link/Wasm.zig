@@ -10,6 +10,7 @@ const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen/wasm.zig");
 const link = @import("../link.zig");
+const trace = @import("../tracy.zig").trace;
 
 /// Various magic numbers defined by the wasm spec
 const spec = struct {
@@ -134,6 +135,9 @@ pub fn freeDecl(self: *Wasm, decl: *Module.Decl) void {
 }
 
 pub fn flush(self: *Wasm, comp: *Compilation) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const file = self.base.file.?;
     const header_size = 5 + 1;
 

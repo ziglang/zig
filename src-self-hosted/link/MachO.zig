@@ -178,6 +178,9 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*MachO {
 }
 
 pub fn flush(self: *MachO, comp: *Compilation) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     switch (self.base.options.output_mode) {
         .Exe => {
             var last_cmd_offset: usize = @sizeOf(macho.mach_header_64);

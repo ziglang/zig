@@ -7,6 +7,7 @@ const Compilation = @import("../Compilation.zig");
 const fs = std.fs;
 const codegen = @import("../codegen/c.zig");
 const link = @import("../link.zig");
+const trace = @import("../tracy.zig").trace;
 const File = link.File;
 const C = @This();
 
@@ -73,6 +74,9 @@ pub fn updateDecl(self: *C, module: *Module, decl: *Module.Decl) !void {
 }
 
 pub fn flush(self: *C, comp: *Compilation) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const writer = self.base.file.?.writer();
     try writer.writeAll(@embedFile("cbe.h"));
     var includes = false;

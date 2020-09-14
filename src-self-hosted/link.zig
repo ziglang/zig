@@ -279,16 +279,19 @@ pub const File = struct {
     }
 
     pub fn flush(base: *File, comp: *Compilation) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
-
-        try switch (base.tag) {
-            .coff => @fieldParentPtr(Coff, "base", base).flush(comp),
-            .elf => @fieldParentPtr(Elf, "base", base).flush(comp),
-            .macho => @fieldParentPtr(MachO, "base", base).flush(comp),
-            .c => @fieldParentPtr(C, "base", base).flush(comp),
-            .wasm => @fieldParentPtr(Wasm, "base", base).flush(comp),
-        };
+        const use_lld = build_options.have_llvm and base.options.use_lld;
+        if (base.options.output_mode == .Lib and base.options.link_mode == .Static and
+            !base.options.target.isWasm())
+        {
+            return base.linkAsArchive(comp);
+        }
+        switch (base.tag) {
+            .coff => return @fieldParentPtr(Coff, "base", base).flush(comp),
+            .elf => return @fieldParentPtr(Elf, "base", base).flush(comp),
+            .macho => return @fieldParentPtr(MachO, "base", base).flush(comp),
+            .c => return @fieldParentPtr(C, "base", base).flush(comp),
+            .wasm => return @fieldParentPtr(Wasm, "base", base).flush(comp),
+        }
     }
 
     pub fn freeDecl(base: *File, decl: *Module.Decl) void {
@@ -302,13 +305,13 @@ pub const File = struct {
     }
 
     pub fn errorFlags(base: *File) ErrorFlags {
-        return switch (base.tag) {
-            .coff => @fieldParentPtr(Coff, "base", base).error_flags,
-            .elf => @fieldParentPtr(Elf, "base", base).error_flags,
-            .macho => @fieldParentPtr(MachO, "base", base).error_flags,
+        switch (base.tag) {
+            .coff => return @fieldParentPtr(Coff, "base", base).error_flags,
+            .elf => return @fieldParentPtr(Elf, "base", base).error_flags,
+            .macho => return @fieldParentPtr(MachO, "base", base).error_flags,
             .c => return .{ .no_entry_point_found = false },
             .wasm => return ErrorFlags{},
-        };
+        }
     }
 
     /// May be called before or after updateDecl, but must be called after
@@ -336,6 +339,12 @@ pub const File = struct {
             .c => unreachable,
             .wasm => unreachable,
         }
+    }
+
+    fn linkAsArchive(base: *File, comp: *Compilation) !void {
+        // TODO follow pattern from ELF linkWithLLD
+        // ZigLLVMWriteArchive
+        return error.TODOMakeArchive;
     }
 
     pub const Tag = enum {

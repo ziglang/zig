@@ -9013,7 +9013,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
         if (g->zig_target->os_builtin_str != nullptr) {
             buf_append_str(contents, g->zig_target->os_builtin_str);
         } else {
-            buf_appendf(contents, "Target.Os.defaultVersionRange(.%s);\n", cur_os);
+            buf_appendf(contents, "Target.Os.Tag.defaultVersionRange(.%s);\n", cur_os);
         }
     }
     buf_appendf(contents, "pub const object_format = ObjectFormat.%s;\n", cur_obj_fmt);
