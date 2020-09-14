@@ -1,6 +1,6 @@
 pub const Table = std.StringHashMapUnmanaged(*Package);
 
-root_src_directory: Module.Directory,
+root_src_directory: Compilation.Directory,
 /// Relative to `root_src_directory`.
 root_src_path: []u8,
 table: Table,
@@ -56,4 +56,4 @@ const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Package = @This();
-const Module = @import("Module.zig");
+const Compilation = @import("Compilation.zig");

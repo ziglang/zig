@@ -1,6 +1,6 @@
 const std = @import("std");
 const link = @import("link.zig");
-const Module = @import("Module.zig");
+const Compilation = @import("Compilation.zig");
 const Allocator = std.mem.Allocator;
 const zir = @import("zir.zig");
 const Package = @import("Package.zig");
@@ -61,7 +61,7 @@ pub const TestContext = struct {
         ZIR,
     };
 
-    /// A Case consists of a set of *updates*. The same Module is used for each
+    /// A Case consists of a set of *updates*. The same Compilation is used for each
     /// update, so each update's source is treated as a single file being
     /// updated by the test harness and incrementally compiled.
     pub const Case = struct {
@@ -437,7 +437,7 @@ pub const TestContext = struct {
         allocator: *Allocator,
         root_node: *std.Progress.Node,
         case: Case,
-        zig_lib_directory: Module.Directory,
+        zig_lib_directory: Compilation.Directory,
         rand: *std.rand.Random,
     ) !void {
         const target_info = try std.zig.system.NativeTargetInfo.detect(allocator, case.target);
@@ -453,7 +453,7 @@ pub const TestContext = struct {
         var cache_dir = try tmp.dir.makeOpenPath("zig-cache", .{});
         defer cache_dir.close();
         const bogus_path = "bogus"; // TODO this will need to be fixed before we can test LLVM extensions
-        const zig_cache_directory: Module.Directory = .{
+        const zig_cache_directory: Compilation.Directory = .{
             .handle = cache_dir,
             .path = try std.fs.path.join(arena, &[_][]const u8{ bogus_path, "zig-cache" }),
         };
@@ -465,15 +465,15 @@ pub const TestContext = struct {
         const ofmt: ?std.builtin.ObjectFormat = if (case.cbe) .c else null;
         const bin_name = try std.zig.binNameAlloc(arena, "test_case", target, case.output_mode, null, ofmt);
 
-        const emit_directory: Module.Directory = .{
+        const emit_directory: Compilation.Directory = .{
             .path = bogus_path,
             .handle = tmp.dir,
         };
-        const emit_bin: Module.EmitLoc = .{
+        const emit_bin: Compilation.EmitLoc = .{
             .directory = emit_directory,
             .basename = bin_name,
         };
-        const module = try Module.create(allocator, .{
+        const comp = try Compilation.create(allocator, .{
             .zig_cache_directory = zig_cache_directory,
             .zig_lib_directory = zig_lib_directory,
             .rand = rand,
@@ -491,7 +491,7 @@ pub const TestContext = struct {
             .object_format = ofmt,
             .is_native_os = case.target.isNativeOs(),
         });
-        defer module.destroy();
+        defer comp.destroy();
 
         for (case.updates.items) |update, update_index| {
             var update_node = root_node.start("update", 3);
@@ -505,20 +505,20 @@ pub const TestContext = struct {
 
             var module_node = update_node.start("parse/analysis/codegen", null);
             module_node.activate();
-            try module.makeBinFileWritable();
-            try module.update();
+            try comp.makeBinFileWritable();
+            try comp.update();
             module_node.end();
 
             if (update.case != .Error) {
-                var all_errors = try module.getAllErrorsAlloc();
+                var all_errors = try comp.getAllErrorsAlloc();
                 defer all_errors.deinit(allocator);
                 if (all_errors.list.len != 0) {
-                    std.debug.print("\nErrors occurred updating the module:\n================\n", .{});
+                    std.debug.print("\nErrors occurred updating the compilation:\n================\n", .{});
                     for (all_errors.list) |err| {
                         std.debug.print(":{}:{}: error: {}\n================\n", .{ err.line + 1, err.column + 1, err.msg });
                     }
                     if (case.cbe) {
-                        const C = module.bin_file.cast(link.File.C).?;
+                        const C = comp.bin_file.cast(link.File.C).?;
                         std.debug.print("Generated C: \n===============\n{}\n\n===========\n\n", .{C.main.items});
                     }
                     std.debug.print("Test failed.\n", .{});
@@ -549,7 +549,7 @@ pub const TestContext = struct {
                         update_node.estimated_total_items = 5;
                         var emit_node = update_node.start("emit", null);
                         emit_node.activate();
-                        var new_zir_module = try zir.emit(allocator, module.bin_file.options.zig_module.?);
+                        var new_zir_module = try zir.emit(allocator, comp.bin_file.options.zig_module.?);
                         defer new_zir_module.deinit(allocator);
                         emit_node.end();
 
@@ -584,7 +584,7 @@ pub const TestContext = struct {
                     for (handled_errors) |*h| {
                         h.* = false;
                     }
-                    var all_errors = try module.getAllErrorsAlloc();
+                    var all_errors = try comp.getAllErrorsAlloc();
                     defer all_errors.deinit(allocator);
                     for (all_errors.list) |a| {
                         for (e) |ex, i| {
@@ -666,7 +666,7 @@ pub const TestContext = struct {
                             },
                         }
 
-                        try module.makeBinFileExecutable();
+                        try comp.makeBinFileExecutable();
 
                         break :x try std.ChildProcess.exec(.{
                             .allocator = allocator,

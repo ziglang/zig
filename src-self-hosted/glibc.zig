@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const target_util = @import("target.zig");
 const mem = std.mem;
-const Module = @import("Module.zig");
+const Compilation = @import("Compilation.zig");
 const path = std.fs.path;
 const build_options = @import("build_options");
 const trace = @import("tracy.zig").trace;
@@ -246,11 +246,11 @@ pub const CRTFile = enum {
     libc_nonshared_a,
 };
 
-pub fn buildCRTFile(mod: *Module, crt_file: CRTFile) !void {
+pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
-    const gpa = mod.gpa;
+    const gpa = comp.gpa;
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     errdefer arena_allocator.deinit();
     const arena = &arena_allocator.allocator;
@@ -258,29 +258,29 @@ pub fn buildCRTFile(mod: *Module, crt_file: CRTFile) !void {
     switch (crt_file) {
         .crti_o => {
             var args = std.ArrayList([]const u8).init(arena);
-            try add_include_dirs(mod, arena, &args);
+            try add_include_dirs(comp, arena, &args);
             try args.appendSlice(&[_][]const u8{
                 "-D_LIBC_REENTRANT",
                 "-include",
-                try lib_path(mod, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-modules.h"),
+                try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-modules.h"),
                 "-DMODULE_NAME=libc",
                 "-Wno-nonportable-include-path",
                 "-include",
-                try lib_path(mod, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
+                try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
                 "-DTOP_NAMESPACE=glibc",
                 "-DASSEMBLER",
                 "-g",
                 "-Wa,--noexecstack",
             });
-            const c_source_file: Module.CSourceFile = .{
-                .src_path = try start_asm_path(mod, arena, "crti.S"),
+            const c_source_file: Compilation.CSourceFile = .{
+                .src_path = try start_asm_path(comp, arena, "crti.S"),
                 .extra_flags = args.items,
             };
-            return build_libc_object(mod, "crti.o", c_source_file);
+            return build_libc_object(comp, "crti.o", c_source_file);
         },
         .crtn_o => {
             var args = std.ArrayList([]const u8).init(arena);
-            try add_include_dirs(mod, arena, &args);
+            try add_include_dirs(comp, arena, &args);
             try args.appendSlice(&[_][]const u8{
                 "-D_LIBC_REENTRANT",
                 "-DMODULE_NAME=libc",
@@ -289,23 +289,23 @@ pub fn buildCRTFile(mod: *Module, crt_file: CRTFile) !void {
                 "-g",
                 "-Wa,--noexecstack",
             });
-            const c_source_file: Module.CSourceFile = .{
-                .src_path = try start_asm_path(mod, arena, "crtn.S"),
+            const c_source_file: Compilation.CSourceFile = .{
+                .src_path = try start_asm_path(comp, arena, "crtn.S"),
                 .extra_flags = args.items,
             };
-            return build_libc_object(mod, "crtn.o", c_source_file);
+            return build_libc_object(comp, "crtn.o", c_source_file);
         },
         .start_os => {
             var args = std.ArrayList([]const u8).init(arena);
-            try add_include_dirs(mod, arena, &args);
+            try add_include_dirs(comp, arena, &args);
             try args.appendSlice(&[_][]const u8{
                 "-D_LIBC_REENTRANT",
                 "-include",
-                try lib_path(mod, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-modules.h"),
+                try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-modules.h"),
                 "-DMODULE_NAME=libc",
                 "-Wno-nonportable-include-path",
                 "-include",
-                try lib_path(mod, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
+                try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
                 "-DPIC",
                 "-DSHARED",
                 "-DTOP_NAMESPACE=glibc",
@@ -313,19 +313,19 @@ pub fn buildCRTFile(mod: *Module, crt_file: CRTFile) !void {
                 "-g",
                 "-Wa,--noexecstack",
             });
-            const c_source_file: Module.CSourceFile = .{
-                .src_path = try start_asm_path(mod, arena, "start.S"),
+            const c_source_file: Compilation.CSourceFile = .{
+                .src_path = try start_asm_path(comp, arena, "start.S"),
                 .extra_flags = args.items,
             };
-            return build_libc_object(mod, "start.os", c_source_file);
+            return build_libc_object(comp, "start.os", c_source_file);
         },
         .abi_note_o => {
             var args = std.ArrayList([]const u8).init(arena);
             try args.appendSlice(&[_][]const u8{
                 "-I",
-                try lib_path(mod, arena, lib_libc_glibc ++ "glibc" ++ path.sep_str ++ "csu"),
+                try lib_path(comp, arena, lib_libc_glibc ++ "glibc" ++ path.sep_str ++ "csu"),
             });
-            try add_include_dirs(mod, arena, &args);
+            try add_include_dirs(comp, arena, &args);
             try args.appendSlice(&[_][]const u8{
                 "-D_LIBC_REENTRANT",
                 "-DMODULE_NAME=libc",
@@ -334,11 +334,11 @@ pub fn buildCRTFile(mod: *Module, crt_file: CRTFile) !void {
                 "-g",
                 "-Wa,--noexecstack",
             });
-            const c_source_file: Module.CSourceFile = .{
-                .src_path = try lib_path(mod, arena, lib_libc_glibc ++ "csu" ++ path.sep_str ++ "abi-note.S"),
+            const c_source_file: Compilation.CSourceFile = .{
+                .src_path = try lib_path(comp, arena, lib_libc_glibc ++ "csu" ++ path.sep_str ++ "abi-note.S"),
                 .extra_flags = args.items,
             };
-            return build_libc_object(mod, "abi-note.o", c_source_file);
+            return build_libc_object(comp, "abi-note.o", c_source_file);
         },
         .scrt1_o => {
             return error.Unimplemented; // TODO
@@ -349,8 +349,8 @@ pub fn buildCRTFile(mod: *Module, crt_file: CRTFile) !void {
     }
 }
 
-fn start_asm_path(mod: *Module, arena: *Allocator, basename: []const u8) ![]const u8 {
-    const arch = mod.getTarget().cpu.arch;
+fn start_asm_path(comp: *Compilation, arena: *Allocator, basename: []const u8) ![]const u8 {
+    const arch = comp.getTarget().cpu.arch;
     const is_ppc = arch == .powerpc or arch == .powerpc64 or arch == .powerpc64le;
     const is_aarch64 = arch == .aarch64 or arch == .aarch64_be;
     const is_sparc = arch == .sparc or arch == .sparcel or arch == .sparcv9;
@@ -359,7 +359,7 @@ fn start_asm_path(mod: *Module, arena: *Allocator, basename: []const u8) ![]cons
     const s = path.sep_str;
 
     var result = std.ArrayList(u8).init(arena);
-    try result.appendSlice(mod.zig_lib_directory.path.?);
+    try result.appendSlice(comp.zig_lib_directory.path.?);
     try result.appendSlice(s ++ "libc" ++ s ++ "glibc" ++ s ++ "sysdeps" ++ s);
     if (is_sparc) {
         if (is_64) {
@@ -392,76 +392,76 @@ fn start_asm_path(mod: *Module, arena: *Allocator, basename: []const u8) ![]cons
     return result.items;
 }
 
-fn add_include_dirs(mod: *Module, arena: *Allocator, args: *std.ArrayList([]const u8)) error{OutOfMemory}!void {
-    const target = mod.getTarget();
+fn add_include_dirs(comp: *Compilation, arena: *Allocator, args: *std.ArrayList([]const u8)) error{OutOfMemory}!void {
+    const target = comp.getTarget();
     const arch = target.cpu.arch;
     const opt_nptl: ?[]const u8 = if (target.os.tag == .linux) "nptl" else "htl";
-    const glibc = try lib_path(mod, arena, lib_libc ++ "glibc");
+    const glibc = try lib_path(comp, arena, lib_libc ++ "glibc");
 
     const s = path.sep_str;
 
     try args.append("-I");
-    try args.append(try lib_path(mod, arena, lib_libc_glibc ++ "include"));
+    try args.append(try lib_path(comp, arena, lib_libc_glibc ++ "include"));
 
     if (target.os.tag == .linux) {
-        try add_include_dirs_arch(arena, args, arch, null, try lib_path(mod, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "unix" ++ s ++ "sysv" ++ s ++ "linux"));
+        try add_include_dirs_arch(arena, args, arch, null, try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "unix" ++ s ++ "sysv" ++ s ++ "linux"));
     }
 
     if (opt_nptl) |nptl| {
-        try add_include_dirs_arch(arena, args, arch, nptl, try lib_path(mod, arena, lib_libc_glibc ++ "sysdeps"));
+        try add_include_dirs_arch(arena, args, arch, nptl, try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps"));
     }
 
     if (target.os.tag == .linux) {
         try args.append("-I");
-        try args.append(try lib_path(mod, arena, lib_libc_glibc ++ "sysdeps" ++ s ++
+        try args.append(try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps" ++ s ++
             "unix" ++ s ++ "sysv" ++ s ++ "linux" ++ s ++ "generic"));
 
         try args.append("-I");
-        try args.append(try lib_path(mod, arena, lib_libc_glibc ++ "sysdeps" ++ s ++
+        try args.append(try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps" ++ s ++
             "unix" ++ s ++ "sysv" ++ s ++ "linux" ++ s ++ "include"));
         try args.append("-I");
-        try args.append(try lib_path(mod, arena, lib_libc_glibc ++ "sysdeps" ++ s ++
+        try args.append(try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps" ++ s ++
             "unix" ++ s ++ "sysv" ++ s ++ "linux"));
     }
     if (opt_nptl) |nptl| {
         try args.append("-I");
-        try args.append(try path.join(arena, &[_][]const u8{ mod.zig_lib_directory.path.?, lib_libc_glibc ++ "sysdeps", nptl }));
+        try args.append(try path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, lib_libc_glibc ++ "sysdeps", nptl }));
     }
 
     try args.append("-I");
-    try args.append(try lib_path(mod, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "pthread"));
+    try args.append(try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "pthread"));
 
     try args.append("-I");
-    try args.append(try lib_path(mod, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "unix" ++ s ++ "sysv"));
+    try args.append(try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "unix" ++ s ++ "sysv"));
 
-    try add_include_dirs_arch(arena, args, arch, null, try lib_path(mod, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "unix"));
-
-    try args.append("-I");
-    try args.append(try lib_path(mod, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "unix"));
-
-    try add_include_dirs_arch(arena, args, arch, null, try lib_path(mod, arena, lib_libc_glibc ++ "sysdeps"));
+    try add_include_dirs_arch(arena, args, arch, null, try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "unix"));
 
     try args.append("-I");
-    try args.append(try lib_path(mod, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "generic"));
+    try args.append(try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "unix"));
+
+    try add_include_dirs_arch(arena, args, arch, null, try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps"));
 
     try args.append("-I");
-    try args.append(try path.join(arena, &[_][]const u8{ mod.zig_lib_directory.path.?, lib_libc ++ "glibc" }));
+    try args.append(try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "generic"));
+
+    try args.append("-I");
+    try args.append(try path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, lib_libc ++ "glibc" }));
 
     try args.append("-I");
     try args.append(try std.fmt.allocPrint(arena, "{}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{}-{}-{}", .{
-        mod.zig_lib_directory.path.?, @tagName(arch), @tagName(target.os.tag), @tagName(target.abi),
+        comp.zig_lib_directory.path.?, @tagName(arch), @tagName(target.os.tag), @tagName(target.abi),
     }));
 
     try args.append("-I");
-    try args.append(try lib_path(mod, arena, lib_libc ++ "include" ++ s ++ "generic-glibc"));
+    try args.append(try lib_path(comp, arena, lib_libc ++ "include" ++ s ++ "generic-glibc"));
 
     try args.append("-I");
     try args.append(try std.fmt.allocPrint(arena, "{}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{}-linux-any", .{
-        mod.zig_lib_directory.path.?, @tagName(arch),
+        comp.zig_lib_directory.path.?, @tagName(arch),
     }));
 
     try args.append("-I");
-    try args.append(try lib_path(mod, arena, lib_libc ++ "include" ++ s ++ "any-linux-any"));
+    try args.append(try lib_path(comp, arena, lib_libc ++ "include" ++ s ++ "any-linux-any"));
 }
 
 fn add_include_dirs_arch(
@@ -576,60 +576,60 @@ fn add_include_dirs_arch(
     }
 }
 
-fn path_from_lib(mod: *Module, arena: *Allocator, sub_path: []const u8) ![]const u8 {
-    return path.join(arena, &[_][]const u8{ mod.zig_lib_directory.path.?, sub_path });
+fn path_from_lib(comp: *Compilation, arena: *Allocator, sub_path: []const u8) ![]const u8 {
+    return path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, sub_path });
 }
 
 const lib_libc = "libc" ++ path.sep_str;
 const lib_libc_glibc = lib_libc ++ "glibc" ++ path.sep_str;
 
-fn lib_path(mod: *Module, arena: *Allocator, sub_path: []const u8) ![]const u8 {
-    return path.join(arena, &[_][]const u8{ mod.zig_lib_directory.path.?, sub_path });
+fn lib_path(comp: *Compilation, arena: *Allocator, sub_path: []const u8) ![]const u8 {
+    return path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, sub_path });
 }
 
-fn build_libc_object(mod: *Module, basename: []const u8, c_source_file: Module.CSourceFile) !void {
+fn build_libc_object(comp: *Compilation, basename: []const u8, c_source_file: Compilation.CSourceFile) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     // TODO: This is extracted into a local variable to work around a stage1 miscompilation.
-    const emit_bin = Module.EmitLoc{
+    const emit_bin = Compilation.EmitLoc{
         .directory = null, // Put it in the cache directory.
         .basename = basename,
     };
-    const sub_module = try Module.create(mod.gpa, .{
+    const sub_compilation = try Compilation.create(comp.gpa, .{
         // TODO use the global cache directory here
-        .zig_cache_directory = mod.zig_cache_directory,
-        .zig_lib_directory = mod.zig_lib_directory,
-        .target = mod.getTarget(),
+        .zig_cache_directory = comp.zig_cache_directory,
+        .zig_lib_directory = comp.zig_lib_directory,
+        .target = comp.getTarget(),
         .root_name = mem.split(basename, ".").next().?,
         .root_pkg = null,
         .output_mode = .Obj,
-        .rand = mod.rand,
-        .libc_installation = mod.bin_file.options.libc_installation,
+        .rand = comp.rand,
+        .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
-        .optimize_mode = mod.bin_file.options.optimize_mode,
+        .optimize_mode = comp.bin_file.options.optimize_mode,
         .want_sanitize_c = false,
         .want_stack_check = false,
         .want_valgrind = false,
-        .want_pic = mod.bin_file.options.pic,
+        .want_pic = comp.bin_file.options.pic,
         .emit_h = null,
-        .strip = mod.bin_file.options.strip,
-        .is_native_os = mod.bin_file.options.is_native_os,
-        .self_exe_path = mod.self_exe_path,
-        .c_source_files = &[1]Module.CSourceFile{c_source_file},
-        .debug_cc = mod.debug_cc,
-        .debug_link = mod.bin_file.options.debug_link,
+        .strip = comp.bin_file.options.strip,
+        .is_native_os = comp.bin_file.options.is_native_os,
+        .self_exe_path = comp.self_exe_path,
+        .c_source_files = &[1]Compilation.CSourceFile{c_source_file},
+        .debug_cc = comp.debug_cc,
+        .debug_link = comp.bin_file.options.debug_link,
     });
-    defer sub_module.destroy();
+    defer sub_compilation.destroy();
 
-    try sub_module.update();
+    try sub_compilation.update();
 
-    try mod.crt_files.ensureCapacity(mod.gpa, mod.crt_files.count() + 1);
-    const artifact_path = if (sub_module.bin_file.options.directory.path) |p|
-        try std.fs.path.join(mod.gpa, &[_][]const u8{ p, basename })
+    try comp.crt_files.ensureCapacity(comp.gpa, comp.crt_files.count() + 1);
+    const artifact_path = if (sub_compilation.bin_file.options.directory.path) |p|
+        try std.fs.path.join(comp.gpa, &[_][]const u8{ p, basename })
     else
-        try mod.gpa.dupe(u8, basename);
+        try comp.gpa.dupe(u8, basename);
 
     // TODO obtain a lock on the artifact and put that in crt_files as well.
-    mod.crt_files.putAssumeCapacityNoClobber(basename, artifact_path);
+    comp.crt_files.putAssumeCapacityNoClobber(basename, artifact_path);
 }

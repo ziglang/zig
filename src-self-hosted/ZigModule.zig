@@ -1,9 +1,7 @@
-//! TODO This is going to get renamed from ZigModule to Module (but first we have to rename
-//! Module to Compilation).
+//! TODO This is going to get renamed from ZigModule to Module
 const Module = @This();
-const Compilation = @import("Module.zig");
-
 const std = @import("std");
+const Compilation = @import("Compilation.zig");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;

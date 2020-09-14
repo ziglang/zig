@@ -1,5 +1,3 @@
-//! TODO This is going to get renamed from Module to Compilation.
-const Module = @This();
 const Compilation = @This();
 
 const std = @import("std");
@@ -31,7 +29,7 @@ link_error_flags: link.File.ErrorFlags = .{},
 
 work_queue: std.fifo.LinearFifo(WorkItem, .Dynamic),
 
-/// The ErrorMsg memory is owned by the `CObject`, using Module's general purpose allocator.
+/// The ErrorMsg memory is owned by the `CObject`, using Compilation's general purpose allocator.
 failed_c_objects: std.AutoArrayHashMapUnmanaged(*CObject, *ErrorMsg) = .{},
 
 keep_source_files_loaded: bool,
@@ -39,7 +37,7 @@ use_clang: bool,
 sanitize_c: bool,
 /// When this is `true` it means invoking clang as a sub-process is expected to inherit
 /// stdin, stdout, stderr, and if it returns non success, to forward the exit code.
-/// Otherwise we attempt to parse the error messages and expose them via the Module API.
+/// Otherwise we attempt to parse the error messages and expose them via the Compilation API.
 /// This is `true` for `zig cc`, `zig c++`, and `zig translate-c`.
 clang_passthrough_mode: bool,
 /// Whether to print clang argvs to stdout.
@@ -96,7 +94,7 @@ const WorkItem = union(enum) {
     /// Decl may need its line number information updated in the debug info.
     update_line_number: *ZigModule.Decl,
     /// Invoke the Clang compiler to create an object file, which gets linked
-    /// with the Module.
+    /// with the Compilation.
     c_object: *CObject,
 
     /// one of the glibc static objects
@@ -192,8 +190,8 @@ pub const Directory = struct {
 
 pub const EmitLoc = struct {
     /// If this is `null` it means the file will be output to the cache directory.
-    /// When provided, both the open file handle and the path name must outlive the `Module`.
-    directory: ?Module.Directory,
+    /// When provided, both the open file handle and the path name must outlive the `Compilation`.
+    directory: ?Compilation.Directory,
     /// This may not have sub-directories in it.
     basename: []const u8,
 };
@@ -257,17 +255,17 @@ pub const InitOptions = struct {
     libc_installation: ?*const LibCInstallation = null,
 };
 
-pub fn create(gpa: *Allocator, options: InitOptions) !*Module {
-    const comp: *Module = comp: {
-        // For allocations that have the same lifetime as Module. This arena is used only during this
+pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
+    const comp: *Compilation = comp: {
+        // For allocations that have the same lifetime as Compilation. This arena is used only during this
         // initialization and then is freed in deinit().
         var arena_allocator = std.heap.ArenaAllocator.init(gpa);
         errdefer arena_allocator.deinit();
         const arena = &arena_allocator.allocator;
 
-        // We put the `Module` itself in the arena. Freeing the arena will free the module.
+        // We put the `Compilation` itself in the arena. Freeing the arena will free the module.
         // It's initialized later after we prepare the initialization options.
-        const comp = try arena.create(Module);
+        const comp = try arena.create(Compilation);
         const root_name = try arena.dupe(u8, options.root_name);
 
         const ofmt = options.object_format orelse options.target.getObjectFormat();
@@ -606,7 +604,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Module {
     return comp;
 }
 
-pub fn destroy(self: *Module) void {
+pub fn destroy(self: *Compilation) void {
     const optional_zig_module = self.bin_file.options.zig_module;
     self.bin_file.destroy();
     if (optional_zig_module) |zig_module| zig_module.deinit();
@@ -640,12 +638,12 @@ pub fn destroy(self: *Module) void {
     self.arena_state.promote(gpa).deinit();
 }
 
-pub fn getTarget(self: Module) Target {
+pub fn getTarget(self: Compilation) Target {
     return self.bin_file.options.target;
 }
 
 /// Detect changes to source files, perform semantic analysis, and update the output files.
-pub fn update(self: *Module) !void {
+pub fn update(self: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -713,15 +711,15 @@ pub fn update(self: *Module) !void {
 /// binary is concerned. This will remove the write flag, or close the file,
 /// or whatever is needed so that it can be executed.
 /// After this, one must call` makeFileWritable` before calling `update`.
-pub fn makeBinFileExecutable(self: *Module) !void {
+pub fn makeBinFileExecutable(self: *Compilation) !void {
     return self.bin_file.makeExecutable();
 }
 
-pub fn makeBinFileWritable(self: *Module) !void {
+pub fn makeBinFileWritable(self: *Compilation) !void {
     return self.bin_file.makeWritable();
 }
 
-pub fn totalErrorCount(self: *Module) usize {
+pub fn totalErrorCount(self: *Compilation) usize {
     var total: usize = self.failed_c_objects.items().len;
 
     if (self.bin_file.options.zig_module) |zig_module| {
@@ -738,7 +736,7 @@ pub fn totalErrorCount(self: *Module) usize {
     return total;
 }
 
-pub fn getAllErrorsAlloc(self: *Module) !AllErrors {
+pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
     var arena = std.heap.ArenaAllocator.init(self.gpa);
     errdefer arena.deinit();
 
@@ -795,7 +793,7 @@ pub fn getAllErrorsAlloc(self: *Module) !AllErrors {
     };
 }
 
-pub fn performAllTheWork(self: *Module) error{OutOfMemory}!void {
+pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
     while (self.work_queue.readItem()) |work_item| switch (work_item) {
         .codegen_decl => |decl| switch (decl.analysis) {
             .unreferenced => unreachable,
@@ -1071,25 +1069,25 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
     };
 }
 
-fn tmpFilePath(mod: *Module, arena: *Allocator, suffix: []const u8) error{OutOfMemory}![]const u8 {
+fn tmpFilePath(comp: *Compilation, arena: *Allocator, suffix: []const u8) error{OutOfMemory}![]const u8 {
     const s = std.fs.path.sep_str;
     return std.fmt.allocPrint(
         arena,
         "{}" ++ s ++ "tmp" ++ s ++ "{x}-{}",
-        .{ mod.zig_cache_directory.path.?, mod.rand.int(u64), suffix },
+        .{ comp.zig_cache_directory.path.?, comp.rand.int(u64), suffix },
     );
 }
 
 /// Add common C compiler args between translate-c and C object compilation.
 fn addCCArgs(
-    mod: *Module,
+    comp: *Compilation,
     arena: *Allocator,
     argv: *std.ArrayList([]const u8),
     ext: FileExt,
     translate_c: bool,
     out_dep_path: ?[]const u8,
 ) !void {
-    const target = mod.getTarget();
+    const target = comp.getTarget();
 
     if (translate_c) {
         try argv.appendSlice(&[_][]const u8{ "-x", "c" });
@@ -1106,27 +1104,27 @@ fn addCCArgs(
     // We don't ever put `-fcolor-diagnostics` or `-fno-color-diagnostics` because in passthrough mode
     // we want Clang to infer it, and in normal mode we always want it off, which will be true since
     // clang will detect stderr as a pipe rather than a terminal.
-    if (!mod.clang_passthrough_mode) {
+    if (!comp.clang_passthrough_mode) {
         // Make stderr more easily parseable.
         try argv.append("-fno-caret-diagnostics");
     }
 
-    if (mod.bin_file.options.function_sections) {
+    if (comp.bin_file.options.function_sections) {
         try argv.append("-ffunction-sections");
     }
 
-    try argv.ensureCapacity(argv.items.len + mod.bin_file.options.framework_dirs.len * 2);
-    for (mod.bin_file.options.framework_dirs) |framework_dir| {
+    try argv.ensureCapacity(argv.items.len + comp.bin_file.options.framework_dirs.len * 2);
+    for (comp.bin_file.options.framework_dirs) |framework_dir| {
         argv.appendAssumeCapacity("-iframework");
         argv.appendAssumeCapacity(framework_dir);
     }
 
-    if (mod.bin_file.options.link_libcpp) {
+    if (comp.bin_file.options.link_libcpp) {
         const libcxx_include_path = try std.fs.path.join(arena, &[_][]const u8{
-            mod.zig_lib_directory.path.?, "libcxx", "include",
+            comp.zig_lib_directory.path.?, "libcxx", "include",
         });
         const libcxxabi_include_path = try std.fs.path.join(arena, &[_][]const u8{
-            mod.zig_lib_directory.path.?, "libcxxabi", "include",
+            comp.zig_lib_directory.path.?, "libcxxabi", "include",
         });
 
         try argv.append("-isystem");
@@ -1150,11 +1148,11 @@ fn addCCArgs(
             // According to Rich Felker libc headers are supposed to go before C language headers.
             // However as noted by @dimenus, appending libc headers before c_headers breaks intrinsics
             // and other compiler specific items.
-            const c_headers_dir = try std.fs.path.join(arena, &[_][]const u8{ mod.zig_lib_directory.path.?, "include" });
+            const c_headers_dir = try std.fs.path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, "include" });
             try argv.append("-isystem");
             try argv.append(c_headers_dir);
 
-            for (mod.libc_include_dir_list) |include_dir| {
+            for (comp.libc_include_dir_list) |include_dir| {
                 try argv.append("-isystem");
                 try argv.append(include_dir);
             }
@@ -1206,28 +1204,28 @@ fn addCCArgs(
         try argv.append("-Wno-pragma-pack");
     }
 
-    if (!mod.bin_file.options.strip) {
+    if (!comp.bin_file.options.strip) {
         try argv.append("-g");
     }
 
-    if (mod.haveFramePointer()) {
+    if (comp.haveFramePointer()) {
         try argv.append("-fno-omit-frame-pointer");
     } else {
         try argv.append("-fomit-frame-pointer");
     }
 
-    if (mod.sanitize_c) {
+    if (comp.sanitize_c) {
         try argv.append("-fsanitize=undefined");
         try argv.append("-fsanitize-trap=undefined");
     }
 
-    switch (mod.bin_file.options.optimize_mode) {
+    switch (comp.bin_file.options.optimize_mode) {
         .Debug => {
             // windows c runtime requires -D_DEBUG if using debug libraries
             try argv.append("-D_DEBUG");
             try argv.append("-Og");
 
-            if (mod.bin_file.options.link_libc) {
+            if (comp.bin_file.options.link_libc) {
                 try argv.append("-fstack-protector-strong");
                 try argv.append("--param");
                 try argv.append("ssp-buffer-size=4");
@@ -1239,7 +1237,7 @@ fn addCCArgs(
             // See the comment in the BuildModeFastRelease case for why we pass -O2 rather
             // than -O3 here.
             try argv.append("-O2");
-            if (mod.bin_file.options.link_libc) {
+            if (comp.bin_file.options.link_libc) {
                 try argv.append("-D_FORTIFY_SOURCE=2");
                 try argv.append("-fstack-protector-strong");
                 try argv.append("--param");
@@ -1265,25 +1263,25 @@ fn addCCArgs(
         },
     }
 
-    if (target_util.supports_fpic(target) and mod.bin_file.options.pic) {
+    if (target_util.supports_fpic(target) and comp.bin_file.options.pic) {
         try argv.append("-fPIC");
     }
 
-    try argv.appendSlice(mod.clang_argv);
+    try argv.appendSlice(comp.clang_argv);
 }
 
-fn failCObj(mod: *Module, c_object: *CObject, comptime format: []const u8, args: anytype) InnerError {
+fn failCObj(comp: *Compilation, c_object: *CObject, comptime format: []const u8, args: anytype) InnerError {
     @setCold(true);
-    const err_msg = try ErrorMsg.create(mod.gpa, 0, "unable to build C object: " ++ format, args);
-    return mod.failCObjWithOwnedErrorMsg(c_object, err_msg);
+    const err_msg = try ErrorMsg.create(comp.gpa, 0, "unable to build C object: " ++ format, args);
+    return comp.failCObjWithOwnedErrorMsg(c_object, err_msg);
 }
 
-fn failCObjWithOwnedErrorMsg(mod: *Module, c_object: *CObject, err_msg: *ErrorMsg) InnerError {
+fn failCObjWithOwnedErrorMsg(comp: *Compilation, c_object: *CObject, err_msg: *ErrorMsg) InnerError {
     {
-        errdefer err_msg.destroy(mod.gpa);
-        try mod.failed_c_objects.ensureCapacity(mod.gpa, mod.failed_c_objects.items().len + 1);
+        errdefer err_msg.destroy(comp.gpa);
+        try comp.failed_c_objects.ensureCapacity(comp.gpa, comp.failed_c_objects.items().len + 1);
     }
-    mod.failed_c_objects.putAssumeCapacityNoClobber(c_object, err_msg);
+    comp.failed_c_objects.putAssumeCapacityNoClobber(c_object, err_msg);
     c_object.status = .failure;
     return error.AnalysisFail;
 }
@@ -1389,9 +1387,9 @@ test "classifyFileExt" {
     std.testing.expectEqual(FileExt.unknown, classifyFileExt("foo.so.1.2.3~"));
 }
 
-fn haveFramePointer(mod: *Module) bool {
-    return switch (mod.bin_file.options.optimize_mode) {
-        .Debug, .ReleaseSafe => !mod.bin_file.options.strip,
+fn haveFramePointer(comp: *Compilation) bool {
+    return switch (comp.bin_file.options.optimize_mode) {
+        .Debug, .ReleaseSafe => !comp.bin_file.options.strip,
         .ReleaseSmall, .ReleaseFast => false,
     };
 }
@@ -1496,17 +1494,17 @@ fn detectLibCFromLibCInstallation(arena: *Allocator, target: Target, lci: *const
     };
 }
 
-pub fn get_libc_crt_file(mod: *Module, arena: *Allocator, basename: []const u8) ![]const u8 {
-    if (mod.wantBuildGLibCFromSource()) {
-        return mod.crt_files.get(basename).?;
+pub fn get_libc_crt_file(comp: *Compilation, arena: *Allocator, basename: []const u8) ![]const u8 {
+    if (comp.wantBuildGLibCFromSource()) {
+        return comp.crt_files.get(basename).?;
     }
-    const lci = mod.bin_file.options.libc_installation orelse return error.LibCInstallationNotAvailable;
+    const lci = comp.bin_file.options.libc_installation orelse return error.LibCInstallationNotAvailable;
     const crt_dir_path = lci.crt_dir orelse return error.LibCInstallationMissingCRTDir;
     const full_path = try std.fs.path.join(arena, &[_][]const u8{ crt_dir_path, basename });
     return full_path;
 }
 
-fn addBuildingGLibCWorkItems(mod: *Module) !void {
+fn addBuildingGLibCWorkItems(comp: *Compilation) !void {
     const static_file_work_items = [_]WorkItem{
         .{ .glibc_crt_file = .crti_o },
         .{ .glibc_crt_file = .crtn_o },
@@ -1515,15 +1513,15 @@ fn addBuildingGLibCWorkItems(mod: *Module) !void {
         .{ .glibc_crt_file = .scrt1_o },
         .{ .glibc_crt_file = .libc_nonshared_a },
     };
-    try mod.work_queue.ensureUnusedCapacity(static_file_work_items.len + glibc.libs.len);
-    mod.work_queue.writeAssumeCapacity(&static_file_work_items);
+    try comp.work_queue.ensureUnusedCapacity(static_file_work_items.len + glibc.libs.len);
+    comp.work_queue.writeAssumeCapacity(&static_file_work_items);
     for (glibc.libs) |*glibc_so| {
-        mod.work_queue.writeItemAssumeCapacity(.{ .glibc_so = glibc_so });
+        comp.work_queue.writeItemAssumeCapacity(.{ .glibc_so = glibc_so });
     }
 }
 
-fn wantBuildGLibCFromSource(mod: *Module) bool {
-    return mod.bin_file.options.link_libc and
-        mod.bin_file.options.libc_installation == null and
-        mod.bin_file.options.target.isGnuLibC();
+fn wantBuildGLibCFromSource(comp: *Compilation) bool {
+    return comp.bin_file.options.link_libc and
+        comp.bin_file.options.libc_installation == null and
+        comp.bin_file.options.target.isGnuLibC();
 }

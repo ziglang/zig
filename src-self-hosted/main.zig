@@ -7,7 +7,7 @@ const process = std.process;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const ast = std.zig.ast;
-const Module = @import("Module.zig");
+const Compilation = @import("Compilation.zig");
 const link = @import("link.zig");
 const Package = @import("Package.zig");
 const zir = @import("zir.zig");
@@ -331,7 +331,7 @@ pub fn buildOutputType(
     var rpath_list = std.ArrayList([]const u8).init(gpa);
     defer rpath_list.deinit();
 
-    var c_source_files = std.ArrayList(Module.CSourceFile).init(gpa);
+    var c_source_files = std.ArrayList(Compilation.CSourceFile).init(gpa);
     defer c_source_files.deinit();
 
     var link_objects = std.ArrayList([]const u8).init(gpa);
@@ -566,7 +566,7 @@ pub fn buildOutputType(
                 mem.endsWith(u8, arg, ".lib"))
             {
                 try link_objects.append(arg);
-            } else if (Module.hasAsmExt(arg) or Module.hasCExt(arg) or Module.hasCppExt(arg)) {
+            } else if (Compilation.hasAsmExt(arg) or Compilation.hasCExt(arg) or Compilation.hasCppExt(arg)) {
                 // TODO a way to pass extra flags on the CLI
                 try c_source_files.append(.{ .src_path = arg });
             } else if (mem.endsWith(u8, arg, ".so") or
@@ -611,7 +611,7 @@ pub fn buildOutputType(
                     try clang_argv.appendSlice(it.other_args);
                 },
                 .positional => {
-                    const file_ext = Module.classifyFileExt(mem.spanZ(it.only_arg));
+                    const file_ext = Compilation.classifyFileExt(mem.spanZ(it.only_arg));
                     switch (file_ext) {
                         .assembly, .c, .cpp, .ll, .bc, .h => try c_source_files.append(.{ .src_path = it.only_arg }),
                         .unknown, .so => try link_objects.append(it.only_arg),
@@ -998,9 +998,9 @@ pub fn buildOutputType(
     var cleanup_emit_bin_dir: ?fs.Dir = null;
     defer if (cleanup_emit_bin_dir) |*dir| dir.close();
 
-    const emit_bin_loc: ?Module.EmitLoc = switch (emit_bin) {
+    const emit_bin_loc: ?Compilation.EmitLoc = switch (emit_bin) {
         .no => null,
-        .yes_default_path => Module.EmitLoc{
+        .yes_default_path => Compilation.EmitLoc{
             .directory = .{ .path = null, .handle = fs.cwd() },
             .basename = try std.zig.binNameAlloc(
                 arena,
@@ -1016,7 +1016,7 @@ pub fn buildOutputType(
             if (fs.path.dirname(full_path)) |dirname| {
                 const handle = try fs.cwd().openDir(dirname, .{});
                 cleanup_emit_bin_dir = handle;
-                break :b Module.EmitLoc{
+                break :b Compilation.EmitLoc{
                     .basename = basename,
                     .directory = .{
                         .path = dirname,
@@ -1024,7 +1024,7 @@ pub fn buildOutputType(
                     },
                 };
             } else {
-                break :b Module.EmitLoc{
+                break :b Compilation.EmitLoc{
                     .basename = basename,
                     .directory = .{ .path = null, .handle = fs.cwd() },
                 };
@@ -1035,9 +1035,9 @@ pub fn buildOutputType(
     var cleanup_emit_h_dir: ?fs.Dir = null;
     defer if (cleanup_emit_h_dir) |*dir| dir.close();
 
-    const emit_h_loc: ?Module.EmitLoc = switch (emit_h) {
+    const emit_h_loc: ?Compilation.EmitLoc = switch (emit_h) {
         .no => null,
-        .yes_default_path => Module.EmitLoc{
+        .yes_default_path => Compilation.EmitLoc{
             .directory = .{ .path = null, .handle = fs.cwd() },
             .basename = try std.fmt.allocPrint(arena, "{}.h", .{root_name}),
         },
@@ -1046,7 +1046,7 @@ pub fn buildOutputType(
             if (fs.path.dirname(full_path)) |dirname| {
                 const handle = try fs.cwd().openDir(dirname, .{});
                 cleanup_emit_h_dir = handle;
-                break :b Module.EmitLoc{
+                break :b Compilation.EmitLoc{
                     .basename = basename,
                     .directory = .{
                         .path = dirname,
@@ -1054,7 +1054,7 @@ pub fn buildOutputType(
                     },
                 };
             } else {
-                break :b Module.EmitLoc{
+                break :b Compilation.EmitLoc{
                     .basename = basename,
                     .directory = .{ .path = null, .handle = fs.cwd() },
                 };
@@ -1103,7 +1103,7 @@ pub fn buildOutputType(
     const cache_parent_dir = if (root_pkg) |pkg| pkg.root_src_directory.handle else fs.cwd();
     var cache_dir = try cache_parent_dir.makeOpenPath("zig-cache", .{});
     defer cache_dir.close();
-    const zig_cache_directory: Module.Directory = .{
+    const zig_cache_directory: Compilation.Directory = .{
         .handle = cache_dir,
         .path = blk: {
             if (root_pkg) |pkg| {
@@ -1115,7 +1115,7 @@ pub fn buildOutputType(
         },
     };
 
-    const module = Module.create(gpa, .{
+    const comp = Compilation.create(gpa, .{
         .zig_lib_directory = zig_lib_directory,
         .zig_cache_directory = zig_cache_directory,
         .root_name = root_name,
@@ -1170,15 +1170,15 @@ pub fn buildOutputType(
         .debug_cc = debug_cc,
         .debug_link = debug_link,
     }) catch |err| {
-        fatal("unable to create module: {}", .{@errorName(err)});
+        fatal("unable to create compilation: {}", .{@errorName(err)});
     };
-    defer module.destroy();
+    defer comp.destroy();
 
     const stdin = std.io.getStdIn().inStream();
     const stderr = std.io.getStdErr().outStream();
     var repl_buf: [1024]u8 = undefined;
 
-    try updateModule(gpa, module, zir_out_path);
+    try updateModule(gpa, comp, zir_out_path);
 
     if (build_options.have_llvm and only_pp_or_asm) {
         // this may include dumping the output to stdout
@@ -1188,7 +1188,7 @@ pub fn buildOutputType(
     while (watch) {
         try stderr.print("🦎 ", .{});
         if (output_mode == .Exe) {
-            try module.makeBinFileExecutable();
+            try comp.makeBinFileExecutable();
         }
         if (stdin.readUntilDelimiterOrEof(&repl_buf, '\n') catch |err| {
             try stderr.print("\nUnable to parse command: {}\n", .{@errorName(err)});
@@ -1198,9 +1198,9 @@ pub fn buildOutputType(
 
             if (mem.eql(u8, actual_line, "update")) {
                 if (output_mode == .Exe) {
-                    try module.makeBinFileWritable();
+                    try comp.makeBinFileWritable();
                 }
-                try updateModule(gpa, module, zir_out_path);
+                try updateModule(gpa, comp, zir_out_path);
             } else if (mem.eql(u8, actual_line, "exit")) {
                 break;
             } else if (mem.eql(u8, actual_line, "help")) {
@@ -1214,11 +1214,11 @@ pub fn buildOutputType(
     }
 }
 
-fn updateModule(gpa: *Allocator, module: *Module, zir_out_path: ?[]const u8) !void {
-    try module.update();
+fn updateModule(gpa: *Allocator, comp: *Compilation, zir_out_path: ?[]const u8) !void {
+    try comp.update();
 
-    var errors = try module.getAllErrorsAlloc();
-    defer errors.deinit(module.gpa);
+    var errors = try comp.getAllErrorsAlloc();
+    defer errors.deinit(comp.gpa);
 
     if (errors.list.len != 0) {
         for (errors.list) |full_err_msg| {
@@ -1232,7 +1232,7 @@ fn updateModule(gpa: *Allocator, module: *Module, zir_out_path: ?[]const u8) !vo
     }
 
     if (zir_out_path) |zop| {
-        const zig_module = module.bin_file.options.zig_module orelse
+        const zig_module = comp.bin_file.options.zig_module orelse
             fatal("-femit-zir with no zig source code", .{});
         var new_zir_module = try zir.emit(gpa, zig_module);
         defer new_zir_module.deinit(gpa);

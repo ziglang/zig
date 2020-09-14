@@ -2,12 +2,12 @@ const std = @import("std");
 const mem = std.mem;
 const fs = std.fs;
 const CacheHash = std.cache_hash.CacheHash;
-const Module = @import("Module.zig");
+const Compilation = @import("Compilation.zig");
 
 /// Returns the sub_path that worked, or `null` if none did.
 /// The path of the returned Directory is relative to `base`.
 /// The handle of the returned Directory is open.
-fn testZigInstallPrefix(base_dir: fs.Dir) ?Module.Directory {
+fn testZigInstallPrefix(base_dir: fs.Dir) ?Compilation.Directory {
     const test_index_file = "std" ++ fs.path.sep_str ++ "std.zig";
 
     zig_dir: {
@@ -19,7 +19,7 @@ fn testZigInstallPrefix(base_dir: fs.Dir) ?Module.Directory {
             break :zig_dir;
         };
         file.close();
-        return Module.Directory{ .handle = test_zig_dir, .path = lib_zig };
+        return Compilation.Directory{ .handle = test_zig_dir, .path = lib_zig };
     }
 
     // Try lib/std/std.zig
@@ -29,11 +29,11 @@ fn testZigInstallPrefix(base_dir: fs.Dir) ?Module.Directory {
         return null;
     };
     file.close();
-    return Module.Directory{ .handle = test_zig_dir, .path = "lib" };
+    return Compilation.Directory{ .handle = test_zig_dir, .path = "lib" };
 }
 
 /// Both the directory handle and the path are newly allocated resources which the caller now owns.
-pub fn findZigLibDir(gpa: *mem.Allocator) !Module.Directory {
+pub fn findZigLibDir(gpa: *mem.Allocator) !Compilation.Directory {
     const self_exe_path = try fs.selfExePathAlloc(gpa);
     defer gpa.free(self_exe_path);
 
@@ -44,7 +44,7 @@ pub fn findZigLibDir(gpa: *mem.Allocator) !Module.Directory {
 pub fn findZigLibDirFromSelfExe(
     allocator: *mem.Allocator,
     self_exe_path: []const u8,
-) error{ OutOfMemory, FileNotFound }!Module.Directory {
+) error{ OutOfMemory, FileNotFound }!Compilation.Directory {
     const cwd = fs.cwd();
     var cur_path: []const u8 = self_exe_path;
     while (fs.path.dirname(cur_path)) |dirname| : (cur_path = dirname) {
@@ -52,7 +52,7 @@ pub fn findZigLibDirFromSelfExe(
         defer base_dir.close();
 
         const sub_directory = testZigInstallPrefix(base_dir) orelse continue;
-        return Module.Directory{
+        return Compilation.Directory{
             .handle = sub_directory.handle,
             .path = try fs.path.join(allocator, &[_][]const u8{ dirname, sub_directory.path.? }),
         };

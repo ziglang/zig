@@ -7,7 +7,7 @@ const fs = std.fs;
 const leb = std.debug.leb;
 
 const Module = @import("../ZigModule.zig");
-const Compilation = @import("../Module.zig");
+const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen/wasm.zig");
 const link = @import("../link.zig");
 

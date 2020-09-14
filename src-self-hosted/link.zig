@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const Compilation = @import("Module.zig");
+const Compilation = @import("Compilation.zig");
 const ZigModule = @import("ZigModule.zig");
 const fs = std.fs;
 const trace = @import("tracy.zig").trace;
@@ -23,7 +23,6 @@ pub const Options = struct {
     optimize_mode: std.builtin.Mode,
     root_name: []const u8,
     /// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
-    /// TODO rename Module to Compilation and then (as a separate commit) ZigModule to Module.
     zig_module: ?*ZigModule,
     dynamic_linker: ?[]const u8 = null,
     /// Used for calculating how much space to reserve for symbols in case the binary file
