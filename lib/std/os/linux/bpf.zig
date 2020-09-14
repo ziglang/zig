@@ -12,6 +12,7 @@ const expectError = std.testing.expectError;
 const expect = std.testing.expect;
 
 pub const btf = @import("bpf/btf.zig");
+pub const kern = @import("bpf/kern.zig");
 
 // instruction classes
 pub const LD = 0x00;
