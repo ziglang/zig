@@ -270,7 +270,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-g",
                 "-Wa,--noexecstack",
             });
-            return build_crt_file(comp, "crti.o", &[1]Compilation.CSourceFile{
+            return build_crt_file(comp, "crti.o", .Obj, &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crti.S"),
                     .extra_flags = args.items,
@@ -288,7 +288,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-g",
                 "-Wa,--noexecstack",
             });
-            return build_crt_file(comp, "crtn.o", &[1]Compilation.CSourceFile{
+            return build_crt_file(comp, "crtn.o", .Obj, &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crtn.S"),
                     .extra_flags = args.items,
@@ -339,10 +339,97 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .extra_flags = args.items,
                 };
             };
-            return build_crt_file(comp, "Scrt1.o", &[_]Compilation.CSourceFile{ start_os, abi_note_o });
+            return build_crt_file(comp, "Scrt1.o", .Obj, &[_]Compilation.CSourceFile{ start_os, abi_note_o });
         },
         .libc_nonshared_a => {
-            return error.Unimplemented; // TODO
+            const deps = [_][]const u8{
+                lib_libc_glibc ++ "stdlib" ++ path.sep_str ++ "atexit.c",
+                lib_libc_glibc ++ "stdlib" ++ path.sep_str ++ "at_quick_exit.c",
+                lib_libc_glibc ++ "io" ++ path.sep_str ++ "stat.c",
+                lib_libc_glibc ++ "io" ++ path.sep_str ++ "fstat.c",
+                lib_libc_glibc ++ "io" ++ path.sep_str ++ "lstat.c",
+                lib_libc_glibc ++ "io" ++ path.sep_str ++ "stat64.c",
+                lib_libc_glibc ++ "io" ++ path.sep_str ++ "fstat64.c",
+                lib_libc_glibc ++ "io" ++ path.sep_str ++ "lstat64.c",
+                lib_libc_glibc ++ "io" ++ path.sep_str ++ "fstatat.c",
+                lib_libc_glibc ++ "io" ++ path.sep_str ++ "fstatat64.c",
+                lib_libc_glibc ++ "io" ++ path.sep_str ++ "mknod.c",
+                lib_libc_glibc ++ "io" ++ path.sep_str ++ "mknodat.c",
+                lib_libc_glibc ++ "nptl" ++ path.sep_str ++ "pthread_atfork.c",
+                lib_libc_glibc ++ "debug" ++ path.sep_str ++ "stack_chk_fail_local.c",
+            };
+
+            var c_source_files: [deps.len + 1]Compilation.CSourceFile = undefined;
+
+            c_source_files[0] = blk: {
+                var args = std.ArrayList([]const u8).init(arena);
+                try args.appendSlice(&[_][]const u8{
+                    "-std=gnu11",
+                    "-fgnu89-inline",
+                    "-g",
+                    "-O2",
+                    "-fmerge-all-constants",
+                    "-fno-stack-protector",
+                    "-fmath-errno",
+                    "-fno-stack-protector",
+                    "-I",
+                    try lib_path(comp, arena, lib_libc_glibc ++ "csu"),
+                });
+                try add_include_dirs(comp, arena, &args);
+                try args.appendSlice(&[_][]const u8{
+                    "-DSTACK_PROTECTOR_LEVEL=0",
+                    "-fPIC",
+                    "-fno-stack-protector",
+                    "-ftls-model=initial-exec",
+                    "-D_LIBC_REENTRANT",
+                    "-include",
+                    try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-modules.h"),
+                    "-DMODULE_NAME=libc",
+                    "-Wno-nonportable-include-path",
+                    "-include",
+                    try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
+                    "-DPIC",
+                    "-DLIBC_NONSHARED=1",
+                    "-DTOP_NAMESPACE=glibc",
+                });
+                break :blk .{
+                    .src_path = try lib_path(comp, arena, lib_libc_glibc ++ "csu" ++ path.sep_str ++ "elf-init.c"),
+                    .extra_flags = args.items,
+                };
+            };
+
+            for (deps) |dep, i| {
+                var args = std.ArrayList([]const u8).init(arena);
+                try args.appendSlice(&[_][]const u8{
+                    "-std=gnu11",
+                    "-fgnu89-inline",
+                    "-g",
+                    "-O2",
+                    "-fmerge-all-constants",
+                    "-fno-stack-protector",
+                    "-fmath-errno",
+                    "-ftls-model=initial-exec",
+                    "-Wno-ignored-attributes",
+                });
+                try add_include_dirs(comp, arena, &args);
+                try args.appendSlice(&[_][]const u8{
+                    "-D_LIBC_REENTRANT",
+                    "-include",
+                    try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-modules.h"),
+                    "-DMODULE_NAME=libc",
+                    "-Wno-nonportable-include-path",
+                    "-include",
+                    try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
+                    "-DPIC",
+                    "-DLIBC_NONSHARED=1",
+                    "-DTOP_NAMESPACE=glibc",
+                });
+                c_source_files[i + 1] = .{
+                    .src_path = try lib_path(comp, arena, dep),
+                    .extra_flags = args.items,
+                };
+            }
+            return build_crt_file(comp, "libc_nonshared.a", .Lib, &c_source_files);
         },
     }
 }
@@ -588,6 +675,7 @@ fn lib_path(comp: *Compilation, arena: *Allocator, sub_path: []const u8) ![]cons
 fn build_crt_file(
     comp: *Compilation,
     basename: []const u8,
+    output_mode: std.builtin.OutputMode,
     c_source_files: []const Compilation.CSourceFile,
 ) !void {
     const tracy = trace(@src());
@@ -605,7 +693,7 @@ fn build_crt_file(
         .target = comp.getTarget(),
         .root_name = mem.split(basename, ".").next().?,
         .root_pkg = null,
-        .output_mode = .Obj,
+        .output_mode = output_mode,
         .rand = comp.rand,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
