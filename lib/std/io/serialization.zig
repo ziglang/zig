@@ -156,7 +156,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                         const tag = try self.deserializeInt(TagInt);
 
                         inline for (info.fields) |field_info| {
-                            if (field_info.enum_field.?.value == tag) {
+                            if (@enumToInt(@field(TagType, field_info.name)) == tag) {
                                 const name = field_info.name;
                                 const FieldType = field_info.field_type;
                                 ptr.* = @unionInit(C, name, undefined);
@@ -320,7 +320,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
                         // value, but @field requires a comptime value. Our alternative
                         // is to check each field for a match
                         inline for (info.fields) |field_info| {
-                            if (field_info.enum_field.?.value == @enumToInt(active_tag)) {
+                            if (@field(TagType, field_info.name) == active_tag) {
                                 const name = field_info.name;
                                 const FieldType = field_info.field_type;
                                 try self.serialize(@field(value, name));

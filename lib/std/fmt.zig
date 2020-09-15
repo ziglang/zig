@@ -399,7 +399,7 @@ pub fn formatType(
                 try writer.writeAll(@tagName(@as(UnionTagType, value)));
                 try writer.writeAll(" = ");
                 inline for (info.fields) |u_field| {
-                    if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
+                    if (value == @field(UnionTagType, u_field.name)) {
                         try formatType(@field(value, u_field.name), fmt, options, writer, max_depth - 1);
                     }
                 }
