@@ -6324,10 +6324,18 @@ fn parseCPrefixOpExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.
                 break :blk inner;
             } else try parseCPrefixOpExpr(c, m, scope);
 
-            const builtin_call = try c.createBuiltinCall("@sizeOf", 1);
-            builtin_call.params()[0] = inner;
-            builtin_call.rparen_token = try appendToken(c, .RParen, ")");
-            return &builtin_call.base;
+            //(@import("std").meta.sizeof(dest, x))
+            const import_fn_call = try c.createBuiltinCall("@import", 1);
+            const std_node = try transCreateNodeStringLiteral(c, "\"std\"");
+            import_fn_call.params()[0] = std_node;
+            import_fn_call.rparen_token = try appendToken(c, .RParen, ")");
+            const inner_field_access = try transCreateNodeFieldAccess(c, &import_fn_call.base, "meta");
+            const outer_field_access = try transCreateNodeFieldAccess(c, inner_field_access, "sizeof");
+
+            const sizeof_call = try c.createCall(outer_field_access, 1);
+            sizeof_call.params()[0] = inner;
+            sizeof_call.rtoken = try appendToken(c, .RParen, ")");
+            return &sizeof_call.base;
         },
         .Keyword_alignof => {
             // TODO this won't work if using <stdalign.h>'s
