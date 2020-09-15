@@ -1617,8 +1617,9 @@ pub const info_zen =
     \\ * Incremental improvements.
     \\ * Avoid local maximums.
     \\ * Reduce the amount one must remember.
-    \\ * Minimize energy spent on coding style.
-    \\ * Resource deallocation must succeed.
+    \\ * Focus on code rather than style.
+    \\ * Resource allocation may fail; resource deallocation must succeed.
+    \\ * Memory is a resource.
     \\ * Together we serve the users.
     \\
     \\

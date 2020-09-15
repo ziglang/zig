@@ -11392,8 +11392,9 @@ keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_anyframe / KEYWORD_anytype
         <li>Incremental improvements.</li>
         <li>Avoid local maximums.</li>
         <li>Reduce the amount one must remember.</li>
-        <li>Minimize energy spent on coding style.</li>
-        <li>Resource deallocation must succeed.</li>
+        <li>Focus on code rather than style.</li>
+        <li>Resource allocation may fail; resource deallocation must succeed.</li>
+        <li>Memory is a resource.</li>
         <li>Together we serve the users.</li>
       </ul>
       {#header_close#}
