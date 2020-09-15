@@ -1220,7 +1220,8 @@ fn addCCArgs(
                 if (feature.llvm_name) |llvm_name| {
                     argv.appendSliceAssumeCapacity(&[_][]const u8{ "-Xclang", "-target-feature", "-Xclang" });
                     const plus_or_minus = "-+"[@boolToInt(is_enabled)];
-                    try argv.append(try std.fmt.allocPrint(arena, "{c}{s}", .{ plus_or_minus, llvm_name }));
+                    const arg = try std.fmt.allocPrint(arena, "{c}{s}", .{ plus_or_minus, llvm_name });
+                    argv.appendAssumeCapacity(arg);
                 }
             }
             const mcmodel = comp.bin_file.options.machine_code_model;
