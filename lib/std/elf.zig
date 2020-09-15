@@ -471,7 +471,7 @@ pub const SectionHeaderIterator = struct {
 
         if (self.elf_header.is_64) {
             var shdr: Elf64_Shdr = undefined;
-            const offset = self.elf_header.phoff + @sizeOf(@TypeOf(shdr)) * self.index;
+            const offset = self.elf_header.shoff + @sizeOf(@TypeOf(shdr)) * self.index;
             try preadNoEof(self.file, mem.asBytes(&shdr), offset);
 
             // ELF endianness matches native endianness.
