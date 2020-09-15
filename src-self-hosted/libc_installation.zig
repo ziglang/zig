@@ -9,6 +9,8 @@ const is_darwin = Target.current.isDarwin();
 const is_windows = Target.current.os.tag == .windows;
 const is_gnu = Target.current.isGnu();
 
+const log = std.log.scoped(.libc_installation);
+
 usingnamespace @import("windows_sdk.zig");
 
 /// See the render function implementation for documentation of the fields.
@@ -37,7 +39,6 @@ pub const LibCInstallation = struct {
     pub fn parse(
         allocator: *Allocator,
         libc_file: []const u8,
-        stderr: anytype,
     ) !LibCInstallation {
         var self: LibCInstallation = .{};
 
@@ -62,7 +63,7 @@ pub const LibCInstallation = struct {
             if (line.len == 0 or line[0] == '#') continue;
             var line_it = std.mem.split(line, "=");
             const name = line_it.next() orelse {
-                try stderr.print("missing equal sign after field name\n", .{});
+                log.err("missing equal sign after field name\n", .{});
                 return error.ParseError;
             };
             const value = line_it.rest();
@@ -81,31 +82,31 @@ pub const LibCInstallation = struct {
         }
         inline for (fields) |field, i| {
             if (!found_keys[i].found) {
-                try stderr.print("missing field: {}\n", .{field.name});
+                log.err("missing field: {}\n", .{field.name});
                 return error.ParseError;
             }
         }
         if (self.include_dir == null) {
-            try stderr.print("include_dir may not be empty\n", .{});
+            log.err("include_dir may not be empty\n", .{});
             return error.ParseError;
         }
         if (self.sys_include_dir == null) {
-            try stderr.print("sys_include_dir may not be empty\n", .{});
+            log.err("sys_include_dir may not be empty\n", .{});
             return error.ParseError;
         }
         if (self.crt_dir == null and !is_darwin) {
-            try stderr.print("crt_dir may not be empty for {}\n", .{@tagName(Target.current.os.tag)});
+            log.err("crt_dir may not be empty for {}\n", .{@tagName(Target.current.os.tag)});
             return error.ParseError;
         }
         if (self.msvc_lib_dir == null and is_windows and !is_gnu) {
-            try stderr.print("msvc_lib_dir may not be empty for {}-{}\n", .{
+            log.err("msvc_lib_dir may not be empty for {}-{}\n", .{
                 @tagName(Target.current.os.tag),
                 @tagName(Target.current.abi),
             });
             return error.ParseError;
         }
         if (self.kernel32_lib_dir == null and is_windows and !is_gnu) {
-            try stderr.print("kernel32_lib_dir may not be empty for {}-{}\n", .{
+            log.err("kernel32_lib_dir may not be empty for {}-{}\n", .{
                 @tagName(Target.current.os.tag),
                 @tagName(Target.current.abi),
             });
