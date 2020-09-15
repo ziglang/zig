@@ -1241,10 +1241,20 @@ fn addCCArgs(
         },
         .so, .assembly, .ll, .bc, .unknown => {},
     }
-    // TODO CLI args for cpu features when compiling assembly
-    //for (size_t i = 0; i < g->zig_target->llvm_cpu_features_asm_len; i += 1) {
-    //    try argv.append(g->zig_target->llvm_cpu_features_asm_ptr[i]);
-    //}
+    // Argh, why doesn't the assembler accept the list of CPU features?!
+    // I don't see a way to do this other than hard coding everything.
+    switch (target.cpu.arch) {
+        .riscv32, .riscv64 => {
+            if (std.Target.riscv.featureSetHas(target.cpu.features, .relax)) {
+                try argv.append("-mrelax");
+            } else {
+                try argv.append("-mno-relax");
+            }
+        },
+        else => {
+            // TODO
+        },
+    }
 
     if (target.os.tag == .freestanding) {
         try argv.append("-ffreestanding");

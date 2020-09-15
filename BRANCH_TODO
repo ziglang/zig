@@ -1,4 +1,3 @@
- * integrate target features into building assembly code
  * handle .d files from c objects
  * glibc .so files
  * support rpaths in ELF linker code
@@ -46,3 +45,4 @@
  * improve robustness of response file parsing
  * there are a couple panic("TODO") in clang options parsing
  * std.testing needs improvement to support exposing directory path for its tmp dir (look for "bogus")
+ * integrate target features into building assembly code
