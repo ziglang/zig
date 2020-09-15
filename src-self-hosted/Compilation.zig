@@ -1209,19 +1209,20 @@ fn addCCArgs(
                     "-Xclang", "-target-cpu", "-Xclang", llvm_name,
                 });
             }
-            // TODO CLI args for target features
-            //if (g->zig_target->llvm_cpu_features != nullptr) {
-            //    // https://github.com/ziglang/zig/issues/5017
-            //    SplitIterator it = memSplit(str(g->zig_target->llvm_cpu_features), str(","));
-            //    Optional<Slice<uint8_t>> flag = SplitIterator_next(&it);
-            //    while (flag.is_some) {
-            //        try argv.append("-Xclang");
-            //        try argv.append("-target-feature");
-            //        try argv.append("-Xclang");
-            //        try argv.append(buf_ptr(buf_create_from_slice(flag.value)));
-            //        flag = SplitIterator_next(&it);
-            //    }
-            //}
+
+            // It would be really nice if there was a more compact way to communicate this info to Clang.
+            const all_features_list = target.cpu.arch.allFeaturesList();
+            try argv.ensureCapacity(argv.items.len + all_features_list.len * 4);
+            for (all_features_list) |feature, index_usize| {
+                const index = @intCast(std.Target.Cpu.Feature.Set.Index, index_usize);
+                const is_enabled = target.cpu.features.isEnabled(index);
+
+                if (feature.llvm_name) |llvm_name| {
+                    argv.appendSliceAssumeCapacity(&[_][]const u8{ "-Xclang", "-target-feature", "-Xclang" });
+                    const plus_or_minus = "-+"[@boolToInt(is_enabled)];
+                    try argv.append(try std.fmt.allocPrint(arena, "{c}{s}", .{ plus_or_minus, llvm_name }));
+                }
+            }
             const mcmodel = comp.bin_file.options.machine_code_model;
             if (mcmodel != .default) {
                 try argv.append(try std.fmt.allocPrint(arena, "-mcmodel={}", .{@tagName(mcmodel)}));
