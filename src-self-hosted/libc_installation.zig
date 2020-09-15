@@ -4,6 +4,7 @@ const Target = std.Target;
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
 const Batch = std.event.Batch;
+const build_options = @import("build_options");
 
 const is_darwin = Target.current.isDarwin();
 const is_windows = Target.current.os.tag == .windows;
