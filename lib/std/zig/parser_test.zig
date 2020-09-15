@@ -1374,7 +1374,7 @@ test "zig fmt: multiline string parameter in fn call with trailing comma" {
         \\        \\ZIG_C_HEADER_FILES   {}
         \\        \\ZIG_DIA_GUIDS_LIB    {}
         \\        \\
-        \\        ,
+        \\    ,
         \\        std.cstr.toSliceConst(c.ZIG_CMAKE_BINARY_DIR),
         \\        std.cstr.toSliceConst(c.ZIG_CXX_COMPILER),
         \\        std.cstr.toSliceConst(c.ZIG_DIA_GUIDS_LIB),
@@ -3385,10 +3385,17 @@ test "zig fmt: Indent comma correctly after multiline string literals in arg lis
         \\        \\------------
         \\        \\xxxxxxxxxxxx
         \\        \\xxxxxxxxxxxx
-        \\        ,
+        \\    ,
         \\        g.GtkMessageType.GTK_MESSAGE_WARNING,
         \\        null,
         \\    );
+        \\
+        \\    z.display_message_dialog(*const [323:0]u8,
+        \\        \\Message Text
+        \\        \\------------
+        \\        \\xxxxxxxxxxxx
+        \\        \\xxxxxxxxxxxx
+        \\    , g.GtkMessageType.GTK_MESSAGE_WARNING, null);
         \\}
         \\
     );

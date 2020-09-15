@@ -1071,6 +1071,13 @@ fn renderExpression(
                         if (i + 1 < params.len) {
                             const next_node = params[i + 1];
                             try renderExpression(allocator, ais, tree, param_node, Space.None);
+
+                            // Unindent the comma for multiline string literals
+                            const maybe_multiline_string = param_node.firstToken();
+                            const is_multiline_string = tree.token_ids[maybe_multiline_string] == .MultilineStringLiteralLine;
+                            if (is_multiline_string) ais.popIndent();
+                            defer if (is_multiline_string) ais.pushIndent();
+
                             const comma = tree.nextToken(param_node.lastToken());
                             try renderToken(tree, ais, comma, Space.Newline); // ,
                             try renderExtraNewline(tree, ais, next_node);
