@@ -183,6 +183,9 @@ const usage_build_generic =
     \\Compile Options:
     \\  -target [name]            <arch><sub>-<os>-<abi> see the targets command
     \\  -mcpu [cpu]               Specify target CPU and feature set
+    \\  -mcmodel=[default|tiny|   Limit range of code and data virtual addresses
+    \\            small|kernel|
+    \\            medium|large]
     \\  --name [name]             Override output name
     \\  --mode [mode]             Set the build mode
     \\    Debug                   (default) optimizations off, safety on
@@ -306,6 +309,7 @@ pub fn buildOutputType(
     var use_clang: ?bool = null;
     var link_eh_frame_hdr = false;
     var libc_paths_file: ?[]const u8 = null;
+    var machine_code_model: std.builtin.CodeModel = .default;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -446,10 +450,16 @@ pub fn buildOutputType(
                     if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                     i += 1;
                     target_mcpu = args[i];
+                } else if (mem.eql(u8, arg, "-mcmodel")) {
+                    if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
+                    i += 1;
+                    machine_code_model = parseCodeModel(args[i]);
                 } else if (mem.startsWith(u8, arg, "-ofmt=")) {
                     target_ofmt = arg["-ofmt=".len..];
                 } else if (mem.startsWith(u8, arg, "-mcpu=")) {
                     target_mcpu = arg["-mcpu=".len..];
+                } else if (mem.startsWith(u8, arg, "-mcmodel=")) {
+                    machine_code_model = parseCodeModel(arg["-mcmodel=".len..]);
                 } else if (mem.eql(u8, arg, "--dynamic-linker")) {
                     if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                     i += 1;
@@ -1150,6 +1160,7 @@ pub fn buildOutputType(
         .libc_installation = if (libc_installation) |*lci| lci else null,
         .debug_cc = debug_cc,
         .debug_link = debug_link,
+        .machine_code_model = machine_code_model,
     }) catch |err| {
         fatal("unable to create compilation: {}", .{@errorName(err)});
     };
@@ -1916,4 +1927,9 @@ fn is_libcpp_lib_name(target: std.Target, name: []const u8) bool {
     return eqlIgnoreCase(ignore_case, name, "c++") or
         eqlIgnoreCase(ignore_case, name, "stdc++") or
         eqlIgnoreCase(ignore_case, name, "c++abi");
+}
+
+fn parseCodeModel(arg: []const u8) std.builtin.CodeModel {
+    return std.meta.stringToEnum(std.builtin.CodeModel, arg) orelse
+        fatal("unsupported machine code model: '{}'", .{arg});
 }

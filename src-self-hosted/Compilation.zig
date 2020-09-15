@@ -271,6 +271,7 @@ pub const InitOptions = struct {
     self_exe_path: ?[]const u8 = null,
     version: ?std.builtin.Version = null,
     libc_installation: ?*const LibCInstallation = null,
+    machine_code_model: std.builtin.CodeModel = .default,
 };
 
 pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
@@ -319,6 +320,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             // We would also want to prefer LLVM for architectures that we don't have self-hosted support for too.
             break :blk false;
         };
+        if (!use_llvm and options.machine_code_model != .default) {
+            return error.MachineCodeModelNotSupported;
+        }
 
         const is_exe_or_dyn_lib = switch (options.output_mode) {
             .Obj => false,
@@ -425,6 +429,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(options.strip);
         cache.hash.add(options.link_libc);
         cache.hash.add(options.output_mode);
+        cache.hash.add(options.machine_code_model);
         // TODO audit this and make sure everything is in it
 
         const module: ?*Module = if (options.root_pkg) |root_pkg| blk: {
@@ -593,6 +598,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .stack_check = stack_check,
             .single_threaded = single_threaded,
             .debug_link = options.debug_link,
+            .machine_code_model = options.machine_code_model,
         });
         errdefer bin_file.destroy();
 
@@ -964,10 +970,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
     ch.hash.addListOfBytes(comp.clang_argv);
     ch.hash.add(comp.bin_file.options.link_libcpp);
     ch.hash.addListOfBytes(comp.libc_include_dir_list);
-    // TODO
-    //cache_int(cache_hash, g->code_model);
-    //cache_bool(cache_hash, codegen_have_frame_pointer(g));
-    _ = try ch.addFile(c_object.src_path, null);
+    _ = try ch.addFile(c_object.src.src_path, null);
     {
         // Hash the extra flags, with special care to call addFile for file parameters.
         // TODO this logic can likely be improved by utilizing clang_options_data.zig.
@@ -989,7 +992,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
     defer arena_allocator.deinit();
     const arena = &arena_allocator.allocator;
 
-    const c_source_basename = std.fs.path.basename(c_object.src_path);
+    const c_source_basename = std.fs.path.basename(c_object.src.src_path);
     // Special case when doing build-obj for just one C file. When there are more than one object
     // file and building an object we need to link them together, but with just one it should go
     // directly to the output file.
@@ -1012,14 +1015,14 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
 
         try argv.appendSlice(&[_][]const u8{ self_exe_path, "clang", "-c" });
 
-        const ext = classifyFileExt(c_object.src_path);
+        const ext = classifyFileExt(c_object.src.src_path);
         // TODO capture the .d file and deal with caching stuff
         try comp.addCCArgs(arena, &argv, ext, false, null);
 
         try argv.append("-o");
         try argv.append(out_obj_path);
 
-        try argv.append(c_object.src_path);
+        try argv.append(c_object.src.src_path);
         try argv.appendSlice(c_object.src.extra_flags);
 
         if (comp.debug_cc) {
@@ -1095,7 +1098,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         try std.os.renameat(zig_cache_tmp_dir.fd, tmp_basename, o_dir.fd, o_basename);
 
         ch.writeManifest() catch |err| {
-            std.log.warn("failed to write cache manifest when compiling '{}': {}", .{ c_object.src_path, @errorName(err) });
+            std.log.warn("failed to write cache manifest when compiling '{}': {}", .{ c_object.src.src_path, @errorName(err) });
         };
         break :blk digest;
     };
@@ -1219,6 +1222,10 @@ fn addCCArgs(
             //        flag = SplitIterator_next(&it);
             //    }
             //}
+            const mcmodel = comp.bin_file.options.machine_code_model;
+            if (mcmodel != .default) {
+                try argv.append(try std.fmt.allocPrint(arena, "-mcmodel={}", .{@tagName(mcmodel)}));
+            }
             if (translate_c) {
                 // This gives us access to preprocessing entities, presumably at the cost of performance.
                 try argv.append("-Xclang");
@@ -1432,6 +1439,9 @@ test "classifyFileExt" {
 }
 
 fn haveFramePointer(comp: *Compilation) bool {
+    // If you complicate this logic make sure you update the parent cache hash.
+    // Right now it's not in the cache hash because the value depends on optimize_mode
+    // and strip which are both already part of the hash.
     return switch (comp.bin_file.options.optimize_mode) {
         .Debug, .ReleaseSafe => !comp.bin_file.options.strip,
         .ReleaseSmall, .ReleaseFast => false,
