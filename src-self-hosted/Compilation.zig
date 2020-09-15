@@ -695,7 +695,6 @@ pub fn update(self: *Compilation) !void {
     defer tracy.end();
 
     // For compiling C objects, we rely on the cache hash system to avoid duplicating work.
-    // TODO Look into caching this data in memory to improve performance.
     // Add a WorkItem for each C object.
     try self.work_queue.ensureUnusedCapacity(self.c_object_table.items().len);
     for (self.c_object_table.items()) |entry| {
@@ -1052,8 +1051,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
             switch (term) {
                 .Exited => |code| {
                     if (code != 0) {
-                        // TODO make std.process.exit and std.ChildProcess exit code have the same type
-                        // and forward it here. Currently it is u32 vs u8.
+                        // TODO https://github.com/ziglang/zig/issues/6342
                         std.process.exit(1);
                     }
                 },
@@ -1069,7 +1067,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
             const stdout_reader = child.stdout.?.reader();
             const stderr_reader = child.stderr.?.reader();
 
-            // TODO Need to poll to read these streams to prevent a deadlock (or rely on evented I/O).
+            // TODO https://github.com/ziglang/zig/issues/6343
             const stdout = try stdout_reader.readAllAlloc(arena, std.math.maxInt(u32));
             const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
 
@@ -1100,7 +1098,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
         var o_dir = try comp.zig_cache_directory.handle.makeOpenPath(o_sub_path, .{});
         defer o_dir.close();
-        // TODO Add renameat capabilities to the std lib in a higher layer than the posix layer.
+        // TODO https://github.com/ziglang/zig/issues/6344
         const tmp_basename = std.fs.path.basename(out_obj_path);
         try std.os.renameat(zig_cache_tmp_dir.fd, tmp_basename, o_dir.fd, o_basename);
 

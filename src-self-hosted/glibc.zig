@@ -270,7 +270,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-g",
                 "-Wa,--noexecstack",
             });
-            return build_libc_object(comp, "crti.o", &[1]Compilation.CSourceFile{
+            return build_crt_file(comp, "crti.o", &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crti.S"),
                     .extra_flags = args.items,
@@ -288,7 +288,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-g",
                 "-Wa,--noexecstack",
             });
-            return build_libc_object(comp, "crtn.o", &[1]Compilation.CSourceFile{
+            return build_crt_file(comp, "crtn.o", &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crtn.S"),
                     .extra_flags = args.items,
@@ -339,7 +339,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .extra_flags = args.items,
                 };
             };
-            return build_libc_object(comp, "Scrt1.o", &[_]Compilation.CSourceFile{ start_os, abi_note_o });
+            return build_crt_file(comp, "Scrt1.o", &[_]Compilation.CSourceFile{ start_os, abi_note_o });
         },
         .libc_nonshared_a => {
             return error.Unimplemented; // TODO
@@ -585,7 +585,7 @@ fn lib_path(comp: *Compilation, arena: *Allocator, sub_path: []const u8) ![]cons
     return path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, sub_path });
 }
 
-fn build_libc_object(
+fn build_crt_file(
     comp: *Compilation,
     basename: []const u8,
     c_source_files: []const Compilation.CSourceFile,
@@ -649,7 +649,6 @@ fn build_libc_object(
     else
         try comp.gpa.dupe(u8, basename);
 
-    // TODO obtain a lock on the artifact and put that in crt_files as well.
     comp.crt_files.putAssumeCapacityNoClobber(basename, .{
         .full_object_path = artifact_path,
         .lock = sub_compilation.bin_file.toOwnedLock(),

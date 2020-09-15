@@ -1,0 +1,51 @@
+ * refactor 2 CObject fields to use CSourceFile 
+ * integrate code model and have_frame_pointer to main() and c objects
+ * integrate target features into building C source files
+ * integrate target features into building assembly code
+ * handle .d files from c objects
+ * glibc .so files
+ * support rpaths in ELF linker code
+ * build & link against compiler-rt
+ * build & link againstn freestanding libc
+ * add CLI support for a way to pass extra flags to c source files
+ * implement the workaround for using LLVM to detect native CPU features
+ * self-host main.cpp
+ * capture lld stdout/stderr better
+ * musl
+ * mingw-w64
+ * port the stage1 os.cpp code that raises the open fd limit
+ * use global zig-cache dir for crt files
+ * `zig translate-c`
+ * make sure zig cc works
+   - using it as a preprocessor (-E)
+   - @breakpoint(); // TODO the first arg is empty string right? skip past that.
+   - try building some software
+ * MachO LLD linking
+ * COFF LLD linking
+ * WASM LLD linking
+ * implement proper parsing of LLD stderr/stdout and exposing compile errors
+ * implement proper parsing of clang stderr/stdout and exposing compile errors
+ * implement proper compile errors for failing to build glibc crt files and shared libs
+ * skip LLD caching when bin directory is not in the cache (so we don't put `id.txt` into the cwd)
+ * self-host link.cpp and building libcs (#4313 and #4314). using the `zig cc` command will set a flag indicating a preference for the llvm backend, which will include linking with LLD. At least for now. If zig's self-hosted linker ever gets on par with the likes of ld and lld, we can make it always be used even for zig cc.
+ * improve the stage2 tests to support testing with LLVM extensions enabled
+ * multi-thread building C objects
+ * support cross compiling stage2 with `zig build`
+ * implement emit-h in stage2
+ * implement -fno-emit-bin
+ * audit the base cache hash
+ * implement serialization/deserialization of incremental compilation metadata
+ * incremental compilation - implement detection of which source files changed
+ * improve the cache hash logic for c objects with respect to extra flags and file parameters
+ * LLVM codegen backend: put a sub-arch in the triple in some cases
+ * rework libc_installation.zig abstraction to use std.log instead of taking a stderr stream
+ * implement an LLVM backend for stage2
+ * implement outputting dynamic libraries in self-hosted linker
+ * implement outputting static libraries (archive files) in self-hosted linker
+ * support linking against object files in self-hosted linker
+ * avoid invoking lld when it's just 1 object file (the `zig cc -c` case)
+ * `zig fmt --check` should output to stdout not stderr.
+ * main.zig: If there was an argsAllocZ we could avoid this allocation
+ * improve robustness of response file parsing
+ * there are a couple panic("TODO") in clang options parsing
+ * std.testing needs improvement to support exposing directory path for its tmp dir (look for "bogus")

@@ -1615,7 +1615,7 @@ pub const info_zen =
 
 extern "c" fn ZigClang_main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 
-/// TODO make it so the return value can be !noreturn
+/// TODO https://github.com/ziglang/zig/issues/3257
 fn punt_to_clang(arena: *Allocator, args: []const []const u8) error{OutOfMemory} {
     if (!build_options.have_llvm)
         fatal("`zig cc` and `zig c++` unavailable: compiler not built with LLVM extensions enabled", .{});

@@ -213,7 +213,7 @@ pub const ChildProcess = struct {
         const stdout_in = child.stdout.?.inStream();
         const stderr_in = child.stderr.?.inStream();
 
-        // TODO need to poll to read these streams to prevent a deadlock (or rely on evented I/O).
+        // TODO https://github.com/ziglang/zig/issues/6343
         const stdout = try stdout_in.readAllAlloc(args.allocator, args.max_output_bytes);
         errdefer args.allocator.free(stdout);
         const stderr = try stderr_in.readAllAlloc(args.allocator, args.max_output_bytes);
@@ -485,7 +485,7 @@ pub const ChildProcess = struct {
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
 
         const nul_handle = if (any_ignore)
-            // "\Device\Null" or "\??\NUL"
+        // "\Device\Null" or "\??\NUL"
             windows.OpenFile(&[_]u16{ '\\', 'D', 'e', 'v', 'i', 'c', 'e', '\\', 'N', 'u', 'l', 'l' }, .{
                 .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
                 .share_access = windows.FILE_SHARE_READ,
