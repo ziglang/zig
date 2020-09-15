@@ -36,4 +36,4 @@ jq <$YML_FILE -sR '{
   -H Authorization:"token $OAUTH_TOKEN" \
   -H Content-Type:application/json \
   -X POST \
-  -d @- "https://builds.sr.ht/api/jobs"
+  -d @- "https://builds.hut.lavatech.top/api/jobs"
