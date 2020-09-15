@@ -46,3 +46,6 @@
  * there are a couple panic("TODO") in clang options parsing
  * std.testing needs improvement to support exposing directory path for its tmp dir (look for "bogus")
  * integrate target features into building assembly code
+ * libc_installation.zig: make it look for msvc only if msvc abi is chosen
+ * switch the default C ABI for windows to be mingw-w64
+ * port windows_sdk.cpp to zig

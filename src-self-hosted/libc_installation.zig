@@ -169,6 +169,8 @@ pub const LibCInstallation = struct {
         var self: LibCInstallation = .{};
 
         if (is_windows) {
+            if (!build_options.have_llvm)
+                return error.WindowsSdkNotFound;
             var sdk: *ZigWindowsSDK = undefined;
             switch (zig_find_windows_sdk(&sdk)) {
                 .None => {
