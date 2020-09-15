@@ -1,4 +1,3 @@
- * refactor 2 CObject fields to use CSourceFile 
  * integrate code model and have_frame_pointer to main() and c objects
  * integrate target features into building C source files
  * integrate target features into building assembly code

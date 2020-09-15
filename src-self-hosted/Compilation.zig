@@ -117,10 +117,7 @@ const WorkItem = union(enum) {
 
 pub const CObject = struct {
     /// Relative to cwd. Owned by arena.
-    src_path: []const u8,
-    /// Owned by arena.
-    extra_flags: []const []const u8,
-    arena: std.heap.ArenaAllocator.State,
+    src: CSourceFile,
     status: union(enum) {
         new,
         success: struct {
@@ -154,7 +151,7 @@ pub const CObject = struct {
 
     pub fn destroy(self: *CObject, gpa: *Allocator) void {
         _ = self.clearStatus(gpa);
-        self.arena.promote(gpa).deinit();
+        gpa.destroy(self);
     }
 };
 
@@ -627,17 +624,12 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
     // Add a `CObject` for each `c_source_files`.
     try comp.c_object_table.ensureCapacity(gpa, options.c_source_files.len);
     for (options.c_source_files) |c_source_file| {
-        var local_arena = std.heap.ArenaAllocator.init(gpa);
-        errdefer local_arena.deinit();
-
-        const c_object = try local_arena.allocator.create(CObject);
+        const c_object = try gpa.create(CObject);
+        errdefer gpa.destroy(c_object);
 
         c_object.* = .{
             .status = .{ .new = {} },
-            // TODO look into refactoring to turn these 2 fields simply into a CSourceFile
-            .src_path = try local_arena.allocator.dupe(u8, c_source_file.src_path),
-            .extra_flags = try local_arena.allocator.dupe([]const u8, c_source_file.extra_flags),
-            .arena = local_arena.state,
+            .src = c_source_file,
         };
         comp.c_object_table.putAssumeCapacityNoClobber(c_object, {});
     }
@@ -798,7 +790,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
     for (self.failed_c_objects.items()) |entry| {
         const c_object = entry.key;
         const err_msg = entry.value;
-        try AllErrors.add(&arena, &errors, c_object.src_path, "", err_msg.*);
+        try AllErrors.add(&arena, &errors, c_object.src.src_path, "", err_msg.*);
     }
     if (self.bin_file.options.module) |module| {
         for (module.failed_files.items()) |entry| {
@@ -981,13 +973,13 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         // TODO this logic can likely be improved by utilizing clang_options_data.zig.
         const file_args = [_][]const u8{"-include"};
         var arg_i: usize = 0;
-        while (arg_i < c_object.extra_flags.len) : (arg_i += 1) {
-            const arg = c_object.extra_flags[arg_i];
+        while (arg_i < c_object.src.extra_flags.len) : (arg_i += 1) {
+            const arg = c_object.src.extra_flags[arg_i];
             ch.hash.addBytes(arg);
             for (file_args) |file_arg| {
-                if (mem.eql(u8, file_arg, arg) and arg_i + 1 < c_object.extra_flags.len) {
+                if (mem.eql(u8, file_arg, arg) and arg_i + 1 < c_object.src.extra_flags.len) {
                     arg_i += 1;
-                    _ = try ch.addFile(c_object.extra_flags[arg_i], null);
+                    _ = try ch.addFile(c_object.src.extra_flags[arg_i], null);
                 }
             }
         }
@@ -1028,7 +1020,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         try argv.append(out_obj_path);
 
         try argv.append(c_object.src_path);
-        try argv.appendSlice(c_object.extra_flags);
+        try argv.appendSlice(c_object.src.extra_flags);
 
         if (comp.debug_cc) {
             for (argv.items[0 .. argv.items.len - 1]) |arg| {
