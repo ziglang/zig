@@ -1,15 +1,21 @@
 <!doctype html>
+<!--
+SPDX-License-Identifier: CC-BY-SA-4.0
+Copyright (c) 2015-2020 Zig Contributors
+The source code of this HTML page is licensed under a Creative Commons Attribution-ShareAlike 4.0 International License.
+To view a copy of this license, visit http://creativecommons.org/licenses/by-sa/4.0/ or read LICENSE file.
+-->
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Documentation - Zig</title>
-    <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg==">
+    <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAPNJREFUeNpi/P//PwMlgOXHUjly9E0G4hwgZmQiQZMqEK8H4v9QzUEgQSaoADK+zhH9iAGL+C0gDoAaNg9mGLoLfgA1awK9hS9gzgJxA9RQBmQDrgMxJzRMGKE4HYj/Ial5A8QmQLwCJoBsgBYW2+TR1ChDaWt4LOBxKsi/VUh8XiD+gq4IVyzwQAMJBoKwacZlAB8Qf0bi96IZhtOAe1D6LpqaEiz6rmEzQAeIzwGxCJpieFqApo/vQKyJboAaEBsAsSEupwI1MwKjGBTVHOhegMX5UajYRqiBjMgYmj400cVh0XgTiKdC0zhJgJHS7AwQYABm9EAdCKrEfAAAAABJRU5ErkJggg==">
     <style>
       :root {
         font-size: 1em;
         --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-        --mono: "Source Code Pro", monospace;
+        --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
         --tx-color: #141414;
         --bg-color: #ffffff;
         --link-color: #2A6286;
@@ -108,7 +114,7 @@
       }
       
       .sidebar .logo {
-        padding: 1rem 0.35rem 0.35rem 0.35rem;
+        padding: 2rem 0.35rem 1.5rem 0.35rem;
       }
       
       .sidebar .logo > svg {
@@ -157,11 +163,19 @@
       }
 
       /* docs section */
+      .docs-flex {
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+      }
+
       .docs {
-        padding: 1rem 0.7rem 2.4rem 1.4rem;
+        margin: 0;
+        padding: 2rem 0.7rem 2.4rem 1.4rem;
         font-size: 1rem;
         background-color: var(--bg-color);
         overflow-wrap: break-word;
+        flex-grow: 1;
       }
 
       .docs .search {
@@ -283,7 +297,32 @@
         text-overflow: ellipsis;
         overflow-x: hidden;
       }
-      
+
+      .license {
+        display: flex;
+        margin: 0;
+        padding: 0 0.7rem 1.25rem 1.4rem;
+        font-size: 0.75rem;
+        flex-grow: 0;
+        flex-shrink: 0;
+        color: var(--tx-color);
+      }
+
+      .license span {
+        opacity: 0.4;
+      }
+
+      .license a {
+        color: var(--tx-color);
+        text-decoration: underline;
+        opacity: 0.4;
+      }
+
+      .license a:hover {
+        opacity: 1;
+        text-decoration: underline;
+      }
+
       /* help dialog */
       .help-modal {
         display: flex;
@@ -520,12 +559,25 @@
       <div class="flex-left sidebar">
         <nav>
           <div class="logo">
-            <svg version="1.1" viewBox="0 0 150 80" xmlns="http://www.w3.org/2000/svg">
-              <g fill="#f7a41d">
-                <path d="m0,-0.08899l0,80l19,0l6,-10l12,-10l-17,0l0,-40l15,0l0,-20l-35,0zm40,0l0,20l62,0l0,-20l-62,0zm91,0l-6,10l-12,10l17,0l0,40l-15,0l0,20l35,0l0,-80l-19,0zm-83,60l0,20l62,0l0,-20l-62,0z" shape-rendering="crispEdges"></path>
-                <path d="m37,59.91101l-18,20l0,-15l18,-5z"></path>
-                <path d="m113,19.91101l18,-20l0,15l-18,5z"></path>
-                <path d="m96.98,0.54101l36.28,-10.4l-80.29,89.17l-36.28,10.4l80.29,-89.17z"></path>
+            <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 22 153 95">
+              <g fill="#F7A41D">
+                <g>
+                  <polygon points="46,22 28,44 19,30"></polygon>
+                  <polygon points="46,22 33,33 28,44 22,44 22,95 31,95 20,100 12,117 0,117 0,22" shape-rendering="crispEdges"></polygon>
+                  <polygon points="31,95 12,117 4,106"></polygon>
+                </g>
+                <g>
+                  <polygon points="56,22 62,36 37,44"></polygon>
+                  <polygon points="56,22 111,22 111,44 37,44 56,32" shape-rendering="crispEdges"></polygon>
+                  <polygon points="116,95 97,117 90,104"></polygon>
+                  <polygon points="116,95 100,104 97,117 42,117 42,95" shape-rendering="crispEdges"></polygon>
+                  <polygon points="150,0 52,117 3,140 101,22"></polygon>
+                </g>
+                <g>
+                  <polygon points="141,22 140,40 122,45"></polygon>
+                  <polygon points="153,22 153,117 106,117 120,105 125,95 131,95 131,45 122,45 132,36 141,22" shape-rendering="crispEdges"></polygon>
+                  <polygon points="125,95 130,110 106,117"></polygon>
+                </g>
               </g>
             </svg>
           </div>
@@ -543,7 +595,7 @@
       </div>
       <div class="flex-right">
         <div class="wrap">
-          <section class="docs">
+          <section class="docs-flex"><div class="docs">
             <input type="search" class="search" id="search" autocomplete="off" spellcheck="false" placeholder="`s` to search, `?` to see more options">
             <p id="status">Loading...</p>
             <div id="sectNav" class="hidden"><ul id="listNav"></ul></div>
@@ -626,7 +678,12 @@
               <h2>Examples</h2>
               <ul id="listFnExamples" class="examples"></ul>
             </div>
-          </section>
+          </div>
+          <div class="license">
+            <span>The source code of this HTML page is licensed under a&nbsp;</span>
+            <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank">Creative Commons Attribution-ShareAlike 4.0 International License</a>
+            <span>.</span>
+          </div></section>
         </div>
         <div class="flex-filler"></div>
       </div>
