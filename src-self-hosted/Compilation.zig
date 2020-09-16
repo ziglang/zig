@@ -1016,8 +1016,11 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         try argv.appendSlice(&[_][]const u8{ self_exe_path, "clang", "-c" });
 
         const ext = classifyFileExt(c_object.src.src_path);
-        // TODO capture the .d file and deal with caching stuff
-        try comp.addCCArgs(arena, &argv, ext, false, null);
+        const out_dep_path: ?[]const u8 = if (comp.disable_c_depfile or !ext.clangSupportsDepFile())
+            null
+        else
+            try std.fmt.allocPrint(arena, "{}.d", .{out_obj_path});
+        try comp.addCCArgs(arena, &argv, ext, false, out_dep_path);
 
         try argv.append("-o");
         try argv.append(out_obj_path);
@@ -1086,7 +1089,15 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
             }
         }
 
-        // TODO handle .d files
+        if (out_dep_path) |dep_file_path| {
+            const dep_basename = std.fs.path.basename(dep_file_path);
+            // Add the files depended on to the cache system.
+            try ch.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+            // Just to save disk space, we delete the file because it is never needed again.
+            zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
+                std.log.warn("failed to delete '{}': {}", .{ dep_file_path, @errorName(err) });
+            };
+        }
 
         // Rename into place.
         const digest = ch.final();
@@ -1118,11 +1129,12 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
 
 fn tmpFilePath(comp: *Compilation, arena: *Allocator, suffix: []const u8) error{OutOfMemory}![]const u8 {
     const s = std.fs.path.sep_str;
-    return std.fmt.allocPrint(
-        arena,
-        "{}" ++ s ++ "tmp" ++ s ++ "{x}-{}",
-        .{ comp.zig_cache_directory.path.?, comp.rand.int(u64), suffix },
-    );
+    const rand_int = comp.rand.int(u64);
+    if (comp.zig_cache_directory.path) |p| {
+        return std.fmt.allocPrint(arena, "{}" ++ s ++ "tmp" ++ s ++ "{x}-{s}", .{ p, rand_int, suffix });
+    } else {
+        return std.fmt.allocPrint(arena, "tmp" ++ s ++ "{x}-{s}", .{ rand_int, suffix });
+    }
 }
 
 /// Add common C compiler args between translate-c and C object compilation.
@@ -1233,14 +1245,11 @@ fn addCCArgs(
                 try argv.append("-Xclang");
                 try argv.append("-detailed-preprocessing-record");
             }
-            if (out_dep_path) |p| {
-                try argv.append("-MD");
-                try argv.append("-MV");
-                try argv.append("-MF");
-                try argv.append(p);
-            }
         },
         .so, .assembly, .ll, .bc, .unknown => {},
+    }
+    if (out_dep_path) |p| {
+        try argv.appendSlice(&[_][]const u8{ "-MD", "-MV", "-MF", p });
     }
     // Argh, why doesn't the assembler accept the list of CPU features?!
     // I don't see a way to do this other than hard coding everything.
@@ -1388,6 +1397,13 @@ pub const FileExt = enum {
     assembly,
     so,
     unknown,
+
+    pub fn clangSupportsDepFile(ext: FileExt) bool {
+        return switch (ext) {
+            .c, .cpp, .h => true,
+            .ll, .bc, .assembly, .so, .unknown => false,
+        };
+    }
 };
 
 pub fn hasCExt(filename: []const u8) bool {

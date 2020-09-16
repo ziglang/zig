@@ -444,6 +444,45 @@ pub const CacheHash = struct {
         try self.populateFileHash(new_ch_file);
     }
 
+    pub fn addDepFilePost(self: *CacheHash, dir: fs.Dir, dep_file_basename: []const u8) !void {
+        assert(self.manifest_file != null);
+
+        const dep_file_contents = try dir.readFileAlloc(self.cache.gpa, dep_file_basename, MANIFEST_FILE_SIZE_MAX);
+        defer self.cache.gpa.free(dep_file_contents);
+
+        const DepTokenizer = @import("DepTokenizer.zig");
+        var it = DepTokenizer.init(self.cache.gpa, dep_file_contents);
+        defer it.deinit();
+
+        // Skip first token: target.
+        {
+            const opt_result = it.next() catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.InvalidInput => {
+                    std.log.err("failed parsing {}: {}: {}", .{ dep_file_basename, @errorName(err), it.error_text });
+                    return error.InvalidDepFile;
+                },
+            };
+            _ = opt_result orelse return; // Empty dep file OK.
+        }
+        // Process 0+ preqreqs.
+        // Clang is invoked in single-source mode so we never get more targets.
+        while (true) {
+            const opt_result = it.next() catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.InvalidInput => {
+                    std.log.err("failed parsing {}: {}: {}", .{ dep_file_basename, @errorName(err), it.error_text });
+                    return error.InvalidDepFile;
+                },
+            };
+            const result = opt_result orelse return;
+            switch (result.id) {
+                .target => return,
+                .prereq => try self.addFilePost(result.bytes),
+            }
+        }
+    }
+
     /// Returns a base64 encoded hash of the inputs.
     pub fn final(self: *CacheHash) [BASE64_DIGEST_LEN]u8 {
         assert(self.manifest_file != null);
