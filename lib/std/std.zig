@@ -65,6 +65,7 @@ pub const hash_map = @import("hash_map.zig");
 pub const heap = @import("heap.zig");
 pub const http = @import("http.zig");
 pub const io = @import("io.zig");
+pub const io_uring = @import("io_uring.zig");
 pub const json = @import("json.zig");
 pub const log = @import("log.zig");
 pub const macho = @import("macho.zig");
