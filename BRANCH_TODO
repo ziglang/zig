@@ -1,4 +1,6 @@
  * glibc .so files
+   - without stage1 c++ code integration it should fail with a better error message
+     instead of lld not getting the object file on the linker line for some reason.
    - stage1 C++ code integration
    - ok file
  * use hex for cache hash file paths

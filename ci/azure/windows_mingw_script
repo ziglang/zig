@@ -7,6 +7,11 @@ pacman --noconfirm --needed -S git base-devel mingw-w64-x86_64-toolchain mingw-w
 
 git config core.abbrev 9
 
+# Git is wrong for autocrlf being enabled by default on Windows.
+# git is mangling files on Windows by default.
+# This is the second bug I've tracked down to being caused by autocrlf.
+git config core.autocrlf false
+
 ZIGBUILDDIR="$(pwd)/build"
 PREFIX="$ZIGBUILDDIR/dist"
 CMAKEFLAGS="-DCMAKE_COLOR_MAKEFILE=OFF -DCMAKE_INSTALL_PREFIX=$PREFIX -DZIG_STATIC=ON"
@@ -17,9 +22,5 @@ cd $ZIGBUILDDIR
 cmake .. -G 'MSYS Makefiles' -DCMAKE_BUILD_TYPE=RelWithDebInfo $CMAKEFLAGS -DCMAKE_EXE_LINKER_FLAGS='-fuse-ld=lld -Wl,/debug,/pdb:zig.pdb'
 
 make -j$(nproc) install
-
-# I saw a failure due to `git diff` being > 400 KB instead of empty as expected so this is to debug it.
-git status
-git diff | head -n100
 
 ./zig build test-behavior -Dskip-non-native -Dskip-release
