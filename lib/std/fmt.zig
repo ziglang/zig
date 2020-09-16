@@ -327,7 +327,7 @@ pub fn formatType(
     max_depth: usize,
 ) @TypeOf(writer).Error!void {
     if (comptime std.mem.eql(u8, fmt, "*")) {
-        try writer.writeAll(@typeName(@typeInfo(@TypeOf(value)).Pointer.child));
+        try writer.writeAll(@typeName(std.meta.Child(@TypeOf(value))));
         try writer.writeAll("@");
         try formatInt(@ptrToInt(value), 16, false, FormatOptions{}, writer);
         return;
@@ -1245,6 +1245,10 @@ test "optional" {
     {
         const value: ?i32 = null;
         try testFmt("optional: null\n", "optional: {}\n", .{value});
+    }
+    {
+        const value = @intToPtr(?*i32, 0xf000d000);
+        try testFmt("optional: *i32@f000d000\n", "optional: {*}\n", .{value});
     }
 }
 
