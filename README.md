@@ -92,5 +92,5 @@ However, such problems are best solved with social norms, not with software
 licenses. Any attempt to complicate the software license of Zig would risk
 compromising the value Zig provides to users.
 
-Therefore, Zig is available under the MIT (Expat) License, and comes with a
+Therefore, Zig is available under the MIT (Expat) License (except where otherwise noted), and comes with a
 humble request: use it to make software better serve the needs of end users.
