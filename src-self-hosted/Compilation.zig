@@ -68,7 +68,9 @@ libunwind_static_lib: ?[]const u8 = null,
 /// and resolved before calling linker.flush().
 libc_static_lib: ?[]const u8 = null,
 
-/// For example `Scrt1.o` and `libc.so.6`. These are populated after building libc from source,
+glibc_so_files: ?glibc.BuiltSharedObjects = null,
+
+/// For example `Scrt1.o` and `libc_nonshared.a`. These are populated after building libc from source,
 /// The set of needed CRT (C runtime) files differs depending on the target and compilation settings.
 /// The key is the basename, and the value is the absolute path to the completed build artifact.
 crt_files: std.StringHashMapUnmanaged(CRTFile) = .{},
@@ -111,8 +113,8 @@ const WorkItem = union(enum) {
 
     /// one of the glibc static objects
     glibc_crt_file: glibc.CRTFile,
-    /// one of the glibc shared objects
-    glibc_so: *const glibc.Lib,
+    /// all of the glibc shared objects
+    glibc_shared_objects,
 };
 
 pub const CObject = struct {
@@ -272,6 +274,9 @@ pub const InitOptions = struct {
     version: ?std.builtin.Version = null,
     libc_installation: ?*const LibCInstallation = null,
     machine_code_model: std.builtin.CodeModel = .default,
+    /// TODO Once self-hosted Zig is capable enough, we can remove this special-case
+    /// hack in favor of more general compilation options.
+    stage1_is_dummy_so: bool = false,
 };
 
 pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
@@ -421,6 +426,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         cache.hash.addBytes(options.target.cpu.model.name);
         cache.hash.add(options.target.cpu.features.ints);
         cache.hash.add(options.target.os.tag);
+        cache.hash.add(options.is_native_os);
         cache.hash.add(options.target.abi);
         cache.hash.add(ofmt);
         cache.hash.add(pic);
@@ -446,22 +452,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             hash.addOptionalBytes(root_pkg.root_src_directory.path);
             hash.add(valgrind);
             hash.add(single_threaded);
-            switch (options.target.os.getVersionRange()) {
-                .linux => |linux| {
-                    hash.add(linux.range.min);
-                    hash.add(linux.range.max);
-                    hash.add(linux.glibc);
-                },
-                .windows => |windows| {
-                    hash.add(windows.min);
-                    hash.add(windows.max);
-                },
-                .semver => |semver| {
-                    hash.add(semver.min);
-                    hash.add(semver.max);
-                },
-                .none => {},
-            }
+            hash.add(options.target.os.getVersionRange());
 
             const digest = hash.final();
             const artifact_sub_dir = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
@@ -660,7 +651,6 @@ pub fn destroy(self: *Compilation) void {
     {
         var it = self.crt_files.iterator();
         while (it.next()) |entry| {
-            gpa.free(entry.key);
             entry.value.deinit(gpa);
         }
         self.crt_files.deinit(gpa);
@@ -936,14 +926,15 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
         },
         .glibc_crt_file => |crt_file| {
             glibc.buildCRTFile(self, crt_file) catch |err| {
-                // This is a problem with the Zig installation. It's mostly OK to crash here,
-                // but TODO because it would be even better if we could recover gracefully
-                // from temporary problems such as out-of-disk-space.
+                // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build glibc CRT file: {}", .{@errorName(err)});
             };
         },
-        .glibc_so => |glibc_lib| {
-            fatal("TODO build glibc shared object '{}.so.{}'", .{ glibc_lib.name, glibc_lib.sover });
+        .glibc_shared_objects => {
+            glibc.buildSharedObjects(self) catch |err| {
+                // TODO Expose this as a normal compile error rather than crashing here.
+                fatal("unable to build glibc shared objects: {}", .{@errorName(err)});
+            };
         },
     };
 }
@@ -1587,17 +1578,13 @@ pub fn get_libc_crt_file(comp: *Compilation, arena: *Allocator, basename: []cons
 }
 
 fn addBuildingGLibCWorkItems(comp: *Compilation) !void {
-    const static_file_work_items = [_]WorkItem{
+    try comp.work_queue.write(&[_]WorkItem{
         .{ .glibc_crt_file = .crti_o },
         .{ .glibc_crt_file = .crtn_o },
         .{ .glibc_crt_file = .scrt1_o },
         .{ .glibc_crt_file = .libc_nonshared_a },
-    };
-    try comp.work_queue.ensureUnusedCapacity(static_file_work_items.len + glibc.libs.len);
-    comp.work_queue.writeAssumeCapacity(&static_file_work_items);
-    for (glibc.libs) |*glibc_so| {
-        comp.work_queue.writeItemAssumeCapacity(.{ .glibc_so = glibc_so });
-    }
+        .{ .glibc_shared_objects = {} },
+    });
 }
 
 fn wantBuildGLibCFromSource(comp: *Compilation) bool {

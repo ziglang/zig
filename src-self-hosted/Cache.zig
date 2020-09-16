@@ -26,9 +26,9 @@ pub fn obtain(cache: *const Cache) CacheHash {
 
 pub const base64_encoder = fs.base64_encoder;
 pub const base64_decoder = fs.base64_decoder;
-/// 16 would be 128 bits - Even with 2^54 cache entries, the probably of a collision would be under 10^-6
-/// We round up to 18 to avoid the `==` padding after base64 encoding.
-pub const BIN_DIGEST_LEN = 18;
+/// This is 128 bits - Even with 2^54 cache entries, the probably of a collision would be under 10^-6
+/// Currently we use SipHash and so this value must be 16 not any higher.
+pub const BIN_DIGEST_LEN = 16;
 pub const BASE64_DIGEST_LEN = base64.Base64Encoder.calcSize(BIN_DIGEST_LEN);
 
 const MANIFEST_FILE_SIZE_MAX = 50 * 1024 * 1024;
@@ -87,14 +87,29 @@ pub const HashHelper = struct {
                 hh.add(x.major);
                 hh.add(x.minor);
                 hh.add(x.patch);
-                return;
             },
-            else => {},
-        }
-
-        switch (@typeInfo(@TypeOf(x))) {
-            .Bool, .Int, .Enum, .Array => hh.addBytes(mem.asBytes(&x)),
-            else => @compileError("unable to hash type " ++ @typeName(@TypeOf(x))),
+            std.Target.Os.TaggedVersionRange => {
+                switch (x) {
+                    .linux => |linux| {
+                        hh.add(linux.range.min);
+                        hh.add(linux.range.max);
+                        hh.add(linux.glibc);
+                    },
+                    .windows => |windows| {
+                        hh.add(windows.min);
+                        hh.add(windows.max);
+                    },
+                    .semver => |semver| {
+                        hh.add(semver.min);
+                        hh.add(semver.max);
+                    },
+                    .none => {},
+                }
+            },
+            else => switch (@typeInfo(@TypeOf(x))) {
+                .Bool, .Int, .Enum, .Array => hh.addBytes(mem.asBytes(&x)),
+                else => @compileError("unable to hash type " ++ @typeName(@TypeOf(x))),
+            },
         }
     }
 
@@ -613,44 +628,46 @@ test "cache file and then recall it" {
     var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
     var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
 
-    var cache = Cache{
-        .gpa = testing.allocator,
-        .manifest_dir = try cwd.makeOpenPath(temp_manifest_dir, .{}),
-    };
-    defer cache.manifest_dir.close();
-
     {
-        var ch = cache.obtain();
-        defer ch.deinit();
+        var cache = Cache{
+            .gpa = testing.allocator,
+            .manifest_dir = try cwd.makeOpenPath(temp_manifest_dir, .{}),
+        };
+        defer cache.manifest_dir.close();
 
-        ch.hash.add(true);
-        ch.hash.add(@as(u16, 1234));
-        ch.hash.addBytes("1234");
-        _ = try ch.addFile(temp_file, null);
+        {
+            var ch = cache.obtain();
+            defer ch.deinit();
 
-        // There should be nothing in the cache
-        testing.expectEqual(false, try ch.hit());
+            ch.hash.add(true);
+            ch.hash.add(@as(u16, 1234));
+            ch.hash.addBytes("1234");
+            _ = try ch.addFile(temp_file, null);
 
-        digest1 = ch.final();
-        try ch.writeManifest();
+            // There should be nothing in the cache
+            testing.expectEqual(false, try ch.hit());
+
+            digest1 = ch.final();
+            try ch.writeManifest();
+        }
+        {
+            var ch = cache.obtain();
+            defer ch.deinit();
+
+            ch.hash.add(true);
+            ch.hash.add(@as(u16, 1234));
+            ch.hash.addBytes("1234");
+            _ = try ch.addFile(temp_file, null);
+
+            // Cache hit! We just "built" the same file
+            testing.expect(try ch.hit());
+            digest2 = ch.final();
+
+            try ch.writeManifest();
+        }
+
+        testing.expectEqual(digest1, digest2);
     }
-    {
-        var ch = cache.obtain();
-        defer ch.deinit();
-
-        ch.hash.add(true);
-        ch.hash.add(@as(u16, 1234));
-        ch.hash.addBytes("1234");
-        _ = try ch.addFile(temp_file, null);
-
-        // Cache hit! We just "built" the same file
-        testing.expect(try ch.hit());
-        digest2 = ch.final();
-
-        try ch.writeManifest();
-    }
-
-    testing.expectEqual(digest1, digest2);
 
     try cwd.deleteTree(temp_manifest_dir);
     try cwd.deleteFile(temp_file);
@@ -693,50 +710,52 @@ test "check that changing a file makes cache fail" {
     var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
     var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
 
-    var cache = Cache{
-        .gpa = testing.allocator,
-        .manifest_dir = try cwd.makeOpenPath(temp_manifest_dir, .{}),
-    };
-    defer cache.manifest_dir.close();
-
     {
-        var ch = cache.obtain();
-        defer ch.deinit();
+        var cache = Cache{
+            .gpa = testing.allocator,
+            .manifest_dir = try cwd.makeOpenPath(temp_manifest_dir, .{}),
+        };
+        defer cache.manifest_dir.close();
 
-        ch.hash.addBytes("1234");
-        const temp_file_idx = try ch.addFile(temp_file, 100);
+        {
+            var ch = cache.obtain();
+            defer ch.deinit();
 
-        // There should be nothing in the cache
-        testing.expectEqual(false, try ch.hit());
+            ch.hash.addBytes("1234");
+            const temp_file_idx = try ch.addFile(temp_file, 100);
 
-        testing.expect(mem.eql(u8, original_temp_file_contents, ch.files.items[temp_file_idx].contents.?));
+            // There should be nothing in the cache
+            testing.expectEqual(false, try ch.hit());
 
-        digest1 = ch.final();
+            testing.expect(mem.eql(u8, original_temp_file_contents, ch.files.items[temp_file_idx].contents.?));
 
-        try ch.writeManifest();
+            digest1 = ch.final();
+
+            try ch.writeManifest();
+        }
+
+        try cwd.writeFile(temp_file, updated_temp_file_contents);
+
+        {
+            var ch = cache.obtain();
+            defer ch.deinit();
+
+            ch.hash.addBytes("1234");
+            const temp_file_idx = try ch.addFile(temp_file, 100);
+
+            // A file that we depend on has been updated, so the cache should not contain an entry for it
+            testing.expectEqual(false, try ch.hit());
+
+            // The cache system does not keep the contents of re-hashed input files.
+            testing.expect(ch.files.items[temp_file_idx].contents == null);
+
+            digest2 = ch.final();
+
+            try ch.writeManifest();
+        }
+
+        testing.expect(!mem.eql(u8, digest1[0..], digest2[0..]));
     }
-
-    try cwd.writeFile(temp_file, updated_temp_file_contents);
-
-    {
-        var ch = cache.obtain();
-        defer ch.deinit();
-
-        ch.hash.addBytes("1234");
-        const temp_file_idx = try ch.addFile(temp_file, 100);
-
-        // A file that we depend on has been updated, so the cache should not contain an entry for it
-        testing.expectEqual(false, try ch.hit());
-
-        // The cache system does not keep the contents of re-hashed input files.
-        testing.expect(ch.files.items[temp_file_idx].contents == null);
-
-        digest2 = ch.final();
-
-        try ch.writeManifest();
-    }
-
-    testing.expect(!mem.eql(u8, digest1[0..], digest2[0..]));
 
     try cwd.deleteTree(temp_manifest_dir);
     try cwd.deleteTree(temp_file);
@@ -749,7 +768,7 @@ test "no file inputs" {
     }
     const cwd = fs.cwd();
     const temp_manifest_dir = "no_file_inputs_manifest_dir";
-    defer cwd.deleteTree(temp_manifest_dir) catch unreachable;
+    defer cwd.deleteTree(temp_manifest_dir) catch {};
 
     var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
     var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
@@ -810,67 +829,69 @@ test "CacheHashes with files added after initial hash work" {
     var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
     var digest3: [BASE64_DIGEST_LEN]u8 = undefined;
 
-    var cache = Cache{
-        .gpa = testing.allocator,
-        .manifest_dir = try cwd.makeOpenPath(temp_manifest_dir, .{}),
-    };
-    defer cache.manifest_dir.close();
-
     {
-        var ch = cache.obtain();
-        defer ch.deinit();
+        var cache = Cache{
+            .gpa = testing.allocator,
+            .manifest_dir = try cwd.makeOpenPath(temp_manifest_dir, .{}),
+        };
+        defer cache.manifest_dir.close();
 
-        ch.hash.addBytes("1234");
-        _ = try ch.addFile(temp_file1, null);
+        {
+            var ch = cache.obtain();
+            defer ch.deinit();
 
-        // There should be nothing in the cache
-        testing.expectEqual(false, try ch.hit());
+            ch.hash.addBytes("1234");
+            _ = try ch.addFile(temp_file1, null);
 
-        _ = try ch.addFilePost(temp_file2);
+            // There should be nothing in the cache
+            testing.expectEqual(false, try ch.hit());
 
-        digest1 = ch.final();
-        try ch.writeManifest();
+            _ = try ch.addFilePost(temp_file2);
+
+            digest1 = ch.final();
+            try ch.writeManifest();
+        }
+        {
+            var ch = cache.obtain();
+            defer ch.deinit();
+
+            ch.hash.addBytes("1234");
+            _ = try ch.addFile(temp_file1, null);
+
+            testing.expect(try ch.hit());
+            digest2 = ch.final();
+
+            try ch.writeManifest();
+        }
+        testing.expect(mem.eql(u8, &digest1, &digest2));
+
+        // Modify the file added after initial hash
+        const ts2 = std.time.nanoTimestamp();
+        try cwd.writeFile(temp_file2, "Hello world the second, updated\n");
+
+        while (isProblematicTimestamp(ts2)) {
+            std.time.sleep(1);
+        }
+
+        {
+            var ch = cache.obtain();
+            defer ch.deinit();
+
+            ch.hash.addBytes("1234");
+            _ = try ch.addFile(temp_file1, null);
+
+            // A file that we depend on has been updated, so the cache should not contain an entry for it
+            testing.expectEqual(false, try ch.hit());
+
+            _ = try ch.addFilePost(temp_file2);
+
+            digest3 = ch.final();
+
+            try ch.writeManifest();
+        }
+
+        testing.expect(!mem.eql(u8, &digest1, &digest3));
     }
-    {
-        var ch = cache.obtain();
-        defer ch.deinit();
-
-        ch.hash.addBytes("1234");
-        _ = try ch.addFile(temp_file1, null);
-
-        testing.expect(try ch.hit());
-        digest2 = ch.final();
-
-        try ch.writeManifest();
-    }
-    testing.expect(mem.eql(u8, &digest1, &digest2));
-
-    // Modify the file added after initial hash
-    const ts2 = std.time.nanoTimestamp();
-    try cwd.writeFile(temp_file2, "Hello world the second, updated\n");
-
-    while (isProblematicTimestamp(ts2)) {
-        std.time.sleep(1);
-    }
-
-    {
-        var ch = cache.obtain();
-        defer ch.deinit();
-
-        ch.hash.addBytes("1234");
-        _ = try ch.addFile(temp_file1, null);
-
-        // A file that we depend on has been updated, so the cache should not contain an entry for it
-        testing.expectEqual(false, try ch.hit());
-
-        _ = try ch.addFilePost(temp_file2);
-
-        digest3 = ch.final();
-
-        try ch.writeManifest();
-    }
-
-    testing.expect(!mem.eql(u8, &digest1, &digest3));
 
     try cwd.deleteTree(temp_manifest_dir);
     try cwd.deleteFile(temp_file1);

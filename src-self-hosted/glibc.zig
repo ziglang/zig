@@ -1,11 +1,15 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const target_util = @import("target.zig");
 const mem = std.mem;
-const Compilation = @import("Compilation.zig");
 const path = std.fs.path;
+const assert = std.debug.assert;
+
+const target_util = @import("target.zig");
+const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 const trace = @import("tracy.zig").trace;
+const Cache = @import("Cache.zig");
+const Package = @import("Package.zig");
 
 pub const Lib = struct {
     name: []const u8,
@@ -83,14 +87,14 @@ pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!
     };
     defer gpa.free(vers_txt_contents);
 
-    const fns_txt_contents = glibc_dir.readFileAlloc(gpa, "fns.txt", max_txt_size) catch |err| switch (err) {
+    // Arena allocated because the result contains references to function names.
+    const fns_txt_contents = glibc_dir.readFileAlloc(arena, "fns.txt", max_txt_size) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => {
             std.log.err("unable to read fns.txt: {}", .{@errorName(err)});
             return error.ZigInstallationCorrupt;
         },
     };
-    defer gpa.free(fns_txt_contents);
 
     const abi_txt_contents = glibc_dir.readFileAlloc(gpa, "abi.txt", max_txt_size) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -183,7 +187,7 @@ pub fn loadMetaData(gpa: *Allocator, zig_lib_dir: std.fs.Dir) LoadMetaDataError!
                         .os = .linux,
                         .abi = abi_tag,
                     };
-                    try version_table.put(arena, triple, ver_list_base.ptr);
+                    try version_table.put(gpa, triple, ver_list_base.ptr);
                 }
                 break :blk ver_list_base;
             };
@@ -250,7 +254,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
     }
     const gpa = comp.gpa;
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-    errdefer arena_allocator.deinit();
+    defer arena_allocator.deinit();
     const arena = &arena_allocator.allocator;
 
     switch (crt_file) {
@@ -713,6 +717,252 @@ fn build_crt_file(
     });
     defer sub_compilation.destroy();
 
+    try updateSubCompilation(sub_compilation);
+
+    try comp.crt_files.ensureCapacity(comp.gpa, comp.crt_files.count() + 1);
+    const artifact_path = if (sub_compilation.bin_file.options.directory.path) |p|
+        try path.join(comp.gpa, &[_][]const u8{ p, basename })
+    else
+        try comp.gpa.dupe(u8, basename);
+
+    comp.crt_files.putAssumeCapacityNoClobber(basename, .{
+        .full_object_path = artifact_path,
+        .lock = sub_compilation.bin_file.toOwnedLock(),
+    });
+}
+
+pub const BuiltSharedObjects = struct {
+    lock: Cache.Lock,
+    dir_path: []u8,
+
+    pub fn deinit(self: *BuiltSharedObjects, gpa: *Allocator) void {
+        self.lock.release();
+        gpa.free(self.dir_path);
+        self.* = undefined;
+    }
+};
+
+const all_map_basename = "all.map";
+
+pub fn buildSharedObjects(comp: *Compilation) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
+    defer arena_allocator.deinit();
+    const arena = &arena_allocator.allocator;
+
+    const target = comp.getTarget();
+    const target_version = target.os.version_range.linux.glibc;
+
+    // TODO use the global cache directory here
+    var cache_parent: Cache = .{
+        .gpa = comp.gpa,
+        .manifest_dir = comp.cache_parent.manifest_dir,
+    };
+    var cache = cache_parent.obtain();
+    defer cache.deinit();
+    cache.hash.addBytes(build_options.version);
+    cache.hash.addBytes(comp.zig_lib_directory.path orelse ".");
+    cache.hash.add(target.cpu.arch);
+    cache.hash.addBytes(target.cpu.model.name);
+    cache.hash.add(target.cpu.features.ints);
+    cache.hash.add(target.abi);
+    cache.hash.add(target_version);
+
+    const hit = try cache.hit();
+    const digest = cache.final();
+    const o_sub_path = try path.join(arena, &[_][]const u8{ "o", &digest });
+    if (!hit) {
+        var o_directory: Compilation.Directory = .{
+            .handle = try comp.zig_cache_directory.handle.makeOpenPath(o_sub_path, .{}),
+            .path = try path.join(arena, &[_][]const u8{ comp.zig_cache_directory.path.?, o_sub_path }),
+        };
+        defer o_directory.handle.close();
+
+        const metadata = try loadMetaData(comp.gpa, comp.zig_lib_directory.handle);
+        defer metadata.destroy(comp.gpa);
+
+        const ver_list_base = metadata.version_table.get(.{
+            .arch = target.cpu.arch,
+            .os = target.os.tag,
+            .abi = target.abi,
+        }) orelse return error.GLibCUnavailableForThisTarget;
+        const target_ver_index = for (metadata.all_versions) |ver, i| {
+            switch (ver.order(target_version)) {
+                .eq => break i,
+                .lt => continue,
+                .gt => {
+                    // TODO Expose via compile error mechanism instead of log.
+                    std.log.warn("invalid target glibc version: {}", .{target_version});
+                    return error.InvalidTargetGLibCVersion;
+                },
+            }
+        } else blk: {
+            const latest_index = metadata.all_versions.len - 1;
+            std.log.warn("zig cannot build new glibc version {}; providing instead {}", .{
+                target_version, metadata.all_versions[latest_index],
+            });
+            break :blk latest_index;
+        };
+        {
+            var map_contents = std.ArrayList(u8).init(arena);
+            for (metadata.all_versions) |ver| {
+                if (ver.patch == 0) {
+                    try map_contents.writer().print("GLIBC_{d}.{d} {{ }};\n", .{ ver.major, ver.minor });
+                } else {
+                    try map_contents.writer().print("GLIBC_{d}.{d}.{d} {{ }};\n", .{ ver.major, ver.minor, ver.patch });
+                }
+            }
+            try o_directory.handle.writeFile(all_map_basename, map_contents.items);
+            map_contents.deinit(); // The most recent allocation of an arena can be freed :)
+        }
+        var zig_body = std.ArrayList(u8).init(comp.gpa);
+        defer zig_body.deinit();
+        var zig_footer = std.ArrayList(u8).init(comp.gpa);
+        defer zig_footer.deinit();
+        for (libs) |*lib| {
+            zig_body.shrinkRetainingCapacity(0);
+            zig_footer.shrinkRetainingCapacity(0);
+
+            try zig_body.appendSlice(
+                \\comptime {
+                \\    asm (
+                \\
+            );
+            for (metadata.all_functions) |*libc_fn, fn_i| {
+                if (libc_fn.lib != lib) continue;
+
+                const ver_list = ver_list_base[fn_i];
+                // Pick the default symbol version:
+                // - If there are no versions, don't emit it
+                // - Take the greatest one <= than the target one
+                // - If none of them is <= than the
+                //   specified one don't pick any default version
+                if (ver_list.len == 0) continue;
+                var chosen_def_ver_index: u8 = 255;
+                {
+                    var ver_i: u8 = 0;
+                    while (ver_i < ver_list.len) : (ver_i += 1) {
+                        const ver_index = ver_list.versions[ver_i];
+                        if ((chosen_def_ver_index == 255 or ver_index > chosen_def_ver_index) and
+                            target_ver_index >= ver_index)
+                        {
+                            chosen_def_ver_index = ver_index;
+                        }
+                    }
+                }
+                {
+                    var ver_i: u8 = 0;
+                    while (ver_i < ver_list.len) : (ver_i += 1) {
+                        const ver_index = ver_list.versions[ver_i];
+                        const ver = metadata.all_versions[ver_index];
+                        const sym_name = libc_fn.name;
+                        const stub_name = if (ver.patch == 0)
+                            try std.fmt.allocPrint(arena, "{s}_{d}_{d}", .{ sym_name, ver.major, ver.minor })
+                        else
+                            try std.fmt.allocPrint(arena, "{s}_{d}_{d}_{d}", .{ sym_name, ver.major, ver.minor, ver.patch });
+
+                        try zig_footer.writer().print("export fn {s}() void {{}}\n", .{stub_name});
+
+                        // Default symbol version definition vs normal symbol version definition
+                        const want_two_ats = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
+                        const at_sign_str = "@@"[0 .. @boolToInt(want_two_ats) + @as(usize, 1)];
+                        if (ver.patch == 0) {
+                            try zig_body.writer().print("        \\\\ .symver {s}, {s}{s}GLIBC_{d}.{d}\n", .{
+                                stub_name, sym_name, at_sign_str, ver.major, ver.minor,
+                            });
+                        } else {
+                            try zig_body.writer().print("        \\\\ .symver {s}, {s}{s}GLIBC_{d}.{d}.{d}\n", .{
+                                stub_name, sym_name, at_sign_str, ver.major, ver.minor, ver.patch,
+                            });
+                        }
+                        // Hide the stub to keep the symbol table clean
+                        try zig_body.writer().print("        \\\\ .hidden {s}\n", .{stub_name});
+                    }
+                }
+            }
+
+            try zig_body.appendSlice(
+                \\    );
+                \\}
+                \\
+            );
+            try zig_body.appendSlice(zig_footer.items);
+
+            var lib_name_buf: [32]u8 = undefined; // Larger than each of the names "c", "pthread", etc.
+            const zig_file_basename = std.fmt.bufPrint(&lib_name_buf, "{s}.zig", .{lib.name}) catch unreachable;
+            try o_directory.handle.writeFile(zig_file_basename, zig_body.items);
+
+            try buildSharedLib(comp, arena, comp.zig_cache_directory, o_directory, zig_file_basename, lib);
+        }
+        cache.writeManifest() catch |err| {
+            std.log.warn("glibc shared objects: failed to write cache manifest: {}", .{@errorName(err)});
+        };
+    }
+
+    assert(comp.glibc_so_files == null);
+    comp.glibc_so_files = BuiltSharedObjects{
+        .lock = cache.toOwnedLock(),
+        .dir_path = try path.join(comp.gpa, &[_][]const u8{ comp.zig_cache_directory.path.?, o_sub_path }),
+    };
+}
+
+fn buildSharedLib(
+    comp: *Compilation,
+    arena: *Allocator,
+    zig_cache_directory: Compilation.Directory,
+    bin_directory: Compilation.Directory,
+    zig_file_basename: []const u8,
+    lib: *const Lib,
+) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const emit_bin = Compilation.EmitLoc{
+        .directory = bin_directory,
+        .basename = try std.fmt.allocPrint(arena, "lib{s}.so.{d}", .{ lib.name, lib.sover }),
+    };
+    const version: std.builtin.Version = .{ .major = lib.sover, .minor = 0, .patch = 0 };
+    const ld_basename = path.basename(comp.getTarget().standardDynamicLinkerPath().get().?);
+    const override_soname = if (mem.eql(u8, lib.name, "ld")) ld_basename else null;
+    const map_file_path = try path.join(arena, &[_][]const u8{ bin_directory.path.?, all_map_basename });
+    // TODO we should be able to just give the open directory to Package
+    const root_pkg = try Package.create(comp.gpa, std.fs.cwd(), bin_directory.path.?, zig_file_basename);
+    defer root_pkg.destroy(comp.gpa);
+    const sub_compilation = try Compilation.create(comp.gpa, .{
+        .zig_cache_directory = zig_cache_directory,
+        .zig_lib_directory = comp.zig_lib_directory,
+        .target = comp.getTarget(),
+        .root_name = lib.name,
+        .root_pkg = null,
+        .output_mode = .Lib,
+        .link_mode = .Dynamic,
+        .rand = comp.rand,
+        .libc_installation = comp.bin_file.options.libc_installation,
+        .emit_bin = emit_bin,
+        .optimize_mode = comp.bin_file.options.optimize_mode,
+        .want_sanitize_c = false,
+        .want_stack_check = false,
+        .want_valgrind = false,
+        .emit_h = null,
+        .strip = comp.bin_file.options.strip,
+        .is_native_os = false,
+        .self_exe_path = comp.self_exe_path,
+        .debug_cc = comp.debug_cc,
+        .debug_link = comp.bin_file.options.debug_link,
+        .clang_passthrough_mode = comp.clang_passthrough_mode,
+        .version = version,
+        .stage1_is_dummy_so = true,
+        .version_script = map_file_path,
+        .override_soname = override_soname,
+    });
+    defer sub_compilation.destroy();
+
+    try updateSubCompilation(sub_compilation);
+}
+
+fn updateSubCompilation(sub_compilation: *Compilation) !void {
     try sub_compilation.update();
 
     // Look for compilation errors in this sub_compilation
@@ -730,15 +980,4 @@ fn build_crt_file(
         }
         return error.BuildingLibCObjectFailed;
     }
-
-    try comp.crt_files.ensureCapacity(comp.gpa, comp.crt_files.count() + 1);
-    const artifact_path = if (sub_compilation.bin_file.options.directory.path) |p|
-        try std.fs.path.join(comp.gpa, &[_][]const u8{ p, basename })
-    else
-        try comp.gpa.dupe(u8, basename);
-
-    comp.crt_files.putAssumeCapacityNoClobber(basename, .{
-        .full_object_path = artifact_path,
-        .lock = sub_compilation.bin_file.toOwnedLock(),
-    });
 }

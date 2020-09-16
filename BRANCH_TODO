@@ -1,4 +1,7 @@
  * glibc .so files
+   - stage1 C++ code integration
+   - ok file
+ * use hex for cache hash file paths
  * support rpaths in ELF linker code
  * build & link against compiler-rt
  * build & link againstn freestanding libc
@@ -21,7 +24,6 @@
  * implement proper parsing of LLD stderr/stdout and exposing compile errors
  * implement proper parsing of clang stderr/stdout and exposing compile errors
  * implement proper compile errors for failing to build glibc crt files and shared libs
- * skip LLD caching when bin directory is not in the cache (so we don't put `id.txt` into the cwd)
  * self-host link.cpp and building libcs (#4313 and #4314). using the `zig cc` command will set a flag indicating a preference for the llvm backend, which will include linking with LLD. At least for now. If zig's self-hosted linker ever gets on par with the likes of ld and lld, we can make it always be used even for zig cc.
  * improve the stage2 tests to support testing with LLVM extensions enabled
  * multi-thread building C objects
@@ -47,3 +49,10 @@
  * libc_installation.zig: make it look for msvc only if msvc abi is chosen
  * switch the default C ABI for windows to be mingw-w64
  * port windows_sdk.cpp to zig
+ * change glibc log errors to normal exposed compile errors
+ * update Package to use Compilation.Directory in create()
+   - skip LLD caching when bin directory is not in the cache (so we don't put `id.txt` into the cwd)
+     (maybe make it an explicit option and have main.zig disable it)
+   - make it possible for Package to not openDir and reference already existing resources.
+ * rename src/ to src/stage1/
+ * rename src-self-hosted/ to src/

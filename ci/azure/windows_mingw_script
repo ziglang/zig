@@ -18,4 +18,8 @@ cmake .. -G 'MSYS Makefiles' -DCMAKE_BUILD_TYPE=RelWithDebInfo $CMAKEFLAGS -DCMA
 
 make -j$(nproc) install
 
+# I saw a failure due to `git diff` being > 400 KB instead of empty as expected so this is to debug it.
+git status
+git diff | head -n100
+
 ./zig build test-behavior -Dskip-non-native -Dskip-release
