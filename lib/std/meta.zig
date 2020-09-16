@@ -717,7 +717,7 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
                 },
                 .Optional => |opt| {
                     if (@typeInfo(opt.child) == .Pointer) {
-                        return @ptrCast(DestType, @alignCast(dest_ptr, target));
+                        return @ptrCast(DestType, @alignCast(dest_ptr.alignment, target));
                     }
                 },
                 else => {},
@@ -725,23 +725,24 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
         },
         .Optional => |dest_opt| {
             if (@typeInfo(dest_opt.child) == .Pointer) {
+                const dest_ptr = @typeInfo(dest_opt.child).Pointer;
                 switch (@typeInfo(TargetType)) {
                     .Int, .ComptimeInt => {
                         return @intToPtr(DestType, target);
                     },
                     .Pointer => {
-                        return @ptrCast(DestType, @alignCast(@alignOf(dest_opt.child.Child), target));
+                        return @ptrCast(DestType, @alignCast(dest_ptr.alignment, target));
                     },
                     .Optional => |target_opt| {
                         if (@typeInfo(target_opt.child) == .Pointer) {
-                            return @ptrCast(DestType, @alignCast(@alignOf(dest_opt.child.Child), target));
+                            return @ptrCast(DestType, @alignCast(dest_ptr.alignment, target));
                         }
                     },
                     else => {},
                 }
             }
         },
-        .Enum, .EnumLiteral => {
+        .Enum => {
             if (@typeInfo(TargetType) == .Int or @typeInfo(TargetType) == .ComptimeInt) {
                 return @intToEnum(DestType, target);
             }
@@ -749,15 +750,18 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
         .Int, .ComptimeInt => {
             switch (@typeInfo(TargetType)) {
                 .Pointer => {
-                    return @as(DestType, @ptrToInt(target));
+                    return @intCast(DestType, @ptrToInt(target));
                 },
                 .Optional => |opt| {
                     if (@typeInfo(opt.child) == .Pointer) {
-                        return @as(DestType, @ptrToInt(target));
+                        return @intCast(DestType, @ptrToInt(target));
                     }
                 },
-                .Enum, .EnumLiteral => {
-                    return @as(DestType, @enumToInt(target));
+                .Enum => {
+                    return @intCast(DestType, @enumToInt(target));
+                },
+                .Int, .ComptimeInt => {
+                    return @intCast(DestType, target);
                 },
                 else => {},
             }
@@ -776,10 +780,49 @@ test "std.meta.cast" {
 
     var i = @as(i64, 10);
 
-    testing.expect(cast(?*c_void, 0) == @intToPtr(?*c_void, 0));
     testing.expect(cast(*u8, 16) == @intToPtr(*u8, 16));
-    testing.expect(cast(u64, @as(u32, 10)) == @as(u64, 10));
-    testing.expect(cast(E, 1) == .One);
-    testing.expect(cast(u8, E.Two) == 2);
     testing.expect(cast(*u64, &i).* == @as(u64, 10));
+    testing.expect(cast(*i64, @as(?*align(1) i64, &i)) == &i);
+
+    testing.expect(cast(?*u8, 2) == @intToPtr(*u8, 2));
+    testing.expect(cast(?*i64, @as(*align(1) i64, &i)) == &i);
+    testing.expect(cast(?*i64, @as(?*align(1) i64, &i)) == &i);
+
+    testing.expect(cast(E, 1) == .One);
+
+    testing.expectEqual(@as(u32, 4), cast(u32, @intToPtr(*u32, 4)));
+    testing.expectEqual(@as(u32, 4), cast(u32, @intToPtr(?*u32, 4)));
+    testing.expectEqual(@as(u32, 10), cast(u32, @as(u64, 10)));
+    testing.expectEqual(@as(u8, 2), cast(u8, E.Two));
+}
+
+/// Given a value returns its size as C's sizeof operator would.
+/// This is for translate-c and is not intended for general use.
+pub fn sizeof(target: anytype) usize {
+    switch (@typeInfo(@TypeOf(target))) {
+        .Type => return @sizeOf(target),
+        .Float, .Int, .Struct, .Union, .Enum => return @sizeOf(@TypeOf(target)),
+        .ComptimeFloat => return @sizeOf(f64), // TODO c_double #3999
+        .ComptimeInt => {
+            // TODO to get the correct result we have to translate
+            // `1073741824 * 4` as `int(1073741824) *% int(4)` since
+            // sizeof(1073741824 * 4) != sizeof(4294967296).
+            
+            // TODO test if target fits in int, long or long long
+            return @sizeOf(c_int);
+        },
+        else => @compileError("TODO implement std.meta.sizeof for type " ++ @typeName(@TypeOf(target))),
+    }
+}
+
+test "sizeof" {
+    const E = extern enum(c_int) { One, _ };
+    const S = extern struct { a: u32 };
+
+    testing.expect(sizeof(u32) == 4);
+    testing.expect(sizeof(@as(u32, 2)) == 4);
+    testing.expect(sizeof(2) == @sizeOf(c_int));
+    testing.expect(sizeof(E) == @sizeOf(c_int));
+    testing.expect(sizeof(E.One) == @sizeOf(c_int));
+    testing.expect(sizeof(S) == 4);
 }
