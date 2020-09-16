@@ -95,6 +95,7 @@ pub const IO_Uring = struct {
         assert(p.*.resv[0] == 0);
         assert(p.*.resv[1] == 0);
         assert(p.*.resv[2] == 0);
+        if (!supported) return error.IO_UringKernelNotSupported;
 
         const res = linux.io_uring_setup(entries, p);
         try check_errno(res);
@@ -346,6 +347,7 @@ pub const IO_Uring = struct {
         addrlen: *os.socklen_t,
         accept_flags: u32
     ) !*io_uring_sqe {
+        if (!can_accept) return error.IO_UringKernelCannotAccept;
         // "sqe->fd is the file descriptor, sqe->addr holds a pointer to struct sockaddr,
         // sqe->addr2 holds a pointer to socklen_t, and finally sqe->accept_flags holds the flags
         // for accept(4)." - https://lwn.net/ml/linux-block/20191025173037.13486-1-axboe@kernel.dk/
@@ -403,6 +405,7 @@ pub const IO_Uring = struct {
         buffer: []u8,
         offset: u64
     ) !*io_uring_sqe {
+        if (!can_read) return error.IO_UringKernelCannotRead;
         const sqe = try self.get_sqe();
         sqe.* = .{
             .opcode = .READ,
@@ -424,6 +427,7 @@ pub const IO_Uring = struct {
         buffer: []const u8,
         offset: u64
     ) !*io_uring_sqe {
+        if (!can_write) return error.IO_UringKernelCannotWrite;
         const sqe = try self.get_sqe();
         sqe.* = .{
             .opcode = .WRITE,
@@ -662,8 +666,15 @@ inline fn check_errno(res: usize) !void {
     if (errno != 0) return os.unexpectedErrno(errno);
 }
 
+const minimum = std.Target.current.os.isAtLeast;
+pub const can_single_mmap = comptime minimum(.linux, .{ .major = 5, .minor = 4 }) == true;
+pub const can_accept      = comptime minimum(.linux, .{ .major = 5, .minor = 5 }) == true;
+pub const can_read        = comptime minimum(.linux, .{ .major = 5, .minor = 6 }) == true;
+pub const can_write       = comptime minimum(.linux, .{ .major = 5, .minor = 6 }) == true;
+pub const supported       = can_single_mmap;
+
 test "queue_nop" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!supported) return error.SkipZigTest;
 
     var ring = try IO_Uring.init(1, 0);
     defer {
@@ -726,7 +737,7 @@ test "queue_nop" {
 }
 
 test "queue_readv" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!supported) return error.SkipZigTest;
 
     var ring = try IO_Uring.init(1, 0);
     defer ring.deinit();
@@ -758,7 +769,7 @@ test "queue_readv" {
 }
 
 test "queue_writev/queue_fsync" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!supported) return error.SkipZigTest;
 
     var ring = try IO_Uring.init(2, 0);
     defer ring.deinit();
@@ -799,8 +810,7 @@ test "queue_writev/queue_fsync" {
 }
 
 test "queue_write/queue_read" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
-    // This test may require newer kernel versions.
+    if (!can_read or !can_write) return error.SkipZigTest;
 
     var ring = try IO_Uring.init(2, 0);
     defer ring.deinit();
