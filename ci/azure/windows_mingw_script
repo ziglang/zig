@@ -11,6 +11,8 @@ git config core.abbrev 9
 # git is mangling files on Windows by default.
 # This is the second bug I've tracked down to being caused by autocrlf.
 git config core.autocrlf false
+# Too late; the files are already mangled.
+git checkout .
 
 ZIGBUILDDIR="$(pwd)/build"
 PREFIX="$ZIGBUILDDIR/dist"
