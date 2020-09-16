@@ -12,7 +12,7 @@ const ArrayListSentineled = std.ArrayListSentineled;
 const Target = std.Target;
 const CrossTarget = std.zig.CrossTarget;
 const self_hosted_main = @import("main.zig");
-const DepTokenizer = @import("dep_tokenizer.zig").Tokenizer;
+const DepTokenizer = @import("DepTokenizer.zig");
 const assert = std.debug.assert;
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
@@ -21,7 +21,7 @@ var stderr: fs.File.OutStream = undefined;
 var stdout: fs.File.OutStream = undefined;
 
 comptime {
-    _ = @import("dep_tokenizer.zig");
+    _ = @import("DepTokenizer.zig");
 }
 
 // ABI warning

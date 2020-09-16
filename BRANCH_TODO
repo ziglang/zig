@@ -33,7 +33,6 @@
  * incremental compilation - implement detection of which source files changed
  * improve the cache hash logic for c objects with respect to extra flags and file parameters
  * LLVM codegen backend: put a sub-arch in the triple in some cases
- * rework libc_installation.zig abstraction to use std.log instead of taking a stderr stream
  * implement an LLVM backend for stage2
  * implement outputting dynamic libraries in self-hosted linker
  * implement outputting static libraries (archive files) in self-hosted linker
