@@ -81,8 +81,8 @@ pub fn log(
 
     // We only recognize 4 log levels in this application.
     const level_txt = switch (level) {
-        .emerg, .alert, .crit => "error",
-        .err, .warn => "warning",
+        .emerg, .alert, .crit, .err => "error",
+        .warn => "warning",
         .notice, .info => "info",
         .debug => "debug",
     };
