@@ -6,7 +6,6 @@ const Cache = @This();
 const std = @import("std");
 const crypto = std.crypto;
 const fs = std.fs;
-const base64 = std.base64;
 const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
@@ -20,18 +19,15 @@ pub fn obtain(cache: *const Cache) CacheHash {
         .hash = cache.hash,
         .manifest_file = null,
         .manifest_dirty = false,
-        .b64_digest = undefined,
+        .hex_digest = undefined,
     };
 }
 
-pub const base64_encoder = fs.base64_encoder;
-pub const base64_decoder = fs.base64_decoder;
 /// This is 128 bits - Even with 2^54 cache entries, the probably of a collision would be under 10^-6
-/// Currently we use SipHash and so this value must be 16 not any higher.
-pub const BIN_DIGEST_LEN = 16;
-pub const BASE64_DIGEST_LEN = base64.Base64Encoder.calcSize(BIN_DIGEST_LEN);
+pub const bin_digest_len = 16;
+pub const hex_digest_len = bin_digest_len * 2;
 
-const MANIFEST_FILE_SIZE_MAX = 50 * 1024 * 1024;
+const manifest_file_size_max = 50 * 1024 * 1024;
 
 /// The type used for hashing file contents. Currently, this is SipHash128(1, 3), because it
 /// provides enough collision resistance for the CacheHash use cases, while being one of our
@@ -45,7 +41,7 @@ pub const File = struct {
     path: ?[]const u8,
     max_file_size: ?usize,
     stat: fs.File.Stat,
-    bin_digest: [BIN_DIGEST_LEN]u8,
+    bin_digest: [bin_digest_len]u8,
     contents: ?[]const u8,
 
     pub fn deinit(self: *File, allocator: *Allocator) void {
@@ -118,20 +114,19 @@ pub const HashHelper = struct {
         hh.add(optional orelse return);
     }
 
-    /// Returns a base64 encoded hash of the inputs, without modifying state.
-    pub fn peek(hh: HashHelper) [BASE64_DIGEST_LEN]u8 {
+    /// Returns a hex encoded hash of the inputs, without modifying state.
+    pub fn peek(hh: HashHelper) [hex_digest_len]u8 {
         var copy = hh;
         return copy.final();
     }
 
-    /// Returns a base64 encoded hash of the inputs, mutating the state of the hasher.
-    pub fn final(hh: *HashHelper) [BASE64_DIGEST_LEN]u8 {
-        var bin_digest: [BIN_DIGEST_LEN]u8 = undefined;
+    /// Returns a hex encoded hash of the inputs, mutating the state of the hasher.
+    pub fn final(hh: *HashHelper) [hex_digest_len]u8 {
+        var bin_digest: [bin_digest_len]u8 = undefined;
         hh.hasher.final(&bin_digest);
 
-        var out_digest: [BASE64_DIGEST_LEN]u8 = undefined;
-        base64_encoder.encode(&out_digest, &bin_digest);
-
+        var out_digest: [hex_digest_len]u8 = undefined;
+        _ = std.fmt.bufPrint(&out_digest, "{x}", .{bin_digest}) catch unreachable;
         return out_digest;
     }
 };
@@ -155,7 +150,7 @@ pub const CacheHash = struct {
     manifest_file: ?fs.File,
     manifest_dirty: bool,
     files: std.ArrayListUnmanaged(File) = .{},
-    b64_digest: [BASE64_DIGEST_LEN]u8,
+    hex_digest: [hex_digest_len]u8,
 
     /// Add a file as a dependency of process being cached. When `hit` is
     /// called, the file's contents will be checked to ensure that it matches
@@ -205,7 +200,7 @@ pub const CacheHash = struct {
     }
 
     /// Check the cache to see if the input exists in it. If it exists, returns `true`.
-    /// A base64 encoding of its hash is available by calling `final`.
+    /// A hex encoding of its hash is available by calling `final`.
     ///
     /// This function will also acquire an exclusive lock to the manifest file. This means
     /// that a process holding a CacheHash will block any other process attempting to
@@ -218,18 +213,18 @@ pub const CacheHash = struct {
         assert(self.manifest_file == null);
 
         const ext = ".txt";
-        var manifest_file_path: [self.b64_digest.len + ext.len]u8 = undefined;
+        var manifest_file_path: [self.hex_digest.len + ext.len]u8 = undefined;
 
-        var bin_digest: [BIN_DIGEST_LEN]u8 = undefined;
+        var bin_digest: [bin_digest_len]u8 = undefined;
         self.hash.hasher.final(&bin_digest);
 
-        base64_encoder.encode(self.b64_digest[0..], &bin_digest);
+        _ = std.fmt.bufPrint(&self.hex_digest, "{x}", .{bin_digest}) catch unreachable;
 
         self.hash.hasher = hasher_init;
         self.hash.hasher.update(&bin_digest);
 
-        mem.copy(u8, &manifest_file_path, &self.b64_digest);
-        manifest_file_path[self.b64_digest.len..][0..ext.len].* = ext.*;
+        mem.copy(u8, &manifest_file_path, &self.hex_digest);
+        manifest_file_path[self.hex_digest.len..][0..ext.len].* = ext.*;
 
         if (self.files.items.len != 0) {
             self.manifest_file = try self.cache.manifest_dir.createFile(&manifest_file_path, .{
@@ -258,7 +253,7 @@ pub const CacheHash = struct {
             };
         }
 
-        const file_contents = try self.manifest_file.?.inStream().readAllAlloc(self.cache.gpa, MANIFEST_FILE_SIZE_MAX);
+        const file_contents = try self.manifest_file.?.inStream().readAllAlloc(self.cache.gpa, manifest_file_size_max);
         defer self.cache.gpa.free(file_contents);
 
         const input_file_count = self.files.items.len;
@@ -290,7 +285,7 @@ pub const CacheHash = struct {
             cache_hash_file.stat.size = fmt.parseInt(u64, size, 10) catch return error.InvalidFormat;
             cache_hash_file.stat.inode = fmt.parseInt(fs.File.INode, inode, 10) catch return error.InvalidFormat;
             cache_hash_file.stat.mtime = fmt.parseInt(i64, mtime_nsec_str, 10) catch return error.InvalidFormat;
-            base64_decoder.decode(&cache_hash_file.bin_digest, digest_str) catch return error.InvalidFormat;
+            std.fmt.hexToBytes(&cache_hash_file.bin_digest, digest_str) catch return error.InvalidFormat;
 
             if (file_path.len == 0) {
                 return error.InvalidFormat;
@@ -325,7 +320,7 @@ pub const CacheHash = struct {
                     cache_hash_file.stat.inode = 0;
                 }
 
-                var actual_digest: [BIN_DIGEST_LEN]u8 = undefined;
+                var actual_digest: [bin_digest_len]u8 = undefined;
                 try hashFile(this_file, &actual_digest);
 
                 if (!mem.eql(u8, &cache_hash_file.bin_digest, &actual_digest)) {
@@ -462,7 +457,7 @@ pub const CacheHash = struct {
     pub fn addDepFilePost(self: *CacheHash, dir: fs.Dir, dep_file_basename: []const u8) !void {
         assert(self.manifest_file != null);
 
-        const dep_file_contents = try dir.readFileAlloc(self.cache.gpa, dep_file_basename, MANIFEST_FILE_SIZE_MAX);
+        const dep_file_contents = try dir.readFileAlloc(self.cache.gpa, dep_file_basename, manifest_file_size_max);
         defer self.cache.gpa.free(dep_file_contents);
 
         const DepTokenizer = @import("DepTokenizer.zig");
@@ -498,8 +493,8 @@ pub const CacheHash = struct {
         }
     }
 
-    /// Returns a base64 encoded hash of the inputs.
-    pub fn final(self: *CacheHash) [BASE64_DIGEST_LEN]u8 {
+    /// Returns a hex encoded hash of the inputs.
+    pub fn final(self: *CacheHash) [hex_digest_len]u8 {
         assert(self.manifest_file != null);
 
         // We don't close the manifest file yet, because we want to
@@ -508,11 +503,11 @@ pub const CacheHash = struct {
         // cache_release is called we still might be working on creating
         // the artifacts to cache.
 
-        var bin_digest: [BIN_DIGEST_LEN]u8 = undefined;
+        var bin_digest: [bin_digest_len]u8 = undefined;
         self.hash.hasher.final(&bin_digest);
 
-        var out_digest: [BASE64_DIGEST_LEN]u8 = undefined;
-        base64_encoder.encode(&out_digest, &bin_digest);
+        var out_digest: [hex_digest_len]u8 = undefined;
+        _ = std.fmt.bufPrint(&out_digest, "{x}", .{bin_digest}) catch unreachable;
 
         return out_digest;
     }
@@ -521,18 +516,18 @@ pub const CacheHash = struct {
         assert(self.manifest_file != null);
         if (!self.manifest_dirty) return;
 
-        var encoded_digest: [BASE64_DIGEST_LEN]u8 = undefined;
+        var encoded_digest: [hex_digest_len]u8 = undefined;
         var contents = std.ArrayList(u8).init(self.cache.gpa);
         var writer = contents.writer();
         defer contents.deinit();
 
         for (self.files.items) |file| {
-            base64_encoder.encode(encoded_digest[0..], &file.bin_digest);
-            try writer.print("{} {} {} {} {}\n", .{
+            _ = std.fmt.bufPrint(&encoded_digest, "{x}", .{file.bin_digest}) catch unreachable;
+            try writer.print("{d} {d} {d} {s} {s}\n", .{
                 file.stat.size,
                 file.stat.inode,
                 file.stat.mtime,
-                encoded_digest[0..],
+                &encoded_digest,
                 file.path,
             });
         }
@@ -625,8 +620,8 @@ test "cache file and then recall it" {
         std.time.sleep(1);
     }
 
-    var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
-    var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
+    var digest1: [hex_digest_len]u8 = undefined;
+    var digest2: [hex_digest_len]u8 = undefined;
 
     {
         var cache = Cache{
@@ -707,8 +702,8 @@ test "check that changing a file makes cache fail" {
         std.time.sleep(1);
     }
 
-    var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
-    var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
+    var digest1: [hex_digest_len]u8 = undefined;
+    var digest2: [hex_digest_len]u8 = undefined;
 
     {
         var cache = Cache{
@@ -770,8 +765,8 @@ test "no file inputs" {
     const temp_manifest_dir = "no_file_inputs_manifest_dir";
     defer cwd.deleteTree(temp_manifest_dir) catch {};
 
-    var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
-    var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
+    var digest1: [hex_digest_len]u8 = undefined;
+    var digest2: [hex_digest_len]u8 = undefined;
 
     var cache = Cache{
         .gpa = testing.allocator,
@@ -825,9 +820,9 @@ test "CacheHashes with files added after initial hash work" {
         std.time.sleep(1);
     }
 
-    var digest1: [BASE64_DIGEST_LEN]u8 = undefined;
-    var digest2: [BASE64_DIGEST_LEN]u8 = undefined;
-    var digest3: [BASE64_DIGEST_LEN]u8 = undefined;
+    var digest1: [hex_digest_len]u8 = undefined;
+    var digest2: [hex_digest_len]u8 = undefined;
+    var digest3: [hex_digest_len]u8 = undefined;
 
     {
         var cache = Cache{

@@ -3,7 +3,6 @@
      instead of lld not getting the object file on the linker line for some reason.
    - stage1 C++ code integration
    - ok file
- * use hex for cache hash file paths
  * support rpaths in ELF linker code
  * build & link against compiler-rt
  * build & link againstn freestanding libc
