@@ -1,8 +1,5 @@
- * glibc .so files
-   - without stage1 c++ code integration it should fail with a better error message
-     instead of lld not getting the object file on the linker line for some reason.
-   - stage1 C++ code integration
-   - ok file
+ * libunwind
+ * stage1 C++ code integration
  * support rpaths in ELF linker code
  * build & link against compiler-rt
  * build & link againstn freestanding libc

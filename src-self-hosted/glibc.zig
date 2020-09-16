@@ -744,6 +744,9 @@ pub const BuiltSharedObjects = struct {
 
 const all_map_basename = "all.map";
 
+// TODO Turn back on zig fmt when https://github.com/ziglang/zig/issues/5948 is implemented.
+// zig fmt: off
+
 pub fn buildSharedObjects(comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -765,8 +768,6 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
     cache.hash.addBytes(build_options.version);
     cache.hash.addBytes(comp.zig_lib_directory.path orelse ".");
     cache.hash.add(target.cpu.arch);
-    cache.hash.addBytes(target.cpu.model.name);
-    cache.hash.add(target.cpu.features.ints);
     cache.hash.add(target.abi);
     cache.hash.add(target_version);
 
@@ -832,17 +833,9 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
         }
         var zig_body = std.ArrayList(u8).init(comp.gpa);
         defer zig_body.deinit();
-        var zig_footer = std.ArrayList(u8).init(comp.gpa);
-        defer zig_footer.deinit();
         for (libs) |*lib| {
             zig_body.shrinkRetainingCapacity(0);
-            zig_footer.shrinkRetainingCapacity(0);
 
-            try zig_body.appendSlice(
-                \\comptime {
-                \\    asm (
-                \\
-            );
             for (metadata.all_functions) |*libc_fn, fn_i| {
                 if (libc_fn.lib != lib) continue;
 
@@ -868,46 +861,66 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                 {
                     var ver_i: u8 = 0;
                     while (ver_i < ver_list.len) : (ver_i += 1) {
+                        // Example:
+                        // .globl _Exit_2_2_5
+                        // .type _Exit_2_2_5, @function;
+                        // .symver _Exit_2_2_5, _Exit@@GLIBC_2.2.5
+                        // .hidden _Exit_2_2_5
+                        // _Exit_2_2_5:
                         const ver_index = ver_list.versions[ver_i];
                         const ver = metadata.all_versions[ver_index];
                         const sym_name = libc_fn.name;
-                        const stub_name = if (ver.patch == 0)
-                            try std.fmt.allocPrint(arena, "{s}_{d}_{d}", .{ sym_name, ver.major, ver.minor })
-                        else
-                            try std.fmt.allocPrint(arena, "{s}_{d}_{d}_{d}", .{ sym_name, ver.major, ver.minor, ver.patch });
-
-                        try zig_footer.writer().print("export fn {s}() void {{}}\n", .{stub_name});
-
                         // Default symbol version definition vs normal symbol version definition
                         const want_two_ats = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
                         const at_sign_str = "@@"[0 .. @boolToInt(want_two_ats) + @as(usize, 1)];
+
                         if (ver.patch == 0) {
-                            try zig_body.writer().print("        \\\\.symver {s}, {s}{s}GLIBC_{d}.{d}\n", .{
-                                stub_name, sym_name, at_sign_str, ver.major, ver.minor,
+                            const sym_plus_ver = try std.fmt.allocPrint(
+                                arena, "{s}_{d}_{d}",
+                                .{sym_name, ver.major, ver.minor},
+                            );
+                            try zig_body.writer().print(
+                                \\.globl {s}
+                                \\.type {s}, @function;
+                                \\.symver {s}, {s}{s}GLIBC_{d}.{d}
+                                \\.hidden {s}
+                                \\{s}:
+                                \\
+                            , .{
+                                sym_plus_ver,
+                                sym_plus_ver,
+                                sym_plus_ver, sym_name, at_sign_str, ver.major, ver.minor,
+                                sym_plus_ver,
+                                sym_plus_ver,
                             });
                         } else {
-                            try zig_body.writer().print("        \\\\.symver {s}, {s}{s}GLIBC_{d}.{d}.{d}\n", .{
-                                stub_name, sym_name, at_sign_str, ver.major, ver.minor, ver.patch,
+                            const sym_plus_ver = try std.fmt.allocPrint(arena, "{s}_{d}_{d}_{d}",
+                                .{sym_name, ver.major, ver.minor, ver.patch},
+                            );
+                            try zig_body.writer().print(
+                                \\.globl {s}
+                                \\.type {s}, @function;
+                                \\.symver {s}, {s}{s}GLIBC_{d}.{d}.{d}
+                                \\.hidden {s}
+                                \\{s}:
+                                \\
+                            , .{
+                                sym_plus_ver,
+                                sym_plus_ver,
+                                sym_plus_ver, sym_name, at_sign_str, ver.major, ver.minor, ver.patch,
+                                sym_plus_ver,
+                                sym_plus_ver,
                             });
                         }
-                        // Hide the stub to keep the symbol table clean
-                        try zig_body.writer().print("        \\\\.hidden {s}\n", .{stub_name});
                     }
                 }
             }
 
-            try zig_body.appendSlice(
-                \\    );
-                \\}
-                \\
-            );
-            try zig_body.appendSlice(zig_footer.items);
-
             var lib_name_buf: [32]u8 = undefined; // Larger than each of the names "c", "pthread", etc.
-            const zig_file_basename = std.fmt.bufPrint(&lib_name_buf, "{s}.zig", .{lib.name}) catch unreachable;
-            try o_directory.handle.writeFile(zig_file_basename, zig_body.items);
+            const asm_file_basename = std.fmt.bufPrint(&lib_name_buf, "{s}.s", .{lib.name}) catch unreachable;
+            try o_directory.handle.writeFile(asm_file_basename, zig_body.items);
 
-            try buildSharedLib(comp, arena, comp.zig_cache_directory, o_directory, zig_file_basename, lib);
+            try buildSharedLib(comp, arena, comp.zig_cache_directory, o_directory, asm_file_basename, lib);
         }
         // No need to write the manifest because there are no file inputs associated with this cache hash.
         // However we do need to write the ok file now.
@@ -925,12 +938,14 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
     };
 }
 
+// zig fmt: on
+
 fn buildSharedLib(
     comp: *Compilation,
     arena: *Allocator,
     zig_cache_directory: Compilation.Directory,
     bin_directory: Compilation.Directory,
-    zig_file_basename: []const u8,
+    asm_file_basename: []const u8,
     lib: *const Lib,
 ) !void {
     const tracy = trace(@src());
@@ -944,15 +959,17 @@ fn buildSharedLib(
     const ld_basename = path.basename(comp.getTarget().standardDynamicLinkerPath().get().?);
     const override_soname = if (mem.eql(u8, lib.name, "ld")) ld_basename else null;
     const map_file_path = try path.join(arena, &[_][]const u8{ bin_directory.path.?, all_map_basename });
-    // TODO we should be able to just give the open directory to Package
-    const root_pkg = try Package.create(comp.gpa, std.fs.cwd(), bin_directory.path.?, zig_file_basename);
-    defer root_pkg.destroy(comp.gpa);
+    const c_source_files = [1]Compilation.CSourceFile{
+        .{
+            .src_path = try path.join(arena, &[_][]const u8{ bin_directory.path.?, asm_file_basename }),
+        },
+    };
     const sub_compilation = try Compilation.create(comp.gpa, .{
         .zig_cache_directory = zig_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
         .target = comp.getTarget(),
         .root_name = lib.name,
-        .root_pkg = root_pkg,
+        .root_pkg = null,
         .output_mode = .Lib,
         .link_mode = .Dynamic,
         .rand = comp.rand,
@@ -973,6 +990,7 @@ fn buildSharedLib(
         .stage1_is_dummy_so = true,
         .version_script = map_file_path,
         .override_soname = override_soname,
+        .c_source_files = &c_source_files,
     });
     defer sub_compilation.destroy();
 
