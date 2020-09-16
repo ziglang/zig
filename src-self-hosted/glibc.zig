@@ -773,13 +773,26 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
     const hit = try cache.hit();
     const digest = cache.final();
     const o_sub_path = try path.join(arena, &[_][]const u8{ "o", &digest });
-    if (!hit) {
-        var o_directory: Compilation.Directory = .{
-            .handle = try comp.zig_cache_directory.handle.makeOpenPath(o_sub_path, .{}),
-            .path = try path.join(arena, &[_][]const u8{ comp.zig_cache_directory.path.?, o_sub_path }),
-        };
-        defer o_directory.handle.close();
 
+    // Even if we get a hit, it doesn't guarantee that we finished the job last time.
+    // We use the presence of an "ok" file to determine if it is a true hit.
+
+    var o_directory: Compilation.Directory = .{
+        .handle = try comp.zig_cache_directory.handle.makeOpenPath(o_sub_path, .{}),
+        .path = try path.join(arena, &[_][]const u8{ comp.zig_cache_directory.path.?, o_sub_path }),
+    };
+    defer o_directory.handle.close();
+
+    const ok_basename = "ok";
+    const actual_hit = if (hit) blk: {
+        o_directory.handle.access(ok_basename, .{}) catch |err| switch (err) {
+            error.FileNotFound => break :blk false,
+            else => |e| return e,
+        };
+        break :blk true;
+    } else false;
+
+    if (!actual_hit) {
         const metadata = try loadMetaData(comp.gpa, comp.zig_lib_directory.handle);
         defer metadata.destroy(comp.gpa);
 
@@ -869,16 +882,16 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                         const want_two_ats = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
                         const at_sign_str = "@@"[0 .. @boolToInt(want_two_ats) + @as(usize, 1)];
                         if (ver.patch == 0) {
-                            try zig_body.writer().print("        \\\\ .symver {s}, {s}{s}GLIBC_{d}.{d}\n", .{
+                            try zig_body.writer().print("        \\\\.symver {s}, {s}{s}GLIBC_{d}.{d}\n", .{
                                 stub_name, sym_name, at_sign_str, ver.major, ver.minor,
                             });
                         } else {
-                            try zig_body.writer().print("        \\\\ .symver {s}, {s}{s}GLIBC_{d}.{d}.{d}\n", .{
+                            try zig_body.writer().print("        \\\\.symver {s}, {s}{s}GLIBC_{d}.{d}.{d}\n", .{
                                 stub_name, sym_name, at_sign_str, ver.major, ver.minor, ver.patch,
                             });
                         }
                         // Hide the stub to keep the symbol table clean
-                        try zig_body.writer().print("        \\\\ .hidden {s}\n", .{stub_name});
+                        try zig_body.writer().print("        \\\\.hidden {s}\n", .{stub_name});
                     }
                 }
             }
@@ -896,9 +909,13 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
 
             try buildSharedLib(comp, arena, comp.zig_cache_directory, o_directory, zig_file_basename, lib);
         }
-        cache.writeManifest() catch |err| {
-            std.log.warn("glibc shared objects: failed to write cache manifest: {}", .{@errorName(err)});
-        };
+        // No need to write the manifest because there are no file inputs associated with this cache hash.
+        // However we do need to write the ok file now.
+        if (o_directory.handle.createFile(ok_basename, .{})) |file| {
+            file.close();
+        } else |err| {
+            std.log.warn("glibc shared objects: failed to mark completion: {}", .{@errorName(err)});
+        }
     }
 
     assert(comp.glibc_so_files == null);
@@ -935,7 +952,7 @@ fn buildSharedLib(
         .zig_lib_directory = comp.zig_lib_directory,
         .target = comp.getTarget(),
         .root_name = lib.name,
-        .root_pkg = null,
+        .root_pkg = root_pkg,
         .output_mode = .Lib,
         .link_mode = .Dynamic,
         .rand = comp.rand,
@@ -971,7 +988,7 @@ fn updateSubCompilation(sub_compilation: *Compilation) !void {
 
     if (errors.list.len != 0) {
         for (errors.list) |full_err_msg| {
-            std.log.err("{}:{}:{}: error: {}\n", .{
+            std.log.err("{}:{}:{}: {}\n", .{
                 full_err_msg.src_path,
                 full_err_msg.line + 1,
                 full_err_msg.column + 1,
