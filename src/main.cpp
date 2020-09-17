@@ -137,6 +137,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -Bsymbolic                   bind global references locally\n"
         "\n"
         "Test Options:\n"
+        "  --coverage                   output code coverage reports\n"
         "  --test-filter [text]         skip tests that do not match filter\n"
         "  --test-name-prefix [text]    add prefix to all tests\n"
         "  --test-cmd [arg]             specify test execution command one arg at a time\n"
@@ -436,6 +437,7 @@ static int main0(int argc, char **argv) {
     int runtime_args_start = -1;
     bool system_linker_hack = false;
     TargetSubsystem subsystem = TargetSubsystemAuto;
+    bool want_coverage = false;
     bool want_single_threaded = false;
     bool bundle_compiler_rt = false;
     Buf *override_lib_dir = nullptr;
@@ -1026,6 +1028,8 @@ static int main0(int argc, char **argv) {
                 bundle_compiler_rt = true;
             } else if (strcmp(arg, "-Bsymbolic") == 0) {
                 linker_bind_global_refs_locally = OptionalBoolTrue;
+            } else if (strcmp(arg, "--coverage") == 0) {
+                want_coverage = true;
             } else if (strcmp(arg, "--test-cmd-bin") == 0) {
                 test_exec_args.append(nullptr);
             } else if (arg[1] == 'D' && arg[2] != 0) {
@@ -1586,6 +1590,7 @@ static int main0(int argc, char **argv) {
             g->want_stack_check = want_stack_check;
             g->want_sanitize_c = want_sanitize_c;
             g->subsystem = subsystem;
+            g->want_coverage = want_coverage;
 
             g->enable_time_report = timing_info;
             g->enable_stack_report = stack_report;

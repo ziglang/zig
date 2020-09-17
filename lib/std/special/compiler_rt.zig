@@ -323,6 +323,33 @@ comptime {
     }
     @export(@import("compiler_rt/muloti4.zig").__muloti4, .{ .name = "__muloti4", .linkage = linkage });
     @export(@import("compiler_rt/mulodi4.zig").__mulodi4, .{ .name = "__mulodi4", .linkage = linkage });
+
+    // Typically provided by the runtime and not overriden by the user, but can be.
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_dump_coverage, .{ .name = "__sanitizer_dump_coverage", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_trace_pc_guard, .{ .name = "__sanitizer_cov_trace_pc_guard", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_trace_pc_guard_init, .{ .name = "__sanitizer_cov_trace_pc_guard_init", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_dump_trace_pc_guard_coverage, .{ .name = "__sanitizer_dump_trace_pc_guard_coverage", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_dump, .{ .name = "__sanitizer_cov_dump", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_reset, .{ .name = "__sanitizer_cov_reset", .linkage = builtin.GlobalLinkage.Weak });
+
+    // Are defined as empty, but can be overriden by the user.
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_trace_cmp, .{ .name = "__sanitizer_cov_trace_cmp", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_trace_cmp1, .{ .name = "__sanitizer_cov_trace_cmp1", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_trace_cmp2, .{ .name = "__sanitizer_cov_trace_cmp2", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_trace_cmp4, .{ .name = "__sanitizer_cov_trace_cmp4", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_trace_cmp8, .{ .name = "__sanitizer_cov_trace_cmp8", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_trace_const_cmp1, .{ .name = "__sanitizer_cov_trace_const_cmp1", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_trace_const_cmp2, .{ .name = "__sanitizer_cov_trace_const_cmp2", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_trace_const_cmp4, .{ .name = "__sanitizer_cov_trace_const_cmp4", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_trace_const_cmp8, .{ .name = "__sanitizer_cov_trace_const_cmp8", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_trace_switch, .{ .name = "__sanitizer_cov_trace_switch", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_trace_div4, .{ .name = "__sanitizer_cov_trace_div4", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_trace_div8, .{ .name = "__sanitizer_cov_trace_div8", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_trace_gep, .{ .name = "__sanitizer_cov_trace_gep", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_trace_pc_indir, .{ .name = "__sanitizer_cov_trace_pc_indir", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_8bit_counters_init, .{ .name = "__sanitizer_cov_8bit_counters_init", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_bool_flag_init, .{ .name = "__sanitizer_cov_bool_flag_init", .linkage = builtin.GlobalLinkage.Weak });
+    @export(@import("compiler_rt/sancov.zig").__sanitizer_cov_pcs_init, .{ .name = "__sanitizer_cov_pcs_init", .linkage = builtin.GlobalLinkage.Weak });
 }
 
 pub usingnamespace @import("compiler_rt/atomics.zig");

@@ -2281,6 +2281,7 @@ struct CodeGen {
     OptionalBool linker_gc_sections;
     OptionalBool linker_allow_shlib_undefined;
     OptionalBool linker_bind_global_refs_locally;
+    bool want_coverage;
     bool strip_debug_symbols;
     bool is_test_build;
     bool is_single_threaded;

@@ -51,6 +51,8 @@
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Utils.h>
+#include <llvm/Transforms/Instrumentation.h>
+#include <llvm/Transforms/Instrumentation/SanitizerCoverage.h>
 
 #include <lld/Common/Driver.h>
 
@@ -90,6 +92,18 @@ char *ZigLLVMGetNativeFeatures(void) {
 
 static void addDiscriminatorsPass(const PassManagerBuilder &Builder, legacy::PassManagerBase &PM) {
     PM.add(createAddDiscriminatorsPass());
+}
+
+static void addSanitizerCoveragePass(const PassManagerBuilder &Builder, legacy::PassManagerBase &PM) {
+    SanitizerCoverageOptions Opts;
+
+    Opts.IndirectCalls = true;
+    Opts.TraceCmp = true;
+    Opts.PCTable = true;
+    Opts.Inline8bitCounters = true;
+    Opts.CoverageType = SanitizerCoverageOptions::SCK_Edge;
+
+    PM.add(createModuleSanitizerCoverageLegacyPassPass(Opts));
 }
 
 #ifndef NDEBUG
@@ -178,7 +192,7 @@ unsigned ZigLLVMDataLayoutGetProgramAddressSpace(LLVMTargetDataRef TD) {
 
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         char **error_message, bool is_debug,
-        bool is_small, bool time_report,
+        bool is_small, bool coverage, bool time_report,
         const char *asm_filename, const char *bin_filename, const char *llvm_ir_filename)
 {
     TimePassesIsEnabled = time_report;
@@ -241,6 +255,13 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 
         PMBuilder->addExtension(PassManagerBuilder::EP_EarlyAsPossible, addDiscriminatorsPass);
         PMBuilder->Inliner = createFunctionInliningPass(PMBuilder->OptLevel, PMBuilder->SizeLevel, false);
+    }
+
+    if (coverage) {
+        PMBuilder->addExtension(PassManagerBuilder::EP_OptimizerLast,
+                                addSanitizerCoveragePass);
+        PMBuilder->addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0,
+                                addSanitizerCoveragePass);
     }
 
     // Set up the per-function pass manager.
