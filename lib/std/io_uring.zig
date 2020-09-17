@@ -196,7 +196,7 @@ pub const IO_Uring = struct {
         var submitted = self.flush_sq();
         var flags: u32 = 0;
         if (self.sq_ring_needs_enter(submitted, &flags) or wait_nr > 0) {
-            if (wait_nr > 0 or (self.flags & linux.IORING_SETUP_IOPOLL) > 0) {
+            if (wait_nr > 0 or (self.flags & linux.IORING_SETUP_IOPOLL) != 0) {
                 flags |= linux.IORING_ENTER_GETEVENTS;
             }
             return try self.enter(submitted, wait_nr, flags);
@@ -243,7 +243,7 @@ pub const IO_Uring = struct {
     fn sq_ring_needs_enter(self: *IO_Uring, submitted: u32, flags: *u32) bool {
         assert(flags.* == 0);
         if ((self.flags & linux.IORING_SETUP_SQPOLL) == 0 and submitted > 0) return true;
-        if ((@atomicLoad(u32, self.sq.flags, .Unordered) & linux.IORING_SQ_NEED_WAKEUP) > 0) {
+        if ((@atomicLoad(u32, self.sq.flags, .Unordered) & linux.IORING_SQ_NEED_WAKEUP) != 0) {
             flags.* |= linux.IORING_ENTER_SQ_WAKEUP;
             return true;
         }
@@ -316,7 +316,7 @@ pub const IO_Uring = struct {
 
     // Matches the implementation of cq_ring_needs_flush() in liburing.
     fn cq_ring_needs_flush(self: *IO_Uring) bool {
-        return (@atomicLoad(u32, self.sq.flags, .Unordered) & IORING_SQ_CQ_OVERFLOW) > 0;
+        return (@atomicLoad(u32, self.sq.flags, .Unordered) & IORING_SQ_CQ_OVERFLOW) != 0;
     }
 
     /// For advanced use cases only that implement custom completion queue methods.
@@ -570,7 +570,7 @@ pub const SubmissionQueue = struct {
     
     pub fn init(fd: i32, p: io_uring_params) !SubmissionQueue {
         assert(fd >= 0);
-        assert((p.features & linux.IORING_FEAT_SINGLE_MMAP) > 0);
+        assert((p.features & linux.IORING_FEAT_SINGLE_MMAP) != 0);
         const size = std.math.max(
             p.sq_off.array + p.sq_entries * @sizeOf(u32),
             p.cq_off.cqes + p.cq_entries * @sizeOf(io_uring_cqe)
@@ -636,7 +636,7 @@ pub const CompletionQueue = struct {
 
     pub fn init(fd: i32, p: io_uring_params, sq: SubmissionQueue) !CompletionQueue {
         assert(fd >= 0);
-        assert((p.features & linux.IORING_FEAT_SINGLE_MMAP) > 0);
+        assert((p.features & linux.IORING_FEAT_SINGLE_MMAP) != 0);
         const mmap = sq.mmap;
         const cqes = @ptrCast(
             [*]io_uring_cqe,
