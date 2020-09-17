@@ -38,9 +38,6 @@ pub const io_uring_sqe = extern struct {
     options: [2]u64 = [2]u64{ 0, 0 }
 };
 
-// TODO Add to zig/std/os/bits/linux.zig:
-const IORING_SQ_CQ_OVERFLOW = 1 << 1;
-
 comptime {
     assert(@sizeOf(io_uring_params) == 120);
     assert(@sizeOf(io_uring_sqe) == 64);
@@ -315,7 +312,7 @@ pub const IO_Uring = struct {
 
     // Matches the implementation of cq_ring_needs_flush() in liburing.
     fn cq_ring_needs_flush(self: *IO_Uring) bool {
-        return (@atomicLoad(u32, self.sq.flags, .Unordered) & IORING_SQ_CQ_OVERFLOW) != 0;
+        return (@atomicLoad(u32, self.sq.flags, .Unordered) & linux.IORING_SQ_CQ_OVERFLOW) != 0;
     }
 
     /// For advanced use cases only that implement custom completion queue methods.

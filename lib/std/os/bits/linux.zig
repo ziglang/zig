@@ -1251,6 +1251,9 @@ pub const io_sqring_offsets = extern struct {
 /// needs io_uring_enter wakeup
 pub const IORING_SQ_NEED_WAKEUP = 1 << 0;
 
+/// kernel has cqes waiting beyond the cq ring
+pub const IORING_SQ_CQ_OVERFLOW = 1 << 1;
+
 pub const io_cqring_offsets = extern struct {
     head: u32,
     tail: u32,
