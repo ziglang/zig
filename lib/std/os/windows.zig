@@ -828,7 +828,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
     }
 }
 
-pub const MoveFileError = error{Unexpected};
+pub const MoveFileError = error{ FileNotFound, Unexpected };
 
 pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) MoveFileError!void {
     const old_path_w = try sliceToPrefixedFileW(old_path);
@@ -839,6 +839,7 @@ pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) Move
 pub fn MoveFileExW(old_path: [*:0]const u16, new_path: [*:0]const u16, flags: DWORD) MoveFileError!void {
     if (kernel32.MoveFileExW(old_path, new_path, flags) == 0) {
         switch (kernel32.GetLastError()) {
+            .FILE_NOT_FOUND => return error.FileNotFound,
             else => |err| return unexpectedError(err),
         }
     }
