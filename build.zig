@@ -73,6 +73,9 @@ pub fn build(b: *Builder) !void {
     if (only_install_lib_files)
         return;
 
+    const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
+    const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse enable_llvm;
+
     var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
     exe.install();
     exe.setBuildMode(mode);
@@ -90,10 +93,8 @@ pub fn build(b: *Builder) !void {
         var ctx = parseConfigH(b, config_h_text);
         ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
 
-        try configureStage2(b, exe, ctx);
+        try configureStage2(b, exe, ctx, tracy != null);
     }
-    const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
-    const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse enable_llvm;
     if (link_libc) {
         exe.linkLibC();
         test_stage2.linkLibC();
@@ -151,7 +152,9 @@ pub fn build(b: *Builder) !void {
         ) catch unreachable;
         exe.addIncludeDir(tracy_path);
         exe.addCSourceFile(client_cpp, &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" });
-        exe.linkSystemLibraryName("c++");
+        if (!enable_llvm) {
+            exe.linkSystemLibraryName("c++");
+        }
         exe.linkLibC();
     }
 
@@ -344,7 +347,7 @@ fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
     return result;
 }
 
-fn configureStage2(b: *Builder, exe: anytype, ctx: Context) !void {
+fn configureStage2(b: *Builder, exe: anytype, ctx: Context, need_cpp_includes: bool) !void {
     exe.addIncludeDir("src");
     exe.addIncludeDir(ctx.cmake_binary_dir);
     addCppLib(b, exe, ctx.cmake_binary_dir, "zig_cpp");
@@ -377,7 +380,7 @@ fn configureStage2(b: *Builder, exe: anytype, ctx: Context) !void {
         if (exe.target.getOsTag() == .linux) {
             // First we try to static link against gcc libstdc++. If that doesn't work,
             // we fall back to -lc++ and cross our fingers.
-            addCxxKnownPath(b, ctx, exe, "libstdc++.a", "") catch |err| switch (err) {
+            addCxxKnownPath(b, ctx, exe, "libstdc++.a", "", need_cpp_includes) catch |err| switch (err) {
                 error.RequiredLibraryNotFound => {
                     exe.linkSystemLibrary("c++");
                 },
@@ -386,12 +389,12 @@ fn configureStage2(b: *Builder, exe: anytype, ctx: Context) !void {
 
             exe.linkSystemLibrary("pthread");
         } else if (exe.target.isFreeBSD()) {
-            try addCxxKnownPath(b, ctx, exe, "libc++.a", null);
+            try addCxxKnownPath(b, ctx, exe, "libc++.a", null, need_cpp_includes);
             exe.linkSystemLibrary("pthread");
         } else if (exe.target.isDarwin()) {
-            if (addCxxKnownPath(b, ctx, exe, "libgcc_eh.a", "")) {
+            if (addCxxKnownPath(b, ctx, exe, "libgcc_eh.a", "", need_cpp_includes)) {
                 // Compiler is GCC.
-                try addCxxKnownPath(b, ctx, exe, "libstdc++.a", null);
+                try addCxxKnownPath(b, ctx, exe, "libstdc++.a", null, need_cpp_includes);
                 exe.linkSystemLibrary("pthread");
                 // TODO LLD cannot perform this link.
                 // See https://github.com/ziglang/zig/issues/1535
@@ -417,6 +420,7 @@ fn addCxxKnownPath(
     exe: anytype,
     objname: []const u8,
     errtxt: ?[]const u8,
+    need_cpp_includes: bool,
 ) !void {
     const path_padded = try b.exec(&[_][]const u8{
         ctx.cxx_compiler,
@@ -432,6 +436,16 @@ fn addCxxKnownPath(
         return error.RequiredLibraryNotFound;
     }
     exe.addObjectFile(path_unpadded);
+
+    // TODO a way to integrate with system c++ include files here
+    // cc -E -Wp,-v -xc++ /dev/null
+    if (need_cpp_includes) {
+        // I used these temporarily for testing something but we obviously need a
+        // more general purpose solution here.
+        //exe.addIncludeDir("/nix/store/b3zsk4ihlpiimv3vff86bb5bxghgdzb9-gcc-9.2.0/lib/gcc/x86_64-unknown-linux-gnu/9.2.0/../../../../include/c++/9.2.0");
+        //exe.addIncludeDir("/nix/store/b3zsk4ihlpiimv3vff86bb5bxghgdzb9-gcc-9.2.0/lib/gcc/x86_64-unknown-linux-gnu/9.2.0/../../../../include/c++/9.2.0/x86_64-unknown-linux-gnu");
+        //exe.addIncludeDir("/nix/store/b3zsk4ihlpiimv3vff86bb5bxghgdzb9-gcc-9.2.0/lib/gcc/x86_64-unknown-linux-gnu/9.2.0/../../../../include/c++/9.2.0/backward");
+    }
 }
 
 const Context = struct {

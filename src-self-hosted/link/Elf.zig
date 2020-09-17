@@ -1,26 +1,28 @@
+const Elf = @This();
+
 const std = @import("std");
 const mem = std.mem;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const fs = std.fs;
+const elf = std.elf;
+const log = std.log.scoped(.link);
+const DW = std.dwarf;
+const leb128 = std.debug.leb;
+
 const ir = @import("../ir.zig");
 const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
-const fs = std.fs;
-const elf = std.elf;
 const codegen = @import("../codegen.zig");
-const log = std.log.scoped(.link);
-const DW = std.dwarf;
 const trace = @import("../tracy.zig").trace;
-const leb128 = std.debug.leb;
 const Package = @import("../Package.zig");
 const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
 const link = @import("../link.zig");
 const File = link.File;
-const Elf = @This();
 const build_options = @import("build_options");
 const target_util = @import("../target.zig");
-const fatal = @import("main.zig").fatal;
+const glibc = @import("../glibc.zig");
 
 const default_entry_addr = 0x8000000;
 
@@ -1530,15 +1532,19 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                     try argv.append("-lpthread");
                 }
             } else if (target.isGnuLibC()) {
-                try argv.append(comp.libunwind_static_lib.?);
-                // TODO here we need to iterate over the glibc libs and add the .so files to the linker line.
-                std.log.warn("TODO port add_glibc_libs to stage2", .{});
+                try argv.append(comp.libunwind_static_lib.?.full_object_path);
+                for (glibc.libs) |lib| {
+                    const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
+                        comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
+                    });
+                    try argv.append(lib_path);
+                }
                 try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
             } else if (target.isMusl()) {
-                try argv.append(comp.libunwind_static_lib.?);
+                try argv.append(comp.libunwind_static_lib.?.full_object_path);
                 try argv.append(comp.libc_static_lib.?);
             } else if (self.base.options.link_libcpp) {
-                try argv.append(comp.libunwind_static_lib.?);
+                try argv.append(comp.libunwind_static_lib.?.full_object_path);
             } else {
                 unreachable; // Compiler was supposed to emit an error for not being able to provide libc.
             }

@@ -751,6 +751,10 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    if (!build_options.have_llvm) {
+        return error.ZigCompilerNotBuiltWithLLVMExtensions;
+    }
+
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
     const arena = &arena_allocator.allocator;
@@ -987,7 +991,6 @@ fn buildSharedLib(
         .debug_link = comp.bin_file.options.debug_link,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .version = version,
-        .stage1_is_dummy_so = true,
         .version_script = map_file_path,
         .override_soname = override_soname,
         .c_source_files = &c_source_files,

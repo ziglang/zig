@@ -15,6 +15,7 @@ const liveness = @import("liveness.zig");
 const build_options = @import("build_options");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const glibc = @import("glibc.zig");
+const libunwind = @import("libunwind.zig");
 const fatal = @import("main.zig").fatal;
 const Module = @import("Module.zig");
 const Cache = @import("Cache.zig");
@@ -63,7 +64,7 @@ libcxx_static_lib: ?[]const u8 = null,
 libcxxabi_static_lib: ?[]const u8 = null,
 /// Populated when we build libunwind.a. A WorkItem to build this is placed in the queue
 /// and resolved before calling linker.flush().
-libunwind_static_lib: ?[]const u8 = null,
+libunwind_static_lib: ?CRTFile = null,
 /// Populated when we build c.a. A WorkItem to build this is placed in the queue
 /// and resolved before calling linker.flush().
 libc_static_lib: ?[]const u8 = null,
@@ -115,6 +116,8 @@ const WorkItem = union(enum) {
     glibc_crt_file: glibc.CRTFile,
     /// all of the glibc shared objects
     glibc_shared_objects,
+
+    libunwind: void,
 };
 
 pub const CObject = struct {
@@ -206,6 +209,17 @@ pub const Directory = struct {
     /// `null` means cwd.
     path: ?[]const u8,
     handle: std.fs.Dir,
+
+    pub fn join(self: Directory, allocator: *Allocator, paths: []const []const u8) ![]u8 {
+        if (self.path) |p| {
+            // TODO clean way to do this with only 1 allocation
+            const part2 = try std.fs.path.join(allocator, paths);
+            defer allocator.free(part2);
+            return std.fs.path.join(allocator, &[_][]const u8{ p, part2 });
+        } else {
+            return std.fs.path.join(allocator, paths);
+        }
+    }
 };
 
 pub const EmitLoc = struct {
@@ -274,9 +288,6 @@ pub const InitOptions = struct {
     version: ?std.builtin.Version = null,
     libc_installation: ?*const LibCInstallation = null,
     machine_code_model: std.builtin.CodeModel = .default,
-    /// TODO Once self-hosted Zig is capable enough, we can remove this special-case
-    /// hack in favor of more general compilation options.
-    stage1_is_dummy_so: bool = false,
 };
 
 pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
@@ -636,6 +647,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
     if (comp.wantBuildGLibCFromSource()) {
         try comp.addBuildingGLibCWorkItems();
     }
+    if (comp.wantBuildLibUnwindFromSource()) {
+        try comp.work_queue.writeItem(.{ .libunwind = {} });
+    }
 
     return comp;
 }
@@ -654,6 +668,10 @@ pub fn destroy(self: *Compilation) void {
             entry.value.deinit(gpa);
         }
         self.crt_files.deinit(gpa);
+    }
+
+    if (self.libunwind_static_lib) |*unwind_crt_file| {
+        unwind_crt_file.deinit(gpa);
     }
 
     for (self.c_object_table.items()) |entry| {
@@ -934,6 +952,12 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
             glibc.buildSharedObjects(self) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build glibc shared objects: {}", .{@errorName(err)});
+            };
+        },
+        .libunwind => {
+            libunwind.buildStaticLib(self) catch |err| {
+                // TODO Expose this as a normal compile error rather than crashing here.
+                fatal("unable to build libunwind: {}", .{@errorName(err)});
             };
         },
     };
@@ -1596,4 +1620,14 @@ fn wantBuildGLibCFromSource(comp: *Compilation) bool {
     return comp.bin_file.options.link_libc and is_exe_or_dyn_lib and
         comp.bin_file.options.libc_installation == null and
         comp.bin_file.options.target.isGnuLibC();
+}
+
+fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
+    const is_exe_or_dyn_lib = switch (comp.bin_file.options.output_mode) {
+        .Obj => false,
+        .Lib => comp.bin_file.options.link_mode == .Dynamic,
+        .Exe => true,
+    };
+    return comp.bin_file.options.link_libc and is_exe_or_dyn_lib and
+        comp.bin_file.options.libc_installation == null;
 }

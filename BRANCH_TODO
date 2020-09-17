@@ -1,7 +1,10 @@
- * libunwind
- * stage1 C++ code integration
+ * make sure zig cc works
+   - using it as a preprocessor (-E)
+   - @breakpoint(); // TODO the first arg is empty string right? skip past that.
+   - try building some software
  * support rpaths in ELF linker code
  * build & link against compiler-rt
+   - stage1 C++ code integration
  * build & link againstn freestanding libc
  * add CLI support for a way to pass extra flags to c source files
  * implement the workaround for using LLVM to detect native CPU features
@@ -12,10 +15,6 @@
  * port the stage1 os.cpp code that raises the open fd limit
  * use global zig-cache dir for crt files
  * `zig translate-c`
- * make sure zig cc works
-   - using it as a preprocessor (-E)
-   - @breakpoint(); // TODO the first arg is empty string right? skip past that.
-   - try building some software
  * MachO LLD linking
  * COFF LLD linking
  * WASM LLD linking
@@ -54,3 +53,5 @@
    - make it possible for Package to not openDir and reference already existing resources.
  * rename src/ to src/stage1/
  * rename src-self-hosted/ to src/
+ * improve Directory.join to only use 1 allocation in a clean way.
+ * tracy builds with lc++
