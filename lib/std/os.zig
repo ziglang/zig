@@ -268,9 +268,9 @@ pub fn kill(pid: pid_t, sig: u8) KillError!void {
 }
 
 /// Exits the program cleanly with the specified status code.
-pub fn exit(status: u8) noreturn {
+pub fn exit(status: u32) noreturn {
     if (builtin.link_libc) {
-        system.exit(status);
+        system.exit(@intCast(c_int, status));
     }
     if (builtin.os.tag == .windows) {
         windows.kernel32.ExitProcess(status);
@@ -279,7 +279,7 @@ pub fn exit(status: u8) noreturn {
         wasi.proc_exit(status);
     }
     if (builtin.os.tag == .linux and !builtin.single_threaded) {
-        linux.exit_group(status);
+        linux.exit_group(@intCast(i32, status));
     }
     if (builtin.os.tag == .uefi) {
         // exit() is only avaliable if exitBootServices() has not been called yet.
@@ -290,7 +290,7 @@ pub fn exit(status: u8) noreturn {
         // If we can't exit, reboot the system instead.
         uefi.system_table.runtime_services.resetSystem(uefi.tables.ResetType.ResetCold, @intToEnum(uefi.Status, status), 0, null);
     }
-    system.exit(status);
+    system.exit(@intCast(i32, status));
 }
 
 pub const ReadError = error{
