@@ -1,6 +1,5 @@
  * make sure zig cc works
    - using it as a preprocessor (-E)
-   - @breakpoint(); // TODO the first arg is empty string right? skip past that.
    - try building some software
  * support rpaths in ELF linker code
  * build & link against compiler-rt

@@ -627,7 +627,6 @@ pub fn buildOutputType(
                 .rdynamic => rdynamic = true,
                 .wl => {
                     var split_it = mem.split(it.only_arg, ",");
-                    @breakpoint(); // TODO the first arg is empty string right? skip past that.
                     while (split_it.next()) |linker_arg| {
                         try linker_args.append(linker_arg);
                     }
