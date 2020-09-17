@@ -145,7 +145,6 @@ pub const IO_Uring = struct {
         assert(cq.overflow.* == 0);
         assert(cq.cqes.len == p.*.cq_entries);
 
-        // Alles in Ordnung!
         return IO_Uring {
             .fd = fd,
             .sq = sq,
