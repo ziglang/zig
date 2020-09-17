@@ -3,9 +3,9 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
+const builtin = std.builtin;
 const os = std.os;
 const linux = os.linux;
 const mem = std.mem;
