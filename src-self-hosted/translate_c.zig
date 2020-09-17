@@ -2032,7 +2032,7 @@ fn escapeChar(c: u8, char_buf: *[4]u8) []const u8 {
         // Handle the remaining escapes Zig doesn't support by turning them
         // into their respective hex representation
         else => if (std.ascii.isCntrl(c))
-            std.fmt.bufPrint(char_buf, "\\x{x:0<2}", .{c}) catch unreachable
+            std.fmt.bufPrint(char_buf, "\\x{x:0>2}", .{c}) catch unreachable
         else
             std.fmt.bufPrint(char_buf, "{c}", .{c}) catch unreachable,
     };
