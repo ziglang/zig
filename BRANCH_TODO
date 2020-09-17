@@ -12,7 +12,6 @@
  * capture lld stdout/stderr better
  * musl
  * mingw-w64
- * port the stage1 os.cpp code that raises the open fd limit
  * use global zig-cache dir for crt files
  * `zig translate-c`
  * MachO LLD linking

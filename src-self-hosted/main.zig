@@ -1103,6 +1103,8 @@ pub fn buildOutputType(
         },
     };
 
+    gimmeMoreOfThoseSweetSweetFileDescriptors();
+
     const comp = Compilation.create(gpa, .{
         .zig_lib_directory = zig_lib_directory,
         .zig_cache_directory = zig_cache_directory,
@@ -1929,4 +1931,47 @@ fn is_libcpp_lib_name(target: std.Target, name: []const u8) bool {
 fn parseCodeModel(arg: []const u8) std.builtin.CodeModel {
     return std.meta.stringToEnum(std.builtin.CodeModel, arg) orelse
         fatal("unsupported machine code model: '{}'", .{arg});
+}
+
+/// Raise the open file descriptor limit. Ask and ye shall receive.
+/// For one example of why this is handy, consider the case of building musl libc.
+/// We keep a lock open for each of the object files in the form of a file descriptor
+/// until they are finally put into an archive file. This is to allow a zig-cache
+/// garbage collector to run concurrently to zig processes, and to allow multiple
+/// zig processes to run concurrently with each other, without clobbering each other.
+fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
+    switch (std.Target.current.os.tag) {
+        .windows, .wasi, .uefi, .other, .freestanding => return,
+        // std lib is missing getrlimit/setrlimit.
+        // https://github.com/ziglang/zig/issues/6361
+        //else => {},
+        else => return,
+    }
+    const posix = std.os;
+    var lim = posix.getrlimit(posix.RLIMIT_NOFILE, &lim) catch return; // Oh well; we tried.
+    if (lim.cur == lim.max) return;
+    while (true) {
+        // Do a binary search for the limit.
+        var min: posix.rlim_t = lim.cur;
+        var max: posix.rlim_t = 1 << 20;
+        // But if there's a defined upper bound, don't search, just set it.
+        if (lim.max != posix.RLIM_INFINITY) {
+            min = lim.max;
+            max = lim.max;
+        }
+        while (true) {
+            lim.cur = min + (max - min) / 2;
+            if (posix.setrlimit(posix.RLIMIT_NOFILE, lim)) |_| {
+                min = lim.cur;
+            } else |_| {
+                max = lim.cur;
+            }
+            if (min + 1 < max) continue;
+            return;
+        }
+    }
+}
+
+test "fds" {
+    gimmeMoreOfThoseSweetSweetFileDescriptors();
 }
