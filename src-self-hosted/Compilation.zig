@@ -1170,10 +1170,6 @@ fn addCCArgs(
     if (ext == .cpp) {
         try argv.append("-nostdinc++");
     }
-    try argv.appendSlice(&[_][]const u8{
-        "-nostdinc",
-        "-fno-spell-checking",
-    });
 
     // We don't ever put `-fcolor-diagnostics` or `-fno-color-diagnostics` because in passthrough mode
     // we want Clang to infer it, and in normal mode we always want it off, which will be true since
@@ -1219,6 +1215,11 @@ fn addCCArgs(
 
     switch (ext) {
         .c, .cpp, .h => {
+            try argv.appendSlice(&[_][]const u8{
+                "-nostdinc",
+                "-fno-spell-checking",
+            });
+
             // According to Rich Felker libc headers are supposed to go before C language headers.
             // However as noted by @dimenus, appending libc headers before c_headers breaks intrinsics
             // and other compiler specific items.
@@ -1260,6 +1261,75 @@ fn addCCArgs(
                 try argv.append("-Xclang");
                 try argv.append("-detailed-preprocessing-record");
             }
+
+            // windows.h has files such as pshpack1.h which do #pragma packing, triggering a clang warning.
+            // So for this target, we disable this warning.
+            if (target.os.tag == .windows and target.abi.isGnu()) {
+                try argv.append("-Wno-pragma-pack");
+            }
+
+            if (!comp.bin_file.options.strip) {
+                try argv.append("-g");
+            }
+
+            if (comp.haveFramePointer()) {
+                try argv.append("-fno-omit-frame-pointer");
+            } else {
+                try argv.append("-fomit-frame-pointer");
+            }
+
+            if (comp.sanitize_c) {
+                try argv.append("-fsanitize=undefined");
+                try argv.append("-fsanitize-trap=undefined");
+            }
+
+            switch (comp.bin_file.options.optimize_mode) {
+                .Debug => {
+                    // windows c runtime requires -D_DEBUG if using debug libraries
+                    try argv.append("-D_DEBUG");
+                    try argv.append("-Og");
+
+                    if (comp.bin_file.options.link_libc) {
+                        try argv.append("-fstack-protector-strong");
+                        try argv.append("--param");
+                        try argv.append("ssp-buffer-size=4");
+                    } else {
+                        try argv.append("-fno-stack-protector");
+                    }
+                },
+                .ReleaseSafe => {
+                    // See the comment in the BuildModeFastRelease case for why we pass -O2 rather
+                    // than -O3 here.
+                    try argv.append("-O2");
+                    if (comp.bin_file.options.link_libc) {
+                        try argv.append("-D_FORTIFY_SOURCE=2");
+                        try argv.append("-fstack-protector-strong");
+                        try argv.append("--param");
+                        try argv.append("ssp-buffer-size=4");
+                    } else {
+                        try argv.append("-fno-stack-protector");
+                    }
+                },
+                .ReleaseFast => {
+                    try argv.append("-DNDEBUG");
+                    // Here we pass -O2 rather than -O3 because, although we do the equivalent of
+                    // -O3 in Zig code, the justification for the difference here is that Zig
+                    // has better detection and prevention of undefined behavior, so -O3 is safer for
+                    // Zig code than it is for C code. Also, C programmers are used to their code
+                    // running in -O2 and thus the -O3 path has been tested less.
+                    try argv.append("-O2");
+                    try argv.append("-fno-stack-protector");
+                },
+                .ReleaseSmall => {
+                    try argv.append("-DNDEBUG");
+                    try argv.append("-Os");
+                    try argv.append("-fno-stack-protector");
+                },
+            }
+
+            if (target_util.supports_fpic(target) and comp.bin_file.options.pic) {
+                try argv.append("-fPIC");
+            }
         },
         .so, .assembly, .ll, .bc, .unknown => {},
     }
@@ -1283,75 +1353,6 @@ fn addCCArgs(
 
     if (target.os.tag == .freestanding) {
         try argv.append("-ffreestanding");
-    }
-
-    // windows.h has files such as pshpack1.h which do #pragma packing, triggering a clang warning.
-    // So for this target, we disable this warning.
-    if (target.os.tag == .windows and target.abi.isGnu()) {
-        try argv.append("-Wno-pragma-pack");
-    }
-
-    if (!comp.bin_file.options.strip) {
-        try argv.append("-g");
-    }
-
-    if (comp.haveFramePointer()) {
-        try argv.append("-fno-omit-frame-pointer");
-    } else {
-        try argv.append("-fomit-frame-pointer");
-    }
-
-    if (comp.sanitize_c) {
-        try argv.append("-fsanitize=undefined");
-        try argv.append("-fsanitize-trap=undefined");
-    }
-
-    switch (comp.bin_file.options.optimize_mode) {
-        .Debug => {
-            // windows c runtime requires -D_DEBUG if using debug libraries
-            try argv.append("-D_DEBUG");
-            try argv.append("-Og");
-
-            if (comp.bin_file.options.link_libc) {
-                try argv.append("-fstack-protector-strong");
-                try argv.append("--param");
-                try argv.append("ssp-buffer-size=4");
-            } else {
-                try argv.append("-fno-stack-protector");
-            }
-        },
-        .ReleaseSafe => {
-            // See the comment in the BuildModeFastRelease case for why we pass -O2 rather
-            // than -O3 here.
-            try argv.append("-O2");
-            if (comp.bin_file.options.link_libc) {
-                try argv.append("-D_FORTIFY_SOURCE=2");
-                try argv.append("-fstack-protector-strong");
-                try argv.append("--param");
-                try argv.append("ssp-buffer-size=4");
-            } else {
-                try argv.append("-fno-stack-protector");
-            }
-        },
-        .ReleaseFast => {
-            try argv.append("-DNDEBUG");
-            // Here we pass -O2 rather than -O3 because, although we do the equivalent of
-            // -O3 in Zig code, the justification for the difference here is that Zig
-            // has better detection and prevention of undefined behavior, so -O3 is safer for
-            // Zig code than it is for C code. Also, C programmers are used to their code
-            // running in -O2 and thus the -O3 path has been tested less.
-            try argv.append("-O2");
-            try argv.append("-fno-stack-protector");
-        },
-        .ReleaseSmall => {
-            try argv.append("-DNDEBUG");
-            try argv.append("-Os");
-            try argv.append("-fno-stack-protector");
-        },
-    }
-
-    if (target_util.supports_fpic(target) and comp.bin_file.options.pic) {
-        try argv.append("-fPIC");
     }
 
     try argv.appendSlice(comp.clang_argv);

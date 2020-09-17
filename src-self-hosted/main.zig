@@ -73,10 +73,7 @@ pub fn log(
         const ok = comptime for (build_options.log_scopes) |log_scope| {
             if (mem.eql(u8, log_scope, scope_name))
                 break true;
-        } else false;
-
-        if (!ok)
-            return;
+        } else return;
     }
 
     // We only recognize 4 log levels in this application.
