@@ -85,13 +85,13 @@ pub const IO_Uring = struct {
     /// Matches the interface of io_uring_queue_init_params() in liburing.
     pub fn init_params(entries: u32, p: *io_uring_params) !IO_Uring {
         assert(entries >= 1 and entries <= 4096 and std.math.isPowerOfTwo(entries));
-        assert(p.*.sq_entries == 0);
-        assert(p.*.cq_entries == 0);
-        assert(p.*.features == 0);
-        assert(p.*.wq_fd == 0);
-        assert(p.*.resv[0] == 0);
-        assert(p.*.resv[1] == 0);
-        assert(p.*.resv[2] == 0);
+        assert(p.sq_entries == 0);
+        assert(p.cq_entries == 0);
+        assert(p.features == 0);
+        assert(p.wq_fd == 0);
+        assert(p.resv[0] == 0);
+        assert(p.resv[1] == 0);
+        assert(p.resv[2] == 0);
         if (!supported) return error.IO_UringKernelNotSupported;
 
         const res = linux.io_uring_setup(entries, p);
@@ -109,16 +109,16 @@ pub const IO_Uring = struct {
         // See https://patchwork.kernel.org/patch/11115257 for the kernel patch.
         // We do not support the double mmap() done before 5.4, because we want to keep the
         // init/deinit mmap paths simple and because io_uring has had many bug fixes even since 5.4.
-        if ((p.*.features & linux.IORING_FEAT_SINGLE_MMAP) == 0) {
+        if ((p.features & linux.IORING_FEAT_SINGLE_MMAP) == 0) {
             return error.IO_UringKernelNotSupported;
         }
 
         // Check that the kernel has actually set params and that "impossible is nothing".
-        assert(p.*.sq_entries != 0);
-        assert(p.*.cq_entries != 0);
-        assert(p.*.cq_entries >= p.*.sq_entries);
+        assert(p.sq_entries != 0);
+        assert(p.cq_entries != 0);
+        assert(p.cq_entries >= p.sq_entries);
 
-        // From here on, we only need to read from params, so pass `p` by value for convenience.
+        // From here on, we only need to read from params, so pass `p` by value as immutable.
         // The completion queue shares the mmap with the submission queue, so pass `sq` there too.
         var sq = try SubmissionQueue.init(fd, p.*);
         errdefer sq.deinit();
@@ -128,25 +128,25 @@ pub const IO_Uring = struct {
         // Check that our starting state is as we expect.
         assert(sq.head.* == 0);
         assert(sq.tail.* == 0);
-        assert(sq.mask.* == p.*.sq_entries - 1);
+        assert(sq.mask.* == p.sq_entries - 1);
         // Allow flags.* to be non-zero, since the kernel may set IORING_SQ_NEED_WAKEUP at any time.
         assert(sq.dropped.* == 0);
-        assert(sq.array.len == p.*.sq_entries);
-        assert(sq.sqes.len == p.*.sq_entries);
+        assert(sq.array.len == p.sq_entries);
+        assert(sq.sqes.len == p.sq_entries);
         assert(sq.sqe_head == 0);
         assert(sq.sqe_tail == 0);
 
         assert(cq.head.* == 0);
         assert(cq.tail.* == 0);
-        assert(cq.mask.* == p.*.cq_entries - 1);
+        assert(cq.mask.* == p.cq_entries - 1);
         assert(cq.overflow.* == 0);
-        assert(cq.cqes.len == p.*.cq_entries);
+        assert(cq.cqes.len == p.cq_entries);
 
         return IO_Uring {
             .fd = fd,
             .sq = sq,
             .cq = cq,
-            .flags = p.*.flags
+            .flags = p.flags
         };
     }
 
@@ -491,7 +491,7 @@ pub const IO_Uring = struct {
     /// A chain will be broken if any SQE in the chain ends in error, where any unexpected result is
     /// considered an error. For example, a short read will terminate the remainder of the chain.
     pub fn link_with_next_sqe(self: *IO_Uring, sqe: *io_uring_sqe) void {
-        sqe.*.flags |= linux.IOSQE_IO_LINK;
+        sqe.flags |= linux.IOSQE_IO_LINK;
     }
     
     /// Like `link_with_next_sqe()` but stronger.
@@ -499,7 +499,7 @@ pub const IO_Uring = struct {
     /// For example, you may know that some commands will fail and may want the chain to continue.
     /// Hard links are resilient to completion results, but are not resilient to submission errors.
     pub fn hardlink_with_next_sqe(self: *IO_Uring, sqe: *io_uring_sqe) void {
-        sqe.*.flags |= linux.IOSQE_IO_HARDLINK;
+        sqe.flags |= linux.IOSQE_IO_HARDLINK;
     }
     
     /// This creates a full pipeline barrier in the submission queue.
@@ -508,7 +508,7 @@ pub const IO_Uring = struct {
     /// In other words, this stalls the entire submission queue.
     /// You should first consider using link_with_next_sqe() for more granular SQE sequence control.
     pub fn drain_previous_sqes(self: *IO_Uring, sqe: *io_uring_sqe) void {
-        sqe.*.flags |= linux.IOSQE_IO_DRAIN;
+        sqe.flags |= linux.IOSQE_IO_DRAIN;
     }
 
     /// Registers an array of file descriptors.
@@ -534,7 +534,7 @@ pub const IO_Uring = struct {
 
     /// Changes the semantics of the SQE's `fd` to refer to a pre-registered file descriptor.
     pub fn use_registered_fd(self: *IO_Uring, sqe: *io_uring_sqe) void {
-        sqe.*.flags |= linux.IOSQE_FIXED_FILE;
+        sqe.flags |= linux.IOSQE_FIXED_FILE;
     }
 
     /// Unregisters all registered file descriptors previously associated with the ring.
@@ -719,7 +719,7 @@ test "queue_nop" {
 
     var sqe_barrier = try ring.queue_nop(@intCast(u64, 0xbbbbbbbb));
     ring.drain_previous_sqes(sqe_barrier);
-    testing.expectEqual(@as(u8, linux.IOSQE_IO_DRAIN), sqe_barrier.*.flags);
+    testing.expectEqual(@as(u8, linux.IOSQE_IO_DRAIN), sqe_barrier.flags);
     testing.expectEqual(@as(u32, 1), try ring.submit());
     testing.expectEqual(io_uring_cqe {
         .user_data = 0xbbbbbbbb,
@@ -750,7 +750,7 @@ test "queue_readv" {
     var iovecs = [_]os.iovec{ os.iovec { .iov_base = &buffer, .iov_len = buffer.len } };
     var sqe = try ring.queue_readv(0xcccccccc, fd_index, iovecs[0..], 0);
     ring.use_registered_fd(sqe);
-    testing.expectEqual(@as(u8, linux.IOSQE_FIXED_FILE), sqe.*.flags);
+    testing.expectEqual(@as(u8, linux.IOSQE_FIXED_FILE), sqe.flags);
 
     testing.expectError(error.IO_UringSubmissionQueueFull, ring.queue_nop(0));
     testing.expectEqual(@as(u32, 1), try ring.submit());
@@ -782,10 +782,10 @@ test "queue_writev/queue_fsync" {
     };
     var sqe_writev = try ring.queue_writev(0xdddddddd, fd, iovecs[0..], 0);
     ring.link_with_next_sqe(sqe_writev);
-    testing.expectEqual(@as(u8, linux.IOSQE_IO_LINK), sqe_writev.*.flags);
+    testing.expectEqual(@as(u8, linux.IOSQE_IO_LINK), sqe_writev.flags);
     
     var sqe_fsync = try ring.queue_fsync(0xeeeeeeee, fd);
-    testing.expectEqual(fd, sqe_fsync.*.fd);
+    testing.expectEqual(fd, sqe_fsync.fd);
 
     testing.expectEqual(@as(u32, 2), ring.sq_ready());
     testing.expectEqual(@as(u32, 2), try ring.submit_and_wait(2));
