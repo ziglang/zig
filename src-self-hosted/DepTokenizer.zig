@@ -25,256 +25,256 @@ pub fn next(self: *Tokenizer) ?Token {
     var must_resolve = false;
     while (self.index < self.bytes.len) {
         const char = self.bytes[self.index];
-            switch (self.state) {
-                .lhs => switch (char) {
-                    '\t', '\n', '\r', ' ' => {
-                        // silently ignore whitespace
+        switch (self.state) {
+            .lhs => switch (char) {
+                '\t', '\n', '\r', ' ' => {
+                    // silently ignore whitespace
                     self.index += 1;
-                    },
-                    else => {
+                },
+                else => {
                     start = self.index;
                     self.state = .target;
-                    },
                 },
+            },
             .target => switch (char) {
-                    '\t', '\n', '\r', ' ' => {
+                '\t', '\n', '\r', ' ' => {
                     return errorIllegalChar(.invalid_target, self.index, char);
-                    },
-                    '$' => {
+                },
+                '$' => {
                     self.state = .target_dollar_sign;
                     self.index += 1;
-                    },
-                    '\\' => {
+                },
+                '\\' => {
                     self.state = .target_reverse_solidus;
                     self.index += 1;
-                    },
-                    ':' => {
+                },
+                ':' => {
                     self.state = .target_colon;
                     self.index += 1;
-                    },
-                    else => {
-                    self.index += 1;
-                    },
                 },
+                else => {
+                    self.index += 1;
+                },
+            },
             .target_reverse_solidus => switch (char) {
-                    '\t', '\n', '\r' => {
+                '\t', '\n', '\r' => {
                     return errorIllegalChar(.bad_target_escape, self.index, char);
-                    },
-                    ' ', '#', '\\' => {
+                },
+                ' ', '#', '\\' => {
                     must_resolve = true;
                     self.state = .target;
                     self.index += 1;
-                    },
-                    '$' => {
+                },
+                '$' => {
                     self.state = .target_dollar_sign;
                     self.index += 1;
-                    },
-                    else => {
+                },
+                else => {
                     self.state = .target;
                     self.index += 1;
-                    },
                 },
+            },
             .target_dollar_sign => switch (char) {
-                    '$' => {
+                '$' => {
                     must_resolve = true;
                     self.state = .target;
                     self.index += 1;
-                    },
-                    else => {
-                    return errorIllegalChar(.expected_dollar_sign, self.index, char);
-                    },
                 },
+                else => {
+                    return errorIllegalChar(.expected_dollar_sign, self.index, char);
+                },
+            },
             .target_colon => switch (char) {
-                    '\n', '\r' => {
-                    const bytes = self.bytes[start..self.index - 1];
-                        if (bytes.len != 0) {
+                '\n', '\r' => {
+                    const bytes = self.bytes[start .. self.index - 1];
+                    if (bytes.len != 0) {
                         self.state = .lhs;
                         return finishTarget(must_resolve, bytes);
-                        }
-                        // silently ignore null target
+                    }
+                    // silently ignore null target
                     self.state = .lhs;
-                    },
-                    '\\' => {
+                },
+                '\\' => {
                     self.state = .target_colon_reverse_solidus;
                     self.index += 1;
-                    },
-                    else => {
-                    const bytes = self.bytes[start..self.index - 1];
-                        if (bytes.len != 0) {
+                },
+                else => {
+                    const bytes = self.bytes[start .. self.index - 1];
+                    if (bytes.len != 0) {
                         self.state = .rhs;
                         return finishTarget(must_resolve, bytes);
-                        }
-                        // silently ignore null target
+                    }
+                    // silently ignore null target
                     self.state = .lhs;
-                    },
                 },
+            },
             .target_colon_reverse_solidus => switch (char) {
-                    '\n', '\r' => {
+                '\n', '\r' => {
                     const bytes = self.bytes[start .. self.index - 2];
-                        if (bytes.len != 0) {
+                    if (bytes.len != 0) {
                         self.state = .lhs;
                         return finishTarget(must_resolve, bytes);
-                        }
-                        // silently ignore null target
+                    }
+                    // silently ignore null target
                     self.state = .lhs;
-                    },
-                    else => {
-                    self.state = .target;
-                    },
                 },
-                .rhs => switch (char) {
-                    '\t', ' ' => {
-                        // silently ignore horizontal whitespace
+                else => {
+                    self.state = .target;
+                },
+            },
+            .rhs => switch (char) {
+                '\t', ' ' => {
+                    // silently ignore horizontal whitespace
                     self.index += 1;
-                    },
-                    '\n', '\r' => {
+                },
+                '\n', '\r' => {
                     self.state = .lhs;
-                    },
-                    '\\' => {
+                },
+                '\\' => {
                     self.state = .rhs_continuation;
                     self.index += 1;
-                    },
-                    '"' => {
+                },
+                '"' => {
                     self.state = .prereq_quote;
                     self.index += 1;
                     start = self.index;
-                    },
-                    else => {
+                },
+                else => {
                     start = self.index;
                     self.state = .prereq;
-                    },
                 },
-                .rhs_continuation => switch (char) {
-                    '\n' => {
+            },
+            .rhs_continuation => switch (char) {
+                '\n' => {
                     self.state = .rhs;
                     self.index += 1;
-                    },
-                    '\r' => {
+                },
+                '\r' => {
                     self.state = .rhs_continuation_linefeed;
                     self.index += 1;
-                    },
-                    else => {
-                    return errorIllegalChar(.continuation_eol, self.index, char);
-                    },
                 },
-                .rhs_continuation_linefeed => switch (char) {
-                    '\n' => {
+                else => {
+                    return errorIllegalChar(.continuation_eol, self.index, char);
+                },
+            },
+            .rhs_continuation_linefeed => switch (char) {
+                '\n' => {
                     self.state = .rhs;
                     self.index += 1;
-                    },
-                    else => {
-                    return errorIllegalChar(.continuation_eol, self.index, char);
-                    },
                 },
+                else => {
+                    return errorIllegalChar(.continuation_eol, self.index, char);
+                },
+            },
             .prereq_quote => switch (char) {
-                    '"' => {
-                        self.index += 1;
+                '"' => {
+                    self.index += 1;
                     self.state = .rhs;
                     return Token{ .prereq = self.bytes[start .. self.index - 1] };
-                    },
-                    else => {
-                    self.index += 1;
-                    },
                 },
+                else => {
+                    self.index += 1;
+                },
+            },
             .prereq => switch (char) {
-                    '\t', ' ' => {
+                '\t', ' ' => {
                     self.state = .rhs;
                     return Token{ .prereq = self.bytes[start..self.index] };
-                    },
-                    '\n', '\r' => {
+                },
+                '\n', '\r' => {
                     self.state = .lhs;
                     return Token{ .prereq = self.bytes[start..self.index] };
-                    },
-                    '\\' => {
+                },
+                '\\' => {
                     self.state = .prereq_continuation;
                     self.index += 1;
-                    },
-                    else => {
-                    self.index += 1;
-                    },
                 },
+                else => {
+                    self.index += 1;
+                },
+            },
             .prereq_continuation => switch (char) {
-                    '\n' => {
-                        self.index += 1;
+                '\n' => {
+                    self.index += 1;
                     self.state = .rhs;
                     return Token{ .prereq = self.bytes[start .. self.index - 2] };
-                    },
-                    '\r' => {
+                },
+                '\r' => {
                     self.state = .prereq_continuation_linefeed;
                     self.index += 1;
-                    },
-                    else => {
-                        // not continuation
+                },
+                else => {
+                    // not continuation
                     self.state = .prereq;
                     self.index += 1;
-                    },
                 },
+            },
             .prereq_continuation_linefeed => switch (char) {
-                    '\n' => {
-                        self.index += 1;
+                '\n' => {
+                    self.index += 1;
                     self.state = .rhs;
                     return Token{ .prereq = self.bytes[start .. self.index - 1] };
-                    },
-                    else => {
-                    return errorIllegalChar(.continuation_eol, self.index, char);
-                    },
                 },
-            }
+                else => {
+                    return errorIllegalChar(.continuation_eol, self.index, char);
+                },
+            },
+        }
     } else {
-    switch (self.state) {
-        .lhs,
-        .rhs,
-        .rhs_continuation,
-        .rhs_continuation_linefeed,
+        switch (self.state) {
+            .lhs,
+            .rhs,
+            .rhs_continuation,
+            .rhs_continuation_linefeed,
             => return null,
             .target => {
                 return Token{ .incomplete_target = self.bytes[start..] };
-        },
-        .target_reverse_solidus,
-        .target_dollar_sign,
-        => {
+            },
+            .target_reverse_solidus,
+            .target_dollar_sign,
+            => {
                 const idx = self.index - 1;
                 return errorIllegalChar(.incomplete_escape, idx, self.bytes[idx]);
-        },
+            },
             .target_colon => {
-                const bytes = self.bytes[start.. self.index - 1];
-            if (bytes.len != 0) {
-                self.index += 1;
+                const bytes = self.bytes[start .. self.index - 1];
+                if (bytes.len != 0) {
+                    self.index += 1;
                     self.state = .rhs;
                     return finishTarget(must_resolve, bytes);
-            }
-            // silently ignore null target
+                }
+                // silently ignore null target
                 self.state = .lhs;
                 return null;
-        },
+            },
             .target_colon_reverse_solidus => {
-                const bytes = self.bytes[start..self.index - 2];
-            if (bytes.len != 0) {
-                self.index += 1;
+                const bytes = self.bytes[start .. self.index - 2];
+                if (bytes.len != 0) {
+                    self.index += 1;
                     self.state = .rhs;
                     return finishTarget(must_resolve, bytes);
-            }
-            // silently ignore null target
+                }
+                // silently ignore null target
                 self.state = .lhs;
                 return null;
-        },
+            },
             .prereq_quote => {
                 return Token{ .incomplete_quoted_prerequisite = self.bytes[start..] };
-        },
+            },
             .prereq => {
                 self.state = .lhs;
                 return Token{ .prereq = self.bytes[start..] };
-        },
+            },
             .prereq_continuation => {
                 self.state = .lhs;
-                return Token{ .prereq = self.bytes[start.. self.index - 1] };
-        },
+                return Token{ .prereq = self.bytes[start .. self.index - 1] };
+            },
             .prereq_continuation_linefeed => {
                 self.state = .lhs;
-                return Token{ .prereq = self.bytes[start.. self.index - 2] };
-        },
+                return Token{ .prereq = self.bytes[start .. self.index - 2] };
+            },
+        }
     }
-}
     unreachable;
 }
 
@@ -321,6 +321,46 @@ pub const Token = union(enum) {
         index: usize,
         char: u8,
     };
+
+    /// Resolve escapes in target. Only valid with .target_must_resolve.
+    pub fn resolve(self: Token, buf: *std.ArrayList(u8)) std.mem.Allocator.Error!void {
+        const bytes = self.target_must_resolve; // resolve called on incorrect token
+
+        try buf.ensureCapacity(bytes.len); // cannot be longer than the unescaped string
+        var state: enum { start, escape, dollar } = .start;
+        for (bytes) |c| {
+            switch (state) {
+                .start => {
+                    switch (c) {
+                        '\\' => state = .escape,
+                        '$' => state = .dollar,
+                        else => buf.appendAssumeCapacity(c),
+                    }
+                },
+                .escape => {
+                    switch (c) {
+                        ' ', '#', '\\' => {},
+                        '$' => {
+                            buf.appendAssumeCapacity('\\');
+                            state = .dollar;
+                            continue;
+                        },
+                        else => buf.appendAssumeCapacity('\\'),
+                    }
+                    buf.appendAssumeCapacity(c);
+                    state = .start;
+                },
+                .dollar => {
+                    buf.appendAssumeCapacity('$');
+                    switch (c) {
+                        '$' => {},
+                        else => buf.appendAssumeCapacity(c),
+                    }
+                    state = .start;
+                },
+            }
+        }
+    }
 };
 
 test "empty file" {
@@ -807,20 +847,27 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
 
     var it = Tokenizer.init(arena, input);
     var buffer = try std.ArrayListSentineled(u8, 0).initSize(arena, 0);
+    var resolve_buf = std.ArrayList(u8).init(arena);
     var i: usize = 0;
     while (it.next()) |token| {
         if (i != 0) try buffer.appendSlice("\n");
         switch (token) {
             .target, .prereq => |bytes| {
                 try buffer.appendSlice(@tagName(token));
-        try buffer.appendSlice(" = {");
+                try buffer.appendSlice(" = {");
                 for (bytes) |b| {
-            try buffer.append(printable_char_tab[b]);
-        }
-        try buffer.appendSlice("}");
+                    try buffer.append(printable_char_tab[b]);
+                }
+                try buffer.appendSlice("}");
             },
             .target_must_resolve => {
-                @panic("TODO");
+                try buffer.appendSlice("target = {");
+                try token.resolve(&resolve_buf);
+                for (resolve_buf.items) |b| {
+                    try buffer.append(printable_char_tab[b]);
+                }
+                resolve_buf.items.len = 0;
+                try buffer.appendSlice("}");
             },
             else => {
                 @panic("TODO");
