@@ -849,3 +849,8 @@ test "comptime float casts" {
     expect(b == 2);
     expect(@TypeOf(b) == comptime_int);
 }
+
+test "cast from ?[*]T to ??[*]T" {
+    const a: ??[*]u8 = @as(?[*]u8, null);
+    expect(a != null and a.? == null);
+}

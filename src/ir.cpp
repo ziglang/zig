@@ -63,6 +63,7 @@ enum ConstCastResultId {
     ConstCastResultIdPointerChild,
     ConstCastResultIdSliceChild,
     ConstCastResultIdOptionalChild,
+    ConstCastResultIdOptionalShape,
     ConstCastResultIdErrorUnionPayload,
     ConstCastResultIdErrorUnionErrorSet,
     ConstCastResultIdFnAlign,
@@ -11946,8 +11947,22 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
         }
     }
 
-    // maybe
+    // optional types
     if (wanted_type->id == ZigTypeIdOptional && actual_type->id == ZigTypeIdOptional) {
+        // Consider the case where the wanted type is ??[*]T and the actual one
+        // is ?[*]T, we cannot turn the former into the latter even though the
+        // child types are compatible (?[*]T and [*]T are both represented as a
+        // pointer). The extra level of indirection in ??[*]T means it's
+        // represented as a regular, fat, optional type and, as a consequence,
+        // has a different shape than the one of ?[*]T.
+        if ((wanted_ptr_type != nullptr) != (actual_ptr_type != nullptr)) {
+            // The use of type_mismatch is intentional
+            result.id = ConstCastResultIdOptionalShape;
+            result.data.type_mismatch = heap::c_allocator.allocate_nonzero<ConstCastTypeMismatch>(1);
+            result.data.type_mismatch->wanted_type = wanted_type;
+            result.data.type_mismatch->actual_type = actual_type;
+            return result;
+        }
         ConstCastOnly child = types_match_const_cast_only(ira, wanted_type->data.maybe.child_type,
                 actual_type->data.maybe.child_type, source_node, wanted_is_mutable);
         if (child.id == ConstCastResultIdInvalid)
@@ -14547,6 +14562,13 @@ static void report_recursive_error(IrAnalyze *ira, AstNode *source_node, ConstCa
                         buf_ptr(&cast_result->data.optional->actual_child->name),
                         buf_ptr(&cast_result->data.optional->wanted_child->name)));
             report_recursive_error(ira, source_node, &cast_result->data.optional->child, msg);
+            break;
+        }
+        case ConstCastResultIdOptionalShape: {
+            add_error_note(ira->codegen, parent_msg, source_node,
+                    buf_sprintf("optional type child '%s' cannot cast into optional type '%s'",
+                        buf_ptr(&cast_result->data.type_mismatch->actual_type->name),
+                        buf_ptr(&cast_result->data.type_mismatch->wanted_type->name)));
             break;
         }
         case ConstCastResultIdErrorUnionErrorSet: {
