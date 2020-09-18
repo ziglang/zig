@@ -1,4 +1,3 @@
- * `zig translate-c`
  * `zig test`
  * `zig build`
  * `-ftime-report`

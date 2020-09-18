@@ -392,15 +392,18 @@ if(ZIG_TEST_COVERAGE)
     set(EXE_LDFLAGS "${EXE_LDFLAGS} -fprofile-arcs -ftest-coverage")
 endif()
 
-add_library(zig_cpp STATIC ${ZIG_CPP_SOURCES})
+add_library(zig_cpp STATIC ${ZIG_SOURCES} ${ZIG_CPP_SOURCES})
 set_target_properties(zig_cpp PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
 )
 
 target_link_libraries(zig_cpp LINK_PUBLIC
+    opt_c_util
+    ${SOFTFLOAT_LIBRARIES}
     ${CLANG_LIBRARIES}
     ${LLD_LIBRARIES}
     ${LLVM_LIBRARIES}
+    ${CMAKE_THREAD_LIBS_INIT}
 )
 if(ZIG_WORKAROUND_POLLY_SO)
   target_link_libraries(zig_cpp LINK_PUBLIC "-Wl,${ZIG_WORKAROUND_POLLY_SO}")
@@ -411,27 +414,16 @@ set_target_properties(opt_c_util PROPERTIES
     COMPILE_FLAGS "${OPTIMIZED_C_FLAGS}"
 )
 
-add_library(zigcompiler STATIC ${ZIG_SOURCES})
-set_target_properties(zigcompiler PROPERTIES
-    COMPILE_FLAGS ${EXE_CFLAGS}
-    LINK_FLAGS ${EXE_LDFLAGS}
-)
-target_link_libraries(zigcompiler LINK_PUBLIC
-    zig_cpp
-    opt_c_util
-    ${SOFTFLOAT_LIBRARIES}
-    ${CMAKE_THREAD_LIBS_INIT}
-)
 if(NOT MSVC)
-    target_link_libraries(zigcompiler LINK_PUBLIC ${LIBXML2})
+    target_link_libraries(zig_cpp LINK_PUBLIC ${LIBXML2})
 endif()
 
 if(ZIG_DIA_GUIDS_LIB)
-    target_link_libraries(zigcompiler LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
+    target_link_libraries(zig_cpp LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
 endif()
 
 if(MSVC OR MINGW)
-    target_link_libraries(zigcompiler LINK_PUBLIC version)
+    target_link_libraries(zig_cpp LINK_PUBLIC version)
 endif()
 
 add_executable(zig0 ${ZIG0_SOURCES})
@@ -439,7 +431,7 @@ set_target_properties(zig0 PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-target_link_libraries(zig0 zigcompiler)
+target_link_libraries(zig0 zig_cpp)
 
 if(MSVC)
     set(ZIG1_OBJECT "${CMAKE_BINARY_DIR}/zig1.obj")
@@ -493,7 +485,7 @@ set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-target_link_libraries(zig zigcompiler "${ZIG1_OBJECT}")
+target_link_libraries(zig "${ZIG1_OBJECT}" zig_cpp)
 if(MSVC)
   target_link_libraries(zig ntdll.lib)
 elseif(MINGW)

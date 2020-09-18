@@ -15,6 +15,7 @@ const build_options = @import("build_options");
 const warn = std.log.warn;
 const introspect = @import("introspect.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
+const translate_c = @import("translate_c.zig");
 
 pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.log.emerg(format, args);
@@ -864,6 +865,10 @@ pub fn buildOutputType(
         }
     }
 
+    if (arg_mode == .translate_c and c_source_files.items.len != 1) {
+        fatal("translate-c expects exactly 1 source file (found {})", .{c_source_files.items.len});
+    }
+
     const root_name = if (provided_name) |n| n else blk: {
         if (root_src_file) |file| {
             const basename = fs.path.basename(file);
@@ -1175,10 +1180,10 @@ pub fn buildOutputType(
     defer comp.destroy();
 
     if (show_builtin) {
-        const source = try comp.generateBuiltinZigSource();
-        defer comp.gpa.free(source);
-        try std.io.getStdOut().writeAll(source);
-        return;
+        return std.io.getStdOut().writeAll(try comp.generateBuiltinZigSource(arena));
+    }
+    if (arg_mode == .translate_c) {
+        return cmdTranslateC(comp, arena);
     }
 
     try updateModule(gpa, comp, zir_out_path);
@@ -1246,6 +1251,63 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, zir_out_path: ?[]const u8) 
 
         try baf.finish();
     }
+}
+
+fn cmdTranslateC(comp: *Compilation, arena: *Allocator) !void {
+    if (!build_options.have_llvm)
+        fatal("cannot translate-c: compiler built without LLVM extensions", .{});
+
+    assert(comp.c_source_files.len == 1);
+
+    var argv = std.ArrayList([]const u8).init(arena);
+
+    const c_source_file = comp.c_source_files[0];
+    const file_ext = Compilation.classifyFileExt(c_source_file.src_path);
+    try comp.addCCArgs(arena, &argv, file_ext, true, null);
+    try argv.append(c_source_file.src_path);
+
+    if (comp.verbose_cc) {
+        std.debug.print("clang ", .{});
+        Compilation.dump_argv(argv.items);
+    }
+
+    // Convert to null terminated args.
+    const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, argv.items.len + 1);
+    new_argv_with_sentinel[argv.items.len] = null;
+    const new_argv = new_argv_with_sentinel[0..argv.items.len :null];
+    for (argv.items) |arg, i| {
+        new_argv[i] = try arena.dupeZ(u8, arg);
+    }
+
+    const c_headers_dir_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{"include"});
+    const c_headers_dir_path_z = try arena.dupeZ(u8, c_headers_dir_path);
+    var clang_errors: []translate_c.ClangErrMsg = &[0]translate_c.ClangErrMsg{};
+    const tree = translate_c.translate(
+        comp.gpa,
+        new_argv.ptr,
+        new_argv.ptr + new_argv.len,
+        &clang_errors,
+        c_headers_dir_path_z,
+    ) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.ASTUnitFailure => fatal("clang API returned errors but due to a clang bug, it is not exposing the errors for zig to see. For more details: https://github.com/ziglang/zig/issues/4455", .{}),
+        error.SemanticAnalyzeFail => {
+            for (clang_errors) |clang_err| {
+                std.debug.print("{}:{}:{}: {}\n", .{
+                    if (clang_err.filename_ptr) |p| p[0..clang_err.filename_len] else "(no file)",
+                    clang_err.line + 1,
+                    clang_err.column + 1,
+                    clang_err.msg_ptr[0..clang_err.msg_len],
+                });
+            }
+            process.exit(1);
+        },
+    };
+    defer tree.deinit();
+
+    var bos = io.bufferedOutStream(io.getStdOut().writer());
+    _ = try std.zig.render(comp.gpa, bos.writer(), tree);
+    try bos.flush();
 }
 
 pub const usage_libc =
@@ -1401,8 +1463,9 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
             process.exit(code);
         }
 
-        const stdout = io.getStdOut().outStream();
-        _ = try std.zig.render(gpa, stdout, tree);
+        var bos = io.bufferedOutStream(io.getStdOut().writer());
+        _ = try std.zig.render(gpa, bos.writer(), tree);
+        try bos.flush();
         return;
     }
 
@@ -1644,7 +1707,7 @@ extern "c" fn ZigClang_main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 /// TODO https://github.com/ziglang/zig/issues/3257
 fn punt_to_clang(arena: *Allocator, args: []const []const u8) error{OutOfMemory} {
     if (!build_options.have_llvm)
-        fatal("`zig cc` and `zig c++` unavailable: compiler not built with LLVM extensions enabled", .{});
+        fatal("`zig cc` and `zig c++` unavailable: compiler built without LLVM extensions", .{});
     // Convert the args to the format Clang expects.
     const argv = try arena.alloc(?[*:0]u8, args.len + 1);
     for (args) |arg, i| {

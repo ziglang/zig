@@ -1,5 +1,5 @@
-// This is the userland implementation of translate-c which is used by both stage1
-// and stage2.
+//! This is the userland implementation of translate-c which is used by both stage1
+//! and stage2.
 
 const std = @import("std");
 const assert = std.debug.assert;

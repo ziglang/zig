@@ -1005,7 +1005,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
     defer tracy.end();
 
     if (!build_options.have_llvm) {
-        return comp.failCObj(c_object, "clang not available: compiler not built with LLVM extensions enabled", .{});
+        return comp.failCObj(c_object, "clang not available: compiler built without LLVM extensions", .{});
     }
     const self_exe_path = comp.self_exe_path orelse
         return comp.failCObj(c_object, "clang compilation disabled", .{});
@@ -1081,10 +1081,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         try argv.appendSlice(c_object.src.extra_flags);
 
         if (comp.verbose_cc) {
-            for (argv.items[0 .. argv.items.len - 1]) |arg| {
-                std.debug.print("{} ", .{arg});
-            }
-            std.debug.print("{}\n", .{argv.items[argv.items.len - 1]});
+            dump_argv(argv.items);
         }
 
         const child = try std.ChildProcess.init(argv.items, arena);
@@ -1190,7 +1187,7 @@ fn tmpFilePath(comp: *Compilation, arena: *Allocator, suffix: []const u8) error{
 }
 
 /// Add common C compiler args between translate-c and C object compilation.
-fn addCCArgs(
+pub fn addCCArgs(
     comp: *Compilation,
     arena: *Allocator,
     argv: *std.ArrayList([]const u8),
@@ -1671,12 +1668,19 @@ fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
 }
 
 fn updateBuiltinZigFile(comp: *Compilation, mod: *Module) !void {
-    const source = try comp.generateBuiltinZigSource();
+    const source = try comp.generateBuiltinZigSource(comp.gpa);
     defer comp.gpa.free(source);
     try mod.zig_cache_artifact_directory.handle.writeFile("builtin.zig", source);
 }
 
-pub fn generateBuiltinZigSource(comp: *Compilation) ![]u8 {
+pub fn dump_argv(argv: []const []const u8) void {
+    for (argv[0 .. argv.len - 1]) |arg| {
+        std.debug.print("{} ", .{arg});
+    }
+    std.debug.print("{}\n", .{argv[argv.len - 1]});
+}
+
+pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8 {
     var buffer = std.ArrayList(u8).init(comp.gpa);
     defer buffer.deinit();
 
