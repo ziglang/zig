@@ -10,7 +10,6 @@
 
 #include "config.h"
 #include "heap.hpp"
-#include "mem_profile.hpp"
 
 namespace heap {
 
@@ -48,21 +47,9 @@ void BootstrapAllocator::internal_deallocate(const mem::TypeInfo &info, void *pt
     mem::os::free(ptr);
 }
 
-void CAllocator::init(const char *name) {
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    this->profile = bootstrap_allocator.create<mem::Profile>();
-    this->profile->init(name, "CAllocator");
-#endif
-}
+void CAllocator::init(const char *name) { }
 
-void CAllocator::deinit() {
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    assert(this->profile);
-    this->profile->deinit();
-    bootstrap_allocator.destroy(this->profile);
-    this->profile = nullptr;
-#endif
-}
+void CAllocator::deinit() { }
 
 CAllocator *CAllocator::construct(mem::Allocator *allocator, const char *name) {
     auto p = new(allocator->create<CAllocator>()) CAllocator();
@@ -75,23 +62,11 @@ void CAllocator::destruct(mem::Allocator *allocator) {
     allocator->destroy(this);
 }
 
-#ifdef ZIG_ENABLE_MEM_PROFILE
-void CAllocator::print_report(FILE *file) {
-    this->profile->print_report(file);
-}
-#endif
-
 void *CAllocator::internal_allocate(const mem::TypeInfo &info, size_t count) {
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    this->profile->record_alloc(info, count);
-#endif
     return mem::os::calloc(count, info.size);
 }
 
 void *CAllocator::internal_allocate_nonzero(const mem::TypeInfo &info, size_t count) {
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    this->profile->record_alloc(info, count);
-#endif
     return mem::os::malloc(count * info.size);
 }
 
@@ -103,17 +78,10 @@ void *CAllocator::internal_reallocate(const mem::TypeInfo &info, void *old_ptr, 
 }
 
 void *CAllocator::internal_reallocate_nonzero(const mem::TypeInfo &info, void *old_ptr, size_t old_count, size_t new_count) {
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    this->profile->record_dealloc(info, old_count);
-    this->profile->record_alloc(info, new_count);
-#endif
     return mem::os::realloc(old_ptr, new_count * info.size);
 }
 
 void CAllocator::internal_deallocate(const mem::TypeInfo &info, void *ptr, size_t count) {
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    this->profile->record_dealloc(info, count);
-#endif
     mem::os::free(ptr);
 }
 
@@ -249,10 +217,6 @@ void ArenaAllocator::Impl::track_object(Object object) {
 }
 
 void ArenaAllocator::init(Allocator *backing, const char *name) {
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    this->profile = bootstrap_allocator.create<mem::Profile>();
-    this->profile->init(name, "ArenaAllocator");
-#endif
     this->impl = bootstrap_allocator.create<Impl>();
     {
         auto &r = *this->impl;
@@ -309,13 +273,6 @@ void ArenaAllocator::deinit() {
             t = prev;
         }
     }
-
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    assert(this->profile);
-    this->profile->deinit();
-    bootstrap_allocator.destroy(this->profile);
-    this->profile = nullptr;
-#endif
 }
 
 ArenaAllocator *ArenaAllocator::construct(mem::Allocator *allocator, mem::Allocator *backing, const char *name) {
@@ -329,23 +286,11 @@ void ArenaAllocator::destruct(mem::Allocator *allocator) {
     allocator->destroy(this);
 }
 
-#ifdef ZIG_ENABLE_MEM_PROFILE
-void ArenaAllocator::print_report(FILE *file) {
-    this->profile->print_report(file);
-}
-#endif
-
 void *ArenaAllocator::internal_allocate(const mem::TypeInfo &info, size_t count) {
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    this->profile->record_alloc(info, count);
-#endif
     return this->impl->allocate(info, count);
 }
 
 void *ArenaAllocator::internal_allocate_nonzero(const mem::TypeInfo &info, size_t count) {
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    this->profile->record_alloc(info, count);
-#endif
     return this->impl->allocate(info, count);
 }
 
@@ -354,17 +299,10 @@ void *ArenaAllocator::internal_reallocate(const mem::TypeInfo &info, void *old_p
 }
 
 void *ArenaAllocator::internal_reallocate_nonzero(const mem::TypeInfo &info, void *old_ptr, size_t old_count, size_t new_count) {
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    this->profile->record_dealloc(info, old_count);
-    this->profile->record_alloc(info, new_count);
-#endif
     return this->impl->reallocate(info, old_ptr, old_count, new_count);
 }
 
 void ArenaAllocator::internal_deallocate(const mem::TypeInfo &info, void *ptr, size_t count) {
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    this->profile->record_dealloc(info, count);
-#endif
     // noop
 }
 

@@ -1,3 +1,21 @@
+ * `zig builtin`
+ * `zig translate-c`
+ * `zig test`
+ * `zig run`
+ * `zig init-lib`
+ * `zig init-exe`
+ * `zig build`
+ * `-ftime-report`
+ *  -fstack-report               print stack size diagnostics\n"
+ *  -fdump-analysis              write analysis.json file with type information\n"
+ *  -femit-docs                  create a docs/ dir with html documentation\n"
+ *  -fno-emit-docs               do not produce docs/ dir with html documentation\n"
+ *  -femit-asm                   output .s (assembly code)\n"
+ *  -fno-emit-asm                (default) do not output .s (assembly code)\n"
+ *  -femit-llvm-ir               produce a .ll file with LLVM IR\n"
+ *  -fno-emit-llvm-ir            (default) do not produce a .ll file with LLVM IR\n"
+ *  --cache-dir [path]           override the local cache directory\n"
+ * move main.cpp to stage2
  * make sure zig cc works
    - using it as a preprocessor (-E)
    - try building some software
@@ -6,26 +24,24 @@
    - stage1 C++ code integration
  * build & link againstn freestanding libc
  * add CLI support for a way to pass extra flags to c source files
- * implement the workaround for using LLVM to detect native CPU features
- * self-host main.cpp
  * capture lld stdout/stderr better
  * musl
  * mingw-w64
  * use global zig-cache dir for crt files
- * `zig translate-c`
  * MachO LLD linking
  * COFF LLD linking
  * WASM LLD linking
  * implement proper parsing of LLD stderr/stdout and exposing compile errors
  * implement proper parsing of clang stderr/stdout and exposing compile errors
  * implement proper compile errors for failing to build glibc crt files and shared libs
- * self-host link.cpp and building libcs (#4313 and #4314). using the `zig cc` command will set a flag indicating a preference for the llvm backend, which will include linking with LLD. At least for now. If zig's self-hosted linker ever gets on par with the likes of ld and lld, we can make it always be used even for zig cc.
  * improve the stage2 tests to support testing with LLVM extensions enabled
  * multi-thread building C objects
  * support cross compiling stage2 with `zig build`
  * implement emit-h in stage2
  * implement -fno-emit-bin
  * audit the base cache hash
+ * audit the CLI options for stage2
+
  * implement serialization/deserialization of incremental compilation metadata
  * incremental compilation - implement detection of which source files changed
  * improve the cache hash logic for c objects with respect to extra flags and file parameters

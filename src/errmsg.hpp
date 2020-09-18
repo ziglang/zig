@@ -10,12 +10,7 @@
 
 #include "buffer.hpp"
 #include "list.hpp"
-
-enum ErrColor {
-    ErrColorAuto,
-    ErrColorOff,
-    ErrColorOn,
-};
+#include "stage1.h"
 
 struct ErrorMsg {
     size_t line_start;

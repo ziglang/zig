@@ -200,8 +200,6 @@ ZigTypeId type_id_at_index(size_t index);
 size_t type_id_len();
 size_t type_id_index(ZigType *entry);
 ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id);
-LinkLib *create_link_lib(Buf *name);
-LinkLib *add_link_lib(CodeGen *codegen, Buf *lib);
 bool optional_value_is_null(ZigValue *val);
 
 uint32_t get_abi_alignment(CodeGen *g, ZigType *type_entry);
@@ -256,7 +254,6 @@ Error ensure_const_val_repr(IrAnalyze *ira, CodeGen *codegen, AstNode *source_no
 void typecheck_panic_fn(CodeGen *g, TldFn *tld_fn, ZigFn *panic_fn);
 Buf *type_bare_name(ZigType *t);
 Buf *type_h_name(ZigType *t);
-Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose);
 
 LLVMTypeRef get_llvm_type(CodeGen *g, ZigType *type);
 ZigLLVMDIType *get_llvm_di_type(CodeGen *g, ZigType *type);

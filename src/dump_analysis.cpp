@@ -6,11 +6,11 @@
  */
 
 #include "dump_analysis.hpp"
-#include "compiler.hpp"
 #include "analyze.hpp"
 #include "config.h"
 #include "ir.hpp"
 #include "codegen.hpp"
+#include "os.hpp"
 
 enum JsonWriterState {
     JsonWriterStateInvalid,
@@ -1173,7 +1173,6 @@ static void anal_dump_fn(AnalDumpCtx *ctx, ZigFn *fn) {
 }
 
 void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const char *nl) {
-    Error err;
     AnalDumpCtx ctx = {};
     ctx.g = g;
     JsonWriter *jw = &ctx.jw;
@@ -1199,15 +1198,6 @@ void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const 
     jw_object_field(jw, "params");
     jw_begin_object(jw);
     {
-        jw_object_field(jw, "zigId");
-
-        Buf *compiler_id;
-        if ((err = get_compiler_id(&compiler_id))) {
-            fprintf(stderr, "Unable to determine compiler id: %s\n", err_str(err));
-            exit(1);
-        }
-        jw_string(jw, buf_ptr(compiler_id));
-
         jw_object_field(jw, "zigVersion");
         jw_string(jw, ZIG_VERSION_STRING);
 

@@ -12,12 +12,6 @@
 #include "util_base.hpp"
 #include "mem.hpp"
 
-#ifdef ZIG_ENABLE_MEM_PROFILE
-namespace mem {
-    struct Profile;
-}
-#endif
-
 namespace heap {
 
 struct BootstrapAllocator final : mem::Allocator {
@@ -40,9 +34,6 @@ struct CAllocator final : mem::Allocator {
     static CAllocator *construct(mem::Allocator *allocator, const char *name);
     void destruct(mem::Allocator *allocator) final;
 
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    void print_report(FILE *file = nullptr);
-#endif
 
 private:
     ATTRIBUTE_RETURNS_NOALIAS void *internal_allocate(const mem::TypeInfo &info, size_t count) final;
@@ -51,9 +42,6 @@ private:
     void *internal_reallocate_nonzero(const mem::TypeInfo &info, void *old_ptr, size_t old_count, size_t new_count) final;
     void internal_deallocate(const mem::TypeInfo &info, void *ptr, size_t count) final;
 
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    mem::Profile *profile;
-#endif
 };
 
 //
@@ -71,9 +59,6 @@ struct ArenaAllocator final : mem::Allocator {
     static ArenaAllocator *construct(mem::Allocator *allocator, mem::Allocator *backing, const char *name);
     void destruct(mem::Allocator *allocator) final;
 
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    void print_report(FILE *file = nullptr);
-#endif
 
 private:
     ATTRIBUTE_RETURNS_NOALIAS void *internal_allocate(const mem::TypeInfo &info, size_t count) final;
@@ -81,10 +66,6 @@ private:
     void *internal_reallocate(const mem::TypeInfo &info, void *old_ptr, size_t old_count, size_t new_count) final;
     void *internal_reallocate_nonzero(const mem::TypeInfo &info, void *old_ptr, size_t old_count, size_t new_count) final;
     void internal_deallocate(const mem::TypeInfo &info, void *ptr, size_t count) final;
-
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    mem::Profile *profile;
-#endif
 
     struct Impl;
     Impl *impl;

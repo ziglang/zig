@@ -145,6 +145,7 @@ pub fn build(b: *Builder) !void {
     exe.addBuildOption([]const []const u8, "log_scopes", log_scopes);
     exe.addBuildOption([]const []const u8, "zir_dumps", zir_dumps);
     exe.addBuildOption(bool, "enable_tracy", tracy != null);
+    exe.addBuildOption(bool, "is_stage1", false);
     if (tracy) |tracy_path| {
         const client_cpp = fs.path.join(
             b.allocator,
@@ -165,6 +166,7 @@ pub fn build(b: *Builder) !void {
     const is_wasmtime_enabled = b.option(bool, "enable-wasmtime", "Use Wasmtime to enable and run WASI libstd tests") orelse false;
     const glibc_multi_dir = b.option([]const u8, "enable-foreign-glibc", "Provide directory with glibc installations to run cross compiled tests that link glibc");
 
+    test_stage2.addBuildOption(bool, "is_stage1", false);
     test_stage2.addBuildOption(bool, "have_llvm", enable_llvm);
     test_stage2.addBuildOption(bool, "enable_qemu", is_qemu_enabled);
     test_stage2.addBuildOption(bool, "enable_wine", is_wine_enabled);

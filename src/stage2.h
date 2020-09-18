@@ -5,6 +5,8 @@
  * See http://opensource.org/licenses/MIT
  */
 
+// This file deals with exposing stage2 Zig code to stage1 C++ code.
+
 #ifndef ZIG_STAGE2_H
 #define ZIG_STAGE2_H
 
@@ -12,7 +14,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "zig_llvm.h"
+#include "stage1.h"
 
 #ifdef __cplusplus
 #define ZIG_EXTERN_C extern "C"
@@ -27,7 +29,7 @@
 #endif
 
 // ABI warning: the types and declarations in this file must match both those in
-// stage2.cpp and src-self-hosted/stage2.zig.
+// stage2.cpp and src-self-hosted/stage1.zig.
 
 // ABI warning
 enum Error {
@@ -125,73 +127,8 @@ struct Stage2ErrorMsg {
 };
 
 // ABI warning
-struct Stage2Ast;
-
-// ABI warning
-ZIG_EXTERN_C enum Error stage2_translate_c(struct Stage2Ast **out_ast,
-        struct Stage2ErrorMsg **out_errors_ptr, size_t *out_errors_len,
-        const char **args_begin, const char **args_end, const char *resources_path);
-
-// ABI warning
-ZIG_EXTERN_C void stage2_free_clang_errors(struct Stage2ErrorMsg *ptr, size_t len);
-
-// ABI warning
-ZIG_EXTERN_C void stage2_render_ast(struct Stage2Ast *ast, FILE *output_file);
-
-// ABI warning
-ZIG_EXTERN_C void stage2_zen(const char **ptr, size_t *len);
-
-// ABI warning
-ZIG_EXTERN_C int stage2_env(int argc, char **argv);
-
-// ABI warning
-ZIG_EXTERN_C int stage2_cc(int argc, char **argv, bool is_cpp);
-
-// ABI warning
-ZIG_EXTERN_C void stage2_attach_segfault_handler(void);
-
-// ABI warning
 ZIG_EXTERN_C ZIG_ATTRIBUTE_NORETURN void stage2_panic(const char *ptr, size_t len);
 
-// ABI warning
-ZIG_EXTERN_C int stage2_fmt(int argc, char **argv);
-
-// ABI warning
-struct stage2_DepTokenizer {
-    void *handle;
-};
-
-// ABI warning
-struct stage2_DepNextResult {
-    enum TypeId {
-        error,
-        null,
-        target,
-        prereq,
-    };
-
-    TypeId type_id;
-
-    // when ent == error --> error text
-    // when ent == null --> undefined
-    // when ent == target --> target pathname
-    // when ent == prereq --> prereq pathname
-    const char *textz;
-};
-
-// ABI warning
-ZIG_EXTERN_C stage2_DepTokenizer stage2_DepTokenizer_init(const char *input, size_t len);
-
-// ABI warning
-ZIG_EXTERN_C void stage2_DepTokenizer_deinit(stage2_DepTokenizer *self);
-
-// ABI warning
-ZIG_EXTERN_C stage2_DepNextResult stage2_DepTokenizer_next(stage2_DepTokenizer *self);
-
-// ABI warning
-struct Stage2Progress;
-// ABI warning
-struct Stage2ProgressNode;
 // ABI warning
 ZIG_EXTERN_C Stage2Progress *stage2_progress_create(void);
 // ABI warning
@@ -213,69 +150,6 @@ ZIG_EXTERN_C void stage2_progress_update_node(Stage2ProgressNode *node,
         size_t completed_count, size_t estimated_total_items);
 
 // ABI warning
-struct Stage2LibCInstallation {
-    const char *include_dir;
-    size_t include_dir_len;
-    const char *sys_include_dir;
-    size_t sys_include_dir_len;
-    const char *crt_dir;
-    size_t crt_dir_len;
-    const char *msvc_lib_dir;
-    size_t msvc_lib_dir_len;
-    const char *kernel32_lib_dir;
-    size_t kernel32_lib_dir_len;
-};
-
-// ABI warning
-ZIG_EXTERN_C enum Error stage2_libc_parse(struct Stage2LibCInstallation *libc, const char *libc_file);
-// ABI warning
-ZIG_EXTERN_C enum Error stage2_libc_render(struct Stage2LibCInstallation *self, FILE *file);
-// ABI warning
-ZIG_EXTERN_C enum Error stage2_libc_find_native(struct Stage2LibCInstallation *libc);
-
-// ABI warning
-// Synchronize with target.cpp::os_list
-enum Os {
-    OsFreestanding,
-    OsAnanas,
-    OsCloudABI,
-    OsDragonFly,
-    OsFreeBSD,
-    OsFuchsia,
-    OsIOS,
-    OsKFreeBSD,
-    OsLinux,
-    OsLv2,        // PS3
-    OsMacOSX,
-    OsNetBSD,
-    OsOpenBSD,
-    OsSolaris,
-    OsWindows,
-    OsHaiku,
-    OsMinix,
-    OsRTEMS,
-    OsNaCl,       // Native Client
-    OsCNK,        // BG/P Compute-Node Kernel
-    OsAIX,
-    OsCUDA,       // NVIDIA CUDA
-    OsNVCL,       // NVIDIA OpenCL
-    OsAMDHSA,     // AMD HSA Runtime
-    OsPS4,
-    OsELFIAMCU,
-    OsTvOS,       // Apple tvOS
-    OsWatchOS,    // Apple watchOS
-    OsMesa3D,
-    OsContiki,
-    OsAMDPAL,
-    OsHermitCore,
-    OsHurd,
-    OsWASI,
-    OsEmscripten,
-    OsUefi,
-    OsOther,
-};
-
-// ABI warning
 struct Stage2SemVer {
     uint32_t major;
     uint32_t minor;
@@ -283,55 +157,19 @@ struct Stage2SemVer {
 };
 
 // ABI warning
-struct ZigTarget {
-    enum ZigLLVM_ArchType arch;
-    enum ZigLLVM_VendorType vendor;
-
-    enum ZigLLVM_EnvironmentType abi;
-    Os os;
-
-    bool is_native_os;
-    bool is_native_cpu;
-
-    // null means default. this is double-purposed to be darwin min version
-    struct Stage2SemVer *glibc_or_darwin_version;
-
-    const char *llvm_cpu_name;
-    const char *llvm_cpu_features;
-    const char *cpu_builtin_str;
-    const char *cache_hash;
-    size_t cache_hash_len;
-    const char *os_builtin_str;
-    const char *dynamic_linker;
-    const char *standard_dynamic_linker_path;
-
-    const char **llvm_cpu_features_asm_ptr;
-    size_t llvm_cpu_features_asm_len;
-};
-
-// ABI warning
 ZIG_EXTERN_C enum Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, const char *mcpu,
         const char *dynamic_linker);
 
 // ABI warning
-ZIG_EXTERN_C int stage2_cmd_targets(const char *zig_triple, const char *mcpu, const char *dynamic_linker);
-
-
-// ABI warning
-struct Stage2NativePaths {
-    const char **include_dirs_ptr;
-    size_t include_dirs_len;
-    const char **lib_dirs_ptr;
-    size_t lib_dirs_len;
-    const char **rpaths_ptr;
-    size_t rpaths_len;
-    const char **warnings_ptr;
-    size_t warnings_len;
-};
-// ABI warning
-ZIG_EXTERN_C enum Error stage2_detect_native_paths(struct Stage2NativePaths *native_paths);
+ZIG_EXTERN_C const char *stage2_fetch_file(struct ZigStage1 *stage1, const char *path_ptr, size_t path_len,
+        size_t *result_len);
 
 // ABI warning
-ZIG_EXTERN_C const bool stage2_is_zig0;
+ZIG_EXTERN_C const char *stage2_cimport(struct ZigStage1 *stage1);
+
+// ABI warning
+ZIG_EXTERN_C const char *stage2_add_link_lib(struct ZigStage1 *stage1,
+        const char *lib_name_ptr, size_t lib_name_len,
+        const char *symbol_name_ptr, size_t symbol_name_len);
 
 #endif

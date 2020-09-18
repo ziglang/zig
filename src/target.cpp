@@ -10,8 +10,6 @@
 #include "target.hpp"
 #include "util.hpp"
 #include "os.hpp"
-#include "compiler.hpp"
-#include "glibc.hpp"
 
 #include <stdio.h>
 
@@ -344,33 +342,6 @@ const char *target_abi_name(ZigLLVM_EnvironmentType abi) {
     if (abi == ZigLLVM_UnknownEnvironment)
         return "none";
     return ZigLLVMGetEnvironmentTypeName(abi);
-}
-
-Error target_parse_glibc_version(Stage2SemVer *glibc_ver, const char *text) {
-    glibc_ver->major = 2;
-    glibc_ver->minor = 0;
-    glibc_ver->patch = 0;
-    SplitIterator it = memSplit(str(text), str("GLIBC_."));
-    {
-        Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
-        if (!opt_component.is_some) return ErrorUnknownABI;
-        glibc_ver->major = strtoul(buf_ptr(buf_create_from_slice(opt_component.value)), nullptr, 10);
-    }
-    {
-        Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
-        if (!opt_component.is_some) return ErrorNone;
-        glibc_ver->minor = strtoul(buf_ptr(buf_create_from_slice(opt_component.value)), nullptr, 10);
-    }
-    {
-        Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
-        if (!opt_component.is_some) return ErrorNone;
-        glibc_ver->patch = strtoul(buf_ptr(buf_create_from_slice(opt_component.value)), nullptr, 10);
-    }
-    return ErrorNone;
-}
-
-void target_init_default_glibc_version(ZigTarget *target) {
-    *target->glibc_or_darwin_version = {2, 17, 0};
 }
 
 Error target_parse_arch(ZigLLVM_ArchType *out_arch, const char *arch_ptr, size_t arch_len) {
@@ -756,66 +727,6 @@ const char *target_llvm_ir_file_ext(const ZigTarget *target) {
     return ".ll";
 }
 
-const char *target_exe_file_ext(const ZigTarget *target) {
-    if (target->os == OsWindows) {
-        return ".exe";
-    } else if (target->os == OsUefi) {
-        return ".efi";
-    } else if (target_is_wasm(target)) {
-        return ".wasm";
-    } else {
-        return "";
-    }
-}
-
-const char *target_lib_file_prefix(const ZigTarget *target) {
-    if ((target->os == OsWindows && !target_abi_is_gnu(target->abi)) ||
-        target->os == OsUefi ||
-        target_is_wasm(target))
-    {
-        return "";
-    } else {
-        return "lib";
-    }
-}
-
-const char *target_lib_file_ext(const ZigTarget *target, bool is_static, bool is_versioned,
-        size_t version_major, size_t version_minor, size_t version_patch)
-{
-    if (target_is_wasm(target)) {
-        return ".wasm";
-    }
-    if (target->os == OsWindows || target->os == OsUefi) {
-        if (is_static) {
-            if (target->os == OsWindows && target_abi_is_gnu(target->abi)) {
-                return ".a";
-            } else {
-                return ".lib";
-            }
-        } else {
-            return ".dll";
-        }
-    } else {
-        if (is_static) {
-            return ".a";
-        } else if (target_os_is_darwin(target->os)) {
-            if (is_versioned) {
-                return buf_ptr(buf_sprintf(".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".dylib",
-                            version_major, version_minor, version_patch));
-            } else {
-                return ".dylib";
-            }
-        } else {
-            if (is_versioned) {
-                return buf_ptr(buf_sprintf(".so.%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize,
-                            version_major, version_minor, version_patch));
-            } else {
-                return ".so";
-            }
-        }
-    }
-}
-
 bool target_is_android(const ZigTarget *target) {
     return target->abi == ZigLLVM_Android;
 }
@@ -992,40 +903,6 @@ bool target_os_requires_libc(Os os) {
     return (target_os_is_darwin(os) || os == OsFreeBSD || os == OsNetBSD || os == OsDragonFly);
 }
 
-bool target_supports_fpic(const ZigTarget *target) {
-    // This is not whether the target supports Position Independent Code, but whether the -fPIC
-    // C compiler argument is valid.
-    return target->os != OsWindows;
-}
-
-bool target_supports_clang_march_native(const ZigTarget *target) {
-    // Whether clang supports -march=native on this target.
-    // Arguably it should always work, but in reality it gives:
-    // error: the clang compiler does not support '-march=native'
-    // If we move CPU detection logic into Zig itelf, we will not need this,
-    // instead we will always pass target features and CPU configuration explicitly.
-    return target->arch != ZigLLVM_aarch64 &&
-        target->arch != ZigLLVM_aarch64_be;
-}
-
-bool target_supports_stack_probing(const ZigTarget *target) {
-    return target->os != OsWindows && target->os != OsUefi && (target->arch == ZigLLVM_x86 || target->arch == ZigLLVM_x86_64);
-}
-
-bool target_supports_sanitize_c(const ZigTarget *target) {
-    return true;
-}
-
-bool target_requires_pic(const ZigTarget *target, bool linking_libc) {
-  // This function returns whether non-pic code is completely invalid on the given target.
-  return target_is_android(target) || target->os == OsWindows || target->os == OsUefi || target_os_requires_libc(target->os) ||
-      (linking_libc && target_is_glibc(target));
-}
-
-bool target_requires_pie(const ZigTarget *target) {
-    return target_is_android(target);
-}
-
 bool target_is_glibc(const ZigTarget *target) {
     return target->os == OsLinux && target_abi_is_gnu(target->abi);
 }
@@ -1036,10 +913,6 @@ bool target_is_musl(const ZigTarget *target) {
 
 bool target_is_wasm(const ZigTarget *target) {
     return target->arch == ZigLLVM_wasm32 || target->arch == ZigLLVM_wasm64;
-}
-
-bool target_is_single_threaded(const ZigTarget *target) {
-    return target_is_wasm(target);
 }
 
 ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {

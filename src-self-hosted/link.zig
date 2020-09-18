@@ -62,6 +62,7 @@ pub const Options = struct {
     stack_check: bool,
     single_threaded: bool,
     debug_link: bool = false,
+    dll_export_fns: bool,
     gc_sections: ?bool = null,
     allow_shlib_undefined: ?bool = null,
     linker_script: ?[]const u8 = null,

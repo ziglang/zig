@@ -135,15 +135,6 @@ protected:
     virtual void internal_deallocate(const TypeInfo &info, void *ptr, size_t count) = 0;
 };
 
-#ifdef ZIG_ENABLE_MEM_PROFILE
-void print_report(FILE *file = nullptr);
-
-// global memory report flag
-extern bool report_print;
-// global memory report default destination
-extern FILE *report_file;
-#endif
-
 } // namespace mem
 
 #endif

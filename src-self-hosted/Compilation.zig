@@ -244,6 +244,7 @@ pub const InitOptions = struct {
     /// `null` means to not emit a C header file.
     emit_h: ?EmitLoc = null,
     link_mode: ?std.builtin.LinkMode = null,
+    dll_export_fns: ?bool = false,
     object_format: ?std.builtin.ObjectFormat = null,
     optimize_mode: std.builtin.Mode = .Debug,
     keep_source_files_loaded: bool = false,
@@ -340,9 +341,13 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             return error.MachineCodeModelNotSupported;
         }
 
+        const is_dyn_lib = switch (options.output_mode) {
+            .Obj, .Exe => false,
+            .Lib => (options.link_mode orelse .Static) == .Dynamic,
+        };
         const is_exe_or_dyn_lib = switch (options.output_mode) {
             .Obj => false,
-            .Lib => (options.link_mode orelse .Static) == .Dynamic,
+            .Lib => is_dyn_lib,
             .Exe => true,
         };
         const must_dynamic_link = dl: {
@@ -365,6 +370,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             break :blk lm;
         } else default_link_mode;
 
+        const dll_export_fns = if (options.dll_export_fns) |explicit| explicit else is_dyn_lib;
+
         const libc_dirs = try detectLibCIncludeDirs(
             arena,
             options.zig_lib_directory.path.?,
@@ -379,7 +386,12 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 break :b true;
             break :b link_mode == .Dynamic;
         };
-        const pic = options.want_pic orelse must_pic;
+        const pic = if (options.want_pic) |explicit| pic: {
+            if (!explicit and must_pic) {
+                return error.TargetRequiresPIC;
+            }
+            break :pic explicit;
+        } else must_pic;
 
         if (options.emit_h != null) fatal("-femit-h not supported yet", .{}); // TODO
 
@@ -464,6 +476,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             hash.add(valgrind);
             hash.add(single_threaded);
             hash.add(options.target.os.getVersionRange());
+            hash.add(dll_export_fns);
 
             const digest = hash.final();
             const artifact_sub_dir = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
@@ -601,6 +614,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .single_threaded = single_threaded,
             .debug_link = options.debug_link,
             .machine_code_model = options.machine_code_model,
+            .dll_export_fns = dll_export_fns,
         });
         errdefer bin_file.destroy();
 

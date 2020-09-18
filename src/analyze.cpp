@@ -3496,7 +3496,7 @@ void add_var_export(CodeGen *g, ZigVar *var, const char *symbol_name, GlobalLink
 }
 
 void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, const char *symbol_name, GlobalLinkageId linkage, CallingConvention cc) {
-    if (cc == CallingConventionC && strcmp(symbol_name, "main") == 0 && g->libc_link_lib != nullptr) {
+    if (cc == CallingConventionC && strcmp(symbol_name, "main") == 0 && g->link_libc) {
         g->have_c_main = true;
     } else if (cc == CallingConventionStdcall && g->zig_target->os == OsWindows) {
         if (strcmp(symbol_name, "WinMain") == 0) {
@@ -7863,40 +7863,6 @@ const char *type_id_name(ZigTypeId id) {
     zig_unreachable();
 }
 
-LinkLib *create_link_lib(Buf *name) {
-    LinkLib *link_lib = heap::c_allocator.create<LinkLib>();
-    link_lib->name = name;
-    return link_lib;
-}
-
-LinkLib *add_link_lib(CodeGen *g, Buf *name) {
-    bool is_libc = buf_eql_str(name, "c");
-    bool is_libcpp = buf_eql_str(name, "c++") || buf_eql_str(name, "c++abi");
-
-    if (is_libc && g->libc_link_lib != nullptr)
-        return g->libc_link_lib;
-
-    if (is_libcpp && g->libcpp_link_lib != nullptr)
-        return g->libcpp_link_lib;
-
-    for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
-        LinkLib *existing_lib = g->link_libs_list.at(i);
-        if (buf_eql_buf(existing_lib->name, name)) {
-            return existing_lib;
-        }
-    }
-
-    LinkLib *link_lib = create_link_lib(name);
-    g->link_libs_list.append(link_lib);
-
-    if (is_libc)
-        g->libc_link_lib = link_lib;
-    if (is_libcpp)
-        g->libcpp_link_lib = link_lib;
-
-    return link_lib;
-}
-
 ZigType *get_align_amt_type(CodeGen *g) {
     if (g->align_amt_type == nullptr) {
         // according to LLVM the maximum alignment is 1 << 29.
@@ -8017,12 +7983,13 @@ not_integer:
     return ErrorNone;
 }
 
-Error file_fetch(CodeGen *g, Buf *resolved_path, Buf *contents) {
-    if (g->enable_cache) {
-        return cache_add_file_fetch(&g->cache_hash, resolved_path, contents);
-    } else {
-        return os_fetch_file_path(resolved_path, contents);
-    }
+Error file_fetch(CodeGen *g, Buf *resolved_path, Buf *contents_buf) {
+    size_t len;
+    const char *contents = stage2_fetch_file(&g->stage1, buf_ptr(resolved_path), buf_len(resolved_path), &len);
+    if (contents == nullptr)
+        return ErrorNoMem;
+    buf_init_from_mem(contents_buf, contents, len);
+    return ErrorNone;
 }
 
 static X64CABIClass type_windows_abi_x86_64_class(CodeGen *g, ZigType *ty, size_t ty_size) {

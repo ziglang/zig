@@ -12,22 +12,6 @@
 
 struct Buf;
 
-enum TargetSubsystem {
-    TargetSubsystemConsole,
-    TargetSubsystemWindows,
-    TargetSubsystemPosix,
-    TargetSubsystemNative,
-    TargetSubsystemEfiApplication,
-    TargetSubsystemEfiBootServiceDriver,
-    TargetSubsystemEfiRom,
-    TargetSubsystemEfiRuntimeDriver,
-
-    // This means Zig should infer the subsystem.
-    // It's last so that the indexes of other items can line up
-    // with the enum in builtin.zig.
-    TargetSubsystemAuto
-};
-
 enum CIntType {
     CIntTypeShort,
     CIntTypeUShort,
@@ -45,9 +29,6 @@ Error target_parse_triple(ZigTarget *target, const char *triple, const char *mcp
 Error target_parse_arch(ZigLLVM_ArchType *arch, const char *arch_ptr, size_t arch_len);
 Error target_parse_os(Os *os, const char *os_ptr, size_t os_len);
 Error target_parse_abi(ZigLLVM_EnvironmentType *abi, const char *abi_ptr, size_t abi_len);
-
-Error target_parse_glibc_version(Stage2SemVer *out, const char *text);
-void target_init_default_glibc_version(ZigTarget *target);
 
 size_t target_arch_count(void);
 ZigLLVM_ArchType target_arch_enum(size_t index);
@@ -85,10 +66,6 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id);
 const char *target_o_file_ext(const ZigTarget *target);
 const char *target_asm_file_ext(const ZigTarget *target);
 const char *target_llvm_ir_file_ext(const ZigTarget *target);
-const char *target_exe_file_ext(const ZigTarget *target);
-const char *target_lib_file_prefix(const ZigTarget *target);
-const char *target_lib_file_ext(const ZigTarget *target, bool is_static, bool is_versioned,
-        size_t version_major, size_t version_minor, size_t version_patch);
 
 bool target_can_exec(const ZigTarget *host_target, const ZigTarget *guest_target);
 ZigLLVM_OSType get_llvm_os_type(Os os_type);
@@ -104,10 +81,6 @@ bool target_can_build_libc(const ZigTarget *target);
 const char *target_libc_generic_name(const ZigTarget *target);
 bool target_is_libc_lib_name(const ZigTarget *target, const char *name);
 bool target_is_libcpp_lib_name(const ZigTarget *target, const char *name);
-bool target_supports_fpic(const ZigTarget *target);
-bool target_supports_clang_march_native(const ZigTarget *target);
-bool target_requires_pic(const ZigTarget *target, bool linking_libc);
-bool target_requires_pie(const ZigTarget *target);
 bool target_abi_is_gnu(ZigLLVM_EnvironmentType abi);
 bool target_abi_is_musl(ZigLLVM_EnvironmentType abi);
 bool target_is_glibc(const ZigTarget *target);
@@ -115,9 +88,6 @@ bool target_is_musl(const ZigTarget *target);
 bool target_is_wasm(const ZigTarget *target);
 bool target_is_riscv(const ZigTarget *target);
 bool target_is_android(const ZigTarget *target);
-bool target_is_single_threaded(const ZigTarget *target);
-bool target_supports_stack_probing(const ZigTarget *target);
-bool target_supports_sanitize_c(const ZigTarget *target);
 bool target_has_debug_info(const ZigTarget *target);
 const char *target_arch_musl_name(ZigLLVM_ArchType arch);
 

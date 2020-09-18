@@ -10,7 +10,6 @@
 
 #include "list.hpp"
 #include "buffer.hpp"
-#include "cache_hash.hpp"
 #include "zig_llvm.h"
 #include "hash_map.hpp"
 #include "errmsg.hpp"
@@ -1639,8 +1638,6 @@ struct ZigType {
     size_t abi_size;
     // Number of bits of information in this type. Known after ResolveStatusSizeKnown.
     size_t size_in_bits;
-
-    bool gen_h_loop_flag;
 };
 
 enum FnAnalState {
@@ -1976,67 +1973,16 @@ struct TimeEvent {
     const char *name;
 };
 
-enum BuildMode {
-    BuildModeDebug,
-    BuildModeFastRelease,
-    BuildModeSafeRelease,
-    BuildModeSmallRelease,
-};
-
-enum CodeModel {
-    CodeModelDefault,
-    CodeModelTiny,
-    CodeModelSmall,
-    CodeModelKernel,
-    CodeModelMedium,
-    CodeModelLarge,
-};
-
-struct LinkLib {
-    Buf *name;
-    Buf *path;
-    ZigList<Buf *> symbols; // the list of symbols that we depend on from this lib
-    bool provided_explicitly;
-};
-
-enum ValgrindSupport {
-    ValgrindSupportAuto,
-    ValgrindSupportDisabled,
-    ValgrindSupportEnabled,
-};
-
-enum WantPIC {
-    WantPICAuto,
-    WantPICDisabled,
-    WantPICEnabled,
-};
-
-enum WantStackCheck {
-    WantStackCheckAuto,
-    WantStackCheckDisabled,
-    WantStackCheckEnabled,
-};
-
-enum WantCSanitize {
-    WantCSanitizeAuto,
-    WantCSanitizeDisabled,
-    WantCSanitizeEnabled,
-};
-
-enum OptionalBool {
-    OptionalBoolNull,
-    OptionalBoolFalse,
-    OptionalBoolTrue,
-};
-
 struct CFile {
     ZigList<const char *> args;
     const char *source_path;
     const char *preprocessor_only_basename;
 };
 
-// When adding fields, check if they should be added to the hash computation in build_with_cache
 struct CodeGen {
+    // Other code depends on this being first.
+    ZigStage1 stage1;
+
     // arena allocator destroyed just prior to codegen emit
     heap::ArenaAllocator *pass1_arena;
 
@@ -2048,8 +1994,6 @@ struct CodeGen {
     ZigLLVMDIBuilder *dbuilder;
     ZigLLVMDICompileUnit *compile_unit;
     ZigLLVMDIFile *compile_unit_file;
-    LinkLib *libc_link_lib;
-    LinkLib *libcpp_link_lib;
     LLVMTargetDataRef target_data_ref;
     LLVMTargetMachineRef target_machine;
     ZigLLVMDIFile *dummy_di_file;
@@ -2104,7 +2048,6 @@ struct CodeGen {
     ZigList<ZigFn *> inline_fns;
     ZigList<ZigFn *> test_fns;
     ZigList<ErrorTableEntry *> errors_by_index;
-    ZigList<CacheHash *> caches_to_release;
     size_t largest_err_name_len;
     ZigList<ZigType *> type_resolve_stack;
 
@@ -2173,7 +2116,6 @@ struct CodeGen {
     Buf llvm_triple_str;
     Buf global_asm;
     Buf o_file_output_path;
-    Buf bin_file_output_path;
     Buf asm_file_output_path;
     Buf llvm_ir_file_output_path;
     Buf *cache_dir;
@@ -2184,7 +2126,7 @@ struct CodeGen {
     const char **libc_include_dir_list;
     size_t libc_include_dir_len;
 
-    Buf *zig_c_headers_dir; // Cannot be overridden; derived from zig_lib_dir.
+    Buf *builtin_zig_path;
     Buf *zig_std_special_dir; // Cannot be overridden; derived from zig_lib_dir.
 
     IrInstSrc *invalid_inst_src;
@@ -2206,18 +2148,9 @@ struct CodeGen {
     Stage2ProgressNode *main_progress_node;
     Stage2ProgressNode *sub_progress_node;
 
-    WantPIC want_pic;
-    WantStackCheck want_stack_check;
-    WantCSanitize want_sanitize_c;
-    CacheHash cache_hash;
     ErrColor err_color;
     uint32_t next_unresolved_index;
     unsigned pointer_size_bytes;
-    uint32_t target_os_index;
-    uint32_t target_arch_index;
-    uint32_t target_sub_arch_index;
-    uint32_t target_abi_index;
-    uint32_t target_oformat_index;
     bool is_big_endian;
     bool have_c_main;
     bool have_winmain;
@@ -2226,9 +2159,6 @@ struct CodeGen {
     bool have_wwinmain_crt_startup;
     bool have_dllmain_crt_startup;
     bool have_err_ret_tracing;
-    bool link_eh_frame_hdr;
-    bool c_want_stdint;
-    bool c_want_stdbool;
     bool verbose_tokenize;
     bool verbose_ast;
     bool verbose_link;
@@ -2239,61 +2169,24 @@ struct CodeGen {
     bool verbose_llvm_cpu_features;
     bool error_during_imports;
     bool generate_error_name_table;
-    bool enable_cache; // mutually exclusive with output_dir
     bool enable_time_report;
     bool enable_stack_report;
-    bool system_linker_hack;
     bool reported_bad_link_libc_error;
-    bool is_dynamic; // shared library rather than static library. dynamic musl rather than static musl.
     bool need_frame_size_prefix_data;
-    bool disable_c_depfile;
-
-    //////////////////////////// Participates in Input Parameter Cache Hash
-    /////// Note: there is a separate cache hash for builtin.zig, when adding fields,
-    ///////       consider if they need to go into both.
-    ZigList<LinkLib *> link_libs_list;
-    // add -framework [name] args to linker
-    ZigList<Buf *> darwin_frameworks;
-    // add -rpath [name] args to linker
-    ZigList<Buf *> rpath_list;
-    ZigList<Buf *> forbidden_libs;
-    ZigList<Buf *> link_objects;
-    ZigList<Buf *> assembly_files;
-    ZigList<CFile *> c_source_files;
-    ZigList<const char *> lib_dirs;
-    ZigList<const char *> framework_dirs;
-
-    Stage2LibCInstallation *libc;
-
-    bool is_versioned;
-    size_t version_major;
-    size_t version_minor;
-    size_t version_patch;
-    const char *linker_script;
-    size_t stack_size_override;
+    bool link_libc;
+    bool link_libcpp;
 
     BuildMode build_mode;
-    OutType out_type;
     const ZigTarget *zig_target;
     TargetSubsystem subsystem; // careful using this directly; see detect_subsystem
-    ValgrindSupport valgrind_support;
     CodeModel code_model;
-    OptionalBool linker_gc_sections;
-    OptionalBool linker_allow_shlib_undefined;
-    OptionalBool linker_bind_global_refs_locally;
     bool strip_debug_symbols;
     bool is_test_build;
     bool is_single_threaded;
-    bool want_single_threaded;
-    bool linker_rdynamic;
-    bool each_lib_rpath;
-    bool is_dummy_so;
-    bool disable_gen_h;
-    bool bundle_compiler_rt;
     bool have_pic;
-    bool have_dynamic_link; // this is whether the final thing will be dynamically linked. see also is_dynamic
+    bool link_mode_dynamic;
+    bool dll_export_fns;
     bool have_stack_probing;
-    bool have_sanitize_c;
     bool function_sections;
     bool enable_dump_analysis;
     bool enable_doc_generation;
@@ -2301,23 +2194,13 @@ struct CodeGen {
     bool emit_asm;
     bool emit_llvm_ir;
     bool test_is_evented;
-    bool linker_z_nodelete;
-    bool linker_z_defs;
+    bool valgrind_enabled;
 
     Buf *root_out_name;
     Buf *test_filter;
     Buf *test_name_prefix;
     Buf *zig_lib_dir;
     Buf *zig_std_dir;
-    Buf *version_script_path;
-    Buf *override_soname;
-    Buf *linker_optimization;
-
-    const char **llvm_argv;
-    size_t llvm_argv_len;
-
-    const char **clang_argv;
-    size_t clang_argv_len;
 };
 
 struct ZigVar {

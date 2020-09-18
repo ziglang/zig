@@ -92,7 +92,7 @@ pub fn log(
 
 var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
 
-pub fn main() !void {
+pub fn main() anyerror!void {
     const gpa = if (std.builtin.link_libc) std.heap.c_allocator else &general_purpose_allocator.allocator;
     defer if (!std.builtin.link_libc) {
         _ = general_purpose_allocator.deinit();
@@ -102,7 +102,10 @@ pub fn main() !void {
     const arena = &arena_instance.allocator;
 
     const args = try process.argsAlloc(arena);
+    return mainArgs(gpa, arena, args);
+}
 
+pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !void {
     if (args.len <= 1) {
         std.log.info("{}", .{usage});
         fatal("expected command argument", .{});
@@ -131,7 +134,7 @@ pub fn main() !void {
     } else if (mem.eql(u8, cmd, "libc")) {
         return cmdLibC(gpa, cmd_args);
     } else if (mem.eql(u8, cmd, "targets")) {
-        const info = try std.zig.system.NativeTargetInfo.detect(arena, .{});
+        const info = try detectNativeTargetInfo(arena, .{});
         const stdout = io.getStdOut().outStream();
         return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, info.target);
     } else if (mem.eql(u8, cmd, "version")) {
@@ -183,7 +186,7 @@ const usage_build_generic =
     \\  -mcmodel=[default|tiny|   Limit range of code and data virtual addresses
     \\            small|kernel|
     \\            medium|large]
-    \\  --name [name]             Override output name
+    \\  --name [name]             Override root name (not a file path)
     \\  --mode [mode]             Set the build mode
     \\    Debug                   (default) optimizations off, safety on
     \\    ReleaseFast             Optimizations on, safety off
@@ -197,7 +200,9 @@ const usage_build_generic =
     \\  -fno-sanitize-c           Disable C undefined behavior detection in safe builds
     \\  -fvalgrind                Include valgrind client requests in release builds
     \\  -fno-valgrind             Omit valgrind client requests in debug builds
-    \\  --strip                   Exclude debug symbols
+    \\  -fdll-export-fns          Mark exported functions as DLL exports (Windows)
+    \\  -fno-dll-export-fns       Force-disable marking exported functions as DLL exports
+    \\  --strip                   Omit debug symbols
     \\  --single-threaded         Code assumes it is only used single-threaded
     \\  -ofmt=[mode]              Override target object format
     \\    elf                     Executable and Linking Format
@@ -262,6 +267,7 @@ pub fn buildOutputType(
     var build_mode: std.builtin.Mode = .Debug;
     var provided_name: ?[]const u8 = null;
     var link_mode: ?std.builtin.LinkMode = null;
+    var dll_export_fns: ?bool = null;
     var root_src_file: ?[]const u8 = null;
     var version: std.builtin.Version = .{ .major = 0, .minor = 0, .patch = 0 };
     var have_version = false;
@@ -521,6 +527,10 @@ pub fn buildOutputType(
                     link_mode = .Dynamic;
                 } else if (mem.eql(u8, arg, "-static")) {
                     link_mode = .Static;
+                } else if (mem.eql(u8, arg, "-fdll-export-fns")) {
+                    dll_export_fns = true;
+                } else if (mem.eql(u8, arg, "-fno-dll-export-fns")) {
+                    dll_export_fns = false;
                 } else if (mem.eql(u8, arg, "--strip")) {
                     strip = true;
                 } else if (mem.eql(u8, arg, "--single-threaded")) {
@@ -902,14 +912,7 @@ pub fn buildOutputType(
         else => |e| return e,
     };
 
-    const target_info = try std.zig.system.NativeTargetInfo.detect(gpa, cross_target);
-    if (target_info.cpu_detection_unimplemented) {
-        // TODO We want to just use detected_info.target but implementing
-        // CPU model & feature detection is todo so here we rely on LLVM.
-        // TODO The workaround to use LLVM to detect features needs to be used for
-        // `zig targets` as well.
-        fatal("CPU features detection is not yet available for this system without LLVM extensions", .{});
-    }
+    const target_info = try detectNativeTargetInfo(gpa, cross_target);
 
     if (target_info.target.os.tag != .freestanding) {
         if (ensure_libc_on_non_freestanding)
@@ -1116,6 +1119,7 @@ pub fn buildOutputType(
         .emit_bin = emit_bin_loc,
         .emit_h = emit_h_loc,
         .link_mode = link_mode,
+        .dll_export_fns = dll_export_fns,
         .object_format = object_format,
         .optimize_mode = build_mode,
         .keep_source_files_loaded = zir_out_path != null,
@@ -1973,4 +1977,88 @@ fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
 
 test "fds" {
     gimmeMoreOfThoseSweetSweetFileDescriptors();
+}
+
+fn detectNativeCpuWithLLVM(
+    arch: std.Target.Cpu.Arch,
+    llvm_cpu_name_z: ?[*:0]const u8,
+    llvm_cpu_features_opt: ?[*:0]const u8,
+) !std.Target.Cpu {
+    var result = std.Target.Cpu.baseline(arch);
+
+    if (llvm_cpu_name_z) |cpu_name_z| {
+        const llvm_cpu_name = mem.spanZ(cpu_name_z);
+
+        for (arch.allCpuModels()) |model| {
+            const this_llvm_name = model.llvm_name orelse continue;
+            if (mem.eql(u8, this_llvm_name, llvm_cpu_name)) {
+                // Here we use the non-dependencies-populated set,
+                // so that subtracting features later in this function
+                // affect the prepopulated set.
+                result = std.Target.Cpu{
+                    .arch = arch,
+                    .model = model,
+                    .features = model.features,
+                };
+                break;
+            }
+        }
+    }
+
+    const all_features = arch.allFeaturesList();
+
+    if (llvm_cpu_features_opt) |llvm_cpu_features| {
+        var it = mem.tokenize(mem.spanZ(llvm_cpu_features), ",");
+        while (it.next()) |decorated_llvm_feat| {
+            var op: enum {
+                add,
+                sub,
+            } = undefined;
+            var llvm_feat: []const u8 = undefined;
+            if (mem.startsWith(u8, decorated_llvm_feat, "+")) {
+                op = .add;
+                llvm_feat = decorated_llvm_feat[1..];
+            } else if (mem.startsWith(u8, decorated_llvm_feat, "-")) {
+                op = .sub;
+                llvm_feat = decorated_llvm_feat[1..];
+            } else {
+                return error.InvalidLlvmCpuFeaturesFormat;
+            }
+            for (all_features) |feature, index_usize| {
+                const this_llvm_name = feature.llvm_name orelse continue;
+                if (mem.eql(u8, llvm_feat, this_llvm_name)) {
+                    const index = @intCast(std.Target.Cpu.Feature.Set.Index, index_usize);
+                    switch (op) {
+                        .add => result.features.addFeature(index),
+                        .sub => result.features.removeFeature(index),
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    result.features.populateDependencies(all_features);
+    return result;
+}
+
+fn detectNativeTargetInfo(gpa: *Allocator, cross_target: std.zig.CrossTarget) !std.zig.system.NativeTargetInfo {
+    var info = try std.zig.system.NativeTargetInfo.detect(gpa, cross_target);
+    if (info.cpu_detection_unimplemented) {
+        const arch = std.Target.current.cpu.arch;
+
+        // We want to just use detected_info.target but implementing
+        // CPU model & feature detection is todo so here we rely on LLVM.
+        // https://github.com/ziglang/zig/issues/4591
+        if (!build_options.have_llvm)
+            fatal("CPU features detection is not yet available for {} without LLVM extensions", .{@tagName(arch)});
+
+        const llvm = @import("llvm.zig");
+        const llvm_cpu_name = llvm.GetHostCPUName();
+        const llvm_cpu_features = llvm.GetNativeFeatures();
+        info.target.cpu = try detectNativeCpuWithLLVM(arch, llvm_cpu_name, llvm_cpu_features);
+        cross_target.updateCpuFeatures(&info.target.cpu.features);
+        info.target.cpu.arch = cross_target.getCpuArch();
+    }
+    return info;
 }

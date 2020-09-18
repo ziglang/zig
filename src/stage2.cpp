@@ -5,39 +5,11 @@
 #include "util.hpp"
 #include "zig_llvm.h"
 #include "target.hpp"
+#include "buffer.hpp"
+#include "os.hpp"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-Error stage2_translate_c(struct Stage2Ast **out_ast,
-        struct Stage2ErrorMsg **out_errors_ptr, size_t *out_errors_len,
-        const char **args_begin, const char **args_end, const char *resources_path)
-{
-    const char *msg = "stage0 called stage2_translate_c";
-    stage2_panic(msg, strlen(msg));
-}
-
-void stage2_free_clang_errors(struct Stage2ErrorMsg *ptr, size_t len) {
-    const char *msg = "stage0 called stage2_free_clang_errors";
-    stage2_panic(msg, strlen(msg));
-}
-
-void stage2_zen(const char **ptr, size_t *len) {
-    const char *msg = "stage0 called stage2_zen";
-    stage2_panic(msg, strlen(msg));
-}
-
-int stage2_env(int argc, char** argv) {
-    const char *msg = "stage0 called stage2_env";
-    stage2_panic(msg, strlen(msg));
-}
-
-int stage2_cc(int argc, char** argv, bool is_cpp) {
-    const char *msg = "stage0 called stage2_cc";
-    stage2_panic(msg, strlen(msg));
-}
-
-void stage2_attach_segfault_handler(void) { }
 
 void stage2_panic(const char *ptr, size_t len) {
     fwrite(ptr, 1, len, stderr);
@@ -45,32 +17,6 @@ void stage2_panic(const char *ptr, size_t len) {
     fflush(stderr);
     abort();
 }
-
-void stage2_render_ast(struct Stage2Ast *ast, FILE *output_file) {
-    const char *msg = "stage0 called stage2_render_ast";
-    stage2_panic(msg, strlen(msg));
-}
-
-int stage2_fmt(int argc, char **argv) {
-    const char *msg = "stage0 called stage2_fmt";
-    stage2_panic(msg, strlen(msg));
-}
-
-stage2_DepTokenizer stage2_DepTokenizer_init(const char *input, size_t len) {
-    const char *msg = "stage0 called stage2_DepTokenizer_init";
-    stage2_panic(msg, strlen(msg));
-}
-
-void stage2_DepTokenizer_deinit(stage2_DepTokenizer *self) {
-    const char *msg = "stage0 called stage2_DepTokenizer_deinit";
-    stage2_panic(msg, strlen(msg));
-}
-
-stage2_DepNextResult stage2_DepTokenizer_next(stage2_DepTokenizer *self) {
-    const char *msg = "stage0 called stage2_DepTokenizer_next";
-    stage2_panic(msg, strlen(msg));
-}
-
 
 struct Stage2Progress {
     int trash;
@@ -196,10 +142,6 @@ static void get_native_target(ZigTarget *target) {
     if (target->abi == ZigLLVM_UnknownEnvironment) {
         target->abi = target_default_abi(target->arch, target->os);
     }
-    if (target_is_glibc(target)) {
-        target->glibc_or_darwin_version = heap::c_allocator.create<Stage2SemVer>();
-        target_init_default_glibc_version(target);
-    }
 }
 
 Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, const char *mcpu,
@@ -217,13 +159,11 @@ Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, cons
         if (mcpu == nullptr) {
             target->llvm_cpu_name = ZigLLVMGetHostCPUName();
             target->llvm_cpu_features = ZigLLVMGetNativeFeatures();
-            target->cache_hash = "native\n\n";
         } else if (strcmp(mcpu, "baseline") == 0) {
             target->is_native_os = false;
             target->is_native_cpu = false;
             target->llvm_cpu_name = "";
             target->llvm_cpu_features = "";
-            target->cache_hash = "baseline\n\n";
         } else {
             const char *msg = "stage0 can't handle CPU/features in the target";
             stage2_panic(msg, strlen(msg));
@@ -264,10 +204,7 @@ Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, cons
             const char *msg = "stage0 can't handle CPU/features in the target";
             stage2_panic(msg, strlen(msg));
         }
-        target->cache_hash = "\n\n";
     }
-
-    target->cache_hash_len = strlen(target->cache_hash);
 
     if (dynamic_linker != nullptr) {
         target->dynamic_linker = dynamic_linker;
@@ -276,49 +213,29 @@ Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, cons
     return ErrorNone;
 }
 
-int stage2_cmd_targets(const char *zig_triple, const char *mcpu, const char *dynamic_linker) {
-    const char *msg = "stage0 called stage2_cmd_targets";
+const char *stage2_fetch_file(struct ZigStage1 *stage1, const char *path_ptr, size_t path_len,
+        size_t *result_len)
+{
+    Error err;
+    Buf contents_buf = BUF_INIT;
+    Buf path_buf = BUF_INIT;
+
+    buf_init_from_mem(&path_buf, path_ptr, path_len);
+    if ((err = os_fetch_file_path(&path_buf, &contents_buf))) {
+        return nullptr;
+    }
+    *result_len = buf_len(&contents_buf);
+    return buf_ptr(&contents_buf);
+}
+
+const char *stage2_cimport(struct ZigStage1 *stage1) {
+    const char *msg = "stage0 called stage2_cimport";
     stage2_panic(msg, strlen(msg));
 }
 
-enum Error stage2_libc_parse(struct Stage2LibCInstallation *libc, const char *libc_file) {
-    libc->include_dir = "/dummy/include";
-    libc->include_dir_len = strlen(libc->include_dir);
-    libc->sys_include_dir = "/dummy/sys/include";
-    libc->sys_include_dir_len = strlen(libc->sys_include_dir);
-    libc->crt_dir = "";
-    libc->crt_dir_len = strlen(libc->crt_dir);
-    libc->msvc_lib_dir = "";
-    libc->msvc_lib_dir_len = strlen(libc->msvc_lib_dir);
-    libc->kernel32_lib_dir = "";
-    libc->kernel32_lib_dir_len = strlen(libc->kernel32_lib_dir);
-    return ErrorNone;
+const char *stage2_add_link_lib(struct ZigStage1 *stage1,
+        const char *lib_name_ptr, size_t lib_name_len,
+        const char *symbol_name_ptr, size_t symbol_name_len)
+{
+    return nullptr;
 }
-
-enum Error stage2_libc_render(struct Stage2LibCInstallation *self, FILE *file) {
-    const char *msg = "stage0 called stage2_libc_render";
-    stage2_panic(msg, strlen(msg));
-}
-
-enum Error stage2_libc_find_native(struct Stage2LibCInstallation *libc) {
-    const char *msg = "stage0 called stage2_libc_find_native";
-    stage2_panic(msg, strlen(msg));
-}
-
-enum Error stage2_detect_native_paths(struct Stage2NativePaths *native_paths) {
-    native_paths->include_dirs_ptr = nullptr;
-    native_paths->include_dirs_len = 0;
-
-    native_paths->lib_dirs_ptr = nullptr;
-    native_paths->lib_dirs_len = 0;
-
-    native_paths->rpaths_ptr = nullptr;
-    native_paths->rpaths_len = 0;
-
-    native_paths->warnings_ptr = nullptr;
-    native_paths->warnings_len = 0;
-
-    return ErrorNone;
-}
-
-const bool stage2_is_zig0 = true;
