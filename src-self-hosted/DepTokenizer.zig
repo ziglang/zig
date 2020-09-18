@@ -1,9 +1,7 @@
 const Tokenizer = @This();
 
-arena: std.heap.ArenaAllocator,
 index: usize,
 bytes: []const u8,
-error_text: []const u8,
 state: State,
 
 const std = @import("std");
@@ -12,11 +10,9 @@ const assert = std.debug.assert;
 
 pub fn init(allocator: *std.mem.Allocator, bytes: []const u8) Tokenizer {
     return Tokenizer{
-        .arena = std.heap.ArenaAllocator.init(allocator),
         .index = 0,
         .bytes = bytes,
-        .error_text = "",
-        .state = State{ .lhs = {} },
+        .state = .lhs,
     };
 }
 
@@ -24,339 +20,306 @@ pub fn deinit(self: *Tokenizer) void {
     self.arena.deinit();
 }
 
-pub fn next(self: *Tokenizer) Error!?Token {
+pub fn next(self: *Tokenizer) ?Token {
+    var start = self.index;
+    var must_resolve = false;
     while (self.index < self.bytes.len) {
         const char = self.bytes[self.index];
-        while (true) {
             switch (self.state) {
                 .lhs => switch (char) {
                     '\t', '\n', '\r', ' ' => {
                         // silently ignore whitespace
-                        break; // advance
+                    self.index += 1;
                     },
                     else => {
-                        self.state = State{ .target = try std.ArrayListSentineled(u8, 0).initSize(&self.arena.allocator, 0) };
+                    start = self.index;
+                    self.state = .target;
                     },
                 },
-                .target => |*target| switch (char) {
+            .target => switch (char) {
                     '\t', '\n', '\r', ' ' => {
-                        return self.errorIllegalChar(self.index, char, "invalid target", .{});
+                    return errorIllegalChar(.invalid_target, self.index, char);
                     },
                     '$' => {
-                        self.state = State{ .target_dollar_sign = target.* };
-                        break; // advance
+                    self.state = .target_dollar_sign;
+                    self.index += 1;
                     },
                     '\\' => {
-                        self.state = State{ .target_reverse_solidus = target.* };
-                        break; // advance
+                    self.state = .target_reverse_solidus;
+                    self.index += 1;
                     },
                     ':' => {
-                        self.state = State{ .target_colon = target.* };
-                        break; // advance
+                    self.state = .target_colon;
+                    self.index += 1;
                     },
                     else => {
-                        try target.append(char);
-                        break; // advance
+                    self.index += 1;
                     },
                 },
-                .target_reverse_solidus => |*target| switch (char) {
+            .target_reverse_solidus => switch (char) {
                     '\t', '\n', '\r' => {
-                        return self.errorIllegalChar(self.index, char, "bad target escape", .{});
+                    return errorIllegalChar(.bad_target_escape, self.index, char);
                     },
                     ' ', '#', '\\' => {
-                        try target.append(char);
-                        self.state = State{ .target = target.* };
-                        break; // advance
+                    must_resolve = true;
+                    self.state = .target;
+                    self.index += 1;
                     },
                     '$' => {
-                        try target.appendSlice(self.bytes[self.index - 1 .. self.index]);
-                        self.state = State{ .target_dollar_sign = target.* };
-                        break; // advance
+                    self.state = .target_dollar_sign;
+                    self.index += 1;
                     },
                     else => {
-                        try target.appendSlice(self.bytes[self.index - 1 .. self.index + 1]);
-                        self.state = State{ .target = target.* };
-                        break; // advance
+                    self.state = .target;
+                    self.index += 1;
                     },
                 },
-                .target_dollar_sign => |*target| switch (char) {
+            .target_dollar_sign => switch (char) {
                     '$' => {
-                        try target.append(char);
-                        self.state = State{ .target = target.* };
-                        break; // advance
+                    must_resolve = true;
+                    self.state = .target;
+                    self.index += 1;
                     },
                     else => {
-                        return self.errorIllegalChar(self.index, char, "expecting '$'", .{});
+                    return errorIllegalChar(.expected_dollar_sign, self.index, char);
                     },
                 },
-                .target_colon => |*target| switch (char) {
+            .target_colon => switch (char) {
                     '\n', '\r' => {
-                        const bytes = target.span();
+                    const bytes = self.bytes[start..self.index - 1];
                         if (bytes.len != 0) {
-                            self.state = State{ .lhs = {} };
-                            return Token{ .id = .target, .bytes = bytes };
+                        self.state = .lhs;
+                        return finishTarget(must_resolve, bytes);
                         }
                         // silently ignore null target
-                        self.state = State{ .lhs = {} };
-                        continue;
+                    self.state = .lhs;
                     },
                     '\\' => {
-                        self.state = State{ .target_colon_reverse_solidus = target.* };
-                        break; // advance
+                    self.state = .target_colon_reverse_solidus;
+                    self.index += 1;
                     },
                     else => {
-                        const bytes = target.span();
+                    const bytes = self.bytes[start..self.index - 1];
                         if (bytes.len != 0) {
-                            self.state = State{ .rhs = {} };
-                            return Token{ .id = .target, .bytes = bytes };
+                        self.state = .rhs;
+                        return finishTarget(must_resolve, bytes);
                         }
                         // silently ignore null target
-                        self.state = State{ .lhs = {} };
-                        continue;
+                    self.state = .lhs;
                     },
                 },
-                .target_colon_reverse_solidus => |*target| switch (char) {
+            .target_colon_reverse_solidus => switch (char) {
                     '\n', '\r' => {
-                        const bytes = target.span();
+                    const bytes = self.bytes[start .. self.index - 2];
                         if (bytes.len != 0) {
-                            self.state = State{ .lhs = {} };
-                            return Token{ .id = .target, .bytes = bytes };
+                        self.state = .lhs;
+                        return finishTarget(must_resolve, bytes);
                         }
                         // silently ignore null target
-                        self.state = State{ .lhs = {} };
-                        continue;
+                    self.state = .lhs;
                     },
                     else => {
-                        try target.appendSlice(self.bytes[self.index - 2 .. self.index + 1]);
-                        self.state = State{ .target = target.* };
-                        break;
+                    self.state = .target;
                     },
                 },
                 .rhs => switch (char) {
                     '\t', ' ' => {
                         // silently ignore horizontal whitespace
-                        break; // advance
+                    self.index += 1;
                     },
                     '\n', '\r' => {
-                        self.state = State{ .lhs = {} };
-                        continue;
+                    self.state = .lhs;
                     },
                     '\\' => {
-                        self.state = State{ .rhs_continuation = {} };
-                        break; // advance
+                    self.state = .rhs_continuation;
+                    self.index += 1;
                     },
                     '"' => {
-                        self.state = State{ .prereq_quote = try std.ArrayListSentineled(u8, 0).initSize(&self.arena.allocator, 0) };
-                        break; // advance
+                    self.state = .prereq_quote;
+                    self.index += 1;
+                    start = self.index;
                     },
                     else => {
-                        self.state = State{ .prereq = try std.ArrayListSentineled(u8, 0).initSize(&self.arena.allocator, 0) };
+                    start = self.index;
+                    self.state = .prereq;
                     },
                 },
                 .rhs_continuation => switch (char) {
                     '\n' => {
-                        self.state = State{ .rhs = {} };
-                        break; // advance
+                    self.state = .rhs;
+                    self.index += 1;
                     },
                     '\r' => {
-                        self.state = State{ .rhs_continuation_linefeed = {} };
-                        break; // advance
+                    self.state = .rhs_continuation_linefeed;
+                    self.index += 1;
                     },
                     else => {
-                        return self.errorIllegalChar(self.index, char, "continuation expecting end-of-line", .{});
+                    return errorIllegalChar(.continuation_eol, self.index, char);
                     },
                 },
                 .rhs_continuation_linefeed => switch (char) {
                     '\n' => {
-                        self.state = State{ .rhs = {} };
-                        break; // advance
+                    self.state = .rhs;
+                    self.index += 1;
                     },
                     else => {
-                        return self.errorIllegalChar(self.index, char, "continuation expecting end-of-line", .{});
+                    return errorIllegalChar(.continuation_eol, self.index, char);
                     },
                 },
-                .prereq_quote => |*prereq| switch (char) {
+            .prereq_quote => switch (char) {
                     '"' => {
-                        const bytes = prereq.span();
                         self.index += 1;
-                        self.state = State{ .rhs = {} };
-                        return Token{ .id = .prereq, .bytes = bytes };
+                    self.state = .rhs;
+                    return Token{ .prereq = self.bytes[start .. self.index - 1] };
                     },
                     else => {
-                        try prereq.append(char);
-                        break; // advance
+                    self.index += 1;
                     },
                 },
-                .prereq => |*prereq| switch (char) {
+            .prereq => switch (char) {
                     '\t', ' ' => {
-                        const bytes = prereq.span();
-                        self.state = State{ .rhs = {} };
-                        return Token{ .id = .prereq, .bytes = bytes };
+                    self.state = .rhs;
+                    return Token{ .prereq = self.bytes[start..self.index] };
                     },
                     '\n', '\r' => {
-                        const bytes = prereq.span();
-                        self.state = State{ .lhs = {} };
-                        return Token{ .id = .prereq, .bytes = bytes };
+                    self.state = .lhs;
+                    return Token{ .prereq = self.bytes[start..self.index] };
                     },
                     '\\' => {
-                        self.state = State{ .prereq_continuation = prereq.* };
-                        break; // advance
+                    self.state = .prereq_continuation;
+                    self.index += 1;
                     },
                     else => {
-                        try prereq.append(char);
-                        break; // advance
+                    self.index += 1;
                     },
                 },
-                .prereq_continuation => |*prereq| switch (char) {
+            .prereq_continuation => switch (char) {
                     '\n' => {
-                        const bytes = prereq.span();
                         self.index += 1;
-                        self.state = State{ .rhs = {} };
-                        return Token{ .id = .prereq, .bytes = bytes };
+                    self.state = .rhs;
+                    return Token{ .prereq = self.bytes[start .. self.index - 2] };
                     },
                     '\r' => {
-                        self.state = State{ .prereq_continuation_linefeed = prereq.* };
-                        break; // advance
+                    self.state = .prereq_continuation_linefeed;
+                    self.index += 1;
                     },
                     else => {
                         // not continuation
-                        try prereq.appendSlice(self.bytes[self.index - 1 .. self.index + 1]);
-                        self.state = State{ .prereq = prereq.* };
-                        break; // advance
+                    self.state = .prereq;
+                    self.index += 1;
                     },
                 },
-                .prereq_continuation_linefeed => |prereq| switch (char) {
+            .prereq_continuation_linefeed => switch (char) {
                     '\n' => {
-                        const bytes = prereq.span();
                         self.index += 1;
-                        self.state = State{ .rhs = {} };
-                        return Token{ .id = .prereq, .bytes = bytes };
+                    self.state = .rhs;
+                    return Token{ .prereq = self.bytes[start .. self.index - 1] };
                     },
                     else => {
-                        return self.errorIllegalChar(self.index, char, "continuation expecting end-of-line", .{});
+                    return errorIllegalChar(.continuation_eol, self.index, char);
                     },
                 },
             }
-        }
-        self.index += 1;
-    }
-
-    // eof, handle maybe incomplete token
-    if (self.index == 0) return null;
-    const idx = self.index - 1;
+    } else {
     switch (self.state) {
         .lhs,
         .rhs,
         .rhs_continuation,
         .rhs_continuation_linefeed,
-        => {},
-        .target => |target| {
-            return self.errorPosition(idx, target.span(), "incomplete target", .{});
+            => return null,
+            .target => {
+                return Token{ .incomplete_target = self.bytes[start..] };
         },
         .target_reverse_solidus,
         .target_dollar_sign,
         => {
-            const index = self.index - 1;
-            return self.errorIllegalChar(idx, self.bytes[idx], "incomplete escape", .{});
+                const idx = self.index - 1;
+                return errorIllegalChar(.incomplete_escape, idx, self.bytes[idx]);
         },
-        .target_colon => |target| {
-            const bytes = target.span();
+            .target_colon => {
+                const bytes = self.bytes[start.. self.index - 1];
             if (bytes.len != 0) {
                 self.index += 1;
-                self.state = State{ .rhs = {} };
-                return Token{ .id = .target, .bytes = bytes };
+                    self.state = .rhs;
+                    return finishTarget(must_resolve, bytes);
             }
             // silently ignore null target
-            self.state = State{ .lhs = {} };
+                self.state = .lhs;
+                return null;
         },
-        .target_colon_reverse_solidus => |target| {
-            const bytes = target.span();
+            .target_colon_reverse_solidus => {
+                const bytes = self.bytes[start..self.index - 2];
             if (bytes.len != 0) {
                 self.index += 1;
-                self.state = State{ .rhs = {} };
-                return Token{ .id = .target, .bytes = bytes };
+                    self.state = .rhs;
+                    return finishTarget(must_resolve, bytes);
             }
             // silently ignore null target
-            self.state = State{ .lhs = {} };
+                self.state = .lhs;
+                return null;
         },
-        .prereq_quote => |prereq| {
-            return self.errorPosition(idx, prereq.span(), "incomplete quoted prerequisite", .{});
+            .prereq_quote => {
+                return Token{ .incomplete_quoted_prerequisite = self.bytes[start..] };
         },
-        .prereq => |prereq| {
-            const bytes = prereq.span();
-            self.state = State{ .lhs = {} };
-            return Token{ .id = .prereq, .bytes = bytes };
+            .prereq => {
+                self.state = .lhs;
+                return Token{ .prereq = self.bytes[start..] };
         },
-        .prereq_continuation => |prereq| {
-            const bytes = prereq.span();
-            self.state = State{ .lhs = {} };
-            return Token{ .id = .prereq, .bytes = bytes };
+            .prereq_continuation => {
+                self.state = .lhs;
+                return Token{ .prereq = self.bytes[start.. self.index - 1] };
         },
-        .prereq_continuation_linefeed => |prereq| {
-            const bytes = prereq.span();
-            self.state = State{ .lhs = {} };
-            return Token{ .id = .prereq, .bytes = bytes };
+            .prereq_continuation_linefeed => {
+                self.state = .lhs;
+                return Token{ .prereq = self.bytes[start.. self.index - 2] };
         },
     }
-    return null;
+}
+    unreachable;
 }
 
-fn errorf(self: *Tokenizer, comptime fmt: []const u8, args: anytype) Error {
-    self.error_text = try std.fmt.allocPrintZ(&self.arena.allocator, fmt, args);
-    return Error.InvalidInput;
+fn errorIllegalChar(comptime id: @TagType(Token), index: usize, char: u8) Token {
+    return @unionInit(Token, @tagName(id), .{ .index = index, .char = char });
 }
 
-fn errorPosition(self: *Tokenizer, position: usize, bytes: []const u8, comptime fmt: []const u8, args: anytype) Error {
-    var buffer = std.ArrayList(u8).init(&self.arena.allocator);
-    try buffer.outStream().print(fmt, args);
-    try buffer.appendSlice(" '");
-    const out = buffer.writer();
-    try printCharValues(out, bytes);
-    try buffer.appendSlice("'");
-    try buffer.outStream().print(" at position {}", .{position - (bytes.len - 1)});
-    try buffer.append(0);
-    self.error_text = buffer.items[0 .. buffer.items.len - 1 :0];
-    return Error.InvalidInput;
+fn finishTarget(must_resolve: bool, bytes: []const u8) Token {
+    return if (must_resolve)
+        .{ .target_must_resolve = bytes }
+    else
+        .{ .target = bytes };
 }
 
-fn errorIllegalChar(self: *Tokenizer, position: usize, char: u8, comptime fmt: []const u8, args: anytype) Error {
-    var buffer = try std.ArrayListSentineled(u8, 0).initSize(&self.arena.allocator, 0);
-    try buffer.appendSlice("illegal char ");
-    try printUnderstandableChar(&buffer, char);
-    try buffer.outStream().print(" at position {}", .{position});
-    if (fmt.len != 0) try buffer.outStream().print(": " ++ fmt, args);
-    self.error_text = buffer.span();
-    return Error.InvalidInput;
-}
-
-const Error = error{
-    OutOfMemory,
-    InvalidInput,
+const State = enum {
+    lhs,
+    target,
+    target_reverse_solidus,
+    target_dollar_sign,
+    target_colon,
+    target_colon_reverse_solidus,
+    rhs,
+    rhs_continuation,
+    rhs_continuation_linefeed,
+    prereq_quote,
+    prereq,
+    prereq_continuation,
+    prereq_continuation_linefeed,
 };
 
-const State = union(enum) {
-    lhs: void,
-    target: std.ArrayListSentineled(u8, 0),
-    target_reverse_solidus: std.ArrayListSentineled(u8, 0),
-    target_dollar_sign: std.ArrayListSentineled(u8, 0),
-    target_colon: std.ArrayListSentineled(u8, 0),
-    target_colon_reverse_solidus: std.ArrayListSentineled(u8, 0),
-    rhs: void,
-    rhs_continuation: void,
-    rhs_continuation_linefeed: void,
-    prereq_quote: std.ArrayListSentineled(u8, 0),
-    prereq: std.ArrayListSentineled(u8, 0),
-    prereq_continuation: std.ArrayListSentineled(u8, 0),
-    prereq_continuation_linefeed: std.ArrayListSentineled(u8, 0),
-};
+pub const Token = union(enum) {
+    target: []const u8,
+    target_must_resolve: []const u8,
+    prereq: []const u8,
+    incomplete_quoted_prerequisite: []const u8,
+    incomplete_target: []const u8,
+    invalid_target: IndexAndChar,
+    bad_target_escape: IndexAndChar,
+    expected_dollar_sign: IndexAndChar,
+    continuation_eol: IndexAndChar,
+    incomplete_escape: IndexAndChar,
 
-pub const Token = struct {
-    id: ID,
-    bytes: []const u8,
-
-    pub const ID = enum {
-        target,
-        prereq,
+    pub const IndexAndChar = struct {
+        index: usize,
+        char: u8,
     };
 };
 
@@ -845,26 +808,24 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
     var it = Tokenizer.init(arena, input);
     var buffer = try std.ArrayListSentineled(u8, 0).initSize(arena, 0);
     var i: usize = 0;
-    while (true) {
-        const r = it.next() catch |err| {
-            switch (err) {
-                Tokenizer.Error.InvalidInput => {
-                    if (i != 0) try buffer.appendSlice("\n");
-                    try buffer.appendSlice("ERROR: ");
-                    try buffer.appendSlice(it.error_text);
-                },
-                else => return err,
-            }
-            break;
-        };
-        const token = r orelse break;
+    while (it.next()) |token| {
         if (i != 0) try buffer.appendSlice("\n");
-        try buffer.appendSlice(@tagName(token.id));
+        switch (token) {
+            .target, .prereq => |bytes| {
+                try buffer.appendSlice(@tagName(token));
         try buffer.appendSlice(" = {");
-        for (token.bytes) |b| {
+                for (bytes) |b| {
             try buffer.append(printable_char_tab[b]);
         }
         try buffer.appendSlice("}");
+            },
+            .target_must_resolve => {
+                @panic("TODO");
+            },
+            else => {
+                @panic("TODO");
+            },
+        }
         i += 1;
     }
     const got: []const u8 = buffer.span();
