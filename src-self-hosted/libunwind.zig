@@ -107,8 +107,8 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .is_native_os = comp.bin_file.options.is_native_os,
         .self_exe_path = comp.self_exe_path,
         .c_source_files = &c_source_files,
-        .debug_cc = comp.debug_cc,
-        .debug_link = comp.bin_file.options.debug_link,
+        .verbose_cc = comp.verbose_cc,
+        .verbose_link = comp.bin_file.options.verbose_link,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .link_libc = true,
     });

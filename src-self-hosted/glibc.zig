@@ -711,8 +711,8 @@ fn build_crt_file(
         .is_native_os = comp.bin_file.options.is_native_os,
         .self_exe_path = comp.self_exe_path,
         .c_source_files = c_source_files,
-        .debug_cc = comp.debug_cc,
-        .debug_link = comp.bin_file.options.debug_link,
+        .verbose_cc = comp.verbose_cc,
+        .verbose_link = comp.bin_file.options.verbose_link,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
     });
     defer sub_compilation.destroy();
@@ -987,8 +987,8 @@ fn buildSharedLib(
         .strip = comp.bin_file.options.strip,
         .is_native_os = false,
         .self_exe_path = comp.self_exe_path,
-        .debug_cc = comp.debug_cc,
-        .debug_link = comp.bin_file.options.debug_link,
+        .verbose_cc = comp.verbose_cc,
+        .verbose_link = comp.bin_file.options.verbose_link,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .version = version,
         .version_script = map_file_path,

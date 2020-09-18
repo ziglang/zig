@@ -2161,11 +2161,9 @@ struct CodeGen {
     bool have_err_ret_tracing;
     bool verbose_tokenize;
     bool verbose_ast;
-    bool verbose_link;
     bool verbose_ir;
     bool verbose_llvm_ir;
     bool verbose_cimport;
-    bool verbose_cc;
     bool verbose_llvm_cpu_features;
     bool error_during_imports;
     bool generate_error_name_table;

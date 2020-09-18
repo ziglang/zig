@@ -61,8 +61,9 @@ pub const Options = struct {
     valgrind: bool,
     stack_check: bool,
     single_threaded: bool,
-    debug_link: bool = false,
+    verbose_link: bool = false,
     dll_export_fns: bool,
+    error_return_tracing: bool,
     gc_sections: ?bool = null,
     allow_shlib_undefined: ?bool = null,
     linker_script: ?[]const u8 = null,
@@ -441,7 +442,7 @@ pub const File = struct {
             base.options.sub_path;
         const full_out_path_z = try arena.dupeZ(u8, full_out_path);
 
-        if (base.options.debug_link) {
+        if (base.options.verbose_link) {
             std.debug.print("ar rcs {}", .{full_out_path_z});
             for (object_files.items) |arg| {
                 std.debug.print(" {}", .{arg});

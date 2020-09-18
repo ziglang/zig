@@ -104,11 +104,9 @@ void zig_stage1_build_object(struct ZigStage1 *stage1) {
 
     g->verbose_tokenize = stage1->verbose_tokenize;
     g->verbose_ast = stage1->verbose_ast;
-    g->verbose_link = stage1->verbose_link;
     g->verbose_ir = stage1->verbose_ir;
     g->verbose_llvm_ir = stage1->verbose_llvm_ir;
     g->verbose_cimport = stage1->verbose_cimport;
-    g->verbose_cc = stage1->verbose_cc;
     g->verbose_llvm_cpu_features = stage1->verbose_llvm_cpu_features;
 
     g->err_color = stage1->err_color;

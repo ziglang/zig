@@ -44,11 +44,9 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -mcpu [cpu]                  specify target CPU and feature set\n"
         "  --verbose-tokenize           enable compiler debug output for tokenization\n"
         "  --verbose-ast                enable compiler debug output for AST parsing\n"
-        "  --verbose-link               enable compiler debug output for linking\n"
         "  --verbose-ir                 enable compiler debug output for Zig IR\n"
         "  --verbose-llvm-ir            enable compiler debug output for LLVM IR\n"
         "  --verbose-cimport            enable compiler debug output for C imports\n"
-        "  --verbose-cc                 enable compiler debug output for C compilation\n"
         "  --verbose-llvm-cpu-features  enable compiler debug output for LLVM CPU features\n"
         "\n"
     , arg0);
@@ -82,11 +80,9 @@ int main(int argc, char **argv) {
     const char *out_name = nullptr;
     bool verbose_tokenize = false;
     bool verbose_ast = false;
-    bool verbose_link = false;
     bool verbose_ir = false;
     bool verbose_llvm_ir = false;
     bool verbose_cimport = false;
-    bool verbose_cc = false;
     bool verbose_llvm_cpu_features = false;
     ErrColor color = ErrColorAuto;
     const char *dynamic_linker = nullptr;
@@ -120,16 +116,12 @@ int main(int argc, char **argv) {
                 verbose_tokenize = true;
             } else if (strcmp(arg, "--verbose-ast") == 0) {
                 verbose_ast = true;
-            } else if (strcmp(arg, "--verbose-link") == 0) {
-                verbose_link = true;
             } else if (strcmp(arg, "--verbose-ir") == 0) {
                 verbose_ir = true;
             } else if (strcmp(arg, "--verbose-llvm-ir") == 0) {
                 verbose_llvm_ir = true;
             } else if (strcmp(arg, "--verbose-cimport") == 0) {
                 verbose_cimport = true;
-            } else if (strcmp(arg, "--verbose-cc") == 0) {
-                verbose_cc = true;
             } else if (strcmp(arg, "--verbose-llvm-cpu-features") == 0) {
                 verbose_llvm_cpu_features = true;
             } else if (arg[1] == 'l' && arg[2] != 0) {
@@ -283,11 +275,9 @@ int main(int argc, char **argv) {
     stage1->strip = strip;
     stage1->verbose_tokenize = verbose_tokenize;
     stage1->verbose_ast = verbose_ast;
-    stage1->verbose_link = verbose_link;
     stage1->verbose_ir = verbose_ir;
     stage1->verbose_llvm_ir = verbose_llvm_ir;
     stage1->verbose_cimport = verbose_cimport;
-    stage1->verbose_cc = verbose_cc;
     stage1->verbose_llvm_cpu_features = verbose_llvm_cpu_features;
     stage1->output_dir_ptr = output_dir;
     stage1->output_dir_len = strlen(output_dir);

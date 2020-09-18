@@ -1569,7 +1569,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         try argv.append("-Bsymbolic");
     }
 
-    if (self.base.options.debug_link) {
+    if (self.base.options.verbose_link) {
         for (argv.items[0 .. argv.items.len - 1]) |arg| {
             std.debug.print("{} ", .{arg});
         }

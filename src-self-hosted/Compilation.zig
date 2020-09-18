@@ -29,7 +29,7 @@ c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
 
 link_error_flags: link.File.ErrorFlags = .{},
 
-work_queue: std.fifo.LinearFifo(WorkItem, .Dynamic),
+work_queue: std.fifo.LinearFifo(Job, .Dynamic),
 
 /// The ErrorMsg memory is owned by the `CObject`, using Compilation's general purpose allocator.
 failed_c_objects: std.AutoArrayHashMapUnmanaged(*CObject, *ErrorMsg) = .{},
@@ -43,8 +43,9 @@ sanitize_c: bool,
 /// This is `true` for `zig cc`, `zig c++`, and `zig translate-c`.
 clang_passthrough_mode: bool,
 /// Whether to print clang argvs to stdout.
-debug_cc: bool,
+verbose_cc: bool,
 disable_c_depfile: bool,
+is_test: bool,
 
 c_source_files: []const CSourceFile,
 clang_argv: []const []const u8,
@@ -56,16 +57,16 @@ zig_cache_directory: Directory,
 libc_include_dir_list: []const []const u8,
 rand: *std.rand.Random,
 
-/// Populated when we build libc++.a. A WorkItem to build this is placed in the queue
+/// Populated when we build libc++.a. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 libcxx_static_lib: ?[]const u8 = null,
-/// Populated when we build libc++abi.a. A WorkItem to build this is placed in the queue
+/// Populated when we build libc++abi.a. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 libcxxabi_static_lib: ?[]const u8 = null,
-/// Populated when we build libunwind.a. A WorkItem to build this is placed in the queue
+/// Populated when we build libunwind.a. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 libunwind_static_lib: ?CRTFile = null,
-/// Populated when we build c.a. A WorkItem to build this is placed in the queue
+/// Populated when we build c.a. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 libc_static_lib: ?[]const u8 = null,
 
@@ -98,7 +99,7 @@ pub const CSourceFile = struct {
     extra_flags: []const []const u8 = &[0][]const u8{},
 };
 
-const WorkItem = union(enum) {
+const Job = union(enum) {
     /// Write the machine code for a Decl to the output file.
     codegen_decl: *Module.Decl,
     /// The Decl needs to be analyzed and possibly export itself.
@@ -116,8 +117,11 @@ const WorkItem = union(enum) {
     glibc_crt_file: glibc.CRTFile,
     /// all of the glibc shared objects
     glibc_shared_objects,
-
+    /// libunwind.a, usually needed when linking libc
     libunwind: void,
+
+    /// Generate builtin.zig source code and write it into the correct place.
+    generate_builtin_zig: void,
 };
 
 pub const CObject = struct {
@@ -282,8 +286,9 @@ pub const InitOptions = struct {
     linker_z_nodelete: bool = false,
     linker_z_defs: bool = false,
     clang_passthrough_mode: bool = false,
-    debug_cc: bool = false,
-    debug_link: bool = false,
+    verbose_cc: bool = false,
+    verbose_link: bool = false,
+    is_test: bool = false,
     stack_size_override: ?u64 = null,
     self_exe_path: ?[]const u8 = null,
     version: ?std.builtin.Version = null,
@@ -570,6 +575,11 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             break :blk link_artifact_directory;
         };
 
+        const error_return_tracing = !options.strip and switch (options.optimize_mode) {
+            .Debug, .ReleaseSafe => true,
+            .ReleaseFast, .ReleaseSmall => false,
+        };
+
         const bin_file = try link.File.openPath(gpa, .{
             .directory = bin_directory,
             .sub_path = emit_bin.basename,
@@ -612,9 +622,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .valgrind = valgrind,
             .stack_check = stack_check,
             .single_threaded = single_threaded,
-            .debug_link = options.debug_link,
+            .verbose_link = options.verbose_link,
             .machine_code_model = options.machine_code_model,
             .dll_export_fns = dll_export_fns,
+            .error_return_tracing = error_return_tracing,
         });
         errdefer bin_file.destroy();
 
@@ -624,7 +635,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .zig_lib_directory = options.zig_lib_directory,
             .zig_cache_directory = options.zig_cache_directory,
             .bin_file = bin_file,
-            .work_queue = std.fifo.LinearFifo(WorkItem, .Dynamic).init(gpa),
+            .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .keep_source_files_loaded = options.keep_source_files_loaded,
             .use_clang = use_clang,
             .clang_argv = options.clang_argv,
@@ -635,13 +646,18 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .sanitize_c = sanitize_c,
             .rand = options.rand,
             .clang_passthrough_mode = options.clang_passthrough_mode,
-            .debug_cc = options.debug_cc,
+            .verbose_cc = options.verbose_cc,
             .disable_c_depfile = options.disable_c_depfile,
             .owned_link_dir = owned_link_dir,
+            .is_test = options.is_test,
         };
         break :comp comp;
     };
     errdefer comp.destroy();
+
+    if (comp.bin_file.options.module) |mod| {
+        try comp.work_queue.writeItem(.{ .generate_builtin_zig = {} });
+    }
 
     // Add a `CObject` for each `c_source_files`.
     try comp.c_object_table.ensureCapacity(gpa, options.c_source_files.len);
@@ -659,7 +675,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
     // If we need to build glibc for the target, add work items for it.
     // We go through the work queue so that building can be done in parallel.
     if (comp.wantBuildGLibCFromSource()) {
-        try comp.addBuildingGLibCWorkItems();
+        try comp.addBuildingGLibCJobs();
     }
     if (comp.wantBuildLibUnwindFromSource()) {
         try comp.work_queue.writeItem(.{ .libunwind = {} });
@@ -715,7 +731,7 @@ pub fn update(self: *Compilation) !void {
     defer tracy.end();
 
     // For compiling C objects, we rely on the cache hash system to avoid duplicating work.
-    // Add a WorkItem for each C object.
+    // Add a Job for each C object.
     try self.work_queue.ensureUnusedCapacity(self.c_object_table.items().len);
     for (self.c_object_table.items()) |entry| {
         self.work_queue.writeItemAssumeCapacity(.{ .c_object = entry.key });
@@ -974,6 +990,13 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
                 fatal("unable to build libunwind: {}", .{@errorName(err)});
             };
         },
+        .generate_builtin_zig => {
+            // This Job is only queued up if there is a zig module.
+            self.updateBuiltinZigFile(self.bin_file.options.module.?) catch |err| {
+                // TODO Expose this as a normal compile error rather than crashing here.
+                fatal("unable to update builtin.zig file: {}", .{@errorName(err)});
+            };
+        },
     };
 }
 
@@ -1057,7 +1080,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         try argv.append(c_object.src.src_path);
         try argv.appendSlice(c_object.src.extra_flags);
 
-        if (comp.debug_cc) {
+        if (comp.verbose_cc) {
             for (argv.items[0 .. argv.items.len - 1]) |arg| {
                 std.debug.print("{} ", .{arg});
             }
@@ -1616,8 +1639,8 @@ pub fn get_libc_crt_file(comp: *Compilation, arena: *Allocator, basename: []cons
     return full_path;
 }
 
-fn addBuildingGLibCWorkItems(comp: *Compilation) !void {
-    try comp.work_queue.write(&[_]WorkItem{
+fn addBuildingGLibCJobs(comp: *Compilation) !void {
+    try comp.work_queue.write(&[_]Job{
         .{ .glibc_crt_file = .crti_o },
         .{ .glibc_crt_file = .crtn_o },
         .{ .glibc_crt_file = .scrt1_o },
@@ -1645,4 +1668,164 @@ fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
     };
     return comp.bin_file.options.link_libc and is_exe_or_dyn_lib and
         comp.bin_file.options.libc_installation == null;
+}
+
+fn updateBuiltinZigFile(comp: *Compilation, mod: *Module) !void {
+    const source = try comp.generateBuiltinZigSource();
+    defer comp.gpa.free(source);
+    try mod.zig_cache_artifact_directory.handle.writeFile("builtin.zig", source);
+}
+
+pub fn generateBuiltinZigSource(comp: *Compilation) ![]u8 {
+    var buffer = std.ArrayList(u8).init(comp.gpa);
+    defer buffer.deinit();
+
+    const target = comp.getTarget();
+    const generic_arch_name = target.cpu.arch.genericName();
+
+    @setEvalBranchQuota(4000);
+    try buffer.writer().print(
+        \\usingnamespace @import("std").builtin;
+        \\/// Deprecated
+        \\pub const arch = std.Target.current.cpu.arch;
+        \\/// Deprecated
+        \\pub const endian = std.Target.current.cpu.arch.endian();
+        \\pub const output_mode = OutputMode.{};
+        \\pub const link_mode = LinkMode.{};
+        \\pub const is_test = {};
+        \\pub const single_threaded = {};
+        \\pub const abi = Abi.{};
+        \\pub const cpu: Cpu = Cpu{{
+        \\    .arch = .{},
+        \\    .model = &Target.{}.cpu.{},
+        \\    .features = Target.{}.featureSet(&[_]Target.{}.Feature{{
+        \\
+    , .{
+        @tagName(comp.bin_file.options.output_mode),
+        @tagName(comp.bin_file.options.link_mode),
+        comp.is_test,
+        comp.bin_file.options.single_threaded,
+        @tagName(target.abi),
+        @tagName(target.cpu.arch),
+        generic_arch_name,
+        target.cpu.model.name,
+        generic_arch_name,
+        generic_arch_name,
+    });
+
+    for (target.cpu.arch.allFeaturesList()) |feature, index_usize| {
+        const index = @intCast(std.Target.Cpu.Feature.Set.Index, index_usize);
+        const is_enabled = target.cpu.features.isEnabled(index);
+        if (is_enabled) {
+            // TODO some kind of "zig identifier escape" function rather than
+            // unconditionally using @"" syntax
+            try buffer.appendSlice("        .@\"");
+            try buffer.appendSlice(feature.name);
+            try buffer.appendSlice("\",\n");
+        }
+    }
+
+    try buffer.writer().print(
+        \\    }}),
+        \\}};
+        \\pub const os = Os{{
+        \\    .tag = .{},
+        \\    .version_range = .{{
+        ,
+        .{@tagName(target.os.tag)},
+    );
+
+    switch (target.os.getVersionRange()) {
+        .none => try buffer.appendSlice(" .none = {} }\n"),
+        .semver => |semver| try buffer.outStream().print(
+            \\ .semver = .{{
+            \\        .min = .{{
+            \\            .major = {},
+            \\            .minor = {},
+            \\            .patch = {},
+            \\        }},
+            \\        .max = .{{
+            \\            .major = {},
+            \\            .minor = {},
+            \\            .patch = {},
+            \\        }},
+            \\    }}}},
+            \\
+        , .{
+            semver.min.major,
+            semver.min.minor,
+            semver.min.patch,
+
+            semver.max.major,
+            semver.max.minor,
+            semver.max.patch,
+        }),
+        .linux => |linux| try buffer.outStream().print(
+            \\ .linux = .{{
+            \\        .range = .{{
+            \\            .min = .{{
+            \\                .major = {},
+            \\                .minor = {},
+            \\                .patch = {},
+            \\            }},
+            \\            .max = .{{
+            \\                .major = {},
+            \\                .minor = {},
+            \\                .patch = {},
+            \\            }},
+            \\        }},
+            \\        .glibc = .{{
+            \\            .major = {},
+            \\            .minor = {},
+            \\            .patch = {},
+            \\        }},
+            \\    }}}},
+            \\
+        , .{
+            linux.range.min.major,
+            linux.range.min.minor,
+            linux.range.min.patch,
+
+            linux.range.max.major,
+            linux.range.max.minor,
+            linux.range.max.patch,
+
+            linux.glibc.major,
+            linux.glibc.minor,
+            linux.glibc.patch,
+        }),
+        .windows => |windows| try buffer.outStream().print(
+            \\ .windows = .{{
+            \\        .min = {s},
+            \\        .max = {s},
+            \\    }}}},
+            \\
+            ,
+            .{ windows.min, windows.max },
+        ),
+    }
+    try buffer.appendSlice("};\n");
+    try buffer.writer().print(
+        \\pub const object_format = ObjectFormat.{};
+        \\pub const mode = Mode.{};
+        \\pub const link_libc = {};
+        \\pub const link_libcpp = {};
+        \\pub const have_error_return_tracing = {};
+        \\pub const valgrind_support = {};
+        \\pub const position_independent_code = {};
+        \\pub const strip_debug_info = {};
+        \\pub const code_model = CodeModel.{};
+        \\
+    , .{
+        @tagName(comp.bin_file.options.object_format),
+        @tagName(comp.bin_file.options.optimize_mode),
+        comp.bin_file.options.link_libc,
+        comp.bin_file.options.link_libcpp,
+        comp.bin_file.options.error_return_tracing,
+        comp.bin_file.options.valgrind,
+        comp.bin_file.options.pic,
+        comp.bin_file.options.strip,
+        @tagName(comp.bin_file.options.machine_code_model),
+    });
+    return buffer.toOwnedSlice();
 }

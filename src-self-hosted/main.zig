@@ -179,6 +179,7 @@ const usage_build_generic =
     \\  --color [auto|off|on]     Enable or disable colored error messages
     \\  -femit-bin[=path]         (default) output machine code
     \\  -fno-emit-bin             Do not output machine code
+    \\  --show-builtin            Output the source of @import("builtin") then exit
     \\
     \\Compile Options:
     \\  -target [name]            <arch><sub>-<os>-<abi> see the targets command
@@ -233,8 +234,8 @@ const usage_build_generic =
     \\
     \\Debug Options (Zig Compiler Development):
     \\  -ftime-report             Print timing diagnostics
-    \\  --debug-link              Verbose linker invocation
-    \\  --debug-cc                Verbose C compiler invocation
+    \\  --verbose-link            Display linker invocations
+    \\  --verbose-cc              Display C compiler invocations
     \\
 ;
 
@@ -274,9 +275,10 @@ pub fn buildOutputType(
     var strip = false;
     var single_threaded = false;
     var watch = false;
-    var debug_link = false;
-    var debug_cc = false;
+    var verbose_link = false;
+    var verbose_cc = false;
     var time_report = false;
+    var show_builtin = false;
     var emit_bin: Emit = .yes_default_path;
     var emit_zir: Emit = .no;
     var target_arch_os_abi: []const u8 = "native";
@@ -531,6 +533,8 @@ pub fn buildOutputType(
                     dll_export_fns = true;
                 } else if (mem.eql(u8, arg, "-fno-dll-export-fns")) {
                     dll_export_fns = false;
+                } else if (mem.eql(u8, arg, "--show-builtin")) {
+                    show_builtin = true;
                 } else if (mem.eql(u8, arg, "--strip")) {
                     strip = true;
                 } else if (mem.eql(u8, arg, "--single-threaded")) {
@@ -539,10 +543,10 @@ pub fn buildOutputType(
                     link_eh_frame_hdr = true;
                 } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                     linker_bind_global_refs_locally = true;
-                } else if (mem.eql(u8, arg, "--debug-link")) {
-                    debug_link = true;
-                } else if (mem.eql(u8, arg, "--debug-cc")) {
-                    debug_cc = true;
+                } else if (mem.eql(u8, arg, "--verbose-link")) {
+                    verbose_link = true;
+                } else if (mem.eql(u8, arg, "--verbose-cc")) {
+                    verbose_cc = true;
                 } else if (mem.startsWith(u8, arg, "-T")) {
                     linker_script = arg[2..];
                 } else if (mem.startsWith(u8, arg, "-L")) {
@@ -680,8 +684,8 @@ pub fn buildOutputType(
                 },
                 .linker_script => linker_script = it.only_arg,
                 .verbose_cmds => {
-                    debug_cc = true;
-                    debug_link = true;
+                    verbose_cc = true;
+                    verbose_link = true;
                 },
                 .for_linker => try linker_args.append(it.only_arg),
                 .linker_input_z => {
@@ -873,6 +877,8 @@ pub fn buildOutputType(
         } else if (emit_bin == .yes) {
             const basename = fs.path.basename(emit_bin.yes);
             break :blk mem.split(basename, ".").next().?;
+        } else if (show_builtin) {
+            break :blk "builtin";
         } else {
             fatal("--name [name] not provided and unable to infer", .{});
         }
@@ -1160,17 +1166,20 @@ pub fn buildOutputType(
         .clang_passthrough_mode = arg_mode != .build,
         .version = if (have_version) version else null,
         .libc_installation = if (libc_installation) |*lci| lci else null,
-        .debug_cc = debug_cc,
-        .debug_link = debug_link,
+        .verbose_cc = verbose_cc,
+        .verbose_link = verbose_link,
         .machine_code_model = machine_code_model,
     }) catch |err| {
         fatal("unable to create compilation: {}", .{@errorName(err)});
     };
     defer comp.destroy();
 
-    const stdin = std.io.getStdIn().inStream();
-    const stderr = std.io.getStdErr().outStream();
-    var repl_buf: [1024]u8 = undefined;
+    if (show_builtin) {
+        const source = try comp.generateBuiltinZigSource();
+        defer comp.gpa.free(source);
+        try std.io.getStdOut().writeAll(source);
+        return;
+    }
 
     try updateModule(gpa, comp, zir_out_path);
 
@@ -1178,6 +1187,10 @@ pub fn buildOutputType(
         // this may include dumping the output to stdout
         fatal("TODO: implement `zig cc` when using it as a preprocessor", .{});
     }
+
+    const stdin = std.io.getStdIn().inStream();
+    const stderr = std.io.getStdErr().outStream();
+    var repl_buf: [1024]u8 = undefined;
 
     while (watch) {
         try stderr.print("🦎 ", .{});

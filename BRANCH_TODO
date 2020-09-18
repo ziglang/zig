@@ -1,9 +1,5 @@
- * `zig builtin`
  * `zig translate-c`
  * `zig test`
- * `zig run`
- * `zig init-lib`
- * `zig init-exe`
  * `zig build`
  * `-ftime-report`
  *  -fstack-report               print stack size diagnostics\n"
@@ -15,14 +11,14 @@
  *  -femit-llvm-ir               produce a .ll file with LLVM IR\n"
  *  -fno-emit-llvm-ir            (default) do not produce a .ll file with LLVM IR\n"
  *  --cache-dir [path]           override the local cache directory\n"
- * move main.cpp to stage2
  * make sure zig cc works
    - using it as a preprocessor (-E)
    - try building some software
  * support rpaths in ELF linker code
  * build & link against compiler-rt
    - stage1 C++ code integration
- * build & link againstn freestanding libc
+ * repair @cImport
+ * build & link against freestanding libc
  * add CLI support for a way to pass extra flags to c source files
  * capture lld stdout/stderr better
  * musl
@@ -41,6 +37,9 @@
  * implement -fno-emit-bin
  * audit the base cache hash
  * audit the CLI options for stage2
+ * `zig init-lib`
+ * `zig init-exe`
+ * `zig run`
 
  * implement serialization/deserialization of incremental compilation metadata
  * incremental compilation - implement detection of which source files changed
@@ -69,3 +68,6 @@
  * rename src-self-hosted/ to src/
  * improve Directory.join to only use 1 allocation in a clean way.
  * tracy builds with lc++
+ * some kind of "zig identifier escape" function rather than unconditionally using @"" syntax
+   in builtin.zig
+ * rename Mode to OptimizeMode

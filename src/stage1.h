@@ -194,11 +194,9 @@ struct ZigStage1 {
     bool test_is_evented;
     bool verbose_tokenize;
     bool verbose_ast;
-    bool verbose_link;
     bool verbose_ir;
     bool verbose_llvm_ir;
     bool verbose_cimport;
-    bool verbose_cc;
     bool verbose_llvm_cpu_features;
 };
 
