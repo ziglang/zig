@@ -1,24 +1,12 @@
 const Tokenizer = @This();
 
-index: usize,
+index: usize = 0,
 bytes: []const u8,
-state: State,
+state: State = .lhs,
 
 const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
-
-pub fn init(allocator: *std.mem.Allocator, bytes: []const u8) Tokenizer {
-    return Tokenizer{
-        .index = 0,
-        .bytes = bytes,
-        .state = .lhs,
-    };
-}
-
-pub fn deinit(self: *Tokenizer) void {
-    self.arena.deinit();
-}
 
 pub fn next(self: *Tokenizer) ?Token {
     var start = self.index;
@@ -896,7 +884,7 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
     const arena = &arena_allocator.allocator;
     defer arena_allocator.deinit();
 
-    var it = Tokenizer.init(arena, input);
+    var it: Tokenizer = .{ .bytes = input };
     var buffer = try std.ArrayListSentineled(u8, 0).initSize(arena, 0);
     var resolve_buf = std.ArrayList(u8).init(arena);
     var i: usize = 0;

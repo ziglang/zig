@@ -460,35 +460,31 @@ pub const CacheHash = struct {
         const dep_file_contents = try dir.readFileAlloc(self.cache.gpa, dep_file_basename, manifest_file_size_max);
         defer self.cache.gpa.free(dep_file_contents);
 
-        const DepTokenizer = @import("DepTokenizer.zig");
-        var it = DepTokenizer.init(self.cache.gpa, dep_file_contents);
-        defer it.deinit();
+        var error_buf = std.ArrayList(u8).init(self.cache.gpa);
+        defer error_buf.deinit();
+
+        var it: @import("DepTokenizer.zig") = .{ .bytes = dep_file_contents };
 
         // Skip first token: target.
-        {
-            const opt_result = it.next() catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.InvalidInput => {
-                    std.log.err("failed parsing {}: {}: {}", .{ dep_file_basename, @errorName(err), it.error_text });
-                    return error.InvalidDepFile;
-                },
-            };
-            _ = opt_result orelse return; // Empty dep file OK.
+        switch (it.next() orelse return) { // Empty dep file OK.
+            .target, .target_must_resolve, .prereq => {},
+            else => |err| {
+                try err.printError(error_buf.writer());
+                std.log.err("failed parsing {}: {}", .{ dep_file_basename, error_buf.items });
+                return error.InvalidDepFile;
+            },
         }
         // Process 0+ preqreqs.
         // Clang is invoked in single-source mode so we never get more targets.
         while (true) {
-            const opt_result = it.next() catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.InvalidInput => {
-                    std.log.err("failed parsing {}: {}: {}", .{ dep_file_basename, @errorName(err), it.error_text });
+            switch (it.next() orelse return) {
+                .target, .target_must_resolve => return,
+                .prereq => |bytes| try self.addFilePost(bytes),
+                else => |err| {
+                    try err.printError(error_buf.writer());
+                    std.log.err("failed parsing {}: {}", .{ dep_file_basename, error_buf.items });
                     return error.InvalidDepFile;
                 },
-            };
-            const result = opt_result orelse return;
-            switch (result.id) {
-                .target => return,
-                .prereq => try self.addFilePost(result.bytes),
             }
         }
     }
