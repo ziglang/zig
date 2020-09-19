@@ -630,7 +630,10 @@ inline fn check_errno(res: usize) !void {
 test "queue_nop" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    var ring = try IO_Uring.init(1, 0);
+    var ring = IO_Uring.init(1, 0) catch |err| {
+        if (err == error.UnsupportedKernel) return error.SkipZigTest;
+        return err;
+    };
     defer {
         ring.deinit();
         testing.expectEqual(@as(i32, -1), ring.fd);
@@ -693,7 +696,10 @@ test "queue_nop" {
 test "queue_readv" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    var ring = try IO_Uring.init(1, 0);
+    var ring = IO_Uring.init(1, 0) catch |err| {
+        if (err == error.UnsupportedKernel) return error.SkipZigTest;
+        return err;
+    };
     defer ring.deinit();
 
     const fd = try os.openZ("/dev/zero", os.O_RDONLY | os.O_CLOEXEC, 0);
@@ -731,7 +737,10 @@ test "queue_readv" {
 test "queue_writev/queue_fsync" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    var ring = try IO_Uring.init(2, 0);
+    var ring = IO_Uring.init(2, 0) catch |err| {
+        if (err == error.UnsupportedKernel) return error.SkipZigTest;
+        return err;
+    };
     defer ring.deinit();
     
     const path = "test_io_uring_queue_writev";
@@ -770,10 +779,12 @@ test "queue_writev/queue_fsync" {
 }
 
 test "queue_write/queue_read" {
-    // TODO
-    if (builtin.os.tag != .linux or true) return error.SkipZigTest;
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    var ring = try IO_Uring.init(2, 0);
+    var ring = IO_Uring.init(2, 0) catch |err| {
+        if (err == error.UnsupportedKernel) return error.SkipZigTest;
+        return err;
+    };
     defer ring.deinit();
     
     const path = "test_io_uring_queue_write";
@@ -788,15 +799,20 @@ test "queue_write/queue_read" {
     ring.link_with_next_sqe(sqe_write);
     var sqe_read = try ring.queue_read(456, fd, buffer_read[0..], 10);
     testing.expectEqual(@as(u32, 2), try ring.submit());
+
+    var cqe1 = try ring.copy_cqe();
+    var cqe2 = try ring.copy_cqe();
+    if (cqe1.res == -linux.EOPNOTSUPP) return error.SkipZigTest;
+    if (cqe2.res == -linux.EOPNOTSUPP) return error.SkipZigTest;
     testing.expectEqual(linux.io_uring_cqe {
         .user_data = 123,
         .res = buffer_write.len,
         .flags = 0,
-    }, try ring.copy_cqe());
+    }, cqe1);
     testing.expectEqual(linux.io_uring_cqe {
         .user_data = 456,
         .res = buffer_read.len,
         .flags = 0,
-    }, try ring.copy_cqe());
+    }, cqe2);
     testing.expectEqualSlices(u8, buffer_write[0..], buffer_read[0..]);
 }
