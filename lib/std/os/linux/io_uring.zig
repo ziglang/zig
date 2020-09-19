@@ -136,7 +136,7 @@ pub const IO_Uring = struct {
         // Remember that these head and tail offsets wrap around every four billion operations.
         // We must therefore use wrapping addition and subtraction to avoid a runtime crash.
         const next = self.sq.sqe_tail +% 1;
-        if (next -% head > self.sq.sqes.len) return error.IO_UringSubmissionQueueFull;
+        if (next -% head > self.sq.sqes.len) return error.SubmissionQueueFull;
         var sqe = &self.sq.sqes[self.sq.sqe_tail & self.sq.mask.*];
         self.sq.sqe_tail = next;
         return sqe;
@@ -716,7 +716,7 @@ test "queue_readv" {
     ring.use_registered_fd(sqe);
     testing.expectEqual(@as(u8, linux.IOSQE_FIXED_FILE), sqe.flags);
 
-    testing.expectError(error.IO_UringSubmissionQueueFull, ring.queue_nop(0));
+    testing.expectError(error.SubmissionQueueFull, ring.queue_nop(0));
     testing.expectEqual(@as(u32, 1), try ring.submit());
     testing.expectEqual(linux.io_uring_cqe {
         .user_data = 0xcccccccc,
