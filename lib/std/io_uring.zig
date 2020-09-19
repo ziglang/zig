@@ -526,7 +526,7 @@ pub const IO_Uring = struct {
         const res = linux.io_uring_register(
             self.fd,
             .REGISTER_FILES,
-            fds.ptr,
+            @ptrCast(*const c_void, fds.ptr),
             @truncate(u32, fds.len)
         );
         try check_errno(res);
