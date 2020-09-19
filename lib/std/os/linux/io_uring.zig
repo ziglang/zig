@@ -623,7 +623,10 @@ pub const CompletionQueue = struct {
 
 inline fn check_errno(res: usize) !void {
     const errno = linux.getErrno(res);
-    if (errno != 0) return os.unexpectedErrno(errno);
+    if (errno != 0) {
+        if (errno == linux.ENOSYS) return error.UnsupportedKernel;
+        return os.unexpectedErrno(errno);
+    }
 }
 
 test "queue_nop" {
