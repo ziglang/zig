@@ -1265,48 +1265,19 @@ pub const io_cqring_offsets = extern struct {
 };
 
 pub const io_uring_sqe = extern struct {
-    pub const union1 = extern union {
-        off: u64,
-        addr2: u64,
-    };
-
-    pub const union2 = extern union {
-        rw_flags: kernel_rwf,
-        fsync_flags: u32,
-        poll_events: u16,
-        sync_range_flags: u32,
-        msg_flags: u32,
-        timeout_flags: u32,
-        accept_flags: u32,
-        cancel_flags: u32,
-        open_flags: u32,
-        statx_flags: u32,
-        fadvise_flags: u32,
-    };
-
-    pub const union3 = extern union {
-        struct1: extern struct {
-            /// index into fixed buffers, if used
-            buf_index: u16,
-
-            /// personality to use, if used
-            personality: u16,
-        },
-        __pad2: [3]u64,
-    };
     opcode: IORING_OP,
-    flags: u8,
-    ioprio: u16,
-    fd: i32,
-
-    union1: union1,
-    addr: u64,
-    len: u32,
-
-    union2: union2,
-    user_data: u64,
-
-    union3: union3,
+    flags: u8 = 0,
+    ioprio: u16 = 0,
+    fd: i32 = 0,
+    off: u64 = 0,
+    addr: u64 = 0,
+    len: u32 = 0,
+    opflags: u32 = 0,
+    user_data: u64 = 0,
+    buf_index: u16 = 0,
+    personality: u16 = 0,
+    splice_fd_in: i32 = 0,
+    __pad2: [2]u64 = [2]u64{ 0, 0 }
 };
 
 pub const IOSQE_BIT = extern enum(u8) {
