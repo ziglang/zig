@@ -124,13 +124,13 @@ pub const IO_Uring = struct {
         self.fd = -1;
     }
 
-    /// Returns a vacant SQE, or an error if the submission queue is full.
+    /// Returns a pointer to a zeroed SQE, or an error if the submission queue is full.
     /// We follow the implementation (and atomics) of liburing's `io_uring_get_sqe()` exactly.
     /// However, instead of a null we return an error to force safe handling.
     /// Any situation where the submission queue is full tends more towards a control flow error,
     /// and the null return in liburing is more a C idiom than anything else, for lack of a better
     /// alternative. In Zig, we have first-class error handling... so let's use it.
-    /// Matches the implementation of io_uring_get_sqe() in liburing.
+    /// Matches the implementation of io_uring_get_sqe() in liburing, except zeroes for safety.
     pub fn get_sqe(self: *IO_Uring) !*io_uring_sqe {
         const head = @atomicLoad(u32, self.sq.head, .Acquire);
         // Remember that these head and tail offsets wrap around every four billion operations.
@@ -139,6 +139,8 @@ pub const IO_Uring = struct {
         if (next -% head > self.sq.sqes.len) return error.SubmissionQueueFull;
         var sqe = &self.sq.sqes[self.sq.sqe_tail & self.sq.mask.*];
         self.sq.sqe_tail = next;
+        // We zero the SQE slot here in a single place, rather than in many `queue_` methods.
+        @memset(@ptrCast([*]u8, sqe), 0, @sizeOf(io_uring_sqe));
         return sqe;
     }
 
@@ -312,14 +314,12 @@ pub const IO_Uring = struct {
         // sqe->addr2 holds a pointer to socklen_t, and finally sqe->accept_flags holds the flags
         // for accept(4)." - https://lwn.net/ml/linux-block/20191025173037.13486-1-axboe@kernel.dk/
         const sqe = try self.get_sqe();
-        sqe.* = .{
-            .opcode = .ACCEPT,
-            .fd = fd,
-            .off = @ptrToInt(addrlen), // `addr2` is a newer union member that maps to `off`.
-            .addr = @ptrToInt(addr),
-            .user_data = user_data,
-            .opflags = accept_flags
-        };
+        sqe.opcode = .ACCEPT;
+        sqe.fd = fd;
+        sqe.off = @ptrToInt(addrlen); // `addr2` is a newer union member that maps to `off`.
+        sqe.addr = @ptrToInt(addr);
+        sqe.user_data = user_data;
+        sqe.opflags = accept_flags;
         return sqe;
     }
 
@@ -334,11 +334,9 @@ pub const IO_Uring = struct {
     /// or else insert a full write barrier using `drain_previous_sqes()` when queueing an fsync.
     pub fn queue_fsync(self: *IO_Uring, user_data: u64, fd: os.fd_t) !*io_uring_sqe {
         const sqe = try self.get_sqe();
-        sqe.* = .{
-            .opcode = .FSYNC,
-            .fd = fd,
-            .user_data = user_data
-        };
+        sqe.opcode = .FSYNC;
+        sqe.fd = fd;
+        sqe.user_data = user_data;
         return sqe;
     }
 
@@ -349,10 +347,8 @@ pub const IO_Uring = struct {
     /// know when the ring is idle before acting on a kill signal.
     pub fn queue_nop(self: *IO_Uring, user_data: u64) !*io_uring_sqe {
         const sqe = try self.get_sqe();
-        sqe.* = .{
-            .opcode = .NOP,
-            .user_data = user_data
-        };
+        sqe.opcode = .NOP;
+        sqe.user_data = user_data;
         return sqe;
     }
 
@@ -366,14 +362,12 @@ pub const IO_Uring = struct {
         offset: u64
     ) !*io_uring_sqe {
         const sqe = try self.get_sqe();
-        sqe.* = .{
-            .opcode = .READ,
-            .fd = fd,
-            .off = offset,
-            .addr = @ptrToInt(buffer.ptr),
-            .len = @truncate(u32, buffer.len),
-            .user_data = user_data
-        };
+        sqe.opcode = .READ;
+        sqe.fd = fd;
+        sqe.off = offset;
+        sqe.addr = @ptrToInt(buffer.ptr);
+        sqe.len = @truncate(u32, buffer.len);
+        sqe.user_data = user_data;
         return sqe;
     }
 
@@ -387,14 +381,12 @@ pub const IO_Uring = struct {
         offset: u64
     ) !*io_uring_sqe {
         const sqe = try self.get_sqe();
-        sqe.* = .{
-            .opcode = .WRITE,
-            .fd = fd,
-            .off = offset,
-            .addr = @ptrToInt(buffer.ptr),
-            .len = @truncate(u32, buffer.len),
-            .user_data = user_data
-        };
+        sqe.opcode = .WRITE;
+        sqe.fd = fd;
+        sqe.off = offset;
+        sqe.addr = @ptrToInt(buffer.ptr);
+        sqe.len = @truncate(u32, buffer.len);
+        sqe.user_data = user_data;
         return sqe;
     }
 
@@ -410,14 +402,12 @@ pub const IO_Uring = struct {
         offset: u64
     ) !*io_uring_sqe {
         const sqe = try self.get_sqe();
-        sqe.* = .{
-            .opcode = .READV,
-            .fd = fd,
-            .off = offset,
-            .addr = @ptrToInt(iovecs.ptr),
-            .len = @truncate(u32, iovecs.len),
-            .user_data = user_data
-        };
+        sqe.opcode = .READV;
+        sqe.fd = fd;
+        sqe.off = offset;
+        sqe.addr = @ptrToInt(iovecs.ptr);
+        sqe.len = @truncate(u32, iovecs.len);
+        sqe.user_data = user_data;
         return sqe;
     }
 
@@ -433,14 +423,12 @@ pub const IO_Uring = struct {
         offset: u64
     ) !*io_uring_sqe {
         const sqe = try self.get_sqe();
-        sqe.* = .{
-            .opcode = .WRITEV,
-            .fd = fd,
-            .off = offset,
-            .addr = @ptrToInt(iovecs.ptr),
-            .len = @truncate(u32, iovecs.len),
-            .user_data = user_data
-        };
+        sqe.opcode = .WRITEV;
+        sqe.fd = fd;
+        sqe.off = offset;
+        sqe.addr = @ptrToInt(iovecs.ptr);
+        sqe.len = @truncate(u32, iovecs.len);
+        sqe.user_data = user_data;
         return sqe;
     }
 
