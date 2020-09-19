@@ -740,17 +740,10 @@ test "queue_readv" {
 
     const fd = try os.openZ("/dev/zero", os.O_RDONLY | os.O_CLOEXEC, 0);
     defer os.close(fd);
-    
-    var registered_fds = [_]i32{-1} ** 10;
-    const fd_index = 9;
-    registered_fds[fd_index] = fd;
-    try ring.register_files(registered_fds[0..]);
 
     var buffer = [_]u8{42} ** 128;
     var iovecs = [_]os.iovec{ os.iovec { .iov_base = &buffer, .iov_len = buffer.len } };
-    var sqe = try ring.queue_readv(0xcccccccc, fd_index, iovecs[0..], 0);
-    ring.use_registered_fd(sqe);
-    testing.expectEqual(@as(u8, linux.IOSQE_FIXED_FILE), sqe.flags);
+    var sqe = try ring.queue_readv(0xcccccccc, fd, iovecs[0..], 0);
 
     testing.expectError(error.IO_UringSubmissionQueueFull, ring.queue_nop(0));
     testing.expectEqual(@as(u32, 1), try ring.submit());
@@ -760,8 +753,6 @@ test "queue_readv" {
         .flags = 0,
     }, try ring.copy_cqe());
     testing.expectEqualSlices(u8, &([_]u8{0} ** buffer.len), buffer[0..]);
-
-    try ring.unregister_files();
 }
 
 test "queue_writev/queue_fsync" {
