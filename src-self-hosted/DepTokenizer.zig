@@ -228,7 +228,7 @@ pub fn next(self: *Tokenizer) ?Token {
             .rhs_continuation_linefeed,
             => return null,
             .target => {
-                return Token{ .incomplete_target = self.bytes[start..] };
+                return errorPosition(.incomplete_target, start, self.bytes[start..]);
             },
             .target_reverse_solidus,
             .target_dollar_sign,
@@ -259,7 +259,7 @@ pub fn next(self: *Tokenizer) ?Token {
                 return null;
             },
             .prereq_quote => {
-                return Token{ .incomplete_quoted_prerequisite = self.bytes[start..] };
+                return errorPosition(.incomplete_quoted_prerequisite, start, self.bytes[start..]);
             },
             .prereq => {
                 self.state = .lhs;
@@ -276,6 +276,10 @@ pub fn next(self: *Tokenizer) ?Token {
         }
     }
     unreachable;
+}
+
+fn errorPosition(comptime id: @TagType(Token), index: usize, bytes: []const u8) Token {
+    return @unionInit(Token, @tagName(id), .{ .index = index, .bytes = bytes });
 }
 
 fn errorIllegalChar(comptime id: @TagType(Token), index: usize, char: u8) Token {
@@ -309,8 +313,10 @@ pub const Token = union(enum) {
     target: []const u8,
     target_must_resolve: []const u8,
     prereq: []const u8,
-    incomplete_quoted_prerequisite: []const u8,
-    incomplete_target: []const u8,
+
+    incomplete_quoted_prerequisite: IndexAndBytes,
+    incomplete_target: IndexAndBytes,
+
     invalid_target: IndexAndChar,
     bad_target_escape: IndexAndChar,
     expected_dollar_sign: IndexAndChar,
@@ -322,11 +328,15 @@ pub const Token = union(enum) {
         char: u8,
     };
 
+    pub const IndexAndBytes = struct {
+        index: usize,
+        bytes: []const u8,
+    };
+
     /// Resolve escapes in target. Only valid with .target_must_resolve.
-    pub fn resolve(self: Token, buf: *std.ArrayList(u8)) std.mem.Allocator.Error!void {
+    pub fn resolve(self: Token, writer: anytype) @TypeOf(writer).Error!void {
         const bytes = self.target_must_resolve; // resolve called on incorrect token
 
-        try buf.ensureCapacity(bytes.len); // cannot be longer than the unescaped string
         var state: enum { start, escape, dollar } = .start;
         for (bytes) |c| {
             switch (state) {
@@ -334,32 +344,73 @@ pub const Token = union(enum) {
                     switch (c) {
                         '\\' => state = .escape,
                         '$' => state = .dollar,
-                        else => buf.appendAssumeCapacity(c),
+                        else => try writer.writeByte(c),
                     }
                 },
                 .escape => {
                     switch (c) {
                         ' ', '#', '\\' => {},
                         '$' => {
-                            buf.appendAssumeCapacity('\\');
+                            try writer.writeByte('\\');
                             state = .dollar;
                             continue;
                         },
-                        else => buf.appendAssumeCapacity('\\'),
+                        else => try writer.writeByte('\\'),
                     }
-                    buf.appendAssumeCapacity(c);
+                    try writer.writeByte(c);
                     state = .start;
                 },
                 .dollar => {
-                    buf.appendAssumeCapacity('$');
+                    try writer.writeByte('$');
                     switch (c) {
                         '$' => {},
-                        else => buf.appendAssumeCapacity(c),
+                        else => try writer.writeByte(c),
                     }
                     state = .start;
                 },
             }
         }
+    }
+
+    pub fn printError(self: Token, writer: anytype) @TypeOf(writer).Error!void {
+        switch (self) {
+            .target, .target_must_resolve, .prereq => unreachable, // not an error
+            .incomplete_quoted_prerequisite,
+            .incomplete_target,
+            => |index_and_bytes| {
+                try writer.print("{} '", .{self.errStr()});
+                if (self == .incomplete_target) {
+                    const tmp = Token{ .target_must_resolve = index_and_bytes.bytes };
+                    try tmp.resolve(writer);
+                } else {
+                    try printCharValues(writer, index_and_bytes.bytes);
+                }
+                try writer.print("' at position {}", .{index_and_bytes.index});
+            },
+            .invalid_target,
+            .bad_target_escape,
+            .expected_dollar_sign,
+            .continuation_eol,
+            .incomplete_escape,
+            => |index_and_char| {
+                try writer.writeAll("illegal char ");
+                try printUnderstandableChar(writer, index_and_char.char);
+                try writer.print(" at position {}: {}", .{ index_and_char.index, self.errStr() });
+            },
+        }
+    }
+
+    fn errStr(self: Token) []const u8 {
+        return switch (self) {
+            .target, .target_must_resolve, .prereq => unreachable, // not an error
+            .incomplete_quoted_prerequisite => "incomplete quoted prerequisite",
+            .incomplete_target => "incomplete target",
+            .invalid_target => "invalid target",
+            .bad_target_escape => "bad target escape",
+            .expected_dollar_sign => "expecting '$'",
+            .continuation_eol => "continuation expecting end-of-line",
+            .incomplete_escape => "incomplete escape",
+        };
     }
 };
 
@@ -755,16 +806,16 @@ test "error incomplete target" {
     );
 
     try depTokenizer("\\ foo.o",
-        \\ERROR: incomplete target ' foo.o' at position 1
+        \\ERROR: incomplete target ' foo.o' at position 0
     );
     try depTokenizer("\\#foo.o",
-        \\ERROR: incomplete target '#foo.o' at position 1
+        \\ERROR: incomplete target '#foo.o' at position 0
     );
     try depTokenizer("\\\\foo.o",
-        \\ERROR: incomplete target '\foo.o' at position 1
+        \\ERROR: incomplete target '\foo.o' at position 0
     );
     try depTokenizer("$$foo.o",
-        \\ERROR: incomplete target '$foo.o' at position 1
+        \\ERROR: incomplete target '$foo.o' at position 0
     );
 }
 
@@ -862,7 +913,7 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
             },
             .target_must_resolve => {
                 try buffer.appendSlice("target = {");
-                try token.resolve(&resolve_buf);
+                try token.resolve(resolve_buf.writer());
                 for (resolve_buf.items) |b| {
                     try buffer.append(printable_char_tab[b]);
                 }
@@ -870,7 +921,9 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
                 try buffer.appendSlice("}");
             },
             else => {
-                @panic("TODO");
+                try buffer.appendSlice("ERROR: ");
+                try token.printError(buffer.outStream());
+                break;
             },
         }
         i += 1;
@@ -1005,23 +1058,19 @@ fn printCharValues(out: anytype, bytes: []const u8) !void {
     }
 }
 
-fn printUnderstandableChar(buffer: *std.ArrayListSentineled(u8, 0), char: u8) !void {
+fn printUnderstandableChar(out: anytype, char: u8) !void {
     if (!std.ascii.isPrint(char) or char == ' ') {
-        try buffer.outStream().print("\\x{X:0>2}", .{char});
+        try out.print("\\x{X:0>2}", .{char});
     } else {
-        try buffer.appendSlice("'");
-        try buffer.append(printable_char_tab[char]);
-        try buffer.appendSlice("'");
+        try out.print("'{c}'", .{printable_char_tab[char]});
     }
 }
 
 // zig fmt: off
-const printable_char_tab: []const u8 =
+const printable_char_tab: [256]u8 = (
     "................................ !\"#$%&'()*+,-./0123456789:;<=>?" ++
     "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~." ++
     "................................................................" ++
-    "................................................................";
-// zig fmt: on
-comptime {
-    assert(printable_char_tab.len == 256);
-}
+    "................................................................"
+).*;
+
