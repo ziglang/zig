@@ -19,6 +19,7 @@ const libunwind = @import("libunwind.zig");
 const fatal = @import("main.zig").fatal;
 const Module = @import("Module.zig");
 const Cache = @import("Cache.zig");
+const stage1 = @import("stage1.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: *Allocator,
@@ -26,6 +27,7 @@ gpa: *Allocator,
 arena_state: std.heap.ArenaAllocator.State,
 bin_file: *link.File,
 c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
+stage1_module: ?*stage1.Module,
 
 link_error_flags: link.File.ErrorFlags = .{},
 
@@ -122,6 +124,8 @@ const Job = union(enum) {
 
     /// Generate builtin.zig source code and write it into the correct place.
     generate_builtin_zig: void,
+    /// Use stage1 C++ code to compile zig code into an object file.
+    stage1_module: void,
 };
 
 pub const CObject = struct {
@@ -274,6 +278,7 @@ pub const InitOptions = struct {
     strip: bool = false,
     single_threaded: bool = false,
     is_native_os: bool,
+    time_report: bool = false,
     link_eh_frame_hdr: bool = false,
     linker_script: ?[]const u8 = null,
     version_script: ?[]const u8 = null,
@@ -288,12 +293,20 @@ pub const InitOptions = struct {
     clang_passthrough_mode: bool = false,
     verbose_cc: bool = false,
     verbose_link: bool = false,
+    verbose_tokenize: bool = false,
+    verbose_ast: bool = false,
+    verbose_ir: bool = false,
+    verbose_llvm_ir: bool = false,
+    verbose_cimport: bool = false,
+    verbose_llvm_cpu_features: bool = false,
     is_test: bool = false,
     stack_size_override: ?u64 = null,
     self_exe_path: ?[]const u8 = null,
     version: ?std.builtin.Version = null,
     libc_installation: ?*const LibCInstallation = null,
     machine_code_model: std.builtin.CodeModel = .default,
+    /// This is for stage1 and should be deleted upon completion of self-hosting.
+    color: @import("main.zig").Color = .Auto,
 };
 
 pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
@@ -332,11 +345,27 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             {
                 break :blk true;
             }
+
+            if (build_options.is_stage1) {
+                // If stage1 generates an object file, self-hosted linker is not
+                // yet sophisticated enough to handle that.
+                break :blk options.root_pkg != null;
+            }
+
             break :blk false;
         };
 
         // Make a decision on whether to use LLVM or our own backend.
         const use_llvm = if (options.use_llvm) |explicit| explicit else blk: {
+            // If we have no zig code to compile, no need for LLVM.
+            if (options.root_pkg == null)
+                break :blk false;
+
+            // If we are the stage1 compiler, we depend on the stage1 c++ llvm backend
+            // to compile zig code.
+            if (build_options.is_stage1)
+                break :blk true;
+
             // We would want to prefer LLVM for release builds when it is available, however
             // we don't have an LLVM backend yet :)
             // We would also want to prefer LLVM for architectures that we don't have self-hosted support for too.
@@ -580,6 +609,118 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .ReleaseFast, .ReleaseSmall => false,
         };
 
+        const llvm_cpu_features: ?[*:0]const u8 = if (build_options.have_llvm and use_llvm) blk: {
+            var buf = std.ArrayList(u8).init(arena);
+            for (options.target.cpu.arch.allFeaturesList()) |feature, index_usize| {
+                const index = @intCast(Target.Cpu.Feature.Set.Index, index_usize);
+                const is_enabled = options.target.cpu.features.isEnabled(index);
+
+                if (feature.llvm_name) |llvm_name| {
+                    const plus_or_minus = "-+"[@boolToInt(is_enabled)];
+                    try buf.ensureCapacity(buf.items.len + 2 + llvm_name.len);
+                    buf.appendAssumeCapacity(plus_or_minus);
+                    buf.appendSliceAssumeCapacity(llvm_name);
+                    buf.appendSliceAssumeCapacity(",");
+                }
+            }
+            assert(mem.endsWith(u8, buf.items, ","));
+            buf.items[buf.items.len - 1] = 0;
+            buf.shrink(buf.items.len);
+            break :blk buf.items[0 .. buf.items.len - 1 :0].ptr;
+        } else null;
+
+        const stage1_module: ?*stage1.Module = if (build_options.is_stage1 and use_llvm) blk: {
+            // Here we use the legacy stage1 C++ compiler to compile Zig code.
+            const stage2_target = try arena.create(stage1.Stage2Target);
+            stage2_target.* = .{
+                .arch = @enumToInt(options.target.cpu.arch) + 1, // skip over ZigLLVM_UnknownArch
+                .os = @enumToInt(options.target.os.tag),
+                .abi = @enumToInt(options.target.abi),
+                .is_native_os = options.is_native_os,
+                .is_native_cpu = false, // Only true when bootstrapping the compiler.
+                .llvm_cpu_name = if (options.target.cpu.model.llvm_name) |s| s.ptr else null,
+                .llvm_cpu_features = llvm_cpu_features.?,
+            };
+            const progress = try arena.create(std.Progress);
+            const main_progress_node = try progress.start("", 100);
+            if (options.color == .Off) progress.terminal = null;
+
+            const mod = module.?;
+            const main_zig_file = mod.root_pkg.root_src_path;
+            const zig_lib_dir = options.zig_lib_directory.path.?;
+            const builtin_sub = &[_][]const u8{"builtin.zig"};
+            const builtin_zig_path = try mod.zig_cache_artifact_directory.join(arena, builtin_sub);
+
+            const stage1_module = stage1.create(
+                @enumToInt(options.optimize_mode),
+                undefined,
+                0, // TODO --main-pkg-path
+                main_zig_file.ptr,
+                main_zig_file.len,
+                zig_lib_dir.ptr,
+                zig_lib_dir.len,
+                stage2_target,
+                options.is_test,
+            ) orelse return error.OutOfMemory;
+
+            const output_dir = bin_directory.path orelse ".";
+
+            const stage1_pkg = try arena.create(stage1.Pkg);
+            stage1_pkg.* = .{
+                .name_ptr = undefined,
+                .name_len = 0,
+                .path_ptr = undefined,
+                .path_len = 0,
+                .children_ptr = undefined,
+                .children_len = 0,
+                .parent = null,
+            };
+
+            stage1_module.* = .{
+                .root_name_ptr = root_name.ptr,
+                .root_name_len = root_name.len,
+                .output_dir_ptr = output_dir.ptr,
+                .output_dir_len = output_dir.len,
+                .builtin_zig_path_ptr = builtin_zig_path.ptr,
+                .builtin_zig_path_len = builtin_zig_path.len,
+                .test_filter_ptr = "",
+                .test_filter_len = 0,
+                .test_name_prefix_ptr = "",
+                .test_name_prefix_len = 0,
+                .userdata = @ptrToInt(comp),
+                .root_pkg = stage1_pkg,
+                .code_model = @enumToInt(options.machine_code_model),
+                .subsystem = stage1.TargetSubsystem.Auto,
+                .err_color = @enumToInt(options.color),
+                .pic = pic,
+                .link_libc = options.link_libc,
+                .link_libcpp = options.link_libcpp,
+                .strip = options.strip,
+                .is_single_threaded = single_threaded,
+                .dll_export_fns = dll_export_fns,
+                .link_mode_dynamic = link_mode == .Dynamic,
+                .valgrind_enabled = valgrind,
+                .function_sections = options.function_sections orelse false,
+                .enable_stack_probing = stack_check,
+                .enable_time_report = options.time_report,
+                .enable_stack_report = false,
+                .dump_analysis = false,
+                .enable_doc_generation = false,
+                .emit_bin = true,
+                .emit_asm = false,
+                .emit_llvm_ir = false,
+                .test_is_evented = false,
+                .verbose_tokenize = options.verbose_tokenize,
+                .verbose_ast = options.verbose_ast,
+                .verbose_ir = options.verbose_ir,
+                .verbose_llvm_ir = options.verbose_llvm_ir,
+                .verbose_cimport = options.verbose_cimport,
+                .verbose_llvm_cpu_features = options.verbose_llvm_cpu_features,
+                .main_progress_node = main_progress_node,
+            };
+            break :blk stage1_module;
+        } else null;
+
         const bin_file = try link.File.openPath(gpa, .{
             .directory = bin_directory,
             .sub_path = emit_bin.basename,
@@ -626,6 +767,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .machine_code_model = options.machine_code_model,
             .dll_export_fns = dll_export_fns,
             .error_return_tracing = error_return_tracing,
+            .llvm_cpu_features = llvm_cpu_features,
         });
         errdefer bin_file.destroy();
 
@@ -635,6 +777,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .zig_lib_directory = options.zig_lib_directory,
             .zig_cache_directory = options.zig_cache_directory,
             .bin_file = bin_file,
+            .stage1_module = stage1_module,
             .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .keep_source_files_loaded = options.keep_source_files_loaded,
             .use_clang = use_clang,
@@ -681,6 +824,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         try comp.work_queue.writeItem(.{ .libunwind = {} });
     }
 
+    if (comp.stage1_module) |module| {
+        try comp.work_queue.writeItem(.{ .stage1_module = {} });
+    }
+
     return comp;
 }
 
@@ -688,6 +835,11 @@ pub fn destroy(self: *Compilation) void {
     const optional_module = self.bin_file.options.module;
     self.bin_file.destroy();
     if (optional_module) |module| module.deinit();
+
+    if (self.stage1_module) |module| {
+        module.main_progress_node.?.end();
+        module.destroy();
+    }
 
     const gpa = self.gpa;
     self.work_queue.deinit();
@@ -996,6 +1148,10 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to update builtin.zig file: {}", .{@errorName(err)});
             };
+        },
+        .stage1_module => {
+            // This Job is only queued up if there is a zig module.
+            self.stage1_module.?.build_object();
         },
     };
 }
@@ -1365,7 +1521,7 @@ pub fn addCCArgs(
                 try argv.append("-fPIC");
             }
         },
-        .so, .assembly, .ll, .bc, .unknown => {},
+        .shared_library, .assembly, .ll, .bc, .unknown, .static_library, .object, .zig, .zir => {},
     }
     if (out_dep_path) |p| {
         try argv.appendSlice(&[_][]const u8{ "-MD", "-MV", "-MF", p });
@@ -1445,16 +1601,38 @@ pub const FileExt = enum {
     ll,
     bc,
     assembly,
-    so,
+    shared_library,
+    object,
+    static_library,
+    zig,
+    zir,
     unknown,
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
         return switch (ext) {
             .c, .cpp, .h => true,
-            .ll, .bc, .assembly, .so, .unknown => false,
+
+            .ll,
+            .bc,
+            .assembly,
+            .shared_library,
+            .object,
+            .static_library,
+            .zig,
+            .zir,
+            .unknown,
+            => false,
         };
     }
 };
+
+pub fn hasObjectExt(filename: []const u8) bool {
+    return mem.endsWith(u8, filename, ".o") or mem.endsWith(u8, filename, ".obj");
+}
+
+pub fn hasStaticLibraryExt(filename: []const u8) bool {
+    return mem.endsWith(u8, filename, ".a") or mem.endsWith(u8, filename, ".lib");
+}
 
 pub fn hasCExt(filename: []const u8) bool {
     return mem.endsWith(u8, filename, ".c");
@@ -1471,6 +1649,32 @@ pub fn hasAsmExt(filename: []const u8) bool {
     return mem.endsWith(u8, filename, ".s") or mem.endsWith(u8, filename, ".S");
 }
 
+pub fn hasSharedLibraryExt(filename: []const u8) bool {
+    if (mem.endsWith(u8, filename, ".so") or
+        mem.endsWith(u8, filename, ".dll") or
+        mem.endsWith(u8, filename, ".dylib"))
+    {
+        return true;
+    }
+    // Look for .so.X, .so.X.Y, .so.X.Y.Z
+    var it = mem.split(filename, ".");
+    _ = it.next().?;
+    var so_txt = it.next() orelse return false;
+    while (!mem.eql(u8, so_txt, "so")) {
+        so_txt = it.next() orelse return false;
+    }
+    const n1 = it.next() orelse return false;
+    const n2 = it.next();
+    const n3 = it.next();
+
+    _ = std.fmt.parseInt(u32, n1, 10) catch return false;
+    if (n2) |x| _ = std.fmt.parseInt(u32, x, 10) catch return false;
+    if (n3) |x| _ = std.fmt.parseInt(u32, x, 10) catch return false;
+    if (it.next() != null) return false;
+
+    return true;
+}
+
 pub fn classifyFileExt(filename: []const u8) FileExt {
     if (hasCExt(filename)) {
         return .c;
@@ -1484,26 +1688,19 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .assembly;
     } else if (mem.endsWith(u8, filename, ".h")) {
         return .h;
-    } else if (mem.endsWith(u8, filename, ".so")) {
-        return .so;
+    } else if (mem.endsWith(u8, filename, ".zig")) {
+        return .zig;
+    } else if (mem.endsWith(u8, filename, ".zir")) {
+        return .zig;
+    } else if (hasSharedLibraryExt(filename)) {
+        return .shared_library;
+    } else if (hasStaticLibraryExt(filename)) {
+        return .static_library;
+    } else if (hasObjectExt(filename)) {
+        return .object;
+    } else {
+        return .unknown;
     }
-    // Look for .so.X, .so.X.Y, .so.X.Y.Z
-    var it = mem.split(filename, ".");
-    _ = it.next().?;
-    var so_txt = it.next() orelse return .unknown;
-    while (!mem.eql(u8, so_txt, "so")) {
-        so_txt = it.next() orelse return .unknown;
-    }
-    const n1 = it.next() orelse return .unknown;
-    const n2 = it.next();
-    const n3 = it.next();
-
-    _ = std.fmt.parseInt(u32, n1, 10) catch return .unknown;
-    if (n2) |x| _ = std.fmt.parseInt(u32, x, 10) catch return .unknown;
-    if (n3) |x| _ = std.fmt.parseInt(u32, x, 10) catch return .unknown;
-    if (it.next() != null) return .unknown;
-
-    return .so;
 }
 
 test "classifyFileExt" {
@@ -1681,7 +1878,7 @@ pub fn dump_argv(argv: []const []const u8) void {
 }
 
 pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8 {
-    var buffer = std.ArrayList(u8).init(comp.gpa);
+    var buffer = std.ArrayList(u8).init(allocator);
     defer buffer.deinit();
 
     const target = comp.getTarget();
@@ -1691,9 +1888,9 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
     try buffer.writer().print(
         \\usingnamespace @import("std").builtin;
         \\/// Deprecated
-        \\pub const arch = std.Target.current.cpu.arch;
+        \\pub const arch = Target.current.cpu.arch;
         \\/// Deprecated
-        \\pub const endian = std.Target.current.cpu.arch.endian();
+        \\pub const endian = Target.current.cpu.arch.endian();
         \\pub const output_mode = OutputMode.{};
         \\pub const link_mode = LinkMode.{};
         \\pub const is_test = {};

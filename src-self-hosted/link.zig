@@ -69,6 +69,7 @@ pub const Options = struct {
     linker_script: ?[]const u8 = null,
     version_script: ?[]const u8 = null,
     override_soname: ?[]const u8 = null,
+    llvm_cpu_features: ?[*:0]const u8 = null,
     /// Extra args passed directly to LLD. Ignored when not linking with LLD.
     extra_lld_args: []const []const u8 = &[0][]const u8,
 
@@ -134,6 +135,18 @@ pub const File = struct {
     /// rewriting it. A malicious file is detected as incremental link failure
     /// and does not cause Illegal Behavior. This operation is not atomic.
     pub fn openPath(allocator: *Allocator, options: Options) !*File {
+        const use_stage1 = build_options.is_stage1 and options.use_llvm;
+        if (use_stage1) {
+            return switch (options.object_format) {
+                .coff, .pe => &(try Coff.createEmpty(allocator, options)).base,
+                .elf => &(try Elf.createEmpty(allocator, options)).base,
+                .macho => &(try MachO.createEmpty(allocator, options)).base,
+                .wasm => &(try Wasm.createEmpty(allocator, options)).base,
+                .c => unreachable, // Reported error earlier.
+                .hex => return error.HexObjectFormatUnimplemented,
+                .raw => return error.RawObjectFormatUnimplemented,
+            };
+        }
         const use_lld = build_options.have_llvm and options.use_lld; // comptime known false when !have_llvm
         const sub_path = if (use_lld) blk: {
             if (options.module == null) {

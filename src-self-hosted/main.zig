@@ -222,21 +222,27 @@ const usage_build_generic =
     \\  --libc [file]             Provide a file which specifies libc paths
     \\
     \\Link Options:
-    \\  -l[lib], --library [lib]  Link against system library
+    \\  -l[lib], --library [lib]       Link against system library
     \\  -L[d], --library-directory [d] Add a directory to the library search path
-    \\  -T[script]                Use a custom linker script
-    \\  --dynamic-linker [path]   Set the dynamic interpreter path (usually ld.so)
-    \\  --version [ver]           Dynamic library semver
-    \\  -rdynamic                 Add all symbols to the dynamic symbol table
-    \\  -rpath [path]             Add directory to the runtime library search path
-    \\  --eh-frame-hdr            Enable C++ exception handling by passing --eh-frame-hdr to linker
-    \\  -dynamic                  Force output to be dynamically linked
-    \\  -static                   Force output to be statically linked
+    \\  -T[script]                     Use a custom linker script
+    \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
+    \\  --version [ver]                Dynamic library semver
+    \\  -rdynamic                      Add all symbols to the dynamic symbol table
+    \\  -rpath [path]                  Add directory to the runtime library search path
+    \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
+    \\  -dynamic                       Force output to be dynamically linked
+    \\  -static                        Force output to be statically linked
     \\
     \\Debug Options (Zig Compiler Development):
-    \\  -ftime-report             Print timing diagnostics
-    \\  --verbose-link            Display linker invocations
-    \\  --verbose-cc              Display C compiler invocations
+    \\  -ftime-report                Print timing diagnostics
+    \\  --verbose-link               Display linker invocations
+    \\  --verbose-cc                 Display C compiler invocations
+    \\  --verbose-tokenize           Enable compiler debug output for tokenization
+    \\  --verbose-ast                Enable compiler debug output for AST parsing
+    \\  --verbose-ir                 Enable compiler debug output for Zig IR
+    \\  --verbose-llvm-ir            Enable compiler debug output for LLVM IR
+    \\  --verbose-cimport            Enable compiler debug output for C imports
+    \\  --verbose-llvm-cpu-features  Enable compiler debug output for LLVM CPU features
     \\
 ;
 
@@ -278,6 +284,12 @@ pub fn buildOutputType(
     var watch = false;
     var verbose_link = false;
     var verbose_cc = false;
+    var verbose_tokenize = false;
+    var verbose_ast = false;
+    var verbose_ir = false;
+    var verbose_llvm_ir = false;
+    var verbose_cimport = false;
+    var verbose_llvm_cpu_features = false;
     var time_report = false;
     var show_builtin = false;
     var emit_bin: Emit = .yes_default_path;
@@ -548,6 +560,18 @@ pub fn buildOutputType(
                     verbose_link = true;
                 } else if (mem.eql(u8, arg, "--verbose-cc")) {
                     verbose_cc = true;
+                } else if (mem.eql(u8, arg, "--verbose-tokenize")) {
+                    verbose_tokenize = true;
+                } else if (mem.eql(u8, arg, "--verbose-ast")) {
+                    verbose_ast = true;
+                } else if (mem.eql(u8, arg, "--verbose-ir")) {
+                    verbose_ir = true;
+                } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
+                    verbose_llvm_ir = true;
+                } else if (mem.eql(u8, arg, "--verbose-cimport")) {
+                    verbose_cimport = true;
+                } else if (mem.eql(u8, arg, "--verbose-llvm-cpu-features")) {
+                    verbose_llvm_cpu_features = true;
                 } else if (mem.startsWith(u8, arg, "-T")) {
                     linker_script = arg[2..];
                 } else if (mem.startsWith(u8, arg, "-L")) {
@@ -563,28 +587,27 @@ pub fn buildOutputType(
                 } else {
                     fatal("unrecognized parameter: '{}'", .{arg});
                 }
-            } else if (mem.endsWith(u8, arg, ".o") or
-                mem.endsWith(u8, arg, ".obj") or
-                mem.endsWith(u8, arg, ".a") or
-                mem.endsWith(u8, arg, ".lib"))
-            {
-                try link_objects.append(arg);
-            } else if (Compilation.hasAsmExt(arg) or Compilation.hasCExt(arg) or Compilation.hasCppExt(arg)) {
-                // TODO a way to pass extra flags on the CLI
-                try c_source_files.append(.{ .src_path = arg });
-            } else if (mem.endsWith(u8, arg, ".so") or
-                mem.endsWith(u8, arg, ".dylib") or
-                mem.endsWith(u8, arg, ".dll"))
-            {
-                fatal("linking against dynamic libraries not yet supported", .{});
-            } else if (mem.endsWith(u8, arg, ".zig") or mem.endsWith(u8, arg, ".zir")) {
-                if (root_src_file) |other| {
-                    fatal("found another zig file '{}' after root source file '{}'", .{ arg, other });
-                } else {
-                    root_src_file = arg;
-                }
-            } else {
-                fatal("unrecognized file extension of parameter '{}'", .{arg});
+            } else switch (Compilation.classifyFileExt(arg)) {
+                .object, .static_library => {
+                    try link_objects.append(arg);
+                },
+                .assembly, .c, .cpp, .h, .ll, .bc => {
+                    // TODO a way to pass extra flags on the CLI
+                    try c_source_files.append(.{ .src_path = arg });
+                },
+                .shared_library => {
+                    fatal("linking against dynamic libraries not yet supported", .{});
+                },
+                .zig, .zir => {
+                    if (root_src_file) |other| {
+                        fatal("found another zig file '{}' after root source file '{}'", .{ arg, other });
+                    } else {
+                        root_src_file = arg;
+                    }
+                },
+                .unknown => {
+                    fatal("unrecognized file extension of parameter '{}'", .{arg});
+                },
             }
         }
     } else {
@@ -617,7 +640,16 @@ pub fn buildOutputType(
                     const file_ext = Compilation.classifyFileExt(mem.spanZ(it.only_arg));
                     switch (file_ext) {
                         .assembly, .c, .cpp, .ll, .bc, .h => try c_source_files.append(.{ .src_path = it.only_arg }),
-                        .unknown, .so => try link_objects.append(it.only_arg),
+                        .unknown, .shared_library, .object, .static_library => {
+                            try link_objects.append(it.only_arg);
+                        },
+                        .zig, .zir => {
+                            if (root_src_file) |other| {
+                                fatal("found another zig file '{}' after root source file '{}'", .{ it.only_arg, other });
+                            } else {
+                                root_src_file = it.only_arg;
+                            }
+                        },
                     }
                 },
                 .l => {
@@ -1173,7 +1205,15 @@ pub fn buildOutputType(
         .libc_installation = if (libc_installation) |*lci| lci else null,
         .verbose_cc = verbose_cc,
         .verbose_link = verbose_link,
+        .verbose_tokenize = verbose_tokenize,
+        .verbose_ast = verbose_ast,
+        .verbose_ir = verbose_ir,
+        .verbose_llvm_ir = verbose_llvm_ir,
+        .verbose_cimport = verbose_cimport,
+        .verbose_llvm_cpu_features = verbose_llvm_cpu_features,
         .machine_code_model = machine_code_model,
+        .color = color,
+        .time_report = time_report,
     }) catch |err| {
         fatal("unable to create compilation: {}", .{@errorName(err)});
     };
@@ -1191,6 +1231,10 @@ pub fn buildOutputType(
     if (build_options.have_llvm and only_pp_or_asm) {
         // this may include dumping the output to stdout
         fatal("TODO: implement `zig cc` when using it as a preprocessor", .{});
+    }
+
+    if (build_options.is_stage1 and comp.stage1_module != null and watch) {
+        std.log.warn("--watch is not recommended with the stage1 backend; it leaks memory and is not capable of incremental compilation", .{});
     }
 
     const stdin = std.io.getStdIn().inStream();

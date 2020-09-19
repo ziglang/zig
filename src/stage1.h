@@ -100,22 +100,14 @@ enum Os {
 // ABI warning
 struct ZigTarget {
     enum ZigLLVM_ArchType arch;
-    enum ZigLLVM_VendorType vendor;
-
+    enum Os os;
     enum ZigLLVM_EnvironmentType abi;
-    Os os;
 
     bool is_native_os;
     bool is_native_cpu;
 
     const char *llvm_cpu_name;
     const char *llvm_cpu_features;
-    const char *cpu_builtin_str;
-    const char *os_builtin_str;
-    const char *dynamic_linker;
-
-    const char **llvm_cpu_features_asm_ptr;
-    size_t llvm_cpu_features_asm_len;
 };
 
 // ABI warning
@@ -161,18 +153,13 @@ struct ZigStage1 {
     const char *test_name_prefix_ptr;
     size_t test_name_prefix_len;
 
-    const char *zig_lib_dir_ptr;
-    size_t zig_lib_dir_len;
-
-    const char *zig_std_dir_ptr;
-    size_t zig_std_dir_len;
-
     void *userdata;
     struct ZigStage1Pkg *root_pkg;
+    struct Stage2ProgressNode *main_progress_node;
 
-    CodeModel code_model;
-    TargetSubsystem subsystem;
-    ErrColor err_color;
+    enum CodeModel code_model;
+    enum TargetSubsystem subsystem;
+    enum ErrColor err_color;
 
     bool pic;
     bool link_libc;
@@ -206,7 +193,7 @@ ZIG_EXTERN_C struct ZigStage1 *zig_stage1_create(enum BuildMode optimize_mode,
     const char *main_pkg_path_ptr, size_t main_pkg_path_len,
     const char *root_src_path_ptr, size_t root_src_path_len,
     const char *zig_lib_dir_ptr, size_t zig_lib_dir_len,
-    const ZigTarget *target, bool is_test_build, Stage2ProgressNode *progress_node);
+    const struct ZigTarget *target, bool is_test_build);
 
 ZIG_EXTERN_C void zig_stage1_build_object(struct ZigStage1 *);
 

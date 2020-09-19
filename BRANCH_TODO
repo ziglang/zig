@@ -1,3 +1,6 @@
+ * build & link against compiler-rt
+ * build & link against freestanding libc
+ * Cache integration for stage1 zig code compilation
  * `zig test`
  * `zig build`
  * `-ftime-report`
@@ -14,10 +17,7 @@
    - using it as a preprocessor (-E)
    - try building some software
  * support rpaths in ELF linker code
- * build & link against compiler-rt
-   - stage1 C++ code integration
  * repair @cImport
- * build & link against freestanding libc
  * add CLI support for a way to pass extra flags to c source files
  * capture lld stdout/stderr better
  * musl
@@ -35,10 +35,12 @@
  * implement emit-h in stage2
  * implement -fno-emit-bin
  * audit the base cache hash
+ * --main-pkg-path
  * audit the CLI options for stage2
  * `zig init-lib`
  * `zig init-exe`
  * `zig run`
+ * restore error messages for stage2_add_link_lib
 
  * implement serialization/deserialization of incremental compilation metadata
  * incremental compilation - implement detection of which source files changed

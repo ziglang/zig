@@ -130,23 +130,23 @@ struct Stage2ErrorMsg {
 ZIG_EXTERN_C ZIG_ATTRIBUTE_NORETURN void stage2_panic(const char *ptr, size_t len);
 
 // ABI warning
-ZIG_EXTERN_C Stage2Progress *stage2_progress_create(void);
+ZIG_EXTERN_C struct Stage2Progress *stage2_progress_create(void);
 // ABI warning
-ZIG_EXTERN_C void stage2_progress_disable_tty(Stage2Progress *progress);
+ZIG_EXTERN_C void stage2_progress_disable_tty(struct Stage2Progress *progress);
 // ABI warning
-ZIG_EXTERN_C void stage2_progress_destroy(Stage2Progress *progress);
+ZIG_EXTERN_C void stage2_progress_destroy(struct Stage2Progress *progress);
 // ABI warning
-ZIG_EXTERN_C Stage2ProgressNode *stage2_progress_start_root(Stage2Progress *progress,
+ZIG_EXTERN_C struct Stage2ProgressNode *stage2_progress_start_root(struct Stage2Progress *progress,
         const char *name_ptr, size_t name_len, size_t estimated_total_items);
 // ABI warning
-ZIG_EXTERN_C Stage2ProgressNode *stage2_progress_start(Stage2ProgressNode *node,
+ZIG_EXTERN_C struct Stage2ProgressNode *stage2_progress_start(struct Stage2ProgressNode *node,
         const char *name_ptr, size_t name_len, size_t estimated_total_items);
 // ABI warning
-ZIG_EXTERN_C void stage2_progress_end(Stage2ProgressNode *node);
+ZIG_EXTERN_C void stage2_progress_end(struct Stage2ProgressNode *node);
 // ABI warning
-ZIG_EXTERN_C void stage2_progress_complete_one(Stage2ProgressNode *node);
+ZIG_EXTERN_C void stage2_progress_complete_one(struct Stage2ProgressNode *node);
 // ABI warning
-ZIG_EXTERN_C void stage2_progress_update_node(Stage2ProgressNode *node,
+ZIG_EXTERN_C void stage2_progress_update_node(struct Stage2ProgressNode *node,
         size_t completed_count, size_t estimated_total_items);
 
 // ABI warning

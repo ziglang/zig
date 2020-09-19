@@ -1222,13 +1222,16 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (self.base.options.module) |module| blk: {
-        try self.flushModule(comp);
+        const use_stage1 = build_options.is_stage1 and self.base.options.use_llvm;
+        if (use_stage1) {
+            const obj_basename = try std.fmt.allocPrint(arena, "{}.o", .{self.base.options.root_name});
+            const full_obj_path = try directory.join(arena, &[_][]const u8{obj_basename});
+            break :blk full_obj_path;
+        }
 
+        try self.flushModule(comp);
         const obj_basename = self.base.intermediary_basename.?;
-        const full_obj_path = if (directory.path) |dir_path|
-            try std.fs.path.join(arena, &[_][]const u8{dir_path, obj_basename})
-        else 
-            obj_basename;
+        const full_obj_path = try directory.join(arena, &[_][]const u8{obj_basename});
         break :blk full_obj_path;
     } else null;
 
@@ -1504,7 +1507,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         // (the check for that needs to be earlier), but they could be full paths to .so files, in which
         // case we want to avoid prepending "-l".
         const ext = Compilation.classifyFileExt(link_lib);
-        const arg = if (ext == .so) link_lib else try std.fmt.allocPrint(arena, "-l{}", .{link_lib});
+        const arg = if (ext == .shared_library) link_lib else try std.fmt.allocPrint(arena, "-l{}", .{link_lib});
         argv.appendAssumeCapacity(arg);
     }
 

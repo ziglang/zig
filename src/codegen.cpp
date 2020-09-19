@@ -8809,33 +8809,18 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     static_assert(TargetSubsystemEfiBootServiceDriver == 5, "");
     static_assert(TargetSubsystemEfiRom == 6, "");
     static_assert(TargetSubsystemEfiRuntimeDriver == 7, "");
-    {
-        const char *endian_str = g->is_big_endian ? "Endian.Big" : "Endian.Little";
-        buf_appendf(contents, "pub const endian = %s;\n", endian_str);
-    }
+
+    buf_append_str(contents, "/// Deprecated: use `std.Target.current.cpu.arch`\n");
+    buf_append_str(contents, "pub const arch = Target.current.cpu.arch;\n");
+    buf_append_str(contents, "/// Deprecated: use `std.Target.current.cpu.arch.endian()`\n");
+    buf_append_str(contents, "pub const endian = Target.current.cpu.arch.endian();\n");
     buf_appendf(contents, "pub const output_mode = OutputMode.Obj;\n");
     buf_appendf(contents, "pub const link_mode = LinkMode.Static;\n");
     buf_appendf(contents, "pub const is_test = false;\n");
     buf_appendf(contents, "pub const single_threaded = %s;\n", bool_to_str(g->is_single_threaded));
-    buf_append_str(contents, "/// Deprecated: use `std.Target.cpu.arch`\n");
-    buf_appendf(contents, "pub const arch = Arch.%s;\n", cur_arch);
     buf_appendf(contents, "pub const abi = Abi.%s;\n", cur_abi);
-    {
-        buf_append_str(contents, "pub const cpu: Cpu = ");
-        if (g->zig_target->cpu_builtin_str != nullptr) {
-            buf_append_str(contents, g->zig_target->cpu_builtin_str);
-        } else {
-            buf_appendf(contents, "Target.Cpu.baseline(.%s);\n", cur_arch);
-        }
-    }
-    {
-        buf_append_str(contents, "pub const os = ");
-        if (g->zig_target->os_builtin_str != nullptr) {
-            buf_append_str(contents, g->zig_target->os_builtin_str);
-        } else {
-            buf_appendf(contents, "Target.Os.Tag.defaultVersionRange(.%s);\n", cur_os);
-        }
-    }
+    buf_appendf(contents, "pub const cpu: Cpu = Target.Cpu.baseline(.%s);\n", cur_arch);
+    buf_appendf(contents, "pub const os = Target.Os.Tag.defaultVersionRange(.%s);\n", cur_os);
     buf_appendf(contents, "pub const object_format = ObjectFormat.%s;\n", cur_obj_fmt);
     buf_appendf(contents, "pub const mode = %s;\n", build_mode_to_str(g->build_mode));
     buf_appendf(contents, "pub const link_libc = %s;\n", bool_to_str(g->link_libc));
@@ -8866,6 +8851,8 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     if (g->std_package == nullptr)
         return ErrorNone;
 
+    assert(g->main_pkg);
+
     const char *builtin_zig_basename = "builtin.zig";
 
     Buf *contents;
@@ -8879,17 +8866,22 @@ static Error define_builtin_compile_vars(CodeGen *g) {
             fprintf(stderr, "Unable to write file '%s': %s\n", buf_ptr(g->builtin_zig_path), err_str(err));
             exit(1);
         }
+
+        g->compile_var_package = new_package(buf_ptr(g->output_dir), builtin_zig_basename, "builtin");
     } else {
+        Buf *resolve_paths[] = { g->builtin_zig_path, };
+        *g->builtin_zig_path = os_path_resolve(resolve_paths, 1);
+
         contents = buf_alloc();
         if ((err = os_fetch_file_path(g->builtin_zig_path, contents))) {
             fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(g->builtin_zig_path), err_str(err));
             exit(1);
         }
+        Buf builtin_dirname = BUF_INIT;
+        os_path_dirname(g->builtin_zig_path, &builtin_dirname);
+        g->compile_var_package = new_package(buf_ptr(&builtin_dirname), builtin_zig_basename, "builtin");
     }
 
-    assert(g->main_pkg);
-    assert(g->std_package);
-    g->compile_var_package = new_package(buf_ptr(g->output_dir), builtin_zig_basename, "builtin");
     if (g->is_test_build) {
         if (g->test_runner_package == nullptr) {
             g->test_runner_package = create_test_runner_pkg(g);
@@ -8913,6 +8905,13 @@ static Error define_builtin_compile_vars(CodeGen *g) {
 static void init(CodeGen *g) {
     if (g->module)
         return;
+
+    codegen_add_time_event(g, "Initialize");
+    {
+        const char *progress_name = "Initialize";
+        codegen_switch_sub_prog_node(g, stage2_progress_start(g->main_progress_node,
+                progress_name, strlen(progress_name), 0));
+    }
 
     g->have_err_ret_tracing = detect_err_ret_tracing(g);
 
@@ -9374,19 +9373,11 @@ void codegen_destroy(CodeGen *g) {
 
 CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget *target,
     BuildMode build_mode, Buf *override_lib_dir,
-    bool is_test_build, Stage2ProgressNode *progress_node)
+    bool is_test_build)
 {
     CodeGen *g = heap::c_allocator.create<CodeGen>();
     g->emit_bin = true;
     g->pass1_arena = heap::ArenaAllocator::construct(&heap::c_allocator, &heap::c_allocator, "pass1");
-    g->main_progress_node = progress_node;
-
-    codegen_add_time_event(g, "Initialize");
-    {
-        const char *progress_name = "Initialize";
-        codegen_switch_sub_prog_node(g, stage2_progress_start(g->main_progress_node,
-                progress_name, strlen(progress_name), 0));
-    }
 
     g->subsystem = TargetSubsystemAuto;
     g->zig_target = target;
@@ -9440,7 +9431,7 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
             Buf resolved_main_pkg_path = os_path_resolve(&main_pkg_path, 1);
 
             if (!buf_starts_with_buf(&resolved_root_src_path, &resolved_main_pkg_path)) {
-                fprintf(stderr, "Root source path '%s' outside main package path '%s'",
+                fprintf(stderr, "Root source path '%s' outside main package path '%s'\n",
                         buf_ptr(root_src_path), buf_ptr(main_pkg_path));
                 exit(1);
             }

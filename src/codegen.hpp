@@ -16,8 +16,7 @@
 #include <stdio.h>
 
 CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget *target,
-    BuildMode build_mode, Buf *zig_lib_dir,
-    bool is_test_build, Stage2ProgressNode *progress_node);
+    BuildMode build_mode, Buf *zig_lib_dir, bool is_test_build);
 
 void codegen_build_object(CodeGen *g);
 void codegen_destroy(CodeGen *);

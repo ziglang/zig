@@ -380,10 +380,6 @@ Error target_parse_abi(ZigLLVM_EnvironmentType *out_abi, const char *abi_ptr, si
     return ErrorUnknownABI;
 }
 
-Error target_parse_triple(ZigTarget *target, const char *triple, const char *mcpu, const char *dynamic_linker) {
-    return stage2_target_parse(target, triple, mcpu, dynamic_linker);
-}
-
 const char *target_arch_name(ZigLLVM_ArchType arch) {
     return ZigLLVMGetArchTypeName(arch);
 }
@@ -408,7 +404,7 @@ void target_triple_llvm(Buf *triple, const ZigTarget *target) {
     buf_resize(triple, 0);
     buf_appendf(triple, "%s-%s-%s-%s",
             ZigLLVMGetArchTypeName(target->arch),
-            ZigLLVMGetVendorTypeName(target->vendor),
+            ZigLLVMGetVendorTypeName(ZigLLVM_UnknownVendor),
             ZigLLVMGetOSTypeName(get_llvm_os_type(target->os)),
             ZigLLVMGetEnvironmentTypeName(target->abi));
 }
@@ -1149,7 +1145,6 @@ void target_libc_enum(size_t index, ZigTarget *out_target) {
     out_target->arch = libcs_available[index].arch;
     out_target->os = libcs_available[index].os;
     out_target->abi = libcs_available[index].abi;
-    out_target->vendor = ZigLLVM_UnknownVendor;
     out_target->is_native_os = false;
     out_target->is_native_cpu = false;
 }

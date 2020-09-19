@@ -20,13 +20,14 @@ struct ZigStage1 *zig_stage1_create(BuildMode optimize_mode,
     const char *main_pkg_path_ptr, size_t main_pkg_path_len,
     const char *root_src_path_ptr, size_t root_src_path_len,
     const char *zig_lib_dir_ptr, size_t zig_lib_dir_len,
-    const ZigTarget *target, bool is_test_build, Stage2ProgressNode *progress_node)
+    const ZigTarget *target, bool is_test_build)
 {
-    Buf *main_pkg_path = buf_create_from_mem(main_pkg_path_ptr, main_pkg_path_len);
+    Buf *main_pkg_path = (main_pkg_path_len == 0) ?
+        nullptr : buf_create_from_mem(main_pkg_path_ptr, main_pkg_path_len);
     Buf *root_src_path = buf_create_from_mem(root_src_path_ptr, root_src_path_len);
     Buf *zig_lib_dir = buf_create_from_mem(zig_lib_dir_ptr, zig_lib_dir_len);
     CodeGen *g = codegen_create(main_pkg_path, root_src_path, target, optimize_mode,
-            zig_lib_dir, is_test_build, progress_node);
+            zig_lib_dir, is_test_build);
     return &g->stage1;
 }
 
@@ -68,8 +69,6 @@ void zig_stage1_build_object(struct ZigStage1 *stage1) {
     CodeGen *g = reinterpret_cast<CodeGen *>(stage1);
 
     g->root_out_name = buf_create_from_mem(stage1->root_name_ptr, stage1->root_name_len);
-    g->zig_lib_dir = buf_create_from_mem(stage1->zig_lib_dir_ptr, stage1->zig_lib_dir_len);
-    g->zig_std_dir = buf_create_from_mem(stage1->zig_std_dir_ptr, stage1->zig_std_dir_len);
     g->output_dir = buf_create_from_mem(stage1->output_dir_ptr, stage1->output_dir_len);
     if (stage1->builtin_zig_path_len != 0) {
         g->builtin_zig_path = buf_create_from_mem(stage1->builtin_zig_path_ptr, stage1->builtin_zig_path_len);
@@ -118,6 +117,8 @@ void zig_stage1_build_object(struct ZigStage1 *stage1) {
             g->strip_debug_symbols = true;
         }
     }
+
+    g->main_progress_node = stage1->main_progress_node;
 
     add_package(g, stage1->root_pkg, g->main_pkg);
 

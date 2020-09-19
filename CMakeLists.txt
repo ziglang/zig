@@ -258,7 +258,6 @@ find_package(Threads)
 # This is our shim which will be replaced by stage1.zig.
 set(ZIG0_SOURCES
     "${CMAKE_SOURCE_DIR}/src/zig0.cpp"
-    "${CMAKE_SOURCE_DIR}/src/stage2.cpp"
 )
 
 set(ZIG_SOURCES
