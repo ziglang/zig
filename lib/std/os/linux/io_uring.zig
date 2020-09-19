@@ -319,13 +319,13 @@ pub const IO_Uring = struct {
         sqe.off = @ptrToInt(addrlen); // `addr2` is a newer union member that maps to `off`.
         sqe.addr = @ptrToInt(addr);
         sqe.user_data = user_data;
-        sqe.opflags = accept_flags;
+        sqe.rw_flags = accept_flags;
         return sqe;
     }
 
     /// Queues (but does not submit) an SQE to perform an `fsync(2)`.
     /// Returns a pointer to the SQE so that you can further modify the SQE for advanced use cases.
-    /// For example, for `fdatasync()` you can set `IORING_FSYNC_DATASYNC` in the SQE's `opflags`.
+    /// For example, for `fdatasync()` you can set `IORING_FSYNC_DATASYNC` in the SQE's `rw_flags`.
     /// N.B. While SQEs are initiated in the order in which they appear in the submission queue,
     /// operations execute in parallel and completions are unordered. Therefore, an application that
     /// submits a write followed by an fsync in the submission queue cannot expect the fsync to
@@ -392,7 +392,7 @@ pub const IO_Uring = struct {
 
     /// Queues (but does not submit) an SQE to perform a `preadv()`.
     /// Returns a pointer to the SQE so that you can further modify the SQE for advanced use cases.
-    /// For example, if you want to do a `preadv2()` then set `opflags` on the returned SQE.
+    /// For example, if you want to do a `preadv2()` then set `rw_flags` on the returned SQE.
     /// See https://linux.die.net/man/2/preadv.
     pub fn queue_readv(
         self: *IO_Uring,
@@ -413,7 +413,7 @@ pub const IO_Uring = struct {
 
     /// Queues (but does not submit) an SQE to perform a `pwritev()`.
     /// Returns a pointer to the SQE so that you can further modify the SQE for advanced use cases.
-    /// For example, if you want to do a `pwritev2()` then set `opflags` on the returned SQE.
+    /// For example, if you want to do a `pwritev2()` then set `rw_flags` on the returned SQE.
     /// See https://linux.die.net/man/2/pwritev.
     pub fn queue_writev(
         self: *IO_Uring,
@@ -636,7 +636,7 @@ test "queue_nop" {
         .off = 0,
         .addr = 0,
         .len = 0,
-        .opflags = 0,
+        .rw_flags = 0,
         .user_data = @intCast(u64, 0xaaaaaaaa),
         .buf_index = 0,
         .personality = 0,
