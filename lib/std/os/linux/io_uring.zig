@@ -8,8 +8,6 @@ const assert = std.debug.assert;
 const builtin = std.builtin;
 const os = std.os;
 const linux = os.linux;
-const mem = std.mem;
-const net = std.net;
 const testing = std.testing;
 
 const io_uring_params = linux.io_uring_params;
