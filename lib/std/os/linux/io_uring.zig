@@ -3,7 +3,7 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-const std = @import("std.zig");
+const std = @import("../../std.zig");
 const assert = std.debug.assert;
 const builtin = std.builtin;
 const os = std.os;
@@ -12,41 +12,9 @@ const mem = std.mem;
 const net = std.net;
 const testing = std.testing;
 
-pub const io_uring_params = linux.io_uring_params;
-pub const io_uring_cqe = linux.io_uring_cqe;
-
-// TODO Update linux.zig's definition of linux.io_uring_sqe:
-// linux.io_uring_sqe uses numbered unions, i.e. `union1` etc. that are not future-proof and need to
-// be re-numbered whenever new unions are interposed by the kernel. Furthermore, Zig's unions do not
-// support assignment by any union member directly as in C, without going through the union, so the
-// kernel adding new unions would also break existing Zig code.
-// We therefore use a flat struct without unions to avoid these two issues.
-// Pending https://github.com/ziglang/zig/issues/6349.
-pub const io_uring_sqe = extern struct {
-    opcode: linux.IORING_OP,
-    flags: u8 = 0,
-    ioprio: u16 = 0,
-    fd: i32 = 0,
-    off: u64 = 0,
-    addr: u64 = 0,
-    len: u32 = 0,
-    opflags: u32 = 0,
-    user_data: u64 = 0,
-    buffer: u16 = 0,
-    personality: u16 = 0,
-    splice_fd_in: i32 = 0,
-    options: [2]u64 = [2]u64{ 0, 0 }
-};
-
-comptime {
-    assert(@sizeOf(io_uring_params) == 120);
-    assert(@sizeOf(io_uring_sqe) == 64);
-    assert(@sizeOf(io_uring_cqe) == 16);
-
-    assert(linux.IORING_OFF_SQ_RING == 0);
-    assert(linux.IORING_OFF_CQ_RING == 0x8000000);
-    assert(linux.IORING_OFF_SQES == 0x10000000);
-}
+const io_uring_params = linux.io_uring_params;
+const io_uring_sqe = linux.io_uring_sqe;
+const io_uring_cqe = linux.io_uring_cqe;
 
 pub const IO_Uring = struct {
     fd: i32 = -1,
@@ -92,7 +60,6 @@ pub const IO_Uring = struct {
         assert(p.resv[0] == 0);
         assert(p.resv[1] == 0);
         assert(p.resv[2] == 0);
-        if (!supported) return error.IO_UringKernelNotSupported;
 
         const res = linux.io_uring_setup(entries, p);
         try check_errno(res);
@@ -110,7 +77,7 @@ pub const IO_Uring = struct {
         // We do not support the double mmap() done before 5.4, because we want to keep the
         // init/deinit mmap paths simple and because io_uring has had many bug fixes even since 5.4.
         if ((p.features & linux.IORING_FEAT_SINGLE_MMAP) == 0) {
-            return error.IO_UringKernelNotSupported;
+            return error.UnsupportedKernel;
         }
 
         // Check that the kernel has actually set params and that "impossible is nothing".
@@ -312,7 +279,7 @@ pub const IO_Uring = struct {
 
     // Matches the implementation of cq_ring_needs_flush() in liburing.
     fn cq_ring_needs_flush(self: *IO_Uring) bool {
-        return (@atomicLoad(u32, self.sq.flags, .Unordered) & linux.IORING_SQ_CQ_OVERFLOW) != 0;
+        return (@atomicLoad(u32, self.sq.flags, .Unordered) & IORING_SQ_CQ_OVERFLOW) != 0;
     }
 
     /// For advanced use cases only that implement custom completion queue methods.
@@ -343,7 +310,6 @@ pub const IO_Uring = struct {
         addrlen: *os.socklen_t,
         accept_flags: u32
     ) !*io_uring_sqe {
-        if (!can_accept) return error.IO_UringKernelCannotAccept;
         // "sqe->fd is the file descriptor, sqe->addr holds a pointer to struct sockaddr,
         // sqe->addr2 holds a pointer to socklen_t, and finally sqe->accept_flags holds the flags
         // for accept(4)." - https://lwn.net/ml/linux-block/20191025173037.13486-1-axboe@kernel.dk/
@@ -401,7 +367,6 @@ pub const IO_Uring = struct {
         buffer: []u8,
         offset: u64
     ) !*io_uring_sqe {
-        if (!can_read) return error.IO_UringKernelCannotRead;
         const sqe = try self.get_sqe();
         sqe.* = .{
             .opcode = .READ,
@@ -423,7 +388,6 @@ pub const IO_Uring = struct {
         buffer: []const u8,
         offset: u64
     ) !*io_uring_sqe {
-        if (!can_write) return error.IO_UringKernelCannotWrite;
         const sqe = try self.get_sqe();
         sqe.* = .{
             .opcode = .WRITE,
@@ -662,15 +626,8 @@ inline fn check_errno(res: usize) !void {
     if (errno != 0) return os.unexpectedErrno(errno);
 }
 
-const minimum = std.Target.current.os.isAtLeast;
-pub const can_single_mmap = comptime minimum(.linux, .{ .major = 5, .minor = 4 }) == true;
-pub const can_accept      = comptime minimum(.linux, .{ .major = 5, .minor = 5 }) == true;
-pub const can_read        = comptime minimum(.linux, .{ .major = 5, .minor = 6 }) == true;
-pub const can_write       = comptime minimum(.linux, .{ .major = 5, .minor = 6 }) == true;
-pub const supported       = can_single_mmap;
-
 test "queue_nop" {
-    if (!supported) return error.SkipZigTest;
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
 
     var ring = try IO_Uring.init(1, 0);
     defer {
@@ -689,10 +646,10 @@ test "queue_nop" {
         .len = 0,
         .opflags = 0,
         .user_data = @intCast(u64, 0xaaaaaaaa),
-        .buffer = 0,
+        .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
-        .options = [2]u64{ 0, 0 }
+        .__pad2 = [2]u64{ 0, 0 }
     }, sqe.*);
 
     testing.expectEqual(@as(u32, 0), ring.sq.sqe_head);
@@ -733,7 +690,7 @@ test "queue_nop" {
 }
 
 test "queue_readv" {
-    if (!supported) return error.SkipZigTest;
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
 
     var ring = try IO_Uring.init(1, 0);
     defer ring.deinit();
@@ -771,7 +728,7 @@ test "queue_readv" {
 }
 
 test "queue_writev/queue_fsync" {
-    if (!supported) return error.SkipZigTest;
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
 
     var ring = try IO_Uring.init(2, 0);
     defer ring.deinit();
@@ -812,7 +769,8 @@ test "queue_writev/queue_fsync" {
 }
 
 test "queue_write/queue_read" {
-    if (!can_read or !can_write) return error.SkipZigTest;
+    // TODO
+    if (builtin.os.tag != .linux or true) return error.SkipZigTest;
 
     var ring = try IO_Uring.init(2, 0);
     defer ring.deinit();
