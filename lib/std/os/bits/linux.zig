@@ -1266,18 +1266,18 @@ pub const io_cqring_offsets = extern struct {
 
 pub const io_uring_sqe = extern struct {
     opcode: IORING_OP,
-    flags: u8 = 0,
-    ioprio: u16 = 0,
-    fd: i32 = 0,
-    off: u64 = 0,
-    addr: u64 = 0,
-    len: u32 = 0,
-    opflags: u32 = 0,
-    user_data: u64 = 0,
-    buf_index: u16 = 0,
-    personality: u16 = 0,
-    splice_fd_in: i32 = 0,
-    __pad2: [2]u64 = [2]u64{ 0, 0 }
+    flags: u8,
+    ioprio: u16,
+    fd: i32,
+    off: u64,
+    addr: u64,
+    len: u32,
+    opflags: u32,
+    user_data: u64,
+    buf_index: u16,
+    personality: u16,
+    splice_fd_in: i32,
+    __pad2: [2]u64
 };
 
 pub const IOSQE_BIT = extern enum(u8) {
