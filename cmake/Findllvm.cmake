@@ -32,7 +32,7 @@ if(ZIG_PREFER_CLANG_CPP_DYLIB)
       /usr/local/llvm10/lib
       /usr/local/llvm100/lib
   )
-elseif("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
+elseif(("${ZIG_TARGET_TRIPLE}" STREQUAL "native") OR ZIG_PREFER_LLVM_CONFIG)
   find_program(LLVM_CONFIG_EXE
       NAMES llvm-config-10 llvm-config-10.0 llvm-config100 llvm-config10 llvm-config
       PATHS
