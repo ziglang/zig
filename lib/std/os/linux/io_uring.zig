@@ -15,7 +15,7 @@ const io_uring_sqe = linux.io_uring_sqe;
 const io_uring_cqe = linux.io_uring_cqe;
 
 pub const IO_Uring = struct {
-    fd: i32 = -1,
+    fd: os.fd_t = -1,
     sq: SubmissionQueue,
     cq: CompletionQueue,
     flags: u32,
@@ -76,7 +76,7 @@ pub const IO_Uring = struct {
             linux.ENOSYS => return error.SystemOutdated,
             else => |errno| return os.unexpectedErrno(errno)
         }
-        const fd = @intCast(i32, res);
+        const fd = @intCast(os.fd_t, res);
         assert(fd >= 0);
         errdefer os.close(fd);
 
@@ -510,8 +510,9 @@ pub const IO_Uring = struct {
     /// Registering file descriptors will wait for the ring to idle.
     /// Files are automatically unregistered by the kernel when the ring is torn down.
     /// An application need unregister only if it wants to register a new array of file descriptors.
-    pub fn register_files(self: *IO_Uring, fds: []const i32) !void {
+    pub fn register_files(self: *IO_Uring, fds: []const os.fd_t) !void {
         assert(self.fd >= 0);
+        comptime assert(@sizeOf(os.fd_t) == @sizeOf(c_int));
         const res = linux.io_uring_register(
             self.fd,
             .REGISTER_FILES,
@@ -575,7 +576,7 @@ pub const SubmissionQueue = struct {
     sqe_head: u32 = 0,
     sqe_tail: u32 = 0,
     
-    pub fn init(fd: i32, p: io_uring_params) !SubmissionQueue {
+    pub fn init(fd: os.fd_t, p: io_uring_params) !SubmissionQueue {
         assert(fd >= 0);
         assert((p.features & linux.IORING_FEAT_SINGLE_MMAP) != 0);
         const size = std.math.max(
@@ -641,7 +642,7 @@ pub const CompletionQueue = struct {
     overflow: *u32,
     cqes: []io_uring_cqe,
 
-    pub fn init(fd: i32, p: io_uring_params, sq: SubmissionQueue) !CompletionQueue {
+    pub fn init(fd: os.fd_t, p: io_uring_params, sq: SubmissionQueue) !CompletionQueue {
         assert(fd >= 0);
         assert((p.features & linux.IORING_FEAT_SINGLE_MMAP) != 0);
         const mmap = sq.mmap;
@@ -678,7 +679,7 @@ test "queue_nop" {
     };
     defer {
         ring.deinit();
-        testing.expectEqual(@as(i32, -1), ring.fd);
+        testing.expectEqual(@as(os.fd_t, -1), ring.fd);
     }
 
     var sqe = try ring.queue_nop(@intCast(u64, 0xaaaaaaaa));
@@ -754,7 +755,7 @@ test "queue_readv" {
     // https://github.com/torvalds/linux/blob/v5.4/fs/io_uring.c#L3119-L3124 vs
     // https://github.com/torvalds/linux/blob/v5.8/fs/io_uring.c#L6687-L6691
     // We therefore avoid stressing sparse fd sets here:
-    var registered_fds = [_]i32{0} ** 1;
+    var registered_fds = [_]os.fd_t{0} ** 1;
     const fd_index = 0;
     registered_fds[fd_index] = fd;
     try ring.register_files(registered_fds[0..]);
