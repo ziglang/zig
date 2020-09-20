@@ -60,7 +60,22 @@ pub const IO_Uring = struct {
         assert(p.resv[2] == 0);
 
         const res = linux.io_uring_setup(entries, p);
-        try check_errno(res);
+        switch (linux.getErrno(res)) {
+            0 => {},
+            linux.EFAULT => return error.ParamsOutsideAccessibleAddressSpace,
+            // The resv array contains non-zero data, p.flags contains an unsupported flag,
+            // entries out of bounds, IORING_SETUP_SQ_AFF was specified without IORING_SETUP_SQPOLL,
+            // or IORING_SETUP_CQSIZE was specified but io_uring_params.cq_entries was invalid:
+            linux.EINVAL => return error.ArgumentsInvalid,
+            linux.EMFILE => return error.ProcessFdQuotaExceeded,
+            linux.ENFILE => return error.SystemFdQuotaExceeded,
+            linux.ENOMEM => return error.SystemResources,
+            // IORING_SETUP_SQPOLL was specified but effective user ID lacks sufficient privileges,
+            // or a container seccomp policy prohibits io_uring syscalls:
+            linux.EPERM => return error.PermissionDenied,
+            linux.ENOSYS => return error.SystemOutdated,
+            else => |errno| return os.unexpectedErrno(errno)
+        }
         const fd = @intCast(i32, res);
         assert(fd >= 0);
         errdefer os.close(fd);
@@ -75,7 +90,7 @@ pub const IO_Uring = struct {
         // We do not support the double mmap() done before 5.4, because we want to keep the
         // init/deinit mmap paths simple and because io_uring has had many bug fixes even since 5.4.
         if ((p.features & linux.IORING_FEAT_SINGLE_MMAP) == 0) {
-            return error.UnsupportedKernel;
+            return error.SystemOutdated;
         }
 
         // Check that the kernel has actually set params and that "impossible is nothing".
@@ -172,7 +187,31 @@ pub const IO_Uring = struct {
     fn enter(self: *IO_Uring, to_submit: u32, min_complete: u32, flags: u32) !u32 {
         assert(self.fd >= 0);
         const res = linux.io_uring_enter(self.fd, to_submit, min_complete, flags, null);
-        try check_errno(res);
+        switch (linux.getErrno(res)) {
+            0 => {},
+            // The kernel was unable to allocate memory or ran out of resources for the request.
+            // The application should wait for some completions and try again:
+            linux.EAGAIN => return error.SystemResources,
+            // The application attempted to overcommit the number of requests it can have pending.
+            // The application should wait for some completions and try again:
+            linux.EBUSY => return error.CompletionQueueOvercommitted,
+            // The SQE `fd` is invalid, or IOSQE_FIXED_FILE was set but no files were registered:
+            linux.EBADF => return error.FileDescriptorInvalid,
+            // The buffer is outside the process' accessible address space, or IORING_OP_READ_FIXED
+            // or IORING_OP_WRITE_FIXED was specified but no buffers were registered, or the range
+            // described by `addr` and `len` is not within the buffer registered at `buf_index`:
+            linux.EFAULT => return error.BufferInvalid,
+            // The SQE is invalid, or valid but the ring was setup with IORING_SETUP_IOPOLL:
+            linux.EINVAL => return error.SubmissionQueueEntryInvalid,
+            linux.ENXIO => return error.RingShuttingDown,
+            // The kernel believes our `self.fd` does not refer to an io_uring instance,
+            // or the opcode is valid but not supported by this kernel (more likely):
+            linux.EOPNOTSUPP => return error.OpcodeNotSupported,
+            // The operation was interrupted by a delivery of a signal before it could complete.
+            // This can happen while waiting for events with IORING_ENTER_GETEVENTS:
+            linux.EINTR => return error.SignalInterrupt,
+            else => |errno| return os.unexpectedErrno(errno)
+        }
         return @truncate(u32, res);
     }
 
@@ -479,7 +518,25 @@ pub const IO_Uring = struct {
             @ptrCast(*const c_void, fds.ptr),
             @truncate(u32, fds.len)
         );
-        try check_errno(res);
+        switch (linux.getErrno(res)) {
+            0 => {},
+            // One or more fds in the array are invalid, or the kernel does not support sparse sets:
+            linux.EBADF => return error.FileDescriptorInvalid,
+            linux.EBUSY => return error.FilesAlreadyRegistered,
+            linux.EINVAL => return error.FilesEmpty,
+            // Adding `nr_args` file references would exceed the maximum allowed number of files the
+            // user is allowed to have according to the per-user RLIMIT_NOFILE resource limit and
+            // the CAP_SYS_RESOURCE capability is not set, or `nr_args` exceeds the maximum allowed
+            // for a fixed file set (older kernels have a limit of 1024 files vs 64K files):
+            linux.EMFILE => return error.UserFdQuotaExceeded,
+            // Insufficient kernel resources, or the caller had a non-zero RLIMIT_MEMLOCK soft
+            // resource limit but tried to lock more memory than the limit permitted (not enforced
+            // when the process is privileged with CAP_IPC_LOCK):
+            linux.ENOMEM => return error.SystemResources,
+            // Attempt to register files on a ring already registering files or being torn down:
+            linux.ENXIO => return error.RingShuttingDownOrAlreadyRegisteringFiles,
+            else => |errno| return os.unexpectedErrno(errno)
+        }
     }
 
     /// Changes the semantics of the SQE's `fd` to refer to a pre-registered file descriptor.
@@ -491,7 +548,11 @@ pub const IO_Uring = struct {
     pub fn unregister_files(self: *IO_Uring) !void {
         assert(self.fd >= 0);
         const res = linux.io_uring_register(self.fd, .UNREGISTER_FILES, null, 0);
-        try check_errno(res);
+        switch (linux.getErrno(res)) {
+            0 => {},
+            linux.ENXIO => return error.FilesNotRegistered,
+            else => |errno| return os.unexpectedErrno(errno)
+        }
     }
 };
 
@@ -607,20 +668,13 @@ pub const CompletionQueue = struct {
     }
 };
 
-inline fn check_errno(res: usize) !void {
-    switch (linux.getErrno(res)) {
-        0 => return,
-        linux.ENOSYS => return error.UnsupportedKernel,
-        else => |errno| return os.unexpectedErrno(errno)
-    }
-}
-
 test "queue_nop" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    var ring = IO_Uring.init(1, 0) catch |err| {
-        if (err == error.UnsupportedKernel) return error.SkipZigTest;
-        return err;
+    var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err
     };
     defer {
         ring.deinit();
@@ -684,9 +738,10 @@ test "queue_nop" {
 test "queue_readv" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    var ring = IO_Uring.init(1, 0) catch |err| {
-        if (err == error.UnsupportedKernel) return error.SkipZigTest;
-        return err;
+    var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err
     };
     defer ring.deinit();
 
@@ -725,9 +780,10 @@ test "queue_readv" {
 test "queue_writev/queue_fsync" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    var ring = IO_Uring.init(2, 0) catch |err| {
-        if (err == error.UnsupportedKernel) return error.SkipZigTest;
-        return err;
+    var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err
     };
     defer ring.deinit();
     
@@ -769,9 +825,10 @@ test "queue_writev/queue_fsync" {
 test "queue_write/queue_read" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    var ring = IO_Uring.init(2, 0) catch |err| {
-        if (err == error.UnsupportedKernel) return error.SkipZigTest;
-        return err;
+    var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err
     };
     defer ring.deinit();
     
