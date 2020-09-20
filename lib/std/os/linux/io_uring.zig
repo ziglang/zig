@@ -13,6 +13,16 @@ const testing = std.testing;
 const io_uring_params = linux.io_uring_params;
 const io_uring_sqe = linux.io_uring_sqe;
 const io_uring_cqe = linux.io_uring_cqe;
+ 
+comptime {
+    assert(@sizeOf(io_uring_params) == 120);
+    assert(@sizeOf(io_uring_sqe) == 64);
+    assert(@sizeOf(io_uring_cqe) == 16);
+    
+    assert(linux.IORING_OFF_SQ_RING == 0);
+    assert(linux.IORING_OFF_CQ_RING == 0x8000000);
+    assert(linux.IORING_OFF_SQES == 0x10000000);
+}
 
 pub const IO_Uring = struct {
     fd: os.fd_t = -1,
