@@ -13,16 +13,6 @@ const testing = std.testing;
 const io_uring_params = linux.io_uring_params;
 const io_uring_sqe = linux.io_uring_sqe;
 const io_uring_cqe = linux.io_uring_cqe;
- 
-comptime {
-    assert(@sizeOf(io_uring_params) == 120);
-    assert(@sizeOf(io_uring_sqe) == 64);
-    assert(@sizeOf(io_uring_cqe) == 16);
-
-    assert(linux.IORING_OFF_SQ_RING == 0);
-    assert(linux.IORING_OFF_CQ_RING == 0x8000000);
-    assert(linux.IORING_OFF_SQES == 0x10000000);
-}
 
 pub const IO_Uring = struct {
     fd: os.fd_t = -1,
@@ -677,6 +667,18 @@ pub const CompletionQueue = struct {
         // Here for symmetry with the submission queue, and for any future feature support.
     }
 };
+
+test "structs and offsets" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    
+    testing.expectEqual(@as(usize, 120), @sizeOf(io_uring_params));
+    testing.expectEqual(@as(usize, 64), @sizeOf(io_uring_sqe));
+    testing.expectEqual(@as(usize, 16), @sizeOf(io_uring_cqe));
+
+    testing.expectEqual(0, linux.IORING_OFF_SQ_RING);
+    testing.expectEqual(0x8000000, linux.IORING_OFF_CQ_RING);
+    testing.expectEqual(0x10000000, linux.IORING_OFF_SQES);
+}
 
 test "queue_nop" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
