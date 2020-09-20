@@ -848,8 +848,10 @@ test "queue_write/queue_read" {
 
     var cqe1 = try ring.copy_cqe();
     var cqe2 = try ring.copy_cqe();
-    if (cqe1.res == -linux.EOPNOTSUPP) return error.SkipZigTest;
-    if (cqe2.res == -linux.EOPNOTSUPP) return error.SkipZigTest;
+    // Prior to Linux Kernel 5.6 this is the only way to test for read/write support:
+    // https://lwn.net/Articles/809820/
+    if (cqe1.res == -linux.EINVAL) return error.SkipZigTest;
+    if (cqe2.res == -linux.EINVAL) return error.SkipZigTest;
     testing.expectEqual(linux.io_uring_cqe {
         .user_data = 123,
         .res = buffer_write.len,
