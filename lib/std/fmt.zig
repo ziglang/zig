@@ -7,6 +7,7 @@ const std = @import("std.zig");
 const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
+const unicode = std.unicode;
 const builtin = @import("builtin");
 const errol = @import("fmt/errol.zig");
 const lossyCast = std.math.lossyCast;
@@ -653,17 +654,17 @@ pub fn formatUnicodeCodepoint(
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    var buf: [4]u8 = undefined;
+    if (unicode.utf8ValidCodepoint(c)) {
+        var buf: [4]u8 = undefined;
+        // The codepoint is surely valid, hence the use of unreachable
+        const len = std.unicode.utf8Encode(@truncate(u21, c), &buf) catch |err| switch (err) {
+            error.Utf8CannotEncodeSurrogateHalf, error.CodepointTooLarge => unreachable,
+        };
+        return formatBuf(buf[0..len], options, writer);
+    }
+
     // In case of error output the replacement char U+FFFD
-    const len = std.unicode.utf8Encode(@truncate(u21, c), &buf) catch |err| switch (err) {
-        error.Utf8CannotEncodeSurrogateHalf => {
-            return writer.writeAll(&[_]u8{ 0xef, 0xbf, 0xbd });
-        },
-        error.CodepointTooLarge => {
-            return writer.writeAll(&[_]u8{ 0xef, 0xbf, 0xbd });
-        },
-    };
-    return writer.writeAll(buf[0..len]);
+    return formatBuf(&[_]u8{ 0xef, 0xbf, 0xbd }, options, writer);
 }
 
 pub fn formatBuf(
