@@ -369,10 +369,11 @@ pub const IO_Uring = struct {
     /// apply to the write, since the fsync may complete before the write is issued to the disk.
     /// You should preferably use `link_with_next_sqe()` on a write's SQE to link it with an fsync,
     /// or else insert a full write barrier using `drain_previous_sqes()` when queueing an fsync.
-    pub fn queue_fsync(self: *IO_Uring, user_data: u64, fd: os.fd_t) !*io_uring_sqe {
+    pub fn queue_fsync(self: *IO_Uring, user_data: u64, fd: os.fd_t, flags: u32) !*io_uring_sqe {
         const sqe = try self.get_sqe();
         sqe.opcode = .FSYNC;
         sqe.fd = fd;
+        sqe.rw_flags = flags;
         sqe.user_data = user_data;
         return sqe;
     }
@@ -811,7 +812,7 @@ test "queue_writev/queue_fsync" {
     ring.link_with_next_sqe(sqe_writev);
     testing.expectEqual(@as(u8, linux.IOSQE_IO_LINK), sqe_writev.flags);
     
-    var sqe_fsync = try ring.queue_fsync(0xeeeeeeee, fd);
+    var sqe_fsync = try ring.queue_fsync(0xeeeeeeee, fd, 0);
     testing.expectEqual(fd, sqe_fsync.fd);
 
     testing.expectEqual(@as(u32, 2), ring.sq_ready());
