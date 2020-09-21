@@ -557,8 +557,8 @@ pub fn formatIntValue(
             @compileError("Cannot escape character with more than 8 bits");
         }
     } else if (comptime std.mem.eql(u8, fmt, "u")) {
-        if (@TypeOf(int_value).bit_count <= 32) {
-            return formatUtf8Codepoint(@as(u32, int_value), options, context, Errors, output);
+        if (@typeInfo(@TypeOf(int_value)).Int.bits <= 21) {
+            return formatUnicodeCodepoint(@as(u21, int_value), options, writer);
         } else {
             @compileError("Cannot print integer that is larger than 32 bits as an UTF-8 sequence");
         }
@@ -648,16 +648,22 @@ pub fn formatAsciiChar(
     return writer.writeAll(@as(*const [1]u8, &c));
 }
 
-pub fn formatUtf8Codepoint(
-    c: u32,
+pub fn formatUnicodeCodepoint(
+    c: u21,
     options: FormatOptions,
-    context: anytype,
-    comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
+    writer: anytype,
+) !void {
     var buf: [4]u8 = undefined;
-    const len = std.unicode.utf8Encode(c, buf[0..]) catch unreachable;
-    return output(context, @as(*const [4]u8, &buf)[0..len]);
+    // In case of error output the replacement char U+FFFD
+    const len = std.unicode.utf8Encode(@truncate(u21, c), &buf) catch |err| switch (err) {
+        error.Utf8CannotEncodeSurrogateHalf => {
+            return writer.writeAll(&[_]u8{ 0xef, 0xbf, 0xbd });
+        },
+        error.CodepointTooLarge => {
+            return writer.writeAll(&[_]u8{ 0xef, 0xbf, 0xbd });
+        },
+    };
+    return writer.writeAll(buf[0..len]);
 }
 
 pub fn formatBuf(
@@ -1409,8 +1415,16 @@ test "int.specifier" {
         try testFmt("UTF-8: a\n", "UTF-8: {u}\n", .{value});
     }
     {
-        const value: u32 = 0x1F310;
+        const value: u21 = 0x1F310;
         try testFmt("UTF-8: 🌐\n", "UTF-8: {u}\n", .{value});
+    }
+    {
+        const value: u21 = 0xD800;
+        try testFmt("UTF-8: �\n", "UTF-8: {u}\n", .{value});
+    }
+    {
+        const value: u21 = 0x110001;
+        try testFmt("UTF-8: �\n", "UTF-8: {u}\n", .{value});
     }
 }
 
