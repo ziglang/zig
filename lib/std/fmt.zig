@@ -672,25 +672,34 @@ pub fn formatBuf(
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    const width = options.width orelse buf.len;
-    const padding = if (width > buf.len) (width - buf.len) else 0;
+    if (options.width) |min_width| {
+        // In case of error assume the buffer content is ASCII-encoded
+        const width = unicode.utf8CountCodepoints(buf) catch |_| buf.len;
+        const padding = if (width < min_width) min_width - width else 0;
 
-    switch (options.alignment) {
-        .Left => {
-            try writer.writeAll(buf);
-            try writer.writeByteNTimes(options.fill, padding);
-        },
-        .Center => {
-            const left_padding = padding / 2;
-            const right_padding = (padding + 1) / 2;
-            try writer.writeByteNTimes(options.fill, left_padding);
-            try writer.writeAll(buf);
-            try writer.writeByteNTimes(options.fill, right_padding);
-        },
-        .Right => {
-            try writer.writeByteNTimes(options.fill, padding);
-            try writer.writeAll(buf);
-        },
+        if (padding == 0)
+            return writer.writeAll(buf);
+
+        switch (options.alignment) {
+            .Left => {
+                try writer.writeAll(buf);
+                try writer.writeByteNTimes(options.fill, padding);
+            },
+            .Center => {
+                const left_padding = padding / 2;
+                const right_padding = (padding + 1) / 2;
+                try writer.writeByteNTimes(options.fill, left_padding);
+                try writer.writeAll(buf);
+                try writer.writeByteNTimes(options.fill, right_padding);
+            },
+            .Right => {
+                try writer.writeByteNTimes(options.fill, padding);
+                try writer.writeAll(buf);
+            },
+        }
+    } else {
+        // Fast path, avoid counting the number of codepoints
+        try writer.writeAll(buf);
     }
 }
 
@@ -1442,6 +1451,10 @@ test "int.padded" {
     try testFmt("i16: '-12345'", "i16: '{:4}'", .{@as(i16, -12345)});
     try testFmt("i16: '+12345'", "i16: '{:4}'", .{@as(i16, 12345)});
     try testFmt("u16: '12345'", "u16: '{:4}'", .{@as(u16, 12345)});
+
+    try testFmt("UTF-8: 'ü   '", "UTF-8: '{u:<4}'", .{'ü'});
+    try testFmt("UTF-8: '   ü'", "UTF-8: '{u:>4}'", .{'ü'});
+    try testFmt("UTF-8: ' ü  '", "UTF-8: '{u:^4}'", .{'ü'});
 }
 
 test "buffer" {
@@ -1971,6 +1984,9 @@ test "padding" {
     try testFmt("==================Filled", "{:=>24}", .{"Filled"});
     try testFmt("        Centered        ", "{:^24}", .{"Centered"});
     try testFmt("-", "{:-^1}", .{""});
+    try testFmt("==crêpe===", "{:=^10}", .{"crêpe"});
+    try testFmt("=====crêpe", "{:=>10}", .{"crêpe"});
+    try testFmt("crêpe=====", "{:=<10}", .{"crêpe"});
 }
 
 test "decimal float padding" {
