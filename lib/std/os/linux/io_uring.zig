@@ -108,7 +108,7 @@ pub const IO_Uring = struct {
         // Check that our starting state is as we expect.
         assert(sq.head.* == 0);
         assert(sq.tail.* == 0);
-        assert(sq.mask.* == p.sq_entries - 1);
+        assert(sq.mask == p.sq_entries - 1);
         // Allow flags.* to be non-zero, since the kernel may set IORING_SQ_NEED_WAKEUP at any time.
         assert(sq.dropped.* == 0);
         assert(sq.array.len == p.sq_entries);
@@ -118,7 +118,7 @@ pub const IO_Uring = struct {
 
         assert(cq.head.* == 0);
         assert(cq.tail.* == 0);
-        assert(cq.mask.* == p.cq_entries - 1);
+        assert(cq.mask == p.cq_entries - 1);
         assert(cq.overflow.* == 0);
         assert(cq.cqes.len == p.cq_entries);
 
@@ -152,7 +152,7 @@ pub const IO_Uring = struct {
         // We must therefore use wrapping addition and subtraction to avoid a runtime crash.
         const next = self.sq.sqe_tail +% 1;
         if (next -% head > self.sq.sqes.len) return error.SubmissionQueueFull;
-        var sqe = &self.sq.sqes[self.sq.sqe_tail & self.sq.mask.*];
+        var sqe = &self.sq.sqes[self.sq.sqe_tail & self.sq.mask];
         self.sq.sqe_tail = next;
         // We zero the SQE slot here in a single place, rather than in many `queue_` methods.
         @memset(@ptrCast([*]u8, sqe), 0, @sizeOf(io_uring_sqe));
@@ -224,11 +224,10 @@ pub const IO_Uring = struct {
         if (self.sq.sqe_head != self.sq.sqe_tail) {
             // Fill in SQEs that we have queued up, adding them to the kernel ring.
             const to_submit = self.sq.sqe_tail -% self.sq.sqe_head;
-            const mask = self.sq.mask.*;
             var tail = self.sq.tail.*;
             var i: usize = 0;
             while (i < to_submit) : (i += 1) {
-                self.sq.array[tail & mask] = self.sq.sqe_head & mask;
+                self.sq.array[tail & self.sq.mask] = self.sq.sqe_head & self.sq.mask;
                 tail +%= 1;
                 self.sq.sqe_head +%= 1;
             }
@@ -292,14 +291,13 @@ pub const IO_Uring = struct {
     fn copy_cqes_ready(self: *IO_Uring, cqes: []io_uring_cqe, wait_nr: u32) u32 {
         const ready = self.cq_ready();
         const count = std.math.min(cqes.len, ready);
-        const mask = self.cq.mask.*;
         var head = self.cq.head.*;
         var tail = head +% count;
         // TODO Optimize this by using 1 or 2 memcpy's (if the tail wraps) rather than a loop.
         var i: usize = 0;
         // Do not use "less-than" operator since head and tail may wrap:
         while (head != tail) {
-            cqes[i] = self.cq.cqes[head & mask]; // Copy struct by value.
+            cqes[i] = self.cq.cqes[head & self.cq.mask]; // Copy struct by value.
             head +%= 1;
             i += 1;
         }
@@ -560,7 +558,7 @@ pub const IO_Uring = struct {
 pub const SubmissionQueue = struct {
     head: *u32,
     tail: *u32,
-    mask: *u32,
+    mask: u32,
     flags: *u32,
     dropped: *u32,
     array: []u32,
@@ -618,7 +616,7 @@ pub const SubmissionQueue = struct {
         return SubmissionQueue {
             .head = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.head])),
             .tail = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.tail])),
-            .mask = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.ring_mask])),
+            .mask = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.ring_mask])).*,
             .flags = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.flags])),
             .dropped = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.dropped])),
             .array = array[0..p.sq_entries],
@@ -637,7 +635,7 @@ pub const SubmissionQueue = struct {
 pub const CompletionQueue = struct {
     head: *u32,
     tail: *u32,
-    mask: *u32,
+    mask: u32,
     overflow: *u32,
     cqes: []io_uring_cqe,
 
@@ -656,7 +654,7 @@ pub const CompletionQueue = struct {
         return CompletionQueue {
             .head = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.head])),
             .tail = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.tail])),
-            .mask = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.ring_mask])),
+            .mask = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.ring_mask])).*,
             .overflow = @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.overflow])),
             .cqes = cqes[0..p.cq_entries]
         };
@@ -670,7 +668,7 @@ pub const CompletionQueue = struct {
 
 test "structs and offsets" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-    
+
     testing.expectEqual(@as(usize, 120), @sizeOf(io_uring_params));
     testing.expectEqual(@as(usize, 64), @sizeOf(io_uring_sqe));
     testing.expectEqual(@as(usize, 16), @sizeOf(io_uring_cqe));
