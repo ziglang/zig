@@ -153,6 +153,15 @@ pub fn utf8Decode4(bytes: []const u8) Utf8Decode4Error!u21 {
     return value;
 }
 
+/// Returns true if the given unicode codepoint can be encoded in UTF-8.
+pub fn utf8ValidCodepoint(value: u21) bool {
+    return switch (value) {
+        0xD800...0xDFFF => false, // Surrogates range
+        0x110000...0x1FFFFF => false, // Above the maximum codepoint value
+        else => true,
+    };
+}
+
 /// Returns the length of a supplied UTF-8 string literal in terms of unicode
 /// codepoints.
 /// Asserts that the data is valid UTF-8.
@@ -784,4 +793,20 @@ fn testUtf8CountCodepoints() !void {
 test "utf8 count codepoints" {
     try testUtf8CountCodepoints();
     comptime testUtf8CountCodepoints() catch unreachable;
+}
+
+fn testUtf8ValidCodepoint() !void {
+    testing.expect(utf8ValidCodepoint('e'));
+    testing.expect(utf8ValidCodepoint('ë'));
+    testing.expect(utf8ValidCodepoint('は'));
+    testing.expect(utf8ValidCodepoint(0xe000));
+    testing.expect(utf8ValidCodepoint(0x10ffff));
+    testing.expect(!utf8ValidCodepoint(0xd800));
+    testing.expect(!utf8ValidCodepoint(0xdfff));
+    testing.expect(!utf8ValidCodepoint(0x110000));
+}
+
+test "utf8 valid codepoint" {
+    try testUtf8ValidCodepoint();
+    comptime testUtf8ValidCodepoint() catch unreachable;
 }
