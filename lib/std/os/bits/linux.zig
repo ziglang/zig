@@ -1287,7 +1287,8 @@ pub const IOSQE_BIT = extern enum(u8) {
     IO_LINK,
     IO_HARDLINK,
     ASYNC,
-
+    BUFFER_SELECT,
+    
     _,
 };
 
@@ -1306,7 +1307,10 @@ pub const IOSQE_IO_LINK = 1 << @enumToInt(IOSQE_BIT.IO_LINK);
 pub const IOSQE_IO_HARDLINK = 1 << @enumToInt(IOSQE_BIT.IO_HARDLINK);
 
 /// always go async
-pub const IOSQE_ASYNC = 1 << IOSQE_BIT.ASYNC;
+pub const IOSQE_ASYNC = 1 << @enumToInt(IOSQE_BIT.ASYNC);
+
+/// select buffer from buf_group
+pub const IOSQE_BUFFER_SELECT = 1 << @enumToInt(IOSQE_BIT.BUFFER_SELECT);
 
 pub const IORING_OP = extern enum(u8) {
     NOP,
@@ -1339,6 +1343,10 @@ pub const IORING_OP = extern enum(u8) {
     RECV,
     OPENAT2,
     EPOLL_CTL,
+    SPLICE,
+    PROVIDE_BUFFERS,
+    REMOVE_BUFFERS,
+    TEE,
 
     _,
 };
