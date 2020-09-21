@@ -6,6 +6,7 @@
 usingnamespace std.os.linux;
 const std = @import("../../std.zig");
 const perf = std.os.linux.perf;
+const mem = std.mem;
 
 const errno = getErrno;
 const unexpectedErrno = std.os.unexpectedErrno;
@@ -1724,21 +1725,18 @@ pub fn PerfBuffer(comptime T: type) type {
             lost,
         };
 
-        pub const Payload = union(Tag) {
-            sample: struct {
-                cpu: i32,
-                data: []u8,
-            },
-            lost: struct {
-                cpu: i32,
-                cnt: usize,
+        pub const Payload = struct {
+            cpu: i32,
+            data: union(Tag) {
+                sample: []u8,
+                lost: usize,
             },
         };
 
         const CpuBuf = struct {
             cpu: i32,
             fd: fd_t,
-            base: []align(4096) u8,
+            mmap: []align(4096) u8,
             frame: @Frame(process),
 
             const Self = @This();
@@ -1774,54 +1772,57 @@ pub fn PerfBuffer(comptime T: type) type {
                 };
             }
 
+            fn read(self: Self, allocator: *Allocator) !?Payload {
+                const header = @ptrCast(*volatile MmapPage, self.mmap.ptr);
+                if (header.data_tail == header.data_head) {
+                    return null;
+                } else if (header.data_tail > header.data_head) {
+                    return error.InvalidTailHead;
+                }
+
+                const base = self.mmap[mem.page_size..];
+                const ehdr = @ptrCast(*perf.EventHeader, &base[header.data_tail]);
+
+                const ret = Payload{
+                    .cpu = self.cpu,
+                    .data = switch (ehdr.type) {
+                        perf.RECORD_SAMPLE => blk: {
+                            var data = try allocator.alloc(u8, ehdr.size - @sizeOf(perf.EventHeader));
+
+                            // TODO: fix this math
+                            const room = base.len - header.data_tail;
+                            if (ehdr.size > room) {
+                                const begin = header.data_tail + @sizeOf(perf.EventHeader);
+                                const len = room - @sizeOf(perf.EventHeader);
+                                const overflow = ehdr.size - room;
+                                mem.copy(u8, data, base[begin .. begin + len]);
+                                mem.copy(u8, data[len..], base[0..overflow]);
+                            } else {
+                                mem.copy(u8, data, base[header.data_tail .. header.data_tail + ehdr.size]);
+                            }
+
+                            break :blk .{ .sample = data };
+                        },
+                        // TODO: wrap around?
+                        perf.RECORD_LOST => .{ .lost = @ptrCast(*perf.SampleLost, ehdr).lost },
+                        else => |val| {
+                            std.log.info("Unknown perf sample type: {}\n", .{val});
+                            return error.UnknownSampleType;
+                        },
+                    },
+                };
+
+                header.data_tail += ehdr.size;
+                return ret;
+            }
+
             fn process(self: Self, allocator: *Allocator, channel: *Channel(Payload)) callconv(.Async) void {
                 while (true) {
                     std.event.loop.instance.?.waitUntilFdWritable(self.fd);
 
-                    const header = @ptrCast(perf.MmapPage, self.base.ptr);
-                    var data_head = ring_buffer_read_head(header);
-                    var data_tail = header.data_tail;
-
-                    const base = self.base[std.mem.page_size..];
-                    var ehdr: *perf.EventHeader = undefined;
-
-                    while (data_head != data_tail) {
-                        ehdr = @ptrCast(*perf.EventHeader, &base[data_tail]);
-
-                        switch (ehdr.type) {
-                            perf.RECORD_SAMPLE => {
-                                var buf = try allocator.alloc(u8, ehdr.size);
-
-                                // copy first chunk
-
-                                // if wrapped around
-                                if (@ptrToInt(ehdr) + ehdr.size > @ptrToInt(base.ptr) + self.mmap_size) {
-                                    // copy optional second chunk
-                                }
-
-                                channel.put(Payload{
-                                    .sample = .{
-                                        .cpu = self.cpu,
-                                        .data = buf,
-                                    },
-                                });
-                            },
-                            perf.RECORD_LOST => {
-                                const lost = @ptrCast(*perf.SampleLost, ehdr);
-                                channel.put(Payload{
-                                    .lost = .{
-                                        .cpu = self.cpu,
-                                        .cnt = lost.count,
-                                    },
-                                });
-                            },
-                            else => |val| {
-                                std.log.info("Unknown perf sample type: {}\n", .{val});
-                            },
-                        }
+                    while (self.read()) |payload| {
+                        channel.put(payload);
                     }
-
-                    ring_buffer_write_tail(header, data_tail);
                 }
             }
 
@@ -1872,7 +1873,7 @@ pub fn PerfBuffer(comptime T: type) type {
 
         pub fn run(self: Self) callconv(.Async) void {
             for (self.bufs.items) |*buf| {
-                buf.frame = async buf.process(&self.channel);
+                buf.frame = async buf.process(&self.allocator, &self.channel);
             }
         }
     };

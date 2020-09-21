@@ -85,6 +85,10 @@ pub const PerfEventArray = struct {
     /// - A combination of both.
     pub fn event_output(self: *const PerfEventArray, ctx: anytype, flags: u64, data: []u8) !void {
         const rc = helpers.perf_event_output(ctx, self, flags, data.ptr, data.len);
+        return switch (rc) {
+            0 => {},
+            else => error.Unknown,
+        };
     }
 };
 
