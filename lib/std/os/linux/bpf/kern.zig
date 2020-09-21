@@ -4,6 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("../../../std.zig");
+const BPF = std.os.linux.BPF;
 
 pub const helpers = switch (std.builtin.arch) {
     .bpfel, .bpfeb => @import("helpers.zig"),
@@ -25,19 +26,54 @@ pub fn Map(
     return packed struct {
         def: MapDef,
 
-        pub fn init(map_type: MapType, max_entries: u32, flags: u32) Self {
+        const Self = @This();
+
+        pub fn init(map_type: BPF.MapType, max_entries: u32, flags: u32) Self {
             return .{
-                .type = map_type,
-                .key_size = @sizeOf(Key),
-                .value_size = @sizeOf(Value),
-                .max_entries = max_entries,
-                .map_flags = flags,
+                .def = .{
+                    .type = @enumToInt(map_type),
+                    .key_size = @sizeOf(Key),
+                    .value_size = @sizeOf(Value),
+                    .max_entries = max_entries,
+                    .map_flags = flags,
+                },
             };
         }
     };
 }
 
-pub const PerfEventArray = struct {
+pub fn HashMap(
+    comptime Key: type,
+    comptime Value: type,
+) type {
+    return packed struct {
+        map: Map(Key, Value),
+
+        const Self = @This();
+
+        pub fn init(max_entries: u32, flags: u32) Self {
+            return .{
+                .map = Map(Key, Value).init(.hash, max_entries, flags),
+            };
+        }
+    };
+}
+
+pub fn ArrayMap(comptime Value: type) type {
+    return packed struct {
+        map: Map(u32, Value),
+
+        const Self = @This();
+
+        pub fn init(max_entries: u32, flags: u32) Self {
+            return .{
+                .map = Map(u32, Value).init(.array, max_entries, flags),
+            };
+        }
+    };
+}
+
+pub const PerfEventArray = packed struct {
     map: Map(u32, u32),
 
     const Self = @This();
@@ -95,7 +131,6 @@ pub const PerfEventArray = struct {
 pub const BpfSock = @Type(.Opaque);
 pub const BpfSockAddr = @Type(.Opaque);
 pub const FibLookup = @Type(.Opaque);
-pub const MapDef = @Type(.Opaque);
 pub const PerfEventData = @Type(.Opaque);
 pub const PerfEventValue = @Type(.Opaque);
 pub const PidNsInfo = @Type(.Opaque);

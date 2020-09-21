@@ -3,6 +3,9 @@ pub const TYPE_SOFTWARE = 1;
 pub const SAMPLE_RAW = 1 << 10;
 pub const FLAG_FD_CLOEXEC = 1 << 3;
 
+pub const RECORD_LOST = 2;
+pub const RECORD_SAMPLE = 9;
+
 pub const EVENT_IOC_ENABLE = @compileError("TODO");
 pub const EVENT_IOC_DISABLE = @compileError("TODO");
 

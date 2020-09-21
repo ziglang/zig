@@ -5,9 +5,7 @@
 // and substantial portions of the software.
 usingnamespace std.os.linux;
 const std = @import("../../std.zig");
-const perf = std.os.linux.perf;
 const mem = std.mem;
-
 const errno = getErrno;
 const unexpectedErrno = std.os.unexpectedErrno;
 const expectEqual = std.testing.expectEqual;
@@ -17,6 +15,7 @@ const Channel = std.event.Channel;
 
 pub const btf = @import("bpf/btf.zig");
 pub const kern = @import("bpf/kern.zig");
+pub const perf = @import("perf.zig");
 
 // instruction classes
 pub const LD = 0x00;
@@ -1669,33 +1668,27 @@ test "prog_load" {
     expectError(error.UnsafeProgram, prog_load(.socket_filter, &bad_prog, null, "MIT", 0));
 }
 
-pub fn MapInfo(comptime definition: kern.MapDef) type {
-    return struct {
-        fd: ?fd_t,
-
-        const def = definition;
-    };
-}
 pub const MapInfo = struct {
     fd: ?fd_t,
-    comptime def: kern.MapDef,
+    def: kern.MapDef,
 };
 
 pub fn Map(comptime Key: type, comptime Value: type) type {
     return struct {
         fd: fd_t,
+        def: kern.MapDef,
 
         const Self = @This();
 
-        pub fn init(info: anytype) !Self {
-            if (info.def.key_size != @sizeOf(Key)) @compileError("key size does not match");
-            if (info.def.value_size != @sizeOf(Value)) @compileError("value size does not match");
+        pub fn init(info: MapInfo) !Self {
+            if (info.def.key_size != @sizeOf(Key)) return error.KeySizeMismatch;
+            if (info.def.value_size != @sizeOf(Value)) return error.ValueSizeMismatch;
 
             if (info.fd == null) {
                 return error.MapFdNotCreated;
             }
 
-            return .{ .fd = fd.? };
+            return Self{ .fd = info.fd.?, .def = info.def };
         }
     };
 }
@@ -1703,8 +1696,10 @@ pub fn Map(comptime Key: type, comptime Value: type) type {
 pub const PerfEventArray = struct {
     base: Map(u32, u32),
 
+    const Self = @This();
+
     pub fn init(info: anytype) !Self {
-        return .{
+        return Self{
             .base = try Map(u32, u32).init(info),
         };
     }
@@ -1712,9 +1707,9 @@ pub const PerfEventArray = struct {
 
 pub fn PerfBuffer(comptime T: type) type {
     return struct {
-        allocator: *std.mem.Allocator,
+        allocator: *mem.Allocator,
         fd: fd_t,
-        bufs: std.ArrayListUnmanaged(CpuBuf),
+        contexts: std.ArrayListUnmanaged(Context),
         channel: Channel(Payload),
         channel_buf: []Payload,
 
@@ -1733,15 +1728,17 @@ pub fn PerfBuffer(comptime T: type) type {
             },
         };
 
+        const Context = struct {
+            cpubuf: CpuBuf,
+            frame: @Frame(CpuBuf.process),
+        };
+
         const CpuBuf = struct {
             cpu: i32,
             fd: fd_t,
             mmap: []align(4096) u8,
-            frame: @Frame(process),
 
-            const Self = @This();
-
-            pub fn init(cpu: i32, mmap_size: usize) !Self {
+            pub fn init(cpu: i32, mmap_size: usize) !@This() {
                 const attr = std.mem.zeroes(perf.EventAttr);
 
                 attr.config = perf.COUNT_SW_BPF_OUTPUT;
@@ -1772,8 +1769,8 @@ pub fn PerfBuffer(comptime T: type) type {
                 };
             }
 
-            fn read(self: Self, allocator: *Allocator) !?Payload {
-                const header = @ptrCast(*volatile MmapPage, self.mmap.ptr);
+            fn read(self: @This(), allocator: *mem.Allocator) !?Payload {
+                const header = @ptrCast(*volatile perf.MmapPage, self.mmap.ptr);
                 if (header.data_tail == header.data_head) {
                     return null;
                 } else if (header.data_tail > header.data_head) {
@@ -1816,47 +1813,47 @@ pub fn PerfBuffer(comptime T: type) type {
                 return ret;
             }
 
-            fn process(self: Self, allocator: *Allocator, channel: *Channel(Payload)) callconv(.Async) void {
+            fn process(self: @This(), allocator: *mem.Allocator, channel: *Channel(Payload)) callconv(.Async) void {
                 while (true) {
-                    std.event.loop.instance.?.waitUntilFdWritable(self.fd);
+                    std.event.Loop.instance.?.waitUntilFdWritable(self.fd);
 
-                    while (self.read()) |payload| {
+                    while (self.read(allocator) catch |err| @panic(@errorName(err))) |payload| {
                         channel.put(payload);
                     }
                 }
             }
 
-            pub fn deinit(self: Self) void {
+            pub fn deinit(self: @This()) void {
                 std.os.munmap(self.base);
                 ioctl(self.fd, perf.EVENT_IOC_DISABLE, 0) catch {};
                 std.os.close(self.fd);
             }
         };
 
-        pub fn init(allocator: *Allocator, map: PerfEventArray, page_cnt: usize) !Self {
+        pub fn init(allocator: *mem.Allocator, map: PerfEventArray, page_cnt: usize) !Self {
             // page count must be power of two
             if (@popCount(usize, page_cnt) != 1) {
                 return error.PageCountSize;
             }
 
-            const cpu_count = std.math.min(map.max_entries, std.Thread.cpuCount());
+            const cpu_count = std.math.min(map.base.def.max_entries, try std.Thread.cpuCount());
 
             var ret: Self = undefined;
             ret.allocator = allocator;
             ret.channel_buf = try allocator.alloc(Payload, cpu_count);
-            ret.channel.init(&Channel_buf);
+            ret.channel.init(ret.channel_buf);
             errdefer channel.deinit();
 
-            ret.bufs = try std.ArrayListUnmanaged(CpuBuf).initCapacity(allocator, cpu_count);
+            ret.contexts = try std.ArrayListUnmanaged(Context).initCapacity(allocator, cpu_count);
             errdefer {
-                for (bufs.items) |buf| buf.deinit(allocator);
-                bufs.deinit(allocator);
+                for (contexts.items) |buf| buf.deinit(allocator);
+                contexts.deinit(allocator);
             }
 
             var i: usize = 0;
             while (i < cpu_count) : (i += 0) {
-                ret.bufs.appendAssumeCapacity(try CpuBuf.init(i, std.mem.page_size * page_cnt));
-                try bpf.map_update_elem(map.fd, cpu, ret.bufs.items[i].fd, 0);
+                ret.contexts.appendAssumeCapacity(try CpuBuf.init(i, std.mem.page_size * page_cnt));
+                try bpf.map_update_elem(map.fd, cpu, ret.contexts.items[i].fd, 0);
             }
 
             return ret;
@@ -1864,16 +1861,16 @@ pub fn PerfBuffer(comptime T: type) type {
 
         pub fn deinit(self: Self) void {
             self.channel.deinit();
-            for (self.bufs.items) |buf| buf.deinit(self.allocator);
+            for (self.contexts.items) |buf| buf.deinit(self.allocator);
 
-            self.bufs.deinit(allocator);
+            self.contexts.deinit(allocator);
             self.channel.deinit();
             allocator.free(self.channel_buf);
         }
 
         pub fn run(self: Self) callconv(.Async) void {
-            for (self.bufs.items) |*buf| {
-                buf.frame = async buf.process(&self.allocator, &self.channel);
+            for (self.contexts.items) |*buf| {
+                buf.frame = async buf.cpubuf.process(&self.allocator, &self.channel);
             }
         }
     };
