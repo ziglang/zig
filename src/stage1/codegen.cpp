@@ -8485,7 +8485,57 @@ static void define_builtin_types(CodeGen *g) {
     add_fp_entry(g, "f32", 32, LLVMFloatType(), &g->builtin_types.entry_f32);
     add_fp_entry(g, "f64", 64, LLVMDoubleType(), &g->builtin_types.entry_f64);
     add_fp_entry(g, "f128", 128, LLVMFP128Type(), &g->builtin_types.entry_f128);
-    add_fp_entry(g, "c_longdouble", 80, LLVMX86FP80Type(), &g->builtin_types.entry_c_longdouble);
+
+    switch (g->zig_target->arch) {
+        case ZigLLVM_x86:
+        case ZigLLVM_x86_64:
+            if (g->zig_target->abi != ZigLLVM_MSVC)
+                add_fp_entry(g, "c_longdouble", 80, LLVMX86FP80Type(), &g->builtin_types.entry_c_longdouble);
+            else
+                add_fp_entry(g, "c_longdouble", 64, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
+            break;
+        case ZigLLVM_arm:
+        case ZigLLVM_armeb:
+        case ZigLLVM_thumb:
+        case ZigLLVM_thumbeb:
+            add_fp_entry(g, "c_longdouble", 64, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
+            break;
+        case ZigLLVM_aarch64:
+        case ZigLLVM_aarch64_be:
+            if (g->zig_target->os == OsWindows || target_os_is_darwin(g->zig_target->os))
+                add_fp_entry(g, "c_longdouble", 64, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
+            else
+                add_fp_entry(g, "c_longdouble", 128, LLVMFP128Type(), &g->builtin_types.entry_c_longdouble);
+            break;
+        case ZigLLVM_riscv32:
+        case ZigLLVM_riscv64:
+            add_fp_entry(g, "c_longdouble", 128, LLVMFP128Type(), &g->builtin_types.entry_c_longdouble);
+            break;
+        case ZigLLVM_wasm32:
+        case ZigLLVM_wasm64:
+            add_fp_entry(g, "c_longdouble", 128, LLVMFP128Type(), &g->builtin_types.entry_c_longdouble);
+            break;
+        case ZigLLVM_mips:
+        case ZigLLVM_mipsel:
+            // Assume o32 ABI
+            add_fp_entry(g, "c_longdouble", 64, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
+            break;
+        case ZigLLVM_mips64:
+        case ZigLLVM_mips64el:
+            add_fp_entry(g, "c_longdouble", 128, LLVMFP128Type(), &g->builtin_types.entry_c_longdouble);
+            break;
+        case ZigLLVM_ppc:
+        case ZigLLVM_ppc64:
+        case ZigLLVM_ppc64le:
+            add_fp_entry(g, "c_longdouble", 128, LLVMFP128Type(), &g->builtin_types.entry_c_longdouble);
+            break;
+        case ZigLLVM_avr:
+            // It's either a float or a double, depending on a toolchain switch
+            add_fp_entry(g, "c_longdouble", 64, LLVMDoubleType(), &g->builtin_types.entry_c_longdouble);
+            break;
+        default:
+            zig_panic("TODO implement mapping for c_longdouble");
+    }
 
     {
         ZigType *entry = new_type_table_entry(ZigTypeIdVoid);
