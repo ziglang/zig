@@ -371,7 +371,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         pub fn initCapacity(allocator: *Allocator, num: usize) !Self {
             var self = Self{};
 
-            const new_memory = try self.allocator.allocAdvanced(T, alignment, num, .at_least);
+            const new_memory = try allocator.allocAdvanced(T, alignment, num, .at_least);
             self.items.ptr = new_memory.ptr;
             self.capacity = new_memory.len;
 
