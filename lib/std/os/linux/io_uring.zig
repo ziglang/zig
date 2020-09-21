@@ -212,7 +212,7 @@ pub const IO_Uring = struct {
             linux.EINTR => return error.SignalInterrupt,
             else => |errno| return os.unexpectedErrno(errno)
         }
-        return @truncate(u32, res);
+        return @intCast(u32, res);
     }
 
     /// Sync internal state with kernel ring state on the SQ side.
