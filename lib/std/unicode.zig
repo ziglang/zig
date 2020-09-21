@@ -153,6 +153,23 @@ pub fn utf8Decode4(bytes: []const u8) Utf8Decode4Error!u21 {
     return value;
 }
 
+/// Returns the length of a supplied UTF-8 string literal in terms of unicode
+/// codepoints.
+/// Asserts that the data is valid UTF-8.
+pub fn utf8CountCodepoints(s: []const u8) !usize {
+    var len: usize = 0;
+
+    var i: usize = 0;
+    while (i < s.len) : (len += 1) {
+        const n = try utf8ByteSequenceLength(s[i]);
+        if (i + n > s.len) return error.TruncatedInput;
+        _ = try utf8Decode(s[i .. i + n]);
+        i += n;
+    }
+
+    return len;
+}
+
 pub fn utf8ValidateSlice(s: []const u8) bool {
     var i: usize = 0;
     while (i < s.len) {
@@ -687,7 +704,6 @@ pub fn utf8ToUtf16LeStringLiteral(comptime utf8: []const u8) *const [calcUtf16Le
     }
 }
 
-/// Returns length of a supplied UTF-8 string literal. Asserts that the data is valid UTF-8.
 fn calcUtf16LeLen(utf8: []const u8) usize {
     var src_i: usize = 0;
     var dest_len: usize = 0;
@@ -756,4 +772,16 @@ test "utf8ToUtf16LeStringLiteral" {
         testing.expectEqualSlices(u16, &bytes, utf16);
         testing.expect(utf16[2] == 0);
     }
+}
+
+fn testUtf8CountCodepoints() !void {
+    testing.expectEqual(@as(usize, 10), try utf8CountCodepoints("abcdefghij"));
+    testing.expectEqual(@as(usize, 10), try utf8CountCodepoints("äåéëþüúíóö"));
+    testing.expectEqual(@as(usize, 5), try utf8CountCodepoints("こんにちは"));
+    testing.expectError(error.Utf8EncodesSurrogateHalf, utf8CountCodepoints("\xED\xA0\x80"));
+}
+
+test "utf8 count codepoints" {
+    try testUtf8CountCodepoints();
+    comptime testUtf8CountCodepoints() catch unreachable;
 }
