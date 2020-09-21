@@ -404,7 +404,7 @@ pub const IO_Uring = struct {
         sqe.fd = fd;
         sqe.off = offset;
         sqe.addr = @ptrToInt(buffer.ptr);
-        sqe.len = @truncate(u32, buffer.len);
+        sqe.len = @intCast(u32, buffer.len);
         sqe.user_data = user_data;
         return sqe;
     }
@@ -423,7 +423,7 @@ pub const IO_Uring = struct {
         sqe.fd = fd;
         sqe.off = offset;
         sqe.addr = @ptrToInt(buffer.ptr);
-        sqe.len = @truncate(u32, buffer.len);
+        sqe.len = @intCast(u32, buffer.len);
         sqe.user_data = user_data;
         return sqe;
     }
@@ -444,7 +444,7 @@ pub const IO_Uring = struct {
         sqe.fd = fd;
         sqe.off = offset;
         sqe.addr = @ptrToInt(iovecs.ptr);
-        sqe.len = @truncate(u32, iovecs.len);
+        sqe.len = @intCast(u32, iovecs.len);
         sqe.user_data = user_data;
         return sqe;
     }
@@ -465,7 +465,7 @@ pub const IO_Uring = struct {
         sqe.fd = fd;
         sqe.off = offset;
         sqe.addr = @ptrToInt(iovecs.ptr);
-        sqe.len = @truncate(u32, iovecs.len);
+        sqe.len = @intCast(u32, iovecs.len);
         sqe.user_data = user_data;
         return sqe;
     }
@@ -516,7 +516,7 @@ pub const IO_Uring = struct {
             self.fd,
             .REGISTER_FILES,
             @ptrCast(*const c_void, fds.ptr),
-            @truncate(u32, fds.len)
+            @intCast(u32, fds.len)
         );
         switch (linux.getErrno(res)) {
             0 => {},
