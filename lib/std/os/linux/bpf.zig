@@ -1739,18 +1739,25 @@ pub fn PerfBuffer(comptime T: type) type {
             mmap: []align(4096) u8,
 
             pub fn init(cpu: i32, mmap_size: usize) !@This() {
-                const attr = std.mem.zeroes(perf.EventAttr);
+                var attr = std.mem.zeroes(perf.EventAttr);
 
                 attr.config = perf.COUNT_SW_BPF_OUTPUT;
                 attr.type = perf.TYPE_SOFTWARE;
                 attr.sample_type = perf.SAMPLE_RAW;
-                attr.sample_period = 1;
-                attr.wakeup_events = 1;
+                attr.sample.period = 1;
+                attr.wakeup.events = 1;
 
-                const rc = std.os.syscall5(.perf_event_open, &attr, -1, cpu, -1, perf.FLAG_FD_CLOEXEC);
-                const fd = switch (std.os.linux.getErrno(rc)) {
+                const rc = std.os.linux.syscall5(
+                    .perf_event_open,
+                    @ptrToInt(&attr),
+                    std.math.maxInt(usize),
+                    @intCast(usize, cpu),
+                    std.math.maxInt(usize),
+                    perf.FLAG_FD_CLOEXEC,
+                );
+                const fd = try switch (std.os.linux.getErrno(rc)) {
                     0...std.math.maxInt(@TypeOf(rc)) => @intCast(fd_t, rc),
-                    else => |errno| std.os.unexpectedErrno(errno),
+                    else => |err| std.os.unexpectedErrno(err),
                 };
                 errdefer std.os.close(fd);
 
@@ -1842,7 +1849,7 @@ pub fn PerfBuffer(comptime T: type) type {
             ret.allocator = allocator;
             ret.channel_buf = try allocator.alloc(Payload, cpu_count);
             ret.channel.init(ret.channel_buf);
-            errdefer channel.deinit();
+            errdefer ret.channel.deinit();
 
             ret.contexts = try std.ArrayListUnmanaged(Context).initCapacity(allocator, cpu_count);
             errdefer {
@@ -1850,7 +1857,7 @@ pub fn PerfBuffer(comptime T: type) type {
                 contexts.deinit(allocator);
             }
 
-            var i: usize = 0;
+            var i: i32 = 0;
             while (i < cpu_count) : (i += 0) {
                 ret.contexts.appendAssumeCapacity(try CpuBuf.init(i, std.mem.page_size * page_cnt));
                 try bpf.map_update_elem(map.fd, cpu, ret.contexts.items[i].fd, 0);

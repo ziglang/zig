@@ -60,8 +60,7 @@ pub const EventAttr = packed struct {
     config: u64,
     sample: packed union {
         period: u64,
-        freq,
-        u64,
+        freq: u64,
     },
     sample_type: u64,
     read_format: u64,
