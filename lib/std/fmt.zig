@@ -77,7 +77,7 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 /// - `b`: output integer value in binary notation
 /// - `o`: output integer value in octal notation
 /// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
-/// - `u`: output integer as an UTF-8 sequence. Integer type must have 32 bits at max.
+/// - `u`: output integer as an UTF-8 sequence. Integer type must have 21 bits at max.
 /// - `*`: output the address of the value instead of the value itself.
 ///
 /// If a formatted user type contains a function of the type
