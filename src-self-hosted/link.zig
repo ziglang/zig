@@ -387,13 +387,15 @@ pub const File = struct {
         // If there is no Zig code to compile, then we should skip flushing the output file because it
         // will not be part of the linker line anyway.
         const module_obj_path: ?[]const u8 = if (base.options.module) |module| blk: {
+            const use_stage1 = build_options.is_stage1 and base.options.use_llvm;
+            if (use_stage1) {
+                const obj_basename = try std.fmt.allocPrint(arena, "{}.o", .{base.options.root_name});
+                const full_obj_path = try directory.join(arena, &[_][]const u8{obj_basename});
+                break :blk full_obj_path;
+            }
             try base.flushModule(comp);
-
             const obj_basename = base.intermediary_basename.?;
-            const full_obj_path = if (directory.path) |dir_path|
-                try std.fs.path.join(arena, &[_][]const u8{ dir_path, obj_basename })
-            else
-                obj_basename;
+            const full_obj_path = try directory.join(arena, &[_][]const u8{obj_basename});
             break :blk full_obj_path;
         } else null;
 

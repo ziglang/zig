@@ -1108,8 +1108,14 @@ pub fn buildOutputType(
         .yes => |p| p,
     };
 
-    const root_pkg = if (root_src_file) |src_path| try Package.create(gpa, fs.cwd(), ".", src_path) else null;
-    defer if (root_pkg) |pkg| pkg.destroy(gpa);
+    var root_pkg_memory: Package = undefined;
+    const root_pkg: ?*Package = if (root_src_file) |src_path| blk: {
+        root_pkg_memory = .{
+            .root_src_directory = .{ .path = null, .handle = fs.cwd() },
+            .root_src_path = src_path,
+        };
+        break :blk &root_pkg_memory;
+    } else null;
 
     const self_exe_path = try fs.selfExePathAlloc(arena);
     var zig_lib_directory = introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {

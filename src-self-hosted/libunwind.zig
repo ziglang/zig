@@ -109,36 +109,22 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .c_source_files = &c_source_files,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.bin_file.options.verbose_link,
+        .verbose_tokenize = comp.verbose_tokenize,
+        .verbose_ast = comp.verbose_ast,
+        .verbose_ir = comp.verbose_ir,
+        .verbose_llvm_ir = comp.verbose_llvm_ir,
+        .verbose_cimport = comp.verbose_cimport,
+        .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .link_libc = true,
     });
     defer sub_compilation.destroy();
 
-    try updateSubCompilation(sub_compilation);
+    try sub_compilation.updateSubCompilation();
 
     assert(comp.libunwind_static_lib == null);
     comp.libunwind_static_lib = Compilation.CRTFile{
         .full_object_path = try sub_compilation.bin_file.options.directory.join(comp.gpa, &[_][]const u8{basename}),
         .lock = sub_compilation.bin_file.toOwnedLock(),
     };
-}
-
-fn updateSubCompilation(sub_compilation: *Compilation) !void {
-    try sub_compilation.update();
-
-    // Look for compilation errors in this sub_compilation
-    var errors = try sub_compilation.getAllErrorsAlloc();
-    defer errors.deinit(sub_compilation.gpa);
-
-    if (errors.list.len != 0) {
-        for (errors.list) |full_err_msg| {
-            std.log.err("{}:{}:{}: {}\n", .{
-                full_err_msg.src_path,
-                full_err_msg.line + 1,
-                full_err_msg.column + 1,
-                full_err_msg.msg,
-            });
-        }
-        return error.BuildingLibCObjectFailed;
-    }
 }

@@ -1253,8 +1253,9 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
     const is_lib = self.base.options.output_mode == .Lib;
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
+    const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
     const have_dynamic_linker = self.base.options.link_libc and
-        self.base.options.link_mode == .Dynamic and (is_dyn_lib or self.base.options.output_mode == .Exe);
+        self.base.options.link_mode == .Dynamic and is_exe_or_dyn_lib;
 
     try ch.addOptionalFile(self.base.options.linker_script);
     try ch.addOptionalFile(self.base.options.version_script);
@@ -1489,16 +1490,13 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         try argv.append(p);
     }
 
-    // TODO compiler-rt and libc
-    //if (!g->is_dummy_so && (g->out_type == OutTypeExe || is_dyn_lib)) {
-    //    if (g->libc_link_lib == nullptr) {
-    //        Buf *libc_a_path = build_c(g, OutTypeLib, lj->build_dep_prog_node);
-    //        try argv.append(buf_ptr(libc_a_path));
-    //    }
-
-    //    Buf *compiler_rt_o_path = build_compiler_rt(g, OutTypeLib, lj->build_dep_prog_node);
-    //    try argv.append(buf_ptr(compiler_rt_o_path));
-    //}
+    // compiler-rt and libc
+    if (is_exe_or_dyn_lib) {
+        if (!self.base.options.link_libc) {
+            try argv.append(comp.libc_static_lib.?.full_object_path);
+        }
+        try argv.append(comp.compiler_rt_static_lib.?.full_object_path);
+    }
 
     // Shared libraries.
     try argv.ensureCapacity(argv.items.len + self.base.options.system_libs.len);
@@ -1545,7 +1543,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                 try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
             } else if (target.isMusl()) {
                 try argv.append(comp.libunwind_static_lib.?.full_object_path);
-                try argv.append(comp.libc_static_lib.?);
+                try argv.append(comp.libc_static_lib.?.full_object_path);
             } else if (self.base.options.link_libcpp) {
                 try argv.append(comp.libunwind_static_lib.?.full_object_path);
             } else {

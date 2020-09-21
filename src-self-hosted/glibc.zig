@@ -713,11 +713,17 @@ fn build_crt_file(
         .c_source_files = c_source_files,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.bin_file.options.verbose_link,
+        .verbose_tokenize = comp.verbose_tokenize,
+        .verbose_ast = comp.verbose_ast,
+        .verbose_ir = comp.verbose_ir,
+        .verbose_llvm_ir = comp.verbose_llvm_ir,
+        .verbose_cimport = comp.verbose_cimport,
+        .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
     });
     defer sub_compilation.destroy();
 
-    try updateSubCompilation(sub_compilation);
+    try sub_compilation.updateSubCompilation();
 
     try comp.crt_files.ensureCapacity(comp.gpa, comp.crt_files.count() + 1);
     const artifact_path = if (sub_compilation.bin_file.options.directory.path) |p|
@@ -989,6 +995,12 @@ fn buildSharedLib(
         .self_exe_path = comp.self_exe_path,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.bin_file.options.verbose_link,
+        .verbose_tokenize = comp.verbose_tokenize,
+        .verbose_ast = comp.verbose_ast,
+        .verbose_ir = comp.verbose_ir,
+        .verbose_llvm_ir = comp.verbose_llvm_ir,
+        .verbose_cimport = comp.verbose_cimport,
+        .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .version = version,
         .version_script = map_file_path,
@@ -997,25 +1009,5 @@ fn buildSharedLib(
     });
     defer sub_compilation.destroy();
 
-    try updateSubCompilation(sub_compilation);
-}
-
-fn updateSubCompilation(sub_compilation: *Compilation) !void {
-    try sub_compilation.update();
-
-    // Look for compilation errors in this sub_compilation
-    var errors = try sub_compilation.getAllErrorsAlloc();
-    defer errors.deinit(sub_compilation.gpa);
-
-    if (errors.list.len != 0) {
-        for (errors.list) |full_err_msg| {
-            std.log.err("{}:{}:{}: {}\n", .{
-                full_err_msg.src_path,
-                full_err_msg.line + 1,
-                full_err_msg.column + 1,
-                full_err_msg.msg,
-            });
-        }
-        return error.BuildingLibCObjectFailed;
-    }
+    try sub_compilation.updateSubCompilation();
 }
