@@ -561,7 +561,7 @@ pub fn formatIntValue(
         if (@typeInfo(@TypeOf(int_value)).Int.bits <= 21) {
             return formatUnicodeCodepoint(@as(u21, int_value), options, writer);
         } else {
-            @compileError("Cannot print integer that is larger than 32 bits as an UTF-8 sequence");
+            @compileError("Cannot print integer that is larger than 21 bits as an UTF-8 sequence");
         }
     } else if (comptime std.mem.eql(u8, fmt, "b")) {
         radix = 2;
@@ -657,7 +657,7 @@ pub fn formatUnicodeCodepoint(
     if (unicode.utf8ValidCodepoint(c)) {
         var buf: [4]u8 = undefined;
         // The codepoint is surely valid, hence the use of unreachable
-        const len = std.unicode.utf8Encode(@truncate(u21, c), &buf) catch |err| switch (err) {
+        const len = std.unicode.utf8Encode(c, &buf) catch |err| switch (err) {
             error.Utf8CannotEncodeSurrogateHalf, error.CodepointTooLarge => unreachable,
         };
         return formatBuf(buf[0..len], options, writer);
