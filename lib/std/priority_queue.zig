@@ -210,7 +210,7 @@ pub fn PriorityQueue(comptime T: type) type {
 
         pub fn update(self: *Self, elem: T, new_elem: T) !void {
             var update_index: usize = binarySearch(self.items, elem);
-            assert (update_index >= 0 and update_index < items.len);
+            assert (update_index >= 0 and update_index < self.items.len);
             _ = self.removeIndex(update_index);
             try self.add(new_elem);
         }
