@@ -195,7 +195,7 @@ pub fn PriorityQueue(comptime T: type) type {
         }
 
         pub fn update(self: *Self, elem: T, new_elem: T) !void {
-            var update_index: usize = std.sort.binarySearch(T, elem, self.items, orderFn) orelse 0;
+            var update_index: usize = std.sort.binarySearch(T, elem, self.items, {}, orderFn) orelse 0;
             assert (update_index >= 0 and update_index < self.items.len);
             _ = self.removeIndex(update_index);
             try self.add(new_elem);
