@@ -204,8 +204,13 @@ pub fn PriorityQueue(comptime T: type) type {
         pub fn update(self: *Self, elem: T, new_elem: T) !void {
             var update_index: usize = linearSearch(elem, self.items);
             assert (update_index >= 0 and update_index < self.items.len);
-            _ = self.removeIndex(update_index);
-            try self.add(new_elem);
+            // Heapreplace:
+            // replace the item: self.items[update_index]= new_elem; 
+            // swap the new item to the top of the heap: std.mem.swap(heap[0], heap[update_index]);
+            // sift up or down: which has been generically implemented as sift down: siftDown(self, 0)
+            self.items[update_index] = new_elem;
+            std.mem.swap(T, &self.items[0], &self.items[update_index]);
+            siftDown(self, 0);
         }
 
         pub const Iterator = struct {
