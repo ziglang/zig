@@ -1,3 +1,5 @@
+ * skip LLD caching when bin directory is not in the cache (so we don't put `id.txt` into the cwd)
+   (maybe make it an explicit option and have main.zig disable it)
  * `zig build`
  * repair @cImport
  * make sure zig cc works
@@ -12,7 +14,8 @@
  *  -fno-emit-asm                (default) do not output .s (assembly code)\n"
  *  -femit-llvm-ir               produce a .ll file with LLVM IR\n"
  *  -fno-emit-llvm-ir            (default) do not produce a .ll file with LLVM IR\n"
- *  --cache-dir [path]           override the local cache directory\n"
+ *  --cache-dir [path]           override the local cache directory
+ *  --global-cache-dir [path]    override the global cache directory
  * implement proper parsing of LLD stderr/stdout and exposing compile errors
  * implement proper parsing of clang stderr/stdout and exposing compile errors
  * support rpaths in ELF linker code
@@ -27,8 +30,6 @@
  * support cross compiling stage2 with `zig build`
  * --main-pkg-path
  * audit the CLI options for stage2
- * `zig init-lib`
- * `zig init-exe`
  * restore error messages for stage2_add_link_lib
  * audit the base cache hash
  * On operating systems that support it, do an execve for `zig test` and `zig run` rather than child process.
@@ -56,10 +57,6 @@
  * libc_installation.zig: make it look for msvc only if msvc abi is chosen
  * switch the default C ABI for windows to be mingw-w64
  * change glibc log errors to normal exposed compile errors
- * update Package to use Compilation.Directory in create()
-   - skip LLD caching when bin directory is not in the cache (so we don't put `id.txt` into the cwd)
-     (maybe make it an explicit option and have main.zig disable it)
-   - make it possible for Package to not openDir and reference already existing resources.
  * improve Directory.join to only use 1 allocation in a clean way.
  * tracy builds with lc++
  * some kind of "zig identifier escape" function rather than unconditionally using @"" syntax

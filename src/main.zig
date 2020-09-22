@@ -140,6 +140,10 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         return cmdFmt(gpa, cmd_args);
     } else if (mem.eql(u8, cmd, "libc")) {
         return cmdLibC(gpa, cmd_args);
+    } else if (mem.eql(u8, cmd, "init-exe")) {
+        return cmdInit(gpa, arena, cmd_args, .Exe);
+    } else if (mem.eql(u8, cmd, "init-lib")) {
+        return cmdInit(gpa, arena, cmd_args, .Lib);
     } else if (mem.eql(u8, cmd, "targets")) {
         const info = try detectNativeTargetInfo(arena, .{});
         const stdout = io.getStdOut().outStream();
@@ -1517,6 +1521,97 @@ pub fn cmdLibC(gpa: *Allocator, args: []const []const u8) !void {
         var bos = io.bufferedOutStream(io.getStdOut().writer());
         try libc.render(bos.writer());
         try bos.flush();
+    }
+}
+
+pub const usage_init =
+    \\Usage: zig init-exe
+    \\       zig init-lib
+    \\
+    \\   Initializes a `zig build` project in the current working
+    \\   directory.
+    \\
+    \\Options:
+    \\   --help                 Print this help and exit
+    \\
+    \\
+;
+
+pub fn cmdInit(
+    gpa: *Allocator,
+    arena: *Allocator,
+    args: []const []const u8,
+    output_mode: std.builtin.OutputMode,
+) !void {
+    {
+        var i: usize = 0;
+        while (i < args.len) : (i += 1) {
+            const arg = args[i];
+            if (mem.startsWith(u8, arg, "-")) {
+                if (mem.eql(u8, arg, "--help")) {
+                    try io.getStdOut().writeAll(usage_init);
+                    process.exit(0);
+                } else {
+                    fatal("unrecognized parameter: '{}'", .{arg});
+                }
+            } else {
+                fatal("unexpected extra parameter: '{}'", .{arg});
+            }
+        }
+    }
+    const self_exe_path = try fs.selfExePathAlloc(arena);
+    var zig_lib_directory = introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
+        fatal("unable to find zig installation directory: {}\n", .{@errorName(err)});
+    };
+    defer zig_lib_directory.handle.close();
+
+    const s = fs.path.sep_str;
+    const template_sub_path = switch (output_mode) {
+        .Obj => unreachable,
+        .Lib => "std" ++ s ++ "special" ++ s ++ "init-lib",
+        .Exe => "std" ++ s ++ "special" ++ s ++ "init-exe",
+    };
+    var template_dir = try zig_lib_directory.handle.openDir(template_sub_path, .{});
+    defer template_dir.close();
+
+    const cwd_path = try process.getCwdAlloc(arena);
+    const cwd_basename = fs.path.basename(cwd_path);
+
+    const max_bytes = 10 * 1024 * 1024;
+    const build_zig_contents = template_dir.readFileAlloc(arena, "build.zig", max_bytes) catch |err| {
+        fatal("unable to read template file 'build.zig': {}", .{@errorName(err)});
+    };
+    var modified_build_zig_contents = std.ArrayList(u8).init(arena);
+    try modified_build_zig_contents.ensureCapacity(build_zig_contents.len);
+    for (build_zig_contents) |c| {
+        if (c == '$') {
+            try modified_build_zig_contents.appendSlice(cwd_basename);
+        } else {
+            try modified_build_zig_contents.append(c);
+        }
+    }
+    const main_zig_contents = template_dir.readFileAlloc(arena, "src" ++ s ++ "main.zig", max_bytes) catch |err| {
+        fatal("unable to read template file 'main.zig': {}", .{@errorName(err)});
+    };
+    if (fs.cwd().access("build.zig", .{})) |_| {
+        fatal("existing build.zig file would be overwritten", .{});
+    } else |err| switch (err) {
+        error.FileNotFound => {},
+        else => fatal("unable to test existence of build.zig: {}\n", .{@errorName(err)}),
+    }
+    var src_dir = try fs.cwd().makeOpenPath("src", .{});
+    defer src_dir.close();
+
+    try src_dir.writeFile("main.zig", main_zig_contents);
+    try fs.cwd().writeFile("build.zig", modified_build_zig_contents.items);
+
+    std.log.info("Created build.zig", .{});
+    std.log.info("Created src" ++ s ++ "main.zig", .{});
+
+    switch (output_mode) {
+        .Lib => std.log.info("Next, try `zig build --help` or `zig build test`", .{}),
+        .Exe => std.log.info("Next, try `zig build --help` or `zig build run`", .{}),
+        .Obj => unreachable,
     }
 }
 
