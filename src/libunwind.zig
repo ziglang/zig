@@ -8,12 +8,12 @@ const build_options = @import("build_options");
 const trace = @import("tracy.zig").trace;
 
 pub fn buildStaticLib(comp: *Compilation) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
+
+    const tracy = trace(@src());
+    defer tracy.end();
 
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();

@@ -16,6 +16,7 @@ const build_options = @import("build_options");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const glibc = @import("glibc.zig");
 const libunwind = @import("libunwind.zig");
+const libcxx = @import("libcxx.zig");
 const fatal = @import("main.zig").fatal;
 const Module = @import("Module.zig");
 const Cache = @import("Cache.zig");
@@ -69,10 +70,10 @@ rand: *std.rand.Random,
 
 /// Populated when we build the libc++ static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
-libcxx_static_lib: ?[]const u8 = null,
+libcxx_static_lib: ?CRTFile = null,
 /// Populated when we build the libc++abi static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
-libcxxabi_static_lib: ?[]const u8 = null,
+libcxxabi_static_lib: ?CRTFile = null,
 /// Populated when we build the libunwind static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 libunwind_static_lib: ?CRTFile = null,
@@ -140,6 +141,8 @@ const Job = union(enum) {
     glibc_shared_objects,
     /// libunwind.a, usually needed when linking libc
     libunwind: void,
+    libcxx: void,
+    libcxxabi: void,
     /// needed when producing a dynamic library or executable
     libcompiler_rt: void,
     /// needed when not linking libc and using LLVM for code generation because it generates
@@ -770,10 +773,18 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
     if (comp.wantBuildLibUnwindFromSource()) {
         try comp.work_queue.writeItem(.{ .libunwind = {} });
     }
+    if (build_options.have_llvm and comp.bin_file.options.output_mode != .Obj and
+        comp.bin_file.options.link_libcpp)
+    {
+        try comp.work_queue.writeItem(.libcxx);
+        try comp.work_queue.writeItem(.libcxxabi);
+    }
     if (build_options.is_stage1 and comp.bin_file.options.use_llvm) {
         try comp.work_queue.writeItem(.{ .stage1_module = {} });
     }
-    if (is_exe_or_dyn_lib and comp.bin_file.options.use_llvm) {
+    if (is_exe_or_dyn_lib and !comp.bin_file.options.is_compiler_rt_or_libc and
+        build_options.is_stage1)
+    {
         try comp.work_queue.writeItem(.{ .libcompiler_rt = {} });
         if (!comp.bin_file.options.link_libc) {
             try comp.work_queue.writeItem(.{ .zig_libc = {} });
@@ -809,6 +820,12 @@ pub fn destroy(self: *Compilation) void {
     }
 
     if (self.libunwind_static_lib) |*crt_file| {
+        crt_file.deinit(gpa);
+    }
+    if (self.libcxx_static_lib) |*crt_file| {
+        crt_file.deinit(gpa);
+    }
+    if (self.libcxxabi_static_lib) |*crt_file| {
         crt_file.deinit(gpa);
     }
     if (self.compiler_rt_static_lib) |*crt_file| {
@@ -1107,6 +1124,18 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
             libunwind.buildStaticLib(self) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build libunwind: {}", .{@errorName(err)});
+            };
+        },
+        .libcxx => {
+            libcxx.buildLibCXX(self) catch |err| {
+                // TODO Expose this as a normal compile error rather than crashing here.
+                fatal("unable to build libcxx: {}", .{@errorName(err)});
+            };
+        },
+        .libcxxabi => {
+            libcxx.buildLibCXXABI(self) catch |err| {
+                // TODO Expose this as a normal compile error rather than crashing here.
+                fatal("unable to build libcxxabi: {}", .{@errorName(err)});
             };
         },
         .libcompiler_rt => {

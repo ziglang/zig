@@ -1,4 +1,3 @@
- * build & link against libcxx and libcxxabi
  * `zig build`
  * repair @cImport
  * make sure zig cc works
