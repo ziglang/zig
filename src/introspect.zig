@@ -73,10 +73,3 @@ pub fn resolveGlobalCacheDir(allocator: *mem.Allocator) ![]u8 {
 
     return fs.getAppDataDir(allocator, appname);
 }
-
-pub fn openGlobalCacheDir() !fs.Dir {
-    var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buf);
-    const path_name = try resolveGlobalCacheDir(&fba.allocator);
-    return fs.cwd().makeOpenPath(path_name, .{});
-}

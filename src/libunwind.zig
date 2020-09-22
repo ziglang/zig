@@ -86,8 +86,8 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         };
     }
     const sub_compilation = try Compilation.create(comp.gpa, .{
-        // TODO use the global cache directory here
-        .zig_cache_directory = comp.zig_cache_directory,
+        .local_cache_directory = comp.global_cache_directory,
+        .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
         .target = target,
         .root_name = root_name,

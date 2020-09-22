@@ -691,8 +691,8 @@ fn build_crt_file(
         .basename = basename,
     };
     const sub_compilation = try Compilation.create(comp.gpa, .{
-        // TODO use the global cache directory here
-        .zig_cache_directory = comp.zig_cache_directory,
+        .local_cache_directory = comp.global_cache_directory,
+        .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
         .target = comp.getTarget(),
         .root_name = mem.split(basename, ".").next().?,
@@ -769,11 +769,13 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
     const target = comp.getTarget();
     const target_version = target.os.version_range.linux.glibc;
 
-    // TODO use the global cache directory here
+    // Use the global cache directory.
     var cache_parent: Cache = .{
         .gpa = comp.gpa,
-        .manifest_dir = comp.cache_parent.manifest_dir,
+        .manifest_dir = try comp.global_cache_directory.handle.makeOpenPath("h", .{}),
     };
+    defer cache_parent.manifest_dir.close();
+
     var cache = cache_parent.obtain();
     defer cache.deinit();
     cache.hash.addBytes(build_options.version);
@@ -790,8 +792,8 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
     // We use the presence of an "ok" file to determine if it is a true hit.
 
     var o_directory: Compilation.Directory = .{
-        .handle = try comp.zig_cache_directory.handle.makeOpenPath(o_sub_path, .{}),
-        .path = try path.join(arena, &[_][]const u8{ comp.zig_cache_directory.path.?, o_sub_path }),
+        .handle = try comp.global_cache_directory.handle.makeOpenPath(o_sub_path, .{}),
+        .path = try path.join(arena, &[_][]const u8{ comp.global_cache_directory.path.?, o_sub_path }),
     };
     defer o_directory.handle.close();
 
@@ -931,7 +933,7 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
             const asm_file_basename = std.fmt.bufPrint(&lib_name_buf, "{s}.s", .{lib.name}) catch unreachable;
             try o_directory.handle.writeFile(asm_file_basename, zig_body.items);
 
-            try buildSharedLib(comp, arena, comp.zig_cache_directory, o_directory, asm_file_basename, lib);
+            try buildSharedLib(comp, arena, comp.global_cache_directory, o_directory, asm_file_basename, lib);
         }
         // No need to write the manifest because there are no file inputs associated with this cache hash.
         // However we do need to write the ok file now.
@@ -945,7 +947,7 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
     assert(comp.glibc_so_files == null);
     comp.glibc_so_files = BuiltSharedObjects{
         .lock = cache.toOwnedLock(),
-        .dir_path = try path.join(comp.gpa, &[_][]const u8{ comp.zig_cache_directory.path.?, o_sub_path }),
+        .dir_path = try path.join(comp.gpa, &[_][]const u8{ comp.global_cache_directory.path.?, o_sub_path }),
     };
 }
 
@@ -976,7 +978,8 @@ fn buildSharedLib(
         },
     };
     const sub_compilation = try Compilation.create(comp.gpa, .{
-        .zig_cache_directory = zig_cache_directory,
+        .local_cache_directory = zig_cache_directory,
+        .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
         .target = comp.getTarget(),
         .root_name = lib.name,

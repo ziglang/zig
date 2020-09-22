@@ -14,26 +14,23 @@
  *  -fno-emit-asm                (default) do not output .s (assembly code)\n"
  *  -femit-llvm-ir               produce a .ll file with LLVM IR\n"
  *  -fno-emit-llvm-ir            (default) do not produce a .ll file with LLVM IR\n"
- *  --cache-dir [path]           override the local cache directory
- *  --global-cache-dir [path]    override the global cache directory
- * implement proper parsing of LLD stderr/stdout and exposing compile errors
- * implement proper parsing of clang stderr/stdout and exposing compile errors
  * support rpaths in ELF linker code
  * add CLI support for a way to pass extra flags to c source files
  * musl
  * mingw-w64
- * use global zig-cache dir for crt files
- * use global zig-cache dir for `zig run` executables but not `zig test`
  * MachO LLD linking
  * COFF LLD linking
  * WASM LLD linking
- * support cross compiling stage2 with `zig build`
  * --main-pkg-path
  * audit the CLI options for stage2
- * restore error messages for stage2_add_link_lib
  * audit the base cache hash
+ * implement proper parsing of LLD stderr/stdout and exposing compile errors
+ * implement proper parsing of clang stderr/stdout and exposing compile errors
  * On operating systems that support it, do an execve for `zig test` and `zig run` rather than child process.
+ * restore error messages for stage2_add_link_lib
+ * update zig build to use new CLI
 
+ * support cross compiling stage2 with `zig build`
  * implement proper compile errors for failing to build glibc crt files and shared libs
  * implement -fno-emit-bin
  * improve the stage2 tests to support testing with LLVM extensions enabled

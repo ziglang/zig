@@ -193,6 +193,8 @@ const usage_build_generic =
     \\  -femit-bin[=path]         (default) output machine code
     \\  -fno-emit-bin             Do not output machine code
     \\  --show-builtin            Output the source of @import("builtin") then exit
+    \\  --cache-dir [path]        Override the local cache directory
+    \\  --global-cache-dir [path] Override the global cache directory
     \\
     \\Compile Options:
     \\  -target [name]            <arch><sub>-<os>-<abi> see the targets command
@@ -353,6 +355,8 @@ pub fn buildOutputType(
     var runtime_args_start: ?usize = null;
     var test_filter: ?[]const u8 = null;
     var test_name_prefix: ?[]const u8 = null;
+    var override_local_cache_dir: ?[]const u8 = null;
+    var override_global_cache_dir: ?[]const u8 = null;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -535,6 +539,14 @@ pub fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
                         try test_exec_args.append(args[i]);
+                    } else if (mem.eql(u8, arg, "--cache-dir")) {
+                        if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
+                        i += 1;
+                        override_local_cache_dir = args[i];
+                    } else if (mem.eql(u8, arg, "--global-cache-dir")) {
+                        if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
+                        i += 1;
+                        override_global_cache_dir = args[i];
                     } else if (mem.eql(u8, arg, "--test-cmd-bin")) {
                         try test_exec_args.append(null);
                     } else if (mem.eql(u8, arg, "--test-evented-io")) {
@@ -1093,7 +1105,10 @@ pub fn buildOutputType(
     const emit_bin_loc: ?Compilation.EmitLoc = switch (emit_bin) {
         .no => null,
         .yes_default_path => Compilation.EmitLoc{
-            .directory = .{ .path = null, .handle = fs.cwd() },
+            .directory = switch (arg_mode) {
+                .run, .zig_test => null,
+                else => .{ .path = null, .handle = fs.cwd() },
+            },
             .basename = try std.zig.binNameAlloc(
                 arena,
                 root_name,
@@ -1198,26 +1213,53 @@ pub fn buildOutputType(
         };
     }
 
-    const cache_parent_dir = if (root_pkg) |pkg| pkg.root_src_directory.handle else fs.cwd();
-    var cache_dir = try cache_parent_dir.makeOpenPath("zig-cache", .{});
-    defer cache_dir.close();
-    const zig_cache_directory: Compilation.Directory = .{
-        .handle = cache_dir,
-        .path = blk: {
+    var global_cache_directory: Compilation.Directory = l: {
+        const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
+        break :l .{
+            .handle = try fs.cwd().makeOpenPath(p, .{}),
+            .path = p,
+        };
+    };
+    defer global_cache_directory.handle.close();
+
+    var cleanup_local_cache_dir: ?fs.Dir = null;
+    defer if (cleanup_local_cache_dir) |*dir| dir.close();
+
+    var local_cache_directory: Compilation.Directory = l: {
+        if (override_local_cache_dir) |local_cache_dir_path| {
+            const dir = try fs.cwd().makeOpenPath(local_cache_dir_path, .{});
+            cleanup_local_cache_dir = dir;
+            break :l .{
+                .handle = dir,
+                .path = local_cache_dir_path,
+            };
+        }
+        if (arg_mode == .run) {
+            break :l global_cache_directory;
+        }
+        const cache_dir_path = blk: {
             if (root_pkg) |pkg| {
                 if (pkg.root_src_directory.path) |p| {
                     break :blk try fs.path.join(arena, &[_][]const u8{ p, "zig-cache" });
                 }
             }
             break :blk "zig-cache";
-        },
+        };
+        const cache_parent_dir = if (root_pkg) |pkg| pkg.root_src_directory.handle else fs.cwd();
+        const dir = try cache_parent_dir.makeOpenPath("zig-cache", .{});
+        cleanup_local_cache_dir = dir;
+        break :l .{
+            .handle = dir,
+            .path = cache_dir_path,
+        };
     };
 
     gimmeMoreOfThoseSweetSweetFileDescriptors();
 
     const comp = Compilation.create(gpa, .{
         .zig_lib_directory = zig_lib_directory,
-        .zig_cache_directory = zig_cache_directory,
+        .local_cache_directory = local_cache_directory,
+        .global_cache_directory = global_cache_directory,
         .root_name = root_name,
         .target = target_info.target,
         .is_native_os = cross_target.isNativeOs(),

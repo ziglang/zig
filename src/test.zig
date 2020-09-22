@@ -480,7 +480,8 @@ pub const TestContext = struct {
             .basename = bin_name,
         };
         const comp = try Compilation.create(allocator, .{
-            .zig_cache_directory = zig_cache_directory,
+            .local_cache_directory = zig_cache_directory,
+            .global_cache_directory = zig_cache_directory,
             .zig_lib_directory = zig_lib_directory,
             .rand = rand,
             .root_name = "test_case",

@@ -64,7 +64,8 @@ cache_parent: *Cache,
 /// Path to own executable for invoking `zig clang`.
 self_exe_path: ?[]const u8,
 zig_lib_directory: Directory,
-zig_cache_directory: Directory,
+local_cache_directory: Directory,
+global_cache_directory: Directory,
 libc_include_dir_list: []const []const u8,
 rand: *std.rand.Random,
 
@@ -267,7 +268,8 @@ pub const EmitLoc = struct {
 
 pub const InitOptions = struct {
     zig_lib_directory: Directory,
-    zig_cache_directory: Directory,
+    local_cache_directory: Directory,
+    global_cache_directory: Directory,
     target: Target,
     root_name: []const u8,
     root_pkg: ?*Package,
@@ -523,7 +525,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         const cache = try arena.create(Cache);
         cache.* = .{
             .gpa = gpa,
-            .manifest_dir = try options.zig_cache_directory.handle.makeOpenPath("h", .{}),
+            .manifest_dir = try options.local_cache_directory.handle.makeOpenPath("h", .{}),
         };
         errdefer cache.manifest_dir.close();
 
@@ -569,11 +571,11 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
             const digest = hash.final();
             const artifact_sub_dir = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
-            var artifact_dir = try options.zig_cache_directory.handle.makeOpenPath(artifact_sub_dir, .{});
+            var artifact_dir = try options.local_cache_directory.handle.makeOpenPath(artifact_sub_dir, .{});
             errdefer artifact_dir.close();
             const zig_cache_artifact_directory: Directory = .{
                 .handle = artifact_dir,
-                .path = if (options.zig_cache_directory.path) |p|
+                .path = if (options.local_cache_directory.path) |p|
                     try std.fs.path.join(arena, &[_][]const u8{ p, artifact_sub_dir })
                 else
                     artifact_sub_dir,
@@ -647,11 +649,11 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
             const digest = hash.final();
             const artifact_sub_dir = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
-            var artifact_dir = try options.zig_cache_directory.handle.makeOpenPath(artifact_sub_dir, .{});
+            var artifact_dir = try options.local_cache_directory.handle.makeOpenPath(artifact_sub_dir, .{});
             owned_link_dir = artifact_dir;
             const link_artifact_directory: Directory = .{
                 .handle = artifact_dir,
-                .path = try options.zig_cache_directory.join(arena, &[_][]const u8{artifact_sub_dir}),
+                .path = try options.local_cache_directory.join(arena, &[_][]const u8{artifact_sub_dir}),
             };
             break :blk link_artifact_directory;
         };
@@ -715,7 +717,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .gpa = gpa,
             .arena_state = arena_allocator.state,
             .zig_lib_directory = options.zig_lib_directory,
-            .zig_cache_directory = options.zig_cache_directory,
+            .local_cache_directory = options.local_cache_directory,
+            .global_cache_directory = options.global_cache_directory,
             .bin_file = bin_file,
             .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .keep_source_files_loaded = options.keep_source_files_loaded,
@@ -1230,7 +1233,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
 
         // We can't know the digest until we do the C compiler invocation, so we need a temporary filename.
         const out_obj_path = try comp.tmpFilePath(arena, o_basename);
-        var zig_cache_tmp_dir = try comp.zig_cache_directory.handle.makeOpenPath("tmp", .{});
+        var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
 
         try argv.appendSlice(&[_][]const u8{ self_exe_path, "clang", "-c" });
@@ -1319,7 +1322,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         // Rename into place.
         const digest = ch.final();
         const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
-        var o_dir = try comp.zig_cache_directory.handle.makeOpenPath(o_sub_path, .{});
+        var o_dir = try comp.local_cache_directory.handle.makeOpenPath(o_sub_path, .{});
         defer o_dir.close();
         // TODO https://github.com/ziglang/zig/issues/6344
         const tmp_basename = std.fs.path.basename(out_obj_path);
@@ -1331,7 +1334,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         break :blk digest;
     };
 
-    const components = if (comp.zig_cache_directory.path) |p|
+    const components = if (comp.local_cache_directory.path) |p|
         &[_][]const u8{ p, "o", &digest, o_basename }
     else
         &[_][]const u8{ "o", &digest, o_basename };
@@ -1347,7 +1350,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
 fn tmpFilePath(comp: *Compilation, arena: *Allocator, suffix: []const u8) error{OutOfMemory}![]const u8 {
     const s = std.fs.path.sep_str;
     const rand_int = comp.rand.int(u64);
-    if (comp.zig_cache_directory.path) |p| {
+    if (comp.local_cache_directory.path) |p| {
         return std.fmt.allocPrint(arena, "{}" ++ s ++ "tmp" ++ s ++ "{x}-{s}", .{ p, rand_int, suffix });
     } else {
         return std.fmt.allocPrint(arena, "tmp" ++ s ++ "{x}-{s}", .{ rand_int, suffix });
@@ -2116,8 +2119,8 @@ fn buildStaticLibFromZig(comp: *Compilation, basename: []const u8, out: *?CRTFil
         }
     };
     const sub_compilation = try Compilation.create(comp.gpa, .{
-        // TODO use the global cache directory here
-        .zig_cache_directory = comp.zig_cache_directory,
+        .global_cache_directory = comp.global_cache_directory,
+        .local_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
         .target = comp.getTarget(),
         .root_name = mem.split(basename, ".").next().?,
