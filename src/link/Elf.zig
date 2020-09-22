@@ -1272,6 +1272,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     ch.hash.add(self.base.options.rdynamic);
     ch.hash.addListOfBytes(self.base.options.extra_lld_args);
     ch.hash.addListOfBytes(self.base.options.lib_dirs);
+    ch.hash.add(self.base.options.is_compiler_rt_or_libc);
     ch.hash.add(self.base.options.z_nodelete);
     ch.hash.add(self.base.options.z_defs);
     if (self.base.options.link_libc) {
@@ -1491,7 +1492,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     }
 
     // compiler-rt and libc
-    if (is_exe_or_dyn_lib) {
+    if (is_exe_or_dyn_lib and !self.base.options.is_compiler_rt_or_libc) {
         if (!self.base.options.link_libc) {
             try argv.append(comp.libc_static_lib.?.full_object_path);
         }

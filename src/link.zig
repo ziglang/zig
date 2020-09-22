@@ -64,6 +64,7 @@ pub const Options = struct {
     verbose_link: bool = false,
     dll_export_fns: bool,
     error_return_tracing: bool,
+    is_compiler_rt_or_libc: bool,
     gc_sections: ?bool = null,
     allow_shlib_undefined: ?bool = null,
     linker_script: ?[]const u8 = null,

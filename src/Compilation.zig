@@ -324,6 +324,8 @@ pub const InitOptions = struct {
     verbose_cimport: bool = false,
     verbose_llvm_cpu_features: bool = false,
     is_test: bool = false,
+    test_evented_io: bool = false,
+    is_compiler_rt_or_libc: bool = false,
     stack_size_override: ?u64 = null,
     self_exe_path: ?[]const u8 = null,
     version: ?std.builtin.Version = null,
@@ -333,7 +335,6 @@ pub const InitOptions = struct {
     color: @import("main.zig").Color = .Auto,
     test_filter: ?[]const u8 = null,
     test_name_prefix: ?[]const u8 = null,
-    test_evented_io: bool = false,
 };
 
 pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
@@ -704,9 +705,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .dll_export_fns = dll_export_fns,
             .error_return_tracing = error_return_tracing,
             .llvm_cpu_features = llvm_cpu_features,
+            .is_compiler_rt_or_libc = options.is_compiler_rt_or_libc,
         });
         errdefer bin_file.destroy();
-
         comp.* = .{
             .gpa = gpa,
             .arena_state = arena_allocator.state,
@@ -2116,6 +2117,7 @@ fn buildStaticLibFromZig(comp: *Compilation, basename: []const u8, out: *?CRTFil
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
+        .is_compiler_rt_or_libc = true,
     });
     defer sub_compilation.destroy();
 

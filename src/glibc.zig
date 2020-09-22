@@ -720,6 +720,7 @@ fn build_crt_file(
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
+        .is_compiler_rt_or_libc = true,
     });
     defer sub_compilation.destroy();
 
@@ -1006,6 +1007,7 @@ fn buildSharedLib(
         .version_script = map_file_path,
         .override_soname = override_soname,
         .c_source_files = &c_source_files,
+        .is_compiler_rt_or_libc = true,
     });
     defer sub_compilation.destroy();
 
