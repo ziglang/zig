@@ -489,7 +489,7 @@ pub const HeapAllocator = switch (builtin.os.tag) {
                 const full_len = os.windows.kernel32.HeapSize(heap_handle, 0, ptr);
                 assert(full_len != std.math.maxInt(usize));
                 assert(full_len >= amt);
-                break :init mem.alignBackwardAnyAlign(full_len - (aligned_addr - root_addr), len_align);
+                break :init mem.alignBackwardAnyAlign(full_len - (aligned_addr - root_addr) - @sizeOf(usize), len_align);
             };
             const buf = @intToPtr([*]u8, aligned_addr)[0..return_len];
             getRecordPtr(buf).* = root_addr;

@@ -218,8 +218,9 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
         }
 
         /// Return an authentication tag for the current state
+        /// Assumes `out` is less than or equal to `mac_length`.
         pub fn final(self: *Self, out: []u8) void {
-            std.debug.assert(out.len >= mac_length);
+            std.debug.assert(out.len <= mac_length);
             mem.writeIntLittle(T, out[0..mac_length], self.state.final(self.buf[0..self.buf_len]));
         }
 

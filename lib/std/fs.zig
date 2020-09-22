@@ -21,10 +21,6 @@ pub const wasi = @import("fs/wasi.zig");
 
 // TODO audit these APIs with respect to Dir and absolute paths
 
-pub const rename = os.rename;
-pub const renameZ = os.renameZ;
-pub const renameC = @compileError("deprecated: renamed to renameZ");
-pub const renameW = os.renameW;
 pub const realpath = os.realpath;
 pub const realpathZ = os.realpathZ;
 pub const realpathC = @compileError("deprecated: renamed to realpathZ");
@@ -90,7 +86,7 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
         base64_encoder.encode(tmp_path[dirname.len + 1 ..], &rand_buf);
 
         if (cwd().symLink(existing_path, tmp_path, .{})) {
-            return rename(tmp_path, new_path);
+            return cwd().rename(tmp_path, new_path);
         } else |err| switch (err) {
             error.PathAlreadyExists => continue,
             else => return err, // TODO zig should know this set does not include PathAlreadyExists
@@ -253,6 +249,45 @@ pub fn deleteDirAbsoluteZ(dir_path: [*:0]const u8) !void {
 pub fn deleteDirAbsoluteW(dir_path: [*:0]const u16) !void {
     assert(path.isAbsoluteWindowsW(dir_path));
     return os.rmdirW(dir_path);
+}
+
+pub const renameC = @compileError("deprecated: use renameZ, dir.renameZ, or renameAbsoluteZ");
+
+/// Same as `Dir.rename` except the paths are absolute.
+pub fn renameAbsolute(old_path: []const u8, new_path: []const u8) !void {
+    assert(path.isAbsolute(old_path));
+    assert(path.isAbsolute(new_path));
+    return os.rename(old_path, new_path);
+}
+
+/// Same as `renameAbsolute` except the path parameters are null-terminated.
+pub fn renameAbsoluteZ(old_path: [*:0]const u8, new_path: [*:0]const u8) !void {
+    assert(path.isAbsoluteZ(old_path));
+    assert(path.isAbsoluteZ(new_path));
+    return os.renameZ(old_path, new_path);
+}
+
+/// Same as `renameAbsolute` except the path parameters are WTF-16 and target OS is assumed Windows.
+pub fn renameAbsoluteW(old_path: [*:0]const u16, new_path: [*:0]const u16) !void {
+    assert(path.isAbsoluteWindowsW(old_path));
+    assert(path.isAbsoluteWindowsW(new_path));
+    return os.renameW(old_path, new_path);
+}
+
+/// Same as `Dir.rename`, except `new_sub_path` is relative to `new_dir`
+pub fn rename(old_dir: Dir, old_sub_path: []const u8, new_dir: Dir, new_sub_path: []const u8) !void {
+    return os.renameat(old_dir.fd, old_sub_path, new_dir.fd, new_sub_path);
+}
+
+/// Same as `rename` except the parameters are null-terminated.
+pub fn renameZ(old_dir: Dir, old_sub_path_z: [*:0]const u8, new_dir: Dir, new_sub_path_z: [*:0]const u8) !void {
+    return os.renameatZ(old_dir.fd, old_sub_path_z, new_dir.fd, new_sub_path_z);
+}
+
+/// Same as `rename` except the parameters are UTF16LE, NT prefixed.
+/// This function is Windows-only.
+pub fn renameW(old_dir: Dir, old_sub_path_w: []const u16, new_dir: Dir, new_sub_path_w: []const u16) !void {
+    return os.renameatW(old_dir.fd, old_sub_path_w, new_dir.fd, new_sub_path_w);
 }
 
 pub const Dir = struct {
@@ -1336,6 +1371,27 @@ pub const Dir = struct {
             error.IsDir => unreachable, // not possible since we pass AT_REMOVEDIR
             else => |e| return e,
         };
+    }
+
+    pub const RenameError = os.RenameError;
+
+    /// Change the name or location of a file or directory.
+    /// If new_sub_path already exists, it will be replaced.
+    /// Renaming a file over an existing directory or a directory
+    /// over an existing file will fail with `error.IsDir` or `error.NotDir`
+    pub fn rename(self: Dir, old_sub_path: []const u8, new_sub_path: []const u8) RenameError!void {
+        return os.renameat(self.fd, old_sub_path, self.fd, new_sub_path);
+    }
+
+    /// Same as `rename` except the parameters are null-terminated.
+    pub fn renameZ(self: Dir, old_sub_path_z: [*:0]const u8, new_sub_path_z: [*:0]const u8) RenameError!void {
+        return os.renameatZ(self.fd, old_sub_path_z, self.fd, new_sub_path_z);
+    }
+
+    /// Same as `rename` except the parameters are UTF16LE, NT prefixed.
+    /// This function is Windows-only.
+    pub fn renameW(self: Dir, old_sub_path_w: []const u16, new_sub_path_w: []const u16) RenameError!void {
+        return os.renameatW(self.fd, old_sub_path_w, self.fd, new_sub_path_w);
     }
 
     /// Creates a symbolic link named `sym_link_path` which contains the string `target_path`.

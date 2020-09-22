@@ -1188,6 +1188,7 @@ pub const LibExeObjStep = struct {
     emit_llvm_ir: bool = false,
     emit_asm: bool = false,
     emit_bin: bool = true,
+    emit_docs: bool = false,
     emit_h: bool = false,
     bundle_compiler_rt: bool,
     disable_stack_probing: bool,
@@ -2033,6 +2034,7 @@ pub const LibExeObjStep = struct {
         if (self.emit_llvm_ir) try zig_args.append("-femit-llvm-ir");
         if (self.emit_asm) try zig_args.append("-femit-asm");
         if (!self.emit_bin) try zig_args.append("-fno-emit-bin");
+        if (self.emit_docs) try zig_args.append("-femit-docs");
         if (self.emit_h) try zig_args.append("-femit-h");
 
         if (self.strip) {

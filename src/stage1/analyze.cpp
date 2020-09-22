@@ -3161,22 +3161,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
         tag_type->data.enumeration.fields_by_name.init(field_count);
         tag_type->data.enumeration.decls_scope = union_type->data.unionation.decls_scope;
     } else if (enum_type_node != nullptr) {
-        ZigType *enum_type = analyze_type_expr(g, scope, enum_type_node);
-        if (type_is_invalid(enum_type)) {
-            union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-            return ErrorSemanticAnalyzeFail;
-        }
-        if (enum_type->id != ZigTypeIdEnum) {
-            union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-            add_node_error(g, enum_type_node,
-                buf_sprintf("expected enum tag type, found '%s'", buf_ptr(&enum_type->name)));
-            return ErrorSemanticAnalyzeFail;
-        }
-        if ((err = type_resolve(g, enum_type, ResolveStatusAlignmentKnown))) {
-            assert(g->errors.length != 0);
-            return err;
-        }
-        tag_type = enum_type;
+        tag_type = analyze_type_expr(g, scope, enum_type_node);
     } else {
         if (decl_node->type == NodeTypeContainerDecl) {
             tag_type = nullptr;
@@ -3185,6 +3170,20 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
         }
     }
     if (tag_type != nullptr) {
+        if (type_is_invalid(tag_type)) {
+            union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+            return ErrorSemanticAnalyzeFail;
+        }
+        if (tag_type->id != ZigTypeIdEnum) {
+            union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+            add_node_error(g, enum_type_node != nullptr ? enum_type_node : decl_node,
+                buf_sprintf("expected enum tag type, found '%s'", buf_ptr(&tag_type->name)));
+            return ErrorSemanticAnalyzeFail;
+        }
+        if ((err = type_resolve(g, tag_type, ResolveStatusAlignmentKnown))) {
+            assert(g->errors.length != 0);
+            return err;
+        }
         covered_enum_fields = heap::c_allocator.allocate<bool>(tag_type->data.enumeration.src_field_count);
     }
     union_type->data.unionation.tag_type = tag_type;
