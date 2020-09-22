@@ -49,7 +49,12 @@ pub fn PriorityQueue(comptime T: type) type {
 
         fn addUnchecked(self: *Self, elem: T) void {
             self.items[self.len] = elem;
-            var child_index = self.len;
+            siftUp(self, self.len);
+            self.len += 1;
+        }
+
+        fn siftUp(self: *Self, start_index: usize) void {
+            var child_index = start_index;
             while (child_index > 0) {
                 var parent_index = ((child_index - 1) >> 1);
                 const child = self.items[child_index];
@@ -61,7 +66,6 @@ pub fn PriorityQueue(comptime T: type) type {
                 self.items[child_index] = parent;
                 child_index = parent_index;
             }
-            self.len += 1;
         }
 
         /// Add each element in `items` to the queue.
@@ -190,27 +194,16 @@ pub fn PriorityQueue(comptime T: type) type {
             self.len = new_len;
         }
 
-        fn linearSearch(elem: T, items: []const T) usize {
-            var found: usize = 0;
-            for (items) |item, i| {
-                if (item == elem) {
-                    found = i;
-                    break;
-                }
-            }
-            return found;
-        }
-
         pub fn update(self: *Self, elem: T, new_elem: T) !void {
-            var update_index: usize = linearSearch(elem, self.items);
+            var update_index: usize = std.mem.indexOfScalar(T, self.items, elem) catch |error| return error.ElementNotFound;
             assert (update_index >= 0 and update_index < self.items.len);
-            // Heapreplace:
-            // replace the item: self.items[update_index]= new_elem; 
-            // swap the new item to the top of the heap: std.mem.swap(heap[0], heap[update_index]);
-            // sift up or down: which has been generically implemented as sift down: siftDown(self, 0)
+            const old_elem: T = self.items[update_index];
             self.items[update_index] = new_elem;
-            std.mem.swap(T, &self.items[0], &self.items[update_index]);
-            siftDown(self, 0);
+            if (self.compareFn(new_elem, old_elem)) {
+                siftUp(self, update_index);
+            } else {
+                siftDown(self, update_index);
+            }
         }
 
         pub const Iterator = struct {
