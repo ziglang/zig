@@ -1,6 +1,9 @@
  * build & link against libcxx and libcxxabi
- * `zig test`
  * `zig build`
+ * repair @cImport
+ * make sure zig cc works
+   - using it as a preprocessor (-E)
+   - try building some software
  * `-ftime-report`
  *  -fstack-report               print stack size diagnostics\n"
  *  -fdump-analysis              write analysis.json file with type information\n"
@@ -11,17 +14,14 @@
  *  -femit-llvm-ir               produce a .ll file with LLVM IR\n"
  *  -fno-emit-llvm-ir            (default) do not produce a .ll file with LLVM IR\n"
  *  --cache-dir [path]           override the local cache directory\n"
- * make sure zig cc works
-   - using it as a preprocessor (-E)
-   - try building some software
  * implement proper parsing of LLD stderr/stdout and exposing compile errors
  * implement proper parsing of clang stderr/stdout and exposing compile errors
  * support rpaths in ELF linker code
- * repair @cImport
  * add CLI support for a way to pass extra flags to c source files
  * musl
  * mingw-w64
  * use global zig-cache dir for crt files
+ * use global zig-cache dir for `zig run` executables but not `zig test`
  * MachO LLD linking
  * COFF LLD linking
  * WASM LLD linking
@@ -30,9 +30,9 @@
  * audit the CLI options for stage2
  * `zig init-lib`
  * `zig init-exe`
- * `zig run`
  * restore error messages for stage2_add_link_lib
  * audit the base cache hash
+ * On operating systems that support it, do an execve for `zig test` and `zig run` rather than child process.
 
  * implement proper compile errors for failing to build glibc crt files and shared libs
  * implement -fno-emit-bin
@@ -66,3 +66,4 @@
  * some kind of "zig identifier escape" function rather than unconditionally using @"" syntax
    in builtin.zig
  * rename std.builtin.Mode to std.builtin.OptimizeMode
+ * implement `zig run` and `zig test` when combined with `--watch`

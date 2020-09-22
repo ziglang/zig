@@ -97,6 +97,10 @@ owned_link_dir: ?std.fs.Dir,
 /// Don't use this for anything other than stage1 compatibility.
 color: @import("main.zig").Color = .Auto,
 
+test_filter: ?[]const u8,
+test_name_prefix: ?[]const u8,
+test_evented_io: bool,
+
 pub const InnerError = Module.InnerError;
 
 pub const CRTFile = struct {
@@ -327,6 +331,9 @@ pub const InitOptions = struct {
     machine_code_model: std.builtin.CodeModel = .default,
     /// This is for stage1 and should be deleted upon completion of self-hosting.
     color: @import("main.zig").Color = .Auto,
+    test_filter: ?[]const u8 = null,
+    test_name_prefix: ?[]const u8 = null,
+    test_evented_io: bool = false,
 };
 
 pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
@@ -554,6 +561,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             hash.add(single_threaded);
             hash.add(options.target.os.getVersionRange());
             hash.add(dll_export_fns);
+            hash.add(options.is_test);
 
             const digest = hash.final();
             const artifact_sub_dir = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
@@ -728,6 +736,9 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .is_test = options.is_test,
             .color = options.color,
             .time_report = options.time_report,
+            .test_filter = options.test_filter,
+            .test_name_prefix = options.test_name_prefix,
+            .test_evented_io = options.test_evented_io,
         };
         break :comp comp;
     };
@@ -1996,6 +2007,25 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         comp.bin_file.options.strip,
         @tagName(comp.bin_file.options.machine_code_model),
     });
+
+    if (comp.is_test) {
+        try buffer.appendSlice(
+            \\pub var test_functions: []TestFn = undefined; // overwritten later
+            \\
+        );
+        if (comp.test_evented_io) {
+            try buffer.appendSlice(
+                \\pub const test_io_mode = .evented;
+                \\
+            );
+        } else {
+            try buffer.appendSlice(
+                \\pub const test_io_mode = .blocking;
+                \\
+            );
+        }
+    }
+
     return buffer.toOwnedSlice();
 }
 
@@ -2129,6 +2159,7 @@ fn updateStage1Module(comp: *Compilation) !void {
     ch.hash.add(target.os.getVersionRange());
     ch.hash.add(comp.bin_file.options.dll_export_fns);
     ch.hash.add(comp.bin_file.options.function_sections);
+    ch.hash.add(comp.is_test);
 
     if (try ch.hit()) {
         const digest = ch.final();
@@ -2155,7 +2186,7 @@ fn updateStage1Module(comp: *Compilation) !void {
         .llvm_cpu_features = comp.bin_file.options.llvm_cpu_features.?,
     };
     var progress: std.Progress = .{};
-    var main_progress_node = try progress.start("", 100);
+    var main_progress_node = try progress.start("", null);
     defer main_progress_node.end();
     if (comp.color == .Off) progress.terminal = null;
 
@@ -2184,6 +2215,8 @@ fn updateStage1Module(comp: *Compilation) !void {
         .parent = null,
     };
     const output_dir = comp.bin_file.options.directory.path orelse ".";
+    const test_filter = comp.test_filter orelse ""[0..0];
+    const test_name_prefix = comp.test_name_prefix orelse ""[0..0];
     stage1_module.* = .{
         .root_name_ptr = comp.bin_file.options.root_name.ptr,
         .root_name_len = comp.bin_file.options.root_name.len,
@@ -2191,10 +2224,10 @@ fn updateStage1Module(comp: *Compilation) !void {
         .output_dir_len = output_dir.len,
         .builtin_zig_path_ptr = builtin_zig_path.ptr,
         .builtin_zig_path_len = builtin_zig_path.len,
-        .test_filter_ptr = "",
-        .test_filter_len = 0,
-        .test_name_prefix_ptr = "",
-        .test_name_prefix_len = 0,
+        .test_filter_ptr = test_filter.ptr,
+        .test_filter_len = test_filter.len,
+        .test_name_prefix_ptr = test_name_prefix.ptr,
+        .test_name_prefix_len = test_name_prefix.len,
         .userdata = @ptrToInt(comp),
         .root_pkg = stage1_pkg,
         .code_model = @enumToInt(comp.bin_file.options.machine_code_model),
@@ -2217,7 +2250,7 @@ fn updateStage1Module(comp: *Compilation) !void {
         .emit_bin = true,
         .emit_asm = false,
         .emit_llvm_ir = false,
-        .test_is_evented = false,
+        .test_is_evented = comp.test_evented_io,
         .verbose_tokenize = comp.verbose_tokenize,
         .verbose_ast = comp.verbose_ast,
         .verbose_ir = comp.verbose_ir,
