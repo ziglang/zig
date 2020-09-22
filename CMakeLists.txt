@@ -257,34 +257,34 @@ find_package(Threads)
 
 # This is our shim which will be replaced by stage1.zig.
 set(ZIG0_SOURCES
-    "${CMAKE_SOURCE_DIR}/src/zig0.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/zig0.cpp"
 )
 
 set(ZIG_SOURCES
-    "${CMAKE_SOURCE_DIR}/src/analyze.cpp"
-    "${CMAKE_SOURCE_DIR}/src/ast_render.cpp"
-    "${CMAKE_SOURCE_DIR}/src/bigfloat.cpp"
-    "${CMAKE_SOURCE_DIR}/src/bigint.cpp"
-    "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
-    "${CMAKE_SOURCE_DIR}/src/codegen.cpp"
-    "${CMAKE_SOURCE_DIR}/src/dump_analysis.cpp"
-    "${CMAKE_SOURCE_DIR}/src/errmsg.cpp"
-    "${CMAKE_SOURCE_DIR}/src/error.cpp"
-    "${CMAKE_SOURCE_DIR}/src/heap.cpp"
-    "${CMAKE_SOURCE_DIR}/src/ir.cpp"
-    "${CMAKE_SOURCE_DIR}/src/ir_print.cpp"
-    "${CMAKE_SOURCE_DIR}/src/mem.cpp"
-    "${CMAKE_SOURCE_DIR}/src/os.cpp"
-    "${CMAKE_SOURCE_DIR}/src/parser.cpp"
-    "${CMAKE_SOURCE_DIR}/src/range_set.cpp"
-    "${CMAKE_SOURCE_DIR}/src/stage1.cpp"
-    "${CMAKE_SOURCE_DIR}/src/target.cpp"
-    "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
-    "${CMAKE_SOURCE_DIR}/src/util.cpp"
-    "${CMAKE_SOURCE_DIR}/src/softfloat_ext.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/analyze.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/ast_render.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/bigfloat.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/bigint.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/buffer.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/codegen.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/dump_analysis.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/errmsg.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/error.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/heap.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/ir.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/ir_print.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/mem.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/os.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/parser.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/range_set.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/stage1.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/target.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/tokenizer.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/util.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/softfloat_ext.cpp"
 )
 set(OPTIMIZED_C_SOURCES
-    "${CMAKE_SOURCE_DIR}/src/parse_f128.c"
+    "${CMAKE_SOURCE_DIR}/src/stage1/parse_f128.c"
 )
 set(ZIG_CPP_SOURCES
     # These are planned to stay even when we are self-hosted.
@@ -314,7 +314,7 @@ set(ZIG_STD_DEST "${ZIG_LIB_DIR}/std")
 set(ZIG_CONFIG_H_OUT "${CMAKE_BINARY_DIR}/config.h")
 set(ZIG_CONFIG_ZIG_OUT "${CMAKE_BINARY_DIR}/config.zig")
 configure_file (
-    "${CMAKE_SOURCE_DIR}/src/config.h.in"
+    "${CMAKE_SOURCE_DIR}/src/stage1/config.h.in"
     "${ZIG_CONFIG_H_OUT}"
 )
 configure_file (
@@ -326,6 +326,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_BINARY_DIR}
     "${CMAKE_SOURCE_DIR}/src"
+    "${CMAKE_SOURCE_DIR}/src/stage1"
 )
 
 # These have to go before the -Wno- flags
@@ -444,7 +445,7 @@ else()
 endif()
 
 set(BUILD_ZIG1_ARGS
-    "src-self-hosted/stage1.zig"
+    "src/stage1.zig"
     -target "${ZIG_TARGET_TRIPLE}"
     "-mcpu=${ZIG_TARGET_MCPU}"
     --name zig1
@@ -480,7 +481,7 @@ else()
 endif()
 
 # cmake won't let us configure an executable without C sources.
-add_executable(zig "${CMAKE_SOURCE_DIR}/src/empty.cpp")
+add_executable(zig "${CMAKE_SOURCE_DIR}/src/stage1/empty.cpp")
 
 set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}

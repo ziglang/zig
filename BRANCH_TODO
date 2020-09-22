@@ -37,8 +37,6 @@
  * implement proper compile errors for failing to build glibc crt files and shared libs
  * implement -fno-emit-bin
  * improve the stage2 tests to support testing with LLVM extensions enabled
- * rename src/ to src/stage1/
- * rename src-self-hosted/ to src/
  * implement emit-h in stage2
  * multi-thread building C objects
  * implement serialization/deserialization of incremental compilation metadata

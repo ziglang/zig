@@ -38,7 +38,7 @@ pub fn build(b: *Builder) !void {
 
     const test_step = b.step("test", "Run all the tests");
 
-    var test_stage2 = b.addTest("src-self-hosted/test.zig");
+    var test_stage2 = b.addTest("src/test.zig");
     test_stage2.setBuildMode(mode);
     test_stage2.addPackagePath("stage2_tests", "test/stage2/test.zig");
 
@@ -76,7 +76,7 @@ pub fn build(b: *Builder) !void {
     const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse enable_llvm;
 
-    var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
+    var exe = b.addExecutable("zig", "src/main.zig");
     exe.install();
     exe.setBuildMode(mode);
     exe.setTarget(target);
