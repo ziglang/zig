@@ -190,26 +190,12 @@ pub fn PriorityQueue(comptime T: type) type {
             self.len = new_len;
         }
 
-        fn binarySearch(items: []const T, target: T) usize {
-            var left: usize = 0;
-            var right: usize = items.len-1;
-
-            while(left <= right) {
-                const mid = left + (right - left) / 2;
-                if (items[mid] == target) {
-                    return mid;
-                } else if (items[mid] < target) {
-                    left= mid+1;
-                } else { 
-                    right= mid-1;
-                }
-            }
-
-            return 0;
+        fn orderFn(lhs: T, rhs: T) std.math.Order {
+            return std.math.order(lhs, rhs);
         }
 
         pub fn update(self: *Self, elem: T, new_elem: T) !void {
-            var update_index: usize = binarySearch(self.items, elem);
+            var update_index: usize = std.sort.binarySearch(T, elem, self.items, orderFn) orelse 0;
             assert (update_index >= 0 and update_index < self.items.len);
             _ = self.removeIndex(update_index);
             try self.add(new_elem);
