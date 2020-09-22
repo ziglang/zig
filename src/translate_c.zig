@@ -1972,16 +1972,7 @@ fn transStringLiteral(
             const bytes_ptr = stmt.getString_bytes_begin_size(&len);
             const str = bytes_ptr[0..len];
 
-            var char_buf: [4]u8 = undefined;
-            len = 0;
-            for (str) |c| len += escapeChar(c, &char_buf).len;
-
-            const buf = try rp.c.arena.alloc(u8, len + "\"\"".len);
-            buf[0] = '"';
-            writeEscapedString(buf[1..], str);
-            buf[buf.len - 1] = '"';
-
-            const token = try appendToken(rp.c, .StringLiteral, buf);
+            const token = try appendTokenFmt(rp.c, .StringLiteral, "\"{Z}\"", .{str});
             const node = try rp.c.arena.create(ast.Node.OneToken);
             node.* = .{
                 .base = .{ .tag = .StringLiteral },
@@ -1997,41 +1988,6 @@ fn transStringLiteral(
             .{kind},
         ),
     }
-}
-
-fn escapedStringLen(s: []const u8) usize {
-    var len: usize = 0;
-    var char_buf: [4]u8 = undefined;
-    for (s) |c| len += escapeChar(c, &char_buf).len;
-    return len;
-}
-
-fn writeEscapedString(buf: []u8, s: []const u8) void {
-    var char_buf: [4]u8 = undefined;
-    var i: usize = 0;
-    for (s) |c| {
-        const escaped = escapeChar(c, &char_buf);
-        mem.copy(u8, buf[i..], escaped);
-        i += escaped.len;
-    }
-}
-
-// Returns either a string literal or a slice of `buf`.
-fn escapeChar(c: u8, char_buf: *[4]u8) []const u8 {
-    return switch (c) {
-        '\"' => "\\\"",
-        '\'' => "\\'",
-        '\\' => "\\\\",
-        '\n' => "\\n",
-        '\r' => "\\r",
-        '\t' => "\\t",
-        // Handle the remaining escapes Zig doesn't support by turning them
-        // into their respective hex representation
-        else => if (std.ascii.isCntrl(c))
-            std.fmt.bufPrint(char_buf, "\\x{x:0>2}", .{c}) catch unreachable
-        else
-            std.fmt.bufPrint(char_buf, "{c}", .{c}) catch unreachable,
-    };
 }
 
 fn transCCast(
@@ -2922,8 +2878,7 @@ fn transCharLiteral(
                 if (val > 255)
                     break :blk try transCreateNodeInt(rp.c, val);
             }
-            var char_buf: [4]u8 = undefined;
-            const token = try appendTokenFmt(rp.c, .CharLiteral, "'{}'", .{escapeChar(@intCast(u8, val), &char_buf)});
+            const token = try appendTokenFmt(rp.c, .CharLiteral, "'{Z}'", .{@intCast(u8, val)});
             const node = try rp.c.arena.create(ast.Node.OneToken);
             node.* = .{
                 .base = .{ .tag = .CharLiteral },
@@ -5247,23 +5202,8 @@ fn isZigPrimitiveType(name: []const u8) bool {
         mem.eql(u8, name, "c_ulonglong");
 }
 
-fn isValidZigIdentifier(name: []const u8) bool {
-    for (name) |c, i| {
-        switch (c) {
-            '_', 'a'...'z', 'A'...'Z' => {},
-            '0'...'9' => if (i == 0) return false,
-            else => return false,
-        }
-    }
-    return true;
-}
-
 fn appendIdentifier(c: *Context, name: []const u8) !ast.TokenIndex {
-    if (!isValidZigIdentifier(name) or std.zig.Token.getKeyword(name) != null) {
-        return appendTokenFmt(c, .Identifier, "@\"{}\"", .{name});
-    } else {
-        return appendTokenFmt(c, .Identifier, "{}", .{name});
-    }
+    return appendTokenFmt(c, .Identifier, "{z}", .{name});
 }
 
 fn transCreateNodeIdentifier(c: *Context, name: []const u8) !*ast.Node {

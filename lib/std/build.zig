@@ -1767,7 +1767,7 @@ pub const LibExeObjStep = struct {
         const out = self.build_options_contents.outStream();
         switch (T) {
             []const []const u8 => {
-                out.print("pub const {}: []const []const u8 = &[_][]const u8{{\n", .{name}) catch unreachable;
+                out.print("pub const {z}: []const []const u8 = &[_][]const u8{{\n", .{name}) catch unreachable;
                 for (value) |slice| {
                     out.writeAll("    ") catch unreachable;
                     std.zig.renderStringLiteral(slice, out) catch unreachable;
@@ -1777,13 +1777,13 @@ pub const LibExeObjStep = struct {
                 return;
             },
             []const u8 => {
-                out.print("pub const {}: []const u8 = ", .{name}) catch unreachable;
+                out.print("pub const {z}: []const u8 = ", .{name}) catch unreachable;
                 std.zig.renderStringLiteral(value, out) catch unreachable;
                 out.writeAll(";\n") catch unreachable;
                 return;
             },
             ?[]const u8 => {
-                out.print("pub const {}: ?[]const u8 = ", .{name}) catch unreachable;
+                out.print("pub const {z}: ?[]const u8 = ", .{name}) catch unreachable;
                 if (value) |payload| {
                     std.zig.renderStringLiteral(payload, out) catch unreachable;
                     out.writeAll(";\n") catch unreachable;
@@ -1796,15 +1796,15 @@ pub const LibExeObjStep = struct {
         }
         switch (@typeInfo(T)) {
             .Enum => |enum_info| {
-                out.print("pub const {} = enum {{\n", .{@typeName(T)}) catch unreachable;
+                out.print("pub const {z} = enum {{\n", .{@typeName(T)}) catch unreachable;
                 inline for (enum_info.fields) |field| {
-                    out.print("    {},\n", .{field.name}) catch unreachable;
+                    out.print("    {z},\n", .{field.name}) catch unreachable;
                 }
                 out.writeAll("};\n") catch unreachable;
             },
             else => {},
         }
-        out.print("pub const {} = {};\n", .{ name, value }) catch unreachable;
+        out.print("pub const {z} = {};\n", .{ name, value }) catch unreachable;
     }
 
     /// The value is the path in the cache dir.
