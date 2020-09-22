@@ -14,7 +14,7 @@
 
 // ATTENTION: If you modify this file, be sure to update the corresponding
 // extern function declarations in the self-hosted compiler file
-// src-self-hosted/clang.zig.
+// src/clang.zig.
 
 struct ZigClangSourceLocation {
     unsigned ID;

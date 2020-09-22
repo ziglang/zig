@@ -1,5 +1,5 @@
 const std = @import("std");
-const TestContext = @import("../../src-self-hosted/test.zig").TestContext;
+const TestContext = @import("../../src/test.zig").TestContext;
 
 const spu = std.zig.CrossTarget{
     .cpu_arch = .spu_2,

@@ -29,7 +29,7 @@
 #endif
 
 // ABI warning: the types and declarations in this file must match both those in
-// stage2.cpp and src-self-hosted/stage1.zig.
+// stage2.cpp and src/stage1.zig.
 
 // ABI warning
 enum Error {

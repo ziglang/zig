@@ -772,7 +772,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
     if (build_options.is_stage1 and comp.bin_file.options.use_llvm) {
         try comp.work_queue.writeItem(.{ .stage1_module = {} });
     }
-    if (is_exe_or_dyn_lib) {
+    if (is_exe_or_dyn_lib and comp.bin_file.options.use_llvm) {
         try comp.work_queue.writeItem(.{ .libcompiler_rt = {} });
         if (!comp.bin_file.options.link_libc) {
             try comp.work_queue.writeItem(.{ .zig_libc = {} });
@@ -1128,6 +1128,9 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
             };
         },
         .stage1_module => {
+            if (!build_options.is_stage1)
+                unreachable;
+
             self.updateStage1Module() catch |err| {
                 fatal("unable to build stage1 zig object: {}", .{@errorName(err)});
             };
@@ -1685,11 +1688,13 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
 test "classifyFileExt" {
     std.testing.expectEqual(FileExt.cpp, classifyFileExt("foo.cc"));
     std.testing.expectEqual(FileExt.unknown, classifyFileExt("foo.nim"));
-    std.testing.expectEqual(FileExt.so, classifyFileExt("foo.so"));
-    std.testing.expectEqual(FileExt.so, classifyFileExt("foo.so.1"));
-    std.testing.expectEqual(FileExt.so, classifyFileExt("foo.so.1.2"));
-    std.testing.expectEqual(FileExt.so, classifyFileExt("foo.so.1.2.3"));
+    std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so"));
+    std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1"));
+    std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1.2"));
+    std.testing.expectEqual(FileExt.shared_library, classifyFileExt("foo.so.1.2.3"));
     std.testing.expectEqual(FileExt.unknown, classifyFileExt("foo.so.1.2.3~"));
+    std.testing.expectEqual(FileExt.zig, classifyFileExt("foo.zig"));
+    std.testing.expectEqual(FileExt.zir, classifyFileExt("foo.zir"));
 }
 
 fn haveFramePointer(comp: *Compilation) bool {

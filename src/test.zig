@@ -458,9 +458,15 @@ pub const TestContext = struct {
             .path = try std.fs.path.join(arena, &[_][]const u8{ bogus_path, "zig-cache" }),
         };
 
-        const tmp_src_path = if (case.extension == .Zig) "test_case.zig" else if (case.extension == .ZIR) "test_case.zir" else unreachable;
-        const root_pkg = try Package.create(allocator, tmp.dir, ".", tmp_src_path);
-        defer root_pkg.destroy(allocator);
+        const tmp_src_path = switch (case.extension) {
+            .Zig => "test_case.zig",
+            .ZIR => "test_case.zir",
+        };
+
+        var root_pkg: Package = .{
+            .root_src_directory = .{ .path = bogus_path, .handle = tmp.dir },
+            .root_src_path = tmp_src_path,
+        };
 
         const ofmt: ?std.builtin.ObjectFormat = if (case.cbe) .c else null;
         const bin_name = try std.zig.binNameAlloc(arena, "test_case", target, case.output_mode, null, ofmt);
@@ -486,7 +492,7 @@ pub const TestContext = struct {
             // TODO: support testing optimizations
             .optimize_mode = .Debug,
             .emit_bin = emit_bin,
-            .root_pkg = root_pkg,
+            .root_pkg = &root_pkg,
             .keep_source_files_loaded = true,
             .object_format = ofmt,
             .is_native_os = case.target.isNativeOs(),

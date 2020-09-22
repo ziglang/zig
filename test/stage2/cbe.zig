@@ -1,5 +1,5 @@
 const std = @import("std");
-const TestContext = @import("../../src-self-hosted/test.zig").TestContext;
+const TestContext = @import("../../src/test.zig").TestContext;
 
 // These tests should work with all platforms, but we're using linux_x64 for
 // now for consistency. Will be expanded eventually.
