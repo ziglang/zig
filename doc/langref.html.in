@@ -9728,7 +9728,7 @@ const c = @cImport({
         <li>Does not support Zig-only pointer attributes such as alignment. Use normal {#link|Pointers#}
         please!</li>
       </ul>
-      <p>When a C pointer is pointing to a single struct (not an array), deference the C pointer to
+      <p>When a C pointer is pointing to a single struct (not an array), dereference the C pointer to
         access to the struct's fields or member data. That syntax looks like
         this: </p>
         <p>{#syntax#}ptr_to_struct.*.struct_member{#endsyntax#}</p>

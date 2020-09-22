@@ -317,7 +317,6 @@ pub const TypeInfo = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const UnionField = struct {
         name: []const u8,
-        enum_field: ?EnumField,
         field_type: type,
     };
 

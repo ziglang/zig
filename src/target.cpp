@@ -779,7 +779,7 @@ const char *target_lib_file_prefix(const ZigTarget *target) {
     }
 }
 
-const char *target_lib_file_ext(const ZigTarget *target, bool is_static,
+const char *target_lib_file_ext(const ZigTarget *target, bool is_static, bool is_versioned,
         size_t version_major, size_t version_minor, size_t version_patch)
 {
     if (target_is_wasm(target)) {
@@ -799,11 +799,19 @@ const char *target_lib_file_ext(const ZigTarget *target, bool is_static,
         if (is_static) {
             return ".a";
         } else if (target_os_is_darwin(target->os)) {
-            return buf_ptr(buf_sprintf(".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".dylib",
-                        version_major, version_minor, version_patch));
+            if (is_versioned) {
+                return buf_ptr(buf_sprintf(".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".dylib",
+                            version_major, version_minor, version_patch));
+            } else {
+                return ".dylib";
+            }
         } else {
-            return buf_ptr(buf_sprintf(".so.%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize,
-                        version_major, version_minor, version_patch));
+            if (is_versioned) {
+                return buf_ptr(buf_sprintf(".so.%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize,
+                            version_major, version_minor, version_patch));
+            } else {
+                return ".so";
+            }
         }
     }
 }
@@ -853,6 +861,9 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_riscv32:
         case ZigLLVM_riscv64:
         case ZigLLVM_mipsel:
+        case ZigLLVM_ppc:
+        case ZigLLVM_ppc64:
+        case ZigLLVM_ppc64le:
             return "sp";
 
         case ZigLLVM_wasm32:
@@ -879,7 +890,6 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_msp430:
         case ZigLLVM_nvptx:
         case ZigLLVM_nvptx64:
-        case ZigLLVM_ppc64le:
         case ZigLLVM_r600:
         case ZigLLVM_renderscript32:
         case ZigLLVM_renderscript64:
@@ -893,8 +903,6 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_tce:
         case ZigLLVM_tcele:
         case ZigLLVM_xcore:
-        case ZigLLVM_ppc:
-        case ZigLLVM_ppc64:
         case ZigLLVM_ve:
             zig_panic("TODO populate this table with stack pointer register name for this CPU architecture");
     }
@@ -1323,6 +1331,11 @@ bool target_is_riscv(const ZigTarget *target) {
 bool target_is_mips(const ZigTarget *target) {
     return target->arch == ZigLLVM_mips || target->arch == ZigLLVM_mipsel ||
         target->arch == ZigLLVM_mips64 || target->arch == ZigLLVM_mips64el;
+}
+
+bool target_is_ppc(const ZigTarget *target) {
+    return target->arch == ZigLLVM_ppc || target->arch == ZigLLVM_ppc64 ||
+        target->arch == ZigLLVM_ppc64le;
 }
 
 unsigned target_fn_align(const ZigTarget *target) {

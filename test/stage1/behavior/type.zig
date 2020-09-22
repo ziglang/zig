@@ -313,3 +313,106 @@ test "Type.Enum" {
     testing.expectEqual(@as(u32, 5), @enumToInt(Bar.b));
     testing.expectEqual(@as(u32, 6), @enumToInt(@intToEnum(Bar, 6)));
 }
+
+test "Type.Union" {
+    const Untagged = @Type(.{
+        .Union = .{
+            .layout = .Auto,
+            .tag_type = null,
+            .fields = &[_]TypeInfo.UnionField{
+                .{ .name = "int", .field_type = i32 },
+                .{ .name = "float", .field_type = f32 },
+            },
+            .decls = &[_]TypeInfo.Declaration{},
+        },
+    });
+    var untagged = Untagged{ .int = 1 };
+    untagged.float = 2.0;
+    untagged.int = 3;
+    testing.expectEqual(@as(i32, 3), untagged.int);
+
+    const PackedUntagged = @Type(.{
+        .Union = .{
+            .layout = .Packed,
+            .tag_type = null,
+            .fields = &[_]TypeInfo.UnionField{
+                .{ .name = "signed", .field_type = i32 },
+                .{ .name = "unsigned", .field_type = u32 },
+            },
+            .decls = &[_]TypeInfo.Declaration{},
+        },
+    });
+    var packed_untagged = PackedUntagged{ .signed = -1 };
+    testing.expectEqual(@as(i32, -1), packed_untagged.signed);
+    testing.expectEqual(~@as(u32, 0), packed_untagged.unsigned);
+
+    const Tag = @Type(.{
+        .Enum = .{
+            .layout = .Auto,
+            .tag_type = u1,
+            .fields = &[_]TypeInfo.EnumField{
+                .{ .name = "signed", .value = 0 },
+                .{ .name = "unsigned", .value = 1 },
+            },
+            .decls = &[_]TypeInfo.Declaration{},
+            .is_exhaustive = true,
+        },
+    });
+    const Tagged = @Type(.{
+        .Union = .{
+            .layout = .Auto,
+            .tag_type = Tag,
+            .fields = &[_]TypeInfo.UnionField{
+                .{ .name = "signed", .field_type = i32 },
+                .{ .name = "unsigned", .field_type = u32 },
+            },
+            .decls = &[_]TypeInfo.Declaration{},
+        },
+    });
+    var tagged = Tagged{ .signed = -1 };
+    testing.expectEqual(Tag.signed, tagged);
+    tagged = .{ .unsigned = 1 };
+    testing.expectEqual(Tag.unsigned, tagged);
+}
+
+test "Type.Union from Type.Enum" {
+    const Tag = @Type(.{
+        .Enum = .{
+            .layout = .Auto,
+            .tag_type = u0,
+            .fields = &[_]TypeInfo.EnumField{
+                .{ .name = "working_as_expected", .value = 0 },
+            },
+            .decls = &[_]TypeInfo.Declaration{},
+            .is_exhaustive = true,
+        },
+    });
+    const T = @Type(.{
+        .Union = .{
+            .layout = .Auto,
+            .tag_type = Tag,
+            .fields = &[_]TypeInfo.UnionField{
+                .{ .name = "working_as_expected", .field_type = u32 },
+            },
+            .decls = &[_]TypeInfo.Declaration{},
+        },
+    });
+    _ = T;
+    _ = @typeInfo(T).Union;
+}
+
+test "Type.Union from regular enum" {
+    const E = enum { working_as_expected = 0 };
+    const T = @Type(.{
+        .Union = .{
+            .layout = .Auto,
+            .tag_type = E,
+            .fields = &[_]TypeInfo.UnionField{
+                .{ .name = "working_as_expected", .field_type = u32 },
+            },
+            .decls = &[_]TypeInfo.Declaration{},
+        },
+    });
+    _ = T;
+    _ = @typeInfo(T).Union;
+}

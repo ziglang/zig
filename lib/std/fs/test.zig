@@ -274,6 +274,167 @@ test "file operations on directories" {
     dir.close();
 }
 
+test "Dir.rename files" {
+    var tmp_dir = tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    testing.expectError(error.FileNotFound, tmp_dir.dir.rename("missing_file_name", "something_else"));
+
+    // Renaming files
+    const test_file_name = "test_file";
+    const renamed_test_file_name = "test_file_renamed";
+    var file = try tmp_dir.dir.createFile(test_file_name, .{ .read = true });
+    file.close();
+    try tmp_dir.dir.rename(test_file_name, renamed_test_file_name);
+
+    // Ensure the file was renamed
+    testing.expectError(error.FileNotFound, tmp_dir.dir.openFile(test_file_name, .{}));
+    file = try tmp_dir.dir.openFile(renamed_test_file_name, .{});
+    file.close();
+
+    // Rename to self succeeds
+    try tmp_dir.dir.rename(renamed_test_file_name, renamed_test_file_name);
+
+    // Rename to existing file succeeds
+    var existing_file = try tmp_dir.dir.createFile("existing_file", .{ .read = true });
+    existing_file.close();
+    try tmp_dir.dir.rename(renamed_test_file_name, "existing_file");
+
+    testing.expectError(error.FileNotFound, tmp_dir.dir.openFile(renamed_test_file_name, .{}));
+    file = try tmp_dir.dir.openFile("existing_file", .{});
+    file.close();
+}
+
+test "Dir.rename directories" {
+    // TODO: Fix on Windows, see https://github.com/ziglang/zig/issues/6364
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var tmp_dir = tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    // Renaming directories
+    try tmp_dir.dir.makeDir("test_dir");
+    try tmp_dir.dir.rename("test_dir", "test_dir_renamed");
+
+    // Ensure the directory was renamed
+    testing.expectError(error.FileNotFound, tmp_dir.dir.openDir("test_dir", .{}));
+    var dir = try tmp_dir.dir.openDir("test_dir_renamed", .{});
+
+    // Put a file in the directory
+    var file = try dir.createFile("test_file", .{ .read = true });
+    file.close();
+    dir.close();
+
+    try tmp_dir.dir.rename("test_dir_renamed", "test_dir_renamed_again");
+
+    // Ensure the directory was renamed and the file still exists in it
+    testing.expectError(error.FileNotFound, tmp_dir.dir.openDir("test_dir_renamed", .{}));
+    dir = try tmp_dir.dir.openDir("test_dir_renamed_again", .{});
+    file = try dir.openFile("test_file", .{});
+    file.close();
+    dir.close();
+
+    // Try to rename to a non-empty directory now
+    var target_dir = try tmp_dir.dir.makeOpenPath("non_empty_target_dir", .{});
+    file = try target_dir.createFile("filler", .{ .read = true });
+    file.close();
+
+    testing.expectError(error.PathAlreadyExists, tmp_dir.dir.rename("test_dir_renamed_again", "non_empty_target_dir"));
+
+    // Ensure the directory was not renamed
+    dir = try tmp_dir.dir.openDir("test_dir_renamed_again", .{});
+    file = try dir.openFile("test_file", .{});
+    file.close();
+    dir.close();
+}
+
+test "Dir.rename file <-> dir" {
+    // TODO: Fix on Windows, see https://github.com/ziglang/zig/issues/6364
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var tmp_dir = tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    var file = try tmp_dir.dir.createFile("test_file", .{ .read = true });
+    file.close();
+    try tmp_dir.dir.makeDir("test_dir");
+    testing.expectError(error.IsDir, tmp_dir.dir.rename("test_file", "test_dir"));
+    testing.expectError(error.NotDir, tmp_dir.dir.rename("test_dir", "test_file"));
+}
+
+test "rename" {
+    var tmp_dir1 = tmpDir(.{});
+    defer tmp_dir1.cleanup();
+
+    var tmp_dir2 = tmpDir(.{});
+    defer tmp_dir2.cleanup();
+
+    // Renaming files
+    const test_file_name = "test_file";
+    const renamed_test_file_name = "test_file_renamed";
+    var file = try tmp_dir1.dir.createFile(test_file_name, .{ .read = true });
+    file.close();
+    try fs.rename(tmp_dir1.dir, test_file_name, tmp_dir2.dir, renamed_test_file_name);
+
+    // ensure the file was renamed
+    testing.expectError(error.FileNotFound, tmp_dir1.dir.openFile(test_file_name, .{}));
+    file = try tmp_dir2.dir.openFile(renamed_test_file_name, .{});
+    file.close();
+}
+
+test "renameAbsolute" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var tmp_dir = tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    // Get base abs path
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = &arena.allocator;
+
+    const base_path = blk: {
+        const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp_dir.sub_path[0..] });
+        break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
+    };
+
+    testing.expectError(error.FileNotFound, fs.renameAbsolute(
+        try fs.path.join(allocator, &[_][]const u8{ base_path, "missing_file_name" }),
+        try fs.path.join(allocator, &[_][]const u8{ base_path, "something_else" }),
+    ));
+
+    // Renaming files
+    const test_file_name = "test_file";
+    const renamed_test_file_name = "test_file_renamed";
+    var file = try tmp_dir.dir.createFile(test_file_name, .{ .read = true });
+    file.close();
+    try fs.renameAbsolute(
+        try fs.path.join(allocator, &[_][]const u8{ base_path, test_file_name }),
+        try fs.path.join(allocator, &[_][]const u8{ base_path, renamed_test_file_name }),
+    );
+
+    // ensure the file was renamed
+    testing.expectError(error.FileNotFound, tmp_dir.dir.openFile(test_file_name, .{}));
+    file = try tmp_dir.dir.openFile(renamed_test_file_name, .{});
+    const stat = try file.stat();
+    testing.expect(stat.kind == .File);
+    file.close();
+
+    // Renaming directories
+    const test_dir_name = "test_dir";
+    const renamed_test_dir_name = "test_dir_renamed";
+    try tmp_dir.dir.makeDir(test_dir_name);
+    try fs.renameAbsolute(
+        try fs.path.join(allocator, &[_][]const u8{ base_path, test_dir_name }),
+        try fs.path.join(allocator, &[_][]const u8{ base_path, renamed_test_dir_name }),
+    );
+
+    // ensure the directory was renamed
+    testing.expectError(error.FileNotFound, tmp_dir.dir.openDir(test_dir_name, .{}));
+    var dir = try tmp_dir.dir.openDir(renamed_test_dir_name, .{});
+    dir.close();
+}
+
 test "openSelfExe" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 

@@ -113,7 +113,7 @@ pub fn HashMap(
             return self.unmanaged.clearAndFree(self.allocator);
         }
 
-        pub fn count(self: Self) usize {
+        pub fn count(self: Self) Size {
             return self.unmanaged.count();
         }
 

@@ -123,7 +123,14 @@ pub fn build(b: *Builder) !void {
         .source_dir = "lib",
         .install_dir = .Lib,
         .install_subdir = "zig",
-        .exclude_extensions = &[_][]const u8{ "test.zig", "README.md" },
+        .exclude_extensions = &[_][]const u8{
+            "test.zig",
+            "README.md",
+            ".z.0",
+            ".z.9",
+            ".gz",
+            "rfc1951.txt",
+        },
     });
 
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");

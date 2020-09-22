@@ -2265,6 +2265,7 @@ struct CodeGen {
 
     Stage2LibCInstallation *libc;
 
+    bool is_versioned;
     size_t version_major;
     size_t version_minor;
     size_t version_patch;

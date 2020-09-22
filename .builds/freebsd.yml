@@ -1,7 +1,7 @@
 image: freebsd/latest
 secrets:
-  - 6c60aaee-92e7-4e7d-812c-114817689b4d
-  - dd0bd962-7664-4d3e-b0f3-41c9ee96b8b8
+  - 51bfddf5-86a6-4e01-8576-358c72a4a0a4
+  - 5cfede76-914e-4071-893e-e5e2e6ae3cea
 sources:
   - https://github.com/ziglang/zig
 tasks:

@@ -5,8 +5,8 @@
 // and substantial portions of the software.
 // zig run benchmark.zig --release-fast --override-lib-dir ..
 
-const builtin = @import("builtin");
-const std = @import("std");
+const std = @import("../std.zig");
+const builtin = std.builtin;
 const mem = std.mem;
 const time = std.time;
 const Timer = time.Timer;

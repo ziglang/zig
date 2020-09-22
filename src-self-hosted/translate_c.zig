@@ -2032,7 +2032,7 @@ fn escapeChar(c: u8, char_buf: *[4]u8) []const u8 {
         // Handle the remaining escapes Zig doesn't support by turning them
         // into their respective hex representation
         else => if (std.ascii.isCntrl(c))
-            std.fmt.bufPrint(char_buf, "\\x{x:0<2}", .{c}) catch unreachable
+            std.fmt.bufPrint(char_buf, "\\x{x:0>2}", .{c}) catch unreachable
         else
             std.fmt.bufPrint(char_buf, "{c}", .{c}) catch unreachable,
     };
@@ -5881,7 +5881,7 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.N
         },
         .Identifier => {
             const mangled_name = scope.getAlias(slice);
-            return transCreateNodeIdentifier(c, mangled_name);
+            return transCreateNodeIdentifier(c, checkForBuiltinTypedef(mangled_name) orelse mangled_name);
         },
         .LParen => {
             const inner_node = try parseCExpr(c, m, scope);
@@ -5899,6 +5899,10 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.N
                     saw_l_paren = true;
                     _ = m.next();
                 },
+                // (type)sizeof(x)
+                .Keyword_sizeof,
+                // (type)alignof(x)
+                .Keyword_alignof,
                 // (type)identifier
                 .Identifier => {},
                 // (type)integer
@@ -6308,6 +6312,48 @@ fn parseCPrefixOpExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.
             const node = try transCreateNodeSimplePrefixOp(c, .AddressOf, .Ampersand, "&");
             node.rhs = try parseCPrefixOpExpr(c, m, scope);
             return &node.base;
+        },
+        .Keyword_sizeof => {
+            const inner = if (m.peek().? == .LParen) blk: {
+                _ = m.next();
+                const inner = try parseCExpr(c, m, scope);
+                if (m.next().? != .RParen) {
+                    try m.fail(c, "unable to translate C expr: expected ')'", .{});
+                    return error.ParseError;
+                }
+                break :blk inner;
+            } else try parseCPrefixOpExpr(c, m, scope);
+
+            //(@import("std").meta.sizeof(dest, x))
+            const import_fn_call = try c.createBuiltinCall("@import", 1);
+            const std_node = try transCreateNodeStringLiteral(c, "\"std\"");
+            import_fn_call.params()[0] = std_node;
+            import_fn_call.rparen_token = try appendToken(c, .RParen, ")");
+            const inner_field_access = try transCreateNodeFieldAccess(c, &import_fn_call.base, "meta");
+            const outer_field_access = try transCreateNodeFieldAccess(c, inner_field_access, "sizeof");
+
+            const sizeof_call = try c.createCall(outer_field_access, 1);
+            sizeof_call.params()[0] = inner;
+            sizeof_call.rtoken = try appendToken(c, .RParen, ")");
+            return &sizeof_call.base;
+        },
+        .Keyword_alignof => {
+            // TODO this won't work if using <stdalign.h>'s
+            // #define alignof _Alignof
+            if (m.next().? != .LParen) {
+                try m.fail(c, "unable to translate C expr: expected '('", .{});
+                return error.ParseError;
+            }
+            const inner = try parseCExpr(c, m, scope);
+            if (m.next().? != .RParen) {
+                try m.fail(c, "unable to translate C expr: expected ')'", .{});
+                return error.ParseError;
+            }
+
+            const builtin_call = try c.createBuiltinCall("@alignOf", 1);
+            builtin_call.params()[0] = inner;
+            builtin_call.rparen_token = try appendToken(c, .RParen, ")");
+            return &builtin_call.base;
         },
         else => {
             m.i -= 1;

@@ -598,12 +598,9 @@ const Stage2LibCInstallation = extern struct {
 
 // ABI warning
 export fn stage2_libc_parse(stage1_libc: *Stage2LibCInstallation, libc_file_z: [*:0]const u8) Error {
-    stderr_file = std.io.getStdErr();
-    stderr = stderr_file.outStream();
     const libc_file = mem.spanZ(libc_file_z);
-    var libc = LibCInstallation.parse(std.heap.c_allocator, libc_file, stderr) catch |err| switch (err) {
+    var libc = LibCInstallation.parse(std.heap.c_allocator, libc_file) catch |err| switch (err) {
         error.ParseError => return .SemanticAnalyzeFail,
-        error.DiskQuota => return .DiskQuota,
         error.FileTooBig => return .FileTooBig,
         error.InputOutput => return .FileSystem,
         error.NoSpaceLeft => return .NoSpaceLeft,
@@ -612,7 +609,6 @@ export fn stage2_libc_parse(stage1_libc: *Stage2LibCInstallation, libc_file_z: [
         error.SystemResources => return .SystemResources,
         error.OperationAborted => return .OperationAborted,
         error.WouldBlock => unreachable,
-        error.NotOpenForWriting => unreachable,
         error.NotOpenForReading => unreachable,
         error.Unexpected => return .Unexpected,
         error.IsDir => return .IsDir,

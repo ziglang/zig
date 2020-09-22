@@ -728,7 +728,7 @@ pub const File = struct {
         }
         var i: usize = 0;
         while (i < trailers.len) {
-            while (amt >= headers[i].iov_len) {
+            while (amt >= trailers[i].iov_len) {
                 amt -= trailers[i].iov_len;
                 i += 1;
                 if (i >= trailers.len) return;
@@ -740,14 +740,16 @@ pub const File = struct {
     }
 
     pub const Reader = io.Reader(File, ReadError, read);
+
     /// Deprecated: use `Reader`
     pub const InStream = Reader;
 
-    pub fn reader(file: File) io.Reader(File, ReadError, read) {
+    pub fn reader(file: File) Reader {
         return .{ .context = file };
     }
+
     /// Deprecated: use `reader`
-    pub fn inStream(file: File) io.InStream(File, ReadError, read) {
+    pub fn inStream(file: File) Reader {
         return .{ .context = file };
     }
 
