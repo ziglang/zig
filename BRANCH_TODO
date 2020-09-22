@@ -1,4 +1,3 @@
- * resolve builtin.zig not working on windows & macos; try os_path_real
  * build & link against libcxx and libcxxabi
  * `zig test`
  * `zig build`

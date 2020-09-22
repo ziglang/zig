@@ -8861,6 +8861,9 @@ static Error define_builtin_compile_vars(CodeGen *g) {
         g->builtin_zig_path = buf_alloc();
         os_path_join(g->output_dir, buf_create_from_str(builtin_zig_basename), g->builtin_zig_path);
 
+        Buf *resolve_paths[] = { g->builtin_zig_path, };
+        *g->builtin_zig_path = os_path_resolve(resolve_paths, 1);
+
         contents = codegen_generate_builtin_source(g);
         if ((err = os_write_file(g->builtin_zig_path, contents))) {
             fprintf(stderr, "Unable to write file '%s': %s\n", buf_ptr(g->builtin_zig_path), err_str(err));
