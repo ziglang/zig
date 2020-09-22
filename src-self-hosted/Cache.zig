@@ -410,7 +410,7 @@ pub const CacheHash = struct {
     /// calculated. This is useful for processes that don't know the all the files that
     /// are depended on ahead of time. For example, a source file that can import other files
     /// will need to be recompiled if the imported file is changed.
-    pub fn addFilePostFetch(self: *CacheHash, file_path: []const u8, max_file_size: usize) ![]u8 {
+    pub fn addFilePostFetch(self: *CacheHash, file_path: []const u8, max_file_size: usize) ![]const u8 {
         assert(self.manifest_file != null);
 
         const resolved_path = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});

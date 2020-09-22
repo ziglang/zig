@@ -27,7 +27,8 @@ gpa: *Allocator,
 arena_state: std.heap.ArenaAllocator.State,
 bin_file: *link.File,
 c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
-stage1_module: ?*stage1.Module,
+stage1_lock: ?Cache.Lock = null,
+stage1_cache_hash: *Cache.CacheHash = undefined,
 
 link_error_flags: link.File.ErrorFlags = .{},
 
@@ -54,6 +55,7 @@ verbose_cimport: bool,
 verbose_llvm_cpu_features: bool,
 disable_c_depfile: bool,
 is_test: bool,
+time_report: bool,
 
 c_source_files: []const CSourceFile,
 clang_argv: []const []const u8,
@@ -90,6 +92,10 @@ crt_files: std.StringHashMapUnmanaged(CRTFile) = .{},
 
 /// Keeping track of this possibly open resource so we can close it later.
 owned_link_dir: ?std.fs.Dir,
+
+/// This is for stage1 and should be deleted upon completion of self-hosting.
+/// Don't use this for anything other than stage1 compatibility.
+color: @import("main.zig").Color = .Auto,
 
 pub const InnerError = Module.InnerError;
 
@@ -643,100 +649,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .ReleaseFast, .ReleaseSmall => false,
         };
 
-        const stage1_module: ?*stage1.Module = if (build_options.is_stage1 and use_llvm) blk: {
-            // Here we use the legacy stage1 C++ compiler to compile Zig code.
-            const stage2_target = try arena.create(stage1.Stage2Target);
-            stage2_target.* = .{
-                .arch = @enumToInt(options.target.cpu.arch) + 1, // skip over ZigLLVM_UnknownArch
-                .os = @enumToInt(options.target.os.tag),
-                .abi = @enumToInt(options.target.abi),
-                .is_native_os = options.is_native_os,
-                .is_native_cpu = false, // Only true when bootstrapping the compiler.
-                .llvm_cpu_name = if (options.target.cpu.model.llvm_name) |s| s.ptr else null,
-                .llvm_cpu_features = llvm_cpu_features.?,
-            };
-            const progress = try arena.create(std.Progress);
-            const main_progress_node = try progress.start("", 100);
-            if (options.color == .Off) progress.terminal = null;
-
-            const mod = module.?;
-            const main_zig_file = try mod.root_pkg.root_src_directory.join(arena, &[_][]const u8{
-                mod.root_pkg.root_src_path,
-            });
-            const zig_lib_dir = options.zig_lib_directory.path.?;
-            const builtin_sub = &[_][]const u8{"builtin.zig"};
-            const builtin_zig_path = try mod.zig_cache_artifact_directory.join(arena, builtin_sub);
-
-            const stage1_module = stage1.create(
-                @enumToInt(options.optimize_mode),
-                undefined,
-                0, // TODO --main-pkg-path
-                main_zig_file.ptr,
-                main_zig_file.len,
-                zig_lib_dir.ptr,
-                zig_lib_dir.len,
-                stage2_target,
-                options.is_test,
-            ) orelse return error.OutOfMemory;
-
-            const output_dir = bin_directory.path orelse ".";
-
-            const stage1_pkg = try arena.create(stage1.Pkg);
-            stage1_pkg.* = .{
-                .name_ptr = undefined,
-                .name_len = 0,
-                .path_ptr = undefined,
-                .path_len = 0,
-                .children_ptr = undefined,
-                .children_len = 0,
-                .parent = null,
-            };
-
-            stage1_module.* = .{
-                .root_name_ptr = root_name.ptr,
-                .root_name_len = root_name.len,
-                .output_dir_ptr = output_dir.ptr,
-                .output_dir_len = output_dir.len,
-                .builtin_zig_path_ptr = builtin_zig_path.ptr,
-                .builtin_zig_path_len = builtin_zig_path.len,
-                .test_filter_ptr = "",
-                .test_filter_len = 0,
-                .test_name_prefix_ptr = "",
-                .test_name_prefix_len = 0,
-                .userdata = @ptrToInt(comp),
-                .root_pkg = stage1_pkg,
-                .code_model = @enumToInt(options.machine_code_model),
-                .subsystem = stage1.TargetSubsystem.Auto,
-                .err_color = @enumToInt(options.color),
-                .pic = pic,
-                .link_libc = options.link_libc,
-                .link_libcpp = options.link_libcpp,
-                .strip = options.strip,
-                .is_single_threaded = single_threaded,
-                .dll_export_fns = dll_export_fns,
-                .link_mode_dynamic = link_mode == .Dynamic,
-                .valgrind_enabled = valgrind,
-                .function_sections = function_sections,
-                .enable_stack_probing = stack_check,
-                .enable_time_report = options.time_report,
-                .enable_stack_report = false,
-                .dump_analysis = false,
-                .enable_doc_generation = false,
-                .emit_bin = true,
-                .emit_asm = false,
-                .emit_llvm_ir = false,
-                .test_is_evented = false,
-                .verbose_tokenize = options.verbose_tokenize,
-                .verbose_ast = options.verbose_ast,
-                .verbose_ir = options.verbose_ir,
-                .verbose_llvm_ir = options.verbose_llvm_ir,
-                .verbose_cimport = options.verbose_cimport,
-                .verbose_llvm_cpu_features = options.verbose_llvm_cpu_features,
-                .main_progress_node = main_progress_node,
-            };
-            break :blk stage1_module;
-        } else null;
-
         const bin_file = try link.File.openPath(gpa, .{
             .directory = bin_directory,
             .sub_path = emit_bin.basename,
@@ -793,7 +705,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .zig_lib_directory = options.zig_lib_directory,
             .zig_cache_directory = options.zig_cache_directory,
             .bin_file = bin_file,
-            .stage1_module = stage1_module,
             .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .keep_source_files_loaded = options.keep_source_files_loaded,
             .use_clang = use_clang,
@@ -815,6 +726,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .disable_c_depfile = options.disable_c_depfile,
             .owned_link_dir = owned_link_dir,
             .is_test = options.is_test,
+            .color = options.color,
+            .time_report = options.time_report,
         };
         break :comp comp;
     };
@@ -845,7 +758,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
     if (comp.wantBuildLibUnwindFromSource()) {
         try comp.work_queue.writeItem(.{ .libunwind = {} });
     }
-    if (comp.stage1_module) |module| {
+    if (build_options.is_stage1 and comp.bin_file.options.use_llvm) {
         try comp.work_queue.writeItem(.{ .stage1_module = {} });
     }
     if (is_exe_or_dyn_lib) {
@@ -858,15 +771,19 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
     return comp;
 }
 
+fn releaseStage1Lock(comp: *Compilation) void {
+    if (comp.stage1_lock) |*lock| {
+        lock.release();
+        comp.stage1_lock = null;
+    }
+}
+
 pub fn destroy(self: *Compilation) void {
     const optional_module = self.bin_file.options.module;
     self.bin_file.destroy();
     if (optional_module) |module| module.deinit();
 
-    if (self.stage1_module) |module| {
-        module.main_progress_node.?.end();
-        module.destroy();
-    }
+    self.releaseStage1Lock();
 
     const gpa = self.gpa;
     self.work_queue.deinit();
@@ -1200,8 +1117,9 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
             };
         },
         .stage1_module => {
-            // This Job is only queued up if there is a zig module.
-            self.stage1_module.?.build_object();
+            self.updateStage1Module() catch |err| {
+                fatal("unable to build stage1 zig object: {}", .{@errorName(err)});
+            };
         },
     };
 }
@@ -2173,4 +2091,156 @@ fn buildStaticLibFromZig(comp: *Compilation, basename: []const u8, out: *?CRTFil
         .full_object_path = try sub_compilation.bin_file.options.directory.join(comp.gpa, &[_][]const u8{basename}),
         .lock = sub_compilation.bin_file.toOwnedLock(),
     };
+}
+
+fn updateStage1Module(comp: *Compilation) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
+    defer arena_allocator.deinit();
+    const arena = &arena_allocator.allocator;
+
+    // Here we use the legacy stage1 C++ compiler to compile Zig code.
+    const mod = comp.bin_file.options.module.?;
+    const directory = mod.zig_cache_artifact_directory; // Just an alias to make it shorter to type.
+    const main_zig_file = try mod.root_pkg.root_src_directory.join(arena, &[_][]const u8{
+        mod.root_pkg.root_src_path,
+    });
+    const zig_lib_dir = comp.zig_lib_directory.path.?;
+    const builtin_zig_path = try directory.join(arena, &[_][]const u8{"builtin.zig"});
+    const target = comp.getTarget();
+    const id_symlink_basename = "stage1.id";
+
+    // We are about to obtain this lock, so here we give other processes a chance first.
+    comp.releaseStage1Lock();
+
+    // Unlike with the self-hosted Zig module, stage1 does not support incremental compilation,
+    // so we input all the zig source files into the cache hash system. We're going to keep
+    // the artifact directory the same, however, so we take the same strategy as linking
+    // does where we have a file which specifies the hash of the output directory so that we can
+    // skip the expensive compilation step if the hash matches.
+    var ch = comp.cache_parent.obtain();
+    defer ch.deinit();
+
+    _ = try ch.addFile(main_zig_file, null);
+    ch.hash.add(comp.bin_file.options.valgrind);
+    ch.hash.add(comp.bin_file.options.single_threaded);
+    ch.hash.add(target.os.getVersionRange());
+    ch.hash.add(comp.bin_file.options.dll_export_fns);
+    ch.hash.add(comp.bin_file.options.function_sections);
+
+    if (try ch.hit()) {
+        const digest = ch.final();
+
+        var prev_digest_buf: [digest.len]u8 = undefined;
+        const prev_digest: []u8 = directory.handle.readLink(id_symlink_basename, &prev_digest_buf) catch |err| blk: {
+            // Handle this as a cache miss.
+            break :blk prev_digest_buf[0..0];
+        };
+        if (mem.eql(u8, prev_digest, &digest)) {
+            comp.stage1_lock = ch.toOwnedLock();
+            return;
+        }
+    }
+
+    const stage2_target = try arena.create(stage1.Stage2Target);
+    stage2_target.* = .{
+        .arch = @enumToInt(target.cpu.arch) + 1, // skip over ZigLLVM_UnknownArch
+        .os = @enumToInt(target.os.tag),
+        .abi = @enumToInt(target.abi),
+        .is_native_os = comp.bin_file.options.is_native_os,
+        .is_native_cpu = false, // Only true when bootstrapping the compiler.
+        .llvm_cpu_name = if (target.cpu.model.llvm_name) |s| s.ptr else null,
+        .llvm_cpu_features = comp.bin_file.options.llvm_cpu_features.?,
+    };
+    var progress: std.Progress = .{};
+    var main_progress_node = try progress.start("", 100);
+    defer main_progress_node.end();
+    if (comp.color == .Off) progress.terminal = null;
+
+    comp.stage1_cache_hash = &ch;
+
+    const stage1_module = stage1.create(
+        @enumToInt(comp.bin_file.options.optimize_mode),
+        undefined,
+        0, // TODO --main-pkg-path
+        main_zig_file.ptr,
+        main_zig_file.len,
+        zig_lib_dir.ptr,
+        zig_lib_dir.len,
+        stage2_target,
+        comp.is_test,
+    ) orelse return error.OutOfMemory;
+
+    const stage1_pkg = try arena.create(stage1.Pkg);
+    stage1_pkg.* = .{
+        .name_ptr = undefined,
+        .name_len = 0,
+        .path_ptr = undefined,
+        .path_len = 0,
+        .children_ptr = undefined,
+        .children_len = 0,
+        .parent = null,
+    };
+    const output_dir = comp.bin_file.options.directory.path orelse ".";
+    stage1_module.* = .{
+        .root_name_ptr = comp.bin_file.options.root_name.ptr,
+        .root_name_len = comp.bin_file.options.root_name.len,
+        .output_dir_ptr = output_dir.ptr,
+        .output_dir_len = output_dir.len,
+        .builtin_zig_path_ptr = builtin_zig_path.ptr,
+        .builtin_zig_path_len = builtin_zig_path.len,
+        .test_filter_ptr = "",
+        .test_filter_len = 0,
+        .test_name_prefix_ptr = "",
+        .test_name_prefix_len = 0,
+        .userdata = @ptrToInt(comp),
+        .root_pkg = stage1_pkg,
+        .code_model = @enumToInt(comp.bin_file.options.machine_code_model),
+        .subsystem = stage1.TargetSubsystem.Auto,
+        .err_color = @enumToInt(comp.color),
+        .pic = comp.bin_file.options.pic,
+        .link_libc = comp.bin_file.options.link_libc,
+        .link_libcpp = comp.bin_file.options.link_libcpp,
+        .strip = comp.bin_file.options.strip,
+        .is_single_threaded = comp.bin_file.options.single_threaded,
+        .dll_export_fns = comp.bin_file.options.dll_export_fns,
+        .link_mode_dynamic = comp.bin_file.options.link_mode == .Dynamic,
+        .valgrind_enabled = comp.bin_file.options.valgrind,
+        .function_sections = comp.bin_file.options.function_sections,
+        .enable_stack_probing = comp.bin_file.options.stack_check,
+        .enable_time_report = comp.time_report,
+        .enable_stack_report = false,
+        .dump_analysis = false,
+        .enable_doc_generation = false,
+        .emit_bin = true,
+        .emit_asm = false,
+        .emit_llvm_ir = false,
+        .test_is_evented = false,
+        .verbose_tokenize = comp.verbose_tokenize,
+        .verbose_ast = comp.verbose_ast,
+        .verbose_ir = comp.verbose_ir,
+        .verbose_llvm_ir = comp.verbose_llvm_ir,
+        .verbose_cimport = comp.verbose_cimport,
+        .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
+        .main_progress_node = main_progress_node,
+    };
+    stage1_module.build_object();
+    stage1_module.destroy();
+
+    const digest = ch.final();
+
+    // Update the dangling symlink with the digest. If it fails we can continue; it only
+    // means that the next invocation will have an unnecessary cache miss.
+    directory.handle.symLink(&digest, id_symlink_basename, .{}) catch |err| {
+        std.log.warn("failed to save linking hash digest symlink: {}", .{@errorName(err)});
+    };
+    // Again failure here only means an unnecessary cache miss.
+    ch.writeManifest() catch |err| {
+        std.log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
+    };
+    // We hang on to this lock so that the output file path can be used without
+    // other processes clobbering it.
+    comp.stage1_lock = ch.toOwnedLock();
 }

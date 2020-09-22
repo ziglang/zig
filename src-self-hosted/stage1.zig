@@ -343,9 +343,9 @@ export fn stage2_fetch_file(
     result_len: *usize,
 ) ?[*]const u8 {
     const comp = @intToPtr(*Compilation, stage1.userdata);
-    // TODO integrate this with cache hash
     const file_path = path_ptr[0..path_len];
-    const contents = std.fs.cwd().readFileAlloc(comp.gpa, file_path, std.math.maxInt(u32)) catch return null;
+    const max_file_size = std.math.maxInt(u32);
+    const contents = comp.stage1_cache_hash.addFilePostFetch(file_path, max_file_size) catch return null;
     result_len.* = contents.len;
     return contents.ptr;
 }

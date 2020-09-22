@@ -1590,7 +1590,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     const ok = llvm.Link(.ELF, new_argv.ptr, new_argv.len, append_diagnostic, 0, 0);
     if (!ok) return error.LLDReportedFailure;
 
-    // Update the dangling symlink "id.txt" with the digest. If it fails we can continue; it only
+    // Update the dangling symlink with the digest. If it fails we can continue; it only
     // means that the next invocation will have an unnecessary cache miss.
     directory.handle.symLink(&digest, id_symlink_basename, .{}) catch |err| {
         std.log.warn("failed to save linking hash digest symlink: {}", .{@errorName(err)});

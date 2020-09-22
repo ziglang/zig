@@ -1239,7 +1239,7 @@ pub fn buildOutputType(
         fatal("TODO: implement `zig cc` when using it as a preprocessor", .{});
     }
 
-    if (build_options.is_stage1 and comp.stage1_module != null and watch) {
+    if (build_options.is_stage1 and comp.stage1_lock != null and watch) {
         std.log.warn("--watch is not recommended with the stage1 backend; it leaks memory and is not capable of incremental compilation", .{});
     }
 

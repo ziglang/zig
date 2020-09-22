@@ -1,6 +1,3 @@
- * Cache integration for stage1 zig code compilation
- * build & link against compiler-rt
- * build & link against freestanding libc
  * resolve builtin.zig not working on windows & macos; try os_path_real
  * build & link against libcxx and libcxxabi
  * `zig test`
