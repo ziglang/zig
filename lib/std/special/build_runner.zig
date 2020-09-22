@@ -185,7 +185,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
                 Builder.typeIdName(option.type_id),
             });
             defer allocator.free(name);
-            try out_stream.print("{s:24} {}\n", .{ name, option.description });
+            try out_stream.print("{s:32} {}\n", .{ name, option.description });
         }
     }
 
