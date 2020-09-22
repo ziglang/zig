@@ -45,6 +45,9 @@ pub const _fstatat = if (builtin.arch == .aarch64) fstatat else @"fstatat$INODE6
 pub extern "c" fn mach_absolute_time() u64;
 pub extern "c" fn mach_timebase_info(tinfo: ?*mach_timebase_info_data) void;
 
+pub extern "c" fn malloc_size(?*const c_void) usize;
+pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
+
 pub extern "c" fn kevent64(
     kq: c_int,
     changelist: [*]const kevent64_s,

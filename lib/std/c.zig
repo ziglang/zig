@@ -246,20 +246,8 @@ pub extern "c" fn setresuid(ruid: uid_t, euid: uid_t, suid: uid_t) c_int;
 pub extern "c" fn setresgid(rgid: gid_t, egid: gid_t, sgid: gid_t) c_int;
 
 pub extern "c" fn malloc(usize) ?*c_void;
-
-pub usingnamespace switch (builtin.os.tag) {
-    .linux, .freebsd, .kfreebsd, .netbsd => struct {
-        pub extern "c" fn malloc_usable_size(?*const c_void) usize;
-    },
-    .macos, .ios, .watchos, .tvos => struct {
-        pub extern "c" fn malloc_size(?*const c_void) usize;
-    },
-    else => struct {},
-};
-
 pub extern "c" fn realloc(?*c_void, usize) ?*c_void;
 pub extern "c" fn free(*c_void) void;
-pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
 
 pub extern "c" fn futimes(fd: fd_t, times: *[2]timeval) c_int;
 pub extern "c" fn utimes(path: [*:0]const u8, times: *[2]timeval) c_int;

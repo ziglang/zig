@@ -38,37 +38,63 @@ const CAllocator = struct {
             pub const supports_malloc_size = true;
             pub const malloc_size = c.malloc_usable_size;
         }
+    else if (comptime @hasDecl(c, "_msize"))
+        struct {
+            pub const supports_malloc_size = true;
+            pub const malloc_size = c._msize;
+        }
     else
         struct {
             pub const supports_malloc_size = false;
         };
 
-    // The alignment guaranteed by malloc, the value matches the result of the C
-    // expression `alignof(max_alignment_t)`
-    const min_ptr_alignment = comptime std.math.max(
-        @alignOf(c_longdouble),
-        @alignOf(c_longlong),
-    );
+    pub const supports_posix_memalign = false and @hasDecl(c, "posix_memalign");
 
-    fn aligned_alloc(len: usize, alignment: usize) ?*c_void {
-        // The minimum alignment supported by both APIs is the size of a pointer
-        const eff_alignment = std.math.max(alignment, @sizeOf(usize));
+    fn get_header(ptr: [*]u8) *[*]u8 {
+        return @intToPtr(*[*]u8, @ptrToInt(ptr) - @sizeOf(usize));
+    }
 
-        if (builtin.os.tag == .windows) {
-            return c._aligned_malloc(len, eff_alignment);
+    fn aligned_alloc(len: usize, alignment: usize) ?[*]u8 {
+        if (supports_posix_memalign) {
+            // The minimum alignment supported posix_memalign is the pointer size
+            const eff_alignment = std.math.max(alignment, @sizeOf(usize));
+
+            var aligned_ptr: ?*c_void = undefined;
+            if (c.posix_memalign(&aligned_ptr, eff_alignment, len) != 0)
+                return null;
+
+            return @ptrCast([*]u8, aligned_ptr);
         }
 
-        var aligned_ptr: ?*c_void = undefined;
-        if (c.posix_memalign(&aligned_ptr, eff_alignment, len) != 0)
-            return null;
+        // Thin wrapper around regular malloc, overallocate to account for
+        // alignment padding and store the orignal malloc()'ed pointer before
+        // the aligned address.
+        var unaligned_ptr = @ptrCast([*]u8, c.malloc(len + alignment - 1 + @sizeOf(usize)) orelse return null);
+        const unaligned_addr = @ptrToInt(unaligned_ptr);
+        const aligned_addr = mem.alignForward(unaligned_addr + @sizeOf(usize), alignment);
+        var aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
+        get_header(aligned_ptr).* = unaligned_ptr;
+
         return aligned_ptr;
     }
 
-    fn aligned_free(ptr: *c_void) void {
-        if (builtin.os.tag == .windows) {
-            return c._aligned_free(ptr);
+    fn aligned_free(ptr: [*]u8) void {
+        if (supports_posix_memalign) {
+            return c.free(ptr);
         }
-        c.free(ptr);
+
+        const unaligned_ptr = get_header(ptr).*;
+        c.free(unaligned_ptr);
+    }
+
+    fn aligned_alloc_size(ptr: [*]u8) usize {
+        if (supports_posix_memalign) {
+            return malloc_size(ptr);
+        }
+
+        const unaligned_ptr = get_header(ptr).*;
+        const delta = @ptrToInt(ptr) - @ptrToInt(unaligned_ptr);
+        return malloc_size(unaligned_ptr) - delta;
     }
 
     fn alloc(
@@ -81,23 +107,18 @@ const CAllocator = struct {
         assert(len > 0);
         assert(std.math.isPowerOfTwo(alignment));
 
-        var ptr = if (alignment <= min_ptr_alignment)
-            @ptrCast([*]u8, c.malloc(len) orelse return error.OutOfMemory)
-        else
-            @ptrCast([*]u8, aligned_alloc(len, alignment) orelse return error.OutOfMemory);
-
-        if (len_align == 0)
+        var ptr = aligned_alloc(len, alignment) orelse return error.OutOfMemory;
+        if (len_align == 0) {
             return ptr[0..len];
-
+        }
         const full_len = init: {
             if (supports_malloc_size) {
-                const s = malloc_size(ptr);
+                const s = aligned_alloc_size(ptr);
                 assert(s >= len);
                 break :init s;
             }
             break :init len;
         };
-
         return ptr[0..mem.alignBackwardAnyAlign(full_len, len_align)];
     }
 
@@ -110,17 +131,14 @@ const CAllocator = struct {
         return_address: usize,
     ) Allocator.Error!usize {
         if (new_len == 0) {
-            if (buf_align <= min_ptr_alignment)
-                c.free(buf.ptr)
-            else
-                aligned_free(buf.ptr);
+            aligned_free(buf.ptr);
             return 0;
         }
         if (new_len <= buf.len) {
             return mem.alignAllocLen(buf.len, new_len, len_align);
         }
         if (supports_malloc_size) {
-            const full_len = malloc_size(buf.ptr);
+            const full_len = aligned_alloc_size(buf.ptr);
             if (new_len <= full_len) {
                 return mem.alignAllocLen(full_len, new_len, len_align);
             }
