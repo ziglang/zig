@@ -1591,9 +1591,34 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         new_argv[i] = try arena.dupeZ(u8, arg);
     }
 
+    var stderr_context: LLDContext = .{
+        .elf = self,
+        .data = std.ArrayList(u8).init(self.base.allocator),
+    };
+    defer stderr_context.data.deinit();
+    var stdout_context: LLDContext = .{
+        .elf = self,
+        .data = std.ArrayList(u8).init(self.base.allocator),
+    };
+    defer stdout_context.data.deinit();
     const llvm = @import("../llvm.zig");
-    const ok = llvm.Link(.ELF, new_argv.ptr, new_argv.len, append_diagnostic, 0, 0);
-    if (!ok) return error.LLDReportedFailure;
+    const ok = llvm.Link(.ELF, new_argv.ptr, new_argv.len, append_diagnostic,
+        @ptrToInt(&stdout_context),
+        @ptrToInt(&stderr_context),
+    );
+    if (stderr_context.oom or stdout_context.oom) return error.OutOfMemory;
+    if (stdout_context.data.items.len != 0) {
+        std.log.warn("unexpected LLD stdout: {}", .{stdout_context.data.items});
+    }
+    if (!ok) {
+        // TODO parse this output and surface with the Compilation API rather than
+        // directly outputting to stderr here.
+        std.debug.print("{}", .{stderr_context.data.items});
+        return error.LLDReportedFailure;
+    }
+    if (stderr_context.data.items.len != 0) {
+        std.log.warn("unexpected LLD stderr: {}", .{stderr_context.data.items});
+    }
 
     // Update the dangling symlink with the digest. If it fails we can continue; it only
     // means that the next invocation will have an unnecessary cache miss.
@@ -1609,10 +1634,18 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     self.base.lock = ch.toOwnedLock();
 }
 
+const LLDContext = struct {
+    data: std.ArrayList(u8),
+    elf: *Elf,
+    oom: bool = false,
+};
+
 fn append_diagnostic(context: usize, ptr: [*]const u8, len: usize) callconv(.C) void {
-    // TODO collect diagnostics and handle cleanly
+    const lld_context = @intToPtr(*LLDContext, context);
     const msg = ptr[0..len];
-    std.log.err("LLD: {}", .{msg});
+    lld_context.data.appendSlice(msg) catch |err| switch (err) {
+        error.OutOfMemory => lld_context.oom = true,
+    };
 }
 
 fn writeDwarfAddrAssumeCapacity(self: *Elf, buf: *std.ArrayList(u8), addr: u64) void {

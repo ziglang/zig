@@ -1,5 +1,4 @@
  * musl
- * implement proper parsing of LLD stderr/stdout and exposing compile errors
  * tests passing with -Dskip-non-native
  * windows CUSTOMBUILD : error : unable to build compiler_rt: FileNotFound [D:\a\1\s\build\zig_install_lib_files.vcxproj]
  * repair @cImport
@@ -23,10 +22,11 @@
    (maybe make it an explicit option and have main.zig disable it)
  * audit the CLI options for stage2
  * audit the base cache hash
- * implement proper parsing of clang stderr/stdout and exposing compile errors
  * On operating systems that support it, do an execve for `zig test` and `zig run` rather than child process.
  * restore error messages for stage2_add_link_lib
 
+ * implement proper parsing of clang stderr/stdout and exposing compile errors with the Compilation API
+ * implement proper parsing of LLD stderr/stdout and exposing compile errors with the Compilation API
  * support cross compiling stage2 with `zig build`
  * implement proper compile errors for failing to build glibc crt files and shared libs
  * implement -fno-emit-bin
