@@ -215,6 +215,8 @@ const usage_build_generic =
     \\    ReleaseFast             Optimizations on, safety off
     \\    ReleaseSafe             Optimizations on, safety on
     \\    ReleaseSmall            Optimize for small binary, safety off
+    \\  --pkg-begin [name] [path] Make pkg available to import and push current pkg
+    \\  --pkg-end                 Pop current pkg
     \\  -fPIC                     Force-enable Position Independent Code
     \\  -fno-PIC                  Force-disable Position Independent Code
     \\  -fstack-check             Enable stack probing in unsafe builds
@@ -397,6 +399,13 @@ pub fn buildOutputType(
     var test_exec_args = std.ArrayList(?[]const u8).init(gpa);
     defer test_exec_args.deinit();
 
+    var root_pkg_memory: Package = .{
+        .root_src_directory = undefined,
+        .root_src_path = undefined,
+    };
+    defer root_pkg_memory.table.deinit(gpa);
+    var cur_pkg: *Package = &root_pkg_memory;
+
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {
             output_mode = switch (arg_mode) {
@@ -427,6 +436,33 @@ pub fn buildOutputType(
                         } else {
                             fatal("unexpected end-of-parameter mark: --", .{});
                         }
+                    } else if (mem.eql(u8, arg, "--pkg-begin")) {
+                        if (i + 2 >= args.len) fatal("Expected 2 arguments after {}", .{arg});
+                        i += 1;
+                        const pkg_name = args[i];
+                        i += 1;
+                        const pkg_path = args[i];
+
+                        const new_cur_pkg = try arena.create(Package);
+                        new_cur_pkg.* = .{
+                            .root_src_directory = if (fs.path.dirname(pkg_path)) |dirname|
+                                .{
+                                    .path = dirname,
+                                    .handle = try fs.cwd().openDir(dirname, .{}), // TODO close this fd
+                                }
+                            else
+                                .{
+                                    .path = null,
+                                    .handle = fs.cwd(),
+                                },
+                            .root_src_path = fs.path.basename(pkg_path),
+                            .parent = cur_pkg,
+                        };
+                        try cur_pkg.table.put(gpa, pkg_name, new_cur_pkg);
+                        cur_pkg = new_cur_pkg;
+                    } else if (mem.eql(u8, arg, "--pkg-end")) {
+                        cur_pkg = cur_pkg.parent orelse
+                            fatal("encountered --pkg-end with no matching --pkg-begin", .{});
                     } else if (mem.eql(u8, arg, "--color")) {
                         if (i + 1 >= args.len) {
                             fatal("expected [auto|on|off] after --color", .{});
@@ -1212,12 +1248,9 @@ pub fn buildOutputType(
         .yes => |p| p,
     };
 
-    var root_pkg_memory: Package = undefined;
     const root_pkg: ?*Package = if (root_src_file) |src_path| blk: {
-        root_pkg_memory = .{
-            .root_src_directory = .{ .path = null, .handle = fs.cwd() },
-            .root_src_path = src_path,
-        };
+        root_pkg_memory.root_src_directory = .{ .path = null, .handle = fs.cwd() };
+        root_pkg_memory.root_src_path = src_path;
         break :blk &root_pkg_memory;
     } else null;
 

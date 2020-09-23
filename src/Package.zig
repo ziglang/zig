@@ -4,6 +4,7 @@ root_src_directory: Compilation.Directory,
 /// Relative to `root_src_directory`. May contain path separators.
 root_src_path: []const u8,
 table: Table = .{},
+parent: ?*Package = null,
 
 const std = @import("std");
 const mem = std.mem;

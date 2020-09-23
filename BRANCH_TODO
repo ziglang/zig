@@ -1,3 +1,4 @@
+ * separate libzigcpp.a and libzigstage1.a so that we can do non-stage1 builds
  * repair @cImport
  * make sure zig cc works
    - using it as a preprocessor (-E)
@@ -19,7 +20,6 @@
  * COFF LLD linking
  * WASM LLD linking
  * --main-pkg-path
- * --pkg-begin, --pkg-end
  * skip LLD caching when bin directory is not in the cache (so we don't put `id.txt` into the cwd)
    (maybe make it an explicit option and have main.zig disable it)
  * audit the CLI options for stage2
@@ -60,3 +60,4 @@
    in builtin.zig
  * rename std.builtin.Mode to std.builtin.OptimizeMode
  * implement `zig run` and `zig test` when combined with `--watch`
+ * close the --pkg-begin --pkg-end Package directory handles

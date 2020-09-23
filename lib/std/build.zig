@@ -1950,7 +1950,6 @@ pub const LibExeObjStep = struct {
         for (self.link_objects.span()) |link_object| {
             switch (link_object) {
                 .StaticPath => |static_path| {
-                    try zig_args.append("--object");
                     try zig_args.append(builder.pathFromRoot(static_path));
                 },
 
@@ -1958,12 +1957,10 @@ pub const LibExeObjStep = struct {
                     .Exe => unreachable,
                     .Test => unreachable,
                     .Obj => {
-                        try zig_args.append("--object");
                         try zig_args.append(other.getOutputPath());
                     },
                     .Lib => {
                         if (!other.is_dynamic or self.target.isWindows()) {
-                            try zig_args.append("--object");
                             try zig_args.append(other.getOutputLibPath());
                         } else {
                             const full_path_lib = other.getOutputPath();
@@ -1982,7 +1979,6 @@ pub const LibExeObjStep = struct {
                     try zig_args.append(name);
                 },
                 .AssemblyFile => |asm_file| {
-                    try zig_args.append("--c-source");
                     try zig_args.append(asm_file.getPath(builder));
                 },
                 .CSourceFile => |c_source_file| {
