@@ -1516,7 +1516,7 @@ pub fn buildOutputType(
     var repl_buf: [1024]u8 = undefined;
 
     while (watch) {
-        try stderr.print("🦎 ", .{});
+        try stderr.print("(zig) ", .{});
         if (output_mode == .Exe) {
             try comp.makeBinFileExecutable();
         }
