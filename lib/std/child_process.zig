@@ -367,6 +367,7 @@ pub const ChildProcess = struct {
                 error.FileTooBig => unreachable,
                 error.DeviceBusy => unreachable,
                 error.FileLocksNotSupported => unreachable,
+                error.WouldBlock => unreachable,
                 error.BadPathName => unreachable, // Windows-only
                 else => |e| return e,
             }

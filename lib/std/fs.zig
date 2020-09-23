@@ -855,8 +855,8 @@ pub const Dir = struct {
             0;
         const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
             .None => @as(u32, 0),
-            .Shared => os.O_SHLOCK,
-            .Exclusive => os.O_EXLOCK,
+            .Shared => os.O_SHLOCK | nonblocking_lock_flag,
+            .Exclusive => os.O_EXLOCK | nonblocking_lock_flag,
         } else 0;
 
         const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
@@ -1170,6 +1170,7 @@ pub const Dir = struct {
             error.NoSpaceLeft => unreachable, // not providing O_CREAT
             error.PathAlreadyExists => unreachable, // not providing O_CREAT
             error.FileLocksNotSupported => unreachable, // locking folders is not supported
+            error.WouldBlock => unreachable, // FreeBSD only
             else => |e| return e,
         };
         return Dir{ .fd = fd };
@@ -1213,6 +1214,7 @@ pub const Dir = struct {
             error.NoSpaceLeft => unreachable, // not providing O_CREAT
             error.PathAlreadyExists => unreachable, // not providing O_CREAT
             error.FileLocksNotSupported => unreachable, // locking folders is not supported
+            error.WouldBlock => unreachable, // locking folders is not supported
             else => |e| return e,
         };
         return Dir{ .fd = fd };
