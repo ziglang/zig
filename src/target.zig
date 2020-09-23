@@ -128,6 +128,20 @@ pub fn osRequiresLibC(target: std.Target) bool {
     };
 }
 
+pub fn libcNeedsLibUnwind(target: std.Target) bool {
+    return switch (target.os.tag) {
+        .windows,
+        .macosx,
+        .ios,
+        .watchos,
+        .tvos,
+        .freestanding,
+        => false,
+
+        else => true,
+    };
+}
+
 pub fn requiresPIE(target: std.Target) bool {
     return target.isAndroid();
 }
