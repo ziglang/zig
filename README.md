@@ -73,6 +73,11 @@ in which case try `-DZIG_WORKAROUND_4799=ON`
 
 Hopefully this will be fixed upstream with LLVM 10.0.1.
 
+Building with LLVM 10.0.1 you might run into this problem:
+`ld: library not found for -llibxml2.tbd`
+[Building with LLVM 10.0.1 installed via Homebrew fails](https://github.com/ziglang/zig/issues/6087),
+in which case you can try `-DZIG_WORKAROUND_6087=ON`.
+
 ##### Windows
 
 See https://github.com/ziglang/zig/wiki/Building-Zig-on-Windows
