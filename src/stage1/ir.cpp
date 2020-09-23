@@ -25564,7 +25564,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Fn", nullptr);
 
-                ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 5);
+                ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 6);
                 result->data.x_struct.fields = fields;
 
                 // calling_convention: TypeInfo.CallingConvention
@@ -25572,30 +25572,35 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 fields[0]->special = ConstValSpecialStatic;
                 fields[0]->type = get_builtin_type(ira->codegen, "CallingConvention");
                 bigint_init_unsigned(&fields[0]->data.x_enum_tag, type_entry->data.fn.fn_type_id.cc);
-                // is_generic: bool
-                ensure_field_index(result->type, "is_generic", 1);
-                bool is_generic = type_entry->data.fn.is_generic;
+                // alignment: u29
+                ensure_field_index(result->type, "alignment", 1);
                 fields[1]->special = ConstValSpecialStatic;
-                fields[1]->type = ira->codegen->builtin_types.entry_bool;
-                fields[1]->data.x_bool = is_generic;
-                // is_varargs: bool
-                ensure_field_index(result->type, "is_var_args", 2);
-                bool is_varargs = type_entry->data.fn.fn_type_id.is_var_args;
+                fields[1]->type = ira->codegen->builtin_types.entry_u29;
+                bigint_init_unsigned(&fields[1]->data.x_bigint, type_entry->data.fn.fn_type_id.alignment);
+                // is_generic: bool
+                ensure_field_index(result->type, "is_generic", 2);
+                bool is_generic = type_entry->data.fn.is_generic;
                 fields[2]->special = ConstValSpecialStatic;
                 fields[2]->type = ira->codegen->builtin_types.entry_bool;
-                fields[2]->data.x_bool = type_entry->data.fn.fn_type_id.is_var_args;
-                // return_type: ?type
-                ensure_field_index(result->type, "return_type", 3);
+                fields[2]->data.x_bool = is_generic;
+                // is_varargs: bool
+                ensure_field_index(result->type, "is_var_args", 3);
+                bool is_varargs = type_entry->data.fn.fn_type_id.is_var_args;
                 fields[3]->special = ConstValSpecialStatic;
-                fields[3]->type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
+                fields[3]->type = ira->codegen->builtin_types.entry_bool;
+                fields[3]->data.x_bool = is_varargs;
+                // return_type: ?type
+                ensure_field_index(result->type, "return_type", 4);
+                fields[4]->special = ConstValSpecialStatic;
+                fields[4]->type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
                 if (type_entry->data.fn.fn_type_id.return_type == nullptr)
-                    fields[3]->data.x_optional = nullptr;
+                    fields[4]->data.x_optional = nullptr;
                 else {
                     ZigValue *return_type = ira->codegen->pass1_arena->create<ZigValue>();
                     return_type->special = ConstValSpecialStatic;
                     return_type->type = ira->codegen->builtin_types.entry_type;
                     return_type->data.x_type = type_entry->data.fn.fn_type_id.return_type;
-                    fields[3]->data.x_optional = return_type;
+                    fields[4]->data.x_optional = return_type;
                 }
                 // args: []TypeInfo.FnArg
                 ZigType *type_info_fn_arg_type = ir_type_info_get_type(ira, "FnArg", nullptr);
@@ -25611,7 +25616,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 fn_arg_array->data.x_array.special = ConstArraySpecialNone;
                 fn_arg_array->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(fn_arg_count);
 
-                init_const_slice(ira->codegen, fields[4], fn_arg_array, 0, fn_arg_count, false);
+                init_const_slice(ira->codegen, fields[5], fn_arg_array, 0, fn_arg_count, false);
 
                 for (size_t fn_arg_index = 0; fn_arg_index < fn_arg_count; fn_arg_index++) {
                     FnTypeParamInfo *fn_param_info = &type_entry->data.fn.fn_type_id.param_info[fn_arg_index];
