@@ -687,9 +687,14 @@ pub const Loop = struct {
 
             switch (builtin.os.tag) {
                 .linux => {
-                    // writing 8 bytes to an eventfd cannot fail
-                    const amt = os.write(self.os_data.final_eventfd, &wakeup_bytes) catch unreachable;
-                    assert(amt == wakeup_bytes.len);
+                    // writing to the eventfd will only wake up one thread, thus multiple writes
+                    // are needed to wakeup all the threads
+                    var i: usize = 0;
+                    while (i < self.extra_threads.len + 1) : (i += 1) {
+                        // writing 8 bytes to an eventfd cannot fail
+                        const amt = os.write(self.os_data.final_eventfd, &wakeup_bytes) catch unreachable;
+                        assert(amt == wakeup_bytes.len);
+                    }
                     return;
                 },
                 .macosx, .freebsd, .netbsd, .dragonfly => {
