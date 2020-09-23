@@ -1,5 +1,10 @@
+ * --main-pkg-path
+ * add CLI support for a way to pass extra flags to c source files
+ * musl
+ * support rpaths in ELF linker code
+ * implement proper parsing of LLD stderr/stdout and exposing compile errors
+ * tests passing with -Dskip-non-native
  * windows CUSTOMBUILD : error : unable to build compiler_rt: FileNotFound [D:\a\1\s\build\zig_install_lib_files.vcxproj]
- * separate libzigcpp.a and libzigstage1.a so that we can do non-stage1 builds
  * repair @cImport
  * make sure zig cc works
    - using it as a preprocessor (-E)
@@ -13,23 +18,17 @@
  *  -fno-emit-asm                (default) do not output .s (assembly code)\n"
  *  -femit-llvm-ir               produce a .ll file with LLVM IR\n"
  *  -fno-emit-llvm-ir            (default) do not produce a .ll file with LLVM IR\n"
- * support rpaths in ELF linker code
- * add CLI support for a way to pass extra flags to c source files
- * musl
  * mingw-w64
  * MachO LLD linking
  * COFF LLD linking
  * WASM LLD linking
- * --main-pkg-path
  * skip LLD caching when bin directory is not in the cache (so we don't put `id.txt` into the cwd)
    (maybe make it an explicit option and have main.zig disable it)
  * audit the CLI options for stage2
  * audit the base cache hash
- * implement proper parsing of LLD stderr/stdout and exposing compile errors
  * implement proper parsing of clang stderr/stdout and exposing compile errors
  * On operating systems that support it, do an execve for `zig test` and `zig run` rather than child process.
  * restore error messages for stage2_add_link_lib
- * update std/build.zig to use new CLI
 
  * support cross compiling stage2 with `zig build`
  * implement proper compile errors for failing to build glibc crt files and shared libs

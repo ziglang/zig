@@ -270,7 +270,7 @@ fn fileExists(filename: []const u8) !bool {
 fn addCppLib(b: *Builder, lib_exe_obj: anytype, cmake_binary_dir: []const u8, lib_name: []const u8) void {
     lib_exe_obj.addObjectFile(fs.path.join(b.allocator, &[_][]const u8{
         cmake_binary_dir,
-        "zig_cpp",
+        "zigcpp",
         b.fmt("{}{}{}", .{ lib_exe_obj.target.libPrefix(), lib_name, lib_exe_obj.target.staticLibSuffix() }),
     }) catch unreachable);
 }
@@ -352,7 +352,7 @@ fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
 fn configureStage2(b: *Builder, exe: anytype, ctx: Context, need_cpp_includes: bool) !void {
     exe.addIncludeDir("src");
     exe.addIncludeDir(ctx.cmake_binary_dir);
-    addCppLib(b, exe, ctx.cmake_binary_dir, "zig_cpp");
+    addCppLib(b, exe, ctx.cmake_binary_dir, "zigcpp");
     assert(ctx.lld_include_dir.len != 0);
     exe.addIncludeDir(ctx.lld_include_dir);
     {

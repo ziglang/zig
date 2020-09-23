@@ -89,7 +89,7 @@ if(APPLE AND ZIG_WORKAROUND_4799)
   list(APPEND LLVM_LIBRARIES "-Wl,${CMAKE_PREFIX_PATH}/lib/libPolly.a" "-Wl,${CMAKE_PREFIX_PATH}/lib/libPollyPPCG.a" "-Wl,${CMAKE_PREFIX_PATH}/lib/libPollyISL.a")
 endif()
 
-set(ZIG_CPP_LIB_DIR "${CMAKE_BINARY_DIR}/zig_cpp")
+set(ZIG_CPP_LIB_DIR "${CMAKE_BINARY_DIR}/zigcpp")
 
 # Handle multi-config builds and place each into a common lib. The VS generator
 # for example will append a Debug folder by default if not explicitly specified.
@@ -260,7 +260,7 @@ set(ZIG0_SOURCES
     "${CMAKE_SOURCE_DIR}/src/stage1/zig0.cpp"
 )
 
-set(ZIG_SOURCES
+set(STAGE1_SOURCES
     "${CMAKE_SOURCE_DIR}/src/stage1/analyze.cpp"
     "${CMAKE_SOURCE_DIR}/src/stage1/ast_render.cpp"
     "${CMAKE_SOURCE_DIR}/src/stage1/bigfloat.cpp"
@@ -392,21 +392,19 @@ if(ZIG_TEST_COVERAGE)
     set(EXE_LDFLAGS "${EXE_LDFLAGS} -fprofile-arcs -ftest-coverage")
 endif()
 
-add_library(zig_cpp STATIC ${ZIG_SOURCES} ${ZIG_CPP_SOURCES})
-set_target_properties(zig_cpp PROPERTIES
+add_library(zigcpp STATIC ${ZIG_CPP_SOURCES})
+set_target_properties(zigcpp PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
 )
 
-target_link_libraries(zig_cpp LINK_PUBLIC
-    opt_c_util
-    ${SOFTFLOAT_LIBRARIES}
+target_link_libraries(zigcpp LINK_PUBLIC
     ${CLANG_LIBRARIES}
     ${LLD_LIBRARIES}
     ${LLVM_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
 if(ZIG_WORKAROUND_POLLY_SO)
-  target_link_libraries(zig_cpp LINK_PUBLIC "-Wl,${ZIG_WORKAROUND_POLLY_SO}")
+  target_link_libraries(zigcpp LINK_PUBLIC "-Wl,${ZIG_WORKAROUND_POLLY_SO}")
 endif()
 
 add_library(opt_c_util STATIC ${OPTIMIZED_C_SOURCES})
@@ -414,16 +412,26 @@ set_target_properties(opt_c_util PROPERTIES
     COMPILE_FLAGS "${OPTIMIZED_C_FLAGS}"
 )
 
+add_library(zigstage1 STATIC ${STAGE1_SOURCES})
+set_target_properties(zigstage1 PROPERTIES
+    COMPILE_FLAGS ${EXE_CFLAGS}
+    LINK_FLAGS ${EXE_LDFLAGS}
+)
+target_link_libraries(zigstage1 LINK_PUBLIC
+    opt_c_util
+    ${SOFTFLOAT_LIBRARIES}
+    zigcpp
+)
 if(NOT MSVC)
-    target_link_libraries(zig_cpp LINK_PUBLIC ${LIBXML2})
+    target_link_libraries(zigstage1 LINK_PUBLIC ${LIBXML2})
 endif()
 
 if(ZIG_DIA_GUIDS_LIB)
-    target_link_libraries(zig_cpp LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
+    target_link_libraries(zigstage1 LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
 endif()
 
 if(MSVC OR MINGW)
-    target_link_libraries(zig_cpp LINK_PUBLIC version)
+    target_link_libraries(zigstage1 LINK_PUBLIC version)
 endif()
 
 add_executable(zig0 ${ZIG0_SOURCES})
@@ -431,7 +439,7 @@ set_target_properties(zig0 PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-target_link_libraries(zig0 zig_cpp)
+target_link_libraries(zig0 zigstage1)
 
 if(MSVC)
     set(ZIG1_OBJECT "${CMAKE_BINARY_DIR}/zig1.obj")
@@ -487,7 +495,7 @@ set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-target_link_libraries(zig "${ZIG1_OBJECT}" zig_cpp)
+target_link_libraries(zig "${ZIG1_OBJECT}" zigstage1)
 if(MSVC)
   target_link_libraries(zig ntdll.lib)
 elseif(MINGW)
