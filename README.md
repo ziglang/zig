@@ -71,7 +71,7 @@ or
 [error: unable to create target: 'Unable to find target for this triple (no targets are registered)'](https://github.com/ziglang/zig/issues/5055),
 in which case try `-DZIG_WORKAROUND_4799=ON`
 
-Hopefully this will be fixed upstream with LLVM 10.0.1.
+This has been fixed upstream with LLVM 10.0.1.
 
 Building with LLVM 10.0.1 you might run into this problem:
 `ld: library not found for -llibxml2.tbd`
