@@ -1,4 +1,3 @@
- * --main-pkg-path
  * add CLI support for a way to pass extra flags to c source files
  * musl
  * support rpaths in ELF linker code

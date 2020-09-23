@@ -2248,10 +2248,12 @@ fn updateStage1Module(comp: *Compilation) !void {
 
     comp.stage1_cache_hash = &ch;
 
+    const main_pkg_path = mod.root_pkg.root_src_directory.path orelse "";
+
     const stage1_module = stage1.create(
         @enumToInt(comp.bin_file.options.optimize_mode),
-        undefined,
-        0, // TODO --main-pkg-path
+        main_pkg_path.ptr,
+        main_pkg_path.len,
         main_zig_file.ptr,
         main_zig_file.len,
         zig_lib_dir.ptr,

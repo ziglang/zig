@@ -217,6 +217,7 @@ const usage_build_generic =
     \\    ReleaseSmall            Optimize for small binary, safety off
     \\  --pkg-begin [name] [path] Make pkg available to import and push current pkg
     \\  --pkg-end                 Pop current pkg
+    \\  --main-pkg-path           Set the directory of the root package
     \\  -fPIC                     Force-enable Position Independent Code
     \\  -fno-PIC                  Force-disable Position Independent Code
     \\  -fstack-check             Enable stack probing in unsafe builds
@@ -234,8 +235,8 @@ const usage_build_generic =
     \\    c                       Compile to C source code
     \\    wasm                    WebAssembly
     \\    pe                      Portable Executable (Windows)
-    \\    coff   (planned)        Common Object File Format (Windows)
-    \\    macho  (planned)        macOS relocatables
+    \\    coff                    Common Object File Format (Windows)
+    \\    macho                   macOS relocatables
     \\    hex    (planned)        Intel IHEX
     \\    raw    (planned)        Dump machine code directly
     \\  -dirafter [dir]           Add directory to AFTER include search path
@@ -367,6 +368,7 @@ pub fn buildOutputType(
     var override_local_cache_dir: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = null;
     var override_lib_dir: ?[]const u8 = null;
+    var main_pkg_path: ?[]const u8 = null;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -463,6 +465,10 @@ pub fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--pkg-end")) {
                         cur_pkg = cur_pkg.parent orelse
                             fatal("encountered --pkg-end with no matching --pkg-begin", .{});
+                    } else if (mem.eql(u8, arg, "--main-pkg-path")) {
+                        if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
+                        i += 1;
+                        main_pkg_path = args[i];
                     } else if (mem.eql(u8, arg, "--color")) {
                         if (i + 1 >= args.len) {
                             fatal("expected [auto|on|off] after --color", .{});
@@ -1248,8 +1254,18 @@ pub fn buildOutputType(
         .yes => |p| p,
     };
 
+    var cleanup_root_dir: ?fs.Dir = null;
+    defer if (cleanup_root_dir) |*dir| dir.close();
+
     const root_pkg: ?*Package = if (root_src_file) |src_path| blk: {
-        root_pkg_memory.root_src_directory = .{ .path = null, .handle = fs.cwd() };
+        root_pkg_memory.root_src_directory = m: {
+            if (main_pkg_path) |p| {
+                const dir = try fs.cwd().openDir(p, .{});
+                cleanup_root_dir = dir;
+                break :m .{ .path = p, .handle = dir };
+            }
+            break :m .{ .path = null, .handle = fs.cwd() };
+        };
         root_pkg_memory.root_src_path = src_path;
         break :blk &root_pkg_memory;
     } else null;
