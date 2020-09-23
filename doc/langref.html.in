@@ -8467,30 +8467,23 @@ test "integer truncation" {
           <li>{#syntax#}@TypeOf(null){#endsyntax#}</li>
           <li>{#link|Arrays#}</li>
           <li>{#link|Optionals#}</li>
+          <li>{#link|Error Set Type#}</li>
           <li>{#link|Error Union Type#}</li>
           <li>{#link|Vectors#}</li>
           <li>{#link|Opaque Types#}</li>
-          <li>AnyFrame</li>
-      </ul>
-      <p>
-      For these types it is a
-      <a href="https://github.com/ziglang/zig/issues/2907">TODO in the compiler to implement</a>:
-      </p>
-      <ul>
-          <li>ErrorSet</li>
-          <li>Enum</li>
-          <li>FnFrame</li>
-          <li>EnumLiteral</li>
-      </ul>
-      <p>
-      For these types, {#syntax#}@Type{#endsyntax#} is not available.
-      <a href="https://github.com/ziglang/zig/issues/383">There is an open proposal to allow unions and structs</a>.
-      </p>
-      <ul>
+          <li>{#link|@Frame#}</li>
+          <li>{#syntax#}anyframe{#endsyntax#}</li>
+          <li>{#link|struct#}</li>
+          <li>{#link|enum#}</li>
+          <li>{#link|Enum Literals#}</li>
           <li>{#link|union#}</li>
+      </ul>
+      <p>
+      For these types, {#syntax#}@Type{#endsyntax#} is not available:
+      </p>
+      <ul>
           <li>{#link|Functions#}</li>
           <li>BoundFn</li>
-          <li>{#link|struct#}</li>
       </ul>
       {#header_close#}
       {#header_open|@typeInfo#}
