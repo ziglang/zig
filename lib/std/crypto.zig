@@ -59,6 +59,13 @@ pub const pwhash = struct {
 pub const core = struct {
     pub const aes = @import("crypto/aes.zig");
     pub const Gimli = @import("crypto/gimli.zig").State;
+
+    /// Modes are generic compositions to construct encryption/decryption functions from block ciphers and permutations.
+    ///
+    /// These modes are designed to be building blocks for higher-level constructions, and should generally not be used directly by applications, as they may not provide the expected properties and security guarantees.
+    ///
+    /// Most applications may want to use AEADs instead.
+    pub const modes = @import("crypto/modes.zig");
 };
 
 /// Elliptic-curve arithmetic.
@@ -111,6 +118,7 @@ test "crypto" {
     _ = @import("crypto/gimli.zig");
     _ = @import("crypto/hmac.zig");
     _ = @import("crypto/md5.zig");
+    _ = @import("crypto/modes.zig");
     _ = @import("crypto/pbkdf2.zig");
     _ = @import("crypto/poly1305.zig");
     _ = @import("crypto/sha1.zig");
