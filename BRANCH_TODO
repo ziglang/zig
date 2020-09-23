@@ -1,4 +1,3 @@
- * support rpaths in ELF linker code
  * musl
  * implement proper parsing of LLD stderr/stdout and exposing compile errors
  * tests passing with -Dskip-non-native

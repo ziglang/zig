@@ -251,6 +251,7 @@ const usage_build_generic =
     \\  -L[d], --library-directory [d] Add a directory to the library search path
     \\  -T[script]                     Use a custom linker script
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
+    \\  --each-lib-rpath               Add rpath for each used dynamic library
     \\  --version [ver]                Dynamic library semver
     \\  -rdynamic                      Add all symbols to the dynamic symbol table
     \\  -rpath [path]                  Add directory to the runtime library search path
@@ -361,6 +362,7 @@ pub fn buildOutputType(
     var use_lld: ?bool = null;
     var use_clang: ?bool = null;
     var link_eh_frame_hdr = false;
+    var each_lib_rpath = false;
     var libc_paths_file: ?[]const u8 = null;
     var machine_code_model: std.builtin.CodeModel = .default;
     var runtime_args_start: ?usize = null;
@@ -613,6 +615,8 @@ pub fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
                         override_lib_dir = args[i];
+                    } else if (mem.eql(u8, arg, "--each-lib-rpath")) {
+                        each_lib_rpath = true;
                     } else if (mem.eql(u8, arg, "--enable-cache")) {
                         enable_cache = true;
                     } else if (mem.eql(u8, arg, "--test-cmd-bin")) {
@@ -1421,6 +1425,7 @@ pub fn buildOutputType(
         .color = color,
         .time_report = time_report,
         .is_test = arg_mode == .zig_test,
+        .each_lib_rpath = each_lib_rpath,
         .test_evented_io = test_evented_io,
         .test_filter = test_filter,
         .test_name_prefix = test_name_prefix,

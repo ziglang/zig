@@ -316,6 +316,7 @@ pub const InitOptions = struct {
     function_sections: ?bool = null,
     linker_allow_shlib_undefined: ?bool = null,
     linker_bind_global_refs_locally: ?bool = null,
+    each_lib_rpath: ?bool = null,
     disable_c_depfile: bool = false,
     linker_z_nodelete: bool = false,
     linker_z_defs: bool = false,
@@ -714,6 +715,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .error_return_tracing = error_return_tracing,
             .llvm_cpu_features = llvm_cpu_features,
             .is_compiler_rt_or_libc = options.is_compiler_rt_or_libc,
+            .each_lib_rpath = options.each_lib_rpath orelse false,
         });
         errdefer bin_file.destroy();
         comp.* = .{

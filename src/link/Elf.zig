@@ -1272,6 +1272,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     ch.hash.add(self.base.options.rdynamic);
     ch.hash.addListOfBytes(self.base.options.extra_lld_args);
     ch.hash.addListOfBytes(self.base.options.lib_dirs);
+    ch.hash.addListOfBytes(self.base.options.rpath_list);
+    ch.hash.add(self.base.options.each_lib_rpath);
     ch.hash.add(self.base.options.is_compiler_rt_or_libc);
     ch.hash.add(self.base.options.z_nodelete);
     ch.hash.add(self.base.options.z_defs);
@@ -1392,7 +1394,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     }
 
     const full_out_path = if (directory.path) |dir_path|
-        try std.fs.path.join(arena, &[_][]const u8{dir_path, self.base.options.sub_path})
+        try fs.path.join(arena, &[_][]const u8{dir_path, self.base.options.sub_path})
     else 
         self.base.options.sub_path;
     try argv.append("-o");
@@ -1420,32 +1422,34 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         }
     }
 
-    // TODO rpaths
-    // TODO add to cache hash above too
-    //for (size_t i = 0; i < g->rpath_list.length; i += 1) {
-    //    Buf *rpath = g->rpath_list.at(i);
-    //    add_rpath(lj, rpath);
-    //}
-    //if (g->each_lib_rpath) {
-    //    for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
-    //        const char *lib_dir = g->lib_dirs.at(i);
-    //        for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
-    //            LinkLib *link_lib = g->link_libs_list.at(i);
-    //            if (buf_eql_str(link_lib->name, "c")) {
-    //                continue;
-    //            }
-    //            bool does_exist;
-    //            Buf *test_path = buf_sprintf("%s/lib%s.so", lib_dir, buf_ptr(link_lib->name));
-    //            if (os_file_exists(test_path, &does_exist) != ErrorNone) {
-    //                zig_panic("link: unable to check if file exists: %s", buf_ptr(test_path));
-    //            }
-    //            if (does_exist) {
-    //                add_rpath(lj, buf_create_from_str(lib_dir));
-    //                break;
-    //            }
-    //        }
-    //    }
-    //}
+    // rpaths
+    var rpath_table = std.StringHashMap(void).init(self.base.allocator);
+    defer rpath_table.deinit();
+    for (self.base.options.rpath_list) |rpath| {
+        if ((try rpath_table.fetchPut(rpath, {})) == null) {
+            try argv.append("-rpath");
+            try argv.append(rpath);
+        }
+    }
+    if (self.base.options.each_lib_rpath) {
+        var test_path = std.ArrayList(u8).init(self.base.allocator);
+        defer test_path.deinit();
+        for (self.base.options.lib_dirs) |lib_dir_path| {
+            for (self.base.options.system_libs) |link_lib| {
+                test_path.shrinkRetainingCapacity(0);
+                const sep = fs.path.sep_str;
+                try test_path.writer().print("{}" ++ sep ++ "lib{}.so", .{ lib_dir_path, link_lib });
+                fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+                    error.FileNotFound => continue,
+                    else => |e| return e,
+                };
+                if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
+                    try argv.append("-rpath");
+                    try argv.append(lib_dir_path);
+                }
+            }
+        }
+    }
 
     for (self.base.options.lib_dirs) |lib_dir| {
         try argv.append("-L");
