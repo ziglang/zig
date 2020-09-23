@@ -416,3 +416,24 @@ test "Type.Union from regular enum" {
     _ = T;
     _ = @typeInfo(T).Union;
 }
+
+test "Type.Fn" {
+    const foo = struct {
+        fn func(a: usize, b: bool) align(4) callconv(.C) usize {
+            return 0;
+        }
+    }.func;
+    const Foo = @Type(@typeInfo(@TypeOf(foo)));
+    const foo_2: Foo = foo;
+}
+
+test "Type.BoundFn" {
+    const TestStruct = packed struct {
+        pub fn foo(self: *const @This()) align(4) callconv(.Unspecified) void {}
+    };
+    const test_instance: TestStruct = undefined;
+    testing.expect(std.meta.eql(
+        @typeName(@TypeOf(test_instance.foo)),
+        @typeName(@Type(@typeInfo(@TypeOf(test_instance.foo)))),
+    ));
+}
