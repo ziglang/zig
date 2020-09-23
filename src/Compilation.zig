@@ -417,12 +417,14 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             return error.MachineCodeModelNotSupported;
         }
 
+        const link_libc = options.link_libc or target_util.osRequiresLibC(options.target);
+
         const must_dynamic_link = dl: {
             if (target_util.cannotDynamicLink(options.target))
                 break :dl false;
             if (target_util.osRequiresLibC(options.target))
                 break :dl true;
-            if (is_exe_or_dyn_lib and options.link_libc and options.target.isGnuLibC())
+            if (is_exe_or_dyn_lib and link_libc and options.target.isGnuLibC())
                 break :dl true;
             if (options.system_libs.len != 0)
                 break :dl true;
@@ -444,12 +446,12 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             options.zig_lib_directory.path.?,
             options.target,
             options.is_native_os,
-            options.link_libc,
+            link_libc,
             options.libc_installation,
         );
 
         const must_pic: bool = b: {
-            if (target_util.requiresPIC(options.target, options.link_libc))
+            if (target_util.requiresPIC(options.target, link_libc))
                 break :b true;
             break :b link_mode == .Dynamic;
         };
@@ -545,7 +547,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(link_mode);
         cache.hash.add(function_sections);
         cache.hash.add(options.strip);
-        cache.hash.add(options.link_libc);
+        cache.hash.add(link_libc);
         cache.hash.add(options.link_libcpp);
         cache.hash.add(options.output_mode);
         cache.hash.add(options.machine_code_model);
@@ -676,7 +678,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .optimize_mode = options.optimize_mode,
             .use_lld = use_lld,
             .use_llvm = use_llvm,
-            .link_libc = options.link_libc,
+            .link_libc = link_libc,
             .link_libcpp = options.link_libcpp,
             .objects = options.link_objects,
             .frameworks = options.frameworks,

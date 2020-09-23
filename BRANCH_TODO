@@ -1,3 +1,4 @@
+ * windows CUSTOMBUILD : error : unable to build compiler_rt: FileNotFound [D:\a\1\s\build\zig_install_lib_files.vcxproj]
  * separate libzigcpp.a and libzigstage1.a so that we can do non-stage1 builds
  * repair @cImport
  * make sure zig cc works
