@@ -31,11 +31,11 @@ pub export fn main(argc: c_int, argv: [*]const [*:0]const u8) c_int {
     defer arena_instance.deinit();
     const arena = &arena_instance.allocator;
 
-    const args = arena.alloc([]const u8, @intCast(usize, argc)) catch fatal("out of memory", .{});
+    const args = arena.alloc([]const u8, @intCast(usize, argc)) catch fatal("{}", .{"OutOfMemory"});
     for (args) |*arg, i| {
         arg.* = mem.spanZ(argv[i]);
     }
-    stage2.mainArgs(gpa, arena, args) catch |err| fatal("{}", .{err});
+    stage2.mainArgs(gpa, arena, args) catch |err| fatal("{}", .{@errorName(err)});
     return 0;
 }
 

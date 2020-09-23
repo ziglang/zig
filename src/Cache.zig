@@ -120,6 +120,13 @@ pub const HashHelper = struct {
         return copy.final();
     }
 
+    pub fn peekBin(hh: HashHelper) [bin_digest_len]u8 {
+        var copy = hh;
+        var bin_digest: [bin_digest_len]u8 = undefined;
+        copy.hasher.final(&bin_digest);
+        return bin_digest;
+    }
+
     /// Returns a hex encoded hash of the inputs, mutating the state of the hasher.
     pub fn final(hh: *HashHelper) [hex_digest_len]u8 {
         var bin_digest: [bin_digest_len]u8 = undefined;
@@ -338,19 +345,7 @@ pub const CacheHash = struct {
         if (any_file_changed) {
             // cache miss
             // keep the manifest file open
-            // reset the hash
-            self.hash.hasher = hasher_init;
-            self.hash.hasher.update(&bin_digest);
-
-            // Remove files not in the initial hash
-            for (self.files.items[input_file_count..]) |*file| {
-                file.deinit(self.cache.gpa);
-            }
-            self.files.shrinkRetainingCapacity(input_file_count);
-
-            for (self.files.items) |file| {
-                self.hash.hasher.update(&file.bin_digest);
-            }
+            self.unhit(bin_digest, input_file_count);
             return false;
         }
 
@@ -364,6 +359,22 @@ pub const CacheHash = struct {
         }
 
         return true;
+    }
+
+    pub fn unhit(self: *CacheHash, bin_digest: [bin_digest_len]u8, input_file_count: usize) void {
+        // Reset the hash.
+        self.hash.hasher = hasher_init;
+        self.hash.hasher.update(&bin_digest);
+
+        // Remove files not in the initial hash.
+        for (self.files.items[input_file_count..]) |*file| {
+            file.deinit(self.cache.gpa);
+        }
+        self.files.shrinkRetainingCapacity(input_file_count);
+
+        for (self.files.items) |file| {
+            self.hash.hasher.update(&file.bin_digest);
+        }
     }
 
     fn populateFileHash(self: *CacheHash, ch_file: *File) !void {

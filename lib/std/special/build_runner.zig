@@ -161,16 +161,16 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
             try fmt.allocPrint(allocator, "{} (default)", .{top_level_step.step.name})
         else
             top_level_step.step.name;
-        try out_stream.print("  {s:22} {}\n", .{ name, top_level_step.description });
+        try out_stream.print("  {s:<27} {}\n", .{ name, top_level_step.description });
     }
 
     try out_stream.writeAll(
         \\
         \\General Options:
-        \\  --help                 Print this help and exit
-        \\  --verbose              Print commands before executing them
-        \\  --prefix [path]        Override default install prefix
-        \\  --search-prefix [path] Add a path to look for binaries, libraries, headers
+        \\  --help                      Print this help and exit
+        \\  --verbose                   Print commands before executing them
+        \\  --prefix [path]             Override default install prefix
+        \\  --search-prefix [path]      Add a path to look for binaries, libraries, headers
         \\
         \\Project-Specific Options:
         \\
@@ -185,7 +185,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
                 Builder.typeIdName(option.type_id),
             });
             defer allocator.free(name);
-            try out_stream.print("{s:32} {}\n", .{ name, option.description });
+            try out_stream.print("{s:<29} {}\n", .{ name, option.description });
         }
     }
 

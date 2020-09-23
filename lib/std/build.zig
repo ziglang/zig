@@ -2294,8 +2294,7 @@ pub const LibExeObjStep = struct {
         if (self.kind == Kind.Test) {
             try builder.spawnChild(zig_args.span());
         } else {
-            try zig_args.append("--cache");
-            try zig_args.append("on");
+            try zig_args.append("--enable-cache");
 
             const output_dir_nl = try builder.execFromStep(zig_args.span(), &self.step);
             const build_output_dir = mem.trimRight(u8, output_dir_nl, "\r\n");

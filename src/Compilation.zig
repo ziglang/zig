@@ -2200,19 +2200,33 @@ fn updateStage1Module(comp: *Compilation) !void {
     ch.hash.add(comp.bin_file.options.function_sections);
     ch.hash.add(comp.is_test);
 
+    // Capture the state in case we come back from this branch where the hash doesn't match.
+    const prev_hash_state = ch.hash.peekBin();
+    const input_file_count = ch.files.items.len;
+
     if (try ch.hit()) {
         const digest = ch.final();
 
         var prev_digest_buf: [digest.len]u8 = undefined;
         const prev_digest: []u8 = directory.handle.readLink(id_symlink_basename, &prev_digest_buf) catch |err| blk: {
+            log.debug("stage1 {} new_digest={} readlink error: {}", .{ mod.root_pkg.root_src_path, digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
         if (mem.eql(u8, prev_digest, &digest)) {
+            log.debug("stage1 {} digest={} match - skipping invocation", .{ mod.root_pkg.root_src_path, digest });
             comp.stage1_lock = ch.toOwnedLock();
             return;
         }
+        log.debug("stage1 {} prev_digest={} new_digest={}", .{ mod.root_pkg.root_src_path, prev_digest, digest });
+        ch.unhit(prev_hash_state, input_file_count);
     }
+
+    // We are about to change the output file to be different, so we invalidate the build hash now.
+    directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => |e| return e,
+    };
 
     const stage2_target = try arena.create(stage1.Stage2Target);
     stage2_target.* = .{
@@ -2243,16 +2257,7 @@ fn updateStage1Module(comp: *Compilation) !void {
         comp.is_test,
     ) orelse return error.OutOfMemory;
 
-    const stage1_pkg = try arena.create(stage1.Pkg);
-    stage1_pkg.* = .{
-        .name_ptr = undefined,
-        .name_len = 0,
-        .path_ptr = undefined,
-        .path_len = 0,
-        .children_ptr = undefined,
-        .children_len = 0,
-        .parent = null,
-    };
+    const stage1_pkg = try createStage1Pkg(arena, "root", mod.root_pkg, null);
     const output_dir = comp.bin_file.options.directory.path orelse ".";
     const test_filter = comp.test_filter orelse ""[0..0];
     const test_name_prefix = comp.test_name_prefix orelse ""[0..0];
@@ -2303,10 +2308,12 @@ fn updateStage1Module(comp: *Compilation) !void {
 
     const digest = ch.final();
 
+    log.debug("stage1 {} final digest={}", .{ mod.root_pkg.root_src_path, digest });
+
     // Update the dangling symlink with the digest. If it fails we can continue; it only
     // means that the next invocation will have an unnecessary cache miss.
     directory.handle.symLink(&digest, id_symlink_basename, .{}) catch |err| {
-        std.log.warn("failed to save linking hash digest symlink: {}", .{@errorName(err)});
+        std.log.warn("failed to save stage1 hash digest symlink: {}", .{@errorName(err)});
     };
     // Again failure here only means an unnecessary cache miss.
     ch.writeManifest() catch |err| {
@@ -2315,4 +2322,35 @@ fn updateStage1Module(comp: *Compilation) !void {
     // We hang on to this lock so that the output file path can be used without
     // other processes clobbering it.
     comp.stage1_lock = ch.toOwnedLock();
+}
+
+fn createStage1Pkg(
+    arena: *Allocator,
+    name: []const u8,
+    pkg: *Package,
+    parent_pkg: ?*stage1.Pkg,
+) error{OutOfMemory}!*stage1.Pkg {
+    const child_pkg = try arena.create(stage1.Pkg);
+
+    const pkg_children = blk: {
+        var children = std.ArrayList(*stage1.Pkg).init(arena);
+        var it = pkg.table.iterator();
+        while (it.next()) |entry| {
+            try children.append(try createStage1Pkg(arena, entry.key, entry.value, child_pkg));
+        }
+        break :blk children.items;
+    };
+
+    const src_path = try pkg.root_src_directory.join(arena, &[_][]const u8{pkg.root_src_path});
+
+    child_pkg.* = .{
+        .name_ptr = name.ptr,
+        .name_len = name.len,
+        .path_ptr = src_path.ptr,
+        .path_len = src_path.len,
+        .children_ptr = pkg_children.ptr,
+        .children_len = pkg_children.len,
+        .parent = parent_pkg,
+    };
+    return child_pkg;
 }

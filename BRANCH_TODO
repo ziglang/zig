@@ -1,6 +1,3 @@
- * skip LLD caching when bin directory is not in the cache (so we don't put `id.txt` into the cwd)
-   (maybe make it an explicit option and have main.zig disable it)
- * `zig build`
  * repair @cImport
  * make sure zig cc works
    - using it as a preprocessor (-E)
@@ -22,13 +19,16 @@
  * COFF LLD linking
  * WASM LLD linking
  * --main-pkg-path
+ * --pkg-begin, --pkg-end
+ * skip LLD caching when bin directory is not in the cache (so we don't put `id.txt` into the cwd)
+   (maybe make it an explicit option and have main.zig disable it)
  * audit the CLI options for stage2
  * audit the base cache hash
  * implement proper parsing of LLD stderr/stdout and exposing compile errors
  * implement proper parsing of clang stderr/stdout and exposing compile errors
  * On operating systems that support it, do an execve for `zig test` and `zig run` rather than child process.
  * restore error messages for stage2_add_link_lib
- * update zig build to use new CLI
+ * update std/build.zig to use new CLI
 
  * support cross compiling stage2 with `zig build`
  * implement proper compile errors for failing to build glibc crt files and shared libs

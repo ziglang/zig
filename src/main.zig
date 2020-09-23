@@ -35,6 +35,7 @@ const usage =
     \\
     \\Commands:
     \\
+    \\  build            Build project from build.zig
     \\  build-exe        Create executable from source or object files
     \\  build-lib        Create library from source or object files
     \\  build-obj        Create object from source or assembly
@@ -42,6 +43,8 @@ const usage =
     \\  c++              Use Zig as a drop-in C++ compiler
     \\  env              Print lib path, std path, compiler id and version
     \\  fmt              Parse file and render in canonical zig format
+    \\  init-exe         Initialize a `zig build` application in the cwd
+    \\  init-lib         Initialize a `zig build` library in the cwd
     \\  libc             Display native libc paths file or validate one
     \\  run              Create executable and run immediately
     \\  translate-c      Convert C code to Zig code
@@ -136,6 +139,8 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         mem.eql(u8, cmd, "-cc1") or mem.eql(u8, cmd, "-cc1as"))
     {
         return punt_to_clang(arena, args);
+    } else if (mem.eql(u8, cmd, "build")) {
+        return cmdBuild(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "fmt")) {
         return cmdFmt(gpa, cmd_args);
     } else if (mem.eql(u8, cmd, "libc")) {
@@ -172,18 +177,18 @@ const usage_build_generic =
     \\Supported file types:
     \\                    .zig    Zig source code
     \\                    .zir    Zig Intermediate Representation code
-    \\     (planned)        .o    ELF object file
-    \\     (planned)        .o    MACH-O (macOS) object file
-    \\     (planned)      .obj    COFF (Windows) object file
-    \\     (planned)      .lib    COFF (Windows) static library
-    \\     (planned)        .a    ELF static library
-    \\     (planned)       .so    ELF shared object (dynamic link)
-    \\     (planned)      .dll    Windows Dynamic Link Library
-    \\     (planned)    .dylib    MACH-O (macOS) dynamic library
-    \\     (planned)        .s    Target-specific assembly source code
-    \\     (planned)        .S    Assembly with C preprocessor (requires LLVM extensions)
-    \\     (planned)        .c    C source code (requires LLVM extensions)
-    \\     (planned)      .cpp    C++ source code (requires LLVM extensions)
+    \\                      .o    ELF object file
+    \\                      .o    MACH-O (macOS) object file
+    \\                    .obj    COFF (Windows) object file
+    \\                    .lib    COFF (Windows) static library
+    \\                      .a    ELF static library
+    \\                     .so    ELF shared object (dynamic link)
+    \\                    .dll    Windows Dynamic Link Library
+    \\                  .dylib    MACH-O (macOS) dynamic library
+    \\                      .s    Target-specific assembly source code
+    \\                      .S    Assembly with C preprocessor (requires LLVM extensions)
+    \\                      .c    C source code (requires LLVM extensions)
+    \\                    .cpp    C++ source code (requires LLVM extensions)
     \\                            Other C++ extensions: .C .cc .cxx
     \\
     \\General Options:
@@ -195,6 +200,8 @@ const usage_build_generic =
     \\  --show-builtin            Output the source of @import("builtin") then exit
     \\  --cache-dir [path]        Override the local cache directory
     \\  --global-cache-dir [path] Override the global cache directory
+    \\  --override-lib-dir [path] Override path to Zig installation lib directory
+    \\  --enable-cache            Output to cache directory; print path to stdout
     \\
     \\Compile Options:
     \\  -target [name]            <arch><sub>-<os>-<abi> see the targets command
@@ -357,6 +364,7 @@ pub fn buildOutputType(
     var test_name_prefix: ?[]const u8 = null;
     var override_local_cache_dir: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = null;
+    var override_lib_dir: ?[]const u8 = null;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -412,7 +420,7 @@ pub fn buildOutputType(
                 if (mem.startsWith(u8, arg, "-")) {
                     if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                         try io.getStdOut().writeAll(usage_build_generic);
-                        process.exit(0);
+                        return process.cleanExit();
                     } else if (mem.eql(u8, arg, "--")) {
                         if (arg_mode == .run) {
                             runtime_args_start = i + 1;
@@ -547,6 +555,12 @@ pub fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
                         override_global_cache_dir = args[i];
+                    } else if (mem.eql(u8, arg, "--override-lib-dir")) {
+                        if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
+                        i += 1;
+                        override_lib_dir = args[i];
+                    } else if (mem.eql(u8, arg, "--enable-cache")) {
+                        enable_cache = true;
                     } else if (mem.eql(u8, arg, "--test-cmd-bin")) {
                         try test_exec_args.append(null);
                     } else if (mem.eql(u8, arg, "--test-evented-io")) {
@@ -1102,12 +1116,22 @@ pub fn buildOutputType(
     var cleanup_emit_bin_dir: ?fs.Dir = null;
     defer if (cleanup_emit_bin_dir) |*dir| dir.close();
 
+    const have_enable_cache = enable_cache orelse false;
+
     const emit_bin_loc: ?Compilation.EmitLoc = switch (emit_bin) {
         .no => null,
         .yes_default_path => Compilation.EmitLoc{
-            .directory = switch (arg_mode) {
-                .run, .zig_test => null,
-                else => .{ .path = null, .handle = fs.cwd() },
+            .directory = blk: {
+                switch (arg_mode) {
+                    .run, .zig_test => break :blk null,
+                    else => {
+                        if (have_enable_cache) {
+                            break :blk null;
+                        } else {
+                            break :blk .{ .path = null, .handle = fs.cwd() };
+                        }
+                    },
+                }
             },
             .basename = try std.zig.binNameAlloc(
                 arena,
@@ -1120,6 +1144,12 @@ pub fn buildOutputType(
         },
         .yes => |full_path| b: {
             const basename = fs.path.basename(full_path);
+            if (have_enable_cache) {
+                break :b Compilation.EmitLoc{
+                    .basename = basename,
+                    .directory = null,
+                };
+            }
             if (fs.path.dirname(full_path)) |dirname| {
                 const handle = try fs.cwd().openDir(dirname, .{});
                 cleanup_emit_bin_dir = handle;
@@ -1192,9 +1222,15 @@ pub fn buildOutputType(
     } else null;
 
     const self_exe_path = try fs.selfExePathAlloc(arena);
-    var zig_lib_directory = introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-        fatal("unable to find zig installation directory: {}\n", .{@errorName(err)});
-    };
+    var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir|
+        .{
+            .path = lib_dir,
+            .handle = try fs.cwd().openDir(lib_dir, .{}),
+        }
+    else
+        introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
+            fatal("unable to find zig installation directory: {}", .{@errorName(err)});
+        };
     defer zig_lib_directory.handle.close();
 
     const random_seed = blk: {
@@ -1337,7 +1373,20 @@ pub fn buildOutputType(
         return cmdTranslateC(comp, arena);
     }
 
-    try updateModule(gpa, comp, zir_out_path);
+    const hook: AfterUpdateHook = blk: {
+        if (!have_enable_cache)
+            break :blk .none;
+
+        switch (emit_bin) {
+            .no => break :blk .none,
+            .yes_default_path => break :blk .{
+                .print = comp.bin_file.options.directory.path orelse ".",
+            },
+            .yes => |full_path| break :blk .{ .update = full_path },
+        }
+    };
+
+    try updateModule(gpa, comp, zir_out_path, hook);
 
     if (build_options.have_llvm and only_pp_or_asm) {
         // this may include dumping the output to stdout
@@ -1389,7 +1438,7 @@ pub fn buildOutputType(
                 else => process.exit(1),
             }
             if (!watch)
-                process.exit(0);
+                return process.cleanExit();
         },
         else => {},
     }
@@ -1413,7 +1462,7 @@ pub fn buildOutputType(
                 if (output_mode == .Exe) {
                     try comp.makeBinFileWritable();
                 }
-                try updateModule(gpa, comp, zir_out_path);
+                try updateModule(gpa, comp, zir_out_path, hook);
             } else if (mem.eql(u8, actual_line, "exit")) {
                 break;
             } else if (mem.eql(u8, actual_line, "help")) {
@@ -1427,7 +1476,13 @@ pub fn buildOutputType(
     }
 }
 
-fn updateModule(gpa: *Allocator, comp: *Compilation, zir_out_path: ?[]const u8) !void {
+const AfterUpdateHook = union(enum) {
+    none,
+    print: []const u8,
+    update: []const u8,
+};
+
+fn updateModule(gpa: *Allocator, comp: *Compilation, zir_out_path: ?[]const u8, hook: AfterUpdateHook) !void {
     try comp.update();
 
     var errors = try comp.getAllErrorsAlloc();
@@ -1437,6 +1492,15 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, zir_out_path: ?[]const u8) 
         for (errors.list) |full_err_msg| {
             full_err_msg.renderToStdErr();
         }
+    } else switch (hook) {
+        .none => {},
+        .print => |bin_path| try io.getStdOut().writer().print("{s}\n", .{bin_path}),
+        .update => |full_path| _ = try comp.bin_file.options.directory.handle.updateFile(
+            comp.bin_file.options.sub_path,
+            fs.cwd(),
+            full_path,
+            .{},
+        ),
     }
 
     if (zir_out_path) |zop| {
@@ -1535,7 +1599,7 @@ pub fn cmdLibC(gpa: *Allocator, args: []const []const u8) !void {
                 if (mem.eql(u8, arg, "--help")) {
                     const stdout = io.getStdOut().writer();
                     try stdout.writeAll(usage_libc);
-                    process.exit(0);
+                    return process.cleanExit();
                 } else {
                     fatal("unrecognized parameter: '{}'", .{arg});
                 }
@@ -1592,7 +1656,7 @@ pub fn cmdInit(
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "--help")) {
                     try io.getStdOut().writeAll(usage_init);
-                    process.exit(0);
+                    return process.cleanExit();
                 } else {
                     fatal("unrecognized parameter: '{}'", .{arg});
                 }
@@ -1657,6 +1721,248 @@ pub fn cmdInit(
     }
 }
 
+pub const usage_build =
+    \\Usage: zig build [steps] [options]
+    \\
+    \\   Build a project from build.zig.
+    \\
+    \\Options:
+    \\   --help                 Print this help and exit
+    \\
+    \\
+;
+
+pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !void {
+    // We want to release all the locks before executing the child process, so we make a nice
+    // big block here to ensure the cleanup gets run when we extract out our argv.
+    const lock_and_argv = lock_and_argv: {
+        const self_exe_path = try fs.selfExePathAlloc(arena);
+
+        var build_file: ?[]const u8 = null;
+        var override_lib_dir: ?[]const u8 = null;
+        var override_global_cache_dir: ?[]const u8 = null;
+        var override_local_cache_dir: ?[]const u8 = null;
+        var child_argv = std.ArrayList([]const u8).init(arena);
+
+        const argv_index_exe = child_argv.items.len;
+        _ = try child_argv.addOne();
+
+        try child_argv.append(self_exe_path);
+
+        const argv_index_build_file = child_argv.items.len;
+        _ = try child_argv.addOne();
+
+        const argv_index_cache_dir = child_argv.items.len;
+        _ = try child_argv.addOne();
+
+        {
+            var i: usize = 0;
+            while (i < args.len) : (i += 1) {
+                const arg = args[i];
+                if (mem.startsWith(u8, arg, "-")) {
+                    if (mem.eql(u8, arg, "--build-file")) {
+                        if (i + 1 >= args.len) fatal("expected argument after '{}'", .{arg});
+                        i += 1;
+                        build_file = args[i];
+                        continue;
+                    } else if (mem.eql(u8, arg, "--override-lib-dir")) {
+                        if (i + 1 >= args.len) fatal("expected argument after '{}'", .{arg});
+                        i += 1;
+                        override_lib_dir = args[i];
+                        try child_argv.appendSlice(&[_][]const u8{ arg, args[i] });
+                        continue;
+                    } else if (mem.eql(u8, arg, "--cache-dir")) {
+                        if (i + 1 >= args.len) fatal("expected argument after '{}'", .{arg});
+                        i += 1;
+                        override_local_cache_dir = args[i];
+                        try child_argv.appendSlice(&[_][]const u8{ arg, args[i] });
+                        continue;
+                    } else if (mem.eql(u8, arg, "--global-cache-dir")) {
+                        if (i + 1 >= args.len) fatal("expected argument after '{}'", .{arg});
+                        i += 1;
+                        override_global_cache_dir = args[i];
+                        try child_argv.appendSlice(&[_][]const u8{ arg, args[i] });
+                        continue;
+                    }
+                }
+                try child_argv.append(arg);
+            }
+        }
+
+        var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir|
+            .{
+                .path = lib_dir,
+                .handle = try fs.cwd().openDir(lib_dir, .{}),
+            }
+        else
+            introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
+                fatal("unable to find zig installation directory: {}", .{@errorName(err)});
+            };
+        defer zig_lib_directory.handle.close();
+
+        const std_special = "std" ++ fs.path.sep_str ++ "special";
+        const special_dir_path = try zig_lib_directory.join(arena, &[_][]const u8{std_special});
+
+        var root_pkg: Package = .{
+            .root_src_directory = .{
+                .path = special_dir_path,
+                .handle = try zig_lib_directory.handle.openDir(std_special, .{}),
+            },
+            .root_src_path = "build_runner.zig",
+        };
+        defer root_pkg.root_src_directory.handle.close();
+
+        var cleanup_build_dir: ?fs.Dir = null;
+        defer if (cleanup_build_dir) |*dir| dir.close();
+
+        const cwd_path = try process.getCwdAlloc(arena);
+        const build_zig_basename = if (build_file) |bf| fs.path.basename(bf) else "build.zig";
+        const build_directory: Compilation.Directory = blk: {
+            if (build_file) |bf| {
+                if (fs.path.dirname(bf)) |dirname| {
+                    const dir = try fs.cwd().openDir(dirname, .{});
+                    cleanup_build_dir = dir;
+                    break :blk .{ .path = dirname, .handle = dir };
+                }
+
+                break :blk .{ .path = null, .handle = fs.cwd() };
+            }
+            // Search up parent directories until we find build.zig.
+            var dirname: []const u8 = cwd_path;
+            while (true) {
+                const joined_path = try fs.path.join(arena, &[_][]const u8{ dirname, build_zig_basename });
+                if (fs.cwd().access(joined_path, .{})) |_| {
+                    const dir = try fs.cwd().openDir(dirname, .{});
+                    break :blk .{ .path = dirname, .handle = dir };
+                } else |err| switch (err) {
+                    error.FileNotFound => {
+                        dirname = fs.path.dirname(dirname) orelse {
+                            std.log.info("{}", .{
+                            \\Initialize a 'build.zig' template file with `zig init-lib` or `zig init-exe`,
+                            \\or see `zig --help` for more options.
+                            });
+                            fatal("No 'build.zig' file found, in the current directory or any parent directories.", .{});
+                        };
+                        continue;
+                    },
+                    else => |e| return e,
+                }
+            }
+        };
+        child_argv.items[argv_index_build_file] = build_directory.path orelse cwd_path;
+
+        var build_pkg: Package = .{
+            .root_src_directory = build_directory,
+            .root_src_path = build_zig_basename,
+        };
+        try root_pkg.table.put(arena, "@build", &build_pkg);
+
+        var global_cache_directory: Compilation.Directory = l: {
+            const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
+            break :l .{
+                .handle = try fs.cwd().makeOpenPath(p, .{}),
+                .path = p,
+            };
+        };
+        defer global_cache_directory.handle.close();
+
+        var local_cache_directory: Compilation.Directory = l: {
+            if (override_local_cache_dir) |local_cache_dir_path| {
+                break :l .{
+                    .handle = try fs.cwd().makeOpenPath(local_cache_dir_path, .{}),
+                    .path = local_cache_dir_path,
+                };
+            }
+            const cache_dir_path = try build_directory.join(arena, &[_][]const u8{"zig-cache"});
+            break :l .{
+                .handle = try build_directory.handle.makeOpenPath("zig-cache", .{}),
+                .path = cache_dir_path,
+            };
+        };
+        defer local_cache_directory.handle.close();
+
+        child_argv.items[argv_index_cache_dir] = local_cache_directory.path orelse cwd_path;
+
+        gimmeMoreOfThoseSweetSweetFileDescriptors();
+
+        const cross_target: std.zig.CrossTarget = .{};
+        const target_info = try detectNativeTargetInfo(gpa, cross_target);
+
+        const exe_basename = try std.zig.binNameAlloc(arena, "build", target_info.target, .Exe, null, null);
+        const emit_bin: Compilation.EmitLoc = .{
+            .directory = null, // Use the local zig-cache.
+            .basename = exe_basename,
+        };
+        const random_seed = blk: {
+            var random_seed: u64 = undefined;
+            try std.crypto.randomBytes(mem.asBytes(&random_seed));
+            break :blk random_seed;
+        };
+        var default_prng = std.rand.DefaultPrng.init(random_seed);
+        const comp = Compilation.create(gpa, .{
+            .zig_lib_directory = zig_lib_directory,
+            .local_cache_directory = local_cache_directory,
+            .global_cache_directory = global_cache_directory,
+            .root_name = "build",
+            .target = target_info.target,
+            .is_native_os = cross_target.isNativeOs(),
+            .dynamic_linker = target_info.dynamic_linker.get(),
+            .output_mode = .Exe,
+            .root_pkg = &root_pkg,
+            .emit_bin = emit_bin,
+            .emit_h = null,
+            .optimize_mode = .Debug,
+            .self_exe_path = self_exe_path,
+            .rand = &default_prng.random,
+        }) catch |err| {
+            fatal("unable to create compilation: {}", .{@errorName(err)});
+        };
+        defer comp.destroy();
+
+        try updateModule(gpa, comp, null, .none);
+
+        child_argv.items[argv_index_exe] = try comp.bin_file.options.directory.join(arena, &[_][]const u8{exe_basename});
+
+        break :lock_and_argv .{
+            .child_argv = child_argv.items,
+            .lock = comp.bin_file.toOwnedLock(),
+        };
+    };
+    const child_argv = lock_and_argv.child_argv;
+    var lock = lock_and_argv.lock;
+    defer lock.release();
+
+    const child = try std.ChildProcess.init(child_argv, gpa);
+    defer child.deinit();
+
+    child.stdin_behavior = .Inherit;
+    child.stdout_behavior = .Inherit;
+    child.stderr_behavior = .Inherit;
+
+    var cmd = std.ArrayList(u8).init(arena);
+
+    const term = try child.spawnAndWait();
+    switch (term) {
+        .Exited => |code| {
+            if (code == 0) return process.cleanExit();
+            try cmd.writer().print("failed with exit code {}:\n", .{code});
+        },
+        else => {
+            try cmd.appendSlice("crashed:\n");
+        },
+    }
+
+    try cmd.append('\n');
+    for (child_argv[0 .. child_argv.len - 1]) |arg| {
+        try cmd.appendSlice(arg);
+        try cmd.append(' ');
+    }
+    try cmd.appendSlice(child_argv[child_argv.len - 1]);
+
+    if (true) // Working around erroneous stage1 compile error: unreachable code on child.deinit()
+        fatal("The following build command {}", .{cmd.items});
+}
+
 pub const usage_fmt =
     \\Usage: zig fmt [file]...
     \\
@@ -1699,7 +2005,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
                 if (mem.eql(u8, arg, "--help")) {
                     const stdout = io.getStdOut().outStream();
                     try stdout.writeAll(usage_fmt);
-                    process.exit(0);
+                    return process.cleanExit();
                 } else if (mem.eql(u8, arg, "--color")) {
                     if (i + 1 >= args.len) {
                         fatal("expected [auto|on|off] after --color", .{});

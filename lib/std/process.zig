@@ -19,6 +19,19 @@ pub const exit = os.exit;
 pub const changeCurDir = os.chdir;
 pub const changeCurDirC = os.chdirC;
 
+/// Indicate that we are now terminating with a successful exit code.
+/// In debug builds, this is a no-op, so that the calling code's
+/// cleanup mechanisms are tested and so that external tools that
+/// check for resource leaks can be accurate. In release builds, this
+/// calls exit(0), and does not return.
+pub fn cleanExit() void {
+    if (builtin.mode == .Debug) {
+        return;
+    } else {
+        exit(0);
+    }
+}
+
 /// The result is a slice of `out_buffer`, from index `0`.
 pub fn getCwd(out_buffer: []u8) ![]u8 {
     return os.getcwd(out_buffer);
