@@ -4152,6 +4152,68 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             const len = mem.indexOfScalar(u8, out_buffer[0..], @as(u8, 0)) orelse MAX_PATH_BYTES;
             return out_buffer[0..len];
         },
+        .freebsd => {
+            const pid = @intCast(c_int, system.getpid());
+
+            var mib = [_]c_int{ 0, 0, 0, pid };
+            var miblen = mib.len;
+            switch (errno(system.sysctlnametomib("kern.proc.filedesc", &mib[0], &miblen))) {
+                0 => {},
+                else => |err| return unexpectedErrno(err),
+            }
+
+            // I can get the required size by using null oldp
+            // How do I do this better without alloca or arbitrarily large array?
+            var buf: [MAX_PATH_BYTES * 10]u8 = undefined;
+            var buflen = buf.len;
+            sysctl(&mib, &buf, &buflen, null, 0) catch |err| std.debug.print("sysctl(kern.proc.filedesc): {}\n", .{err});
+
+            const kinfo_file = packed struct {
+                kf_structsize: c_int,
+                kf_type: c_int,
+                kf_fd: c_int,
+                kf_ref_count: c_int,
+                kf_flags: c_int,
+                kf_pad0: c_int,
+                kf_offset: i64,
+                kf_un: packed struct {
+                    kf_file_type: c_int,
+                    kf_spareint: [3]c_int,
+                    kf_spareint64: [30]u64,
+                    kf_file_fsid: u64,
+                    kf_file_rdev: u64,
+                    kf_file_fileid: u64,
+                    kf_file_size: u64,
+                    kf_file_fsid_freebsd11: u32,
+                    kf_file_rdev_freebsd11: u32,
+                    kf_file_mode: u16,
+                    kf_file_pad0: u16,
+                    kf_file_pad1: u32,
+                },
+                kf_status: i16,
+                kf_pad1: i16,
+                kf_ispare0: c_int,
+                kf_cap_rights: packed struct {
+                    rights: [2]u64,
+                },
+                _kf_cap_spare: u64,
+                path: [MAX_PATH_BYTES]u8,
+            };
+
+            var offset: usize = 0;
+            while (offset < buflen) {
+                const kf = @ptrCast(*kinfo_file, &buf[offset]);
+                if (kf.kf_fd == fd) {
+                    const end = mem.indexOfScalar(u8, &kf.path, 0) orelse MAX_PATH_BYTES - 1;
+                    mem.copy(u8, out_buffer, kf.path[0..end]);
+                    return out_buffer[0..end];
+                }
+
+                offset += @intCast(usize, kf.kf_structsize);
+            }
+
+            return RealPathError.FileNotFound;
+        },
         .linux => {
             var procfs_buf: ["/proc/self/fd/-2147483648".len:0]u8 = undefined;
             const proc_path = std.fmt.bufPrint(procfs_buf[0..], "/proc/self/fd/{}\x00", .{fd}) catch unreachable;
