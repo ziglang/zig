@@ -1,6 +1,5 @@
- * add CLI support for a way to pass extra flags to c source files
- * musl
  * support rpaths in ELF linker code
+ * musl
  * implement proper parsing of LLD stderr/stdout and exposing compile errors
  * tests passing with -Dskip-non-native
  * windows CUSTOMBUILD : error : unable to build compiler_rt: FileNotFound [D:\a\1\s\build\zig_install_lib_files.vcxproj]

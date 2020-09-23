@@ -244,6 +244,7 @@ const usage_build_generic =
     \\  -I[dir]                   Add directory to include search path
     \\  -D[macro]=[value]         Define C [macro] to [value] (1 if [value] omitted)
     \\  --libc [file]             Provide a file which specifies libc paths
+    \\  -cflags [flags] --        Set extra flags for the next positional C source files
     \\
     \\Link Options:
     \\  -l[lib], --library [lib]       Link against system library
@@ -376,6 +377,9 @@ pub fn buildOutputType(
     var clang_argv = std.ArrayList([]const u8).init(gpa);
     defer clang_argv.deinit();
 
+    var extra_cflags = std.ArrayList([]const u8).init(gpa);
+    defer extra_cflags.deinit();
+
     var lld_argv = std.ArrayList([]const u8).init(gpa);
     defer lld_argv.deinit();
 
@@ -469,6 +473,14 @@ pub fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
                         main_pkg_path = args[i];
+                    } else if (mem.eql(u8, arg, "-cflags")) {
+                        extra_cflags.shrinkRetainingCapacity(0);
+                        while (true) {
+                            i += 1;
+                            if (i + 1 >= args.len) fatal("expected -- after -cflags", .{});
+                            if (mem.eql(u8, args[i], "--")) break;
+                            try extra_cflags.append(args[i]);
+                        }
                     } else if (mem.eql(u8, arg, "--color")) {
                         if (i + 1 >= args.len) {
                             fatal("expected [auto|on|off] after --color", .{});
@@ -713,8 +725,10 @@ pub fn buildOutputType(
                         try link_objects.append(arg);
                     },
                     .assembly, .c, .cpp, .h, .ll, .bc => {
-                        // TODO a way to pass extra flags on the CLI
-                        try c_source_files.append(.{ .src_path = arg });
+                        try c_source_files.append(.{
+                            .src_path = arg,
+                            .extra_flags = try arena.dupe([]const u8, extra_cflags.items),
+                        });
                     },
                     .shared_library => {
                         fatal("linking against dynamic libraries not yet supported", .{});

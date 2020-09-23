@@ -1947,6 +1947,7 @@ pub const LibExeObjStep = struct {
 
         if (self.root_src) |root_src| try zig_args.append(root_src.getPath(builder));
 
+        var prev_has_extra_flags = false;
         for (self.link_objects.span()) |link_object| {
             switch (link_object) {
                 .StaticPath => |static_path| {
@@ -1979,12 +1980,26 @@ pub const LibExeObjStep = struct {
                     try zig_args.append(name);
                 },
                 .AssemblyFile => |asm_file| {
+                    if (prev_has_extra_flags) {
+                        try zig_args.append("-extra-cflags");
+                        try zig_args.append("--");
+                        prev_has_extra_flags = false;
+                    }
                     try zig_args.append(asm_file.getPath(builder));
                 },
                 .CSourceFile => |c_source_file| {
-                    try zig_args.append("--c-source");
-                    for (c_source_file.args) |arg| {
-                        try zig_args.append(arg);
+                    if (c_source_file.args.len == 0) {
+                        if (prev_has_extra_flags) {
+                            try zig_args.append("-cflags");
+                            try zig_args.append("--");
+                            prev_has_extra_flags = false;
+                        }
+                    } else {
+                        try zig_args.append("-cflags");
+                        for (c_source_file.args) |arg| {
+                            try zig_args.append(arg);
+                        }
+                        try zig_args.append("--");
                     }
                     try zig_args.append(c_source_file.source.getPath(builder));
                 },
