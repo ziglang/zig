@@ -27,6 +27,142 @@ pub const Kevent = extern struct {
     // TODO ext
 };
 
+pub const kinfo_file = extern struct {
+    /// Variable size of record.
+    kf_structsize: c_int,
+    /// Descriptor type.
+    kf_type: c_int,
+    /// Array index.
+    kf_fd: c_int,
+    /// Reference count.
+    kf_ref_count: c_int,
+    /// Flags.
+    kf_flags: c_int,
+    /// Round to 64 bit alignment.
+    kf_pad0: c_int,
+    /// Seek location.
+    kf_offset: i64,
+    kf_un: extern union {
+        /// API compatability with FreeBSD < 12.
+        kf_un_freebsd11: extern struct {
+            kf_vnode_type: c_int,
+            kf_sock_domain: c_int,
+            kf_sock_type: c_int,
+            kf_sock_protocol: c_int,
+            kf_sa_local: sockaddr_storage,
+            kf_sa_peer: sockaddr_storage,
+        }, kf_un: extern union {
+            kf_sock: extern struct {
+                /// Sendq size
+                kf_sock_sendq: u32,
+                /// Socket domain.
+                kf_sock_domain0: c_int,
+                /// Socket type.
+                kf_sock_type0: c_int,
+                /// Socket protocol.
+                kf_sock_protocol0: c_int,
+                /// Socket address.
+                kf_sa_local: sockaddr_storage,
+                /// Peer address.
+                kf_sa_peer: sockaddr_storage,
+                /// Address of so_pcb.
+                kf_sock_pcb: u64,
+                // Address of inp_ppcb.
+                kf_sock_inpcb: u64,
+                // Address of unp_conn.
+                kf_sock_unpconn: u64,
+                // Send buffer state.
+                kf_sock_snd_sb_state: u16,
+                // Receive buffer state.
+                kf_sock_rcv_sb_state: u16,
+                // Recvq size.
+                kf_sock_recvq: u32,
+            },
+            kf_file: extern struct {
+                /// Vnode type.
+                kf_file_type: c_int,
+                /// Space for future use.
+                kf_spareint: [3]c_int,
+                /// Space for future use.
+                kf_spareint64: [30]u64,
+                /// Vnode filesystem id.
+                kf_file_fsid: u64,
+                /// File device.
+                kf_file_rdev: u64,
+                /// Global file id.
+                kf_file_fileid: u64,
+                /// File size.
+                kf_file_size: u64,
+                /// Vnode filesystem id, FreeBSD 11 compat.
+                kf_file_fsid_freebsd11: u32,
+                /// File device, FreeBSD 11 compat.
+                kf_file_rdev_freebsd11: u32,
+                /// File mode.
+                kf_file_mode: u16,
+                /// Round to 64 bit alignment.
+                kf_file_pad0: u16,
+                kf_file_pad1: u32,
+            },
+            kf_sem: extern struct {
+                kf_spareint: [4]u32,
+                kf_spareint64: [32]u64,
+                kf_sem_value: u32,
+                kf_sem_mode: u16,
+            },
+            kf_pipe: extern struct {
+                kf_spareint: [4]u32,
+                kf_spareint64: [32]u64,
+                kf_pipe_addr: u64,
+                kf_pipe_peer: u64,
+                kf_pipe_buffer_cnt: u32,
+                /// Round to 64 bit alignment.
+                kf_pipe_pad0: [3]u32,
+            },
+            kf_pts: extern struct {
+                kf_spareint: [4]u32,
+                kf_spareint64: [32]u64,
+                kf_pts_dev_freebsd11: u32,
+                kf_pts_pad0: u32,
+                kf_pts_dev: u64,
+                /// Round to 64 bit alignment.
+                kf_pts_pad1: [4]u32,
+            },
+            kf_proc: extern struct {
+                kf_spareint: [4]u32,
+                kf_spareint64: [32]u64,
+                kf_pid: pid_t,
+            },
+        }
+    },
+    /// Status flags.
+    kf_status: i16,
+    /// Round to 32 bit alignment.
+    kf_pad1: i16,
+    /// Space for more stuff.
+    kf_ispare0: c_int,
+    /// Capability rights.
+    kf_cap_rights: cap_rights,
+    /// Space for future cap_rights_t.
+    _kf_cap_spare: u64,
+    /// Path to file, if any.
+    path: [PATH_MAX]u8,
+};
+
+pub const cap_rights = extern struct {
+    cr_rights: [2]u64,
+};
+
+pub const sockaddr_storage = extern struct {
+    /// address length
+    ss_len: u8,
+    /// address family
+    ss_family: u8,
+    __ss_pad1: [6]u8,
+    /// force desired struct alignment
+    __ss_align: i64,
+    __ss_pad2: [112]u8,
+};
+
 // Modes and flags for dlopen()
 // include/dlfcn.h
 
