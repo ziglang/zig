@@ -4214,6 +4214,8 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
                     return out_buffer[0..end];
                 }
 
+                if (kf.kf_structsize == 0) break;
+
                 offset += @intCast(usize, kf.kf_structsize);
             }
 
