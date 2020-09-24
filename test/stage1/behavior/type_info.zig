@@ -266,6 +266,8 @@ const TestStruct = packed struct {
 };
 
 test "type info: function type info" {
+    // wasm doesn't support align attributes on functions
+    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
     testFunction();
     comptime testFunction();
 }
