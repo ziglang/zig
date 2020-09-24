@@ -22,6 +22,7 @@ const fatal = @import("main.zig").fatal;
 const Module = @import("Module.zig");
 const Cache = @import("Cache.zig");
 const stage1 = @import("stage1.zig");
+const translate_c = @import("translate_c.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: *Allocator,
@@ -30,7 +31,7 @@ arena_state: std.heap.ArenaAllocator.State,
 bin_file: *link.File,
 c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
 stage1_lock: ?Cache.Lock = null,
-stage1_cache_hash: *Cache.CacheHash = undefined,
+stage1_cache_manifest: *Cache.Manifest = undefined,
 
 link_error_flags: link.File.ErrorFlags = .{},
 
@@ -1198,29 +1199,182 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
     };
 }
 
-fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
+fn obtainCObjectCacheManifest(comp: *Compilation) Cache.Manifest {
+    var man = comp.cache_parent.obtain();
+
+    // Only things that need to be added on top of the base hash, and only things
+    // that apply both to @cImport and compiling C objects. No linking stuff here!
+    // Also nothing that applies only to compiling .zig code.
+
+    man.hash.add(comp.sanitize_c);
+    man.hash.addListOfBytes(comp.clang_argv);
+    man.hash.add(comp.bin_file.options.link_libcpp);
+    man.hash.addListOfBytes(comp.libc_include_dir_list);
+
+    return man;
+}
+
+test "cImport" {
+    _ = cImport;
+}
+
+const CImportResult = struct {
+    out_zig_path: []u8,
+    errors: []translate_c.ClangErrMsg,
+};
+
+/// Caller owns returned memory.
+/// This API is currently coupled pretty tightly to stage1's needs; it will need to be reworked
+/// a bit when we want to start using it from self-hosted.
+pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
+    if (!build_options.have_llvm)
+        return error.ZigCompilerNotBuiltWithLLVMExtensions;
+
     const tracy = trace(@src());
     defer tracy.end();
 
+    const cimport_zig_basename = "cimport.zig";
+
+    var man = comp.obtainCObjectCacheManifest();
+    defer man.deinit();
+
+    man.hash.addBytes(c_src);
+
+    // If the previous invocation resulted in clang errors, we will see a hit
+    // here with 0 files in the manifest, in which case it is actually a miss.
+    const actual_hit = (try man.hit()) and man.files.items.len != 0;
+    const digest = if (!actual_hit) digest: {
+        var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
+        defer arena_allocator.deinit();
+        const arena = &arena_allocator.allocator;
+
+        // We need a place to leave the .h file so we can can log it in case of verbose_cimport.
+        // This block is so that the defers for closing the tmp directory handle can run before
+        // we try to delete the directory after the block.
+        const result: struct { tmp_dir_sub_path: []const u8, digest: [Cache.hex_digest_len]u8 } = blk: {
+            const tmp_digest = man.hash.peek();
+            const tmp_dir_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &tmp_digest });
+            var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
+            defer zig_cache_tmp_dir.close();
+            const cimport_c_basename = "cimport.c";
+            const out_h_path = try comp.local_cache_directory.join(arena, &[_][]const u8{
+                tmp_dir_sub_path, cimport_c_basename,
+            });
+            const out_dep_path = try std.fmt.allocPrint(arena, "{}.d", .{out_h_path});
+
+            try zig_cache_tmp_dir.writeFile(cimport_c_basename, c_src);
+            if (comp.verbose_cimport) {
+                log.info("C import source: {}", .{out_h_path});
+            }
+
+            var argv = std.ArrayList([]const u8).init(comp.gpa);
+            defer argv.deinit();
+
+            try comp.addTranslateCCArgs(arena, &argv, .c, out_dep_path);
+
+            try argv.append(out_h_path);
+
+            if (comp.verbose_cc) {
+                dump_argv(argv.items);
+            }
+
+            // Convert to null terminated args.
+            const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, argv.items.len + 1);
+            new_argv_with_sentinel[argv.items.len] = null;
+            const new_argv = new_argv_with_sentinel[0..argv.items.len :null];
+            for (argv.items) |arg, i| {
+                new_argv[i] = try arena.dupeZ(u8, arg);
+            }
+
+            const c_headers_dir_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{"include"});
+            const c_headers_dir_path_z = try arena.dupeZ(u8, c_headers_dir_path);
+            var clang_errors: []translate_c.ClangErrMsg = &[0]translate_c.ClangErrMsg{};
+            const tree = translate_c.translate(
+                comp.gpa,
+                new_argv.ptr,
+                new_argv.ptr + new_argv.len,
+                &clang_errors,
+                c_headers_dir_path_z,
+            ) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.ASTUnitFailure => {
+                    log.warn("clang API returned errors but due to a clang bug, it is not exposing the errors for zig to see. For more details: https://github.com/ziglang/zig/issues/4455", .{});
+                    return error.ASTUnitFailure;
+                },
+                error.SemanticAnalyzeFail => {
+                    return CImportResult{
+                        .out_zig_path = "",
+                        .errors = clang_errors,
+                    };
+                },
+            };
+            defer tree.deinit();
+
+            if (comp.verbose_cimport) {
+                log.info("C import .d file: {}", .{out_dep_path});
+            }
+
+            const dep_basename = std.fs.path.basename(out_dep_path);
+            try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+
+            const digest = man.final();
+            const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
+            var o_dir = try comp.local_cache_directory.handle.makeOpenPath(o_sub_path, .{});
+            defer o_dir.close();
+
+            var out_zig_file = try o_dir.createFile(cimport_zig_basename, .{});
+            defer out_zig_file.close();
+
+            var bos = std.io.bufferedOutStream(out_zig_file.writer());
+            _ = try std.zig.render(comp.gpa, bos.writer(), tree);
+            try bos.flush();
+
+            man.writeManifest() catch |err| {
+                log.warn("failed to write cache manifest for C import: {}", .{@errorName(err)});
+            };
+
+            break :blk .{ .tmp_dir_sub_path = tmp_dir_sub_path, .digest = digest };
+        };
+        if (!comp.verbose_cimport) {
+            // Remove the tmp dir and files to save space because we don't need them again.
+            comp.local_cache_directory.handle.deleteTree(result.tmp_dir_sub_path) catch |err| {
+                log.warn("failed to delete tmp files for C import: {}", .{@errorName(err)});
+            };
+        }
+        break :digest result.digest;
+    } else man.final();
+
+    const out_zig_path = try comp.local_cache_directory.join(comp.gpa, &[_][]const u8{
+        "o", &digest, cimport_zig_basename,
+    });
+    if (comp.verbose_cimport) {
+        log.info("C import output: {}\n", .{out_zig_path});
+    }
+    return CImportResult{
+        .out_zig_path = out_zig_path,
+        .errors = &[0]translate_c.ClangErrMsg{},
+    };
+}
+
+fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
     if (!build_options.have_llvm) {
         return comp.failCObj(c_object, "clang not available: compiler built without LLVM extensions", .{});
     }
     const self_exe_path = comp.self_exe_path orelse
         return comp.failCObj(c_object, "clang compilation disabled", .{});
 
+    const tracy = trace(@src());
+    defer tracy.end();
+
     if (c_object.clearStatus(comp.gpa)) {
         // There was previous failure.
         comp.failed_c_objects.removeAssertDiscard(c_object);
     }
 
-    var ch = comp.cache_parent.obtain();
-    defer ch.deinit();
+    var man = comp.obtainCObjectCacheManifest();
+    defer man.deinit();
 
-    ch.hash.add(comp.sanitize_c);
-    ch.hash.addListOfBytes(comp.clang_argv);
-    ch.hash.add(comp.bin_file.options.link_libcpp);
-    ch.hash.addListOfBytes(comp.libc_include_dir_list);
-    _ = try ch.addFile(c_object.src.src_path, null);
+    _ = try man.addFile(c_object.src.src_path, null);
     {
         // Hash the extra flags, with special care to call addFile for file parameters.
         // TODO this logic can likely be improved by utilizing clang_options_data.zig.
@@ -1228,11 +1382,11 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         var arg_i: usize = 0;
         while (arg_i < c_object.src.extra_flags.len) : (arg_i += 1) {
             const arg = c_object.src.extra_flags[arg_i];
-            ch.hash.addBytes(arg);
+            man.hash.addBytes(arg);
             for (file_args) |file_arg| {
                 if (mem.eql(u8, file_arg, arg) and arg_i + 1 < c_object.src.extra_flags.len) {
                     arg_i += 1;
-                    _ = try ch.addFile(c_object.src.extra_flags[arg_i], null);
+                    _ = try man.addFile(c_object.src.extra_flags[arg_i], null);
                 }
             }
         }
@@ -1254,7 +1408,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         mem.split(c_source_basename, ".").next().?;
     const o_basename = try std.fmt.allocPrint(arena, "{}{}", .{ o_basename_noext, comp.getTarget().oFileExt() });
 
-    const digest = if ((try ch.hit()) and !comp.disable_c_depfile) ch.final() else blk: {
+    const digest = if ((try man.hit()) and !comp.disable_c_depfile) man.final() else blk: {
         var argv = std.ArrayList([]const u8).init(comp.gpa);
         defer argv.deinit();
 
@@ -1270,7 +1424,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
             null
         else
             try std.fmt.allocPrint(arena, "{}.d", .{out_obj_path});
-        try comp.addCCArgs(arena, &argv, ext, false, out_dep_path);
+        try comp.addCCArgs(arena, &argv, ext, out_dep_path);
 
         try argv.append("-o");
         try argv.append(out_obj_path);
@@ -1325,12 +1479,12 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
                     if (code != 0) {
                         // TODO parse clang stderr and turn it into an error message
                         // and then call failCObjWithOwnedErrorMsg
-                        std.log.err("clang failed with stderr: {}", .{stderr});
+                        log.err("clang failed with stderr: {}", .{stderr});
                         return comp.failCObj(c_object, "clang exited with code {}", .{code});
                     }
                 },
                 else => {
-                    std.log.err("clang terminated with stderr: {}", .{stderr});
+                    log.err("clang terminated with stderr: {}", .{stderr});
                     return comp.failCObj(c_object, "clang terminated unexpectedly", .{});
                 },
             }
@@ -1339,15 +1493,15 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         if (out_dep_path) |dep_file_path| {
             const dep_basename = std.fs.path.basename(dep_file_path);
             // Add the files depended on to the cache system.
-            try ch.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+            try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
             // Just to save disk space, we delete the file because it is never needed again.
             zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
-                std.log.warn("failed to delete '{}': {}", .{ dep_file_path, @errorName(err) });
+                log.warn("failed to delete '{}': {}", .{ dep_file_path, @errorName(err) });
             };
         }
 
         // Rename into place.
-        const digest = ch.final();
+        const digest = man.final();
         const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
         var o_dir = try comp.local_cache_directory.handle.makeOpenPath(o_sub_path, .{});
         defer o_dir.close();
@@ -1355,8 +1509,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         const tmp_basename = std.fs.path.basename(out_obj_path);
         try std.os.renameat(zig_cache_tmp_dir.fd, tmp_basename, o_dir.fd, o_basename);
 
-        ch.writeManifest() catch |err| {
-            std.log.warn("failed to write cache manifest when compiling '{}': {}", .{ c_object.src.src_path, @errorName(err) });
+        man.writeManifest() catch |err| {
+            log.warn("failed to write cache manifest when compiling '{}': {}", .{ c_object.src.src_path, @errorName(err) });
         };
         break :blk digest;
     };
@@ -1369,7 +1523,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
     c_object.status = .{
         .success = .{
             .object_path = try std.fs.path.join(comp.gpa, components),
-            .lock = ch.toOwnedLock(),
+            .lock = man.toOwnedLock(),
         },
     };
 }
@@ -1384,20 +1538,27 @@ fn tmpFilePath(comp: *Compilation, arena: *Allocator, suffix: []const u8) error{
     }
 }
 
+pub fn addTranslateCCArgs(
+    comp: *Compilation,
+    arena: *Allocator,
+    argv: *std.ArrayList([]const u8),
+    ext: FileExt,
+    out_dep_path: ?[]const u8,
+) !void {
+    try comp.addCCArgs(arena, argv, ext, out_dep_path);
+    // This gives us access to preprocessing entities, presumably at the cost of performance.
+    try argv.appendSlice(&[_][]const u8{ "-Xclang", "-detailed-preprocessing-record" });
+}
+
 /// Add common C compiler args between translate-c and C object compilation.
 pub fn addCCArgs(
     comp: *Compilation,
     arena: *Allocator,
     argv: *std.ArrayList([]const u8),
     ext: FileExt,
-    translate_c: bool,
     out_dep_path: ?[]const u8,
 ) !void {
     const target = comp.getTarget();
-
-    if (translate_c) {
-        try argv.appendSlice(&[_][]const u8{ "-x", "c" });
-    }
 
     if (ext == .cpp) {
         try argv.append("-nostdinc++");
@@ -1487,11 +1648,6 @@ pub fn addCCArgs(
             const mcmodel = comp.bin_file.options.machine_code_model;
             if (mcmodel != .default) {
                 try argv.append(try std.fmt.allocPrint(arena, "-mcmodel={}", .{@tagName(mcmodel)}));
-            }
-            if (translate_c) {
-                // This gives us access to preprocessing entities, presumably at the cost of performance.
-                try argv.append("-Xclang");
-                try argv.append("-detailed-preprocessing-record");
             }
 
             // windows.h has files such as pshpack1.h which do #pragma packing, triggering a clang warning.
@@ -2118,7 +2274,7 @@ pub fn updateSubCompilation(sub_compilation: *Compilation) !void {
 
     if (errors.list.len != 0) {
         for (errors.list) |full_err_msg| {
-            std.log.err("{}:{}:{}: {}\n", .{
+            log.err("{}:{}:{}: {}\n", .{
                 full_err_msg.src_path,
                 full_err_msg.line + 1,
                 full_err_msg.column + 1,
@@ -2231,23 +2387,23 @@ fn updateStage1Module(comp: *Compilation) !void {
     // the artifact directory the same, however, so we take the same strategy as linking
     // does where we have a file which specifies the hash of the output directory so that we can
     // skip the expensive compilation step if the hash matches.
-    var ch = comp.cache_parent.obtain();
-    defer ch.deinit();
+    var man = comp.cache_parent.obtain();
+    defer man.deinit();
 
-    _ = try ch.addFile(main_zig_file, null);
-    ch.hash.add(comp.bin_file.options.valgrind);
-    ch.hash.add(comp.bin_file.options.single_threaded);
-    ch.hash.add(target.os.getVersionRange());
-    ch.hash.add(comp.bin_file.options.dll_export_fns);
-    ch.hash.add(comp.bin_file.options.function_sections);
-    ch.hash.add(comp.is_test);
+    _ = try man.addFile(main_zig_file, null);
+    man.hash.add(comp.bin_file.options.valgrind);
+    man.hash.add(comp.bin_file.options.single_threaded);
+    man.hash.add(target.os.getVersionRange());
+    man.hash.add(comp.bin_file.options.dll_export_fns);
+    man.hash.add(comp.bin_file.options.function_sections);
+    man.hash.add(comp.is_test);
 
     // Capture the state in case we come back from this branch where the hash doesn't match.
-    const prev_hash_state = ch.hash.peekBin();
-    const input_file_count = ch.files.items.len;
+    const prev_hash_state = man.hash.peekBin();
+    const input_file_count = man.files.items.len;
 
-    if (try ch.hit()) {
-        const digest = ch.final();
+    if (try man.hit()) {
+        const digest = man.final();
 
         var prev_digest_buf: [digest.len]u8 = undefined;
         const prev_digest: []u8 = directory.handle.readLink(id_symlink_basename, &prev_digest_buf) catch |err| blk: {
@@ -2257,11 +2413,11 @@ fn updateStage1Module(comp: *Compilation) !void {
         };
         if (mem.eql(u8, prev_digest, &digest)) {
             log.debug("stage1 {} digest={} match - skipping invocation", .{ mod.root_pkg.root_src_path, digest });
-            comp.stage1_lock = ch.toOwnedLock();
+            comp.stage1_lock = man.toOwnedLock();
             return;
         }
         log.debug("stage1 {} prev_digest={} new_digest={}", .{ mod.root_pkg.root_src_path, prev_digest, digest });
-        ch.unhit(prev_hash_state, input_file_count);
+        man.unhit(prev_hash_state, input_file_count);
     }
 
     // We are about to change the output file to be different, so we invalidate the build hash now.
@@ -2285,7 +2441,7 @@ fn updateStage1Module(comp: *Compilation) !void {
     defer main_progress_node.end();
     if (comp.color == .Off) progress.terminal = null;
 
-    comp.stage1_cache_hash = &ch;
+    comp.stage1_cache_manifest = &man;
 
     const main_pkg_path = mod.root_pkg.root_src_directory.path orelse "";
 
@@ -2350,22 +2506,22 @@ fn updateStage1Module(comp: *Compilation) !void {
     stage1_module.build_object();
     stage1_module.destroy();
 
-    const digest = ch.final();
+    const digest = man.final();
 
     log.debug("stage1 {} final digest={}", .{ mod.root_pkg.root_src_path, digest });
 
     // Update the dangling symlink with the digest. If it fails we can continue; it only
     // means that the next invocation will have an unnecessary cache miss.
     directory.handle.symLink(&digest, id_symlink_basename, .{}) catch |err| {
-        std.log.warn("failed to save stage1 hash digest symlink: {}", .{@errorName(err)});
+        log.warn("failed to save stage1 hash digest symlink: {}", .{@errorName(err)});
     };
     // Again failure here only means an unnecessary cache miss.
-    ch.writeManifest() catch |err| {
-        std.log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
+    man.writeManifest() catch |err| {
+        log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
     };
     // We hang on to this lock so that the output file path can be used without
     // other processes clobbering it.
-    comp.stage1_lock = ch.toOwnedLock();
+    comp.stage1_lock = man.toOwnedLock();
 }
 
 fn createStage1Pkg(

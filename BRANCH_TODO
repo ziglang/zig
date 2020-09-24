@@ -1,6 +1,4 @@
- * repair @cImport
  * tests passing with -Dskip-non-native
- * windows CUSTOMBUILD : error : unable to build compiler_rt: FileNotFound [D:\a\1\s\build\zig_install_lib_files.vcxproj]
  * make sure zig cc works
    - using it as a preprocessor (-E)
    - try building some software
@@ -24,6 +22,7 @@
  * audit the base cache hash
  * On operating systems that support it, do an execve for `zig test` and `zig run` rather than child process.
  * restore error messages for stage2_add_link_lib
+ * windows CUSTOMBUILD : error : unable to build compiler_rt: FileNotFound [D:\a\1\s\build\zig_install_lib_files.vcxproj]
 
  * implement proper parsing of clang stderr/stdout and exposing compile errors with the Compilation API
  * implement proper parsing of LLD stderr/stdout and exposing compile errors with the Compilation API

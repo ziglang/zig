@@ -11,10 +11,12 @@ const fatal = stage2.fatal;
 const CrossTarget = std.zig.CrossTarget;
 const Target = std.Target;
 const Compilation = @import("Compilation.zig");
+const translate_c = @import("translate_c.zig");
 
 comptime {
     assert(std.builtin.link_libc);
     assert(build_options.is_stage1);
+    assert(build_options.have_llvm);
     _ = @import("compiler_rt");
 }
 
@@ -322,8 +324,37 @@ const Stage2SemVer = extern struct {
 };
 
 // ABI warning
-export fn stage2_cimport(stage1: *Module) [*:0]const u8 {
-    @panic("TODO implement stage2_cimport");
+export fn stage2_cimport(
+    stage1: *Module,
+    c_src_ptr: [*]const u8,
+    c_src_len: usize,
+    out_zig_path_ptr: *[*]const u8,
+    out_zig_path_len: *usize,
+    out_errors_ptr: *[*]translate_c.ClangErrMsg,
+    out_errors_len: *usize,
+) Error {
+    const comp = @intToPtr(*Compilation, stage1.userdata);
+    const c_src = c_src_ptr[0..c_src_len];
+    const result = comp.cImport(c_src) catch |err| switch (err) {
+        error.SystemResources => return .SystemResources,
+        error.OperationAborted => return .OperationAborted,
+        error.BrokenPipe => return .BrokenPipe,
+        error.DiskQuota => return .DiskQuota,
+        error.FileTooBig => return .FileTooBig,
+        error.NoSpaceLeft => return .NoSpaceLeft,
+        error.AccessDenied => return .AccessDenied,
+        error.OutOfMemory => return .OutOfMemory,
+        error.Unexpected => return .Unexpected,
+        error.InputOutput => return .FileSystem,
+        error.ASTUnitFailure => return .ASTUnitFailure,
+        else => return .Unexpected,
+    };
+    out_zig_path_ptr.* = result.out_zig_path.ptr;
+    out_zig_path_len.* = result.out_zig_path.len;
+    out_errors_ptr.* = result.errors.ptr;
+    out_errors_len.* = result.errors.len;
+    if (result.errors.len != 0) return .CCompileErrors;
+    return Error.None;
 }
 
 export fn stage2_add_link_lib(
@@ -345,7 +376,7 @@ export fn stage2_fetch_file(
     const comp = @intToPtr(*Compilation, stage1.userdata);
     const file_path = path_ptr[0..path_len];
     const max_file_size = std.math.maxInt(u32);
-    const contents = comp.stage1_cache_hash.addFilePostFetch(file_path, max_file_size) catch return null;
+    const contents = comp.stage1_cache_manifest.addFilePostFetch(file_path, max_file_size) catch return null;
     result_len.* = contents.len;
     return contents.ptr;
 }

@@ -511,7 +511,10 @@ const char *stage2_fetch_file(struct ZigStage1 *stage1, const char *path_ptr, si
     return buf_ptr(&contents_buf);
 }
 
-const char *stage2_cimport(struct ZigStage1 *stage1) {
+Error stage2_cimport(struct ZigStage1 *stage1, const char *c_src_ptr, size_t c_src_len,
+        const char **out_zig_path_ptr, size_t *out_zig_path_len,
+        struct Stage2ErrorMsg **out_errors_ptr, size_t *out_errors_len)
+{
     const char *msg = "stage0 called stage2_cimport";
     stage2_panic(msg, strlen(msg));
 }

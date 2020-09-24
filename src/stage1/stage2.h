@@ -165,7 +165,9 @@ ZIG_EXTERN_C const char *stage2_fetch_file(struct ZigStage1 *stage1, const char 
         size_t *result_len);
 
 // ABI warning
-ZIG_EXTERN_C const char *stage2_cimport(struct ZigStage1 *stage1);
+ZIG_EXTERN_C Error stage2_cimport(struct ZigStage1 *stage1, const char *c_src_ptr, size_t c_src_len,
+        const char **out_zig_path_ptr, size_t *out_zig_path_len,
+        struct Stage2ErrorMsg **out_errors_ptr, size_t *out_errors_len);
 
 // ABI warning
 ZIG_EXTERN_C const char *stage2_add_link_lib(struct ZigStage1 *stage1,

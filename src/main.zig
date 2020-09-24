@@ -1617,7 +1617,7 @@ fn cmdTranslateC(comp: *Compilation, arena: *Allocator) !void {
 
     const c_source_file = comp.c_source_files[0];
     const file_ext = Compilation.classifyFileExt(c_source_file.src_path);
-    try comp.addCCArgs(arena, &argv, file_ext, true, null);
+    try comp.addTranslateCCArgs(arena, &argv, file_ext, null);
     try argv.append(c_source_file.src_path);
 
     if (comp.verbose_cc) {

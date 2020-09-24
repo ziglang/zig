@@ -12,9 +12,9 @@ const mem = std.mem;
 const fmt = std.fmt;
 const Allocator = std.mem.Allocator;
 
-/// Be sure to call `CacheHash.deinit` after successful initialization.
-pub fn obtain(cache: *const Cache) CacheHash {
-    return CacheHash{
+/// Be sure to call `Manifest.deinit` after successful initialization.
+pub fn obtain(cache: *const Cache) Manifest {
+    return Manifest{
         .cache = cache,
         .hash = cache.hash,
         .manifest_file = null,
@@ -30,7 +30,7 @@ pub const hex_digest_len = bin_digest_len * 2;
 const manifest_file_size_max = 50 * 1024 * 1024;
 
 /// The type used for hashing file contents. Currently, this is SipHash128(1, 3), because it
-/// provides enough collision resistance for the CacheHash use cases, while being one of our
+/// provides enough collision resistance for the Manifest use cases, while being one of our
 /// fastest options right now.
 pub const Hasher = crypto.auth.siphash.SipHash128(1, 3);
 
@@ -147,10 +147,10 @@ pub const Lock = struct {
     }
 };
 
-/// CacheHash manages project-local `zig-cache` directories.
+/// Manifest manages project-local `zig-cache` directories.
 /// This is not a general-purpose cache.
 /// It is designed to be fast and simple, not to withstand attacks using specially-crafted input.
-pub const CacheHash = struct {
+pub const Manifest = struct {
     cache: *const Cache,
     /// Current state for incremental hashing.
     hash: HashHelper,
@@ -173,7 +173,7 @@ pub const CacheHash = struct {
     /// ```
     /// var file_contents = cache_hash.files.items[file_index].contents.?;
     /// ```
-    pub fn addFile(self: *CacheHash, file_path: []const u8, max_file_size: ?usize) !usize {
+    pub fn addFile(self: *Manifest, file_path: []const u8, max_file_size: ?usize) !usize {
         assert(self.manifest_file == null);
 
         try self.files.ensureCapacity(self.cache.gpa, self.files.items.len + 1);
@@ -193,13 +193,13 @@ pub const CacheHash = struct {
         return idx;
     }
 
-    pub fn addOptionalFile(self: *CacheHash, optional_file_path: ?[]const u8) !void {
+    pub fn addOptionalFile(self: *Manifest, optional_file_path: ?[]const u8) !void {
         self.hash.add(optional_file_path != null);
         const file_path = optional_file_path orelse return;
         _ = try self.addFile(file_path, null);
     }
 
-    pub fn addListOfFiles(self: *CacheHash, list_of_files: []const []const u8) !void {
+    pub fn addListOfFiles(self: *Manifest, list_of_files: []const []const u8) !void {
         self.hash.add(list_of_files.len);
         for (list_of_files) |file_path| {
             _ = try self.addFile(file_path, null);
@@ -210,13 +210,13 @@ pub const CacheHash = struct {
     /// A hex encoding of its hash is available by calling `final`.
     ///
     /// This function will also acquire an exclusive lock to the manifest file. This means
-    /// that a process holding a CacheHash will block any other process attempting to
+    /// that a process holding a Manifest will block any other process attempting to
     /// acquire the lock.
     ///
     /// The lock on the manifest file is released when `deinit` is called. As another
     /// option, one may call `toOwnedLock` to obtain a smaller object which can represent
     /// the lock. `deinit` is safe to call whether or not `toOwnedLock` has been called.
-    pub fn hit(self: *CacheHash) !bool {
+    pub fn hit(self: *Manifest) !bool {
         assert(self.manifest_file == null);
 
         const ext = ".txt";
@@ -361,7 +361,7 @@ pub const CacheHash = struct {
         return true;
     }
 
-    pub fn unhit(self: *CacheHash, bin_digest: [bin_digest_len]u8, input_file_count: usize) void {
+    pub fn unhit(self: *Manifest, bin_digest: [bin_digest_len]u8, input_file_count: usize) void {
         // Reset the hash.
         self.hash.hasher = hasher_init;
         self.hash.hasher.update(&bin_digest);
@@ -377,7 +377,7 @@ pub const CacheHash = struct {
         }
     }
 
-    fn populateFileHash(self: *CacheHash, ch_file: *File) !void {
+    fn populateFileHash(self: *Manifest, ch_file: *File) !void {
         const file = try fs.cwd().openFile(ch_file.path.?, .{});
         defer file.close();
 
@@ -421,7 +421,7 @@ pub const CacheHash = struct {
     /// calculated. This is useful for processes that don't know the all the files that
     /// are depended on ahead of time. For example, a source file that can import other files
     /// will need to be recompiled if the imported file is changed.
-    pub fn addFilePostFetch(self: *CacheHash, file_path: []const u8, max_file_size: usize) ![]const u8 {
+    pub fn addFilePostFetch(self: *Manifest, file_path: []const u8, max_file_size: usize) ![]const u8 {
         assert(self.manifest_file != null);
 
         const resolved_path = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});
@@ -446,7 +446,7 @@ pub const CacheHash = struct {
     /// calculated. This is useful for processes that don't know the all the files that
     /// are depended on ahead of time. For example, a source file that can import other files
     /// will need to be recompiled if the imported file is changed.
-    pub fn addFilePost(self: *CacheHash, file_path: []const u8) !void {
+    pub fn addFilePost(self: *Manifest, file_path: []const u8) !void {
         assert(self.manifest_file != null);
 
         const resolved_path = try fs.path.resolve(self.cache.gpa, &[_][]const u8{file_path});
@@ -465,7 +465,7 @@ pub const CacheHash = struct {
         try self.populateFileHash(new_ch_file);
     }
 
-    pub fn addDepFilePost(self: *CacheHash, dir: fs.Dir, dep_file_basename: []const u8) !void {
+    pub fn addDepFilePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
         assert(self.manifest_file != null);
 
         const dep_file_contents = try dir.readFileAlloc(self.cache.gpa, dep_file_basename, manifest_file_size_max);
@@ -501,7 +501,7 @@ pub const CacheHash = struct {
     }
 
     /// Returns a hex encoded hash of the inputs.
-    pub fn final(self: *CacheHash) [hex_digest_len]u8 {
+    pub fn final(self: *Manifest) [hex_digest_len]u8 {
         assert(self.manifest_file != null);
 
         // We don't close the manifest file yet, because we want to
@@ -519,7 +519,7 @@ pub const CacheHash = struct {
         return out_digest;
     }
 
-    pub fn writeManifest(self: *CacheHash) !void {
+    pub fn writeManifest(self: *Manifest) !void {
         assert(self.manifest_file != null);
         if (!self.manifest_dirty) return;
 
@@ -544,18 +544,18 @@ pub const CacheHash = struct {
     }
 
     /// Obtain only the data needed to maintain a lock on the manifest file.
-    /// The `CacheHash` remains safe to deinit.
+    /// The `Manifest` remains safe to deinit.
     /// Don't forget to call `writeManifest` before this!
-    pub fn toOwnedLock(self: *CacheHash) Lock {
+    pub fn toOwnedLock(self: *Manifest) Lock {
         const manifest_file = self.manifest_file.?;
         self.manifest_file = null;
         return Lock{ .manifest_file = manifest_file };
     }
 
-    /// Releases the manifest file and frees any memory the CacheHash was using.
-    /// `CacheHash.hit` must be called first.
+    /// Releases the manifest file and frees any memory the Manifest was using.
+    /// `Manifest.hit` must be called first.
     /// Don't forget to call `writeManifest` before this!
-    pub fn deinit(self: *CacheHash) void {
+    pub fn deinit(self: *Manifest) void {
         if (self.manifest_file) |file| {
             file.close();
         }
@@ -808,7 +808,7 @@ test "no file inputs" {
     testing.expectEqual(digest1, digest2);
 }
 
-test "CacheHashes with files added after initial hash work" {
+test "Manifest with files added after initial hash work" {
     if (std.Target.current.os.tag == .wasi) {
         // https://github.com/ziglang/zig/issues/5437
         return error.SkipZigTest;

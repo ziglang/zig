@@ -26382,7 +26382,41 @@ static IrInstGen *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstSrcCImpo
     cimport_pkg->package_table.put(buf_create_from_str("std"), ira->codegen->std_package);
     buf_init_from_buf(&cimport_pkg->pkg_path, namespace_name);
 
-    Buf *out_zig_path = buf_create_from_str(stage2_cimport(&ira->codegen->stage1));
+    const char *out_zig_path_ptr;
+    size_t out_zig_path_len;
+    Stage2ErrorMsg *errors_ptr;
+    size_t errors_len;
+    if ((err = stage2_cimport(&ira->codegen->stage1,
+            buf_ptr(&cimport_scope->buf), buf_len(&cimport_scope->buf),
+            &out_zig_path_ptr, &out_zig_path_len,
+            &errors_ptr, &errors_len)))
+    {
+        if (err != ErrorCCompileErrors) {
+            ir_add_error_node(ira, node, buf_sprintf("C import failed: %s", err_str(err)));
+            return ira->codegen->invalid_inst_gen;
+        }
+
+        ErrorMsg *parent_err_msg = ir_add_error_node(ira, node, buf_sprintf("C import failed"));
+        if (!ira->codegen->stage1.link_libc) {
+            add_error_note(ira->codegen, parent_err_msg, node,
+                buf_sprintf("libc headers not available; compilation does not link against libc"));
+        }
+        for (size_t i = 0; i < errors_len; i += 1) {
+            Stage2ErrorMsg *clang_err = &errors_ptr[i];
+            // Clang can emit "too many errors, stopping now", in which case `source` and `filename_ptr` are null
+            if (clang_err->source && clang_err->filename_ptr) {
+                ErrorMsg *err_msg = err_msg_create_with_offset(
+                    clang_err->filename_ptr ?
+                        buf_create_from_mem(clang_err->filename_ptr, clang_err->filename_len) : buf_alloc(),
+                    clang_err->line, clang_err->column, clang_err->offset, clang_err->source,
+                    buf_create_from_mem(clang_err->msg_ptr, clang_err->msg_len));
+                err_msg_add_note(parent_err_msg, err_msg);
+            }
+        }
+
+        return ira->codegen->invalid_inst_gen;
+    }
+    Buf *out_zig_path = buf_create_from_mem(out_zig_path_ptr, out_zig_path_len);
 
     Buf *import_code = buf_alloc();
     if ((err = file_fetch(ira->codegen, out_zig_path, import_code))) {
