@@ -1840,7 +1840,7 @@ const Point = struct {
     y: i32,
 };
 
-test "compile-time array initalization" {
+test "compile-time array initialization" {
     assert(fancy_array[4].x == 4);
     assert(fancy_array[4].y == 8);
 }
