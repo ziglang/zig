@@ -1487,7 +1487,7 @@ pub fn buildOutputType(
                 try argv.appendSlice(all_args[i..]);
             }
             // TODO On operating systems that support it, do an execve here rather than child process,
-            // when watch=false.
+            // when watch=false and arg_mode == .run
             const child = try std.ChildProcess.init(argv.items, gpa);
             defer child.deinit();
 
@@ -1496,17 +1496,38 @@ pub fn buildOutputType(
             child.stderr_behavior = .Inherit;
 
             const term = try child.spawnAndWait();
-            switch (term) {
-                .Exited => |code| {
-                    if (code != 0) {
-                        // TODO https://github.com/ziglang/zig/issues/6342
-                        process.exit(1);
+            switch (arg_mode) {
+                .run => {
+                    switch (term) {
+                        .Exited => |code| {
+                            if (code == 0) {
+                                if (!watch) return cleanExit();
+                            } else {
+                                // TODO https://github.com/ziglang/zig/issues/6342
+                                process.exit(1);
+                            }
+                        },
+                        else => process.exit(1),
                     }
                 },
-                else => process.exit(1),
+                .zig_test => {
+                    switch (term) {
+                        .Exited => |code| {
+                            if (code == 0) {
+                                if (!watch) return cleanExit();
+                            } else {
+                                const cmd = try argvCmd(arena, argv.items);
+                                fatal("the following test command failed with exit code {}:\n{}", .{ code, cmd });
+                            }
+                        },
+                        else => {
+                            const cmd = try argvCmd(arena, argv.items);
+                            fatal("the following test command crashed:\n{}", .{cmd});
+                        },
+                    }
+                },
+                else => unreachable,
             }
-            if (!watch)
-                return cleanExit();
         },
         else => {},
     }
@@ -2007,28 +2028,29 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
     child.stdout_behavior = .Inherit;
     child.stderr_behavior = .Inherit;
 
-    var cmd = std.ArrayList(u8).init(arena);
-
     const term = try child.spawnAndWait();
     switch (term) {
         .Exited => |code| {
             if (code == 0) return cleanExit();
-            try cmd.writer().print("failed with exit code {}:\n", .{code});
+            const cmd = try argvCmd(arena, child_argv);
+            fatal("the following build command failed with exit code {}:\n{}", .{ code, cmd });
         },
         else => {
-            try cmd.appendSlice("crashed:\n");
+            const cmd = try argvCmd(arena, child_argv);
+            fatal("the following build command crashed:\n{}", .{cmd});
         },
     }
+}
 
-    try cmd.append('\n');
-    for (child_argv[0 .. child_argv.len - 1]) |arg| {
+fn argvCmd(allocator: *Allocator, argv: []const []const u8) ![]u8 {
+    var cmd = std.ArrayList(u8).init(allocator);
+    defer cmd.deinit();
+    for (argv[0 .. argv.len - 1]) |arg| {
         try cmd.appendSlice(arg);
         try cmd.append(' ');
     }
-    try cmd.appendSlice(child_argv[child_argv.len - 1]);
-
-    if (true) // Working around erroneous stage1 compile error: unreachable code on child.deinit()
-        fatal("The following build command {}", .{cmd.items});
+    try cmd.appendSlice(argv[argv.len - 1]);
+    return cmd.toOwnedSlice();
 }
 
 pub const usage_fmt =
