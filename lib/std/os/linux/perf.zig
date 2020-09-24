@@ -1,3 +1,6 @@
+const std = @import("std");
+usingnamespace std.os.linux;
+
 pub const COUNT_SW_BPF_OUTPUT = 10;
 pub const TYPE_SOFTWARE = 1;
 pub const SAMPLE_RAW = 1 << 10;
@@ -6,8 +9,9 @@ pub const FLAG_FD_CLOEXEC = 1 << 3;
 pub const RECORD_LOST = 2;
 pub const RECORD_SAMPLE = 9;
 
-pub const EVENT_IOC_ENABLE = @compileError("TODO");
-pub const EVENT_IOC_DISABLE = @compileError("TODO");
+pub const EVENT_IOC_ENABLE = @bitCast(u32, IO('$', 0));
+pub const EVENT_IOC_DISABLE = @bitCast(u32, IO('$', 1));
+pub const set_bpf = @bitCast(u32, IOW('$', 8, fd_t));
 
 pub const EventHeader = packed struct {
     type: u32,

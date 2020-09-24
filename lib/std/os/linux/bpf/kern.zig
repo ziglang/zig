@@ -73,7 +73,7 @@ pub fn ArrayMap(comptime Value: type) type {
     };
 }
 
-pub const PerfEventArray = packed struct {
+pub const PerfEventArray = struct {
     map: Map(u32, u32),
 
     const Self = @This();
@@ -119,14 +119,18 @@ pub const PerfEventArray = packed struct {
     /// - Only custom structs,
     /// - Only the packet payload, or
     /// - A combination of both.
-    pub fn event_output(self: *const PerfEventArray, ctx: anytype, flags: u64, data: []u8) !void {
-        const rc = helpers.perf_event_output(ctx, self, flags, data.ptr, data.len);
+    pub fn event_output(self: Self, ctx: anytype, flags: u64, data: []u8) !void {
+        const rc = helpers.perf_event_output(ctx, @ptrCast(*const MapDef, &self), flags, data.ptr, data.len);
         return switch (rc) {
             0 => {},
             else => error.Unknown,
         };
     }
 };
+
+/// Return the time elapsed since system boot, in nanoseconds.  Does not include
+/// time the system was suspended.
+pub const ktime_get_ns = helpers.ktime_get_ns;
 
 pub const BpfSock = @Type(.Opaque);
 pub const BpfSockAddr = @Type(.Opaque);

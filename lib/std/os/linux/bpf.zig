@@ -199,47 +199,50 @@ pub const EXIST = 2;
 pub const F_LOCK = 4;
 
 /// flag for BPF_MAP_CREATE command */
-pub const BPF_F_NO_PREALLOC = 0x1;
+pub const F_NO_PREALLOC = 0x1;
 
 /// flag for BPF_MAP_CREATE command. Instead of having one common LRU list in
 /// the BPF_MAP_TYPE_LRU_[PERCPU_]HASH map, use a percpu LRU list which can
 /// scale and perform better.  Note, the LRU nodes (including free nodes) cannot
 /// be moved across different LRU lists.
-pub const BPF_F_NO_COMMON_LRU = 0x2;
+pub const F_NO_COMMON_LRU = 0x2;
 
 /// flag for BPF_MAP_CREATE command. Specify numa node during map creation
-pub const BPF_F_NUMA_NODE = 0x4;
+pub const F_NUMA_NODE = 0x4;
 
 /// flag for BPF_MAP_CREATE command. Flags for BPF object read access from
 /// syscall side
-pub const BPF_F_RDONLY = 0x8;
+pub const F_RDONLY = 0x8;
 
 /// flag for BPF_MAP_CREATE command. Flags for BPF object write access from
 /// syscall side
-pub const BPF_F_WRONLY = 0x10;
+pub const F_WRONLY = 0x10;
 
 /// flag for BPF_MAP_CREATE command. Flag for stack_map, store build_id+offset
 /// instead of pointer
-pub const BPF_F_STACK_BUILD_ID = 0x20;
+pub const F_STACK_BUILD_ID = 0x20;
 
 /// flag for BPF_MAP_CREATE command. Zero-initialize hash function seed. This
 /// should only be used for testing.
-pub const BPF_F_ZERO_SEED = 0x40;
+pub const F_ZERO_SEED = 0x40;
 
 /// flag for BPF_MAP_CREATE command Flags for accessing BPF object from program
 /// side.
-pub const BPF_F_RDONLY_PROG = 0x80;
+pub const F_RDONLY_PROG = 0x80;
 
 /// flag for BPF_MAP_CREATE command. Flags for accessing BPF object from program
 /// side.
-pub const BPF_F_WRONLY_PROG = 0x100;
+pub const F_WRONLY_PROG = 0x100;
 
 /// flag for BPF_MAP_CREATE command. Clone map from listener for newly accepted
 /// socket
-pub const BPF_F_CLONE = 0x200;
+pub const F_CLONE = 0x200;
 
 /// flag for BPF_MAP_CREATE command. Enable memory-mapping BPF map
-pub const BPF_F_MMAPABLE = 0x400;
+pub const F_MMAPABLE = 0x400;
+
+/// Flag for perf_event_output, read, and read_value
+pub const F_CURRENT_CPU = 0xffffffff;
 
 /// These values correspond to "syscalls" within the BPF program's environment,
 /// each one is documented in std.os.linux.BPF.kern
@@ -1693,17 +1696,7 @@ pub fn Map(comptime Key: type, comptime Value: type) type {
     };
 }
 
-pub const PerfEventArray = struct {
-    base: Map(u32, u32),
-
-    const Self = @This();
-
-    pub fn init(info: anytype) !Self {
-        return Self{
-            .base = try Map(u32, u32).init(info),
-        };
-    }
-};
+pub const PerfEventArray = Map(u32, u32);
 
 pub fn PerfBuffer(comptime T: type) type {
     return struct {
@@ -1721,7 +1714,7 @@ pub fn PerfBuffer(comptime T: type) type {
         };
 
         pub const Payload = struct {
-            cpu: i32,
+            cpu: u32,
             data: union(Tag) {
                 sample: []u8,
                 lost: usize,
@@ -1734,12 +1727,13 @@ pub fn PerfBuffer(comptime T: type) type {
         };
 
         const CpuBuf = struct {
-            cpu: i32,
+            cpu: u32,
             fd: fd_t,
             mmap: []align(4096) u8,
 
-            pub fn init(cpu: i32, mmap_size: usize) !@This() {
-                var attr = std.mem.zeroes(perf.EventAttr);
+            pub fn init(cpu: u32, mmap_size: usize) !CpuBuf {
+                var attr: perf.EventAttr = undefined;
+                mem.set(u8, mem.asBytes(&attr), 0);
 
                 attr.config = perf.COUNT_SW_BPF_OUTPUT;
                 attr.type = perf.TYPE_SOFTWARE;
@@ -1756,16 +1750,17 @@ pub fn PerfBuffer(comptime T: type) type {
                     perf.FLAG_FD_CLOEXEC,
                 );
                 const fd = try switch (std.os.linux.getErrno(rc)) {
-                    0...std.math.maxInt(@TypeOf(rc)) => @intCast(fd_t, rc),
+                    0 => @intCast(fd_t, rc),
                     else => |err| std.os.unexpectedErrno(err),
                 };
                 errdefer std.os.close(fd);
 
-                try ioctl(fd, perf.EVENT_IOC_ENABLE, 0);
-                return .{
+                const status = ioctl(fd, perf.EVENT_IOC_ENABLE, 0);
+                if (status != 0) return error.GoFixIoctlHandling;
+                return CpuBuf{
                     .cpu = cpu,
                     .fd = fd,
-                    .base = try std.os.mmap(
+                    .mmap = try std.os.mmap(
                         null,
                         mmap_size + std.mem.page_size,
                         PROT_READ | PROT_WRITE,
@@ -1776,7 +1771,7 @@ pub fn PerfBuffer(comptime T: type) type {
                 };
             }
 
-            fn read(self: @This(), allocator: *mem.Allocator) !?Payload {
+            fn read(self: CpuBuf, allocator: *mem.Allocator) !?Payload {
                 const header = @ptrCast(*volatile perf.MmapPage, self.mmap.ptr);
                 if (header.data_tail == header.data_head) {
                     return null;
@@ -1820,7 +1815,7 @@ pub fn PerfBuffer(comptime T: type) type {
                 return ret;
             }
 
-            fn process(self: @This(), allocator: *mem.Allocator, channel: *Channel(Payload)) callconv(.Async) void {
+            fn process(self: CpuBuf, allocator: *mem.Allocator, channel: *Channel(Payload)) callconv(.Async) void {
                 while (true) {
                     std.event.Loop.instance.?.waitUntilFdWritable(self.fd);
 
@@ -1830,9 +1825,10 @@ pub fn PerfBuffer(comptime T: type) type {
                 }
             }
 
-            pub fn deinit(self: @This()) void {
-                std.os.munmap(self.base);
-                ioctl(self.fd, perf.EVENT_IOC_DISABLE, 0) catch {};
+            pub fn deinit(self: CpuBuf) void {
+                std.os.munmap(self.mmap);
+                const status = ioctl(self.fd, perf.EVENT_IOC_DISABLE, 0);
+                if (status != 0) @panic("Fix ioctl error handling");
                 std.os.close(self.fd);
             }
         };
@@ -1843,7 +1839,7 @@ pub fn PerfBuffer(comptime T: type) type {
                 return error.PageCountSize;
             }
 
-            const cpu_count = std.math.min(map.base.def.max_entries, try std.Thread.cpuCount());
+            const cpu_count = std.math.min(map.def.max_entries, try std.Thread.cpuCount());
 
             var ret: Self = undefined;
             ret.allocator = allocator;
@@ -1852,15 +1848,15 @@ pub fn PerfBuffer(comptime T: type) type {
             errdefer ret.channel.deinit();
 
             ret.contexts = try std.ArrayListUnmanaged(Context).initCapacity(allocator, cpu_count);
-            errdefer {
-                for (contexts.items) |buf| buf.deinit(allocator);
-                contexts.deinit(allocator);
-            }
+            errdefer for (ret.contexts.items) |ctx| ctx.cpubuf.deinit();
 
-            var i: i32 = 0;
+            var i: u32 = 0;
             while (i < cpu_count) : (i += 0) {
-                ret.contexts.appendAssumeCapacity(try CpuBuf.init(i, std.mem.page_size * page_cnt));
-                try bpf.map_update_elem(map.fd, cpu, ret.contexts.items[i].fd, 0);
+                ret.contexts.appendAssumeCapacity(.{
+                    .cpubuf = try CpuBuf.init(i, std.mem.page_size * page_cnt),
+                    .frame = undefined,
+                });
+                try BPF.map_update_elem(map.fd, mem.asBytes(&i), mem.asBytes(&ret.contexts.items[i].cpubuf.fd), 0);
             }
 
             return ret;
@@ -1868,22 +1864,26 @@ pub fn PerfBuffer(comptime T: type) type {
 
         pub fn deinit(self: Self) void {
             self.channel.deinit();
-            for (self.contexts.items) |buf| buf.deinit(self.allocator);
+            for (self.contexts.items) |ctx| ctx.cpubuf.deinit();
 
-            self.contexts.deinit(allocator);
+            self.contexts.deinit(self.allocator);
             self.channel.deinit();
             allocator.free(self.channel_buf);
         }
 
-        pub fn run(self: Self) callconv(.Async) void {
-            for (self.contexts.items) |*buf| {
-                buf.frame = async buf.cpubuf.process(&self.allocator, &self.channel);
+        pub fn get(self: *Self) Payload {
+            return self.channel.get();
+        }
+
+        pub fn run(self: *Self) callconv(.Async) void {
+            for (self.contexts.items) |*ctx| {
+                ctx.frame = async ctx.cpubuf.process(self.allocator, &self.channel);
             }
         }
     };
 }
 
 test "perf buffer" {
-    const perf_event_array = try bpf.PerfEventArray.init(64);
+    const perf_event_array = try BPF.PerfEventArray.init(64);
     var perf_buffer = try PerfBuffer.init(perf_event_array, 64);
 }
