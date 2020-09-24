@@ -4164,7 +4164,6 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             // Pending https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=198570
             // or similar, there's not a good way to get this in FreeBSD.
             // Instead, list all open files for the process and find the FD we're looking for.
-            // Inefficient, but works.
             switch (errno(system.sysctlnametomib("kern.proc.filedesc", &mib[0], &miblen))) {
                 0 => {},
                 EFAULT => unreachable, // stack is always a valid address
@@ -4175,12 +4174,29 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
                 else => |err| return unexpectedErrno(err),
             }
 
-            // I can get the approximate required size by using null for oldp/buf.
             // If the buffer is too small, sysctl silently gives partial result,
             // which may not contain our target FD.
-            // How do I do this better without an allocator, alloca or stupidly large array?
-            var buf: [MAX_PATH_BYTES * 100]u8 = undefined;
-            var buflen = buf.len;
+            // Get the approximate required size by using null for oldp/buf.
+            // Use that to change the error produced if we can't find the FD.
+            // TODO: Do this better with an allocator, alloca or stupidly large array?
+            var buflen: usize = 0;
+            sysctl(&mib, null, &buflen, null, 0) catch |err| switch (err) {
+                error.PermissionDenied => unreachable, // not setting value
+                error.NameTooLong => unreachable, // known good mib from sysctlnametomib
+                error.UnknownName => unreachable, // known good mib from sysctlnametomib
+                error.Unexpected => return error.Unexpected, // EINVAL/EISDIR/ENOTDIR should be unreachable
+                error.SystemResources => return error.SystemResources,
+            };
+
+            // 20 is completely arbitrary, should work to around 40 open files?
+            var buf: [MAX_PATH_BYTES * 20]u8 = undefined;
+
+            // If the buffer size required is larger than above, try with the partial result.
+            // If unsuccessful, signal it's a resource constraint rather than not finding the FD.
+            const result_error: RealPathError = if (buflen > buf.len) error.SystemResources else error.FileNotFound;
+
+            buflen = buf.len;
+
             sysctl(&mib, &buf, &buflen, null, 0) catch |err| switch (err) {
                 error.PermissionDenied => unreachable, // not setting value
                 error.NameTooLong => unreachable, // known good mib from sysctlnametomib
@@ -4201,7 +4217,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
                 offset += @intCast(usize, kf.kf_structsize);
             }
 
-            return error.FileNotFound;
+            return result_error;
         },
         .linux => {
             var procfs_buf: ["/proc/self/fd/-2147483648".len:0]u8 = undefined;
