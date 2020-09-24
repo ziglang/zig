@@ -4131,7 +4131,7 @@ pub fn realpathW(pathname: []const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPat
 /// Return canonical path of handle `fd`.
 /// This function is very host-specific and is not universally supported by all hosts.
 /// For example, while it generally works on Linux, macOS or Windows, it is unsupported
-/// on FreeBSD, or WASI.
+/// on WASI. FreeBSD has an inefficient alternative.
 pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     switch (builtin.os.tag) {
         .windows => {
@@ -4161,6 +4161,10 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
 
             var mib = [_]c_int{ 0, 0, 0, pid };
             var miblen = mib.len;
+            // Pending https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=198570
+            // or similar, there's not a good way to get this in FreeBSD.
+            // Instead, list all open files for the process and find the FD we're looking for.
+            // Inefficient, but works.
             switch (errno(system.sysctlnametomib("kern.proc.filedesc", &mib[0], &miblen))) {
                 0 => {},
                 EFAULT => unreachable, // stack is always a valid address
@@ -4171,9 +4175,11 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
                 else => |err| return unexpectedErrno(err),
             }
 
-            // I can get the required size by using null oldp
-            // How do I do this better without alloca or arbitrarily large array?
-            var buf: [MAX_PATH_BYTES * 10]u8 = undefined;
+            // I can get the approximate required size by using null for oldp/buf.
+            // If the buffer is too small, sysctl silently gives partial result,
+            // which may not contain our target FD.
+            // How do I do this better without an allocator, alloca or stupidly large array?
+            var buf: [MAX_PATH_BYTES * 100]u8 = undefined;
             var buflen = buf.len;
             sysctl(&mib, &buf, &buflen, null, 0) catch |err| switch (err) {
                 error.PermissionDenied => unreachable, // not setting value
