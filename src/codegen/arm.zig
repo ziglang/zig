@@ -446,7 +446,7 @@ pub const Instruction = union(enum) {
         pre_post: u1,
         up_down: u1,
         psr_or_user: u1,
-        write_back: u1,
+        write_back: bool,
         load_store: u1,
     ) Instruction {
         return Instruction{
@@ -454,7 +454,7 @@ pub const Instruction = union(enum) {
                 .register_list = @bitCast(u16, reg_list),
                 .rn = rn.id(),
                 .load_store = load_store,
-                .write_back = write_back,
+                .write_back = if (write_back) 1 else 0,
                 .psr_or_user = psr_or_user,
                 .up_down = up_down,
                 .pre_post = pre_post,
@@ -644,13 +644,49 @@ pub const Instruction = union(enum) {
 
     // Block data transfer
 
-    pub fn ldm(cond: Condition, rn: Register, reg_list: RegisterList) Instruction {
-        return blockDataTransfer(cond, rn, reg_list, 1, 0, 0, 0, 1);
+    pub fn ldmda(cond: Condition, rn: Register, write_back: bool, reg_list: RegisterList) Instruction {
+        return blockDataTransfer(cond, rn, reg_list, 0, 0, 0, write_back, 1);
     }
 
-    pub fn stm(cond: Condition, rn: Register, reg_list: RegisterList) Instruction {
-        return blockDataTransfer(cond, rn, reg_list, 1, 0, 0, 0, 0);
+    pub fn ldmdb(cond: Condition, rn: Register, write_back: bool, reg_list: RegisterList) Instruction {
+        return blockDataTransfer(cond, rn, reg_list, 1, 0, 0, write_back, 1);
     }
+
+    pub fn ldmib(cond: Condition, rn: Register, write_back: bool, reg_list: RegisterList) Instruction {
+        return blockDataTransfer(cond, rn, reg_list, 1, 1, 0, write_back, 1);
+    }
+
+    pub fn ldmia(cond: Condition, rn: Register, write_back: bool, reg_list: RegisterList) Instruction {
+        return blockDataTransfer(cond, rn, reg_list, 0, 1, 0, write_back, 1);
+    }
+
+    pub const ldmfa = ldmda;
+    pub const ldmea = ldmdb;
+    pub const ldmed = ldmib;
+    pub const ldmfd = ldmia;
+    pub const ldm = ldmia;
+
+    pub fn stmda(cond: Condition, rn: Register, write_back: bool, reg_list: RegisterList) Instruction {
+        return blockDataTransfer(cond, rn, reg_list, 0, 0, 0, write_back, 0);
+    }
+
+    pub fn stmdb(cond: Condition, rn: Register, write_back: bool, reg_list: RegisterList) Instruction {
+        return blockDataTransfer(cond, rn, reg_list, 1, 0, 0, write_back, 0);
+    }
+
+    pub fn stmib(cond: Condition, rn: Register, write_back: bool, reg_list: RegisterList) Instruction {
+        return blockDataTransfer(cond, rn, reg_list, 1, 1, 0, write_back, 0);
+    }
+
+    pub fn stmia(cond: Condition, rn: Register, write_back: bool, reg_list: RegisterList) Instruction {
+        return blockDataTransfer(cond, rn, reg_list, 0, 1, 0, write_back, 0);
+    }
+
+    pub const stmed = stmda;
+    pub const stmfd = stmdb;
+    pub const stmfa = stmib;
+    pub const stmea = stmia;
+    pub const stm = stmia;
 
     // Branch
 
@@ -738,9 +774,13 @@ test "serialize instructions" {
             .inst = Instruction.bkpt(42),
             .expected = 0b1110_0001_0010_000000000010_0111_1010,
         },
-        .{ // stmfd r9, {r0}
-            .inst = Instruction.stm(.al, .r9, .{ .r0 = true }),
+        .{ // stmdb r9, {r0}
+            .inst = Instruction.stmdb(.al, .r9, false, .{ .r0 = true }),
             .expected = 0b1110_100_1_0_0_0_0_1001_0000000000000001,
+        },
+        .{ // ldmea r4!, {r2, r5}
+            .inst = Instruction.ldmea(.al, .r4, true, .{ .r2 = true, .r5 = true }),
+            .expected = 0b1110_100_1_0_0_1_1_0100_0000000000100100,
         },
     };
 

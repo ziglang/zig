@@ -570,6 +570,35 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         try self.dbgSetEpilogueBegin();
                     }
                 },
+                .arm => {
+                    const cc = self.fn_type.fnCallingConvention();
+                    if (cc != .Naked) {
+                        // push {fp, lr}
+                        // mov fp, sp
+                        // sub sp, sp, #reloc
+                        // mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .fp, Instruction.Operand.reg(.sp, Instruction.Operand.Shift.none)).toU32());
+                        // const backpatch_reloc = try self.code.addManyAsArray(4);
+
+                        try self.dbgSetPrologueEnd();
+
+                        try self.genBody(self.mod_fn.analysis.success);
+
+                        // Backpatch stack offset
+                        // const stack_end = self.max_end_stack;
+                        // const aligned_stack_end = mem.alignForward(stack_end, self.stack_align);
+                        // mem.writeIntLittle(u32, backpatch_reloc, Instruction.sub(.al, .sp, .sp, Instruction.Operand.imm()));
+
+                        try self.dbgSetEpilogueBegin();
+
+                        // mov sp, fp
+                        // pop {fp, pc}
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .sp, Instruction.Operand.reg(.fp, Instruction.Operand.Shift.none)).toU32());
+                    } else {
+                        try self.dbgSetPrologueEnd();
+                        try self.genBody(self.mod_fn.analysis.success);
+                        try self.dbgSetEpilogueBegin();
+                    }
+                },
                 else => {
                     try self.dbgSetPrologueEnd();
                     try self.genBody(self.mod_fn.analysis.success);
@@ -1504,13 +1533,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 else
                                     unreachable;
 
-                                // TODO only works with leaf functions
-                                // at the moment, which works fine for
-                                // Hello World, but not for real code
-                                // of course. Add pushing lr to stack
-                                // and popping after call
                                 try self.genSetReg(inst.base.src, .lr, .{ .memory = got_addr });
 
+                                // TODO: add Instruction.supportedOn
+                                // function for ARM
                                 if (Target.arm.featureSetHas(self.target.cpu.features, .has_v5t)) {
                                     mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.blx(.al, .lr).toU32());
                                 } else {
@@ -1636,6 +1662,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 .arm => {
                     mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.bx(.al, .lr).toU32());
+                    // // Just add space for an instruction, patch this later
+                    // try self.code.resize(self.code.items.len + 4);
+                    // try self.exitlude_jump_relocs.append(self.gpa, self.code.items.len - 4);
                 },
                 else => return self.fail(src, "TODO implement return for {}", .{self.target.cpu.arch}),
             }
@@ -2771,6 +2800,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                     } else {
                                         return self.fail(src, "TODO MCValues with multiple registers", .{});
                                     }
+                                } else if (ncrn < 4 and nsaa == 0) {
+                                    return self.fail(src, "TODO MCValues split between registers and stack", .{});
                                 } else {
                                     ncrn = 4;
                                     if (ty.abiAlignment(self.target.*) == 8) {
