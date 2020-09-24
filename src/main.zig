@@ -437,7 +437,7 @@ pub fn buildOutputType(
                 if (mem.startsWith(u8, arg, "-")) {
                     if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                         try io.getStdOut().writeAll(usage_build_generic);
-                        return process.cleanExit();
+                        return cleanExit();
                     } else if (mem.eql(u8, arg, "--")) {
                         if (arg_mode == .run) {
                             runtime_args_start = i + 1;
@@ -1506,7 +1506,7 @@ pub fn buildOutputType(
                 else => process.exit(1),
             }
             if (!watch)
-                return process.cleanExit();
+                return cleanExit();
         },
         else => {},
     }
@@ -1667,7 +1667,7 @@ pub fn cmdLibC(gpa: *Allocator, args: []const []const u8) !void {
                 if (mem.eql(u8, arg, "--help")) {
                     const stdout = io.getStdOut().writer();
                     try stdout.writeAll(usage_libc);
-                    return process.cleanExit();
+                    return cleanExit();
                 } else {
                     fatal("unrecognized parameter: '{}'", .{arg});
                 }
@@ -1724,7 +1724,7 @@ pub fn cmdInit(
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "--help")) {
                     try io.getStdOut().writeAll(usage_init);
-                    return process.cleanExit();
+                    return cleanExit();
                 } else {
                     fatal("unrecognized parameter: '{}'", .{arg});
                 }
@@ -2012,7 +2012,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
     const term = try child.spawnAndWait();
     switch (term) {
         .Exited => |code| {
-            if (code == 0) return process.cleanExit();
+            if (code == 0) return cleanExit();
             try cmd.writer().print("failed with exit code {}:\n", .{code});
         },
         else => {
@@ -2073,7 +2073,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
                 if (mem.eql(u8, arg, "--help")) {
                     const stdout = io.getStdOut().outStream();
                     try stdout.writeAll(usage_fmt);
-                    return process.cleanExit();
+                    return cleanExit();
                 } else if (mem.eql(u8, arg, "--color")) {
                     if (i + 1 >= args.len) {
                         fatal("expected [auto|on|off] after --color", .{});
@@ -2803,4 +2803,17 @@ fn detectNativeTargetInfo(gpa: *Allocator, cross_target: std.zig.CrossTarget) !s
         info.target.cpu.arch = cross_target.getCpuArch();
     }
     return info;
+}
+
+/// Indicate that we are now terminating with a successful exit code.
+/// In debug builds, this is a no-op, so that the calling code's
+/// cleanup mechanisms are tested and so that external tools that
+/// check for resource leaks can be accurate. In release builds, this
+/// calls exit(0), and does not return.
+pub fn cleanExit() void {
+    if (std.builtin.mode == .Debug) {
+        return;
+    } else {
+        process.exit(0);
+    }
 }
