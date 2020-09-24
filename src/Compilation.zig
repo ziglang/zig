@@ -15,6 +15,7 @@ const liveness = @import("liveness.zig");
 const build_options = @import("build_options");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const glibc = @import("glibc.zig");
+const musl = @import("musl.zig");
 const libunwind = @import("libunwind.zig");
 const libcxx = @import("libcxx.zig");
 const fatal = @import("main.zig").fatal;
@@ -140,6 +141,8 @@ const Job = union(enum) {
     glibc_crt_file: glibc.CRTFile,
     /// all of the glibc shared objects
     glibc_shared_objects,
+    /// one of the glibc static objects
+    musl_crt_file: musl.CRTFile,
     /// libunwind.a, usually needed when linking libc
     libunwind: void,
     libcxx: void,
@@ -778,6 +781,18 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
     if (comp.wantBuildGLibCFromSource()) {
         try comp.addBuildingGLibCJobs();
     }
+    if (comp.wantBuildMuslFromSource()) {
+        try comp.work_queue.write(&[_]Job{
+            .{ .musl_crt_file = .crti_o },
+            .{ .musl_crt_file = .crtn_o },
+            .{ .musl_crt_file = .crt1_o },
+            .{ .musl_crt_file = .scrt1_o },
+            .{ .musl_crt_file = .libc_a },
+        });
+    }
+    if (comp.wantBuildMinGWW64FromSource()) {
+        @panic("TODO");
+    }
     if (comp.wantBuildLibUnwindFromSource()) {
         try comp.work_queue.writeItem(.{ .libunwind = {} });
     }
@@ -822,6 +837,7 @@ pub fn destroy(self: *Compilation) void {
     {
         var it = self.crt_files.iterator();
         while (it.next()) |entry| {
+            gpa.free(entry.key);
             entry.value.deinit(gpa);
         }
         self.crt_files.deinit(gpa);
@@ -1126,6 +1142,12 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
             glibc.buildSharedObjects(self) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build glibc shared objects: {}", .{@errorName(err)});
+            };
+        },
+        .musl_crt_file => |crt_file| {
+            musl.buildCRTFile(self, crt_file) catch |err| {
+                // TODO Expose this as a normal compile error rather than crashing here.
+                fatal("unable to build musl CRT file: {}", .{@errorName(err)});
             };
         },
         .libunwind => {
@@ -1846,7 +1868,10 @@ fn detectLibCFromLibCInstallation(arena: *Allocator, target: Target, lci: *const
 }
 
 pub fn get_libc_crt_file(comp: *Compilation, arena: *Allocator, basename: []const u8) ![]const u8 {
-    if (comp.wantBuildGLibCFromSource()) {
+    if (comp.wantBuildGLibCFromSource() or
+        comp.wantBuildMuslFromSource() or
+        comp.wantBuildMinGWW64FromSource())
+    {
         return comp.crt_files.get(basename).?.full_object_path;
     }
     const lci = comp.bin_file.options.libc_installation orelse return error.LibCInstallationNotAvailable;
@@ -1865,15 +1890,26 @@ fn addBuildingGLibCJobs(comp: *Compilation) !void {
     });
 }
 
-fn wantBuildGLibCFromSource(comp: *Compilation) bool {
+fn wantBuildLibCFromSource(comp: Compilation) bool {
     const is_exe_or_dyn_lib = switch (comp.bin_file.options.output_mode) {
         .Obj => false,
         .Lib => comp.bin_file.options.link_mode == .Dynamic,
         .Exe => true,
     };
     return comp.bin_file.options.link_libc and is_exe_or_dyn_lib and
-        comp.bin_file.options.libc_installation == null and
-        comp.bin_file.options.target.isGnuLibC();
+        comp.bin_file.options.libc_installation == null;
+}
+
+fn wantBuildGLibCFromSource(comp: Compilation) bool {
+    return comp.wantBuildLibCFromSource() and comp.getTarget().isGnuLibC();
+}
+
+fn wantBuildMuslFromSource(comp: Compilation) bool {
+    return comp.wantBuildLibCFromSource() and comp.getTarget().isMusl();
+}
+
+fn wantBuildMinGWW64FromSource(comp: Compilation) bool {
+    return comp.wantBuildLibCFromSource() and comp.getTarget().isMinGW();
 }
 
 fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
@@ -2361,4 +2397,70 @@ fn createStage1Pkg(
         .parent = parent_pkg,
     };
     return child_pkg;
+}
+
+pub fn build_crt_file(
+    comp: *Compilation,
+    root_name: []const u8,
+    output_mode: std.builtin.OutputMode,
+    c_source_files: []const Compilation.CSourceFile,
+) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const target = comp.getTarget();
+    const basename = try std.zig.binNameAlloc(comp.gpa, root_name, target, output_mode, null, null);
+    errdefer comp.gpa.free(basename);
+
+    // TODO: This is extracted into a local variable to work around a stage1 miscompilation.
+    const emit_bin = Compilation.EmitLoc{
+        .directory = null, // Put it in the cache directory.
+        .basename = basename,
+    };
+    const sub_compilation = try Compilation.create(comp.gpa, .{
+        .local_cache_directory = comp.global_cache_directory,
+        .global_cache_directory = comp.global_cache_directory,
+        .zig_lib_directory = comp.zig_lib_directory,
+        .target = target,
+        .root_name = root_name,
+        .root_pkg = null,
+        .output_mode = output_mode,
+        .rand = comp.rand,
+        .libc_installation = comp.bin_file.options.libc_installation,
+        .emit_bin = emit_bin,
+        .optimize_mode = comp.bin_file.options.optimize_mode,
+        .want_sanitize_c = false,
+        .want_stack_check = false,
+        .want_valgrind = false,
+        .want_pic = comp.bin_file.options.pic,
+        .emit_h = null,
+        .strip = comp.bin_file.options.strip,
+        .is_native_os = comp.bin_file.options.is_native_os,
+        .self_exe_path = comp.self_exe_path,
+        .c_source_files = c_source_files,
+        .verbose_cc = comp.verbose_cc,
+        .verbose_link = comp.bin_file.options.verbose_link,
+        .verbose_tokenize = comp.verbose_tokenize,
+        .verbose_ast = comp.verbose_ast,
+        .verbose_ir = comp.verbose_ir,
+        .verbose_llvm_ir = comp.verbose_llvm_ir,
+        .verbose_cimport = comp.verbose_cimport,
+        .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
+        .clang_passthrough_mode = comp.clang_passthrough_mode,
+        .is_compiler_rt_or_libc = true,
+    });
+    defer sub_compilation.destroy();
+
+    try sub_compilation.updateSubCompilation();
+
+    try comp.crt_files.ensureCapacity(comp.gpa, comp.crt_files.count() + 1);
+    const artifact_path = if (sub_compilation.bin_file.options.directory.path) |p|
+        try std.fs.path.join(comp.gpa, &[_][]const u8{ p, basename })
+    else
+        try comp.gpa.dupe(u8, basename);
+
+    comp.crt_files.putAssumeCapacityNoClobber(basename, .{
+        .full_object_path = artifact_path,
+        .lock = sub_compilation.bin_file.toOwnedLock(),
+    });
 }

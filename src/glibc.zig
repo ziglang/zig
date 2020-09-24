@@ -274,7 +274,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-g",
                 "-Wa,--noexecstack",
             });
-            return build_crt_file(comp, "crti.o", .Obj, &[1]Compilation.CSourceFile{
+            return comp.build_crt_file("crti", .Obj, &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crti.S"),
                     .extra_flags = args.items,
@@ -292,7 +292,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-g",
                 "-Wa,--noexecstack",
             });
-            return build_crt_file(comp, "crtn.o", .Obj, &[1]Compilation.CSourceFile{
+            return comp.build_crt_file("crtn", .Obj, &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crtn.S"),
                     .extra_flags = args.items,
@@ -343,7 +343,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .extra_flags = args.items,
                 };
             };
-            return build_crt_file(comp, "Scrt1.o", .Obj, &[_]Compilation.CSourceFile{ start_os, abi_note_o });
+            return comp.build_crt_file("Scrt1", .Obj, &[_]Compilation.CSourceFile{ start_os, abi_note_o });
         },
         .libc_nonshared_a => {
             const deps = [_][]const u8{
@@ -433,7 +433,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .extra_flags = args.items,
                 };
             }
-            return build_crt_file(comp, "libc_nonshared.a", .Lib, &c_source_files);
+            return comp.build_crt_file("c_nonshared", .Lib, &c_source_files);
         },
     }
 }
@@ -674,68 +674,6 @@ const lib_libc_glibc = lib_libc ++ "glibc" ++ path.sep_str;
 
 fn lib_path(comp: *Compilation, arena: *Allocator, sub_path: []const u8) ![]const u8 {
     return path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, sub_path });
-}
-
-fn build_crt_file(
-    comp: *Compilation,
-    basename: []const u8,
-    output_mode: std.builtin.OutputMode,
-    c_source_files: []const Compilation.CSourceFile,
-) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    // TODO: This is extracted into a local variable to work around a stage1 miscompilation.
-    const emit_bin = Compilation.EmitLoc{
-        .directory = null, // Put it in the cache directory.
-        .basename = basename,
-    };
-    const sub_compilation = try Compilation.create(comp.gpa, .{
-        .local_cache_directory = comp.global_cache_directory,
-        .global_cache_directory = comp.global_cache_directory,
-        .zig_lib_directory = comp.zig_lib_directory,
-        .target = comp.getTarget(),
-        .root_name = mem.split(basename, ".").next().?,
-        .root_pkg = null,
-        .output_mode = output_mode,
-        .rand = comp.rand,
-        .libc_installation = comp.bin_file.options.libc_installation,
-        .emit_bin = emit_bin,
-        .optimize_mode = comp.bin_file.options.optimize_mode,
-        .want_sanitize_c = false,
-        .want_stack_check = false,
-        .want_valgrind = false,
-        .want_pic = comp.bin_file.options.pic,
-        .emit_h = null,
-        .strip = comp.bin_file.options.strip,
-        .is_native_os = comp.bin_file.options.is_native_os,
-        .self_exe_path = comp.self_exe_path,
-        .c_source_files = c_source_files,
-        .verbose_cc = comp.verbose_cc,
-        .verbose_link = comp.bin_file.options.verbose_link,
-        .verbose_tokenize = comp.verbose_tokenize,
-        .verbose_ast = comp.verbose_ast,
-        .verbose_ir = comp.verbose_ir,
-        .verbose_llvm_ir = comp.verbose_llvm_ir,
-        .verbose_cimport = comp.verbose_cimport,
-        .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
-        .clang_passthrough_mode = comp.clang_passthrough_mode,
-        .is_compiler_rt_or_libc = true,
-    });
-    defer sub_compilation.destroy();
-
-    try sub_compilation.updateSubCompilation();
-
-    try comp.crt_files.ensureCapacity(comp.gpa, comp.crt_files.count() + 1);
-    const artifact_path = if (sub_compilation.bin_file.options.directory.path) |p|
-        try path.join(comp.gpa, &[_][]const u8{ p, basename })
-    else
-        try comp.gpa.dupe(u8, basename);
-
-    comp.crt_files.putAssumeCapacityNoClobber(basename, .{
-        .full_object_path = artifact_path,
-        .lock = sub_compilation.bin_file.toOwnedLock(),
-    });
 }
 
 pub const BuiltSharedObjects = struct {

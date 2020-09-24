@@ -393,6 +393,12 @@ pub const NativeTargetInfo = struct {
         if (!native_target_has_ld or have_all_info or os_is_non_native) {
             return defaultAbiAndDynamicLinker(cpu, os, cross_target);
         }
+        if (cross_target.abi) |abi| {
+            if (abi.isMusl()) {
+                // musl implies static linking.
+                return defaultAbiAndDynamicLinker(cpu, os, cross_target);
+            }
+        }
         // The current target's ABI cannot be relied on for this. For example, we may build the zig
         // compiler for target riscv64-linux-musl and provide a tarball for users to download.
         // A user could then run that zig compiler on riscv64-linux-gnu. This use case is well-defined

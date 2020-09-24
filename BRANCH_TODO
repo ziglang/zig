@@ -1,7 +1,6 @@
- * musl
+ * repair @cImport
  * tests passing with -Dskip-non-native
  * windows CUSTOMBUILD : error : unable to build compiler_rt: FileNotFound [D:\a\1\s\build\zig_install_lib_files.vcxproj]
- * repair @cImport
  * make sure zig cc works
    - using it as a preprocessor (-E)
    - try building some software
@@ -20,6 +19,7 @@
  * WASM LLD linking
  * skip LLD caching when bin directory is not in the cache (so we don't put `id.txt` into the cwd)
    (maybe make it an explicit option and have main.zig disable it)
+   - make sure that `zig cc -o hello hello.c -target native-native-musl` and `zig build-exe hello.zig -lc -target native-native-musl` will share the same libc build.
  * audit the CLI options for stage2
  * audit the base cache hash
  * On operating systems that support it, do an execve for `zig test` and `zig run` rather than child process.
@@ -58,3 +58,5 @@
  * rename std.builtin.Mode to std.builtin.OptimizeMode
  * implement `zig run` and `zig test` when combined with `--watch`
  * close the --pkg-begin --pkg-end Package directory handles
+ * make std.Progress support multithreaded
+ * update musl.zig static data to use native path separator in static data rather than replacing '/' at runtime
