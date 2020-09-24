@@ -8,6 +8,7 @@ const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
 const unicode = std.unicode;
+const meta = std.meta;
 const builtin = @import("builtin");
 const errol = @import("fmt/errol.zig");
 const lossyCast = std.math.lossyCast;
@@ -84,43 +85,48 @@ pub fn format(
     args: anytype,
 ) !void {
     const ArgSetType = u32;
-    if (@typeInfo(@TypeOf(args)) != .Struct) {
-        @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
+
+    const ArgsType = @TypeOf(args);
+    // XXX: meta.trait.is(.Struct)(ArgsType) doesn't seem to work...
+    if (@typeInfo(ArgsType) != .Struct) {
+        @compileError("Expected tuple or struct argument, found " ++ @typeName(ArgsType));
     }
-    if (args.len > @typeInfo(ArgSetType).Int.bits) {
+
+    const fields_info = meta.fields(ArgsType);
+    if (fields_info.len > @typeInfo(ArgSetType).Int.bits) {
         @compileError("32 arguments max are supported per format call");
     }
 
     comptime var arg_state: struct {
         next_arg: usize = 0,
-        used_args: ArgSetType = 0,
-        args_len: usize = args.len,
+        used_args: usize = 0,
+        args_len: usize = fields_info.len,
 
         fn hasUnusedArgs(comptime self: *@This()) bool {
-            return (@popCount(ArgSetType, self.used_args) != self.args_len);
+            return @popCount(ArgSetType, self.used_args) != self.args_len;
         }
 
-        fn nextArg(comptime self: *@This(), comptime pos_arg: ?usize) comptime_int {
-            const next_idx = pos_arg orelse blk: {
+        fn nextArg(comptime self: *@This(), comptime arg_index: ?usize) comptime_int {
+            const next_index = arg_index orelse init: {
                 const arg = self.next_arg;
                 self.next_arg += 1;
-                break :blk arg;
+                break :init arg;
             };
 
-            if (next_idx >= self.args_len) {
+            if (next_index >= self.args_len) {
                 @compileError("Too few arguments");
             }
 
             // Mark this argument as used
-            self.used_args |= 1 << next_idx;
+            self.used_args |= 1 << next_index;
 
-            return next_idx;
+            return next_index;
         }
     } = .{};
 
     comptime var parser: struct {
         buf: []const u8 = undefined,
-        pos: usize = 0,
+        pos: comptime_int = 0,
 
         // Returns a decimal number or null if the current character is not a
         // digit
@@ -165,13 +171,21 @@ pub fn format(
             return null;
         }
 
+        fn maybe(comptime self: *@This(), comptime val: u8) bool {
+            if (self.pos < self.buf.len and self.buf[self.pos] == val) {
+                self.pos += 1;
+                return true;
+            }
+            return false;
+        }
+
         // Returns the n-th next character or null if that's past the end
         fn peek(comptime self: *@This(), comptime n: usize) ?u8 {
             return if (self.pos + n < self.buf.len) self.buf[self.pos + n] else null;
         }
     } = .{};
 
-    comptime var options: FormatOptions = .{};
+    var options: FormatOptions = .{};
 
     @setEvalBranchQuota(2000000);
 
@@ -209,7 +223,7 @@ pub fn format(
         if (i >= fmt.len) break;
 
         if (fmt[i] == '}') {
-            @compileError("missing opening {");
+            @compileError("Missing opening {");
         }
 
         // Get past the {
@@ -222,7 +236,7 @@ pub fn format(
         comptime const fmt_end = i;
 
         if (i >= fmt.len) {
-            @compileError("missing closing }");
+            @compileError("Missing closing }");
         }
 
         // Get past the }
@@ -236,15 +250,29 @@ pub fn format(
         parser.pos = 0;
 
         // Parse the positional argument number
-        comptime var opt_pos_arg = comptime parser.number();
+        comptime const opt_pos_arg = init: {
+            if (comptime parser.maybe('[')) {
+                comptime const arg_name = parser.until(']');
+
+                if (!comptime parser.maybe(']')) {
+                    @compileError("Expected closing ]");
+                }
+
+                break :init comptime meta.fieldIndex(ArgsType, arg_name) orelse
+                    @compileError("No argument with name '" ++ arg_name ++ "'");
+            } else {
+                break :init comptime parser.number();
+            }
+        };
 
         // Parse the format specifier
-        comptime var specifier_arg = comptime parser.until(':');
+        comptime const specifier_arg = comptime parser.until(':');
 
         // Skip the colon, if present
         if (comptime parser.char()) |ch| {
-            if (ch != ':')
-                @compileError("expected : or }, found '" ++ [1]u8{ch} ++ "'");
+            if (ch != ':') {
+                @compileError("Expected : or }, found '" ++ [1]u8{ch} ++ "'");
+            }
         }
 
         // Parse the fill character
@@ -276,26 +304,57 @@ pub fn format(
         }
 
         // Parse the width parameter
-        comptime var opt_width_arg = comptime parser.number();
-        options.width = opt_width_arg;
+        options.width = init: {
+            if (comptime parser.maybe('[')) {
+                comptime const arg_name = parser.until(']');
+
+                if (!comptime parser.maybe(']')) {
+                    @compileError("Expected closing ]");
+                }
+
+                comptime const index = meta.fieldIndex(ArgsType, arg_name) orelse
+                    @compileError("No argument with name '" ++ arg_name ++ "'");
+                const arg_index = comptime arg_state.nextArg(index);
+
+                break :init @field(args, fields_info[arg_index].name);
+            } else {
+                break :init comptime parser.number();
+            }
+        };
 
         // Skip the dot, if present
         if (comptime parser.char()) |ch| {
-            if (ch != '.')
-                @compileError("expected . or }, found '" ++ [1]u8{ch} ++ "'");
+            if (ch != '.') {
+                @compileError("Expected . or }, found '" ++ [1]u8{ch} ++ "'");
+            }
         }
 
         // Parse the precision parameter
-        comptime var opt_precision_arg = comptime parser.number();
-        options.precision = opt_precision_arg;
+        options.precision = init: {
+            if (comptime parser.maybe('[')) {
+                comptime const arg_name = parser.until(']');
+
+                if (!comptime parser.maybe(']')) {
+                    @compileError("Expected closing ]");
+                }
+
+                comptime const arg_i = meta.fieldIndex(ArgsType, arg_name) orelse
+                    @compileError("No argument with name '" ++ arg_name ++ "'");
+                const arg_to_use = comptime arg_state.nextArg(arg_i);
+
+                break :init @field(args, fields_info[arg_to_use].name);
+            } else {
+                break :init comptime parser.number();
+            }
+        };
 
         if (comptime parser.char()) |ch| {
-            @compileError("extraneous trailing character '" ++ [1]u8{ch} ++ "'");
+            @compileError("Extraneous trailing character '" ++ [1]u8{ch} ++ "'");
         }
 
         const arg_to_print = comptime arg_state.nextArg(opt_pos_arg);
         try formatType(
-            args[arg_to_print],
+            @field(args, fields_info[arg_to_print].name),
             specifier_arg,
             options,
             writer,
@@ -1991,4 +2050,23 @@ test "sci float padding" {
 test "null" {
     const inst = null;
     try testFmt("null", "{}", .{inst});
+}
+
+test "named arguments" {
+    try testFmt("hello world!", "{} world{c}", .{ "hello", '!' });
+    try testFmt("hello world!", "{[greeting]} world{[punctuation]c}", .{ .punctuation = '!', .greeting = "hello" });
+    try testFmt("hello world!", "{[1]} world{[0]c}", .{ '!', "hello" });
+}
+
+test "runtime width specifier" {
+    var width: usize = 9;
+    try testFmt("~~hello~~", "{:~^[1]}", .{ "hello", width });
+    try testFmt("~~hello~~", "{:~^[width]}", .{ .string = "hello", .width = width });
+}
+
+test "runtime precision specifier" {
+    var number: f32 = 3.1415;
+    var precision: usize = 2;
+    try testFmt("3.14e+00", "{:1.[1]}", .{ number, precision });
+    try testFmt("3.14e+00", "{:1.[precision]}", .{ .number = number, .precision = precision });
 }
