@@ -190,8 +190,17 @@ test "Type.ErrorUnion" {
 }
 
 test "Type.Opaque" {
-    testing.expect(@Type(.Opaque) != @Type(.Opaque));
-    testing.expect(@typeInfo(@Type(.Opaque)) == .Opaque);
+    const Opaque = @Type(.{
+        .Opaque = .{
+            .decls = &[_]TypeInfo.Declaration{},
+        },
+    });
+    testing.expect(Opaque != opaque {});
+    testing.expectEqualSlices(
+        TypeInfo.Declaration,
+        &[_]TypeInfo.Declaration{},
+        @typeInfo(Opaque).Opaque.decls,
+    );
 }
 
 test "Type.Vector" {

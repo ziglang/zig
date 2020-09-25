@@ -1054,6 +1054,7 @@ enum ContainerKind {
     ContainerKindStruct,
     ContainerKindEnum,
     ContainerKindUnion,
+    ContainerKindOpaque,
 };
 
 enum ContainerLayout {
@@ -1571,7 +1572,10 @@ enum OnePossibleValue {
 };
 
 struct ZigTypeOpaque {
+    AstNode *decl_node;
     Buf *bare_name;
+
+    ScopeDecls *decls_scope;
 };
 
 struct ZigTypeFnFrame {

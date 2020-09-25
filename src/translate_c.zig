@@ -930,9 +930,9 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
     const init_node = blk: {
         const rp = makeRestorePoint(c);
         const record_def = ZigClangRecordDecl_getDefinition(record_decl) orelse {
-            const opaque = try transCreateNodeOpaqueType(c);
+            const opaque_type = try transCreateNodeOpaqueType(c);
             semicolon = try appendToken(c, .Semicolon, ";");
-            break :blk opaque;
+            break :blk opaque_type;
         };
 
         const layout_tok = try if (ZigClangRecordDecl_getPackedAttribute(record_decl))
@@ -954,17 +954,17 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
             const field_qt = ZigClangFieldDecl_getType(field_decl);
 
             if (ZigClangFieldDecl_isBitField(field_decl)) {
-                const opaque = try transCreateNodeOpaqueType(c);
+                const opaque_type = try transCreateNodeOpaqueType(c);
                 semicolon = try appendToken(c, .Semicolon, ";");
                 try emitWarning(c, field_loc, "{} demoted to opaque type - has bitfield", .{container_kind_name});
-                break :blk opaque;
+                break :blk opaque_type;
             }
 
             if (ZigClangType_isIncompleteOrZeroLengthArrayType(qualTypeCanon(field_qt), c.clang_context)) {
-                const opaque = try transCreateNodeOpaqueType(c);
+                const opaque_type = try transCreateNodeOpaqueType(c);
                 semicolon = try appendToken(c, .Semicolon, ";");
                 try emitWarning(c, field_loc, "{} demoted to opaque type - has variable length array", .{container_kind_name});
-                break :blk opaque;
+                break :blk opaque_type;
             }
 
             var is_anon = false;
@@ -979,10 +979,10 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
             _ = try appendToken(c, .Colon, ":");
             const field_type = transQualType(rp, field_qt, field_loc) catch |err| switch (err) {
                 error.UnsupportedType => {
-                    const opaque = try transCreateNodeOpaqueType(c);
+                    const opaque_type = try transCreateNodeOpaqueType(c);
                     semicolon = try appendToken(c, .Semicolon, ";");
                     try emitWarning(c, record_loc, "{} demoted to opaque type - unable to translate type of field {}", .{ container_kind_name, raw_name });
-                    break :blk opaque;
+                    break :blk opaque_type;
                 },
                 else => |e| return e,
             };

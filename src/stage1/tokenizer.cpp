@@ -133,6 +133,7 @@ static const struct ZigKeyword zig_keywords[] = {
     {"noinline", TokenIdKeywordNoInline},
     {"nosuspend", TokenIdKeywordNoSuspend},
     {"null", TokenIdKeywordNull},
+    {"opaque", TokenIdKeywordOpaque},
     {"or", TokenIdKeywordOr},
     {"orelse", TokenIdKeywordOrElse},
     {"packed", TokenIdKeywordPacked},
@@ -1595,6 +1596,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordNoInline: return "noinline";
         case TokenIdKeywordNoSuspend: return "nosuspend";
         case TokenIdKeywordNull: return "null";
+        case TokenIdKeywordOpaque: return "opaque";
         case TokenIdKeywordOr: return "or";
         case TokenIdKeywordOrElse: return "orelse";
         case TokenIdKeywordPacked: return "packed";

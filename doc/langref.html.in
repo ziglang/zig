@@ -11193,7 +11193,7 @@ PtrTypeStart
 ContainerDeclAuto &lt;- ContainerDeclType LBRACE ContainerMembers RBRACE
 
 ContainerDeclType
-    &lt;- (KEYWORD_struct / KEYWORD_enum) (LPAREN Expr RPAREN)?
+    &lt;- (KEYWORD_struct / KEYWORD_enum / KEYWORD_opaque) (LPAREN Expr RPAREN)?
      / KEYWORD_union (LPAREN (KEYWORD_enum (LPAREN Expr RPAREN)? / Expr) RPAREN)?
 
 # Alignment
@@ -11340,6 +11340,7 @@ KEYWORD_inline      &lt;- 'inline'      end_of_word
 KEYWORD_noalias     &lt;- 'noalias'     end_of_word
 KEYWORD_nosuspend   &lt;- 'nosuspend'   end_of_word
 KEYWORD_null        &lt;- 'null'        end_of_word
+KEYWORD_opaque      &lt;- 'opaque'      end_of_word
 KEYWORD_or          &lt;- 'or'          end_of_word
 KEYWORD_orelse      &lt;- 'orelse'      end_of_word
 KEYWORD_packed      &lt;- 'packed'      end_of_word
@@ -11368,7 +11369,7 @@ keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_anyframe / KEYWORD_anytype
          / KEYWORD_defer / KEYWORD_else / KEYWORD_enum / KEYWORD_errdefer
          / KEYWORD_error / KEYWORD_export / KEYWORD_extern / KEYWORD_false
          / KEYWORD_fn / KEYWORD_for / KEYWORD_if / KEYWORD_inline
-         / KEYWORD_noalias / KEYWORD_null / KEYWORD_or
+         / KEYWORD_noalias / KEYWORD_null / KEYWORD_opaque / KEYWORD_or
          / KEYWORD_orelse / KEYWORD_packed / KEYWORD_pub
          / KEYWORD_resume / KEYWORD_return / KEYWORD_linksection
          / KEYWORD_struct / KEYWORD_suspend

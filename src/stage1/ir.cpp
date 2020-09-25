@@ -22587,7 +22587,7 @@ static IrInstGen *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name
         }
     }
 
-    if (bare_type->id == ZigTypeIdEnum) {
+    if (bare_type->id == ZigTypeIdEnum || bare_type->id == ZigTypeIdOpaque) {
         return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
             source_instr, container_ptr, container_ptr_src, container_type);
     }
@@ -25183,7 +25183,6 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
         case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdOpaque:
             result = ira->codegen->intern.for_void();
             break;
         case ZigTypeIdInt:
@@ -25739,6 +25738,25 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
 
                 break;
             }
+        case ZigTypeIdOpaque:
+            {
+                result = ira->codegen->pass1_arena->create<ZigValue>();
+                result->special = ConstValSpecialStatic;
+                result->type = ir_type_info_get_type(ira, "Opaque", nullptr);
+
+                ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 1);
+                result->data.x_struct.fields = fields;
+
+                // decls: []TypeInfo.Declaration
+                ensure_field_index(result->type, "decls", 0);
+                if ((err = ir_make_type_info_decls(ira, source_instr, fields[0],
+                            type_entry->data.opaque.decls_scope, false)))
+                {
+                    return err;
+                }
+
+                break;
+            }
         case ZigTypeIdFnFrame:
             {
                 result = ira->codegen->pass1_arena->create<ZigValue>();
@@ -26044,6 +26062,21 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
             return get_error_union_type(ira->codegen, err_set_type, payload_type);
         }
         case ZigTypeIdOpaque: {
+            assert(payload->special == ConstValSpecialStatic);
+            assert(payload->type == ir_type_info_get_type(ira, "Opaque", nullptr));
+
+            ZigValue *decls_value = get_const_field(ira, source_instr->source_node, payload, "decls", 0);
+            if (decls_value == nullptr)
+                return ira->codegen->invalid_inst_gen->value->type;
+            assert(decls_value->special == ConstValSpecialStatic);
+            assert(is_slice(decls_value->type));
+            ZigValue *decls_len_value = decls_value->data.x_struct.fields[slice_len_index];
+            size_t decls_len = bigint_as_usize(&decls_len_value->data.x_bigint);
+            if (decls_len != 0) {
+                ir_add_error(ira, source_instr, buf_create_from_str("TypeInfo.Struct.decls must be empty for @Type"));
+                return ira->codegen->invalid_inst_gen->value->type;
+            }
+
             Buf *bare_name = buf_alloc();
             Buf *full_name = get_anon_type_name(ira->codegen,
                 ira->old_irb.exec, "opaque", source_instr->scope, source_instr->source_node, bare_name);
