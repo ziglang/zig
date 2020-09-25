@@ -4438,10 +4438,18 @@ fn transCreateNodeFloat(c: *Context, int: anytype) !*ast.Node {
 }
 
 fn transCreateNodeOpaqueType(c: *Context) !*ast.Node {
-    const call_node = try c.createBuiltinCall("@Type", 1);
-    call_node.params()[0] = try transCreateNodeEnumLiteral(c, "Opaque");
-    call_node.rparen_token = try appendToken(c, .RParen, ")");
-    return &call_node.base;
+    const container_tok = try appendToken(c, .Keyword_opaque, "opaque");
+    const lbrace_token = try appendToken(c, .LBrace, "{");
+    const container_node = try ast.Node.ContainerDecl.alloc(c.arena, 0);
+    container_node.* = .{
+        .kind_token = container_tok,
+        .layout_token = null,
+        .lbrace_token = lbrace_token,
+        .rbrace_token = try appendToken(c, .RBrace, "}"),
+        .fields_and_decls_len = 0,
+        .init_arg_expr = .None,
+    };
+    return &container_node.base;
 }
 
 fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_alias: *ast.Node.FnProto) !*ast.Node {
