@@ -828,7 +828,9 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         else => return unexpectedStatus(rc),
     }
 
-    if (options.remove_dir){
+    // If a directory fails to be deleted, CloseHandle will still report success
+    // Check if the directory still exists and return error.DirNotEmpty if true
+    if (options.remove_dir) {
         var basic_info: FILE_BASIC_INFORMATION = undefined;
         switch (ntdll.NtQueryAttributesFile(&attr, &basic_info)) {
             .SUCCESS => return error.DirNotEmpty,
