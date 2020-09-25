@@ -121,9 +121,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\struct foo { int x; int y[]; };
         \\struct bar { int x; int y[0]; };
     , &[_][]const u8{
-        \\pub const struct_foo = @Type(.Opaque);
+        \\pub const struct_foo = opaque {};
     ,
-        \\pub const struct_bar = @Type(.Opaque);
+        \\pub const struct_bar = opaque {};
     });
 
     cases.add("nested loops without blocks",
@@ -191,7 +191,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const struct_arcan_shmif_page = //
     ,
         \\warning: unsupported type: 'Atomic'
-        \\    @Type(.Opaque); //
+        \\    opaque {}; //
     ,
         \\ warning: struct demoted to opaque type - unable to translate type of field abufused
     , // TODO should be `addr: *struct_arcan_shmif_page`
@@ -370,8 +370,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    struct opaque_2 *cast = (struct opaque_2 *)opaque;
         \\}
     , &[_][]const u8{
-        \\pub const struct_opaque = @Type(.Opaque);
-        \\pub const struct_opaque_2 = @Type(.Opaque);
+        \\pub const struct_opaque = opaque {};
+        \\pub const struct_opaque_2 = opaque {};
         \\pub export fn function(arg_opaque_1: ?*struct_opaque) void {
         \\    var opaque_1 = arg_opaque_1;
         \\    var cast: ?*struct_opaque_2 = @ptrCast(?*struct_opaque_2, opaque_1);
@@ -612,7 +612,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    struct Foo *foo;
         \\};
     , &[_][]const u8{
-        \\pub const struct_Foo = @Type(.Opaque);
+        \\pub const struct_Foo = opaque {};
     ,
         \\pub const struct_Bar = extern struct {
         \\    foo: ?*struct_Foo,
@@ -689,7 +689,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\struct Foo;
         \\struct Foo *some_func(struct Foo *foo, int x);
     , &[_][]const u8{
-        \\pub const struct_Foo = @Type(.Opaque);
+        \\pub const struct_Foo = opaque {};
     ,
         \\pub extern fn some_func(foo: ?*struct_Foo, x: c_int) ?*struct_Foo;
     ,
