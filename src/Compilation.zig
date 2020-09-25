@@ -1242,7 +1242,16 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
 
     // If the previous invocation resulted in clang errors, we will see a hit
     // here with 0 files in the manifest, in which case it is actually a miss.
-    const actual_hit = (try man.hit()) and man.files.items.len != 0;
+    // We need to "unhit" in this case, to keep the digests matching.
+    const prev_hash_state = man.hash.peekBin();
+    const actual_hit = hit: {
+        const is_hit = try man.hit();
+        if (man.files.items.len == 0) {
+            man.unhit(prev_hash_state, 0);
+            break :hit false;
+        }
+        break :hit true;
+    };
     const digest = if (!actual_hit) digest: {
         var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
         defer arena_allocator.deinit();
@@ -1396,7 +1405,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         mem.split(c_source_basename, ".").next().?;
     const o_basename = try std.fmt.allocPrint(arena, "{}{}", .{ o_basename_noext, comp.getTarget().oFileExt() });
 
-    const digest = if ((try man.hit()) and !comp.disable_c_depfile) man.final() else blk: {
+    const digest = if (!comp.disable_c_depfile and try man.hit()) man.final() else blk: {
         var argv = std.ArrayList([]const u8).init(comp.gpa);
         defer argv.deinit();
 
