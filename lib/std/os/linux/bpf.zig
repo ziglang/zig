@@ -1862,13 +1862,13 @@ pub fn PerfBuffer(comptime T: type) type {
             return ret;
         }
 
-        pub fn deinit(self: Self) void {
+        pub fn deinit(self: *Self) void {
             self.channel.deinit();
             for (self.contexts.items) |ctx| ctx.cpubuf.deinit();
 
             self.contexts.deinit(self.allocator);
             self.channel.deinit();
-            allocator.free(self.channel_buf);
+            self.allocator.free(self.channel_buf);
         }
 
         pub fn get(self: *Self) Payload {

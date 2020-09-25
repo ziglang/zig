@@ -39,6 +39,41 @@ pub fn Map(
                 },
             };
         }
+
+        /// Perform a lookup in *map* for an entry associated to *key*.
+        pub fn lookup(self: Self, key: Key) ?*Value {
+            return @ptrCast(?*Value, @alignCast(@alignOf(?*Value), helpers.map_lookup_elem(@ptrCast(*const MapDef, &self), &key)));
+        }
+
+        /// Add or update the value of the entry associated to *key* in *map* with
+        /// *value*. *flags* is one of:
+        ///
+        /// **BPF_NOEXIST**
+        ///     The entry for *key* must not exist in the map.
+        /// **BPF_EXIST**
+        /// 	The entry for *key* must already exist in the map.
+        /// **BPF_ANY**
+        /// 	No condition on the existence of the entry for *key*.
+        ///
+        /// Flag value **BPF_NOEXIST** cannot be used for maps of types
+        /// **BPF_MAP_TYPE_ARRAY** or **BPF_MAP_TYPE_PERCPU_ARRAY**  (all elements
+        /// always exist), the helper would return an error.
+        pub fn update(self: Self, key: Key, value: Value, flags: u64) !void {
+            const rc = helpers.map_update_elem(@ptrCast(*const MapDef, &self), &key, &value, flags);
+            return switch (rc) {
+                0 => {},
+                else => error.Unknown,
+            };
+        }
+
+        /// Delete entry with *key* from *map*.
+        pub fn delete(self: Self, key: Key) !void {
+            const rc = helpers.map_delete_elem(@ptrCast(*const MapDef, &self), &key);
+            return switch (rc) {
+                0 => {},
+                else => error.Unknown,
+            };
+        }
     };
 }
 
