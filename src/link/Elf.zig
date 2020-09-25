@@ -855,7 +855,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation) !void {
         }
         // Write the form for the compile unit, which must match the abbrev table above.
         const name_strp = try self.makeDebugString(module.root_pkg.root_src_path);
-        const comp_dir_strp = try self.makeDebugString(module.root_pkg.root_src_directory.path.?);
+        const comp_dir_strp = try self.makeDebugString(module.root_pkg.root_src_directory.path orelse ".");
         const producer_strp = try self.makeDebugString(link.producer_string);
         // Currently only one compilation unit is supported, so the address range is simply
         // identical to the main program header virtual address and memory size.
@@ -2858,11 +2858,12 @@ fn dbgLineNeededHeaderBytes(self: Elf) u32 {
     const file_name_entry_format_count = 1;
     const directory_count = 1;
     const file_name_count = 1;
+    const root_src_dir_path_len = if (self.base.options.module.?.root_pkg.root_src_directory.path) |p| p.len else 1; // "."
     return @intCast(u32, 53 + directory_entry_format_count * 2 + file_name_entry_format_count * 2 +
         directory_count * 8 + file_name_count * 8 +
     // These are encoded as DW.FORM_string rather than DW.FORM_strp as we would like
     // because of a workaround for readelf and gdb failing to understand DWARFv5 correctly.
-        self.base.options.module.?.root_pkg.root_src_directory.path.?.len +
+        root_src_dir_path_len +
         self.base.options.module.?.root_pkg.root_src_path.len);
 }
 
