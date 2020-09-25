@@ -2077,6 +2077,9 @@ fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
 }
 
 fn updateBuiltinZigFile(comp: *Compilation, mod: *Module) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const source = try comp.generateBuiltinZigSource(comp.gpa);
     defer comp.gpa.free(source);
     try mod.zig_cache_artifact_directory.handle.writeFile("builtin.zig", source);
@@ -2090,6 +2093,9 @@ pub fn dump_argv(argv: []const []const u8) void {
 }
 
 pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8 {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     var buffer = std.ArrayList(u8).init(allocator);
     defer buffer.deinit();
 
