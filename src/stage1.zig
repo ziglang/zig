@@ -347,6 +347,7 @@ export fn stage2_cimport(
         error.Unexpected => return .Unexpected,
         error.InputOutput => return .FileSystem,
         error.ASTUnitFailure => return .ASTUnitFailure,
+        error.CacheUnavailable => return .CacheUnavailable,
         else => return .Unexpected,
     };
     out_zig_path_ptr.* = result.out_zig_path.ptr;

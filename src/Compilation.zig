@@ -1248,100 +1248,88 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         defer arena_allocator.deinit();
         const arena = &arena_allocator.allocator;
 
-        // We need a place to leave the .h file so we can can log it in case of verbose_cimport.
-        // This block is so that the defers for closing the tmp directory handle can run before
-        // we try to delete the directory after the block.
-        const result: struct { tmp_dir_sub_path: []const u8, digest: [Cache.hex_digest_len]u8 } = blk: {
-            const tmp_digest = man.hash.peek();
-            const tmp_dir_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &tmp_digest });
-            var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
-            defer zig_cache_tmp_dir.close();
-            const cimport_c_basename = "cimport.c";
-            const out_h_path = try comp.local_cache_directory.join(arena, &[_][]const u8{
-                tmp_dir_sub_path, cimport_c_basename,
-            });
-            const out_dep_path = try std.fmt.allocPrint(arena, "{}.d", .{out_h_path});
+        const tmp_digest = man.hash.peek();
+        const tmp_dir_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &tmp_digest });
+        var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
+        defer zig_cache_tmp_dir.close();
+        const cimport_c_basename = "cimport.c";
+        const out_h_path = try comp.local_cache_directory.join(arena, &[_][]const u8{
+            tmp_dir_sub_path, cimport_c_basename,
+        });
+        const out_dep_path = try std.fmt.allocPrint(arena, "{}.d", .{out_h_path});
 
-            try zig_cache_tmp_dir.writeFile(cimport_c_basename, c_src);
-            if (comp.verbose_cimport) {
-                log.info("C import source: {}", .{out_h_path});
-            }
-
-            var argv = std.ArrayList([]const u8).init(comp.gpa);
-            defer argv.deinit();
-
-            try comp.addTranslateCCArgs(arena, &argv, .c, out_dep_path);
-
-            try argv.append(out_h_path);
-
-            if (comp.verbose_cc) {
-                dump_argv(argv.items);
-            }
-
-            // Convert to null terminated args.
-            const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, argv.items.len + 1);
-            new_argv_with_sentinel[argv.items.len] = null;
-            const new_argv = new_argv_with_sentinel[0..argv.items.len :null];
-            for (argv.items) |arg, i| {
-                new_argv[i] = try arena.dupeZ(u8, arg);
-            }
-
-            const c_headers_dir_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{"include"});
-            const c_headers_dir_path_z = try arena.dupeZ(u8, c_headers_dir_path);
-            var clang_errors: []translate_c.ClangErrMsg = &[0]translate_c.ClangErrMsg{};
-            const tree = translate_c.translate(
-                comp.gpa,
-                new_argv.ptr,
-                new_argv.ptr + new_argv.len,
-                &clang_errors,
-                c_headers_dir_path_z,
-            ) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.ASTUnitFailure => {
-                    log.warn("clang API returned errors but due to a clang bug, it is not exposing the errors for zig to see. For more details: https://github.com/ziglang/zig/issues/4455", .{});
-                    return error.ASTUnitFailure;
-                },
-                error.SemanticAnalyzeFail => {
-                    return CImportResult{
-                        .out_zig_path = "",
-                        .errors = clang_errors,
-                    };
-                },
-            };
-            defer tree.deinit();
-
-            if (comp.verbose_cimport) {
-                log.info("C import .d file: {}", .{out_dep_path});
-            }
-
-            const dep_basename = std.fs.path.basename(out_dep_path);
-            try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
-
-            const digest = man.final();
-            const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
-            var o_dir = try comp.local_cache_directory.handle.makeOpenPath(o_sub_path, .{});
-            defer o_dir.close();
-
-            var out_zig_file = try o_dir.createFile(cimport_zig_basename, .{});
-            defer out_zig_file.close();
-
-            var bos = std.io.bufferedOutStream(out_zig_file.writer());
-            _ = try std.zig.render(comp.gpa, bos.writer(), tree);
-            try bos.flush();
-
-            man.writeManifest() catch |err| {
-                log.warn("failed to write cache manifest for C import: {}", .{@errorName(err)});
-            };
-
-            break :blk .{ .tmp_dir_sub_path = tmp_dir_sub_path, .digest = digest };
-        };
-        if (!comp.verbose_cimport) {
-            // Remove the tmp dir and files to save space because we don't need them again.
-            comp.local_cache_directory.handle.deleteTree(result.tmp_dir_sub_path) catch |err| {
-                log.warn("failed to delete tmp files for C import: {}", .{@errorName(err)});
-            };
+        try zig_cache_tmp_dir.writeFile(cimport_c_basename, c_src);
+        if (comp.verbose_cimport) {
+            log.info("C import source: {}", .{out_h_path});
         }
-        break :digest result.digest;
+
+        var argv = std.ArrayList([]const u8).init(comp.gpa);
+        defer argv.deinit();
+
+        try comp.addTranslateCCArgs(arena, &argv, .c, out_dep_path);
+
+        try argv.append(out_h_path);
+
+        if (comp.verbose_cc) {
+            dump_argv(argv.items);
+        }
+
+        // Convert to null terminated args.
+        const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, argv.items.len + 1);
+        new_argv_with_sentinel[argv.items.len] = null;
+        const new_argv = new_argv_with_sentinel[0..argv.items.len :null];
+        for (argv.items) |arg, i| {
+            new_argv[i] = try arena.dupeZ(u8, arg);
+        }
+
+        const c_headers_dir_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{"include"});
+        const c_headers_dir_path_z = try arena.dupeZ(u8, c_headers_dir_path);
+        var clang_errors: []translate_c.ClangErrMsg = &[0]translate_c.ClangErrMsg{};
+        const tree = translate_c.translate(
+            comp.gpa,
+            new_argv.ptr,
+            new_argv.ptr + new_argv.len,
+            &clang_errors,
+            c_headers_dir_path_z,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ASTUnitFailure => {
+                log.warn("clang API returned errors but due to a clang bug, it is not exposing the errors for zig to see. For more details: https://github.com/ziglang/zig/issues/4455", .{});
+                return error.ASTUnitFailure;
+            },
+            error.SemanticAnalyzeFail => {
+                return CImportResult{
+                    .out_zig_path = "",
+                    .errors = clang_errors,
+                };
+            },
+        };
+        defer tree.deinit();
+
+        if (comp.verbose_cimport) {
+            log.info("C import .d file: {}", .{out_dep_path});
+        }
+
+        const dep_basename = std.fs.path.basename(out_dep_path);
+        try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+
+        const digest = man.final();
+        const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
+        var o_dir = try comp.local_cache_directory.handle.makeOpenPath(o_sub_path, .{});
+        defer o_dir.close();
+
+        var out_zig_file = try o_dir.createFile(cimport_zig_basename, .{});
+        defer out_zig_file.close();
+
+        var bos = std.io.bufferedOutStream(out_zig_file.writer());
+        _ = try std.zig.render(comp.gpa, bos.writer(), tree);
+        try bos.flush();
+
+        man.writeManifest() catch |err| {
+            log.warn("failed to write cache manifest for C import: {}", .{@errorName(err)});
+        };
+
+        break :digest digest;
     } else man.final();
 
     const out_zig_path = try comp.local_cache_directory.join(comp.gpa, &[_][]const u8{
