@@ -416,7 +416,7 @@ pub const File = struct {
             return windows.ReadFile(self.handle, buffer, null, self.intended_io_mode);
         }
 
-        if (self.intended_io_mode == .blocking or !std.io.is_async) {
+        if (self.intended_io_mode == .blocking) {
             return os.read(self.handle, buffer);
         } else {
             return std.event.Loop.instance.?.read(self.handle, buffer, self.capable_io_mode != self.intended_io_mode);
