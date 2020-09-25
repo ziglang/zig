@@ -132,10 +132,21 @@ fn log(
             // any I/O configured.
             return;
         } else if (builtin.mode != .ReleaseSmall) {
+            const level_txt = switch (message_level) {
+                .emerg => "emergency",
+                .alert => "alert",
+                .crit => "critical",
+                .err => "error",
+                .warn => "warning",
+                .notice => "notice",
+                .info => "info",
+                .debug => "debug",
+            };
+            const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
+            const stderr = std.io.getStdErr().writer();
             const held = std.debug.getStderrMutex().acquire();
             defer held.release();
-            const stderr = std.io.getStdErr().writer();
-            nosuspend stderr.print(format ++ "\n", args) catch return;
+            nosuspend stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
         }
     }
 }
