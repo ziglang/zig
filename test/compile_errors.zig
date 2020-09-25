@@ -125,6 +125,16 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:15:23: error: enum field missing: 'arst'",
         "tmp.zig:27:24: note: referenced here",
     });
+
+    cases.add("opaque type with field",
+        \\const Opaque = opaque { foo: i32 };
+        \\export fn entry() void {
+        \\    const foo: ?*Opaque = null;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:1:25: error: opaque types cannot have fields",
+    });
+
     cases.add("@Type(.Fn) with is_generic = true",
         \\const Foo = @Type(.{
         \\    .Fn = .{

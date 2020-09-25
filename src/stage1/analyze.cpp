@@ -3457,10 +3457,18 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
 }
 
 static Error resolve_opaque_type(CodeGen *g, ZigType *opaque_type) {
-    opaque_type->abi_align = UINT32_MAX;
-    opaque_type->abi_size = SIZE_MAX;
-    opaque_type->size_in_bits = SIZE_MAX;
-    return ErrorNone;
+    Error err = ErrorNone;
+    AstNode *container_node = opaque_type->data.opaque.decl_node;
+    if (container_node != nullptr) {
+        assert(container_node->type == NodeTypeContainerDecl);
+        AstNodeContainerDecl *container_decl = &container_node->data.container_decl;
+        for (int i = 0; i < container_decl->fields.length; i++) {
+            AstNode *field_node = container_decl->fields.items[i];
+            add_node_error(g, field_node, buf_create_from_str("opaque types cannot have fields"));
+            err = ErrorSemanticAnalyzeFail;
+        }
+    }
+    return err;
 }
 
 void append_namespace_qualification(CodeGen *g, Buf *buf, ZigType *container_type) {
