@@ -112,8 +112,9 @@ pub const Loop = struct {
     /// have the correct pointer value.
     /// https://github.com/ziglang/zig/issues/2761 and https://github.com/ziglang/zig/issues/2765
     pub fn init(self: *Loop) !void {
-        if (builtin.single_threaded
-            or (@hasDecl(root, "event_loop_mode") and root.event_loop_mode == .single_threaded)) {
+        if (builtin.single_threaded or
+            (@hasDecl(root, "event_loop_mode") and root.event_loop_mode == .single_threaded))
+        {
             return self.initSingleThreaded();
         } else {
             return self.initMultiThreaded();
@@ -1256,6 +1257,11 @@ pub const Loop = struct {
 test "std.event.Loop - basic" {
     // https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
+
+    if (true) {
+        // https://github.com/ziglang/zig/issues/4922
+        return error.SkipZigTest;
+    }
 
     var loop: Loop = undefined;
     try loop.initMultiThreaded();
