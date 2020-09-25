@@ -3462,7 +3462,7 @@ static Error resolve_opaque_type(CodeGen *g, ZigType *opaque_type) {
     if (container_node != nullptr) {
         assert(container_node->type == NodeTypeContainerDecl);
         AstNodeContainerDecl *container_decl = &container_node->data.container_decl;
-        for (int i = 0; i < container_decl->fields.length; i++) {
+        for (size_t i = 0; i < container_decl->fields.length; i++) {
             AstNode *field_node = container_decl->fields.items[i];
             add_node_error(g, field_node, buf_create_from_str("opaque types cannot have fields"));
             err = ErrorSemanticAnalyzeFail;
