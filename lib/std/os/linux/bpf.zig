@@ -1851,7 +1851,7 @@ pub fn PerfBuffer(comptime T: type) type {
             errdefer for (ret.contexts.items) |ctx| ctx.cpubuf.deinit();
 
             var i: u32 = 0;
-            while (i < cpu_count) : (i += 0) {
+            while (i < cpu_count) : (i += 1) {
                 ret.contexts.appendAssumeCapacity(.{
                     .cpubuf = try CpuBuf.init(i, std.mem.page_size * page_cnt),
                     .frame = undefined,
