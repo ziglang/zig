@@ -469,7 +469,12 @@ pub const TestContext = struct {
         };
 
         const ofmt: ?std.builtin.ObjectFormat = if (case.cbe) .c else null;
-        const bin_name = try std.zig.binNameAlloc(arena, "test_case", target, case.output_mode, null, ofmt);
+        const bin_name = try std.zig.binNameAlloc(arena, .{
+            .root_name = "test_case",
+            .target = target,
+            .output_mode = case.output_mode,
+            .object_format = ofmt,
+        });
 
         const emit_directory: Compilation.Directory = .{
             .path = bogus_path,

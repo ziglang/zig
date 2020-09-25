@@ -88,7 +88,12 @@ pub fn buildLibCXX(comp: *Compilation) !void {
     const output_mode = .Lib;
     const link_mode = .Static;
     const target = comp.getTarget();
-    const basename = try std.zig.binNameAlloc(arena, root_name, target, output_mode, link_mode, null);
+    const basename = try std.zig.binNameAlloc(arena, .{
+        .root_name = root_name,
+        .target = target,
+        .output_mode = output_mode,
+        .link_mode = link_mode,
+    });
 
     const emit_bin = Compilation.EmitLoc{
         .directory = null, // Put it in the cache directory.
@@ -205,7 +210,12 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
     const output_mode = .Lib;
     const link_mode = .Static;
     const target = comp.getTarget();
-    const basename = try std.zig.binNameAlloc(arena, root_name, target, output_mode, link_mode, null);
+    const basename = try std.zig.binNameAlloc(arena, .{
+        .root_name = root_name,
+        .target = target,
+        .output_mode = output_mode,
+        .link_mode = link_mode,
+    });
 
     const emit_bin = Compilation.EmitLoc{
         .directory = null, // Put it in the cache directory.

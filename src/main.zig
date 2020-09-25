@@ -210,11 +210,10 @@ const usage_build_generic =
     \\            small|kernel|
     \\            medium|large]
     \\  --name [name]             Override root name (not a file path)
-    \\  --mode [mode]             Set the build mode
-    \\    Debug                   (default) optimizations off, safety on
-    \\    ReleaseFast             Optimizations on, safety off
-    \\    ReleaseSafe             Optimizations on, safety on
-    \\    ReleaseSmall            Optimize for small binary, safety off
+    \\  -ODebug                   (default) optimizations off, safety on
+    \\  -OReleaseFast             Optimizations on, safety off
+    \\  -OReleaseSafe             Optimizations on, safety on
+    \\  -OReleaseSmall            Optimize for small binary, safety off
     \\  --pkg-begin [name] [path] Make pkg available to import and push current pkg
     \\  --pkg-end                 Pop current pkg
     \\  --main-pkg-path           Set the directory of the root package
@@ -307,7 +306,7 @@ pub fn buildOutputType(
     },
 ) !void {
     var color: Color = .Auto;
-    var build_mode: std.builtin.Mode = .Debug;
+    var optimize_mode: std.builtin.Mode = .Debug;
     var provided_name: ?[]const u8 = null;
     var link_mode: ?std.builtin.LinkMode = null;
     var dll_export_fns: ?bool = null;
@@ -416,20 +415,23 @@ pub fn buildOutputType(
 
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {
+            var optimize_mode_string: ?[]const u8 = null;
             output_mode = switch (arg_mode) {
                 .build => |m| m,
                 .translate_c => .Obj,
                 .zig_test, .run => .Exe,
                 else => unreachable,
             };
-            switch (arg_mode) {
-                .build => switch (output_mode) {
-                    .Exe => emit_h = .no,
-                    .Obj, .Lib => emit_h = .yes_default_path,
-                },
-                .translate_c, .zig_test, .run => emit_h = .no,
-                else => unreachable,
-            }
+            // TODO finish self-hosted and add support for emitting C header files
+            emit_h = .no;
+            //switch (arg_mode) {
+            //    .build => switch (output_mode) {
+            //        .Exe => emit_h = .no,
+            //        .Obj, .Lib => emit_h = .yes_default_path,
+            //    },
+            //    .translate_c, .zig_test, .run => emit_h = .no,
+            //    else => unreachable,
+            //}
             const args = all_args[2..];
             var i: usize = 0;
             while (i < args.len) : (i += 1) {
@@ -498,23 +500,10 @@ pub fn buildOutputType(
                         } else {
                             fatal("expected [auto|on|off] after --color, found '{}'", .{next_arg});
                         }
-                    } else if (mem.eql(u8, arg, "--mode")) {
-                        if (i + 1 >= args.len) {
-                            fatal("expected [Debug|ReleaseSafe|ReleaseFast|ReleaseSmall] after --mode", .{});
-                        }
+                    } else if (mem.eql(u8, arg, "-O")) {
+                        if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
-                        const next_arg = args[i];
-                        if (mem.eql(u8, next_arg, "Debug")) {
-                            build_mode = .Debug;
-                        } else if (mem.eql(u8, next_arg, "ReleaseSafe")) {
-                            build_mode = .ReleaseSafe;
-                        } else if (mem.eql(u8, next_arg, "ReleaseFast")) {
-                            build_mode = .ReleaseFast;
-                        } else if (mem.eql(u8, next_arg, "ReleaseSmall")) {
-                            build_mode = .ReleaseSmall;
-                        } else {
-                            fatal("expected [Debug|ReleaseSafe|ReleaseFast|ReleaseSmall] after --mode, found '{}'", .{next_arg});
-                        }
+                        optimize_mode_string = args[i];
                     } else if (mem.eql(u8, arg, "--stack")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
@@ -583,6 +572,8 @@ pub fn buildOutputType(
                         target_mcpu = arg["-mcpu=".len..];
                     } else if (mem.startsWith(u8, arg, "-mcmodel=")) {
                         machine_code_model = parseCodeModel(arg["-mcmodel=".len..]);
+                    } else if (mem.startsWith(u8, arg, "-O")) {
+                        optimize_mode_string = arg["-O".len..];
                     } else if (mem.eql(u8, arg, "--dynamic-linker")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
@@ -749,6 +740,10 @@ pub fn buildOutputType(
                     },
                 }
             }
+            if (optimize_mode_string) |s| {
+                optimize_mode = std.meta.stringToEnum(std.builtin.Mode, s) orelse
+                    fatal("unrecognized optimization mode: '{}'", .{s});
+            }
         },
         .cc, .cpp => {
             emit_h = .no;
@@ -826,16 +821,16 @@ pub fn buildOutputType(
                     .optimize => {
                         // Alright, what release mode do they want?
                         if (mem.eql(u8, it.only_arg, "Os")) {
-                            build_mode = .ReleaseSmall;
+                            optimize_mode = .ReleaseSmall;
                         } else if (mem.eql(u8, it.only_arg, "O2") or
                             mem.eql(u8, it.only_arg, "O3") or
                             mem.eql(u8, it.only_arg, "O4"))
                         {
-                            build_mode = .ReleaseFast;
+                            optimize_mode = .ReleaseFast;
                         } else if (mem.eql(u8, it.only_arg, "Og") or
                             mem.eql(u8, it.only_arg, "O0"))
                         {
-                            build_mode = .Debug;
+                            optimize_mode = .Debug;
                         } else {
                             try clang_argv.appendSlice(it.other_args);
                         }
@@ -999,8 +994,8 @@ pub fn buildOutputType(
             }
 
             if (want_sanitize_c) |wsc| {
-                if (wsc and build_mode == .ReleaseFast) {
-                    build_mode = .ReleaseSafe;
+                if (wsc and optimize_mode == .ReleaseFast) {
+                    optimize_mode = .ReleaseSafe;
                 }
             }
 
@@ -1177,6 +1172,7 @@ pub fn buildOutputType(
     defer if (cleanup_emit_bin_dir) |*dir| dir.close();
 
     const have_enable_cache = enable_cache orelse false;
+    const optional_version = if (have_version) version else null;
 
     const emit_bin_loc: ?Compilation.EmitLoc = switch (emit_bin) {
         .no => null,
@@ -1193,14 +1189,14 @@ pub fn buildOutputType(
                     },
                 }
             },
-            .basename = try std.zig.binNameAlloc(
-                arena,
-                root_name,
-                target_info.target,
-                output_mode,
-                link_mode,
-                object_format,
-            ),
+            .basename = try std.zig.binNameAlloc(arena, .{
+                .root_name = root_name,
+                .target = target_info.target,
+                .output_mode = output_mode,
+                .link_mode = link_mode,
+                .object_format = object_format,
+                .version = optional_version,
+            }),
         },
         .yes => |full_path| b: {
             const basename = fs.path.basename(full_path);
@@ -1374,7 +1370,7 @@ pub fn buildOutputType(
         .link_mode = link_mode,
         .dll_export_fns = dll_export_fns,
         .object_format = object_format,
-        .optimize_mode = build_mode,
+        .optimize_mode = optimize_mode,
         .keep_source_files_loaded = zir_out_path != null,
         .clang_argv = clang_argv.items,
         .lld_argv = lld_argv.items,
@@ -1411,7 +1407,7 @@ pub fn buildOutputType(
         .self_exe_path = self_exe_path,
         .rand = &default_prng.random,
         .clang_passthrough_mode = arg_mode != .build,
-        .version = if (have_version) version else null,
+        .version = optional_version,
         .libc_installation = if (libc_installation) |*lci| lci else null,
         .verbose_cc = verbose_cc,
         .verbose_link = verbose_link,
@@ -1977,7 +1973,11 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         const cross_target: std.zig.CrossTarget = .{};
         const target_info = try detectNativeTargetInfo(gpa, cross_target);
 
-        const exe_basename = try std.zig.binNameAlloc(arena, "build", target_info.target, .Exe, null, null);
+        const exe_basename = try std.zig.binNameAlloc(arena, .{
+            .root_name = "build",
+            .target = target_info.target,
+            .output_mode = .Exe,
+        });
         const emit_bin: Compilation.EmitLoc = .{
             .directory = null, // Use the local zig-cache.
             .basename = exe_basename,

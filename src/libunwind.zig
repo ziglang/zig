@@ -23,13 +23,16 @@ pub fn buildStaticLib(comp: *Compilation) !void {
     const output_mode = .Lib;
     const link_mode = .Static;
     const target = comp.getTarget();
-    const basename = try std.zig.binNameAlloc(arena, root_name, target, output_mode, link_mode, null);
-
+    const basename = try std.zig.binNameAlloc(arena, .{
+        .root_name = root_name,
+        .target = target,
+        .output_mode = output_mode,
+        .link_mode = link_mode,
+    });
     const emit_bin = Compilation.EmitLoc{
         .directory = null, // Put it in the cache directory.
         .basename = basename,
     };
-
     const unwind_src_list = [_][]const u8{
         "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "libunwind.cpp",
         "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind-EHABI.cpp",
@@ -40,7 +43,6 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindRegistersRestore.S",
         "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindRegistersSave.S",
     };
-
     var c_source_files: [unwind_src_list.len]Compilation.CSourceFile = undefined;
     for (unwind_src_list) |unwind_src, i| {
         var cflags = std.ArrayList([]const u8).init(arena);

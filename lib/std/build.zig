@@ -1692,8 +1692,6 @@ pub const LibExeObjStep = struct {
         self.main_pkg_path = dir_path;
     }
 
-    pub const setDisableGenH = @compileError("deprecated; set the emit_h field directly");
-
     pub fn setLibCFile(self: *LibExeObjStep, libc_file: ?[]const u8) void {
         self.libc_file = libc_file;
     }
@@ -2067,10 +2065,8 @@ pub const LibExeObjStep = struct {
         }
 
         switch (self.build_mode) {
-            .Debug => {},
-            .ReleaseSafe => zig_args.append("--release-safe") catch unreachable,
-            .ReleaseFast => zig_args.append("--release-fast") catch unreachable,
-            .ReleaseSmall => zig_args.append("--release-small") catch unreachable,
+            .Debug => {}, // Skip since it's the default.
+            else => zig_args.append(builder.fmt("-O{s}", .{@tagName(self.build_mode)})) catch unreachable,
         }
 
         try zig_args.append("--cache-dir");

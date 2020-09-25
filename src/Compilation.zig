@@ -2562,7 +2562,11 @@ pub fn build_crt_file(
     defer tracy.end();
 
     const target = comp.getTarget();
-    const basename = try std.zig.binNameAlloc(comp.gpa, root_name, target, output_mode, null, null);
+    const basename = try std.zig.binNameAlloc(comp.gpa, .{
+        .root_name = root_name,
+        .target = target,
+        .output_mode = output_mode,
+    });
     errdefer comp.gpa.free(basename);
 
     // TODO: This is extracted into a local variable to work around a stage1 miscompilation.
