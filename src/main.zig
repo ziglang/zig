@@ -1276,15 +1276,15 @@ pub fn buildOutputType(
     defer if (cleanup_root_dir) |*dir| dir.close();
 
     const root_pkg: ?*Package = if (root_src_file) |src_path| blk: {
-        root_pkg_memory.root_src_directory = m: {
-            if (main_pkg_path) |p| {
-                const dir = try fs.cwd().openDir(p, .{});
-                cleanup_root_dir = dir;
-                break :m .{ .path = p, .handle = dir };
-            }
-            break :m .{ .path = null, .handle = fs.cwd() };
-        };
-        root_pkg_memory.root_src_path = src_path;
+        if (main_pkg_path) |p| {
+            const dir = try fs.cwd().openDir(p, .{});
+            cleanup_root_dir = dir;
+            root_pkg_memory.root_src_directory = .{ .path = p, .handle = dir };
+            root_pkg_memory.root_src_path = try fs.path.relative(arena, p, src_path);
+        } else {
+            root_pkg_memory.root_src_directory = .{ .path = null, .handle = fs.cwd() };
+            root_pkg_memory.root_src_path = src_path;
+        }
         break :blk &root_pkg_memory;
     } else null;
 
