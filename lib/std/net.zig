@@ -614,11 +614,11 @@ pub fn connectUnixSocket(path: []const u8) !fs.File {
 
     var addr = try std.net.Address.initUnix(path);
 
-    try os.connect(
-        sockfd,
-        &addr.any,
-        addr.getOsSockLen(),
-    );
+    if (std.io.is_async) {
+        try loop.connect(sockfd, &addr.any, addr.getOsSockLen());
+    } else {
+        try os.connect(sockfd, &addr.any, addr.getOsSockLen());
+    }
 
     return fs.File{
         .handle = sockfd,
@@ -677,7 +677,13 @@ pub fn tcpConnectToAddress(address: Address) !fs.File {
         (if (builtin.os.tag == .windows) 0 else os.SOCK_CLOEXEC);
     const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO_TCP);
     errdefer os.close(sockfd);
-    try os.connect(sockfd, &address.any, address.getOsSockLen());
+
+    if (std.io.is_async) {
+        const loop = std.event.Loop.instance orelse return error.WouldBlock;
+        try loop.connect(sockfd, &address.any, address.getOsSockLen());
+    } else {
+        try os.connect(sockfd, &address.any, address.getOsSockLen());
+    }
 
     return fs.File{ .handle = sockfd };
 }
@@ -1429,7 +1435,11 @@ fn resMSendRc(
                 if (answers[i].len == 0) {
                     var j: usize = 0;
                     while (j < ns.len) : (j += 1) {
-                        _ = os.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j].any, sl) catch undefined;
+                        if (std.io.is_async) {
+                            _ = std.event.Loop.instance.?.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j].any, sl) catch undefined;
+                        } else {
+                            _ = os.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j].any, sl) catch undefined;
+                        }
                     }
                 }
             }
@@ -1444,7 +1454,10 @@ fn resMSendRc(
 
         while (true) {
             var sl_copy = sl;
-            const rlen = os.recvfrom(fd, answer_bufs[next], 0, &sa.any, &sl_copy) catch break;
+            const rlen = if (std.io.is_async)
+                std.event.Loop.instance.?.recvfrom(fd, answer_bufs[next], 0, &sa.any, &sl_copy) catch break
+            else
+                os.recvfrom(fd, answer_bufs[next], 0, &sa.any, &sl_copy) catch break;
 
             // Ignore non-identifiable packets
             if (rlen < 4) continue;
@@ -1470,7 +1483,11 @@ fn resMSendRc(
                 0, 3 => {},
                 2 => if (servfail_retry != 0) {
                     servfail_retry -= 1;
-                    _ = os.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j].any, sl) catch undefined;
+                    if (std.io.is_async) {
+                        _ = std.event.Loop.instance.?.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j].any, sl) catch undefined;
+                    } else {
+                        _ = os.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j].any, sl) catch undefined;
+                    }
                 },
                 else => continue,
             }
@@ -1661,18 +1678,23 @@ pub const StreamServer = struct {
 
     /// If this function succeeds, the returned `Connection` is a caller-managed resource.
     pub fn accept(self: *StreamServer) AcceptError!Connection {
-        const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
-        const accept_flags = nonblock | os.SOCK_CLOEXEC;
         var accepted_addr: Address = undefined;
         var adr_len: os.socklen_t = @sizeOf(Address);
-        if (os.accept(self.sockfd.?, &accepted_addr.any, &adr_len, accept_flags)) |fd| {
+        const accept_result = blk: {
+            if (std.io.is_async) {
+                const loop = std.event.Loop.instance orelse return error.UnexpectedError;
+                break :blk loop.accept(self.sockfd.?, &accepted_addr.any, &adr_len, os.SOCK_CLOEXEC);
+            } else {
+                break :blk os.accept(self.sockfd.?, &accepted_addr.any, &adr_len, os.SOCK_CLOEXEC);
+            }
+        };
+
+        if (accept_result) |fd| {
             return Connection{
                 .file = fs.File{ .handle = fd },
                 .address = accepted_addr,
             };
         } else |err| switch (err) {
-            // We only give SOCK_NONBLOCK when I/O mode is async, in which case this error
-            // is handled by os.accept4.
             error.WouldBlock => unreachable,
             else => |e| return e,
         }

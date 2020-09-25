@@ -414,10 +414,12 @@ pub const File = struct {
     pub fn read(self: File, buffer: []u8) ReadError!usize {
         if (is_windows) {
             return windows.ReadFile(self.handle, buffer, null, self.intended_io_mode);
-        } else if (self.capable_io_mode != self.intended_io_mode) {
-            return std.event.Loop.instance.?.read(self.handle, buffer);
-        } else {
+        }
+
+        if (self.intended_io_mode == .blocking) {
             return os.read(self.handle, buffer);
+        } else {
+            return std.event.Loop.instance.?.read(self.handle, buffer, self.capable_io_mode != self.intended_io_mode);
         }
     }
 
@@ -436,10 +438,12 @@ pub const File = struct {
     pub fn pread(self: File, buffer: []u8, offset: u64) PReadError!usize {
         if (is_windows) {
             return windows.ReadFile(self.handle, buffer, offset, self.intended_io_mode);
-        } else if (self.capable_io_mode != self.intended_io_mode) {
-            return std.event.Loop.instance.?.pread(self.handle, buffer, offset);
-        } else {
+        }
+
+        if (self.intended_io_mode == .blocking) {
             return os.pread(self.handle, buffer, offset);
+        } else {
+            return std.event.Loop.instance.?.pread(self.handle, buffer, offset, self.capable_io_mode != self.intended_io_mode);
         }
     }
 
@@ -461,10 +465,12 @@ pub const File = struct {
             if (iovecs.len == 0) return @as(usize, 0);
             const first = iovecs[0];
             return windows.ReadFile(self.handle, first.iov_base[0..first.iov_len], null, self.intended_io_mode);
-        } else if (self.capable_io_mode != self.intended_io_mode) {
-            return std.event.Loop.instance.?.readv(self.handle, iovecs);
-        } else {
+        }
+
+        if (self.intended_io_mode == .blocking) {
             return os.readv(self.handle, iovecs);
+        } else {
+            return std.event.Loop.instance.?.readv(self.handle, iovecs, self.capable_io_mode != self.intended_io_mode);
         }
     }
 
@@ -500,10 +506,12 @@ pub const File = struct {
             if (iovecs.len == 0) return @as(usize, 0);
             const first = iovecs[0];
             return windows.ReadFile(self.handle, first.iov_base[0..first.iov_len], offset, self.intended_io_mode);
-        } else if (self.capable_io_mode != self.intended_io_mode) {
-            return std.event.Loop.instance.?.preadv(self.handle, iovecs, offset);
-        } else {
+        }
+
+        if (self.intended_io_mode == .blocking) {
             return os.preadv(self.handle, iovecs, offset);
+        } else {
+            return std.event.Loop.instance.?.preadv(self.handle, iovecs, offset, self.capable_io_mode != self.intended_io_mode);
         }
     }
 
@@ -539,10 +547,12 @@ pub const File = struct {
     pub fn write(self: File, bytes: []const u8) WriteError!usize {
         if (is_windows) {
             return windows.WriteFile(self.handle, bytes, null, self.intended_io_mode);
-        } else if (self.capable_io_mode != self.intended_io_mode) {
-            return std.event.Loop.instance.?.write(self.handle, bytes);
-        } else {
+        }
+
+        if (self.intended_io_mode == .blocking) {
             return os.write(self.handle, bytes);
+        } else {
+            return std.event.Loop.instance.?.write(self.handle, bytes, self.capable_io_mode != self.intended_io_mode);
         }
     }
 
@@ -556,10 +566,12 @@ pub const File = struct {
     pub fn pwrite(self: File, bytes: []const u8, offset: u64) PWriteError!usize {
         if (is_windows) {
             return windows.WriteFile(self.handle, bytes, offset, self.intended_io_mode);
-        } else if (self.capable_io_mode != self.intended_io_mode) {
-            return std.event.Loop.instance.?.pwrite(self.handle, bytes, offset);
-        } else {
+        }
+
+        if (self.intended_io_mode == .blocking) {
             return os.pwrite(self.handle, bytes, offset);
+        } else {
+            return std.event.Loop.instance.?.pwrite(self.handle, bytes, offset, self.capable_io_mode != self.intended_io_mode);
         }
     }
 
@@ -576,10 +588,12 @@ pub const File = struct {
             if (iovecs.len == 0) return @as(usize, 0);
             const first = iovecs[0];
             return windows.WriteFile(self.handle, first.iov_base[0..first.iov_len], null, self.intended_io_mode);
-        } else if (self.capable_io_mode != self.intended_io_mode) {
-            return std.event.Loop.instance.?.writev(self.handle, iovecs);
-        } else {
+        }
+
+        if (self.intended_io_mode == .blocking) {
             return os.writev(self.handle, iovecs);
+        } else {
+            return std.event.Loop.instance.?.writev(self.handle, iovecs, self.capable_io_mode != self.intended_io_mode);
         }
     }
 
@@ -607,10 +621,12 @@ pub const File = struct {
             if (iovecs.len == 0) return @as(usize, 0);
             const first = iovecs[0];
             return windows.WriteFile(self.handle, first.iov_base[0..first.iov_len], offset, self.intended_io_mode);
-        } else if (self.capable_io_mode != self.intended_io_mode) {
-            return std.event.Loop.instance.?.pwritev(self.handle, iovecs, offset);
-        } else {
+        }
+
+        if (self.intended_io_mode == .blocking) {
             return os.pwritev(self.handle, iovecs, offset);
+        } else {
+            return std.event.Loop.instance.?.pwritev(self.handle, iovecs, offset, self.capable_io_mode != self.intended_io_mode);
         }
     }
 
