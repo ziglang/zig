@@ -576,7 +576,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // push {fp, lr}
                         // mov fp, sp
                         // sub sp, sp, #reloc
-                        // mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .fp, Instruction.Operand.reg(.sp, Instruction.Operand.Shift.none)).toU32());
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.push(.al, .{ .fp, .lr }).toU32());
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .fp, Instruction.Operand.reg(.sp, Instruction.Operand.Shift.none)).toU32());
+                        // TODO: prepare stack for local variables
                         // const backpatch_reloc = try self.code.addManyAsArray(4);
 
                         try self.dbgSetPrologueEnd();
@@ -592,7 +594,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         // mov sp, fp
                         // pop {fp, pc}
-                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .sp, Instruction.Operand.reg(.fp, Instruction.Operand.Shift.none)).toU32());
+                        // TODO: return by jumping to this code, use relocations
+                        // mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .sp, Instruction.Operand.reg(.fp, Instruction.Operand.Shift.none)).toU32());
+                        // mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.pop(.al, .{ .fp, .pc }).toU32());
                     } else {
                         try self.dbgSetPrologueEnd();
                         try self.genBody(self.mod_fn.analysis.success);
@@ -1661,7 +1665,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.jalr(.zero, 0, .ra).toU32());
                 },
                 .arm => {
-                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.bx(.al, .lr).toU32());
+                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .sp, Instruction.Operand.reg(.fp, Instruction.Operand.Shift.none)).toU32());
+                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.pop(.al, .{ .fp, .pc }).toU32());
+                    // TODO: jump to the end with relocation
                     // // Just add space for an instruction, patch this later
                     // try self.code.resize(self.code.items.len + 4);
                     // try self.exitlude_jump_relocs.append(self.gpa, self.code.items.len - 4);
@@ -2316,7 +2322,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // The value is in memory at a hard-coded address.
                         // If the type is a pointer, it means the pointer address is at this memory location.
                         try self.genSetReg(src, reg, .{ .immediate = addr });
-                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(.al, reg, reg, Instruction.Offset.none).toU32());
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(.al, reg, reg, .{ .offset = Instruction.Offset.none }).toU32());
                     },
                     else => return self.fail(src, "TODO implement getSetReg for arm {}", .{mcv}),
                 },

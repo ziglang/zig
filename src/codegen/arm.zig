@@ -417,10 +417,10 @@ pub const Instruction = union(enum) {
         rd: Register,
         rn: Register,
         offset: Offset,
-        pre_post: u1,
-        up_down: u1,
+        pre_index: bool,
+        positive: bool,
         byte_word: u1,
-        write_back: u1,
+        write_back: bool,
         load_store: u1,
     ) Instruction {
         return Instruction{
@@ -430,10 +430,10 @@ pub const Instruction = union(enum) {
                 .rd = rd.id(),
                 .offset = offset.toU12(),
                 .load_store = load_store,
-                .write_back = write_back,
+                .write_back = if (write_back) 1 else 0,
                 .byte_word = byte_word,
-                .up_down = up_down,
-                .pre_post = pre_post,
+                .up_down = if (positive) 1 else 0,
+                .pre_post = if (pre_index) 1 else 0,
                 .imm = if (offset == .Immediate) 0 else 1,
             },
         };
@@ -626,20 +626,27 @@ pub const Instruction = union(enum) {
 
     // Single data transfer
 
-    pub fn ldr(cond: Condition, rd: Register, rn: Register, offset: Offset) Instruction {
-        return singleDataTransfer(cond, rd, rn, offset, 1, 1, 0, 0, 1);
+    pub const OffsetArgs = struct {
+        pre_index: bool = true,
+        positive: bool = true,
+        offset: Offset,
+        write_back: bool = false,
+    };
+
+    pub fn ldr(cond: Condition, rd: Register, rn: Register, args: OffsetArgs) Instruction {
+        return singleDataTransfer(cond, rd, rn, args.offset, args.pre_index, args.positive, 0, args.write_back, 1);
     }
 
-    pub fn ldrb(cond: Condition, rd: Register, rn: Register, offset: Offset) Instruction {
-        return singleDataTransfer(cond, rd, rn, offset, 1, 1, 1, 0, 1);
+    pub fn ldrb(cond: Condition, rd: Register, rn: Register, args: OffsetArgs) Instruction {
+        return singleDataTransfer(cond, rd, rn, args.offset, args.pre_index, args.positive, 1, args.write_back, 1);
     }
 
-    pub fn str(cond: Condition, rd: Register, rn: Register, offset: Offset) Instruction {
-        return singleDataTransfer(cond, rd, rn, offset, 1, 1, 0, 0, 0);
+    pub fn str(cond: Condition, rd: Register, rn: Register, args: OffsetArgs) Instruction {
+        return singleDataTransfer(cond, rd, rn, args.offset, args.pre_index, args.positive, 0, args.write_back, 0);
     }
 
-    pub fn strb(cond: Condition, rd: Register, rn: Register, offset: Offset) Instruction {
-        return singleDataTransfer(cond, rd, rn, offset, 1, 1, 1, 0, 0);
+    pub fn strb(cond: Condition, rd: Register, rn: Register, args: OffsetArgs) Instruction {
+        return singleDataTransfer(cond, rd, rn, args.offset, args.pre_index, args.positive, 1, args.write_back, 0);
     }
 
     // Block data transfer
@@ -721,6 +728,58 @@ pub const Instruction = union(enum) {
     pub fn bkpt(imm: u16) Instruction {
         return breakpoint(imm);
     }
+
+    // Aliases
+
+    pub fn pop(cond: Condition, args: anytype) Instruction {
+        if (@typeInfo(@TypeOf(args)) != .Struct) {
+            @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
+        }
+
+        if (args.len < 1) {
+            @compileError("Expected at least one register");
+        } else if (args.len == 1) {
+            const reg = args[0];
+            return ldr(cond, reg, .sp, .{
+                .pre_index = false,
+                .positive = true,
+                .offset = Offset.imm(4),
+                .write_back = false,
+            });
+        } else {
+            var register_list: u16 = 0;
+            inline for (args) |arg| {
+                const reg = @as(Register, arg);
+                register_list |= @as(u16, 1) << reg.id();
+            }
+            return ldm(cond, .sp, true, @bitCast(RegisterList, register_list));
+        }
+    }
+
+    pub fn push(cond: Condition, args: anytype) Instruction {
+        if (@typeInfo(@TypeOf(args)) != .Struct) {
+            @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
+        }
+
+        if (args.len < 1) {
+            @compileError("Expected at least one register");
+        } else if (args.len == 1) {
+            const reg = args[0];
+            return str(cond, reg, .sp, .{
+                .pre_index = true,
+                .positive = false,
+                .offset = Offset.imm(4),
+                .write_back = true,
+            });
+        } else {
+            var register_list: u16 = 0;
+            inline for (args) |arg| {
+                const reg = @as(Register, arg);
+                register_list |= @as(u16, 1) << reg.id();
+            }
+            return stmdb(cond, .sp, true, @bitCast(RegisterList, register_list));
+        }
+    }
 };
 
 test "serialize instructions" {
@@ -747,11 +806,15 @@ test "serialize instructions" {
             .expected = 0b1110_00010_0_001111_0101_000000000000,
         },
         .{ // ldr r0, [r2, #42]
-            .inst = Instruction.ldr(.al, .r0, .r2, Instruction.Offset.imm(42)),
+            .inst = Instruction.ldr(.al, .r0, .r2, .{
+                .offset = Instruction.Offset.imm(42),
+            }),
             .expected = 0b1110_01_0_1_1_0_0_1_0010_0000_000000101010,
         },
         .{ // str r0, [r3]
-            .inst = Instruction.str(.al, .r0, .r3, Instruction.Offset.none),
+            .inst = Instruction.str(.al, .r0, .r3, .{
+                .offset = Instruction.Offset.none,
+            }),
             .expected = 0b1110_01_0_1_1_0_0_0_0011_0000_000000000000,
         },
         .{ // b #12
@@ -787,5 +850,45 @@ test "serialize instructions" {
     for (testcases) |case| {
         const actual = case.inst.toU32();
         testing.expectEqual(case.expected, actual);
+    }
+}
+
+test "aliases" {
+    const Testcase = struct {
+        expected: Instruction,
+        actual: Instruction,
+    };
+
+    const testcases = [_]Testcase{
+        .{ // pop { r6 }
+            .actual = Instruction.pop(.al, .{.r6}),
+            .expected = Instruction.ldr(.al, .r6, .sp, .{
+                .pre_index = false,
+                .positive = true,
+                .offset = Instruction.Offset.imm(4),
+                .write_back = false,
+            }),
+        },
+        .{ // pop { r1, r5 }
+            .actual = Instruction.pop(.al, .{ .r1, .r5 }),
+            .expected = Instruction.ldm(.al, .sp, true, .{ .r1 = true, .r5 = true }),
+        },
+        .{ // push { r3 }
+            .actual = Instruction.push(.al, .{.r3}),
+            .expected = Instruction.str(.al, .r3, .sp, .{
+                .pre_index = true,
+                .positive = false,
+                .offset = Instruction.Offset.imm(4),
+                .write_back = true,
+            }),
+        },
+        .{ // push { r0, r2 }
+            .actual = Instruction.push(.al, .{ .r0, .r2 }),
+            .expected = Instruction.stmdb(.al, .sp, true, .{ .r0 = true, .r2 = true }),
+        },
+    };
+
+    for (testcases) |case| {
+        testing.expectEqual(case.expected.toU32(), case.actual.toU32());
     }
 }
