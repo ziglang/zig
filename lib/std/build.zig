@@ -2081,14 +2081,8 @@ pub const LibExeObjStep = struct {
 
         if (self.kind == Kind.Lib and self.is_dynamic) {
             if (self.version) |version| {
-                zig_args.append("--ver-major") catch unreachable;
-                zig_args.append(builder.fmt("{}", .{version.major})) catch unreachable;
-
-                zig_args.append("--ver-minor") catch unreachable;
-                zig_args.append(builder.fmt("{}", .{version.minor})) catch unreachable;
-
-                zig_args.append("--ver-patch") catch unreachable;
-                zig_args.append(builder.fmt("{}", .{version.patch})) catch unreachable;
+                zig_args.append("--version") catch unreachable;
+                zig_args.append(builder.fmt("{}", .{version})) catch unreachable;
             }
         }
         if (self.is_dynamic) {
