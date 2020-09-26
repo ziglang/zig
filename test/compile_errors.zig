@@ -2,6 +2,18 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("casting non-zero-sized-type pointer to zero-sized-type pointer",
+        \\export fn entry() void {
+        \\    var i = @as(usize, 0);
+        \\    var v = @ptrCast(*void, &i);
+        \\    v.* = {};
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:13: error: '*usize' and '*void' do not have the same in-memory representation",
+        "tmp.zig:3:30: note: '*usize' has in-memory bits",
+        "tmp.zig:3:22: note: '*void' has no in-memory bits",
+    });
+
     cases.add("slice sentinel mismatch",
         \\export fn entry() void {
         \\    const x = @import("std").meta.Vector(3, f32){ 25, 75, 5, 0 };

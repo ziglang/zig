@@ -29327,6 +29327,20 @@ static IrInstGen *ir_analyze_ptr_cast(IrAnalyze *ira, IrInst* source_instr, IrIn
         return ira->codegen->invalid_inst_gen;
     }
 
+    if (safety_check_on &&
+        !type_has_bits(ira->codegen, dest_type) &&
+        type_has_bits(ira->codegen, if_slice_ptr_type))
+    {
+        ErrorMsg *msg = ir_add_error(ira, source_instr,
+            buf_sprintf("'%s' and '%s' do not have the same in-memory representation",
+                buf_ptr(&src_type->name), buf_ptr(&dest_type->name)));
+        add_error_note(ira->codegen, msg, ptr_src->source_node,
+                buf_sprintf("'%s' has in-memory bits", buf_ptr(&src_type->name)));
+        add_error_note(ira->codegen, msg, dest_type_src->source_node,
+                buf_sprintf("'%s' has no in-memory bits", buf_ptr(&dest_type->name)));
+        return ira->codegen->invalid_inst_gen;
+    }
+
     // For slices, follow the `ptr` field.
     if (is_slice(src_type)) {
         TypeStructField *ptr_field = src_type->data.structure.fields[slice_ptr_index];
