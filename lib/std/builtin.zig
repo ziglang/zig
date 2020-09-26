@@ -214,7 +214,7 @@ pub const TypeInfo = union(enum) {
         size: Size,
         is_const: bool,
         is_volatile: bool,
-        alignment: comptime_int,
+        alignment: u29,
         child: type,
         is_allowzero: bool,
 

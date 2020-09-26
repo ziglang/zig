@@ -25029,7 +25029,7 @@ static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, IrInst *source_instr,
     fields[2]->data.x_bool = attrs_type->data.pointer.is_volatile;
     // alignment: u32
     ensure_field_index(result->type, "alignment", 3);
-    fields[3]->type = ira->codegen->builtin_types.entry_num_lit_int;
+    fields[3]->type = ira->codegen->builtin_types.entry_u29;
     if (attrs_type->data.pointer.explicit_alignment != 0) {
         fields[3]->special = ConstValSpecialStatic;
         bigint_init_unsigned(&fields[3]->data.x_bigint, attrs_type->data.pointer.explicit_alignment);
@@ -25740,6 +25740,17 @@ static Error get_const_field_bool(IrAnalyze *ira, AstNode *source_node, ZigValue
     return ErrorNone;
 }
 
+static Error get_const_field_u29(IrAnalyze *ira, AstNode *source_node, ZigValue *struct_value,
+    const char *name, size_t field_index, uint32_t *out)
+{
+    ZigValue *value = get_const_field(ira, source_node, struct_value, name, field_index);
+    if (value == nullptr)
+        return ErrorSemanticAnalyzeFail;
+    assert(value->type == ira->codegen->builtin_types.entry_u29);
+    *out = bigint_as_u32(&value->data.x_bigint);
+    return ErrorNone;
+}
+
 static BigInt *get_const_field_lit_int(IrAnalyze *ira, AstNode *source_node, ZigValue *struct_value, const char *name, size_t field_index)
 {
     ZigValue *value = get_const_field(ira, source_node, struct_value, name, field_index);
@@ -25868,8 +25879,9 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
                         buf_sprintf("sentinels are only allowed on slices and unknown-length pointers"));
                     return ira->codegen->invalid_inst_gen->value->type;
                 }
-                BigInt *bi = get_const_field_lit_int(ira, source_instr->source_node, payload, "alignment", 3);
-                if (bi == nullptr)
+
+                uint32_t alignment;
+                if ((err = get_const_field_u29(ira, source_instr->source_node, payload, "alignment", 3, &alignment)))
                     return ira->codegen->invalid_inst_gen->value->type;
 
                 bool is_const;
@@ -25896,7 +25908,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
                     is_const,
                     is_volatile,
                     ptr_len,
-                    bigint_as_u32(bi),
+                    alignment,
                     0, // bit_offset_in_host
                     0, // host_int_bytes
                     is_allowzero,
