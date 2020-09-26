@@ -459,12 +459,6 @@ fn incrementVoidPtrArray(array: ?*c_void, len: usize) void {
     }
 }
 
-test "*usize to *void" {
-    var i = @as(usize, 0);
-    var v = @ptrCast(*void, &i);
-    v.* = {};
-}
-
 test "compile time int to ptr of function" {
     foobar(FUNCTION_CONSTANT);
 }
