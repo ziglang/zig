@@ -3091,12 +3091,9 @@ fn getLDMOption(target: std.Target) ?[]const u8 {
         .x86_64 => {
             if (target.abi == .gnux32) {
                 return "elf32_x86_64";
+            } else {
+                return "elf_x86_64";
             }
-            // Any target elf will use the freebsd osabi if suffixed with "_fbsd".
-            if (target.os.tag == .freebsd) {
-                return "elf_x86_64_fbsd";
-            }
-            return "elf_x86_64";
         },
         .riscv32 => return "elf32lriscv",
         .riscv64 => return "elf64lriscv",
