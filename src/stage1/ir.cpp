@@ -25575,7 +25575,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 // alignment: u29
                 ensure_field_index(result->type, "alignment", 1);
                 fields[1]->special = ConstValSpecialStatic;
-                fields[1]->type = ira->codegen->builtin_types.entry_u29;
+                fields[1]->type = ira->codegen->builtin_types.entry_num_lit_int;
                 bigint_init_unsigned(&fields[1]->data.x_bigint, type_entry->data.fn.fn_type_id.alignment);
                 // is_generic: bool
                 ensure_field_index(result->type, "is_generic", 2);
@@ -25753,17 +25753,6 @@ static Error get_const_field_bool(IrAnalyze *ira, AstNode *source_node, ZigValue
         return ErrorSemanticAnalyzeFail;
     assert(value->type == ira->codegen->builtin_types.entry_bool);
     *out = value->data.x_bool;
-    return ErrorNone;
-}
-
-static Error get_const_field_u29(IrAnalyze *ira, AstNode *source_node, ZigValue *struct_value,
-    const char *name, size_t field_index, uint32_t *out)
-{
-    ZigValue *value = get_const_field(ira, source_node, struct_value, name, field_index);
-    if (value == nullptr)
-        return ErrorSemanticAnalyzeFail;
-    assert(value->type == ira->codegen->builtin_types.entry_u29);
-    *out = bigint_as_u32(&value->data.x_bigint);
     return ErrorNone;
 }
 
@@ -26353,8 +26342,8 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
             assert(cc_value->type == get_builtin_type(ira->codegen, "CallingConvention"));
             CallingConvention cc = (CallingConvention)bigint_as_u32(&cc_value->data.x_enum_tag);
 
-            uint32_t alignment;
-            if ((err = get_const_field_u29(ira, source_instr->source_node, payload, "alignment", 1, &alignment)))
+            BigInt *alignment = get_const_field_lit_int(ira, source_instr->source_node, payload, "alignment", 1);
+            if (alignment == nullptr)
                 return ira->codegen->invalid_inst_gen->value->type;
 
             Error err;
@@ -26396,7 +26385,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
             fn_type_id.next_param_index = args_len;
             fn_type_id.is_var_args = is_var_args;
             fn_type_id.cc = cc;
-            fn_type_id.alignment = alignment;
+            fn_type_id.alignment = bigint_as_u32(alignment);
 
             assert(args_ptr->data.x_ptr.special == ConstPtrSpecialBaseArray);
             assert(args_ptr->data.x_ptr.data.base_array.elem_index == 0);
