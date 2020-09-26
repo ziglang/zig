@@ -4184,12 +4184,12 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
                 error.PermissionDenied => unreachable, // not setting value
                 error.NameTooLong => unreachable, // known good mib from sysctlnametomib
                 error.UnknownName => unreachable, // known good mib from sysctlnametomib
-                error.Unexpected => return error.Unexpected, // EINVAL/EISDIR/ENOTDIR should be unreachable
-                error.SystemResources => return error.SystemResources,
+                error.Unexpected, error.SystemResources => |e| return e, // EINVAL/EISDIR/ENOTDIR should be unreachable
             };
 
-            // 20 is completely arbitrary, should work to around 40 open files?
-            var buf: [MAX_PATH_BYTES * 20]u8 = undefined;
+            // 20 is completely arbitrary, will work for at least this many open descriptors;
+            // More depending on path length.
+            var buf: [@sizeOf(system.kinfo_file) * 20]u8 = undefined;
 
             // If the buffer size required is larger than above, try with the partial result.
             // If unsuccessful, signal it's a resource constraint rather than not finding the FD.
@@ -4201,8 +4201,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
                 error.PermissionDenied => unreachable, // not setting value
                 error.NameTooLong => unreachable, // known good mib from sysctlnametomib
                 error.UnknownName => unreachable, // known good mib from sysctlnametomib
-                error.Unexpected => return error.Unexpected, // EINVAL/EISDIR/ENOTDIR should be unreachable
-                error.SystemResources => return error.SystemResources,
+                error.Unexpected, error.SystemResources => |e| return e, // EINVAL/EISDIR/ENOTDIR should be unreachable
             };
 
             var offset: usize = 0;
