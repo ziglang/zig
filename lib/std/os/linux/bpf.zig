@@ -1505,7 +1505,7 @@ pub const Log = struct {
 
 pub fn map_create(map_type: MapType, key_size: u32, value_size: u32, max_entries: u32) !fd_t {
     var attr = Attr{
-        .map_create = std.mem.zeroes(MapCreateAttr),
+        .map_create = mem.zeroes(MapCreateAttr),
     };
 
     attr.map_create.map_type = @enumToInt(map_type);
@@ -1530,7 +1530,7 @@ test "map_create" {
 
 pub fn map_lookup_elem(fd: fd_t, key: []const u8, value: []u8) !void {
     var attr = Attr{
-        .map_elem = std.mem.zeroes(MapElemAttr),
+        .map_elem = mem.zeroes(MapElemAttr),
     };
 
     attr.map_elem.map_fd = fd;
@@ -1551,7 +1551,7 @@ pub fn map_lookup_elem(fd: fd_t, key: []const u8, value: []u8) !void {
 
 pub fn map_update_elem(fd: fd_t, key: []const u8, value: []const u8, flags: u64) !void {
     var attr = Attr{
-        .map_elem = std.mem.zeroes(MapElemAttr),
+        .map_elem = mem.zeroes(MapElemAttr),
     };
 
     attr.map_elem.map_fd = fd;
@@ -1574,7 +1574,7 @@ pub fn map_update_elem(fd: fd_t, key: []const u8, value: []const u8, flags: u64)
 
 pub fn map_delete_elem(fd: fd_t, key: []const u8) !void {
     var attr = Attr{
-        .map_elem = std.mem.zeroes(MapElemAttr),
+        .map_elem = mem.zeroes(MapElemAttr),
     };
 
     attr.map_elem.map_fd = fd;
@@ -1598,8 +1598,8 @@ test "map lookup, update, and delete" {
     const map = try map_create(.hash, key_size, value_size, 1);
     defer std.os.close(map);
 
-    const key = std.mem.zeroes([key_size]u8);
-    var value = std.mem.zeroes([value_size]u8);
+    const key = mem.zeroes([key_size]u8);
+    var value = mem.zeroes([value_size]u8);
 
     // fails looking up value that doesn't exist
     expectError(error.NotFound, map_lookup_elem(map, &key, &value));
@@ -1628,7 +1628,7 @@ pub fn prog_load(
     kern_version: u32,
 ) !fd_t {
     var attr = Attr{
-        .prog_load = std.mem.zeroes(ProgLoadAttr),
+        .prog_load = mem.zeroes(ProgLoadAttr),
     };
 
     attr.prog_load.prog_type = @enumToInt(prog_type);
@@ -1713,12 +1713,14 @@ pub fn PerfBuffer(comptime T: type) type {
             lost,
         };
 
+        pub const Event = union(Tag) {
+            sample: []u8,
+            lost: usize,
+        };
+
         pub const Payload = struct {
             cpu: u32,
-            data: union(Tag) {
-                sample: []u8,
-                lost: usize,
-            },
+            event: Event,
         };
 
         const Context = struct {
@@ -1726,10 +1728,69 @@ pub fn PerfBuffer(comptime T: type) type {
             frame: @Frame(CpuBuf.process),
         };
 
+        const RingBuffer = struct {
+            mmap: []align(4096) u8,
+
+            pub fn init(fd: fd_t, mmap_size: usize) !RingBuffer {
+                return .{
+                    .mmap = try std.os.mmap(
+                        null,
+                        mmap_size + mem.page_size,
+                        PROT_READ | PROT_WRITE,
+                        MAP_SHARED,
+                        fd,
+                        0,
+                    ),
+                };
+            }
+
+            pub fn deinit(self: RingBuffer) void {
+                std.os.munmap(self.mmap);
+            }
+
+            pub fn read_event(self: Self, allocator: *Allocator) !?Event {
+                const header = @ptrCast(*volatile perf.MmapPage, self.mmap.ptr);
+                const head = header.data_head;
+                const tail = header.data_tail;
+
+                if (head == tail) return null;
+
+                const size = self.mmap.len - mem.page_size;
+                const start = tail % size;
+                const ehdr = @ptrCast(*perf.EventHeader, &self.mmap[mem.page_size + start]);
+                defer header.data_tail += ehdr.size;
+
+                return switch (ehdr.type) {
+                    perf.RECORD_SAMPLE => blk: {
+                        const offset = mem.page_size + ((start + @byteOffsetOf(perf.SampleRaw, "size")) % size);
+                        const sample_size = @ptrCast(*const u32, &std.mmap[offset]).*;
+                        const sample_start = mem.page_size + ((start + @sizeOf(perf.SampleRaw)) % size);
+
+                        var buf = try allocator.alloc(u8, sample_size);
+                        if (sample_start + sample_size > self.mmap.len) {
+                            const first_len = self.mmap.len - sample_start;
+                            const second_len = sample_size - first_len;
+                            mem.copy(u8, buf, self.mmap[sample_start..]);
+                            mem.copy(u8, buf[first_len..], self.mmap.len[mem.page_size .. mem.page_size + second_len]);
+                        } else {
+                            mem.copy(u8, buf, self.mmap[sample_start .. sample_start + sample_len]);
+                        }
+
+                        break :blk .{ .sample = buf };
+                    },
+                    perf.RECORD_LOST => blk: {
+                        const offset = mem.page_size + ((start + @byteOffsetOf(perf.SampleRaw, "lost")) % size);
+                        break :blk .{ .lost = @ptrCast(*const u64, &std.mmap[offset]).* };
+                    },
+                    else => error.UnknownEvent,
+                };
+            }
+        };
+
         const CpuBuf = struct {
             cpu: u32,
             fd: fd_t,
-            mmap: []align(4096) u8,
+            ring_buffer: RingBuffer,
 
             pub fn init(cpu: u32, mmap_size: usize) !CpuBuf {
                 var attr: perf.EventAttr = undefined;
@@ -1760,62 +1821,18 @@ pub fn PerfBuffer(comptime T: type) type {
                 return CpuBuf{
                     .cpu = cpu,
                     .fd = fd,
-                    .mmap = try std.os.mmap(
-                        null,
-                        mmap_size + std.mem.page_size,
-                        PROT_READ | PROT_WRITE,
-                        MAP_SHARED,
-                        fd,
-                        0,
-                    ),
+                    .ring_buffer = try RingBuffer.init(fd, mmap_size),
                 };
             }
 
             fn read(self: CpuBuf, allocator: *mem.Allocator) !?Payload {
-                const header = @ptrCast(*volatile perf.MmapPage, self.mmap.ptr);
-                if (header.data_tail == header.data_head) {
-                    return null;
-                } else if (header.data_tail > header.data_head) {
-                    return error.InvalidTailHead;
-                }
-
-                const base = self.mmap[mem.page_size..];
-                const ehdr = @ptrCast(*perf.EventHeader, &base[header.data_tail]);
-
-                const ret = Payload{
+                return = .{
                     .cpu = self.cpu,
-                    .data = switch (ehdr.type) {
-                        perf.RECORD_SAMPLE => blk: {
-                            var data = try allocator.alloc(u8, ehdr.size - @sizeOf(perf.EventHeader));
-
-                            // TODO: fix this math
-                            const room = base.len - header.data_tail;
-                            if (ehdr.size > room) {
-                                const begin = header.data_tail + @sizeOf(perf.EventHeader);
-                                const len = room - @sizeOf(perf.EventHeader);
-                                const overflow = ehdr.size - room;
-                                mem.copy(u8, data, base[begin .. begin + len]);
-                                mem.copy(u8, data[len..], base[0..overflow]);
-                            } else {
-                                mem.copy(u8, data, base[header.data_tail .. header.data_tail + ehdr.size]);
-                            }
-
-                            break :blk .{ .sample = data };
-                        },
-                        // TODO: wrap around?
-                        perf.RECORD_LOST => .{ .lost = @ptrCast(*perf.SampleLost, ehdr).lost },
-                        else => |val| {
-                            std.log.info("Unknown perf sample type: {}\n", .{val});
-                            return error.UnknownSampleType;
-                        },
-                    },
+                    .event = (try self.ring_buffer.read_event(allocator)) orelse return null,
                 };
-
-                header.data_tail += ehdr.size;
-                return ret;
             }
 
-            fn process(self: CpuBuf, allocator: *mem.Allocator, channel: *Channel(Payload)) callconv(.Async) void {
+            pub fn process(self: CpuBuf, allocator: *mem.Allocator, channel: *Channel(Payload)) callconv(.Async) void {
                 while (true) {
                     std.event.Loop.instance.?.waitUntilFdWritable(self.fd);
 
@@ -1826,9 +1843,9 @@ pub fn PerfBuffer(comptime T: type) type {
             }
 
             pub fn deinit(self: CpuBuf) void {
-                std.os.munmap(self.mmap);
+                self.ring_buffer.deinit();
                 const status = ioctl(self.fd, perf.EVENT_IOC_DISABLE, 0);
-                if (status != 0) @panic("Fix ioctl error handling");
+                if (status != 0) unreachable;
                 std.os.close(self.fd);
             }
         };
@@ -1853,7 +1870,7 @@ pub fn PerfBuffer(comptime T: type) type {
             var i: u32 = 0;
             while (i < cpu_count) : (i += 1) {
                 ret.contexts.appendAssumeCapacity(.{
-                    .cpubuf = try CpuBuf.init(i, std.mem.page_size * page_cnt),
+                    .cpubuf = try CpuBuf.init(i, mem.page_size * page_cnt),
                     .frame = undefined,
                 });
                 try BPF.map_update_elem(map.fd, mem.asBytes(&i), mem.asBytes(&ret.contexts.items[i].cpubuf.fd), 0);
