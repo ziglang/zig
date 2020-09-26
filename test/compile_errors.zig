@@ -126,6 +126,21 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:27:24: note: referenced here",
     });
 
+    cases.add("field access of opaque type",
+        \\const MyType = opaque {};
+        \\
+        \\export fn entry() bool {
+        \\    var x: i32 = 1;
+        \\    return bar(@ptrCast(*MyType, &x));
+        \\}
+        \\
+        \\fn bar(x: *MyType) bool {
+        \\    return x.blah;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:9:13: error: no member named 'blah' in opaque type 'MyType'",
+    });
+
     cases.add("opaque type with field",
         \\const Opaque = opaque { foo: i32 };
         \\export fn entry() void {
@@ -7027,21 +7042,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     , &[_][]const u8{
         "tmp.zig:37:29: error: cannot store runtime value in compile time variable",
-    });
-
-    cases.add("field access of opaque type",
-        \\const MyType = opaque {};
-        \\
-        \\export fn entry() bool {
-        \\    var x: i32 = 1;
-        \\    return bar(@ptrCast(*MyType, &x));
-        \\}
-        \\
-        \\fn bar(x: *MyType) bool {
-        \\    return x.blah;
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:9:13: error: type '*MyType' does not support field access",
     });
 
     cases.add("invalid legacy unicode escape",

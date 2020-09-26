@@ -22387,6 +22387,8 @@ static IrInstGen *ir_analyze_container_member_access_inner(IrAnalyze *ira,
         prefix_name = "enum ";
     } else if (bare_struct_type->id == ZigTypeIdUnion) {
         prefix_name = "union ";
+    } else if (bare_struct_type->id == ZigTypeIdOpaque) {
+        prefix_name = "opaque type ";
     } else {
         prefix_name = "";
     }
