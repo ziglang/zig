@@ -454,16 +454,16 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             break :blk false;
         };
 
-        const link_libc = options.link_libc or
-            (is_exe_or_dyn_lib and target_util.osRequiresLibC(options.target));
+        const link_libc = options.link_libc or target_util.osRequiresLibC(options.target);
 
         const must_dynamic_link = dl: {
             if (target_util.cannotDynamicLink(options.target))
                 break :dl false;
-            if (target_util.osRequiresLibC(options.target))
+            if (is_exe_or_dyn_lib and link_libc and
+                (options.target.isGnuLibC() or target_util.osRequiresLibC(options.target)))
+            {
                 break :dl true;
-            if (is_exe_or_dyn_lib and link_libc and options.target.isGnuLibC())
-                break :dl true;
+            }
             if (options.system_libs.len != 0)
                 break :dl true;
 

@@ -1,4 +1,6 @@
  * support -fno-emit-bin for godbolt
+ * restore the legacy -femit-h feature using the stage1 backend
+ * figure out why test-translate-c is failing
  * tests passing with -Dskip-non-native
  * `-ftime-report`
  *  -fstack-report               print stack size diagnostics\n"
@@ -12,7 +14,6 @@
  * restore error messages for stage2_add_link_lib
  * windows CUSTOMBUILD : error : unable to build compiler_rt: FileNotFound [D:\a\1\s\build\zig_install_lib_files.vcxproj]
  * try building some software with zig cc to make sure it didn't regress
- * restore the legacy -femit-h feature using the stage1 backend
 
  * implement proper parsing of clang stderr/stdout and exposing compile errors with the Compilation API
  * implement proper parsing of LLD stderr/stdout and exposing compile errors with the Compilation API
