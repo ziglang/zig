@@ -1251,7 +1251,7 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
     };
 }
 
-fn obtainCObjectCacheManifest(comp: *Compilation) Cache.Manifest {
+pub fn obtainCObjectCacheManifest(comp: *Compilation) Cache.Manifest {
     var man = comp.cache_parent.obtain();
 
     // Only things that need to be added on top of the base hash, and only things
@@ -1289,6 +1289,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
     var man = comp.obtainCObjectCacheManifest();
     defer man.deinit();
 
+    man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
     man.hash.addBytes(c_src);
 
     // If the previous invocation resulted in clang errors, we will see a hit
@@ -1581,7 +1582,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
     };
 }
 
-fn tmpFilePath(comp: *Compilation, arena: *Allocator, suffix: []const u8) error{OutOfMemory}![]const u8 {
+pub fn tmpFilePath(comp: *Compilation, arena: *Allocator, suffix: []const u8) error{OutOfMemory}![]const u8 {
     const s = std.fs.path.sep_str;
     const rand_int = comp.rand.int(u64);
     if (comp.local_cache_directory.path) |p| {
@@ -1598,6 +1599,7 @@ pub fn addTranslateCCArgs(
     ext: FileExt,
     out_dep_path: ?[]const u8,
 ) !void {
+    try argv.appendSlice(&[_][]const u8{ "-x", "c" });
     try comp.addCCArgs(arena, argv, ext, out_dep_path);
     // This gives us access to preprocessing entities, presumably at the cost of performance.
     try argv.appendSlice(&[_][]const u8{ "-Xclang", "-detailed-preprocessing-record" });

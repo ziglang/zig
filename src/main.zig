@@ -16,6 +16,7 @@ const warn = std.log.warn;
 const introspect = @import("introspect.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const translate_c = @import("translate_c.zig");
+const Cache = @import("Cache.zig");
 
 pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.log.emerg(format, args);
@@ -481,12 +482,19 @@ fn buildOutputType(
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {
             var optimize_mode_string: ?[]const u8 = null;
-            output_mode = switch (arg_mode) {
-                .build => |m| m,
-                .translate_c => .Obj,
-                .zig_test, .run => .Exe,
+            switch (arg_mode) {
+                .build => |m| {
+                    output_mode = m;
+                },
+                .translate_c => {
+                    emit_bin = .no;
+                    output_mode = .Obj;
+                },
+                .zig_test, .run => {
+                    output_mode = .Exe;
+                },
                 else => unreachable,
-            };
+            }
             // TODO finish self-hosted and add support for emitting C header files
             emit_h = .no;
             //switch (arg_mode) {
@@ -1537,7 +1545,7 @@ fn buildOutputType(
         return std.io.getStdOut().writeAll(try comp.generateBuiltinZigSource(arena));
     }
     if (arg_mode == .translate_c) {
-        return cmdTranslateC(comp, arena);
+        return cmdTranslateC(comp, arena, have_enable_cache);
     }
 
     const hook: AfterUpdateHook = blk: {
@@ -1556,7 +1564,7 @@ fn buildOutputType(
     try updateModule(gpa, comp, zir_out_path, hook);
 
     if (build_options.is_stage1 and comp.stage1_lock != null and watch) {
-        std.log.warn("--watch is not recommended with the stage1 backend; it leaks memory and is not capable of incremental compilation", .{});
+        warn("--watch is not recommended with the stage1 backend; it leaks memory and is not capable of incremental compilation", .{});
     }
 
     switch (arg_mode) {
@@ -1701,61 +1709,121 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, zir_out_path: ?[]const u8, 
     }
 }
 
-fn cmdTranslateC(comp: *Compilation, arena: *Allocator) !void {
+fn cmdTranslateC(comp: *Compilation, arena: *Allocator, enable_cache: bool) !void {
     if (!build_options.have_llvm)
         fatal("cannot translate-c: compiler built without LLVM extensions", .{});
 
     assert(comp.c_source_files.len == 1);
-
-    var argv = std.ArrayList([]const u8).init(arena);
-
     const c_source_file = comp.c_source_files[0];
-    const file_ext = Compilation.classifyFileExt(c_source_file.src_path);
-    try comp.addTranslateCCArgs(arena, &argv, file_ext, null);
-    try argv.append(c_source_file.src_path);
 
-    if (comp.verbose_cc) {
-        std.debug.print("clang ", .{});
-        Compilation.dump_argv(argv.items);
-    }
+    const translated_zig_basename = try std.fmt.allocPrint(arena, "{}.zig", .{comp.bin_file.options.root_name});
 
-    // Convert to null terminated args.
-    const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, argv.items.len + 1);
-    new_argv_with_sentinel[argv.items.len] = null;
-    const new_argv = new_argv_with_sentinel[0..argv.items.len :null];
-    for (argv.items) |arg, i| {
-        new_argv[i] = try arena.dupeZ(u8, arg);
-    }
+    var man: Cache.Manifest = comp.obtainCObjectCacheManifest();
+    defer if (enable_cache) man.deinit();
 
-    const c_headers_dir_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{"include"});
-    const c_headers_dir_path_z = try arena.dupeZ(u8, c_headers_dir_path);
-    var clang_errors: []translate_c.ClangErrMsg = &[0]translate_c.ClangErrMsg{};
-    const tree = translate_c.translate(
-        comp.gpa,
-        new_argv.ptr,
-        new_argv.ptr + new_argv.len,
-        &clang_errors,
-        c_headers_dir_path_z,
-    ) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.ASTUnitFailure => fatal("clang API returned errors but due to a clang bug, it is not exposing the errors for zig to see. For more details: https://github.com/ziglang/zig/issues/4455", .{}),
-        error.SemanticAnalyzeFail => {
-            for (clang_errors) |clang_err| {
-                std.debug.print("{}:{}:{}: {}\n", .{
-                    if (clang_err.filename_ptr) |p| p[0..clang_err.filename_len] else "(no file)",
-                    clang_err.line + 1,
-                    clang_err.column + 1,
-                    clang_err.msg_ptr[0..clang_err.msg_len],
-                });
-            }
-            process.exit(1);
-        },
+    man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
+    _ = man.addFile(c_source_file.src_path, null) catch |err| {
+        fatal("unable to process '{}': {}", .{ c_source_file.src_path, @errorName(err) });
     };
-    defer tree.deinit();
 
-    var bos = io.bufferedOutStream(io.getStdOut().writer());
-    _ = try std.zig.render(comp.gpa, bos.writer(), tree);
-    try bos.flush();
+    const digest = if (try man.hit()) man.final() else digest: {
+        var argv = std.ArrayList([]const u8).init(arena);
+
+        var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
+        defer zig_cache_tmp_dir.close();
+
+        const ext = Compilation.classifyFileExt(c_source_file.src_path);
+        const out_dep_path: ?[]const u8 = blk: {
+            if (comp.disable_c_depfile or !ext.clangSupportsDepFile())
+                break :blk null;
+
+            const c_src_basename = fs.path.basename(c_source_file.src_path);
+            const dep_basename = try std.fmt.allocPrint(arena, "{}.d", .{c_src_basename});
+            const out_dep_path = try comp.tmpFilePath(arena, dep_basename);
+            break :blk out_dep_path;
+        };
+
+        try comp.addTranslateCCArgs(arena, &argv, ext, out_dep_path);
+        try argv.append(c_source_file.src_path);
+
+        if (comp.verbose_cc) {
+            std.debug.print("clang ", .{});
+            Compilation.dump_argv(argv.items);
+        }
+
+        // Convert to null terminated args.
+        const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, argv.items.len + 1);
+        new_argv_with_sentinel[argv.items.len] = null;
+        const new_argv = new_argv_with_sentinel[0..argv.items.len :null];
+        for (argv.items) |arg, i| {
+            new_argv[i] = try arena.dupeZ(u8, arg);
+        }
+
+        const c_headers_dir_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{"include"});
+        const c_headers_dir_path_z = try arena.dupeZ(u8, c_headers_dir_path);
+        var clang_errors: []translate_c.ClangErrMsg = &[0]translate_c.ClangErrMsg{};
+        const tree = translate_c.translate(
+            comp.gpa,
+            new_argv.ptr,
+            new_argv.ptr + new_argv.len,
+            &clang_errors,
+            c_headers_dir_path_z,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ASTUnitFailure => fatal("clang API returned errors but due to a clang bug, it is not exposing the errors for zig to see. For more details: https://github.com/ziglang/zig/issues/4455", .{}),
+            error.SemanticAnalyzeFail => {
+                for (clang_errors) |clang_err| {
+                    std.debug.print("{}:{}:{}: {}\n", .{
+                        if (clang_err.filename_ptr) |p| p[0..clang_err.filename_len] else "(no file)",
+                        clang_err.line + 1,
+                        clang_err.column + 1,
+                        clang_err.msg_ptr[0..clang_err.msg_len],
+                    });
+                }
+                process.exit(1);
+            },
+        };
+        defer tree.deinit();
+
+        if (out_dep_path) |dep_file_path| {
+            const dep_basename = std.fs.path.basename(dep_file_path);
+            // Add the files depended on to the cache system.
+            try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+            // Just to save disk space, we delete the file because it is never needed again.
+            zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
+                warn("failed to delete '{}': {}", .{ dep_file_path, @errorName(err) });
+            };
+        }
+
+        const digest = man.final();
+        const o_sub_path = try fs.path.join(arena, &[_][]const u8{ "o", &digest });
+        var o_dir = try comp.local_cache_directory.handle.makeOpenPath(o_sub_path, .{});
+        defer o_dir.close();
+        var zig_file = try o_dir.createFile(translated_zig_basename, .{});
+        defer zig_file.close();
+
+        var bos = io.bufferedOutStream(zig_file.writer());
+        _ = try std.zig.render(comp.gpa, bos.writer(), tree);
+        try bos.flush();
+
+        man.writeManifest() catch |err| warn("failed to write cache manifest: {}", .{@errorName(err)});
+
+        break :digest digest;
+    };
+
+    if (enable_cache) {
+        const full_zig_path = try comp.local_cache_directory.join(arena, &[_][]const u8{
+            "o", &digest, translated_zig_basename,
+        });
+        try io.getStdOut().writer().print("{}\n", .{full_zig_path});
+        return cleanExit();
+    } else {
+        const out_zig_path = try fs.path.join(arena, &[_][]const u8{ "o", &digest, translated_zig_basename });
+        const zig_file = try comp.local_cache_directory.handle.openFile(out_zig_path, .{});
+        defer zig_file.close();
+        try io.getStdOut().writeFileAll(zig_file, .{});
+        return cleanExit();
+    }
 }
 
 pub const usage_libc =

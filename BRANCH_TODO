@@ -1,5 +1,4 @@
  * restore the legacy -femit-h feature using the stage1 backend
- * figure out why test-translate-c is failing
  * tests passing with -Dskip-non-native
  * `-ftime-report`
  *  -fstack-report               print stack size diagnostics\n"
