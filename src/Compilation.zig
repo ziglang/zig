@@ -588,11 +588,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(options.output_mode);
         cache.hash.add(options.machine_code_model);
         cache.hash.add(options.emit_bin != null);
-        cache.hash.add(options.emit_h != null);
-        cache.hash.add(options.emit_asm != null);
-        cache.hash.add(options.emit_llvm_ir != null);
-        cache.hash.add(options.emit_analysis != null);
-        cache.hash.add(options.emit_docs != null);
         // TODO audit this and make sure everything is in it
 
         const module: ?*Module = if (options.root_pkg) |root_pkg| blk: {
@@ -2457,6 +2452,11 @@ fn updateStage1Module(comp: *Compilation) !void {
     man.hash.add(comp.bin_file.options.dll_export_fns);
     man.hash.add(comp.bin_file.options.function_sections);
     man.hash.add(comp.is_test);
+    man.hash.add(comp.emit_h != null);
+    man.hash.add(comp.emit_asm != null);
+    man.hash.add(comp.emit_llvm_ir != null);
+    man.hash.add(comp.emit_analysis != null);
+    man.hash.add(comp.emit_docs != null);
 
     // Capture the state in case we come back from this branch where the hash doesn't match.
     const prev_hash_state = man.hash.peekBin();
