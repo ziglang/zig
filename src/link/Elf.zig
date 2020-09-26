@@ -23,6 +23,7 @@ const File = link.File;
 const build_options = @import("build_options");
 const target_util = @import("../target.zig");
 const glibc = @import("../glibc.zig");
+const Cache = @import("../Cache.zig");
 
 const default_entry_addr = 0x8000000;
 
@@ -1225,7 +1226,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         const use_stage1 = build_options.is_stage1 and self.base.options.use_llvm;
         if (use_stage1) {
             const obj_basename = try std.fmt.allocPrint(arena, "{}.o", .{self.base.options.root_name});
-            const full_obj_path = try directory.join(arena, &[_][]const u8{obj_basename});
+            const o_directory = self.base.options.module.?.zig_cache_artifact_directory;
+            const full_obj_path = try o_directory.join(arena, &[_][]const u8{obj_basename});
             break :blk full_obj_path;
         }
 
@@ -1234,6 +1236,12 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         const full_obj_path = try directory.join(arena, &[_][]const u8{obj_basename});
         break :blk full_obj_path;
     } else null;
+
+    const is_lib = self.base.options.output_mode == .Lib;
+    const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
+    const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
+    const have_dynamic_linker = self.base.options.link_libc and
+        self.base.options.link_mode == .Dynamic and is_exe_or_dyn_lib;
 
     // Here we want to determine whether we can save time by not invoking LLD when the
     // output is unchanged. None of the linker options or the object files that are being
@@ -1245,78 +1253,78 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     // our digest. If so, we can skip linking. Otherwise, we proceed with invoking LLD.
     const id_symlink_basename = "lld.id";
 
-    // We are about to obtain this lock, so here we give other processes a chance first.
-    self.base.releaseLock();
+    var man: Cache.Manifest = undefined;
+    defer if (!self.base.options.disable_lld_caching) man.deinit();
 
-    var ch = comp.cache_parent.obtain();
-    defer ch.deinit();
+    var digest: [Cache.hex_digest_len]u8 = undefined;
 
-    const is_lib = self.base.options.output_mode == .Lib;
-    const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
-    const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
-    const have_dynamic_linker = self.base.options.link_libc and
-        self.base.options.link_mode == .Dynamic and is_exe_or_dyn_lib;
+    if (!self.base.options.disable_lld_caching) {
+        man = comp.cache_parent.obtain();
 
-    try ch.addOptionalFile(self.base.options.linker_script);
-    try ch.addOptionalFile(self.base.options.version_script);
-    try ch.addListOfFiles(self.base.options.objects);
-    for (comp.c_object_table.items()) |entry| {
-        _ = try ch.addFile(entry.key.status.success.object_path, null);
-    }
-    try ch.addOptionalFile(module_obj_path);
-    // We can skip hashing libc and libc++ components that we are in charge of building from Zig
-    // installation sources because they are always a product of the compiler version + target information.
-    ch.hash.addOptional(self.base.options.stack_size_override);
-    ch.hash.addOptional(self.base.options.gc_sections);
-    ch.hash.add(self.base.options.eh_frame_hdr);
-    ch.hash.add(self.base.options.rdynamic);
-    ch.hash.addListOfBytes(self.base.options.extra_lld_args);
-    ch.hash.addListOfBytes(self.base.options.lib_dirs);
-    ch.hash.addListOfBytes(self.base.options.rpath_list);
-    ch.hash.add(self.base.options.each_lib_rpath);
-    ch.hash.add(self.base.options.is_compiler_rt_or_libc);
-    ch.hash.add(self.base.options.z_nodelete);
-    ch.hash.add(self.base.options.z_defs);
-    if (self.base.options.link_libc) {
-        ch.hash.add(self.base.options.libc_installation != null);
-        if (self.base.options.libc_installation) |libc_installation| {
-            ch.hash.addBytes(libc_installation.crt_dir.?);
+        // We are about to obtain this lock, so here we give other processes a chance first.
+        self.base.releaseLock();
+
+        try man.addOptionalFile(self.base.options.linker_script);
+        try man.addOptionalFile(self.base.options.version_script);
+        try man.addListOfFiles(self.base.options.objects);
+        for (comp.c_object_table.items()) |entry| {
+            _ = try man.addFile(entry.key.status.success.object_path, null);
         }
-        if (have_dynamic_linker) {
-            ch.hash.addOptionalBytes(self.base.options.dynamic_linker);
+        try man.addOptionalFile(module_obj_path);
+        // We can skip hashing libc and libc++ components that we are in charge of building from Zig
+        // installation sources because they are always a product of the compiler version + target information.
+        man.hash.addOptional(self.base.options.stack_size_override);
+        man.hash.addOptional(self.base.options.gc_sections);
+        man.hash.add(self.base.options.eh_frame_hdr);
+        man.hash.add(self.base.options.rdynamic);
+        man.hash.addListOfBytes(self.base.options.extra_lld_args);
+        man.hash.addListOfBytes(self.base.options.lib_dirs);
+        man.hash.addListOfBytes(self.base.options.rpath_list);
+        man.hash.add(self.base.options.each_lib_rpath);
+        man.hash.add(self.base.options.is_compiler_rt_or_libc);
+        man.hash.add(self.base.options.z_nodelete);
+        man.hash.add(self.base.options.z_defs);
+        if (self.base.options.link_libc) {
+            man.hash.add(self.base.options.libc_installation != null);
+            if (self.base.options.libc_installation) |libc_installation| {
+                man.hash.addBytes(libc_installation.crt_dir.?);
+            }
+            if (have_dynamic_linker) {
+                man.hash.addOptionalBytes(self.base.options.dynamic_linker);
+            }
         }
-    }
-    if (is_dyn_lib) {
-        ch.hash.addOptionalBytes(self.base.options.override_soname);
-        ch.hash.addOptional(self.base.options.version);
-    }
-    ch.hash.addListOfBytes(self.base.options.system_libs);
-    ch.hash.addOptional(self.base.options.allow_shlib_undefined);
-    ch.hash.add(self.base.options.bind_global_refs_locally);
+        if (is_dyn_lib) {
+            man.hash.addOptionalBytes(self.base.options.override_soname);
+            man.hash.addOptional(self.base.options.version);
+        }
+        man.hash.addListOfBytes(self.base.options.system_libs);
+        man.hash.addOptional(self.base.options.allow_shlib_undefined);
+        man.hash.add(self.base.options.bind_global_refs_locally);
 
-    // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
-    _ = try ch.hit();
-    const digest = ch.final();
+        // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
+        _ = try man.hit();
+        digest = man.final();
 
-    var prev_digest_buf: [digest.len]u8 = undefined;
-    const prev_digest: []u8 = directory.handle.readLink(id_symlink_basename, &prev_digest_buf) catch |err| blk: {
-        log.debug("ELF LLD new_digest={} readlink error: {}", .{digest, @errorName(err)});
-        // Handle this as a cache miss.
-        break :blk prev_digest_buf[0..0];
-    };
-    if (mem.eql(u8, prev_digest, &digest)) {
-        log.debug("ELF LLD digest={} match - skipping invocation", .{digest});
-        // Hot diggity dog! The output binary is already there.
-        self.base.lock = ch.toOwnedLock();
-        return;
+        var prev_digest_buf: [digest.len]u8 = undefined;
+        const prev_digest: []u8 = directory.handle.readLink(id_symlink_basename, &prev_digest_buf) catch |err| blk: {
+            log.debug("ELF LLD new_digest={} readlink error: {}", .{digest, @errorName(err)});
+            // Handle this as a cache miss.
+            break :blk prev_digest_buf[0..0];
+        };
+        if (mem.eql(u8, prev_digest, &digest)) {
+            log.debug("ELF LLD digest={} match - skipping invocation", .{digest});
+            // Hot diggity dog! The output binary is already there.
+            self.base.lock = man.toOwnedLock();
+            return;
+        }
+        log.debug("ELF LLD prev_digest={} new_digest={}", .{prev_digest, digest});
+
+        // We are about to change the output file to be different, so we invalidate the build hash now.
+        directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| return e,
+        };
     }
-    log.debug("ELF LLD prev_digest={} new_digest={}", .{prev_digest, digest});
-
-    // We are about to change the output file to be different, so we invalidate the build hash now.
-    directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
-        error.FileNotFound => {},
-        else => |e| return e,
-    };
 
     const target = self.base.options.target;
     const is_obj = self.base.options.output_mode == .Obj;
@@ -1620,18 +1628,20 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         std.log.warn("unexpected LLD stderr: {}", .{stderr_context.data.items});
     }
 
-    // Update the dangling symlink with the digest. If it fails we can continue; it only
-    // means that the next invocation will have an unnecessary cache miss.
-    directory.handle.symLink(&digest, id_symlink_basename, .{}) catch |err| {
-        std.log.warn("failed to save linking hash digest symlink: {}", .{@errorName(err)});
-    };
-    // Again failure here only means an unnecessary cache miss.
-    ch.writeManifest() catch |err| {
-        std.log.warn("failed to write cache manifest when linking: {}", .{ @errorName(err) });
-    };
-    // We hang on to this lock so that the output file path can be used without
-    // other processes clobbering it.
-    self.base.lock = ch.toOwnedLock();
+    if (!self.base.options.disable_lld_caching) {
+        // Update the dangling symlink with the digest. If it fails we can continue; it only
+        // means that the next invocation will have an unnecessary cache miss.
+        directory.handle.symLink(&digest, id_symlink_basename, .{}) catch |err| {
+            std.log.warn("failed to save linking hash digest symlink: {}", .{@errorName(err)});
+        };
+        // Again failure here only means an unnecessary cache miss.
+        man.writeManifest() catch |err| {
+            std.log.warn("failed to write cache manifest when linking: {}", .{ @errorName(err) });
+        };
+        // We hang on to this lock so that the output file path can be used without
+        // other processes clobbering it.
+        self.base.lock = man.toOwnedLock();
+    }
 }
 
 const LLDContext = struct {

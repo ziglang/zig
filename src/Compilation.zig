@@ -3,10 +3,11 @@ const Compilation = @This();
 const std = @import("std");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
-const Value = @import("value.zig").Value;
 const assert = std.debug.assert;
 const log = std.log.scoped(.compilation);
 const Target = std.Target;
+
+const Value = @import("value.zig").Value;
 const target_util = @import("target.zig");
 const Package = @import("Package.zig");
 const link = @import("link.zig");
@@ -286,6 +287,13 @@ pub const InitOptions = struct {
     emit_h: ?EmitLoc = null,
     link_mode: ?std.builtin.LinkMode = null,
     dll_export_fns: ?bool = false,
+    /// Normally when using LLD to link, Zig uses a file named "lld.id" in the
+    /// same directory as the output binary which contains the hash of the link
+    /// operation, allowing Zig to skip linking when the hash would be unchanged.
+    /// In the case that the output binary is being emitted into a directory which
+    /// is externally modified - essentially anything other than zig-cache - then
+    /// this flag would be set to disable this machinery to avoid false positives.
+    disable_lld_caching: bool = false,
     object_format: ?std.builtin.ObjectFormat = null,
     optimize_mode: std.builtin.Mode = .Debug,
     keep_source_files_loaded: bool = false,
@@ -371,6 +379,26 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
         const ofmt = options.object_format orelse options.target.getObjectFormat();
 
+        // Make a decision on whether to use LLVM or our own backend.
+        const use_llvm = if (options.use_llvm) |explicit| explicit else blk: {
+            // If we have no zig code to compile, no need for LLVM.
+            if (options.root_pkg == null)
+                break :blk false;
+
+            // If we are the stage1 compiler, we depend on the stage1 c++ llvm backend
+            // to compile zig code.
+            if (build_options.is_stage1)
+                break :blk true;
+
+            // We would want to prefer LLVM for release builds when it is available, however
+            // we don't have an LLVM backend yet :)
+            // We would also want to prefer LLVM for architectures that we don't have self-hosted support for too.
+            break :blk false;
+        };
+        if (!use_llvm and options.machine_code_model != .default) {
+            return error.MachineCodeModelNotSupported;
+        }
+
         // Make a decision on whether to use LLD or our own linker.
         const use_lld = if (options.use_lld) |explicit| explicit else blk: {
             if (!build_options.have_llvm)
@@ -393,7 +421,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 break :blk true;
             }
 
-            if (build_options.is_stage1) {
+            if (use_llvm) {
                 // If stage1 generates an object file, self-hosted linker is not
                 // yet sophisticated enough to handle that.
                 break :blk options.root_pkg != null;
@@ -402,25 +430,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             break :blk false;
         };
 
-        // Make a decision on whether to use LLVM or our own backend.
-        const use_llvm = if (options.use_llvm) |explicit| explicit else blk: {
-            // If we have no zig code to compile, no need for LLVM.
-            if (options.root_pkg == null)
-                break :blk false;
-
-            // If we are the stage1 compiler, we depend on the stage1 c++ llvm backend
-            // to compile zig code.
-            if (build_options.is_stage1)
-                break :blk true;
-
-            // We would want to prefer LLVM for release builds when it is available, however
-            // we don't have an LLVM backend yet :)
-            // We would also want to prefer LLVM for architectures that we don't have self-hosted support for too.
-            break :blk false;
-        };
-        if (!use_llvm and options.machine_code_model != .default) {
-            return error.MachineCodeModelNotSupported;
-        }
 
         const link_libc = options.link_libc or
             (is_exe_or_dyn_lib and target_util.osRequiresLibC(options.target));
@@ -720,6 +729,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .llvm_cpu_features = llvm_cpu_features,
             .is_compiler_rt_or_libc = options.is_compiler_rt_or_libc,
             .each_lib_rpath = options.each_lib_rpath orelse false,
+            .disable_lld_caching = options.disable_lld_caching,
         });
         errdefer bin_file.destroy();
         comp.* = .{
@@ -2288,7 +2298,7 @@ pub fn updateSubCompilation(sub_compilation: *Compilation) !void {
     }
 }
 
-fn buildStaticLibFromZig(comp: *Compilation, basename: []const u8, out: *?CRTFile) !void {
+fn buildStaticLibFromZig(comp: *Compilation, src_basename: []const u8, out: *?CRTFile) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2304,12 +2314,20 @@ fn buildStaticLibFromZig(comp: *Compilation, basename: []const u8, out: *?CRTFil
             .path = special_path,
             .handle = special_dir,
         },
-        .root_src_path = basename,
+        .root_src_path = src_basename,
     };
+    const root_name = mem.split(src_basename, ".").next().?;
+    const target = comp.getTarget();
+    const bin_basename = try std.zig.binNameAlloc(comp.gpa, .{
+        .root_name = root_name,
+        .target = target,
+        .output_mode = .Lib,
+    });
+    defer comp.gpa.free(bin_basename);
 
     const emit_bin = Compilation.EmitLoc{
         .directory = null, // Put it in the cache directory.
-        .basename = basename,
+        .basename = bin_basename,
     };
     const optimize_mode: std.builtin.Mode = blk: {
         if (comp.is_test)
@@ -2323,8 +2341,8 @@ fn buildStaticLibFromZig(comp: *Compilation, basename: []const u8, out: *?CRTFil
         .global_cache_directory = comp.global_cache_directory,
         .local_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
-        .target = comp.getTarget(),
-        .root_name = mem.split(basename, ".").next().?,
+        .target = target,
+        .root_name = root_name,
         .root_pkg = &root_pkg,
         .output_mode = .Lib,
         .rand = comp.rand,
@@ -2358,7 +2376,9 @@ fn buildStaticLibFromZig(comp: *Compilation, basename: []const u8, out: *?CRTFil
 
     assert(out.* == null);
     out.* = Compilation.CRTFile{
-        .full_object_path = try sub_compilation.bin_file.options.directory.join(comp.gpa, &[_][]const u8{basename}),
+        .full_object_path = try sub_compilation.bin_file.options.directory.join(comp.gpa, &[_][]const u8{
+            sub_compilation.bin_file.options.sub_path,
+        }),
         .lock = sub_compilation.bin_file.toOwnedLock(),
     };
 }
@@ -2461,7 +2481,7 @@ fn updateStage1Module(comp: *Compilation) !void {
     ) orelse return error.OutOfMemory;
 
     const stage1_pkg = try createStage1Pkg(arena, "root", mod.root_pkg, null);
-    const output_dir = comp.bin_file.options.directory.path orelse ".";
+    const output_dir = directory.path orelse ".";
     const test_filter = comp.test_filter orelse ""[0..0];
     const test_name_prefix = comp.test_name_prefix orelse ""[0..0];
     stage1_module.* = .{
@@ -2617,13 +2637,11 @@ pub fn build_crt_file(
     try sub_compilation.updateSubCompilation();
 
     try comp.crt_files.ensureCapacity(comp.gpa, comp.crt_files.count() + 1);
-    const artifact_path = if (sub_compilation.bin_file.options.directory.path) |p|
-        try std.fs.path.join(comp.gpa, &[_][]const u8{ p, basename })
-    else
-        try comp.gpa.dupe(u8, basename);
 
     comp.crt_files.putAssumeCapacityNoClobber(basename, .{
-        .full_object_path = artifact_path,
+        .full_object_path = try sub_compilation.bin_file.options.directory.join(comp.gpa, &[_][]const u8{
+            sub_compilation.bin_file.options.sub_path,
+        }),
         .lock = sub_compilation.bin_file.toOwnedLock(),
     });
 }

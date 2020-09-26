@@ -1425,6 +1425,7 @@ pub fn buildOutputType(
         .test_evented_io = test_evented_io,
         .test_filter = test_filter,
         .test_name_prefix = test_name_prefix,
+        .disable_lld_caching = !have_enable_cache,
     }) catch |err| {
         fatal("unable to create compilation: {}", .{@errorName(err)});
     };

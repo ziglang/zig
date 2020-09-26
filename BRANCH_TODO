@@ -1,7 +1,6 @@
+ * make sure that `zig cc -o hello hello.c -target native-native-musl` and `zig build-exe hello.zig -lc -target native-native-musl` will share the same libc build.
+ * zig cc as a preprocessor (-E)
  * tests passing with -Dskip-non-native
- * make sure zig cc works
-   - using it as a preprocessor (-E)
-   - try building some software
  * `-ftime-report`
  *  -fstack-report               print stack size diagnostics\n"
  *  -fdump-analysis              write analysis.json file with type information\n"
@@ -15,14 +14,12 @@
  * MachO LLD linking
  * COFF LLD linking
  * WASM LLD linking
- * skip LLD caching when bin directory is not in the cache (so we don't put `id.txt` into the cwd)
-   (maybe make it an explicit option and have main.zig disable it)
-   - make sure that `zig cc -o hello hello.c -target native-native-musl` and `zig build-exe hello.zig -lc -target native-native-musl` will share the same libc build.
  * audit the CLI options for stage2
  * audit the base cache hash
  * On operating systems that support it, do an execve for `zig test` and `zig run` rather than child process.
  * restore error messages for stage2_add_link_lib
  * windows CUSTOMBUILD : error : unable to build compiler_rt: FileNotFound [D:\a\1\s\build\zig_install_lib_files.vcxproj]
+ * try building some software with zig cc
 
  * implement proper parsing of clang stderr/stdout and exposing compile errors with the Compilation API
  * implement proper parsing of LLD stderr/stdout and exposing compile errors with the Compilation API
@@ -59,3 +56,5 @@
  * close the --pkg-begin --pkg-end Package directory handles
  * make std.Progress support multithreaded
  * update musl.zig static data to use native path separator in static data rather than replacing '/' at runtime
+ * linking hello world with LLD, lld is silently calling exit(1) instead of reporting ok=false. when run standalone the error message is: ld.lld: error: section [index 3] has a sh_offset (0x57000) + sh_size (0x68) that is greater than the file size (0x57060)
+
