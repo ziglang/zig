@@ -1307,7 +1307,9 @@ fn buildOutputType(
                 };
             }
             if (fs.path.dirname(full_path)) |dirname| {
-                const handle = try fs.cwd().openDir(dirname, .{});
+                const handle = fs.cwd().openDir(dirname, .{}) catch |err| {
+                    fatal("unable to open output directory '{}': {}", .{ dirname, @errorName(err) });
+                };
                 cleanup_emit_bin_dir = handle;
                 break :b Compilation.EmitLoc{
                     .basename = basename,
@@ -1545,7 +1547,7 @@ fn buildOutputType(
         switch (emit_bin) {
             .no => break :blk .none,
             .yes_default_path => break :blk .{
-                .print = comp.bin_file.options.directory.path orelse ".",
+                .print = comp.bin_file.options.emit.?.directory.path orelse ".",
             },
             .yes => |full_path| break :blk .{ .update = full_path },
         }
@@ -1560,7 +1562,7 @@ fn buildOutputType(
     switch (arg_mode) {
         .run, .zig_test => run: {
             const exe_loc = emit_bin_loc orelse break :run;
-            const exe_directory = exe_loc.directory orelse comp.bin_file.options.directory;
+            const exe_directory = exe_loc.directory orelse comp.bin_file.options.emit.?.directory;
             const exe_path = try fs.path.join(arena, &[_][]const u8{
                 exe_directory.path orelse ".", exe_loc.basename,
             });
@@ -1676,8 +1678,8 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, zir_out_path: ?[]const u8, 
     } else switch (hook) {
         .none => {},
         .print => |bin_path| try io.getStdOut().writer().print("{s}\n", .{bin_path}),
-        .update => |full_path| _ = try comp.bin_file.options.directory.handle.updateFile(
-            comp.bin_file.options.sub_path,
+        .update => |full_path| _ = try comp.bin_file.options.emit.?.directory.handle.updateFile(
+            comp.bin_file.options.emit.?.sub_path,
             fs.cwd(),
             full_path,
             .{},
@@ -2106,7 +2108,10 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
 
         try updateModule(gpa, comp, null, .none);
 
-        child_argv.items[argv_index_exe] = try comp.bin_file.options.directory.join(arena, &[_][]const u8{exe_basename});
+        child_argv.items[argv_index_exe] = try comp.bin_file.options.emit.?.directory.join(
+            arena,
+            &[_][]const u8{exe_basename},
+        );
 
         break :lock_and_argv .{
             .child_argv = child_argv.items,

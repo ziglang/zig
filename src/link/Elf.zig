@@ -229,7 +229,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 
     if (options.use_llvm) return error.LLVMBackendUnimplementedForELF; // TODO
 
-    const file = try options.directory.handle.createFile(sub_path, .{
+    const file = try options.emit.?.directory.handle.createFile(sub_path, .{
         .truncate = false,
         .read = true,
         .mode = link.determineMode(options),
@@ -1218,7 +1218,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     defer arena_allocator.deinit();
     const arena = &arena_allocator.allocator;
 
-    const directory = self.base.options.directory; // Just an alias to make it shorter to type.
+    const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
@@ -1401,7 +1401,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         try argv.append("-pie");
     }
 
-    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.sub_path});
+    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
     try argv.append("-o");
     try argv.append(full_out_path);
 

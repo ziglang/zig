@@ -120,7 +120,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     if (options.use_llvm) return error.LLVM_BackendIsTODO_ForCoff; // TODO
     if (options.use_lld) return error.LLD_LinkingIsTODO_ForCoff; // TODO
 
-    const file = try options.directory.handle.createFile(sub_path, .{
+    const file = try options.emit.?.directory.handle.createFile(sub_path, .{
         .truncate = false,
         .read = true,
         .mode = link.determineMode(options),

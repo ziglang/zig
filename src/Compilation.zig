@@ -500,8 +500,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             break :pic explicit;
         } else must_pic;
 
-        const emit_bin = options.emit_bin orelse fatal("-fno-emit-bin not supported yet", .{}); // TODO
-
         // Make a decision on whether to use Clang for translate-c and compiling C files.
         const use_clang = if (options.use_clang) |explicit| explicit else blk: {
             if (build_options.have_llvm) {
@@ -667,13 +665,29 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         } else null;
         errdefer if (module) |zm| zm.deinit();
 
+        const error_return_tracing = !options.strip and switch (options.optimize_mode) {
+            .Debug, .ReleaseSafe => true,
+            .ReleaseFast, .ReleaseSmall => false,
+        };
+
         // For resource management purposes.
         var owned_link_dir: ?std.fs.Dir = null;
         errdefer if (owned_link_dir) |*dir| dir.close();
 
-        const bin_directory = emit_bin.directory orelse blk: {
-            if (module) |zm| break :blk zm.zig_cache_artifact_directory;
-
+        const bin_file_emit: ?link.Emit = blk: {
+            const emit_bin = options.emit_bin orelse break :blk null;
+            if (emit_bin.directory) |directory| {
+                break :blk link.Emit{
+                    .directory = directory,
+                    .sub_path = emit_bin.basename,
+                };
+            }
+            if (module) |zm| {
+                break :blk link.Emit{
+                    .directory = zm.zig_cache_artifact_directory,
+                    .sub_path = emit_bin.basename,
+                };
+            }
             // We could use the cache hash as is no problem, however, we increase
             // the likelihood of cache hits by adding the first C source file
             // path name (not contents) to the hash. This way if the user is compiling
@@ -694,17 +708,14 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 .handle = artifact_dir,
                 .path = try options.local_cache_directory.join(arena, &[_][]const u8{artifact_sub_dir}),
             };
-            break :blk link_artifact_directory;
-        };
-
-        const error_return_tracing = !options.strip and switch (options.optimize_mode) {
-            .Debug, .ReleaseSafe => true,
-            .ReleaseFast, .ReleaseSmall => false,
+            break :blk link.Emit{
+                .directory = link_artifact_directory,
+                .sub_path = emit_bin.basename,
+            };
         };
 
         const bin_file = try link.File.openPath(gpa, .{
-            .directory = bin_directory,
-            .sub_path = emit_bin.basename,
+            .emit = bin_file_emit,
             .root_name = root_name,
             .module = module,
             .target = options.target,
@@ -815,42 +826,45 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         comp.c_object_table.putAssumeCapacityNoClobber(c_object, {});
     }
 
-    // If we need to build glibc for the target, add work items for it.
-    // We go through the work queue so that building can be done in parallel.
-    if (comp.wantBuildGLibCFromSource()) {
-        try comp.addBuildingGLibCJobs();
+    if (comp.bin_file.options.emit != null) {
+        // If we need to build glibc for the target, add work items for it.
+        // We go through the work queue so that building can be done in parallel.
+        if (comp.wantBuildGLibCFromSource()) {
+            try comp.addBuildingGLibCJobs();
+        }
+        if (comp.wantBuildMuslFromSource()) {
+            try comp.work_queue.write(&[_]Job{
+                .{ .musl_crt_file = .crti_o },
+                .{ .musl_crt_file = .crtn_o },
+                .{ .musl_crt_file = .crt1_o },
+                .{ .musl_crt_file = .scrt1_o },
+                .{ .musl_crt_file = .libc_a },
+            });
+        }
+        if (comp.wantBuildMinGWW64FromSource()) {
+            @panic("TODO");
+        }
+        if (comp.wantBuildLibUnwindFromSource()) {
+            try comp.work_queue.writeItem(.{ .libunwind = {} });
+        }
+        if (build_options.have_llvm and comp.bin_file.options.output_mode != .Obj and
+            comp.bin_file.options.link_libcpp)
+        {
+            try comp.work_queue.writeItem(.libcxx);
+            try comp.work_queue.writeItem(.libcxxabi);
+        }
+        if (is_exe_or_dyn_lib and !comp.bin_file.options.is_compiler_rt_or_libc and
+            build_options.is_stage1)
+        {
+            try comp.work_queue.writeItem(.{ .libcompiler_rt = {} });
+            if (!comp.bin_file.options.link_libc) {
+                try comp.work_queue.writeItem(.{ .zig_libc = {} });
+            }
+        }
     }
-    if (comp.wantBuildMuslFromSource()) {
-        try comp.work_queue.write(&[_]Job{
-            .{ .musl_crt_file = .crti_o },
-            .{ .musl_crt_file = .crtn_o },
-            .{ .musl_crt_file = .crt1_o },
-            .{ .musl_crt_file = .scrt1_o },
-            .{ .musl_crt_file = .libc_a },
-        });
-    }
-    if (comp.wantBuildMinGWW64FromSource()) {
-        @panic("TODO");
-    }
-    if (comp.wantBuildLibUnwindFromSource()) {
-        try comp.work_queue.writeItem(.{ .libunwind = {} });
-    }
-    if (build_options.have_llvm and comp.bin_file.options.output_mode != .Obj and
-        comp.bin_file.options.link_libcpp)
-    {
-        try comp.work_queue.writeItem(.libcxx);
-        try comp.work_queue.writeItem(.libcxxabi);
-    }
+
     if (build_options.is_stage1 and comp.bin_file.options.use_llvm) {
         try comp.work_queue.writeItem(.{ .stage1_module = {} });
-    }
-    if (is_exe_or_dyn_lib and !comp.bin_file.options.is_compiler_rt_or_libc and
-        build_options.is_stage1)
-    {
-        try comp.work_queue.writeItem(.{ .libcompiler_rt = {} });
-        if (!comp.bin_file.options.link_libc) {
-            try comp.work_queue.writeItem(.{ .zig_libc = {} });
-        }
     }
 
     return comp;
@@ -2408,8 +2422,8 @@ fn buildStaticLibFromZig(comp: *Compilation, src_basename: []const u8, out: *?CR
 
     assert(out.* == null);
     out.* = Compilation.CRTFile{
-        .full_object_path = try sub_compilation.bin_file.options.directory.join(comp.gpa, &[_][]const u8{
-            sub_compilation.bin_file.options.sub_path,
+        .full_object_path = try sub_compilation.bin_file.options.emit.?.directory.join(comp.gpa, &[_][]const u8{
+            sub_compilation.bin_file.options.emit.?.sub_path,
         }),
         .lock = sub_compilation.bin_file.toOwnedLock(),
     };
@@ -2452,6 +2466,7 @@ fn updateStage1Module(comp: *Compilation) !void {
     man.hash.add(comp.bin_file.options.dll_export_fns);
     man.hash.add(comp.bin_file.options.function_sections);
     man.hash.add(comp.is_test);
+    man.hash.add(comp.bin_file.options.emit != null);
     man.hash.add(comp.emit_h != null);
     man.hash.add(comp.emit_asm != null);
     man.hash.add(comp.emit_llvm_ir != null);
@@ -2517,12 +2532,14 @@ fn updateStage1Module(comp: *Compilation) !void {
         comp.is_test,
     ) orelse return error.OutOfMemory;
 
-    const bin_basename = try std.zig.binNameAlloc(arena, .{
-        .root_name = comp.bin_file.options.root_name,
-        .target = target,
-        .output_mode = .Obj,
-    });
-    const emit_bin_path = try directory.join(arena, &[_][]const u8{bin_basename});
+    const emit_bin_path = if (comp.bin_file.options.emit != null) blk: {
+        const bin_basename = try std.zig.binNameAlloc(arena, .{
+            .root_name = comp.bin_file.options.root_name,
+            .target = target,
+            .output_mode = .Obj,
+        });
+        break :blk try directory.join(arena, &[_][]const u8{bin_basename});
+    } else "";
     const emit_h_path = try stage1LocPath(arena, comp.emit_h, directory);
     const emit_asm_path = try stage1LocPath(arena, comp.emit_asm, directory);
     const emit_llvm_ir_path = try stage1LocPath(arena, comp.emit_llvm_ir, directory);
@@ -2697,8 +2714,8 @@ pub fn build_crt_file(
     try comp.crt_files.ensureCapacity(comp.gpa, comp.crt_files.count() + 1);
 
     comp.crt_files.putAssumeCapacityNoClobber(basename, .{
-        .full_object_path = try sub_compilation.bin_file.options.directory.join(comp.gpa, &[_][]const u8{
-            sub_compilation.bin_file.options.sub_path,
+        .full_object_path = try sub_compilation.bin_file.options.emit.?.directory.join(comp.gpa, &[_][]const u8{
+            sub_compilation.bin_file.options.emit.?.sub_path,
         }),
         .lock = sub_compilation.bin_file.toOwnedLock(),
     });

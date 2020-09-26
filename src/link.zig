@@ -16,11 +16,17 @@ const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
 pub const producer_string = if (std.builtin.is_test) "zig test" else "zig " ++ build_options.version;
 
-pub const Options = struct {
+pub const Emit = struct {
     /// Where the output will go.
     directory: Compilation.Directory,
     /// Path to the output file, relative to `directory`.
     sub_path: []const u8,
+};
+
+pub const Options = struct {
+    /// This is `null` when -fno-emit-bin is used. When `openPath` or `flush` is called,
+    /// it will have already been null-checked.
+    emit: ?Emit,
     target: std.Target,
     output_mode: std.builtin.OutputMode,
     link_mode: std.builtin.LinkMode,
@@ -141,7 +147,7 @@ pub const File = struct {
     /// and does not cause Illegal Behavior. This operation is not atomic.
     pub fn openPath(allocator: *Allocator, options: Options) !*File {
         const use_stage1 = build_options.is_stage1 and options.use_llvm;
-        if (use_stage1) {
+        if (use_stage1 or options.emit == null) {
             return switch (options.object_format) {
                 .coff, .pe => &(try Coff.createEmpty(allocator, options)).base,
                 .elf => &(try Elf.createEmpty(allocator, options)).base,
@@ -152,6 +158,7 @@ pub const File = struct {
                 .raw => return error.RawObjectFormatUnimplemented,
             };
         }
+        const emit = options.emit.?;
         const use_lld = build_options.have_llvm and options.use_lld; // comptime known false when !have_llvm
         const sub_path = if (use_lld) blk: {
             if (options.module == null) {
@@ -167,8 +174,8 @@ pub const File = struct {
                 };
             }
             // Open a temporary object file, not the final output file because we want to link with LLD.
-            break :blk try std.fmt.allocPrint(allocator, "{}{}", .{ options.sub_path, options.target.oFileExt() });
-        } else options.sub_path;
+            break :blk try std.fmt.allocPrint(allocator, "{}{}", .{ emit.sub_path, options.target.oFileExt() });
+        } else emit.sub_path;
         errdefer if (use_lld) allocator.free(sub_path);
 
         const file: *File = switch (options.object_format) {
@@ -199,7 +206,8 @@ pub const File = struct {
         switch (base.tag) {
             .coff, .elf, .macho => {
                 if (base.file != null) return;
-                base.file = try base.options.directory.handle.createFile(base.options.sub_path, .{
+                const emit = base.options.emit orelse return;
+                base.file = try emit.directory.handle.createFile(emit.sub_path, .{
                     .truncate = false,
                     .read = true,
                     .mode = determineMode(base.options),
@@ -305,14 +313,14 @@ pub const File = struct {
     /// Commit pending changes and write headers. Takes into account final output mode
     /// and `use_lld`, not only `effectiveOutputMode`.
     pub fn flush(base: *File, comp: *Compilation) !void {
+        const emit = base.options.emit orelse return; // -fno-emit-bin
+
         if (comp.clang_preprocessor_mode == .yes) {
             // TODO: avoid extra link step when it's just 1 object file (the `zig cc -c` case)
             // Until then, we do `lld -r -o output.o input.o` even though the output is the same
             // as the input. For the preprocessing case (`zig cc -E -o foo`) we copy the file
             // to the final location.
-            const full_out_path = try base.options.directory.join(comp.gpa, &[_][]const u8{
-                base.options.sub_path,
-            });
+            const full_out_path = try emit.directory.join(comp.gpa, &[_][]const u8{emit.sub_path});
             defer comp.gpa.free(full_out_path);
             assert(comp.c_object_table.count() == 1);
             const the_entry = comp.c_object_table.items()[0];
@@ -402,7 +410,7 @@ pub const File = struct {
         defer arena_allocator.deinit();
         const arena = &arena_allocator.allocator;
 
-        const directory = base.options.directory; // Just an alias to make it shorter to type.
+        const directory = base.options.emit.?.directory; // Just an alias to make it shorter to type.
 
         // If there is no Zig code to compile, then we should skip flushing the output file because it
         // will not be part of the linker line anyway.
@@ -471,10 +479,7 @@ pub const File = struct {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));
         }
 
-        const full_out_path = if (directory.path) |dir_path|
-            try std.fs.path.join(arena, &[_][]const u8{ dir_path, base.options.sub_path })
-        else
-            base.options.sub_path;
+        const full_out_path = try directory.join(arena, &[_][]const u8{base.options.emit.?.sub_path});
         const full_out_path_z = try arena.dupeZ(u8, full_out_path);
 
         if (base.options.verbose_link) {

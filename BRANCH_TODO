@@ -1,4 +1,3 @@
- * support -fno-emit-bin for godbolt
  * restore the legacy -femit-h feature using the stage1 backend
  * figure out why test-translate-c is failing
  * tests passing with -Dskip-non-native
