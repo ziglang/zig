@@ -1,16 +1,18 @@
 const std = @import("std");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
+const fs = std.fs;
+const log = std.log.scoped(.link);
+const assert = std.debug.assert;
+
 const Compilation = @import("Compilation.zig");
 const Module = @import("Module.zig");
-const fs = std.fs;
 const trace = @import("tracy.zig").trace;
 const Package = @import("Package.zig");
 const Type = @import("type.zig").Type;
 const Cache = @import("Cache.zig");
 const build_options = @import("build_options");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
-const log = std.log.scoped(.link);
 
 pub const producer_string = if (std.builtin.is_test) "zig test" else "zig " ++ build_options.version;
 
@@ -303,6 +305,21 @@ pub const File = struct {
     /// Commit pending changes and write headers. Takes into account final output mode
     /// and `use_lld`, not only `effectiveOutputMode`.
     pub fn flush(base: *File, comp: *Compilation) !void {
+        if (comp.clang_preprocessor_mode == .yes) {
+            // TODO: avoid extra link step when it's just 1 object file (the `zig cc -c` case)
+            // Until then, we do `lld -r -o output.o input.o` even though the output is the same
+            // as the input. For the preprocessing case (`zig cc -E -o foo`) we copy the file
+            // to the final location.
+            const full_out_path = try base.options.directory.join(comp.gpa, &[_][]const u8{
+                base.options.sub_path,
+            });
+            defer comp.gpa.free(full_out_path);
+            assert(comp.c_object_table.count() == 1);
+            const the_entry = comp.c_object_table.items()[0];
+            const cached_pp_file_path = the_entry.key.status.success.object_path;
+            try fs.cwd().copyFile(cached_pp_file_path, fs.cwd(), full_out_path, .{});
+            return;
+        }
         const use_lld = build_options.have_llvm and base.options.use_lld;
         if (use_lld and base.options.output_mode == .Lib and base.options.link_mode == .Static and
             !base.options.target.isWasm())

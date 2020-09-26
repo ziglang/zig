@@ -1401,10 +1401,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         try argv.append("-pie");
     }
 
-    const full_out_path = if (directory.path) |dir_path|
-        try fs.path.join(arena, &[_][]const u8{dir_path, self.base.options.sub_path})
-    else 
-        self.base.options.sub_path;
+    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.sub_path});
     try argv.append("-o");
     try argv.append(full_out_path);
 

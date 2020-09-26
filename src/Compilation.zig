@@ -49,6 +49,7 @@ sanitize_c: bool,
 /// Otherwise we attempt to parse the error messages and expose them via the Compilation API.
 /// This is `true` for `zig cc`, `zig c++`, and `zig translate-c`.
 clang_passthrough_mode: bool,
+clang_preprocessor_mode: ClangPreprocessorMode,
 /// Whether to print clang argvs to stdout.
 verbose_cc: bool,
 verbose_tokenize: bool,
@@ -271,6 +272,14 @@ pub const EmitLoc = struct {
     basename: []const u8,
 };
 
+pub const ClangPreprocessorMode = enum {
+    no,
+    /// This means we are doing `zig cc -E -o <path>`.
+    yes,
+    /// This means we are doing `zig cc -E`.
+    stdout,
+};
+
 pub const InitOptions = struct {
     zig_lib_directory: Directory,
     local_cache_directory: Directory,
@@ -285,6 +294,8 @@ pub const InitOptions = struct {
     emit_bin: ?EmitLoc,
     /// `null` means to not emit a C header file.
     emit_h: ?EmitLoc = null,
+    /// `null` means to not emit assembly.
+    emit_asm: ?EmitLoc = null,
     link_mode: ?std.builtin.LinkMode = null,
     dll_export_fns: ?bool = false,
     /// Normally when using LLD to link, Zig uses a file named "lld.id" in the
@@ -349,6 +360,7 @@ pub const InitOptions = struct {
     version: ?std.builtin.Version = null,
     libc_installation: ?*const LibCInstallation = null,
     machine_code_model: std.builtin.CodeModel = .default,
+    clang_preprocessor_mode: ClangPreprocessorMode = .no,
     /// This is for stage1 and should be deleted upon completion of self-hosting.
     color: @import("main.zig").Color = .Auto,
     test_filter: ?[]const u8 = null,
@@ -478,6 +490,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         } else must_pic;
 
         if (options.emit_h != null) fatal("-femit-h not supported yet", .{}); // TODO
+        if (options.emit_asm != null) fatal("-femit-asm not supported yet", .{}); // TODO
 
         const emit_bin = options.emit_bin orelse fatal("-fno-emit-bin not supported yet", .{}); // TODO
 
@@ -750,6 +763,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .sanitize_c = sanitize_c,
             .rand = options.rand,
             .clang_passthrough_mode = options.clang_passthrough_mode,
+            .clang_preprocessor_mode = options.clang_preprocessor_mode,
             .verbose_cc = options.verbose_cc,
             .verbose_tokenize = options.verbose_tokenize,
             .verbose_ast = options.verbose_ast,
@@ -1215,7 +1229,6 @@ fn obtainCObjectCacheManifest(comp: *Compilation) Cache.Manifest {
     // Only things that need to be added on top of the base hash, and only things
     // that apply both to @cImport and compiling C objects. No linking stuff here!
     // Also nothing that applies only to compiling .zig code.
-
     man.hash.add(comp.sanitize_c);
     man.hash.addListOfBytes(comp.clang_argv);
     man.hash.add(comp.bin_file.options.link_libcpp);
@@ -1381,6 +1394,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
     var man = comp.obtainCObjectCacheManifest();
     defer man.deinit();
 
+    man.hash.add(comp.clang_preprocessor_mode);
+
     _ = try man.addFile(c_object.src.src_path, null);
     {
         // Hash the extra flags, with special care to call addFile for file parameters.
@@ -1424,7 +1439,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
 
-        try argv.appendSlice(&[_][]const u8{ self_exe_path, "clang", "-c" });
+        try argv.appendSlice(&[_][]const u8{ self_exe_path, "clang" });
 
         const ext = classifyFileExt(c_object.src.src_path);
         const out_dep_path: ?[]const u8 = if (comp.disable_c_depfile or !ext.clangSupportsDepFile())
@@ -1433,8 +1448,12 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
             try std.fmt.allocPrint(arena, "{}.d", .{out_obj_path});
         try comp.addCCArgs(arena, &argv, ext, out_dep_path);
 
-        try argv.append("-o");
-        try argv.append(out_obj_path);
+        try argv.ensureCapacity(argv.items.len + 3);
+        switch (comp.clang_preprocessor_mode) {
+            .no => argv.appendSliceAssumeCapacity(&[_][]const u8{"-c", "-o", out_obj_path}),
+            .yes => argv.appendSliceAssumeCapacity(&[_][]const u8{"-E", "-o", out_obj_path}),
+            .stdout => argv.appendAssumeCapacity("-E"),
+        }
 
         try argv.append(c_object.src.src_path);
         try argv.appendSlice(c_object.src.extra_flags);
@@ -1460,6 +1479,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
                         // TODO https://github.com/ziglang/zig/issues/6342
                         std.process.exit(1);
                     }
+                    if (comp.clang_preprocessor_mode == .stdout)
+                        std.process.exit(0);
                 },
                 else => std.process.exit(1),
             }
@@ -1522,14 +1543,11 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         break :blk digest;
     };
 
-    const components = if (comp.local_cache_directory.path) |p|
-        &[_][]const u8{ p, "o", &digest, o_basename }
-    else
-        &[_][]const u8{ "o", &digest, o_basename };
-
     c_object.status = .{
         .success = .{
-            .object_path = try std.fs.path.join(comp.gpa, components),
+            .object_path = try comp.local_cache_directory.join(comp.gpa, &[_][]const u8{
+                "o", &digest, o_basename,
+            }),
             .lock = man.toOwnedLock(),
         },
     };

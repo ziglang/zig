@@ -327,6 +327,7 @@ pub fn buildOutputType(
     var time_report = false;
     var show_builtin = false;
     var emit_bin: Emit = .yes_default_path;
+    var emit_asm: Emit = .no;
     var emit_zir: Emit = .no;
     var target_arch_os_abi: []const u8 = "native";
     var target_mcpu: ?[]const u8 = null;
@@ -345,7 +346,6 @@ pub fn buildOutputType(
     var want_stack_check: ?bool = null;
     var want_valgrind: ?bool = null;
     var rdynamic: bool = false;
-    var only_pp_or_asm = false;
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
     var disable_c_depfile = false;
@@ -371,6 +371,7 @@ pub fn buildOutputType(
     var override_global_cache_dir: ?[]const u8 = null;
     var override_lib_dir: ?[]const u8 = null;
     var main_pkg_path: ?[]const u8 = null;
+    var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -752,7 +753,14 @@ pub fn buildOutputType(
             ensure_libcpp_on_non_freestanding = arg_mode == .cpp;
             want_native_include_dirs = true;
 
-            var c_arg = false;
+            const COutMode = enum {
+                link,
+                object,
+                assembly,
+                preprocessor,
+            };
+            var c_out_mode: COutMode = .link;
+            var out_path: ?[]const u8 = null;
             var is_shared_lib = false;
             var linker_args = std.ArrayList([]const u8).init(arena);
             var it = ClangArgIterator.init(arena, all_args);
@@ -762,12 +770,10 @@ pub fn buildOutputType(
                 };
                 switch (it.zig_equivalent) {
                     .target => target_arch_os_abi = it.only_arg, // example: -target riscv64-linux-unknown
-                    .o => {
-                        // -o
-                        emit_bin = .{ .yes = it.only_arg };
-                        enable_cache = true;
-                    },
-                    .c => c_arg = true, // -c
+                    .o => out_path = it.only_arg, // -o
+                    .c => c_out_mode = .object, // -c
+                    .asm_only => c_out_mode = .assembly, // -S
+                    .preprocess_only => c_out_mode = .preprocessor, // -E
                     .other => {
                         try clang_argv.appendSlice(it.other_args);
                     },
@@ -812,11 +818,6 @@ pub fn buildOutputType(
                         while (split_it.next()) |linker_arg| {
                             try linker_args.append(linker_arg);
                         }
-                    },
-                    .pp_or_asm => {
-                        // This handles both -E and -S.
-                        only_pp_or_asm = true;
-                        try clang_argv.appendSlice(it.other_args);
                     },
                     .optimize => {
                         // Alright, what release mode do they want?
@@ -999,32 +1000,43 @@ pub fn buildOutputType(
                 }
             }
 
-            if (only_pp_or_asm) {
-                output_mode = .Obj;
-                fatal("TODO implement using zig cc as a preprocessor", .{});
-                //// Transfer "link_objects" into c_source_files so that all those
-                //// args make it onto the command line.
-                //try c_source_files.appendSlice(link_objects.items);
-                //for (c_source_files.items) |c_source_file| {
-                //    const src_path = switch (emit_bin) {
-                //        .yes => |p| p,
-                //        else => c_source_file.source_path,
-                //    };
-                //    const basename = fs.path.basename(src_path);
-                //    c_source_file.preprocessor_only_basename = basename;
-                //}
-                //emit_bin = .no;
-            } else if (!c_arg) {
-                output_mode = if (is_shared_lib) .Lib else .Exe;
-                switch (emit_bin) {
-                    .no, .yes_default_path => {
-                        emit_bin = .{ .yes = "a.out" };
-                        enable_cache = true;
-                    },
-                    .yes => {},
-                }
-            } else {
-                output_mode = .Obj;
+            switch (c_out_mode) {
+                .link => {
+                    output_mode = if (is_shared_lib) .Lib else .Exe;
+                    emit_bin = .{ .yes = out_path orelse "a.out" };
+                    enable_cache = true;
+                },
+                .object => {
+                    output_mode = .Obj;
+                    if (out_path) |p| {
+                        emit_bin = .{ .yes = p };
+                    } else {
+                        emit_bin = .yes_default_path;
+                    }
+                },
+                .assembly => {
+                    output_mode = .Obj;
+                    emit_bin = .no;
+                    if (out_path) |p| {
+                        emit_asm = .{ .yes = p };
+                    } else {
+                        emit_asm = .yes_default_path;
+                    }
+                },
+                .preprocessor => {
+                    output_mode = .Obj;
+                    // An error message is generated when there is more than 1 C source file.
+                    if (c_source_files.items.len != 1) {
+                        // For example `zig cc` and no args should print the "no input files" message.
+                        return punt_to_clang(arena, all_args);
+                    }
+                    if (out_path) |p| {
+                        emit_bin = .{ .yes = p };
+                        clang_preprocessor_mode = .yes;
+                    } else {
+                        clang_preprocessor_mode = .stdout;
+                    }
+                },
             }
             if (c_source_files.items.len == 0 and link_objects.items.len == 0) {
                 // For example `zig cc` and no args should print the "no input files" message.
@@ -1407,6 +1419,7 @@ pub fn buildOutputType(
         .self_exe_path = self_exe_path,
         .rand = &default_prng.random,
         .clang_passthrough_mode = arg_mode != .build,
+        .clang_preprocessor_mode = clang_preprocessor_mode,
         .version = optional_version,
         .libc_installation = if (libc_installation) |*lci| lci else null,
         .verbose_cc = verbose_cc,
@@ -1452,11 +1465,6 @@ pub fn buildOutputType(
     };
 
     try updateModule(gpa, comp, zir_out_path, hook);
-
-    if (build_options.have_llvm and only_pp_or_asm) {
-        // this may include dumping the output to stdout
-        fatal("TODO: implement `zig cc` when using it as a preprocessor", .{});
-    }
 
     if (build_options.is_stage1 and comp.stage1_lock != null and watch) {
         std.log.warn("--watch is not recommended with the stage1 backend; it leaks memory and is not capable of incremental compilation", .{});
@@ -2436,7 +2444,8 @@ pub const ClangArgIterator = struct {
         shared,
         rdynamic,
         wl,
-        pp_or_asm,
+        preprocess_only,
+        asm_only,
         optimize,
         debug,
         sanitize,
