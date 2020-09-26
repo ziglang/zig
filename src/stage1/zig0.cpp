@@ -36,9 +36,10 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --output-dir [dir]           override output directory (defaults to cwd)\n"
         "  --pkg-begin [name] [path]    make pkg available to import and push current pkg\n"
         "  --pkg-end                    pop current pkg\n"
-        "  --release-fast               build with optimizations on and safety off\n"
-        "  --release-safe               build with optimizations on and safety on\n"
-        "  --release-small              build with size optimizations on and safety off\n"
+        "  -ODebug                      build with optimizations on and safety off\n"
+        "  -OReleaseFast                build with optimizations on and safety off\n"
+        "  -OReleaseSafe                build with optimizations on and safety on\n"
+        "  -OReleaseSmall               build with size optimizations on and safety off\n"
         "  --single-threaded            source may assume it is only used single-threaded\n"
         "  -dynamic                     create a shared library (.so; .dll; .dylib)\n"
         "  --strip                      exclude debug symbols\n"
@@ -267,11 +268,13 @@ int main(int argc, char **argv) {
         if (arg[0] == '-') {
             if (strcmp(arg, "--") == 0) {
                 fprintf(stderr, "Unexpected end-of-parameter mark: %s\n", arg);
-            } else if (strcmp(arg, "--release-fast") == 0) {
+            } else if (strcmp(arg, "-ODebug") == 0) {
+                optimize_mode = BuildModeDebug;
+            } else if (strcmp(arg, "-OReleaseFast") == 0) {
                 optimize_mode = BuildModeFastRelease;
-            } else if (strcmp(arg, "--release-safe") == 0) {
+            } else if (strcmp(arg, "-OReleaseSafe") == 0) {
                 optimize_mode = BuildModeSafeRelease;
-            } else if (strcmp(arg, "--release-small") == 0) {
+            } else if (strcmp(arg, "-OReleaseSmall") == 0) {
                 optimize_mode = BuildModeSmallRelease;
             } else if (strcmp(arg, "--help") == 0) {
                 return print_full_usage(arg0, stdout, EXIT_SUCCESS);

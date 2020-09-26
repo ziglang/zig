@@ -4,6 +4,7 @@
  * tests passing with -Dskip-non-native
  * `-ftime-report`
  *  -fstack-report               print stack size diagnostics\n"
+ * subsystem
  * mingw-w64
  * MachO LLD linking
  * COFF LLD linking
