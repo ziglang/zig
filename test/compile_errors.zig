@@ -20,6 +20,18 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:20: error: use of undefined value here causes undefined behavior",
     });
 
+    cases.add("extern struct with non-extern-compatible integer tag type",
+        \\pub const E = enum(u31) { A, B, C };
+        \\pub const S = extern struct {
+        \\    e: E,
+        \\};
+        \\export fn entry() void {
+        \\    const s: S = undefined;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:5: error: extern structs cannot contain fields of type 'E'",
+    });
+
     cases.add("@Type for exhaustive enum with non-integer tag type",
         \\const TypeInfo = @import("builtin").TypeInfo;
         \\const Tag = @Type(.{
