@@ -141,8 +141,23 @@ struct ZigStage1 {
     const char *root_name_ptr;
     size_t root_name_len;
 
-    const char *output_dir_ptr;
-    size_t output_dir_len;
+    const char *emit_o_ptr;
+    size_t emit_o_len;
+
+    const char *emit_h_ptr;
+    size_t emit_h_len;
+
+    const char *emit_asm_ptr;
+    size_t emit_asm_len;
+
+    const char *emit_llvm_ir_ptr;
+    size_t emit_llvm_ir_len;
+
+    const char *emit_analysis_json_ptr;
+    size_t emit_analysis_json_len;
+
+    const char *emit_docs_ptr;
+    size_t emit_docs_len;
 
     const char *builtin_zig_path_ptr;
     size_t builtin_zig_path_len;
@@ -173,11 +188,6 @@ struct ZigStage1 {
     bool enable_stack_probing;
     bool enable_time_report;
     bool enable_stack_report;
-    bool dump_analysis;
-    bool enable_doc_generation;
-    bool emit_bin;
-    bool emit_asm;
-    bool emit_llvm_ir;
     bool test_is_evented;
     bool verbose_tokenize;
     bool verbose_ast;

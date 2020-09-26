@@ -241,7 +241,7 @@ int main(int argc, char **argv) {
     Error err;
 
     const char *in_file = nullptr;
-    const char *output_dir = nullptr;
+    const char *emit_bin_path = nullptr;
     bool strip = false;
     const char *out_name = nullptr;
     bool verbose_tokenize = false;
@@ -324,14 +324,14 @@ int main(int argc, char **argv) {
                 cur_pkg = cur_pkg->parent;
             } else if (str_starts_with(arg, "-mcpu=")) {
                 mcpu = arg + strlen("-mcpu=");
+            } else if (str_starts_with(arg, "-femit-bin=")) {
+                emit_bin_path = arg + strlen("-femit-bin=");
             } else if (i + 1 >= argc) {
                 fprintf(stderr, "Expected another argument after %s\n", arg);
                 return print_error_usage(arg0);
             } else {
                 i += 1;
-                if (strcmp(arg, "--output-dir") == 0) {
-                    output_dir = argv[i];
-                } else if (strcmp(arg, "--color") == 0) {
+                if (strcmp(arg, "--color") == 0) {
                     if (strcmp(argv[i], "auto") == 0) {
                         color = ErrColorAuto;
                     } else if (strcmp(argv[i], "on") == 0) {
@@ -443,15 +443,14 @@ int main(int argc, char **argv) {
     stage1->verbose_llvm_ir = verbose_llvm_ir;
     stage1->verbose_cimport = verbose_cimport;
     stage1->verbose_llvm_cpu_features = verbose_llvm_cpu_features;
-    stage1->output_dir_ptr = output_dir;
-    stage1->output_dir_len = strlen(output_dir);
+    stage1->emit_o_ptr = emit_bin_path;
+    stage1->emit_o_len = strlen(emit_bin_path);
     stage1->root_pkg = cur_pkg;
     stage1->err_color = color;
     stage1->link_libc = link_libc;
     stage1->link_libcpp = link_libcpp;
     stage1->subsystem = subsystem;
     stage1->pic = true;
-    stage1->emit_bin = true;
 
     zig_stage1_build_object(stage1);
 

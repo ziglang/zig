@@ -195,8 +195,20 @@ const usage_build_generic =
     \\  -h, --help                Print this help and exit
     \\  --watch                   Enable compiler REPL
     \\  --color [auto|off|on]     Enable or disable colored error messages
-    \\  -femit-bin[=path]         (default) output machine code
+    \\  -femit-bin[=path]         (default) Output machine code
     \\  -fno-emit-bin             Do not output machine code
+    \\  -femit-asm[=path]         Output .s (assembly code)
+    \\  -fno-emit-asm             (default) Do not output .s (assembly code)
+    \\  -femit-zir[=path]         Produce a .zir file with Zig IR
+    \\  -fno-emit-zir             (default) Do not produce a .zir file with Zig IR
+    \\  -femit-llvm-ir[=path]     Produce a .ll file with LLVM IR (requires LLVM extensions)
+    \\  -fno-emit-llvm-ir         (default) Do not produce a .ll file with LLVM IR
+    \\  -femit-h[=path]           Generate a C header file (.h)
+    \\  -fno-emit-h               (default) Do not generate a C header file (.h)
+    \\  -femit-docs[=path]        Create a docs/ dir with html documentation
+    \\  -fno-emit-docs            (default) Do not produce docs/ dir with html documentation
+    \\  -femit-analysis[=path]    Write analysis JSON file with type information
+    \\  -fno-emit-analysis        (default) Do not write analysis JSON file with type information
     \\  --show-builtin            Output the source of @import("builtin") then exit
     \\  --cache-dir [path]        Override the local cache directory
     \\  --global-cache-dir [path] Override the global cache directory
@@ -210,10 +222,11 @@ const usage_build_generic =
     \\            small|kernel|
     \\            medium|large]
     \\  --name [name]             Override root name (not a file path)
-    \\  -ODebug                   (default) optimizations off, safety on
-    \\  -OReleaseFast             Optimizations on, safety off
-    \\  -OReleaseSafe             Optimizations on, safety on
-    \\  -OReleaseSmall            Optimize for small binary, safety off
+    \\  -O [mode]                 Choose what to optimize for
+    \\    Debug                   (default) Optimizations off, safety on
+    \\    ReleaseFast             Optimizations on, safety off
+    \\    ReleaseSafe             Optimizations on, safety on
+    \\    ReleaseSmall            Optimize for small binary, safety off
     \\  --pkg-begin [name] [path] Make pkg available to import and push current pkg
     \\  --pkg-end                 Pop current pkg
     \\  --main-pkg-path           Set the directory of the root package
@@ -290,9 +303,57 @@ const Emit = union(enum) {
     no,
     yes_default_path,
     yes: []const u8,
+
+    const Resolved = struct {
+        data: ?Compilation.EmitLoc,
+        dir: ?fs.Dir,
+
+        fn deinit(self: *Resolved) void {
+            if (self.dir) |*dir| {
+                dir.close();
+            }
+        }
+    };
+
+    fn resolve(emit: Emit, default_basename: []const u8) !Resolved {
+        var resolved: Resolved = .{ .data = null, .dir = null };
+        errdefer resolved.deinit();
+
+        switch (emit) {
+            .no => {},
+            .yes_default_path => {
+                resolved.data = Compilation.EmitLoc{
+                    .directory = .{ .path = null, .handle = fs.cwd() },
+                    .basename = default_basename,
+                };
+            },
+            .yes => |full_path| {
+                const basename = fs.path.basename(full_path);
+                if (fs.path.dirname(full_path)) |dirname| {
+                    const handle = try fs.cwd().openDir(dirname, .{});
+                    resolved = .{
+                        .dir = handle,
+                        .data = Compilation.EmitLoc{
+                            .basename = basename,
+                            .directory = .{
+                                .path = dirname,
+                                .handle = handle,
+                            },
+                        },
+                    };
+                } else {
+                    resolved.data = Compilation.EmitLoc{
+                        .basename = basename,
+                        .directory = .{ .path = null, .handle = fs.cwd() },
+                    };
+                }
+            },
+        }
+        return resolved;
+    }
 };
 
-pub fn buildOutputType(
+fn buildOutputType(
     gpa: *Allocator,
     arena: *Allocator,
     all_args: []const []const u8,
@@ -328,7 +389,10 @@ pub fn buildOutputType(
     var show_builtin = false;
     var emit_bin: Emit = .yes_default_path;
     var emit_asm: Emit = .no;
+    var emit_llvm_ir: Emit = .no;
     var emit_zir: Emit = .no;
+    var emit_docs: Emit = .no;
+    var emit_analysis: Emit = .no;
     var target_arch_os_abi: []const u8 = "native";
     var target_mcpu: ?[]const u8 = null;
     var target_dynamic_linker: ?[]const u8 = null;
@@ -667,6 +731,30 @@ pub fn buildOutputType(
                         emit_h = .{ .yes = arg["-femit-h=".len..] };
                     } else if (mem.eql(u8, arg, "-fno-emit-h")) {
                         emit_h = .no;
+                    } else if (mem.eql(u8, arg, "-femit-asm")) {
+                        emit_asm = .yes_default_path;
+                    } else if (mem.startsWith(u8, arg, "-femit-asm=")) {
+                        emit_asm = .{ .yes = arg["-femit-asm=".len..] };
+                    } else if (mem.eql(u8, arg, "-fno-emit-asm")) {
+                        emit_asm = .no;
+                    } else if (mem.eql(u8, arg, "-femit-llvm-ir")) {
+                        emit_llvm_ir = .yes_default_path;
+                    } else if (mem.startsWith(u8, arg, "-femit-llvm-ir=")) {
+                        emit_llvm_ir = .{ .yes = arg["-femit-llvm-ir=".len..] };
+                    } else if (mem.eql(u8, arg, "-fno-emit-llvm-ir")) {
+                        emit_llvm_ir = .no;
+                    } else if (mem.eql(u8, arg, "-femit-docs")) {
+                        emit_docs = .yes_default_path;
+                    } else if (mem.startsWith(u8, arg, "-femit-docs=")) {
+                        emit_docs = .{ .yes = arg["-femit-docs=".len..] };
+                    } else if (mem.eql(u8, arg, "-fno-emit-docs")) {
+                        emit_docs = .no;
+                    } else if (mem.eql(u8, arg, "-femit-analysis")) {
+                        emit_analysis = .yes_default_path;
+                    } else if (mem.startsWith(u8, arg, "-femit-analysis=")) {
+                        emit_analysis = .{ .yes = arg["-femit-analysis=".len..] };
+                    } else if (mem.eql(u8, arg, "-fno-emit-analysis")) {
+                        emit_analysis = .no;
                     } else if (mem.eql(u8, arg, "-dynamic")) {
                         link_mode = .Dynamic;
                     } else if (mem.eql(u8, arg, "-static")) {
@@ -1237,35 +1325,24 @@ pub fn buildOutputType(
         },
     };
 
-    var cleanup_emit_h_dir: ?fs.Dir = null;
-    defer if (cleanup_emit_h_dir) |*dir| dir.close();
+    const default_h_basename = try std.fmt.allocPrint(arena, "{}.h", .{root_name});
+    var emit_h_resolved = try emit_h.resolve(default_h_basename);
+    defer emit_h_resolved.deinit();
 
-    const emit_h_loc: ?Compilation.EmitLoc = switch (emit_h) {
-        .no => null,
-        .yes_default_path => Compilation.EmitLoc{
-            .directory = .{ .path = null, .handle = fs.cwd() },
-            .basename = try std.fmt.allocPrint(arena, "{}.h", .{root_name}),
-        },
-        .yes => |full_path| b: {
-            const basename = fs.path.basename(full_path);
-            if (fs.path.dirname(full_path)) |dirname| {
-                const handle = try fs.cwd().openDir(dirname, .{});
-                cleanup_emit_h_dir = handle;
-                break :b Compilation.EmitLoc{
-                    .basename = basename,
-                    .directory = .{
-                        .path = dirname,
-                        .handle = handle,
-                    },
-                };
-            } else {
-                break :b Compilation.EmitLoc{
-                    .basename = basename,
-                    .directory = .{ .path = null, .handle = fs.cwd() },
-                };
-            }
-        },
-    };
+    const default_asm_basename = try std.fmt.allocPrint(arena, "{}.s", .{root_name});
+    var emit_asm_resolved = try emit_asm.resolve(default_asm_basename);
+    defer emit_asm_resolved.deinit();
+
+    const default_llvm_ir_basename = try std.fmt.allocPrint(arena, "{}.ll", .{root_name});
+    var emit_llvm_ir_resolved = try emit_llvm_ir.resolve(default_llvm_ir_basename);
+    defer emit_llvm_ir_resolved.deinit();
+
+    const default_analysis_basename = try std.fmt.allocPrint(arena, "{}-analysis.json", .{root_name});
+    var emit_analysis_resolved = try emit_analysis.resolve(default_analysis_basename);
+    defer emit_analysis_resolved.deinit();
+
+    var emit_docs_resolved = try emit_docs.resolve("docs");
+    defer emit_docs_resolved.deinit();
 
     const zir_out_path: ?[]const u8 = switch (emit_zir) {
         .no => null,
@@ -1365,6 +1442,12 @@ pub fn buildOutputType(
         };
     };
 
+    if (build_options.have_llvm and emit_asm != .no) {
+        // LLVM has no way to set this non-globally.
+        const argv = [_][*:0]const u8{ "zig (LLVM option parsing)", "--x86-asm-syntax=intel" };
+        @import("llvm.zig").ParseCommandLineOptions(argv.len, &argv);
+    }
+
     gimmeMoreOfThoseSweetSweetFileDescriptors();
 
     const comp = Compilation.create(gpa, .{
@@ -1378,7 +1461,11 @@ pub fn buildOutputType(
         .output_mode = output_mode,
         .root_pkg = root_pkg,
         .emit_bin = emit_bin_loc,
-        .emit_h = emit_h_loc,
+        .emit_h = emit_h_resolved.data,
+        .emit_asm = emit_asm_resolved.data,
+        .emit_llvm_ir = emit_llvm_ir_resolved.data,
+        .emit_docs = emit_docs_resolved.data,
+        .emit_analysis = emit_analysis_resolved.data,
         .link_mode = link_mode,
         .dll_export_fns = dll_export_fns,
         .object_format = object_format,

@@ -8243,9 +8243,9 @@ static void zig_llvm_emit_output(CodeGen *g) {
     const char *bin_filename = nullptr;
     const char *llvm_ir_filename = nullptr;
 
-    if (g->emit_bin) bin_filename = buf_ptr(&g->o_file_output_path);
-    if (g->emit_asm) asm_filename = buf_ptr(&g->asm_file_output_path);
-    if (g->emit_llvm_ir) llvm_ir_filename = buf_ptr(&g->llvm_ir_file_output_path);
+    if (buf_len(&g->o_file_output_path) != 0) bin_filename = buf_ptr(&g->o_file_output_path);
+    if (buf_len(&g->asm_file_output_path) != 0) asm_filename = buf_ptr(&g->asm_file_output_path);
+    if (buf_len(&g->llvm_ir_file_output_path) != 0) llvm_ir_filename = buf_ptr(&g->llvm_ir_file_output_path);
 
     // Unfortunately, LLVM shits the bed when we ask for both binary and assembly. So we call the entire
     // pipeline multiple times if this is requested.
@@ -8858,8 +8858,10 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     Buf *contents;
     if (g->builtin_zig_path == nullptr) {
         // Then this is zig0 building stage2. We can make many assumptions about the compilation.
+        Buf *out_dir = buf_alloc();
+        os_path_split(&g->o_file_output_path, out_dir, nullptr);
         g->builtin_zig_path = buf_alloc();
-        os_path_join(g->output_dir, buf_create_from_str(builtin_zig_basename), g->builtin_zig_path);
+        os_path_join(out_dir, buf_create_from_str(builtin_zig_basename), g->builtin_zig_path);
 
         Buf *resolve_paths[] = { g->builtin_zig_path, };
         *g->builtin_zig_path = os_path_resolve(resolve_paths, 1);
@@ -8870,7 +8872,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
             exit(1);
         }
 
-        g->compile_var_package = new_package(buf_ptr(g->output_dir), builtin_zig_basename, "builtin");
+        g->compile_var_package = new_package(buf_ptr(out_dir), builtin_zig_basename, "builtin");
     } else {
         Buf *resolve_paths[] = { g->builtin_zig_path, };
         *g->builtin_zig_path = os_path_resolve(resolve_paths, 1);
@@ -9232,33 +9234,20 @@ void codegen_add_time_event(CodeGen *g, const char *name) {
     g->timing_events.append({seconds, name});
 }
 
-static void resolve_out_paths(CodeGen *g) {
-    assert(g->output_dir != nullptr);
-    assert(g->root_out_name != nullptr);
+void codegen_build_object(CodeGen *g) {
+    g->have_err_ret_tracing = detect_err_ret_tracing(g);
 
-    if (g->emit_bin) {
-        Buf *o_basename = buf_create_from_buf(g->root_out_name);
-        buf_append_str(o_basename, target_o_file_ext(g->zig_target));
-        os_path_join(g->output_dir, o_basename, &g->o_file_output_path);
-    }
-    if (g->emit_asm) {
-        Buf *asm_basename = buf_create_from_buf(g->root_out_name);
-        const char *asm_ext = target_asm_file_ext(g->zig_target);
-        buf_append_str(asm_basename, asm_ext);
-        os_path_join(g->output_dir, asm_basename, &g->asm_file_output_path);
-    }
-    if (g->emit_llvm_ir) {
-        Buf *llvm_ir_basename = buf_create_from_buf(g->root_out_name);
-        const char *llvm_ir_ext = target_llvm_ir_file_ext(g->zig_target);
-        buf_append_str(llvm_ir_basename, llvm_ir_ext);
-        os_path_join(g->output_dir, llvm_ir_basename, &g->llvm_ir_file_output_path);
-    }
-}
+    init(g);
 
-static void output_type_information(CodeGen *g) {
-    if (g->enable_dump_analysis) {
-        const char *analysis_json_filename = buf_ptr(buf_sprintf("%s" OS_SEP "%s-analysis.json",
-                    buf_ptr(g->output_dir), buf_ptr(g->root_out_name)));
+    codegen_add_time_event(g, "Semantic Analysis");
+    const char *progress_name = "Semantic Analysis";
+    codegen_switch_sub_prog_node(g, stage2_progress_start(g->main_progress_node,
+            progress_name, strlen(progress_name), 0));
+
+    gen_root_source(g);
+
+    if (buf_len(&g->analysis_json_output_path) != 0) {
+        const char *analysis_json_filename = buf_ptr(&g->analysis_json_output_path);
         FILE *f = fopen(analysis_json_filename, "wb");
         if (f == nullptr) {
             fprintf(stderr, "Unable to open '%s': %s\n", analysis_json_filename, strerror(errno));
@@ -9270,9 +9259,9 @@ static void output_type_information(CodeGen *g) {
             exit(1);
         }
     }
-    if (g->enable_doc_generation) {
+    if (buf_len(&g->docs_output_path) != 0) {
         Error err;
-        Buf *doc_dir_path = buf_sprintf("%s" OS_SEP "docs", buf_ptr(g->output_dir));
+        Buf *doc_dir_path = &g->docs_output_path;
         if ((err = os_make_path(doc_dir_path))) {
             fprintf(stderr, "Unable to create directory %s: %s\n", buf_ptr(doc_dir_path), err_str(err));
             exit(1);
@@ -9307,27 +9296,6 @@ static void output_type_information(CodeGen *g) {
             fprintf(stderr, "Unable to write '%s': %s\n", data_js_filename, strerror(errno));
             exit(1);
         }
-    }
-}
-
-void codegen_build_object(CodeGen *g) {
-    assert(g->output_dir != nullptr);
-
-    g->have_err_ret_tracing = detect_err_ret_tracing(g);
-
-    init(g);
-
-    codegen_add_time_event(g, "Semantic Analysis");
-    const char *progress_name = "Semantic Analysis";
-    codegen_switch_sub_prog_node(g, stage2_progress_start(g->main_progress_node,
-            progress_name, strlen(progress_name), 0));
-
-    gen_root_source(g);
-
-    resolve_out_paths(g);
-
-    if (g->enable_dump_analysis || g->enable_doc_generation) {
-        output_type_information(g);
     }
 
     codegen_add_time_event(g, "Code Generation");
@@ -9379,7 +9347,6 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     bool is_test_build)
 {
     CodeGen *g = heap::c_allocator.create<CodeGen>();
-    g->emit_bin = true;
     g->pass1_arena = heap::ArenaAllocator::construct(&heap::c_allocator, &heap::c_allocator, "pass1");
 
     g->subsystem = TargetSubsystemAuto;

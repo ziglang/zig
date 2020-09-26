@@ -2116,12 +2116,12 @@ struct CodeGen {
     Buf llvm_triple_str;
     Buf global_asm;
     Buf o_file_output_path;
+    Buf h_file_output_path;
     Buf asm_file_output_path;
     Buf llvm_ir_file_output_path;
+    Buf analysis_json_output_path;
+    Buf docs_output_path;
     Buf *cache_dir;
-    // As an input parameter, mutually exclusive with enable_cache. But it gets
-    // populated in codegen_build_and_link.
-    Buf *output_dir;
     Buf *c_artifact_dir;
     const char **libc_include_dir_list;
     size_t libc_include_dir_len;
@@ -2186,11 +2186,6 @@ struct CodeGen {
     bool dll_export_fns;
     bool have_stack_probing;
     bool function_sections;
-    bool enable_dump_analysis;
-    bool enable_doc_generation;
-    bool emit_bin;
-    bool emit_asm;
-    bool emit_llvm_ir;
     bool test_is_evented;
     bool valgrind_enabled;
 

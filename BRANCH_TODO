@@ -1,13 +1,7 @@
+ * support -fno-emit-bin for godbolt
  * tests passing with -Dskip-non-native
  * `-ftime-report`
  *  -fstack-report               print stack size diagnostics\n"
- *  -fdump-analysis              write analysis.json file with type information\n"
- *  -femit-docs                  create a docs/ dir with html documentation\n"
- *  -fno-emit-docs               do not produce docs/ dir with html documentation\n"
- *  -femit-asm                   output .s (assembly code)\n"
- *  -fno-emit-asm                (default) do not output .s (assembly code)\n"
- *  -femit-llvm-ir               produce a .ll file with LLVM IR\n"
- *  -fno-emit-llvm-ir            (default) do not produce a .ll file with LLVM IR\n"
  * mingw-w64
  * MachO LLD linking
  * COFF LLD linking
@@ -17,8 +11,8 @@
  * On operating systems that support it, do an execve for `zig test` and `zig run` rather than child process.
  * restore error messages for stage2_add_link_lib
  * windows CUSTOMBUILD : error : unable to build compiler_rt: FileNotFound [D:\a\1\s\build\zig_install_lib_files.vcxproj]
- * try building some software with zig cc
- * implement support for -femit-asm
+ * try building some software with zig cc to make sure it didn't regress
+ * restore the legacy -femit-h feature using the stage1 backend
 
  * implement proper parsing of clang stderr/stdout and exposing compile errors with the Compilation API
  * implement proper parsing of LLD stderr/stdout and exposing compile errors with the Compilation API
@@ -56,3 +50,4 @@
  * make std.Progress support multithreaded
  * update musl.zig static data to use native path separator in static data rather than replacing '/' at runtime
  * linking hello world with LLD, lld is silently calling exit(1) instead of reporting ok=false. when run standalone the error message is: ld.lld: error: section [index 3] has a sh_offset (0x57000) + sh_size (0x68) that is greater than the file size (0x57060)
+ * submit PR to godbolt and update the CLI options (see changes to test/cli.zig)

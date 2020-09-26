@@ -72,3 +72,6 @@ pub const OSType = extern enum(c_int) {
     WASI = 34,
     Emscripten = 35,
 };
+
+pub const ParseCommandLineOptions = ZigLLVMParseCommandLineOptions;
+extern fn ZigLLVMParseCommandLineOptions(argc: usize, argv: [*]const [*:0]const u8) void;

@@ -107,6 +107,12 @@ test_filter: ?[]const u8,
 test_name_prefix: ?[]const u8,
 test_evented_io: bool,
 
+emit_h: ?EmitLoc,
+emit_asm: ?EmitLoc,
+emit_llvm_ir: ?EmitLoc,
+emit_analysis: ?EmitLoc,
+emit_docs: ?EmitLoc,
+
 pub const InnerError = Module.InnerError;
 
 pub const CRTFile = struct {
@@ -296,6 +302,12 @@ pub const InitOptions = struct {
     emit_h: ?EmitLoc = null,
     /// `null` means to not emit assembly.
     emit_asm: ?EmitLoc = null,
+    /// `null` means to not emit LLVM IR.
+    emit_llvm_ir: ?EmitLoc = null,
+    /// `null` means to not emit semantic analysis JSON.
+    emit_analysis: ?EmitLoc = null,
+    /// `null` means to not emit docs.
+    emit_docs: ?EmitLoc = null,
     link_mode: ?std.builtin.LinkMode = null,
     dll_export_fns: ?bool = false,
     /// Normally when using LLD to link, Zig uses a file named "lld.id" in the
@@ -442,7 +454,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             break :blk false;
         };
 
-
         const link_libc = options.link_libc or
             (is_exe_or_dyn_lib and target_util.osRequiresLibC(options.target));
 
@@ -488,9 +499,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             }
             break :pic explicit;
         } else must_pic;
-
-        if (options.emit_h != null) fatal("-femit-h not supported yet", .{}); // TODO
-        if (options.emit_asm != null) fatal("-femit-asm not supported yet", .{}); // TODO
 
         const emit_bin = options.emit_bin orelse fatal("-fno-emit-bin not supported yet", .{}); // TODO
 
@@ -579,6 +587,12 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(options.link_libcpp);
         cache.hash.add(options.output_mode);
         cache.hash.add(options.machine_code_model);
+        cache.hash.add(options.emit_bin != null);
+        cache.hash.add(options.emit_h != null);
+        cache.hash.add(options.emit_asm != null);
+        cache.hash.add(options.emit_llvm_ir != null);
+        cache.hash.add(options.emit_analysis != null);
+        cache.hash.add(options.emit_docs != null);
         // TODO audit this and make sure everything is in it
 
         const module: ?*Module = if (options.root_pkg) |root_pkg| blk: {
@@ -752,6 +766,11 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .local_cache_directory = options.local_cache_directory,
             .global_cache_directory = options.global_cache_directory,
             .bin_file = bin_file,
+            .emit_h = options.emit_h,
+            .emit_asm = options.emit_asm,
+            .emit_llvm_ir = options.emit_llvm_ir,
+            .emit_analysis = options.emit_analysis,
+            .emit_docs = options.emit_docs,
             .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .keep_source_files_loaded = options.keep_source_files_loaded,
             .use_clang = use_clang,
@@ -1450,8 +1469,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
 
         try argv.ensureCapacity(argv.items.len + 3);
         switch (comp.clang_preprocessor_mode) {
-            .no => argv.appendSliceAssumeCapacity(&[_][]const u8{"-c", "-o", out_obj_path}),
-            .yes => argv.appendSliceAssumeCapacity(&[_][]const u8{"-E", "-o", out_obj_path}),
+            .no => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-c", "-o", out_obj_path }),
+            .yes => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-E", "-o", out_obj_path }),
             .stdout => argv.appendAssumeCapacity("-E"),
         }
 
@@ -2498,15 +2517,35 @@ fn updateStage1Module(comp: *Compilation) !void {
         comp.is_test,
     ) orelse return error.OutOfMemory;
 
+    const bin_basename = try std.zig.binNameAlloc(arena, .{
+        .root_name = comp.bin_file.options.root_name,
+        .target = target,
+        .output_mode = .Obj,
+    });
+    const emit_bin_path = try directory.join(arena, &[_][]const u8{bin_basename});
+    const emit_h_path = try stage1LocPath(arena, comp.emit_h, directory);
+    const emit_asm_path = try stage1LocPath(arena, comp.emit_asm, directory);
+    const emit_llvm_ir_path = try stage1LocPath(arena, comp.emit_llvm_ir, directory);
+    const emit_analysis_path = try stage1LocPath(arena, comp.emit_analysis, directory);
+    const emit_docs_path = try stage1LocPath(arena, comp.emit_docs, directory);
     const stage1_pkg = try createStage1Pkg(arena, "root", mod.root_pkg, null);
-    const output_dir = directory.path orelse ".";
     const test_filter = comp.test_filter orelse ""[0..0];
     const test_name_prefix = comp.test_name_prefix orelse ""[0..0];
     stage1_module.* = .{
         .root_name_ptr = comp.bin_file.options.root_name.ptr,
         .root_name_len = comp.bin_file.options.root_name.len,
-        .output_dir_ptr = output_dir.ptr,
-        .output_dir_len = output_dir.len,
+        .emit_o_ptr = emit_bin_path.ptr,
+        .emit_o_len = emit_bin_path.len,
+        .emit_h_ptr = emit_h_path.ptr,
+        .emit_h_len = emit_h_path.len,
+        .emit_asm_ptr = emit_asm_path.ptr,
+        .emit_asm_len = emit_asm_path.len,
+        .emit_llvm_ir_ptr = emit_llvm_ir_path.ptr,
+        .emit_llvm_ir_len = emit_llvm_ir_path.len,
+        .emit_analysis_json_ptr = emit_analysis_path.ptr,
+        .emit_analysis_json_len = emit_analysis_path.len,
+        .emit_docs_ptr = emit_docs_path.ptr,
+        .emit_docs_len = emit_docs_path.len,
         .builtin_zig_path_ptr = builtin_zig_path.ptr,
         .builtin_zig_path_len = builtin_zig_path.len,
         .test_filter_ptr = test_filter.ptr,
@@ -2530,11 +2569,6 @@ fn updateStage1Module(comp: *Compilation) !void {
         .enable_stack_probing = comp.bin_file.options.stack_check,
         .enable_time_report = comp.time_report,
         .enable_stack_report = false,
-        .dump_analysis = false,
-        .enable_doc_generation = false,
-        .emit_bin = true,
-        .emit_asm = false,
-        .emit_llvm_ir = false,
         .test_is_evented = comp.test_evented_io,
         .verbose_tokenize = comp.verbose_tokenize,
         .verbose_ast = comp.verbose_ast,
@@ -2563,6 +2597,12 @@ fn updateStage1Module(comp: *Compilation) !void {
     // We hang on to this lock so that the output file path can be used without
     // other processes clobbering it.
     comp.stage1_lock = man.toOwnedLock();
+}
+
+fn stage1LocPath(arena: *Allocator, opt_loc: ?EmitLoc, cache_directory: Directory) ![]const u8 {
+    const loc = opt_loc orelse return "";
+    const directory = loc.directory orelse cache_directory;
+    return directory.join(arena, &[_][]const u8{loc.basename});
 }
 
 fn createStage1Pkg(

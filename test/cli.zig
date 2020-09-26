@@ -118,17 +118,20 @@ fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
         \\}
     );
 
-    const args = [_][]const u8{
+    var args = std.ArrayList([]const u8).init(a);
+    try args.appendSlice(&[_][]const u8{
         zig_exe,          "build-obj",
         "--cache-dir",    dir_path,
         "--name",         "example",
-        "--output-dir",   dir_path,
-        "--emit",         "asm",
-        "-mllvm",         "--x86-asm-syntax=intel",
-        "--strip",        "--release-fast",
-        example_zig_path, "--disable-gen-h",
-    };
-    _ = try exec(dir_path, &args);
+        "-fno-emit-bin",  "-fno-emit-h",
+        "--strip",        "-OReleaseFast",
+        example_zig_path,
+    });
+
+    const emit_asm_arg = try std.fmt.allocPrint(a, "-femit-asm={s}", .{example_s_path});
+    try args.append(emit_asm_arg);
+
+    _ = try exec(dir_path, args.items);
 
     const out_asm = try std.fs.cwd().readFileAlloc(a, example_s_path, std.math.maxInt(usize));
     testing.expect(std.mem.indexOf(u8, out_asm, "square:") != null);

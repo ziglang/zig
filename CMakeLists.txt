@@ -449,7 +449,7 @@ endif()
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     set(ZIG1_RELEASE_ARG "")
 else()
-    set(ZIG1_RELEASE_ARG --release-fast --strip)
+    set(ZIG1_RELEASE_ARG -OReleaseFast --strip)
 endif()
 
 set(BUILD_ZIG1_ARGS
@@ -458,8 +458,8 @@ set(BUILD_ZIG1_ARGS
     "-mcpu=${ZIG_TARGET_MCPU}"
     --name zig1
     --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
-    --output-dir "${CMAKE_BINARY_DIR}"
-    ${ZIG1_RELEASE_ARG}
+    "-femit-bin=${ZIG1_OBJECT}"
+    "${ZIG1_RELEASE_ARG}"
     -lc
     --pkg-begin build_options "${ZIG_CONFIG_ZIG_OUT}"
     --pkg-end

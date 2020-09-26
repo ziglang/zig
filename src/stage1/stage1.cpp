@@ -69,7 +69,13 @@ void zig_stage1_build_object(struct ZigStage1 *stage1) {
     CodeGen *g = reinterpret_cast<CodeGen *>(stage1);
 
     g->root_out_name = buf_create_from_mem(stage1->root_name_ptr, stage1->root_name_len);
-    g->output_dir = buf_create_from_mem(stage1->output_dir_ptr, stage1->output_dir_len);
+    buf_init_from_mem(&g->o_file_output_path, stage1->emit_o_ptr, stage1->emit_o_len);
+    buf_init_from_mem(&g->h_file_output_path, stage1->emit_h_ptr, stage1->emit_h_len);
+    buf_init_from_mem(&g->asm_file_output_path, stage1->emit_asm_ptr, stage1->emit_asm_len);
+    buf_init_from_mem(&g->llvm_ir_file_output_path, stage1->emit_llvm_ir_ptr, stage1->emit_llvm_ir_len);
+    buf_init_from_mem(&g->analysis_json_output_path, stage1->emit_analysis_json_ptr, stage1->emit_analysis_json_len);
+    buf_init_from_mem(&g->docs_output_path, stage1->emit_docs_ptr, stage1->emit_docs_len);
+
     if (stage1->builtin_zig_path_len != 0) {
         g->builtin_zig_path = buf_create_from_mem(stage1->builtin_zig_path_ptr, stage1->builtin_zig_path_len);
     }
@@ -94,11 +100,6 @@ void zig_stage1_build_object(struct ZigStage1 *stage1) {
 
     g->enable_time_report = stage1->enable_time_report;
     g->enable_stack_report = stage1->enable_stack_report;
-    g->enable_dump_analysis = stage1->dump_analysis;
-    g->enable_doc_generation = stage1->enable_doc_generation;
-    g->emit_bin = stage1->emit_bin;
-    g->emit_asm = stage1->emit_asm;
-    g->emit_llvm_ir = stage1->emit_llvm_ir;
     g->test_is_evented = stage1->test_is_evented;
 
     g->verbose_tokenize = stage1->verbose_tokenize;
