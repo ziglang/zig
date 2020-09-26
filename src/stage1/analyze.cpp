@@ -1802,10 +1802,18 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
             }
             return type_allowed_in_extern(g, child_type, result);
         }
-        case ZigTypeIdEnum:
-            *result = type_entry->data.enumeration.layout == ContainerLayoutExtern ||
-                type_entry->data.enumeration.layout == ContainerLayoutPacked;
-            return ErrorNone;
+        case ZigTypeIdEnum: {
+            if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
+                return err;
+            ZigType *tag_int_type = type_entry->data.enumeration.tag_int_type;
+            if (type_entry->data.enumeration.has_explicit_tag_type) {
+                return type_allowed_in_extern(g, tag_int_type, result);
+            } else {
+                *result = type_entry->data.enumeration.layout == ContainerLayoutExtern ||
+                    type_entry->data.enumeration.layout == ContainerLayoutPacked;
+                return ErrorNone;
+            }
+        }
         case ZigTypeIdUnion:
             *result = type_entry->data.unionation.layout == ContainerLayoutExtern ||
                 type_entry->data.unionation.layout == ContainerLayoutPacked;
@@ -2639,9 +2647,11 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     if (decl_node->type == NodeTypeContainerDecl) {
         if (decl_node->data.container_decl.init_arg_expr != nullptr) {
             wanted_tag_int_type = analyze_type_expr(g, scope, decl_node->data.container_decl.init_arg_expr);
+            enum_type->data.enumeration.has_explicit_tag_type = true;
         }
     } else {
         wanted_tag_int_type = enum_type->data.enumeration.tag_int_type;
+        enum_type->data.enumeration.has_explicit_tag_type = true;
     }
 
     if (wanted_tag_int_type != nullptr) {

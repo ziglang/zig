@@ -1456,6 +1456,7 @@ struct ZigTypeEnum {
     ContainerLayout layout;
     ResolveStatus resolve_status;
 
+    bool has_explicit_tag_type;
     bool non_exhaustive;
     bool resolve_loop_flag;
 };
