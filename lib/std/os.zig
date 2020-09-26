@@ -4208,7 +4208,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             while (offset < buflen) {
                 const kf = @ptrCast(*system.kinfo_file, @alignCast(8, &buf[offset]));
                 if (kf.kf_fd == fd) {
-                    const end = mem.indexOfScalar(u8, &kf.path, 0) orelse MAX_PATH_BYTES - 1;
+                    const end = mem.indexOfScalar(u8, &kf.path, 0) orelse return error.NameTooLong;
                     mem.copy(u8, out_buffer, kf.path[0..end]);
                     return out_buffer[0..end];
                 }
