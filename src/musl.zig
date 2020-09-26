@@ -235,7 +235,7 @@ fn addSrcFile(arena: *Allocator, source_table: *std.StringArrayHashMap(Ext), fil
         const mutable_file_path = try arena.dupe(u8, file_path);
         for (mutable_file_path) |*c| {
             if (c.* == '/') {
-                c.* == path.sep;
+                c.* = path.sep;
             }
         }
         break :blk mutable_file_path;
