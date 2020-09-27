@@ -823,6 +823,15 @@ pub const Node = struct {
         }
     }
 
+    pub fn findFirstWithId(self: *Node, id: Id) ?*Node {
+        if (self.id == id) return self;
+        var child_i: usize = 0;
+        while (self.iterate(child_i)) |child| : (child_i += 1) {
+            if (child.findFirstWithId(id)) |result| return result;
+        }
+        return null;
+    }
+
     pub fn dump(self: *Node, indent: usize) void {
         {
             var i: usize = 0;
