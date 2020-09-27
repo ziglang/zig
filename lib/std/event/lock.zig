@@ -95,7 +95,7 @@ pub const Lock = struct {
     }
 
     pub fn acquire(self: *Lock) callconv(.Async) Held {
-        var my_tick_node = Loop.NextTickNode.init(@frame());
+        var my_tick_node = Loop.NextTickNode{ .data = @frame() };
 
         errdefer _ = self.queue.remove(&my_tick_node); // TODO test canceling an acquire
         suspend {
