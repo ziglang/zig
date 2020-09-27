@@ -13,8 +13,9 @@ pub const Tokenizer = tokenizer.Tokenizer;
 pub const parse = @import("c/parse.zig").parse;
 pub const ast = @import("c/ast.zig");
 
-test "" {
-    _ = tokenizer;
+comptime {
+    if (builtin.is_test)
+        _ = tokenizer;
 }
 
 pub usingnamespace @import("os/bits.zig");

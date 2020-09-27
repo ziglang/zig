@@ -42,16 +42,18 @@ comptime {
     assert(@import("std") == std); // std lib tests require --override-lib-dir
 }
 
-test "" {
-    _ = darwin;
-    _ = freebsd;
-    _ = linux;
-    _ = netbsd;
-    _ = uefi;
-    _ = wasi;
-    _ = windows;
+comptime {
+    if (builtin.is_tag) {
+        _ = darwin;
+        _ = freebsd;
+        _ = linux;
+        _ = netbsd;
+        _ = uefi;
+        _ = wasi;
+        _ = windows;
 
-    _ = @import("os/test.zig");
+        _ = @import("os/test.zig");
+    }
 }
 
 /// Applications can override the `system` API layer in their root source file.

@@ -124,13 +124,15 @@ pub fn __aeabi_llsr(a: i64, b: i32) callconv(.AAPCS) i64 {
     return __lshrdi3(a, b);
 }
 
-test "" {
-    _ = @import("ashrdi3_test.zig");
-    _ = @import("ashrti3_test.zig");
+comptime {
+    if (builtin.is_test) {
+        _ = @import("ashrdi3_test.zig");
+        _ = @import("ashrti3_test.zig");
 
-    _ = @import("ashldi3_test.zig");
-    _ = @import("ashlti3_test.zig");
+        _ = @import("ashldi3_test.zig");
+        _ = @import("ashlti3_test.zig");
 
-    _ = @import("lshrdi3_test.zig");
-    _ = @import("lshrti3_test.zig");
+        _ = @import("lshrdi3_test.zig");
+        _ = @import("lshrti3_test.zig");
+    }
 }

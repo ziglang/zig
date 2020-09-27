@@ -11,8 +11,9 @@ const mem = std.mem;
 const os = std.os;
 const fs = std.fs;
 
-test "" {
-    _ = @import("net/test.zig");
+comptime {
+    if (builtin.is_test)
+        _ = @import("net/test.zig");
 }
 
 const has_unix_sockets = @hasDecl(os, "sockaddr_un");

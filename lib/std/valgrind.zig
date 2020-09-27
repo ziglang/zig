@@ -140,7 +140,7 @@ pub fn nonSIMDCall3(func: fn (usize, usize, usize, usize) usize, a1: usize, a2: 
 /// VG_(unique_error)() for them to be counted.
 pub fn countErrors() usize {
     return doClientRequestExpr(0, // default return
-        .CountErrors, 0, 0, 0, 0, 0);
+    .CountErrors, 0, 0, 0, 0, 0);
 }
 
 pub fn mallocLikeBlock(mem: []u8, rzB: usize, is_zeroed: bool) void {
@@ -262,7 +262,9 @@ pub fn monitorCommand(command: [*]u8) bool {
 pub const memcheck = @import("valgrind/memcheck.zig");
 pub const callgrind = @import("valgrind/callgrind.zig");
 
-test "" {
-    _ = @import("valgrind/memcheck.zig");
-    _ = @import("valgrind/callgrind.zig");
+comptime {
+    if (builtin.is_test) {
+        _ = @import("valgrind/memcheck.zig");
+        _ = @import("valgrind/callgrind.zig");
+    }
 }

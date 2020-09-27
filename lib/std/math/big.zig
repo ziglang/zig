@@ -18,13 +18,13 @@ comptime {
     assert(std.math.floorPowerOfTwo(usize, limb_info.bits) == limb_info.bits);
     assert(limb_info.bits <= 64); // u128 set is unsupported
     assert(limb_info.is_signed == false);
-}
 
-test "" {
-    _ = int;
-    _ = Rational;
-    _ = Limb;
-    _ = DoubleLimb;
-    _ = SignedDoubleLimb;
-    _ = Log2Limb;
+    if (std.builtin.is_test) {
+        _ = int;
+        _ = Rational;
+        _ = Limb;
+        _ = DoubleLimb;
+        _ = SignedDoubleLimb;
+        _ = Log2Limb;
+    }
 }

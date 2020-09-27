@@ -223,6 +223,6 @@ pub const InstallRawStep = struct {
     }
 };
 
-test "" {
+comptime {
     std.meta.refAllDecls(InstallRawStep);
 }

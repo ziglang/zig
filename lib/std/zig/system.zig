@@ -933,6 +933,7 @@ pub const NativeTargetInfo = struct {
     }
 };
 
-test "" {
-    _ = @import("system/macos.zig");
+comptime {
+    if (std.builtin.is_test)
+        _ = @import("system/macos.zig");
 }

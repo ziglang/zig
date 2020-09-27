@@ -188,7 +188,7 @@ pub const Complex = complex.Complex;
 
 pub const big = @import("math/big.zig");
 
-test "" {
+comptime {
     std.meta.refAllDecls(@This());
 }
 

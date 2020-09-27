@@ -1139,6 +1139,6 @@ fn testRangeBias(r: *Random, start: i8, end: i8, biased: bool) void {
     }
 }
 
-test "" {
+comptime {
     std.meta.refAllDecls(@This());
 }

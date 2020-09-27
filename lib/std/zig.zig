@@ -194,6 +194,6 @@ test "parseCharLiteral" {
     std.testing.expectError(error.InvalidCharacter, parseCharLiteral("'\\u{FFFF}x'", &bad_index));
 }
 
-test "" {
-    @import("std").meta.refAllDecls(@This());
+comptime {
+    std.meta.refAllDecls(@This());
 }

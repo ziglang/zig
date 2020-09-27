@@ -207,22 +207,24 @@ test "null_writer" {
     null_writer.writeAll("yay" ** 10) catch |err| switch (err) {};
 }
 
-test "" {
-    _ = @import("io/bit_reader.zig");
-    _ = @import("io/bit_writer.zig");
-    _ = @import("io/buffered_atomic_file.zig");
-    _ = @import("io/buffered_reader.zig");
-    _ = @import("io/buffered_writer.zig");
-    _ = @import("io/c_writer.zig");
-    _ = @import("io/counting_writer.zig");
-    _ = @import("io/fixed_buffer_stream.zig");
-    _ = @import("io/reader.zig");
-    _ = @import("io/writer.zig");
-    _ = @import("io/peek_stream.zig");
-    _ = @import("io/seekable_stream.zig");
-    _ = @import("io/serialization.zig");
-    _ = @import("io/stream_source.zig");
-    _ = @import("io/test.zig");
+comptime {
+    if (builtin.is_test) {
+        _ = @import("io/bit_reader.zig");
+        _ = @import("io/bit_writer.zig");
+        _ = @import("io/buffered_atomic_file.zig");
+        _ = @import("io/buffered_reader.zig");
+        _ = @import("io/buffered_writer.zig");
+        _ = @import("io/c_writer.zig");
+        _ = @import("io/counting_writer.zig");
+        _ = @import("io/fixed_buffer_stream.zig");
+        _ = @import("io/reader.zig");
+        _ = @import("io/writer.zig");
+        _ = @import("io/peek_stream.zig");
+        _ = @import("io/seekable_stream.zig");
+        _ = @import("io/serialization.zig");
+        _ = @import("io/stream_source.zig");
+        _ = @import("io/test.zig");
+    }
 }
 
 pub const writeFile = @compileError("deprecated: use std.fs.Dir.writeFile with math.maxInt(usize)");

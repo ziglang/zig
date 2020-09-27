@@ -1836,6 +1836,7 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
 }
 
 // Reference everything so it gets tested.
-test "" {
-    _ = leb;
+comptime {
+    if (builtin.is_test)
+        _ = leb;
 }

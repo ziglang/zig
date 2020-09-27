@@ -1459,6 +1459,6 @@ pub const Target = struct {
     }
 };
 
-test "" {
+comptime {
     std.meta.refAllDecls(Target.Cpu.Arch);
 }

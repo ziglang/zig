@@ -1263,8 +1263,8 @@ pub fn prctl(option: i32, arg2: usize, arg3: usize, arg4: usize, arg5: usize) us
     return syscall5(.prctl, @bitCast(usize, @as(isize, option)), arg2, arg3, arg4, arg5);
 }
 
-test "" {
-    if (builtin.os.tag == .linux) {
+comptime {
+    if (builtin.is_test and builtin.os.tag == .linux) {
         _ = @import("linux/test.zig");
     }
 }
