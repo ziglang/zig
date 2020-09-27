@@ -1195,6 +1195,7 @@ pub const Tokenizer = struct {
                 },
                 .num_dot_hex => switch (c) {
                     '.' => {
+                        result.id = .IntegerLiteral;
                         self.index -= 1;
                         state = .start;
                         break;
@@ -1756,6 +1757,14 @@ test "correctly parse pointer assignment" {
         .IntegerLiteral,
         .Semicolon,
     });
+}
+
+test "tokenizer - range literals" {
+    testTokenize("0...9", &[_]Token.Id{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
+    testTokenize("'0'...'9'", &[_]Token.Id{ .CharLiteral, .Ellipsis3, .CharLiteral });
+    testTokenize("0x00...0x09", &[_]Token.Id{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
+    testTokenize("0b00...0b11", &[_]Token.Id{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
+    testTokenize("0o00...0o11", &[_]Token.Id{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
 }
 
 test "tokenizer - number literals decimal" {
