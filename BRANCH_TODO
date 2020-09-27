@@ -1,4 +1,3 @@
- * subsystem
  * COFF LLD linking
  * mingw-w64
  * MachO LLD linking

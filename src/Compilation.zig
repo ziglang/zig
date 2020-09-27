@@ -377,6 +377,7 @@ pub const InitOptions = struct {
     color: @import("main.zig").Color = .Auto,
     test_filter: ?[]const u8 = null,
     test_name_prefix: ?[]const u8 = null,
+    subsystem: ?std.Target.SubSystem = null,
 };
 
 pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
@@ -767,6 +768,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .is_compiler_rt_or_libc = options.is_compiler_rt_or_libc,
             .each_lib_rpath = options.each_lib_rpath orelse false,
             .disable_lld_caching = options.disable_lld_caching,
+            .subsystem = options.subsystem,
         });
         errdefer bin_file.destroy();
         comp.* = .{
@@ -2557,6 +2559,10 @@ fn updateStage1Module(comp: *Compilation) !void {
     const stage1_pkg = try createStage1Pkg(arena, "root", mod.root_pkg, null);
     const test_filter = comp.test_filter orelse ""[0..0];
     const test_name_prefix = comp.test_name_prefix orelse ""[0..0];
+    const subsystem = if (comp.bin_file.options.subsystem) |s|
+        @intToEnum(stage1.TargetSubsystem, @enumToInt(s))
+    else
+        stage1.TargetSubsystem.Auto;
     stage1_module.* = .{
         .root_name_ptr = comp.bin_file.options.root_name.ptr,
         .root_name_len = comp.bin_file.options.root_name.len,
@@ -2581,7 +2587,7 @@ fn updateStage1Module(comp: *Compilation) !void {
         .userdata = @ptrToInt(comp),
         .root_pkg = stage1_pkg,
         .code_model = @enumToInt(comp.bin_file.options.machine_code_model),
-        .subsystem = stage1.TargetSubsystem.Auto,
+        .subsystem = subsystem,
         .err_color = @enumToInt(comp.color),
         .pic = comp.bin_file.options.pic,
         .link_libc = comp.bin_file.options.link_libc,

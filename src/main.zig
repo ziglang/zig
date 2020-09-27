@@ -273,6 +273,7 @@ const usage_build_generic =
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  -dynamic                       Force output to be dynamically linked
     \\  -static                        Force output to be statically linked
+    \\  --subsystem [subsystem]        (windows) /SUBSYSTEM:<subsystem> to the linker\n"
     \\
     \\Test Options:
     \\  --test-filter [text]           Skip tests that do not match filter
@@ -439,6 +440,7 @@ fn buildOutputType(
     var override_lib_dir: ?[]const u8 = null;
     var main_pkg_path: ?[]const u8 = null;
     var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
+    var subsystem: ?std.Target.SubSystem = null;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -574,6 +576,39 @@ fn buildOutputType(
                             color = .Off;
                         } else {
                             fatal("expected [auto|on|off] after --color, found '{}'", .{next_arg});
+                        }
+                    } else if (mem.eql(u8, arg, "--subsystem")) {
+                        if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
+                        i += 1;
+                        if (mem.eql(u8, args[i], "console")) {
+                            subsystem = .Console;
+                        } else if (mem.eql(u8, args[i], "windows")) {
+                            subsystem = .Windows;
+                        } else if (mem.eql(u8, args[i], "posix")) {
+                            subsystem = .Posix;
+                        } else if (mem.eql(u8, args[i], "native")) {
+                            subsystem = .Native;
+                        } else if (mem.eql(u8, args[i], "efi_application")) {
+                            subsystem = .EfiApplication;
+                        } else if (mem.eql(u8, args[i], "efi_boot_service_driver")) {
+                            subsystem = .EfiBootServiceDriver;
+                        } else if (mem.eql(u8, args[i], "efi_rom")) {
+                            subsystem = .EfiRom;
+                        } else if (mem.eql(u8, args[i], "efi_runtime_driver")) {
+                            subsystem = .EfiRuntimeDriver;
+                        } else {
+                            fatal("invalid: --subsystem: '{s}'. Options are:\n{s}", .{
+                                args[i],
+                                \\  console
+                                \\  windows
+                                \\  posix
+                                \\  native
+                                \\  efi_application
+                                \\  efi_boot_service_driver
+                                \\  efi_rom
+                                \\  efi_runtime_driver
+                                \\
+                            });
                         }
                     } else if (mem.eql(u8, arg, "-O")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
@@ -1539,6 +1574,7 @@ fn buildOutputType(
         .test_filter = test_filter,
         .test_name_prefix = test_name_prefix,
         .disable_lld_caching = !have_enable_cache,
+        .subsystem = subsystem,
     }) catch |err| {
         fatal("unable to create compilation: {}", .{@errorName(err)});
     };

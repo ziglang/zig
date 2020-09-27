@@ -77,6 +77,7 @@ pub const Options = struct {
     disable_lld_caching: bool,
     gc_sections: ?bool = null,
     allow_shlib_undefined: ?bool = null,
+    subsystem: ?std.Target.SubSystem = null,
     linker_script: ?[]const u8 = null,
     version_script: ?[]const u8 = null,
     override_soname: ?[]const u8 = null,
