@@ -128,13 +128,11 @@ test "std.event.Lock" {
     // TODO https://github.com/ziglang/zig/issues/3251
     if (builtin.os.tag == .freebsd) return error.SkipZigTest;
 
-    // TODO this file has bit-rotted. repair it
-    if (true) return error.SkipZigTest;
-
     var lock = Lock.init();
     defer lock.deinit();
 
-    _ = async testLock(&lock);
+    var frame = async testLock(&lock);
+    await frame;
 
     const expected_result = [1]i32{3 * @intCast(i32, shared_test_data.len)} ** shared_test_data.len;
     testing.expectEqualSlices(i32, &expected_result, &shared_test_data);
