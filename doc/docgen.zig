@@ -4,7 +4,7 @@ const io = std.io;
 const fs = std.fs;
 const process = std.process;
 const ChildProcess = std.ChildProcess;
-const warn = std.debug.warn;
+const print = std.debug.print;
 const mem = std.mem;
 const testing = std.testing;
 
@@ -215,23 +215,23 @@ const Tokenizer = struct {
 fn parseError(tokenizer: *Tokenizer, token: Token, comptime fmt: []const u8, args: anytype) anyerror {
     const loc = tokenizer.getTokenLocation(token);
     const args_prefix = .{ tokenizer.source_file_name, loc.line + 1, loc.column + 1 };
-    warn("{}:{}:{}: error: " ++ fmt ++ "\n", args_prefix ++ args);
+    print("{}:{}:{}: error: " ++ fmt ++ "\n", args_prefix ++ args);
     if (loc.line_start <= loc.line_end) {
-        warn("{}\n", .{tokenizer.buffer[loc.line_start..loc.line_end]});
+        print("{}\n", .{tokenizer.buffer[loc.line_start..loc.line_end]});
         {
             var i: usize = 0;
             while (i < loc.column) : (i += 1) {
-                warn(" ", .{});
+                print(" ", .{});
             }
         }
         {
             const caret_count = token.end - token.start;
             var i: usize = 0;
             while (i < caret_count) : (i += 1) {
-                warn("~", .{});
+                print("~", .{});
             }
         }
-        warn("\n", .{});
+        print("\n", .{});
     }
     return error.ParseError;
 }
@@ -274,6 +274,7 @@ const Code = struct {
     link_objects: []const []const u8,
     target_str: ?[]const u8,
     link_libc: bool,
+    disable_cache: bool,
 
     const Id = union(enum) {
         Test,
@@ -522,6 +523,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                     defer link_objects.deinit();
                     var target_str: ?[]const u8 = null;
                     var link_libc = false;
+                    var disable_cache = false;
 
                     const source_token = while (true) {
                         const content_tok = try eatToken(tokenizer, Token.Id.Content);
@@ -532,6 +534,8 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             mode = .ReleaseFast;
                         } else if (mem.eql(u8, end_tag_name, "code_release_safe")) {
                             mode = .ReleaseSafe;
+                        } else if (mem.eql(u8, end_tag_name, "code_disable_cache")) {
+                            disable_cache = true;
                         } else if (mem.eql(u8, end_tag_name, "code_link_object")) {
                             _ = try eatToken(tokenizer, Token.Id.Separator);
                             const obj_tok = try eatToken(tokenizer, Token.Id.TagContent);
@@ -572,6 +576,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             .link_objects = link_objects.toOwnedSlice(),
                             .target_str = target_str,
                             .link_libc = link_libc,
+                            .disable_cache = disable_cache,
                         },
                     });
                     tokenizer.code_node_count += 1;
@@ -1032,7 +1037,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
             },
             .Code => |code| {
                 code_progress_index += 1;
-                warn("docgen example code {}/{}...", .{ code_progress_index, tokenizer.code_node_count });
+                print("docgen example code {}/{}...", .{ code_progress_index, tokenizer.code_node_count });
 
                 const raw_source = tokenizer.buffer[code.source_token.start..code.source_token.end];
                 const trimmed_raw_source = mem.trim(u8, raw_source, " \n");
@@ -1055,30 +1060,17 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
                         try build_args.appendSlice(&[_][]const u8{
-                            zig_exe,
-                            "build-exe",
-                            tmp_source_file_name,
-                            "--name",
-                            code.name,
-                            "--color",
-                            "on",
-                            "--cache",
-                            "on",
+                            zig_exe,          "build-exe",
+                            "--name",         code.name,
+                            "--color",        "on",
+                            "--enable-cache", tmp_source_file_name,
                         });
                         try out.print("<pre><code class=\"shell\">$ zig build-exe {}.zig", .{code.name});
                         switch (code.mode) {
                             .Debug => {},
-                            .ReleaseSafe => {
-                                try build_args.append("--release-safe");
-                                try out.print(" --release-safe", .{});
-                            },
-                            .ReleaseFast => {
-                                try build_args.append("--release-fast");
-                                try out.print(" --release-fast", .{});
-                            },
-                            .ReleaseSmall => {
-                                try build_args.append("--release-small");
-                                try out.print(" --release-small", .{});
+                            else => {
+                                try build_args.appendSlice(&[_][]const u8{ "-O", @tagName(code.mode) });
+                                try out.print(" -O {s}", .{@tagName(code.mode)});
                             },
                         }
                         for (code.link_objects) |link_object| {
@@ -1087,9 +1079,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                                 allocator,
                                 &[_][]const u8{ tmp_dir_name, name_with_ext },
                             );
-                            try build_args.append("--object");
                             try build_args.append(full_path_object);
-                            try out.print(" --object {}", .{name_with_ext});
+                            try out.print(" {s}", .{name_with_ext});
                         }
                         if (code.link_libc) {
                             try build_args.append("-lc");
@@ -1114,20 +1105,14 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                             switch (result.term) {
                                 .Exited => |exit_code| {
                                     if (exit_code == 0) {
-                                        warn("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
-                                        for (build_args.items) |arg|
-                                            warn("{} ", .{arg})
-                                        else
-                                            warn("\n", .{});
+                                        print("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
+                                        dumpArgs(build_args.items);
                                         return parseError(tokenizer, code.source_token, "example incorrectly compiled", .{});
                                     }
                                 },
                                 else => {
-                                    warn("{}\nThe following command crashed:\n", .{result.stderr});
-                                    for (build_args.items) |arg|
-                                        warn("{} ", .{arg})
-                                    else
-                                        warn("\n", .{});
+                                    print("{}\nThe following command crashed:\n", .{result.stderr});
+                                    dumpArgs(build_args.items);
                                     return parseError(tokenizer, code.source_token, "example compile crashed", .{});
                                 },
                             }
@@ -1174,11 +1159,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                             switch (result.term) {
                                 .Exited => |exit_code| {
                                     if (exit_code == 0) {
-                                        warn("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
-                                        for (run_args) |arg|
-                                            warn("{} ", .{arg})
-                                        else
-                                            warn("\n", .{});
+                                        print("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
+                                        dumpArgs(run_args);
                                         return parseError(tokenizer, code.source_token, "example incorrectly compiled", .{});
                                     }
                                 },
@@ -1206,27 +1188,13 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                         var test_args = std.ArrayList([]const u8).init(allocator);
                         defer test_args.deinit();
 
-                        try test_args.appendSlice(&[_][]const u8{
-                            zig_exe,
-                            "test",
-                            tmp_source_file_name,
-                            "--cache",
-                            "on",
-                        });
+                        try test_args.appendSlice(&[_][]const u8{ zig_exe, "test", tmp_source_file_name });
                         try out.print("<pre><code class=\"shell\">$ zig test {}.zig", .{code.name});
                         switch (code.mode) {
                             .Debug => {},
-                            .ReleaseSafe => {
-                                try test_args.append("--release-safe");
-                                try out.print(" --release-safe", .{});
-                            },
-                            .ReleaseFast => {
-                                try test_args.append("--release-fast");
-                                try out.print(" --release-fast", .{});
-                            },
-                            .ReleaseSmall => {
-                                try test_args.append("--release-small");
-                                try out.print(" --release-small", .{});
+                            else => {
+                                try test_args.appendSlice(&[_][]const u8{ "-O", @tagName(code.mode) });
+                                try out.print(" -O {s}", .{@tagName(code.mode)});
                             },
                         }
                         if (code.link_libc) {
@@ -1252,23 +1220,13 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                             "--color",
                             "on",
                             tmp_source_file_name,
-                            "--output-dir",
-                            tmp_dir_name,
                         });
                         try out.print("<pre><code class=\"shell\">$ zig test {}.zig", .{code.name});
                         switch (code.mode) {
                             .Debug => {},
-                            .ReleaseSafe => {
-                                try test_args.append("--release-safe");
-                                try out.print(" --release-safe", .{});
-                            },
-                            .ReleaseFast => {
-                                try test_args.append("--release-fast");
-                                try out.print(" --release-fast", .{});
-                            },
-                            .ReleaseSmall => {
-                                try test_args.append("--release-small");
-                                try out.print(" --release-small", .{});
+                            else => {
+                                try test_args.appendSlice(&[_][]const u8{ "-O", @tagName(code.mode) });
+                                try out.print(" -O {s}", .{@tagName(code.mode)});
                             },
                         }
                         const result = try ChildProcess.exec(.{
@@ -1280,25 +1238,19 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                         switch (result.term) {
                             .Exited => |exit_code| {
                                 if (exit_code == 0) {
-                                    warn("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
-                                    for (test_args.items) |arg|
-                                        warn("{} ", .{arg})
-                                    else
-                                        warn("\n", .{});
+                                    print("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
+                                    dumpArgs(test_args.items);
                                     return parseError(tokenizer, code.source_token, "example incorrectly compiled", .{});
                                 }
                             },
                             else => {
-                                warn("{}\nThe following command crashed:\n", .{result.stderr});
-                                for (test_args.items) |arg|
-                                    warn("{} ", .{arg})
-                                else
-                                    warn("\n", .{});
+                                print("{}\nThe following command crashed:\n", .{result.stderr});
+                                dumpArgs(test_args.items);
                                 return parseError(tokenizer, code.source_token, "example compile crashed", .{});
                             },
                         }
                         if (mem.indexOf(u8, result.stderr, error_match) == null) {
-                            warn("{}\nExpected to find '{}' in stderr", .{ result.stderr, error_match });
+                            print("{}\nExpected to find '{}' in stderr", .{ result.stderr, error_match });
                             return parseError(tokenizer, code.source_token, "example did not have expected compile error", .{});
                         }
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
@@ -1314,23 +1266,21 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                             zig_exe,
                             "test",
                             tmp_source_file_name,
-                            "--output-dir",
-                            tmp_dir_name,
                         });
                         var mode_arg: []const u8 = "";
                         switch (code.mode) {
                             .Debug => {},
                             .ReleaseSafe => {
-                                try test_args.append("--release-safe");
-                                mode_arg = " --release-safe";
+                                try test_args.append("-OReleaseSafe");
+                                mode_arg = "-OReleaseSafe";
                             },
                             .ReleaseFast => {
-                                try test_args.append("--release-fast");
-                                mode_arg = " --release-fast";
+                                try test_args.append("-OReleaseFast");
+                                mode_arg = "-OReleaseFast";
                             },
                             .ReleaseSmall => {
-                                try test_args.append("--release-small");
-                                mode_arg = " --release-small";
+                                try test_args.append("-OReleaseSmall");
+                                mode_arg = "-OReleaseSmall";
                             },
                         }
 
@@ -1343,25 +1293,19 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                         switch (result.term) {
                             .Exited => |exit_code| {
                                 if (exit_code == 0) {
-                                    warn("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
-                                    for (test_args.items) |arg|
-                                        warn("{} ", .{arg})
-                                    else
-                                        warn("\n", .{});
+                                    print("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
+                                    dumpArgs(test_args.items);
                                     return parseError(tokenizer, code.source_token, "example test incorrectly succeeded", .{});
                                 }
                             },
                             else => {
-                                warn("{}\nThe following command crashed:\n", .{result.stderr});
-                                for (test_args.items) |arg|
-                                    warn("{} ", .{arg})
-                                else
-                                    warn("\n", .{});
+                                print("{}\nThe following command crashed:\n", .{result.stderr});
+                                dumpArgs(test_args.items);
                                 return parseError(tokenizer, code.source_token, "example compile crashed", .{});
                             },
                         }
                         if (mem.indexOf(u8, result.stderr, error_match) == null) {
-                            warn("{}\nExpected to find '{}' in stderr", .{ result.stderr, error_match });
+                            print("{}\nExpected to find '{}' in stderr", .{ result.stderr, error_match });
                             return parseError(tokenizer, code.source_token, "example did not have expected runtime safety error message", .{});
                         }
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
@@ -1395,32 +1339,20 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                             "on",
                             "--name",
                             code.name,
-                            "--output-dir",
-                            tmp_dir_name,
+                            try std.fmt.allocPrint(allocator, "-femit-bin={s}{c}{s}", .{
+                                tmp_dir_name, fs.path.sep, name_plus_obj_ext,
+                            }),
                         });
-
                         if (!code.is_inline) {
                             try out.print("<pre><code class=\"shell\">$ zig build-obj {}.zig", .{code.name});
                         }
 
                         switch (code.mode) {
                             .Debug => {},
-                            .ReleaseSafe => {
-                                try build_args.append("--release-safe");
+                            else => {
+                                try build_args.appendSlice(&[_][]const u8{ "-O", @tagName(code.mode) });
                                 if (!code.is_inline) {
-                                    try out.print(" --release-safe", .{});
-                                }
-                            },
-                            .ReleaseFast => {
-                                try build_args.append("--release-fast");
-                                if (!code.is_inline) {
-                                    try out.print(" --release-fast", .{});
-                                }
-                            },
-                            .ReleaseSmall => {
-                                try build_args.append("--release-small");
-                                if (!code.is_inline) {
-                                    try out.print(" --release-small", .{});
+                                    try out.print(" -O {s}", .{@tagName(code.mode)});
                                 }
                             },
                         }
@@ -1440,25 +1372,19 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                             switch (result.term) {
                                 .Exited => |exit_code| {
                                     if (exit_code == 0) {
-                                        warn("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
-                                        for (build_args.items) |arg|
-                                            warn("{} ", .{arg})
-                                        else
-                                            warn("\n", .{});
+                                        print("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
+                                        dumpArgs(build_args.items);
                                         return parseError(tokenizer, code.source_token, "example build incorrectly succeeded", .{});
                                     }
                                 },
                                 else => {
-                                    warn("{}\nThe following command crashed:\n", .{result.stderr});
-                                    for (build_args.items) |arg|
-                                        warn("{} ", .{arg})
-                                    else
-                                        warn("\n", .{});
+                                    print("{}\nThe following command crashed:\n", .{result.stderr});
+                                    dumpArgs(build_args.items);
                                     return parseError(tokenizer, code.source_token, "example compile crashed", .{});
                                 },
                             }
                             if (mem.indexOf(u8, result.stderr, error_match) == null) {
-                                warn("{}\nExpected to find '{}' in stderr", .{ result.stderr, error_match });
+                                print("{}\nExpected to find '{}' in stderr", .{ result.stderr, error_match });
                                 return parseError(tokenizer, code.source_token, "example did not have expected compile error message", .{});
                             }
                             const escaped_stderr = try escapeHtml(allocator, result.stderr);
@@ -1472,6 +1398,12 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                         }
                     },
                     Code.Id.Lib => {
+                        const bin_basename = try std.zig.binNameAlloc(allocator, .{
+                            .root_name = code.name,
+                            .target = std.Target.current,
+                            .output_mode = .Lib,
+                        });
+
                         var test_args = std.ArrayList([]const u8).init(allocator);
                         defer test_args.deinit();
 
@@ -1479,23 +1411,16 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                             zig_exe,
                             "build-lib",
                             tmp_source_file_name,
-                            "--output-dir",
-                            tmp_dir_name,
+                            try std.fmt.allocPrint(allocator, "-femit-bin={s}{s}{s}", .{
+                                tmp_dir_name, fs.path.sep_str, bin_basename,
+                            }),
                         });
                         try out.print("<pre><code class=\"shell\">$ zig build-lib {}.zig", .{code.name});
                         switch (code.mode) {
                             .Debug => {},
-                            .ReleaseSafe => {
-                                try test_args.append("--release-safe");
-                                try out.print(" --release-safe", .{});
-                            },
-                            .ReleaseFast => {
-                                try test_args.append("--release-fast");
-                                try out.print(" --release-fast", .{});
-                            },
-                            .ReleaseSmall => {
-                                try test_args.append("--release-small");
-                                try out.print(" --release-small", .{});
+                            else => {
+                                try test_args.appendSlice(&[_][]const u8{ "-O", @tagName(code.mode) });
+                                try out.print(" -O {s}", .{@tagName(code.mode)});
                             },
                         }
                         if (code.target_str) |triple| {
@@ -1508,7 +1433,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: any
                         try out.print("\n{}{}</code></pre>\n", .{ escaped_stderr, escaped_stdout });
                     },
                 }
-                warn("OK\n", .{});
+                print("OK\n", .{});
             },
         }
     }
@@ -1524,20 +1449,14 @@ fn exec(allocator: *mem.Allocator, env_map: *std.BufMap, args: []const []const u
     switch (result.term) {
         .Exited => |exit_code| {
             if (exit_code != 0) {
-                warn("{}\nThe following command exited with code {}:\n", .{ result.stderr, exit_code });
-                for (args) |arg|
-                    warn("{} ", .{arg})
-                else
-                    warn("\n", .{});
+                print("{}\nThe following command exited with code {}:\n", .{ result.stderr, exit_code });
+                dumpArgs(args);
                 return error.ChildExitError;
             }
         },
         else => {
-            warn("{}\nThe following command crashed:\n", .{result.stderr});
-            for (args) |arg|
-                warn("{} ", .{arg})
-            else
-                warn("\n", .{});
+            print("{}\nThe following command crashed:\n", .{result.stderr});
+            dumpArgs(args);
             return error.ChildCrashed;
         },
     }
@@ -1545,9 +1464,13 @@ fn exec(allocator: *mem.Allocator, env_map: *std.BufMap, args: []const []const u
 }
 
 fn getBuiltinCode(allocator: *mem.Allocator, env_map: *std.BufMap, zig_exe: []const u8) ![]const u8 {
-    const result = try exec(allocator, env_map, &[_][]const u8{
-        zig_exe,
-        "builtin",
-    });
+    const result = try exec(allocator, env_map, &[_][]const u8{ zig_exe, "build-obj", "--show-builtin" });
     return result.stdout;
+}
+
+fn dumpArgs(args: []const []const u8) void {
+    for (args) |arg|
+        print("{} ", .{arg})
+    else
+        print("\n", .{});
 }

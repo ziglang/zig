@@ -7,16 +7,18 @@ const process = std.process;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const ast = std.zig.ast;
+const warn = std.log.warn;
+
 const Compilation = @import("Compilation.zig");
 const link = @import("link.zig");
 const Package = @import("Package.zig");
 const zir = @import("zir.zig");
 const build_options = @import("build_options");
-const warn = std.log.warn;
 const introspect = @import("introspect.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const translate_c = @import("translate_c.zig");
 const Cache = @import("Cache.zig");
+const target_util = @import("target.zig");
 
 pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.log.emerg(format, args);
@@ -773,6 +775,7 @@ fn buildOutputType(
                         dll_export_fns = false;
                     } else if (mem.eql(u8, arg, "--show-builtin")) {
                         show_builtin = true;
+                        emit_bin = .no;
                     } else if (mem.eql(u8, arg, "--strip")) {
                         strip = true;
                     } else if (mem.eql(u8, arg, "--single-threaded")) {
@@ -1219,12 +1222,12 @@ fn buildOutputType(
         var i: usize = 0;
         while (i < system_libs.items.len) {
             const lib_name = system_libs.items[i];
-            if (is_libc_lib_name(target_info.target, lib_name)) {
+            if (target_util.is_libc_lib_name(target_info.target, lib_name)) {
                 link_libc = true;
                 _ = system_libs.orderedRemove(i);
                 continue;
             }
-            if (is_libcpp_lib_name(target_info.target, lib_name)) {
+            if (target_util.is_libcpp_lib_name(target_info.target, lib_name)) {
                 link_libcpp = true;
                 _ = system_libs.orderedRemove(i);
                 continue;
@@ -2808,62 +2811,6 @@ pub const ClangArgIterator = struct {
         }
     }
 };
-
-fn eqlIgnoreCase(ignore_case: bool, a: []const u8, b: []const u8) bool {
-    if (ignore_case) {
-        return std.ascii.eqlIgnoreCase(a, b);
-    } else {
-        return mem.eql(u8, a, b);
-    }
-}
-
-fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
-    const ignore_case = target.os.tag.isDarwin() or target.os.tag == .windows;
-
-    if (eqlIgnoreCase(ignore_case, name, "c"))
-        return true;
-
-    if (target.isMinGW()) {
-        if (eqlIgnoreCase(ignore_case, name, "m"))
-            return true;
-
-        return false;
-    }
-
-    if (target.abi.isGnu() or target.abi.isMusl() or target.os.tag.isDarwin()) {
-        if (eqlIgnoreCase(ignore_case, name, "m"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "rt"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "pthread"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "crypt"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "util"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "xnet"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "resolv"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "dl"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "util"))
-            return true;
-    }
-
-    if (target.os.tag.isDarwin() and eqlIgnoreCase(ignore_case, name, "System"))
-        return true;
-
-    return false;
-}
-
-fn is_libcpp_lib_name(target: std.Target, name: []const u8) bool {
-    const ignore_case = target.os.tag.isDarwin() or target.os.tag == .windows;
-
-    return eqlIgnoreCase(ignore_case, name, "c++") or
-        eqlIgnoreCase(ignore_case, name, "stdc++") or
-        eqlIgnoreCase(ignore_case, name, "c++abi");
-}
 
 fn parseCodeModel(arg: []const u8) std.builtin.CodeModel {
     return std.meta.stringToEnum(std.builtin.CodeModel, arg) orelse

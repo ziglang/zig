@@ -223,3 +223,59 @@ pub fn osToLLVM(os_tag: std.Target.Os.Tag) llvm.OSType {
         .emscripten => .Emscripten,
     };
 }
+
+fn eqlIgnoreCase(ignore_case: bool, a: []const u8, b: []const u8) bool {
+    if (ignore_case) {
+        return std.ascii.eqlIgnoreCase(a, b);
+    } else {
+        return std.mem.eql(u8, a, b);
+    }
+}
+
+pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
+    const ignore_case = target.os.tag.isDarwin() or target.os.tag == .windows;
+
+    if (eqlIgnoreCase(ignore_case, name, "c"))
+        return true;
+
+    if (target.isMinGW()) {
+        if (eqlIgnoreCase(ignore_case, name, "m"))
+            return true;
+
+        return false;
+    }
+
+    if (target.abi.isGnu() or target.abi.isMusl() or target.os.tag.isDarwin()) {
+        if (eqlIgnoreCase(ignore_case, name, "m"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "rt"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "pthread"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "crypt"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "util"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "xnet"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "resolv"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "dl"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "util"))
+            return true;
+    }
+
+    if (target.os.tag.isDarwin() and eqlIgnoreCase(ignore_case, name, "System"))
+        return true;
+
+    return false;
+}
+
+pub fn is_libcpp_lib_name(target: std.Target, name: []const u8) bool {
+    const ignore_case = target.os.tag.isDarwin() or target.os.tag == .windows;
+
+    return eqlIgnoreCase(ignore_case, name, "c++") or
+        eqlIgnoreCase(ignore_case, name, "stdc++") or
+        eqlIgnoreCase(ignore_case, name, "c++abi");
+}

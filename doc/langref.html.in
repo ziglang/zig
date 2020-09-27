@@ -1078,6 +1078,7 @@ const nan = std.math.nan(f128);
           but you can switch to {#syntax#}Optimized{#endsyntax#} mode on a per-block basis:</p>
       {#code_begin|obj|foo#}
       {#code_release_fast#}
+      {#code_disable_cache#}
 const std = @import("std");
 const builtin = std.builtin;
 const big = @as(f64, 1 << 40);

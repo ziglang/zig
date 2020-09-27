@@ -117,8 +117,8 @@ struct Stage2ProgressNode;
 
 enum BuildMode {
     BuildModeDebug,
-    BuildModeFastRelease,
     BuildModeSafeRelease,
+    BuildModeFastRelease,
     BuildModeSmallRelease,
 };
 

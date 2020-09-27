@@ -2347,7 +2347,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
             \\    exit(0);
             \\}
         , &[_][]const u8{
-            "tmp.zig:3:5: error: dependency on library c must be explicitly specified in the build command",
+            "tmp.zig:3:5: error: dependency on libc must be explicitly specified in the build command",
         });
 
         cases.addTest("libc headers note",

@@ -1,18 +1,15 @@
- * restore the legacy -femit-h feature using the stage1 backend
- * tests passing with -Dskip-non-native
- * `-ftime-report`
- *  -fstack-report               print stack size diagnostics\n"
+ * MachO LLD linking
  * subsystem
  * mingw-w64
- * MachO LLD linking
  * COFF LLD linking
  * WASM LLD linking
  * audit the CLI options for stage2
  * audit the base cache hash
  * On operating systems that support it, do an execve for `zig test` and `zig run` rather than child process.
- * restore error messages for stage2_add_link_lib
  * windows CUSTOMBUILD : error : unable to build compiler_rt: FileNotFound [D:\a\1\s\build\zig_install_lib_files.vcxproj]
  * try building some software with zig cc to make sure it didn't regress
+ * `-ftime-report`
+ *  -fstack-report               print stack size diagnostics\n"
 
  * implement proper parsing of clang stderr/stdout and exposing compile errors with the Compilation API
  * implement proper parsing of LLD stderr/stdout and exposing compile errors with the Compilation API
@@ -51,3 +48,4 @@
  * update musl.zig static data to use native path separator in static data rather than replacing '/' at runtime
  * linking hello world with LLD, lld is silently calling exit(1) instead of reporting ok=false. when run standalone the error message is: ld.lld: error: section [index 3] has a sh_offset (0x57000) + sh_size (0x68) that is greater than the file size (0x57060)
  * submit PR to godbolt and update the CLI options (see changes to test/cli.zig)
+ * make proposal about log levels

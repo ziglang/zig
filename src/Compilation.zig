@@ -714,6 +714,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             };
         };
 
+        if (!use_llvm and options.emit_h != null) {
+            fatal("TODO implement support for -femit-h in the self-hosted backend", .{});
+        }
+
         const bin_file = try link.File.openPath(gpa, .{
             .emit = bin_file_emit,
             .root_name = root_name,
@@ -1313,13 +1317,13 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         const tmp_dir_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &tmp_digest });
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
         defer zig_cache_tmp_dir.close();
-        const cimport_c_basename = "cimport.c";
+        const cimport_basename = "cimport.h";
         const out_h_path = try comp.local_cache_directory.join(arena, &[_][]const u8{
-            tmp_dir_sub_path, cimport_c_basename,
+            tmp_dir_sub_path, cimport_basename,
         });
         const out_dep_path = try std.fmt.allocPrint(arena, "{}.d", .{out_h_path});
 
-        try zig_cache_tmp_dir.writeFile(cimport_c_basename, c_src);
+        try zig_cache_tmp_dir.writeFile(cimport_basename, c_src);
         if (comp.verbose_cimport) {
             log.info("C import source: {}", .{out_h_path});
         }
@@ -2542,6 +2546,9 @@ fn updateStage1Module(comp: *Compilation) !void {
         });
         break :blk try directory.join(arena, &[_][]const u8{bin_basename});
     } else "";
+    if (comp.emit_h != null) {
+        log.warn("-femit-h is not available in the stage1 backend; no .h file will be produced", .{});
+    }
     const emit_h_path = try stage1LocPath(arena, comp.emit_h, directory);
     const emit_asm_path = try stage1LocPath(arena, comp.emit_asm, directory);
     const emit_llvm_ir_path = try stage1LocPath(arena, comp.emit_llvm_ir, directory);
