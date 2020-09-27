@@ -1705,6 +1705,7 @@ pub fn PerfBuffer(comptime T: type) type {
         contexts: std.ArrayListUnmanaged(Context),
         channel: Channel(Payload),
         channel_buf: []Payload,
+        running: std.atomic.Int(bool),
 
         const Self = @This();
 
@@ -1732,7 +1733,7 @@ pub fn PerfBuffer(comptime T: type) type {
             mmap: []align(4096) u8,
 
             pub fn init(fd: fd_t, mmap_size: usize) !RingBuffer {
-                return .{
+                return RingBuffer{
                     .mmap = try std.os.mmap(
                         null,
                         mmap_size + mem.page_size,
@@ -1748,7 +1749,7 @@ pub fn PerfBuffer(comptime T: type) type {
                 std.os.munmap(self.mmap);
             }
 
-            pub fn read_event(self: Self, allocator: *Allocator) !?Event {
+            pub fn read_event(self: RingBuffer, allocator: *mem.Allocator) !?Event {
                 const header = @ptrCast(*volatile perf.MmapPage, self.mmap.ptr);
                 const head = header.data_head;
                 const tail = header.data_tail;
@@ -1763,7 +1764,7 @@ pub fn PerfBuffer(comptime T: type) type {
                 return switch (ehdr.type) {
                     perf.RECORD_SAMPLE => blk: {
                         const offset = mem.page_size + ((start + @byteOffsetOf(perf.SampleRaw, "size")) % size);
-                        const sample_size = @ptrCast(*const u32, &std.mmap[offset]).*;
+                        const sample_size = @ptrCast(*const u32, @alignCast(@alignOf(*const u32), &self.mmap[offset])).*;
                         const sample_start = mem.page_size + ((start + @sizeOf(perf.SampleRaw)) % size);
 
                         var buf = try allocator.alloc(u8, sample_size);
@@ -1771,16 +1772,16 @@ pub fn PerfBuffer(comptime T: type) type {
                             const first_len = self.mmap.len - sample_start;
                             const second_len = sample_size - first_len;
                             mem.copy(u8, buf, self.mmap[sample_start..]);
-                            mem.copy(u8, buf[first_len..], self.mmap.len[mem.page_size .. mem.page_size + second_len]);
+                            mem.copy(u8, buf[first_len..], self.mmap[mem.page_size .. mem.page_size + second_len]);
                         } else {
-                            mem.copy(u8, buf, self.mmap[sample_start .. sample_start + sample_len]);
+                            mem.copy(u8, buf, self.mmap[sample_start .. sample_start + sample_size]);
                         }
 
                         break :blk .{ .sample = buf };
                     },
                     perf.RECORD_LOST => blk: {
-                        const offset = mem.page_size + ((start + @byteOffsetOf(perf.SampleRaw, "lost")) % size);
-                        break :blk .{ .lost = @ptrCast(*const u64, &std.mmap[offset]).* };
+                        const offset = mem.page_size + ((start + @byteOffsetOf(perf.SampleLost, "lost")) % size);
+                        break :blk .{ .lost = @ptrCast(*const u64, @alignCast(@alignOf(*const u64), &self.mmap[offset])).* };
                     },
                     else => error.UnknownEvent,
                 };
@@ -1826,17 +1827,25 @@ pub fn PerfBuffer(comptime T: type) type {
             }
 
             fn read(self: CpuBuf, allocator: *mem.Allocator) !?Payload {
-                return = .{
+                return Payload{
                     .cpu = self.cpu,
-                    .event = (try self.ring_buffer.read_event(allocator)) orelse return null,
+                    .event = ((try self.ring_buffer.read_event(allocator)) orelse return null),
                 };
             }
 
-            pub fn process(self: CpuBuf, allocator: *mem.Allocator, channel: *Channel(Payload)) callconv(.Async) void {
-                while (true) {
+            pub fn process(
+                self: CpuBuf,
+                allocator: *mem.Allocator,
+                running: *std.atomic.Int(bool),
+                channel: *Channel(Payload),
+            ) callconv(.Async) void {
+                while (running.get()) {
+                    std.debug.print("{} waiting for readable\n", .{self.cpu});
                     std.event.Loop.instance.?.waitUntilFdWritable(self.fd);
+                    std.debug.print("{} continuing for readable\n", .{self.cpu});
 
-                    while (self.read(allocator) catch |err| @panic(@errorName(err))) |payload| {
+                    // TODO: might need to panic here instead of returning null
+                    while (self.read(allocator) catch null) |payload| {
                         channel.put(payload);
                     }
                 }
@@ -1862,6 +1871,7 @@ pub fn PerfBuffer(comptime T: type) type {
             ret.allocator = allocator;
             ret.channel_buf = try allocator.alloc(Payload, cpu_count);
             ret.channel.init(ret.channel_buf);
+            ret.running = std.atomic.Int(bool).init(false);
             errdefer ret.channel.deinit();
 
             ret.contexts = try std.ArrayListUnmanaged(Context).initCapacity(allocator, cpu_count);
@@ -1879,6 +1889,10 @@ pub fn PerfBuffer(comptime T: type) type {
             return ret;
         }
 
+        pub fn stop(self: *Self) void {
+            self.running.set(false);
+        }
+
         pub fn deinit(self: *Self) void {
             self.channel.deinit();
             for (self.contexts.items) |ctx| ctx.cpubuf.deinit();
@@ -1893,8 +1907,9 @@ pub fn PerfBuffer(comptime T: type) type {
         }
 
         pub fn run(self: *Self) callconv(.Async) void {
+            self.running.set(true);
             for (self.contexts.items) |*ctx| {
-                ctx.frame = async ctx.cpubuf.process(self.allocator, &self.channel);
+                ctx.frame = async ctx.cpubuf.process(self.allocator, &self.running, &self.channel);
             }
         }
     };
