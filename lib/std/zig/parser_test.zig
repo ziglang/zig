@@ -262,7 +262,7 @@ test "zig fmt: empty file" {
     );
 }
 
-test "zig fmt: if statment" {
+test "zig fmt: if statement" {
     try testCanonical(
         \\test "" {
         \\    if (optional()) |some|
