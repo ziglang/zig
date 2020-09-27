@@ -13,26 +13,26 @@ pub const EVENT_IOC_ENABLE = @bitCast(u32, IO('$', 0));
 pub const EVENT_IOC_DISABLE = @bitCast(u32, IO('$', 1));
 pub const set_bpf = @bitCast(u32, IOW('$', 8, fd_t));
 
-pub const EventHeader = packed struct {
+pub const EventHeader = extern struct {
     type: u32,
     misc: u16,
     size: u16,
 };
 
-pub const SampleRaw = packed struct {
+pub const SampleRaw = extern struct {
     header: EventHeader,
     size: u32,
     // data afterwards
 };
 
-pub const SampleLost = packed struct {
+pub const SampleLost = extern struct {
     header: EventHeader,
     id: u64,
     lost: u64,
     sample_id: u64,
 };
 
-pub const MmapPage = packed struct {
+pub const MmapPage = extern struct {
     version: u32,
     compat_version: u32,
     lock: u32,
@@ -58,29 +58,29 @@ pub const MmapPage = packed struct {
     aux_size: u64,
 };
 
-pub const EventAttr = packed struct {
+pub const EventAttr = extern struct {
     type: u32,
     size: u32,
     config: u64,
-    sample: packed union {
+    sample: extern union {
         period: u64,
         freq: u64,
     },
     sample_type: u64,
     read_format: u64,
     flags: u64, // TODO: expand
-    wakeup: packed union {
+    wakeup: extern union {
         events: u32,
         watermark: u32,
     },
     bp_type: u32,
-    unnamed_1: packed union {
+    unnamed_1: extern union {
         bp_addr: u64,
         kprobe_func: u64,
         uprobe_func: u64,
         config1: u64,
     },
-    unnamed_2: packed union {
+    unnamed_2: extern union {
         bp_len: u64,
         kprobe_addr: u64,
         probe_offset: u64,

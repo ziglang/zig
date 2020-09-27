@@ -1758,7 +1758,7 @@ pub fn PerfBuffer(comptime T: type) type {
 
                 const size = self.mmap.len - mem.page_size;
                 const start = tail % size;
-                const ehdr = @ptrCast(*perf.EventHeader, &self.mmap[mem.page_size + start]);
+                const ehdr = @ptrCast(*perf.EventHeader, @alignCast(@alignOf(*perf.EventHeader), &self.mmap[mem.page_size + start]));
                 defer header.data_tail += ehdr.size;
 
                 return switch (ehdr.type) {
@@ -1806,9 +1806,9 @@ pub fn PerfBuffer(comptime T: type) type {
                 const rc = std.os.linux.syscall5(
                     .perf_event_open,
                     @ptrToInt(&attr),
-                    std.math.maxInt(usize),
+                    @bitCast(usize, @as(isize, -1)),
                     @intCast(usize, cpu),
-                    std.math.maxInt(usize),
+                    @bitCast(usize, @as(isize, -1)),
                     perf.FLAG_FD_CLOEXEC,
                 );
                 const fd = try switch (std.os.linux.getErrno(rc)) {

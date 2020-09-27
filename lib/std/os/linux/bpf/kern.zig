@@ -23,14 +23,14 @@ pub fn Map(
     comptime Key: type,
     comptime Value: type,
 ) type {
-    return packed struct {
+    return struct {
         def: MapDef,
 
         const Self = @This();
 
         pub fn init(map_type: BPF.MapType, max_entries: u32, flags: u32) Self {
-            return .{
-                .def = .{
+            return Self{
+                .def = MapDef{
                     .type = @enumToInt(map_type),
                     .key_size = @sizeOf(Key),
                     .value_size = @sizeOf(Value),
@@ -81,7 +81,7 @@ pub fn HashMap(
     comptime Key: type,
     comptime Value: type,
 ) type {
-    return packed struct {
+    return struct {
         map: Map(Key, Value),
 
         const Self = @This();
@@ -91,11 +91,23 @@ pub fn HashMap(
                 .map = Map(Key, Value).init(.hash, max_entries, flags),
             };
         }
+
+        pub fn lookup(self: Self, key: Key) ?*Value {
+            return self.map.lookup(key);
+        }
+
+        pub fn update(self: Self, key: Key, value: Value, flags: u64) !void {
+            return self.map.update(key, value, flags);
+        }
+
+        pub fn delete(self: Self, key: Key) !void {
+            return self.map.delete(key);
+        }
     };
 }
 
 pub fn ArrayMap(comptime Value: type) type {
-    return packed struct {
+    return struct {
         map: Map(u32, Value),
 
         const Self = @This();
@@ -104,6 +116,18 @@ pub fn ArrayMap(comptime Value: type) type {
             return .{
                 .map = Map(u32, Value).init(.array, max_entries, flags),
             };
+        }
+
+        pub fn lookup(self: Self, key: u32) ?*Value {
+            return self.map.lookup(key);
+        }
+
+        pub fn update(self: Self, key: u32, value: Value, flags: u64) !void {
+            return self.map.update(key, value, flags);
+        }
+
+        pub fn delete(self: Self, key: u32) !void {
+            return self.map.delete(key);
         }
     };
 }
