@@ -50,23 +50,12 @@ fn usage(exe: []const u8) !void {
 
 // TODO use copy_file_range
 fn cat_file(stdout: fs.File, file: fs.File) !void {
-    var buf: [1024 * 4]u8 = undefined;
+    var fifo = std.fifo.LinearFifo(u8, .{ .Static = 1024 * 4 }).init();
 
-    while (true) {
-        const bytes_read = file.read(buf[0..]) catch |err| {
-            warn("Unable to read from stream: {}\n", .{@errorName(err)});
-            return err;
-        };
-
-        if (bytes_read == 0) {
-            break;
-        }
-
-        stdout.writeAll(buf[0..bytes_read]) catch |err| {
-            warn("Unable to write to stdout: {}\n", .{@errorName(err)});
-            return err;
-        };
-    }
+    fifo.pump(file.reader(), stdout.writer()) catch |err| {
+        warn("Unable to read from stream or write to stdout: {}\n", .{@errorName(err)});
+        return err;
+    };
 }
 
 fn unwrapArg(arg: anyerror![]u8) ![]u8 {
