@@ -43,7 +43,7 @@ comptime {
 }
 
 comptime {
-    if (builtin.is_tag) {
+    if (builtin.is_test) {
         _ = darwin;
         _ = freebsd;
         _ = linux;
