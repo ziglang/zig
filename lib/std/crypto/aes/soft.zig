@@ -125,12 +125,32 @@ pub const Block = struct {
         return Block{ .repr = BlockVec{ s0, s1, s2, s3 } };
     }
 
-    /// XOR the content of two blocks.
-    pub inline fn xor(block1: Block, block2: Block) Block {
+    /// Apply the bitwise XOR operation to the content of two blocks.
+    pub inline fn xorBlocks(block1: Block, block2: Block) Block {
         var x: BlockVec = undefined;
         comptime var i = 0;
         inline while (i < 4) : (i += 1) {
             x[i] = block1.repr[i] ^ block2.repr[i];
+        }
+        return Block{ .repr = x };
+    }
+
+    /// Apply the bitwise AND operation to the content of two blocks.
+    pub inline fn andBlocks(block1: Block, block2: Block) Block {
+        var x: BlockVec = undefined;
+        comptime var i = 0;
+        inline while (i < 4) : (i += 1) {
+            x[i] = block1.repr[i] & block2.repr[i];
+        }
+        return Block{ .repr = x };
+    }
+
+    /// Apply the bitwise OR operation to the content of two blocks.
+    pub inline fn orBlocks(block1: Block, block2: Block) Block {
+        var x: BlockVec = undefined;
+        comptime var i = 0;
+        inline while (i < 4) : (i += 1) {
+            x[i] = block1.repr[i] | block2.repr[i];
         }
         return Block{ .repr = x };
     }
@@ -283,7 +303,7 @@ pub fn AESEncryptCtx(comptime AES: type) type {
         /// Encrypt a single block.
         pub fn encrypt(ctx: Self, dst: *[16]u8, src: *const [16]u8) void {
             const round_keys = ctx.key_schedule.round_keys;
-            var t = Block.fromBytes(src).xor(round_keys[0]);
+            var t = Block.fromBytes(src).xorBlocks(round_keys[0]);
             comptime var i = 1;
             inline while (i < rounds) : (i += 1) {
                 t = t.encrypt(round_keys[i]);
@@ -295,7 +315,7 @@ pub fn AESEncryptCtx(comptime AES: type) type {
         /// Encrypt+XOR a single block.
         pub fn xor(ctx: Self, dst: *[16]u8, src: *const [16]u8, counter: [16]u8) void {
             const round_keys = ctx.key_schedule.round_keys;
-            var t = Block.fromBytes(&counter).xor(round_keys[0]);
+            var t = Block.fromBytes(&counter).xorBlocks(round_keys[0]);
             comptime var i = 1;
             inline while (i < rounds) : (i += 1) {
                 t = t.encrypt(round_keys[i]);
@@ -349,7 +369,7 @@ pub fn AESDecryptCtx(comptime AES: type) type {
         /// Decrypt a single block.
         pub fn decrypt(ctx: Self, dst: *[16]u8, src: *const [16]u8) void {
             const inv_round_keys = ctx.key_schedule.round_keys;
-            var t = Block.fromBytes(src).xor(inv_round_keys[0]);
+            var t = Block.fromBytes(src).xorBlocks(inv_round_keys[0]);
             comptime var i = 1;
             inline while (i < rounds) : (i += 1) {
                 t = t.decrypt(inv_round_keys[i]);
