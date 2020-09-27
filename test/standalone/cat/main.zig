@@ -3,10 +3,14 @@ const io = std.io;
 const process = std.process;
 const fs = std.fs;
 const mem = std.mem;
-const warn = std.debug.warn;
-const allocator = std.testing.allocator;
+const warn = std.log.warn;
+
+var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+const allocator = &general_purpose_allocator.allocator;
 
 pub fn main() !void {
+    defer _ = general_purpose_allocator.deinit();
+
     var args_it = process.args();
     const exe = try unwrapArg(args_it.next(allocator).?);
     var catted_anything = false;
