@@ -21,11 +21,6 @@ const linux_riscv64 = std.zig.CrossTarget{
     .os_tag = .linux,
 };
 
-const linux_arm = std.zig.CrossTarget{
-    .cpu_arch = .arm,
-    .os_tag = .linux,
-};
-
 const wasi = std.zig.CrossTarget{
     .cpu_arch = .wasm32,
     .os_tag = .wasi,
@@ -35,6 +30,7 @@ pub fn addCases(ctx: *TestContext) !void {
     try @import("zir.zig").addCases(ctx);
     try @import("cbe.zig").addCases(ctx);
     try @import("spu-ii.zig").addCases(ctx);
+    try @import("arm.zig").addCases(ctx);
 
     {
         var case = ctx.exe("hello world with updates", linux_x64);
@@ -76,7 +72,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "Hello, World!\n",
         );
         // Now change the message only
@@ -108,7 +104,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "What is up? This is a longer message that will force the data to be relocated in virtual address space.\n",
         );
         // Now we print it twice.
@@ -184,42 +180,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
-            "Hello, World!\n",
-        );
-    }
-
-    {
-        var case = ctx.exe("hello world", linux_arm);
-        // Regular old hello world
-        case.addCompareOutput(
-            \\export fn _start() noreturn {
-            \\    print();
-            \\    exit();
-            \\}
-            \\
-            \\fn print() void {
-            \\    asm volatile ("svc #0"
-            \\        :
-            \\        : [number] "{r7}" (4),
-            \\          [arg1] "{r0}" (1),
-            \\          [arg2] "{r1}" (@ptrToInt("Hello, World!\n")),
-            \\          [arg3] "{r2}" (14)
-            \\        : "memory"
-            \\    );
-            \\    return;
-            \\}
-            \\
-            \\fn exit() noreturn {
-            \\    asm volatile ("svc #0"
-            \\        :
-            \\        : [number] "{r7}" (1),
-            \\          [arg1] "{r0}" (0)
-            \\        : "memory"
-            \\    );
-            \\    unreachable;
-            \\}
-            ,
+        ,
             "Hello, World!\n",
         );
     }
@@ -244,7 +205,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "Hello, World!\n",
         );
     }
@@ -271,7 +232,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "",
         );
     }
@@ -298,7 +259,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "",
         );
     }
@@ -329,7 +290,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "",
         );
 
@@ -362,7 +323,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "",
         );
 
@@ -398,7 +359,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "",
         );
 
@@ -435,7 +396,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "",
         );
 
@@ -465,7 +426,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "",
         );
 
@@ -499,7 +460,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "",
         );
 
@@ -523,7 +484,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "",
         );
 
@@ -562,7 +523,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "hello\nhello\nhello\nhello\n",
         );
 
@@ -599,7 +560,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "",
         );
 
@@ -641,7 +602,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "",
         );
 
@@ -693,7 +654,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "",
         );
 
@@ -755,7 +716,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "",
         );
 
@@ -788,7 +749,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "",
         );
 
@@ -820,7 +781,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "",
         );
 
@@ -845,7 +806,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "",
         );
 
@@ -871,7 +832,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "",
         );
 
@@ -904,7 +865,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "hello\nhello\nhello\nhello\nhello\n",
         );
     }
@@ -923,7 +884,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    bar();
             \\}
             \\fn bar() void {}
-            ,
+        ,
             "42\n",
         );
 
@@ -941,7 +902,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    bar();
             \\}
             \\fn bar() void {}
-            ,
+        ,
             "42\n",
         );
 
@@ -957,10 +918,10 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    bar();
             \\}
             \\fn bar() void {}
-            ,
-            // This is what you get when you take the bits of the IEE-754
-            // representation of 42.0 and reinterpret them as an unsigned
-            // integer. Guess that's a bug in wasmtime.
+        ,
+        // This is what you get when you take the bits of the IEE-754
+        // representation of 42.0 and reinterpret them as an unsigned
+        // integer. Guess that's a bug in wasmtime.
             "1109917696\n",
         );
     }

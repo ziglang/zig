@@ -402,7 +402,7 @@ pub const Instruction = union(enum) {
         return Instruction{
             .DataProcessing = .{
                 .cond = @enumToInt(cond),
-                .i = if (op2 == .Immediate) 1 else 0,
+                .i = @boolToInt(op2 == .Immediate),
                 .opcode = @enumToInt(opcode),
                 .s = s,
                 .rn = rn.id(),
@@ -430,11 +430,11 @@ pub const Instruction = union(enum) {
                 .rd = rd.id(),
                 .offset = offset.toU12(),
                 .load_store = load_store,
-                .write_back = if (write_back) 1 else 0,
+                .write_back = @boolToInt(write_back),
                 .byte_word = byte_word,
-                .up_down = if (positive) 1 else 0,
-                .pre_post = if (pre_index) 1 else 0,
-                .imm = if (offset == .Immediate) 0 else 1,
+                .up_down = @boolToInt(positive),
+                .pre_post = @boolToInt(pre_index),
+                .imm = @boolToInt(offset != .Immediate),
             },
         };
     }
@@ -454,7 +454,7 @@ pub const Instruction = union(enum) {
                 .register_list = @bitCast(u16, reg_list),
                 .rn = rn.id(),
                 .load_store = load_store,
-                .write_back = if (write_back) 1 else 0,
+                .write_back = @boolToInt(write_back),
                 .psr_or_user = psr_or_user,
                 .up_down = up_down,
                 .pre_post = pre_post,
