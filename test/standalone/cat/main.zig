@@ -13,6 +13,7 @@ pub fn main() !void {
 
     var args_it = process.args();
     const exe = try unwrapArg(args_it.next(allocator).?);
+    defer allocator.free(exe);
     var catted_anything = false;
     const stdout_file = io.getStdOut();
 
@@ -20,6 +21,7 @@ pub fn main() !void {
 
     while (args_it.next(allocator)) |arg_or_err| {
         const arg = try unwrapArg(arg_or_err);
+        defer allocator.free(arg);
         if (mem.eql(u8, arg, "-")) {
             catted_anything = true;
             try cat_file(stdout_file, io.getStdIn());
