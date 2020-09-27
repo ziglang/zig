@@ -417,7 +417,11 @@ pub const File = struct {
         const module_obj_path: ?[]const u8 = if (base.options.module) |module| blk: {
             const use_stage1 = build_options.is_stage1 and base.options.use_llvm;
             if (use_stage1) {
-                const obj_basename = try std.fmt.allocPrint(arena, "{}.o", .{base.options.root_name});
+                const obj_basename = try std.zig.binNameAlloc(arena, .{
+                    .root_name = base.options.root_name,
+                    .target = base.options.target,
+                    .output_mode = .Obj,
+                });
                 const full_obj_path = try directory.join(arena, &[_][]const u8{obj_basename});
                 break :blk full_obj_path;
             }
