@@ -857,7 +857,7 @@ pub fn Tuple(comptime types: anytype) type {
     });
 }
 
-comptime {
+test "Tuple" {
     const T = struct {
         fn assertTypeEqual(comptime Expected: type, comptime Actual: type) void {
             if (Expected != Actual)
