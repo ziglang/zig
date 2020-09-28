@@ -85,7 +85,7 @@ const State128L = struct {
 /// The 128L variant of AEGIS has a 128 bit key, a 128 bit nonce, and processes 256 bit message blocks.
 /// It was designed to fully exploit the parallelism and built-in AES support of recent Intel and ARM CPUs.
 ///
-/// https://eprint.iacr.org/2013/695.pdf
+/// https://competitions.cr.yp.to/round3/aegisv11.pdf
 pub const AEGIS128L = struct {
     pub const tag_length = 16;
     pub const nonce_length = 16;
@@ -247,7 +247,7 @@ const State256 = struct {
 ///
 /// The 256 bit variant of AEGIS has a 256 bit key, a 256 bit nonce, and processes 128 bit message blocks.
 ///
-/// https://eprint.iacr.org/2013/695.pdf
+/// https://competitions.cr.yp.to/round3/aegisv11.pdf
 pub const AEGIS256 = struct {
     pub const tag_length = 16;
     pub const nonce_length = 32;
@@ -374,6 +374,22 @@ test "AEGIS128L test vector 2" {
     htest.assertEqual("f4d997cc9b94227ada4fe4165422b1c8", &tag);
 }
 
+test "AEGIS128L test vector 3" {
+    const key: [AEGIS128L.key_length]u8 = [_]u8{0x00} ** 16;
+    const nonce: [AEGIS128L.nonce_length]u8 = [_]u8{0x00} ** 16;
+    const ad = [_]u8{};
+    const m = [_]u8{};
+    var c: [m.len]u8 = undefined;
+    var m2: [m.len]u8 = undefined;
+    var tag: [AEGIS128L.tag_length]u8 = undefined;
+
+    AEGIS128L.encrypt(&c, &tag, &m, &ad, nonce, key);
+    try AEGIS128L.decrypt(&m2, &c, tag, &ad, nonce, key);
+    testing.expectEqualSlices(u8, &m, &m2);
+
+    htest.assertEqual("83cc600dc4e3e7e62d4055826174f149", &tag);
+}
+
 test "AEGIS256 test vector 1" {
     const key: [AEGIS256.key_length]u8 = [_]u8{ 0x10, 0x01 } ++ [_]u8{0x00} ** 30;
     const nonce: [AEGIS256.nonce_length]u8 = [_]u8{ 0x10, 0x00, 0x02 } ++ [_]u8{0x00} ** 29;
@@ -412,4 +428,20 @@ test "AEGIS256 test vector 2" {
 
     htest.assertEqual("b98f03a947807713d75a4fff9fc277a6", &c);
     htest.assertEqual("478f3b50dc478ef7d5cf2d0f7cc13180", &tag);
+}
+
+test "AEGIS256 test vector 3" {
+    const key: [AEGIS256.key_length]u8 = [_]u8{0x00} ** 32;
+    const nonce: [AEGIS256.nonce_length]u8 = [_]u8{0x00} ** 32;
+    const ad = [_]u8{};
+    const m = [_]u8{};
+    var c: [m.len]u8 = undefined;
+    var m2: [m.len]u8 = undefined;
+    var tag: [AEGIS256.tag_length]u8 = undefined;
+
+    AEGIS256.encrypt(&c, &tag, &m, &ad, nonce, key);
+    try AEGIS256.decrypt(&m2, &c, tag, &ad, nonce, key);
+    testing.expectEqualSlices(u8, &m, &m2);
+
+    htest.assertEqual("f7a0878f68bd083e8065354071fc27c3", &tag);
 }
