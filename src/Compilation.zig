@@ -2512,16 +2512,25 @@ fn updateStage1Module(comp: *Compilation) !void {
     if (try man.hit()) {
         const digest = man.final();
 
-        var prev_digest_buf: [digest.len]u8 = undefined;
+        // We use an extra hex-encoded byte here to store some flags.
+        var prev_digest_buf: [digest.len + 2]u8 = undefined;
         const prev_digest: []u8 = directory.handle.readLink(id_symlink_basename, &prev_digest_buf) catch |err| blk: {
             log.debug("stage1 {} new_digest={} readlink error: {}", .{ mod.root_pkg.root_src_path, digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
-        if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("stage1 {} digest={} match - skipping invocation", .{ mod.root_pkg.root_src_path, digest });
-            comp.stage1_lock = man.toOwnedLock();
-            return;
+        if (prev_digest.len >= digest.len + 2) {
+            if (mem.eql(u8, prev_digest[0..digest.len], &digest)) {
+                log.debug("stage1 {} digest={} match - skipping invocation", .{ mod.root_pkg.root_src_path, digest });
+                var flags_bytes: [1]u8 = undefined;
+                if (std.fmt.hexToBytes(&flags_bytes, prev_digest[digest.len..])) |_| {
+                    comp.stage1_lock = man.toOwnedLock();
+                    mod.stage1_flags = @bitCast(@TypeOf(mod.stage1_flags), flags_bytes[0]);
+                    return;
+                } else |err| {
+                    log.warn("bad cache stage1 digest: '{s}'", .{prev_digest});
+                }
+            }
         }
         log.debug("stage1 {} prev_digest={} new_digest={}", .{ mod.root_pkg.root_src_path, prev_digest, digest });
         man.unhit(prev_hash_state, input_file_count);
@@ -2642,22 +2651,35 @@ fn updateStage1Module(comp: *Compilation) !void {
     };
     stage1_module.build_object();
 
-    mod.have_c_main = stage1_module.have_c_main;
-    mod.have_winmain = stage1_module.have_winmain;
-    mod.have_wwinmain = stage1_module.have_wwinmain;
-    mod.have_winmain_crt_startup = stage1_module.have_winmain_crt_startup;
-    mod.have_wwinmain_crt_startup = stage1_module.have_wwinmain_crt_startup;
-    mod.have_dllmain_crt_startup = stage1_module.have_dllmain_crt_startup;
+    mod.stage1_flags = .{
+        .have_c_main = stage1_module.have_c_main,
+        .have_winmain = stage1_module.have_winmain,
+        .have_wwinmain = stage1_module.have_wwinmain,
+        .have_winmain_crt_startup = stage1_module.have_winmain_crt_startup,
+        .have_wwinmain_crt_startup = stage1_module.have_wwinmain_crt_startup,
+        .have_dllmain_crt_startup = stage1_module.have_dllmain_crt_startup,
+    };
 
     stage1_module.destroy();
 
     const digest = man.final();
 
-    log.debug("stage1 {} final digest={}", .{ mod.root_pkg.root_src_path, digest });
-
     // Update the dangling symlink with the digest. If it fails we can continue; it only
     // means that the next invocation will have an unnecessary cache miss.
-    directory.handle.symLink(&digest, id_symlink_basename, .{}) catch |err| {
+    const stage1_flags_byte = @bitCast(u8, mod.stage1_flags);
+    log.debug("stage1 {} final digest={} flags={x}", .{
+        mod.root_pkg.root_src_path, digest, stage1_flags_byte,
+    });
+    var digest_plus_flags: [digest.len + 2]u8 = undefined;
+    digest_plus_flags[0..digest.len].* = digest;
+    assert(std.fmt.formatIntBuf(digest_plus_flags[digest.len..], stage1_flags_byte, 16, false, .{
+        .width = 2,
+        .fill = '0',
+    }) == 2);
+    log.debug("saved digest + flags: '{s}' (byte = {}) have_winmain_crt_startup={}", .{
+        digest_plus_flags, stage1_flags_byte, mod.stage1_flags.have_winmain_crt_startup,
+    });
+    directory.handle.symLink(&digest_plus_flags, id_symlink_basename, .{}) catch |err| {
         log.warn("failed to save stage1 hash digest symlink: {}", .{@errorName(err)});
     };
     // Again failure here only means an unnecessary cache miss.

@@ -75,12 +75,15 @@ global_error_set: std.StringHashMapUnmanaged(u16) = .{},
 /// previous analysis.
 generation: u32 = 0,
 
-have_winmain: bool = false,
-have_wwinmain: bool = false,
-have_winmain_crt_startup: bool = false,
-have_wwinmain_crt_startup: bool = false,
-have_dllmain_crt_startup: bool = false,
-have_c_main: bool = false,
+stage1_flags: packed struct {
+    have_winmain: bool = false,
+    have_wwinmain: bool = false,
+    have_winmain_crt_startup: bool = false,
+    have_wwinmain_crt_startup: bool = false,
+    have_dllmain_crt_startup: bool = false,
+    have_c_main: bool = false,
+    reserved: u2 = 0,
+} = .{},
 
 pub const Export = struct {
     options: std.builtin.ExportOptions,

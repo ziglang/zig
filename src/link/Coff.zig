@@ -943,14 +943,15 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         switch (target.os.tag) {
             .windows => {
                 if (self.base.options.module) |module| {
-                    if (module.have_dllmain_crt_startup or is_dyn_lib)
+                    if (module.stage1_flags.have_dllmain_crt_startup or is_dyn_lib)
                         break :blk null;
-                    if (module.have_c_main or self.base.options.is_test or
-                        module.have_winmain_crt_startup or module.have_wwinmain_crt_startup)
+                    if (module.stage1_flags.have_c_main or self.base.options.is_test or
+                        module.stage1_flags.have_winmain_crt_startup or
+                        module.stage1_flags.have_wwinmain_crt_startup)
                     {
                         break :blk .Console;
                     }
-                    if (module.have_winmain or module.have_wwinmain)
+                    if (module.stage1_flags.have_winmain or module.stage1_flags.have_wwinmain)
                         break :blk .Windows;
                 }
             },
@@ -1068,11 +1069,11 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
                 try argv.append("-NODEFAULTLIB");
                 if (!is_lib) {
                     if (self.base.options.module) |module| {
-                        if (module.have_winmain) {
+                        if (module.stage1_flags.have_winmain) {
                             try argv.append("-ENTRY:WinMain");
-                        } else if (module.have_wwinmain) {
+                        } else if (module.stage1_flags.have_wwinmain) {
                             try argv.append("-ENTRY:wWinMain");
-                        } else if (module.have_wwinmain_crt_startup) {
+                        } else if (module.stage1_flags.have_wwinmain_crt_startup) {
                             try argv.append("-ENTRY:wWinMainCRTStartup");
                         } else {
                             try argv.append("-ENTRY:WinMainCRTStartup");
