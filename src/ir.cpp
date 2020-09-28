@@ -21934,7 +21934,17 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
                 return ira->codegen->invalid_inst_gen;
             }
             safety_check_on = false;
+        } else if (array_type->id == ZigTypeIdVector) {
+            uint64_t vector_len = array_type->data.vector.len;
+            if (index >= vector_len) {
+                ir_add_error_node(ira, elem_ptr_instruction->base.base.source_node,
+                    buf_sprintf("index %" ZIG_PRI_u64 " outside vector of size %" ZIG_PRI_u64,
+                            index, vector_len));
+                return ira->codegen->invalid_inst_gen;
+            }
+            safety_check_on = false;
         }
+
         if (array_type->id == ZigTypeIdVector) {
             ZigType *elem_type = array_type->data.vector.elem_type;
             uint32_t host_vec_len = array_type->data.vector.len;
