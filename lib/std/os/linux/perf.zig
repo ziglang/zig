@@ -1,5 +1,6 @@
 const std = @import("std");
 usingnamespace std.os.linux;
+usingnamespace std.os.linux.IOCTL;
 
 pub const COUNT_SW_BPF_OUTPUT = 10;
 pub const TYPE_SOFTWARE = 1;
@@ -9,9 +10,8 @@ pub const FLAG_FD_CLOEXEC = 1 << 3;
 pub const RECORD_LOST = 2;
 pub const RECORD_SAMPLE = 9;
 
-pub const EVENT_IOC_ENABLE = @bitCast(u32, IO('$', 0));
-pub const EVENT_IOC_DISABLE = @bitCast(u32, IO('$', 1));
-pub const set_bpf = @bitCast(u32, IOW('$', 8, fd_t));
+pub const EVENT_IOC_ENABLE = IO('$', 0);
+pub const EVENT_IOC_DISABLE = IO('$', 1);
 
 pub const EventHeader = extern struct {
     type: u32,
@@ -40,14 +40,14 @@ pub const MmapPage = extern struct {
     offset: i64,
     time_enabled: u64,
     time_running: u64,
-    capabilities: u64, // TODO: expand
+    capabilities: u64,
     pmc_width: u16,
     time_shift: u16,
     time_mult: u32,
     time_offset: u64,
     time_zero: u64,
     size: u32,
-    __reserved: [118 * 8 * 4]u8,
+    __reserved: [(118 * 8) + 4]u8,
     data_head: u64,
     data_tail: u64,
     data_offset: u64,
@@ -57,6 +57,10 @@ pub const MmapPage = extern struct {
     aux_offset: u64,
     aux_size: u64,
 };
+
+test "perf.MmapPage data head offset" {
+    std.testing.expectEqual(1024, @byteOffsetOf(MmapPage, "data_head"));
+}
 
 pub const EventAttr = extern struct {
     type: u32,

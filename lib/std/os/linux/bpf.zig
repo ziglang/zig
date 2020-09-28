@@ -1802,6 +1802,7 @@ pub fn PerfBuffer(comptime T: type) type {
                 attr.sample_type = perf.SAMPLE_RAW;
                 attr.sample.period = 1;
                 attr.wakeup.events = 1;
+                attr.size = @sizeOf(perf.EventAttr);
 
                 const rc = std.os.linux.syscall5(
                     .perf_event_open,
@@ -1817,12 +1818,16 @@ pub fn PerfBuffer(comptime T: type) type {
                 };
                 errdefer std.os.close(fd);
 
+                const ring_buffer = try RingBuffer.init(fd, mmap_size);
+                errdefer ring_buffer.deinit();
+
                 const status = ioctl(fd, perf.EVENT_IOC_ENABLE, 0);
                 if (status != 0) return error.GoFixIoctlHandling;
+
                 return CpuBuf{
                     .cpu = cpu,
                     .fd = fd,
-                    .ring_buffer = try RingBuffer.init(fd, mmap_size),
+                    .ring_buffer = ring_buffer,
                 };
             }
 
@@ -1840,9 +1845,7 @@ pub fn PerfBuffer(comptime T: type) type {
                 channel: *Channel(Payload),
             ) callconv(.Async) void {
                 while (running.get()) {
-                    std.debug.print("{} waiting for readable\n", .{self.cpu});
-                    std.event.Loop.instance.?.waitUntilFdWritable(self.fd);
-                    std.debug.print("{} continuing for readable\n", .{self.cpu});
+                    std.event.Loop.instance.?.waitUntilFdReadable(self.fd);
 
                     // TODO: might need to panic here instead of returning null
                     while (self.read(allocator) catch null) |payload| {

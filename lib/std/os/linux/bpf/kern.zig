@@ -11,7 +11,7 @@ pub const helpers = switch (std.builtin.arch) {
     else => struct {},
 };
 
-pub const MapDef = packed struct {
+pub const MapDef = extern struct {
     type: u32,
     key_size: u32,
     value_size: u32,
