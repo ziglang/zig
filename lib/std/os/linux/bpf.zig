@@ -15,7 +15,6 @@ const Channel = std.event.Channel;
 
 pub const btf = @import("bpf/btf.zig");
 pub const kern = @import("bpf/kern.zig");
-pub const perf = @import("perf.zig");
 
 // instruction classes
 pub const LD = 0x00;

@@ -30,6 +30,7 @@ pub usingnamespace switch (builtin.arch) {
 };
 pub usingnamespace @import("bits.zig");
 pub const tls = @import("linux/tls.zig");
+pub const perf = @import("linux/perf.zig");
 pub const BPF = @import("linux/bpf.zig");
 pub const IOCTL = @import("linux/ioctl.zig");
 
