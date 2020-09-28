@@ -249,17 +249,13 @@ pub const Aead = struct {
             in = in[State.RATE..];
             out = out[State.RATE..];
         }) {
-            const d = in[0..State.RATE];
-            for (d) |v, i| {
+            for (in[0..State.RATE]) |v, i| {
                 buf[i] ^= v;
             }
-            for (d) |_, i| {
-                out[i] = buf[i];
-            }
+            mem.copy(u8, out[0..State.RATE], buf[0..State.RATE]);
             state.permute();
         }
-        const d = in[0..];
-        for (d) |v, i| {
+        for (in[0..]) |v, i| {
             buf[i] ^= v;
             out[i] = buf[i];
         }
@@ -299,9 +295,7 @@ pub const Aead = struct {
             for (d) |v, i| {
                 out[i] = buf[i] ^ v;
             }
-            for (d) |v, i| {
-                buf[i] = v;
-            }
+            mem.copy(u8, buf[0..State.RATE], d[0..State.RATE]);
             state.permute();
         }
         for (buf[0..in.len]) |*p, i| {
