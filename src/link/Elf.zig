@@ -1225,7 +1225,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     const module_obj_path: ?[]const u8 = if (self.base.options.module) |module| blk: {
         const use_stage1 = build_options.is_stage1 and self.base.options.use_llvm;
         if (use_stage1) {
-            const obj_basename = try std.fmt.allocPrint(arena, "{}.o", .{self.base.options.root_name});
+            const obj_basename = try std.zig.binNameAlloc(arena, .{
+                .root_name = self.base.options.root_name,
+                .target = self.base.options.target,
+                .output_mode = .Obj,
+            });
             const o_directory = self.base.options.module.?.zig_cache_artifact_directory;
             const full_obj_path = try o_directory.join(arena, &[_][]const u8{obj_basename});
             break :blk full_obj_path;
@@ -1242,6 +1246,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
     const have_dynamic_linker = self.base.options.link_libc and
         self.base.options.link_mode == .Dynamic and is_exe_or_dyn_lib;
+    const link_in_crt = self.base.options.link_libc and self.base.options.output_mode == .Exe;
+    const target = self.base.options.target;
 
     // Here we want to determine whether we can save time by not invoking LLD when the
     // output is unchanged. None of the linker options or the object files that are being
@@ -1297,7 +1303,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             man.hash.addOptionalBytes(self.base.options.override_soname);
             man.hash.addOptional(self.base.options.version);
         }
-        man.hash.addListOfBytes(self.base.options.system_libs);
+        man.hash.addStringSet(self.base.options.system_libs);
         man.hash.addOptional(self.base.options.allow_shlib_undefined);
         man.hash.add(self.base.options.bind_global_refs_locally);
 
@@ -1326,7 +1332,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         };
     }
 
-    const target = self.base.options.target;
     const is_obj = self.base.options.output_mode == .Obj;
 
     // Create an LLD command line and invoke it.
@@ -1337,7 +1342,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     if (is_obj) {
         try argv.append("-r");
     }
-    const link_in_crt = self.base.options.link_libc and self.base.options.output_mode == .Exe;
 
     try argv.append("-error-limit=0");
 
@@ -1440,7 +1444,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         var test_path = std.ArrayList(u8).init(self.base.allocator);
         defer test_path.deinit();
         for (self.base.options.lib_dirs) |lib_dir_path| {
-            for (self.base.options.system_libs) |link_lib| {
+            for (self.base.options.system_libs.items()) |link_lib| {
                 test_path.shrinkRetainingCapacity(0);
                 const sep = fs.path.sep_str;
                 try test_path.writer().print("{}" ++ sep ++ "lib{}.so", .{ lib_dir_path, link_lib });
@@ -1509,8 +1513,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     }
 
     // Shared libraries.
-    try argv.ensureCapacity(argv.items.len + self.base.options.system_libs.len);
-    for (self.base.options.system_libs) |link_lib| {
+    const system_libs = self.base.options.system_libs.items();
+    try argv.ensureCapacity(argv.items.len + system_libs.len);
+    for (system_libs) |entry| {
+        const link_lib = entry.key;
         // By this time, we depend on these libs being dynamically linked libraries and not static libraries
         // (the check for that needs to be earlier), but they could be full paths to .so files, in which
         // case we want to avoid prepending "-l".
@@ -1581,10 +1587,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     }
 
     if (self.base.options.verbose_link) {
-        for (argv.items[0 .. argv.items.len - 1]) |arg| {
-            std.debug.print("{} ", .{arg});
-        }
-        std.debug.print("{}\n", .{argv.items[argv.items.len - 1]});
+        Compilation.dump_argv(argv.items);
     }
 
     // Oh, snapplesauce! We need null terminated argv.

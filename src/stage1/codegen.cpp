@@ -8666,11 +8666,11 @@ TargetSubsystem detect_subsystem(CodeGen *g) {
     if (g->subsystem != TargetSubsystemAuto)
         return g->subsystem;
     if (g->zig_target->os == OsWindows) {
-        if (g->have_dllmain_crt_startup)
+        if (g->stage1.have_dllmain_crt_startup)
             return TargetSubsystemAuto;
-        if (g->have_c_main || g->is_test_build || g->have_winmain_crt_startup || g->have_wwinmain_crt_startup)
+        if (g->stage1.have_c_main || g->is_test_build || g->stage1.have_winmain_crt_startup || g->stage1.have_wwinmain_crt_startup)
             return TargetSubsystemConsole;
-        if (g->have_winmain || g->have_wwinmain)
+        if (g->stage1.have_winmain || g->stage1.have_wwinmain)
             return TargetSubsystemWindows;
     } else if (g->zig_target->os == OsUefi) {
         return TargetSubsystemEfiApplication;

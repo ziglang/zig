@@ -121,6 +121,14 @@ pub const Module = extern struct {
     verbose_cimport: bool,
     verbose_llvm_cpu_features: bool,
 
+    // Set by stage1
+    have_c_main: bool,
+    have_winmain: bool,
+    have_wwinmain: bool,
+    have_winmain_crt_startup: bool,
+    have_wwinmain_crt_startup: bool,
+    have_dllmain_crt_startup: bool,
+
     pub fn build_object(mod: *Module) void {
         zig_stage1_build_object(mod);
     }

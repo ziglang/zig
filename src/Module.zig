@@ -75,6 +75,13 @@ global_error_set: std.StringHashMapUnmanaged(u16) = .{},
 /// previous analysis.
 generation: u32 = 0,
 
+have_winmain: bool = false,
+have_wwinmain: bool = false,
+have_winmain_crt_startup: bool = false,
+have_wwinmain_crt_startup: bool = false,
+have_dllmain_crt_startup: bool = false,
+have_c_main: bool = false,
+
 pub const Export = struct {
     options: std.builtin.ExportOptions,
     /// Byte offset into the file that contains the export directive.
@@ -2668,7 +2675,7 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
         const src_info = inst.ty.intInfo(self.getTarget());
         const dst_info = dest_type.intInfo(self.getTarget());
         if ((src_info.signed == dst_info.signed and dst_info.bits >= src_info.bits) or
-        // small enough unsigned ints can get casted to large enough signed ints
+            // small enough unsigned ints can get casted to large enough signed ints
             (src_info.signed and !dst_info.signed and dst_info.bits > src_info.bits))
         {
             const b = try self.requireRuntimeBlock(scope, inst.src);

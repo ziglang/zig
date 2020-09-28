@@ -17,6 +17,7 @@ const build_options = @import("build_options");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const glibc = @import("glibc.zig");
 const musl = @import("musl.zig");
+const mingw = @import("mingw.zig");
 const libunwind = @import("libunwind.zig");
 const libcxx = @import("libcxx.zig");
 const fatal = @import("main.zig").fatal;
@@ -59,7 +60,6 @@ verbose_llvm_ir: bool,
 verbose_cimport: bool,
 verbose_llvm_cpu_features: bool,
 disable_c_depfile: bool,
-is_test: bool,
 time_report: bool,
 
 c_source_files: []const CSourceFile,
@@ -150,8 +150,10 @@ const Job = union(enum) {
     glibc_crt_file: glibc.CRTFile,
     /// all of the glibc shared objects
     glibc_shared_objects,
-    /// one of the glibc static objects
+    /// one of the musl static objects
     musl_crt_file: musl.CRTFile,
+    /// one of the mingw-w64 static objects
+    mingw_crt_file: mingw.CRTFile,
     /// libunwind.a, usually needed when linking libc
     libunwind: void,
     libcxx: void,
@@ -719,6 +721,13 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             fatal("TODO implement support for -femit-h in the self-hosted backend", .{});
         }
 
+        var system_libs: std.StringArrayHashMapUnmanaged(void) = .{};
+        errdefer system_libs.deinit(gpa);
+        try system_libs.ensureCapacity(gpa, options.system_libs.len);
+        for (options.system_libs) |lib_name| {
+            system_libs.putAssumeCapacity(lib_name, {});
+        }
+
         const bin_file = try link.File.openPath(gpa, .{
             .emit = bin_file_emit,
             .root_name = root_name,
@@ -736,7 +745,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .objects = options.link_objects,
             .frameworks = options.frameworks,
             .framework_dirs = options.framework_dirs,
-            .system_libs = options.system_libs,
+            .system_libs = system_libs,
             .lib_dirs = options.lib_dirs,
             .rpath_list = options.rpath_list,
             .strip = options.strip,
@@ -769,6 +778,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .each_lib_rpath = options.each_lib_rpath orelse false,
             .disable_lld_caching = options.disable_lld_caching,
             .subsystem = options.subsystem,
+            .is_test = options.is_test,
         });
         errdefer bin_file.destroy();
         comp.* = .{
@@ -804,7 +814,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .verbose_llvm_cpu_features = options.verbose_llvm_cpu_features,
             .disable_c_depfile = options.disable_c_depfile,
             .owned_link_dir = owned_link_dir,
-            .is_test = options.is_test,
             .color = options.color,
             .time_report = options.time_report,
             .test_filter = options.test_filter,
@@ -847,8 +856,17 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 .{ .musl_crt_file = .libc_a },
             });
         }
-        if (comp.wantBuildMinGWW64FromSource()) {
-            @panic("TODO");
+        if (comp.wantBuildMinGWFromSource()) {
+            const static_lib_jobs = [_]Job{
+                .{ .mingw_crt_file = .mingw32_lib },
+                .{ .mingw_crt_file = .msvcrt_os_lib },
+                .{ .mingw_crt_file = .mingwex_lib },
+                .{ .mingw_crt_file = .uuid_lib },
+            };
+            const crt_job: Job = .{ .mingw_crt_file = if (is_dyn_lib) .dllcrt2_o else .crt2_o };
+            try comp.work_queue.ensureUnusedCapacity(static_lib_jobs.len + 1);
+            comp.work_queue.writeAssumeCapacity(&static_lib_jobs);
+            comp.work_queue.writeItemAssumeCapacity(crt_job);
         }
         if (comp.wantBuildLibUnwindFromSource()) {
             try comp.work_queue.writeItem(.{ .libunwind = {} });
@@ -1207,6 +1225,12 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
             musl.buildCRTFile(self, crt_file) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build musl CRT file: {}", .{@errorName(err)});
+            };
+        },
+        .mingw_crt_file => |crt_file| {
+            mingw.buildCRTFile(self, crt_file) catch |err| {
+                // TODO Expose this as a normal compile error rather than crashing here.
+                fatal("unable to build mingw-w64 CRT file: {}", .{@errorName(err)});
             };
         },
         .libunwind => {
@@ -2087,7 +2111,7 @@ fn detectLibCFromLibCInstallation(arena: *Allocator, target: Target, lci: *const
 pub fn get_libc_crt_file(comp: *Compilation, arena: *Allocator, basename: []const u8) ![]const u8 {
     if (comp.wantBuildGLibCFromSource() or
         comp.wantBuildMuslFromSource() or
-        comp.wantBuildMinGWW64FromSource())
+        comp.wantBuildMinGWFromSource())
     {
         return comp.crt_files.get(basename).?.full_object_path;
     }
@@ -2125,7 +2149,7 @@ fn wantBuildMuslFromSource(comp: Compilation) bool {
     return comp.wantBuildLibCFromSource() and comp.getTarget().isMusl();
 }
 
-fn wantBuildMinGWW64FromSource(comp: Compilation) bool {
+fn wantBuildMinGWFromSource(comp: Compilation) bool {
     return comp.wantBuildLibCFromSource() and comp.getTarget().isMinGW();
 }
 
@@ -2186,7 +2210,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
     , .{
         @tagName(comp.bin_file.options.output_mode),
         @tagName(comp.bin_file.options.link_mode),
-        comp.is_test,
+        comp.bin_file.options.is_test,
         comp.bin_file.options.single_threaded,
         @tagName(target.abi),
         @tagName(target.cpu.arch),
@@ -2214,7 +2238,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         \\pub const os = Os{{
         \\    .tag = .{},
         \\    .version_range = .{{
-        ,
+    ,
         .{@tagName(target.os.tag)},
     );
 
@@ -2283,7 +2307,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
             \\        .max = {s},
             \\    }}}},
             \\
-            ,
+        ,
             .{ windows.min, windows.max },
         ),
     }
@@ -2311,7 +2335,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         @tagName(comp.bin_file.options.machine_code_model),
     });
 
-    if (comp.is_test) {
+    if (comp.bin_file.options.is_test) {
         try buffer.appendSlice(
             \\pub var test_functions: []TestFn = undefined; // overwritten later
             \\
@@ -2384,7 +2408,7 @@ fn buildStaticLibFromZig(comp: *Compilation, src_basename: []const u8, out: *?CR
         .basename = bin_basename,
     };
     const optimize_mode: std.builtin.Mode = blk: {
-        if (comp.is_test)
+        if (comp.bin_file.options.is_test)
             break :blk comp.bin_file.options.optimize_mode;
         switch (comp.bin_file.options.optimize_mode) {
             .Debug, .ReleaseFast, .ReleaseSafe => break :blk .ReleaseFast,
@@ -2473,7 +2497,7 @@ fn updateStage1Module(comp: *Compilation) !void {
     man.hash.add(target.os.getVersionRange());
     man.hash.add(comp.bin_file.options.dll_export_fns);
     man.hash.add(comp.bin_file.options.function_sections);
-    man.hash.add(comp.is_test);
+    man.hash.add(comp.bin_file.options.is_test);
     man.hash.add(comp.bin_file.options.emit != null);
     man.hash.add(comp.emit_h != null);
     man.hash.add(comp.emit_asm != null);
@@ -2537,7 +2561,7 @@ fn updateStage1Module(comp: *Compilation) !void {
         zig_lib_dir.ptr,
         zig_lib_dir.len,
         stage2_target,
-        comp.is_test,
+        comp.bin_file.options.is_test,
     ) orelse return error.OutOfMemory;
 
     const emit_bin_path = if (comp.bin_file.options.emit != null) blk: {
@@ -2609,8 +2633,22 @@ fn updateStage1Module(comp: *Compilation) !void {
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .main_progress_node = main_progress_node,
+        .have_c_main = false,
+        .have_winmain = false,
+        .have_wwinmain = false,
+        .have_winmain_crt_startup = false,
+        .have_wwinmain_crt_startup = false,
+        .have_dllmain_crt_startup = false,
     };
     stage1_module.build_object();
+
+    mod.have_c_main = stage1_module.have_c_main;
+    mod.have_winmain = stage1_module.have_winmain;
+    mod.have_wwinmain = stage1_module.have_wwinmain;
+    mod.have_winmain_crt_startup = stage1_module.have_winmain_crt_startup;
+    mod.have_wwinmain_crt_startup = stage1_module.have_wwinmain_crt_startup;
+    mod.have_dllmain_crt_startup = stage1_module.have_dllmain_crt_startup;
+
     stage1_module.destroy();
 
     const digest = man.final();

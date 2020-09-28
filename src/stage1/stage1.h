@@ -195,6 +195,14 @@ struct ZigStage1 {
     bool verbose_llvm_ir;
     bool verbose_cimport;
     bool verbose_llvm_cpu_features;
+
+    // Set by stage1
+    bool have_c_main;
+    bool have_winmain;
+    bool have_wwinmain;
+    bool have_winmain_crt_startup;
+    bool have_wwinmain_crt_startup;
+    bool have_dllmain_crt_startup;
 };
 
 ZIG_EXTERN_C void zig_stage1_os_init(void);

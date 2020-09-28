@@ -1,14 +1,13 @@
- * COFF LLD linking
- * mingw-w64
+ * add jobs to build import libs for windows DLLs for explicitly linked libs
+ * add jobs to build import libs for windows DLLs for extern "foo" functions used
  * MachO LLD linking
  * WASM LLD linking
  * audit the CLI options for stage2
  * audit the base cache hash
  * On operating systems that support it, do an execve for `zig test` and `zig run` rather than child process.
- * windows CUSTOMBUILD : error : unable to build compiler_rt: FileNotFound [D:\a\1\s\build\zig_install_lib_files.vcxproj]
- * try building some software with zig cc to make sure it didn't regress
  * `-ftime-report`
  *  -fstack-report               print stack size diagnostics\n"
+ * try building some software with zig cc to make sure it didn't regress
 
  * implement proper parsing of clang stderr/stdout and exposing compile errors with the Compilation API
  * implement proper parsing of LLD stderr/stdout and exposing compile errors with the Compilation API
@@ -35,6 +34,7 @@
  * integrate target features into building assembly code
  * libc_installation.zig: make it look for msvc only if msvc abi is chosen
  * switch the default C ABI for windows to be mingw-w64
+   - make it .obj instead of .o always for coff
  * change glibc log errors to normal exposed compile errors
  * improve Directory.join to only use 1 allocation in a clean way.
  * tracy builds with lc++
@@ -48,3 +48,5 @@
  * linking hello world with LLD, lld is silently calling exit(1) instead of reporting ok=false. when run standalone the error message is: ld.lld: error: section [index 3] has a sh_offset (0x57000) + sh_size (0x68) that is greater than the file size (0x57060)
  * submit PR to godbolt and update the CLI options (see changes to test/cli.zig)
  * make proposal about log levels
+ * proposal for changing fs Z/W functions to be native paths and have a way to do native path string literals
+ * proposal for block { break x; }

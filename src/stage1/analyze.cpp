@@ -3496,18 +3496,18 @@ void add_var_export(CodeGen *g, ZigVar *var, const char *symbol_name, GlobalLink
 
 void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, const char *symbol_name, GlobalLinkageId linkage, CallingConvention cc) {
     if (cc == CallingConventionC && strcmp(symbol_name, "main") == 0 && g->link_libc) {
-        g->have_c_main = true;
+        g->stage1.have_c_main = true;
     } else if (cc == CallingConventionStdcall && g->zig_target->os == OsWindows) {
         if (strcmp(symbol_name, "WinMain") == 0) {
-            g->have_winmain = true;
+            g->stage1.have_winmain = true;
         } else if (strcmp(symbol_name, "wWinMain") == 0) {
-            g->have_wwinmain = true;
+            g->stage1.have_wwinmain = true;
         } else if (strcmp(symbol_name, "WinMainCRTStartup") == 0) {
-            g->have_winmain_crt_startup = true;
+            g->stage1.have_winmain_crt_startup = true;
         } else if (strcmp(symbol_name, "wWinMainCRTStartup") == 0) {
-            g->have_wwinmain_crt_startup = true;
+            g->stage1.have_wwinmain_crt_startup = true;
         } else if (strcmp(symbol_name, "DllMainCRTStartup") == 0) {
-            g->have_dllmain_crt_startup = true;
+            g->stage1.have_dllmain_crt_startup = true;
         }
     }
 

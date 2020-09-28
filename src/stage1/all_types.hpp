@@ -2152,12 +2152,6 @@ struct CodeGen {
     uint32_t next_unresolved_index;
     unsigned pointer_size_bytes;
     bool is_big_endian;
-    bool have_c_main;
-    bool have_winmain;
-    bool have_wwinmain;
-    bool have_winmain_crt_startup;
-    bool have_wwinmain_crt_startup;
-    bool have_dllmain_crt_startup;
     bool have_err_ret_tracing;
     bool verbose_tokenize;
     bool verbose_ast;

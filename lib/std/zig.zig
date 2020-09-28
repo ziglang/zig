@@ -93,7 +93,7 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
                 };
                 return std.fmt.allocPrint(allocator, "{}{}{}", .{ target.libPrefix(), root_name, suffix });
             },
-            .Obj => return std.fmt.allocPrint(allocator, "{}.obj", .{root_name}),
+            .Obj => return std.fmt.allocPrint(allocator, "{}{}", .{ root_name, target.abi.oFileExt() }),
         },
         .elf => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
