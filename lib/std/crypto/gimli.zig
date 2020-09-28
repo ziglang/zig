@@ -292,14 +292,16 @@ pub const Aead = struct {
             out = out[State.RATE..];
         }) {
             for (buf[0..State.RATE]) |*p, i| {
-                out[i] = p.* ^ in[i];
-                p.* = in[i];
+                const d = in[i];
+                out[i] = p.* ^ d;
+                p.* = d;
             }
             state.permute();
         }
         for (buf[0..in.len]) |*p, i| {
-            out[i] = p.* ^ in[i];
-            p.* = in[i];
+            const d = in[i];
+            out[i] = p.* ^ d;
+            p.* = d;
         }
 
         // XOR 1 into the next byte of the state

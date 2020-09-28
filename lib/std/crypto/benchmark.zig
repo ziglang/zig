@@ -168,7 +168,7 @@ pub fn benchmarkAead(comptime Aead: anytype, comptime bytes: comptime_int) !u64 
     const start = timer.lap();
     while (offset < bytes) : (offset += in.len) {
         Aead.encrypt(in[0..], tag[0..], in[0..], &[_]u8{}, nonce, key);
-        Aead.decrypt(in[0..], in[0..], tag, &[_]u8{}, nonce, key) catch unreachable;
+        try Aead.decrypt(in[0..], in[0..], tag, &[_]u8{}, nonce, key);
     }
     mem.doNotOptimizeAway(&in);
     const end = timer.read();
