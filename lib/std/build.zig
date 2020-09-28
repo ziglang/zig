@@ -2696,5 +2696,5 @@ test "" {
     // The only purpose of this test is to get all these untested functions
     // to be referenced to avoid regression so it is okay to skip some targets.
     if (comptime std.Target.current.cpu.arch.ptrBitWidth() == 64)
-        std.meta.refAllDecls(@This());
+        std.testing.refAllDecls(@This());
 }

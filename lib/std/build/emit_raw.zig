@@ -224,5 +224,5 @@ pub const InstallRawStep = struct {
 };
 
 test "" {
-    std.meta.refAllDecls(InstallRawStep);
+    std.testing.refAllDecls(InstallRawStep);
 }

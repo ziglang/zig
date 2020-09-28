@@ -1510,5 +1510,5 @@ pub const Target = struct {
 };
 
 test "" {
-    std.meta.refAllDecls(Target.Cpu.Arch);
+    std.testing.refAllDecls(Target.Cpu.Arch);
 }

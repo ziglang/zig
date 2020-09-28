@@ -189,7 +189,7 @@ pub const Complex = complex.Complex;
 pub const big = @import("math/big.zig");
 
 test "" {
-    std.meta.refAllDecls(@This());
+    std.testing.refAllDecls(@This());
 }
 
 pub fn floatMantissaBits(comptime T: type) comptime_int {

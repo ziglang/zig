@@ -255,5 +255,5 @@ test "parseCharLiteral" {
 }
 
 test "" {
-    @import("std").meta.refAllDecls(@This());
+    @import("std").testing.refAllDecls(@This());
 }

@@ -108,7 +108,7 @@ test "crypto" {
     inline for (std.meta.declarations(@This())) |decl| {
         switch (decl.data) {
             .Type => |t| {
-                std.meta.refAllDecls(t);
+                std.testing.refAllDecls(t);
             },
             .Var => |v| {
                 _ = v;
