@@ -20,19 +20,28 @@ pub const Lock = struct {
     head: usize = UNLOCKED,
 
     const UNLOCKED = 0;
-    const LOCKED = 69;
+    const LOCKED = 1;
 
     const global_event_loop = Loop.instance orelse
         @compileError("std.event.Lock currently only works with event-based I/O");
 
     const Waiter = struct {
-        next: ?*Waiter,
+        // forced Waiter alignment to ensure it doesn't clash with LOCKED
+        next: ?*Waiter align(2), 
         tail: *Waiter,
         node: Loop.NextTickNode,
     };
 
     pub fn acquire(self: *Lock) Held {
         const held = self.mutex.acquire();
+
+        // self.head transitions from multiple stages depending on the value:
+        // UNLOCKED -> LOCKED: 
+        //   acquire Lock ownership when theres no waiters
+        // LOCKED -> <Waiter head ptr>:
+        //   Lock is already owned, enqueue first Waiter
+        // <head ptr> -> <head ptr>: 
+        //   Lock is owned with pending waiters. Push our waiter to the queue.
 
         if (self.head == UNLOCKED) {
             self.head = LOCKED;
@@ -47,7 +56,7 @@ pub const Lock = struct {
         const head = switch (self.head) {
             UNLOCKED => unreachable,
             LOCKED => null,
-            else => @intToPtr(?*Waiter, self.head),
+            else => @intToPtr(*Waiter, self.head),
         };
 
         if (head) |h| {
@@ -77,9 +86,17 @@ pub const Lock = struct {
                 const held = self.lock.mutex.acquire();
                 defer held.release();
 
+                // self.head goes through the reverse transition from acquire():
+                // <head ptr> -> <new head ptr>: 
+                //   pop a waiter from the queue to give Lock ownership when theres still others pending
+                // <head ptr> -> LOCKED:
+                //   pop the laster waiter from the queue, while also giving it lock ownership when awaken
+                // LOCKED -> UNLOCKED:
+                //   last lock owner releases lock while no one else is waiting for it
+
                 switch (self.lock.head) {
                     UNLOCKED => {
-                        std.debug.panic("Lock unlocked when already unlocked", .{});
+                        unreachable; // Lock unlocked while unlocking
                     },
                     LOCKED => {
                         self.lock.head = UNLOCKED;
