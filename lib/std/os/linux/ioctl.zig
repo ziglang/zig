@@ -16,16 +16,16 @@ const bits = switch (builtin.arch) {
     else => .{ .size = 14, .dir = 2, .none = 0, .read = 1, .write = 2 },
 };
 
-const Direction = std.meta.Int(false, ioctl_bits.dir);
+const Direction = std.meta.Int(false, bits.dir);
 
 pub const Request = packed struct {
     nr: u8,
     type: u8,
-    size: std.meta.Int(false, ioctl_bits.size),
+    size: std.meta.Int(false, bits.size),
     dir: Direction,
 };
 
-fn io_impl(dir: Direction, io_type: u8, nr: u8, comptime T: type) IoctlRequest {
+fn io_impl(dir: Direction, io_type: u8, nr: u8, comptime T: type) Request {
     return .{
         .dir = dir,
         .size = @sizeOf(T),
@@ -34,22 +34,22 @@ fn io_impl(dir: Direction, io_type: u8, nr: u8, comptime T: type) IoctlRequest {
     };
 }
 
-pub fn IO(io_type: u8, nr: u8) IoctlRequest {
-    return io_impl(ioctl_bits.none, io_type, nr, void);
+pub fn IO(io_type: u8, nr: u8) Request {
+    return io_impl(bits.none, io_type, nr, void);
 }
 
-pub fn IOR(type: u8, nr: u8, comptime T: type) IoctlRequest {
-    return io_impl(ioctl_bits.read, type, nr, T);
+pub fn IOR(type: u8, nr: u8, comptime T: type) Request {
+    return io_impl(bits.read, type, nr, T);
 }
 
-pub fn IOW(type: u8, nr: u8, comptime T: type) IoctlRequest {
-    return io_impl(ioctl_bits.write, type, nr, T);
+pub fn IOW(type: u8, nr: u8, comptime T: type) Request {
+    return io_impl(bits.write, type, nr, T);
 }
 
-pub fn IOWR(type: u8, nr: u8, comptime T: type) IoctlRequest {
-    return io_impl(ioctl_bits.read | bits.write, type, nr, T);
+pub fn IOWR(type: u8, nr: u8, comptime T: type) Request {
+    return io_impl(bits.read | bits.write, type, nr, T);
 }
 
 test "Ioctl.Cmd size" {
-    std.testing.expectEqual(32, @bitSizeOf(Ioctl.Cmd));
+    std.testing.expectEqual(32, @bitSizeOf(Request));
 }
