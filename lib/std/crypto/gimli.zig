@@ -40,8 +40,8 @@ pub const State = struct {
 
     pub fn permute(self: *Self) void {
         const state = &self.data;
-        var round = @as(u32, 24);
-        while (round > 0) : (round -= 1) {
+        comptime var round = @as(u32, 24);
+        inline while (round > 0) : (round -= 1) {
             var column = @as(usize, 0);
             while (column < 4) : (column += 1) {
                 const x = math.rotl(u32, state[column], 24);
@@ -249,15 +249,19 @@ pub const Aead = struct {
             in = in[State.RATE..];
             out = out[State.RATE..];
         }) {
-            for (buf[0..State.RATE]) |*p, i| {
-                p.* ^= in[i];
-                out[i] = p.*;
+            const d = in[0..State.RATE];
+            for (d) |v, i| {
+                buf[i] ^= v;
+            }
+            for (d) |_, i| {
+                out[i] = buf[i];
             }
             state.permute();
         }
-        for (buf[0..in.len]) |*p, i| {
-            p.* ^= in[i];
-            out[i] = p.*;
+        const d = in[0..];
+        for (d) |v, i| {
+            buf[i] ^= v;
+            out[i] = buf[i];
         }
 
         // XOR 1 into the next byte of the state
@@ -291,15 +295,19 @@ pub const Aead = struct {
             in = in[State.RATE..];
             out = out[State.RATE..];
         }) {
-            for (buf[0..State.RATE]) |*p, i| {
-                out[i] = p.* ^ in[i];
-                p.* = in[i];
+            const d = in[0..State.RATE].*;
+            for (d) |v, i| {
+                out[i] = buf[i] ^ v;
+            }
+            for (d) |v, i| {
+                buf[i] = v;
             }
             state.permute();
         }
         for (buf[0..in.len]) |*p, i| {
-            out[i] = p.* ^ in[i];
-            p.* = in[i];
+            const d = in[i];
+            out[i] = p.* ^ d;
+            p.* = d;
         }
 
         // XOR 1 into the next byte of the state
