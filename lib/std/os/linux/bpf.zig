@@ -1829,7 +1829,7 @@ pub const PerfBuffer = struct {
             };
         }
 
-        fn read(self: CpuBuf, allocator: *mem.Allocator) !?Payload {
+        pub fn read(self: CpuBuf, allocator: *mem.Allocator) !?Payload {
             return Payload{
                 .cpu = self.cpu,
                 .event = ((try self.ring_buffer.read_event(allocator)) orelse return null),
@@ -1903,6 +1903,11 @@ pub const PerfBuffer = struct {
         self.allocator.free(self.channel_buf);
     }
 
+    /// The PerfBuffer emits the Payload type which either reports a "raw
+    /// sample" (regular data from BPF program) or "lost sample" -- a report of
+    /// how many events were overwritten. In the case of the raw sample, the
+    /// data is allocated by the PerfBuffer's allocator, and it is up to the
+    /// user to free it.
     pub fn get(self: *Self) Payload {
         return self.channel.get();
     }
