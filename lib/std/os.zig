@@ -5275,7 +5275,7 @@ const IoCtl_SIOCGIFINDEX_Error = error{
 
 pub fn ioctl_SIOCGIFINDEX(fd: fd_t, ifr: *ifreq) IoCtl_SIOCGIFINDEX_Error!void {
     while (true) {
-        switch (errno(system.ioctl(fd, @bitCast(linux.IOCTL.Request, @intCast(u32, SIOCGIFINDEX)), @ptrToInt(ifr)))) {
+        switch (errno(system.ioctl(fd, SIOCGIFINDEX, @ptrToInt(ifr)))) {
             0 => return,
             EINVAL => unreachable, // Bad parameters.
             ENOTTY => unreachable,

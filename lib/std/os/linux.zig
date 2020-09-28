@@ -1221,8 +1221,8 @@ pub fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) usi
     return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), TCSETS + @enumToInt(optional_action), @ptrToInt(termios_p));
 }
 
-pub fn ioctl(fd: fd_t, request: IOCTL.Request, arg: usize) usize {
-    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), @bitCast(u32, request), arg);
+pub fn ioctl(fd: fd_t, request: u32, arg: usize) usize {
+    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), request, arg);
 }
 
 pub fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) usize {

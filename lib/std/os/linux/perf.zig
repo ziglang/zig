@@ -10,8 +10,8 @@ pub const FLAG_FD_CLOEXEC = 1 << 3;
 pub const RECORD_LOST = 2;
 pub const RECORD_SAMPLE = 9;
 
-pub const EVENT_IOC_ENABLE = IO('$', 0);
-pub const EVENT_IOC_DISABLE = IO('$', 1);
+pub const EVENT_IOC_ENABLE = @bitCast(u32, IO('$', 0));
+pub const EVENT_IOC_DISABLE = @bitCast(u32, IO('$', 1));
 
 pub const EventHeader = extern struct {
     type: u32,
