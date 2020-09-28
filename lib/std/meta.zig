@@ -831,10 +831,10 @@ test "sizeof" {
 /// with those types as fields.
 ///
 /// Examples:
-/// - `Tuple(.{})` ⇒ `tuple { }`
-/// - `Tuple(.{f32})` ⇒ `tuple { f32 }`
-/// - `Tuple(.{f32,u32})` ⇒ `tuple { f32, u32 }`
-pub fn Tuple(comptime types: anytype) type {
+/// - `Tuple(&[_]type {})` ⇒ `tuple { }`
+/// - `Tuple(&[_]type {f32})` ⇒ `tuple { f32 }`
+/// - `Tuple(&[_]type {f32,u32})` ⇒ `tuple { f32, u32 }`
+pub fn Tuple(comptime types: []const type) type {
     var tuple_fields: [types.len]std.builtin.TypeInfo.StructField = undefined;
     inline for (types) |T, i| {
         @setEvalBranchQuota(10_000);
@@ -883,8 +883,8 @@ test "Tuple" {
         }
     };
 
-    T.assertTuple(.{}, Tuple(.{}));
-    T.assertTuple(.{u32}, Tuple(.{u32}));
-    T.assertTuple(.{ u32, f16 }, Tuple(.{ u32, f16 }));
-    T.assertTuple(.{ u32, f16, []const u8 }, Tuple(.{ u32, f16, []const u8 }));
+    T.assertTuple(.{}, Tuple(&[_]type{}));
+    T.assertTuple(.{u32}, Tuple(&[_]type{u32}));
+    T.assertTuple(.{ u32, f16 }, Tuple(&[_]type{ u32, f16 }));
+    T.assertTuple(.{ u32, f16, []const u8 }, Tuple(&[_]type{ u32, f16, []const u8 }));
 }
