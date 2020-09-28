@@ -655,13 +655,7 @@ pub fn fieldIndex(comptime T: type, comptime name: []const u8) ?comptime_int {
     return null;
 }
 
-/// Given a type, reference all the declarations inside, so that the semantic analyzer sees them.
-pub fn refAllDecls(comptime T: type) void {
-    if (!builtin.is_test) return;
-    inline for (declarations(T)) |decl| {
-        _ = decl;
-    }
-}
+pub const refAllDecls = @compileError("refAllDecls has been moved from std.meta to std.testing");
 
 /// Returns a slice of pointers to public declarations of a namespace.
 pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const Decl {

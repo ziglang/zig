@@ -92,5 +92,5 @@ comptime {
 }
 
 test "" {
-    meta.refAllDecls(@This());
+    testing.refAllDecls(@This());
 }
