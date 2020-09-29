@@ -2498,6 +2498,7 @@ fn updateStage1Module(comp: *Compilation) !void {
     const builtin_zig_path = try directory.join(arena, &[_][]const u8{"builtin.zig"});
     const target = comp.getTarget();
     const id_symlink_basename = "stage1.id";
+    const libs_txt_basename = "libs.txt";
 
     // We are about to obtain this lock, so here we give other processes a chance first.
     comp.releaseStage1Lock();
@@ -2538,18 +2539,32 @@ fn updateStage1Module(comp: *Compilation) !void {
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
-        if (prev_digest.len >= digest.len + 2) {
-            if (mem.eql(u8, prev_digest[0..digest.len], &digest)) {
-                log.debug("stage1 {} digest={} match - skipping invocation", .{ mod.root_pkg.root_src_path, digest });
-                var flags_bytes: [1]u8 = undefined;
-                if (std.fmt.hexToBytes(&flags_bytes, prev_digest[digest.len..])) |_| {
-                    comp.stage1_lock = man.toOwnedLock();
-                    mod.stage1_flags = @bitCast(@TypeOf(mod.stage1_flags), flags_bytes[0]);
-                    return;
-                } else |err| {
-                    log.warn("bad cache stage1 digest: '{s}'", .{prev_digest});
+        if (prev_digest.len >= digest.len + 2) hit: {
+            if (!mem.eql(u8, prev_digest[0..digest.len], &digest))
+                break :hit;
+
+            log.debug("stage1 {} digest={} match - skipping invocation", .{ mod.root_pkg.root_src_path, digest });
+            var flags_bytes: [1]u8 = undefined;
+            _ = std.fmt.hexToBytes(&flags_bytes, prev_digest[digest.len..]) catch {
+                log.warn("bad cache stage1 digest: '{s}'", .{prev_digest});
+                break :hit;
+            };
+
+            if (directory.handle.readFileAlloc(comp.gpa, libs_txt_basename, 10 * 1024 * 1024)) |libs_txt| {
+                var it = mem.tokenize(libs_txt, "\n");
+                while (it.next()) |lib_name| {
+                    try comp.stage1AddLinkLib(lib_name);
                 }
+            } else |err| switch (err) {
+                error.FileNotFound => {}, // That's OK, it just means 0 libs.
+                else => {
+                    log.warn("unable to read cached list of link libs: {s}", .{@errorName(err)});
+                    break :hit;
+                },
             }
+            comp.stage1_lock = man.toOwnedLock();
+            mod.stage1_flags = @bitCast(@TypeOf(mod.stage1_flags), flags_bytes[0]);
+            return;
         }
         log.debug("stage1 {} prev_digest={} new_digest={}", .{ mod.root_pkg.root_src_path, prev_digest, digest });
         man.unhit(prev_hash_state, input_file_count);
@@ -2668,7 +2683,19 @@ fn updateStage1Module(comp: *Compilation) !void {
         .have_wwinmain_crt_startup = false,
         .have_dllmain_crt_startup = false,
     };
+
+    const inferred_lib_start_index = comp.bin_file.options.system_libs.count();
     stage1_module.build_object();
+
+    if (comp.bin_file.options.system_libs.count() > inferred_lib_start_index) {
+        // We need to save the inferred link libs to the cache, otherwise if we get a cache hit
+        // next time we will be missing these libs.
+        var libs_txt = std.ArrayList(u8).init(arena);
+        for (comp.bin_file.options.system_libs.items()[inferred_lib_start_index..]) |entry| {
+            try libs_txt.writer().print("{s}\n", .{entry.key});
+        }
+        try directory.handle.writeFile(libs_txt_basename, libs_txt.items);
+    }
 
     mod.stage1_flags = .{
         .have_c_main = stage1_module.have_c_main,
@@ -2813,4 +2840,16 @@ pub fn build_crt_file(
         }),
         .lock = sub_compilation.bin_file.toOwnedLock(),
     });
+}
+
+pub fn stage1AddLinkLib(comp: *Compilation, lib_name: []const u8) !void {
+    // This happens when an `extern "foo"` function is referenced by the stage1 backend.
+    // If we haven't seen this library yet and we're targeting Windows, we need to queue up
+    // a work item to produce the DLL import library for this.
+    const gop = try comp.bin_file.options.system_libs.getOrPut(comp.gpa, lib_name);
+    if (!gop.found_existing and comp.getTarget().os.tag == .windows) {
+        try comp.work_queue.writeItem(.{
+            .windows_import_lib = comp.bin_file.options.system_libs.count() - 1,
+        });
+    }
 }

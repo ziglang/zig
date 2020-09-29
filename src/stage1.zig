@@ -381,23 +381,33 @@ export fn stage2_add_link_lib(
     symbol_name_len: usize,
 ) ?[*:0]const u8 {
     const comp = @intToPtr(*Compilation, stage1.userdata);
-    const lib_name = lib_name_ptr[0..lib_name_len];
-    const symbol_name = symbol_name_ptr[0..symbol_name_len];
+    const lib_name = std.ascii.allocLowerString(comp.gpa, lib_name_ptr[0..lib_name_len]) catch return "out of memory";
     const target = comp.getTarget();
     const is_libc = target_util.is_libc_lib_name(target, lib_name);
-    if (is_libc and !comp.bin_file.options.link_libc) {
-        return "dependency on libc must be explicitly specified in the build command";
+    if (is_libc) {
+        if (!comp.bin_file.options.link_libc) {
+            return "dependency on libc must be explicitly specified in the build command";
+        }
+        return null;
     }
-
-    if (!is_libc and !target.isWasm() and !comp.bin_file.options.pic) {
-        const msg = std.fmt.allocPrint0(
+    if (target_util.is_libcpp_lib_name(target, lib_name)) {
+        if (!comp.bin_file.options.link_libcpp) {
+            return "dependency on libc++ must be explicitly specified in the build command";
+        }
+        return null;
+    }
+    if (!target.isWasm() and !comp.bin_file.options.pic) {
+        return std.fmt.allocPrint0(
             comp.gpa,
             "dependency on dynamic library '{s}' requires enabling Position Independent Code. Fixed by `-l{s}` or `-fPIC`.",
             .{ lib_name, lib_name },
-        ) catch return "out of memory";
-        return msg.ptr;
+        ) catch "out of memory";
     }
-
+    comp.stage1AddLinkLib(lib_name) catch |err| {
+        return std.fmt.allocPrint0(comp.gpa, "unable to add link lib '{s}': {s}", .{
+            lib_name, @errorName(err),
+        }) catch "out of memory";
+    };
     return null;
 }
 
