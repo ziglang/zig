@@ -78,7 +78,6 @@ pub const packed_int_array = @import("packed_int_array.zig");
 pub const pdb = @import("pdb.zig");
 pub const process = @import("process.zig");
 pub const rand = @import("rand.zig");
-pub const rb = @import("rb.zig");
 pub const sort = @import("sort.zig");
 pub const ascii = @import("ascii.zig");
 pub const testing = @import("testing.zig");
