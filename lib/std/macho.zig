@@ -1295,3 +1295,9 @@ pub const N_WEAK_REF: u16 = 0x40;
 /// another (non-weak) definition for this symbol, the weak definition is ignored. Only symbols in a
 /// coalesced section (page 23) can be marked as a weak definition.
 pub const N_WEAK_DEF: u16 = 0x80;
+
+/// The N_SYMBOL_RESOLVER bit of the n_desc field indicates that the
+/// that the function is actually a resolver function and should
+/// be called to get the address of the real function to use.
+/// This bit is only available in .o files (MH_OBJECT filetype)
+pub const N_SYMBOL_RESOLVER: u16 = 0x100;

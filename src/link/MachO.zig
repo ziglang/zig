@@ -106,10 +106,14 @@ got_section_index: ?u16 = null,
 
 entry_addr: ?u64 = null,
 
-/// Table of all local symbols used.
+/// Table of all local symbols
 /// Internally references string table for names (which are optional).
 local_symbols: std.ArrayListUnmanaged(macho.nlist_64) = .{},
+/// Table of all defined global symbols
 global_symbols: std.ArrayListUnmanaged(macho.nlist_64) = .{},
+/// Table of all undefined symbols
+undef_symbols: std.ArrayListUnmanaged(macho.nlist_64) = .{},
+dyld_stub_binder_index: ?u16 = null,
 
 /// Table of symbol names aka the string table.
 string_table: std.ArrayListUnmanaged(u8) = .{},
@@ -235,10 +239,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     // Unfortunately these have to be buffered and done at the end because ELF does not allow
     // mixing local and global symbols within a symbol table.
     try self.writeAllGlobalSymbols();
+    try self.writeAllUndefSymbols();
 
     {
         const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
-        symtab.nsyms = @intCast(u32, self.local_symbols.items.len + self.global_symbols.items.len);
+        symtab.nsyms = @intCast(u32, self.local_symbols.items.len + self.global_symbols.items.len + self.undef_symbols.items.len);
         const allocated_size = self.allocatedSize(symtab.stroff);
         const needed_size = self.string_table.items.len;
         log.debug("allocated_size = 0x{x}, needed_size = 0x{x}\n", .{ allocated_size, needed_size });
@@ -252,6 +257,17 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         log.debug("writing string table from 0x{x} to 0x{x}\n", .{ symtab.stroff, symtab.stroff + symtab.strsize });
 
         try self.base.file.?.pwriteAll(self.string_table.items, symtab.stroff);
+    }
+    {
+        const dysymtab = &self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
+        const nlocals = @intCast(u32, self.local_symbols.items.len);
+        const nglobals = @intCast(u32, self.global_symbols.items.len);
+        const nundefs = @intCast(u32, self.undef_symbols.items.len);
+        dysymtab.nlocalsym = nlocals;
+        dysymtab.iextdefsym = nlocals;
+        dysymtab.nextdefsym = nglobals;
+        dysymtab.iundefsym = nlocals + nglobals;
+        dysymtab.nundefsym = nundefs;
     }
     {
         var last_cmd_offset: usize = @sizeOf(macho.mach_header_64);
@@ -1018,6 +1034,34 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         });
         self.cmd_table_dirty = true;
     }
+    if (self.dysymtab_cmd_index == null) {
+        self.dysymtab_cmd_index = @intCast(u16, self.load_commands.items.len);
+        try self.load_commands.append(self.base.allocator, .{
+            .Dysymtab = .{
+                .cmd = macho.LC_DYSYMTAB,
+                .cmdsize = @sizeOf(macho.dysymtab_command),
+                .ilocalsym = 0,
+                .nlocalsym = 0,
+                .iextdefsym = 0,
+                .nextdefsym = 0,
+                .iundefsym = 0,
+                .nundefsym = 0,
+                .tocoff = 0,
+                .ntoc = 0,
+                .modtaboff = 0,
+                .nmodtab = 0,
+                .extrefsymoff = 0,
+                .nextrefsyms = 0,
+                .indirectsymoff = 0,
+                .nindirectsyms = 0,
+                .extreloff = 0,
+                .nextrel = 0,
+                .locreloff = 0,
+                .nlocrel = 0,
+            },
+        });
+        self.cmd_table_dirty = true;
+    }
     if (self.dylinker_cmd_index == null) {
         self.dylinker_cmd_index = @intCast(u16, self.load_commands.items.len);
         const cmdsize = commandSize(@sizeOf(macho.dylinker_command) + mem.lenZ(DEFAULT_DYLD_PATH));
@@ -1062,6 +1106,17 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             },
         });
         self.cmd_table_dirty = true;
+    }
+    if (self.dyld_stub_binder_index == null) {
+        self.dyld_stub_binder_index = @intCast(u16, self.undef_symbols.items.len);
+        const name = try self.makeString("dyld_stub_binder");
+        try self.undef_symbols.append(self.base.allocator, .{
+            .n_strx = name,
+            .n_type = macho.N_UNDF | macho.N_EXT,
+            .n_sect = 0,
+            .n_desc = macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | macho.N_SYMBOL_RESOLVER,
+            .n_value = 0,
+        });
     }
     {
         const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
@@ -1296,8 +1351,19 @@ fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
 fn writeAllGlobalSymbols(self: *MachO) !void {
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
     const off = symtab.symoff + self.local_symbols.items.len * @sizeOf(macho.nlist_64);
-    log.debug("writing global symbols from 0x{x} to 0x{x}\n", .{ off, self.global_symbols.items.len + off });
+    const file_size = self.global_symbols.items.len * @sizeOf(macho.nlist_64);
+    log.debug("writing global symbols from 0x{x} to 0x{x}\n", .{ off, file_size + off });
     try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.global_symbols.items), off);
+}
+
+fn writeAllUndefSymbols(self: *MachO) !void {
+    const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
+    const nlocals = self.local_symbols.items.len;
+    const nglobals = self.global_symbols.items.len;
+    const off = symtab.symoff + (nlocals + nglobals) * @sizeOf(macho.nlist_64);
+    const file_size = self.undef_symbols.items.len * @sizeOf(macho.nlist_64);
+    log.debug("writing undef symbols from 0x{x} to 0x{x}\n", .{ off, file_size + off });
+    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.undef_symbols.items), off);
 }
 
 /// Writes Mach-O file header.
