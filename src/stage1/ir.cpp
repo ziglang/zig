@@ -26150,6 +26150,13 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
             ContainerLayout layout = (ContainerLayout)bigint_as_u32(&layout_value->data.x_enum_tag);
 
             ZigType *tag_type = get_const_field_meta_type(ira, source_instr->source_node, payload, "tag_type", 1);
+            if (type_is_invalid(tag_type))
+                return ira->codegen->invalid_inst_gen->value->type;
+            if (tag_type->id != ZigTypeIdInt) {
+                ir_add_error(ira, source_instr, buf_sprintf(
+                    "TypeInfo.Enum.tag_type must be an integer type, not '%s'", buf_ptr(&tag_type->name)));
+                return ira->codegen->invalid_inst_gen->value->type;
+            }
 
             ZigValue *fields_value = get_const_field(ira, source_instr->source_node, payload, "fields", 2);
             if (fields_value == nullptr)
