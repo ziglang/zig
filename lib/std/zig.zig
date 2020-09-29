@@ -84,36 +84,36 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
                     .uefi => ".efi",
                     else => ".exe",
                 };
-                return std.fmt.allocPrint(allocator, "{}{}", .{ root_name, suffix });
+                return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, suffix });
             },
             .Lib => {
                 const suffix = switch (options.link_mode orelse .Static) {
                     .Static => ".lib",
                     .Dynamic => ".dll",
                 };
-                return std.fmt.allocPrint(allocator, "{}{}{}", .{ target.libPrefix(), root_name, suffix });
+                return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, suffix });
             },
-            .Obj => return std.fmt.allocPrint(allocator, "{}{}", .{ root_name, target.abi.oFileExt() }),
+            .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.abi.oFileExt() }),
         },
         .elf => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
             .Lib => {
                 switch (options.link_mode orelse .Static) {
-                    .Static => return std.fmt.allocPrint(allocator, "{}{}.a", .{
+                    .Static => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{
                         target.libPrefix(), root_name,
                     }),
                     .Dynamic => {
                         if (options.version) |ver| {
-                            return std.fmt.allocPrint(allocator, "{}{}.so.{}.{}.{}", .{
+                            return std.fmt.allocPrint(allocator, "{s}{s}.so.{d}.{d}.{d}", .{
                                 target.libPrefix(), root_name, ver.major, ver.minor, ver.patch,
                             });
                         } else {
-                            return std.fmt.allocPrint(allocator, "{}{}.so", .{ target.libPrefix(), root_name });
+                            return std.fmt.allocPrint(allocator, "{s}{s}.so", .{ target.libPrefix(), root_name });
                         }
                     },
                 }
             },
-            .Obj => return std.fmt.allocPrint(allocator, "{}.o", .{root_name}),
+            .Obj => return std.fmt.allocPrint(allocator, "{s}.o", .{root_name}),
         },
         .macho => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
@@ -122,14 +122,14 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
                     .Static => ".a",
                     .Dynamic => ".dylib",
                 };
-                return std.fmt.allocPrint(allocator, "{}{}{}", .{ target.libPrefix(), root_name, suffix });
+                return std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ target.libPrefix(), root_name, suffix });
             },
-            .Obj => return std.fmt.allocPrint(allocator, "{}.o", .{root_name}),
+            .Obj => return std.fmt.allocPrint(allocator, "{s}.o", .{root_name}),
         },
-        .wasm => return std.fmt.allocPrint(allocator, "{}.wasm", .{root_name}),
-        .c => return std.fmt.allocPrint(allocator, "{}.c", .{root_name}),
-        .hex => return std.fmt.allocPrint(allocator, "{}.ihex", .{root_name}),
-        .raw => return std.fmt.allocPrint(allocator, "{}.bin", .{root_name}),
+        .wasm => return std.fmt.allocPrint(allocator, "{s}.wasm", .{root_name}),
+        .c => return std.fmt.allocPrint(allocator, "{s}.c", .{root_name}),
+        .hex => return std.fmt.allocPrint(allocator, "{s}.ihex", .{root_name}),
+        .raw => return std.fmt.allocPrint(allocator, "{s}.bin", .{root_name}),
     }
 }
 

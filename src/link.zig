@@ -321,7 +321,7 @@ pub const File = struct {
             // TODO: avoid extra link step when it's just 1 object file (the `zig cc -c` case)
             // Until then, we do `lld -r -o output.o input.o` even though the output is the same
             // as the input. For the preprocessing case (`zig cc -E -o foo`) we copy the file
-            // to the final location.
+            // to the final location. See also the corresponding TODO in Coff linking.
             const full_out_path = try emit.directory.join(comp.gpa, &[_][]const u8{emit.sub_path});
             defer comp.gpa.free(full_out_path);
             assert(comp.c_object_table.count() == 1);

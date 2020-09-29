@@ -873,287 +873,302 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         };
     }
 
-    const is_obj = self.base.options.output_mode == .Obj;
-
-    // Create an LLD command line and invoke it.
-    var argv = std.ArrayList([]const u8).init(self.base.allocator);
-    defer argv.deinit();
-    // Even though we're calling LLD as a library it thinks the first argument is its own exe name.
-    try argv.append("lld");
-    if (is_obj) {
-        try argv.append("-r");
-    }
-
-    try argv.append("-ERRORLIMIT:0");
-    try argv.append("-NOLOGO");
-    if (!self.base.options.strip) {
-        try argv.append("-DEBUG");
-    }
-    if (self.base.options.output_mode == .Exe) {
-        const stack_size = self.base.options.stack_size_override orelse 16777216;
-        try argv.append(try allocPrint(arena, "-STACK:{d}", .{stack_size}));
-    }
-
-    if (target.cpu.arch == .i386) {
-        try argv.append("-MACHINE:X86");
-    } else if (target.cpu.arch == .x86_64) {
-        try argv.append("-MACHINE:X64");
-    } else if (target.cpu.arch.isARM()) {
-        if (target.cpu.arch.ptrBitWidth() == 32) {
-            try argv.append("-MACHINE:ARM");
-        } else {
-            try argv.append("-MACHINE:ARM64");
-        }
-    }
-
-    if (is_dyn_lib) {
-        try argv.append("-DLL");
-    }
-
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
-    try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));
 
-    if (self.base.options.link_libc) {
-        if (self.base.options.libc_installation) |libc_installation| {
-            try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.crt_dir.?}));
+    if (self.base.options.output_mode == .Obj) {
+        // LLD's COFF driver does not support the equvialent of `-r` so we do a simple file copy
+        // here. TODO: think carefully about how we can avoid this redundant operation when doing
+        // build-obj. See also the corresponding TODO in linkAsArchive.
+        const the_object_path = blk: {
+            if (self.base.options.objects.len != 0)
+                break :blk self.base.options.objects[0];
 
-            if (target.abi == .msvc) {
-                try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.msvc_lib_dir.?}));
-                try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.kernel32_lib_dir.?}));
+            if (comp.c_object_table.count() != 0)
+                break :blk comp.c_object_table.items()[0].key.status.success.object_path;
+
+            if (module_obj_path) |p|
+                break :blk p;
+
+            // TODO I think this is unreachable. Audit this situation when solving the above TODO
+            // regarding eliding redundant object -> object transformations.
+            return error.NoObjectsToLink;
+        };
+        try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
+    } else {
+        // Create an LLD command line and invoke it.
+        var argv = std.ArrayList([]const u8).init(self.base.allocator);
+        defer argv.deinit();
+        // Even though we're calling LLD as a library it thinks the first argument is its own exe name.
+        try argv.append("lld");
+
+        try argv.append("-ERRORLIMIT:0");
+        try argv.append("-NOLOGO");
+        if (!self.base.options.strip) {
+            try argv.append("-DEBUG");
+        }
+        if (self.base.options.output_mode == .Exe) {
+            const stack_size = self.base.options.stack_size_override orelse 16777216;
+            try argv.append(try allocPrint(arena, "-STACK:{d}", .{stack_size}));
+        }
+
+        if (target.cpu.arch == .i386) {
+            try argv.append("-MACHINE:X86");
+        } else if (target.cpu.arch == .x86_64) {
+            try argv.append("-MACHINE:X64");
+        } else if (target.cpu.arch.isARM()) {
+            if (target.cpu.arch.ptrBitWidth() == 32) {
+                try argv.append("-MACHINE:ARM");
+            } else {
+                try argv.append("-MACHINE:ARM64");
             }
         }
-    }
 
-    for (self.base.options.lib_dirs) |lib_dir| {
-        try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{lib_dir}));
-    }
+        if (is_dyn_lib) {
+            try argv.append("-DLL");
+        }
 
-    try argv.appendSlice(self.base.options.objects);
+        try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));
 
-    for (comp.c_object_table.items()) |entry| {
-        try argv.append(entry.key.status.success.object_path);
-    }
+        if (self.base.options.link_libc) {
+            if (self.base.options.libc_installation) |libc_installation| {
+                try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.crt_dir.?}));
 
-    if (module_obj_path) |p| {
-        try argv.append(p);
-    }
-
-    const resolved_subsystem: ?std.Target.SubSystem = blk: {
-        if (self.base.options.subsystem) |explicit| break :blk explicit;
-        switch (target.os.tag) {
-            .windows => {
-                if (self.base.options.module) |module| {
-                    if (module.stage1_flags.have_dllmain_crt_startup or is_dyn_lib)
-                        break :blk null;
-                    if (module.stage1_flags.have_c_main or self.base.options.is_test or
-                        module.stage1_flags.have_winmain_crt_startup or
-                        module.stage1_flags.have_wwinmain_crt_startup)
-                    {
-                        break :blk .Console;
-                    }
-                    if (module.stage1_flags.have_winmain or module.stage1_flags.have_wwinmain)
-                        break :blk .Windows;
+                if (target.abi == .msvc) {
+                    try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.msvc_lib_dir.?}));
+                    try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.kernel32_lib_dir.?}));
                 }
-            },
-            .uefi => break :blk .EfiApplication,
-            else => {},
+            }
         }
-        break :blk null;
-    };
-    const Mode = enum { uefi, win32 };
-    const mode: Mode = mode: {
-        if (resolved_subsystem) |subsystem| switch (subsystem) {
-            .Console => {
-                try argv.append("-SUBSYSTEM:console");
-                break :mode .win32;
-            },
-            .EfiApplication => {
-                try argv.append("-SUBSYSTEM:efi_application");
-                break :mode .uefi;
-            },
-            .EfiBootServiceDriver => {
-                try argv.append("-SUBSYSTEM:efi_boot_service_driver");
-                break :mode .uefi;
-            },
-            .EfiRom => {
-                try argv.append("-SUBSYSTEM:efi_rom");
-                break :mode .uefi;
-            },
-            .EfiRuntimeDriver => {
-                try argv.append("-SUBSYSTEM:efi_runtime_driver");
-                break :mode .uefi;
-            },
-            .Native => {
-                try argv.append("-SUBSYSTEM:native");
-                break :mode .win32;
-            },
-            .Posix => {
-                try argv.append("-SUBSYSTEM:posix");
-                break :mode .win32;
-            },
-            .Windows => {
-                try argv.append("-SUBSYSTEM:windows");
-                break :mode .win32;
-            },
-        } else if (target.os.tag == .uefi) {
-            break :mode .uefi;
-        } else {
-            break :mode .win32;
+
+        for (self.base.options.lib_dirs) |lib_dir| {
+            try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{lib_dir}));
         }
-    };
 
-    switch (mode) {
-        .uefi => try argv.appendSlice(&[_][]const u8{
-            "-BASE:0",
-            "-ENTRY:EfiMain",
-            "-OPT:REF",
-            "-SAFESEH:NO",
-            "-MERGE:.rdata=.data",
-            "-ALIGN:32",
-            "-NODEFAULTLIB",
-            "-SECTION:.xdata,D",
-        }),
-        .win32 => {
-            if (link_in_crt) {
-                if (target.abi.isGnu()) {
-                    try argv.append("-lldmingw");
+        try argv.appendSlice(self.base.options.objects);
 
-                    if (target.cpu.arch == .i386) {
-                        try argv.append("-ALTERNATENAME:__image_base__=___ImageBase");
-                    } else {
-                        try argv.append("-ALTERNATENAME:__image_base__=__ImageBase");
-                    }
+        for (comp.c_object_table.items()) |entry| {
+            try argv.append(entry.key.status.success.object_path);
+        }
 
-                    if (is_dyn_lib) {
-                        try argv.append(try comp.get_libc_crt_file(arena, "dllcrt2.o"));
-                    } else {
-                        try argv.append(try comp.get_libc_crt_file(arena, "crt2.o"));
-                    }
+        if (module_obj_path) |p| {
+            try argv.append(p);
+        }
 
-                    try argv.append(try comp.get_libc_crt_file(arena, "mingw32.lib"));
-                    try argv.append(try comp.get_libc_crt_file(arena, "mingwex.lib"));
-                    try argv.append(try comp.get_libc_crt_file(arena, "msvcrt-os.lib"));
-
-                    for (mingw.always_link_libs) |name| {
-                        if (!self.base.options.system_libs.contains(name)) {
-                            const lib_basename = try allocPrint(arena, "{s}.lib", .{name});
-                            try argv.append(try comp.get_libc_crt_file(arena, lib_basename));
+        const resolved_subsystem: ?std.Target.SubSystem = blk: {
+            if (self.base.options.subsystem) |explicit| break :blk explicit;
+            switch (target.os.tag) {
+                .windows => {
+                    if (self.base.options.module) |module| {
+                        if (module.stage1_flags.have_dllmain_crt_startup or is_dyn_lib)
+                            break :blk null;
+                        if (module.stage1_flags.have_c_main or self.base.options.is_test or
+                            module.stage1_flags.have_winmain_crt_startup or
+                            module.stage1_flags.have_wwinmain_crt_startup)
+                        {
+                            break :blk .Console;
                         }
+                        if (module.stage1_flags.have_winmain or module.stage1_flags.have_wwinmain)
+                            break :blk .Windows;
+                    }
+                },
+                .uefi => break :blk .EfiApplication,
+                else => {},
+            }
+            break :blk null;
+        };
+        const Mode = enum { uefi, win32 };
+        const mode: Mode = mode: {
+            if (resolved_subsystem) |subsystem| switch (subsystem) {
+                .Console => {
+                    try argv.append("-SUBSYSTEM:console");
+                    break :mode .win32;
+                },
+                .EfiApplication => {
+                    try argv.append("-SUBSYSTEM:efi_application");
+                    break :mode .uefi;
+                },
+                .EfiBootServiceDriver => {
+                    try argv.append("-SUBSYSTEM:efi_boot_service_driver");
+                    break :mode .uefi;
+                },
+                .EfiRom => {
+                    try argv.append("-SUBSYSTEM:efi_rom");
+                    break :mode .uefi;
+                },
+                .EfiRuntimeDriver => {
+                    try argv.append("-SUBSYSTEM:efi_runtime_driver");
+                    break :mode .uefi;
+                },
+                .Native => {
+                    try argv.append("-SUBSYSTEM:native");
+                    break :mode .win32;
+                },
+                .Posix => {
+                    try argv.append("-SUBSYSTEM:posix");
+                    break :mode .win32;
+                },
+                .Windows => {
+                    try argv.append("-SUBSYSTEM:windows");
+                    break :mode .win32;
+                },
+            } else if (target.os.tag == .uefi) {
+                break :mode .uefi;
+            } else {
+                break :mode .win32;
+            }
+        };
+
+        switch (mode) {
+            .uefi => try argv.appendSlice(&[_][]const u8{
+                "-BASE:0",
+                "-ENTRY:EfiMain",
+                "-OPT:REF",
+                "-SAFESEH:NO",
+                "-MERGE:.rdata=.data",
+                "-ALIGN:32",
+                "-NODEFAULTLIB",
+                "-SECTION:.xdata,D",
+            }),
+            .win32 => {
+                if (link_in_crt) {
+                    if (target.abi.isGnu()) {
+                        try argv.append("-lldmingw");
+
+                        if (target.cpu.arch == .i386) {
+                            try argv.append("-ALTERNATENAME:__image_base__=___ImageBase");
+                        } else {
+                            try argv.append("-ALTERNATENAME:__image_base__=__ImageBase");
+                        }
+
+                        if (is_dyn_lib) {
+                            try argv.append(try comp.get_libc_crt_file(arena, "dllcrt2.o"));
+                        } else {
+                            try argv.append(try comp.get_libc_crt_file(arena, "crt2.o"));
+                        }
+
+                        try argv.append(try comp.get_libc_crt_file(arena, "mingw32.lib"));
+                        try argv.append(try comp.get_libc_crt_file(arena, "mingwex.lib"));
+                        try argv.append(try comp.get_libc_crt_file(arena, "msvcrt-os.lib"));
+
+                        for (mingw.always_link_libs) |name| {
+                            if (!self.base.options.system_libs.contains(name)) {
+                                const lib_basename = try allocPrint(arena, "{s}.lib", .{name});
+                                try argv.append(try comp.get_libc_crt_file(arena, lib_basename));
+                            }
+                        }
+                    } else {
+                        const lib_str = switch (self.base.options.link_mode) {
+                            .Dynamic => "",
+                            .Static => "lib",
+                        };
+                        const d_str = switch (self.base.options.optimize_mode) {
+                            .Debug => "d",
+                            else => "",
+                        };
+                        switch (self.base.options.link_mode) {
+                            .Static => try argv.append(try allocPrint(arena, "libcmt{s}.lib", .{d_str})),
+                            .Dynamic => try argv.append(try allocPrint(arena, "msvcrt{s}.lib", .{d_str})),
+                        }
+
+                        try argv.append(try allocPrint(arena, "{s}vcruntime{s}.lib", .{ lib_str, d_str }));
+                        try argv.append(try allocPrint(arena, "{s}ucrt{s}.lib", .{ lib_str, d_str }));
+
+                        //Visual C++ 2015 Conformance Changes
+                        //https://msdn.microsoft.com/en-us/library/bb531344.aspx
+                        try argv.append("legacy_stdio_definitions.lib");
+
+                        // msvcrt depends on kernel32 and ntdll
+                        try argv.append("kernel32.lib");
+                        try argv.append("ntdll.lib");
                     }
                 } else {
-                    const lib_str = switch (self.base.options.link_mode) {
-                        .Dynamic => "",
-                        .Static => "lib",
-                    };
-                    const d_str = switch (self.base.options.optimize_mode) {
-                        .Debug => "d",
-                        else => "",
-                    };
-                    switch (self.base.options.link_mode) {
-                        .Static => try argv.append(try allocPrint(arena, "libcmt{s}.lib", .{d_str})),
-                        .Dynamic => try argv.append(try allocPrint(arena, "msvcrt{s}.lib", .{d_str})),
-                    }
-
-                    try argv.append(try allocPrint(arena, "{s}vcruntime{s}.lib", .{ lib_str, d_str }));
-                    try argv.append(try allocPrint(arena, "{s}ucrt{s}.lib", .{ lib_str, d_str }));
-
-                    //Visual C++ 2015 Conformance Changes
-                    //https://msdn.microsoft.com/en-us/library/bb531344.aspx
-                    try argv.append("legacy_stdio_definitions.lib");
-
-                    // msvcrt depends on kernel32 and ntdll
-                    try argv.append("kernel32.lib");
-                    try argv.append("ntdll.lib");
-                }
-            } else {
-                try argv.append("-NODEFAULTLIB");
-                if (!is_lib) {
-                    if (self.base.options.module) |module| {
-                        if (module.stage1_flags.have_winmain) {
-                            try argv.append("-ENTRY:WinMain");
-                        } else if (module.stage1_flags.have_wwinmain) {
-                            try argv.append("-ENTRY:wWinMain");
-                        } else if (module.stage1_flags.have_wwinmain_crt_startup) {
-                            try argv.append("-ENTRY:wWinMainCRTStartup");
+                    try argv.append("-NODEFAULTLIB");
+                    if (!is_lib) {
+                        if (self.base.options.module) |module| {
+                            if (module.stage1_flags.have_winmain) {
+                                try argv.append("-ENTRY:WinMain");
+                            } else if (module.stage1_flags.have_wwinmain) {
+                                try argv.append("-ENTRY:wWinMain");
+                            } else if (module.stage1_flags.have_wwinmain_crt_startup) {
+                                try argv.append("-ENTRY:wWinMainCRTStartup");
+                            } else {
+                                try argv.append("-ENTRY:WinMainCRTStartup");
+                            }
                         } else {
                             try argv.append("-ENTRY:WinMainCRTStartup");
                         }
-                    } else {
-                        try argv.append("-ENTRY:WinMainCRTStartup");
                     }
                 }
-            }
-        },
-    }
+            },
+        }
 
-    if (!is_obj) {
         // libc++ dep
         if (self.base.options.link_libcpp) {
             try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
             try argv.append(comp.libcxx_static_lib.?.full_object_path);
             try argv.append(comp.libunwind_static_lib.?.full_object_path);
         }
-    }
 
-    // compiler-rt and libc
-    if (is_exe_or_dyn_lib and !self.base.options.is_compiler_rt_or_libc) {
-        if (!self.base.options.link_libc) {
-            try argv.append(comp.libc_static_lib.?.full_object_path);
+        // compiler-rt and libc
+        if (is_exe_or_dyn_lib and !self.base.options.is_compiler_rt_or_libc) {
+            if (!self.base.options.link_libc) {
+                try argv.append(comp.libc_static_lib.?.full_object_path);
+            }
+            // MSVC compiler_rt is missing some stuff, so we build it unconditionally but
+            // and rely on weak linkage to allow MSVC compiler_rt functions to override ours.
+            try argv.append(comp.compiler_rt_static_lib.?.full_object_path);
         }
-        // MSVC compiler_rt is missing some stuff, so we build it unconditionally but
-        // and rely on weak linkage to allow MSVC compiler_rt functions to override ours.
-        try argv.append(comp.compiler_rt_static_lib.?.full_object_path);
-    }
 
-    for (self.base.options.system_libs.items()) |entry| {
-        const lib_basename = try allocPrint(arena, "{s}.lib", .{entry.key});
-        if (comp.crt_files.get(lib_basename)) |crt_file| {
-            try argv.append(crt_file.full_object_path);
-        } else {
-            try argv.append(lib_basename);
+        for (self.base.options.system_libs.items()) |entry| {
+            const lib_basename = try allocPrint(arena, "{s}.lib", .{entry.key});
+            if (comp.crt_files.get(lib_basename)) |crt_file| {
+                try argv.append(crt_file.full_object_path);
+            } else {
+                try argv.append(lib_basename);
+            }
         }
-    }
 
-    if (self.base.options.verbose_link) {
-        Compilation.dump_argv(argv.items);
-    }
+        if (self.base.options.verbose_link) {
+            Compilation.dump_argv(argv.items);
+        }
 
-    const new_argv = try arena.allocSentinel(?[*:0]const u8, argv.items.len, null);
-    for (argv.items) |arg, i| {
-        new_argv[i] = try arena.dupeZ(u8, arg);
-    }
+        const new_argv = try arena.allocSentinel(?[*:0]const u8, argv.items.len, null);
+        for (argv.items) |arg, i| {
+            new_argv[i] = try arena.dupeZ(u8, arg);
+        }
 
-    var stderr_context: LLDContext = .{
-        .coff = self,
-        .data = std.ArrayList(u8).init(self.base.allocator),
-    };
-    defer stderr_context.data.deinit();
-    var stdout_context: LLDContext = .{
-        .coff = self,
-        .data = std.ArrayList(u8).init(self.base.allocator),
-    };
-    defer stdout_context.data.deinit();
-    const llvm = @import("../llvm.zig");
-    const ok = llvm.Link(
-        .COFF,
-        new_argv.ptr,
-        new_argv.len,
-        append_diagnostic,
-        @ptrToInt(&stdout_context),
-        @ptrToInt(&stderr_context),
-    );
-    if (stderr_context.oom or stdout_context.oom) return error.OutOfMemory;
-    if (stdout_context.data.items.len != 0) {
-        std.log.warn("unexpected LLD stdout: {}", .{stdout_context.data.items});
-    }
-    if (!ok) {
-        // TODO parse this output and surface with the Compilation API rather than
-        // directly outputting to stderr here.
-        std.debug.print("{}", .{stderr_context.data.items});
-        return error.LLDReportedFailure;
-    }
-    if (stderr_context.data.items.len != 0) {
-        std.log.warn("unexpected LLD stderr: {}", .{stderr_context.data.items});
+        var stderr_context: LLDContext = .{
+            .coff = self,
+            .data = std.ArrayList(u8).init(self.base.allocator),
+        };
+        defer stderr_context.data.deinit();
+        var stdout_context: LLDContext = .{
+            .coff = self,
+            .data = std.ArrayList(u8).init(self.base.allocator),
+        };
+        defer stdout_context.data.deinit();
+        const llvm = @import("../llvm.zig");
+        const ok = llvm.Link(
+            .COFF,
+            new_argv.ptr,
+            new_argv.len,
+            append_diagnostic,
+            @ptrToInt(&stdout_context),
+            @ptrToInt(&stderr_context),
+        );
+        if (stderr_context.oom or stdout_context.oom) return error.OutOfMemory;
+        if (stdout_context.data.items.len != 0) {
+            std.log.warn("unexpected LLD stdout: {}", .{stdout_context.data.items});
+        }
+        if (!ok) {
+            // TODO parse this output and surface with the Compilation API rather than
+            // directly outputting to stderr here.
+            std.debug.print("{}", .{stderr_context.data.items});
+            return error.LLDReportedFailure;
+        }
+        if (stderr_context.data.items.len != 0) {
+            std.log.warn("unexpected LLD stderr: {}", .{stderr_context.data.items});
+        }
     }
 
     if (!self.base.options.disable_lld_caching) {

@@ -1314,8 +1314,8 @@ fn buildOutputType(
         }
     }
 
-    const object_format: ?std.Target.ObjectFormat = blk: {
-        const ofmt = target_ofmt orelse break :blk null;
+    const object_format: std.Target.ObjectFormat = blk: {
+        const ofmt = target_ofmt orelse break :blk target_info.target.getObjectFormat();
         if (mem.eql(u8, ofmt, "elf")) {
             break :blk .elf;
         } else if (mem.eql(u8, ofmt, "c")) {
@@ -1336,6 +1336,15 @@ fn buildOutputType(
             fatal("unsupported object format: {}", .{ofmt});
         }
     };
+
+    if (output_mode == .Obj and object_format == .coff) {
+        const total_obj_count = c_source_files.items.len +
+            @boolToInt(root_src_file != null) +
+            link_objects.items.len;
+        if (total_obj_count > 1) {
+            fatal("COFF does not support linking multiple objects into one", .{});
+        }
+    }
 
     var cleanup_emit_bin_dir: ?fs.Dir = null;
     defer if (cleanup_emit_bin_dir) |*dir| dir.close();

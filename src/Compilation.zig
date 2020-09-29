@@ -879,6 +879,11 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             try comp.work_queue.ensureUnusedCapacity(static_lib_jobs.len + 1);
             comp.work_queue.writeAssumeCapacity(&static_lib_jobs);
             comp.work_queue.writeItemAssumeCapacity(crt_job);
+
+            // When linking mingw-w64 there are some import libs we always need.
+            for (mingw.always_link_libs) |name| {
+                try comp.bin_file.options.system_libs.put(comp.gpa, name, .{});
+            }
         }
         // Generate Windows import libs.
         if (comp.getTarget().os.tag == .windows) {
