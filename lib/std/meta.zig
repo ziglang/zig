@@ -827,6 +827,46 @@ test "sizeof" {
     testing.expect(sizeof(S) == 4);
 }
 
+/// For a given function type, returns a tuple type which fields will
+/// correspond to the argument types.
+///
+/// Examples:
+/// - `ArgsTuple(fn() void)` ⇒ `tuple { }`
+/// - `ArgsTuple(fn(a: u32) u32)` ⇒ `tuple { u32 }`
+/// - `ArgsTuple(fn(a: u32, b: f16) noreturn)` ⇒ `tuple { u32, f16 }`
+pub fn ArgsTuple(comptime Function: type) type {
+    const info = @typeInfo(Function);
+    if (info != .Fn)
+        @compileError("ArgsTuple expects a function type");
+
+    const function_info = info.Fn;
+    if (function_info.is_generic)
+        @compileError("Cannot create ArgsTuple for generic function");
+    if (function_info.is_var_args)
+        @compileError("Cannot create ArgsTuple for variadic function");
+
+    var argument_field_list: [function_info.args.len]std.builtin.TypeInfo.StructField = undefined;
+    inline for (function_info.args) |arg, i| {
+        @setEvalBranchQuota(10_000);
+        var num_buf: [128]u8 = undefined;
+        argument_field_list[i] = std.builtin.TypeInfo.StructField{
+            .name = std.fmt.bufPrint(&num_buf, "{d}", .{i}) catch unreachable,
+            .field_type = arg.arg_type.?,
+            .default_value = @as(?(arg.arg_type.?), null),
+            .is_comptime = false,
+        };
+    }
+
+    return @Type(std.builtin.TypeInfo{
+        .Struct = std.builtin.TypeInfo.Struct{
+            .is_tuple = true,
+            .layout = .Auto,
+            .decls = &[_]std.builtin.TypeInfo.Declaration{},
+            .fields = &argument_field_list,
+        },
+    });
+}
+
 /// For a given anonymous list of types, returns a new tuple type
 /// with those types as fields.
 ///
@@ -857,34 +897,41 @@ pub fn Tuple(comptime types: []const type) type {
     });
 }
 
-test "Tuple" {
-    const T = struct {
-        fn assertTypeEqual(comptime Expected: type, comptime Actual: type) void {
-            if (Expected != Actual)
-                @compileError("Expected type " ++ @typeName(Expected) ++ ", but got type " ++ @typeName(Actual));
-        }
+const TupleTester = struct {
+    fn assertTypeEqual(comptime Expected: type, comptime Actual: type) void {
+        if (Expected != Actual)
+            @compileError("Expected type " ++ @typeName(Expected) ++ ", but got type " ++ @typeName(Actual));
+    }
 
-        fn assertTuple(comptime expected: anytype, comptime Actual: type) void {
-            const info = @typeInfo(Actual);
-            if (info != .Struct)
-                @compileError("Expected struct type");
-            if (!info.Struct.is_tuple)
-                @compileError("Struct type must be a tuple type");
+    fn assertTuple(comptime expected: anytype, comptime Actual: type) void {
+        const info = @typeInfo(Actual);
+        if (info != .Struct)
+            @compileError("Expected struct type");
+        if (!info.Struct.is_tuple)
+            @compileError("Struct type must be a tuple type");
 
-            const fields_list = std.meta.fields(Actual);
-            if (expected.len != fields_list.len)
-                @compileError("Argument count mismatch");
+        const fields_list = std.meta.fields(Actual);
+        if (expected.len != fields_list.len)
+            @compileError("Argument count mismatch");
 
-            inline for (fields_list) |fld, i| {
-                if (expected[i] != fld.field_type) {
-                    @compileError("Field " ++ fld.name ++ " expected to be type " ++ @typeName(expected[i]) ++ ", but was type " ++ @typeName(fld.field_type));
-                }
+        inline for (fields_list) |fld, i| {
+            if (expected[i] != fld.field_type) {
+                @compileError("Field " ++ fld.name ++ " expected to be type " ++ @typeName(expected[i]) ++ ", but was type " ++ @typeName(fld.field_type));
             }
         }
-    };
+    }
+};
 
-    T.assertTuple(.{}, Tuple(&[_]type{}));
-    T.assertTuple(.{u32}, Tuple(&[_]type{u32}));
-    T.assertTuple(.{ u32, f16 }, Tuple(&[_]type{ u32, f16 }));
-    T.assertTuple(.{ u32, f16, []const u8 }, Tuple(&[_]type{ u32, f16, []const u8 }));
+test "ArgsTuple" {
+    TupleTester.assertTuple(.{}, ArgsTuple(fn () void));
+    TupleTester.assertTuple(.{u32}, ArgsTuple(fn (a: u32) []const u8));
+    TupleTester.assertTuple(.{ u32, f16 }, ArgsTuple(fn (a: u32, b: f16) noreturn));
+    TupleTester.assertTuple(.{ u32, f16, []const u8 }, ArgsTuple(fn (a: u32, b: f16, c: []const u8) noreturn));
+}
+
+test "Tuple" {
+    TupleTester.assertTuple(.{}, Tuple(&[_]type{}));
+    TupleTester.assertTuple(.{u32}, Tuple(&[_]type{u32}));
+    TupleTester.assertTuple(.{ u32, f16 }, Tuple(&[_]type{ u32, f16 }));
+    TupleTester.assertTuple(.{ u32, f16, []const u8 }, Tuple(&[_]type{ u32, f16, []const u8 }));
 }
