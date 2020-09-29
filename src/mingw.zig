@@ -342,11 +342,8 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     const target_def_arg = switch (target.cpu.arch) {
         .i386 => "-DDEF_I386",
         .x86_64 => "-DDEF_X64",
-        .arm, .armeb => switch (target.cpu.arch.ptrBitWidth()) {
-            32 => "-DDEF_ARM32",
-            64 => "-DDEF_ARM64",
-            else => unreachable,
-        },
+        .arm, .armeb, .thumb, .thumbeb, .aarch64_32 => "-DDEF_ARM32",
+        .aarch64, .aarch64_be => "-DDEF_ARM64",
         else => unreachable,
     };
 
