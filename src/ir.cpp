@@ -16715,16 +16715,12 @@ static IrInstGen *ir_analyze_bin_op_cmp_numeric(IrAnalyze *ira, IrInst *source_i
     }
     ZigType *dest_float_type = nullptr;
     uint32_t op1_bits;
-    if (instr_is_comptime(op1)) {
+    if (instr_is_comptime(op1) && result_type->id != ZigTypeIdVector) {
         ZigValue *op1_val = ir_resolve_const(ira, op1, UndefOk);
         if (op1_val == nullptr)
             return ira->codegen->invalid_inst_gen;
         if (op1_val->special == ConstValSpecialUndef)
             return ir_const_undef(ira, source_instr, ira->codegen->builtin_types.entry_bool);
-        if (result_type->id == ZigTypeIdVector) {
-            ir_add_error(ira, &op1->base, buf_sprintf("compiler bug: TODO: support comptime vector here"));
-            return ira->codegen->invalid_inst_gen;
-        }
         bool is_unsigned;
         if (op1_is_float) {
             BigInt bigint = {};
@@ -16750,6 +16746,7 @@ static IrInstGen *ir_analyze_bin_op_cmp_numeric(IrAnalyze *ira, IrInst *source_i
             op1_bits += 1;
         }
     } else if (op1_is_float) {
+        ir_assert(op1_scalar_type->id == ZigTypeIdFloat, source_instr);
         dest_float_type = op1_scalar_type;
     } else {
         ir_assert(op1_scalar_type->id == ZigTypeIdInt, source_instr);
@@ -16759,16 +16756,12 @@ static IrInstGen *ir_analyze_bin_op_cmp_numeric(IrAnalyze *ira, IrInst *source_i
         }
     }
     uint32_t op2_bits;
-    if (instr_is_comptime(op2)) {
+    if (instr_is_comptime(op2) && result_type->id != ZigTypeIdVector) {
         ZigValue *op2_val = ir_resolve_const(ira, op2, UndefOk);
         if (op2_val == nullptr)
             return ira->codegen->invalid_inst_gen;
         if (op2_val->special == ConstValSpecialUndef)
             return ir_const_undef(ira, source_instr, ira->codegen->builtin_types.entry_bool);
-        if (result_type->id == ZigTypeIdVector) {
-            ir_add_error(ira, &op2->base, buf_sprintf("compiler bug: TODO: support comptime vector here"));
-            return ira->codegen->invalid_inst_gen;
-        }
         bool is_unsigned;
         if (op2_is_float) {
             BigInt bigint = {};
@@ -16794,6 +16787,7 @@ static IrInstGen *ir_analyze_bin_op_cmp_numeric(IrAnalyze *ira, IrInst *source_i
             op2_bits += 1;
         }
     } else if (op2_is_float) {
+        ir_assert(op2_scalar_type->id == ZigTypeIdFloat, source_instr);
         dest_float_type = op2_scalar_type;
     } else {
         ir_assert(op2_scalar_type->id == ZigTypeIdInt, source_instr);
@@ -21934,7 +21928,17 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
                 return ira->codegen->invalid_inst_gen;
             }
             safety_check_on = false;
+        } else if (array_type->id == ZigTypeIdVector) {
+            uint64_t vector_len = array_type->data.vector.len;
+            if (index >= vector_len) {
+                ir_add_error_node(ira, elem_ptr_instruction->base.base.source_node,
+                    buf_sprintf("index %" ZIG_PRI_u64 " outside vector of size %" ZIG_PRI_u64,
+                            index, vector_len));
+                return ira->codegen->invalid_inst_gen;
+            }
+            safety_check_on = false;
         }
+
         if (array_type->id == ZigTypeIdVector) {
             ZigType *elem_type = array_type->data.vector.elem_type;
             uint32_t host_vec_len = array_type->data.vector.len;
