@@ -95,7 +95,7 @@ test "std.event.Future" {
     // TODO provide a way to run tests in evented I/O mode
     if (!std.io.is_async) return error.SkipZigTest;
 
-    const handle = async testFuture();
+    testFuture();
 }
 
 fn testFuture() void {
