@@ -854,6 +854,7 @@ pub fn ArgsTuple(comptime Function: type) type {
             .field_type = arg.arg_type.?,
             .default_value = @as(?(arg.arg_type.?), null),
             .is_comptime = false,
+            .alignment = @alignOf(arg.arg_type.?),
         };
     }
 
