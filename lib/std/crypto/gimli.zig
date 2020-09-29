@@ -38,7 +38,35 @@ pub const State = struct {
         return mem.sliceAsBytes(self.data[0..]);
     }
 
-    pub fn permute(self: *Self) void {
+    fn permute_unrolled(self: *Self) void {
+        const state = &self.data;
+        comptime var round = @as(u32, 24);
+        inline while (round > 0) : (round -= 1) {
+            var column = @as(usize, 0);
+            while (column < 4) : (column += 1) {
+                const x = math.rotl(u32, state[column], 24);
+                const y = math.rotl(u32, state[4 + column], 9);
+                const z = state[8 + column];
+                state[8 + column] = ((x ^ (z << 1)) ^ ((y & z) << 2));
+                state[4 + column] = ((y ^ x) ^ ((x | z) << 1));
+                state[column] = ((z ^ y) ^ ((x & y) << 3));
+            }
+            switch (round & 3) {
+                0 => {
+                    mem.swap(u32, &state[0], &state[1]);
+                    mem.swap(u32, &state[2], &state[3]);
+                    state[0] ^= round | 0x9e377900;
+                },
+                2 => {
+                    mem.swap(u32, &state[0], &state[2]);
+                    mem.swap(u32, &state[1], &state[3]);
+                },
+                else => {},
+            }
+        }
+    }
+
+    fn permute_small(self: *Self) void {
         const state = &self.data;
         var round = @as(u32, 24);
         while (round > 0) : (round -= 1) {
@@ -65,6 +93,8 @@ pub const State = struct {
             }
         }
     }
+
+    pub const permute = if (std.builtin.mode == .ReleaseSmall) permute_small else permute_unrolled;
 
     pub fn squeeze(self: *Self, out: []u8) void {
         var i = @as(usize, 0);
@@ -249,15 +279,15 @@ pub const Aead = struct {
             in = in[State.RATE..];
             out = out[State.RATE..];
         }) {
-            for (buf[0..State.RATE]) |*p, i| {
-                p.* ^= in[i];
-                out[i] = p.*;
+            for (in[0..State.RATE]) |v, i| {
+                buf[i] ^= v;
             }
+            mem.copy(u8, out[0..State.RATE], buf[0..State.RATE]);
             state.permute();
         }
-        for (buf[0..in.len]) |*p, i| {
-            p.* ^= in[i];
-            out[i] = p.*;
+        for (in[0..]) |v, i| {
+            buf[i] ^= v;
+            out[i] = buf[i];
         }
 
         // XOR 1 into the next byte of the state
@@ -291,15 +321,17 @@ pub const Aead = struct {
             in = in[State.RATE..];
             out = out[State.RATE..];
         }) {
-            for (buf[0..State.RATE]) |*p, i| {
-                out[i] = p.* ^ in[i];
-                p.* = in[i];
+            const d = in[0..State.RATE].*;
+            for (d) |v, i| {
+                out[i] = buf[i] ^ v;
             }
+            mem.copy(u8, buf[0..State.RATE], d[0..State.RATE]);
             state.permute();
         }
         for (buf[0..in.len]) |*p, i| {
-            out[i] = p.* ^ in[i];
-            p.* = in[i];
+            const d = in[i];
+            out[i] = p.* ^ d;
+            p.* = d;
         }
 
         // XOR 1 into the next byte of the state
