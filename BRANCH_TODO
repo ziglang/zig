@@ -1,5 +1,4 @@
  * MachO LLD linking
- * WASM LLD linking
  * audit the CLI options for stage2
  * audit the base cache hash
  * On operating systems that support it, do an execve for `zig test` and `zig run` rather than child process.

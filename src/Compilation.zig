@@ -2418,7 +2418,7 @@ fn buildStaticLibFromZig(comp: *Compilation, src_basename: []const u8, out: *?CR
     const bin_basename = try std.zig.binNameAlloc(comp.gpa, .{
         .root_name = root_name,
         .target = target,
-        .output_mode = .Lib,
+        .output_mode = .Obj,
     });
     defer comp.gpa.free(bin_basename);
 
@@ -2441,7 +2441,7 @@ fn buildStaticLibFromZig(comp: *Compilation, src_basename: []const u8, out: *?CR
         .target = target,
         .root_name = root_name,
         .root_pkg = &root_pkg,
-        .output_mode = .Lib,
+        .output_mode = .Obj,
         .rand = comp.rand,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
