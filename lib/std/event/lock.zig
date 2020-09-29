@@ -27,20 +27,24 @@ pub const Lock = struct {
 
     const Waiter = struct {
         // forced Waiter alignment to ensure it doesn't clash with LOCKED
-        next: ?*Waiter align(2), 
+        next: ?*Waiter align(2),
         tail: *Waiter,
         node: Loop.NextTickNode,
     };
+
+    pub fn initLocked() Lock {
+        return Lock{ .head = LOCKED };
+    }
 
     pub fn acquire(self: *Lock) Held {
         const held = self.mutex.acquire();
 
         // self.head transitions from multiple stages depending on the value:
-        // UNLOCKED -> LOCKED: 
+        // UNLOCKED -> LOCKED:
         //   acquire Lock ownership when theres no waiters
         // LOCKED -> <Waiter head ptr>:
         //   Lock is already owned, enqueue first Waiter
-        // <head ptr> -> <head ptr>: 
+        // <head ptr> -> <head ptr>:
         //   Lock is owned with pending waiters. Push our waiter to the queue.
 
         if (self.head == UNLOCKED) {
@@ -51,7 +55,7 @@ pub const Lock = struct {
 
         var waiter: Waiter = undefined;
         waiter.next = null;
-        waiter.tail = &waiter; 
+        waiter.tail = &waiter;
 
         const head = switch (self.head) {
             UNLOCKED => unreachable,
@@ -79,15 +83,15 @@ pub const Lock = struct {
     }
 
     pub const Held = struct {
-        lock: *Lock, 
-    
+        lock: *Lock,
+
         pub fn release(self: Held) void {
             const waiter = blk: {
                 const held = self.lock.mutex.acquire();
                 defer held.release();
 
                 // self.head goes through the reverse transition from acquire():
-                // <head ptr> -> <new head ptr>: 
+                // <head ptr> -> <new head ptr>:
                 //   pop a waiter from the queue to give Lock ownership when theres still others pending
                 // <head ptr> -> LOCKED:
                 //   pop the laster waiter from the queue, while also giving it lock ownership when awaken

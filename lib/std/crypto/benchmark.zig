@@ -149,6 +149,8 @@ const aeads = [_]Crypto{
     Crypto{ .ty = crypto.aead.ChaCha20Poly1305, .name = "chacha20Poly1305" },
     Crypto{ .ty = crypto.aead.XChaCha20Poly1305, .name = "xchacha20Poly1305" },
     Crypto{ .ty = crypto.aead.Gimli, .name = "gimli-aead" },
+    Crypto{ .ty = crypto.aead.AEGIS128L, .name = "aegis-128l" },
+    Crypto{ .ty = crypto.aead.AEGIS256, .name = "aegis-256" },
 };
 
 pub fn benchmarkAead(comptime Aead: anytype, comptime bytes: comptime_int) !u64 {
@@ -168,7 +170,7 @@ pub fn benchmarkAead(comptime Aead: anytype, comptime bytes: comptime_int) !u64 
     const start = timer.lap();
     while (offset < bytes) : (offset += in.len) {
         Aead.encrypt(in[0..], tag[0..], in[0..], &[_]u8{}, nonce, key);
-        Aead.decrypt(in[0..], in[0..], tag, &[_]u8{}, nonce, key) catch unreachable;
+        try Aead.decrypt(in[0..], in[0..], tag, &[_]u8{}, nonce, key);
     }
     mem.doNotOptimizeAway(&in);
     const end = timer.read();
