@@ -855,9 +855,14 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             try comp.addBuildingGLibCJobs();
         }
         if (comp.wantBuildMuslFromSource()) {
-            try comp.work_queue.write(&[_]Job{
-                .{ .musl_crt_file = .crti_o },
-                .{ .musl_crt_file = .crtn_o },
+            try comp.work_queue.ensureUnusedCapacity(5);
+            if (target_util.libc_needs_crti_crtn(comp.getTarget())) {
+                comp.work_queue.writeAssumeCapacity(&[_]Job{
+                    .{ .musl_crt_file = .crti_o },
+                    .{ .musl_crt_file = .crtn_o },
+                });
+            }
+            comp.work_queue.writeAssumeCapacity(&[_]Job{
                 .{ .musl_crt_file = .crt1_o },
                 .{ .musl_crt_file = .scrt1_o },
                 .{ .musl_crt_file = .libc_a },
