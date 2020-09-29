@@ -528,13 +528,14 @@ pub const Manifest = struct {
     }
 
     pub fn writeManifest(self: *Manifest) !void {
-        assert(self.manifest_file != null);
+        const manifest_file = self.manifest_file.?;
         if (!self.manifest_dirty) return;
 
-        var encoded_digest: [hex_digest_len]u8 = undefined;
         var contents = std.ArrayList(u8).init(self.cache.gpa);
-        var writer = contents.writer();
         defer contents.deinit();
+
+        const writer = contents.writer();
+        var encoded_digest: [hex_digest_len]u8 = undefined;
 
         for (self.files.items) |file| {
             _ = std.fmt.bufPrint(&encoded_digest, "{x}", .{file.bin_digest}) catch unreachable;
@@ -547,7 +548,8 @@ pub const Manifest = struct {
             });
         }
 
-        try self.manifest_file.?.pwriteAll(contents.items, 0);
+        try manifest_file.setEndPos(contents.items.len);
+        try manifest_file.pwriteAll(contents.items, 0);
         self.manifest_dirty = false;
     }
 

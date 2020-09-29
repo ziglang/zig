@@ -1,4 +1,3 @@
- * docs are failing to build
  * MachO LLD linking
  * WASM LLD linking
  * audit the CLI options for stage2
