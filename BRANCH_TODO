@@ -1,7 +1,6 @@
  * the have_foo flags that we get from stage1 have to be stored in the cache otherwise we get
    a different result for subsystem when we have a cached stage1 execution result.
    same deal with extern "foo" libraries used
- * add jobs to build import libs for windows DLLs for explicitly linked libs
  * add jobs to build import libs for windows DLLs for extern "foo" functions used
  * MachO LLD linking
  * WASM LLD linking
@@ -53,3 +52,4 @@
  * make proposal about log levels
  * proposal for changing fs Z/W functions to be native paths and have a way to do native path string literals
  * proposal for block { break x; }
+ * generally look for the "TODO surface this as a real compile error message" and fix all that stuff

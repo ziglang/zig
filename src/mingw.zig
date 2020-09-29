@@ -3,10 +3,12 @@ const Allocator = std.mem.Allocator;
 const mem = std.mem;
 const path = std.fs.path;
 const assert = std.debug.assert;
+const log = std.log.scoped(.mingw);
 
 const target_util = @import("target.zig");
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
+const Cache = @import("Cache.zig");
 
 pub const CRTFile = enum {
     crt2_o,
@@ -275,6 +277,233 @@ fn add_cc_args(
         "-D_WIN32_WINNT=0x0f00",
         "-D__MSVCRT_VERSION__=0x700",
     });
+}
+
+pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
+    var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
+    defer arena_allocator.deinit();
+    const arena = &arena_allocator.allocator;
+
+    const def_file_path = findDef(comp, arena, lib_name) catch |err| switch (err) {
+        error.FileNotFound => {
+            log.debug("no {s}.def file available to make a DLL import {s}.lib", .{ lib_name, lib_name });
+            // In this case we will end up putting foo.lib onto the linker line and letting the linker
+            // use its library paths to look for libraries and report any problems.
+            return;
+        },
+        else => |e| return e,
+    };
+
+    // We need to invoke `zig clang` to use the preprocessor.
+    if (!build_options.have_llvm) return error.ZigCompilerNotBuiltWithLLVMExtensions;
+    const self_exe_path = comp.self_exe_path orelse return error.PreprocessorDisabled;
+
+    const target = comp.getTarget();
+
+    var cache: Cache = .{
+        .gpa = comp.gpa,
+        .manifest_dir = comp.cache_parent.manifest_dir,
+    };
+    cache.hash.addBytes(build_options.version);
+    cache.hash.addOptionalBytes(comp.zig_lib_directory.path);
+    cache.hash.add(target.cpu.arch);
+
+    var man = cache.obtain();
+    defer man.deinit();
+
+    _ = try man.addFile(def_file_path, null);
+
+    const final_lib_basename = try std.fmt.allocPrint(comp.gpa, "{s}.lib", .{lib_name});
+    errdefer comp.gpa.free(final_lib_basename);
+
+    if (try man.hit()) {
+        const digest = man.final();
+
+        try comp.crt_files.ensureCapacity(comp.gpa, comp.crt_files.count() + 1);
+        comp.crt_files.putAssumeCapacityNoClobber(final_lib_basename, .{
+            .full_object_path = try comp.global_cache_directory.join(comp.gpa, &[_][]const u8{
+                "o", &digest, final_lib_basename,
+            }),
+            .lock = man.toOwnedLock(),
+        });
+        return;
+    }
+
+    const digest = man.final();
+    const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
+    var o_dir = try comp.global_cache_directory.handle.makeOpenPath(o_sub_path, .{});
+    defer o_dir.close();
+
+    const final_def_basename = try std.fmt.allocPrint(arena, "{s}.def", .{lib_name});
+    const def_final_path = try comp.global_cache_directory.join(arena, &[_][]const u8{
+        "o", &digest, final_def_basename,
+    });
+
+    const target_def_arg = switch (target.cpu.arch) {
+        .i386 => "-DDEF_I386",
+        .x86_64 => "-DDEF_X64",
+        .arm, .armeb => switch (target.cpu.arch.ptrBitWidth()) {
+            32 => "-DDEF_ARM32",
+            64 => "-DDEF_ARM64",
+            else => unreachable,
+        },
+        else => unreachable,
+    };
+
+    const args = [_][]const u8{
+        self_exe_path,
+        "clang",
+        "-x",
+        "c",
+        def_file_path,
+        "-Wp,-w",
+        "-undef",
+        "-P",
+        "-I",
+        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "mingw", "def-include" }),
+        target_def_arg,
+        "-E",
+        "-o",
+        def_final_path,
+    };
+
+    if (comp.verbose_cc) {
+        Compilation.dump_argv(&args);
+    }
+
+    const child = try std.ChildProcess.init(&args, arena);
+    defer child.deinit();
+
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Pipe;
+
+    try child.spawn();
+
+    const stdout_reader = child.stdout.?.reader();
+    const stderr_reader = child.stderr.?.reader();
+
+    // TODO https://github.com/ziglang/zig/issues/6343
+    const stdout = try stdout_reader.readAllAlloc(arena, std.math.maxInt(u32));
+    const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
+
+    const term = child.wait() catch |err| {
+        // TODO surface a proper error here
+        log.err("unable to spawn {}: {}", .{ args[0], @errorName(err) });
+        return error.ClangPreprocessorFailed;
+    };
+
+    switch (term) {
+        .Exited => |code| {
+            if (code != 0) {
+                // TODO surface a proper error here
+                log.err("clang exited with code {d} and stderr: {s}", .{ code, stderr });
+                return error.ClangPreprocessorFailed;
+            }
+        },
+        else => {
+            // TODO surface a proper error here
+            log.err("clang terminated unexpectedly with stderr: {}", .{stderr});
+            return error.ClangPreprocessorFailed;
+        },
+    }
+
+    const lib_final_path = try comp.global_cache_directory.join(comp.gpa, &[_][]const u8{
+        "o", &digest, final_lib_basename,
+    });
+    errdefer comp.gpa.free(lib_final_path);
+
+    const llvm = @import("llvm.zig");
+    const arch_type = @import("target.zig").archToLLVM(target.cpu.arch);
+    const def_final_path_z = try arena.dupeZ(u8, def_final_path);
+    const lib_final_path_z = try arena.dupeZ(u8, lib_final_path);
+    if (llvm.WriteImportLibrary(def_final_path_z.ptr, arch_type, lib_final_path_z.ptr, true)) {
+        // TODO surface a proper error here
+        log.err("unable to turn {s}.def into {s}.lib", .{ lib_name, lib_name });
+        return error.WritingImportLibFailed;
+    }
+
+    man.writeManifest() catch |err| {
+        log.warn("failed to write cache manifest for DLL import {s}.lib: {s}", .{ lib_name, @errorName(err) });
+    };
+
+    try comp.crt_files.putNoClobber(comp.gpa, final_lib_basename, .{
+        .full_object_path = lib_final_path,
+        .lock = man.toOwnedLock(),
+    });
+}
+
+/// This function body is verbose but all it does is test 3 different paths and see if a .def file exists.
+fn findDef(comp: *Compilation, allocator: *Allocator, lib_name: []const u8) ![]u8 {
+    const target = comp.getTarget();
+
+    const lib_path = switch (target.cpu.arch) {
+        .i386 => "lib32",
+        .x86_64 => "lib64",
+        .arm, .armeb => switch (target.cpu.arch.ptrBitWidth()) {
+            32 => "libarm32",
+            64 => "libarm64",
+            else => unreachable,
+        },
+        else => unreachable,
+    };
+
+    var override_path = std.ArrayList(u8).init(allocator);
+    defer override_path.deinit();
+
+    const s = path.sep_str;
+
+    {
+        // Try the archtecture-specific path first.
+        const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "{s}" ++ s ++ "{s}.def";
+        if (comp.zig_lib_directory.path) |p| {
+            try override_path.writer().print("{s}" ++ s ++ fmt_path, .{ p, lib_path, lib_name });
+        } else {
+            try override_path.writer().print(fmt_path, .{ lib_path, lib_name });
+        }
+        if (std.fs.cwd().access(override_path.items, .{})) |_| {
+            return override_path.toOwnedSlice();
+        } else |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| return e,
+        }
+    }
+
+    {
+        // Try the generic version.
+        override_path.shrinkRetainingCapacity(0);
+        const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "lib-common" ++ s ++ "{s}.def";
+        if (comp.zig_lib_directory.path) |p| {
+            try override_path.writer().print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
+        } else {
+            try override_path.writer().print(fmt_path, .{lib_name});
+        }
+        if (std.fs.cwd().access(override_path.items, .{})) |_| {
+            return override_path.toOwnedSlice();
+        } else |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| return e,
+        }
+    }
+
+    {
+        // Try the generic version and preprocess it.
+        override_path.shrinkRetainingCapacity(0);
+        const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "lib-common" ++ s ++ "{s}.def.in";
+        if (comp.zig_lib_directory.path) |p| {
+            try override_path.writer().print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
+        } else {
+            try override_path.writer().print(fmt_path, .{lib_name});
+        }
+        if (std.fs.cwd().access(override_path.items, .{})) |_| {
+            return override_path.toOwnedSlice();
+        } else |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| return e,
+        }
+    }
+
+    return error.FileNotFound;
 }
 
 const mingw32_lib_deps = [_][]const u8{

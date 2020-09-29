@@ -224,6 +224,63 @@ pub fn osToLLVM(os_tag: std.Target.Os.Tag) llvm.OSType {
     };
 }
 
+pub fn archToLLVM(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
+    return switch (arch_tag) {
+        .arm => .arm,
+        .armeb => .armeb,
+        .aarch64 => .aarch64,
+        .aarch64_be => .aarch64_be,
+        .aarch64_32 => .aarch64_32,
+        .arc => .arc,
+        .avr => .avr,
+        .bpfel => .bpfel,
+        .bpfeb => .bpfeb,
+        .hexagon => .hexagon,
+        .mips => .mips,
+        .mipsel => .mipsel,
+        .mips64 => .mips64,
+        .mips64el => .mips64el,
+        .msp430 => .msp430,
+        .powerpc => .ppc,
+        .powerpc64 => .ppc64,
+        .powerpc64le => .ppc64le,
+        .r600 => .r600,
+        .amdgcn => .amdgcn,
+        .riscv32 => .riscv32,
+        .riscv64 => .riscv64,
+        .sparc => .sparc,
+        .sparcv9 => .sparcv9,
+        .sparcel => .sparcel,
+        .s390x => .systemz,
+        .tce => .tce,
+        .tcele => .tcele,
+        .thumb => .thumb,
+        .thumbeb => .thumbeb,
+        .i386 => .x86,
+        .x86_64 => .x86_64,
+        .xcore => .xcore,
+        .nvptx => .nvptx,
+        .nvptx64 => .nvptx64,
+        .le32 => .le32,
+        .le64 => .le64,
+        .amdil => .amdil,
+        .amdil64 => .amdil64,
+        .hsail => .hsail,
+        .hsail64 => .hsail64,
+        .spir => .spir,
+        .spir64 => .spir64,
+        .kalimba => .kalimba,
+        .shave => .shave,
+        .lanai => .lanai,
+        .wasm32 => .wasm32,
+        .wasm64 => .wasm64,
+        .renderscript32 => .renderscript32,
+        .renderscript64 => .renderscript64,
+        .ve => .ve,
+        .spu_2 => .UnknownArch,
+    };
+}
+
 fn eqlIgnoreCase(ignore_case: bool, a: []const u8, b: []const u8) bool {
     if (ignore_case) {
         return std.ascii.eqlIgnoreCase(a, b);

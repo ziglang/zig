@@ -168,6 +168,9 @@ const Job = union(enum) {
     generate_builtin_zig: void,
     /// Use stage1 C++ code to compile zig code into an object file.
     stage1_module: void,
+
+    /// The value is the index into `link.File.Options.system_libs`.
+    windows_import_lib: usize,
 };
 
 pub const CObject = struct {
@@ -868,6 +871,15 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             comp.work_queue.writeAssumeCapacity(&static_lib_jobs);
             comp.work_queue.writeItemAssumeCapacity(crt_job);
         }
+        // Generate Windows import libs.
+        if (comp.getTarget().os.tag == .windows) {
+            const count = comp.bin_file.options.system_libs.count();
+            try comp.work_queue.ensureUnusedCapacity(count);
+            var i: usize = 0;
+            while (i < count) : (i += 1) {
+                comp.work_queue.writeItemAssumeCapacity(.{ .windows_import_lib = i });
+            }
+        }
         if (comp.wantBuildLibUnwindFromSource()) {
             try comp.work_queue.writeItem(.{ .libunwind = {} });
         }
@@ -1231,6 +1243,13 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
             mingw.buildCRTFile(self, crt_file) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build mingw-w64 CRT file: {}", .{@errorName(err)});
+            };
+        },
+        .windows_import_lib => |index| {
+            const link_lib = self.bin_file.options.system_libs.items()[index].key;
+            mingw.buildImportLib(self, link_lib) catch |err| {
+                // TODO Expose this as a normal compile error rather than crashing here.
+                fatal("unable to generate DLL import .lib file: {}", .{@errorName(err)});
             };
         },
         .libunwind => {
