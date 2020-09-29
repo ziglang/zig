@@ -1618,6 +1618,17 @@ fn buildOutputType(
             defer argv.deinit();
 
             if (test_exec_args.items.len == 0) {
+                if (!std.Target.current.canExecBinariesOf(target_info.target)) {
+                    switch (arg_mode) {
+                        .zig_test => {
+                            warn("created {s} but skipping execution because it is non-native", .{exe_path});
+                            if (!watch) return cleanExit();
+                            break :run;
+                        },
+                        .run => fatal("unable to execute {s}: non-native", .{exe_path}),
+                        else => unreachable,
+                    }
+                }
                 try argv.append(exe_path);
             } else {
                 for (test_exec_args.items) |arg| {
@@ -2128,8 +2139,8 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                     error.FileNotFound => {
                         dirname = fs.path.dirname(dirname) orelse {
                             std.log.info("{}", .{
-                            \\Initialize a 'build.zig' template file with `zig init-lib` or `zig init-exe`,
-                            \\or see `zig --help` for more options.
+                                \\Initialize a 'build.zig' template file with `zig init-lib` or `zig init-exe`,
+                                \\or see `zig --help` for more options.
                             });
                             fatal("No 'build.zig' file found, in the current directory or any parent directories.", .{});
                         };
