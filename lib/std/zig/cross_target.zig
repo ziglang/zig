@@ -466,7 +466,7 @@ pub const CrossTarget = struct {
     }
 
     pub fn oFileExt(self: CrossTarget) [:0]const u8 {
-        return self.getAbi().oFileExt();
+        return Target.oFileExt_cpu_arch_abi(self.getCpuArch(), self.getAbi());
     }
 
     pub fn exeFileExt(self: CrossTarget) [:0]const u8 {

@@ -1520,7 +1520,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         comp.bin_file.options.root_name
     else
         mem.split(c_source_basename, ".").next().?;
-    const o_basename = try std.fmt.allocPrint(arena, "{}{}", .{ o_basename_noext, comp.getTarget().oFileExt() });
+    const o_basename = try std.fmt.allocPrint(arena, "{s}{s}", .{ o_basename_noext, comp.getTarget().oFileExt() });
 
     const digest = if (!comp.disable_c_depfile and try man.hit()) man.final() else blk: {
         var argv = std.ArrayList([]const u8).init(comp.gpa);

@@ -79,13 +79,7 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
     const target = options.target;
     switch (options.object_format orelse target.getObjectFormat()) {
         .coff, .pe => switch (options.output_mode) {
-            .Exe => {
-                const suffix = switch (target.os.tag) {
-                    .uefi => ".efi",
-                    else => ".exe",
-                };
-                return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, suffix });
-            },
+            .Exe => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.exeFileExt() }),
             .Lib => {
                 const suffix = switch (options.link_mode orelse .Static) {
                     .Static => ".lib",
@@ -93,7 +87,7 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
                 };
                 return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, suffix });
             },
-            .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.abi.oFileExt() }),
+            .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.oFileExt() }),
         },
         .elf => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
@@ -113,7 +107,7 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
                     },
                 }
             },
-            .Obj => return std.fmt.allocPrint(allocator, "{s}.o", .{root_name}),
+            .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.oFileExt() }),
         },
         .macho => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
@@ -124,9 +118,13 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
                 };
                 return std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ target.libPrefix(), root_name, suffix });
             },
-            .Obj => return std.fmt.allocPrint(allocator, "{s}.o", .{root_name}),
+            .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.oFileExt() }),
         },
-        .wasm => return std.fmt.allocPrint(allocator, "{s}.wasm", .{root_name}),
+        .wasm => switch (options.output_mode) {
+            .Exe => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.exeFileExt() }),
+            .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.oFileExt() }),
+            .Lib => return std.fmt.allocPrint(allocator, "{s}.wasm", .{root_name}),
+        },
         .c => return std.fmt.allocPrint(allocator, "{s}.c", .{root_name}),
         .hex => return std.fmt.allocPrint(allocator, "{s}.ihex", .{root_name}),
         .raw => return std.fmt.allocPrint(allocator, "{s}.bin", .{root_name}),

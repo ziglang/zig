@@ -176,7 +176,7 @@ pub const File = struct {
                 };
             }
             // Open a temporary object file, not the final output file because we want to link with LLD.
-            break :blk try std.fmt.allocPrint(allocator, "{}{}", .{ emit.sub_path, options.target.oFileExt() });
+            break :blk try std.fmt.allocPrint(allocator, "{s}{s}", .{ emit.sub_path, options.target.oFileExt() });
         } else emit.sub_path;
         errdefer if (use_lld) allocator.free(sub_path);
 

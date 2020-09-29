@@ -483,13 +483,6 @@ pub const Target = struct {
                 else => false,
             };
         }
-
-        pub fn oFileExt(abi: Abi) [:0]const u8 {
-            return switch (abi) {
-                .msvc => ".obj",
-                else => ".o",
-            };
-        }
     };
 
     pub const ObjectFormat = enum {
@@ -1142,8 +1135,18 @@ pub const Target = struct {
         return linuxTripleSimple(allocator, self.cpu.arch, self.os.tag, self.abi);
     }
 
+    pub fn oFileExt_cpu_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) [:0]const u8 {
+        if (cpu_arch.isWasm()) {
+            return ".o.wasm";
+        }
+        switch (abi) {
+            .msvc => return ".obj",
+            else => return ".o",
+        }
+    }
+
     pub fn oFileExt(self: Target) [:0]const u8 {
-        return self.abi.oFileExt();
+        return oFileExt_cpu_arch_abi(self.cpu.arch, self.abi);
     }
 
     pub fn exeFileExtSimple(cpu_arch: Cpu.Arch, os_tag: Os.Tag) [:0]const u8 {

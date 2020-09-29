@@ -1384,6 +1384,7 @@ pub const LibExeObjStep = struct {
     }
 
     fn computeOutFileNames(self: *LibExeObjStep) void {
+        // TODO make this call std.zig.binNameAlloc
         switch (self.kind) {
             .Obj => {
                 self.out_filename = self.builder.fmt("{}{}", .{ self.name, self.target.oFileExt() });
