@@ -143,7 +143,7 @@ pub fn libcNeedsLibUnwind(target: std.Target) bool {
 }
 
 pub fn requiresPIE(target: std.Target) bool {
-    return target.isAndroid();
+    return target.isAndroid() or target.isDarwin();
 }
 
 /// This function returns whether non-pic code is completely invalid on the given target.
@@ -335,4 +335,8 @@ pub fn is_libcpp_lib_name(target: std.Target, name: []const u8) bool {
     return eqlIgnoreCase(ignore_case, name, "c++") or
         eqlIgnoreCase(ignore_case, name, "stdc++") or
         eqlIgnoreCase(ignore_case, name, "c++abi");
+}
+
+pub fn hasDebugInfo(target: std.Target) bool {
+    return !target.cpu.arch.isWasm();
 }
