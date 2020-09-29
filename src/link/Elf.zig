@@ -1241,6 +1241,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         break :blk full_obj_path;
     } else null;
 
+    const is_obj = self.base.options.output_mode == .Obj;
     const is_lib = self.base.options.output_mode == .Lib;
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
@@ -1248,6 +1249,9 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         self.base.options.link_mode == .Dynamic and is_exe_or_dyn_lib;
     const link_in_crt = self.base.options.link_libc and self.base.options.output_mode == .Exe;
     const target = self.base.options.target;
+    const gc_sections = self.base.options.gc_sections orelse !is_obj;
+    const stack_size = self.base.options.stack_size_override orelse 16777216;
+    const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
 
     // Here we want to determine whether we can save time by not invoking LLD when the
     // output is unchanged. None of the linker options or the object files that are being
@@ -1279,8 +1283,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         try man.addOptionalFile(module_obj_path);
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
-        man.hash.addOptional(self.base.options.stack_size_override);
-        man.hash.addOptional(self.base.options.gc_sections);
+        man.hash.add(stack_size);
+        man.hash.add(gc_sections);
         man.hash.add(self.base.options.eh_frame_hdr);
         man.hash.add(self.base.options.rdynamic);
         man.hash.addListOfBytes(self.base.options.extra_lld_args);
@@ -1304,7 +1308,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             man.hash.addOptional(self.base.options.version);
         }
         man.hash.addStringSet(self.base.options.system_libs);
-        man.hash.addOptional(self.base.options.allow_shlib_undefined);
+        man.hash.add(allow_shlib_undefined);
         man.hash.add(self.base.options.bind_global_refs_locally);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
@@ -1332,8 +1336,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         };
     }
 
-    const is_obj = self.base.options.output_mode == .Obj;
-
     // Create an LLD command line and invoke it.
     var argv = std.ArrayList([]const u8).init(self.base.allocator);
     defer argv.deinit();
@@ -1347,9 +1349,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
     if (self.base.options.output_mode == .Exe) {
         try argv.append("-z");
-        const stack_size = self.base.options.stack_size_override orelse 16777216;
-        const arg = try std.fmt.allocPrint(arena, "stack-size={}", .{stack_size});
-        try argv.append(arg);
+        try argv.append(try std.fmt.allocPrint(arena, "stack-size={}", .{stack_size}));
     }
 
     if (self.base.options.linker_script) |linker_script| {
@@ -1357,7 +1357,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         try argv.append(linker_script);
     }
 
-    const gc_sections = self.base.options.gc_sections orelse !is_obj;
     if (gc_sections) {
         try argv.append("--gc-sections");
     }
@@ -1577,7 +1576,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         }
     }
 
-    const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
     if (allow_shlib_undefined) {
         try argv.append("--allow-shlib-undefined");
     }

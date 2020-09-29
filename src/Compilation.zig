@@ -558,6 +558,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             break :blk buf.items[0 .. buf.items.len - 1 :0].ptr;
         } else null;
 
+        const strip = options.strip or !target_util.hasDebugInfo(options.target);
+
         // We put everything into the cache hash that *cannot be modified during an incremental update*.
         // For example, one cannot change the target between updates, but one can change source files,
         // so the target goes into the cache hash, but source files do not. This is so that we can
@@ -586,7 +588,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(stack_check);
         cache.hash.add(link_mode);
         cache.hash.add(function_sections);
-        cache.hash.add(options.strip);
+        cache.hash.add(strip);
         cache.hash.add(link_libc);
         cache.hash.add(options.link_libcpp);
         cache.hash.add(options.output_mode);
@@ -671,7 +673,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         } else null;
         errdefer if (module) |zm| zm.deinit();
 
-        const error_return_tracing = !options.strip and switch (options.optimize_mode) {
+        const error_return_tracing = !strip and switch (options.optimize_mode) {
             .Debug, .ReleaseSafe => true,
             .ReleaseFast, .ReleaseSmall => false,
         };
@@ -751,7 +753,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .system_libs = system_libs,
             .lib_dirs = options.lib_dirs,
             .rpath_list = options.rpath_list,
-            .strip = options.strip,
+            .strip = strip,
             .is_native_os = options.is_native_os,
             .function_sections = options.function_sections orelse false,
             .allow_shlib_undefined = options.linker_allow_shlib_undefined,
@@ -2415,10 +2417,11 @@ fn buildStaticLibFromZig(comp: *Compilation, src_basename: []const u8, out: *?CR
     };
     const root_name = mem.split(src_basename, ".").next().?;
     const target = comp.getTarget();
+    const output_mode: std.builtin.OutputMode = if (target.cpu.arch.isWasm()) .Obj else .Lib;
     const bin_basename = try std.zig.binNameAlloc(comp.gpa, .{
         .root_name = root_name,
         .target = target,
-        .output_mode = .Obj,
+        .output_mode = output_mode,
     });
     defer comp.gpa.free(bin_basename);
 
@@ -2441,7 +2444,7 @@ fn buildStaticLibFromZig(comp: *Compilation, src_basename: []const u8, out: *?CR
         .target = target,
         .root_name = root_name,
         .root_pkg = &root_pkg,
-        .output_mode = .Obj,
+        .output_mode = output_mode,
         .rand = comp.rand,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,

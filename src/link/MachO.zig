@@ -17,6 +17,8 @@ const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const link = @import("../link.zig");
 const File = link.File;
+const Cache = @import("../Cache.zig");
+const target_util = @import("../target.zig");
 
 pub const base_tag: File.Tag = File.Tag.macho;
 
@@ -180,8 +182,12 @@ pub fn createEmpty(gpa: *Allocator, options: link.Options) !*MachO {
 
 pub fn flush(self: *MachO, comp: *Compilation) !void {
     if (build_options.have_llvm and self.base.options.use_lld) {
-        return error.MachOLLDLinkingUnimplemented;
+        return self.linkWithLLD(comp);
     } else {
+        switch (self.base.options.effectiveOutputMode()) {
+            .Exe, .Obj => {},
+            .Lib => return error.TODOImplementWritingLibFiles,
+        }
         return self.flushModule(comp);
     }
 }
@@ -280,6 +286,368 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         self.error_flags.no_entry_point_found = false;
         try self.writeMachOHeader();
     }
+}
+
+fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
+    defer arena_allocator.deinit();
+    const arena = &arena_allocator.allocator;
+
+    const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
+
+    // If there is no Zig code to compile, then we should skip flushing the output file because it
+    // will not be part of the linker line anyway.
+    const module_obj_path: ?[]const u8 = if (self.base.options.module) |module| blk: {
+        const use_stage1 = build_options.is_stage1 and self.base.options.use_llvm;
+        if (use_stage1) {
+            const obj_basename = try std.zig.binNameAlloc(arena, .{
+                .root_name = self.base.options.root_name,
+                .target = self.base.options.target,
+                .output_mode = .Obj,
+            });
+            const o_directory = self.base.options.module.?.zig_cache_artifact_directory;
+            const full_obj_path = try o_directory.join(arena, &[_][]const u8{obj_basename});
+            break :blk full_obj_path;
+        }
+
+        try self.flushModule(comp);
+        const obj_basename = self.base.intermediary_basename.?;
+        const full_obj_path = try directory.join(arena, &[_][]const u8{obj_basename});
+        break :blk full_obj_path;
+    } else null;
+
+    const is_obj = self.base.options.output_mode == .Obj;
+    const is_lib = self.base.options.output_mode == .Lib;
+    const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
+    const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
+    const have_dynamic_linker = self.base.options.link_libc and
+        self.base.options.link_mode == .Dynamic and is_exe_or_dyn_lib;
+    const link_in_crt = self.base.options.link_libc and self.base.options.output_mode == .Exe;
+    const target = self.base.options.target;
+    const stack_size = self.base.options.stack_size_override orelse 16777216;
+    const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
+
+    const id_symlink_basename = "lld.id";
+
+    var man: Cache.Manifest = undefined;
+    defer if (!self.base.options.disable_lld_caching) man.deinit();
+
+    var digest: [Cache.hex_digest_len]u8 = undefined;
+
+    if (!self.base.options.disable_lld_caching) {
+        man = comp.cache_parent.obtain();
+
+        // We are about to obtain this lock, so here we give other processes a chance first.
+        self.base.releaseLock();
+
+        try man.addOptionalFile(self.base.options.linker_script);
+        try man.addOptionalFile(self.base.options.version_script);
+        try man.addListOfFiles(self.base.options.objects);
+        for (comp.c_object_table.items()) |entry| {
+            _ = try man.addFile(entry.key.status.success.object_path, null);
+        }
+        try man.addOptionalFile(module_obj_path);
+        // We can skip hashing libc and libc++ components that we are in charge of building from Zig
+        // installation sources because they are always a product of the compiler version + target information.
+        man.hash.add(stack_size);
+        man.hash.add(self.base.options.rdynamic);
+        man.hash.addListOfBytes(self.base.options.extra_lld_args);
+        man.hash.addListOfBytes(self.base.options.lib_dirs);
+        man.hash.addListOfBytes(self.base.options.framework_dirs);
+        man.hash.addListOfBytes(self.base.options.frameworks);
+        man.hash.addListOfBytes(self.base.options.rpath_list);
+        man.hash.add(self.base.options.is_compiler_rt_or_libc);
+        man.hash.add(self.base.options.z_nodelete);
+        man.hash.add(self.base.options.z_defs);
+        if (is_dyn_lib) {
+            man.hash.addOptional(self.base.options.version);
+        }
+        man.hash.addStringSet(self.base.options.system_libs);
+        man.hash.add(allow_shlib_undefined);
+        man.hash.add(self.base.options.bind_global_refs_locally);
+
+        // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
+        _ = try man.hit();
+        digest = man.final();
+
+        var prev_digest_buf: [digest.len]u8 = undefined;
+        const prev_digest: []u8 = directory.handle.readLink(id_symlink_basename, &prev_digest_buf) catch |err| blk: {
+            log.debug("MachO LLD new_digest={} readlink error: {}", .{ digest, @errorName(err) });
+            // Handle this as a cache miss.
+            break :blk prev_digest_buf[0..0];
+        };
+        if (mem.eql(u8, prev_digest, &digest)) {
+            log.debug("MachO LLD digest={} match - skipping invocation", .{digest});
+            // Hot diggity dog! The output binary is already there.
+            self.base.lock = man.toOwnedLock();
+            return;
+        }
+        log.debug("MachO LLD prev_digest={} new_digest={}", .{ prev_digest, digest });
+
+        // We are about to change the output file to be different, so we invalidate the build hash now.
+        directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| return e,
+        };
+    }
+
+    // Create an LLD command line and invoke it.
+    var argv = std.ArrayList([]const u8).init(self.base.allocator);
+    defer argv.deinit();
+    // Even though we're calling LLD as a library it thinks the first argument is its own exe name.
+    try argv.append("lld");
+    if (is_obj) {
+        try argv.append("-r");
+    }
+
+    try argv.append("-error-limit");
+    try argv.append("0");
+
+    try argv.append("-demangle");
+
+    if (self.base.options.rdynamic) {
+        try argv.append("--export-dynamic");
+    }
+
+    try argv.appendSlice(self.base.options.extra_lld_args);
+
+    if (self.base.options.z_nodelete) {
+        try argv.append("-z");
+        try argv.append("nodelete");
+    }
+    if (self.base.options.z_defs) {
+        try argv.append("-z");
+        try argv.append("defs");
+    }
+
+    if (is_dyn_lib) {
+        try argv.append("-static");
+    } else {
+        try argv.append("-dynamic");
+    }
+
+    if (is_dyn_lib) {
+        try argv.append("-dylib");
+
+        if (self.base.options.version) |ver| {
+            const compat_vers = try std.fmt.allocPrint(arena, "{d}.0.0", .{ver.major});
+            try argv.append("-compatibility_version");
+            try argv.append(compat_vers);
+
+            const cur_vers = try std.fmt.allocPrint(arena, "{d}.{d}.{d}", .{ ver.major, ver.minor, ver.patch });
+            try argv.append("-current_version");
+            try argv.append(cur_vers);
+        }
+
+        // TODO getting an error when running an executable when doing this rpath thing
+        //Buf *dylib_install_name = buf_sprintf("@rpath/lib%s.%" ZIG_PRI_usize ".dylib",
+        //    buf_ptr(g->root_out_name), g->version_major);
+        //try argv.append("-install_name");
+        //try argv.append(buf_ptr(dylib_install_name));
+    }
+
+    try argv.append("-arch");
+    try argv.append(darwinArchString(target.cpu.arch));
+
+    switch (target.os.tag) {
+        .macosx => {
+            try argv.append("-macosx_version_min");
+        },
+        .ios, .tvos, .watchos => switch (target.cpu.arch) {
+            .i386, .x86_64 => {
+                try argv.append("-ios_simulator_version_min");
+            },
+            else => {
+                try argv.append("-iphoneos_version_min");
+            },
+        },
+        else => unreachable,
+    }
+    const ver = target.os.version_range.semver.min;
+    const version_string = try std.fmt.allocPrint(arena, "{d}.{d}.{d}", .{ ver.major, ver.minor, ver.patch });
+    try argv.append(version_string);
+
+    try argv.append("-sdk_version");
+    try argv.append(version_string);
+
+    if (target_util.requiresPIE(target) and self.base.options.output_mode == .Exe) {
+        try argv.append("-pie");
+    }
+
+    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
+    try argv.append("-o");
+    try argv.append(full_out_path);
+
+    // rpaths
+    var rpath_table = std.StringHashMap(void).init(self.base.allocator);
+    defer rpath_table.deinit();
+    for (self.base.options.rpath_list) |rpath| {
+        if ((try rpath_table.fetchPut(rpath, {})) == null) {
+            try argv.append("-rpath");
+            try argv.append(rpath);
+        }
+    }
+    if (is_dyn_lib) {
+        if ((try rpath_table.fetchPut(full_out_path, {})) == null) {
+            try argv.append("-rpath");
+            try argv.append(full_out_path);
+        }
+    }
+
+    for (self.base.options.lib_dirs) |lib_dir| {
+        try argv.append("-L");
+        try argv.append(lib_dir);
+    }
+
+    // Positional arguments to the linker such as object files.
+    try argv.appendSlice(self.base.options.objects);
+
+    for (comp.c_object_table.items()) |entry| {
+        try argv.append(entry.key.status.success.object_path);
+    }
+    if (module_obj_path) |p| {
+        try argv.append(p);
+    }
+
+    // compiler_rt on darwin is missing some stuff, so we still build it and rely on LinkOnce
+    if (is_exe_or_dyn_lib and !self.base.options.is_compiler_rt_or_libc) {
+        try argv.append(comp.compiler_rt_static_lib.?.full_object_path);
+    }
+
+    // Shared libraries.
+    const system_libs = self.base.options.system_libs.items();
+    try argv.ensureCapacity(argv.items.len + system_libs.len);
+    for (system_libs) |entry| {
+        const link_lib = entry.key;
+        // By this time, we depend on these libs being dynamically linked libraries and not static libraries
+        // (the check for that needs to be earlier), but they could be full paths to .dylib files, in which
+        // case we want to avoid prepending "-l".
+        const ext = Compilation.classifyFileExt(link_lib);
+        const arg = if (ext == .shared_library) link_lib else try std.fmt.allocPrint(arena, "-l{}", .{link_lib});
+        argv.appendAssumeCapacity(arg);
+    }
+
+    // libc++ dep
+    if (!is_obj and self.base.options.link_libcpp) {
+        try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
+        try argv.append(comp.libcxx_static_lib.?.full_object_path);
+    }
+
+    // On Darwin, libSystem has libc in it, but also you have to use it
+    // to make syscalls because the syscall numbers are not documented
+    // and change between versions. So we always link against libSystem.
+    // LLD craps out if you do -lSystem cross compiling, so until that
+    // codebase gets some love from the new maintainers we're left with
+    // this dirty hack.
+    if (self.base.options.is_native_os) {
+        try argv.append("-lSystem");
+    }
+
+    for (self.base.options.framework_dirs) |framework_dir| {
+        try argv.append("-F");
+        try argv.append(framework_dir);
+    }
+    for (self.base.options.frameworks) |framework| {
+        try argv.append("-framework");
+        try argv.append(framework);
+    }
+
+    if (allow_shlib_undefined) {
+        try argv.append("-undefined");
+        try argv.append("dynamic_lookup");
+    }
+    if (self.base.options.bind_global_refs_locally) {
+        try argv.append("-Bsymbolic");
+    }
+
+    if (self.base.options.verbose_link) {
+        Compilation.dump_argv(argv.items);
+    }
+
+    // TODO allocSentinel crashed stage1 so this is working around it.
+    const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, argv.items.len + 1);
+    new_argv_with_sentinel[argv.items.len] = null;
+    const new_argv = new_argv_with_sentinel[0..argv.items.len :null];
+    for (argv.items) |arg, i| {
+        new_argv[i] = try arena.dupeZ(u8, arg);
+    }
+
+    var stderr_context: LLDContext = .{
+        .macho = self,
+        .data = std.ArrayList(u8).init(self.base.allocator),
+    };
+    defer stderr_context.data.deinit();
+    var stdout_context: LLDContext = .{
+        .macho = self,
+        .data = std.ArrayList(u8).init(self.base.allocator),
+    };
+    defer stdout_context.data.deinit();
+    const llvm = @import("../llvm.zig");
+    const ok = llvm.Link(
+        .MachO,
+        new_argv.ptr,
+        new_argv.len,
+        append_diagnostic,
+        @ptrToInt(&stdout_context),
+        @ptrToInt(&stderr_context),
+    );
+    if (stderr_context.oom or stdout_context.oom) return error.OutOfMemory;
+    if (stdout_context.data.items.len != 0) {
+        std.log.warn("unexpected LLD stdout: {}", .{stdout_context.data.items});
+    }
+    if (!ok) {
+        // TODO parse this output and surface with the Compilation API rather than
+        // directly outputting to stderr here.
+        std.debug.print("{}", .{stderr_context.data.items});
+        return error.LLDReportedFailure;
+    }
+    if (stderr_context.data.items.len != 0) {
+        std.log.warn("unexpected LLD stderr: {}", .{stderr_context.data.items});
+    }
+
+    if (!self.base.options.disable_lld_caching) {
+        // Update the dangling symlink with the digest. If it fails we can continue; it only
+        // means that the next invocation will have an unnecessary cache miss.
+        directory.handle.symLink(&digest, id_symlink_basename, .{}) catch |err| {
+            std.log.warn("failed to save linking hash digest symlink: {}", .{@errorName(err)});
+        };
+        // Again failure here only means an unnecessary cache miss.
+        man.writeManifest() catch |err| {
+            std.log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
+        };
+        // We hang on to this lock so that the output file path can be used without
+        // other processes clobbering it.
+        self.base.lock = man.toOwnedLock();
+    }
+}
+
+const LLDContext = struct {
+    data: std.ArrayList(u8),
+    macho: *MachO,
+    oom: bool = false,
+};
+
+fn append_diagnostic(context: usize, ptr: [*]const u8, len: usize) callconv(.C) void {
+    const lld_context = @intToPtr(*LLDContext, context);
+    const msg = ptr[0..len];
+    lld_context.data.appendSlice(msg) catch |err| switch (err) {
+        error.OutOfMemory => lld_context.oom = true,
+    };
+}
+
+fn darwinArchString(arch: std.Target.Cpu.Arch) []const u8 {
+    return switch (arch) {
+        .aarch64, .aarch64_be, .aarch64_32 => "arm64",
+        .thumb, .arm => "arm",
+        .thumbeb, .armeb => "armeb",
+        .powerpc => "ppc",
+        .powerpc64 => "ppc64",
+        .powerpc64le => "ppc64le",
+        else => @tagName(arch),
+    };
 }
 
 pub fn deinit(self: *MachO) void {
