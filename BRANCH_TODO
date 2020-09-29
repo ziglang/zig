@@ -1,3 +1,0 @@
- * wasi behavior tests failing
- * go ahead and use allocSentinel now that the stage1 bug is fixed
- * audit the base cache hash

@@ -1589,10 +1589,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     }
 
     // Oh, snapplesauce! We need null terminated argv.
-    // TODO allocSentinel crashed stage1 so this is working around it.
-    const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, argv.items.len + 1);
-    new_argv_with_sentinel[argv.items.len] = null;
-    const new_argv = new_argv_with_sentinel[0..argv.items.len: null];
+    const new_argv = try arena.allocSentinel(?[*:0]const u8, argv.items.len, null);
     for (argv.items) |arg, i| {
         new_argv[i] = try arena.dupeZ(u8, arg);
     }
