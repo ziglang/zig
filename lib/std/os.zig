@@ -314,8 +314,8 @@ pub const ReadError = error{
 
 /// Returns the number of bytes that were read, which can be less than
 /// buf.len. If 0 bytes were read, that means EOF.
-/// If the application has a global event loop enabled, EAGAIN is handled
-/// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
+/// If `fd` is opened in non blocking mode, the function will return error.WouldBlock
+/// when EAGAIN is received.
 ///
 /// Linux has a limit on how many bytes may be transferred in one `read` call, which is `0x7ffff000`
 /// on both 64-bit and 32-bit systems. This is due to using a signed C int as the return value, as
@@ -366,12 +366,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdReadable(fd);
-                continue;
-            } else {
-                return error.WouldBlock;
-            },
+            EAGAIN => return error.WouldBlock,
             EBADF => return error.NotOpenForReading, // Can be a race condition.
             EIO => return error.InputOutput,
             EISDIR => return error.IsDir,
@@ -387,8 +382,8 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
 
 /// Number of bytes read is returned. Upon reading end-of-file, zero is returned.
 ///
-/// For POSIX systems, if the application has a global event loop enabled, EAGAIN is handled
-/// via the event loop. Otherwise EAGAIN results in `error.WouldBlock`.
+/// For POSIX systems, if `fd` is opened in non blocking mode, the function will
+/// return error.WouldBlock when EAGAIN is received.
 /// On Windows, if the application has a global event loop enabled, I/O Completion Ports are
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
 ///
@@ -428,12 +423,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdReadable(fd);
-                continue;
-            } else {
-                return error.WouldBlock;
-            },
+            EAGAIN => return error.WouldBlock,
             EBADF => return error.NotOpenForReading, // can be a race condition
             EIO => return error.InputOutput,
             EISDIR => return error.IsDir,
@@ -450,8 +440,8 @@ pub const PReadError = ReadError || error{Unseekable};
 ///
 /// Retries when interrupted by a signal.
 ///
-/// For POSIX systems, if the application has a global event loop enabled, EAGAIN is handled
-/// via the event loop. Otherwise EAGAIN results in `error.WouldBlock`.
+/// For POSIX systems, if `fd` is opened in non blocking mode, the function will
+/// return error.WouldBlock when EAGAIN is received.
 /// On Windows, if the application has a global event loop enabled, I/O Completion Ports are
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
 pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
@@ -492,12 +482,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdReadable(fd);
-                continue;
-            } else {
-                return error.WouldBlock;
-            },
+            EAGAIN => return error.WouldBlock,
             EBADF => return error.NotOpenForReading, // Can be a race condition.
             EIO => return error.InputOutput,
             EISDIR => return error.IsDir,
@@ -586,8 +571,8 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
 ///
 /// Retries when interrupted by a signal.
 ///
-/// For POSIX systems, if the application has a global event loop enabled, EAGAIN is handled
-/// via the event loop. Otherwise EAGAIN results in `error.WouldBlock`.
+/// For POSIX systems, if `fd` is opened in non blocking mode, the function will
+/// return error.WouldBlock when EAGAIN is received.
 /// On Windows, if the application has a global event loop enabled, I/O Completion Ports are
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
 ///
@@ -637,12 +622,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdReadable(fd);
-                continue;
-            } else {
-                return error.WouldBlock;
-            },
+            EAGAIN => return error.WouldBlock,
             EBADF => return error.NotOpenForReading, // can be a race condition
             EIO => return error.InputOutput,
             EISDIR => return error.IsDir,
@@ -687,8 +667,8 @@ pub const WriteError = error{
 /// another  write() call to transfer the remaining bytes.  The subsequent call will either
 /// transfer further bytes or may result in an error (e.g., if the disk is now full).
 ///
-/// For POSIX systems, if the application has a global event loop enabled, EAGAIN is handled
-/// via the event loop. Otherwise EAGAIN results in `error.WouldBlock`.
+/// For POSIX systems, if `fd` is opened in non blocking mode, the function will
+/// return error.WouldBlock when EAGAIN is received.
 /// On Windows, if the application has a global event loop enabled, I/O Completion Ports are
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
 ///
@@ -741,12 +721,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdWritable(fd);
-                continue;
-            } else {
-                return error.WouldBlock;
-            },
+            EAGAIN => return error.WouldBlock,
             EBADF => return error.NotOpenForWriting, // can be a race condition.
             EDESTADDRREQ => unreachable, // `connect` was never called.
             EDQUOT => return error.DiskQuota,
@@ -772,8 +747,8 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
 /// another  write() call to transfer the remaining bytes.  The subsequent call will either
 /// transfer further bytes or may result in an error (e.g., if the disk is now full).
 ///
-/// For POSIX systems, if the application has a global event loop enabled, EAGAIN is handled
-/// via the event loop. Otherwise EAGAIN results in `error.WouldBlock`.
+/// For POSIX systems, if `fd` is opened in non blocking mode, the function will
+/// return error.WouldBlock when EAGAIN is received.k`.
 /// On Windows, if the application has a global event loop enabled, I/O Completion Ports are
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
 ///
@@ -814,12 +789,7 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdWritable(fd);
-                continue;
-            } else {
-                return error.WouldBlock;
-            },
+            EAGAIN => return error.WouldBlock,
             EBADF => return error.NotOpenForWriting, // Can be a race condition.
             EDESTADDRREQ => unreachable, // `connect` was never called.
             EDQUOT => return error.DiskQuota,
@@ -847,8 +817,8 @@ pub const PWriteError = WriteError || error{Unseekable};
 /// another  write() call to transfer the remaining bytes.  The subsequent call will either
 /// transfer further bytes or may result in an error (e.g., if the disk is now full).
 ///
-/// For POSIX systems, if the application has a global event loop enabled, EAGAIN is handled
-/// via the event loop. Otherwise EAGAIN results in `error.WouldBlock`.
+/// For POSIX systems, if `fd` is opened in non blocking mode, the function will
+/// return error.WouldBlock when EAGAIN is received.
 /// On Windows, if the application has a global event loop enabled, I/O Completion Ports are
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
 ///
@@ -905,12 +875,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdWritable(fd);
-                continue;
-            } else {
-                return error.WouldBlock;
-            },
+            EAGAIN => return error.WouldBlock,
             EBADF => return error.NotOpenForWriting, // Can be a race condition.
             EDESTADDRREQ => unreachable, // `connect` was never called.
             EDQUOT => return error.DiskQuota,
@@ -939,8 +904,8 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
 /// another  write() call to transfer the remaining bytes.  The subsequent call will either
 /// transfer further bytes or may result in an error (e.g., if the disk is now full).
 ///
-/// If the application has a global event loop enabled, EAGAIN is handled
-/// via the event loop. Otherwise EAGAIN results in `error.WouldBlock`.
+/// If `fd` is opened in non blocking mode, the function will
+/// return error.WouldBlock when EAGAIN is received.
 ///
 /// The following systems do not have this syscall, and will return partial writes if more than one
 /// vector is provided:
@@ -993,12 +958,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdWritable(fd);
-                continue;
-            } else {
-                return error.WouldBlock;
-            },
+            EAGAIN => return error.WouldBlock,
             EBADF => return error.NotOpenForWriting, // Can be a race condition.
             EDESTADDRREQ => unreachable, // `connect` was never called.
             EDQUOT => return error.DiskQuota,
@@ -2846,8 +2806,8 @@ pub const AcceptError = error{
 } || UnexpectedError;
 
 /// Accept a connection on a socket.
-/// If the application has a global event loop enabled, EAGAIN is handled
-/// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
+/// If `sockfd` is opened in non blocking mode, the function will
+/// return error.WouldBlock when EAGAIN is received.
 pub fn accept(
     /// This argument is a socket that has been created with `socket`, bound to a local address
     /// with `bind`, and is listening for connections after a `listen`.
@@ -2890,12 +2850,7 @@ pub fn accept(
                 return fd;
             },
             EINTR => continue,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdReadable(sockfd);
-                continue;
-            } else {
-                return error.WouldBlock;
-            },
+            EAGAIN => return error.WouldBlock,
             EBADF => unreachable, // always a race condition
             ECONNABORTED => return error.ConnectionAborted,
             EFAULT => unreachable,
@@ -3081,6 +3036,8 @@ pub const ConnectError = error{
 } || UnexpectedError;
 
 /// Initiate a connection on a socket.
+/// If `sockfd` is opened in non blocking mode, the function will
+/// return error.WouldBlock when EAGAIN or EINPROGRESS is received.
 pub fn connect(sockfd: socket_t, sock_addr: *const sockaddr, len: socklen_t) ConnectError!void {
     if (builtin.os.tag == .windows) {
         const rc = windows.ws2_32.connect(sockfd, sock_addr, len);
@@ -3113,11 +3070,7 @@ pub fn connect(sockfd: socket_t, sock_addr: *const sockaddr, len: socklen_t) Con
             EADDRINUSE => return error.AddressInUse,
             EADDRNOTAVAIL => return error.AddressNotAvailable,
             EAFNOSUPPORT => return error.AddressFamilyNotSupported,
-            EAGAIN, EINPROGRESS => {
-                const loop = std.event.Loop.instance orelse return error.WouldBlock;
-                loop.waitUntilFdWritable(sockfd);
-                return getsockoptError(sockfd);
-            },
+            EAGAIN, EINPROGRESS => return error.WouldBlock,
             EALREADY => unreachable, // The socket is nonblocking and a previous connection attempt has not yet been completed.
             EBADF => unreachable, // sockfd is not a valid open file descriptor.
             ECONNREFUSED => return error.ConnectionRefused,
@@ -4620,14 +4573,8 @@ pub fn sendto(
         const rc = system.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen);
         switch (errno(rc)) {
             0 => return @intCast(usize, rc),
-
             EACCES => return error.AccessDenied,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdWritable(sockfd);
-                continue;
-            } else {
-                return error.WouldBlock;
-            },
+            EAGAIN => return error.WouldBlock,
             EALREADY => return error.FastOpenAlreadyInProgress,
             EBADF => unreachable, // always a race condition
             ECONNRESET => return error.ConnectionResetByPeer,
@@ -5106,6 +5053,8 @@ pub const RecvFromError = error{
     SystemResources,
 } || UnexpectedError;
 
+/// If `sockfd` is opened in non blocking mode, the function will
+/// return error.WouldBlock when EAGAIN is received.
 pub fn recvfrom(
     sockfd: fd_t,
     buf: []u8,
@@ -5123,12 +5072,7 @@ pub fn recvfrom(
             ENOTCONN => unreachable,
             ENOTSOCK => unreachable,
             EINTR => continue,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdReadable(sockfd);
-                continue;
-            } else {
-                return error.WouldBlock;
-            },
+            EAGAIN => return error.WouldBlock,
             ENOMEM => return error.SystemResources,
             ECONNREFUSED => return error.ConnectionRefused,
             else => |err| return unexpectedErrno(err),

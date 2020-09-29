@@ -1225,9 +1225,6 @@ void tokenize(Buf *buf, Tokenization *out) {
                             invalid_char_error(&t, c);
                             break;
                         }
-                        if (t.radix != 16 && t.radix != 10) {
-                            invalid_char_error(&t, c);
-                        }
                         t.state = TokenizeStateNumberDot;
                         break;
                     }
@@ -1280,6 +1277,9 @@ void tokenize(Buf *buf, Tokenization *out) {
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         continue;
+                    }
+                    if (t.radix != 16 && t.radix != 10) {
+                        invalid_char_error(&t, c);
                     }
                     t.pos -= 1;
                     t.state = TokenizeStateFloatFractionNoUnderscore;
