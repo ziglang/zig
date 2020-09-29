@@ -95,6 +95,11 @@ pub const stream = struct {
     pub const ChaCha20With64BitNonce = @import("crypto/chacha20.zig").ChaCha20With64BitNonce;
 };
 
+/// Key derivation functions.
+pub const kdf = struct {
+    pub const hkdf = @import("crypto/hkdf.zig");
+};
+
 const std = @import("std.zig");
 pub const randomBytes = std.os.getrandom;
 
