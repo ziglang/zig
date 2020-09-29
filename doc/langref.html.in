@@ -9889,12 +9889,13 @@ The result is 3</code></pre>
 const std = @import("std");
 
 pub fn main() !void {
-    // TODO a better default allocator that isn't as wasteful!
-    const args = try std.process.argsAlloc(std.heap.page_allocator);
-    defer std.process.argsFree(std.heap.page_allocator, args);
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    const gpa = &general_purpose_allocator.allocator;
+    const args = try std.process.argsAlloc(gpa);
+    defer std.process.argsFree(gpa, args);
 
     for (args) |arg, i| {
-        std.debug.print("{}: {}\n", .{i, arg});
+        std.debug.print("{}: {}\n", .{ i, arg });
     }
 }
       {#code_end#}
