@@ -13,8 +13,6 @@ pub const HkdfSha512 = Hkdf(hmac.sha2.HmacSha512);
 /// derives one or more uniform keys from it.
 pub fn Hkdf(comptime Hmac: type) type {
     return struct {
-        pub const prk_length = Hmac.mac_length;
-
         /// Return a master key from a salt and initial keying material.
         fn extract(salt: []const u8, ikm: []const u8) [Hmac.mac_length]u8 {
             var prk: [Hmac.mac_length]u8 = undefined;
