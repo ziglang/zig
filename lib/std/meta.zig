@@ -884,6 +884,7 @@ pub fn Tuple(comptime types: []const type) type {
             .field_type = T,
             .default_value = @as(?T, null),
             .is_comptime = false,
+            .alignment = @alignOf(T),
         };
     }
 
