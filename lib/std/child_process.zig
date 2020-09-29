@@ -485,7 +485,7 @@ pub const ChildProcess = struct {
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
 
         const nul_handle = if (any_ignore)
-        // "\Device\Null" or "\??\NUL"
+            // "\Device\Null" or "\??\NUL"
             windows.OpenFile(&[_]u16{ '\\', 'D', 'e', 'v', 'i', 'c', 'e', '\\', 'N', 'u', 'l', 'l' }, .{
                 .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
                 .share_access = windows.FILE_SHARE_READ,
@@ -816,6 +816,13 @@ fn destroyPipe(pipe: [2]os.fd_t) void {
 // Then the child exits.
 fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
     writeIntFd(fd, @as(ErrInt, @errorToInt(err))) catch {};
+    // If we're linking libc, some naughty applications may have registered atexit handlers
+    // which we really do not want to run in the fork child. I caught LLVM doing this and
+    // it caused a deadlock instead of doing an exit syscall. In the words of Avril Lavigne,
+    // "Why'd you have to go and make things so complicated?"
+    if (std.Target.current.os.tag == .linux) {
+        std.os.linux.exit(1); // By-pass libc regardless of whether it is linked.
+    }
     os.exit(1);
 }
 
