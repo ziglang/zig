@@ -919,6 +919,13 @@ pub fn testAllocator(base_allocator: *mem.Allocator) !void {
     const zero_bit_ptr = try allocator.create(u0);
     zero_bit_ptr.* = 0;
     allocator.destroy(zero_bit_ptr);
+
+    const oversize = try allocator.allocAdvanced(u32, null, 5, .at_least);
+    testing.expect(oversize.len >= 5);
+    for (oversize) |*item| {
+        item.* = 0xDEADBEEF;
+    }
+    allocator.free(oversize);
 }
 
 pub fn testAllocatorAligned(base_allocator: *mem.Allocator, comptime alignment: u29) !void {

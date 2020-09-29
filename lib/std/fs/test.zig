@@ -813,3 +813,26 @@ fn run_lock_file_test(contexts: []FileLockTestContext) !void {
         try threads.append(try std.Thread.spawn(ctx, FileLockTestContext.run));
     }
 }
+
+test "deleteDir" {
+    var tmp_dir = tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    // deleting a non-existent directory
+    testing.expectError(error.FileNotFound, tmp_dir.dir.deleteDir("test_dir"));
+
+    var dir = try tmp_dir.dir.makeOpenPath("test_dir", .{});
+    var file = try dir.createFile("test_file", .{});
+    file.close();
+    dir.close();
+
+    // deleting a non-empty directory
+    testing.expectError(error.DirNotEmpty, tmp_dir.dir.deleteDir("test_dir"));
+
+    dir = try tmp_dir.dir.openDir("test_dir", .{});
+    try dir.deleteFile("test_file");
+    dir.close();
+
+    // deleting an empty directory
+    try tmp_dir.dir.deleteDir("test_dir");
+}

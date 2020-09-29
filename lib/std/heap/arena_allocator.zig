@@ -75,13 +75,22 @@ pub const ArenaAllocator = struct {
             const adjusted_addr = mem.alignForward(addr, ptr_align);
             const adjusted_index = self.state.end_index + (adjusted_addr - addr);
             const new_end_index = adjusted_index + n;
-            if (new_end_index > cur_buf.len) {
-                cur_node = try self.createNode(cur_buf.len, n + ptr_align);
-                continue;
+
+            if (new_end_index <= cur_buf.len) {
+                const result = cur_buf[adjusted_index..new_end_index];
+                self.state.end_index = new_end_index;
+                return result;
             }
-            const result = cur_buf[adjusted_index..new_end_index];
-            self.state.end_index = new_end_index;
-            return result;
+
+            const bigger_buf_size = @sizeOf(BufNode) + new_end_index;
+            // Try to grow the buffer in-place
+            cur_node.data = self.child_allocator.resize(cur_node.data, bigger_buf_size) catch |err| switch (err) {
+                error.OutOfMemory => {
+                    // Allocate a new node if that's not possible
+                    cur_node = try self.createNode(cur_buf.len, n + ptr_align);
+                    continue;
+                },
+            };
         }
     }
 

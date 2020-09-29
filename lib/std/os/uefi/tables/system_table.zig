@@ -35,7 +35,7 @@ pub const SystemTable = extern struct {
     runtime_services: *RuntimeServices,
     boot_services: ?*BootServices,
     number_of_table_entries: usize,
-    configuration_table: *ConfigurationTable,
+    configuration_table: [*]ConfigurationTable,
 
     pub const signature: u64 = 0x5453595320494249;
     pub const revision_1_02: u32 = (1 << 16) | 2;

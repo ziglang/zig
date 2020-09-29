@@ -1165,6 +1165,11 @@ pub const FileSource = union(enum) {
     }
 };
 
+const BuildOptionArtifactArg = struct {
+    name: []const u8,
+    artifact: *LibExeObjStep,
+};
+
 pub const LibExeObjStep = struct {
     step: Step,
     builder: *Builder,
@@ -1210,6 +1215,7 @@ pub const LibExeObjStep = struct {
     out_pdb_filename: []const u8,
     packages: ArrayList(Pkg),
     build_options_contents: std.ArrayList(u8),
+    build_options_artifact_args: std.ArrayList(BuildOptionArtifactArg),
     system_linker_hack: bool = false,
 
     object_src: []const u8,
@@ -1355,6 +1361,7 @@ pub const LibExeObjStep = struct {
             .framework_dirs = ArrayList([]const u8).init(builder.allocator),
             .object_src = undefined,
             .build_options_contents = std.ArrayList(u8).init(builder.allocator),
+            .build_options_artifact_args = std.ArrayList(BuildOptionArtifactArg).init(builder.allocator),
             .c_std = Builder.CStd.C99,
             .override_lib_dir = null,
             .main_pkg_path = null,
@@ -1810,6 +1817,13 @@ pub const LibExeObjStep = struct {
         out.print("pub const {} = {};\n", .{ name, value }) catch unreachable;
     }
 
+    /// The value is the path in the cache dir.
+    /// Adds a dependency automatically.
+    pub fn addBuildOptionArtifact(self: *LibExeObjStep, name: []const u8, artifact: *LibExeObjStep) void {
+        self.build_options_artifact_args.append(.{ .name = name, .artifact = artifact }) catch unreachable;
+        self.step.dependOn(&artifact.step);
+    }
+
     pub fn addSystemIncludeDir(self: *LibExeObjStep, path: []const u8) void {
         self.include_dirs.append(IncludeDir{ .RawPathSystem = self.builder.dupe(path) }) catch unreachable;
     }
@@ -2004,7 +2018,15 @@ pub const LibExeObjStep = struct {
             }
         }
 
-        if (self.build_options_contents.items.len > 0) {
+        if (self.build_options_contents.items.len > 0 or self.build_options_artifact_args.items.len > 0) {
+            // Render build artifact options at the last minute, now that the path is known.
+            for (self.build_options_artifact_args.items) |item| {
+                const out = self.build_options_contents.writer();
+                out.print("pub const {}: []const u8 = ", .{item.name}) catch unreachable;
+                std.zig.renderStringLiteral(item.artifact.getOutputPath(), out) catch unreachable;
+                out.writeAll(";\n") catch unreachable;
+            }
+
             const build_options_file = try fs.path.join(
                 builder.allocator,
                 &[_][]const u8{ builder.cache_root, builder.fmt("{}_build_options.zig", .{self.name}) },
