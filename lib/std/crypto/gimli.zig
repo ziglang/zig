@@ -38,7 +38,7 @@ pub const State = struct {
         return mem.sliceAsBytes(self.data[0..]);
     }
 
-    fn _permute_unrolled(self: *Self) void {
+    fn permute_unrolled(self: *Self) void {
         const state = &self.data;
         comptime var round = @as(u32, 24);
         inline while (round > 0) : (round -= 1) {
@@ -66,7 +66,7 @@ pub const State = struct {
         }
     }
 
-    fn _permute_small(self: *Self) void {
+    fn permute_small(self: *Self) void {
         const state = &self.data;
         var round = @as(u32, 24);
         while (round > 0) : (round -= 1) {
@@ -94,13 +94,7 @@ pub const State = struct {
         }
     }
 
-    pub fn permute(self: *Self) void {
-        if (std.builtin.mode == .ReleaseSmall) {
-            self._permute_small();
-        } else {
-            self._permute_unrolled();
-        }
-    }
+    pub const permute = if (std.builtin.mode == .ReleaseSmall) permute_small else permute_unrolled;
 
     pub fn squeeze(self: *Self, out: []u8) void {
         var i = @as(usize, 0);
