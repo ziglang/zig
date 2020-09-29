@@ -260,11 +260,13 @@ const usage_build_generic =
     \\  -D[macro]=[value]         Define C [macro] to [value] (1 if [value] omitted)
     \\  --libc [file]             Provide a file which specifies libc paths
     \\  -cflags [flags] --        Set extra flags for the next positional C source files
+    \\  -ffunction-sections       Places each function in a separate section
     \\
     \\Link Options:
     \\  -l[lib], --library [lib]       Link against system library
     \\  -L[d], --library-directory [d] Add a directory to the library search path
-    \\  -T[script]                     Use a custom linker script
+    \\  -T[script], --script [script]  Use a custom linker script
+    \\  --version-script [path]        Provide a version .map file
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
     \\  --each-lib-rpath               Add rpath for each used dynamic library
     \\  --version [ver]                Dynamic library semver
@@ -273,7 +275,11 @@ const usage_build_generic =
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  -dynamic                       Force output to be dynamically linked
     \\  -static                        Force output to be statically linked
+    \\  -Bsymbolic                     Bind global references locally
     \\  --subsystem [subsystem]        (windows) /SUBSYSTEM:<subsystem> to the linker\n"
+    \\  --stack [size]                 Override default stack size
+    \\  -framework [name]              (darwin) link against framework
+    \\  -F[dir]                        (darwin) add search path for frameworks
     \\
     \\Test Options:
     \\  --test-filter [text]           Skip tests that do not match filter
@@ -381,6 +387,7 @@ fn buildOutputType(
     var have_version = false;
     var strip = false;
     var single_threaded = false;
+    var function_sections = false;
     var watch = false;
     var verbose_link = false;
     var verbose_cc = false;
@@ -634,7 +641,15 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
                         try lib_dirs.append(args[i]);
-                    } else if (mem.eql(u8, arg, "-T")) {
+                    } else if (mem.eql(u8, arg, "-F")) {
+                        if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
+                        i += 1;
+                        try framework_dirs.append(args[i]);
+                    } else if (mem.eql(u8, arg, "-framework")) {
+                        if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
+                        i += 1;
+                        try frameworks.append(args[i]);
+                    } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
                         linker_script = args[i];
@@ -819,6 +834,8 @@ fn buildOutputType(
                         strip = true;
                     } else if (mem.eql(u8, arg, "--single-threaded")) {
                         single_threaded = true;
+                    } else if (mem.eql(u8, arg, "-ffunction-sections")) {
+                        function_sections = true;
                     } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
                         link_eh_frame_hdr = true;
                     } else if (mem.eql(u8, arg, "-Bsymbolic")) {
@@ -843,6 +860,8 @@ fn buildOutputType(
                         linker_script = arg[2..];
                     } else if (mem.startsWith(u8, arg, "-L")) {
                         try lib_dirs.append(arg[2..]);
+                    } else if (mem.startsWith(u8, arg, "-F")) {
+                        try framework_dirs.append(arg[2..]);
                     } else if (mem.startsWith(u8, arg, "-l")) {
                         // We don't know whether this library is part of libc or libc++ until we resolve the target.
                         // So we simply append to the list for now.
@@ -1555,6 +1574,7 @@ fn buildOutputType(
         .stack_size_override = stack_size_override,
         .strip = strip,
         .single_threaded = single_threaded,
+        .function_sections = function_sections,
         .self_exe_path = self_exe_path,
         .rand = &default_prng.random,
         .clang_passthrough_mode = arg_mode != .build,

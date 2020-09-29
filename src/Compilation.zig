@@ -347,6 +347,7 @@ pub const InitOptions = struct {
     rdynamic: bool = false,
     strip: bool = false,
     single_threaded: bool = false,
+    function_sections: bool = false,
     is_native_os: bool,
     time_report: bool = false,
     stack_report: bool = false,
@@ -355,7 +356,6 @@ pub const InitOptions = struct {
     version_script: ?[]const u8 = null,
     override_soname: ?[]const u8 = null,
     linker_gc_sections: ?bool = null,
-    function_sections: ?bool = null,
     linker_allow_shlib_undefined: ?bool = null,
     linker_bind_global_refs_locally: ?bool = null,
     each_lib_rpath: ?bool = null,
@@ -538,7 +538,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         };
 
         const single_threaded = options.single_threaded or target_util.isSingleThreaded(options.target);
-        const function_sections = options.function_sections orelse false;
 
         const llvm_cpu_features: ?[*:0]const u8 = if (build_options.have_llvm and use_llvm) blk: {
             var buf = std.ArrayList(u8).init(arena);
@@ -589,7 +588,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(pic);
         cache.hash.add(stack_check);
         cache.hash.add(link_mode);
-        cache.hash.add(function_sections);
+        cache.hash.add(options.function_sections);
         cache.hash.add(strip);
         cache.hash.add(link_libc);
         cache.hash.add(options.link_libcpp);
@@ -757,7 +756,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .rpath_list = options.rpath_list,
             .strip = strip,
             .is_native_os = options.is_native_os,
-            .function_sections = options.function_sections orelse false,
+            .function_sections = options.function_sections,
             .allow_shlib_undefined = options.linker_allow_shlib_undefined,
             .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
             .z_nodelete = options.linker_z_nodelete,
