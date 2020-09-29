@@ -284,6 +284,7 @@ const usage_build_generic =
     \\
     \\Debug Options (Zig Compiler Development):
     \\  -ftime-report                Print timing diagnostics
+    \\  -fstack-report               Print stack size diagnostics
     \\  --verbose-link               Display linker invocations
     \\  --verbose-cc                 Display C compiler invocations
     \\  --verbose-tokenize           Enable compiler debug output for tokenization
@@ -390,6 +391,7 @@ fn buildOutputType(
     var verbose_cimport = false;
     var verbose_llvm_cpu_features = false;
     var time_report = false;
+    var stack_report = false;
     var show_builtin = false;
     var emit_bin: Emit = .yes_default_path;
     var emit_asm: Emit = .no;
@@ -728,6 +730,8 @@ fn buildOutputType(
                         watch = true;
                     } else if (mem.eql(u8, arg, "-ftime-report")) {
                         time_report = true;
+                    } else if (mem.eql(u8, arg, "-fstack-report")) {
+                        stack_report = true;
                     } else if (mem.eql(u8, arg, "-fPIC")) {
                         want_pic = true;
                     } else if (mem.eql(u8, arg, "-fno-PIC")) {
@@ -1568,6 +1572,7 @@ fn buildOutputType(
         .machine_code_model = machine_code_model,
         .color = color,
         .time_report = time_report,
+        .stack_report = stack_report,
         .is_test = arg_mode == .zig_test,
         .each_lib_rpath = each_lib_rpath,
         .test_evented_io = test_evented_io,

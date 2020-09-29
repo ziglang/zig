@@ -1,10 +1,8 @@
  * audit the CLI options for stage2
  * audit the base cache hash
- * On operating systems that support it, do an execve for `zig test` and `zig run` rather than child process.
- * `-ftime-report`
- *  -fstack-report               print stack size diagnostics\n"
  * try building some software with zig cc to make sure it didn't regress
 
+ * On operating systems that support it, do an execve for `zig test` and `zig run` rather than child process.
  * implement proper parsing of clang stderr/stdout and exposing compile errors with the Compilation API
  * implement proper parsing of LLD stderr/stdout and exposing compile errors with the Compilation API
  * support cross compiling stage2 with `zig build`
