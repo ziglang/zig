@@ -120,7 +120,7 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
                     }),
                     .Dynamic => {
                         if (options.version) |ver| {
-                            return std.fmt.allocPrint(allocator, "{s}{s}.dylib.{d}.{d}.{d}", .{
+                            return std.fmt.allocPrint(allocator, "{s}{s}.{d}.{d}.{d}.dylib", .{
                                 target.libPrefix(), root_name, ver.major, ver.minor, ver.patch,
                             });
                         } else {
