@@ -94,7 +94,18 @@ pub const Ghash = struct {
         }
     }
 
-    fn bmul(x: u64, y: u64) u64 {
+    inline fn clmul_pclmul(x: u64, y: u64) u64 {
+        const Vector = std.meta.Vector;
+        const product = asm (
+            \\ vpclmulqdq $0x00, %[x], %[y], %[out]
+            : [out] "=x" (-> Vector(2, u64))
+            : [x] "x" (@bitCast(Vector(2, u64), @as(u128, x))),
+              [y] "x" (@bitCast(Vector(2, u64), @as(u128, y)))
+        );
+        return product[0];
+    }
+
+    fn clmul_soft(x: u64, y: u64) u64 {
         const x0 = x & 0x1111111111111111;
         const x1 = x & 0x2222222222222222;
         const x2 = x & 0x4444444444444444;
@@ -111,9 +122,12 @@ pub const Ghash = struct {
         z1 &= 0x2222222222222222;
         z2 &= 0x4444444444444444;
         z3 &= 0x8888888888888888;
-
         return z0 | z1 | z2 | z3;
     }
+
+    const has_pclmul = comptime std.Target.x86.featureSetHas(std.Target.current.cpu.features, .pclmul);
+    const has_avx = comptime std.Target.x86.featureSetHas(std.Target.current.cpu.features, .avx);
+    const clmul = if (std.Target.current.cpu.arch == .x86_64 and has_pclmul and has_avx) clmul_pclmul else clmul_soft;
 
     fn blocks(st: *Ghash, msg: []const u8) void {
         assert(msg.len % 16 == 0); // GHASH blocks() expects full blocks
@@ -134,12 +148,12 @@ pub const Ghash = struct {
                 const y2 = y0 ^ y1;
                 const y2r = y0r ^ y1r;
 
-                var z0 = bmul(y0, st.hh0);
-                var z1 = bmul(y1, st.hh1);
-                var z2 = bmul(y2, st.hh2) ^ z0 ^ z1;
-                var z0h = bmul(y0r, st.hh0r);
-                var z1h = bmul(y1r, st.hh1r);
-                var z2h = bmul(y2r, st.hh2r) ^ z0h ^ z1h;
+                var z0 = clmul(y0, st.hh0);
+                var z1 = clmul(y1, st.hh1);
+                var z2 = clmul(y2, st.hh2) ^ z0 ^ z1;
+                var z0h = clmul(y0r, st.hh0r);
+                var z1h = clmul(y1r, st.hh1r);
+                var z2h = clmul(y2r, st.hh2r) ^ z0h ^ z1h;
 
                 // B1 * H unreduced
                 const sy1 = mem.readIntBig(u64, msg[i..][16..24]);
@@ -150,12 +164,12 @@ pub const Ghash = struct {
                 const sy2 = sy0 ^ sy1;
                 const sy2r = sy0r ^ sy1r;
 
-                const sz0 = bmul(sy0, st.h0);
-                const sz1 = bmul(sy1, st.h1);
-                const sz2 = bmul(sy2, st.h2) ^ sz0 ^ sz1;
-                const sz0h = bmul(sy0r, st.h0r);
-                const sz1h = bmul(sy1r, st.h1r);
-                const sz2h = bmul(sy2r, st.h2r) ^ sz0h ^ sz1h;
+                const sz0 = clmul(sy0, st.h0);
+                const sz1 = clmul(sy1, st.h1);
+                const sz2 = clmul(sy2, st.h2) ^ sz0 ^ sz1;
+                const sz0h = clmul(sy0r, st.h0r);
+                const sz1h = clmul(sy1r, st.h1r);
+                const sz2h = clmul(sy2r, st.h2r) ^ sz0h ^ sz1h;
 
                 // ((B0 * H^2) + B1 * H) (mod M)
                 z0 ^= sz0;
@@ -195,12 +209,12 @@ pub const Ghash = struct {
             const y2 = y0 ^ y1;
             const y2r = y0r ^ y1r;
 
-            const z0 = bmul(y0, st.h0);
-            const z1 = bmul(y1, st.h1);
-            var z2 = bmul(y2, st.h2) ^ z0 ^ z1;
-            var z0h = bmul(y0r, st.h0r);
-            var z1h = bmul(y1r, st.h1r);
-            var z2h = bmul(y2r, st.h2r) ^ z0h ^ z1h;
+            const z0 = clmul(y0, st.h0);
+            const z1 = clmul(y1, st.h1);
+            var z2 = clmul(y2, st.h2) ^ z0 ^ z1;
+            var z0h = clmul(y0r, st.h0r);
+            var z1h = clmul(y1r, st.h1r);
+            var z2h = clmul(y2r, st.h2r) ^ z0h ^ z1h;
             z0h = @bitReverse(u64, z0h) >> 1;
             z1h = @bitReverse(u64, z1h) >> 1;
             z2h = @bitReverse(u64, z2h) >> 1;
