@@ -3120,11 +3120,8 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
     bool create_enum_type = is_auto_enum || (!is_explicit_enum && want_safety);
     bool *covered_enum_fields;
     bool *is_zero_bits = heap::c_allocator.allocate<bool>(field_count);
-    ZigLLVMDIEnumerator **di_enumerators;
     if (create_enum_type) {
         occupied_tag_values.init(field_count);
-
-        di_enumerators = heap::c_allocator.allocate<ZigLLVMDIEnumerator*>(field_count);
 
         ZigType *tag_int_type;
         if (enum_type_node != nullptr) {
@@ -3269,7 +3266,6 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
         }
 
         if (create_enum_type) {
-            di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(union_field->name), i);
             union_field->enum_field = &tag_type->data.enumeration.fields[i];
             union_field->enum_field->name = union_field->name;
             union_field->enum_field->decl_index = i;
@@ -3336,6 +3332,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
             gen_field_index += 1;
         }
     }
+    heap::c_allocator.deallocate(is_zero_bits, field_count);
 
     bool src_have_tag = is_auto_enum || is_explicit_enum;
 
@@ -3403,6 +3400,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
             }
         }
+        heap::c_allocator.deallocate(covered_enum_fields, tag_type->data.enumeration.src_field_count);
     }
 
     if (union_type->data.unionation.resolve_status == ResolveStatusInvalid) {

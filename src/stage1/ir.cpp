@@ -24144,6 +24144,7 @@ static IrInstGen *ir_analyze_container_init_fields(IrAnalyze *ira, IrInst *sourc
             first_non_const_instruction = result_loc;
         }
     }
+    heap::c_allocator.deallocate(field_assign_nodes, actual_field_count);
     if (any_missing)
         return ira->codegen->invalid_inst_gen;
 
@@ -29840,6 +29841,7 @@ static IrInstGen *ir_analyze_bit_cast(IrAnalyze *ira, IrInst* source_instr, IrIn
         buf_write_value_bytes(ira->codegen, buf, val);
         if ((err = buf_read_value_bytes(ira, ira->codegen, source_instr->source_node, buf, result->value)))
             return ira->codegen->invalid_inst_gen;
+        heap::c_allocator.deallocate(buf, src_size_bytes);
         return result;
     }
 
@@ -30877,6 +30879,8 @@ static IrInstGen *ir_analyze_instruction_bit_reverse(IrAnalyze *ira, IrInstSrcBi
                                     ira->codegen->is_big_endian,
                                     int_type->data.integral.is_signed);
 
+        heap::c_allocator.deallocate(comptime_buf, buf_size);
+        heap::c_allocator.deallocate(result_buf, buf_size);
         return result;
     }
 

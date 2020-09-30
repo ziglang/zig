@@ -127,6 +127,7 @@ static void os_spawn_process_posix(ZigList<const char *> &args, Termination *ter
     int status;
     waitpid(pid, &status, 0);
     populate_termination(term, status);
+    heap::c_allocator.deallocate(argv, args.length + 1);
 }
 #endif
 
@@ -748,6 +749,7 @@ static Buf os_path_resolve_posix(Buf **paths_ptr, size_t paths_len) {
 
     Buf return_value = BUF_INIT;
     buf_init_from_mem(&return_value, (char *)result_ptr, result_index);
+    heap::c_allocator.deallocate(result_ptr, result_len);
     return return_value;
 }
 #endif
