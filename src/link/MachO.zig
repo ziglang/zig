@@ -263,6 +263,12 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         dysymtab.nundefsym = nundefs;
     }
     {
+        // update LC_MAIN with entry offset
+        const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+        const main_cmd = &self.load_commands.items[self.main_cmd_index.?].EntryPoint;
+        main_cmd.entryoff = self.entry_addr.? - text_segment.vmaddr;
+    }
+    {
         var last_cmd_offset: usize = @sizeOf(macho.mach_header_64);
         for (self.load_commands.items) |cmd| {
             try cmd.write(&self.base.file.?, last_cmd_offset);
@@ -817,8 +823,6 @@ pub fn updateDeclExports(
             .Strong => blk: {
                 if (mem.eql(u8, exp.options.name, "_start")) {
                     self.entry_addr = decl_sym.n_value;
-                    const cmd = &self.load_commands.items[self.main_cmd_index.?].EntryPoint;
-                    cmd.entryoff = decl_sym.n_value;
                 }
                 break :blk macho.REFERENCE_FLAG_DEFINED;
             },
@@ -985,8 +989,9 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .reserved3 = 0,
         });
 
-        data_segment.vmsize = file_size;
-        data_segment.filesize = file_size;
+        const segment_size = mem.alignForwardGeneric(u64, file_size, 0x1000);
+        data_segment.vmsize = segment_size;
+        data_segment.filesize = segment_size;
         data_segment.fileoff = off;
 
         log.debug("initial got section {}\n", .{self.sections.items[self.got_section_index.?]});
@@ -1133,6 +1138,24 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     }
     {
         const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+        const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfo;
+        if (dyld_info.export_off == 0) {
+            const nsyms = self.base.options.symbol_count_hint;
+            const file_size = @sizeOf(u64) * nsyms;
+            const off = @intCast(u32, self.findFreeSpace(file_size, 0x1000));
+            log.debug("found export trie free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+            dyld_info.export_off = off;
+            dyld_info.export_size = @intCast(u32, file_size);
+
+            const segment_size = mem.alignForwardGeneric(u64, file_size, 0x1000);
+            linkedit.vmsize = 4 * segment_size;
+            linkedit.fileoff = off;
+
+            log.debug("updated linkedit segment {}\n", .{linkedit});
+        }
+    }
+    {
+        const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
         const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
         if (symtab.symoff == 0) {
             const nsyms = self.base.options.symbol_count_hint;
@@ -1141,12 +1164,6 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             log.debug("found symbol table free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
             symtab.symoff = off;
             symtab.nsyms = @intCast(u32, nsyms);
-
-            linkedit.vmsize += file_size;
-            linkedit.fileoff = off;
-            linkedit.filesize += file_size;
-
-            log.debug("updated linkedit segment {}\n", .{linkedit});
         }
         if (symtab.stroff == 0) {
             try self.string_table.append(self.base.allocator, 0);
@@ -1155,11 +1172,6 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             log.debug("found string table free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
             symtab.stroff = off;
             symtab.strsize = file_size;
-
-            linkedit.vmsize += file_size;
-            linkedit.filesize += file_size;
-
-            log.debug("updated linkedit segment {}\n", .{linkedit});
         }
     }
 }
@@ -1291,6 +1303,15 @@ fn detectAllocCollision(self: *MachO, start: u64, size: u64) ?u64 {
             return test_end;
         }
     }
+    if (self.dyld_info_cmd_index) |dyld_info_index| {
+        const dyld_info = self.load_commands.items[dyld_info_index].DyldInfo;
+        const tight_size = dyld_info.export_size;
+        const increased_size = satMul(tight_size, alloc_num) / alloc_den;
+        const test_end = dyld_info.export_off + increased_size;
+        if (end > dyld_info.export_off and start < test_end) {
+            return test_end;
+        }
+    }
     if (self.symtab_cmd_index) |symtab_index| {
         const symtab = self.load_commands.items[symtab_index].Symtab;
         {
@@ -1323,6 +1344,10 @@ fn allocatedSize(self: *MachO, start: u64) u64 {
     for (self.sections.items) |section| {
         if (section.offset <= start) continue;
         if (section.offset < min_pos) min_pos = section.offset;
+    }
+    if (self.dyld_info_cmd_index) |dyld_info_index| {
+        const dyld_info = self.load_commands.items[dyld_info_index].DyldInfo;
+        if (dyld_info.export_off > start and dyld_info.export_off < min_pos) min_pos = dyld_info.export_off;
     }
     if (self.symtab_cmd_index) |symtab_index| {
         const symtab = self.load_commands.items[symtab_index].Symtab;
@@ -1380,7 +1405,7 @@ fn writeAllUndefSymbols(self: *MachO) !void {
 }
 
 fn writeExportTrie(self: *MachO) !void {
-    // TODO
+    // TODO implement mechanism for generating a prefix tree of the exported symbols
     // single branch export trie
     var buf = [_]u8{0} ** 24;
     buf[0] = 0; // root node
@@ -1388,10 +1413,16 @@ fn writeExportTrie(self: *MachO) !void {
     mem.copy(u8, buf[2..], "_start");
     buf[8] = 0;
     buf[9] = 9 + 1;
-    const written = try std.debug.leb.writeULEB128Mem(buf[12..], self.entry_addr.?);
+
+    const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+    const addr = self.entry_addr.? - text_segment.vmaddr;
+    const written = try std.debug.leb.writeULEB128Mem(buf[12..], addr);
     buf[10] = @intCast(u8, written) + 1;
     buf[11] = 0;
     log.debug("WAT = {}, {x}\n", .{ written, buf[0..] });
+
+    const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfo;
+    try self.base.file.?.pwriteAll(buf[0..], dyld_info.export_off);
 }
 
 fn writeStringTable(self: *MachO) !void {
@@ -1409,6 +1440,10 @@ fn writeStringTable(self: *MachO) !void {
     log.debug("writing string table from 0x{x} to 0x{x}\n", .{ symtab.stroff, symtab.stroff + symtab.strsize });
 
     try self.base.file.?.pwriteAll(self.string_table.items, symtab.stroff);
+
+    // FIXME
+    const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    linkedit.filesize = symtab.stroff + symtab.strsize - linkedit.fileoff;
 }
 
 /// Writes Mach-O file header.
