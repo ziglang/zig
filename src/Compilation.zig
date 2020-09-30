@@ -478,8 +478,12 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             {
                 break :dl true;
             }
-            if (options.system_libs.len != 0)
-                break :dl true;
+            if (options.system_libs.len != 0) {
+                // when creating a executable that links to system libraries,
+                // we require dynamic linking, but we must not link static libraries
+                // or object files dynamically!
+                break :dl (options.output_mode == .Exe);
+            }
 
             break :dl false;
         };
