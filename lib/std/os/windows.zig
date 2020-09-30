@@ -217,6 +217,7 @@ pub fn DeviceIoControl(
     switch (rc) {
         .SUCCESS => {},
         .PRIVILEGE_NOT_HELD => return error.AccessDenied,
+        .ACCESS_DENIED => return error.AccessDenied,
         .INVALID_PARAMETER => unreachable,
         else => return unexpectedStatus(rc),
     }
