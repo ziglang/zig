@@ -274,6 +274,32 @@ test "file operations on directories" {
     dir.close();
 }
 
+test "deleteDir" {
+    var tmp_dir = tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    // deleting a non-existent directory
+    testing.expectError(error.FileNotFound, tmp_dir.dir.deleteDir("test_dir"));
+
+    var dir = try tmp_dir.dir.makeOpenPath("test_dir", .{});
+    var file = try dir.createFile("test_file", .{});
+    file.close();
+    dir.close();
+
+    // deleting a non-empty directory
+    // TODO: Re-enable this check on Windows, see https://github.com/ziglang/zig/issues/5537
+    if (builtin.os.tag != .windows) {
+        testing.expectError(error.DirNotEmpty, tmp_dir.dir.deleteDir("test_dir"));
+    }
+
+    dir = try tmp_dir.dir.openDir("test_dir", .{});
+    try dir.deleteFile("test_file");
+    dir.close();
+
+    // deleting an empty directory
+    try tmp_dir.dir.deleteDir("test_dir");
+}
+
 test "Dir.rename files" {
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
