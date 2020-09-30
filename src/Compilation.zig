@@ -1627,9 +1627,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
         const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
         var o_dir = try comp.local_cache_directory.handle.makeOpenPath(o_sub_path, .{});
         defer o_dir.close();
-        // TODO https://github.com/ziglang/zig/issues/6344
         const tmp_basename = std.fs.path.basename(out_obj_path);
-        try std.os.renameat(zig_cache_tmp_dir.fd, tmp_basename, o_dir.fd, o_basename);
+        try std.fs.rename(zig_cache_tmp_dir, tmp_basename, o_dir, o_basename);
 
         man.writeManifest() catch |err| {
             log.warn("failed to write cache manifest when compiling '{}': {}", .{ c_object.src.src_path, @errorName(err) });
