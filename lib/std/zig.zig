@@ -102,7 +102,9 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
                                 target.libPrefix(), root_name, ver.major, ver.minor, ver.patch,
                             });
                         } else {
-                            return std.fmt.allocPrint(allocator, "{s}{s}.so", .{ target.libPrefix(), root_name });
+                            return std.fmt.allocPrint(allocator, "{s}{s}.so", .{
+                                target.libPrefix(), root_name,
+                            });
                         }
                     },
                 }
@@ -112,10 +114,22 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
         .macho => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
             .Lib => {
-                const suffix = switch (options.link_mode orelse .Static) {
-                    .Static => ".a",
-                    .Dynamic => ".dylib",
-                };
+                switch (options.link_mode orelse .Static) {
+                    .Static => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{
+                        target.libPrefix(), root_name,
+                    }),
+                    .Dynamic => {
+                        if (options.version) |ver| {
+                            return std.fmt.allocPrint(allocator, "{s}{s}.dylib.{d}.{d}.{d}", .{
+                                target.libPrefix(), root_name, ver.major, ver.minor, ver.patch,
+                            });
+                        } else {
+                            return std.fmt.allocPrint(allocator, "{s}{s}.dylib", .{
+                                target.libPrefix(), root_name,
+                            });
+                        }
+                    },
+                }
                 return std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ target.libPrefix(), root_name, suffix });
             },
             .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.oFileExt() }),
