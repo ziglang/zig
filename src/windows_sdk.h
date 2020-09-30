@@ -16,7 +16,7 @@
 
 #include <stddef.h>
 
-// ABI warning - src-self-hosted/windows_sdk.zig
+// ABI warning - src/windows_sdk.zig
 struct ZigWindowsSDK {
     const char *path10_ptr;
     size_t path10_len;
@@ -34,7 +34,7 @@ struct ZigWindowsSDK {
     size_t msvc_lib_dir_len;
 };
 
-// ABI warning - src-self-hosted/windows_sdk.zig
+// ABI warning - src/windows_sdk.zig
 enum ZigFindWindowsSdkError {
     ZigFindWindowsSdkErrorNone,
     ZigFindWindowsSdkErrorOutOfMemory,
@@ -42,10 +42,10 @@ enum ZigFindWindowsSdkError {
     ZigFindWindowsSdkErrorPathTooLong,
 };
 
-// ABI warning - src-self-hosted/windows_sdk.zig
+// ABI warning - src/windows_sdk.zig
 ZIG_EXTERN_C enum ZigFindWindowsSdkError zig_find_windows_sdk(struct ZigWindowsSDK **out_sdk);
 
-// ABI warning - src-self-hosted/windows_sdk.zig
+// ABI warning - src/windows_sdk.zig
 ZIG_EXTERN_C void zig_free_windows_sdk(struct ZigWindowsSDK *sdk);
 
 #endif

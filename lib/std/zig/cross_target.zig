@@ -375,7 +375,7 @@ pub const CrossTarget = struct {
         // `Target.current.os` works when doing `zig build` because Zig generates a build executable using
         // native OS version range. However this will not be accurate otherwise, and
         // will need to be integrated with `std.zig.system.NativeTargetInfo.detect`.
-        var adjusted_os = if (self.os_tag) |os_tag| Target.Os.defaultVersionRange(os_tag) else Target.current.os;
+        var adjusted_os = if (self.os_tag) |os_tag| os_tag.defaultVersionRange() else Target.current.os;
 
         if (self.os_version_min) |min| switch (min) {
             .none => {},
@@ -466,7 +466,7 @@ pub const CrossTarget = struct {
     }
 
     pub fn oFileExt(self: CrossTarget) [:0]const u8 {
-        return self.getAbi().oFileExt();
+        return Target.oFileExt_cpu_arch_abi(self.getCpuArch(), self.getAbi());
     }
 
     pub fn exeFileExt(self: CrossTarget) [:0]const u8 {

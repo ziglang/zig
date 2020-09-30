@@ -51,7 +51,6 @@ message("Configuring zig version ${ZIG_VERSION}")
 
 set(ZIG_STATIC off CACHE BOOL "Attempt to build a static zig executable (not compatible with glibc)")
 set(ZIG_STATIC_LLVM off CACHE BOOL "Prefer linking against static LLVM libraries")
-set(ZIG_ENABLE_MEM_PROFILE off CACHE BOOL "Activate memory usage instrumentation")
 set(ZIG_PREFER_CLANG_CPP_DYLIB off CACHE BOOL "Try to link against -lclang-cpp")
 set(ZIG_WORKAROUND_4799 off CACHE BOOL "workaround for https://github.com/ziglang/zig/issues/4799")
 set(ZIG_WORKAROUND_POLLY_SO off CACHE STRING "workaround for https://github.com/ziglang/zig/issues/4799")
@@ -71,11 +70,6 @@ string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_STATIC_LIB_DIR_ESCAPED "${ZIG_LI
 string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_INCLUDE_DIR_ESCAPED "${ZIG_LIBC_INCLUDE_DIR}")
 
 option(ZIG_TEST_COVERAGE "Build Zig with test coverage instrumentation" OFF)
-
-# Zig no longer has embedded LLD. This option is kept for package maintainers
-# so that they don't have to update their scripts in case we ever re-introduce
-# LLD to the tree. This option does nothing.
-option(ZIG_FORCE_EXTERNAL_LLD "does nothing" OFF)
 
 set(ZIG_TARGET_TRIPLE "native" CACHE STRING "arch-os-abi to output binaries for")
 set(ZIG_TARGET_MCPU "baseline" CACHE STRING "-mcpu parameter to output binaries for")
@@ -101,7 +95,7 @@ if(APPLE AND ZIG_WORKAROUND_4799)
   list(APPEND LLVM_LIBRARIES "-Wl,${CMAKE_PREFIX_PATH}/lib/libPolly.a" "-Wl,${CMAKE_PREFIX_PATH}/lib/libPollyPPCG.a" "-Wl,${CMAKE_PREFIX_PATH}/lib/libPollyISL.a")
 endif()
 
-set(ZIG_CPP_LIB_DIR "${CMAKE_BINARY_DIR}/zig_cpp")
+set(ZIG_CPP_LIB_DIR "${CMAKE_BINARY_DIR}/zigcpp")
 
 # Handle multi-config builds and place each into a common lib. The VS generator
 # for example will append a Debug folder by default if not explicitly specified.
@@ -267,53 +261,45 @@ include_directories("${CMAKE_SOURCE_DIR}/deps/dbg-macro")
 
 find_package(Threads)
 
-# CMake doesn't let us create an empty executable, so we hang on to this one separately.
-set(ZIG_MAIN_SRC "${CMAKE_SOURCE_DIR}/src/main.cpp")
+# This is our shim which will be replaced by stage1.zig.
+set(ZIG0_SOURCES
+    "${CMAKE_SOURCE_DIR}/src/stage1/zig0.cpp"
+)
 
-# This is our shim which will be replaced by libstage2 written in Zig.
-set(ZIG0_SHIM_SRC "${CMAKE_SOURCE_DIR}/src/stage2.cpp")
-
-if(ZIG_ENABLE_MEM_PROFILE)
-    set(ZIG_SOURCES_MEM_PROFILE "${CMAKE_SOURCE_DIR}/src/mem_profile.cpp")
-endif()
-
-set(ZIG_SOURCES
-    "${CMAKE_SOURCE_DIR}/src/analyze.cpp"
-    "${CMAKE_SOURCE_DIR}/src/ast_render.cpp"
-    "${CMAKE_SOURCE_DIR}/src/bigfloat.cpp"
-    "${CMAKE_SOURCE_DIR}/src/bigint.cpp"
-    "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
-    "${CMAKE_SOURCE_DIR}/src/cache_hash.cpp"
-    "${CMAKE_SOURCE_DIR}/src/codegen.cpp"
-    "${CMAKE_SOURCE_DIR}/src/compiler.cpp"
-    "${CMAKE_SOURCE_DIR}/src/dump_analysis.cpp"
-    "${CMAKE_SOURCE_DIR}/src/errmsg.cpp"
-    "${CMAKE_SOURCE_DIR}/src/error.cpp"
-    "${CMAKE_SOURCE_DIR}/src/glibc.cpp"
-    "${CMAKE_SOURCE_DIR}/src/heap.cpp"
-    "${CMAKE_SOURCE_DIR}/src/ir.cpp"
-    "${CMAKE_SOURCE_DIR}/src/ir_print.cpp"
-    "${CMAKE_SOURCE_DIR}/src/link.cpp"
-    "${CMAKE_SOURCE_DIR}/src/mem.cpp"
-    "${CMAKE_SOURCE_DIR}/src/os.cpp"
-    "${CMAKE_SOURCE_DIR}/src/parser.cpp"
-    "${CMAKE_SOURCE_DIR}/src/range_set.cpp"
-    "${CMAKE_SOURCE_DIR}/src/target.cpp"
-    "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
-    "${CMAKE_SOURCE_DIR}/src/util.cpp"
-    "${CMAKE_SOURCE_DIR}/src/softfloat_ext.cpp"
-    "${ZIG_SOURCES_MEM_PROFILE}"
+set(STAGE1_SOURCES
+    "${CMAKE_SOURCE_DIR}/src/stage1/analyze.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/ast_render.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/bigfloat.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/bigint.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/buffer.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/codegen.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/dump_analysis.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/errmsg.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/error.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/heap.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/ir.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/ir_print.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/mem.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/os.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/parser.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/range_set.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/stage1.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/target.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/tokenizer.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/util.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stage1/softfloat_ext.cpp"
 )
 set(OPTIMIZED_C_SOURCES
-    "${CMAKE_SOURCE_DIR}/src/blake2b.c"
-    "${CMAKE_SOURCE_DIR}/src/parse_f128.c"
+    "${CMAKE_SOURCE_DIR}/src/stage1/parse_f128.c"
 )
 set(ZIG_CPP_SOURCES
+    # These are planned to stay even when we are self-hosted.
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
     "${CMAKE_SOURCE_DIR}/src/zig_clang.cpp"
     "${CMAKE_SOURCE_DIR}/src/zig_clang_driver.cpp"
     "${CMAKE_SOURCE_DIR}/src/zig_clang_cc1_main.cpp"
     "${CMAKE_SOURCE_DIR}/src/zig_clang_cc1as_main.cpp"
+    # https://github.com/ziglang/zig/issues/6363
     "${CMAKE_SOURCE_DIR}/src/windows_sdk.cpp"
 )
 
@@ -334,7 +320,7 @@ set(ZIG_STD_DEST "${ZIG_LIB_DIR}/std")
 set(ZIG_CONFIG_H_OUT "${CMAKE_BINARY_DIR}/config.h")
 set(ZIG_CONFIG_ZIG_OUT "${CMAKE_BINARY_DIR}/config.zig")
 configure_file (
-    "${CMAKE_SOURCE_DIR}/src/config.h.in"
+    "${CMAKE_SOURCE_DIR}/src/stage1/config.h.in"
     "${ZIG_CONFIG_H_OUT}"
 )
 configure_file (
@@ -346,6 +332,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_BINARY_DIR}
     "${CMAKE_SOURCE_DIR}/src"
+    "${CMAKE_SOURCE_DIR}/src/stage1"
 )
 
 # These have to go before the -Wno- flags
@@ -411,18 +398,19 @@ if(ZIG_TEST_COVERAGE)
     set(EXE_LDFLAGS "${EXE_LDFLAGS} -fprofile-arcs -ftest-coverage")
 endif()
 
-add_library(zig_cpp STATIC ${ZIG_CPP_SOURCES})
-set_target_properties(zig_cpp PROPERTIES
+add_library(zigcpp STATIC ${ZIG_CPP_SOURCES})
+set_target_properties(zigcpp PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
 )
 
-target_link_libraries(zig_cpp LINK_PUBLIC
+target_link_libraries(zigcpp LINK_PUBLIC
     ${CLANG_LIBRARIES}
     ${LLD_LIBRARIES}
     ${LLVM_LIBRARIES}
+    ${CMAKE_THREAD_LIBS_INIT}
 )
 if(ZIG_WORKAROUND_POLLY_SO)
-  target_link_libraries(zig_cpp LINK_PUBLIC "-Wl,${ZIG_WORKAROUND_POLLY_SO}")
+  target_link_libraries(zigcpp LINK_PUBLIC "-Wl,${ZIG_WORKAROUND_POLLY_SO}")
 endif()
 
 add_library(opt_c_util STATIC ${OPTIMIZED_C_SOURCES})
@@ -430,68 +418,67 @@ set_target_properties(opt_c_util PROPERTIES
     COMPILE_FLAGS "${OPTIMIZED_C_FLAGS}"
 )
 
-add_library(zigcompiler STATIC ${ZIG_SOURCES})
-set_target_properties(zigcompiler PROPERTIES
+add_library(zigstage1 STATIC ${STAGE1_SOURCES})
+set_target_properties(zigstage1 PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-target_link_libraries(zigcompiler LINK_PUBLIC
-    zig_cpp
+target_link_libraries(zigstage1 LINK_PUBLIC
     opt_c_util
     ${SOFTFLOAT_LIBRARIES}
-    ${CMAKE_THREAD_LIBS_INIT}
+    zigcpp
 )
 if(NOT MSVC)
-    target_link_libraries(zigcompiler LINK_PUBLIC ${LIBXML2})
+    target_link_libraries(zigstage1 LINK_PUBLIC ${LIBXML2})
 endif()
 
 if(ZIG_DIA_GUIDS_LIB)
-    target_link_libraries(zigcompiler LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
+    target_link_libraries(zigstage1 LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
 endif()
 
 if(MSVC OR MINGW)
-    target_link_libraries(zigcompiler LINK_PUBLIC version)
+    target_link_libraries(zigstage1 LINK_PUBLIC version)
 endif()
 
-add_executable(zig0 "${ZIG_MAIN_SRC}" "${ZIG0_SHIM_SRC}")
+add_executable(zig0 ${ZIG0_SOURCES})
 set_target_properties(zig0 PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-target_link_libraries(zig0 zigcompiler)
+target_link_libraries(zig0 zigstage1)
 
 if(MSVC)
-    set(LIBSTAGE2 "${CMAKE_BINARY_DIR}/zigstage2.lib")
+    set(ZIG1_OBJECT "${CMAKE_BINARY_DIR}/zig1.obj")
 else()
-    set(LIBSTAGE2 "${CMAKE_BINARY_DIR}/libzigstage2.a")
+    set(ZIG1_OBJECT "${CMAKE_BINARY_DIR}/zig1.o")
 endif()
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
-    set(LIBSTAGE2_RELEASE_ARG "")
+    set(ZIG1_RELEASE_ARG "")
 else()
-    set(LIBSTAGE2_RELEASE_ARG --release-fast --strip)
+    set(ZIG1_RELEASE_ARG -OReleaseFast --strip)
 endif()
 
-set(BUILD_LIBSTAGE2_ARGS "build-lib"
-    "src-self-hosted/stage2.zig"
+set(BUILD_ZIG1_ARGS
+    "src/stage1.zig"
     -target "${ZIG_TARGET_TRIPLE}"
     "-mcpu=${ZIG_TARGET_MCPU}"
-    --name zigstage2
+    --name zig1
     --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
-    --cache on
-    --output-dir "${CMAKE_BINARY_DIR}"
-    ${LIBSTAGE2_RELEASE_ARG}
-    --bundle-compiler-rt
-    -fPIC
+    "-femit-bin=${ZIG1_OBJECT}"
+    "${ZIG1_RELEASE_ARG}"
     -lc
     --pkg-begin build_options "${ZIG_CONFIG_ZIG_OUT}"
+    --pkg-end
+    --pkg-begin compiler_rt "${CMAKE_SOURCE_DIR}/lib/std/special/compiler_rt.zig"
     --pkg-end
 )
 
 if("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
-  add_custom_target(zig_build_libstage2 ALL
-      COMMAND zig0 ${BUILD_LIBSTAGE2_ARGS}
+  add_custom_target(zig_build_zig1 ALL
+      COMMAND zig0 ${BUILD_ZIG1_ARGS}
       DEPENDS zig0
-      BYPRODUCTS "${LIBSTAGE2}"
+      BYPRODUCTS "${ZIG1_OBJECT}"
+      COMMENT STATUS "Building self-hosted component ${ZIG1_OBJECT}"
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
   )
   set(ZIG_EXECUTABLE "${zig_BINARY_DIR}/zig")
@@ -499,26 +486,28 @@ if("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
     set(ZIG_EXECUTABLE "${ZIG_EXECUTABLE}.exe")
   endif()
 else()
-  add_custom_target(zig_build_libstage2 ALL
-      COMMAND "${ZIG_EXECUTABLE}" ${BUILD_LIBSTAGE2_ARGS}
-      BYPRODUCTS "${LIBSTAGE2}"
+  add_custom_target(zig_build_zig1 ALL
+      COMMAND "${ZIG_EXECUTABLE}" ${BUILD_ZIG1_ARGS}
+      BYPRODUCTS "${ZIG1_OBJECT}"
+      COMMENT STATUS "Building self-hosted component ${ZIG1_OBJECT}"
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
   )
 endif()
 
-add_executable(zig "${ZIG_MAIN_SRC}")
+# cmake won't let us configure an executable without C sources.
+add_executable(zig "${CMAKE_SOURCE_DIR}/src/stage1/empty.cpp")
 
 set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-target_link_libraries(zig zigcompiler "${LIBSTAGE2}")
+target_link_libraries(zig "${ZIG1_OBJECT}" zigstage1)
 if(MSVC)
   target_link_libraries(zig ntdll.lib)
 elseif(MINGW)
   target_link_libraries(zig ntdll)
 endif()
-add_dependencies(zig zig_build_libstage2)
+add_dependencies(zig zig_build_zig1)
 
 install(TARGETS zig DESTINATION bin)
 

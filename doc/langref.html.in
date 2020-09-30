@@ -1078,6 +1078,7 @@ const nan = std.math.nan(f128);
           but you can switch to {#syntax#}Optimized{#endsyntax#} mode on a per-block basis:</p>
       {#code_begin|obj|foo#}
       {#code_release_fast#}
+      {#code_disable_cache#}
 const std = @import("std");
 const builtin = std.builtin;
 const big = @as(f64, 1 << 40);
@@ -9881,12 +9882,13 @@ The result is 3</code></pre>
 const std = @import("std");
 
 pub fn main() !void {
-    // TODO a better default allocator that isn't as wasteful!
-    const args = try std.process.argsAlloc(std.heap.page_allocator);
-    defer std.process.argsFree(std.heap.page_allocator, args);
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    const gpa = &general_purpose_allocator.allocator;
+    const args = try std.process.argsAlloc(gpa);
+    defer std.process.argsFree(gpa, args);
 
     for (args) |arg, i| {
-        std.debug.print("{}: {}\n", .{i, arg});
+        std.debug.print("{}: {}\n", .{ i, arg });
     }
 }
       {#code_end#}
@@ -11385,8 +11387,9 @@ keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_anyframe / KEYWORD_anytype
         <li>Incremental improvements.</li>
         <li>Avoid local maximums.</li>
         <li>Reduce the amount one must remember.</li>
-        <li>Minimize energy spent on coding style.</li>
-        <li>Resource deallocation must succeed.</li>
+        <li>Focus on code rather than style.</li>
+        <li>Resource allocation may fail; resource deallocation must succeed.</li>
+        <li>Memory is a resource.</li>
         <li>Together we serve the users.</li>
       </ul>
       {#header_close#}

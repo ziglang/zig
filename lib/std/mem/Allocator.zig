@@ -231,8 +231,6 @@ fn AllocWithOptionsPayload(comptime Elem: type, comptime alignment: ?u29, compti
 /// call `free` when done.
 ///
 /// For allocating a single item, see `create`.
-///
-/// Deprecated; use `allocWithOptions`.
 pub fn allocSentinel(
     self: *Allocator,
     comptime Elem: type,

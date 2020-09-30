@@ -72,8 +72,7 @@ pub const TranslateCStep = struct {
         try argv_list.append("translate-c");
         try argv_list.append("-lc");
 
-        try argv_list.append("--cache");
-        try argv_list.append("on");
+        try argv_list.append("--enable-cache");
 
         if (!self.target.isNative()) {
             try argv_list.append("-target");

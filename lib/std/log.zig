@@ -101,14 +101,12 @@ pub const Level = enum {
     debug,
 };
 
-/// The default log level is based on build mode. Note that in ReleaseSmall
-/// builds the default level is emerg but no messages will be stored/logged
-/// by the default logger to save space.
+/// The default log level is based on build mode.
 pub const default_level: Level = switch (builtin.mode) {
     .Debug => .debug,
     .ReleaseSafe => .notice,
     .ReleaseFast => .err,
-    .ReleaseSmall => .emerg,
+    .ReleaseSmall => .err,
 };
 
 /// The current log level. This is set to root.log_level if present, otherwise
@@ -131,11 +129,22 @@ fn log(
             // On freestanding one must provide a log function; we do not have
             // any I/O configured.
             return;
-        } else if (builtin.mode != .ReleaseSmall) {
+        } else {
+            const level_txt = switch (message_level) {
+                .emerg => "emergency",
+                .alert => "alert",
+                .crit => "critical",
+                .err => "error",
+                .warn => "warning",
+                .notice => "notice",
+                .info => "info",
+                .debug => "debug",
+            };
+            const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
+            const stderr = std.io.getStdErr().writer();
             const held = std.debug.getStderrMutex().acquire();
             defer held.release();
-            const stderr = std.io.getStdErr().writer();
-            nosuspend stderr.print(format ++ "\n", args) catch return;
+            nosuspend stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
         }
     }
 }

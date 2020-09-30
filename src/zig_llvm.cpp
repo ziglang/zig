@@ -927,7 +927,7 @@ class MyOStream: public raw_ostream {
 };
 
 bool ZigLLVMWriteImportLibrary(const char *def_path, const ZigLLVM_ArchType arch,
-                               const char *output_lib_path, const bool kill_at)
+                               const char *output_lib_path, bool kill_at)
 {
     COFF::MachineTypes machine = COFF::IMAGE_FILE_MACHINE_UNKNOWN;
 

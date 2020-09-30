@@ -112,12 +112,10 @@ pub fn ArrayHashMap(
             return self.unmanaged.clearAndFree(self.allocator);
         }
 
-        /// Deprecated. Use `items().len`.
         pub fn count(self: Self) usize {
-            return self.items().len;
+            return self.unmanaged.count();
         }
 
-        /// Deprecated. Iterate using `items`.
         pub fn iterator(self: *const Self) Iterator {
             return Iterator{
                 .hm = self,
@@ -330,6 +328,10 @@ pub fn ArrayHashMapUnmanaged(
                 header.free(allocator);
                 self.index_header = null;
             }
+        }
+
+        pub fn count(self: Self) usize {
+            return self.entries.items.len;
         }
 
         /// If key exists this function cannot fail.
