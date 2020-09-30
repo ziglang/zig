@@ -1337,12 +1337,12 @@ fn buildOutputType(
         }
     };
 
-    if (output_mode == .Obj and object_format == .coff) {
+    if (output_mode == .Obj and (object_format == .coff or object_format == .macho)) {
         const total_obj_count = c_source_files.items.len +
             @boolToInt(root_src_file != null) +
             link_objects.items.len;
         if (total_obj_count > 1) {
-            fatal("COFF does not support linking multiple objects into one", .{});
+            fatal("{s} does not support linking multiple objects into one", .{@tagName(object_format)});
         }
     }
 
