@@ -374,6 +374,7 @@ pub const InitOptions = struct {
     is_test: bool = false,
     test_evented_io: bool = false,
     is_compiler_rt_or_libc: bool = false,
+    parent_compilation_link_libc: bool = false,
     stack_size_override: ?u64 = null,
     self_exe_path: ?[]const u8 = null,
     version: ?std.builtin.Version = null,
@@ -614,6 +615,8 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             hash.add(options.target.os.getVersionRange());
             hash.add(dll_export_fns);
             hash.add(options.is_test);
+            hash.add(options.is_compiler_rt_or_libc);
+            hash.add(options.parent_compilation_link_libc);
 
             const digest = hash.final();
             const artifact_sub_dir = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
@@ -781,6 +784,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .error_return_tracing = error_return_tracing,
             .llvm_cpu_features = llvm_cpu_features,
             .is_compiler_rt_or_libc = options.is_compiler_rt_or_libc,
+            .parent_compilation_link_libc = options.parent_compilation_link_libc,
             .each_lib_rpath = options.each_lib_rpath orelse false,
             .disable_lld_caching = options.disable_lld_caching,
             .subsystem = options.subsystem,
@@ -848,7 +852,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         comp.c_object_table.putAssumeCapacityNoClobber(c_object, {});
     }
 
-    if (comp.bin_file.options.emit != null) {
+    if (comp.bin_file.options.emit != null and !comp.bin_file.options.is_compiler_rt_or_libc) {
         // If we need to build glibc for the target, add work items for it.
         // We go through the work queue so that building can be done in parallel.
         if (comp.wantBuildGLibCFromSource()) {
@@ -903,9 +907,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             try comp.work_queue.writeItem(.libcxx);
             try comp.work_queue.writeItem(.libcxxabi);
         }
-        if (is_exe_or_dyn_lib and !comp.bin_file.options.is_compiler_rt_or_libc and
-            build_options.is_stage1)
-        {
+        if (is_exe_or_dyn_lib and build_options.is_stage1) {
             try comp.work_queue.writeItem(.{ .libcompiler_rt = {} });
             if (!comp.bin_file.options.link_libc) {
                 try comp.work_queue.writeItem(.{ .zig_libc = {} });
@@ -2345,6 +2347,15 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         ),
     }
     try buffer.appendSlice("};\n");
+
+    // This is so that compiler_rt and libc.zig libraries know whether they
+    // will eventually be linked with libc. They make different decisions
+    // about what to export depending on whether another libc will be linked
+    // in. For example, compiler_rt will not export the __chkstk symbol if it
+    // knows libc will provide it, and likewise c.zig will not export memcpy.
+    const link_libc = comp.bin_file.options.link_libc or
+        (comp.bin_file.options.is_compiler_rt_or_libc and comp.bin_file.options.parent_compilation_link_libc);
+
     try buffer.writer().print(
         \\pub const object_format = ObjectFormat.{};
         \\pub const mode = Mode.{};
@@ -2359,7 +2370,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
     , .{
         @tagName(comp.bin_file.options.object_format),
         @tagName(comp.bin_file.options.optimize_mode),
-        comp.bin_file.options.link_libc,
+        link_libc,
         comp.bin_file.options.link_libcpp,
         comp.bin_file.options.error_return_tracing,
         comp.bin_file.options.valgrind,
@@ -2481,6 +2492,7 @@ fn buildStaticLibFromZig(comp: *Compilation, src_basename: []const u8, out: *?CR
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .is_compiler_rt_or_libc = true,
+        .parent_compilation_link_libc = comp.bin_file.options.link_libc,
     });
     defer sub_compilation.destroy();
 
@@ -2842,12 +2854,7 @@ pub fn build_crt_file(
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .is_compiler_rt_or_libc = true,
-        // This is so that compiler_rt and libc.zig libraries know whether they
-        // will eventually be linked with libc. They make different decisions
-        // about what to export depending on whether another libc will be linked
-        // in. For example, compiler_rt will not export the __chkstk symbol if it
-        // knows libc will provide it, and likewise c.zig will not export memcpy.
-        .link_libc = comp.bin_file.options.link_libc,
+        .parent_compilation_link_libc = comp.bin_file.options.link_libc,
     });
     defer sub_compilation.destroy();
 

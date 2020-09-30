@@ -323,9 +323,6 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
     const is_lib = self.base.options.output_mode == .Lib;
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
-    const have_dynamic_linker = self.base.options.link_libc and
-        self.base.options.link_mode == .Dynamic and is_exe_or_dyn_lib;
-    const link_in_crt = self.base.options.link_libc and self.base.options.output_mode == .Exe;
     const target = self.base.options.target;
     const stack_size = self.base.options.stack_size_override orelse 16777216;
     const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
