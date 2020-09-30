@@ -70,13 +70,13 @@ deletion_set: ArrayListUnmanaged(*Decl) = .{},
 /// Error tags and their values, tag names are duped with mod.gpa.
 global_error_set: std.StringHashMapUnmanaged(u16) = .{},
 
+/// Keys are fully qualified paths
+import_table: std.StringArrayHashMapUnmanaged(*Scope.File) = .{},
+
 /// Incrementing integer used to compare against the corresponding Decl
 /// field to determine whether a Decl's status applies to an ongoing update, or a
 /// previous analysis.
 generation: u32 = 0,
-
-/// Keys are fully qualified paths
-import_table: std.StringArrayHashMapUnmanaged(*Scope.File) = .{},
 
 stage1_flags: packed struct {
     have_winmain: bool = false,
@@ -2392,10 +2392,7 @@ pub fn analyzeSlice(self: *Module, scope: *Scope, src: usize, array_ptr: *Inst, 
 
 pub fn analyzeImport(self: *Module, scope: *Scope, src: usize, target_string: []const u8) !*Scope.File {
     // TODO if (package_table.get(target_string)) |pkg|
-
-    const file_path = try std.fs.path.join(scope.arena(), &[_][]const u8{ self.root_pkg.root_src_dir_path, target_string });
-
-    if (self.import_table.get(file_path)) |some| {
+    if (self.import_table.get(target_string)) |some| {
         return some;
     }
 
@@ -2404,10 +2401,15 @@ pub fn analyzeImport(self: *Module, scope: *Scope, src: usize, target_string: []
 
     // TODO Scope.Container arena for ty and sub_file_path
     const struct_payload = try self.gpa.create(Type.Payload.EmptyStruct);
+    errdefer self.gpa.destroy(struct_payload);
     const file_scope = try self.gpa.create(Scope.File);
+    errdefer self.gpa.destroy(file_scope);
+    const file_path = try self.gpa.dupe(u8, target_string);
+    errdefer self.gpa.free(file_path);
+
     struct_payload.* = .{ .scope = &file_scope.root_container };
     file_scope.* = .{
-        .sub_file_path = try self.gpa.dupe(u8, file_path),
+        .sub_file_path = file_path,
         .source = .{ .unloaded = {} },
         .contents = .{ .not_available = {} },
         .status = .never_loaded,
@@ -2419,7 +2421,7 @@ pub fn analyzeImport(self: *Module, scope: *Scope, src: usize, target_string: []
     };
     self.analyzeContainer(&file_scope.root_container) catch |err| switch (err) {
         error.AnalysisFail => {
-            assert(self.totalErrorCount() != 0);
+            assert(self.comp.totalErrorCount() != 0);
         },
         else => |e| return e,
     };

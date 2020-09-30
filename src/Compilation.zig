@@ -8,6 +8,7 @@ const log = std.log.scoped(.compilation);
 const Target = std.Target;
 
 const Value = @import("value.zig").Value;
+const Type = @import("type.zig").Type;
 const target_util = @import("target.zig");
 const Package = @import("Package.zig");
 const link = @import("link.zig");
@@ -638,15 +639,19 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
             const root_scope = rs: {
                 if (mem.endsWith(u8, root_pkg.root_src_path, ".zig")) {
+                    const struct_payload = try gpa.create(Type.Payload.EmptyStruct);
                     const root_scope = try gpa.create(Module.Scope.File);
+                    struct_payload.* = .{ .scope = &root_scope.root_container };
                     root_scope.* = .{
-                        .sub_file_path = root_pkg.root_src_path,
+                        // TODO this is duped so it can be freed in Container.deinit
+                        .sub_file_path = try gpa.dupe(u8, root_pkg.root_src_path),
                         .source = .{ .unloaded = {} },
                         .contents = .{ .not_available = {} },
                         .status = .never_loaded,
                         .root_container = .{
                             .file_scope = root_scope,
                             .decls = .{},
+                            .ty = Type.initPayload(&struct_payload.base),
                         },
                     };
                     break :rs &root_scope.base;
@@ -1016,6 +1021,17 @@ pub fn update(self: *Compilation) !void {
             } else if (module.root_scope.cast(Module.Scope.ZIRModule)) |zir_module| {
                 zir_module.unload(module.gpa);
                 module.analyzeRootZIRModule(zir_module) catch |err| switch (err) {
+                    error.AnalysisFail => {
+                        assert(self.totalErrorCount() != 0);
+                    },
+                    else => |e| return e,
+                };
+            }
+
+            // TODO only analyze imports if they are still referenced
+            for (module.import_table.items()) |entry| {
+                entry.value.unload(module.gpa);
+                module.analyzeContainer(&entry.value.root_container) catch |err| switch (err) {
                     error.AnalysisFail => {
                         assert(self.totalErrorCount() != 0);
                     },

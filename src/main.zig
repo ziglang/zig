@@ -1446,6 +1446,11 @@ fn buildOutputType(
             cleanup_root_dir = dir;
             root_pkg_memory.root_src_directory = .{ .path = p, .handle = dir };
             root_pkg_memory.root_src_path = try fs.path.relative(arena, p, src_path);
+        } else if (fs.path.dirname(src_path)) |p| {
+            const dir = try fs.cwd().openDir(p, .{});
+            cleanup_root_dir = dir;
+            root_pkg_memory.root_src_directory = .{ .path = p, .handle = dir };
+            root_pkg_memory.root_src_path = fs.path.basename(src_path);
         } else {
             root_pkg_memory.root_src_directory = .{ .path = null, .handle = fs.cwd() };
             root_pkg_memory.root_src_path = src_path;
