@@ -31,6 +31,13 @@ pub const Ghash = struct {
     h1r: u64,
     h2r: u64,
 
+    hh0: u64 = undefined,
+    hh1: u64 = undefined,
+    hh2: u64 = undefined,
+    hh0r: u64 = undefined,
+    hh1r: u64 = undefined,
+    hh2r: u64 = undefined,
+
     leftover: usize = 0,
     buf: [block_size]u8 align(16) = undefined,
 
@@ -42,14 +49,49 @@ pub const Ghash = struct {
         const h2 = h0 ^ h1;
         const h2r = h0r ^ h1r;
 
-        return Ghash{
-            .h0 = h0,
-            .h1 = h1,
-            .h2 = h2,
-            .h0r = h0r,
-            .h1r = h1r,
-            .h2r = h2r,
-        };
+        if (std.builtin.mode == .ReleaseSmall) {
+            return Ghash{
+                .h0 = h0,
+                .h1 = h1,
+                .h2 = h2,
+                .h0r = h0r,
+                .h1r = h1r,
+                .h2r = h2r,
+            };
+        } else {
+            // Precompute H^2
+            var hh = Ghash{
+                .h0 = h0,
+                .h1 = h1,
+                .h2 = h2,
+                .h0r = h0r,
+                .h1r = h1r,
+                .h2r = h2r,
+            };
+            hh.update(key);
+            const hh1 = hh.y1;
+            const hh0 = hh.y0;
+            const hh1r = @bitReverse(u64, hh1);
+            const hh0r = @bitReverse(u64, hh0);
+            const hh2 = hh0 ^ hh1;
+            const hh2r = hh0r ^ hh1r;
+
+            return Ghash{
+                .h0 = h0,
+                .h1 = h1,
+                .h2 = h2,
+                .h0r = h0r,
+                .h1r = h1r,
+                .h2r = h2r,
+
+                .hh0 = hh0,
+                .hh1 = hh1,
+                .hh2 = hh2,
+                .hh0r = hh0r,
+                .hh1r = hh1r,
+                .hh2r = hh2r,
+            };
+        }
     }
 
     fn bmul(x: u64, y: u64) u64 {
@@ -79,6 +121,71 @@ pub const Ghash = struct {
         var y0 = st.y0;
 
         var i: usize = 0;
+
+        // 2-blocks aggregated reduction
+        if (std.builtin.mode != .ReleaseSmall) {
+            while (i + 32 <= msg.len) : (i += 32) {
+                // B0 * H^2 unreduced
+                y1 ^= mem.readIntBig(u64, msg[i..][0..8]);
+                y0 ^= mem.readIntBig(u64, msg[i..][8..16]);
+
+                const y1r = @bitReverse(u64, y1);
+                const y0r = @bitReverse(u64, y0);
+                const y2 = y0 ^ y1;
+                const y2r = y0r ^ y1r;
+
+                var z0 = bmul(y0, st.hh0);
+                var z1 = bmul(y1, st.hh1);
+                var z2 = bmul(y2, st.hh2) ^ z0 ^ z1;
+                var z0h = bmul(y0r, st.hh0r);
+                var z1h = bmul(y1r, st.hh1r);
+                var z2h = bmul(y2r, st.hh2r) ^ z0h ^ z1h;
+
+                // B1 * H unreduced
+                const sy1 = mem.readIntBig(u64, msg[i..][16..24]);
+                const sy0 = mem.readIntBig(u64, msg[i..][24..32]);
+
+                const sy1r = @bitReverse(u64, sy1);
+                const sy0r = @bitReverse(u64, sy0);
+                const sy2 = sy0 ^ sy1;
+                const sy2r = sy0r ^ sy1r;
+
+                const sz0 = bmul(sy0, st.h0);
+                const sz1 = bmul(sy1, st.h1);
+                const sz2 = bmul(sy2, st.h2) ^ sz0 ^ sz1;
+                const sz0h = bmul(sy0r, st.h0r);
+                const sz1h = bmul(sy1r, st.h1r);
+                const sz2h = bmul(sy2r, st.h2r) ^ sz0h ^ sz1h;
+
+                // ((B0 * H^2) + B1 * H) (mod M)
+                z0 ^= sz0;
+                z1 ^= sz1;
+                z2 ^= sz2;
+                z0h ^= sz0h;
+                z1h ^= sz1h;
+                z2h ^= sz2h;
+                z0h = @bitReverse(u64, z0h) >> 1;
+                z1h = @bitReverse(u64, z1h) >> 1;
+                z2h = @bitReverse(u64, z2h) >> 1;
+
+                var v3 = z1h;
+                var v2 = z1 ^ z2h;
+                var v1 = z0h ^ z2;
+                var v0 = z0;
+
+                v3 = (v3 << 1) | (v2 >> 63);
+                v2 = (v2 << 1) | (v1 >> 63);
+                v1 = (v1 << 1) | (v0 >> 63);
+                v0 = (v0 << 1);
+
+                v2 ^= v0 ^ (v0 >> 1) ^ (v0 >> 2) ^ (v0 >> 7);
+                v1 ^= (v0 << 63) ^ (v0 << 62) ^ (v0 << 57);
+                y1 = v3 ^ v1 ^ (v1 >> 1) ^ (v1 >> 2) ^ (v1 >> 7);
+                y0 = v2 ^ (v1 << 63) ^ (v1 << 62) ^ (v1 << 57);
+            }
+        }
+
+        // single block
         while (i + 16 <= msg.len) : (i += 16) {
             y1 ^= mem.readIntBig(u64, msg[i..][0..8]);
             y0 ^= mem.readIntBig(u64, msg[i..][8..16]);
@@ -90,16 +197,15 @@ pub const Ghash = struct {
 
             const z0 = bmul(y0, st.h0);
             const z1 = bmul(y1, st.h1);
-            var z2 = bmul(y2, st.h2);
+            var z2 = bmul(y2, st.h2) ^ z0 ^ z1;
             var z0h = bmul(y0r, st.h0r);
             var z1h = bmul(y1r, st.h1r);
-            var z2h = bmul(y2r, st.h2r);
-            z2 ^= z0 ^ z1;
-            z2h ^= z0h ^ z1h;
+            var z2h = bmul(y2r, st.h2r) ^ z0h ^ z1h;
             z0h = @bitReverse(u64, z0h) >> 1;
             z1h = @bitReverse(u64, z1h) >> 1;
             z2h = @bitReverse(u64, z2h) >> 1;
 
+            // shift & reduce
             var v3 = z1h;
             var v2 = z1 ^ z2h;
             var v1 = z0h ^ z2;
