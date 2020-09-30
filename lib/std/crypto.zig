@@ -28,6 +28,8 @@ pub const aead = struct {
     pub const Gimli = @import("crypto/gimli.zig").Aead;
     pub const ChaCha20Poly1305 = chacha20.Chacha20Poly1305;
     pub const XChaCha20Poly1305 = chacha20.XChacha20Poly1305;
+    pub const AEGIS128L = @import("crypto/aegis.zig").AEGIS128L;
+    pub const AEGIS256 = @import("crypto/aegis.zig").AEGIS256;
 };
 
 /// MAC functions requiring single-use secret keys.
@@ -35,12 +37,23 @@ pub const onetimeauth = struct {
     pub const Poly1305 = @import("crypto/poly1305.zig").Poly1305;
 };
 
-/// A Key Derivation Function (KDF) is intended to turn a weak, human generated password into a
-/// strong key, suitable for cryptographic uses. It does this by salting and stretching the
-/// password. Salting injects non-secret random data, so that identical passwords will be converted
-/// into unique keys. Stretching applies a deliberately slow hashing function to frustrate
-/// brute-force guessing.
-pub const kdf = struct {
+/// A password hashing function derives a uniform key from low-entropy input material such as passwords.
+/// It is intentionally slow or expensive.
+///
+/// With the standard definition of a key derivation function, if a key space is small, an exhaustive search may be practical.
+/// Password hashing functions make exhaustive searches way slower or way more expensive, even when implemented on GPUs and ASICs, by using different, optionally combined strategies:
+///
+/// - Requiring a lot of computation cycles to complete
+/// - Requiring a lot of memory to complete
+/// - Requiring multiple CPU cores to complete
+/// - Requiring cache-local data to complete in reasonable time
+/// - Requiring large static tables
+/// - Avoiding precomputations and time/memory tradeoffs
+/// - Requiring multi-party computations
+/// - Combining the input material with random per-entry data (salts), application-specific contexts and keys
+///
+/// Password hashing functions must be used whenever sensitive data has to be directly derived from a password.
+pub const pwhash = struct {
     pub const pbkdf2 = @import("crypto/pbkdf2.zig").pbkdf2;
 };
 
@@ -48,6 +61,13 @@ pub const kdf = struct {
 pub const core = struct {
     pub const aes = @import("crypto/aes.zig");
     pub const Gimli = @import("crypto/gimli.zig").State;
+
+    /// Modes are generic compositions to construct encryption/decryption functions from block ciphers and permutations.
+    ///
+    /// These modes are designed to be building blocks for higher-level constructions, and should generally not be used directly by applications, as they may not provide the expected properties and security guarantees.
+    ///
+    /// Most applications may want to use AEADs instead.
+    pub const modes = @import("crypto/modes.zig");
 };
 
 /// Elliptic-curve arithmetic.
@@ -100,6 +120,7 @@ test "crypto" {
     _ = @import("crypto/gimli.zig");
     _ = @import("crypto/hmac.zig");
     _ = @import("crypto/md5.zig");
+    _ = @import("crypto/modes.zig");
     _ = @import("crypto/pbkdf2.zig");
     _ = @import("crypto/poly1305.zig");
     _ = @import("crypto/sha1.zig");

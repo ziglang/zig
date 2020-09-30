@@ -116,19 +116,19 @@ const known_options = [_]KnownOpt{
     },
     .{
         .name = "E",
-        .ident = "pp_or_asm",
+        .ident = "preprocess_only",
     },
     .{
         .name = "preprocess",
-        .ident = "pp_or_asm",
+        .ident = "preprocess_only",
     },
     .{
         .name = "S",
-        .ident = "pp_or_asm",
+        .ident = "asm_only",
     },
     .{
         .name = "assemble",
-        .ident = "pp_or_asm",
+        .ident = "asm_only",
     },
     .{
         .name = "O1",

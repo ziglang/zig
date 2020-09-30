@@ -4,6 +4,14 @@ const std = @import("std");
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add("slice sentinel mismatch",
         \\export fn entry() void {
+        \\    const x = @import("std").meta.Vector(3, f32){ 25, 75, 5, 0 };
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:62: error: index 3 outside vector of size 3",
+    });
+
+    cases.add("slice sentinel mismatch",
+        \\export fn entry() void {
         \\    const y: [:1]const u8 = &[_:2]u8{ 1, 2 };
         \\}
     , &[_][]const u8{
@@ -2347,7 +2355,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
             \\    exit(0);
             \\}
         , &[_][]const u8{
-            "tmp.zig:3:5: error: dependency on library c must be explicitly specified in the build command",
+            "tmp.zig:3:5: error: dependency on libc must be explicitly specified in the build command",
         });
 
         cases.addTest("libc headers note",
@@ -7548,7 +7556,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add( // fixed bug #2032
-    "compile diagnostic string for top level decl type",
+        "compile diagnostic string for top level decl type",
         \\export fn entry() void {
         \\    var foo: u32 = @This(){};
         \\}

@@ -274,6 +274,14 @@ test "vector comparison operators" {
                 expectEqual(@splat(4, true), v1 != v3);
                 expectEqual(@splat(4, false), v1 != v2);
             }
+            {
+                // Comptime-known LHS/RHS
+                var v1: @Vector(4, u32) = [_]u32{ 2, 1, 2, 1 };
+                const v2 = @splat(4, @as(u32, 2));
+                const v3: @Vector(4, bool) = [_]bool{ true, false, true, false };
+                expectEqual(v3, v1 == v2);
+                expectEqual(v3, v2 == v1);
+            }
         }
     };
     S.doTheTest();

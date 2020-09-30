@@ -217,6 +217,7 @@ pub fn DeviceIoControl(
     switch (rc) {
         .SUCCESS => {},
         .PRIVILEGE_NOT_HELD => return error.AccessDenied,
+        .ACCESS_DENIED => return error.AccessDenied,
         .INVALID_PARAMETER => unreachable,
         else => return unexpectedStatus(rc),
     }
@@ -760,6 +761,7 @@ pub const DeleteFileError = error{
     FileNotFound,
     AccessDenied,
     NameTooLong,
+    /// Also known as sharing violation.
     FileBusy,
     Unexpected,
     NotDir,
@@ -824,6 +826,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         .INVALID_PARAMETER => unreachable,
         .FILE_IS_A_DIRECTORY => return error.IsDir,
         .NOT_A_DIRECTORY => return error.NotDir,
+        .SHARING_VIOLATION => return error.FileBusy,
         else => return unexpectedStatus(rc),
     }
 }

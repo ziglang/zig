@@ -7,6 +7,13 @@ pacman --noconfirm --needed -S git base-devel mingw-w64-x86_64-toolchain mingw-w
 
 git config core.abbrev 9
 
+# Git is wrong for autocrlf being enabled by default on Windows.
+# git is mangling files on Windows by default.
+# This is the second bug I've tracked down to being caused by autocrlf.
+git config core.autocrlf false
+# Too late; the files are already mangled.
+git checkout .
+
 ZIGBUILDDIR="$(pwd)/build"
 PREFIX="$ZIGBUILDDIR/dist"
 CMAKEFLAGS="-DCMAKE_COLOR_MAKEFILE=OFF -DCMAKE_INSTALL_PREFIX=$PREFIX -DZIG_STATIC=ON"

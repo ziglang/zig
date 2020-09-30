@@ -75,6 +75,13 @@ pub const Target = struct {
                     else => return ".so",
                 }
             }
+
+            pub fn defaultVersionRange(tag: Tag) Os {
+                return .{
+                    .tag = tag,
+                    .version_range = VersionRange.default(tag),
+                };
+            }
         };
 
         /// Based on NTDDI version constants from
@@ -290,11 +297,32 @@ pub const Target = struct {
             }
         };
 
-        pub fn defaultVersionRange(tag: Tag) Os {
-            return .{
-                .tag = tag,
-                .version_range = VersionRange.default(tag),
-            };
+        pub const TaggedVersionRange = union(enum) {
+            none: void,
+            semver: Version.Range,
+            linux: LinuxVersionRange,
+            windows: WindowsVersion.Range,
+        };
+
+        /// Provides a tagged union. `Target` does not store the tag because it is
+        /// redundant with the OS tag; this function abstracts that part away.
+        pub fn getVersionRange(self: Os) TaggedVersionRange {
+            switch (self.tag) {
+                .linux => return TaggedVersionRange{ .linux = self.version_range.linux },
+                .windows => return TaggedVersionRange{ .windows = self.version_range.windows },
+
+                .freebsd,
+                .macosx,
+                .ios,
+                .tvos,
+                .watchos,
+                .netbsd,
+                .openbsd,
+                .dragonfly,
+                => return TaggedVersionRange{ .semver = self.version_range.semver },
+
+                else => return .none,
+            }
         }
 
         /// Checks if system is guaranteed to be at least `version` or older than `version`.
@@ -455,18 +483,9 @@ pub const Target = struct {
                 else => false,
             };
         }
-
-        pub fn oFileExt(abi: Abi) [:0]const u8 {
-            return switch (abi) {
-                .msvc => ".obj",
-                else => ".o",
-            };
-        }
     };
 
     pub const ObjectFormat = enum {
-        /// TODO Get rid of this one.
-        unknown,
         coff,
         pe,
         elf,
@@ -1116,8 +1135,18 @@ pub const Target = struct {
         return linuxTripleSimple(allocator, self.cpu.arch, self.os.tag, self.abi);
     }
 
+    pub fn oFileExt_cpu_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) [:0]const u8 {
+        if (cpu_arch.isWasm()) {
+            return ".o.wasm";
+        }
+        switch (abi) {
+            .msvc => return ".obj",
+            else => return ".o",
+        }
+    }
+
     pub fn oFileExt(self: Target) [:0]const u8 {
-        return self.abi.oFileExt();
+        return oFileExt_cpu_arch_abi(self.cpu.arch, self.abi);
     }
 
     pub fn exeFileExtSimple(cpu_arch: Cpu.Arch, os_tag: Os.Tag) [:0]const u8 {
@@ -1456,6 +1485,27 @@ pub const Target = struct {
             .hurd,
             => return result,
         }
+    }
+
+    /// Return whether or not the given host target is capable of executing natively executables
+    /// of the other target.
+    pub fn canExecBinariesOf(host_target: Target, binary_target: Target) bool {
+        if (host_target.os.tag != binary_target.os.tag)
+            return false;
+
+        if (host_target.cpu.arch == binary_target.cpu.arch)
+            return true;
+
+        if (host_target.cpu.arch == .x86_64 and binary_target.cpu.arch == .i386)
+            return true;
+
+        if (host_target.cpu.arch == .aarch64 and binary_target.cpu.arch == .arm)
+            return true;
+
+        if (host_target.cpu.arch == .aarch64_be and binary_target.cpu.arch == .armeb)
+            return true;
+
+        return false;
     }
 };
 

@@ -38,7 +38,7 @@ pub fn expectError(expected_error: anyerror, actual_error_union: anytype) void {
 /// This function is intended to be used only in tests. When the two values are not
 /// equal, prints diagnostics to stderr to show exactly how they are not equal,
 /// then aborts.
-/// The types must match exactly.
+/// `actual` is casted to the type of `expected`.
 pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) void {
     switch (@typeInfo(@TypeOf(actual))) {
         .NoReturn,
