@@ -34,8 +34,7 @@ pub const Ghash = struct {
     leftover: usize = 0,
     buf: [block_size]u8 align(16) = undefined,
 
-    pub fn init(key: []const u8) Ghash {
-        assert(key.len >= minimum_key_length);
+    pub fn init(key: *const [minimum_key_length]u8) Ghash {
         const h1 = mem.readIntBig(u64, key[0..8]);
         const h0 = mem.readIntBig(u64, key[8..16]);
         const h1r = @bitReverse(u64, h1);
@@ -150,8 +149,7 @@ pub const Ghash = struct {
         }
     }
 
-    pub fn final(st: *Ghash, out: []u8) void {
-        assert(out.len >= mac_length);
+    pub fn final(st: *Ghash, out: *[mac_length]u8) void {
         if (st.leftover > 0) {
             var i = st.leftover;
             while (i < block_size) : (i += 1) {
@@ -165,10 +163,7 @@ pub const Ghash = struct {
         mem.secureZero(u8, @ptrCast([*]u8, st)[0..@sizeOf(Ghash)]);
     }
 
-    pub fn create(out: []u8, msg: []const u8, key: []const u8) void {
-        std.debug.assert(out.len >= mac_length);
-        std.debug.assert(key.len >= minimum_key_length);
-
+    pub fn create(out: *[mac_length]u8, msg: []const u8, key: *const [minimum_key_length]u8) void {
         var st = Ghash.init(key);
         st.update(msg);
         st.final(out);
