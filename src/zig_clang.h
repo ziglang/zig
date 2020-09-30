@@ -68,16 +68,17 @@ struct ZigClangExprEvalResult {
     ZigClangAPValue Val;
 };
 
+struct ZigClangAbstractConditionalOperator;
 struct ZigClangAPFloat;
 struct ZigClangAPInt;
 struct ZigClangAPSInt;
-struct ZigClangAPValue;
 struct ZigClangASTContext;
 struct ZigClangASTUnit;
 struct ZigClangArraySubscriptExpr;
 struct ZigClangArrayType;
 struct ZigClangAttributedType;
 struct ZigClangBinaryOperator;
+struct ZigClangBinaryConditionalOperator;
 struct ZigClangBreakStmt;
 struct ZigClangBuiltinType;
 struct ZigClangCStyleCastExpr;
