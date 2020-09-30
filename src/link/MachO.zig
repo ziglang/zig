@@ -236,33 +236,26 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         .Lib => return error.TODOImplementWritingLibFiles,
     }
 
-    // Unfortunately these have to be buffered and done at the end because ELF does not allow
-    // mixing local and global symbols within a symbol table.
+    try self.writeExportTrie();
+
+    // Unfortunately these have to be buffered and done at the end because MachO does not allow
+    // mixing local, global and undefined symbols within a symbol table.
     try self.writeAllGlobalSymbols();
     try self.writeAllUndefSymbols();
 
+    try self.writeStringTable();
+
     {
-        const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
-        symtab.nsyms = @intCast(u32, self.local_symbols.items.len + self.global_symbols.items.len + self.undef_symbols.items.len);
-        const allocated_size = self.allocatedSize(symtab.stroff);
-        const needed_size = self.string_table.items.len;
-        log.debug("allocated_size = 0x{x}, needed_size = 0x{x}\n", .{ allocated_size, needed_size });
-
-        if (needed_size > allocated_size) {
-            symtab.strsize = 0;
-            symtab.stroff = @intCast(u32, self.findFreeSpace(needed_size, 1));
-        }
-        symtab.strsize = @intCast(u32, needed_size);
-
-        log.debug("writing string table from 0x{x} to 0x{x}\n", .{ symtab.stroff, symtab.stroff + symtab.strsize });
-
-        try self.base.file.?.pwriteAll(self.string_table.items, symtab.stroff);
-    }
-    {
-        const dysymtab = &self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
+        // update Symtab and Dysymtab commands with symbol counts
+        // TODO this could probably be done incrementally
         const nlocals = @intCast(u32, self.local_symbols.items.len);
         const nglobals = @intCast(u32, self.global_symbols.items.len);
         const nundefs = @intCast(u32, self.undef_symbols.items.len);
+
+        const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
+        symtab.nsyms = nlocals + nglobals + nundefs;
+
+        const dysymtab = &self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
         dysymtab.nlocalsym = nlocals;
         dysymtab.iextdefsym = nlocals;
         dysymtab.nextdefsym = nglobals;
@@ -1020,6 +1013,26 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         });
         self.cmd_table_dirty = true;
     }
+    if (self.dyld_info_cmd_index == null) {
+        self.dyld_info_cmd_index = @intCast(u16, self.load_commands.items.len);
+        try self.load_commands.append(self.base.allocator, .{
+            .DyldInfo = .{
+                .cmd = macho.LC_DYLD_INFO_ONLY,
+                .cmdsize = @sizeOf(macho.dyld_info_command),
+                .rebase_off = 0,
+                .rebase_size = 0,
+                .bind_off = 0,
+                .bind_size = 0,
+                .weak_bind_off = 0,
+                .weak_bind_size = 0,
+                .lazy_bind_off = 0,
+                .lazy_bind_size = 0,
+                .export_off = 0,
+                .export_size = 0,
+            },
+        });
+        self.cmd_table_dirty = true;
+    }
     if (self.symtab_cmd_index == null) {
         self.symtab_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
@@ -1364,6 +1377,38 @@ fn writeAllUndefSymbols(self: *MachO) !void {
     const file_size = self.undef_symbols.items.len * @sizeOf(macho.nlist_64);
     log.debug("writing undef symbols from 0x{x} to 0x{x}\n", .{ off, file_size + off });
     try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.undef_symbols.items), off);
+}
+
+fn writeExportTrie(self: *MachO) !void {
+    // TODO
+    // single branch export trie
+    var buf = [_]u8{0} ** 24;
+    buf[0] = 0; // root node
+    buf[1] = 1; // 1 branch from root
+    mem.copy(u8, buf[2..], "_start");
+    buf[8] = 0;
+    buf[9] = 9 + 1;
+    const written = try std.debug.leb.writeULEB128Mem(buf[12..], self.entry_addr.?);
+    buf[10] = @intCast(u8, written) + 1;
+    buf[11] = 0;
+    log.debug("WAT = {}, {x}\n", .{ written, buf[0..] });
+}
+
+fn writeStringTable(self: *MachO) !void {
+    const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
+    const allocated_size = self.allocatedSize(symtab.stroff);
+    const needed_size = self.string_table.items.len;
+    log.debug("allocated_size = 0x{x}, needed_size = 0x{x}\n", .{ allocated_size, needed_size });
+
+    if (needed_size > allocated_size) {
+        symtab.strsize = 0;
+        symtab.stroff = @intCast(u32, self.findFreeSpace(needed_size, 1));
+    }
+    symtab.strsize = @intCast(u32, needed_size);
+
+    log.debug("writing string table from 0x{x} to 0x{x}\n", .{ symtab.stroff, symtab.stroff + symtab.strsize });
+
+    try self.base.file.?.pwriteAll(self.string_table.items, symtab.stroff);
 }
 
 /// Writes Mach-O file header.
