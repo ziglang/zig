@@ -41,6 +41,7 @@ pub fn build(b: *Builder) !void {
     var test_stage2 = b.addTest("src/test.zig");
     test_stage2.setBuildMode(mode);
     test_stage2.addPackagePath("stage2_tests", "test/stage2/test.zig");
+    test_stage2.override_lib_dir = "lib/";
 
     const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});
 
