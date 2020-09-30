@@ -58,6 +58,11 @@ pub fn calcSetStringLimbCount(base: u8, string_len: usize) usize {
     return (string_len + (limb_bits / base - 1)) / (limb_bits / base);
 }
 
+pub fn calcPowLimbsBufferLen(a_bit_count: usize, y: usize) usize {
+    // The 1 accounts for the multiplication carry
+    return 1 + (a_bit_count * y + (limb_bits - 1)) / limb_bits;
+}
+
 /// a + b * c + *carry, sets carry to the overflow bits
 pub fn addMulLimbWithCarry(a: Limb, b: Limb, c: Limb, carry: *Limb) Limb {
     @setRuntimeSafety(debug_safety);
@@ -595,6 +600,52 @@ pub const Mutable = struct {
         } else y;
 
         return gcdLehmer(rma, x_copy, y_copy, limbs_buffer);
+    }
+
+    /// q = a ^ b
+    ///
+    /// r may not alias a.
+    ///
+    /// Asserts that `r` has enough limbs to store the result. Upper bound is
+    /// `calcPowLimbsBufferLen(a.bitCountAbs(), b)`.
+    ///
+    /// `limbs_buffer` is used for temporary storage.
+    /// The amount required is given by `calcPowLimbsBufferLen`.
+    pub fn pow(r: *Mutable, a: Const, b: u32, limbs_buffer: []Limb) !void {
+        assert(r.limbs.ptr != a.limbs.ptr); // illegal aliasing
+
+        // Handle all the trivial cases first
+        switch (b) {
+            0 => {
+                // a^0 = 1
+                return r.set(1);
+            },
+            1 => {
+                // a^1 = a
+                return r.copy(a);
+            },
+            else => {},
+        }
+
+        if (a.eqZero()) {
+            // 0^b = 0
+            return r.set(0);
+        } else if (a.limbs.len == 1 and a.limbs[0] == 1) {
+            // 1^b = 1 and -1^b = ±1
+            r.set(1);
+            r.positive = a.positive or (b & 1) == 0;
+            return;
+        }
+
+        // Here a>1 and b>1
+        const needed_limbs = calcPowLimbsBufferLen(a.bitCountAbs(), b);
+        assert(r.limbs.len >= needed_limbs);
+        assert(limbs_buffer.len >= needed_limbs);
+
+        llpow(r.limbs, a.limbs, b, limbs_buffer);
+
+        r.normalize(needed_limbs);
+        r.positive = a.positive or (b & 1) == 0;
     }
 
     /// rma may not alias x or y.
@@ -1775,6 +1826,29 @@ pub const Managed = struct {
         try m.gcd(x.toConst(), y.toConst(), &limbs_buffer);
         rma.setMetadata(m.positive, m.len);
     }
+
+    pub fn pow(rma: *Managed, a: Managed, b: u32) !void {
+        const needed_limbs = calcPowLimbsBufferLen(a.bitCountAbs(), b);
+
+        const limbs_buffer = try rma.allocator.alloc(Limb, needed_limbs);
+        defer rma.allocator.free(limbs_buffer);
+
+        if (rma.limbs.ptr == a.limbs.ptr) {
+            var m = try Managed.initCapacity(rma.allocator, needed_limbs);
+            errdefer m.deinit();
+            var m_mut = m.toMutable();
+            try m_mut.pow(a.toConst(), b, limbs_buffer);
+            m.setMetadata(m_mut.positive, m_mut.len);
+
+            rma.deinit();
+            rma.swap(&m);
+        } else {
+            try rma.ensureCapacity(needed_limbs);
+            var rma_mut = rma.toMutable();
+            try rma_mut.pow(a.toConst(), b, limbs_buffer);
+            rma.setMetadata(rma_mut.positive, rma_mut.len);
+        }
+    }
 };
 
 /// Knuth 4.3.1, Algorithm M.
@@ -2126,6 +2200,52 @@ fn llxor(r: []Limb, a: []const Limb, b: []const Limb) void {
     }
     while (i < a.len) : (i += 1) {
         r[i] = a[i];
+    }
+}
+
+/// Knuth 4.6.3
+fn llpow(r: []Limb, a: []const Limb, b: u32, tmp_limbs: []Limb) void {
+    mem.copy(Limb, r, a);
+    mem.set(Limb, r[a.len..], 0);
+
+    // Multiplication requires no aliasing between the operand and the result
+    // variable, use the output limbs and another temporary set to overcome this
+    // limit.
+    // Note that the order is important in the code below.
+    var list = [_][]Limb{ r, tmp_limbs };
+    var index: usize = 0;
+
+    // Scan the exponent as a binary number, from left to right, dropping the
+    // most significant bit set
+    var exp = @bitReverse(u32, b) >> (1 + @intCast(u5, @clz(u32, b)));
+    while (exp != 0) : (exp >>= 1) {
+        // Square
+        {
+            const cur_buf = list[index];
+            const cur_buf_len = llnormalize(cur_buf);
+            const cur_buf_out = list[index ^ 1];
+
+            mem.set(Limb, cur_buf_out, 0);
+            llmulacc(null, cur_buf_out, cur_buf[0..cur_buf_len], cur_buf[0..cur_buf_len]);
+
+            index ^= 1;
+        }
+
+        if ((exp & 1) != 0) {
+            // Multiply
+            const cur_buf = list[index];
+            const cur_buf_len = llnormalize(cur_buf);
+            const cur_buf_out = list[index ^ 1];
+
+            mem.set(Limb, cur_buf_out, 0);
+            llmulacc(null, cur_buf_out, cur_buf, a);
+
+            index ^= 1;
+        }
+    }
+
+    if (index != 0) {
+        mem.copy(Limb, r, tmp_limbs);
     }
 }
 
