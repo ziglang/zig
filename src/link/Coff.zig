@@ -893,7 +893,11 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
             // regarding eliding redundant object -> object transformations.
             return error.NoObjectsToLink;
         };
-        try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
+        // This can happen when using --enable-cache and using the stage1 backend. In this case
+        // we can skip the file copy.
+        if (!mem.eql(u8, the_object_path, full_out_path)) {
+            try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
+        }
     } else {
         // Create an LLD command line and invoke it.
         var argv = std.ArrayList([]const u8).init(self.base.allocator);
