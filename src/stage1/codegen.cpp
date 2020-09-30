@@ -4428,6 +4428,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
             gen_assign_raw(g, arg_ptr, get_pointer_to_type(g, gen_param_types.at(arg_i), true),
                     gen_param_values.at(arg_i));
         }
+        gen_param_types.deinit();
 
         if (instruction->modifier == CallModifierAsync) {
             gen_resume(g, fn_val, frame_result_loc, ResumeIdCall);
@@ -4505,6 +4506,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
             LLVMValueRef result_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_ret_start + 2, "");
             return LLVMBuildLoad(g->builder, result_ptr, "");
         }
+    } else {
+        gen_param_types.deinit();
     }
 
     if (instruction->new_stack == nullptr || instruction->is_async_call_builtin) {
