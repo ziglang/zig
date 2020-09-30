@@ -2842,6 +2842,12 @@ pub fn build_crt_file(
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .is_compiler_rt_or_libc = true,
+        // This is so that compiler_rt and libc.zig libraries know whether they
+        // will eventually be linked with libc. They make different decisions
+        // about what to export depending on whether another libc will be linked
+        // in. For example, compiler_rt will not export the __chkstk symbol if it
+        // knows libc will provide it, and likewise c.zig will not export memcpy.
+        .link_libc = comp.bin_file.options.link_libc,
     });
     defer sub_compilation.destroy();
 
