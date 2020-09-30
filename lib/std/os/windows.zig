@@ -765,7 +765,6 @@ pub const DeleteFileError = error{
     Unexpected,
     NotDir,
     IsDir,
-    DirNotEmpty,
 };
 
 pub const DeleteFileOptions = struct {
@@ -820,7 +819,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         0,
     );
     switch (rc) {
-        .SUCCESS => CloseHandle(tmp_handle),
+        .SUCCESS => return CloseHandle(tmp_handle),
         .OBJECT_NAME_INVALID => unreachable,
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
         .INVALID_PARAMETER => unreachable,
@@ -828,21 +827,6 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         .NOT_A_DIRECTORY => return error.NotDir,
         .SHARING_VIOLATION => return error.FileBusy,
         else => return unexpectedStatus(rc),
-    }
-
-    // If a directory fails to be deleted, CloseHandle will still report success
-    // Check if the directory still exists and return error.DirNotEmpty if true
-    if (options.remove_dir) {
-        var basic_info: FILE_BASIC_INFORMATION = undefined;
-        switch (ntdll.NtQueryAttributesFile(&attr, &basic_info)) {
-            .SUCCESS => return error.DirNotEmpty,
-            .OBJECT_NAME_NOT_FOUND => return,
-            .OBJECT_PATH_NOT_FOUND => return,
-            .INVALID_PARAMETER => unreachable,
-            .ACCESS_DENIED => return error.AccessDenied,
-            .OBJECT_PATH_SYNTAX_BAD => unreachable,
-            else => |urc| return unexpectedStatus(urc),
-        }
     }
 }
 
