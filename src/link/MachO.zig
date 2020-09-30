@@ -262,11 +262,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         dysymtab.iundefsym = nlocals + nglobals;
         dysymtab.nundefsym = nundefs;
     }
-    {
+    if (self.entry_addr) |addr| {
         // update LC_MAIN with entry offset
         const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
         const main_cmd = &self.load_commands.items[self.main_cmd_index.?].EntryPoint;
-        main_cmd.entryoff = self.entry_addr.? - text_segment.vmaddr;
+        main_cmd.entryoff = addr - text_segment.vmaddr;
     }
     {
         var last_cmd_offset: usize = @sizeOf(macho.mach_header_64);
@@ -709,6 +709,7 @@ fn darwinArchString(arch: std.Target.Cpu.Arch) []const u8 {
 pub fn deinit(self: *MachO) void {
     self.offset_table.deinit(self.base.allocator);
     self.string_table.deinit(self.base.allocator);
+    self.undef_symbols.deinit(self.base.allocator);
     self.global_symbols.deinit(self.base.allocator);
     self.local_symbols.deinit(self.base.allocator);
     self.sections.deinit(self.base.allocator);
@@ -813,7 +814,7 @@ pub fn updateDeclExports(
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
-                    try Module.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: ExportOptions.section", .{}),
+                    try Compilation.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: ExportOptions.section", .{}),
                 );
                 continue;
             }
@@ -831,7 +832,7 @@ pub fn updateDeclExports(
                 try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
                 module.failed_exports.putAssumeCapacityNoClobber(
                     exp,
-                    try Module.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: GlobalLinkage.LinkOnce", .{}),
+                    try Compilation.ErrorMsg.create(self.base.allocator, 0, "Unimplemented: GlobalLinkage.LinkOnce", .{}),
                 );
                 continue;
             },
@@ -1405,6 +1406,8 @@ fn writeAllUndefSymbols(self: *MachO) !void {
 }
 
 fn writeExportTrie(self: *MachO) !void {
+    if (self.entry_addr == null) return;
+
     // TODO implement mechanism for generating a prefix tree of the exported symbols
     // single branch export trie
     var buf = [_]u8{0} ** 24;

@@ -1532,12 +1532,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
                                 const func = func_val.func;
                                 const got = &macho_file.sections.items[macho_file.got_section_index.?];
-                                const ptr_bytes = 8;
-                                const got_addr = @intCast(u32, got.addr + func.owner_decl.link.macho.offset_table_index.? * ptr_bytes);
-                                // ff 14 25 xx xx xx xx    call [addr]
-                                try self.code.ensureCapacity(self.code.items.len + 7);
-                                self.code.appendSliceAssumeCapacity(&[3]u8{ 0xff, 0x14, 0x25 });
-                                mem.writeIntLittle(u32, self.code.addManyAsArrayAssumeCapacity(4), got_addr);
+                                const got_addr = got.addr + func.owner_decl.link.macho.offset_table_index.? * @sizeOf(u64);
+                                // Here, we store the got address in %rax, and then call %rax
+                                // movabsq [addr], %rax
+                                try self.genSetReg(inst.base.src, .rax, .{ .memory = got_addr });
+                                // callq *%rax
+                                self.code.appendSliceAssumeCapacity(&[2]u8{ 0xff, 0xd0 });
                             } else {
                                 return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
                             }

@@ -151,6 +151,45 @@ pub fn addCases(ctx: *TestContext) !void {
     {
         var case = ctx.exe("hello world", macosx_x64);
         case.addError("", &[_][]const u8{":1:1: error: no entry point found"});
+
+        // Incorrect return type
+        case.addError(
+            \\export fn _start() noreturn {
+            \\}
+        , &[_][]const u8{":2:1: error: expected noreturn, found void"});
+
+        // Regular old hello world
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    print();
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn print() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (0x2000004),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("Hello, World!\n")),
+            \\          [arg3] "{rdx}" (14)
+            \\        : "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (0x2000001),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+            ,
+            "Hello, World!\n",
+        );
     }
 
     {
