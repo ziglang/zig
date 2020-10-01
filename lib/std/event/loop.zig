@@ -649,7 +649,7 @@ pub const Loop = struct {
 
     /// Runs the provided function asynchonously, similarly to Go's "go" operator.
     /// `func` must return void and it can be an async function.
-    fn runDetached(self: *Loop, alloc: *mem.Allocator, comptime func: anytype, args: anytype) error{OutOfMemory}!void {
+    pub fn runDetached(self: *Loop, alloc: *mem.Allocator, comptime func: anytype, args: anytype) error{OutOfMemory}!void {
         if (!std.io.is_async) @compileError("Can't use runDetached in non-async mode!");
         if (@TypeOf(@call(.{}, func, args)) != void) {
             @compileError("`func` must not have a return value");
