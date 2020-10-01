@@ -840,7 +840,7 @@ fn buildOutputType(
                         function_sections = true;
                     } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
                         link_eh_frame_hdr = true;
-                    } else if (mem.eql(u8, arg, "-emit-relocs")) {
+                    } else if (mem.eql(u8, arg, "--emit-relocs")) {
                         link_emit_relocs = true;
                     } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                         linker_bind_global_refs_locally = true;

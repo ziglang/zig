@@ -2076,7 +2076,7 @@ pub const LibExeObjStep = struct {
         if (self.link_eh_frame_hdr) {
             try zig_args.append("--eh-frame-hdr");
         }
-        if(self.link_emit_relocs) {
+        if (self.link_emit_relocs) {
             try zig_args.append("--emit-relocs");
         }
         if (self.link_function_sections) {
