@@ -1183,7 +1183,7 @@ fn bufPrintIntToSlice(buf: []u8, value: anytype, base: u8, uppercase: bool, opti
 
 pub fn comptimePrint(comptime fmt: []const u8, args: anytype) *const [count(fmt, args)]u8 {
     comptime var buf: [count(fmt, args)]u8 = undefined;
-    _ = bufPrint(&buf, fmt, args) catch |err| @compileError(err);
+    _ = bufPrint(&buf, fmt, args) catch unreachable;
     return &buf;
 }
 
