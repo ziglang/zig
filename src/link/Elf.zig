@@ -1367,7 +1367,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     }
     
     if (self.base.options.emit_relocs) {
-        try argv.append("-emit-relocs");
+        try argv.append("--emit-relocs");
     }
 
     if (self.base.options.rdynamic) {
