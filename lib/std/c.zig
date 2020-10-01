@@ -342,3 +342,6 @@ pub extern "c" fn fsync(fd: c_int) c_int;
 pub extern "c" fn fdatasync(fd: c_int) c_int;
 
 pub extern "c" fn prctl(option: c_int, ...) c_int;
+
+pub extern "c" fn getrlimit(resource: rlimit_resource, rlim: *rlimit) c_int;
+pub extern "c" fn setrlimit(resource: rlimit_resource, rlim: *const rlimit) c_int;

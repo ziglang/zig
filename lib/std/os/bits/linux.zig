@@ -1890,3 +1890,79 @@ pub const ifreq = extern struct {
         data: ?[*]u8,
     },
 };
+
+// doc comments copied from musl
+pub const rlimit_resource = extern enum(c_int) {
+    /// Per-process CPU limit, in seconds.
+    CPU,
+
+    /// Largest file that can be created, in bytes.
+    FSIZE,
+
+    /// Maximum size of data segment, in bytes.
+    DATA,
+
+    /// Maximum size of stack segment, in bytes.
+    STACK,
+
+    /// Largest core file that can be created, in bytes.
+    CORE,
+
+    /// Largest resident set size, in bytes.
+    /// This affects swapping; processes that are exceeding their
+    /// resident set size will be more likely to have physical memory
+    /// taken from them.
+    RSS,
+
+    /// Number of processes.
+    NPROC,
+
+    /// Number of open files.
+    NOFILE,
+
+    /// Locked-in-memory address space.
+    MEMLOCK,
+
+    /// Address space limit.
+    AS,
+
+    /// Maximum number of file locks.
+    LOCKS,
+
+    /// Maximum number of pending signals.
+    SIGPENDING,
+
+    /// Maximum bytes in POSIX message queues.
+    MSGQUEUE,
+
+    /// Maximum nice priority allowed to raise to.
+    /// Nice levels 19 .. -20 correspond to 0 .. 39
+    /// values of this resource limit.
+    NICE,
+
+    /// Maximum realtime priority allowed for non-priviledged
+    /// processes.
+    RTPRIO,
+
+    /// Maximum CPU time in µs that a process scheduled under a real-time
+    /// scheduling policy may consume without making a blocking system
+    /// call before being forcibly descheduled.
+    RTTIME,
+
+    _,
+};
+
+pub const rlim_t = u64;
+
+/// No limit
+pub const RLIM_INFINITY = ~@as(rlim_t, 0);
+
+pub const RLIM_SAVED_MAX = RLIM_INFINITY;
+pub const RLIM_SAVED_CUR = RLIM_INFINITY;
+
+pub const rlimit = extern struct {
+    /// Soft limit
+    cur: rlim_t,
+    /// Hard limit
+    max: rlim_t,
+};

@@ -5410,3 +5410,30 @@ pub fn prctl(option: i32, args: anytype) PrctlError!u31 {
         else => |err| return std.os.unexpectedErrno(err),
     }
 }
+
+pub const GetrlimitError = UnexpectedError;
+
+pub fn getrlimit(resource: rlimit_resource, limits: *rlimit) GetrlimitError!void {
+    const rc = system.getrlimit(resource, limits);
+    switch (errno(rc)) {
+        0 => return,
+        EFAULT => unreachable, // bogus pointer
+        EINVAL => unreachable,
+        else => |err| return std.os.unexpectedErrno(err),
+    }
+}
+
+pub const SetrlimitError = error{
+    PermissionDenied,
+} || UnexpectedError;
+
+pub fn setrlimit(resource: rlimit_resource, limits: *const rlimit) SetrlimitError!void {
+    const rc = system.setrlimit(resource, limits);
+    switch (errno(rc)) {
+        0 => return,
+        EFAULT => unreachable, // bogus pointer
+        EINVAL => unreachable,
+        EPERM => return error.PermissionDenied,
+        else => |err| return std.os.unexpectedErrno(err),
+    }
+}
