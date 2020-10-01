@@ -60,6 +60,7 @@ pub const Options = struct {
     link_libcpp: bool,
     function_sections: bool,
     eh_frame_hdr: bool,
+    emit_relocs: bool,
     rdynamic: bool,
     z_nodelete: bool,
     z_defs: bool,
