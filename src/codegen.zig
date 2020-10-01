@@ -1537,6 +1537,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 // movabsq [addr], %rax
                                 try self.genSetReg(inst.base.src, .rax, .{ .memory = got_addr });
                                 // callq *%rax
+                                try self.code.ensureCapacity(self.code.items.len + 2);
                                 self.code.appendSliceAssumeCapacity(&[2]u8{ 0xff, 0xd0 });
                             } else {
                                 return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
