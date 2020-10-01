@@ -2169,7 +2169,7 @@ pub const LibExeObjStep = struct {
 
         if (self.linker_script) |linker_script| {
             try zig_args.append("--script");
-            zig_args.append(builder.pathFromRoot(linker_script)) catch unreachable;
+            try zig_args.append(builder.pathFromRoot(linker_script));
         }
 
         if (self.version_script) |version_script| {
