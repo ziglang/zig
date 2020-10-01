@@ -38,6 +38,61 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:20: error: TypeInfo.Enum.tag_type must be an integer type, not 'bool'",
     });
 
+    cases.add("@Type for tagged union with extra enum field",
+        \\const TypeInfo = @import("builtin").TypeInfo;
+        \\const Tag = @Type(.{
+        \\    .Enum = .{
+        \\        .layout = .Auto,
+        \\        .tag_type = u2,
+        \\        .fields = &[_]TypeInfo.EnumField{
+        \\            .{ .name = "signed", .value = 0 },
+        \\            .{ .name = "unsigned", .value = 1 },
+        \\            .{ .name = "arst", .value = 2 },
+        \\        },
+        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\        .is_exhaustive = true,
+        \\    },
+        \\});
+        \\const Tagged = @Type(.{
+        \\    .Union = .{
+        \\        .layout = .Auto,
+        \\        .tag_type = Tag,
+        \\        .fields = &[_]TypeInfo.UnionField{
+        \\            .{ .name = "signed", .field_type = i32, .alignment = @alignOf(i32) },
+        \\            .{ .name = "unsigned", .field_type = u32, .alignment = @alignOf(u32) },
+        \\        },
+        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\    },
+        \\});
+        \\export fn entry() void {
+        \\    var tagged = Tagged{ .signed = -1 };
+        \\    tagged = .{ .unsigned = 1 };
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:15:23: error: enum field missing: 'arst'",
+        "tmp.zig:27:24: note: referenced here",
+    });
+
+    cases.add("@Type for union with opaque field",
+        \\const TypeInfo = @import("builtin").TypeInfo;
+        \\const Untagged = @Type(.{
+        \\    .Union = .{
+        \\        .layout = .Auto,
+        \\        .tag_type = null,
+        \\        .fields = &[_]TypeInfo.UnionField{
+        \\            .{ .name = "foo", .field_type = @Type(.Opaque), .alignment = 1 },
+        \\        },
+        \\        .decls = &[_]TypeInfo.Declaration{},
+        \\    },
+        \\});
+        \\export fn entry() void {
+        \\    _ = Untagged{};
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:25: error: opaque types have unknown size and therefore cannot be directly embedded in unions",
+        "tmp.zig:13:17: note: referenced here",
+    });
+
     cases.add("slice sentinel mismatch",
         \\export fn entry() void {
         \\    const x = @import("std").meta.Vector(3, f32){ 25, 75, 5, 0 };
@@ -52,26 +107,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:37: error: expected type '[:1]const u8', found '*const [2:2]u8'",
-    });
-
-    cases.add("@Type for union with opaque field",
-        \\const TypeInfo = @import("builtin").TypeInfo;
-        \\const Untagged = @Type(.{
-        \\    .Union = .{
-        \\        .layout = .Auto,
-        \\        .tag_type = null,
-        \\        .fields = &[_]TypeInfo.UnionField{
-        \\            .{ .name = "foo", .field_type = @Type(.Opaque) },
-        \\        },
-        \\        .decls = &[_]TypeInfo.Declaration{},
-        \\    },
-        \\});
-        \\export fn entry() void {
-        \\    _ = Untagged{};
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:2:25: error: opaque types have unknown size and therefore cannot be directly embedded in unions",
-        "tmp.zig:13:17: note: referenced here",
     });
 
     cases.add("@Type for union with zero fields",
@@ -130,9 +165,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\        .layout = .Auto,
         \\        .tag_type = Tag,
         \\        .fields = &[_]TypeInfo.UnionField{
-        \\            .{ .name = "signed", .field_type = i32 },
-        \\            .{ .name = "unsigned", .field_type = u32 },
-        \\            .{ .name = "arst", .field_type = f32 },
+        \\            .{ .name = "signed", .field_type = i32, .alignment = @alignOf(i32) },
+        \\            .{ .name = "unsigned", .field_type = u32, .alignment = @alignOf(u32) },
+        \\            .{ .name = "arst", .field_type = f32, .alignment = @alignOf(f32) },
         \\        },
         \\        .decls = &[_]TypeInfo.Declaration{},
         \\    },
@@ -145,42 +180,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:14:23: error: enum field not found: 'arst'",
         "tmp.zig:2:20: note: enum declared here",
         "tmp.zig:27:24: note: referenced here",
-    });
-
-    cases.add("@Type for tagged union with extra enum field",
-        \\const TypeInfo = @import("builtin").TypeInfo;
-        \\const Tag = @Type(.{
-        \\    .Enum = .{
-        \\        .layout = .Auto,
-        \\        .tag_type = u2,
-        \\        .fields = &[_]TypeInfo.EnumField{
-        \\            .{ .name = "signed", .value = 0 },
-        \\            .{ .name = "unsigned", .value = 1 },
-        \\            .{ .name = "arst", .field_type = 2 },
-        \\        },
-        \\        .decls = &[_]TypeInfo.Declaration{},
-        \\        .is_exhaustive = true,
-        \\    },
-        \\});
-        \\const Tagged = @Type(.{
-        \\    .Union = .{
-        \\        .layout = .Auto,
-        \\        .tag_type = Tag,
-        \\        .fields = &[_]TypeInfo.UnionField{
-        \\            .{ .name = "signed", .field_type = i32 },
-        \\            .{ .name = "unsigned", .field_type = u32 },
-        \\        },
-        \\        .decls = &[_]TypeInfo.Declaration{},
-        \\    },
-        \\});
-        \\export fn entry() void {
-        \\    var tagged = Tagged{ .signed = -1 };
-        \\    tagged = .{ .unsigned = 1 };
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:9:32: error: no member named 'field_type' in struct 'std.builtin.EnumField'",
-        "tmp.zig:18:21: note: referenced here",
-        "tmp.zig:27:18: note: referenced here",
     });
 
     cases.add("@Type with undefined",
@@ -7592,7 +7591,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add( // fixed bug #2032
-        "compile diagnostic string for top level decl type",
+    "compile diagnostic string for top level decl type",
         \\export fn entry() void {
         \\    var foo: u32 = @This(){};
         \\}

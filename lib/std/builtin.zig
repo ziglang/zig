@@ -262,6 +262,7 @@ pub const TypeInfo = union(enum) {
         field_type: type,
         default_value: anytype,
         is_comptime: bool,
+        alignment: comptime_int,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -318,6 +319,7 @@ pub const TypeInfo = union(enum) {
     pub const UnionField = struct {
         name: []const u8,
         field_type: type,
+        alignment: comptime_int,
     };
 
     /// This data structure is used by the Zig language code generation and

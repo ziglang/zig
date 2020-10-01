@@ -320,8 +320,8 @@ test "Type.Union" {
             .layout = .Auto,
             .tag_type = null,
             .fields = &[_]TypeInfo.UnionField{
-                .{ .name = "int", .field_type = i32 },
-                .{ .name = "float", .field_type = f32 },
+                .{ .name = "int", .field_type = i32, .alignment = @alignOf(f32) },
+                .{ .name = "float", .field_type = f32, .alignment = @alignOf(f32) },
             },
             .decls = &[_]TypeInfo.Declaration{},
         },
@@ -336,8 +336,8 @@ test "Type.Union" {
             .layout = .Packed,
             .tag_type = null,
             .fields = &[_]TypeInfo.UnionField{
-                .{ .name = "signed", .field_type = i32 },
-                .{ .name = "unsigned", .field_type = u32 },
+                .{ .name = "signed", .field_type = i32, .alignment = @alignOf(i32) },
+                .{ .name = "unsigned", .field_type = u32, .alignment = @alignOf(u32) },
             },
             .decls = &[_]TypeInfo.Declaration{},
         },
@@ -363,8 +363,8 @@ test "Type.Union" {
             .layout = .Auto,
             .tag_type = Tag,
             .fields = &[_]TypeInfo.UnionField{
-                .{ .name = "signed", .field_type = i32 },
-                .{ .name = "unsigned", .field_type = u32 },
+                .{ .name = "signed", .field_type = i32, .alignment = @alignOf(i32) },
+                .{ .name = "unsigned", .field_type = u32, .alignment = @alignOf(u32) },
             },
             .decls = &[_]TypeInfo.Declaration{},
         },
@@ -392,7 +392,7 @@ test "Type.Union from Type.Enum" {
             .layout = .Auto,
             .tag_type = Tag,
             .fields = &[_]TypeInfo.UnionField{
-                .{ .name = "working_as_expected", .field_type = u32 },
+                .{ .name = "working_as_expected", .field_type = u32, .alignment = @alignOf(u32) },
             },
             .decls = &[_]TypeInfo.Declaration{},
         },
@@ -408,7 +408,7 @@ test "Type.Union from regular enum" {
             .layout = .Auto,
             .tag_type = E,
             .fields = &[_]TypeInfo.UnionField{
-                .{ .name = "working_as_expected", .field_type = u32 },
+                .{ .name = "working_as_expected", .field_type = u32, .alignment = @alignOf(u32) },
             },
             .decls = &[_]TypeInfo.Declaration{},
         },

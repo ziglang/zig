@@ -211,7 +211,9 @@ fn testUnion() void {
     expect(notag_union_info.Union.tag_type == null);
     expect(notag_union_info.Union.layout == .Auto);
     expect(notag_union_info.Union.fields.len == 2);
+    expect(notag_union_info.Union.fields[0].alignment == @alignOf(void));
     expect(notag_union_info.Union.fields[1].field_type == u32);
+    expect(notag_union_info.Union.fields[1].alignment == @alignOf(u32));
 
     const TestExternUnion = extern union {
         foo: *c_void,
@@ -229,13 +231,18 @@ test "type info: struct info" {
 }
 
 fn testStruct() void {
+    const unpacked_struct_info = @typeInfo(TestUnpackedStruct);
+    expect(unpacked_struct_info.Struct.fields[0].alignment == @alignOf(u32));
+
     const struct_info = @typeInfo(TestStruct);
     expect(struct_info == .Struct);
     expect(struct_info.Struct.layout == .Packed);
     expect(struct_info.Struct.fields.len == 4);
+    expect(struct_info.Struct.fields[0].alignment == 2 * @alignOf(usize));
     expect(struct_info.Struct.fields[2].field_type == *TestStruct);
     expect(struct_info.Struct.fields[2].default_value == null);
     expect(struct_info.Struct.fields[3].default_value.? == 4);
+    expect(struct_info.Struct.fields[3].alignment == 1);
     expect(struct_info.Struct.decls.len == 2);
     expect(struct_info.Struct.decls[0].is_pub);
     expect(!struct_info.Struct.decls[0].data.Fn.is_extern);
@@ -244,8 +251,12 @@ fn testStruct() void {
     expect(struct_info.Struct.decls[0].data.Fn.fn_type == fn (*const TestStruct) void);
 }
 
+const TestUnpackedStruct = struct {
+    fieldA: u32 = 4,
+};
+
 const TestStruct = packed struct {
-    fieldA: usize,
+    fieldA: usize align(2 * @alignOf(usize)),
     fieldB: void,
     fieldC: *Self,
     fieldD: u32 = 4,

@@ -25027,7 +25027,7 @@ static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, IrInst *source_instr,
     fields[2]->special = ConstValSpecialStatic;
     fields[2]->type = ira->codegen->builtin_types.entry_bool;
     fields[2]->data.x_bool = attrs_type->data.pointer.is_volatile;
-    // alignment: u32
+    // alignment: comptime_int
     ensure_field_index(result->type, "alignment", 3);
     fields[3]->type = ira->codegen->builtin_types.entry_num_lit_int;
     if (attrs_type->data.pointer.explicit_alignment != 0) {
@@ -25431,10 +25431,16 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                     union_field_val->special = ConstValSpecialStatic;
                     union_field_val->type = type_info_union_field_type;
 
-                    ZigValue **inner_fields = alloc_const_vals_ptrs(ira->codegen, 2);
+                    ZigValue **inner_fields = alloc_const_vals_ptrs(ira->codegen, 3);
+                    // field_type: type
                     inner_fields[1]->special = ConstValSpecialStatic;
                     inner_fields[1]->type = ira->codegen->builtin_types.entry_type;
                     inner_fields[1]->data.x_type = union_field->type_entry;
+
+                    // alignment: comptime_int
+                    inner_fields[2]->special = ConstValSpecialStatic;
+                    inner_fields[2]->type = ira->codegen->builtin_types.entry_num_lit_int;
+                    bigint_init_unsigned(&inner_fields[2]->data.x_bigint, union_field->align);
 
                     ZigValue *name = create_const_str_lit(ira->codegen, union_field->name)->data.x_ptr.data.ref.pointee;
                     init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(union_field->name), true);
@@ -25502,7 +25508,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                     struct_field_val->special = ConstValSpecialStatic;
                     struct_field_val->type = type_info_struct_field_type;
 
-                    ZigValue **inner_fields = alloc_const_vals_ptrs(ira->codegen, 4);
+                    ZigValue **inner_fields = alloc_const_vals_ptrs(ira->codegen, 5);
 
                     inner_fields[1]->special = ConstValSpecialStatic;
                     inner_fields[1]->type = ira->codegen->builtin_types.entry_type;
@@ -25518,9 +25524,15 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                     }
                     set_optional_payload(inner_fields[2], struct_field->init_val);
 
+                    // is_comptime: bool
                     inner_fields[3]->special = ConstValSpecialStatic;
                     inner_fields[3]->type = ira->codegen->builtin_types.entry_bool;
                     inner_fields[3]->data.x_bool = struct_field->is_comptime;
+
+                    // alignment: comptime_int
+                    inner_fields[4]->special = ConstValSpecialStatic;
+                    inner_fields[4]->type = ira->codegen->builtin_types.entry_num_lit_int;
+                    bigint_init_unsigned(&inner_fields[4]->data.x_bigint, struct_field->align);
 
                     ZigValue *name = create_const_str_lit(ira->codegen, struct_field->name)->data.x_ptr.data.ref.pointee;
                     init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(struct_field->name), true);
@@ -25868,8 +25880,9 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
                         buf_sprintf("sentinels are only allowed on slices and unknown-length pointers"));
                     return ira->codegen->invalid_inst_gen->value->type;
                 }
-                BigInt *bi = get_const_field_lit_int(ira, source_instr->source_node, payload, "alignment", 3);
-                if (bi == nullptr)
+
+                BigInt *alignment = get_const_field_lit_int(ira, source_instr->source_node, payload, "alignment", 3);
+                if (alignment == nullptr)
                     return ira->codegen->invalid_inst_gen->value->type;
 
                 bool is_const;
@@ -25896,7 +25909,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
                     is_const,
                     is_volatile,
                     ptr_len,
-                    bigint_as_u32(bi),
+                    bigint_as_u32(alignment),
                     0, // bit_offset_in_host
                     0, // host_int_bytes
                     is_allowzero,
@@ -26133,6 +26146,10 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
                 }
                 if ((err = get_const_field_bool(ira, source_instr->source_node, field_value, "is_comptime", 3, &field->is_comptime)))
                     return ira->codegen->invalid_inst_gen->value->type;
+                BigInt *alignment = get_const_field_lit_int(ira, source_instr->source_node, field_value, "alignment", 4);
+                if (alignment == nullptr)
+                    return ira->codegen->invalid_inst_gen->value->type;
+                field->align = bigint_as_u32(alignment);
             }
 
             return entry;
@@ -26302,6 +26319,10 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
                     return ira->codegen->invalid_inst_gen->value->type;
                 field->type_val = type_value;
                 field->type_entry = type_value->data.x_type;
+                BigInt *alignment = get_const_field_lit_int(ira, source_instr->source_node, field_value, "alignment", 2);
+                if (alignment == nullptr)
+                    return ira->codegen->invalid_inst_gen->value->type;
+                field->align = bigint_as_u32(alignment);
             }
             return entry;
         }
