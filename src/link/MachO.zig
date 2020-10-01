@@ -149,19 +149,27 @@ const LIB_SYSTEM_NAME: [*:0]const u8 = "System";
 const LIB_SYSTEM_PATH: [*:0]const u8 = DEFAULT_LIB_SEARCH_PATH ++ "/libSystem.B.dylib";
 
 pub const TextBlock = struct {
-    /// Index into the symbol table
-    symbol_table_index: ?u32,
+    /// Each decl always gets a local symbol with the fully qualified name.
+    /// The vaddr and size are found here directly.
+    /// The file offset is found by computing the vaddr offset from the section vaddr
+    /// the symbol references, and adding that to the file offset of the section.
+    /// If this field is 0, it means the codegen size = 0 and there is no symbol or
+    /// offset table entry.
+    local_sym_index: u32,
     /// Index into offset table
-    offset_table_index: ?u32,
+    /// This field is undefined for symbols with size = 0.
+    offset_table_index: u32,
     /// Size of this text block
+    /// Unlike in Elf, we need to store the size of this symbol as part of
+    /// the TextBlock since macho.nlist_64 lacks this information.
     size: u64,
     /// Points to the previous and next neighbours
     prev: ?*TextBlock,
     next: ?*TextBlock,
 
     pub const empty = TextBlock{
-        .symbol_table_index = null,
-        .offset_table_index = null,
+        .local_sym_index = 0,
+        .offset_table_index = undefined,
         .size = 0,
         .prev = null,
         .next = null,
@@ -189,6 +197,15 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     errdefer self.base.destroy();
 
     self.base.file = file;
+
+    // Index 0 is always a null symbol.
+    try self.local_symbols.append(allocator, .{
+        .n_strx = 0,
+        .n_type = 0,
+        .n_sect = 0,
+        .n_desc = 0,
+        .n_value = 0,
+    });
 
     switch (options.output_mode) {
         .Exe => {},
@@ -717,26 +734,26 @@ pub fn deinit(self: *MachO) void {
 }
 
 pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
-    if (decl.link.macho.symbol_table_index) |_| return;
+    if (decl.link.macho.local_sym_index != 0) return;
 
     try self.local_symbols.ensureCapacity(self.base.allocator, self.local_symbols.items.len + 1);
     try self.offset_table.ensureCapacity(self.base.allocator, self.offset_table.items.len + 1);
 
     log.debug("allocating symbol index {} for {}\n", .{ self.local_symbols.items.len, decl.name });
-    decl.link.macho.symbol_table_index = @intCast(u32, self.local_symbols.items.len);
+    decl.link.macho.local_sym_index = @intCast(u32, self.local_symbols.items.len);
     _ = self.local_symbols.addOneAssumeCapacity();
 
     decl.link.macho.offset_table_index = @intCast(u32, self.offset_table.items.len);
     _ = self.offset_table.addOneAssumeCapacity();
 
-    self.local_symbols.items[decl.link.macho.symbol_table_index.?] = .{
+    self.local_symbols.items[decl.link.macho.local_sym_index] = .{
         .n_strx = 0,
         .n_type = 0,
         .n_sect = 0,
         .n_desc = 0,
         .n_value = 0,
     };
-    self.offset_table.items[decl.link.macho.offset_table_index.?] = 0;
+    self.offset_table.items[decl.link.macho.offset_table_index] = 0;
 }
 
 pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
@@ -761,7 +778,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     log.debug("generated code {}\n", .{code});
 
     const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
-    const symbol = &self.local_symbols.items[decl.link.macho.symbol_table_index.?];
+    const symbol = &self.local_symbols.items[decl.link.macho.local_sym_index];
 
     const decl_name = mem.spanZ(decl.name);
     const name_str_index = try self.makeString(decl_name);
@@ -776,10 +793,10 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         .n_desc = 0,
         .n_value = addr,
     };
-    self.offset_table.items[decl.link.macho.offset_table_index.?] = addr;
+    self.offset_table.items[decl.link.macho.offset_table_index] = addr;
 
-    try self.writeSymbol(decl.link.macho.symbol_table_index.?);
-    try self.writeOffsetTableEntry(decl.link.macho.offset_table_index.?);
+    try self.writeSymbol(decl.link.macho.local_sym_index);
+    try self.writeOffsetTableEntry(decl.link.macho.offset_table_index);
 
     const text_section = self.sections.items[self.text_section_index.?];
     const section_offset = symbol.n_value - text_section.addr;
@@ -805,8 +822,8 @@ pub fn updateDeclExports(
     defer tracy.end();
 
     try self.global_symbols.ensureCapacity(self.base.allocator, self.global_symbols.items.len + exports.len);
-    if (decl.link.macho.symbol_table_index == null) return;
-    const decl_sym = &self.local_symbols.items[decl.link.macho.symbol_table_index.?];
+    if (decl.link.macho.local_sym_index == 0) return;
+    const decl_sym = &self.local_symbols.items[decl.link.macho.local_sym_index];
 
     for (exports) |exp| {
         if (exp.options.section) |section_name| {
@@ -867,7 +884,8 @@ pub fn updateDeclExports(
 pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {}
 
 pub fn getDeclVAddr(self: *MachO, decl: *const Module.Decl) u64 {
-    return self.local_symbols.items[decl.link.macho.symbol_table_index.?].n_value;
+    assert(decl.link.macho.local_sym_index != 0);
+    return self.local_symbols.items[decl.link.macho.local_sym_index].n_value;
 }
 
 pub fn populateMissingMetadata(self: *MachO) !void {
@@ -1126,17 +1144,6 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         });
         self.cmd_table_dirty = true;
     }
-    if (self.dyld_stub_binder_index == null) {
-        self.dyld_stub_binder_index = @intCast(u16, self.undef_symbols.items.len);
-        const name = try self.makeString("dyld_stub_binder");
-        try self.undef_symbols.append(self.base.allocator, .{
-            .n_strx = name,
-            .n_type = macho.N_UNDF | macho.N_EXT,
-            .n_sect = 0,
-            .n_desc = macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | macho.N_SYMBOL_RESOLVER,
-            .n_value = 0,
-        });
-    }
     {
         const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
         const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfo;
@@ -1175,6 +1182,17 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             symtab.strsize = file_size;
         }
     }
+    if (self.dyld_stub_binder_index == null) {
+        self.dyld_stub_binder_index = @intCast(u16, self.undef_symbols.items.len);
+        const name = try self.makeString("dyld_stub_binder");
+        try self.undef_symbols.append(self.base.allocator, .{
+            .n_strx = name,
+            .n_type = macho.N_UNDF | macho.N_EXT,
+            .n_sect = 0,
+            .n_desc = macho.REFERENCE_FLAG_UNDEFINED_NON_LAZY | macho.N_SYMBOL_RESOLVER,
+            .n_value = 0,
+        });
+    }
 }
 
 fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
@@ -1184,7 +1202,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
     var block_placement: ?*TextBlock = null;
     const addr = blk: {
         if (self.last_text_block) |last| {
-            const last_symbol = self.local_symbols.items[last.symbol_table_index.?];
+            const last_symbol = self.local_symbols.items[last.local_sym_index];
             // TODO pad out with NOPs and reenable
             // const ideal_capacity = last.size * alloc_num / alloc_den;
             // const ideal_capacity_end_addr = last_symbol.n_value + ideal_capacity;
