@@ -1210,6 +1210,10 @@ fn buildOutputType(
         fatal("translate-c expects exactly 1 source file (found {})", .{c_source_files.items.len});
     }
 
+    if (root_src_file == null and (arg_mode == .zig_test or arg_mode == .run)) {
+        fatal("one zig source file is required to run this command", .{});
+    }
+
     const root_name = if (provided_name) |n| n else blk: {
         if (arg_mode == .zig_test) {
             break :blk "test";
