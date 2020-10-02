@@ -660,9 +660,11 @@ pub const Loop = struct {
         const Wrapper = struct {
             const Args = @TypeOf(args);
             fn run(func_args: Args, loop: *Loop, allocator: *mem.Allocator) void {
+                loop.beginOneEvent();
                 loop.yield();
                 const result = @call(.{}, func, func_args);
                 suspend {
+                    loop.finishOneEvent();
                     allocator.destroy(@frame());
                 }
             }
