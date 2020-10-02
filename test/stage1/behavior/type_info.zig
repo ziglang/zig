@@ -266,6 +266,8 @@ const TestStruct = packed struct {
 };
 
 test "type info: function type info" {
+    // wasm doesn't support align attributes on functions
+    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
     testFunction();
     comptime testFunction();
 }
@@ -273,11 +275,14 @@ test "type info: function type info" {
 fn testFunction() void {
     const fn_info = @typeInfo(@TypeOf(foo));
     expect(fn_info == .Fn);
+    expect(fn_info.Fn.alignment == 0);
     expect(fn_info.Fn.calling_convention == .C);
     expect(!fn_info.Fn.is_generic);
     expect(fn_info.Fn.args.len == 2);
     expect(fn_info.Fn.is_var_args);
     expect(fn_info.Fn.return_type.? == usize);
+    const fn_aligned_info = @typeInfo(@TypeOf(fooAligned));
+    expect(fn_aligned_info.Fn.alignment == 4);
 
     const test_instance: TestStruct = undefined;
     const bound_fn_info = @typeInfo(@TypeOf(test_instance.foo));
@@ -285,7 +290,8 @@ fn testFunction() void {
     expect(bound_fn_info.BoundFn.args[0].arg_type.? == *const TestStruct);
 }
 
-extern fn foo(a: usize, b: bool, ...) usize;
+extern fn foo(a: usize, b: bool, ...) callconv(.C) usize;
+extern fn fooAligned(a: usize, b: bool, ...) align(4) callconv(.C) usize;
 
 test "typeInfo with comptime parameter in struct fn def" {
     const S = struct {

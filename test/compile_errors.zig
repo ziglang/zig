@@ -72,6 +72,53 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:15:23: error: enum field missing: 'arst'",
         "tmp.zig:27:24: note: referenced here",
     });
+    cases.add("@Type(.Fn) with is_generic = true",
+        \\const Foo = @Type(.{
+        \\    .Fn = .{
+        \\        .calling_convention = .Unspecified,
+        \\        .alignment = 0,
+        \\        .is_generic = true,
+        \\        .is_var_args = false,
+        \\        .return_type = u0,
+        \\        .args = &[_]@import("builtin").TypeInfo.FnArg{},
+        \\    },
+        \\});
+        \\comptime { _ = Foo; }
+    , &[_][]const u8{
+        "tmp.zig:1:20: error: TypeInfo.Fn.is_generic must be false for @Type",
+    });
+
+    cases.add("@Type(.Fn) with is_var_args = true and non-C callconv",
+        \\const Foo = @Type(.{
+        \\    .Fn = .{
+        \\        .calling_convention = .Unspecified,
+        \\        .alignment = 0,
+        \\        .is_generic = false,
+        \\        .is_var_args = true,
+        \\        .return_type = u0,
+        \\        .args = &[_]@import("builtin").TypeInfo.FnArg{},
+        \\    },
+        \\});
+        \\comptime { _ = Foo; }
+    , &[_][]const u8{
+        "tmp.zig:1:20: error: varargs functions must have C calling convention",
+    });
+
+    cases.add("@Type(.Fn) with return_type = null",
+        \\const Foo = @Type(.{
+        \\    .Fn = .{
+        \\        .calling_convention = .Unspecified,
+        \\        .alignment = 0,
+        \\        .is_generic = false,
+        \\        .is_var_args = false,
+        \\        .return_type = null,
+        \\        .args = &[_]@import("builtin").TypeInfo.FnArg{},
+        \\    },
+        \\});
+        \\comptime { _ = Foo; }
+    , &[_][]const u8{
+        "tmp.zig:1:20: error: TypeInfo.Fn.return_type must be non-null for @Type",
+    });
 
     cases.add("@Type for union with opaque field",
         \\const TypeInfo = @import("builtin").TypeInfo;
