@@ -2192,13 +2192,13 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
     if (is_darwin) {
         // Note that _NSGetExecutablePath() will return "a path" to
         // the executable not a "real path" to the executable.
-        var symlink_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+        var symlink_path_buf: [MAX_PATH_BYTES:0]u8 = undefined;
         var u32_len: u32 = MAX_PATH_BYTES;
         const rc = std.c._NSGetExecutablePath(&symlink_path_buf, &u32_len);
         if (rc != 0) return error.NameTooLong;
 
         var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
-        const real_path = try std.os.realpathZ(@ptrCast([*:0]u8, &symlink_path_buf), &real_path_buf);
+        const real_path = try std.os.realpathZ(&symlink_path_buf, &real_path_buf);
         if (real_path.len > out_buffer.len) return error.NameTooLong;
         std.mem.copy(u8, out_buffer, real_path);
         return out_buffer[0..real_path.len];
