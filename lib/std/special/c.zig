@@ -35,6 +35,10 @@ comptime {
         @export(strncmp, .{ .name = "strncmp", .linkage = .Strong });
         @export(strerror, .{ .name = "strerror", .linkage = .Strong });
         @export(strlen, .{ .name = "strlen", .linkage = .Strong });
+        @export(strcpy, .{ .name = "strcpy", .linkage = .Strong });
+        @export(strncpy, .{ .name = "strncpy", .linkage = .Strong });
+        @export(strcat, .{ .name = "strcat", .linkage = .Strong });
+        @export(strncat, .{ .name = "strncat", .linkage = .Strong });
     } else if (is_msvc) {
         @export(_fltused, .{ .name = "_fltused", .linkage = .Strong });
     }
@@ -45,6 +49,90 @@ var _fltused: c_int = 1;
 extern fn main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 fn wasm_start() callconv(.C) void {
     _ = main(0, undefined);
+}
+
+fn strcpy(dest: [*:0]u8, src: [*:0]const u8) callconv(.C) [*:0]u8 {
+    var i: usize = 0;
+    while (src[i] != 0) : (i += 1) {
+        dest[i] = src[i];
+    }
+    dest[i] = 0;
+
+    return dest;
+}
+
+test "strcpy" {
+    var s1: [9:0]u8 = undefined;
+
+    s1[0] = 0;
+    _ = strcpy(&s1, "foobarbaz");
+    std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.spanZ(&s1));
+}
+
+fn strncpy(dest: [*:0]u8, src: [*:0]const u8, n: usize) callconv(.C) [*:0]u8 {
+    var i: usize = 0;
+    while (i < n and src[i] != 0) : (i += 1) {
+        dest[i] = src[i];
+    }
+    while (i < n) : (i += 1) {
+        dest[i] = 0;
+    }
+
+    return dest;
+}
+
+test "strncpy" {
+    var s1: [9:0]u8 = undefined;
+
+    s1[0] = 0;
+    _ = strncpy(&s1, "foobarbaz", 9);
+    std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.spanZ(&s1));
+}
+
+fn strcat(dest: [*:0]u8, src: [*:0]const u8) callconv(.C) [*:0]u8 {
+    var dest_end: usize = 0;
+    while (dest[dest_end] != 0) : (dest_end += 1) {}
+
+    var i: usize = 0;
+    while (src[i] != 0) : (i += 1) {
+        dest[dest_end + i] = src[i];
+    }
+    dest[dest_end + i] = 0;
+
+    return dest;
+}
+
+test "strcat" {
+    var s1: [9:0]u8 = undefined;
+
+    s1[0] = 0;
+    _ = strcat(&s1, "foo");
+    _ = strcat(&s1, "bar");
+    _ = strcat(&s1, "baz");
+    std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.spanZ(&s1));
+}
+
+fn strncat(dest: [*:0]u8, src: [*:0]const u8, avail: usize) callconv(.C) [*:0]u8 {
+    var dest_end: usize = 0;
+    while (dest[dest_end] != 0) : (dest_end += 1) {}
+
+    var i: usize = 0;
+    while (i < avail and src[i] != 0) : (i += 1) {
+        dest[dest_end + i] = src[i];
+    }
+    dest[dest_end + i] = 0;
+
+    return dest;
+}
+
+test "strncat" {
+    var s1: [9:0]u8 = undefined;
+
+    s1[0] = 0;
+    _ = strncat(&s1, "foo1111", 3);
+    _ = strncat(&s1, "bar1111", 3);
+    _ = strncat(&s1, "baz1111", 3);
+    std.testing.expectEqualSlices(u8, "foobarbaz", std.mem.spanZ(&s1));
 }
 
 fn strcmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.C) c_int {
@@ -92,7 +180,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
     while (true) {}
 }
 
-export fn memset(dest: ?[*]u8, c: u8, n: usize) ?[*]u8 {
+export fn memset(dest: ?[*]u8, c: u8, n: usize) callconv(.C) ?[*]u8 {
     @setRuntimeSafety(false);
 
     var index: usize = 0;
@@ -102,7 +190,13 @@ export fn memset(dest: ?[*]u8, c: u8, n: usize) ?[*]u8 {
     return dest;
 }
 
-export fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) ?[*]u8 {
+export fn __memset(dest: ?[*]u8, c: u8, n: usize, dest_n: usize) callconv(.C) ?[*]u8 {
+    if (dest_n < n)
+        @panic("buffer overflow");
+    return memset(dest, c, n);
+}
+
+export fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8 {
     @setRuntimeSafety(false);
 
     var index: usize = 0;
@@ -112,7 +206,7 @@ export fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) ?[*]
     return dest;
 }
 
-export fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) ?[*]u8 {
+export fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8 {
     @setRuntimeSafety(false);
 
     if (@ptrToInt(dest) < @ptrToInt(src)) {
@@ -131,7 +225,7 @@ export fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) ?[*]u8 {
     return dest;
 }
 
-export fn memcmp(vl: ?[*]const u8, vr: ?[*]const u8, n: usize) isize {
+export fn memcmp(vl: ?[*]const u8, vr: ?[*]const u8, n: usize) callconv(.C) isize {
     @setRuntimeSafety(false);
 
     var index: usize = 0;
@@ -146,17 +240,17 @@ export fn memcmp(vl: ?[*]const u8, vr: ?[*]const u8, n: usize) isize {
 }
 
 test "test_memcmp" {
-    const base_arr = []u8{ 1, 1, 1 };
-    const arr1 = []u8{ 1, 1, 1 };
-    const arr2 = []u8{ 1, 0, 1 };
-    const arr3 = []u8{ 1, 2, 1 };
+    const base_arr = &[_]u8{ 1, 1, 1 };
+    const arr1 = &[_]u8{ 1, 1, 1 };
+    const arr2 = &[_]u8{ 1, 0, 1 };
+    const arr3 = &[_]u8{ 1, 2, 1 };
 
-    std.testing.expect(memcmp(base_arr[0..].ptr, arr1[0..].ptr, base_arr.len) == 0);
-    std.testing.expect(memcmp(base_arr[0..].ptr, arr2[0..].ptr, base_arr.len) > 0);
-    std.testing.expect(memcmp(base_arr[0..].ptr, arr3[0..].ptr, base_arr.len) < 0);
+    std.testing.expect(memcmp(base_arr[0..], arr1[0..], base_arr.len) == 0);
+    std.testing.expect(memcmp(base_arr[0..], arr2[0..], base_arr.len) > 0);
+    std.testing.expect(memcmp(base_arr[0..], arr3[0..], base_arr.len) < 0);
 }
 
-export fn bcmp(vl: [*]allowzero const u8, vr: [*]allowzero const u8, n: usize) isize {
+export fn bcmp(vl: [*]allowzero const u8, vr: [*]allowzero const u8, n: usize) callconv(.C) isize {
     @setRuntimeSafety(false);
 
     var index: usize = 0;
@@ -170,29 +264,20 @@ export fn bcmp(vl: [*]allowzero const u8, vr: [*]allowzero const u8, n: usize) i
 }
 
 test "test_bcmp" {
-    const base_arr = []u8{ 1, 1, 1 };
-    const arr1 = []u8{ 1, 1, 1 };
-    const arr2 = []u8{ 1, 0, 1 };
-    const arr3 = []u8{ 1, 2, 1 };
+    const base_arr = &[_]u8{ 1, 1, 1 };
+    const arr1 = &[_]u8{ 1, 1, 1 };
+    const arr2 = &[_]u8{ 1, 0, 1 };
+    const arr3 = &[_]u8{ 1, 2, 1 };
 
-    std.testing.expect(bcmp(base_arr[0..].ptr, arr1[0..].ptr, base_arr.len) == 0);
-    std.testing.expect(bcmp(base_arr[0..].ptr, arr2[0..].ptr, base_arr.len) != 0);
-    std.testing.expect(bcmp(base_arr[0..].ptr, arr3[0..].ptr, base_arr.len) != 0);
+    std.testing.expect(bcmp(base_arr[0..], arr1[0..], base_arr.len) == 0);
+    std.testing.expect(bcmp(base_arr[0..], arr2[0..], base_arr.len) != 0);
+    std.testing.expect(bcmp(base_arr[0..], arr3[0..], base_arr.len) != 0);
 }
 
 comptime {
-    if (builtin.mode != builtin.Mode.ReleaseFast and
-        builtin.mode != builtin.Mode.ReleaseSmall and
-        builtin.os.tag != .windows)
-    {
-        @export(__stack_chk_fail, .{ .name = "__stack_chk_fail" });
-    }
     if (builtin.os.tag == .linux) {
         @export(clone, .{ .name = "clone" });
     }
-}
-fn __stack_chk_fail() callconv(.C) noreturn {
-    @panic("stack smashing detected");
 }
 
 // TODO we should be able to put this directly in std/linux/x86_64.zig but
@@ -416,7 +501,6 @@ fn clone() callconv(.Naked) void {
                 \\  # move syscall number into r0
                 \\  li 0, 120
                 \\  sc
-
                 \\  # check for syscall error
                 \\  bns+ 1f # jump to label 1 if no summary overflow.
                 \\  #else
@@ -424,10 +508,8 @@ fn clone() callconv(.Naked) void {
                 \\1:
                 \\  # compare sc result with 0
                 \\  cmpwi cr7, 3, 0
-
                 \\  # if not 0, jump to end
                 \\  bne cr7, 2f
-
                 \\  #else: we're the child
                 \\  #call funcptr: move arg (d) into r3
                 \\  mr 3, 31
@@ -438,13 +520,11 @@ fn clone() callconv(.Naked) void {
                 \\  # mov SYS_exit into r0 (the exit param is already in r3)
                 \\  li 0, 1
                 \\  sc
-
                 \\2:
                 \\  # restore stack
                 \\  lwz 30, 0(1)
                 \\  lwz 31, 4(1)
                 \\  addi 1, 1, 16
-
                 \\  blr
             );
         },

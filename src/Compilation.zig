@@ -84,6 +84,9 @@ libcxxabi_static_lib: ?CRTFile = null,
 /// Populated when we build the libunwind static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 libunwind_static_lib: ?CRTFile = null,
+/// Populated when we build the libssp static library. A Job to build this is placed in the queue
+/// and resolved before calling linker.flush().
+libssp_static_lib: ?CRTFile = null,
 /// Populated when we build the libc static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 libc_static_lib: ?CRTFile = null,
@@ -160,6 +163,7 @@ const Job = union(enum) {
     libunwind: void,
     libcxx: void,
     libcxxabi: void,
+    libssp: void,
     /// needed when producing a dynamic library or executable
     libcompiler_rt: void,
     /// needed when not linking libc and using LLVM for code generation because it generates
@@ -927,6 +931,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             (comp.getTarget().isWasm() and comp.bin_file.options.output_mode != .Obj);
         if (needs_compiler_rt_and_c and build_options.is_stage1) {
             try comp.work_queue.writeItem(.{ .libcompiler_rt = {} });
+            // MinGW provides no libssp, use our own implementation.
+            if (comp.getTarget().isMinGW()) {
+                try comp.work_queue.writeItem(.{ .libssp = {} });
+            }
             if (!comp.bin_file.options.link_libc) {
                 try comp.work_queue.writeItem(.{ .zig_libc = {} });
             }
@@ -976,6 +984,9 @@ pub fn destroy(self: *Compilation) void {
         crt_file.deinit(gpa);
     }
     if (self.compiler_rt_static_lib) |*crt_file| {
+        crt_file.deinit(gpa);
+    }
+    if (self.libssp_static_lib) |*crt_file| {
         crt_file.deinit(gpa);
     }
     if (self.libc_static_lib) |*crt_file| {
@@ -1327,6 +1338,12 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             self.buildStaticLibFromZig("compiler_rt.zig", &self.compiler_rt_static_lib) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build compiler_rt: {}", .{@errorName(err)});
+            };
+        },
+        .libssp => {
+            self.buildStaticLibFromZig("ssp.zig", &self.libssp_static_lib) catch |err| {
+                // TODO Expose this as a normal compile error rather than crashing here.
+                fatal("unable to build libssp: {}", .{@errorName(err)});
             };
         },
         .zig_libc => {

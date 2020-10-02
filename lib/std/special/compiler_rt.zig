@@ -284,11 +284,6 @@ comptime {
             @export(@import("compiler_rt/stack_probe.zig").__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
         }
 
-        if (is_mingw) {
-            @export(__stack_chk_fail, .{ .name = "__stack_chk_fail", .linkage = strong_linkage });
-            @export(__stack_chk_guard, .{ .name = "__stack_chk_guard", .linkage = strong_linkage });
-        }
-
         switch (builtin.arch) {
             .i386 => {
                 @export(@import("compiler_rt/divti3.zig").__divti3, .{ .name = "__divti3", .linkage = linkage });
@@ -311,9 +306,6 @@ comptime {
             else => {},
         }
     } else {
-        if (std.Target.current.isGnuLibC() and builtin.link_libc) {
-            @export(__stack_chk_guard, .{ .name = "__stack_chk_guard", .linkage = linkage });
-        }
         @export(@import("compiler_rt/divti3.zig").__divti3, .{ .name = "__divti3", .linkage = linkage });
         @export(@import("compiler_rt/modti3.zig").__modti3, .{ .name = "__modti3", .linkage = linkage });
         @export(@import("compiler_rt/multi3.zig").__multi3, .{ .name = "__multi3", .linkage = linkage });
@@ -337,14 +329,3 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
         unreachable;
     }
 }
-
-fn __stack_chk_fail() callconv(.C) noreturn {
-    @panic("stack smashing detected");
-}
-
-var __stack_chk_guard: usize = blk: {
-    var buf = [1]u8{0} ** @sizeOf(usize);
-    buf[@sizeOf(usize) - 1] = 255;
-    buf[@sizeOf(usize) - 2] = '\n';
-    break :blk @bitCast(usize, buf);
-};
