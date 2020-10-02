@@ -525,7 +525,7 @@ fn buildOutputType(
             //}
             const args = all_args[2..];
             var i: usize = 0;
-            while (i < args.len) : (i += 1) {
+            args_loop: while (i < args.len) : (i += 1) {
                 const arg = args[i];
                 if (mem.startsWith(u8, arg, "-")) {
                     if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
@@ -533,7 +533,10 @@ fn buildOutputType(
                         return cleanExit();
                     } else if (mem.eql(u8, arg, "--")) {
                         if (arg_mode == .run) {
-                            runtime_args_start = i + 1;
+                            // The index refers to all_args so skip `zig` `run`
+                            // and `--`
+                            runtime_args_start = i + 3;
+                            break :args_loop;
                         } else {
                             fatal("unexpected end-of-parameter mark: --", .{});
                         }
