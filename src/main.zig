@@ -273,6 +273,7 @@ const usage_build_generic =
     \\  -rdynamic                      Add all symbols to the dynamic symbol table
     \\  -rpath [path]                  Add directory to the runtime library search path
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
+    \\  --emit-relocs                   Enable output of relocation sections for post build tools
     \\  -dynamic                       Force output to be dynamically linked
     \\  -static                        Force output to be statically linked
     \\  -Bsymbolic                     Bind global references locally
@@ -438,6 +439,7 @@ fn buildOutputType(
     var use_lld: ?bool = null;
     var use_clang: ?bool = null;
     var link_eh_frame_hdr = false;
+    var link_emit_relocs = false;
     var each_lib_rpath = false;
     var libc_paths_file: ?[]const u8 = null;
     var machine_code_model: std.builtin.CodeModel = .default;
@@ -838,6 +840,8 @@ fn buildOutputType(
                         function_sections = true;
                     } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
                         link_eh_frame_hdr = true;
+                    } else if (mem.eql(u8, arg, "--emit-relocs")) {
+                        link_emit_relocs = true;
                     } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                         linker_bind_global_refs_locally = true;
                     } else if (mem.eql(u8, arg, "--verbose-link")) {
@@ -1580,6 +1584,7 @@ fn buildOutputType(
         .linker_z_nodelete = linker_z_nodelete,
         .linker_z_defs = linker_z_defs,
         .link_eh_frame_hdr = link_eh_frame_hdr,
+        .link_emit_relocs = link_emit_relocs,
         .stack_size_override = stack_size_override,
         .strip = strip,
         .single_threaded = single_threaded,

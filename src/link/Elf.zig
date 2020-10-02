@@ -1286,6 +1286,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         man.hash.add(stack_size);
         man.hash.add(gc_sections);
         man.hash.add(self.base.options.eh_frame_hdr);
+        man.hash.add(self.base.options.emit_relocs);
         man.hash.add(self.base.options.rdynamic);
         man.hash.addListOfBytes(self.base.options.extra_lld_args);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
@@ -1363,6 +1364,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
     if (self.base.options.eh_frame_hdr) {
         try argv.append("--eh-frame-hdr");
+    }
+    
+    if (self.base.options.emit_relocs) {
+        try argv.append("--emit-relocs");
     }
 
     if (self.base.options.rdynamic) {

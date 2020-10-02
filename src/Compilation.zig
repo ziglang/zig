@@ -352,6 +352,7 @@ pub const InitOptions = struct {
     time_report: bool = false,
     stack_report: bool = false,
     link_eh_frame_hdr: bool = false,
+    link_emit_relocs: bool = false,
     linker_script: ?[]const u8 = null,
     version_script: ?[]const u8 = null,
     override_soname: ?[]const u8 = null,
@@ -447,6 +448,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 options.system_libs.len != 0 or
                 options.link_libc or options.link_libcpp or
                 options.link_eh_frame_hdr or
+                options.link_emit_relocs or
                 options.output_mode == .Lib or
                 options.lld_argv.len != 0 or
                 options.linker_script != null or options.version_script != null)
@@ -769,6 +771,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .version_script = options.version_script,
             .gc_sections = options.linker_gc_sections,
             .eh_frame_hdr = options.link_eh_frame_hdr,
+            .emit_relocs = options.link_emit_relocs,
             .rdynamic = options.rdynamic,
             .extra_lld_args = options.lld_argv,
             .override_soname = options.override_soname,
