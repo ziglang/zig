@@ -21057,6 +21057,20 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
             copy_const_val(codegen, out_val, pointee);
             return ErrorNone;
         }
+
+        if (out_val->type->id == ZigTypeIdArray && pointee->type->id == ZigTypeIdArray) {
+            if ((err = type_resolve(codegen, pointee->type->data.array.child_type, ResolveStatusSizeKnown)))
+                return ErrorSemanticAnalyzeFail;
+            if ((err = type_resolve(codegen, out_val->type->data.array.child_type, ResolveStatusSizeKnown)))
+                return ErrorSemanticAnalyzeFail;
+
+            if (types_have_same_zig_comptime_repr(codegen, pointee->type->data.array.child_type, out_val->type->data.array.child_type)) {
+                assert(out_val->type->data.array.len < pointee->type->data.array.len);
+                out_val->data.x_array = pointee->data.x_array;
+                return ErrorNone;
+            }
+        }
+
         Buf buf = BUF_INIT;
         buf_resize(&buf, src_size);
         buf_write_value_bytes(codegen, (uint8_t*)buf_ptr(&buf), pointee);
