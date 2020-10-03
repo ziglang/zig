@@ -5024,12 +5024,10 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
 
 var has_copy_file_range_syscall = std.atomic.Int(u1).init(1);
 
-pub const CopyFileOptions = struct {
-    /// Size in bytes of the source files, if available saves a call to stat().
-    file_size: ?u64 = null,
-};
+pub const CopyFileOptions = struct {};
 
 pub const CopyFileError = error{
+    BadFileHandle,
     SystemResources,
     FileTooBig,
     InputOutput,
@@ -5057,20 +5055,18 @@ pub fn copy_file(fd_in: fd_t, fd_out: fd_t, options: CopyFileOptions) CopyFileEr
         }
     }
 
-    const src_file_size = options.file_size orelse
-        @bitCast(u64, (try fstat(fd_in)).size);
-    var remaining = src_file_size;
-
     if (std.Target.current.os.tag == .linux) {
         // Try copy_file_range first as that works at the FS level and is the
         // most efficient method (if available).
         if (has_copy_file_range_syscall.get() != 0) {
-            cfr_loop: while (remaining > 0) {
-                const copy_amt = math.cast(usize, remaining) catch math.maxInt(usize);
-                const rc = linux.copy_file_range(fd_in, null, fd_out, null, copy_amt, 0);
+            cfr_loop: while (true) {
+                // The kernel checks `file_pos+count` for overflow, use a 32 bit
+                // value so that the syscall won't return EINVAL except for
+                // impossibly large files.
+                const rc = linux.copy_file_range(fd_in, null, fd_out, null, math.maxInt(u32), 0);
                 switch (errno(rc)) {
                     0 => {},
-                    EBADF => unreachable,
+                    EBADF => return error.BadFileHandle,
                     EFBIG => return error.FileTooBig,
                     EIO => return error.InputOutput,
                     EISDIR => return error.IsDir,
@@ -5079,27 +5075,34 @@ pub fn copy_file(fd_in: fd_t, fd_out: fd_t, options: CopyFileOptions) CopyFileEr
                     EOVERFLOW => return error.Unseekable,
                     EPERM => return error.PermissionDenied,
                     ETXTBSY => return error.FileBusy,
-                    // these may not be regular files, try fallback
+                    // These may not be regular files, try fallback
                     EINVAL => break :cfr_loop,
-                    // support for cross-filesystem copy added in Linux 5.3, use fallback
+                    // Support for cross-filesystem copy added in Linux 5.3, use fallback
                     EXDEV => break :cfr_loop,
-                    // syscall added in Linux 4.5, use fallback
+                    // Syscall added in Linux 4.5, use fallback
                     ENOSYS => {
                         has_copy_file_range_syscall.set(0);
                         break :cfr_loop;
                     },
                     else => |err| return unexpectedErrno(err),
                 }
-                remaining -= rc;
+                // Terminate when no data was copied
+                if (rc == 0) return;
             }
-            return;
+            // This point is reached when an error occurred, hopefully no data
+            // was transferred yet
         }
     }
 
     // Sendfile is a zero-copy mechanism iff the OS supports it, otherwise the
     // fallback code will copy the contents chunk by chunk.
     const empty_iovec = [0]iovec_const{};
-    _ = try sendfile(fd_out, fd_in, 0, remaining, &empty_iovec, &empty_iovec, 0);
+    var offset: u64 = 0;
+    sendfile_loop: while (true) {
+        const amt = try sendfile(fd_out, fd_in, offset, 0, &empty_iovec, &empty_iovec, 0);
+        if (amt == 0) break :sendfile_loop;
+        offset += amt;
+    }
 }
 
 pub const PollError = error{
