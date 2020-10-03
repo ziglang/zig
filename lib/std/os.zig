@@ -4981,19 +4981,15 @@ pub const CopyFileRangeError = error{
 pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
     const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
 
-    // TODO support for other systems than linux
-    const try_syscall = comptime std.Target.current.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) != false;
-
-    if (use_c or try_syscall) {
+    if (std.Target.current.os.tag == .linux and
+        (use_c or has_copy_file_range_syscall.get() != 0))
+    {
         const sys = if (use_c) std.c else linux;
 
         var off_in_copy = @bitCast(i64, off_in);
         var off_out_copy = @bitCast(i64, off_out);
 
         const rc = sys.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, flags);
-
-        // TODO avoid wasting a syscall every time if kernel is too old and returns ENOSYS https://github.com/ziglang/zig/issues/1018
-
         switch (sys.getErrno(rc)) {
             0 => return @intCast(usize, rc),
             EBADF => unreachable,
@@ -5005,9 +5001,14 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
             EOVERFLOW => return error.Unseekable,
             EPERM => return error.PermissionDenied,
             ETXTBSY => return error.FileBusy,
-            EINVAL => {}, // these may not be regular files, try fallback
-            EXDEV => {}, // support for cross-filesystem copy added in Linux 5.3, use fallback
-            ENOSYS => {}, // syscall added in Linux 4.5, use fallback
+            // these may not be regular files, try fallback
+            EINVAL => {},
+            // support for cross-filesystem copy added in Linux 5.3, use fallback
+            EXDEV => {},
+            // syscall added in Linux 4.5, use fallback
+            ENOSYS => {
+                has_copy_file_range_syscall.set(0);
+            },
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -5019,6 +5020,86 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
     // error: integer value 0 cannot be coerced to type 'os.PWriteError!usize'
     if (amt_read == 0) return @as(usize, 0);
     return pwrite(fd_out, buf[0..amt_read], off_out);
+}
+
+var has_copy_file_range_syscall = std.atomic.Int(u1).init(1);
+
+pub const CopyFileOptions = struct {
+    /// Size in bytes of the source files, if available saves a call to stat().
+    file_size: ?u64 = null,
+};
+
+pub const CopyFileError = error{
+    SystemResources,
+    FileTooBig,
+    InputOutput,
+    IsDir,
+    OutOfMemory,
+    NoSpaceLeft,
+    Unseekable,
+    PermissionDenied,
+    FileBusy,
+} || FStatError || SendFileError;
+
+/// Transfer all the data between two file descriptors in the most efficient way.
+/// No metadata is transferred over.
+pub fn copy_file(fd_in: fd_t, fd_out: fd_t, options: CopyFileOptions) CopyFileError!void {
+    if (comptime std.Target.current.isDarwin()) {
+        const rc = system.fcopyfile(fd_in, fd_out, null, system.COPYFILE_DATA);
+        switch (errno(rc)) {
+            0 => return,
+            EINVAL => unreachable,
+            ENOMEM => return error.SystemResources,
+            // The source file was not a directory, symbolic link, or regular file.
+            // Try with the fallback path before giving up.
+            ENOTSUP => {},
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
+    const src_file_size = options.file_size orelse
+        @bitCast(u64, (try fstat(fd_in)).size);
+    var remaining = src_file_size;
+
+    if (std.Target.current.os.tag == .linux) {
+        // Try copy_file_range first as that works at the FS level and is the
+        // most efficient method (if available).
+        if (has_copy_file_range_syscall.get() != 0) {
+            cfr_loop: while (remaining > 0) {
+                const copy_amt = math.cast(usize, remaining) catch math.maxInt(usize);
+                const rc = linux.copy_file_range(fd_in, null, fd_out, null, copy_amt, 0);
+                switch (errno(rc)) {
+                    0 => {},
+                    EBADF => unreachable,
+                    EFBIG => return error.FileTooBig,
+                    EIO => return error.InputOutput,
+                    EISDIR => return error.IsDir,
+                    ENOMEM => return error.OutOfMemory,
+                    ENOSPC => return error.NoSpaceLeft,
+                    EOVERFLOW => return error.Unseekable,
+                    EPERM => return error.PermissionDenied,
+                    ETXTBSY => return error.FileBusy,
+                    // these may not be regular files, try fallback
+                    EINVAL => break :cfr_loop,
+                    // support for cross-filesystem copy added in Linux 5.3, use fallback
+                    EXDEV => break :cfr_loop,
+                    // syscall added in Linux 4.5, use fallback
+                    ENOSYS => {
+                        has_copy_file_range_syscall.set(0);
+                        break :cfr_loop;
+                    },
+                    else => |err| return unexpectedErrno(err),
+                }
+                remaining -= rc;
+            }
+            return;
+        }
+    }
+
+    // Sendfile is a zero-copy mechanism iff the OS supports it, otherwise the
+    // fallback code will copy the contents chunk by chunk.
+    const empty_iovec = [0]iovec_const{};
+    _ = try sendfile(fd_out, fd_in, 0, remaining, &empty_iovec, &empty_iovec, 0);
 }
 
 pub const PollError = error{

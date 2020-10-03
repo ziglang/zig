@@ -1823,7 +1823,7 @@ pub const Dir = struct {
         var atomic_file = try dest_dir.atomicFile(dest_path, .{ .mode = mode });
         defer atomic_file.deinit();
 
-        try atomic_file.file.writeFileAll(in_file, .{ .in_len = size });
+        try os.copy_file(in_file.handle, atomic_file.file.handle, .{ .file_size = size });
         return atomic_file.finish();
     }
 
