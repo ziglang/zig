@@ -247,7 +247,7 @@ pub const IO_Uring = struct {
     pub fn sq_ring_needs_enter(self: *IO_Uring, submitted: u32, flags: *u32) bool {
         assert(flags.* == 0);
         if ((self.flags & linux.IORING_SETUP_SQPOLL) == 0 and submitted > 0) return true;
-        if ((@atomicLoad(u32, self.sq.flags, .Unordered) & linux.IORING_SQ_NEED_WAKEUP) != 0) {
+        if ((@atomicLoad(u32, self.sq.flags, .Acquire) & linux.IORING_SQ_NEED_WAKEUP) != 0) {
             flags.* |= linux.IORING_ENTER_SQ_WAKEUP;
             return true;
         }
