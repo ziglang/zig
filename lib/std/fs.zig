@@ -2193,7 +2193,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
         // Note that _NSGetExecutablePath() will return "a path" to
         // the executable not a "real path" to the executable.
         var symlink_path_buf: [MAX_PATH_BYTES:0]u8 = undefined;
-        var u32_len: u32 = MAX_PATH_BYTES;
+        var u32_len: u32 = MAX_PATH_BYTES + 1; // include the sentinel
         const rc = std.c._NSGetExecutablePath(&symlink_path_buf, &u32_len);
         if (rc != 0) return error.NameTooLong;
 
