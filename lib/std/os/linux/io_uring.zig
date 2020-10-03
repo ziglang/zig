@@ -192,17 +192,20 @@ pub const IO_Uring = struct {
             // The kernel was unable to allocate memory or ran out of resources for the request.
             // The application should wait for some completions and try again:
             linux.EAGAIN => return error.SystemResources,
+            // The SQE `fd` is invalid, or IOSQE_FIXED_FILE was set but no files were registered:
+            linux.EBADF => return error.FileDescriptorInvalid,
+            // The file descriptor is valid, but the ring is not in the right state.
+            // See io_uring_register(2) for how to enable the ring.
+            linux.EBADFD => return error.FileDescriptorInBadState,
             // The application attempted to overcommit the number of requests it can have pending.
             // The application should wait for some completions and try again:
             linux.EBUSY => return error.CompletionQueueOvercommitted,
-            // The SQE `fd` is invalid, or IOSQE_FIXED_FILE was set but no files were registered:
-            linux.EBADF => return error.FileDescriptorInvalid,
+            // The SQE is invalid, or valid but the ring was setup with IORING_SETUP_IOPOLL:
+            linux.EINVAL => return error.SubmissionQueueEntryInvalid,
             // The buffer is outside the process' accessible address space, or IORING_OP_READ_FIXED
             // or IORING_OP_WRITE_FIXED was specified but no buffers were registered, or the range
             // described by `addr` and `len` is not within the buffer registered at `buf_index`:
             linux.EFAULT => return error.BufferInvalid,
-            // The SQE is invalid, or valid but the ring was setup with IORING_SETUP_IOPOLL:
-            linux.EINVAL => return error.SubmissionQueueEntryInvalid,
             linux.ENXIO => return error.RingShuttingDown,
             // The kernel believes our `self.fd` does not refer to an io_uring instance,
             // or the opcode is valid but not supported by this kernel (more likely):
