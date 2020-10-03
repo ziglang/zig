@@ -1200,6 +1200,7 @@ pub const IORING_FEAT_SUBMIT_STABLE = 1 << 2;
 pub const IORING_FEAT_RW_CUR_POS = 1 << 3;
 pub const IORING_FEAT_CUR_PERSONALITY = 1 << 4;
 pub const IORING_FEAT_FAST_POLL = 1 << 5;
+pub const IORING_FEAT_POLL_32BITS = 1 << 6;
 
 // io_uring_params.flags
 
