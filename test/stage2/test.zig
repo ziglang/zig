@@ -910,6 +910,44 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
+        var case = ctx.exe("basic import", linux_x64);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    @import("print.zig").print();
+            \\    exit();
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (@as(usize, 0))
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+            ,
+            "Hello, World!\n",
+        );
+        try case.files.append(.{
+            .src =
+            \\pub fn print() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (@as(usize, 1)),
+            \\          [arg1] "{rdi}" (@as(usize, 1)),
+            \\          [arg2] "{rsi}" (@ptrToInt("Hello, World!\n")),
+            \\          [arg3] "{rdx}" (@as(usize, 14))
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+            ,
+            .path = "print.zig",
+        });
+    }
+
+    {
         var case = ctx.exe("wasm function calls", wasi);
 
         case.addCompareOutput(

@@ -134,6 +134,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .error_set => return analyzeInstErrorSet(mod, scope, old_inst.castTag(.error_set).?),
         .slice => return analyzeInstSlice(mod, scope, old_inst.castTag(.slice).?),
         .slice_start => return analyzeInstSliceStart(mod, scope, old_inst.castTag(.slice_start).?),
+        .import => return analyzeInstImport(mod, scope, old_inst.castTag(.import).?),
     }
 }
 
@@ -1047,6 +1048,19 @@ fn analyzeInstFieldPtr(mod: *Module, scope: *Scope, fieldptr: *zir.Inst.FieldPtr
                         .val = Value.initPayload(&ref_payload.base),
                     });
                 },
+                .Struct => {
+                    const container_scope = child_type.getContainerScope();
+                    if (mod.lookupDeclName(&container_scope.base, field_name)) |decl| {
+                        // TODO if !decl.is_pub and inDifferentFiles() "{} is private"
+                        return mod.analyzeDeclRef(scope, fieldptr.base.src, decl);
+                    }
+
+                    if (&container_scope.file_scope.base == mod.root_scope) {
+                        return mod.fail(scope, fieldptr.base.src, "root source file has no member called '{}'", .{field_name});
+                    } else {
+                        return mod.fail(scope, fieldptr.base.src, "container '{}' has no member called '{}'", .{ child_type, field_name });
+                    }
+                },
                 else => return mod.fail(scope, fieldptr.base.src, "type '{}' does not support field access", .{child_type}),
             }
         },
@@ -1188,6 +1202,24 @@ fn analyzeInstSliceStart(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) Inn
     const start = try resolveInst(mod, scope, inst.positionals.rhs);
 
     return mod.analyzeSlice(scope, inst.base.src, array_ptr, start, null, null);
+}
+
+fn analyzeInstImport(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {
+    const operand = try resolveConstString(mod, scope, inst.positionals.operand);
+
+    const file_scope = mod.analyzeImport(scope, inst.base.src, operand) catch |err| switch (err) {
+        // error.ImportOutsidePkgPath => {
+        //     return mod.fail(scope, inst.base.src, "import of file outside package path: '{}'", .{operand});
+        // },
+        error.FileNotFound => {
+            return mod.fail(scope, inst.base.src, "unable to find '{}'", .{operand});
+        },
+        else => {
+            // TODO user friendly error to string
+            return mod.fail(scope, inst.base.src, "unable to open '{}': {}", .{ operand, @errorName(err) });
+        },
+    };
+    return mod.constType(scope, inst.base.src, file_scope.root_container.ty);
 }
 
 fn analyzeInstShl(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {

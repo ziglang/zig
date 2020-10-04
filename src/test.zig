@@ -56,6 +56,12 @@ pub const TestContext = struct {
         },
     };
 
+    pub const File = struct {
+        /// Contents of the importable file. Doesn't yet support incremental updates.
+        src: [:0]const u8,
+        path: []const u8,
+    };
+
     pub const TestType = enum {
         Zig,
         ZIR,
@@ -77,6 +83,8 @@ pub const TestContext = struct {
         updates: std.ArrayList(Update),
         extension: TestType,
         cbe: bool = false,
+
+        files: std.ArrayList(File),
 
         /// Adds a subcase in which the module is updated with `src`, and the
         /// resulting ZIR is validated against `result`.
@@ -156,6 +164,7 @@ pub const TestContext = struct {
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Exe,
             .extension = T,
+            .files = std.ArrayList(File).init(ctx.cases.allocator),
         }) catch unreachable;
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
@@ -182,6 +191,7 @@ pub const TestContext = struct {
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Obj,
             .extension = T,
+            .files = std.ArrayList(File).init(ctx.cases.allocator),
         }) catch unreachable;
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
@@ -204,6 +214,7 @@ pub const TestContext = struct {
             .output_mode = .Obj,
             .extension = T,
             .cbe = true,
+            .files = std.ArrayList(File).init(ctx.cases.allocator),
         }) catch unreachable;
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
@@ -504,6 +515,10 @@ pub const TestContext = struct {
             .is_native_os = case.target.isNativeOs(),
         });
         defer comp.destroy();
+
+        for (case.files.items) |file| {
+            try tmp.dir.writeFile(file.path, file.src);
+        }
 
         for (case.updates.items) |update, update_index| {
             var update_node = root_node.start("update", 3);
