@@ -28,21 +28,11 @@ pub const IO_Uring = struct {
     /// call on how many entries the submission and completion queues will ultimately have,
     /// see https://github.com/torvalds/linux/blob/v5.8/fs/io_uring.c#L8027-L8050.
     /// Matches the interface of io_uring_queue_init() in liburing.
-    pub fn init(entries: u32, flags: u32) !IO_Uring {
-        var params = io_uring_params {
-            .sq_entries = 0,
-            .cq_entries = 0,
+    pub fn init(entries: u12, flags: u32) !IO_Uring {
+        var params = mem.zeroInit(io_uring_params, .{
             .flags = flags,
-            .sq_thread_cpu = 0,
-            .sq_thread_idle = 1000,
-            .features = 0,
-            .wq_fd = 0,
-            .resv = [_]u32{0} ** 3,
-            .sq_off = undefined,
-            .cq_off = undefined,
-        };
-        // The kernel will zero the memory of the sq_off and cq_off structs in io_uring_create(),
-        // see https://github.com/torvalds/linux/blob/v5.8/fs/io_uring.c#L7986-L8002.
+            .sq_thread_idle = 1000
+        });
         return try IO_Uring.init_params(entries, &params);
     }
 
@@ -52,8 +42,10 @@ pub const IO_Uring = struct {
     /// You may only set the `flags`, `sq_thread_cpu` and `sq_thread_idle` parameters.
     /// Every other parameter belongs to the kernel and must be zeroed.
     /// Matches the interface of io_uring_queue_init_params() in liburing.
-    pub fn init_params(entries: u32, p: *io_uring_params) !IO_Uring {
-        assert(entries >= 1 and entries <= 4096 and std.math.isPowerOfTwo(entries));
+    pub fn init_params(entries: u12, p: *io_uring_params) !IO_Uring {
+        if (entries == 0) return error.EntriesZero;
+        if (!std.math.isPowerOfTwo(entries)) return error.EntriesNotPowerOfTwo;
+
         assert(p.sq_entries == 0);
         assert(p.cq_entries == 0);
         assert(p.features == 0);
@@ -684,6 +676,9 @@ test "structs and offsets" {
     testing.expectEqual(0, linux.IORING_OFF_SQ_RING);
     testing.expectEqual(0x8000000, linux.IORING_OFF_CQ_RING);
     testing.expectEqual(0x10000000, linux.IORING_OFF_SQES);
+
+    testing.expectError(error.EntriesZero, IO_Uring.init(0, 0));
+    testing.expectError(error.EntriesNotPowerOfTwo, IO_Uring.init(3, 0));
 }
 
 test "queue_nop" {
