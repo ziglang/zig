@@ -65,6 +65,7 @@ pub const kdf = struct {
 /// MAC functions requiring single-use secret keys.
 pub const onetimeauth = struct {
     pub const Poly1305 = @import("crypto/poly1305.zig").Poly1305;
+    pub const Ghash = @import("crypto/ghash.zig").Ghash;
 };
 
 /// A password hashing function derives a uniform key from low-entropy input material such as passwords.
