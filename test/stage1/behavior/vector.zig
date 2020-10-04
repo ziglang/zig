@@ -484,3 +484,43 @@ test "vector shift operators" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "vector reduce operation" {
+    const S = struct {
+        fn doTheTestReduce(comptime op: builtin.ReduceOp, x: anytype, expected: anytype) void {
+            const N = @typeInfo(@TypeOf(x)).Array.len;
+            const TX = @typeInfo(@TypeOf(x)).Array.child;
+
+            var r = @reduce(op, @as(Vector(N, TX), x));
+            expectEqual(expected, r);
+        }
+        fn doTheTest() void {
+            doTheTestReduce(.And, [4]bool{ true, false, true, true }, @as(bool, false));
+            doTheTestReduce(.Or, [4]bool{ false, true, false, false }, @as(bool, true));
+            doTheTestReduce(.Xor, [4]bool{ true, true, true, false }, @as(bool, true));
+
+            doTheTestReduce(.And, [4]u1{ 1, 0, 1, 1 }, @as(u1, 0));
+            doTheTestReduce(.Or, [4]u1{ 0, 1, 0, 0 }, @as(u1, 1));
+            doTheTestReduce(.Xor, [4]u1{ 1, 1, 1, 0 }, @as(u1, 1));
+
+            doTheTestReduce(.And, [4]u32{ 0xffffffff, 0xffff5555, 0xaaaaffff, 0x10101010 }, @as(u32, 0x1010));
+            doTheTestReduce(.Or, [4]u32{ 0xffff0000, 0xff00, 0xf0, 0xf }, ~@as(u32, 0));
+            doTheTestReduce(.Xor, [4]u32{ 0x00000000, 0x33333333, 0x88888888, 0x44444444 }, ~@as(u32, 0));
+
+            doTheTestReduce(.Min, [4]i32{ 1234567, -386, 0, 3 }, @as(i32, -386));
+            doTheTestReduce(.Max, [4]i32{ 1234567, -386, 0, 3 }, @as(i32, 1234567));
+
+            doTheTestReduce(.Min, [4]u32{ 99, 9999, 9, 99999 }, @as(u32, 9));
+            doTheTestReduce(.Max, [4]u32{ 99, 9999, 9, 99999 }, @as(u32, 99999));
+
+            doTheTestReduce(.Min, [4]f32{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f32, -100.0));
+            doTheTestReduce(.Max, [4]f32{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f32, 10.0e9));
+
+            doTheTestReduce(.Min, [4]f64{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f64, -100.0));
+            doTheTestReduce(.Max, [4]f64{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f64, 10.0e9));
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
