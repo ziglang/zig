@@ -1097,6 +1097,7 @@ test "openat/close" {
     var cqe_openat = try ring.copy_cqe();
     if (cqe_openat.res == -linux.EINVAL) return error.SkipZigTest;
     testing.expectEqual(@as(u64, 789), cqe_openat.user_data);
+    if (cqe_openat.res <= 0) std.debug.print("\ncqe_openat.res={}\n", .{ cqe_openat.res });
     testing.expect(cqe_openat.res > 0);
     testing.expectEqual(@as(u32, 0), cqe_openat.flags);
 
@@ -1159,6 +1160,7 @@ test "accept/connect/send/recv" {
     }
 
     testing.expectEqual(@as(u64, 0xaaaaaaaa), cqe_accept.user_data);
+    if (cqe_accept.res <= 0) std.debug.print("\ncqe_accept.res={}\n", .{ cqe_accept.res });
     testing.expect(cqe_accept.res > 0);
     testing.expectEqual(@as(u32, 0), cqe_accept.flags);
     testing.expectEqual(linux.io_uring_cqe {
