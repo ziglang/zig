@@ -27,23 +27,26 @@ set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 set(ZIG_VERSION_MAJOR 0)
 set(ZIG_VERSION_MINOR 6)
 set(ZIG_VERSION_PATCH 0)
-set(ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}")
+set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
 
-find_program(GIT_EXE NAMES git)
-if(GIT_EXE)
-    execute_process(
-        COMMAND ${GIT_EXE} -C ${CMAKE_SOURCE_DIR} name-rev HEAD --tags --name-only --no-undefined --always
-        RESULT_VARIABLE EXIT_STATUS
-        OUTPUT_VARIABLE ZIG_GIT_REV
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_QUIET)
-    if(EXIT_STATUS EQUAL "0")
-        if(ZIG_GIT_REV MATCHES "\\^0$")
-            if(NOT("${ZIG_GIT_REV}" STREQUAL "${ZIG_VERSION}^0"))
-                message("WARNING: Tag does not match configured Zig version")
+if("${ZIG_VERSION}" STREQUAL "")
+    set(ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}")
+    find_program(GIT_EXE NAMES git)
+    if(GIT_EXE)
+        execute_process(
+            COMMAND ${GIT_EXE} -C ${CMAKE_SOURCE_DIR} name-rev HEAD --tags --name-only --no-undefined --always
+            RESULT_VARIABLE EXIT_STATUS
+            OUTPUT_VARIABLE ZIG_GIT_REV
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET)
+        if(EXIT_STATUS EQUAL "0")
+            if(ZIG_GIT_REV MATCHES "\\^0$")
+                if(NOT("${ZIG_GIT_REV}" STREQUAL "${ZIG_VERSION}^0"))
+                    message("WARNING: Tag does not match configured Zig version")
+                endif()
+            else()
+                set(ZIG_VERSION "${ZIG_VERSION}+${ZIG_GIT_REV}")
             endif()
-        else()
-            set(ZIG_VERSION "${ZIG_VERSION}+${ZIG_GIT_REV}")
         endif()
     endif()
 endif()
