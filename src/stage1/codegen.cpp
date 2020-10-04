@@ -8815,7 +8815,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_append_str(contents, "/// Deprecated: use `std.Target.current.cpu.arch.endian()`\n");
     buf_append_str(contents, "pub const endian = Target.current.cpu.arch.endian();\n");
     buf_appendf(contents, "pub const output_mode = OutputMode.Obj;\n");
-    buf_appendf(contents, "pub const link_mode = LinkMode.Static;\n");
+    buf_appendf(contents, "pub const link_mode = LinkMode.%s;\n", ZIG_LINK_MODE);
     buf_appendf(contents, "pub const is_test = false;\n");
     buf_appendf(contents, "pub const single_threaded = %s;\n", bool_to_str(g->is_single_threaded));
     buf_appendf(contents, "pub const abi = Abi.%s;\n", cur_abi);

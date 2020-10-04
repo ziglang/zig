@@ -63,6 +63,9 @@ endif()
 
 if(ZIG_STATIC)
     set(ZIG_STATIC_LLVM "on")
+    set(ZIG_LINK_MODE "Static")
+else()
+    set(ZIG_LINK_MODE "Dynamic")
 endif()
 
 string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_LIB_DIR_ESCAPED "${ZIG_LIBC_LIB_DIR}")
