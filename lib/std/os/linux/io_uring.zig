@@ -6,6 +6,8 @@
 const std = @import("../../std.zig");
 const assert = std.debug.assert;
 const builtin = std.builtin;
+const mem = std.mem;
+const net = std.net;
 const os = std.os;
 const linux = os.linux;
 const testing = std.testing;
@@ -19,6 +21,7 @@ pub const IO_Uring = struct {
     sq: SubmissionQueue,
     cq: CompletionQueue,
     flags: u32,
+    features: u32,
 
     /// A friendly way to setup an io_uring, with default io_uring_params.
     /// `entries` must be a power of two between 1 and 4096, although the kernel will make the final
@@ -126,7 +129,8 @@ pub const IO_Uring = struct {
             .fd = fd,
             .sq = sq,
             .cq = cq,
-            .flags = p.flags
+            .flags = p.flags,
+            .features = p.features
         };
     }
 
