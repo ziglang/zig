@@ -81,11 +81,24 @@ pub fn binNameAlloc(allocator: *std.mem.Allocator, options: BinNameOptions) erro
         .coff, .pe => switch (options.output_mode) {
             .Exe => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.exeFileExt() }),
             .Lib => {
-                const suffix = switch (options.link_mode orelse .Static) {
-                    .Static => ".lib",
-                    .Dynamic => ".dll",
-                };
-                return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, suffix });
+                if (options.target.abi.isGnu()) {
+                    switch (options.link_mode orelse .Static) {
+                        .Static => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{
+                            target.libPrefix(), root_name,
+                        }),
+                        .Dynamic => {
+                            return std.fmt.allocPrint(allocator, "{s}{s}.dll", .{
+                                target.libPrefix(), root_name,
+                            });
+                        },
+                    }
+                } else {
+                    const suffix = switch (options.link_mode orelse .Static) {
+                        .Static => ".lib",
+                        .Dynamic => ".dll",
+                    };
+                    return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, suffix });
+                }
             },
             .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.oFileExt() }),
         },
