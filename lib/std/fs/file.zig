@@ -394,7 +394,7 @@ pub const File = struct {
         var array_list = try std.ArrayListAligned(u8, alignment).initCapacity(allocator, initial_cap);
         defer array_list.deinit();
 
-        self.reader().readAllArrayList(&array_list, max_bytes) catch |err| switch (err) {
+        self.reader().readAllArrayListAligned(alignment, &array_list, max_bytes) catch |err| switch (err) {
             error.StreamTooLong => return error.FileTooBig,
             else => |e| return e,
         };
