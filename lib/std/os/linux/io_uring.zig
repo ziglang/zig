@@ -478,7 +478,7 @@ pub const IO_Uring = struct {
         self: *IO_Uring,
         user_data: u64,
         fd: os.fd_t,
-        buffer: []u8,
+        buffer: []const u8,
         flags: u32
     ) !*io_uring_sqe {
         const sqe = try self.get_sqe();
@@ -852,7 +852,7 @@ test "nop" {
         testing.expectEqual(@as(os.fd_t, -1), ring.fd);
     }
 
-    var sqe = try ring.nop(0xaaaaaaaa);
+    const sqe = try ring.nop(0xaaaaaaaa);
     testing.expectEqual(io_uring_sqe {
         .opcode = .NOP,
         .flags = 0,
@@ -891,7 +891,7 @@ test "nop" {
     testing.expectEqual(@as(u32, 1), ring.cq.head.*);
     testing.expectEqual(@as(u32, 0), ring.cq_ready());
 
-    var sqe_barrier = try ring.nop(0xbbbbbbbb);
+    const sqe_barrier = try ring.nop(0xbbbbbbbb);
     sqe_barrier.flags |= linux.IOSQE_IO_DRAIN;
     testing.expectEqual(@as(u32, 1), try ring.submit());
     testing.expectEqual(io_uring_cqe {
@@ -931,7 +931,7 @@ test "readv" {
 
     var buffer = [_]u8{42} ** 128;
     var iovecs = [_]os.iovec{ os.iovec { .iov_base = &buffer, .iov_len = buffer.len } };
-    var sqe = try ring.readv(0xcccccccc, fd_index, iovecs[0..], 0);
+    const sqe = try ring.readv(0xcccccccc, fd_index, iovecs[0..], 0);
     testing.expectEqual(linux.IORING_OP.READV, sqe.opcode);
     sqe.flags |= linux.IOSQE_FIXED_FILE;
 
@@ -963,8 +963,8 @@ test "writev/fsync/readv" {
     defer std.fs.cwd().deleteFile(path) catch {};
     const fd = file.handle;
 
-    var buffer_write = [_]u8{42} ** 128;
-    var iovecs_write = [_]os.iovec_const {
+    const buffer_write = [_]u8{42} ** 128;
+    const iovecs_write = [_]os.iovec_const {
         os.iovec_const { .iov_base = &buffer_write, .iov_len = buffer_write.len }
     };
     var buffer_read = [_]u8{0} ** 128;
@@ -972,17 +972,17 @@ test "writev/fsync/readv" {
         os.iovec { .iov_base = &buffer_read, .iov_len = buffer_read.len }
     };
 
-    var sqe_writev = try ring.writev(0xdddddddd, fd, iovecs_write[0..], 17);
+    const sqe_writev = try ring.writev(0xdddddddd, fd, iovecs_write[0..], 17);
     testing.expectEqual(linux.IORING_OP.WRITEV, sqe_writev.opcode);
     testing.expectEqual(@as(u64, 17), sqe_writev.off);
     sqe_writev.flags |= linux.IOSQE_IO_LINK;
     
-    var sqe_fsync = try ring.fsync(0xeeeeeeee, fd, 0);
+    const sqe_fsync = try ring.fsync(0xeeeeeeee, fd, 0);
     testing.expectEqual(linux.IORING_OP.FSYNC, sqe_fsync.opcode);
     testing.expectEqual(fd, sqe_fsync.fd);
     sqe_fsync.flags |= linux.IOSQE_IO_LINK;
 
-    var sqe_readv = try ring.readv(0xffffffff, fd, iovecs_read[0..], 17);
+    const sqe_readv = try ring.readv(0xffffffff, fd, iovecs_read[0..], 17);
     testing.expectEqual(linux.IORING_OP.READV, sqe_readv.opcode);
     testing.expectEqual(@as(u64, 17), sqe_readv.off);
 
@@ -1031,19 +1031,19 @@ test "write/read" {
     defer std.fs.cwd().deleteFile(path) catch {};
     const fd = file.handle;
 
-    var buffer_write = [_]u8{97} ** 20;
+    const buffer_write = [_]u8{97} ** 20;
     var buffer_read = [_]u8{98} ** 20;
-    var sqe_write = try ring.write(123, fd, buffer_write[0..], 10);
+    const sqe_write = try ring.write(123, fd, buffer_write[0..], 10);
     testing.expectEqual(linux.IORING_OP.WRITE, sqe_write.opcode);
     testing.expectEqual(@as(u64, 10), sqe_write.off);
     sqe_write.flags |= linux.IOSQE_IO_LINK;
-    var sqe_read = try ring.read(456, fd, buffer_read[0..], 10);
+    const sqe_read = try ring.read(456, fd, buffer_read[0..], 10);
     testing.expectEqual(linux.IORING_OP.READ, sqe_read.opcode);
     testing.expectEqual(@as(u64, 10), sqe_read.off);
     testing.expectEqual(@as(u32, 2), try ring.submit());
 
-    var cqe_write = try ring.copy_cqe();
-    var cqe_read = try ring.copy_cqe();
+    const cqe_write = try ring.copy_cqe();
+    const cqe_read = try ring.copy_cqe();
     // Prior to Linux Kernel 5.6 this is the only way to test for read/write support:
     // https://lwn.net/Articles/809820/
     if (cqe_write.res == -linux.EINVAL) return error.SkipZigTest;
@@ -1076,7 +1076,7 @@ test "openat/close" {
 
     const flags: u32 = os.O_CLOEXEC | os.O_RDWR | os.O_CREAT;
     const mode: os.mode_t = 0o666;
-    var sqe_openat = try ring.openat(789, linux.AT_FDCWD, path, flags, mode);
+    const sqe_openat = try ring.openat(789, linux.AT_FDCWD, path, flags, mode);
     testing.expectEqual(io_uring_sqe {
         .opcode = .OPENAT,
         .flags = 0,
@@ -1094,7 +1094,7 @@ test "openat/close" {
     }, sqe_openat.*);
     testing.expectEqual(@as(u32, 1), try ring.submit());
 
-    var cqe_openat = try ring.copy_cqe();
+    const cqe_openat = try ring.copy_cqe();
     testing.expectEqual(@as(u64, 789), cqe_openat.user_data);
     if (cqe_openat.res == -linux.EINVAL) return error.SkipZigTest;
     // AT_FDCWD is not fully supported before kernel 5.6:
@@ -1107,12 +1107,12 @@ test "openat/close" {
     testing.expect(cqe_openat.res > 0);
     testing.expectEqual(@as(u32, 0), cqe_openat.flags);
 
-    var sqe_close = try ring.close(1011, cqe_openat.res);
+    const sqe_close = try ring.close(1011, cqe_openat.res);
     testing.expectEqual(linux.IORING_OP.CLOSE, sqe_close.opcode);
     testing.expectEqual(cqe_openat.res, sqe_close.fd);
     testing.expectEqual(@as(u32, 1), try ring.submit());
 
-    var cqe_close = try ring.copy_cqe();
+    const cqe_close = try ring.copy_cqe();
     if (cqe_close.res == -linux.EINVAL) return error.SkipZigTest;
     testing.expectEqual(linux.io_uring_cqe {
         .user_data = 1011,
@@ -1131,7 +1131,7 @@ test "accept/connect/send/recv" {
     };
     defer ring.deinit();
 
-    var address = try net.Address.parseIp4("127.0.0.1", 3131);
+    const address = try net.Address.parseIp4("127.0.0.1", 3131);
     const kernel_backlog = 1;
     const server = try os.socket(address.any.family, os.SOCK_STREAM | os.SOCK_CLOEXEC, 0);
     defer os.close(server);
@@ -1139,17 +1139,17 @@ test "accept/connect/send/recv" {
     try os.bind(server, &address.any, address.getOsSockLen());
     try os.listen(server, kernel_backlog);
 
-    var buffer_send = [_]u8{1,0,1,0,1,0,1,0,1,0};
-    var buffer_recv = [_]u8{0,1,0,1,0};
+    const buffer_send = [_]u8{ 1,0,1,0,1,0,1,0,1,0 };
+    var buffer_recv = [_]u8{ 0,1,0,1,0 };
 
     var accept_addr: os.sockaddr = undefined;
     var accept_addr_len: os.socklen_t = @sizeOf(@TypeOf(accept_addr));
-    var accept = try ring.accept(0xaaaaaaaa, server, &accept_addr, &accept_addr_len, 0);
+    const accept = try ring.accept(0xaaaaaaaa, server, &accept_addr, &accept_addr_len, 0);
     testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const client = try os.socket(address.any.family, os.SOCK_STREAM | os.SOCK_CLOEXEC, 0);
     defer os.close(client);
-    var connect = try ring.connect(0xcccccccc, client, &address.any, address.getOsSockLen());
+    const connect = try ring.connect(0xcccccccc, client, &address.any, address.getOsSockLen());
     testing.expectEqual(@as(u32, 1), try ring.submit());
 
     var cqe_accept = try ring.copy_cqe();
@@ -1159,8 +1159,8 @@ test "accept/connect/send/recv" {
 
     // The accept/connect CQEs may arrive in any order, the connect CQE will sometimes come first:
     if (cqe_accept.user_data == 0xcccccccc and cqe_connect.user_data == 0xaaaaaaaa) {
-        var a = cqe_accept;
-        var b = cqe_connect;
+        const a = cqe_accept;
+        const b = cqe_connect;
         cqe_accept = b;
         cqe_connect = a;
     }
@@ -1175,12 +1175,12 @@ test "accept/connect/send/recv" {
         .flags = 0,
     }, cqe_connect);
 
-    var send = try ring.send(0xeeeeeeee, client, buffer_send[0..], 0);
+    const send = try ring.send(0xeeeeeeee, client, buffer_send[0..], 0);
     send.flags |= linux.IOSQE_IO_LINK;
-    var recv = try ring.recv(0xffffffff, cqe_accept.res, buffer_recv[0..], 0);
+    const recv = try ring.recv(0xffffffff, cqe_accept.res, buffer_recv[0..], 0);
     testing.expectEqual(@as(u32, 2), try ring.submit());
 
-    var cqe_send = try ring.copy_cqe();
+    const cqe_send = try ring.copy_cqe();
     if (cqe_send.res == -linux.EINVAL) return error.SkipZigTest;
     testing.expectEqual(linux.io_uring_cqe {
         .user_data = 0xeeeeeeee,
@@ -1188,7 +1188,7 @@ test "accept/connect/send/recv" {
         .flags = 0,
     }, cqe_send);
 
-    var cqe_recv = try ring.copy_cqe();
+    const cqe_recv = try ring.copy_cqe();
     if (cqe_recv.res == -linux.EINVAL) return error.SkipZigTest;
     testing.expectEqual(linux.io_uring_cqe {
         .user_data = 0xffffffff,
