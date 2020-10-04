@@ -1095,8 +1095,14 @@ test "openat/close" {
     testing.expectEqual(@as(u32, 1), try ring.submit());
 
     var cqe_openat = try ring.copy_cqe();
-    if (cqe_openat.res == -linux.EINVAL) return error.SkipZigTest;
     testing.expectEqual(@as(u64, 789), cqe_openat.user_data);
+    if (cqe_openat.res == -linux.EINVAL) return error.SkipZigTest;
+    // AT_FDCWD is not fully supported before kernel 5.6:
+    // See https://lore.kernel.org/io-uring/20200207155039.12819-1-axboe@kernel.dk/T/
+    // We use IORING_FEAT_RW_CUR_POS to know if we are pre-5.6 since that feature was added in 5.6.
+    if (cqe_openat.res == -linux.EBADF and (ring.features & linux.IORING_FEAT_RW_CUR_POS) == 0) {
+        return error.SkipZigTest;
+    }
     if (cqe_openat.res <= 0) std.debug.print("\ncqe_openat.res={}\n", .{ cqe_openat.res });
     testing.expect(cqe_openat.res > 0);
     testing.expectEqual(@as(u32, 0), cqe_openat.flags);
