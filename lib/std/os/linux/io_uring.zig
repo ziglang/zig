@@ -1061,7 +1061,7 @@ test "write/read" {
     testing.expectEqualSlices(u8, buffer_write[0..], buffer_read[0..]);
 }
 
-test "openat/close" {
+test "openat" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
     var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
@@ -1071,7 +1071,7 @@ test "openat/close" {
     };
     defer ring.deinit();
 
-    const path = "test_io_uring_openat_close";
+    const path = "test_io_uring_openat";
     defer std.fs.cwd().deleteFile(path) catch {};
 
     const flags: u32 = os.O_CLOEXEC | os.O_RDWR | os.O_CREAT;
@@ -1107,9 +1107,27 @@ test "openat/close" {
     testing.expect(cqe_openat.res > 0);
     testing.expectEqual(@as(u32, 0), cqe_openat.flags);
 
-    const sqe_close = try ring.close(1011, cqe_openat.res);
+    os.close(cqe_openat.res);
+}
+
+test "close" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    
+    var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err
+    };
+    defer ring.deinit();
+    
+    const path = "test_io_uring_close";
+    const file = try std.fs.cwd().createFile(path, .{});
+    errdefer file.close();
+    defer std.fs.cwd().deleteFile(path) catch {};
+
+    const sqe_close = try ring.close(1011, file.handle);
     testing.expectEqual(linux.IORING_OP.CLOSE, sqe_close.opcode);
-    testing.expectEqual(cqe_openat.res, sqe_close.fd);
+    testing.expectEqual(file.handle, sqe_close.fd);
     testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const cqe_close = try ring.copy_cqe();
