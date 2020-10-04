@@ -18,11 +18,6 @@
 #include "target.hpp"
 #include "tokenizer.hpp"
 
-#ifndef NDEBUG
-#define DBG_MACRO_NO_WARNING
-#include <dbg.h>
-#endif
-
 struct AstNode;
 struct ZigFn;
 struct Scope;
@@ -1456,6 +1451,7 @@ struct ZigTypeEnum {
     ContainerLayout layout;
     ResolveStatus resolve_status;
 
+    bool has_explicit_tag_type;
     bool non_exhaustive;
     bool resolve_loop_flag;
 };

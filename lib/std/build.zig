@@ -1239,6 +1239,7 @@ pub const LibExeObjStep = struct {
     /// Create a .eh_frame_hdr section and a PT_GNU_EH_FRAME segment in the ELF
     /// file.
     link_eh_frame_hdr: bool = false,
+    link_emit_relocs: bool = false,
 
     /// Place every function in its own section so that unused ones may be
     /// safely garbage-collected during the linking phase.
@@ -2075,6 +2076,9 @@ pub const LibExeObjStep = struct {
         if (self.link_eh_frame_hdr) {
             try zig_args.append("--eh-frame-hdr");
         }
+        if (self.link_emit_relocs) {
+            try zig_args.append("--emit-relocs");
+        }
         if (self.link_function_sections) {
             try zig_args.append("-ffunction-sections");
         }
@@ -2168,8 +2172,8 @@ pub const LibExeObjStep = struct {
         }
 
         if (self.linker_script) |linker_script| {
-            zig_args.append("--linker-script") catch unreachable;
-            zig_args.append(builder.pathFromRoot(linker_script)) catch unreachable;
+            try zig_args.append("--script");
+            try zig_args.append(builder.pathFromRoot(linker_script));
         }
 
         if (self.version_script) |version_script| {

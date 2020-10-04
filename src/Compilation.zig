@@ -352,6 +352,7 @@ pub const InitOptions = struct {
     time_report: bool = false,
     stack_report: bool = false,
     link_eh_frame_hdr: bool = false,
+    link_emit_relocs: bool = false,
     linker_script: ?[]const u8 = null,
     version_script: ?[]const u8 = null,
     override_soname: ?[]const u8 = null,
@@ -447,6 +448,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 options.system_libs.len != 0 or
                 options.link_libc or options.link_libcpp or
                 options.link_eh_frame_hdr or
+                options.link_emit_relocs or
                 options.output_mode == .Lib or
                 options.lld_argv.len != 0 or
                 options.linker_script != null or options.version_script != null)
@@ -769,6 +771,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .version_script = options.version_script,
             .gc_sections = options.linker_gc_sections,
             .eh_frame_hdr = options.link_eh_frame_hdr,
+            .emit_relocs = options.link_emit_relocs,
             .rdynamic = options.rdynamic,
             .extra_lld_args = options.lld_argv,
             .override_soname = options.override_soname,
@@ -1146,7 +1149,15 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
     };
 }
 
-pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
+pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemory }!void {
+    var progress: std.Progress = .{};
+    var main_progress_node = try progress.start("", null);
+    defer main_progress_node.end();
+    if (self.color == .Off) progress.terminal = null;
+
+    var c_comp_progress_node = main_progress_node.start("Compile C Objects", self.c_source_files.len);
+    defer c_comp_progress_node.end();
+
     while (self.work_queue.readItem()) |work_item| switch (work_item) {
         .codegen_decl => |decl| switch (decl.analysis) {
             .unreferenced => unreachable,
@@ -1223,7 +1234,7 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
             };
         },
         .c_object => |c_object| {
-            self.updateCObject(c_object) catch |err| switch (err) {
+            self.updateCObject(c_object, &c_comp_progress_node) catch |err| switch (err) {
                 error.AnalysisFail => continue,
                 else => {
                     try self.failed_c_objects.ensureCapacity(self.gpa, self.failed_c_objects.items().len + 1);
@@ -1309,7 +1320,7 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
             if (!build_options.is_stage1)
                 unreachable;
 
-            self.updateStage1Module() catch |err| {
+            self.updateStage1Module(main_progress_node) catch |err| {
                 fatal("unable to build stage1 zig object: {}", .{@errorName(err)});
             };
         },
@@ -1470,7 +1481,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
     };
 }
 
-fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
+fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return comp.failCObj(c_object, "clang not available: compiler built without LLVM extensions", .{});
     }
@@ -1513,6 +1524,12 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
     const arena = &arena_allocator.allocator;
 
     const c_source_basename = std.fs.path.basename(c_object.src.src_path);
+
+    c_comp_progress_node.activate();
+    var child_progress_node = c_comp_progress_node.start(c_source_basename, null);
+    child_progress_node.activate();
+    defer child_progress_node.end();
+
     // Special case when doing build-obj for just one C file. When there are more than one object
     // file and building an object we need to link them together, but with just one it should go
     // directly to the output file.
@@ -2506,7 +2523,7 @@ fn buildStaticLibFromZig(comp: *Compilation, src_basename: []const u8, out: *?CR
     };
 }
 
-fn updateStage1Module(comp: *Compilation) !void {
+fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2612,10 +2629,6 @@ fn updateStage1Module(comp: *Compilation) !void {
         .llvm_cpu_name = if (target.cpu.model.llvm_name) |s| s.ptr else null,
         .llvm_cpu_features = comp.bin_file.options.llvm_cpu_features.?,
     };
-    var progress: std.Progress = .{};
-    var main_progress_node = try progress.start("", null);
-    defer main_progress_node.end();
-    if (comp.color == .Off) progress.terminal = null;
 
     comp.stage1_cache_manifest = &man;
 

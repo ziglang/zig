@@ -320,8 +320,8 @@ test "Type.Union" {
             .layout = .Auto,
             .tag_type = null,
             .fields = &[_]TypeInfo.UnionField{
-                .{ .name = "int", .field_type = i32 },
-                .{ .name = "float", .field_type = f32 },
+                .{ .name = "int", .field_type = i32, .alignment = @alignOf(f32) },
+                .{ .name = "float", .field_type = f32, .alignment = @alignOf(f32) },
             },
             .decls = &[_]TypeInfo.Declaration{},
         },
@@ -336,8 +336,8 @@ test "Type.Union" {
             .layout = .Packed,
             .tag_type = null,
             .fields = &[_]TypeInfo.UnionField{
-                .{ .name = "signed", .field_type = i32 },
-                .{ .name = "unsigned", .field_type = u32 },
+                .{ .name = "signed", .field_type = i32, .alignment = @alignOf(i32) },
+                .{ .name = "unsigned", .field_type = u32, .alignment = @alignOf(u32) },
             },
             .decls = &[_]TypeInfo.Declaration{},
         },
@@ -363,8 +363,8 @@ test "Type.Union" {
             .layout = .Auto,
             .tag_type = Tag,
             .fields = &[_]TypeInfo.UnionField{
-                .{ .name = "signed", .field_type = i32 },
-                .{ .name = "unsigned", .field_type = u32 },
+                .{ .name = "signed", .field_type = i32, .alignment = @alignOf(i32) },
+                .{ .name = "unsigned", .field_type = u32, .alignment = @alignOf(u32) },
             },
             .decls = &[_]TypeInfo.Declaration{},
         },
@@ -392,7 +392,7 @@ test "Type.Union from Type.Enum" {
             .layout = .Auto,
             .tag_type = Tag,
             .fields = &[_]TypeInfo.UnionField{
-                .{ .name = "working_as_expected", .field_type = u32 },
+                .{ .name = "working_as_expected", .field_type = u32, .alignment = @alignOf(u32) },
             },
             .decls = &[_]TypeInfo.Declaration{},
         },
@@ -408,11 +408,38 @@ test "Type.Union from regular enum" {
             .layout = .Auto,
             .tag_type = E,
             .fields = &[_]TypeInfo.UnionField{
-                .{ .name = "working_as_expected", .field_type = u32 },
+                .{ .name = "working_as_expected", .field_type = u32, .alignment = @alignOf(u32) },
             },
             .decls = &[_]TypeInfo.Declaration{},
         },
     });
     _ = T;
     _ = @typeInfo(T).Union;
+}
+
+test "Type.Fn" {
+    // wasm doesn't support align attributes on functions
+    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
+
+    const foo = struct {
+        fn func(a: usize, b: bool) align(4) callconv(.C) usize {
+            return 0;
+        }
+    }.func;
+    const Foo = @Type(@typeInfo(@TypeOf(foo)));
+    const foo_2: Foo = foo;
+}
+
+test "Type.BoundFn" {
+    // wasm doesn't support align attributes on functions
+    if (builtin.arch == .wasm32 or builtin.arch == .wasm64) return error.SkipZigTest;
+
+    const TestStruct = packed struct {
+        pub fn foo(self: *const @This()) align(4) callconv(.Unspecified) void {}
+    };
+    const test_instance: TestStruct = undefined;
+    testing.expect(std.meta.eql(
+        @typeName(@TypeOf(test_instance.foo)),
+        @typeName(@Type(@typeInfo(@TypeOf(test_instance.foo)))),
+    ));
 }

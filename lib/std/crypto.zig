@@ -4,23 +4,6 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 
-/// Hash functions.
-pub const hash = struct {
-    pub const Md5 = @import("crypto/md5.zig").Md5;
-    pub const Sha1 = @import("crypto/sha1.zig").Sha1;
-    pub const sha2 = @import("crypto/sha2.zig");
-    pub const sha3 = @import("crypto/sha3.zig");
-    pub const blake2 = @import("crypto/blake2.zig");
-    pub const Blake3 = @import("crypto/blake3.zig").Blake3;
-    pub const Gimli = @import("crypto/gimli.zig").Hash;
-};
-
-/// Authentication (MAC) functions.
-pub const auth = struct {
-    pub const hmac = @import("crypto/hmac.zig");
-    pub const siphash = @import("crypto/siphash.zig");
-};
-
 /// Authenticated Encryption with Associated Data
 pub const aead = struct {
     const chacha20 = @import("crypto/chacha20.zig");
@@ -32,9 +15,57 @@ pub const aead = struct {
     pub const AEGIS256 = @import("crypto/aegis.zig").AEGIS256;
 };
 
+/// Authentication (MAC) functions.
+pub const auth = struct {
+    pub const hmac = @import("crypto/hmac.zig");
+    pub const siphash = @import("crypto/siphash.zig");
+};
+
+/// Core functions, that should rarely be used directly by applications.
+pub const core = struct {
+    pub const aes = @import("crypto/aes.zig");
+    pub const Gimli = @import("crypto/gimli.zig").State;
+
+    /// Modes are generic compositions to construct encryption/decryption functions from block ciphers and permutations.
+    ///
+    /// These modes are designed to be building blocks for higher-level constructions, and should generally not be used directly by applications, as they may not provide the expected properties and security guarantees.
+    ///
+    /// Most applications may want to use AEADs instead.
+    pub const modes = @import("crypto/modes.zig");
+};
+
+/// Diffie-Hellman key exchange functions.
+pub const dh = struct {
+    pub const X25519 = @import("crypto/25519/x25519.zig").X25519;
+};
+
+/// Elliptic-curve arithmetic.
+pub const ecc = struct {
+    pub const Curve25519 = @import("crypto/25519/curve25519.zig").Curve25519;
+    pub const Edwards25519 = @import("crypto/25519/edwards25519.zig").Edwards25519;
+    pub const Ristretto255 = @import("crypto/25519/ristretto255.zig").Ristretto255;
+};
+
+/// Hash functions.
+pub const hash = struct {
+    pub const Md5 = @import("crypto/md5.zig").Md5;
+    pub const Sha1 = @import("crypto/sha1.zig").Sha1;
+    pub const sha2 = @import("crypto/sha2.zig");
+    pub const sha3 = @import("crypto/sha3.zig");
+    pub const blake2 = @import("crypto/blake2.zig");
+    pub const Blake3 = @import("crypto/blake3.zig").Blake3;
+    pub const Gimli = @import("crypto/gimli.zig").Hash;
+};
+
+/// Key derivation functions.
+pub const kdf = struct {
+    pub const hkdf = @import("crypto/hkdf.zig");
+};
+
 /// MAC functions requiring single-use secret keys.
 pub const onetimeauth = struct {
     pub const Poly1305 = @import("crypto/poly1305.zig").Poly1305;
+    pub const Ghash = @import("crypto/ghash.zig").Ghash;
 };
 
 /// A password hashing function derives a uniform key from low-entropy input material such as passwords.
@@ -55,31 +86,6 @@ pub const onetimeauth = struct {
 /// Password hashing functions must be used whenever sensitive data has to be directly derived from a password.
 pub const pwhash = struct {
     pub const pbkdf2 = @import("crypto/pbkdf2.zig").pbkdf2;
-};
-
-/// Core functions, that should rarely be used directly by applications.
-pub const core = struct {
-    pub const aes = @import("crypto/aes.zig");
-    pub const Gimli = @import("crypto/gimli.zig").State;
-
-    /// Modes are generic compositions to construct encryption/decryption functions from block ciphers and permutations.
-    ///
-    /// These modes are designed to be building blocks for higher-level constructions, and should generally not be used directly by applications, as they may not provide the expected properties and security guarantees.
-    ///
-    /// Most applications may want to use AEADs instead.
-    pub const modes = @import("crypto/modes.zig");
-};
-
-/// Elliptic-curve arithmetic.
-pub const ecc = struct {
-    pub const Curve25519 = @import("crypto/25519/curve25519.zig").Curve25519;
-    pub const Edwards25519 = @import("crypto/25519/edwards25519.zig").Edwards25519;
-    pub const Ristretto255 = @import("crypto/25519/ristretto255.zig").Ristretto255;
-};
-
-/// Diffie-Hellman key exchange functions.
-pub const dh = struct {
-    pub const X25519 = @import("crypto/25519/x25519.zig").X25519;
 };
 
 /// Digital signature functions.

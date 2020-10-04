@@ -39,7 +39,11 @@ pub export fn main(argc: c_int, argv: [*]const [*:0]const u8) c_int {
     for (args) |*arg, i| {
         arg.* = mem.spanZ(argv[i]);
     }
-    stage2.mainArgs(gpa, arena, args) catch |err| fatal("{}", .{@errorName(err)});
+    if (std.builtin.mode == .Debug) {
+        stage2.mainArgs(gpa, arena, args) catch unreachable;
+    } else {
+        stage2.mainArgs(gpa, arena, args) catch |err| fatal("{}", .{@errorName(err)});
+    }
     return 0;
 }
 

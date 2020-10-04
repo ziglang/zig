@@ -63,6 +63,9 @@ endif()
 
 if(ZIG_STATIC)
     set(ZIG_STATIC_LLVM "on")
+    set(ZIG_LINK_MODE "Static")
+else()
+    set(ZIG_LINK_MODE "Dynamic")
 endif()
 
 string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_LIB_DIR_ESCAPED "${ZIG_LIBC_LIB_DIR}")
@@ -74,6 +77,7 @@ option(ZIG_TEST_COVERAGE "Build Zig with test coverage instrumentation" OFF)
 set(ZIG_TARGET_TRIPLE "native" CACHE STRING "arch-os-abi to output binaries for")
 set(ZIG_TARGET_MCPU "baseline" CACHE STRING "-mcpu parameter to output binaries for")
 set(ZIG_EXECUTABLE "" CACHE STRING "(when cross compiling) path to already-built zig binary")
+set(ZIG_PREFER_LLVM_CONFIG off CACHE BOOL "(when cross compiling) use llvm-config to find target llvm dependencies if needed")
 
 find_package(llvm)
 find_package(clang)
@@ -257,7 +261,6 @@ target_include_directories(embedded_softfloat PUBLIC
 )
 include_directories("${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/include")
 set(SOFTFLOAT_LIBRARIES embedded_softfloat)
-include_directories("${CMAKE_SOURCE_DIR}/deps/dbg-macro")
 
 find_package(Threads)
 
