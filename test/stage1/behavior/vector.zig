@@ -171,7 +171,7 @@ test "load vector elements via comptime index" {
             expect(v[1] == 2);
             expect(loadv(&v[2]) == 3);
         }
-        fn loadv(ptr: var) i32 {
+        fn loadv(ptr: anytype) i32 {
             return ptr.*;
         }
     };
@@ -194,7 +194,7 @@ test "store vector elements via comptime index" {
             storev(&v[0], 100);
             expect(v[0] == 100);
         }
-        fn storev(ptr: var, x: i32) void {
+        fn storev(ptr: anytype, x: i32) void {
             ptr.* = x;
         }
     };
@@ -273,6 +273,14 @@ test "vector comparison operators" {
                 expectEqual(@splat(4, false), v1 == v3);
                 expectEqual(@splat(4, true), v1 != v3);
                 expectEqual(@splat(4, false), v1 != v2);
+            }
+            {
+                // Comptime-known LHS/RHS
+                var v1: @Vector(4, u32) = [_]u32{ 2, 1, 2, 1 };
+                const v2 = @splat(4, @as(u32, 2));
+                const v3: @Vector(4, bool) = [_]bool{ true, false, true, false };
+                expectEqual(v3, v1 == v2);
+                expectEqual(v3, v2 == v1);
             }
         }
     };
@@ -392,7 +400,7 @@ test "vector shift operators" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     const S = struct {
-        fn doTheTestShift(x: var, y: var) void {
+        fn doTheTestShift(x: anytype, y: anytype) void {
             const N = @typeInfo(@TypeOf(x)).Array.len;
             const TX = @typeInfo(@TypeOf(x)).Array.child;
             const TY = @typeInfo(@TypeOf(y)).Array.child;
@@ -409,7 +417,7 @@ test "vector shift operators" {
                 expectEqual(x[i] << y[i], v);
             }
         }
-        fn doTheTestShiftExact(x: var, y: var, dir: enum { Left, Right }) void {
+        fn doTheTestShiftExact(x: anytype, y: anytype, dir: enum { Left, Right }) void {
             const N = @typeInfo(@TypeOf(x)).Array.len;
             const TX = @typeInfo(@TypeOf(x)).Array.child;
             const TY = @typeInfo(@TypeOf(y)).Array.child;

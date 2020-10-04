@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from:
 //
 // https://github.com/llvm/llvm-project/blob/02d85149a05cb1f6dc49f0ba7a2ceca53718ae17/compiler-rt/lib/builtins/fp_add_impl.inc
@@ -54,23 +59,25 @@ pub fn __aeabi_dsub(a: f64, b: f64) callconv(.AAPCS) f64 {
 }
 
 // TODO: restore inline keyword, see: https://github.com/ziglang/zig/issues/2154
-fn normalize(comptime T: type, significand: *std.meta.Int(false, T.bit_count)) i32 {
-    const Z = std.meta.Int(false, T.bit_count);
-    const S = std.meta.Int(false, T.bit_count - @clz(Z, @as(Z, T.bit_count) - 1));
+fn normalize(comptime T: type, significand: *std.meta.Int(false, @typeInfo(T).Float.bits)) i32 {
+    const bits = @typeInfo(T).Float.bits;
+    const Z = std.meta.Int(false, bits);
+    const S = std.meta.Int(false, bits - @clz(Z, @as(Z, bits) - 1));
     const significandBits = std.math.floatMantissaBits(T);
     const implicitBit = @as(Z, 1) << significandBits;
 
-    const shift = @clz(std.meta.Int(false, T.bit_count), significand.*) - @clz(Z, implicitBit);
+    const shift = @clz(std.meta.Int(false, bits), significand.*) - @clz(Z, implicitBit);
     significand.* <<= @intCast(S, shift);
     return 1 - shift;
 }
 
 // TODO: restore inline keyword, see: https://github.com/ziglang/zig/issues/2154
 fn addXf3(comptime T: type, a: T, b: T) T {
-    const Z = std.meta.Int(false, T.bit_count);
-    const S = std.meta.Int(false, T.bit_count - @clz(Z, @as(Z, T.bit_count) - 1));
+    const bits = @typeInfo(T).Float.bits;
+    const Z = std.meta.Int(false, bits);
+    const S = std.meta.Int(false, bits - @clz(Z, @as(Z, bits) - 1));
 
-    const typeWidth = T.bit_count;
+    const typeWidth = bits;
     const significandBits = std.math.floatMantissaBits(T);
     const exponentBits = std.math.floatExponentBits(T);
 
@@ -182,7 +189,7 @@ fn addXf3(comptime T: type, a: T, b: T) T {
         // If partial cancellation occured, we need to left-shift the result
         // and adjust the exponent:
         if (aSignificand < implicitBit << 3) {
-            const shift = @intCast(i32, @clz(Z, aSignificand)) - @intCast(i32, @clz(std.meta.Int(false, T.bit_count), implicitBit << 3));
+            const shift = @intCast(i32, @clz(Z, aSignificand)) - @intCast(i32, @clz(std.meta.Int(false, bits), implicitBit << 3));
             aSignificand <<= @intCast(S, shift);
             aExponent -= shift;
         }

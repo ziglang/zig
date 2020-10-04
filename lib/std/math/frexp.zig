@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -24,7 +29,7 @@ pub const frexp64_result = frexp_result(f64);
 ///  - frexp(+-0)   = +-0, 0
 ///  - frexp(+-inf) = +-inf, 0
 ///  - frexp(nan)   = nan, undefined
-pub fn frexp(x: var) frexp_result(@TypeOf(x)) {
+pub fn frexp(x: anytype) frexp_result(@TypeOf(x)) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => frexp32(x),

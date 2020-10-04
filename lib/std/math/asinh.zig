@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -15,7 +20,7 @@ const maxInt = std.math.maxInt;
 ///  - asinh(+-0)   = +-0
 ///  - asinh(+-inf) = +-inf
 ///  - asinh(nan)   = nan
-pub fn asinh(x: var) @TypeOf(x) {
+pub fn asinh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => asinh32(x),
@@ -51,7 +56,7 @@ fn asinh32(x: f32) f32 {
     }
     // |x| < 0x1p-12, inexact if x != 0
     else {
-        math.forceEval(x + 0x1.0p120);
+        math.doNotOptimizeAway(x + 0x1.0p120);
     }
 
     return if (s != 0) -rx else rx;
@@ -82,7 +87,7 @@ fn asinh64(x: f64) f64 {
     }
     // |x| < 0x1p-12, inexact if x != 0
     else {
-        math.forceEval(x + 0x1.0p120);
+        math.doNotOptimizeAway(x + 0x1.0p120);
     }
 
     return if (s != 0) -rx else rx;

@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const io = std.io;
 const mem = std.mem;
@@ -80,7 +85,7 @@ pub fn PeekStream(
 
 pub fn peekStream(
     comptime lookahead: comptime_int,
-    underlying_stream: var,
+    underlying_stream: anytype,
 ) PeekStream(.{ .Static = lookahead }, @TypeOf(underlying_stream)) {
     return PeekStream(.{ .Static = lookahead }, @TypeOf(underlying_stream)).init(underlying_stream);
 }

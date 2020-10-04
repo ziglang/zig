@@ -23,7 +23,7 @@ pub fn isCommand(comptime T: type) bool {
 }
 
 pub const ArgSerializer = struct {
-    pub fn serializeCommand(command: var) void {
+    pub fn serializeCommand(command: anytype) void {
         const CmdT = @TypeOf(command);
 
         if (comptime isCommand(CmdT)) {

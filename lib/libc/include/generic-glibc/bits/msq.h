@@ -20,7 +20,12 @@
 #endif
 
 #include <bits/types.h>
-#include <bits/msq-pad.h>
+
+/* Types used in the MSQID_DS structure definition.  */
+typedef __syscall_ulong_t msgqnum_t;
+typedef __syscall_ulong_t msglen_t;
+
+#include <bits/types/struct_msqid_ds.h>
 
 /* Define options for message queue functions.  */
 #define MSG_NOERROR	010000	/* no error if message is too big */
@@ -28,38 +33,6 @@
 # define MSG_EXCEPT	020000	/* recv any msg except of specified type */
 # define MSG_COPY	040000	/* copy (not remove) all queue messages */
 #endif
-
-/* Types used in the structure definition.  */
-typedef __syscall_ulong_t msgqnum_t;
-typedef __syscall_ulong_t msglen_t;
-
-#if __MSQ_PAD_BEFORE_TIME
-# define __MSQ_PAD_TIME(NAME, RES)				\
-  unsigned long int __glibc_reserved ## RES; __time_t NAME
-#elif __MSQ_PAD_AFTER_TIME
-# define __MSQ_PAD_TIME(NAME, RES)				\
-  __time_t NAME; unsigned long int __glibc_reserved ## RES
-#else
-# define __MSQ_PAD_TIME(NAME, RES)		\
-  __time_t NAME
-#endif
-
-/* Structure of record for one message inside the kernel.
-   The type `struct msg' is opaque.  */
-struct msqid_ds
-{
-  struct ipc_perm msg_perm;	/* structure describing operation permission */
-  __MSQ_PAD_TIME (msg_stime, 1);	/* time of last msgsnd command */
-  __MSQ_PAD_TIME (msg_rtime, 2);	/* time of last msgrcv command */
-  __MSQ_PAD_TIME (msg_ctime, 3);	/* time of last change */
-  __syscall_ulong_t __msg_cbytes; /* current number of bytes on queue */
-  msgqnum_t msg_qnum;		/* number of messages currently on queue */
-  msglen_t msg_qbytes;		/* max number of bytes allowed on queue */
-  __pid_t msg_lspid;		/* pid of last msgsnd() */
-  __pid_t msg_lrpid;		/* pid of last msgrcv() */
-  __syscall_ulong_t __glibc_reserved4;
-  __syscall_ulong_t __glibc_reserved5;
-};
 
 #ifdef __USE_MISC
 

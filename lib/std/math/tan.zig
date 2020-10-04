@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from go, which is licensed under a BSD-3 license.
 // https://golang.org/LICENSE
 //
@@ -14,7 +19,7 @@ const expect = std.testing.expect;
 ///  - tan(+-0)   = +-0
 ///  - tan(+-inf) = nan
 ///  - tan(nan)   = nan
-pub fn tan(x: var) @TypeOf(x) {
+pub fn tan(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => tan_(f32, x),
@@ -38,7 +43,7 @@ const pi4c = 2.69515142907905952645E-15;
 const m4pi = 1.273239544735162542821171882678754627704620361328125;
 
 fn tan_(comptime T: type, x_: T) T {
-    const I = std.meta.Int(true, T.bit_count);
+    const I = std.meta.Int(true, @typeInfo(T).Float.bits);
 
     var x = x_;
     if (x == 0 or math.isNan(x)) {

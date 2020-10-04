@@ -1,8 +1,14 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const os = std.os;
 const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
+const expectError = testing.expectError;
 const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
@@ -17,6 +23,147 @@ const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 const tmpDir = std.testing.tmpDir;
 const Dir = std.fs.Dir;
+const ArenaAllocator = std.heap.ArenaAllocator;
+
+test "open smoke test" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    // TODO verify file attributes using `fstat`
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Get base abs path
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const base_path = blk: {
+        const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
+    };
+
+    var file_path: []u8 = undefined;
+    var fd: os.fd_t = undefined;
+    const mode: os.mode_t = if (builtin.os.tag == .windows) 0 else 0o666;
+
+    // Create some file using `open`.
+    file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
+    fd = try os.open(file_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, mode);
+    os.close(fd);
+
+    // Try this again with the same flags. This op should fail with error.PathAlreadyExists.
+    file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
+    expectError(error.PathAlreadyExists, os.open(file_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, mode));
+
+    // Try opening without `O_EXCL` flag.
+    file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
+    fd = try os.open(file_path, os.O_RDWR | os.O_CREAT, mode);
+    os.close(fd);
+
+    // Try opening as a directory which should fail.
+    file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_file" });
+    expectError(error.NotDir, os.open(file_path, os.O_RDWR | os.O_DIRECTORY, mode));
+
+    // Create some directory
+    file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_dir" });
+    try os.mkdir(file_path, mode);
+
+    // Open dir using `open`
+    file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_dir" });
+    fd = try os.open(file_path, os.O_RDONLY | os.O_DIRECTORY, mode);
+    os.close(fd);
+
+    // Try opening as file which should fail.
+    file_path = try fs.path.join(&arena.allocator, &[_][]const u8{ base_path, "some_dir" });
+    expectError(error.IsDir, os.open(file_path, os.O_RDWR, mode));
+}
+
+test "openat smoke test" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    // TODO verify file attributes using `fstatat`
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var fd: os.fd_t = undefined;
+    const mode: os.mode_t = if (builtin.os.tag == .windows) 0 else 0o666;
+
+    // Create some file using `openat`.
+    fd = try os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT | os.O_EXCL, mode);
+    os.close(fd);
+
+    // Try this again with the same flags. This op should fail with error.PathAlreadyExists.
+    expectError(error.PathAlreadyExists, os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT | os.O_EXCL, mode));
+
+    // Try opening without `O_EXCL` flag.
+    fd = try os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_CREAT, mode);
+    os.close(fd);
+
+    // Try opening as a directory which should fail.
+    expectError(error.NotDir, os.openat(tmp.dir.fd, "some_file", os.O_RDWR | os.O_DIRECTORY, mode));
+
+    // Create some directory
+    try os.mkdirat(tmp.dir.fd, "some_dir", mode);
+
+    // Open dir using `open`
+    fd = try os.openat(tmp.dir.fd, "some_dir", os.O_RDONLY | os.O_DIRECTORY, mode);
+    os.close(fd);
+
+    // Try opening as file which should fail.
+    expectError(error.IsDir, os.openat(tmp.dir.fd, "some_dir", os.O_RDWR, mode));
+}
+
+test "symlink with relative paths" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const cwd = fs.cwd();
+    cwd.deleteFile("file.txt") catch {};
+    cwd.deleteFile("symlinked") catch {};
+
+    // First, try relative paths in cwd
+    try cwd.writeFile("file.txt", "nonsense");
+
+    if (builtin.os.tag == .windows) {
+        os.windows.CreateSymbolicLink(
+            cwd.fd,
+            &[_]u16{ 's', 'y', 'm', 'l', 'i', 'n', 'k', 'e', 'd' },
+            &[_]u16{ 'f', 'i', 'l', 'e', '.', 't', 'x', 't' },
+            false,
+        ) catch |err| switch (err) {
+            // Symlink requires admin privileges on windows, so this test can legitimately fail.
+            error.AccessDenied => {
+                try cwd.deleteFile("file.txt");
+                try cwd.deleteFile("symlinked");
+                return error.SkipZigTest;
+            },
+            else => return err,
+        };
+    } else {
+        try os.symlink("file.txt", "symlinked");
+    }
+
+    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const given = try os.readlink("symlinked", buffer[0..]);
+    expect(mem.eql(u8, "file.txt", given));
+
+    try cwd.deleteFile("file.txt");
+    try cwd.deleteFile("symlinked");
+}
+
+test "readlink on Windows" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    try testReadlink("C:\\ProgramData", "C:\\Users\\All Users");
+    try testReadlink("C:\\Users\\Default", "C:\\Users\\Default User");
+    try testReadlink("C:\\Users", "C:\\Documents and Settings");
+}
+
+fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
+    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const given = try os.readlink(symlink_path, buffer[0..]);
+    expect(mem.eql(u8, target_path, given));
+}
 
 test "fstatat" {
     // enable when `fstat` and `fstatat` are implemented on Windows
@@ -41,9 +188,6 @@ test "fstatat" {
 }
 
 test "readlinkat" {
-    // enable when `readlinkat` and `symlinkat` are implemented on Windows
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -51,7 +195,20 @@ test "readlinkat" {
     try tmp.dir.writeFile("file.txt", "nonsense");
 
     // create a symbolic link
-    try os.symlinkat("file.txt", tmp.dir.fd, "link");
+    if (builtin.os.tag == .windows) {
+        os.windows.CreateSymbolicLink(
+            tmp.dir.fd,
+            &[_]u16{ 'l', 'i', 'n', 'k' },
+            &[_]u16{ 'f', 'i', 'l', 'e', '.', 't', 'x', 't' },
+            false,
+        ) catch |err| switch (err) {
+            // Symlink requires admin privileges on windows, so this test can legitimately fail.
+            error.AccessDenied => return error.SkipZigTest,
+            else => return err,
+        };
+    } else {
+        try os.symlinkat("file.txt", tmp.dir.fd, "link");
+    }
 
     // read the link
     var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
@@ -59,135 +216,8 @@ test "readlinkat" {
     expect(mem.eql(u8, "file.txt", read_link));
 }
 
-test "makePath, put some files in it, deleteTree" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    try tmp.dir.makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
-    try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
-    try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
-    try tmp.dir.deleteTree("os_test_tmp");
-    if (tmp.dir.openDir("os_test_tmp", .{})) |dir| {
-        @panic("expected error");
-    } else |err| {
-        expect(err == error.FileNotFound);
-    }
-}
-
-test "access file" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    try tmp.dir.makePath("os_test_tmp");
-    if (tmp.dir.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{})) |ok| {
-        @panic("expected error");
-    } else |err| {
-        expect(err == error.FileNotFound);
-    }
-
-    try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", "");
-    try tmp.dir.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{});
-    try tmp.dir.deleteTree("os_test_tmp");
-}
-
 fn testThreadIdFn(thread_id: *Thread.Id) void {
     thread_id.* = Thread.getCurrentId();
-}
-
-test "sendfile" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    try tmp.dir.makePath("os_test_tmp");
-    defer tmp.dir.deleteTree("os_test_tmp") catch {};
-
-    var dir = try tmp.dir.openDir("os_test_tmp", .{});
-    defer dir.close();
-
-    const line1 = "line1\n";
-    const line2 = "second line\n";
-    var vecs = [_]os.iovec_const{
-        .{
-            .iov_base = line1,
-            .iov_len = line1.len,
-        },
-        .{
-            .iov_base = line2,
-            .iov_len = line2.len,
-        },
-    };
-
-    var src_file = try dir.createFile("sendfile1.txt", .{ .read = true });
-    defer src_file.close();
-
-    try src_file.writevAll(&vecs);
-
-    var dest_file = try dir.createFile("sendfile2.txt", .{ .read = true });
-    defer dest_file.close();
-
-    const header1 = "header1\n";
-    const header2 = "second header\n";
-    const trailer1 = "trailer1\n";
-    const trailer2 = "second trailer\n";
-    var hdtr = [_]os.iovec_const{
-        .{
-            .iov_base = header1,
-            .iov_len = header1.len,
-        },
-        .{
-            .iov_base = header2,
-            .iov_len = header2.len,
-        },
-        .{
-            .iov_base = trailer1,
-            .iov_len = trailer1.len,
-        },
-        .{
-            .iov_base = trailer2,
-            .iov_len = trailer2.len,
-        },
-    };
-
-    var written_buf: [100]u8 = undefined;
-    try dest_file.writeFileAll(src_file, .{
-        .in_offset = 1,
-        .in_len = 10,
-        .headers_and_trailers = &hdtr,
-        .header_count = 2,
-    });
-    const amt = try dest_file.preadAll(&written_buf, 0);
-    expect(mem.eql(u8, written_buf[0..amt], "header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n"));
-}
-
-test "fs.copyFile" {
-    const data = "u6wj+JmdF3qHsFPE BUlH2g4gJCmEz0PP";
-    const src_file = "tmp_test_copy_file.txt";
-    const dest_file = "tmp_test_copy_file2.txt";
-    const dest_file2 = "tmp_test_copy_file3.txt";
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    try tmp.dir.writeFile(src_file, data);
-    defer tmp.dir.deleteFile(src_file) catch {};
-
-    try tmp.dir.copyFile(src_file, tmp.dir, dest_file, .{});
-    defer tmp.dir.deleteFile(dest_file) catch {};
-
-    try tmp.dir.copyFile(src_file, tmp.dir, dest_file2, .{ .override_mode = File.default_mode });
-    defer tmp.dir.deleteFile(dest_file2) catch {};
-
-    try expectFileContents(tmp.dir, dest_file, data);
-    try expectFileContents(tmp.dir, dest_file2, data);
-}
-
-fn expectFileContents(dir: Dir, file_path: []const u8, data: []const u8) !void {
-    const contents = try dir.readFileAlloc(testing.allocator, file_path, 1000);
-    defer testing.allocator.free(contents);
-
-    testing.expectEqualSlices(u8, data, contents);
 }
 
 test "std.Thread.getCurrentId" {
@@ -242,29 +272,6 @@ test "cpu count" {
     expect(cpu_count >= 1);
 }
 
-test "AtomicFile" {
-    const test_out_file = "tmp_atomic_file_test_dest.txt";
-    const test_content =
-        \\ hello!
-        \\ this is a test file
-    ;
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    {
-        var af = try tmp.dir.atomicFile(test_out_file, .{});
-        defer af.deinit();
-        try af.file.writeAll(test_content);
-        try af.finish();
-    }
-    const content = try tmp.dir.readFileAlloc(testing.allocator, test_out_file, 9999);
-    defer testing.allocator.free(content);
-    expect(mem.eql(u8, content, test_content));
-
-    try tmp.dir.deleteFile(test_out_file);
-}
-
 test "thread local storage" {
     if (builtin.single_threaded) return error.SkipZigTest;
     const thread1 = try Thread.spawn({}, testTls);
@@ -297,13 +304,6 @@ test "getcwd" {
     // at least call it so it gets compiled
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     _ = os.getcwd(&buf) catch undefined;
-}
-
-test "realpath" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    testing.expectError(error.FileNotFound, fs.realpath("definitely_bogus_does_not_exist1234", &buf));
 }
 
 test "sigaltstack" {
@@ -548,4 +548,46 @@ test "fcntl" {
         const flags = try os.fcntl(file.handle, os.F_GETFD, 0);
         expect((flags & os.FD_CLOEXEC) != 0);
     }
+}
+
+test "signalfd" {
+    if (builtin.os.tag != .linux)
+        return error.SkipZigTest;
+    _ = std.os.signalfd;
+}
+
+test "sync" {
+    if (builtin.os.tag != .linux)
+        return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const test_out_file = "os_tmp_test";
+    const file = try tmp.dir.createFile(test_out_file, .{});
+    defer {
+        file.close();
+        tmp.dir.deleteFile(test_out_file) catch {};
+    }
+
+    os.sync();
+    try os.syncfs(file.handle);
+}
+
+test "fsync" {
+    if (builtin.os.tag != .linux and builtin.os.tag != .windows)
+        return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const test_out_file = "os_tmp_test";
+    const file = try tmp.dir.createFile(test_out_file, .{});
+    defer {
+        file.close();
+        tmp.dir.deleteFile(test_out_file) catch {};
+    }
+
+    try os.fsync(file.handle);
+    try os.fdatasync(file.handle);
 }

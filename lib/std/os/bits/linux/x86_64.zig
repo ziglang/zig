@@ -1,7 +1,13 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // x86-64-specific declarations that are intended to be imported into the POSIX namespace.
 const std = @import("../../../std.zig");
 const pid_t = linux.pid_t;
 const uid_t = linux.uid_t;
+const gid_t = linux.gid_t;
 const clock_t = linux.clock_t;
 const stack_t = linux.stack_t;
 const sigset_t = linux.sigset_t;
@@ -518,8 +524,8 @@ pub const Stat = extern struct {
     nlink: usize,
 
     mode: u32,
-    uid: u32,
-    gid: u32,
+    uid: uid_t,
+    gid: gid_t,
     __pad0: u32,
     rdev: u64,
     size: off_t,

@@ -1,8 +1,12 @@
-const mem = @import("../mem.zig");
-const math = @import("../math.zig");
-const endian = @import("../endian.zig");
-const debug = @import("../debug.zig");
-const builtin = @import("builtin");
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
+const std = @import("../std.zig");
+const mem = std.mem;
+const math = std.math;
+const debug = std.debug;
 const htest = @import("test.zig");
 
 const RoundParam = struct {
@@ -31,11 +35,12 @@ fn Rp(a: usize, b: usize, c: usize, d: usize, x: usize, y: usize) RoundParam {
 pub const Blake2s224 = Blake2s(224);
 pub const Blake2s256 = Blake2s(256);
 
-fn Blake2s(comptime out_len: usize) type {
+pub fn Blake2s(comptime out_len: usize) type {
     return struct {
         const Self = @This();
         pub const block_length = 64;
         pub const digest_length = out_len / 8;
+        pub const Options = struct { key: ?[]const u8 = null, salt: ?[8]u8 = null, context: ?[8]u8 = null };
 
         const iv = [8]u32{
             0x6A09E667,
@@ -67,25 +72,36 @@ fn Blake2s(comptime out_len: usize) type {
         buf: [64]u8,
         buf_len: u8,
 
-        pub fn init() Self {
+        pub fn init(options: Options) Self {
             debug.assert(8 <= out_len and out_len <= 512);
 
-            var s: Self = undefined;
-            s.reset();
-            return s;
-        }
-
-        pub fn reset(d: *Self) void {
+            var d: Self = undefined;
             mem.copy(u32, d.h[0..], iv[0..]);
 
-            // No key plus default parameters
-            d.h[0] ^= 0x01010000 ^ @intCast(u32, out_len >> 3);
+            const key_len = if (options.key) |key| key.len else 0;
+            // default parameters
+            d.h[0] ^= 0x01010000 ^ @truncate(u32, key_len << 8) ^ @intCast(u32, out_len >> 3);
             d.t = 0;
             d.buf_len = 0;
+
+            if (options.salt) |salt| {
+                d.h[4] ^= mem.readIntLittle(u32, salt[0..4]);
+                d.h[5] ^= mem.readIntLittle(u32, salt[4..8]);
+            }
+            if (options.context) |context| {
+                d.h[6] ^= mem.readIntLittle(u32, context[0..4]);
+                d.h[7] ^= mem.readIntLittle(u32, context[4..8]);
+            }
+            if (key_len > 0) {
+                mem.set(u8, d.buf[key_len..], 0);
+                d.update(options.key.?);
+                d.buf_len = 64;
+            }
+            return d;
         }
 
-        pub fn hash(b: []const u8, out: []u8) void {
-            var d = Self.init();
+        pub fn hash(b: []const u8, out: []u8, options: Options) void {
+            var d = Self.init(options);
             d.update(b);
             d.final(out);
         }
@@ -94,7 +110,7 @@ fn Blake2s(comptime out_len: usize) type {
             var off: usize = 0;
 
             // Partial buffer exists from previous update. Copy into buffer then hash.
-            if (d.buf_len != 0 and d.buf_len + b.len >= 64) {
+            if (d.buf_len != 0 and d.buf_len + b.len > 64) {
                 off += 64 - d.buf_len;
                 mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
                 d.t += 64;
@@ -103,7 +119,7 @@ fn Blake2s(comptime out_len: usize) type {
             }
 
             // Full middle blocks.
-            while (off + 64 <= b.len) : (off += 64) {
+            while (off + 64 < b.len) : (off += 64) {
                 d.t += 64;
                 d.round(b[off .. off + 64], false);
             }
@@ -123,7 +139,7 @@ fn Blake2s(comptime out_len: usize) type {
             const rr = d.h[0 .. out_len / 32];
 
             for (rr) |s, j| {
-                mem.writeIntLittle(u32, out[4 * j ..][0..4], s);
+                mem.writeIntSliceLittle(u32, out[4 * j ..], s);
             }
         }
 
@@ -188,10 +204,13 @@ test "blake2s224 single" {
 
     const h3 = "e4e5cb6c7cae41982b397bf7b7d2d9d1949823ae78435326e8db4912";
     htest.assertEqualHash(Blake2s224, h3, "The quick brown fox jumps over the lazy dog");
+
+    const h4 = "557381a78facd2b298640f4e32113e58967d61420af1aa939d0cfe01";
+    htest.assertEqualHash(Blake2s224, h4, "a" ** 32 ++ "b" ** 32);
 }
 
 test "blake2s224 streaming" {
-    var h = Blake2s224.init();
+    var h = Blake2s224.init(.{});
     var out: [28]u8 = undefined;
 
     const h1 = "1fa1291e65248b37b3433475b2a0dd63d54a11ecc4e3e034e7bc1ef4";
@@ -201,17 +220,61 @@ test "blake2s224 streaming" {
 
     const h2 = "0b033fc226df7abde29f67a05d3dc62cf271ef3dfea4d387407fbd55";
 
-    h.reset();
+    h = Blake2s224.init(.{});
     h.update("abc");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
 
-    h.reset();
+    h = Blake2s224.init(.{});
     h.update("a");
     h.update("b");
     h.update("c");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
+
+    const h3 = "557381a78facd2b298640f4e32113e58967d61420af1aa939d0cfe01";
+
+    h = Blake2s224.init(.{});
+    h.update("a" ** 32);
+    h.update("b" ** 32);
+    h.final(out[0..]);
+    htest.assertEqual(h3, out[0..]);
+
+    h = Blake2s224.init(.{});
+    h.update("a" ** 32 ++ "b" ** 32);
+    h.final(out[0..]);
+    htest.assertEqual(h3, out[0..]);
+
+    const h4 = "a4d6a9d253441b80e5dfd60a04db169ffab77aec56a2855c402828c3";
+
+    h = Blake2s224.init(.{ .context = [_]u8{0x69} ** 8, .salt = [_]u8{0x42} ** 8 });
+    h.update("a" ** 32);
+    h.update("b" ** 32);
+    h.final(out[0..]);
+    htest.assertEqual(h4, out[0..]);
+
+    h = Blake2s224.init(.{ .context = [_]u8{0x69} ** 8, .salt = [_]u8{0x42} ** 8 });
+    h.update("a" ** 32 ++ "b" ** 32);
+    h.final(out[0..]);
+    htest.assertEqual(h4, out[0..]);
+}
+
+test "comptime blake2s224" {
+    comptime {
+        @setEvalBranchQuota(6000);
+        var block = [_]u8{0} ** Blake2s224.block_length;
+        var out: [Blake2s224.digest_length]u8 = undefined;
+
+        const h1 = "86b7611563293f8c73627df7a6d6ba25ca0548c2a6481f7d116ee576";
+
+        htest.assertEqualHash(Blake2s224, h1, block[0..]);
+
+        var h = Blake2s224.init(.{});
+        h.update(&block);
+        h.final(out[0..]);
+
+        htest.assertEqual(h1, out[0..]);
+    }
 }
 
 test "blake2s256 single" {
@@ -223,10 +286,13 @@ test "blake2s256 single" {
 
     const h3 = "606beeec743ccbeff6cbcdf5d5302aa855c256c29b88c8ed331ea1a6bf3c8812";
     htest.assertEqualHash(Blake2s256, h3, "The quick brown fox jumps over the lazy dog");
+
+    const h4 = "8d8711dade07a6b92b9a3ea1f40bee9b2c53ff3edd2a273dec170b0163568977";
+    htest.assertEqualHash(Blake2s256, h4, "a" ** 32 ++ "b" ** 32);
 }
 
 test "blake2s256 streaming" {
-    var h = Blake2s256.init();
+    var h = Blake2s256.init(.{});
     var out: [32]u8 = undefined;
 
     const h1 = "69217a3079908094e11121d042354a7c1f55b6482ca1a51e1b250dfd1ed0eef9";
@@ -236,39 +302,86 @@ test "blake2s256 streaming" {
 
     const h2 = "508c5e8c327c14e2e1a72ba34eeb452f37458b209ed63a294d999b4c86675982";
 
-    h.reset();
+    h = Blake2s256.init(.{});
     h.update("abc");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
 
-    h.reset();
+    h = Blake2s256.init(.{});
     h.update("a");
     h.update("b");
     h.update("c");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
+
+    const h3 = "8d8711dade07a6b92b9a3ea1f40bee9b2c53ff3edd2a273dec170b0163568977";
+
+    h = Blake2s256.init(.{});
+    h.update("a" ** 32);
+    h.update("b" ** 32);
+    h.final(out[0..]);
+    htest.assertEqual(h3, out[0..]);
+
+    h = Blake2s256.init(.{});
+    h.update("a" ** 32 ++ "b" ** 32);
+    h.final(out[0..]);
+    htest.assertEqual(h3, out[0..]);
 }
 
-test "blake2s256 aligned final" {
-    var block = [_]u8{0} ** Blake2s256.block_length;
-    var out: [Blake2s256.digest_length]u8 = undefined;
+test "blake2s256 keyed" {
+    var out: [32]u8 = undefined;
 
-    var h = Blake2s256.init();
-    h.update(&block);
+    const h1 = "10f918da4d74fab3302e48a5d67d03804b1ec95372a62a0f33b7c9fa28ba1ae6";
+    const key = "secret_key";
+
+    Blake2s256.hash("a" ** 64 ++ "b" ** 64, &out, .{ .key = key });
+    htest.assertEqual(h1, out[0..]);
+
+    var h = Blake2s256.init(.{ .key = key });
+    h.update("a" ** 64 ++ "b" ** 64);
     h.final(out[0..]);
+
+    htest.assertEqual(h1, out[0..]);
+
+    h = Blake2s256.init(.{ .key = key });
+    h.update("a" ** 64);
+    h.update("b" ** 64);
+    h.final(out[0..]);
+
+    htest.assertEqual(h1, out[0..]);
+}
+
+test "comptime blake2s256" {
+    comptime {
+        @setEvalBranchQuota(6000);
+        var block = [_]u8{0} ** Blake2s256.block_length;
+        var out: [Blake2s256.digest_length]u8 = undefined;
+
+        const h1 = "ae09db7cd54f42b490ef09b6bc541af688e4959bb8c53f359a6f56e38ab454a3";
+
+        htest.assertEqualHash(Blake2s256, h1, block[0..]);
+
+        var h = Blake2s256.init(.{});
+        h.update(&block);
+        h.final(out[0..]);
+
+        htest.assertEqual(h1, out[0..]);
+    }
 }
 
 /////////////////////
 // Blake2b
 
+pub const Blake2b256 = Blake2b(256);
 pub const Blake2b384 = Blake2b(384);
 pub const Blake2b512 = Blake2b(512);
 
-fn Blake2b(comptime out_len: usize) type {
+pub fn Blake2b(comptime out_len: usize) type {
     return struct {
         const Self = @This();
         pub const block_length = 128;
         pub const digest_length = out_len / 8;
+        pub const Options = struct { key: ?[]const u8 = null, salt: ?[16]u8 = null, context: ?[16]u8 = null };
 
         const iv = [8]u64{
             0x6a09e667f3bcc908,
@@ -302,25 +415,36 @@ fn Blake2b(comptime out_len: usize) type {
         buf: [128]u8,
         buf_len: u8,
 
-        pub fn init() Self {
+        pub fn init(options: Options) Self {
             debug.assert(8 <= out_len and out_len <= 512);
 
-            var s: Self = undefined;
-            s.reset();
-            return s;
-        }
-
-        pub fn reset(d: *Self) void {
+            var d: Self = undefined;
             mem.copy(u64, d.h[0..], iv[0..]);
 
-            // No key plus default parameters
-            d.h[0] ^= 0x01010000 ^ (out_len >> 3);
+            const key_len = if (options.key) |key| key.len else 0;
+            // default parameters
+            d.h[0] ^= 0x01010000 ^ (key_len << 8) ^ (out_len >> 3);
             d.t = 0;
             d.buf_len = 0;
+
+            if (options.salt) |salt| {
+                d.h[4] ^= mem.readIntLittle(u64, salt[0..8]);
+                d.h[5] ^= mem.readIntLittle(u64, salt[8..16]);
+            }
+            if (options.context) |context| {
+                d.h[6] ^= mem.readIntLittle(u64, context[0..8]);
+                d.h[7] ^= mem.readIntLittle(u64, context[8..16]);
+            }
+            if (key_len > 0) {
+                mem.set(u8, d.buf[key_len..], 0);
+                d.update(options.key.?);
+                d.buf_len = 128;
+            }
+            return d;
         }
 
-        pub fn hash(b: []const u8, out: []u8) void {
-            var d = Self.init();
+        pub fn hash(b: []const u8, out: []u8, options: Options) void {
+            var d = Self.init(options);
             d.update(b);
             d.final(out);
         }
@@ -329,7 +453,7 @@ fn Blake2b(comptime out_len: usize) type {
             var off: usize = 0;
 
             // Partial buffer exists from previous update. Copy into buffer then hash.
-            if (d.buf_len != 0 and d.buf_len + b.len >= 128) {
+            if (d.buf_len != 0 and d.buf_len + b.len > 128) {
                 off += 128 - d.buf_len;
                 mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
                 d.t += 128;
@@ -338,7 +462,7 @@ fn Blake2b(comptime out_len: usize) type {
             }
 
             // Full middle blocks.
-            while (off + 128 <= b.len) : (off += 128) {
+            while (off + 128 < b.len) : (off += 128) {
                 d.t += 128;
                 d.round(b[off .. off + 128], false);
             }
@@ -356,7 +480,7 @@ fn Blake2b(comptime out_len: usize) type {
             const rr = d.h[0 .. out_len / 64];
 
             for (rr) |s, j| {
-                mem.writeIntLittle(u64, out[8 * j ..][0..8], s);
+                mem.writeIntSliceLittle(u64, out[8 * j ..], s);
             }
         }
 
@@ -421,10 +545,13 @@ test "blake2b384 single" {
 
     const h3 = "b7c81b228b6bd912930e8f0b5387989691c1cee1e65aade4da3b86a3c9f678fc8018f6ed9e2906720c8d2a3aeda9c03d";
     htest.assertEqualHash(Blake2b384, h3, "The quick brown fox jumps over the lazy dog");
+
+    const h4 = "b7283f0172fecbbd7eca32ce10d8a6c06b453cb3cf675b33eb4246f0da2bb94a6c0bdd6eec0b5fd71ec4fd51be80bf4c";
+    htest.assertEqualHash(Blake2b384, h4, "a" ** 64 ++ "b" ** 64);
 }
 
 test "blake2b384 streaming" {
-    var h = Blake2b384.init();
+    var h = Blake2b384.init(.{});
     var out: [48]u8 = undefined;
 
     const h1 = "b32811423377f52d7862286ee1a72ee540524380fda1724a6f25d7978c6fd3244a6caf0498812673c5e05ef583825100";
@@ -434,17 +561,68 @@ test "blake2b384 streaming" {
 
     const h2 = "6f56a82c8e7ef526dfe182eb5212f7db9df1317e57815dbda46083fc30f54ee6c66ba83be64b302d7cba6ce15bb556f4";
 
-    h.reset();
+    h = Blake2b384.init(.{});
     h.update("abc");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
 
-    h.reset();
+    h = Blake2b384.init(.{});
     h.update("a");
     h.update("b");
     h.update("c");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
+
+    const h3 = "b7283f0172fecbbd7eca32ce10d8a6c06b453cb3cf675b33eb4246f0da2bb94a6c0bdd6eec0b5fd71ec4fd51be80bf4c";
+
+    h = Blake2b384.init(.{});
+    h.update("a" ** 64 ++ "b" ** 64);
+    h.final(out[0..]);
+    htest.assertEqual(h3, out[0..]);
+
+    h = Blake2b384.init(.{});
+    h.update("a" ** 64);
+    h.update("b" ** 64);
+    h.final(out[0..]);
+    htest.assertEqual(h3, out[0..]);
+
+    h = Blake2b384.init(.{});
+    h.update("a" ** 64);
+    h.update("b" ** 64);
+    h.final(out[0..]);
+    htest.assertEqual(h3, out[0..]);
+
+    const h4 = "934c48fcb197031c71f583d92f98703510805e72142e0b46f5752d1e971bc86c355d556035613ff7a4154b4de09dac5c";
+
+    h = Blake2b384.init(.{ .context = [_]u8{0x69} ** 16, .salt = [_]u8{0x42} ** 16 });
+    h.update("a" ** 64);
+    h.update("b" ** 64);
+    h.final(out[0..]);
+    htest.assertEqual(h4, out[0..]);
+
+    h = Blake2b384.init(.{ .context = [_]u8{0x69} ** 16, .salt = [_]u8{0x42} ** 16 });
+    h.update("a" ** 64);
+    h.update("b" ** 64);
+    h.final(out[0..]);
+    htest.assertEqual(h4, out[0..]);
+}
+
+test "comptime blake2b384" {
+    comptime {
+        @setEvalBranchQuota(7000);
+        var block = [_]u8{0} ** Blake2b384.block_length;
+        var out: [Blake2b384.digest_length]u8 = undefined;
+
+        const h1 = "e8aa1931ea0422e4446fecdd25c16cf35c240b10cb4659dd5c776eddcaa4d922397a589404b46eb2e53d78132d05fd7d";
+
+        htest.assertEqualHash(Blake2b384, h1, block[0..]);
+
+        var h = Blake2b384.init(.{});
+        h.update(&block);
+        h.final(out[0..]);
+
+        htest.assertEqual(h1, out[0..]);
+    }
 }
 
 test "blake2b512 single" {
@@ -456,10 +634,13 @@ test "blake2b512 single" {
 
     const h3 = "a8add4bdddfd93e4877d2746e62817b116364a1fa7bc148d95090bc7333b3673f82401cf7aa2e4cb1ecd90296e3f14cb5413f8ed77be73045b13914cdcd6a918";
     htest.assertEqualHash(Blake2b512, h3, "The quick brown fox jumps over the lazy dog");
+
+    const h4 = "049980af04d6a2cf16b4b49793c3ed7e40732073788806f2c989ebe9547bda0541d63abe298ec8955d08af48ae731f2e8a0bd6d201655a5473b4aa79d211b920";
+    htest.assertEqualHash(Blake2b512, h4, "a" ** 64 ++ "b" ** 64);
 }
 
 test "blake2b512 streaming" {
-    var h = Blake2b512.init();
+    var h = Blake2b512.init(.{});
     var out: [64]u8 = undefined;
 
     const h1 = "786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce";
@@ -469,24 +650,69 @@ test "blake2b512 streaming" {
 
     const h2 = "ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923";
 
-    h.reset();
+    h = Blake2b512.init(.{});
     h.update("abc");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
 
-    h.reset();
+    h = Blake2b512.init(.{});
     h.update("a");
     h.update("b");
     h.update("c");
     h.final(out[0..]);
     htest.assertEqual(h2, out[0..]);
+
+    const h3 = "049980af04d6a2cf16b4b49793c3ed7e40732073788806f2c989ebe9547bda0541d63abe298ec8955d08af48ae731f2e8a0bd6d201655a5473b4aa79d211b920";
+
+    h = Blake2b512.init(.{});
+    h.update("a" ** 64 ++ "b" ** 64);
+    h.final(out[0..]);
+    htest.assertEqual(h3, out[0..]);
+
+    h = Blake2b512.init(.{});
+    h.update("a" ** 64);
+    h.update("b" ** 64);
+    h.final(out[0..]);
+    htest.assertEqual(h3, out[0..]);
 }
 
-test "blake2b512 aligned final" {
-    var block = [_]u8{0} ** Blake2b512.block_length;
-    var out: [Blake2b512.digest_length]u8 = undefined;
+test "blake2b512 keyed" {
+    var out: [64]u8 = undefined;
 
-    var h = Blake2b512.init();
-    h.update(&block);
+    const h1 = "8a978060ccaf582f388f37454363071ac9a67e3a704585fd879fb8a419a447e389c7c6de790faa20a7a7dccf197de736bc5b40b98a930b36df5bee7555750c4d";
+    const key = "secret_key";
+
+    Blake2b512.hash("a" ** 64 ++ "b" ** 64, &out, .{ .key = key });
+    htest.assertEqual(h1, out[0..]);
+
+    var h = Blake2b512.init(.{ .key = key });
+    h.update("a" ** 64 ++ "b" ** 64);
     h.final(out[0..]);
+
+    htest.assertEqual(h1, out[0..]);
+
+    h = Blake2b512.init(.{ .key = key });
+    h.update("a" ** 64);
+    h.update("b" ** 64);
+    h.final(out[0..]);
+
+    htest.assertEqual(h1, out[0..]);
+}
+
+test "comptime blake2b512" {
+    comptime {
+        @setEvalBranchQuota(8000);
+        var block = [_]u8{0} ** Blake2b512.block_length;
+        var out: [Blake2b512.digest_length]u8 = undefined;
+
+        const h1 = "865939e120e6805438478841afb739ae4250cf372653078a065cdcfffca4caf798e6d462b65d658fc165782640eded70963449ae1500fb0f24981d7727e22c41";
+
+        htest.assertEqualHash(Blake2b512, h1, block[0..]);
+
+        var h = Blake2b512.init(.{});
+        h.update(&block);
+        h.final(out[0..]);
+
+        htest.assertEqual(h1, out[0..]);
+    }
 }

@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 pub const TAG_padding = 0x00;
 pub const TAG_array_type = 0x01;
 pub const TAG_class_type = 0x02;
@@ -69,7 +74,7 @@ pub const TAG_lo_user = 0x4080;
 pub const TAG_hi_user = 0xffff;
 
 // SGI/MIPS Extensions.
-pub const DW_TAG_MIPS_loop = 0x4081;
+pub const TAG_MIPS_loop = 0x4081;
 
 // HP extensions.  See: ftp://ftp.hp.com/pub/lang/tools/WDB/wdb-4.0.tar.gz .
 pub const TAG_HP_array_descriptor = 0x4090;
@@ -263,9 +268,9 @@ pub const AT_MIPS_has_inlines = 0x200b;
 
 // HP extensions.
 pub const AT_HP_block_index = 0x2000;
-pub const AT_HP_unmodifiable = 0x2001; // Same as DW_AT_MIPS_fde.
-pub const AT_HP_prologue = 0x2005; // Same as DW_AT_MIPS_loop_unroll.
-pub const AT_HP_epilogue = 0x2008; // Same as DW_AT_MIPS_stride.
+pub const AT_HP_unmodifiable = 0x2001; // Same as AT_MIPS_fde.
+pub const AT_HP_prologue = 0x2005; // Same as AT_MIPS_loop_unroll.
+pub const AT_HP_epilogue = 0x2008; // Same as AT_MIPS_stride.
 pub const AT_HP_actuals_stmt_list = 0x2010;
 pub const AT_HP_proc_per_section = 0x2011;
 pub const AT_HP_raw_data_ptr = 0x2012;
@@ -680,3 +685,20 @@ pub const LANG_HP_Basic91 = 0x8004;
 pub const LANG_HP_Pascal91 = 0x8005;
 pub const LANG_HP_IMacro = 0x8006;
 pub const LANG_HP_Assembler = 0x8007;
+
+pub const UT_compile = 0x01;
+pub const UT_type = 0x02;
+pub const UT_partial = 0x03;
+pub const UT_skeleton = 0x04;
+pub const UT_split_compile = 0x05;
+pub const UT_split_type = 0x06;
+pub const UT_lo_user = 0x80;
+pub const UT_hi_user = 0xff;
+
+pub const LNCT_path = 0x1;
+pub const LNCT_directory_index = 0x2;
+pub const LNCT_timestamp = 0x3;
+pub const LNCT_size = 0x4;
+pub const LNCT_MD5 = 0x5;
+pub const LNCT_lo_user = 0x2000;
+pub const LNCT_hi_user = 0x3fff;

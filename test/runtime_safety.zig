@@ -280,7 +280,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    var bytes: [1]u8 align(16) = undefined;
         \\    var ptr = other;
-        \\    var frame = @asyncCall(&bytes, {}, ptr);
+        \\    var frame = @asyncCall(&bytes, {}, ptr, .{});
         \\}
         \\fn other() callconv(.Async) void {
         \\    suspend;
@@ -754,6 +754,16 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    var value: c_short = -1;
         \\    var casted = @intCast(u32, value);
+        \\}
+    );
+
+    cases.addRuntimeSafety("unsigned integer not fitting in cast to signed integer - same bit count",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var value: u8 = 245;
+        \\    var casted = @intCast(i8, value);
         \\}
     );
 

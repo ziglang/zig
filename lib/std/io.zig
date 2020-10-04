@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const root = @import("root");
@@ -163,6 +168,15 @@ pub const bitWriter = @import("io/bit_writer.zig").bitWriter;
 pub const BitOutStream = BitWriter;
 /// Deprecated: use `bitWriter`
 pub const bitOutStream = bitWriter;
+
+pub const AutoIndentingStream = @import("io/auto_indenting_stream.zig").AutoIndentingStream;
+pub const autoIndentingStream = @import("io/auto_indenting_stream.zig").autoIndentingStream;
+
+pub const ChangeDetectionStream = @import("io/change_detection_stream.zig").ChangeDetectionStream;
+pub const changeDetectionStream = @import("io/change_detection_stream.zig").changeDetectionStream;
+
+pub const FindByteOutStream = @import("io/find_byte_out_stream.zig").FindByteOutStream;
+pub const findByteOutStream = @import("io/find_byte_out_stream.zig").findByteOutStream;
 
 pub const Packing = @import("io/serialization.zig").Packing;
 

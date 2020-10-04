@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -17,7 +22,7 @@ const maxInt = std.math.maxInt;
 ///  - cosh(+-0)   = 1
 ///  - cosh(+-inf) = +inf
 ///  - cosh(nan)   = nan
-pub fn cosh(x: var) @TypeOf(x) {
+pub fn cosh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => cosh32(x),

@@ -8,11 +8,10 @@ system_profiler SPHardwareDataType
 brew install s3cmd gcc@9
 
 ZIGDIR="$(pwd)"
-LLVMVER="10.0.0"
+LLVMVER="10.0.1"
 ARCH="x86_64"
 CACHE_BASENAME="llvm+clang+lld-$LLVMVER-$ARCH-macosx-gcc9-release"
 PREFIX="$HOME/$CACHE_BASENAME"
-TMPDIR="$HOME/tmpz"
 JOBS="-j2"
 
 # I tried using the system default compiler (clang), but it couldn't statically link libc++.
@@ -21,62 +20,10 @@ export CC=gcc-9
 export CXX=g++-9
 
 rm -rf $PREFIX
-rm -rf $TMPDIR
-mkdir $TMPDIR
 
 cd $HOME
-HAVE_CACHE="true"
-wget -nv "https://ziglang.org/builds/$CACHE_BASENAME.tar.xz" || HAVE_CACHE="false"
-if [ "${HAVE_CACHE}" = "true" ]; then
-  tar xf "$CACHE_BASENAME.tar.xz"
-else
-  if [ "${BUILD_REASON}" == "PullRequest" ]; then
-      echo "Need cached llvm+clang for pull request builds."
-      exit 1
-  fi
-
-  cd $TMPDIR
-  wget https://zlib.net/zlib-1.2.11.tar.xz
-  tar xf zlib-1.2.11.tar.xz
-  cd zlib-1.2.11/
-  mkdir build
-  cd build
-  cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_INSTALL_PREFIX=$PREFIX
-  make $JOBS install
-  rm $PREFIX/lib/libz*dylib
-
-  cd $TMPDIR
-  wget https://releases.llvm.org/$LLVMVER/llvm-$LLVMVER.src.tar.xz
-  tar xf llvm-$LLVMVER.src.tar.xz
-  cd llvm-$LLVMVER.src/
-  mkdir build
-  cd build
-  cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="AVR" -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_ENABLE_TERMINFO=OFF
-  make $JOBS install
-
-  cd $TMPDIR
-  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVMVER/lld-$LLVMVER.src.tar.xz
-  tar xf lld-$LLVMVER.src.tar.xz
-  cd lld-$LLVMVER.src/
-  mkdir build
-  cd build
-  cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release
-  make $JOBS install
-
-  cd $TMPDIR
-  wget https://releases.llvm.org/$LLVMVER/clang-$LLVMVER.src.tar.xz
-  tar xf clang-$LLVMVER.src.tar.xz
-  cd clang-$LLVMVER.src/
-  mkdir build
-  cd build
-  cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release
-  make $JOBS install
-
-  cd $HOME
-  tar cfJ "$CACHE_BASENAME.tar.xz" "$CACHE_BASENAME"
-  cp "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
-  s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$CACHE_BASENAME.tar.xz" "s3://ziglang.org/builds/$CACHE_BASENAME.tar.xz"
-fi
+wget -nv "https://ziglang.org/builds/$CACHE_BASENAME.tar.xz"
+tar xf "$CACHE_BASENAME.tar.xz"
 
 cd $ZIGDIR
 

@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -14,7 +19,7 @@ const builtin = @import("builtin");
 /// Special Cases:
 ///  - exp(+inf) = +inf
 ///  - exp(nan)  = nan
-pub fn exp(x: var) @TypeOf(x) {
+pub fn exp(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => exp32(x),
@@ -51,7 +56,7 @@ fn exp32(x_: f32) f32 {
             return x * 0x1.0p127;
         }
         if (sign != 0) {
-            math.forceEval(-0x1.0p-149 / x); // overflow
+            math.doNotOptimizeAway(-0x1.0p-149 / x); // overflow
             // x <= -103.972084
             if (hx >= 0x42CFF1B5) {
                 return 0;
@@ -83,7 +88,7 @@ fn exp32(x_: f32) f32 {
         hi = x;
         lo = 0;
     } else {
-        math.forceEval(0x1.0p127 + x); // inexact
+        math.doNotOptimizeAway(0x1.0p127 + x); // inexact
         return 1 + x;
     }
 
@@ -134,7 +139,7 @@ fn exp64(x_: f64) f64 {
         }
         if (x < -708.39641853226410622) {
             // underflow if x != -inf
-            // math.forceEval(@as(f32, -0x1.0p-149 / x));
+            // math.doNotOptimizeAway(@as(f32, -0x1.0p-149 / x));
             if (x < -745.13321910194110842) {
                 return 0;
             }
@@ -167,7 +172,7 @@ fn exp64(x_: f64) f64 {
         lo = 0;
     } else {
         // inexact if x != 0
-        // math.forceEval(0x1.0p1023 + x);
+        // math.doNotOptimizeAway(0x1.0p1023 + x);
         return 1 + x;
     }
 

@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
@@ -6,7 +11,8 @@ const macho = std.macho;
 usingnamespace @import("../os/bits.zig");
 
 extern "c" fn __error() *c_int;
-pub extern "c" fn _NSGetExecutablePath(buf: [*]u8, bufsize: *u32) c_int;
+pub extern "c" fn NSVersionOfRunTimeLibrary(library_name: [*:0]const u8) u32;
+pub extern "c" fn _NSGetExecutablePath(buf: [*:0]u8, bufsize: *u32) c_int;
 pub extern "c" fn _dyld_image_count() u32;
 pub extern "c" fn _dyld_get_image_header(image_index: u32) ?*mach_header;
 pub extern "c" fn _dyld_get_image_vmaddr_slide(image_index: u32) usize;
@@ -41,10 +47,11 @@ const mach_hdr = if (@sizeOf(usize) == 8) mach_header_64 else mach_header;
 /// on this operating system. However when building object files or libraries,
 /// the system libc won't be linked until the final executable. So we
 /// export a weak symbol here, to be overridden by the real one.
-pub extern "c" var _mh_execute_header: mach_hdr = undefined;
+var dummy_execute_header: mach_hdr = undefined;
+pub extern var _mh_execute_header: mach_hdr;
 comptime {
     if (std.Target.current.isDarwin()) {
-        @export(_mh_execute_header, .{ .name = "_mh_execute_header", .linkage = .Weak });
+        @export(dummy_execute_header, .{ .name = "_mh_execute_header", .linkage = .Weak });
     }
 }
 

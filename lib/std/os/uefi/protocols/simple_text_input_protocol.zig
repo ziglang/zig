@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const uefi = @import("std").os.uefi;
 const Event = uefi.Event;
 const Guid = uefi.Guid;
@@ -6,7 +11,7 @@ const Status = uefi.Status;
 
 /// Character input devices, e.g. Keyboard
 pub const SimpleTextInputProtocol = extern struct {
-    _reset: fn (*const SimpleTextInputProtocol, bool) callconv(.C) usize,
+    _reset: fn (*const SimpleTextInputProtocol, bool) callconv(.C) Status,
     _read_key_stroke: fn (*const SimpleTextInputProtocol, *InputKey) callconv(.C) Status,
     wait_for_key: Event,
 

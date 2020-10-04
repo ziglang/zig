@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from:
 //
 // https://github.com/llvm/llvm-project/commit/d674d96bc56c0f377879d01c9d8dfdaaa7859cdb/compiler-rt/lib/builtins/divdf3.c
@@ -7,10 +12,9 @@ const builtin = @import("builtin");
 
 pub fn __divdf3(a: f64, b: f64) callconv(.C) f64 {
     @setRuntimeSafety(builtin.is_test);
-    const Z = std.meta.Int(false, f64.bit_count);
-    const SignedZ = std.meta.Int(true, f64.bit_count);
+    const Z = std.meta.Int(false, 64);
+    const SignedZ = std.meta.Int(true, 64);
 
-    const typeWidth = f64.bit_count;
     const significandBits = std.math.floatMantissaBits(f64);
     const exponentBits = std.math.floatExponentBits(f64);
 
@@ -312,9 +316,9 @@ pub fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
     }
 }
 
-pub fn normalize(comptime T: type, significand: *std.meta.Int(false, T.bit_count)) i32 {
+pub fn normalize(comptime T: type, significand: *std.meta.Int(false, @typeInfo(T).Float.bits)) i32 {
     @setRuntimeSafety(builtin.is_test);
-    const Z = std.meta.Int(false, T.bit_count);
+    const Z = std.meta.Int(false, @typeInfo(T).Float.bits);
     const significandBits = std.math.floatMantissaBits(T);
     const implicitBit = @as(Z, 1) << significandBits;
 

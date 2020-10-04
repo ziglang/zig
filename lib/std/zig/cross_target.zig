@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const Target = std.Target;
@@ -370,7 +375,7 @@ pub const CrossTarget = struct {
         // `Target.current.os` works when doing `zig build` because Zig generates a build executable using
         // native OS version range. However this will not be accurate otherwise, and
         // will need to be integrated with `std.zig.system.NativeTargetInfo.detect`.
-        var adjusted_os = if (self.os_tag) |os_tag| Target.Os.defaultVersionRange(os_tag) else Target.current.os;
+        var adjusted_os = if (self.os_tag) |os_tag| os_tag.defaultVersionRange() else Target.current.os;
 
         if (self.os_version_min) |min| switch (min) {
             .none => {},
@@ -461,7 +466,7 @@ pub const CrossTarget = struct {
     }
 
     pub fn oFileExt(self: CrossTarget) [:0]const u8 {
-        return self.getAbi().oFileExt();
+        return Target.oFileExt_cpu_arch_abi(self.getCpuArch(), self.getAbi());
     }
 
     pub fn exeFileExt(self: CrossTarget) [:0]const u8 {
@@ -497,7 +502,7 @@ pub const CrossTarget = struct {
 
     pub fn zigTriple(self: CrossTarget, allocator: *mem.Allocator) error{OutOfMemory}![]u8 {
         if (self.isNative()) {
-            return mem.dupe(allocator, u8, "native");
+            return allocator.dupe(u8, "native");
         }
 
         const arch_name = if (self.cpu_arch) |arch| @tagName(arch) else "native";
@@ -514,14 +519,14 @@ pub const CrossTarget = struct {
             switch (self.getOsVersionMin()) {
                 .none => {},
                 .semver => |v| try result.outStream().print(".{}", .{v}),
-                .windows => |v| try result.outStream().print(".{}", .{@tagName(v)}),
+                .windows => |v| try result.outStream().print("{s}", .{v}),
             }
         }
         if (self.os_version_max) |max| {
             switch (max) {
                 .none => {},
                 .semver => |v| try result.outStream().print("...{}", .{v}),
-                .windows => |v| try result.outStream().print("...{}", .{@tagName(v)}),
+                .windows => |v| try result.outStream().print("..{s}", .{v}),
             }
         }
 

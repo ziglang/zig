@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const builtin = @import("builtin");
 const std = @import("std.zig");
 const io = std.io;
@@ -631,7 +636,7 @@ const MsfStream = struct {
     blocks: []u32 = undefined,
     block_size: u32 = undefined,
 
-    pub const Error = @TypeOf(read).ReturnType.ErrorSet;
+    pub const Error = @typeInfo(@typeInfo(@TypeOf(read)).Fn.return_type.?).ErrorUnion.error_set;
 
     fn init(block_size: u32, file: File, blocks: []u32) MsfStream {
         const stream = MsfStream{

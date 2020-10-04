@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 pub usingnamespace @import("builtin");
 
 /// Deprecated: use `std.Target`.
@@ -52,6 +57,25 @@ pub const subsystem: ?SubSystem = blk: {
 pub const StackTrace = struct {
     index: usize,
     instruction_addresses: []usize,
+
+    pub fn format(
+        self: StackTrace,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+        const debug_info = std.debug.getSelfDebugInfo() catch |err| {
+            return writer.print("\nUnable to print stack trace: Unable to open debug info: {}\n", .{@errorName(err)});
+        };
+        const tty_config = std.debug.detectTTYConfig();
+        try writer.writeAll("\n");
+        std.debug.writeStackTrace(self, writer, &arena.allocator, debug_info, tty_config) catch |err| {
+            try writer.print("Unable to print stack trace: {}\n", .{@errorName(err)});
+        };
+        try writer.writeAll("\n");
+    }
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -198,7 +222,7 @@ pub const TypeInfo = union(enum) {
         /// The type of the sentinel is the element type of the pointer, which is
         /// the value of the `child` field in this struct. However there is no way
         /// to refer to that type here, so we use `var`.
-        sentinel: var,
+        sentinel: anytype,
 
         /// This data structure is used by the Zig language code generation and
         /// therefore must be kept in sync with the compiler implementation.
@@ -220,7 +244,7 @@ pub const TypeInfo = union(enum) {
         /// The type of the sentinel is the element type of the array, which is
         /// the value of the `child` field in this struct. However there is no way
         /// to refer to that type here, so we use `var`.
-        sentinel: var,
+        sentinel: anytype,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -235,9 +259,10 @@ pub const TypeInfo = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const StructField = struct {
         name: []const u8,
-        offset: ?comptime_int,
         field_type: type,
-        default_value: var,
+        default_value: anytype,
+        is_comptime: bool,
+        alignment: comptime_int,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -246,6 +271,7 @@ pub const TypeInfo = union(enum) {
         layout: ContainerLayout,
         fields: []const StructField,
         decls: []const Declaration,
+        is_tuple: bool,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -265,8 +291,6 @@ pub const TypeInfo = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const Error = struct {
         name: []const u8,
-        /// This field is ignored when using @Type().
-        value: comptime_int,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -294,8 +318,8 @@ pub const TypeInfo = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const UnionField = struct {
         name: []const u8,
-        enum_field: ?EnumField,
         field_type: type,
+        alignment: comptime_int,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -319,6 +343,7 @@ pub const TypeInfo = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const Fn = struct {
         calling_convention: CallingConvention,
+        alignment: comptime_int,
         is_generic: bool,
         is_var_args: bool,
         return_type: ?type,
@@ -328,7 +353,7 @@ pub const TypeInfo = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Frame = struct {
-        function: var,
+        function: anytype,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -427,6 +452,14 @@ pub const Version = struct {
             if (self.max.order(ver) == .lt) return false;
             return true;
         }
+
+        /// Checks if system is guaranteed to be at least `version` or older than `version`.
+        /// Returns `null` if a runtime check is required.
+        pub fn isAtLeast(self: Range, ver: Version) ?bool {
+            if (self.min.order(ver) != .lt) return true;
+            if (self.max.order(ver) == .lt) return false;
+            return null;
+        }
     };
 
     pub fn order(lhs: Version, rhs: Version) std.math.Order {
@@ -452,7 +485,7 @@ pub const Version = struct {
         self: Version,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        out_stream: var,
+        out_stream: anytype,
     ) !void {
         if (fmt.len == 0) {
             if (self.patch == 0) {

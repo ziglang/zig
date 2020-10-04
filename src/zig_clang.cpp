@@ -13,7 +13,6 @@
  * 3. Prevent C++ from infecting the rest of the project.
  */
 #include "zig_clang.h"
-#include "list.hpp"
 
 #if __GNUC__ >= 8
 #pragma GCC diagnostic push
@@ -2186,7 +2185,7 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
         // Take ownership of the err_unit ASTUnit object so that it won't be
         // free'd when we return, invalidating the error message pointers
         clang::ASTUnit *unit = ast_unit ? ast_unit : err_unit.release();
-        ZigList<Stage2ErrorMsg> errors = {};
+        Stage2ErrorMsg *errors = nullptr;
 
         for (clang::ASTUnit::stored_diag_iterator it = unit->stored_diag_begin(),
              it_end = unit->stored_diag_end(); it != it_end; ++it)
@@ -2204,7 +2203,10 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
 
             llvm::StringRef msg_str_ref = it->getMessage();
 
-            Stage2ErrorMsg *msg = errors.add_one();
+            *errors_len += 1;
+            errors = reinterpret_cast<Stage2ErrorMsg*>(realloc(errors, sizeof(Stage2ErrorMsg) * *errors_len));
+            if (errors == nullptr) abort();
+            Stage2ErrorMsg *msg = &errors[*errors_len - 1];
             memset(msg, 0, sizeof(*msg));
 
             msg->msg_ptr = (const char *)msg_str_ref.bytes_begin();
@@ -2242,8 +2244,7 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
             }
         }
 
-        *errors_ptr = errors.items;
-        *errors_len = errors.length;
+        *errors_ptr = errors;
 
         return nullptr;
     }
@@ -2510,6 +2511,19 @@ struct ZigClangSourceLocation ZigClangIntegerLiteral_getBeginLoc(const struct Zi
     return bitcast(casted->getBeginLoc());
 }
 
+bool ZigClangIntegerLiteral_isZero(const struct ZigClangIntegerLiteral *self, bool *result, const struct ZigClangASTContext *ctx) {
+    auto casted_self = reinterpret_cast<const clang::IntegerLiteral *>(self);
+    auto casted_ctx = reinterpret_cast<const clang::ASTContext *>(ctx);
+    clang::Expr::EvalResult eval_result;
+    if (!casted_self->EvaluateAsInt(eval_result, *casted_ctx)) {
+        return false;
+    }
+    const llvm::APSInt result_int = eval_result.Val.getInt();
+    const llvm::APSInt zero(result_int.getBitWidth(), result_int.isUnsigned());
+    *result = zero == result_int;
+    return true;
+}
+
 const struct ZigClangExpr *ZigClangReturnStmt_getRetValue(const struct ZigClangReturnStmt *self) {
     auto casted = reinterpret_cast<const clang::ReturnStmt *>(self);
     return reinterpret_cast<const struct ZigClangExpr *>(casted->getRetValue());
@@ -2712,6 +2726,14 @@ struct ZigClangSourceLocation ZigClangUnaryExprOrTypeTraitExpr_getBeginLoc(
 {
     auto casted = reinterpret_cast<const clang::UnaryExprOrTypeTraitExpr *>(self);
     return bitcast(casted->getBeginLoc());
+}
+
+
+enum ZigClangUnaryExprOrTypeTrait_Kind ZigClangUnaryExprOrTypeTraitExpr_getKind(
+    const struct ZigClangUnaryExprOrTypeTraitExpr *self)
+{
+    auto casted = reinterpret_cast<const clang::UnaryExprOrTypeTraitExpr *>(self);
+    return (ZigClangUnaryExprOrTypeTrait_Kind)casted->getKind();
 }
 
 const struct ZigClangStmt *ZigClangDoStmt_getBody(const struct ZigClangDoStmt *self) {

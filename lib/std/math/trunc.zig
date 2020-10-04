@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -15,7 +20,7 @@ const maxInt = std.math.maxInt;
 ///  - trunc(+-0)   = +-0
 ///  - trunc(+-inf) = +-inf
 ///  - trunc(nan)   = nan
-pub fn trunc(x: var) @TypeOf(x) {
+pub fn trunc(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => trunc32(x),
@@ -41,7 +46,7 @@ fn trunc32(x: f32) f32 {
     if (u & m == 0) {
         return x;
     } else {
-        math.forceEval(x + 0x1p120);
+        math.doNotOptimizeAway(x + 0x1p120);
         return @bitCast(f32, u & ~m);
     }
 }
@@ -62,7 +67,7 @@ fn trunc64(x: f64) f64 {
     if (u & m == 0) {
         return x;
     } else {
-        math.forceEval(x + 0x1p120);
+        math.doNotOptimizeAway(x + 0x1p120);
         return @bitCast(f64, u & ~m);
     }
 }
@@ -83,7 +88,7 @@ fn trunc128(x: f128) f128 {
     if (u & m == 0) {
         return x;
     } else {
-        math.forceEval(x + 0x1p120);
+        math.doNotOptimizeAway(x + 0x1p120);
         return @bitCast(f128, u & ~m);
     }
 }

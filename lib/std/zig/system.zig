@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const elf = std.elf;
 const mem = std.mem;
@@ -83,6 +88,7 @@ pub const NativePaths = struct {
 
         if (!is_windows) {
             const triple = try Target.current.linuxTriple(allocator);
+            const qual = Target.current.cpu.arch.ptrBitWidth();
 
             // TODO: $ ld --verbose | grep SEARCH_DIR
             // the output contains some paths that end with lib64, maybe include them too?
@@ -90,17 +96,17 @@ pub const NativePaths = struct {
             // TODO: some of these are suspect and should only be added on some systems. audit needed.
 
             try self.addIncludeDir("/usr/local/include");
+            try self.addLibDirFmt("/usr/local/lib{}", .{qual});
             try self.addLibDir("/usr/local/lib");
-            try self.addLibDir("/usr/local/lib64");
 
             try self.addIncludeDirFmt("/usr/include/{}", .{triple});
             try self.addLibDirFmt("/usr/lib/{}", .{triple});
 
             try self.addIncludeDir("/usr/include");
+            try self.addLibDirFmt("/lib{}", .{qual});
             try self.addLibDir("/lib");
-            try self.addLibDir("/lib64");
+            try self.addLibDirFmt("/usr/lib{}", .{qual});
             try self.addLibDir("/usr/lib");
-            try self.addLibDir("/usr/lib64");
 
             // example: on a 64-bit debian-based linux distro, with zlib installed from apt:
             // zlib.h is in /usr/include (added above)
@@ -130,7 +136,7 @@ pub const NativePaths = struct {
         return self.appendArray(&self.include_dirs, s);
     }
 
-    pub fn addIncludeDirFmt(self: *NativePaths, comptime fmt: []const u8, args: var) !void {
+    pub fn addIncludeDirFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype) !void {
         const item = try std.fmt.allocPrint0(self.include_dirs.allocator, fmt, args);
         errdefer self.include_dirs.allocator.free(item);
         try self.include_dirs.append(item);
@@ -140,7 +146,7 @@ pub const NativePaths = struct {
         return self.appendArray(&self.lib_dirs, s);
     }
 
-    pub fn addLibDirFmt(self: *NativePaths, comptime fmt: []const u8, args: var) !void {
+    pub fn addLibDirFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype) !void {
         const item = try std.fmt.allocPrint0(self.lib_dirs.allocator, fmt, args);
         errdefer self.lib_dirs.allocator.free(item);
         try self.lib_dirs.append(item);
@@ -150,7 +156,7 @@ pub const NativePaths = struct {
         return self.appendArray(&self.warnings, s);
     }
 
-    pub fn addWarningFmt(self: *NativePaths, comptime fmt: []const u8, args: var) !void {
+    pub fn addWarningFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype) !void {
         const item = try std.fmt.allocPrint0(self.warnings.allocator, fmt, args);
         errdefer self.warnings.allocator.free(item);
         try self.warnings.append(item);
@@ -161,7 +167,7 @@ pub const NativePaths = struct {
     }
 
     fn appendArray(self: *NativePaths, array: *ArrayList([:0]u8), s: []const u8) !void {
-        const item = try std.mem.dupeZ(array.allocator, u8, s);
+        const item = try array.allocator.dupeZ(u8, s);
         errdefer array.allocator.free(item);
         try array.append(item);
     }
@@ -197,7 +203,7 @@ pub const NativeTargetInfo = struct {
     /// deinitialization method.
     /// TODO Remove the Allocator requirement from this function.
     pub fn detect(allocator: *Allocator, cross_target: CrossTarget) DetectError!NativeTargetInfo {
-        var os = Target.Os.defaultVersionRange(cross_target.getOsTag());
+        var os = cross_target.getOsTag().defaultVersionRange();
         if (cross_target.os_tag == null) {
             switch (Target.current.os.tag) {
                 .linux => {
@@ -244,7 +250,7 @@ pub const NativeTargetInfo = struct {
                         // values
                         const known_build_numbers = [_]u32{
                             10240, 10586, 14393, 15063, 16299, 17134, 17763,
-                            18362, 18363,
+                            18362, 19041,
                         };
                         var last_idx: usize = 0;
                         for (known_build_numbers) |build, i| {
@@ -386,6 +392,12 @@ pub const NativeTargetInfo = struct {
         const os_is_non_native = cross_target.os_tag != null;
         if (!native_target_has_ld or have_all_info or os_is_non_native) {
             return defaultAbiAndDynamicLinker(cpu, os, cross_target);
+        }
+        if (cross_target.abi) |abi| {
+            if (abi.isMusl()) {
+                // musl implies static linking.
+                return defaultAbiAndDynamicLinker(cpu, os, cross_target);
+            }
         }
         // The current target's ABI cannot be relied on for this. For example, we may build the zig
         // compiler for target riscv64-linux-musl and provide a tarball for users to download.
@@ -552,6 +564,9 @@ pub const NativeTargetInfo = struct {
             error.SystemResources => return error.SystemResources,
             error.NotDir => return error.GnuLibCVersionUnavailable,
             error.Unexpected => return error.GnuLibCVersionUnavailable,
+            error.InvalidUtf8 => unreachable, // Windows only
+            error.BadPathName => unreachable, // Windows only
+            error.UnsupportedReparsePointType => unreachable, // Windows only
         };
         return glibcVerFromLinkName(link_name);
     }
@@ -817,6 +832,9 @@ pub const NativeTargetInfo = struct {
                             &link_buf,
                         ) catch |err| switch (err) {
                             error.NameTooLong => unreachable,
+                            error.InvalidUtf8 => unreachable, // Windows only
+                            error.BadPathName => unreachable, // Windows only
+                            error.UnsupportedReparsePointType => unreachable, // Windows only
 
                             error.AccessDenied,
                             error.FileNotFound,
@@ -851,6 +869,7 @@ pub const NativeTargetInfo = struct {
             const len = file.pread(buf[i .. buf.len - i], offset + i) catch |err| switch (err) {
                 error.OperationAborted => unreachable, // Windows-only
                 error.WouldBlock => unreachable, // Did not request blocking mode
+                error.NotOpenForReading => unreachable,
                 error.SystemResources => return error.SystemResources,
                 error.IsDir => return error.UnableToReadElfFile,
                 error.BrokenPipe => return error.UnableToReadElfFile,
@@ -859,6 +878,7 @@ pub const NativeTargetInfo = struct {
                 error.ConnectionTimedOut => return error.UnableToReadElfFile,
                 error.Unexpected => return error.Unexpected,
                 error.InputOutput => return error.FileSystem,
+                error.AccessDenied => return error.Unexpected,
             };
             if (len == 0) return error.UnexpectedEndOfFile;
             i += len;
@@ -886,7 +906,7 @@ pub const NativeTargetInfo = struct {
         abi: Target.Abi,
     };
 
-    pub fn elfInt(is_64: bool, need_bswap: bool, int_32: var, int_64: var) @TypeOf(int_64) {
+    pub fn elfInt(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @TypeOf(int_64) {
         if (is_64) {
             if (need_bswap) {
                 return @byteSwap(@TypeOf(int_64), int_64);

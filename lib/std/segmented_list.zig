@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -122,7 +127,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             self.* = undefined;
         }
 
-        pub fn at(self: var, i: usize) AtType(@TypeOf(self)) {
+        pub fn at(self: anytype, i: usize) AtType(@TypeOf(self)) {
             assert(i < self.len);
             return self.uncheckedAt(i);
         }
@@ -241,7 +246,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             }
         }
 
-        pub fn uncheckedAt(self: var, index: usize) AtType(@TypeOf(self)) {
+        pub fn uncheckedAt(self: anytype, index: usize) AtType(@TypeOf(self)) {
             if (index < prealloc_item_count) {
                 return &self.prealloc_segment[index];
             }

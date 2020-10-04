@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -18,7 +23,7 @@ const expect = std.testing.expect;
 ///  - expm1(+inf) = +inf
 ///  - expm1(-inf) = -1
 ///  - expm1(nan)  = nan
-pub fn expm1(x: var) @TypeOf(x) {
+pub fn expm1(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => expm1_32(x),
@@ -101,7 +106,7 @@ fn expm1_32(x_: f32) f32 {
     // |x| < 2^(-25)
     else if (hx < 0x33000000) {
         if (hx < 0x00800000) {
-            math.forceEval(x * x);
+            math.doNotOptimizeAway(x * x);
         }
         return x;
     } else {
@@ -232,7 +237,7 @@ fn expm1_64(x_: f64) f64 {
     // |x| < 2^(-54)
     else if (hx < 0x3C900000) {
         if (hx < 0x00100000) {
-            math.forceEval(@floatCast(f32, x));
+            math.doNotOptimizeAway(@floatCast(f32, x));
         }
         return x;
     } else {

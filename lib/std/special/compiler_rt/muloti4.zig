@@ -1,10 +1,15 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const builtin = @import("builtin");
 const compiler_rt = @import("../compiler_rt.zig");
 
 pub fn __muloti4(a: i128, b: i128, overflow: *c_int) callconv(.C) i128 {
     @setRuntimeSafety(builtin.is_test);
 
-    const min = @bitCast(i128, @as(u128, 1 << (i128.bit_count - 1)));
+    const min = @bitCast(i128, @as(u128, 1 << (128 - 1)));
     const max = ~min;
     overflow.* = 0;
 
@@ -22,9 +27,9 @@ pub fn __muloti4(a: i128, b: i128, overflow: *c_int) callconv(.C) i128 {
         return r;
     }
 
-    const sa = a >> (i128.bit_count - 1);
+    const sa = a >> (128 - 1);
     const abs_a = (a ^ sa) -% sa;
-    const sb = b >> (i128.bit_count - 1);
+    const sb = b >> (128 - 1);
     const abs_b = (b ^ sb) -% sb;
 
     if (abs_a < 2 or abs_b < 2) {

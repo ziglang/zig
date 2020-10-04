@@ -1,8 +1,17 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 
+// See https://svnweb.freebsd.org/base/head/sys/sys/_types.h?view=co
+// TODO: audit pid_t/mode_t. They should likely be i32 and u16, respectively
 pub const fd_t = c_int;
 pub const pid_t = c_int;
+pub const uid_t = u32;
+pub const gid_t = u32;
 pub const mode_t = c_uint;
 
 pub const socklen_t = u32;
@@ -123,8 +132,8 @@ pub const Stat = extern struct {
 
     mode: u16,
     __pad0: u16,
-    uid: u32,
-    gid: u32,
+    uid: uid_t,
+    gid: gid_t,
     __pad1: u32,
     rdev: u64,
 

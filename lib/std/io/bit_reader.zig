@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const builtin = std.builtin;
 const io = std.io;
@@ -170,7 +175,7 @@ pub fn BitReader(endian: builtin.Endian, comptime ReaderType: type) type {
 
 pub fn bitReader(
     comptime endian: builtin.Endian,
-    underlying_stream: var,
+    underlying_stream: anytype,
 ) BitReader(endian, @TypeOf(underlying_stream)) {
     return BitReader(endian, @TypeOf(underlying_stream)).init(underlying_stream);
 }

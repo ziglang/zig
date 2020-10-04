@@ -1,13 +1,25 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 
 pub fn S_ISCHR(m: u32) bool {
     return m & S_IFMT == S_IFCHR;
 }
+
+// See:
+// - https://gitweb.dragonflybsd.org/dragonfly.git/blob/HEAD:/include/unistd.h
+// - https://gitweb.dragonflybsd.org/dragonfly.git/blob/HEAD:/sys/sys/types.h
+// TODO: mode_t should probably be changed to a u16, audit pid_t/off_t as well
 pub const fd_t = c_int;
 pub const pid_t = c_int;
 pub const off_t = c_long;
 pub const mode_t = c_uint;
+pub const uid_t = u32;
+pub const gid_t = u32;
 
 pub const ENOTSUP = EOPNOTSUPP;
 pub const EWOULDBLOCK = EAGAIN;
@@ -146,8 +158,8 @@ pub const Stat = extern struct {
     dev: c_uint,
     mode: c_ushort,
     padding1: u16,
-    uid: c_uint,
-    gid: c_uint,
+    uid: uid_t,
+    gid: gid_t,
     rdev: c_uint,
     atim: timespec,
     mtim: timespec,
@@ -506,7 +518,7 @@ pub const siginfo_t = extern struct {
     si_errno: c_int,
     si_code: c_int,
     si_pid: c_int,
-    si_uid: c_uint,
+    si_uid: uid_t,
     si_status: c_int,
     si_addr: ?*c_void,
     si_value: union_sigval,

@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const builtin = @import("builtin");
 const std = @import("std");
 const maxInt = std.math.maxInt;
@@ -10,7 +15,7 @@ pub fn __floatundisf(arg: u64) callconv(.C) f32 {
     if (arg == 0) return 0;
 
     var a = arg;
-    const N: usize = @TypeOf(a).bit_count;
+    const N: usize = @typeInfo(@TypeOf(a)).Int.bits;
     // Number of significant digits
     const sd = N - @clz(u64, a);
     // 8 exponent

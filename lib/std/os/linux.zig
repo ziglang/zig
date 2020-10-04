@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // This file provides the system interface functions for Linux matching those
 // that are provided by libc, whether or not libc is linked. The following
 // abstractions are made:
@@ -20,10 +25,12 @@ pub usingnamespace switch (builtin.arch) {
     .arm => @import("linux/arm-eabi.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
+    .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
     else => struct {},
 };
 pub usingnamespace @import("bits.zig");
 pub const tls = @import("linux/tls.zig");
+pub const BPF = @import("linux/bpf.zig");
 
 /// Set by startup code, used by `getauxval`.
 pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
@@ -649,7 +656,7 @@ pub fn nanosleep(req: *const timespec, rem: ?*timespec) usize {
     return syscall2(.nanosleep, @ptrToInt(req), @ptrToInt(rem));
 }
 
-pub fn setuid(uid: u32) usize {
+pub fn setuid(uid: uid_t) usize {
     if (@hasField(SYS, "setuid32")) {
         return syscall1(.setuid32, uid);
     } else {
@@ -657,7 +664,7 @@ pub fn setuid(uid: u32) usize {
     }
 }
 
-pub fn setgid(gid: u32) usize {
+pub fn setgid(gid: gid_t) usize {
     if (@hasField(SYS, "setgid32")) {
         return syscall1(.setgid32, gid);
     } else {
@@ -665,7 +672,7 @@ pub fn setgid(gid: u32) usize {
     }
 }
 
-pub fn setreuid(ruid: u32, euid: u32) usize {
+pub fn setreuid(ruid: uid_t, euid: uid_t) usize {
     if (@hasField(SYS, "setreuid32")) {
         return syscall2(.setreuid32, ruid, euid);
     } else {
@@ -673,7 +680,7 @@ pub fn setreuid(ruid: u32, euid: u32) usize {
     }
 }
 
-pub fn setregid(rgid: u32, egid: u32) usize {
+pub fn setregid(rgid: gid_t, egid: gid_t) usize {
     if (@hasField(SYS, "setregid32")) {
         return syscall2(.setregid32, rgid, egid);
     } else {
@@ -681,47 +688,61 @@ pub fn setregid(rgid: u32, egid: u32) usize {
     }
 }
 
-pub fn getuid() u32 {
+pub fn getuid() uid_t {
     if (@hasField(SYS, "getuid32")) {
-        return @as(u32, syscall0(.getuid32));
+        return @as(uid_t, syscall0(.getuid32));
     } else {
-        return @as(u32, syscall0(.getuid));
+        return @as(uid_t, syscall0(.getuid));
     }
 }
 
-pub fn getgid() u32 {
+pub fn getgid() gid_t {
     if (@hasField(SYS, "getgid32")) {
-        return @as(u32, syscall0(.getgid32));
+        return @as(gid_t, syscall0(.getgid32));
     } else {
-        return @as(u32, syscall0(.getgid));
+        return @as(gid_t, syscall0(.getgid));
     }
 }
 
-pub fn geteuid() u32 {
+pub fn geteuid() uid_t {
     if (@hasField(SYS, "geteuid32")) {
-        return @as(u32, syscall0(.geteuid32));
+        return @as(uid_t, syscall0(.geteuid32));
     } else {
-        return @as(u32, syscall0(.geteuid));
+        return @as(uid_t, syscall0(.geteuid));
     }
 }
 
-pub fn getegid() u32 {
+pub fn getegid() gid_t {
     if (@hasField(SYS, "getegid32")) {
-        return @as(u32, syscall0(.getegid32));
+        return @as(gid_t, syscall0(.getegid32));
     } else {
-        return @as(u32, syscall0(.getegid));
+        return @as(gid_t, syscall0(.getegid));
     }
 }
 
-pub fn seteuid(euid: u32) usize {
-    return setreuid(std.math.maxInt(u32), euid);
+pub fn seteuid(euid: uid_t) usize {
+    // We use setresuid here instead of setreuid to ensure that the saved uid
+    // is not changed. This is what musl and recent glibc versions do as well.
+    //
+    // The setresuid(2) man page says that if -1 is passed the corresponding
+    // id will not be changed. Since uid_t is unsigned, this wraps around to the
+    // max value in C.
+    comptime assert(@typeInfo(uid_t) == .Int and !@typeInfo(uid_t).Int.is_signed);
+    return setresuid(std.math.maxInt(uid_t), euid, std.math.maxInt(uid_t));
 }
 
-pub fn setegid(egid: u32) usize {
-    return setregid(std.math.maxInt(u32), egid);
+pub fn setegid(egid: gid_t) usize {
+    // We use setresgid here instead of setregid to ensure that the saved uid
+    // is not changed. This is what musl and recent glibc versions do as well.
+    //
+    // The setresgid(2) man page says that if -1 is passed the corresponding
+    // id will not be changed. Since gid_t is unsigned, this wraps around to the
+    // max value in C.
+    comptime assert(@typeInfo(uid_t) == .Int and !@typeInfo(uid_t).Int.is_signed);
+    return setresgid(std.math.maxInt(gid_t), egid, std.math.maxInt(gid_t));
 }
 
-pub fn getresuid(ruid: *u32, euid: *u32, suid: *u32) usize {
+pub fn getresuid(ruid: *uid_t, euid: *uid_t, suid: *uid_t) usize {
     if (@hasField(SYS, "getresuid32")) {
         return syscall3(.getresuid32, @ptrToInt(ruid), @ptrToInt(euid), @ptrToInt(suid));
     } else {
@@ -729,7 +750,7 @@ pub fn getresuid(ruid: *u32, euid: *u32, suid: *u32) usize {
     }
 }
 
-pub fn getresgid(rgid: *u32, egid: *u32, sgid: *u32) usize {
+pub fn getresgid(rgid: *gid_t, egid: *gid_t, sgid: *gid_t) usize {
     if (@hasField(SYS, "getresgid32")) {
         return syscall3(.getresgid32, @ptrToInt(rgid), @ptrToInt(egid), @ptrToInt(sgid));
     } else {
@@ -737,7 +758,7 @@ pub fn getresgid(rgid: *u32, egid: *u32, sgid: *u32) usize {
     }
 }
 
-pub fn setresuid(ruid: u32, euid: u32, suid: u32) usize {
+pub fn setresuid(ruid: uid_t, euid: uid_t, suid: uid_t) usize {
     if (@hasField(SYS, "setresuid32")) {
         return syscall3(.setresuid32, ruid, euid, suid);
     } else {
@@ -745,7 +766,7 @@ pub fn setresuid(ruid: u32, euid: u32, suid: u32) usize {
     }
 }
 
-pub fn setresgid(rgid: u32, egid: u32, sgid: u32) usize {
+pub fn setresgid(rgid: gid_t, egid: gid_t, sgid: gid_t) usize {
     if (@hasField(SYS, "setresgid32")) {
         return syscall3(.setresgid32, rgid, egid, sgid);
     } else {
@@ -753,7 +774,7 @@ pub fn setresgid(rgid: u32, egid: u32, sgid: u32) usize {
     }
 }
 
-pub fn getgroups(size: usize, list: *u32) usize {
+pub fn getgroups(size: usize, list: *gid_t) usize {
     if (@hasField(SYS, "getgroups32")) {
         return syscall2(.getgroups32, size, @ptrToInt(list));
     } else {
@@ -761,7 +782,7 @@ pub fn getgroups(size: usize, list: *u32) usize {
     }
 }
 
-pub fn setgroups(size: usize, list: *const u32) usize {
+pub fn setgroups(size: usize, list: *const gid_t) usize {
     if (@hasField(SYS, "setgroups32")) {
         return syscall2(.setgroups32, size, @ptrToInt(list));
     } else {
@@ -809,14 +830,19 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
     return 0;
 }
 
+const usize_bits = @typeInfo(usize).Int.bits;
+
 pub fn sigaddset(set: *sigset_t, sig: u6) void {
     const s = sig - 1;
-    (set.*)[@intCast(usize, s) / usize.bit_count] |= @intCast(usize, 1) << (s & (usize.bit_count - 1));
+    // shift in musl: s&8*sizeof *set->__bits-1
+    const shift = @intCast(u5, s & (usize_bits - 1));
+    const val = @intCast(u32, 1) << shift;
+    (set.*)[@intCast(usize, s) / usize_bits] |= val;
 }
 
 pub fn sigismember(set: *const sigset_t, sig: u6) bool {
     const s = sig - 1;
-    return ((set.*)[@intCast(usize, s) / usize.bit_count] & (@intCast(usize, 1) << (s & (usize.bit_count - 1)))) != 0;
+    return ((set.*)[@intCast(usize, s) / usize_bits] & (@intCast(usize, 1) << (s & (usize_bits - 1)))) != 0;
 }
 
 pub fn getsockname(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
@@ -1195,6 +1221,46 @@ pub fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) usi
 
 pub fn ioctl(fd: fd_t, request: u32, arg: usize) usize {
     return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), request, arg);
+}
+
+pub fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) usize {
+    return syscall4(.signalfd4, @bitCast(usize, @as(isize, fd)), @ptrToInt(mask), NSIG / 8, flags);
+}
+
+pub fn copy_file_range(fd_in: fd_t, off_in: ?*i64, fd_out: fd_t, off_out: ?*i64, len: usize, flags: u32) usize {
+    return syscall6(
+        .copy_file_range,
+        @bitCast(usize, @as(isize, fd_in)),
+        @ptrToInt(off_in),
+        @bitCast(usize, @as(isize, fd_out)),
+        @ptrToInt(off_out),
+        len,
+        flags,
+    );
+}
+
+pub fn bpf(cmd: BPF.Cmd, attr: *BPF.Attr, size: u32) usize {
+    return syscall3(.bpf, @enumToInt(cmd), @ptrToInt(attr), size);
+}
+
+pub fn sync() void {
+    _ = syscall0(.sync);
+}
+
+pub fn syncfs(fd: fd_t) usize {
+    return syscall1(.syncfs, @bitCast(usize, @as(isize, fd)));
+}
+
+pub fn fsync(fd: fd_t) usize {
+    return syscall1(.fsync, @bitCast(usize, @as(isize, fd)));
+}
+
+pub fn fdatasync(fd: fd_t) usize {
+    return syscall1(.fdatasync, @bitCast(usize, @as(isize, fd)));
+}
+
+pub fn prctl(option: i32, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
+    return syscall5(.prctl, @bitCast(usize, @as(isize, option)), arg2, arg3, arg4, arg5);
 }
 
 test "" {

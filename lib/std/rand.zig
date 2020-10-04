@@ -1,18 +1,24 @@
-// The engines provided here should be initialized from an external source. For now, randomBytes
-// from the crypto package is the most suitable. Be sure to use a CSPRNG when required, otherwise using
-// a normal PRNG will be faster and use substantially less stack space.
-//
-// ```
-// var buf: [8]u8 = undefined;
-// try std.crypto.randomBytes(buf[0..]);
-// const seed = mem.readIntLittle(u64, buf[0..8]);
-//
-// var r = DefaultPrng.init(seed);
-//
-// const s = r.random.int(u64);
-// ```
-//
-// TODO(tiehuis): Benchmark these against other reference implementations.
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
+
+//! The engines provided here should be initialized from an external source. For now, randomBytes
+//! from the crypto package is the most suitable. Be sure to use a CSPRNG when required, otherwise using
+//! a normal PRNG will be faster and use substantially less stack space.
+//!
+//! ```
+//! var buf: [8]u8 = undefined;
+//! try std.crypto.randomBytes(buf[0..]);
+//! const seed = mem.readIntLittle(u64, buf[0..8]);
+//!
+//! var r = DefaultPrng.init(seed);
+//!
+//! const s = r.random.int(u64);
+//! ```
+//!
+//! TODO(tiehuis): Benchmark these against other reference implementations.
 
 const std = @import("std.zig");
 const builtin = @import("builtin");
@@ -24,10 +30,10 @@ const math = std.math;
 const ziggurat = @import("rand/ziggurat.zig");
 const maxInt = std.math.maxInt;
 
-// When you need fast unbiased random numbers
+/// Fast unbiased random numbers.
 pub const DefaultPrng = Xoroshiro128;
 
-// When you need cryptographically secure random numbers
+/// Cryptographically secure random numbers.
 pub const DefaultCsprng = Isaac64;
 
 pub const Random = struct {
@@ -45,8 +51,9 @@ pub const Random = struct {
     /// Returns a random int `i` such that `0 <= i <= maxInt(T)`.
     /// `i` is evenly distributed.
     pub fn int(r: *Random, comptime T: type) T {
-        const UnsignedT = std.meta.Int(false, T.bit_count);
-        const ByteAlignedT = std.meta.Int(false, @divTrunc(T.bit_count + 7, 8) * 8);
+        const bits = @typeInfo(T).Int.bits;
+        const UnsignedT = std.meta.Int(false, bits);
+        const ByteAlignedT = std.meta.Int(false, @divTrunc(bits + 7, 8) * 8);
 
         var rand_bytes: [@sizeOf(ByteAlignedT)]u8 = undefined;
         r.bytes(rand_bytes[0..]);
@@ -62,10 +69,11 @@ pub const Random = struct {
     /// Constant-time implementation off `uintLessThan`.
     /// The results of this function may be biased.
     pub fn uintLessThanBiased(r: *Random, comptime T: type, less_than: T) T {
-        comptime assert(T.is_signed == false);
-        comptime assert(T.bit_count <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
+        comptime assert(@typeInfo(T).Int.is_signed == false);
+        const bits = @typeInfo(T).Int.bits;
+        comptime assert(bits <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
         assert(0 < less_than);
-        if (T.bit_count <= 32) {
+        if (bits <= 32) {
             return @intCast(T, limitRangeBiased(u32, r.int(u32), less_than));
         } else {
             return @intCast(T, limitRangeBiased(u64, r.int(u64), less_than));
@@ -81,13 +89,15 @@ pub const Random = struct {
     /// this function is guaranteed to return.
     /// If you need deterministic runtime bounds, use `uintLessThanBiased`.
     pub fn uintLessThan(r: *Random, comptime T: type, less_than: T) T {
-        comptime assert(T.is_signed == false);
-        comptime assert(T.bit_count <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
+        comptime assert(@typeInfo(T).Int.is_signed == false);
+        const bits = @typeInfo(T).Int.bits;
+        comptime assert(bits <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
         assert(0 < less_than);
         // Small is typically u32
-        const Small = std.meta.Int(false, @divTrunc(T.bit_count + 31, 32) * 32);
+        const small_bits = @divTrunc(bits + 31, 32) * 32;
+        const Small = std.meta.Int(false, small_bits);
         // Large is typically u64
-        const Large = std.meta.Int(false, Small.bit_count * 2);
+        const Large = std.meta.Int(false, small_bits * 2);
 
         // adapted from:
         //   http://www.pcg-random.org/posts/bounded-rands.html
@@ -99,7 +109,7 @@ pub const Random = struct {
             // TODO: workaround for https://github.com/ziglang/zig/issues/1770
             // should be:
             //   var t: Small = -%less_than;
-            var t: Small = @bitCast(Small, -%@bitCast(std.meta.Int(true, Small.bit_count), @as(Small, less_than)));
+            var t: Small = @bitCast(Small, -%@bitCast(std.meta.Int(true, small_bits), @as(Small, less_than)));
 
             if (t >= less_than) {
                 t -= less_than;
@@ -113,13 +123,13 @@ pub const Random = struct {
                 l = @truncate(Small, m);
             }
         }
-        return @intCast(T, m >> Small.bit_count);
+        return @intCast(T, m >> small_bits);
     }
 
     /// Constant-time implementation off `uintAtMost`.
     /// The results of this function may be biased.
     pub fn uintAtMostBiased(r: *Random, comptime T: type, at_most: T) T {
-        assert(T.is_signed == false);
+        assert(@typeInfo(T).Int.is_signed == false);
         if (at_most == maxInt(T)) {
             // have the full range
             return r.int(T);
@@ -131,7 +141,7 @@ pub const Random = struct {
     /// See `uintLessThan`, which this function uses in most cases,
     /// for commentary on the runtime of this function.
     pub fn uintAtMost(r: *Random, comptime T: type, at_most: T) T {
-        assert(T.is_signed == false);
+        assert(@typeInfo(T).Int.is_signed == false);
         if (at_most == maxInt(T)) {
             // have the full range
             return r.int(T);
@@ -143,9 +153,10 @@ pub const Random = struct {
     /// The results of this function may be biased.
     pub fn intRangeLessThanBiased(r: *Random, comptime T: type, at_least: T, less_than: T) T {
         assert(at_least < less_than);
-        if (T.is_signed) {
+        const info = @typeInfo(T).Int;
+        if (info.is_signed) {
             // Two's complement makes this math pretty easy.
-            const UnsignedT = std.meta.Int(false, T.bit_count);
+            const UnsignedT = std.meta.Int(false, info.bits);
             const lo = @bitCast(UnsignedT, at_least);
             const hi = @bitCast(UnsignedT, less_than);
             const result = lo +% r.uintLessThanBiased(UnsignedT, hi -% lo);
@@ -161,9 +172,10 @@ pub const Random = struct {
     /// for commentary on the runtime of this function.
     pub fn intRangeLessThan(r: *Random, comptime T: type, at_least: T, less_than: T) T {
         assert(at_least < less_than);
-        if (T.is_signed) {
+        const info = @typeInfo(T).Int;
+        if (info.is_signed) {
             // Two's complement makes this math pretty easy.
-            const UnsignedT = std.meta.Int(false, T.bit_count);
+            const UnsignedT = std.meta.Int(false, info.bits);
             const lo = @bitCast(UnsignedT, at_least);
             const hi = @bitCast(UnsignedT, less_than);
             const result = lo +% r.uintLessThan(UnsignedT, hi -% lo);
@@ -178,9 +190,10 @@ pub const Random = struct {
     /// The results of this function may be biased.
     pub fn intRangeAtMostBiased(r: *Random, comptime T: type, at_least: T, at_most: T) T {
         assert(at_least <= at_most);
-        if (T.is_signed) {
+        const info = @typeInfo(T).Int;
+        if (info.is_signed) {
             // Two's complement makes this math pretty easy.
-            const UnsignedT = std.meta.Int(false, T.bit_count);
+            const UnsignedT = std.meta.Int(false, info.bits);
             const lo = @bitCast(UnsignedT, at_least);
             const hi = @bitCast(UnsignedT, at_most);
             const result = lo +% r.uintAtMostBiased(UnsignedT, hi -% lo);
@@ -196,9 +209,10 @@ pub const Random = struct {
     /// for commentary on the runtime of this function.
     pub fn intRangeAtMost(r: *Random, comptime T: type, at_least: T, at_most: T) T {
         assert(at_least <= at_most);
-        if (T.is_signed) {
+        const info = @typeInfo(T).Int;
+        if (info.is_signed) {
             // Two's complement makes this math pretty easy.
-            const UnsignedT = std.meta.Int(false, T.bit_count);
+            const UnsignedT = std.meta.Int(false, info.bits);
             const lo = @bitCast(UnsignedT, at_least);
             const hi = @bitCast(UnsignedT, at_most);
             const result = lo +% r.uintAtMost(UnsignedT, hi -% lo);
@@ -274,14 +288,15 @@ pub const Random = struct {
 /// into an integer 0 <= result < less_than.
 /// This function introduces a minor bias.
 pub fn limitRangeBiased(comptime T: type, random_int: T, less_than: T) T {
-    comptime assert(T.is_signed == false);
-    const T2 = std.meta.Int(false, T.bit_count * 2);
+    comptime assert(@typeInfo(T).Int.is_signed == false);
+    const bits = @typeInfo(T).Int.bits;
+    const T2 = std.meta.Int(false, bits * 2);
 
     // adapted from:
     //   http://www.pcg-random.org/posts/bounded-rands.html
     //   "Integer Multiplication (Biased)"
     var m: T2 = @as(T2, random_int) * @as(T2, less_than);
-    return @intCast(T, m >> T.bit_count);
+    return @intCast(T, m >> bits);
 }
 
 const SequentialPrng = struct {
@@ -732,12 +747,12 @@ test "xoroshiro sequence" {
 // CSPRNG
 pub const Gimli = struct {
     random: Random,
-    state: std.crypto.gimli.State,
+    state: std.crypto.core.Gimli,
 
     pub fn init(init_s: u64) Gimli {
         var self = Gimli{
             .random = Random{ .fillFn = fill },
-            .state = std.crypto.gimli.State{
+            .state = std.crypto.core.Gimli{
                 .data = [_]u32{0} ** (std.crypto.gimli.State.BLOCKBYTES / 4),
             },
         };

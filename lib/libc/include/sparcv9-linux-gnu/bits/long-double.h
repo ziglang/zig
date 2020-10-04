@@ -24,4 +24,4 @@
 #  define __NO_LONG_DOUBLE_MATH        1
 # endif
 #endif
-#define __LONG_DOUBLE_USES_FLOAT128 0
+#define __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI 0

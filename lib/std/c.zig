@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std");
 const builtin = std.builtin;
 const page_size = std.mem.page_size;
@@ -7,6 +12,10 @@ pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
 pub const parse = @import("c/parse.zig").parse;
 pub const ast = @import("c/ast.zig");
+
+test "" {
+    _ = tokenizer;
+}
 
 pub usingnamespace @import("os/bits.zig");
 
@@ -27,7 +36,7 @@ pub usingnamespace switch (std.Target.current.os.tag) {
     else => struct {},
 };
 
-pub fn getErrno(rc: var) u16 {
+pub fn getErrno(rc: anytype) u16 {
     if (rc == -1) {
         return @intCast(u16, _errno().*);
     } else {
@@ -123,8 +132,6 @@ pub usingnamespace switch (builtin.os.tag) {
     },
 };
 
-pub extern "c" fn setreuid(ruid: c_uint, euid: c_uint) c_int;
-pub extern "c" fn setregid(rgid: c_uint, egid: c_uint) c_int;
 pub extern "c" fn rmdir(path: [*:0]const u8) c_int;
 pub extern "c" fn getenv(name: [*:0]const u8) ?[*:0]u8;
 pub extern "c" fn sysctl(name: [*]const c_int, namelen: c_uint, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) c_int;
@@ -228,11 +235,29 @@ pub usingnamespace switch (builtin.os.tag) {
 
 pub extern "c" fn kill(pid: pid_t, sig: c_int) c_int;
 pub extern "c" fn getdirentries(fd: fd_t, buf_ptr: [*]u8, nbytes: usize, basep: *i64) isize;
-pub extern "c" fn setgid(ruid: c_uint, euid: c_uint) c_int;
-pub extern "c" fn setuid(uid: c_uint) c_int;
+
+pub extern "c" fn setuid(uid: uid_t) c_int;
+pub extern "c" fn setgid(gid: gid_t) c_int;
+pub extern "c" fn seteuid(euid: uid_t) c_int;
+pub extern "c" fn setegid(egid: gid_t) c_int;
+pub extern "c" fn setreuid(ruid: uid_t, euid: uid_t) c_int;
+pub extern "c" fn setregid(rgid: gid_t, egid: gid_t) c_int;
+pub extern "c" fn setresuid(ruid: uid_t, euid: uid_t, suid: uid_t) c_int;
+pub extern "c" fn setresgid(rgid: gid_t, egid: gid_t, sgid: gid_t) c_int;
 
 pub extern "c" fn aligned_alloc(alignment: usize, size: usize) ?*c_void;
 pub extern "c" fn malloc(usize) ?*c_void;
+
+pub usingnamespace switch (builtin.os.tag) {
+    .linux, .freebsd, .kfreebsd, .netbsd, .openbsd => struct {
+        pub extern "c" fn malloc_usable_size(?*const c_void) usize;
+    },
+    .macosx, .ios, .watchos, .tvos => struct {
+        pub extern "c" fn malloc_size(?*const c_void) usize;
+    },
+    else => struct {},
+};
+
 pub extern "c" fn realloc(?*c_void, usize) ?*c_void;
 pub extern "c" fn free(*c_void) void;
 pub extern "c" fn posix_memalign(memptr: **c_void, alignment: usize, size: usize) c_int;
@@ -310,3 +335,10 @@ pub const FILE = @Type(.Opaque);
 pub extern "c" fn dlopen(path: [*:0]const u8, mode: c_int) ?*c_void;
 pub extern "c" fn dlclose(handle: *c_void) c_int;
 pub extern "c" fn dlsym(handle: ?*c_void, symbol: [*:0]const u8) ?*c_void;
+
+pub extern "c" fn sync() void;
+pub extern "c" fn syncfs(fd: c_int) c_int;
+pub extern "c" fn fsync(fd: c_int) c_int;
+pub extern "c" fn fdatasync(fd: c_int) c_int;
+
+pub extern "c" fn prctl(option: c_int, ...) c_int;

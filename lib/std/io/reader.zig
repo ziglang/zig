@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const builtin = std.builtin;
 const math = std.math;
@@ -193,28 +198,28 @@ pub fn Reader(
 
         /// Reads a native-endian integer
         pub fn readIntNative(self: Self, comptime T: type) !T {
-            const bytes = try self.readBytesNoEof((T.bit_count + 7) / 8);
+            const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
             return mem.readIntNative(T, &bytes);
         }
 
         /// Reads a foreign-endian integer
         pub fn readIntForeign(self: Self, comptime T: type) !T {
-            const bytes = try self.readBytesNoEof((T.bit_count + 7) / 8);
+            const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
             return mem.readIntForeign(T, &bytes);
         }
 
         pub fn readIntLittle(self: Self, comptime T: type) !T {
-            const bytes = try self.readBytesNoEof((T.bit_count + 7) / 8);
+            const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
             return mem.readIntLittle(T, &bytes);
         }
 
         pub fn readIntBig(self: Self, comptime T: type) !T {
-            const bytes = try self.readBytesNoEof((T.bit_count + 7) / 8);
+            const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
             return mem.readIntBig(T, &bytes);
         }
 
         pub fn readInt(self: Self, comptime T: type, endian: builtin.Endian) !T {
-            const bytes = try self.readBytesNoEof((T.bit_count + 7) / 8);
+            const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
             return mem.readInt(T, &bytes, endian);
         }
 
@@ -226,10 +231,20 @@ pub fn Reader(
             return mem.readVarInt(ReturnType, bytes, endian);
         }
 
-        pub fn skipBytes(self: Self, num_bytes: u64) !void {
-            var i: u64 = 0;
-            while (i < num_bytes) : (i += 1) {
-                _ = try self.readByte();
+        /// Optional parameters for `skipBytes`
+        pub const SkipBytesOptions = struct {
+            buf_size: usize = 512,
+        };
+
+        /// Reads `num_bytes` bytes from the stream and discards them
+        pub fn skipBytes(self: Self, num_bytes: usize, comptime options: SkipBytesOptions) !void {
+            var buf: [options.buf_size]u8 = undefined;
+            var remaining = num_bytes;
+
+            while (remaining > 0) {
+                const amt = std.math.min(remaining, options.buf_size);
+                try self.readNoEof(buf[0..amt]);
+                remaining -= amt;
             }
         }
 
@@ -292,4 +307,12 @@ test "Reader.isBytes" {
     const reader = std.io.fixedBufferStream("foobar").reader();
     testing.expectEqual(true, try reader.isBytes("foo"));
     testing.expectEqual(false, try reader.isBytes("qux"));
+}
+
+test "Reader.skipBytes" {
+    const reader = std.io.fixedBufferStream("foobar").reader();
+    try reader.skipBytes(3, .{});
+    testing.expect(try reader.isBytes("bar"));
+    try reader.skipBytes(0, .{});
+    testing.expectError(error.EndOfStream, reader.skipBytes(1, .{}));
 }

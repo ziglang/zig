@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Builtin functions that operate on integer types
 const builtin = @import("builtin");
 const testing = @import("std").testing;
@@ -214,7 +219,7 @@ fn test_one_divsi3(a: i32, b: i32, expected_q: i32) void {
 pub fn __udivsi3(n: u32, d: u32) callconv(.C) u32 {
     @setRuntimeSafety(builtin.is_test);
 
-    const n_uword_bits: c_uint = u32.bit_count;
+    const n_uword_bits: c_uint = 32;
     // special cases
     if (d == 0) return 0; // ?!
     if (n == 0) return 0;
@@ -244,7 +249,7 @@ pub fn __udivsi3(n: u32, d: u32) callconv(.C) u32 {
         //      r.all -= d.all;
         //      carry = 1;
         // }
-        const s = @intCast(i32, d -% r -% 1) >> @intCast(u5, n_uword_bits - 1);
+        const s = @bitCast(i32, d -% r -% 1) >> @intCast(u5, n_uword_bits - 1);
         carry = @intCast(u32, s & 1);
         r -= d & @bitCast(u32, s);
     }

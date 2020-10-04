@@ -133,4 +133,5 @@ comptime {
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
     _ = @import("behavior/src.zig");
+    _ = @import("behavior/translate_c_macros.zig");
 }

@@ -47,7 +47,7 @@ comptime {
     expect(max_f64(1.2, 3.4) == 3.4);
 }
 
-fn max_var(a: var, b: var) @TypeOf(a + b) {
+fn max_var(a: anytype, b: anytype) @TypeOf(a + b) {
     return if (a > b) a else b;
 }
 
@@ -133,15 +133,15 @@ fn getFirstByte(comptime T: type, mem: []const T) u8 {
     return getByte(@ptrCast(*const u8, &mem[0]));
 }
 
-const foos = [_]fn (var) bool{
+const foos = [_]fn (anytype) bool{
     foo1,
     foo2,
 };
 
-fn foo1(arg: var) bool {
+fn foo1(arg: anytype) bool {
     return arg;
 }
-fn foo2(arg: var) bool {
+fn foo2(arg: anytype) bool {
     return !arg;
 }
 

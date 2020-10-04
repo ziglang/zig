@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const io = std.io;
 
@@ -43,6 +48,6 @@ pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) ty
     };
 }
 
-pub fn bufferedWriter(underlying_stream: var) BufferedWriter(4096, @TypeOf(underlying_stream)) {
+pub fn bufferedWriter(underlying_stream: anytype) BufferedWriter(4096, @TypeOf(underlying_stream)) {
     return .{ .unbuffered_writer = underlying_stream };
 }

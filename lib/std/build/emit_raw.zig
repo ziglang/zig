@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;
@@ -46,9 +51,10 @@ const BinaryElfOutput = struct {
             .segments = ArrayList(*BinaryElfSegment).init(allocator),
             .sections = ArrayList(*BinaryElfSection).init(allocator),
         };
-        const elf_hdrs = try std.elf.readAllHeaders(allocator, elf_file);
+        const elf_hdr = try std.elf.readHeader(elf_file);
 
-        for (elf_hdrs.section_headers) |section, i| {
+        var section_headers = elf_hdr.section_header_iterator(elf_file);
+        while (try section_headers.next()) |section| {
             if (sectionValidForOutput(section)) {
                 const newSection = try allocator.create(BinaryElfSection);
 
@@ -61,7 +67,8 @@ const BinaryElfOutput = struct {
             }
         }
 
-        for (elf_hdrs.program_headers) |phdr, i| {
+        var program_headers = elf_hdr.program_header_iterator(elf_file);
+        while (try program_headers.next()) |phdr| {
             if (phdr.p_type == elf.PT_LOAD) {
                 const newSegment = try allocator.create(BinaryElfSegment);
 
@@ -126,7 +133,7 @@ const BinaryElfOutput = struct {
         return segment.p_offset <= section.elfOffset and (segment.p_offset + segment.p_filesz) >= (section.elfOffset + section.fileSize);
     }
 
-    fn sectionValidForOutput(shdr: var) bool {
+    fn sectionValidForOutput(shdr: anytype) bool {
         return shdr.sh_size > 0 and shdr.sh_type != elf.SHT_NOBITS and
             ((shdr.sh_flags & elf.SHF_ALLOC) == elf.SHF_ALLOC);
     }

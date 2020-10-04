@@ -282,7 +282,7 @@ test "async fn pointer in a struct field" {
     };
     var foo = Foo{ .bar = simpleAsyncFn2 };
     var bytes: [64]u8 align(16) = undefined;
-    const f = @asyncCall(&bytes, {}, foo.bar, &data);
+    const f = @asyncCall(&bytes, {}, foo.bar, .{&data});
     comptime expect(@TypeOf(f) == anyframe->void);
     expect(data == 2);
     resume f;
@@ -318,7 +318,7 @@ test "@asyncCall with return type" {
     var foo = Foo{ .bar = Foo.middle };
     var bytes: [150]u8 align(16) = undefined;
     var aresult: i32 = 0;
-    _ = @asyncCall(&bytes, &aresult, foo.bar);
+    _ = @asyncCall(&bytes, &aresult, foo.bar, .{});
     expect(aresult == 0);
     resume Foo.global_frame;
     expect(aresult == 1234);
@@ -331,8 +331,8 @@ test "async fn with inferred error set" {
         fn doTheTest() void {
             var frame: [1]@Frame(middle) = undefined;
             var fn_ptr = middle;
-            var result: @TypeOf(fn_ptr).ReturnType.ErrorSet!void = undefined;
-            _ = @asyncCall(std.mem.sliceAsBytes(frame[0..]), &result, fn_ptr);
+            var result: @typeInfo(@typeInfo(@TypeOf(fn_ptr)).Fn.return_type.?).ErrorUnion.error_set!void = undefined;
+            _ = @asyncCall(std.mem.sliceAsBytes(frame[0..]), &result, fn_ptr, .{});
             resume global_frame;
             std.testing.expectError(error.Fail, result);
         }
@@ -827,7 +827,7 @@ test "cast fn to async fn when it is inferred to be async" {
             ptr = func;
             var buf: [100]u8 align(16) = undefined;
             var result: i32 = undefined;
-            const f = @asyncCall(&buf, &result, ptr);
+            const f = @asyncCall(&buf, &result, ptr, .{});
             _ = await f;
             expect(result == 1234);
             ok = true;
@@ -855,7 +855,7 @@ test "cast fn to async fn when it is inferred to be async, awaited directly" {
             ptr = func;
             var buf: [100]u8 align(16) = undefined;
             var result: i32 = undefined;
-            _ = await @asyncCall(&buf, &result, ptr);
+            _ = await @asyncCall(&buf, &result, ptr, .{});
             expect(result == 1234);
             ok = true;
         }
@@ -950,8 +950,8 @@ test "@asyncCall with comptime-known function, but not awaited directly" {
 
         fn doTheTest() void {
             var frame: [1]@Frame(middle) = undefined;
-            var result: @TypeOf(middle).ReturnType.ErrorSet!void = undefined;
-            _ = @asyncCall(std.mem.sliceAsBytes(frame[0..]), &result, middle);
+            var result: @typeInfo(@typeInfo(@TypeOf(middle)).Fn.return_type.?).ErrorUnion.error_set!void = undefined;
+            _ = @asyncCall(std.mem.sliceAsBytes(frame[0..]), &result, middle, .{});
             resume global_frame;
             std.testing.expectError(error.Fail, result);
         }
@@ -982,7 +982,7 @@ test "@asyncCall with actual frame instead of byte buffer" {
     };
     var frame: @Frame(S.func) = undefined;
     var result: i32 = undefined;
-    const ptr = @asyncCall(&frame, &result, S.func);
+    const ptr = @asyncCall(&frame, &result, S.func, .{});
     resume ptr;
     expect(result == 1234);
 }
@@ -1005,7 +1005,7 @@ test "@asyncCall using the result location inside the frame" {
     };
     var foo = Foo{ .bar = S.simple2 };
     var bytes: [64]u8 align(16) = undefined;
-    const f = @asyncCall(&bytes, {}, foo.bar, &data);
+    const f = @asyncCall(&bytes, {}, foo.bar, .{&data});
     comptime expect(@TypeOf(f) == anyframe->i32);
     expect(data == 2);
     resume f;
@@ -1016,9 +1016,9 @@ test "@asyncCall using the result location inside the frame" {
 
 test "@TypeOf an async function call of generic fn with error union type" {
     const S = struct {
-        fn func(comptime x: var) anyerror!i32 {
+        fn func(comptime x: anytype) anyerror!i32 {
             const T = @TypeOf(async func(x));
-            comptime expect(T == @TypeOf(@frame()).Child);
+            comptime expect(T == @typeInfo(@TypeOf(@frame())).Pointer.child);
             return undefined;
         }
     };
@@ -1032,7 +1032,7 @@ test "using @TypeOf on a generic function call" {
 
         var buf: [100]u8 align(16) = undefined;
 
-        fn amain(x: var) void {
+        fn amain(x: anytype) void {
             if (x == 0) {
                 global_ok = true;
                 return;
@@ -1042,7 +1042,7 @@ test "using @TypeOf on a generic function call" {
             }
             const F = @TypeOf(async amain(x - 1));
             const frame = @intToPtr(*F, @ptrToInt(&buf));
-            return await @asyncCall(frame, {}, amain, x - 1);
+            return await @asyncCall(frame, {}, amain, .{x - 1});
         }
     };
     _ = async S.amain(@as(u32, 1));
@@ -1057,7 +1057,7 @@ test "recursive call of await @asyncCall with struct return type" {
 
         var buf: [100]u8 align(16) = undefined;
 
-        fn amain(x: var) Foo {
+        fn amain(x: anytype) Foo {
             if (x == 0) {
                 global_ok = true;
                 return Foo{ .x = 1, .y = 2, .z = 3 };
@@ -1067,7 +1067,7 @@ test "recursive call of await @asyncCall with struct return type" {
             }
             const F = @TypeOf(async amain(x - 1));
             const frame = @intToPtr(*F, @ptrToInt(&buf));
-            return await @asyncCall(frame, {}, amain, x - 1);
+            return await @asyncCall(frame, {}, amain, .{x - 1});
         }
 
         const Foo = struct {
@@ -1078,7 +1078,7 @@ test "recursive call of await @asyncCall with struct return type" {
     };
     var res: S.Foo = undefined;
     var frame: @TypeOf(async S.amain(@as(u32, 1))) = undefined;
-    _ = @asyncCall(&frame, &res, S.amain, @as(u32, 1));
+    _ = @asyncCall(&frame, &res, S.amain, .{@as(u32, 1)});
     resume S.global_frame;
     expect(S.global_ok);
     expect(res.x == 1);
@@ -1336,7 +1336,7 @@ test "async function passed 0-bit arg after non-0-bit arg" {
             bar(1, .{}) catch unreachable;
         }
 
-        fn bar(x: i32, args: var) anyerror!void {
+        fn bar(x: i32, args: anytype) anyerror!void {
             global_frame = @frame();
             suspend;
             global_int = x;
@@ -1357,7 +1357,7 @@ test "async function passed align(16) arg after align(8) arg" {
             bar(10, .{a}) catch unreachable;
         }
 
-        fn bar(x: u64, args: var) anyerror!void {
+        fn bar(x: u64, args: anytype) anyerror!void {
             expect(x == 10);
             global_frame = @frame();
             suspend;
@@ -1377,7 +1377,7 @@ test "async function call resolves target fn frame, comptime func" {
         fn foo() anyerror!void {
             const stack_size = 1000;
             var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
-            return await @asyncCall(&stack_frame, {}, bar);
+            return await @asyncCall(&stack_frame, {}, bar, .{});
         }
 
         fn bar() anyerror!void {
@@ -1400,7 +1400,7 @@ test "async function call resolves target fn frame, runtime func" {
             const stack_size = 1000;
             var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
             var func: fn () callconv(.Async) anyerror!void = bar;
-            return await @asyncCall(&stack_frame, {}, func);
+            return await @asyncCall(&stack_frame, {}, func, .{});
         }
 
         fn bar() anyerror!void {

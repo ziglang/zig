@@ -15,6 +15,7 @@ const Arch = std.Target.Cpu.Arch;
 const Abi = std.Target.Abi;
 const OsTag = std.Target.Os.Tag;
 const assert = std.debug.assert;
+const Blake3 = std.crypto.hash.Blake3;
 
 const LibCTarget = struct {
     name: []const u8,
@@ -248,7 +249,7 @@ const Contents = struct {
 };
 
 const HashToContents = std.StringHashMap(Contents);
-const TargetToHash = std.HashMap(DestTarget, []const u8, DestTarget.hash, DestTarget.eql);
+const TargetToHash = std.HashMap(DestTarget, []const u8, DestTarget.hash, DestTarget.eql, true);
 const PathTable = std.StringHashMap(*TargetToHash);
 
 const LibCVendor = enum {
@@ -313,7 +314,7 @@ pub fn main() !void {
     var max_bytes_saved: usize = 0;
     var total_bytes: usize = 0;
 
-    var hasher = std.crypto.Sha256.init();
+    var hasher = Blake3.init(.{});
 
     for (libc_targets) |libc_target| {
         const dest_target = DestTarget{
@@ -339,7 +340,7 @@ pub fn main() !void {
             try dir_stack.append(target_include_dir);
 
             while (dir_stack.popOrNull()) |full_dir_name| {
-                var dir = std.fs.cwd().openDirList(full_dir_name) catch |err| switch (err) {
+                var dir = std.fs.cwd().openDir(full_dir_name, .{ .iterate = true }) catch |err| switch (err) {
                     error.FileNotFound => continue :search,
                     error.AccessDenied => continue :search,
                     else => return err,
@@ -354,25 +355,26 @@ pub fn main() !void {
                         .Directory => try dir_stack.append(full_path),
                         .File => {
                             const rel_path = try std.fs.path.relative(allocator, target_include_dir, full_path);
-                            const raw_bytes = try std.io.readFileAlloc(allocator, full_path);
+                            const max_size = 2 * 1024 * 1024 * 1024;
+                            const raw_bytes = try std.fs.cwd().readFileAlloc(allocator, full_path, max_size);
                             const trimmed = std.mem.trim(u8, raw_bytes, " \r\n\t");
                             total_bytes += raw_bytes.len;
                             const hash = try allocator.alloc(u8, 32);
-                            hasher.reset();
+                            hasher = Blake3.init(.{});
                             hasher.update(rel_path);
                             hasher.update(trimmed);
                             hasher.final(hash);
                             const gop = try hash_to_contents.getOrPut(hash);
                             if (gop.found_existing) {
                                 max_bytes_saved += raw_bytes.len;
-                                gop.kv.value.hit_count += 1;
+                                gop.entry.value.hit_count += 1;
                                 std.debug.warn("duplicate: {} {} ({Bi:2})\n", .{
                                     libc_target.name,
                                     rel_path,
                                     raw_bytes.len,
                                 });
                             } else {
-                                gop.kv.value = Contents{
+                                gop.entry.value = Contents{
                                     .bytes = trimmed,
                                     .hit_count = 1,
                                     .hash = hash,
@@ -380,13 +382,13 @@ pub fn main() !void {
                                 };
                             }
                             const path_gop = try path_table.getOrPut(rel_path);
-                            const target_to_hash = if (path_gop.found_existing) path_gop.kv.value else blk: {
+                            const target_to_hash = if (path_gop.found_existing) path_gop.entry.value else blk: {
                                 const ptr = try allocator.create(TargetToHash);
                                 ptr.* = TargetToHash.init(allocator);
-                                path_gop.kv.value = ptr;
+                                path_gop.entry.value = ptr;
                                 break :blk ptr;
                             };
-                            assert((try target_to_hash.put(dest_target, hash)) == null);
+                            try target_to_hash.putNoClobber(dest_target, hash);
                         },
                         else => std.debug.warn("warning: weird file: {}\n", .{full_path}),
                     }
@@ -410,12 +412,12 @@ pub fn main() !void {
         {
             var hash_it = path_kv.value.iterator();
             while (hash_it.next()) |hash_kv| {
-                const contents = &hash_to_contents.get(hash_kv.value).?.value;
+                const contents = &hash_to_contents.getEntry(hash_kv.value).?.value;
                 try contents_list.append(contents);
             }
         }
         std.sort.sort(*Contents, contents_list.span(), {}, Contents.hitCountLessThan);
-        var best_contents = contents_list.popOrNull().?;
+        const best_contents = contents_list.popOrNull().?;
         if (best_contents.hit_count > 1) {
             // worth it to make it generic
             const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, generic_name, path_kv.key });
@@ -432,7 +434,7 @@ pub fn main() !void {
         }
         var hash_it = path_kv.value.iterator();
         while (hash_it.next()) |hash_kv| {
-            const contents = &hash_to_contents.get(hash_kv.value).?.value;
+            const contents = &hash_to_contents.getEntry(hash_kv.value).?.value;
             if (contents.is_generic) continue;
 
             const dest_target = hash_kv.key;

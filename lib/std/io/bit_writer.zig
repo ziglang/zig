@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const builtin = std.builtin;
 const io = std.io;
@@ -34,7 +39,7 @@ pub fn BitWriter(endian: builtin.Endian, comptime WriterType: type) type {
         /// Write the specified number of bits to the stream from the least significant bits of
         ///  the specified unsigned int value. Bits will only be written to the stream when there
         ///  are enough to fill a byte.
-        pub fn writeBits(self: *Self, value: var, bits: usize) Error!void {
+        pub fn writeBits(self: *Self, value: anytype, bits: usize) Error!void {
             if (bits == 0) return;
 
             const U = @TypeOf(value);
@@ -145,7 +150,7 @@ pub fn BitWriter(endian: builtin.Endian, comptime WriterType: type) type {
 
 pub fn bitWriter(
     comptime endian: builtin.Endian,
-    underlying_stream: var,
+    underlying_stream: anytype,
 ) BitWriter(endian, @TypeOf(underlying_stream)) {
     return BitWriter(endian, @TypeOf(underlying_stream)).init(underlying_stream);
 }

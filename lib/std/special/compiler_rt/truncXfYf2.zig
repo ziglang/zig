@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std");
 
 pub fn __truncsfhf2(a: f32) callconv(.C) u16 {
@@ -45,7 +50,7 @@ fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t {
 
     // Various constants whose values follow from the type parameters.
     // Any reasonable optimizer will fold and propagate all of these.
-    const srcBits = src_t.bit_count;
+    const srcBits = @typeInfo(src_t).Float.bits;
     const srcExpBits = srcBits - srcSigBits - 1;
     const srcInfExp = (1 << srcExpBits) - 1;
     const srcExpBias = srcInfExp >> 1;
@@ -60,7 +65,7 @@ fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t {
     const srcQNaN = 1 << (srcSigBits - 1);
     const srcNaNCode = srcQNaN - 1;
 
-    const dstBits = dst_t.bit_count;
+    const dstBits = @typeInfo(dst_t).Float.bits;
     const dstExpBits = dstBits - dstSigBits - 1;
     const dstInfExp = (1 << dstExpBits) - 1;
     const dstExpBias = dstInfExp >> 1;

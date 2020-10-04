@@ -1,568 +1,31 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std.zig");
-const debug = std.debug;
+const builtin = @import("builtin");
 const assert = debug.assert;
-const testing = std.testing;
+const autoHash = std.hash.autoHash;
+const debug = std.debug;
+const warn = debug.warn;
 const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
-const autoHash = std.hash.autoHash;
-const Wyhash = std.hash.Wyhash;
+const trait = meta.trait;
 const Allocator = mem.Allocator;
-const builtin = @import("builtin");
+const Wyhash = std.hash.Wyhash;
 
-const want_modification_safety = std.debug.runtime_safety;
-const debug_u32 = if (want_modification_safety) u32 else void;
-
-pub fn AutoHashMap(comptime K: type, comptime V: type) type {
-    return HashMap(K, V, getAutoHashFn(K), getAutoEqlFn(K));
-}
-
-/// Builtin hashmap for strings as keys.
-pub fn StringHashMap(comptime V: type) type {
-    return HashMap([]const u8, V, hashString, eqlString);
-}
-
-pub fn eqlString(a: []const u8, b: []const u8) bool {
-    return mem.eql(u8, a, b);
-}
-
-pub fn hashString(s: []const u8) u32 {
-    return @truncate(u32, std.hash.Wyhash.hash(0, s));
-}
-
-pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u32, comptime eql: fn (a: K, b: K) bool) type {
+pub fn getAutoHashFn(comptime K: type) (fn (K) u64) {
     return struct {
-        entries: []Entry,
-        size: usize,
-        max_distance_from_start_index: usize,
-        allocator: *Allocator,
-
-        /// This is used to detect bugs where a hashtable is edited while an iterator is running.
-        modification_count: debug_u32,
-
-        const Self = @This();
-
-        /// A *KV is a mutable pointer into this HashMap's internal storage.
-        /// Modifying the key is undefined behavior.
-        /// Modifying the value is harmless.
-        /// *KV pointers become invalid whenever this HashMap is modified,
-        /// and then any access to the *KV is undefined behavior.
-        pub const KV = struct {
-            key: K,
-            value: V,
-        };
-
-        const Entry = struct {
-            used: bool,
-            distance_from_start_index: usize,
-            kv: KV,
-        };
-
-        pub const GetOrPutResult = struct {
-            kv: *KV,
-            found_existing: bool,
-        };
-
-        pub const Iterator = struct {
-            hm: *const Self,
-            // how many items have we returned
-            count: usize,
-            // iterator through the entry array
-            index: usize,
-            // used to detect concurrent modification
-            initial_modification_count: debug_u32,
-
-            pub fn next(it: *Iterator) ?*KV {
-                if (want_modification_safety) {
-                    assert(it.initial_modification_count == it.hm.modification_count); // concurrent modification
-                }
-                if (it.count >= it.hm.size) return null;
-                while (it.index < it.hm.entries.len) : (it.index += 1) {
-                    const entry = &it.hm.entries[it.index];
-                    if (entry.used) {
-                        it.index += 1;
-                        it.count += 1;
-                        return &entry.kv;
-                    }
-                }
-                unreachable; // no next item
+        fn hash(key: K) u64 {
+            if (comptime trait.hasUniqueRepresentation(K)) {
+                return Wyhash.hash(0, std.mem.asBytes(&key));
+            } else {
+                var hasher = Wyhash.init(0);
+                autoHash(&hasher, key);
+                return hasher.final();
             }
-
-            // Reset the iterator to the initial index
-            pub fn reset(it: *Iterator) void {
-                it.count = 0;
-                it.index = 0;
-                // Resetting the modification count too
-                it.initial_modification_count = it.hm.modification_count;
-            }
-        };
-
-        pub fn init(allocator: *Allocator) Self {
-            return Self{
-                .entries = &[_]Entry{},
-                .allocator = allocator,
-                .size = 0,
-                .max_distance_from_start_index = 0,
-                .modification_count = if (want_modification_safety) 0 else {},
-            };
-        }
-
-        pub fn deinit(hm: Self) void {
-            hm.allocator.free(hm.entries);
-        }
-
-        pub fn clear(hm: *Self) void {
-            for (hm.entries) |*entry| {
-                entry.used = false;
-            }
-            hm.size = 0;
-            hm.max_distance_from_start_index = 0;
-            hm.incrementModificationCount();
-        }
-
-        pub fn count(self: Self) usize {
-            return self.size;
-        }
-
-        /// If key exists this function cannot fail.
-        /// If there is an existing item with `key`, then the result
-        /// kv pointer points to it, and found_existing is true.
-        /// Otherwise, puts a new item with undefined value, and
-        /// the kv pointer points to it. Caller should then initialize
-        /// the data.
-        pub fn getOrPut(self: *Self, key: K) !GetOrPutResult {
-            // TODO this implementation can be improved - we should only
-            // have to hash once and find the entry once.
-            if (self.get(key)) |kv| {
-                return GetOrPutResult{
-                    .kv = kv,
-                    .found_existing = true,
-                };
-            }
-            self.incrementModificationCount();
-            try self.autoCapacity();
-            const put_result = self.internalPut(key);
-            assert(put_result.old_kv == null);
-            return GetOrPutResult{
-                .kv = &put_result.new_entry.kv,
-                .found_existing = false,
-            };
-        }
-
-        pub fn getOrPutValue(self: *Self, key: K, value: V) !*KV {
-            const res = try self.getOrPut(key);
-            if (!res.found_existing)
-                res.kv.value = value;
-
-            return res.kv;
-        }
-
-        fn optimizedCapacity(expected_count: usize) usize {
-            // ensure that the hash map will be at most 60% full if
-            // expected_count items are put into it
-            var optimized_capacity = expected_count * 5 / 3;
-            // an overflow here would mean the amount of memory required would not
-            // be representable in the address space
-            return math.ceilPowerOfTwo(usize, optimized_capacity) catch unreachable;
-        }
-
-        /// Increases capacity so that the hash map will be at most
-        /// 60% full when expected_count items are put into it
-        pub fn ensureCapacity(self: *Self, expected_count: usize) !void {
-            if (expected_count == 0) return;
-            const optimized_capacity = optimizedCapacity(expected_count);
-            return self.ensureCapacityExact(optimized_capacity);
-        }
-
-        /// Sets the capacity to the new capacity if the new
-        /// capacity is greater than the current capacity.
-        /// New capacity must be a power of two.
-        fn ensureCapacityExact(self: *Self, new_capacity: usize) !void {
-            // capacity must always be a power of two to allow for modulo
-            // optimization in the constrainIndex fn
-            assert(math.isPowerOfTwo(new_capacity));
-
-            if (new_capacity <= self.entries.len) {
-                return;
-            }
-
-            const old_entries = self.entries;
-            try self.initCapacity(new_capacity);
-            self.incrementModificationCount();
-            if (old_entries.len > 0) {
-                // dump all of the old elements into the new table
-                for (old_entries) |*old_entry| {
-                    if (old_entry.used) {
-                        self.internalPut(old_entry.kv.key).new_entry.kv.value = old_entry.kv.value;
-                    }
-                }
-                self.allocator.free(old_entries);
-            }
-        }
-
-        /// Returns the kv pair that was already there.
-        pub fn put(self: *Self, key: K, value: V) !?KV {
-            try self.autoCapacity();
-            return putAssumeCapacity(self, key, value);
-        }
-
-        /// Calls put() and asserts that no kv pair is clobbered.
-        pub fn putNoClobber(self: *Self, key: K, value: V) !void {
-            assert((try self.put(key, value)) == null);
-        }
-
-        pub fn putAssumeCapacity(self: *Self, key: K, value: V) ?KV {
-            assert(self.count() < self.entries.len);
-            self.incrementModificationCount();
-
-            const put_result = self.internalPut(key);
-            put_result.new_entry.kv.value = value;
-            return put_result.old_kv;
-        }
-
-        pub fn putAssumeCapacityNoClobber(self: *Self, key: K, value: V) void {
-            assert(self.putAssumeCapacity(key, value) == null);
-        }
-
-        pub fn get(hm: *const Self, key: K) ?*KV {
-            if (hm.entries.len == 0) {
-                return null;
-            }
-            return hm.internalGet(key);
-        }
-
-        pub fn getValue(hm: *const Self, key: K) ?V {
-            return if (hm.get(key)) |kv| kv.value else null;
-        }
-
-        pub fn contains(hm: *const Self, key: K) bool {
-            return hm.get(key) != null;
-        }
-
-        /// Returns any kv pair that was removed.
-        pub fn remove(hm: *Self, key: K) ?KV {
-            if (hm.entries.len == 0) return null;
-            hm.incrementModificationCount();
-            const start_index = hm.keyToIndex(key);
-            {
-                var roll_over: usize = 0;
-                while (roll_over <= hm.max_distance_from_start_index) : (roll_over += 1) {
-                    const index = hm.constrainIndex(start_index + roll_over);
-                    var entry = &hm.entries[index];
-
-                    if (!entry.used) return null;
-
-                    if (!eql(entry.kv.key, key)) continue;
-
-                    const removed_kv = entry.kv;
-                    while (roll_over < hm.entries.len) : (roll_over += 1) {
-                        const next_index = hm.constrainIndex(start_index + roll_over + 1);
-                        const next_entry = &hm.entries[next_index];
-                        if (!next_entry.used or next_entry.distance_from_start_index == 0) {
-                            entry.used = false;
-                            hm.size -= 1;
-                            return removed_kv;
-                        }
-                        entry.* = next_entry.*;
-                        entry.distance_from_start_index -= 1;
-                        entry = next_entry;
-                    }
-                    unreachable; // shifting everything in the table
-                }
-            }
-            return null;
-        }
-
-        /// Calls remove(), asserts that a kv pair is removed, and discards it.
-        pub fn removeAssertDiscard(hm: *Self, key: K) void {
-            assert(hm.remove(key) != null);
-        }
-
-        pub fn iterator(hm: *const Self) Iterator {
-            return Iterator{
-                .hm = hm,
-                .count = 0,
-                .index = 0,
-                .initial_modification_count = hm.modification_count,
-            };
-        }
-
-        pub fn clone(self: Self) !Self {
-            var other = Self.init(self.allocator);
-            try other.initCapacity(self.entries.len);
-            var it = self.iterator();
-            while (it.next()) |entry| {
-                try other.putNoClobber(entry.key, entry.value);
-            }
-            return other;
-        }
-
-        fn autoCapacity(self: *Self) !void {
-            if (self.entries.len == 0) {
-                return self.ensureCapacityExact(16);
-            }
-            // if we get too full (60%), double the capacity
-            if (self.size * 5 >= self.entries.len * 3) {
-                return self.ensureCapacityExact(self.entries.len * 2);
-            }
-        }
-
-        fn initCapacity(hm: *Self, capacity: usize) !void {
-            hm.entries = try hm.allocator.alloc(Entry, capacity);
-            hm.size = 0;
-            hm.max_distance_from_start_index = 0;
-            for (hm.entries) |*entry| {
-                entry.used = false;
-            }
-        }
-
-        fn incrementModificationCount(hm: *Self) void {
-            if (want_modification_safety) {
-                hm.modification_count +%= 1;
-            }
-        }
-
-        const InternalPutResult = struct {
-            new_entry: *Entry,
-            old_kv: ?KV,
-        };
-
-        /// Returns a pointer to the new entry.
-        /// Asserts that there is enough space for the new item.
-        fn internalPut(self: *Self, orig_key: K) InternalPutResult {
-            var key = orig_key;
-            var value: V = undefined;
-            const start_index = self.keyToIndex(key);
-            var roll_over: usize = 0;
-            var distance_from_start_index: usize = 0;
-            var got_result_entry = false;
-            var result = InternalPutResult{
-                .new_entry = undefined,
-                .old_kv = null,
-            };
-            while (roll_over < self.entries.len) : ({
-                roll_over += 1;
-                distance_from_start_index += 1;
-            }) {
-                const index = self.constrainIndex(start_index + roll_over);
-                const entry = &self.entries[index];
-
-                if (entry.used and !eql(entry.kv.key, key)) {
-                    if (entry.distance_from_start_index < distance_from_start_index) {
-                        // robin hood to the rescue
-                        const tmp = entry.*;
-                        self.max_distance_from_start_index = math.max(self.max_distance_from_start_index, distance_from_start_index);
-                        if (!got_result_entry) {
-                            got_result_entry = true;
-                            result.new_entry = entry;
-                        }
-                        entry.* = Entry{
-                            .used = true,
-                            .distance_from_start_index = distance_from_start_index,
-                            .kv = KV{
-                                .key = key,
-                                .value = value,
-                            },
-                        };
-                        key = tmp.kv.key;
-                        value = tmp.kv.value;
-                        distance_from_start_index = tmp.distance_from_start_index;
-                    }
-                    continue;
-                }
-
-                if (entry.used) {
-                    result.old_kv = entry.kv;
-                } else {
-                    // adding an entry. otherwise overwriting old value with
-                    // same key
-                    self.size += 1;
-                }
-
-                self.max_distance_from_start_index = math.max(distance_from_start_index, self.max_distance_from_start_index);
-                if (!got_result_entry) {
-                    result.new_entry = entry;
-                }
-                entry.* = Entry{
-                    .used = true,
-                    .distance_from_start_index = distance_from_start_index,
-                    .kv = KV{
-                        .key = key,
-                        .value = value,
-                    },
-                };
-                return result;
-            }
-            unreachable; // put into a full map
-        }
-
-        fn internalGet(hm: Self, key: K) ?*KV {
-            const start_index = hm.keyToIndex(key);
-            {
-                var roll_over: usize = 0;
-                while (roll_over <= hm.max_distance_from_start_index) : (roll_over += 1) {
-                    const index = hm.constrainIndex(start_index + roll_over);
-                    const entry = &hm.entries[index];
-
-                    if (!entry.used) return null;
-                    if (eql(entry.kv.key, key)) return &entry.kv;
-                }
-            }
-            return null;
-        }
-
-        fn keyToIndex(hm: Self, key: K) usize {
-            return hm.constrainIndex(@as(usize, hash(key)));
-        }
-
-        fn constrainIndex(hm: Self, i: usize) usize {
-            // this is an optimization for modulo of power of two integers;
-            // it requires hm.entries.len to always be a power of two
-            return i & (hm.entries.len - 1);
-        }
-    };
-}
-
-test "basic hash map usage" {
-    var map = AutoHashMap(i32, i32).init(std.testing.allocator);
-    defer map.deinit();
-
-    testing.expect((try map.put(1, 11)) == null);
-    testing.expect((try map.put(2, 22)) == null);
-    testing.expect((try map.put(3, 33)) == null);
-    testing.expect((try map.put(4, 44)) == null);
-
-    try map.putNoClobber(5, 55);
-    testing.expect((try map.put(5, 66)).?.value == 55);
-    testing.expect((try map.put(5, 55)).?.value == 66);
-
-    const gop1 = try map.getOrPut(5);
-    testing.expect(gop1.found_existing == true);
-    testing.expect(gop1.kv.value == 55);
-    gop1.kv.value = 77;
-    testing.expect(map.get(5).?.value == 77);
-
-    const gop2 = try map.getOrPut(99);
-    testing.expect(gop2.found_existing == false);
-    gop2.kv.value = 42;
-    testing.expect(map.get(99).?.value == 42);
-
-    const gop3 = try map.getOrPutValue(5, 5);
-    testing.expect(gop3.value == 77);
-
-    const gop4 = try map.getOrPutValue(100, 41);
-    testing.expect(gop4.value == 41);
-
-    testing.expect(map.contains(2));
-    testing.expect(map.get(2).?.value == 22);
-    testing.expect(map.getValue(2).? == 22);
-
-    const rmv1 = map.remove(2);
-    testing.expect(rmv1.?.key == 2);
-    testing.expect(rmv1.?.value == 22);
-    testing.expect(map.remove(2) == null);
-    testing.expect(map.get(2) == null);
-    testing.expect(map.getValue(2) == null);
-
-    map.removeAssertDiscard(3);
-}
-
-test "iterator hash map" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
-    var reset_map = AutoHashMap(i32, i32).init(std.testing.allocator);
-    defer reset_map.deinit();
-
-    // test ensureCapacity with a 0 parameter
-    try reset_map.ensureCapacity(0);
-
-    try reset_map.putNoClobber(0, 11);
-    try reset_map.putNoClobber(1, 22);
-    try reset_map.putNoClobber(2, 33);
-
-    var keys = [_]i32{
-        0, 2, 1,
-    };
-
-    var values = [_]i32{
-        11, 33, 22,
-    };
-
-    var buffer = [_]i32{
-        0, 0, 0,
-    };
-
-    var it = reset_map.iterator();
-    const first_entry = it.next().?;
-    it.reset();
-
-    var count: usize = 0;
-    while (it.next()) |kv| : (count += 1) {
-        buffer[@intCast(usize, kv.key)] = kv.value;
-    }
-    testing.expect(count == 3);
-    testing.expect(it.next() == null);
-
-    for (buffer) |v, i| {
-        testing.expect(buffer[@intCast(usize, keys[i])] == values[i]);
-    }
-
-    it.reset();
-    count = 0;
-    while (it.next()) |kv| {
-        buffer[@intCast(usize, kv.key)] = kv.value;
-        count += 1;
-        if (count >= 2) break;
-    }
-
-    for (buffer[0..2]) |v, i| {
-        testing.expect(buffer[@intCast(usize, keys[i])] == values[i]);
-    }
-
-    it.reset();
-    var entry = it.next().?;
-    testing.expect(entry.key == first_entry.key);
-    testing.expect(entry.value == first_entry.value);
-}
-
-test "ensure capacity" {
-    var map = AutoHashMap(i32, i32).init(std.testing.allocator);
-    defer map.deinit();
-
-    try map.ensureCapacity(20);
-    const initialCapacity = map.entries.len;
-    testing.expect(initialCapacity >= 20);
-    var i: i32 = 0;
-    while (i < 20) : (i += 1) {
-        testing.expect(map.putAssumeCapacity(i, i + 10) == null);
-    }
-    // shouldn't resize from putAssumeCapacity
-    testing.expect(initialCapacity == map.entries.len);
-}
-
-pub fn getHashPtrAddrFn(comptime K: type) (fn (K) u32) {
-    return struct {
-        fn hash(key: K) u32 {
-            return getAutoHashFn(usize)(@ptrToInt(key));
-        }
-    }.hash;
-}
-
-pub fn getTrivialEqlFn(comptime K: type) (fn (K, K) bool) {
-    return struct {
-        fn eql(a: K, b: K) bool {
-            return a == b;
-        }
-    }.eql;
-}
-
-pub fn getAutoHashFn(comptime K: type) (fn (K) u32) {
-    return struct {
-        fn hash(key: K) u32 {
-            var hasher = Wyhash.init(0);
-            autoHash(&hasher, key);
-            return @truncate(u32, hasher.final());
         }
     }.hash;
 }
@@ -575,12 +38,1197 @@ pub fn getAutoEqlFn(comptime K: type) (fn (K, K) bool) {
     }.eql;
 }
 
-pub fn getAutoHashStratFn(comptime K: type, comptime strategy: std.hash.Strategy) (fn (K) u32) {
+pub fn AutoHashMap(comptime K: type, comptime V: type) type {
+    return HashMap(K, V, getAutoHashFn(K), getAutoEqlFn(K), DefaultMaxLoadPercentage);
+}
+
+pub fn AutoHashMapUnmanaged(comptime K: type, comptime V: type) type {
+    return HashMapUnmanaged(K, V, getAutoHashFn(K), getAutoEqlFn(K), DefaultMaxLoadPercentage);
+}
+
+/// Builtin hashmap for strings as keys.
+pub fn StringHashMap(comptime V: type) type {
+    return HashMap([]const u8, V, hashString, eqlString, DefaultMaxLoadPercentage);
+}
+
+pub fn StringHashMapUnmanaged(comptime V: type) type {
+    return HashMapUnmanaged([]const u8, V, hashString, eqlString, DefaultMaxLoadPercentage);
+}
+
+pub fn eqlString(a: []const u8, b: []const u8) bool {
+    return mem.eql(u8, a, b);
+}
+
+pub fn hashString(s: []const u8) u64 {
+    return std.hash.Wyhash.hash(0, s);
+}
+
+pub const DefaultMaxLoadPercentage = 80;
+
+/// General purpose hash table.
+/// No order is guaranteed and any modification invalidates live iterators.
+/// It provides fast operations (lookup, insertion, deletion) with quite high
+/// load factors (up to 80% by default) for a low memory usage.
+/// For a hash map that can be initialized directly that does not store an Allocator
+/// field, see `HashMapUnmanaged`.
+/// If iterating over the table entries is a strong usecase and needs to be fast,
+/// prefer the alternative `std.ArrayHashMap`.
+pub fn HashMap(
+    comptime K: type,
+    comptime V: type,
+    comptime hashFn: fn (key: K) u64,
+    comptime eqlFn: fn (a: K, b: K) bool,
+    comptime MaxLoadPercentage: u64,
+) type {
     return struct {
-        fn hash(key: K) u32 {
-            var hasher = Wyhash.init(0);
-            std.hash.autoHashStrat(&hasher, key, strategy);
-            return @truncate(u32, hasher.final());
+        unmanaged: Unmanaged,
+        allocator: *Allocator,
+
+        pub const Unmanaged = HashMapUnmanaged(K, V, hashFn, eqlFn, MaxLoadPercentage);
+        pub const Entry = Unmanaged.Entry;
+        pub const Hash = Unmanaged.Hash;
+        pub const Iterator = Unmanaged.Iterator;
+        pub const Size = Unmanaged.Size;
+        pub const GetOrPutResult = Unmanaged.GetOrPutResult;
+
+        const Self = @This();
+
+        pub fn init(allocator: *Allocator) Self {
+            return .{
+                .unmanaged = .{},
+                .allocator = allocator,
+            };
         }
-    }.hash;
+
+        pub fn deinit(self: *Self) void {
+            self.unmanaged.deinit(self.allocator);
+            self.* = undefined;
+        }
+
+        pub fn clearRetainingCapacity(self: *Self) void {
+            return self.unmanaged.clearRetainingCapacity();
+        }
+
+        pub fn clearAndFree(self: *Self) void {
+            return self.unmanaged.clearAndFree(self.allocator);
+        }
+
+        pub fn count(self: Self) Size {
+            return self.unmanaged.count();
+        }
+
+        pub fn iterator(self: *const Self) Iterator {
+            return self.unmanaged.iterator();
+        }
+
+        /// If key exists this function cannot fail.
+        /// If there is an existing item with `key`, then the result
+        /// `Entry` pointer points to it, and found_existing is true.
+        /// Otherwise, puts a new item with undefined value, and
+        /// the `Entry` pointer points to it. Caller should then initialize
+        /// the value (but not the key).
+        pub fn getOrPut(self: *Self, key: K) !GetOrPutResult {
+            return self.unmanaged.getOrPut(self.allocator, key);
+        }
+
+        /// If there is an existing item with `key`, then the result
+        /// `Entry` pointer points to it, and found_existing is true.
+        /// Otherwise, puts a new item with undefined value, and
+        /// the `Entry` pointer points to it. Caller should then initialize
+        /// the value (but not the key).
+        /// If a new entry needs to be stored, this function asserts there
+        /// is enough capacity to store it.
+        pub fn getOrPutAssumeCapacity(self: *Self, key: K) GetOrPutResult {
+            return self.unmanaged.getOrPutAssumeCapacity(key);
+        }
+
+        pub fn getOrPutValue(self: *Self, key: K, value: V) !*Entry {
+            return self.unmanaged.getOrPutValue(self.allocator, key, value);
+        }
+
+        /// Increases capacity, guaranteeing that insertions up until the
+        /// `expected_count` will not cause an allocation, and therefore cannot fail.
+        pub fn ensureCapacity(self: *Self, expected_count: Size) !void {
+            return self.unmanaged.ensureCapacity(self.allocator, expected_count);
+        }
+
+        /// Returns the number of total elements which may be present before it is
+        /// no longer guaranteed that no allocations will be performed.
+        pub fn capacity(self: *Self) Size {
+            return self.unmanaged.capacity();
+        }
+
+        /// Clobbers any existing data. To detect if a put would clobber
+        /// existing data, see `getOrPut`.
+        pub fn put(self: *Self, key: K, value: V) !void {
+            return self.unmanaged.put(self.allocator, key, value);
+        }
+
+        /// Inserts a key-value pair into the hash map, asserting that no previous
+        /// entry with the same key is already present
+        pub fn putNoClobber(self: *Self, key: K, value: V) !void {
+            return self.unmanaged.putNoClobber(self.allocator, key, value);
+        }
+
+        /// Asserts there is enough capacity to store the new key-value pair.
+        /// Clobbers any existing data. To detect if a put would clobber
+        /// existing data, see `getOrPutAssumeCapacity`.
+        pub fn putAssumeCapacity(self: *Self, key: K, value: V) void {
+            return self.unmanaged.putAssumeCapacity(key, value);
+        }
+
+        /// Asserts there is enough capacity to store the new key-value pair.
+        /// Asserts that it does not clobber any existing data.
+        /// To detect if a put would clobber existing data, see `getOrPutAssumeCapacity`.
+        pub fn putAssumeCapacityNoClobber(self: *Self, key: K, value: V) void {
+            return self.unmanaged.putAssumeCapacityNoClobber(key, value);
+        }
+
+        /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
+        pub fn fetchPut(self: *Self, key: K, value: V) !?Entry {
+            return self.unmanaged.fetchPut(self.allocator, key, value);
+        }
+
+        /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
+        /// If insertion happuns, asserts there is enough capacity without allocating.
+        pub fn fetchPutAssumeCapacity(self: *Self, key: K, value: V) ?Entry {
+            return self.unmanaged.fetchPutAssumeCapacity(key, value);
+        }
+
+        pub fn get(self: Self, key: K) ?V {
+            return self.unmanaged.get(key);
+        }
+
+        pub fn getEntry(self: Self, key: K) ?*Entry {
+            return self.unmanaged.getEntry(key);
+        }
+
+        pub fn contains(self: Self, key: K) bool {
+            return self.unmanaged.contains(key);
+        }
+
+        /// If there is an `Entry` with a matching key, it is deleted from
+        /// the hash map, and then returned from this function.
+        pub fn remove(self: *Self, key: K) ?Entry {
+            return self.unmanaged.remove(key);
+        }
+
+        /// Asserts there is an `Entry` with matching key, deletes it from the hash map,
+        /// and discards it.
+        pub fn removeAssertDiscard(self: *Self, key: K) void {
+            return self.unmanaged.removeAssertDiscard(key);
+        }
+
+        pub fn clone(self: Self) !Self {
+            var other = try self.unmanaged.clone(self.allocator);
+            return other.promote(self.allocator);
+        }
+    };
+}
+
+/// A HashMap based on open addressing and linear probing.
+/// A lookup or modification typically occurs only 2 cache misses.
+/// No order is guaranteed and any modification invalidates live iterators.
+/// It achieves good performance with quite high load factors (by default,
+/// grow is triggered at 80% full) and only one byte of overhead per element.
+/// The struct itself is only 16 bytes for a small footprint. This comes at
+/// the price of handling size with u32, which should be reasonnable enough
+/// for almost all uses.
+/// Deletions are achieved with tombstones.
+pub fn HashMapUnmanaged(
+    comptime K: type,
+    comptime V: type,
+    hashFn: fn (key: K) u64,
+    eqlFn: fn (a: K, b: K) bool,
+    comptime MaxLoadPercentage: u64,
+) type {
+    comptime assert(MaxLoadPercentage > 0 and MaxLoadPercentage < 100);
+
+    return struct {
+        const Self = @This();
+
+        // This is actually a midway pointer to the single buffer containing
+        // a `Header` field, the `Metadata`s and `Entry`s.
+        // At `-@sizeOf(Header)` is the Header field.
+        // At `sizeOf(Metadata) * capacity + offset`, which is pointed to by
+        // self.header().entries, is the array of entries.
+        // This means that the hashmap only holds one live allocation, to
+        // reduce memory fragmentation and struct size.
+        /// Pointer to the metadata.
+        metadata: ?[*]Metadata = null,
+
+        /// Current number of elements in the hashmap.
+        size: Size = 0,
+
+        // Having a countdown to grow reduces the number of instructions to
+        // execute when determining if the hashmap has enough capacity already.
+        /// Number of available slots before a grow is needed to satisfy the
+        /// `MaxLoadPercentage`.
+        available: Size = 0,
+
+        // This is purely empirical and not a /very smart magic constant™/.
+        /// Capacity of the first grow when bootstrapping the hashmap.
+        const MinimalCapacity = 8;
+
+        // This hashmap is specially designed for sizes that fit in a u32.
+        const Size = u32;
+
+        // u64 hashes guarantee us that the fingerprint bits will never be used
+        // to compute the index of a slot, maximizing the use of entropy.
+        const Hash = u64;
+
+        pub const Entry = struct {
+            key: K,
+            value: V,
+        };
+
+        const Header = packed struct {
+            entries: [*]Entry,
+            capacity: Size,
+        };
+
+        /// Metadata for a slot. It can be in three states: empty, used or
+        /// tombstone. Tombstones indicate that an entry was previously used,
+        /// they are a simple way to handle removal.
+        /// To this state, we add 6 bits from the slot's key hash. These are
+        /// used as a fast way to disambiguate between entries without
+        /// having to use the equality function. If two fingerprints are
+        /// different, we know that we don't have to compare the keys at all.
+        /// The 6 bits are the highest ones from a 64 bit hash. This way, not
+        /// only we use the `log2(capacity)` lowest bits from the hash to determine
+        /// a slot index, but we use 6 more bits to quickly resolve collisions
+        /// when multiple elements with different hashes end up wanting to be in / the same slot.
+        /// Not using the equality function means we don't have to read into
+        /// the entries array, avoiding a likely cache miss.
+        const Metadata = packed struct {
+            const FingerPrint = u6;
+
+            used: u1 = 0,
+            tombstone: u1 = 0,
+            fingerprint: FingerPrint = 0,
+
+            pub fn isUsed(self: Metadata) bool {
+                return self.used == 1;
+            }
+
+            pub fn isTombstone(self: Metadata) bool {
+                return self.tombstone == 1;
+            }
+
+            pub fn takeFingerprint(hash: Hash) FingerPrint {
+                const hash_bits = @typeInfo(Hash).Int.bits;
+                const fp_bits = @typeInfo(FingerPrint).Int.bits;
+                return @truncate(FingerPrint, hash >> (hash_bits - fp_bits));
+            }
+
+            pub fn fill(self: *Metadata, fp: FingerPrint) void {
+                self.used = 1;
+                self.tombstone = 0;
+                self.fingerprint = fp;
+            }
+
+            pub fn remove(self: *Metadata) void {
+                self.used = 0;
+                self.tombstone = 1;
+                self.fingerprint = 0;
+            }
+        };
+
+        comptime {
+            assert(@sizeOf(Metadata) == 1);
+            assert(@alignOf(Metadata) == 1);
+        }
+
+        const Iterator = struct {
+            hm: *const Self,
+            index: Size = 0,
+
+            pub fn next(it: *Iterator) ?*Entry {
+                assert(it.index <= it.hm.capacity());
+                if (it.hm.size == 0) return null;
+
+                const cap = it.hm.capacity();
+                const end = it.hm.metadata.? + cap;
+                var metadata = it.hm.metadata.? + it.index;
+
+                while (metadata != end) : ({
+                    metadata += 1;
+                    it.index += 1;
+                }) {
+                    if (metadata[0].isUsed()) {
+                        const entry = &it.hm.entries()[it.index];
+                        it.index += 1;
+                        return entry;
+                    }
+                }
+
+                return null;
+            }
+        };
+
+        pub const GetOrPutResult = struct {
+            entry: *Entry,
+            found_existing: bool,
+        };
+
+        pub const Managed = HashMap(K, V, hashFn, eqlFn, MaxLoadPercentage);
+
+        pub fn promote(self: Self, allocator: *Allocator) Managed {
+            return .{
+                .unmanaged = self,
+                .allocator = allocator,
+            };
+        }
+
+        fn isUnderMaxLoadPercentage(size: Size, cap: Size) bool {
+            return size * 100 < MaxLoadPercentage * cap;
+        }
+
+        pub fn init(allocator: *Allocator) Self {
+            return .{};
+        }
+
+        pub fn deinit(self: *Self, allocator: *Allocator) void {
+            self.deallocate(allocator);
+            self.* = undefined;
+        }
+
+        fn deallocate(self: *Self, allocator: *Allocator) void {
+            if (self.metadata == null) return;
+
+            const cap = self.capacity();
+            const meta_size = @sizeOf(Header) + cap * @sizeOf(Metadata);
+
+            const alignment = @alignOf(Entry) - 1;
+            const entries_size = @as(usize, cap) * @sizeOf(Entry) + alignment;
+
+            const total_size = meta_size + entries_size;
+
+            var slice: []u8 = undefined;
+            slice.ptr = @intToPtr([*]u8, @ptrToInt(self.header()));
+            slice.len = total_size;
+            allocator.free(slice);
+
+            self.metadata = null;
+            self.available = 0;
+        }
+
+        fn capacityForSize(size: Size) Size {
+            var new_cap = @truncate(u32, (@as(u64, size) * 100) / MaxLoadPercentage + 1);
+            new_cap = math.ceilPowerOfTwo(u32, new_cap) catch unreachable;
+            return new_cap;
+        }
+
+        pub fn ensureCapacity(self: *Self, allocator: *Allocator, new_size: Size) !void {
+            if (new_size > self.size)
+                try self.growIfNeeded(allocator, new_size - self.size);
+        }
+
+        pub fn clearRetainingCapacity(self: *Self) void {
+            if (self.metadata) |_| {
+                self.initMetadatas();
+                self.size = 0;
+                self.available = 0;
+            }
+        }
+
+        pub fn clearAndFree(self: *Self, allocator: *Allocator) void {
+            self.deallocate(allocator);
+            self.size = 0;
+            self.available = 0;
+        }
+
+        pub fn count(self: *const Self) Size {
+            return self.size;
+        }
+
+        fn header(self: *const Self) *Header {
+            return @ptrCast(*Header, @ptrCast([*]Header, self.metadata.?) - 1);
+        }
+
+        fn entries(self: *const Self) [*]Entry {
+            return self.header().entries;
+        }
+
+        pub fn capacity(self: *const Self) Size {
+            if (self.metadata == null) return 0;
+
+            return self.header().capacity;
+        }
+
+        pub fn iterator(self: *const Self) Iterator {
+            return .{ .hm = self };
+        }
+
+        /// Insert an entry in the map. Assumes it is not already present.
+        pub fn putNoClobber(self: *Self, allocator: *Allocator, key: K, value: V) !void {
+            assert(!self.contains(key));
+            try self.growIfNeeded(allocator, 1);
+
+            self.putAssumeCapacityNoClobber(key, value);
+        }
+
+        pub fn putAssumeCapacity(self: *Self, key: K, value: V) void {
+            const hash = hashFn(key);
+            const mask = self.capacity() - 1;
+            const fingerprint = Metadata.takeFingerprint(hash);
+            var idx = @truncate(usize, hash & mask);
+
+            var first_tombstone_idx: usize = self.capacity(); // invalid index
+            var metadata = self.metadata.? + idx;
+            while (metadata[0].isUsed() or metadata[0].isTombstone()) {
+                if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
+                    const entry = &self.entries()[idx];
+                    if (eqlFn(entry.key, key)) {
+                        return;
+                    }
+                } else if (first_tombstone_idx == self.capacity() and metadata[0].isTombstone()) {
+                    first_tombstone_idx = idx;
+                }
+
+                idx = (idx + 1) & mask;
+                metadata = self.metadata.? + idx;
+            }
+
+            if (first_tombstone_idx < self.capacity()) {
+                // Cheap try to lower probing lengths after deletions. Recycle a tombstone.
+                idx = first_tombstone_idx;
+                metadata = self.metadata.? + idx;
+            } else {
+                // We're using a slot previously free.
+                self.available -= 1;
+            }
+
+            metadata[0].fill(fingerprint);
+            const entry = &self.entries()[idx];
+            entry.* = .{ .key = key, .value = undefined };
+            self.size += 1;
+        }
+
+        /// Insert an entry in the map. Assumes it is not already present,
+        /// and that no allocation is needed.
+        pub fn putAssumeCapacityNoClobber(self: *Self, key: K, value: V) void {
+            assert(!self.contains(key));
+
+            const hash = hashFn(key);
+            const mask = self.capacity() - 1;
+            var idx = @truncate(usize, hash & mask);
+
+            var metadata = self.metadata.? + idx;
+            while (metadata[0].isUsed()) {
+                idx = (idx + 1) & mask;
+                metadata = self.metadata.? + idx;
+            }
+
+            if (!metadata[0].isTombstone()) {
+                assert(self.available > 0);
+                self.available -= 1;
+            }
+
+            const fingerprint = Metadata.takeFingerprint(hash);
+            metadata[0].fill(fingerprint);
+            self.entries()[idx] = Entry{ .key = key, .value = value };
+
+            self.size += 1;
+        }
+
+        /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
+        pub fn fetchPut(self: *Self, allocator: *Allocator, key: K, value: V) !?Entry {
+            const gop = try self.getOrPut(allocator, key);
+            var result: ?Entry = null;
+            if (gop.found_existing) {
+                result = gop.entry.*;
+            }
+            gop.entry.value = value;
+            return result;
+        }
+
+        /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
+        /// If insertion happens, asserts there is enough capacity without allocating.
+        pub fn fetchPutAssumeCapacity(self: *Self, key: K, value: V) ?Entry {
+            const gop = self.getOrPutAssumeCapacity(key);
+            var result: ?Entry = null;
+            if (gop.found_existing) {
+                result = gop.entry.*;
+            }
+            gop.entry.value = value;
+            return result;
+        }
+
+        pub fn getEntry(self: Self, key: K) ?*Entry {
+            if (self.size == 0) {
+                return null;
+            }
+
+            const hash = hashFn(key);
+            const mask = self.capacity() - 1;
+            const fingerprint = Metadata.takeFingerprint(hash);
+            var idx = @truncate(usize, hash & mask);
+
+            var metadata = self.metadata.? + idx;
+            while (metadata[0].isUsed() or metadata[0].isTombstone()) {
+                if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
+                    const entry = &self.entries()[idx];
+                    if (eqlFn(entry.key, key)) {
+                        return entry;
+                    }
+                }
+                idx = (idx + 1) & mask;
+                metadata = self.metadata.? + idx;
+            }
+
+            return null;
+        }
+
+        /// Insert an entry if the associated key is not already present, otherwise update preexisting value.
+        /// Returns true if the key was already present.
+        pub fn put(self: *Self, allocator: *Allocator, key: K, value: V) !void {
+            const result = try self.getOrPut(allocator, key);
+            result.entry.value = value;
+        }
+
+        /// Get an optional pointer to the value associated with key, if present.
+        pub fn get(self: Self, key: K) ?V {
+            if (self.size == 0) {
+                return null;
+            }
+
+            const hash = hashFn(key);
+            const mask = self.capacity() - 1;
+            const fingerprint = Metadata.takeFingerprint(hash);
+            var idx = @truncate(usize, hash & mask);
+
+            var metadata = self.metadata.? + idx;
+            while (metadata[0].isUsed() or metadata[0].isTombstone()) {
+                if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
+                    const entry = &self.entries()[idx];
+                    if (eqlFn(entry.key, key)) {
+                        return entry.value;
+                    }
+                }
+                idx = (idx + 1) & mask;
+                metadata = self.metadata.? + idx;
+            }
+
+            return null;
+        }
+
+        pub fn getOrPut(self: *Self, allocator: *Allocator, key: K) !GetOrPutResult {
+            try self.growIfNeeded(allocator, 1);
+
+            return self.getOrPutAssumeCapacity(key);
+        }
+
+        pub fn getOrPutAssumeCapacity(self: *Self, key: K) GetOrPutResult {
+            const hash = hashFn(key);
+            const mask = self.capacity() - 1;
+            const fingerprint = Metadata.takeFingerprint(hash);
+            var idx = @truncate(usize, hash & mask);
+
+            var first_tombstone_idx: usize = self.capacity(); // invalid index
+            var metadata = self.metadata.? + idx;
+            while (metadata[0].isUsed() or metadata[0].isTombstone()) {
+                if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
+                    const entry = &self.entries()[idx];
+                    if (eqlFn(entry.key, key)) {
+                        return GetOrPutResult{ .entry = entry, .found_existing = true };
+                    }
+                } else if (first_tombstone_idx == self.capacity() and metadata[0].isTombstone()) {
+                    first_tombstone_idx = idx;
+                }
+
+                idx = (idx + 1) & mask;
+                metadata = self.metadata.? + idx;
+            }
+
+            if (first_tombstone_idx < self.capacity()) {
+                // Cheap try to lower probing lengths after deletions. Recycle a tombstone.
+                idx = first_tombstone_idx;
+                metadata = self.metadata.? + idx;
+            } else {
+                // We're using a slot previously free.
+                self.available -= 1;
+            }
+
+            metadata[0].fill(fingerprint);
+            const entry = &self.entries()[idx];
+            entry.* = .{ .key = key, .value = undefined };
+            self.size += 1;
+
+            return GetOrPutResult{ .entry = entry, .found_existing = false };
+        }
+
+        pub fn getOrPutValue(self: *Self, allocator: *Allocator, key: K, value: V) !*Entry {
+            const res = try self.getOrPut(allocator, key);
+            if (!res.found_existing) res.entry.value = value;
+            return res.entry;
+        }
+
+        /// Return true if there is a value associated with key in the map.
+        pub fn contains(self: *const Self, key: K) bool {
+            return self.get(key) != null;
+        }
+
+        /// If there is an `Entry` with a matching key, it is deleted from
+        /// the hash map, and then returned from this function.
+        pub fn remove(self: *Self, key: K) ?Entry {
+            if (self.size == 0) return null;
+
+            const hash = hashFn(key);
+            const mask = self.capacity() - 1;
+            const fingerprint = Metadata.takeFingerprint(hash);
+            var idx = @truncate(usize, hash & mask);
+
+            var metadata = self.metadata.? + idx;
+            while (metadata[0].isUsed() or metadata[0].isTombstone()) {
+                if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
+                    const entry = &self.entries()[idx];
+                    if (eqlFn(entry.key, key)) {
+                        const removed_entry = entry.*;
+                        metadata[0].remove();
+                        entry.* = undefined;
+                        self.size -= 1;
+                        return removed_entry;
+                    }
+                }
+                idx = (idx + 1) & mask;
+                metadata = self.metadata.? + idx;
+            }
+
+            return null;
+        }
+
+        /// Asserts there is an `Entry` with matching key, deletes it from the hash map,
+        /// and discards it.
+        pub fn removeAssertDiscard(self: *Self, key: K) void {
+            assert(self.contains(key));
+
+            const hash = hashFn(key);
+            const mask = self.capacity() - 1;
+            const fingerprint = Metadata.takeFingerprint(hash);
+            var idx = @truncate(usize, hash & mask);
+
+            var metadata = self.metadata.? + idx;
+            while (metadata[0].isUsed() or metadata[0].isTombstone()) {
+                if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
+                    const entry = &self.entries()[idx];
+                    if (eqlFn(entry.key, key)) {
+                        metadata[0].remove();
+                        entry.* = undefined;
+                        self.size -= 1;
+                        return;
+                    }
+                }
+                idx = (idx + 1) & mask;
+                metadata = self.metadata.? + idx;
+            }
+
+            unreachable;
+        }
+
+        fn initMetadatas(self: *Self) void {
+            @memset(@ptrCast([*]u8, self.metadata.?), 0, @sizeOf(Metadata) * self.capacity());
+        }
+
+        // This counts the number of occupied slots, used + tombstones, which is
+        // what has to stay under the MaxLoadPercentage of capacity.
+        fn load(self: *const Self) Size {
+            const max_load = (self.capacity() * MaxLoadPercentage) / 100;
+            assert(max_load >= self.available);
+            return @truncate(Size, max_load - self.available);
+        }
+
+        fn growIfNeeded(self: *Self, allocator: *Allocator, new_count: Size) !void {
+            if (new_count > self.available) {
+                try self.grow(allocator, capacityForSize(self.load() + new_count));
+            }
+        }
+
+        pub fn clone(self: Self, allocator: *Allocator) !Self {
+            var other = Self{};
+            if (self.size == 0)
+                return other;
+
+            const new_cap = capacityForSize(self.size);
+            try other.allocate(allocator, new_cap);
+            other.initMetadatas();
+            other.available = @truncate(u32, (new_cap * MaxLoadPercentage) / 100);
+
+            var i: Size = 0;
+            var metadata = self.metadata.?;
+            var entr = self.entries();
+            while (i < self.capacity()) : (i += 1) {
+                if (metadata[i].isUsed()) {
+                    const entry = &entr[i];
+                    other.putAssumeCapacityNoClobber(entry.key, entry.value);
+                    if (other.size == self.size)
+                        break;
+                }
+            }
+
+            return other;
+        }
+
+        fn grow(self: *Self, allocator: *Allocator, new_capacity: Size) !void {
+            const new_cap = std.math.max(new_capacity, MinimalCapacity);
+            assert(new_cap > self.capacity());
+            assert(std.math.isPowerOfTwo(new_cap));
+
+            var map = Self{};
+            defer map.deinit(allocator);
+            try map.allocate(allocator, new_cap);
+            map.initMetadatas();
+            map.available = @truncate(u32, (new_cap * MaxLoadPercentage) / 100);
+
+            if (self.size != 0) {
+                const old_capacity = self.capacity();
+                var i: Size = 0;
+                var metadata = self.metadata.?;
+                var entr = self.entries();
+                while (i < old_capacity) : (i += 1) {
+                    if (metadata[i].isUsed()) {
+                        const entry = &entr[i];
+                        map.putAssumeCapacityNoClobber(entry.key, entry.value);
+                        if (map.size == self.size)
+                            break;
+                    }
+                }
+            }
+
+            self.size = 0;
+            std.mem.swap(Self, self, &map);
+        }
+
+        fn allocate(self: *Self, allocator: *Allocator, new_capacity: Size) !void {
+            const meta_size = @sizeOf(Header) + new_capacity * @sizeOf(Metadata);
+
+            const alignment = @alignOf(Entry) - 1;
+            const entries_size = @as(usize, new_capacity) * @sizeOf(Entry) + alignment;
+
+            const total_size = meta_size + entries_size;
+
+            const slice = try allocator.alignedAlloc(u8, @alignOf(Header), total_size);
+            const ptr = @ptrToInt(slice.ptr);
+
+            const metadata = ptr + @sizeOf(Header);
+            var entry_ptr = ptr + meta_size;
+            entry_ptr = (entry_ptr + alignment) & ~@as(usize, alignment);
+            assert(entry_ptr + @as(usize, new_capacity) * @sizeOf(Entry) <= ptr + total_size);
+
+            const hdr = @intToPtr(*Header, ptr);
+            hdr.entries = @intToPtr([*]Entry, entry_ptr);
+            hdr.capacity = new_capacity;
+            self.metadata = @intToPtr([*]Metadata, metadata);
+        }
+    };
+}
+
+const testing = std.testing;
+const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
+
+test "std.hash_map basic usage" {
+    var map = AutoHashMap(u32, u32).init(std.testing.allocator);
+    defer map.deinit();
+
+    const count = 5;
+    var i: u32 = 0;
+    var total: u32 = 0;
+    while (i < count) : (i += 1) {
+        try map.put(i, i);
+        total += i;
+    }
+
+    var sum: u32 = 0;
+    var it = map.iterator();
+    while (it.next()) |kv| {
+        sum += kv.key;
+    }
+    expect(sum == total);
+
+    i = 0;
+    sum = 0;
+    while (i < count) : (i += 1) {
+        expectEqual(map.get(i).?, i);
+        sum += map.get(i).?;
+    }
+    expectEqual(total, sum);
+}
+
+test "std.hash_map ensureCapacity" {
+    var map = AutoHashMap(i32, i32).init(std.testing.allocator);
+    defer map.deinit();
+
+    try map.ensureCapacity(20);
+    const initial_capacity = map.capacity();
+    testing.expect(initial_capacity >= 20);
+    var i: i32 = 0;
+    while (i < 20) : (i += 1) {
+        testing.expect(map.fetchPutAssumeCapacity(i, i + 10) == null);
+    }
+    // shouldn't resize from putAssumeCapacity
+    testing.expect(initial_capacity == map.capacity());
+}
+
+test "std.hash_map ensureCapacity with tombstones" {
+    var map = AutoHashMap(i32, i32).init(std.testing.allocator);
+    defer map.deinit();
+
+    var i: i32 = 0;
+    while (i < 100) : (i += 1) {
+        try map.ensureCapacity(@intCast(u32, map.count() + 1));
+        map.putAssumeCapacity(i, i);
+        // Remove to create tombstones that still count as load in the hashmap.
+        _ = map.remove(i);
+    }
+}
+
+test "std.hash_map clearRetainingCapacity" {
+    var map = AutoHashMap(u32, u32).init(std.testing.allocator);
+    defer map.deinit();
+
+    map.clearRetainingCapacity();
+
+    try map.put(1, 1);
+    expectEqual(map.get(1).?, 1);
+    expectEqual(map.count(), 1);
+
+    const cap = map.capacity();
+    expect(cap > 0);
+
+    map.clearRetainingCapacity();
+    map.clearRetainingCapacity();
+    expectEqual(map.count(), 0);
+    expectEqual(map.capacity(), cap);
+    expect(!map.contains(1));
+}
+
+test "std.hash_map grow" {
+    var map = AutoHashMap(u32, u32).init(std.testing.allocator);
+    defer map.deinit();
+
+    const growTo = 12456;
+
+    var i: u32 = 0;
+    while (i < growTo) : (i += 1) {
+        try map.put(i, i);
+    }
+    expectEqual(map.count(), growTo);
+
+    i = 0;
+    var it = map.iterator();
+    while (it.next()) |kv| {
+        expectEqual(kv.key, kv.value);
+        i += 1;
+    }
+    expectEqual(i, growTo);
+
+    i = 0;
+    while (i < growTo) : (i += 1) {
+        expectEqual(map.get(i).?, i);
+    }
+}
+
+test "std.hash_map clone" {
+    var map = AutoHashMap(u32, u32).init(std.testing.allocator);
+    defer map.deinit();
+
+    var a = try map.clone();
+    defer a.deinit();
+
+    expectEqual(a.count(), 0);
+
+    try a.put(1, 1);
+    try a.put(2, 2);
+    try a.put(3, 3);
+
+    var b = try a.clone();
+    defer b.deinit();
+
+    expectEqual(b.count(), 3);
+    expectEqual(b.get(1), 1);
+    expectEqual(b.get(2), 2);
+    expectEqual(b.get(3), 3);
+}
+
+test "std.hash_map ensureCapacity with existing elements" {
+    var map = AutoHashMap(u32, u32).init(std.testing.allocator);
+    defer map.deinit();
+
+    try map.put(0, 0);
+    expectEqual(map.count(), 1);
+    expectEqual(map.capacity(), @TypeOf(map).Unmanaged.MinimalCapacity);
+
+    try map.ensureCapacity(65);
+    expectEqual(map.count(), 1);
+    expectEqual(map.capacity(), 128);
+}
+
+test "std.hash_map ensureCapacity satisfies max load factor" {
+    var map = AutoHashMap(u32, u32).init(std.testing.allocator);
+    defer map.deinit();
+
+    try map.ensureCapacity(127);
+    expectEqual(map.capacity(), 256);
+}
+
+test "std.hash_map remove" {
+    var map = AutoHashMap(u32, u32).init(std.testing.allocator);
+    defer map.deinit();
+
+    var i: u32 = 0;
+    while (i < 16) : (i += 1) {
+        try map.put(i, i);
+    }
+
+    i = 0;
+    while (i < 16) : (i += 1) {
+        if (i % 3 == 0) {
+            _ = map.remove(i);
+        }
+    }
+    expectEqual(map.count(), 10);
+    var it = map.iterator();
+    while (it.next()) |kv| {
+        expectEqual(kv.key, kv.value);
+        expect(kv.key % 3 != 0);
+    }
+
+    i = 0;
+    while (i < 16) : (i += 1) {
+        if (i % 3 == 0) {
+            expect(!map.contains(i));
+        } else {
+            expectEqual(map.get(i).?, i);
+        }
+    }
+}
+
+test "std.hash_map reverse removes" {
+    var map = AutoHashMap(u32, u32).init(std.testing.allocator);
+    defer map.deinit();
+
+    var i: u32 = 0;
+    while (i < 16) : (i += 1) {
+        try map.putNoClobber(i, i);
+    }
+
+    i = 16;
+    while (i > 0) : (i -= 1) {
+        _ = map.remove(i - 1);
+        expect(!map.contains(i - 1));
+        var j: u32 = 0;
+        while (j < i - 1) : (j += 1) {
+            expectEqual(map.get(j).?, j);
+        }
+    }
+
+    expectEqual(map.count(), 0);
+}
+
+test "std.hash_map multiple removes on same metadata" {
+    var map = AutoHashMap(u32, u32).init(std.testing.allocator);
+    defer map.deinit();
+
+    var i: u32 = 0;
+    while (i < 16) : (i += 1) {
+        try map.put(i, i);
+    }
+
+    _ = map.remove(7);
+    _ = map.remove(15);
+    _ = map.remove(14);
+    _ = map.remove(13);
+    expect(!map.contains(7));
+    expect(!map.contains(15));
+    expect(!map.contains(14));
+    expect(!map.contains(13));
+
+    i = 0;
+    while (i < 13) : (i += 1) {
+        if (i == 7) {
+            expect(!map.contains(i));
+        } else {
+            expectEqual(map.get(i).?, i);
+        }
+    }
+
+    try map.put(15, 15);
+    try map.put(13, 13);
+    try map.put(14, 14);
+    try map.put(7, 7);
+    i = 0;
+    while (i < 16) : (i += 1) {
+        expectEqual(map.get(i).?, i);
+    }
+}
+
+test "std.hash_map put and remove loop in random order" {
+    var map = AutoHashMap(u32, u32).init(std.testing.allocator);
+    defer map.deinit();
+
+    var keys = std.ArrayList(u32).init(std.testing.allocator);
+    defer keys.deinit();
+
+    const size = 32;
+    const iterations = 100;
+
+    var i: u32 = 0;
+    while (i < size) : (i += 1) {
+        try keys.append(i);
+    }
+    var rng = std.rand.DefaultPrng.init(0);
+
+    while (i < iterations) : (i += 1) {
+        std.rand.Random.shuffle(&rng.random, u32, keys.items);
+
+        for (keys.items) |key| {
+            try map.put(key, key);
+        }
+        expectEqual(map.count(), size);
+
+        for (keys.items) |key| {
+            _ = map.remove(key);
+        }
+        expectEqual(map.count(), 0);
+    }
+}
+
+test "std.hash_map remove one million elements in random order" {
+    const Map = AutoHashMap(u32, u32);
+    const n = 1000 * 1000;
+    var map = Map.init(std.heap.page_allocator);
+    defer map.deinit();
+
+    var keys = std.ArrayList(u32).init(std.heap.page_allocator);
+    defer keys.deinit();
+
+    var i: u32 = 0;
+    while (i < n) : (i += 1) {
+        keys.append(i) catch unreachable;
+    }
+
+    var rng = std.rand.DefaultPrng.init(0);
+    std.rand.Random.shuffle(&rng.random, u32, keys.items);
+
+    for (keys.items) |key| {
+        map.put(key, key) catch unreachable;
+    }
+
+    std.rand.Random.shuffle(&rng.random, u32, keys.items);
+    i = 0;
+    while (i < n) : (i += 1) {
+        const key = keys.items[i];
+        _ = map.remove(key);
+    }
+}
+
+test "std.hash_map put" {
+    var map = AutoHashMap(u32, u32).init(std.testing.allocator);
+    defer map.deinit();
+
+    var i: u32 = 0;
+    while (i < 16) : (i += 1) {
+        _ = try map.put(i, i);
+    }
+
+    i = 0;
+    while (i < 16) : (i += 1) {
+        expectEqual(map.get(i).?, i);
+    }
+
+    i = 0;
+    while (i < 16) : (i += 1) {
+        try map.put(i, i * 16 + 1);
+    }
+
+    i = 0;
+    while (i < 16) : (i += 1) {
+        expectEqual(map.get(i).?, i * 16 + 1);
+    }
+}
+
+test "std.hash_map getOrPut" {
+    var map = AutoHashMap(u32, u32).init(std.testing.allocator);
+    defer map.deinit();
+
+    var i: u32 = 0;
+    while (i < 10) : (i += 1) {
+        try map.put(i * 2, 2);
+    }
+
+    i = 0;
+    while (i < 20) : (i += 1) {
+        var n = try map.getOrPutValue(i, 1);
+    }
+
+    i = 0;
+    var sum = i;
+    while (i < 20) : (i += 1) {
+        sum += map.get(i).?;
+    }
+
+    expectEqual(sum, 30);
+}
+
+test "std.hash_map basic hash map usage" {
+    var map = AutoHashMap(i32, i32).init(std.testing.allocator);
+    defer map.deinit();
+
+    testing.expect((try map.fetchPut(1, 11)) == null);
+    testing.expect((try map.fetchPut(2, 22)) == null);
+    testing.expect((try map.fetchPut(3, 33)) == null);
+    testing.expect((try map.fetchPut(4, 44)) == null);
+
+    try map.putNoClobber(5, 55);
+    testing.expect((try map.fetchPut(5, 66)).?.value == 55);
+    testing.expect((try map.fetchPut(5, 55)).?.value == 66);
+
+    const gop1 = try map.getOrPut(5);
+    testing.expect(gop1.found_existing == true);
+    testing.expect(gop1.entry.value == 55);
+    gop1.entry.value = 77;
+    testing.expect(map.getEntry(5).?.value == 77);
+
+    const gop2 = try map.getOrPut(99);
+    testing.expect(gop2.found_existing == false);
+    gop2.entry.value = 42;
+    testing.expect(map.getEntry(99).?.value == 42);
+
+    const gop3 = try map.getOrPutValue(5, 5);
+    testing.expect(gop3.value == 77);
+
+    const gop4 = try map.getOrPutValue(100, 41);
+    testing.expect(gop4.value == 41);
+
+    testing.expect(map.contains(2));
+    testing.expect(map.getEntry(2).?.value == 22);
+    testing.expect(map.get(2).? == 22);
+
+    const rmv1 = map.remove(2);
+    testing.expect(rmv1.?.key == 2);
+    testing.expect(rmv1.?.value == 22);
+    testing.expect(map.remove(2) == null);
+    testing.expect(map.getEntry(2) == null);
+    testing.expect(map.get(2) == null);
+
+    map.removeAssertDiscard(3);
+}
+
+test "std.hash_map clone" {
+    var original = AutoHashMap(i32, i32).init(std.testing.allocator);
+    defer original.deinit();
+
+    var i: u8 = 0;
+    while (i < 10) : (i += 1) {
+        try original.putNoClobber(i, i * 10);
+    }
+
+    var copy = try original.clone();
+    defer copy.deinit();
+
+    i = 0;
+    while (i < 10) : (i += 1) {
+        testing.expect(copy.get(i).? == i * 10);
+    }
 }

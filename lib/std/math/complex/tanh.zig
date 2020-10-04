@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -12,7 +17,7 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns the hyperbolic tangent of z.
-pub fn tanh(z: var) @TypeOf(z) {
+pub fn tanh(z: anytype) @TypeOf(z) {
     const T = @TypeOf(z.re);
     return switch (T) {
         f32 => tanh32(z),

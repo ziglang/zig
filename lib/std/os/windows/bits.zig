@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Platform-dependent types and values that are used along with OS-specific APIs.
 
 const builtin = @import("builtin");
@@ -488,7 +493,7 @@ pub const FILE_OPEN_BY_FILE_ID = 0x00002000;
 pub const FILE_OPEN_FOR_BACKUP_INTENT = 0x00004000;
 pub const FILE_NO_COMPRESSION = 0x00008000;
 pub const FILE_RESERVE_OPFILTER = 0x00100000;
-pub const FILE_TRANSACTED_MODE = 0x00200000;
+pub const FILE_OPEN_REPARSE_POINT = 0x00200000;
 pub const FILE_OPEN_OFFLINE_FILE = 0x00400000;
 pub const FILE_OPEN_FOR_FREE_SPACE_QUERY = 0x00800000;
 
@@ -593,6 +598,7 @@ pub const FILE_CURRENT = 1;
 pub const FILE_END = 2;
 
 pub const HEAP_CREATE_ENABLE_EXECUTE = 0x00040000;
+pub const HEAP_REALLOC_IN_PLACE_ONLY = 0x00000010;
 pub const HEAP_GENERATE_EXCEPTIONS = 0x00000004;
 pub const HEAP_NO_SERIALIZE = 0x00000001;
 
@@ -1541,3 +1547,52 @@ pub const POSVERSIONINFOW = *OSVERSIONINFOW;
 pub const LPOSVERSIONINFOW = *OSVERSIONINFOW;
 pub const RTL_OSVERSIONINFOW = OSVERSIONINFOW;
 pub const PRTL_OSVERSIONINFOW = *RTL_OSVERSIONINFOW;
+
+pub const REPARSE_DATA_BUFFER = extern struct {
+    ReparseTag: ULONG,
+    ReparseDataLength: USHORT,
+    Reserved: USHORT,
+    DataBuffer: [1]UCHAR,
+};
+pub const SYMBOLIC_LINK_REPARSE_BUFFER = extern struct {
+    SubstituteNameOffset: USHORT,
+    SubstituteNameLength: USHORT,
+    PrintNameOffset: USHORT,
+    PrintNameLength: USHORT,
+    Flags: ULONG,
+    PathBuffer: [1]WCHAR,
+};
+pub const MOUNT_POINT_REPARSE_BUFFER = extern struct {
+    SubstituteNameOffset: USHORT,
+    SubstituteNameLength: USHORT,
+    PrintNameOffset: USHORT,
+    PrintNameLength: USHORT,
+    PathBuffer: [1]WCHAR,
+};
+pub const MAXIMUM_REPARSE_DATA_BUFFER_SIZE: ULONG = 16 * 1024;
+pub const FSCTL_SET_REPARSE_POINT: DWORD = 0x900a4;
+pub const FSCTL_GET_REPARSE_POINT: DWORD = 0x900a8;
+pub const IO_REPARSE_TAG_SYMLINK: ULONG = 0xa000000c;
+pub const IO_REPARSE_TAG_MOUNT_POINT: ULONG = 0xa0000003;
+pub const SYMLINK_FLAG_RELATIVE: ULONG = 0x1;
+
+pub const SYMBOLIC_LINK_FLAG_DIRECTORY: DWORD = 0x1;
+pub const SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE: DWORD = 0x2;
+
+pub const MOUNTMGR_MOUNT_POINT = extern struct {
+    SymbolicLinkNameOffset: ULONG,
+    SymbolicLinkNameLength: USHORT,
+    Reserved1: USHORT,
+    UniqueIdOffset: ULONG,
+    UniqueIdLength: USHORT,
+    Reserved2: USHORT,
+    DeviceNameOffset: ULONG,
+    DeviceNameLength: USHORT,
+    Reserved3: USHORT,
+};
+pub const MOUNTMGR_MOUNT_POINTS = extern struct {
+    Size: ULONG,
+    NumberOfMountPoints: ULONG,
+    MountPoints: [1]MOUNTMGR_MOUNT_POINT,
+};
+pub const IOCTL_MOUNTMGR_QUERY_POINTS: ULONG = 0x6d0008;

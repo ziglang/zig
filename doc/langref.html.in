@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Documentation - The Zig Programming Language</title>
     <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg=="/>
     <style>
@@ -97,7 +98,7 @@
         margin: auto;
       }
 
-      #index {
+      #toc {
         padding: 0 1em;
       }
 
@@ -105,7 +106,7 @@
         #main-wrapper {
             flex-direction: row;
         }
-        #contents-wrapper, #index {
+        #contents-wrapper, #toc {
             overflow: auto;
         }
       }
@@ -181,7 +182,7 @@
   </head>
   <body>
     <div id="main-wrapper">
-      <div id="index">
+      <div id="toc">
         <a href="https://ziglang.org/documentation/0.1.1/">0.1.1</a> |
         <a href="https://ziglang.org/documentation/0.2.0/">0.2.0</a> |
         <a href="https://ziglang.org/documentation/0.3.0/">0.3.0</a> |
@@ -189,7 +190,7 @@
         <a href="https://ziglang.org/documentation/0.5.0/">0.5.0</a> |
         <a href="https://ziglang.org/documentation/0.6.0/">0.6.0</a> |
         master
-        <h1>Index</h1>
+        <h1>Contents</h1>
         {#nav#}
       </div>
       <div id="contents-wrapper"><div id="contents">
@@ -218,6 +219,8 @@
       </p>
       <p>
       The code samples in this document are compiled and tested as part of the main test suite of Zig.
+      </p>
+      <p>
       This HTML document depends on no external files, so you can use it offline.
       </p>
       <p>
@@ -231,15 +234,103 @@
 const std = @import("std");
 
 pub fn main() !void {
-    const stdout = std.io.getStdOut().outStream();
+    const stdout = std.io.getStdOut().writer();
     try stdout.print("Hello, {}!\n", .{"world"});
 }
       {#code_end#}
       <p>
-      Usually you don't want to write to stdout. You want to write to stderr, and you
-      don't care if it fails. For that you can use a simpler API:
+        The Zig code sample above demonstrates one way to create a program that will output <code>Hello, world!</code>.
       </p>
-      {#code_begin|exe|hello#}
+      <p>
+        The code sample shows the contents of a file named <code>hello.zig</code>. Files storing Zig
+        source code are {#link|UTF-8 encoded|Source Encoding#} text files. The files storing
+        Zig source code are usually named with the <code>.zig</code> extension.
+      </p>
+      <p>
+        Following the <code>hello.zig</code> Zig code sample, the {#link|Zig Build System#} is used
+        to build an executable program from the <code>hello.zig</code> source code. Then, the
+        <code>hello</code> program is executed showing its output <code>Hello, world!</code>. The
+        lines beginning with <code>$</code> represent command line prompts and a command.
+        Everything else is program output.
+      </p>
+      <p>
+        The code sample begins by adding Zig's Standard Library to the build using the {#link|@import#} builtin function.
+        The {#syntax#}@import("std"){#endsyntax#} function call creates a structure to represent the Standard Library.
+        The code then makes a {#link|top-level declaration|Global Variables#} of a
+        {#link|constant identifier|Assignment#}, named <code>std</code>, for easy access to
+        <a href="https://github.com/ziglang/zig/wiki/FAQ#where-is-the-documentation-for-the-zig-standard-library">Zig's standard library</a>.
+      </p>
+      <p>
+        Next, a {#link|public function|Functions#}, {#syntax#}pub fn{#endsyntax#}, named <code>main</code>
+        is declared. The <code>main</code> function is necessary because it tells the Zig compiler where the start of
+        the program exists. Programs designed to be executed will need a {#syntax#}pub fn main{#endsyntax#} function.
+        For more advanced use cases, Zig offers other features to inform the compiler where the start of
+        the program exists. Libraries, on the other hand, do not need a <code>main</code> function because
+        library code is usually called by other programs.
+      </p>
+      <p>
+        A function is a block of any number of statements and expressions that, as a whole, perform a task.
+        Functions may or may not return data after they are done performing their task. If a function
+        cannot perform its task, it might return an error. Zig makes all of this explicit.
+      </p>
+      <p>
+        In the <code>hello.zig</code> code sample, the <code>main</code> function is declared
+        with the {#syntax#}!void{#endsyntax#} return type. This return type is known as an {#link|Error Union Type#}.
+        This syntax tells the Zig compiler that the function will either return an
+        error or a value. An error union type combines an {#link|Error Set Type#} and a {#link|Primitive Type|Primitive Types#}.
+        The full form of an error union type is
+        <code>&lt;error set type&gt;</code>{#syntax#}!{#endsyntax#}<code>&lt;primitive type&gt;</code>. In the code
+        sample, the error set type is not explicitly written on the left side of the {#syntax#}!{#endsyntax#} operator.
+        When written this way, the error set type is a special kind of error union type that has an
+        {#link|inferred error set type|Inferred Error Sets#}. The {#syntax#}void{#endsyntax#} after the {#syntax#}!{#endsyntax#} operator
+        tells the compiler that the function will not return a value under normal circumstances (i.e. no errors occur).
+      </p>
+      <p>
+        Note to experienced programmers: Zig also has the boolean {#link|operator|Operators#} {#syntax#}!a{#endsyntax#}
+        where {#syntax#}a{#endsyntax#} is a value of type {#syntax#}bool{#endsyntax#}. Error union types contain the
+        name of the type in the syntax: {#syntax#}!{#endsyntax#}<code>&lt;primitive type&gt;</code>.
+      </p>
+      <p>
+        In Zig, a function's block of statements and expressions are surrounded by <code>{</code> and
+        <code>}</code> curly-braces. Inside of the <code>main</code> function are expressions that perform
+        the task of outputting <code>Hello, world!</code> to standard output.
+      </p>
+      <p>
+        First, a constant identifier, <code>stdout</code>, is initialized to represent standard output's
+        writer. Then, the program tries to print the <code>Hello, world!</code>
+        message to standard output.
+      </p>
+      <p>
+        Functions sometimes need information to perform their task. In Zig, information is passed
+        to functions between open <code>(</code> and close <code>)</code> parenthesis placed after
+        the function's name. This information is also known as arguments. When there are
+        multiple arguments passed to a function, they are separated by commas <code>,</code>.
+      </p>
+      <p>
+        The two arguments passed to the <code>stdout.print()</code> function, <code>"Hello, {}!\n"</code>
+        and <code>.{"world"}</code>, are evaluated at {#link|compile-time|comptime#}. The code sample is
+        purposely written to show how to perform {#link|string|String Literals and Character Literals#}
+        substitution in the <code>print</code> function. The curly-braces inside of the first argument
+        are substituted with the compile-time known value inside of the second argument
+        (known as an {#link|anonymous struct literal|Anonymous Struct Literals#}). The <code>\n</code>
+        inside of the double-quotes of the first argument is the {#link|escape sequence|Escape Sequences#} for the
+        newline character. The {#link|try#} expression evaluates the result of <code>stdout.print</code>.
+        If the result is an error, then the {#syntax#}try{#endsyntax#} expression will return from
+        <code>main</code> with the error. Otherwise, the program will continue. In this case, there are no
+        more statements or expressions left to execute in the <code>main</code> function, so the program exits.
+      </p>
+      <p>
+        In Zig, the standard output writer's <code>print</code> function is allowed to fail because
+        it is actually a function defined as part of a generic Writer. Consider a generic Writer that
+        represents writing data to a file. When the disk is full, a write to the file will fail.
+        However, we typically do not expect writing text to the standard output to fail. To avoid having
+        to handle the failure case of printing to standard output, you can use alternate functions: the
+        functions in <code>std.log</code> for proper logging or the <code>std.debug.print</code> function.
+        This documentation will use the latter option to print to standard error (stderr) and silently return
+        on failure. The next code sample, <code>hello_again.zig</code> demonstrates the use of
+        <code>std.debug.print</code>.
+      </p>
+      {#code_begin|exe|hello_again#}
 const print = @import("std").debug.print;
 
 pub fn main() void {
@@ -247,9 +338,9 @@ pub fn main() void {
 }
       {#code_end#}
       <p>
-      Note that you can leave off the {#syntax#}!{#endsyntax#} from the return type because {#syntax#}print{#endsyntax#} cannot fail.
+      Note that you can leave off the {#syntax#}!{#endsyntax#} from the return type because <code>std.debug.print</code> cannot fail.
       </p>
-      {#see_also|Values|@import|Errors|Root Source File#}
+      {#see_also|Values|@import|Errors|Root Source File|Source Encoding#}
       {#header_close#}
       {#header_open|Comments#}
       {#code_begin|test|comments#}
@@ -301,6 +392,18 @@ const Timestamp = struct {
       become a compile error to have a doc comment in an unexpected place, such as
       in the middle of an expression, or just before a non-doc comment.
       </p>
+      {#header_close#}
+      {#header_open|Top-Level Doc Comments#}
+      <p>User documentation that doesn't belong to whatever
+      immediately follows it, like package-level documentation, goes
+      in top-level doc comments. A top-level doc comment is one that
+      begins with two slashes and an exclamation point:
+      {#syntax#}//!{#endsyntax#}.</p>
+      {#code_begin|syntax|tldoc_comments#}
+//! This module provides functions for retrieving the current date and
+//! time with varying degrees of precision and accuracy. It does not
+//! depend on libc, but will use functions from it if available.
+      {#code_end#}
       {#header_close#}
       {#header_close#}
       {#header_open|Values#}
@@ -975,6 +1078,7 @@ const nan = std.math.nan(f128);
           but you can switch to {#syntax#}Optimized{#endsyntax#} mode on a per-block basis:</p>
       {#code_begin|obj|foo#}
       {#code_release_fast#}
+      {#code_disable_cache#}
 const std = @import("std");
 const builtin = std.builtin;
 const big = @as(f64, 1 << 40);
@@ -1737,7 +1841,7 @@ const Point = struct {
     y: i32,
 };
 
-test "compile-time array initalization" {
+test "compile-time array initialization" {
     assert(fancy_array[4].x == 4);
     assert(fancy_array[4].y == 8);
 }
@@ -1785,7 +1889,7 @@ test "fully anonymous list literal" {
     dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi"});
 }
 
-fn dump(args: var) void {
+fn dump(args: anytype) void {
     assert(args.@"0" == 1234);
     assert(args.@"1" == 12.34);
     assert(args.@"2");
@@ -1848,7 +1952,7 @@ test "null terminated array" {
 
       {#header_open|Vectors#}
       <p>
-      A vector is a group of {#link|Integers#}, {#link|Floats#}, or {#link|Pointers#} which are operated on
+      A vector is a group of booleans, {#link|Integers#}, {#link|Floats#}, or {#link|Pointers#} which are operated on
       in parallel using a single instruction ({#link|SIMD#}). Vector types are created with the builtin function {#link|@Type#},
       or using the shorthand as {#syntax#}std.meta.Vector{#endsyntax#}.
       </p>
@@ -2053,7 +2157,7 @@ test "pointer casting" {
 
 test "pointer child type" {
     // pointer types have a `child` field which tells you the type they point to.
-    assert((*u32).Child == u32);
+    assert(@typeInfo(*u32).Pointer.child == u32);
 }
       {#code_end#}
       {#header_open|Alignment#}
@@ -2081,7 +2185,7 @@ test "variable alignment" {
     assert(@TypeOf(&x) == *i32);
     assert(*i32 == *align(align_of_i32) i32);
     if (std.Target.current.cpu.arch == .x86_64) {
-        assert((*i32).alignment == 4);
+        assert(@typeInfo(*i32).Pointer.alignment == 4);
     }
 }
       {#code_end#}
@@ -2099,7 +2203,7 @@ const assert = @import("std").debug.assert;
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
-    assert(@TypeOf(&foo).alignment == 4);
+    assert(@typeInfo(@TypeOf(&foo)).Pointer.alignment == 4);
     assert(@TypeOf(&foo) == *align(4) u8);
     const as_pointer_to_array: *[1]u8 = &foo;
     const as_slice: []u8 = as_pointer_to_array;
@@ -2717,7 +2821,7 @@ test "fully anonymous struct" {
     });
 }
 
-fn dump(args: var) void {
+fn dump(args: anytype) void {
     assert(args.int == 1234);
     assert(args.float == 12.34);
     assert(args.b);
@@ -3861,6 +3965,48 @@ test "if error union" {
         unreachable;
     }
 }
+
+test "if error union with optional" {
+    // If expressions test for errors before unwrapping optionals.
+    // The |optional_value| capture's type is ?u32.
+
+    const a: anyerror!?u32 = 0;
+    if (a) |optional_value| {
+        assert(optional_value.? == 0);
+    } else |err| {
+        unreachable;
+    }
+
+    const b: anyerror!?u32 = null;
+    if (b) |optional_value| {
+        assert(optional_value == null);
+    } else |err| {
+        unreachable;
+    }
+
+    const c: anyerror!?u32 = error.BadValue;
+    if (c) |optional_value| {
+        unreachable;
+    } else |err| {
+        assert(err == error.BadValue);
+    }
+
+    // Access the value by reference by using a pointer capture each time.
+    var d: anyerror!?u32 = 3;
+    if (d) |*optional_value| {
+        if (optional_value.*) |*value| {
+            value.* = 9;
+        }
+    } else |err| {
+        unreachable;
+    }
+
+    if (d) |optional_value| {
+        assert(optional_value.? == 9);
+    } else |err| {
+        unreachable;
+    }
+}
       {#code_end#}
       {#see_also|Optionals|Errors#}
       {#header_close#}
@@ -4139,14 +4285,14 @@ test "pass struct to function" {
       {#header_close#}
       {#header_open|Function Parameter Type Inference#}
       <p>
-      Function parameters can be declared with {#syntax#}var{#endsyntax#} in place of the type.
+      Function parameters can be declared with {#syntax#}anytype{#endsyntax#} in place of the type.
       In this case the parameter types will be inferred when the function is called.
       Use {#link|@TypeOf#} and {#link|@typeInfo#} to get information about the inferred type.
       </p>
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
 
-fn addFortyTwo(x: var) @TypeOf(x) {
+fn addFortyTwo(x: anytype) @TypeOf(x) {
     return x + 42;
 }
 
@@ -4165,8 +4311,8 @@ test "fn type inference" {
 const assert = @import("std").debug.assert;
 
 test "fn reflection" {
-    assert(@TypeOf(assert).ReturnType == void);
-    assert(@TypeOf(assert).is_var_args == false);
+    assert(@typeInfo(@TypeOf(assert)).Fn.return_type.? == void);
+    assert(@typeInfo(@TypeOf(assert)).Fn.is_var_args == false);
 }
       {#code_end#}
       {#header_close#}
@@ -4466,10 +4612,10 @@ test "error union" {
     foo = error.SomeError;
 
     // Use compile-time reflection to access the payload type of an error union:
-    comptime assert(@TypeOf(foo).Payload == i32);
+    comptime assert(@typeInfo(@TypeOf(foo)).ErrorUnion.payload == i32);
 
     // Use compile-time reflection to access the error set type of an error union:
-    comptime assert(@TypeOf(foo).ErrorSet == anyerror);
+    comptime assert(@typeInfo(@TypeOf(foo)).ErrorUnion.error_set == anyerror);
 }
       {#code_end#}
       {#header_open|Merging Error Sets#}
@@ -4846,7 +4992,7 @@ test "optional type" {
     foo = 1234;
 
     // Use compile-time reflection to access the child type of the optional:
-    comptime assert(@TypeOf(foo).Child == i32);
+    comptime assert(@typeInfo(@TypeOf(foo)).Optional.child == i32);
 }
       {#code_end#}
       {#header_close#}
@@ -4990,6 +5136,22 @@ test "float widening" {
     var c: f64 = b;
     var d: f128 = c;
     assert(d == a);
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_open|Type Coercion: Coercion Float to Int#}
+      <p>
+      A compiler error is appropriate because this ambiguous expression leaves the compiler
+      two choices about the coercion.
+      </p>
+      <ul>
+        <li> Cast {#syntax#}54.0{#endsyntax#} to {#syntax#}comptime_int{#endsyntax#} resulting in {#syntax#}@as(comptime_int, 10){#endsyntax#}, which is casted to {#syntax#}@as(f32, 10){#endsyntax#}</li>
+        <li> Cast {#syntax#}5{#endsyntax#} to {#syntax#}comptime_float{#endsyntax#} resulting in {#syntax#}@as(comptime_float, 10.8){#endsyntax#}, which is casted to {#syntax#}@as(f32, 10.8){#endsyntax#}</li>
+      </ul>
+      {#code_begin|test_err#}
+// Compile time coercion of float to int
+test "implicit cast to comptime_int" {
+    var f: f32 = 54.0 / 5;
 }
       {#code_end#}
       {#header_close#}
@@ -5363,25 +5525,17 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 test "turn HashMap into a set with void" {
-    var map = std.HashMap(i32, void, hash_i32, eql_i32).init(std.testing.allocator);
+    var map = std.AutoHashMap(i32, void).init(std.testing.allocator);
     defer map.deinit();
 
-    _ = try map.put(1, {});
-    _ = try map.put(2, {});
+    try map.put(1, {});
+    try map.put(2, {});
 
     assert(map.contains(2));
     assert(!map.contains(3));
 
     _ = map.remove(2);
     assert(!map.contains(2));
-}
-
-fn hash_i32(x: i32) u32 {
-    return @bitCast(u32, x);
-}
-
-fn eql_i32(a: i32, b: i32) bool {
-    return a == b;
 }
       {#code_end#}
       <p>Note that this is different from using a dummy value for the hash map value.
@@ -5940,7 +6094,7 @@ pub fn main() void {
 
       {#code_begin|syntax#}
 /// Calls print and then flushes the buffer.
-pub fn printf(self: *OutStream, comptime format: []const u8, args: var) anyerror!void {
+pub fn printf(self: *OutStream, comptime format: []const u8, args: anytype) anyerror!void {
     const State = enum {
         Start,
         OpenBrace,
@@ -6026,7 +6180,7 @@ pub fn printf(self: *OutStream, arg0: i32, arg1: []const u8) !void {
       on the type:
       </p>
       {#code_begin|syntax#}
-pub fn printValue(self: *OutStream, value: var) !void {
+pub fn printValue(self: *OutStream, value: anytype) !void {
     switch (@typeInfo(@TypeOf(value))) {
         .Int => {
             return self.printInt(T, value);
@@ -6652,7 +6806,7 @@ fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
       </p>
       {#header_close#}
       {#header_open|@alignCast#}
-      <pre>{#syntax#}@alignCast(comptime alignment: u29, ptr: var) var{#endsyntax#}</pre>
+      <pre>{#syntax#}@alignCast(comptime alignment: u29, ptr: anytype) anytype{#endsyntax#}</pre>
       <p>
       {#syntax#}ptr{#endsyntax#} can be {#syntax#}*T{#endsyntax#}, {#syntax#}fn(){#endsyntax#}, {#syntax#}?*T{#endsyntax#},
                       {#syntax#}?fn(){#endsyntax#}, or {#syntax#}[]T{#endsyntax#}. It returns the same type as {#syntax#}ptr{#endsyntax#}
@@ -6689,7 +6843,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@asyncCall#}
-      <pre>{#syntax#}@asyncCall(frame_buffer: []align(@alignOf(@Frame(anyAsyncFunction))) u8, result_ptr, function_ptr, args: ...) anyframe->T{#endsyntax#}</pre>
+      <pre>{#syntax#}@asyncCall(frame_buffer: []align(@alignOf(@Frame(anyAsyncFunction))) u8, result_ptr, function_ptr, args: anytype) anyframe->T{#endsyntax#}</pre>
       <p>
       {#syntax#}@asyncCall{#endsyntax#} performs an {#syntax#}async{#endsyntax#} call on a function pointer,
       which may or may not be an {#link|async function|Async Functions#}.
@@ -6716,7 +6870,7 @@ test "async fn pointer in a struct field" {
     };
     var foo = Foo{ .bar = func };
     var bytes: [64]u8 align(@alignOf(@Frame(func))) = undefined;
-    const f = @asyncCall(&bytes, {}, foo.bar, &data);
+    const f = @asyncCall(&bytes, {}, foo.bar, .{&data});
     assert(data == 2);
     resume f;
     assert(data == 4);
@@ -6736,7 +6890,7 @@ fn func(y: *i32) void {
       This builtin function atomically dereferences a pointer and returns the value.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
       {#header_close#}
@@ -6746,7 +6900,7 @@ fn func(y: *i32) void {
       This builtin function atomically modifies memory and then returns the previous value.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
       <p>
@@ -6772,12 +6926,12 @@ fn func(y: *i32) void {
       This builtin function atomically stores a value.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
       {#header_close#}
       {#header_open|@bitCast#}
-      <pre>{#syntax#}@bitCast(comptime DestType: type, value: var) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@bitCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
       <p>
       Converts a value of one type to another type.
       </p>
@@ -6898,7 +7052,7 @@ fn func(y: *i32) void {
       {#header_close#}
 
       {#header_open|@call#}
-      <pre>{#syntax#}@call(options: std.builtin.CallOptions, function: var, args: var) var{#endsyntax#}</pre>
+      <pre>{#syntax#}@call(options: std.builtin.CallOptions, function: anytype, args: anytype) anytype{#endsyntax#}</pre>
       <p>
       Calls a function, in the same way that invoking an expression with parentheses does:
       </p>
@@ -7055,10 +7209,10 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
       more efficiently in machine instructions.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
-      <p>{#syntax#}@TypeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
+      <p>{#syntax#}@typeInfo(@TypeOf(ptr)).Pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       {#see_also|Compile Variables|cmpxchgWeak#}
       {#header_close#}
       {#header_open|@cmpxchgWeak#}
@@ -7084,10 +7238,10 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       However if you need a stronger guarantee, use {#link|@cmpxchgStrong#}.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a {#syntax#}bool{#endsyntax#}, a float,
+      {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
-      <p>{#syntax#}@TypeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
+      <p>{#syntax#}@typeInfo(@TypeOf(ptr)).Pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       {#see_also|Compile Variables|cmpxchgStrong#}
       {#header_close#}
 
@@ -7245,7 +7399,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@enumToInt#}
-      <pre>{#syntax#}@enumToInt(enum_or_tagged_union: var) var{#endsyntax#}</pre>
+      <pre>{#syntax#}@enumToInt(enum_or_tagged_union: anytype) anytype{#endsyntax#}</pre>
       <p>
       Converts an enumeration value into its integer tag type. When a tagged union is passed,
       the tag value is used as the enumeration value.
@@ -7280,7 +7434,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errorToInt#}
-      <pre>{#syntax#}@errorToInt(err: var) std.meta.IntType(false, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
+      <pre>{#syntax#}@errorToInt(err: anytype) std.meta.IntType(false, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
       <p>
       Supports the following types:
       </p>
@@ -7300,7 +7454,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errSetCast#}
-      <pre>{#syntax#}@errSetCast(comptime T: DestType, value: var) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@errSetCast(comptime T: DestType, value: anytype) DestType{#endsyntax#}</pre>
       <p>
       Converts an error value from one error set to another error set. Attempting to convert an error
       which is not in the destination error set results in safety-protected {#link|Undefined Behavior#}.
@@ -7308,7 +7462,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@export#}
-      <pre>{#syntax#}@export(target: var, comptime options: std.builtin.ExportOptions) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@export(target: anytype, comptime options: std.builtin.ExportOptions) void{#endsyntax#}</pre>
       <p>
       Creates a symbol in the output object file.
       </p>
@@ -7337,7 +7491,7 @@ export fn @"A function name that is a complete sentence."() void {}
       <p>
       When looking at the resulting object, you can see the symbol is used verbatim:
       </p>
-      <pre>00000000000001f0 T A function name that is a complete sentence.</pre>
+      <pre><code>00000000000001f0 T A function name that is a complete sentence.</code></pre>
       {#see_also|Exporting a C Library#}
       {#header_close#}
 
@@ -7353,7 +7507,7 @@ export fn @"A function name that is a complete sentence."() void {}
       {#header_close#}
 
       {#header_open|@field#}
-      <pre>{#syntax#}@field(lhs: var, comptime field_name: []const u8) (field){#endsyntax#}</pre>
+      <pre>{#syntax#}@field(lhs: anytype, comptime field_name: []const u8) (field){#endsyntax#}</pre>
       <p>Performs field access by a compile-time string.
       </p>
        {#code_begin|test#}
@@ -7387,7 +7541,7 @@ test "field access by string" {
       {#header_close#}
 
       {#header_open|@floatCast#}
-      <pre>{#syntax#}@floatCast(comptime DestType: type, value: var) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@floatCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
       <p>
       Convert from one float type to another. This cast is safe, but may cause the
       numeric value to lose precision.
@@ -7395,7 +7549,7 @@ test "field access by string" {
       {#header_close#}
 
       {#header_open|@floatToInt#}
-      <pre>{#syntax#}@floatToInt(comptime DestType: type, float: var) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@floatToInt(comptime DestType: type, float: anytype) DestType{#endsyntax#}</pre>
       <p>
       Converts the integer part of a floating point number to the destination type.
       </p>
@@ -7421,7 +7575,7 @@ test "field access by string" {
       {#header_close#}
 
       {#header_open|@Frame#}
-      <pre>{#syntax#}@Frame(func: var) type{#endsyntax#}</pre>
+      <pre>{#syntax#}@Frame(func: anytype) type{#endsyntax#}</pre>
       <p>
       This function returns the frame type of a function. This works for {#link|Async Functions#}
       as well as any function without a specific calling convention.
@@ -7530,7 +7684,7 @@ test "@hasDecl" {
       source file than the one they are declared in.
       </p>
       <p>
-      {#syntax#}path{#endsyntax#} can be a relative or absolute path, or it can be the name of a package.
+      {#syntax#}path{#endsyntax#} can be a relative path or it can be the name of a package.
       If it is a relative path, it is relative to the file that contains the {#syntax#}@import{#endsyntax#}
       function call.
       </p>
@@ -7547,7 +7701,7 @@ test "@hasDecl" {
       {#header_close#}
 
       {#header_open|@intCast#}
-      <pre>{#syntax#}@intCast(comptime DestType: type, int: var) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@intCast(comptime DestType: type, int: anytype) DestType{#endsyntax#}</pre>
       <p>
       Converts an integer to another integer while keeping the same numerical value.
       Attempting to convert a number which is out of range of the destination type results in
@@ -7588,7 +7742,7 @@ test "@hasDecl" {
       {#header_close#}
 
       {#header_open|@intToFloat#}
-      <pre>{#syntax#}@intToFloat(comptime DestType: type, int: var) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@intToFloat(comptime DestType: type, int: anytype) DestType{#endsyntax#}</pre>
       <p>
       Converts an integer to the closest floating point representation. To convert the other way, use {#link|@floatToInt#}. This cast is always safe.
       </p>
@@ -7739,7 +7893,7 @@ test "@wasmMemoryGrow" {
       {#header_close#}
 
       {#header_open|@ptrCast#}
-      <pre>{#syntax#}@ptrCast(comptime DestType: type, value: var) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@ptrCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
       <p>
       Converts a pointer of one type to a pointer of another type.
       </p>
@@ -7750,7 +7904,7 @@ test "@wasmMemoryGrow" {
       {#header_close#}
 
       {#header_open|@ptrToInt#}
-      <pre>{#syntax#}@ptrToInt(value: var) usize{#endsyntax#}</pre>
+      <pre>{#syntax#}@ptrToInt(value: anytype) usize{#endsyntax#}</pre>
       <p>
       Converts {#syntax#}value{#endsyntax#} to a {#syntax#}usize{#endsyntax#} which is the address of the pointer. {#syntax#}value{#endsyntax#} can be one of these types:
       </p>
@@ -8008,7 +8162,7 @@ test "@setRuntimeSafety" {
       {#header_close#}
 
       {#header_open|@splat#}
-      <pre>{#syntax#}@splat(comptime len: u32, scalar: var) std.meta.Vector(len, @TypeOf(scalar)){#endsyntax#}</pre>
+      <pre>{#syntax#}@splat(comptime len: u32, scalar: anytype) std.meta.Vector(len, @TypeOf(scalar)){#endsyntax#}</pre>
       <p>
       Produces a vector of length {#syntax#}len{#endsyntax#} where each element is the value
       {#syntax#}scalar{#endsyntax#}:
@@ -8030,9 +8184,31 @@ test "vector @splat" {
       </p>
       {#see_also|Vectors|@shuffle#}
       {#header_close#}
+      {#header_open|@src#}
+      <pre>{#syntax#}@src() std.builtin.SourceLocation{#endsyntax#}</pre>
+      <p>
+      Returns a {#syntax#}SourceLocation{#endsyntax#} struct representing the function's name and location in the source code. This must be called in a function.
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const expect = std.testing.expect;
 
+test "@src" {
+    doTheTest();
+}
+
+fn doTheTest() void {
+    const src = @src();
+
+    expect(src.line == 9);
+    expect(src.column == 17);
+    expect(std.mem.endsWith(u8, src.fn_name, "doTheTest"));
+    expect(std.mem.endsWith(u8, src.file, "test.zig"));
+}
+      {#code_end#}
+      {#header_close#}
       {#header_open|@sqrt#}
-      <pre>{#syntax#}@sqrt(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@sqrt(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Performs the square root of a floating point number. Uses a dedicated hardware instruction
       when available.
@@ -8043,7 +8219,7 @@ test "vector @splat" {
       </p>
       {#header_close#}
       {#header_open|@sin#}
-      <pre>{#syntax#}@sin(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@sin(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Sine trigometric function on a floating point number. Uses a dedicated hardware instruction
       when available.
@@ -8054,7 +8230,7 @@ test "vector @splat" {
       </p>
       {#header_close#}
       {#header_open|@cos#}
-      <pre>{#syntax#}@cos(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@cos(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Cosine trigometric function on a floating point number. Uses a dedicated hardware instruction
       when available.
@@ -8065,7 +8241,7 @@ test "vector @splat" {
       </p>
       {#header_close#}
       {#header_open|@exp#}
-      <pre>{#syntax#}@exp(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@exp(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Base-e exponential function on a floating point number. Uses a dedicated hardware instruction
       when available.
@@ -8076,7 +8252,7 @@ test "vector @splat" {
       </p>
       {#header_close#}
       {#header_open|@exp2#}
-      <pre>{#syntax#}@exp2(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@exp2(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Base-2 exponential function on a floating point number. Uses a dedicated hardware instruction
       when available.
@@ -8087,7 +8263,7 @@ test "vector @splat" {
       </p>
       {#header_close#}
       {#header_open|@log#}
-      <pre>{#syntax#}@log(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@log(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Returns the natural logarithm of a floating point number. Uses a dedicated hardware instruction
       when available.
@@ -8098,7 +8274,7 @@ test "vector @splat" {
       </p>
       {#header_close#}
       {#header_open|@log2#}
-      <pre>{#syntax#}@log2(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@log2(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Returns the logarithm to the base 2 of a floating point number. Uses a dedicated hardware instruction
       when available.
@@ -8109,7 +8285,7 @@ test "vector @splat" {
       </p>
       {#header_close#}
       {#header_open|@log10#}
-      <pre>{#syntax#}@log10(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@log10(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Returns the logarithm to the base 10 of a floating point number. Uses a dedicated hardware instruction
       when available.
@@ -8120,7 +8296,7 @@ test "vector @splat" {
       </p>
       {#header_close#}
       {#header_open|@fabs#}
-      <pre>{#syntax#}@fabs(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@fabs(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Returns the absolute value of a floating point number. Uses a dedicated hardware instruction
       when available.
@@ -8131,7 +8307,7 @@ test "vector @splat" {
       </p>
       {#header_close#}
       {#header_open|@floor#}
-      <pre>{#syntax#}@floor(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@floor(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Returns the largest integral value not greater than the given floating point number.
       Uses a dedicated hardware instruction when available.
@@ -8142,7 +8318,7 @@ test "vector @splat" {
       </p>
       {#header_close#}
       {#header_open|@ceil#}
-      <pre>{#syntax#}@ceil(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@ceil(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Returns the largest integral value not less than the given floating point number.
       Uses a dedicated hardware instruction when available.
@@ -8153,7 +8329,7 @@ test "vector @splat" {
       </p>
       {#header_close#}
       {#header_open|@trunc#}
-      <pre>{#syntax#}@trunc(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@trunc(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Rounds the given floating point number to an integer, towards zero.
       Uses a dedicated hardware instruction when available.
@@ -8164,7 +8340,7 @@ test "vector @splat" {
       </p>
       {#header_close#}
       {#header_open|@round#}
-      <pre>{#syntax#}@round(value: var) @TypeOf(value){#endsyntax#}</pre>
+      <pre>{#syntax#}@round(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Rounds the given floating point number to an integer, away from zero. Uses a dedicated hardware instruction
       when available.
@@ -8185,7 +8361,7 @@ test "vector @splat" {
       {#header_close#}
 
       {#header_open|@tagName#}
-      <pre>{#syntax#}@tagName(value: var) []const u8{#endsyntax#}</pre>
+      <pre>{#syntax#}@tagName(value: anytype) []const u8{#endsyntax#}</pre>
       <p>
       Converts an enum value or union value to a slice of bytes representing the name.</p><p>If the enum is non-exhaustive and the tag value does not map to a name, it invokes safety-checked {#link|Undefined Behavior#}.
       </p>
@@ -8236,7 +8412,7 @@ fn List(comptime T: type) type {
       {#header_close#}
 
       {#header_open|@truncate#}
-      <pre>{#syntax#}@truncate(comptime T: type, integer: var) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@truncate(comptime T: type, integer: anytype) T{#endsyntax#}</pre>
       <p>
       This function truncates bits from an integer type, resulting in a smaller
       or same-sized integer type.
@@ -8292,30 +8468,23 @@ test "integer truncation" {
           <li>{#syntax#}@TypeOf(null){#endsyntax#}</li>
           <li>{#link|Arrays#}</li>
           <li>{#link|Optionals#}</li>
+          <li>{#link|Error Set Type#}</li>
           <li>{#link|Error Union Type#}</li>
           <li>{#link|Vectors#}</li>
           <li>{#link|Opaque Types#}</li>
-          <li>AnyFrame</li>
-      </ul>
-      <p>
-      For these types it is a
-      <a href="https://github.com/ziglang/zig/issues/2907">TODO in the compiler to implement</a>:
-      </p>
-      <ul>
-          <li>ErrorSet</li>
-          <li>Enum</li>
-          <li>FnFrame</li>
-          <li>EnumLiteral</li>
-      </ul>
-      <p>
-      For these types, {#syntax#}@Type{#endsyntax#} is not available.
-      <a href="https://github.com/ziglang/zig/issues/383">There is an open proposal to allow unions and structs</a>.
-      </p>
-      <ul>
+          <li>{#link|@Frame#}</li>
+          <li>{#syntax#}anyframe{#endsyntax#}</li>
+          <li>{#link|struct#}</li>
+          <li>{#link|enum#}</li>
+          <li>{#link|Enum Literals#}</li>
           <li>{#link|union#}</li>
+      </ul>
+      <p>
+      For these types, {#syntax#}@Type{#endsyntax#} is not available:
+      </p>
+      <ul>
           <li>{#link|Functions#}</li>
           <li>BoundFn</li>
-          <li>{#link|struct#}</li>
       </ul>
       {#header_close#}
       {#header_open|@typeInfo#}
@@ -8379,6 +8548,7 @@ fn foo(comptime T: type, ptr: *T) T {
       {#header_close#}
 
       {#header_open|Opaque Types#}
+      <p>
       {#syntax#}@Type(.Opaque){#endsyntax#} creates a new type with an unknown (but non-zero) size and alignment.
       </p>
       <p>
@@ -9139,10 +9309,8 @@ fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
       which will also do perform basic leak detection.
       </p>
       <p>
-      Currently Zig has no general purpose allocator, but there is
-      <a href="https://github.com/andrewrk/zig-general-purpose-allocator/">one under active development</a>.
-      Once it is merged into the Zig standard library it will become available to import
-      with {#syntax#}std.heap.default_allocator{#endsyntax#}. However, it will still be recommended to
+      Zig has a general purpose allocator available to be imported
+      with {#syntax#}std.heap.GeneralPurposeAllocator{#endsyntax#}. However, it is still recommended to
       follow the {#link|Choosing an Allocator#} guide.
       </p>
 
@@ -9197,9 +9365,17 @@ pub fn main() !void {
               is handled correctly? In this case, use {#syntax#}std.testing.FailingAllocator{#endsyntax#}.
           </li>
           <li>
-              Finally, if none of the above apply, you need a general purpose allocator. Zig does not
-              yet have a general purpose allocator in the standard library,
-              <a href="https://github.com/andrewrk/zig-general-purpose-allocator/">but one is being actively developed</a>.
+              Are you writing a test? In this case, use {#syntax#}std.testing.allocator{#endsyntax#}.
+          </li>
+          <li>
+              Finally, if none of the above apply, you need a general purpose allocator.
+              Zig's general purpose allocator is available as a function that takes a {#link|comptime#}
+              {#link|struct#} of configuration options and returns a type.
+              Generally, you will set up one {#syntax#}std.heap.GeneralPurposeAllocator{#endsyntax#} in
+              your main function, and then pass it or sub-allocators around to various parts of your
+              application.
+          </li>
+          <li>
               You can also consider {#link|Implementing an Allocator#}.
           </li>
       </ol>
@@ -9546,7 +9722,7 @@ const c = @cImport({
         <li>Does not support Zig-only pointer attributes such as alignment. Use normal {#link|Pointers#}
         please!</li>
       </ul>
-      <p>When a C pointer is pointing to a single struct (not an array), deference the C pointer to
+      <p>When a C pointer is pointing to a single struct (not an array), dereference the C pointer to
         access to the struct's fields or member data. That syntax looks like
         this: </p>
         <p>{#syntax#}ptr_to_struct.*.struct_member{#endsyntax#}</p>
@@ -9706,12 +9882,13 @@ The result is 3</code></pre>
 const std = @import("std");
 
 pub fn main() !void {
-    // TODO a better default allocator that isn't as wasteful!
-    const args = try std.process.argsAlloc(std.heap.page_allocator);
-    defer std.process.argsFree(std.heap.page_allocator, args);
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    const gpa = &general_purpose_allocator.allocator;
+    const args = try std.process.argsAlloc(gpa);
+    defer std.process.argsFree(gpa, args);
 
     for (args) |arg, i| {
-        std.debug.print("{}: {}\n", .{i, arg});
+        std.debug.print("{}: {}\n", .{ i, arg });
     }
 }
       {#code_end#}
@@ -10126,14 +10303,586 @@ fn readU32Be() u32 {}
       {#header_close#}
 
       {#header_open|Keyword Reference#}
-      <p>
-      TODO the rest of the keywords. Most of these can just be links to the relevant section.
-      </p>
-      {#header_open|Keyword: pub#}
-      <p>The {#syntax#}pub{#endsyntax#} in front of a top level declaration makes the
-      declaration available to reference from a different file than the one it is declared in.</p>
-      {#see_also|@import#}
-      {#header_close#}
+      <div class="table-wrapper">
+      <table>
+        <tr>
+          <th>
+            Keyword
+          </th>
+          <th>
+            Description
+          </th>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}align{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}align{#endsyntax#} can be used to specify the alignment of a pointer.
+            It can also be used after a variable or function declaration to specify the alignment of pointers to that variable or function.
+            <ul>
+              <li>See also {#link|Alignment#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}allowzero{#endsyntax#}</pre>
+          </td>
+          <td>
+            The pointer attribute {#syntax#}allowzero{#endsyntax#} allows a pointer to have address zero.
+            <ul>
+              <li>See also {#link|allowzero#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}and{#endsyntax#}</pre>
+          </td>
+          <td>
+            The boolean operator {#syntax#}and{#endsyntax#}.
+            <ul>
+              <li>See also {#link|Operators#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}anyframe{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}anyframe{#endsyntax#} can be used as a type for variables which hold pointers to function frames.
+            <ul>
+              <li>See also {#link|Async Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}anytype{#endsyntax#}</pre>
+          </td>
+          <td>
+            Function parameters and struct fields can be declared with {#syntax#}anytype{#endsyntax#} in place of the type.
+            The type will be inferred where the function is called or the struct is instantiated.
+            <ul>
+              <li>See also {#link|Function Parameter Type Inference#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}asm{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}asm{#endsyntax#} begins an inline assembly expression. This allows for directly controlling the machine code generated on compilation.
+            <ul>
+              <li>See also {#link|Assembly#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}async{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}async{#endsyntax#} can be used before a function call to get a pointer to the function's frame when it suspends.
+            <ul>
+              <li>See also {#link|Async Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}await{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}await{#endsyntax#} can be used to suspend the current function until the frame provided after the {#syntax#}await{#endsyntax#} completes.
+            {#syntax#}await{#endsyntax#} copies the value returned from the target function's frame to the caller.
+            <ul>
+              <li>See also {#link|Async Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}break{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}break{#endsyntax#} can be used with a block label to return a value from the block.
+            It can also be used to exit a loop before iteration completes naturally.
+            <ul>
+              <li>See also {#link|blocks#}, {#link|while#}, {#link|for#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}catch{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}catch{#endsyntax#} can be used to evaluate an expression if the expression before it evaluates to an error.
+            The expression after the {#syntax#}catch{#endsyntax#} can optionally capture the error value.
+            <ul>
+              <li>See also {#link|catch#}, {#link|Operators#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}comptime{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}comptime{#endsyntax#} before a declaration can be used to label variables or function parameters as known at compile time.
+            It can also be used to guarantee an expression is run at compile time.
+            <ul>
+              <li>See also {#link|comptime#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}const{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}const{#endsyntax#} declares a variable that can not be modified.
+            Used as a pointer attribute, it denotes the value referenced by the pointer cannot be modified.
+            <ul>
+              <li>See also {#link|Variables#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}continue{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}continue{#endsyntax#} can be used in a loop to jump back to the beginning of the loop.
+            <ul>
+              <li>See also {#link|while#}, {#link|for#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}defer{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}defer{#endsyntax#} will execute an expression when control flow leaves the current block.
+            <ul>
+              <li>See also {#link|defer#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}else{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}else{#endsyntax#} can be used to provide an alternate branch for {#syntax#}if{#endsyntax#}, {#syntax#}switch{#endsyntax#},
+            {#syntax#}while{#endsyntax#}, and {#syntax#}for{#endsyntax#} expressions.
+            <ul>
+              <li>If used after an if expression, the else branch will be executed if the test value returns false, null, or an error.</li>
+              <li>If used within a switch expression, the else branch will be executed if the test value matches no other cases.</li>
+              <li>If used after a loop expression, the else branch will be executed if the loop finishes without breaking.</li>
+              <li>See also {#link|if#}, {#link|switch#}, {#link|while#}, {#link|for#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}enum{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}enum{#endsyntax#} defines an enum type.
+            <ul>
+              <li>See also {#link|enum#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}errdefer{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}errdefer{#endsyntax#} will execute an expression when control flow leaves the current block if the function returns an error.
+            <ul>
+              <li>See also {#link|errdefer#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}error{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}error{#endsyntax#} defines an error type.
+            <ul>
+              <li>See also {#link|Errors#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}export{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}export{#endsyntax#} makes a function or variable externally visible in the generated object file.
+            Exported functions default to the C calling convention.
+            <ul>
+              <li>See also {#link|Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}extern{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}extern{#endsyntax#} can be used to declare a function or variable that will be resolved at link time, when linking statically
+            or at runtime, when linking dynamically.
+            <ul>
+              <li>See also {#link|Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}false{#endsyntax#}</pre>
+          </td>
+          <td>
+            The boolean value {#syntax#}false{#endsyntax#}.
+            <ul>
+              <li>See also {#link|Primitive Values#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}fn{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}fn{#endsyntax#} declares a function.
+            <ul>
+              <li>See also {#link|Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}for{#endsyntax#}</pre>
+          </td>
+          <td>
+            A {#syntax#}for{#endsyntax#} expression can be used to iterate over the elements of a slice, array, or tuple.
+            <ul>
+              <li>See also {#link|for#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}if{#endsyntax#}</pre>
+          </td>
+          <td>
+            An {#syntax#}if{#endsyntax#} expression can test boolean expressions, optional values, or error unions.
+            For optional values or error unions, the if expression can capture the unwrapped value.
+            <ul>
+              <li>See also {#link|if#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}inline{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}inline{#endsyntax#} can be used to label a loop expression such that it will be unrolled at compile time.
+            It can also be used to force a function to be inlined at all call sites.
+            <ul>
+              <li>See also {#link|inline while#}, {#link|inline for#}, {#link|Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}noalias{#endsyntax#}</pre>
+          </td>
+          <td>
+            The {#syntax#}noalias{#endsyntax#} keyword.
+            <ul>
+              <li>TODO add documentation for noalias</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}nosuspend{#endsyntax#}</pre>
+          </td>
+          <td>
+            The {#syntax#}nosuspend{#endsyntax#} keyword.
+            <ul>
+              <li>TODO add documentation for nosuspend</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}null{#endsyntax#}</pre>
+          </td>
+          <td>
+            The optional value {#syntax#}null{#endsyntax#}.
+            <ul>
+              <li>See also {#link|null#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}or{#endsyntax#}</pre>
+          </td>
+          <td>
+            The boolean operator {#syntax#}or{#endsyntax#}.
+            <ul>
+              <li>See also {#link|Operators#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}orelse{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}orelse{#endsyntax#} can be used to evaluate an expression if the expression before it evaluates to null.
+            <ul>
+              <li>See also {#link|Optionals#}, {#link|Operators#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}packed{#endsyntax#}</pre>
+          </td>
+          <td>
+            The {#syntax#}packed{#endsyntax#} keyword before a struct definition changes the struct's in-memory layout
+            to the guaranteed {#syntax#}packed{#endsyntax#} layout.
+            <ul>
+              <li>See also {#link|packed struct#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}pub{#endsyntax#}</pre>
+          </td>
+          <td>
+            The {#syntax#}pub{#endsyntax#} in front of a top level declaration makes the declaration available
+            to reference from a different file than the one it is declared in.
+            <ul>
+              <li>See also {#link|import#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}resume{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}resume{#endsyntax#} will continue execution of a function frame after the point the function was suspended.
+            <ul>
+              <li>See also {#link|Suspend and Resume#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}return{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}return{#endsyntax#} exits a function with a value.
+            <ul>
+              <li>See also {#link|Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}linksection{#endsyntax#}</pre>
+          </td>
+          <td>
+            The {#syntax#}linksection{#endsyntax#} keyword.
+            <ul>
+              <li>TODO add documentation for linksection</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}struct{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}struct{#endsyntax#} defines a struct.
+            <ul>
+              <li>See also {#link|struct#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}suspend{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}suspend{#endsyntax#} will cause control flow to return to the call site or resumer of the function.
+            {#syntax#}suspend{#endsyntax#} can also be used before a block within a function,
+            to allow the function access to its frame before control flow returns to the call site.
+            <ul>
+              <li>See also {#link|Suspend and Resume#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}switch{#endsyntax#}</pre>
+          </td>
+          <td>
+            A {#syntax#}switch{#endsyntax#} expression can be used to test values of a common type.
+            {#syntax#}switch{#endsyntax#} cases can capture field values of a {#link|Tagged union#}.
+            <ul>
+              <li>See also {#link|switch#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}test{#endsyntax#}</pre>
+          </td>
+          <td>
+            The {#syntax#}test{#endsyntax#} keyword can be used to denote a top-level block of code
+            used to make sure behavior meets expectations.
+            <ul>
+              <li>See also {#link|Zig Test#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}threadlocal{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}threadlocal{#endsyntax#} can be used to specify a variable as thread-local.
+            <ul>
+              <li>See also {#link|Thread Local Variables#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}true{#endsyntax#}</pre>
+          </td>
+          <td>
+            The boolean value {#syntax#}true{#endsyntax#}.
+            <ul>
+              <li>See also {#link|Primitive Values#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}try{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}try{#endsyntax#} evaluates an error union expression.
+            If it is an error, it returns from the current function with the same error.
+            Otherwise, the expression results in the unwrapped value.
+            <ul>
+              <li>See also {#link|try#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}undefined{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}undefined{#endsyntax#} can be used to leave a value uninitialized.
+            <ul>
+              <li>See also {#link|undefined#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}union{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}union{#endsyntax#} defines a union.
+            <ul>
+              <li>See also {#link|union#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}unreachable{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}unreachable{#endsyntax#} can be used to assert that control flow will never happen upon a particular location.
+            Depending on the build mode, {#syntax#}unreachable{#endsyntax#} may emit a panic.
+            <ul>
+              <li>Emits a panic in {#syntax#}Debug{#endsyntax#} and {#syntax#}ReleaseSafe{#endsyntax#} mode, or when using <code>zig test</code>.</li>
+              <li>Does not emit a panic in {#syntax#}ReleaseFast{#endsyntax#} mode, unless <code>zig test</code> is being used.</li>
+              <li>See also {#link|unreachable#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}usingnamespace{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}usingnamespace{#endsyntax#} is a top-level declaration that imports all the public declarations of the operand,
+            which must be a struct, union, or enum, into the current scope.
+            <ul>
+              <li>See also {#link|usingnamespace#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}var{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}var{#endsyntax#} declares a variable that may be modified.
+            <ul>
+              <li>See also {#link|Variables#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}volatile{#endsyntax#}</pre>
+          </td>
+          <td>
+            {#syntax#}volatile{#endsyntax#} can be used to denote loads or stores of a pointer have side effects.
+            It can also modify an inline assembly expression to denote it has side effects.
+            <ul>
+              <li>See also {#link|volatile#}, {#link|Assembly#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <pre>{#syntax#}while{#endsyntax#}</pre>
+          </td>
+          <td>
+            A {#syntax#}while{#endsyntax#} expression can be used to repeatedly test a boolean, optional, or error union expression,
+            and cease looping when that expression evaluates to false, null, or an error, respectively.
+            <ul>
+              <li>See also {#link|while#}</li>
+            </ul>
+          </td>
+        </tr>
+      </table>
+      </div>
       {#header_close#}
 
       {#header_open|Grammar#}
@@ -10157,7 +10906,7 @@ TopLevelDecl
      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
      / KEYWORD_usingnamespace Expr SEMICOLON
 
-FnProto &lt;- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
+FnProto &lt;- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_anytype / TypeExpr)
 
 VarDecl &lt;- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? LinkSection? (EQUAL Expr)? SEMICOLON
 
@@ -10329,7 +11078,7 @@ LinkSection &lt;- KEYWORD_linksection LPAREN Expr RPAREN
 ParamDecl &lt;- (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
 
 ParamType
-    &lt;- KEYWORD_var
+    &lt;- KEYWORD_anytype
      / DOT3
      / TypeExpr
 
@@ -10567,6 +11316,7 @@ KEYWORD_align       &lt;- 'align'       end_of_word
 KEYWORD_allowzero   &lt;- 'allowzero'   end_of_word
 KEYWORD_and         &lt;- 'and'         end_of_word
 KEYWORD_anyframe    &lt;- 'anyframe'    end_of_word
+KEYWORD_anytype     &lt;- 'anytype'     end_of_word
 KEYWORD_asm         &lt;- 'asm'         end_of_word
 KEYWORD_async       &lt;- 'async'       end_of_word
 KEYWORD_await       &lt;- 'await'       end_of_word
@@ -10612,14 +11362,14 @@ KEYWORD_var         &lt;- 'var'         end_of_word
 KEYWORD_volatile    &lt;- 'volatile'    end_of_word
 KEYWORD_while       &lt;- 'while'       end_of_word
 
-keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_allowzero / KEYWORD_asm
-         / KEYWORD_async / KEYWORD_await / KEYWORD_break
+keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_anyframe / KEYWORD_anytype
+         / KEYWORD_allowzero / KEYWORD_asm / KEYWORD_async / KEYWORD_await / KEYWORD_break
          / KEYWORD_catch / KEYWORD_comptime / KEYWORD_const / KEYWORD_continue
          / KEYWORD_defer / KEYWORD_else / KEYWORD_enum / KEYWORD_errdefer
          / KEYWORD_error / KEYWORD_export / KEYWORD_extern / KEYWORD_false
          / KEYWORD_fn / KEYWORD_for / KEYWORD_if / KEYWORD_inline
          / KEYWORD_noalias / KEYWORD_null / KEYWORD_or
-         / KEYWORD_orelse / KEYWORD_packed / KEYWORD_anyframe / KEYWORD_pub
+         / KEYWORD_orelse / KEYWORD_packed / KEYWORD_pub
          / KEYWORD_resume / KEYWORD_return / KEYWORD_linksection
          / KEYWORD_struct / KEYWORD_suspend
          / KEYWORD_switch / KEYWORD_test / KEYWORD_threadlocal / KEYWORD_true / KEYWORD_try
@@ -10637,9 +11387,10 @@ keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_allowzero / KEYWORD_asm
         <li>Incremental improvements.</li>
         <li>Avoid local maximums.</li>
         <li>Reduce the amount one must remember.</li>
-        <li>Minimize energy spent on coding style.</li>
-        <li>Resource deallocation must succeed.</li>
-        <li>Together we serve end users.</li>
+        <li>Focus on code rather than style.</li>
+        <li>Resource allocation may fail; resource deallocation must succeed.</li>
+        <li>Memory is a resource.</li>
+        <li>Together we serve the users.</li>
       </ul>
       {#header_close#}
       </div></div>

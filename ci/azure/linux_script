@@ -12,9 +12,9 @@ sudo apt-get update -q
 
 sudo apt-get remove -y llvm-*
 sudo rm -rf /usr/local/*
-sudo apt-get install -y libxml2-dev libclang-10-dev llvm-10 llvm-10-dev liblld-10-dev cmake s3cmd gcc-7 g++-7 ninja-build
+sudo apt-get install -y libxml2-dev libclang-10-dev llvm-10 llvm-10-dev liblld-10-dev cmake s3cmd gcc-7 g++-7 ninja-build tidy
 
-QEMUBASE="qemu-linux-x86_64-5.0.0-49ee115552"
+QEMUBASE="qemu-linux-x86_64-5.1.0"
 wget https://ziglang.org/deps/$QEMUBASE.tar.xz
 tar xf $QEMUBASE.tar.xz
 PATH=$PWD/$QEMUBASE/bin:$PATH
@@ -28,22 +28,6 @@ PATH=$PWD/$WASMTIME:$PATH
 # This will affect the cmake command below.
 git config core.abbrev 9
 
-# This patch is a workaround for
-# https://bugs.llvm.org/show_bug.cgi?id=44870 / https://github.com/llvm/llvm-project/issues/191
-# It only applies to the apt.llvm.org packages.
-patch <<'END_PATCH'
---- CMakeLists.txt
-+++ CMakeLists.txt
-@@ -369,6 +369,7 @@ target_link_libraries(zig_cpp LINK_PUBLIC
-     ${CLANG_LIBRARIES}
-     ${LLD_LIBRARIES}
-     ${LLVM_LIBRARIES}
-+    "-Wl,/usr/lib/llvm-10/lib/LLVMPolly.so"
- )
- 
- add_library(opt_c_util STATIC ${OPTIMIZED_C_SOURCES})
-END_PATCH
-
 export CC=gcc-7
 export CXX=g++-7
 mkdir build
@@ -51,6 +35,10 @@ cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release -GNinja
 ninja install
 ./zig build test -Denable-qemu -Denable-wasmtime
+
+# look for HTML errors
+tidy -qe ../zig-cache/langref.html
+
 VERSION="$(./zig version)"
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then

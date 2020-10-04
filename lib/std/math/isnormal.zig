@@ -1,10 +1,15 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
 // Returns whether x has a normalized representation (i.e. integer part of mantissa is 1).
-pub fn isNormal(x: var) bool {
+pub fn isNormal(x: anytype) bool {
     const T = @TypeOf(x);
     switch (T) {
         f16 => {

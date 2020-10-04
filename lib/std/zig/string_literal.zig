@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 
@@ -104,7 +109,6 @@ pub fn parse(
                     return error.InvalidCharacter;
                 },
             },
-            else => unreachable,
         }
     }
     unreachable;
@@ -125,7 +129,7 @@ test "parse" {
 }
 
 /// Writes a Zig-syntax escaped string literal to the stream. Includes the double quotes.
-pub fn render(utf8: []const u8, out_stream: var) !void {
+pub fn render(utf8: []const u8, out_stream: anytype) !void {
     try out_stream.writeByte('"');
     for (utf8) |byte| switch (byte) {
         '\n' => try out_stream.writeAll("\\n"),

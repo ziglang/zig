@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 usingnamespace @import("bits.zig");
 
 pub extern "NtDll" fn RtlGetVersion(
@@ -49,6 +54,18 @@ pub extern "NtDll" fn NtDeviceIoControlFile(
     ApcContext: ?*c_void,
     IoStatusBlock: *IO_STATUS_BLOCK,
     IoControlCode: ULONG,
+    InputBuffer: ?*const c_void,
+    InputBufferLength: ULONG,
+    OutputBuffer: ?PVOID,
+    OutputBufferLength: ULONG,
+) callconv(.Stdcall) NTSTATUS;
+pub extern "NtDll" fn NtFsControlFile(
+    FileHandle: HANDLE,
+    Event: ?HANDLE,
+    ApcRoutine: ?IO_APC_ROUTINE,
+    ApcContext: ?*c_void,
+    IoStatusBlock: *IO_STATUS_BLOCK,
+    FsControlCode: ULONG,
     InputBuffer: ?*const c_void,
     InputBufferLength: ULONG,
     OutputBuffer: ?PVOID,

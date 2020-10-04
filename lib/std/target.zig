@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std.zig");
 const mem = std.mem;
 const builtin = std.builtin;
@@ -70,6 +75,13 @@ pub const Target = struct {
                     else => return ".so",
                 }
             }
+
+            pub fn defaultVersionRange(tag: Tag) Os {
+                return .{
+                    .tag = tag,
+                    .version_range = VersionRange.default(tag),
+                };
+            }
         };
 
         /// Based on NTDDI version constants from
@@ -91,7 +103,11 @@ pub const Target = struct {
             win10_rs4 = 0x0A000005,
             win10_rs5 = 0x0A000006,
             win10_19h1 = 0x0A000007,
+            win10_20h1 = 0x0A000008,
             _,
+
+            /// Latest Windows version that the Zig Standard Library is aware of
+            pub const latest = WindowsVersion.win10_20h1;
 
             pub const Range = struct {
                 min: WindowsVersion,
@@ -100,7 +116,39 @@ pub const Target = struct {
                 pub fn includesVersion(self: Range, ver: WindowsVersion) bool {
                     return @enumToInt(ver) >= @enumToInt(self.min) and @enumToInt(ver) <= @enumToInt(self.max);
                 }
+
+                /// Checks if system is guaranteed to be at least `version` or older than `version`.
+                /// Returns `null` if a runtime check is required.
+                pub fn isAtLeast(self: Range, ver: WindowsVersion) ?bool {
+                    if (@enumToInt(self.min) >= @enumToInt(ver)) return true;
+                    if (@enumToInt(self.max) < @enumToInt(ver)) return false;
+                    return null;
+                }
             };
+
+            /// This function is defined to serialize a Zig source code representation of this
+            /// type, that, when parsed, will deserialize into the same data.
+            pub fn format(
+                self: WindowsVersion,
+                comptime fmt: []const u8,
+                options: std.fmt.FormatOptions,
+                out_stream: anytype,
+            ) !void {
+                if (fmt.len > 0 and fmt[0] == 's') {
+                    if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.latest)) {
+                        try std.fmt.format(out_stream, ".{}", .{@tagName(self)});
+                    } else {
+                        // TODO this code path breaks zig triples, but it is used in `builtin`
+                        try std.fmt.format(out_stream, "@intToEnum(Target.Os.WindowsVersion, 0x{X:0>8})", .{@enumToInt(self)});
+                    }
+                } else {
+                    if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.latest)) {
+                        try std.fmt.format(out_stream, "WindowsVersion.{}", .{@tagName(self)});
+                    } else {
+                        try std.fmt.format(out_stream, "WindowsVersion(0x{X:0>8})", .{@enumToInt(self)});
+                    }
+                }
+            }
         };
 
         pub const LinuxVersionRange = struct {
@@ -109,6 +157,12 @@ pub const Target = struct {
 
             pub fn includesVersion(self: LinuxVersionRange, ver: Version) bool {
                 return self.range.includesVersion(ver);
+            }
+
+            /// Checks if system is guaranteed to be at least `version` or older than `version`.
+            /// Returns `null` if a runtime check is required.
+            pub fn isAtLeast(self: LinuxVersionRange, ver: Version) ?bool {
+                return self.range.isAtLeast(ver);
             }
         };
 
@@ -133,6 +187,8 @@ pub const Target = struct {
         ///
         /// Binaries built with a given maximum version will continue to function on newer operating system
         /// versions. However, such a binary may not take full advantage of the newer operating system APIs.
+        ///
+        /// See `Os.isAtLeast`.
         pub const VersionRange = union {
             none: void,
             semver: Version.Range,
@@ -234,17 +290,50 @@ pub const Target = struct {
                     .windows => return .{
                         .windows = .{
                             .min = .win8_1,
-                            .max = .win10_19h1,
+                            .max = WindowsVersion.latest,
                         },
                     },
                 }
             }
         };
 
-        pub fn defaultVersionRange(tag: Tag) Os {
-            return .{
-                .tag = tag,
-                .version_range = VersionRange.default(tag),
+        pub const TaggedVersionRange = union(enum) {
+            none: void,
+            semver: Version.Range,
+            linux: LinuxVersionRange,
+            windows: WindowsVersion.Range,
+        };
+
+        /// Provides a tagged union. `Target` does not store the tag because it is
+        /// redundant with the OS tag; this function abstracts that part away.
+        pub fn getVersionRange(self: Os) TaggedVersionRange {
+            switch (self.tag) {
+                .linux => return TaggedVersionRange{ .linux = self.version_range.linux },
+                .windows => return TaggedVersionRange{ .windows = self.version_range.windows },
+
+                .freebsd,
+                .macosx,
+                .ios,
+                .tvos,
+                .watchos,
+                .netbsd,
+                .openbsd,
+                .dragonfly,
+                => return TaggedVersionRange{ .semver = self.version_range.semver },
+
+                else => return .none,
+            }
+        }
+
+        /// Checks if system is guaranteed to be at least `version` or older than `version`.
+        /// Returns `null` if a runtime check is required.
+        pub fn isAtLeast(self: Os, comptime tag: Tag, version: anytype) ?bool {
+            if (self.tag != tag) return false;
+
+            return switch (tag) {
+                .linux => self.version_range.linux.isAtLeast(version),
+                .windows => self.version_range.windows.isAtLeast(version),
+                else => self.version_range.semver.isAtLeast(version),
             };
         }
 
@@ -394,22 +483,17 @@ pub const Target = struct {
                 else => false,
             };
         }
-
-        pub fn oFileExt(abi: Abi) [:0]const u8 {
-            return switch (abi) {
-                .msvc => ".obj",
-                else => ".o",
-            };
-        }
     };
 
     pub const ObjectFormat = enum {
-        /// TODO Get rid of this one.
-        unknown,
         coff,
+        pe,
         elf,
         macho,
         wasm,
+        c,
+        hex,
+        raw,
     };
 
     pub const SubSystem = enum {
@@ -602,6 +686,9 @@ pub const Target = struct {
             renderscript32,
             renderscript64,
             ve,
+            // Stage1 currently assumes that architectures above this comment
+            // map one-to-one with the ZigLLVM_ArchType enum.
+            spu_2,
 
             pub fn isARM(arch: Arch) bool {
                 return switch (arch) {
@@ -700,6 +787,64 @@ pub const Target = struct {
                     .sparcv9 => ._SPARCV9,
                     .s390x => ._S390,
                     .ve => ._NONE,
+                    .spu_2 => ._SPU_2,
+                };
+            }
+
+            pub fn toCoffMachine(arch: Arch) std.coff.MachineType {
+                return switch (arch) {
+                    .avr => .Unknown,
+                    .msp430 => .Unknown,
+                    .arc => .Unknown,
+                    .arm => .ARM,
+                    .armeb => .Unknown,
+                    .hexagon => .Unknown,
+                    .le32 => .Unknown,
+                    .mips => .Unknown,
+                    .mipsel => .Unknown,
+                    .powerpc => .POWERPC,
+                    .r600 => .Unknown,
+                    .riscv32 => .RISCV32,
+                    .sparc => .Unknown,
+                    .sparcel => .Unknown,
+                    .tce => .Unknown,
+                    .tcele => .Unknown,
+                    .thumb => .Thumb,
+                    .thumbeb => .Thumb,
+                    .i386 => .I386,
+                    .xcore => .Unknown,
+                    .nvptx => .Unknown,
+                    .amdil => .Unknown,
+                    .hsail => .Unknown,
+                    .spir => .Unknown,
+                    .kalimba => .Unknown,
+                    .shave => .Unknown,
+                    .lanai => .Unknown,
+                    .wasm32 => .Unknown,
+                    .renderscript32 => .Unknown,
+                    .aarch64_32 => .ARM64,
+                    .aarch64 => .ARM64,
+                    .aarch64_be => .Unknown,
+                    .mips64 => .Unknown,
+                    .mips64el => .Unknown,
+                    .powerpc64 => .Unknown,
+                    .powerpc64le => .Unknown,
+                    .riscv64 => .RISCV64,
+                    .x86_64 => .X64,
+                    .nvptx64 => .Unknown,
+                    .le64 => .Unknown,
+                    .amdil64 => .Unknown,
+                    .hsail64 => .Unknown,
+                    .spir64 => .Unknown,
+                    .wasm64 => .Unknown,
+                    .renderscript64 => .Unknown,
+                    .amdgcn => .Unknown,
+                    .bpfel => .Unknown,
+                    .bpfeb => .Unknown,
+                    .sparcv9 => .Unknown,
+                    .s390x => .Unknown,
+                    .ve => .Unknown,
+                    .spu_2 => .Unknown,
                 };
             }
 
@@ -742,6 +887,7 @@ pub const Target = struct {
                     .renderscript64,
                     .shave,
                     .ve,
+                    .spu_2,
                     => .Little,
 
                     .arc,
@@ -766,6 +912,7 @@ pub const Target = struct {
                 switch (arch) {
                     .avr,
                     .msp430,
+                    .spu_2,
                     => return 16,
 
                     .arc,
@@ -871,24 +1018,33 @@ pub const Target = struct {
             /// All processors Zig is aware of, sorted lexicographically by name.
             pub fn allCpuModels(arch: Arch) []const *const Cpu.Model {
                 return switch (arch) {
-                    .arm, .armeb, .thumb, .thumbeb => arm.all_cpus,
-                    .aarch64, .aarch64_be, .aarch64_32 => aarch64.all_cpus,
-                    .avr => avr.all_cpus,
-                    .bpfel, .bpfeb => bpf.all_cpus,
-                    .hexagon => hexagon.all_cpus,
-                    .mips, .mipsel, .mips64, .mips64el => mips.all_cpus,
-                    .msp430 => msp430.all_cpus,
-                    .powerpc, .powerpc64, .powerpc64le => powerpc.all_cpus,
-                    .amdgcn => amdgpu.all_cpus,
-                    .riscv32, .riscv64 => riscv.all_cpus,
-                    .sparc, .sparcv9, .sparcel => sparc.all_cpus,
-                    .s390x => systemz.all_cpus,
-                    .i386, .x86_64 => x86.all_cpus,
-                    .nvptx, .nvptx64 => nvptx.all_cpus,
-                    .wasm32, .wasm64 => wasm.all_cpus,
+                    .arm, .armeb, .thumb, .thumbeb => comptime allCpusFromDecls(arm.cpu),
+                    .aarch64, .aarch64_be, .aarch64_32 => comptime allCpusFromDecls(aarch64.cpu),
+                    .avr => comptime allCpusFromDecls(avr.cpu),
+                    .bpfel, .bpfeb => comptime allCpusFromDecls(bpf.cpu),
+                    .hexagon => comptime allCpusFromDecls(hexagon.cpu),
+                    .mips, .mipsel, .mips64, .mips64el => comptime allCpusFromDecls(mips.cpu),
+                    .msp430 => comptime allCpusFromDecls(msp430.cpu),
+                    .powerpc, .powerpc64, .powerpc64le => comptime allCpusFromDecls(powerpc.cpu),
+                    .amdgcn => comptime allCpusFromDecls(amdgpu.cpu),
+                    .riscv32, .riscv64 => comptime allCpusFromDecls(riscv.cpu),
+                    .sparc, .sparcv9, .sparcel => comptime allCpusFromDecls(sparc.cpu),
+                    .s390x => comptime allCpusFromDecls(systemz.cpu),
+                    .i386, .x86_64 => comptime allCpusFromDecls(x86.cpu),
+                    .nvptx, .nvptx64 => comptime allCpusFromDecls(nvptx.cpu),
+                    .wasm32, .wasm64 => comptime allCpusFromDecls(wasm.cpu),
 
                     else => &[0]*const Model{},
                 };
+            }
+
+            fn allCpusFromDecls(comptime cpus: type) []const *const Cpu.Model {
+                const decls = std.meta.declarations(cpus);
+                var array: [decls.len]*const Cpu.Model = undefined;
+                for (decls) |decl, i| {
+                    array[i] = &@field(cpus, decl.name);
+                }
+                return &array;
             }
         };
 
@@ -979,8 +1135,18 @@ pub const Target = struct {
         return linuxTripleSimple(allocator, self.cpu.arch, self.os.tag, self.abi);
     }
 
+    pub fn oFileExt_cpu_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) [:0]const u8 {
+        if (cpu_arch.isWasm()) {
+            return ".o.wasm";
+        }
+        switch (abi) {
+            .msvc => return ".obj",
+            else => return ".o",
+        }
+    }
+
     pub fn oFileExt(self: Target) [:0]const u8 {
-        return self.abi.oFileExt();
+        return oFileExt_cpu_arch_abi(self.cpu.arch, self.abi);
     }
 
     pub fn exeFileExtSimple(cpu_arch: Cpu.Arch, os_tag: Os.Tag) [:0]const u8 {
@@ -1157,7 +1323,7 @@ pub const Target = struct {
     pub fn standardDynamicLinkerPath(self: Target) DynamicLinker {
         var result: DynamicLinker = .{};
         const S = struct {
-            fn print(r: *DynamicLinker, comptime fmt: []const u8, args: var) DynamicLinker {
+            fn print(r: *DynamicLinker, comptime fmt: []const u8, args: anytype) DynamicLinker {
                 r.max_byte = @intCast(u8, (std.fmt.bufPrint(&r.buffer, fmt, args) catch unreachable).len - 1);
                 return r.*;
             }
@@ -1247,12 +1413,13 @@ pub const Target = struct {
                 .bpfeb,
                 .nvptx,
                 .nvptx64,
+                .spu_2,
+                .avr,
                 => return result,
 
                 // TODO go over each item in this list and either move it to the above list, or
                 // implement the standard dynamic linker path code for it.
                 .arc,
-                .avr,
                 .hexagon,
                 .msp430,
                 .r600,
@@ -1318,6 +1485,27 @@ pub const Target = struct {
             .hurd,
             => return result,
         }
+    }
+
+    /// Return whether or not the given host target is capable of executing natively executables
+    /// of the other target.
+    pub fn canExecBinariesOf(host_target: Target, binary_target: Target) bool {
+        if (host_target.os.tag != binary_target.os.tag)
+            return false;
+
+        if (host_target.cpu.arch == binary_target.cpu.arch)
+            return true;
+
+        if (host_target.cpu.arch == .x86_64 and binary_target.cpu.arch == .i386)
+            return true;
+
+        if (host_target.cpu.arch == .aarch64 and binary_target.cpu.arch == .arm)
+            return true;
+
+        if (host_target.cpu.arch == .aarch64_be and binary_target.cpu.arch == .armeb)
+            return true;
+
+        return false;
     }
 };
 

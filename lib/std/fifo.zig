@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // FIFO of fixed size items
 // Usually used for e.g. byte buffers
 
@@ -181,7 +186,9 @@ pub fn LinearFifo(
             } else {
                 var head = self.head + count;
                 if (powers_of_two) {
-                    head &= self.buf.len - 1;
+                    // Note it is safe to do a wrapping subtract as
+                    // bitwise & with all 1s is a noop
+                    head &= self.buf.len -% 1;
                 } else {
                     head %= self.buf.len;
                 }
@@ -224,6 +231,7 @@ pub fn LinearFifo(
         pub fn reader(self: *Self) std.io.Reader(*Self, error{}, readFn) {
             return .{ .context = self };
         }
+
         /// Deprecated: `use reader`
         pub fn inStream(self: *Self) std.io.InStream(*Self, error{}, readFn) {
             return .{ .context = self };
@@ -315,6 +323,11 @@ pub fn LinearFifo(
             return bytes.len;
         }
 
+        pub fn writer(self: *Self) std.io.Writer(*Self, error{OutOfMemory}, appendWrite) {
+            return .{ .context = self };
+        }
+
+        /// Deprecated: `use writer`
         pub fn outStream(self: *Self) std.io.OutStream(*Self, error{OutOfMemory}, appendWrite) {
             return .{ .context = self };
         }
@@ -363,6 +376,14 @@ pub fn LinearFifo(
             return self.buf[index];
         }
     };
+}
+
+test "LinearFifo(u8, .Dynamic) discard(0) from empty buffer should not error on overflow" {
+    var fifo = LinearFifo(u8, .Dynamic).init(testing.allocator);
+    defer fifo.deinit();
+
+    // If overflow is not explicitly allowed this will crash in debug / safe mode
+    fifo.discard(0);
 }
 
 test "LinearFifo(u8, .Dynamic)" {
@@ -426,14 +447,14 @@ test "LinearFifo(u8, .Dynamic)" {
     fifo.shrink(0);
 
     {
-        try fifo.outStream().print("{}, {}!", .{ "Hello", "World" });
+        try fifo.writer().print("{}, {}!", .{ "Hello", "World" });
         var result: [30]u8 = undefined;
         testing.expectEqualSlices(u8, "Hello, World!", result[0..fifo.read(&result)]);
         testing.expectEqual(@as(usize, 0), fifo.readableLength());
     }
 
     {
-        try fifo.outStream().writeAll("This is a test");
+        try fifo.writer().writeAll("This is a test");
         var result: [30]u8 = undefined;
         testing.expectEqualSlices(u8, "This", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);
         testing.expectEqualSlices(u8, "is", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);

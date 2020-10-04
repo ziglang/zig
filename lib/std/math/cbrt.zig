@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -14,7 +19,7 @@ const expect = std.testing.expect;
 ///  - cbrt(+-0)   = +-0
 ///  - cbrt(+-inf) = +-inf
 ///  - cbrt(nan)   = nan
-pub fn cbrt(x: var) @TypeOf(x) {
+pub fn cbrt(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => cbrt32(x),

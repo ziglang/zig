@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -9,7 +14,7 @@ pub fn binarySearch(
     comptime T: type,
     key: T,
     items: []const T,
-    context: var,
+    context: anytype,
     comptime compareFn: fn (context: @TypeOf(context), lhs: T, rhs: T) math.Order,
 ) ?usize {
     var left: usize = 0;
@@ -76,7 +81,7 @@ test "binarySearch" {
 pub fn insertionSort(
     comptime T: type,
     items: []T,
-    context: var,
+    context: anytype,
     comptime lessThan: fn (context: @TypeOf(context), lhs: T, rhs: T) bool,
 ) void {
     var i: usize = 1;
@@ -182,7 +187,7 @@ const Pull = struct {
 pub fn sort(
     comptime T: type,
     items: []T,
-    context: var,
+    context: anytype,
     comptime lessThan: fn (context: @TypeOf(context), lhs: T, rhs: T) bool,
 ) void {
     // Implementation ported from https://github.com/BonzaiThePenguin/WikiSort/blob/master/WikiSort.c
@@ -813,7 +818,7 @@ fn mergeInPlace(
     items: []T,
     A_arg: Range,
     B_arg: Range,
-    context: var,
+    context: anytype,
     comptime lessThan: fn (@TypeOf(context), T, T) bool,
 ) void {
     if (A_arg.length() == 0 or B_arg.length() == 0) return;
@@ -862,7 +867,7 @@ fn mergeInternal(
     items: []T,
     A: Range,
     B: Range,
-    context: var,
+    context: anytype,
     comptime lessThan: fn (@TypeOf(context), T, T) bool,
     buffer: Range,
 ) void {
@@ -906,7 +911,7 @@ fn findFirstForward(
     items: []T,
     value: T,
     range: Range,
-    context: var,
+    context: anytype,
     comptime lessThan: fn (@TypeOf(context), T, T) bool,
     unique: usize,
 ) usize {
@@ -928,7 +933,7 @@ fn findFirstBackward(
     items: []T,
     value: T,
     range: Range,
-    context: var,
+    context: anytype,
     comptime lessThan: fn (@TypeOf(context), T, T) bool,
     unique: usize,
 ) usize {
@@ -950,7 +955,7 @@ fn findLastForward(
     items: []T,
     value: T,
     range: Range,
-    context: var,
+    context: anytype,
     comptime lessThan: fn (@TypeOf(context), T, T) bool,
     unique: usize,
 ) usize {
@@ -972,7 +977,7 @@ fn findLastBackward(
     items: []T,
     value: T,
     range: Range,
-    context: var,
+    context: anytype,
     comptime lessThan: fn (@TypeOf(context), T, T) bool,
     unique: usize,
 ) usize {
@@ -994,7 +999,7 @@ fn binaryFirst(
     items: []T,
     value: T,
     range: Range,
-    context: var,
+    context: anytype,
     comptime lessThan: fn (@TypeOf(context), T, T) bool,
 ) usize {
     var curr = range.start;
@@ -1017,7 +1022,7 @@ fn binaryLast(
     items: []T,
     value: T,
     range: Range,
-    context: var,
+    context: anytype,
     comptime lessThan: fn (@TypeOf(context), T, T) bool,
 ) usize {
     var curr = range.start;
@@ -1040,7 +1045,7 @@ fn mergeInto(
     from: []T,
     A: Range,
     B: Range,
-    context: var,
+    context: anytype,
     comptime lessThan: fn (@TypeOf(context), T, T) bool,
     into: []T,
 ) void {
@@ -1078,7 +1083,7 @@ fn mergeExternal(
     items: []T,
     A: Range,
     B: Range,
-    context: var,
+    context: anytype,
     comptime lessThan: fn (@TypeOf(context), T, T) bool,
     cache: []T,
 ) void {
@@ -1112,7 +1117,7 @@ fn mergeExternal(
 fn swap(
     comptime T: type,
     items: []T,
-    context: var,
+    context: anytype,
     comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
     order: *[8]u8,
     x: usize,
@@ -1358,7 +1363,7 @@ fn fuzzTest(rng: *std.rand.Random) !void {
 pub fn argMin(
     comptime T: type,
     items: []const T,
-    context: var,
+    context: anytype,
     comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
 ) ?usize {
     if (items.len == 0) {
@@ -1390,7 +1395,7 @@ test "argMin" {
 pub fn min(
     comptime T: type,
     items: []const T,
-    context: var,
+    context: anytype,
     comptime lessThan: fn (context: @TypeOf(context), lhs: T, rhs: T) bool,
 ) ?T {
     const i = argMin(T, items, context, lessThan) orelse return null;
@@ -1410,7 +1415,7 @@ test "min" {
 pub fn argMax(
     comptime T: type,
     items: []const T,
-    context: var,
+    context: anytype,
     comptime lessThan: fn (context: @TypeOf(context), lhs: T, rhs: T) bool,
 ) ?usize {
     if (items.len == 0) {
@@ -1442,7 +1447,7 @@ test "argMax" {
 pub fn max(
     comptime T: type,
     items: []const T,
-    context: var,
+    context: anytype,
     comptime lessThan: fn (context: @TypeOf(context), lhs: T, rhs: T) bool,
 ) ?T {
     const i = argMax(T, items, context, lessThan) orelse return null;
@@ -1462,7 +1467,7 @@ test "max" {
 pub fn isSorted(
     comptime T: type,
     items: []const T,
-    context: var,
+    context: anytype,
     comptime lessThan: fn (context: @TypeOf(context), lhs: T, rhs: T) bool,
 ) bool {
     var i: usize = 1;

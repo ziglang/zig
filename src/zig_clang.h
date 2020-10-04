@@ -14,7 +14,7 @@
 
 // ATTENTION: If you modify this file, be sure to update the corresponding
 // extern function declarations in the self-hosted compiler file
-// src-self-hosted/clang.zig.
+// src/clang.zig.
 
 struct ZigClangSourceLocation {
     unsigned ID;
@@ -845,6 +845,14 @@ enum ZigClangExpr_ConstExprUsage {
     ZigClangExpr_EvaluateForMangling,
 };
 
+enum ZigClangUnaryExprOrTypeTrait_Kind {
+    ZigClangUnaryExprOrTypeTrait_KindSizeOf,
+    ZigClangUnaryExprOrTypeTrait_KindAlignOf,
+    ZigClangUnaryExprOrTypeTrait_KindVecStep,
+    ZigClangUnaryExprOrTypeTrait_KindOpenMPRequiredSimdAlign,
+    ZigClangUnaryExprOrTypeTrait_KindPreferredAlignOf,
+};
+
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangSourceManager_getSpellingLoc(const struct ZigClangSourceManager *,
         struct ZigClangSourceLocation Loc);
 ZIG_EXTERN_C const char *ZigClangSourceManager_getFilename(const struct ZigClangSourceManager *,
@@ -1078,6 +1086,7 @@ ZIG_EXTERN_C struct ZigClangQualType ZigClangCStyleCastExpr_getType(const struct
 
 ZIG_EXTERN_C bool ZigClangIntegerLiteral_EvaluateAsInt(const struct ZigClangIntegerLiteral *, struct ZigClangExprEvalResult *, const struct ZigClangASTContext *);
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangIntegerLiteral_getBeginLoc(const struct ZigClangIntegerLiteral *);
+ZIG_EXTERN_C bool ZigClangIntegerLiteral_isZero(const struct ZigClangIntegerLiteral *, bool *, const struct ZigClangASTContext *);
 
 ZIG_EXTERN_C const struct ZigClangExpr *ZigClangReturnStmt_getRetValue(const struct ZigClangReturnStmt *);
 
@@ -1134,6 +1143,7 @@ ZIG_EXTERN_C const struct ZigClangExpr *ZigClangArraySubscriptExpr_getIdx(const 
 
 ZIG_EXTERN_C struct ZigClangQualType ZigClangUnaryExprOrTypeTraitExpr_getTypeOfArgument(const struct ZigClangUnaryExprOrTypeTraitExpr *);
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangUnaryExprOrTypeTraitExpr_getBeginLoc(const struct ZigClangUnaryExprOrTypeTraitExpr *);
+ZIG_EXTERN_C enum ZigClangUnaryExprOrTypeTrait_Kind ZigClangUnaryExprOrTypeTraitExpr_getKind(const struct ZigClangUnaryExprOrTypeTraitExpr *);
 
 ZIG_EXTERN_C const struct ZigClangStmt *ZigClangDoStmt_getBody(const struct ZigClangDoStmt *);
 ZIG_EXTERN_C const struct ZigClangExpr *ZigClangDoStmt_getCond(const struct ZigClangDoStmt *);

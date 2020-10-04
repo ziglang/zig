@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const event = std.event;
@@ -360,7 +365,7 @@ pub fn Watch(comptime V: type) type {
 
         fn addFileWindows(self: *Self, file_path: []const u8, value: V) !?V {
             // TODO we might need to convert dirname and basename to canonical file paths ("short"?)
-            const dirname = try std.mem.dupe(self.allocator, u8, std.fs.path.dirname(file_path) orelse ".");
+            const dirname = try self.allocator.dupe(u8, std.fs.path.dirname(file_path) orelse ".");
             var dirname_consumed = false;
             defer if (!dirname_consumed) self.allocator.free(dirname);
 
@@ -374,15 +379,13 @@ pub fn Watch(comptime V: type) type {
             defer if (!basename_utf16le_null_consumed) self.allocator.free(basename_utf16le_null);
             const basename_utf16le_no_null = basename_utf16le_null[0 .. basename_utf16le_null.len - 1];
 
-            const dir_handle = try windows.CreateFileW(
-                dirname_utf16le.ptr,
-                windows.FILE_LIST_DIRECTORY,
-                windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE | windows.FILE_SHARE_WRITE,
-                null,
-                windows.OPEN_EXISTING,
-                windows.FILE_FLAG_BACKUP_SEMANTICS | windows.FILE_FLAG_OVERLAPPED,
-                null,
-            );
+            const dir_handle = try windows.OpenFile(dirname_utf16le, .{
+                .dir = std.fs.cwd().fd,
+                .access_mask = windows.FILE_LIST_DIRECTORY,
+                .creation = windows.FILE_OPEN,
+                .io_mode = .blocking,
+                .open_dir = true,
+            });
             var dir_handle_consumed = false;
             defer if (!dir_handle_consumed) windows.CloseHandle(dir_handle);
 

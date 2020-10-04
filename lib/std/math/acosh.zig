@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -14,7 +19,7 @@ const expect = std.testing.expect;
 /// Special cases:
 ///  - acosh(x)   = snan if x < 1
 ///  - acosh(nan) = nan
-pub fn acosh(x: var) @TypeOf(x) {
+pub fn acosh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => acosh32(x),

@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const builtin = @import("builtin");
 const std = @import("../std.zig");
 const maxInt = std.math.maxInt;
@@ -90,6 +95,10 @@ pub extern "c" fn sendfile(
     offset: ?*off_t,
     count: usize,
 ) isize;
+
+pub extern "c" fn copy_file_range(fd_in: fd_t, off_in: ?*i64, fd_out: fd_t, off_out: ?*i64, len: usize, flags: c_uint) isize;
+
+pub extern "c" fn signalfd(fd: fd_t, mask: *const sigset_t, flags: c_uint) c_int;
 
 pub const pthread_attr_t = extern struct {
     __size: [56]u8,

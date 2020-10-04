@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const mem = std.mem;
 
@@ -15,6 +20,7 @@ pub const Token = struct {
         .{ "allowzero", .Keyword_allowzero },
         .{ "and", .Keyword_and },
         .{ "anyframe", .Keyword_anyframe },
+        .{ "anytype", .Keyword_anytype },
         .{ "asm", .Keyword_asm },
         .{ "async", .Keyword_async },
         .{ "await", .Keyword_await },
@@ -140,6 +146,8 @@ pub const Token = struct {
         Keyword_align,
         Keyword_allowzero,
         Keyword_and,
+        Keyword_anyframe,
+        Keyword_anytype,
         Keyword_asm,
         Keyword_async,
         Keyword_await,
@@ -168,7 +176,6 @@ pub const Token = struct {
         Keyword_or,
         Keyword_orelse,
         Keyword_packed,
-        Keyword_anyframe,
         Keyword_pub,
         Keyword_resume,
         Keyword_return,
@@ -263,6 +270,7 @@ pub const Token = struct {
                 .Keyword_allowzero => "allowzero",
                 .Keyword_and => "and",
                 .Keyword_anyframe => "anyframe",
+                .Keyword_anytype => "anytype",
                 .Keyword_asm => "asm",
                 .Keyword_async => "async",
                 .Keyword_await => "await",
@@ -1167,6 +1175,7 @@ pub const Tokenizer = struct {
                 },
                 .num_dot_dec => switch (c) {
                     '.' => {
+                        result.id = .IntegerLiteral;
                         self.index -= 1;
                         state = .start;
                         break;
@@ -1175,7 +1184,6 @@ pub const Tokenizer = struct {
                         state = .float_exponent_unsigned;
                     },
                     '0'...'9' => {
-                        result.id = .FloatLiteral;
                         state = .float_fraction_dec;
                     },
                     else => {
@@ -1187,6 +1195,7 @@ pub const Tokenizer = struct {
                 },
                 .num_dot_hex => switch (c) {
                     '.' => {
+                        result.id = .IntegerLiteral;
                         self.index -= 1;
                         state = .start;
                         break;
@@ -1750,6 +1759,14 @@ test "correctly parse pointer assignment" {
     });
 }
 
+test "tokenizer - range literals" {
+    testTokenize("0...9", &[_]Token.Id{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
+    testTokenize("'0'...'9'", &[_]Token.Id{ .CharLiteral, .Ellipsis3, .CharLiteral });
+    testTokenize("0x00...0x09", &[_]Token.Id{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
+    testTokenize("0b00...0b11", &[_]Token.Id{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
+    testTokenize("0o00...0o11", &[_]Token.Id{ .IntegerLiteral, .Ellipsis3, .IntegerLiteral });
+}
+
 test "tokenizer - number literals decimal" {
     testTokenize("0", &[_]Token.Id{.IntegerLiteral});
     testTokenize("1", &[_]Token.Id{.IntegerLiteral});
@@ -1761,6 +1778,7 @@ test "tokenizer - number literals decimal" {
     testTokenize("7", &[_]Token.Id{.IntegerLiteral});
     testTokenize("8", &[_]Token.Id{.IntegerLiteral});
     testTokenize("9", &[_]Token.Id{.IntegerLiteral});
+    testTokenize("1..", &[_]Token.Id{ .IntegerLiteral, .Ellipsis2 });
     testTokenize("0a", &[_]Token.Id{ .Invalid, .Identifier });
     testTokenize("9b", &[_]Token.Id{ .Invalid, .Identifier });
     testTokenize("1z", &[_]Token.Id{ .Invalid, .Identifier });

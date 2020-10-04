@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const is_test = @import("builtin").is_test;
 const std = @import("std");
 const math = std.math;
@@ -23,7 +28,7 @@ pub fn fixint(comptime fp_t: type, comptime fixint_t: type, a: fp_t) fixint_t {
         else => unreachable,
     };
 
-    const typeWidth = rep_t.bit_count;
+    const typeWidth = @typeInfo(rep_t).Int.bits;
     const exponentBits = (typeWidth - significandBits - 1);
     const signBit = (@as(rep_t, 1) << (significandBits + exponentBits));
     const maxExponent = ((1 << exponentBits) - 1);
@@ -45,12 +50,13 @@ pub fn fixint(comptime fp_t: type, comptime fixint_t: type, a: fp_t) fixint_t {
     if (exponent < 0) return 0;
 
     // The unsigned result needs to be large enough to handle an fixint_t or rep_t
-    const fixuint_t = std.meta.Int(false, fixint_t.bit_count);
-    const UintResultType = if (fixint_t.bit_count > rep_t.bit_count) fixuint_t else rep_t;
+    const fixint_bits = @typeInfo(fixint_t).Int.bits;
+    const fixuint_t = std.meta.Int(false, fixint_bits);
+    const UintResultType = if (fixint_bits > typeWidth) fixuint_t else rep_t;
     var uint_result: UintResultType = undefined;
 
     // If the value is too large for the integer type, saturate.
-    if (@intCast(usize, exponent) >= fixint_t.bit_count) {
+    if (@intCast(usize, exponent) >= fixint_bits) {
         return if (negative) @as(fixint_t, minInt(fixint_t)) else @as(fixint_t, maxInt(fixint_t));
     }
 

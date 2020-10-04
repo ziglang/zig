@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const CpuFeature = std.Target.Cpu.Feature;
 const CpuModel = std.Target.Cpu.Model;
@@ -1275,49 +1280,4 @@ pub const cpu = struct {
             .southern_islands,
         }),
     };
-};
-
-/// All amdgpu CPUs, sorted alphabetically by name.
-/// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
-/// compiler has inefficient memory and CPU usage, affecting build times.
-pub const all_cpus = &[_]*const CpuModel{
-    &cpu.bonaire,
-    &cpu.carrizo,
-    &cpu.fiji,
-    &cpu.generic,
-    &cpu.generic_hsa,
-    &cpu.gfx1010,
-    &cpu.gfx1011,
-    &cpu.gfx1012,
-    &cpu.gfx600,
-    &cpu.gfx601,
-    &cpu.gfx700,
-    &cpu.gfx701,
-    &cpu.gfx702,
-    &cpu.gfx703,
-    &cpu.gfx704,
-    &cpu.gfx801,
-    &cpu.gfx802,
-    &cpu.gfx803,
-    &cpu.gfx810,
-    &cpu.gfx900,
-    &cpu.gfx902,
-    &cpu.gfx904,
-    &cpu.gfx906,
-    &cpu.gfx908,
-    &cpu.gfx909,
-    &cpu.hainan,
-    &cpu.hawaii,
-    &cpu.iceland,
-    &cpu.kabini,
-    &cpu.kaveri,
-    &cpu.mullins,
-    &cpu.oland,
-    &cpu.pitcairn,
-    &cpu.polaris10,
-    &cpu.polaris11,
-    &cpu.stoney,
-    &cpu.tahiti,
-    &cpu.tonga,
-    &cpu.verde,
 };

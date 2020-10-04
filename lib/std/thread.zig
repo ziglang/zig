@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std.zig");
 const builtin = std.builtin;
 const os = std.os;
@@ -143,7 +148,7 @@ pub const Thread = struct {
     /// fn startFn(@TypeOf(context)) T
     /// where T is u8, noreturn, void, or !void
     /// caller must call wait on the returned thread
-    pub fn spawn(context: var, comptime startFn: var) SpawnError!*Thread {
+    pub fn spawn(context: anytype, comptime startFn: anytype) SpawnError!*Thread {
         if (builtin.single_threaded) @compileError("cannot spawn thread when building in single-threaded mode");
         // TODO compile-time call graph analysis to determine stack upper bound
         // https://github.com/ziglang/zig/issues/157
@@ -161,7 +166,7 @@ pub const Thread = struct {
                 fn threadMain(raw_arg: windows.LPVOID) callconv(.C) windows.DWORD {
                     const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), raw_arg)).*;
 
-                    switch (@typeInfo(@TypeOf(startFn).ReturnType)) {
+                    switch (@typeInfo(@typeInfo(@TypeOf(startFn)).Fn.return_type.?)) {
                         .NoReturn => {
                             startFn(arg);
                         },
@@ -222,7 +227,7 @@ pub const Thread = struct {
             fn linuxThreadMain(ctx_addr: usize) callconv(.C) u8 {
                 const arg = if (@sizeOf(Context) == 0) {} else @intToPtr(*const Context, ctx_addr).*;
 
-                switch (@typeInfo(@TypeOf(startFn).ReturnType)) {
+                switch (@typeInfo(@typeInfo(@TypeOf(startFn)).Fn.return_type.?)) {
                     .NoReturn => {
                         startFn(arg);
                     },
@@ -254,7 +259,7 @@ pub const Thread = struct {
             fn posixThreadMain(ctx: ?*c_void) callconv(.C) ?*c_void {
                 const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), ctx)).*;
 
-                switch (@typeInfo(@TypeOf(startFn).ReturnType)) {
+                switch (@typeInfo(@typeInfo(@TypeOf(startFn)).Fn.return_type.?)) {
                     .NoReturn => {
                         startFn(arg);
                     },

@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const builtin = @import("builtin");
 const std = @import("std.zig");
 const io = std.io;
@@ -13,10 +18,76 @@ const IMAGE_FILE_MACHINE_I386 = 0x014c;
 const IMAGE_FILE_MACHINE_IA64 = 0x0200;
 const IMAGE_FILE_MACHINE_AMD64 = 0x8664;
 
+pub const MachineType = enum(u16) {
+    Unknown = 0x0,
+    /// Matsushita AM33
+    AM33 = 0x1d3,
+    /// x64
+    X64 = 0x8664,
+    /// ARM little endian
+    ARM = 0x1c0,
+    /// ARM64 little endian
+    ARM64 = 0xaa64,
+    /// ARM Thumb-2 little endian
+    ARMNT = 0x1c4,
+    /// EFI byte code
+    EBC = 0xebc,
+    /// Intel 386 or later processors and compatible processors
+    I386 = 0x14c,
+    /// Intel Itanium processor family
+    IA64 = 0x200,
+    /// Mitsubishi M32R little endian
+    M32R = 0x9041,
+    /// MIPS16
+    MIPS16 = 0x266,
+    /// MIPS with FPU
+    MIPSFPU = 0x366,
+    /// MIPS16 with FPU
+    MIPSFPU16 = 0x466,
+    /// Power PC little endian
+    POWERPC = 0x1f0,
+    /// Power PC with floating point support
+    POWERPCFP = 0x1f1,
+    /// MIPS little endian
+    R4000 = 0x166,
+    /// RISC-V 32-bit address space
+    RISCV32 = 0x5032,
+    /// RISC-V 64-bit address space
+    RISCV64 = 0x5064,
+    /// RISC-V 128-bit address space
+    RISCV128 = 0x5128,
+    /// Hitachi SH3
+    SH3 = 0x1a2,
+    /// Hitachi SH3 DSP
+    SH3DSP = 0x1a3,
+    /// Hitachi SH4
+    SH4 = 0x1a6,
+    /// Hitachi SH5
+    SH5 = 0x1a8,
+    /// Thumb
+    Thumb = 0x1c2,
+    /// MIPS little-endian WCE v2
+    WCEMIPSV2 = 0x169,
+};
+
 // OptionalHeader.magic values
 // see https://msdn.microsoft.com/en-us/library/windows/desktop/ms680339(v=vs.85).aspx
 const IMAGE_NT_OPTIONAL_HDR32_MAGIC = 0x10b;
 const IMAGE_NT_OPTIONAL_HDR64_MAGIC = 0x20b;
+
+// Image Characteristics
+pub const IMAGE_FILE_RELOCS_STRIPPED = 0x1;
+pub const IMAGE_FILE_DEBUG_STRIPPED = 0x200;
+pub const IMAGE_FILE_EXECUTABLE_IMAGE = 0x2;
+pub const IMAGE_FILE_32BIT_MACHINE = 0x100;
+pub const IMAGE_FILE_LARGE_ADDRESS_AWARE = 0x20;
+
+// Section flags
+pub const IMAGE_SCN_CNT_INITIALIZED_DATA = 0x40;
+pub const IMAGE_SCN_MEM_READ = 0x40000000;
+pub const IMAGE_SCN_CNT_CODE = 0x20;
+pub const IMAGE_SCN_MEM_EXECUTE = 0x20000000;
+pub const IMAGE_SCN_MEM_WRITE = 0x80000000;
 
 const IMAGE_NUMBEROF_DIRECTORY_ENTRIES = 16;
 const IMAGE_DEBUG_TYPE_CODEVIEW = 2;

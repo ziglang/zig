@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const is_test = @import("builtin").is_test;
 const Log2Int = @import("std").math.Log2Int;
 
@@ -10,14 +15,14 @@ pub fn fixuint(comptime fp_t: type, comptime fixuint_t: type, a: fp_t) fixuint_t
         f128 => u128,
         else => unreachable,
     };
-    const srep_t = @import("std").meta.Int(true, rep_t.bit_count);
+    const typeWidth = @typeInfo(rep_t).Int.bits;
+    const srep_t = @import("std").meta.Int(true, typeWidth);
     const significandBits = switch (fp_t) {
         f32 => 23,
         f64 => 52,
         f128 => 112,
         else => unreachable,
     };
-    const typeWidth = rep_t.bit_count;
     const exponentBits = (typeWidth - significandBits - 1);
     const signBit = (@as(rep_t, 1) << (significandBits + exponentBits));
     const maxExponent = ((1 << exponentBits) - 1);
@@ -39,7 +44,7 @@ pub fn fixuint(comptime fp_t: type, comptime fixuint_t: type, a: fp_t) fixuint_t
     if (sign == -1 or exponent < 0) return 0;
 
     // If the value is too large for the integer type, saturate.
-    if (@intCast(c_uint, exponent) >= fixuint_t.bit_count) return ~@as(fixuint_t, 0);
+    if (@intCast(c_uint, exponent) >= @typeInfo(fixuint_t).Int.bits) return ~@as(fixuint_t, 0);
 
     // If 0 <= exponent < significandBits, right shift to get the result.
     // Otherwise, shift left.

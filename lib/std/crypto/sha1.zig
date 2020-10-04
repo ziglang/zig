@@ -1,8 +1,12 @@
-const mem = @import("../mem.zig");
-const math = @import("../math.zig");
-const endian = @import("../endian.zig");
-const debug = @import("../debug.zig");
-const builtin = @import("builtin");
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
+const std = @import("../std.zig");
+const mem = std.mem;
+const math = std.math;
+const debug = std.debug;
 
 const RoundParam = struct {
     a: usize,
@@ -24,35 +28,35 @@ fn Rp(a: usize, b: usize, c: usize, d: usize, e: usize, i: u32) RoundParam {
     };
 }
 
+/// The SHA-1 function is now considered cryptographically broken.
+/// Namely, it is feasible to find multiple inputs producing the same hash.
+/// For a fast-performing, cryptographically secure hash function, see SHA512/256, BLAKE2 or BLAKE3.
 pub const Sha1 = struct {
     const Self = @This();
     pub const block_length = 64;
     pub const digest_length = 20;
+    pub const Options = struct {};
 
     s: [5]u32,
     // Streaming Cache
-    buf: [64]u8,
-    buf_len: u8,
-    total_len: u64,
+    buf: [64]u8 = undefined,
+    buf_len: u8 = 0,
+    total_len: u64 = 0,
 
-    pub fn init() Self {
-        var d: Self = undefined;
-        d.reset();
-        return d;
+    pub fn init(options: Options) Self {
+        return Self{
+            .s = [_]u32{
+                0x67452301,
+                0xEFCDAB89,
+                0x98BADCFE,
+                0x10325476,
+                0xC3D2E1F0,
+            },
+        };
     }
 
-    pub fn reset(d: *Self) void {
-        d.s[0] = 0x67452301;
-        d.s[1] = 0xEFCDAB89;
-        d.s[2] = 0x98BADCFE;
-        d.s[3] = 0x10325476;
-        d.s[4] = 0xC3D2E1F0;
-        d.buf_len = 0;
-        d.total_len = 0;
-    }
-
-    pub fn hash(b: []const u8, out: []u8) void {
-        var d = Sha1.init();
+    pub fn hash(b: []const u8, out: []u8, options: Options) void {
+        var d = Sha1.init(options);
         d.update(b);
         d.final(out);
     }
@@ -272,18 +276,18 @@ test "sha1 single" {
 }
 
 test "sha1 streaming" {
-    var h = Sha1.init();
+    var h = Sha1.init(.{});
     var out: [20]u8 = undefined;
 
     h.final(out[0..]);
     htest.assertEqual("da39a3ee5e6b4b0d3255bfef95601890afd80709", out[0..]);
 
-    h.reset();
+    h = Sha1.init(.{});
     h.update("abc");
     h.final(out[0..]);
     htest.assertEqual("a9993e364706816aba3e25717850c26c9cd0d89d", out[0..]);
 
-    h.reset();
+    h = Sha1.init(.{});
     h.update("a");
     h.update("b");
     h.update("c");
@@ -295,7 +299,7 @@ test "sha1 aligned final" {
     var block = [_]u8{0} ** Sha1.block_length;
     var out: [Sha1.digest_length]u8 = undefined;
 
-    var h = Sha1.init();
+    var h = Sha1.init(.{});
     h.update(&block);
     h.final(out[0..]);
 }

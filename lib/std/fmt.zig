@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std.zig");
 const math = std.math;
 const assert = std.debug.assert;
@@ -17,7 +22,7 @@ pub const Alignment = enum {
 pub const FormatOptions = struct {
     precision: ?usize = null,
     width: ?usize = null,
-    alignment: Alignment = .Left,
+    alignment: Alignment = .Right,
     fill: u8 = ' ',
 };
 
@@ -61,30 +66,34 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 ///   - output numeric value in hexadecimal notation
 /// - `s`: print a pointer-to-many as a c-string, use zero-termination
 /// - `B` and `Bi`: output a memory size in either metric (1000) or power-of-two (1024) based notation. works for both float and integer values.
+/// - `e` and `E`: if printing a string, escape non-printable characters
 /// - `e`: output floating point value in scientific notation
 /// - `d`: output numeric value in decimal notation
 /// - `b`: output integer value in binary notation
+/// - `o`: output integer value in octal notation
 /// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
 /// - `*`: output the address of the value instead of the value itself.
 ///
 /// If a formatted user type contains a function of the type
 /// ```
-/// pub fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: var) !void
+/// pub fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void
 /// ```
 /// with `?` being the type formatted, this function will be called instead of the default implementation.
 /// This allows user types to be formatted in a logical manner instead of dumping all fields of the type.
 ///
 /// A user type may be a `struct`, `vector`, `union` or `enum` type.
+///
+/// To print literal curly braces, escape them by writing them twice, e.g. `{{` or `}}`.
 pub fn format(
-    writer: var,
+    writer: anytype,
     comptime fmt: []const u8,
-    args: var,
+    args: anytype,
 ) !void {
     const ArgSetType = u32;
     if (@typeInfo(@TypeOf(args)) != .Struct) {
         @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
     }
-    if (args.len > ArgSetType.bit_count) {
+    if (args.len > @typeInfo(ArgSetType).Int.bits) {
         @compileError("32 arguments max are supported per format call");
     }
 
@@ -311,14 +320,14 @@ pub fn format(
 }
 
 pub fn formatType(
-    value: var,
+    value: anytype,
     comptime fmt: []const u8,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
     max_depth: usize,
 ) @TypeOf(writer).Error!void {
     if (comptime std.mem.eql(u8, fmt, "*")) {
-        try writer.writeAll(@typeName(@TypeOf(value).Child));
+        try writer.writeAll(@typeName(std.meta.Child(@TypeOf(value))));
         try writer.writeAll("@");
         try formatInt(@ptrToInt(value), 16, false, FormatOptions{}, writer);
         return;
@@ -366,6 +375,7 @@ pub fn formatType(
             }
 
             // Use @tagName only if value is one of known fields
+            @setEvalBranchQuota(3 * enumInfo.fields.len);
             inline for (enumInfo.fields) |enumField| {
                 if (@enumToInt(value) == enumField.value) {
                     try writer.writeAll(".");
@@ -389,7 +399,7 @@ pub fn formatType(
                 try writer.writeAll(@tagName(@as(UnionTagType, value)));
                 try writer.writeAll(" = ");
                 inline for (info.fields) |u_field| {
-                    if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
+                    if (value == @field(UnionTagType, u_field.name)) {
                         try formatType(@field(value, u_field.name), fmt, options, writer, max_depth - 1);
                     }
                 }
@@ -422,12 +432,12 @@ pub fn formatType(
                     if (info.child == u8) {
                         return formatText(value, fmt, options, writer);
                     }
-                    return format(writer, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
+                    return format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) });
                 },
                 .Enum, .Union, .Struct => {
                     return formatType(value.*, fmt, options, writer, max_depth);
                 },
-                else => return format(writer, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) }),
+                else => return format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) }),
             },
             .Many, .C => {
                 if (ptr_info.sentinel) |sentinel| {
@@ -438,7 +448,7 @@ pub fn formatType(
                         return formatText(mem.span(value), fmt, options, writer);
                     }
                 }
-                return format(writer, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
+                return format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) });
             },
             .Slice => {
                 if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
@@ -489,10 +499,10 @@ pub fn formatType(
 }
 
 fn formatValue(
-    value: var,
+    value: anytype,
     comptime fmt: []const u8,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
     if (comptime std.mem.eql(u8, fmt, "B")) {
         return formatBytes(value, options, 1000, writer);
@@ -510,10 +520,10 @@ fn formatValue(
 }
 
 pub fn formatIntValue(
-    value: var,
+    value: anytype,
     comptime fmt: []const u8,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
     comptime var radix = 10;
     comptime var uppercase = false;
@@ -528,7 +538,7 @@ pub fn formatIntValue(
         radix = 10;
         uppercase = false;
     } else if (comptime std.mem.eql(u8, fmt, "c")) {
-        if (@TypeOf(int_value).bit_count <= 8) {
+        if (@typeInfo(@TypeOf(int_value)).Int.bits <= 8) {
             return formatAsciiChar(@as(u8, int_value), options, writer);
         } else {
             @compileError("Cannot print integer that is larger than 8 bits as a ascii");
@@ -542,6 +552,9 @@ pub fn formatIntValue(
     } else if (comptime std.mem.eql(u8, fmt, "X")) {
         radix = 16;
         uppercase = true;
+    } else if (comptime std.mem.eql(u8, fmt, "o")) {
+        radix = 8;
+        uppercase = false;
     } else {
         @compileError("Unknown format string: '" ++ fmt ++ "'");
     }
@@ -550,31 +563,53 @@ pub fn formatIntValue(
 }
 
 fn formatFloatValue(
-    value: var,
+    value: anytype,
     comptime fmt: []const u8,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
+    // this buffer should be enough to display all decimal places of a decimal f64 number.
+    var buf: [512]u8 = undefined;
+    var buf_stream = std.io.fixedBufferStream(&buf);
+
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
-        return formatFloatScientific(value, options, writer);
+        formatFloatScientific(value, options, buf_stream.writer()) catch |err| switch (err) {
+            error.NoSpaceLeft => unreachable,
+            else => |e| return e,
+        };
     } else if (comptime std.mem.eql(u8, fmt, "d")) {
-        return formatFloatDecimal(value, options, writer);
+        formatFloatDecimal(value, options, buf_stream.writer()) catch |err| switch (err) {
+            error.NoSpaceLeft => unreachable,
+            else => |e| return e,
+        };
     } else {
         @compileError("Unknown format string: '" ++ fmt ++ "'");
     }
+
+    return formatBuf(buf_stream.getWritten(), options, writer);
 }
 
 pub fn formatText(
     bytes: []const u8,
     comptime fmt: []const u8,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
     if (comptime std.mem.eql(u8, fmt, "s") or (fmt.len == 0)) {
         return formatBuf(bytes, options, writer);
     } else if (comptime (std.mem.eql(u8, fmt, "x") or std.mem.eql(u8, fmt, "X"))) {
         for (bytes) |c| {
             try formatInt(c, 16, fmt[0] == 'X', FormatOptions{ .width = 2, .fill = '0' }, writer);
+        }
+        return;
+    } else if (comptime (std.mem.eql(u8, fmt, "e") or std.mem.eql(u8, fmt, "E"))) {
+        for (bytes) |c| {
+            if (std.ascii.isPrint(c)) {
+                try writer.writeByte(c);
+            } else {
+                try writer.writeAll("\\x");
+                try formatInt(c, 16, fmt[0] == 'E', FormatOptions{ .width = 2, .fill = '0' }, writer);
+            }
         }
         return;
     } else {
@@ -585,7 +620,7 @@ pub fn formatText(
 pub fn formatAsciiChar(
     c: u8,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
     return writer.writeAll(@as(*const [1]u8, &c));
 }
@@ -593,29 +628,25 @@ pub fn formatAsciiChar(
 pub fn formatBuf(
     buf: []const u8,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
     const width = options.width orelse buf.len;
-    var padding = if (width > buf.len) (width - buf.len) else 0;
-    const pad_byte = [1]u8{options.fill};
+    const padding = if (width > buf.len) (width - buf.len) else 0;
+
     switch (options.alignment) {
         .Left => {
             try writer.writeAll(buf);
-            while (padding > 0) : (padding -= 1) {
-                try writer.writeAll(&pad_byte);
-            }
+            try writer.writeByteNTimes(options.fill, padding);
         },
         .Center => {
-            const padl = padding / 2;
-            var i: usize = 0;
-            while (i < padl) : (i += 1) try writer.writeAll(&pad_byte);
+            const left_padding = padding / 2;
+            const right_padding = (padding + 1) / 2;
+            try writer.writeByteNTimes(options.fill, left_padding);
             try writer.writeAll(buf);
-            while (i < padding) : (i += 1) try writer.writeAll(&pad_byte);
+            try writer.writeByteNTimes(options.fill, right_padding);
         },
         .Right => {
-            while (padding > 0) : (padding -= 1) {
-                try writer.writeAll(&pad_byte);
-            }
+            try writer.writeByteNTimes(options.fill, padding);
             try writer.writeAll(buf);
         },
     }
@@ -625,9 +656,9 @@ pub fn formatBuf(
 // It should be the case that every full precision, printed value can be re-parsed back to the
 // same type unambiguously.
 pub fn formatFloatScientific(
-    value: var,
+    value: anytype,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
     var x = @floatCast(f64, value);
 
@@ -718,9 +749,9 @@ pub fn formatFloatScientific(
 // Print a float of the format x.yyyyy where the number of y is specified by the precision argument.
 // By default floats are printed at full precision (no rounding).
 pub fn formatFloatDecimal(
-    value: var,
+    value: anytype,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
     var x = @as(f64, value);
 
@@ -859,10 +890,10 @@ pub fn formatFloatDecimal(
 }
 
 pub fn formatBytes(
-    value: var,
+    value: anytype,
     options: FormatOptions,
     comptime radix: usize,
-    writer: var,
+    writer: anytype,
 ) !void {
     if (value == 0) {
         return writer.writeAll("0B");
@@ -900,66 +931,33 @@ pub fn formatBytes(
 }
 
 pub fn formatInt(
-    value: var,
+    value: anytype,
     base: u8,
     uppercase: bool,
     options: FormatOptions,
-    writer: var,
+    writer: anytype,
 ) !void {
+    assert(base >= 2);
+
     const int_value = if (@TypeOf(value) == comptime_int) blk: {
         const Int = math.IntFittingRange(value, value);
         break :blk @as(Int, value);
     } else
         value;
 
-    if (@TypeOf(int_value).is_signed) {
-        return formatIntSigned(int_value, base, uppercase, options, writer);
-    } else {
-        return formatIntUnsigned(int_value, base, uppercase, options, writer);
-    }
-}
+    const value_info = @typeInfo(@TypeOf(int_value)).Int;
 
-fn formatIntSigned(
-    value: var,
-    base: u8,
-    uppercase: bool,
-    options: FormatOptions,
-    writer: var,
-) !void {
-    const new_options = FormatOptions{
-        .width = if (options.width) |w| (if (w == 0) 0 else w - 1) else null,
-        .precision = options.precision,
-        .fill = options.fill,
-    };
-    const bit_count = @typeInfo(@TypeOf(value)).Int.bits;
-    const Uint = std.meta.Int(false, bit_count);
-    if (value < 0) {
-        try writer.writeAll("-");
-        const new_value = math.absCast(value);
-        return formatIntUnsigned(new_value, base, uppercase, new_options, writer);
-    } else if (options.width == null or options.width.? == 0) {
-        return formatIntUnsigned(@intCast(Uint, value), base, uppercase, options, writer);
-    } else {
-        try writer.writeAll("+");
-        const new_value = @intCast(Uint, value);
-        return formatIntUnsigned(new_value, base, uppercase, new_options, writer);
-    }
-}
+    // The type must have the same size as `base` or be wider in order for the
+    // division to work
+    const min_int_bits = comptime math.max(value_info.bits, 8);
+    const MinInt = std.meta.Int(false, min_int_bits);
 
-fn formatIntUnsigned(
-    value: var,
-    base: u8,
-    uppercase: bool,
-    options: FormatOptions,
-    writer: var,
-) !void {
-    assert(base >= 2);
-    var buf: [math.max(@TypeOf(value).bit_count, 1)]u8 = undefined;
-    const min_int_bits = comptime math.max(@TypeOf(value).bit_count, @TypeOf(base).bit_count);
-    const MinInt = std.meta.Int(@TypeOf(value).is_signed, min_int_bits);
-    var a: MinInt = value;
+    const abs_value = math.absCast(int_value);
+    // The worst case in terms of space needed is base 2, plus 1 for the sign
+    var buf: [1 + math.max(value_info.bits, 1)]u8 = undefined;
+
+    var a: MinInt = abs_value;
     var index: usize = buf.len;
-
     while (true) {
         const digit = a % base;
         index -= 1;
@@ -968,74 +966,98 @@ fn formatIntUnsigned(
         if (a == 0) break;
     }
 
-    const digits_buf = buf[index..];
-    const width = options.width orelse 0;
-    const padding = if (width > digits_buf.len) (width - digits_buf.len) else 0;
-
-    if (padding > index) {
-        const zero_byte: u8 = options.fill;
-        var leftover_padding = padding - index;
-        while (true) {
-            try writer.writeAll(@as(*const [1]u8, &zero_byte)[0..]);
-            leftover_padding -= 1;
-            if (leftover_padding == 0) break;
+    if (value_info.is_signed) {
+        if (value < 0) {
+            // Negative integer
+            index -= 1;
+            buf[index] = '-';
+        } else if (options.width == null or options.width.? == 0) {
+            // Positive integer, omit the plus sign
+        } else {
+            // Positive integer
+            index -= 1;
+            buf[index] = '+';
         }
-        mem.set(u8, buf[0..index], options.fill);
-        return writer.writeAll(&buf);
-    } else {
-        const padded_buf = buf[index - padding ..];
-        mem.set(u8, padded_buf[0..padding], options.fill);
-        return writer.writeAll(padded_buf);
     }
+
+    return formatBuf(buf[index..], options, writer);
 }
 
-pub fn formatIntBuf(out_buf: []u8, value: var, base: u8, uppercase: bool, options: FormatOptions) usize {
+pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, uppercase: bool, options: FormatOptions) usize {
     var fbs = std.io.fixedBufferStream(out_buf);
     formatInt(value, base, uppercase, options, fbs.writer()) catch unreachable;
     return fbs.pos;
 }
 
-pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) !T {
-    if (!T.is_signed) return parseUnsigned(T, buf, radix);
-    if (buf.len == 0) return @as(T, 0);
-    if (buf[0] == '-') {
-        return math.negate(try parseUnsigned(T, buf[1..], radix));
-    } else if (buf[0] == '+') {
-        return parseUnsigned(T, buf[1..], radix);
-    } else {
-        return parseUnsigned(T, buf, radix);
-    }
-}
-
-test "parseInt" {
-    std.testing.expect((parseInt(i32, "-10", 10) catch unreachable) == -10);
-    std.testing.expect((parseInt(i32, "+10", 10) catch unreachable) == 10);
-    std.testing.expect(if (parseInt(i32, " 10", 10)) |_| false else |err| err == error.InvalidCharacter);
-    std.testing.expect(if (parseInt(i32, "10 ", 10)) |_| false else |err| err == error.InvalidCharacter);
-    std.testing.expect(if (parseInt(u32, "-10", 10)) |_| false else |err| err == error.InvalidCharacter);
-    std.testing.expect((parseInt(u8, "255", 10) catch unreachable) == 255);
-    std.testing.expect(if (parseInt(u8, "256", 10)) |_| false else |err| err == error.Overflow);
-}
-
-pub const ParseUnsignedError = error{
+pub const ParseIntError = error{
     /// The result cannot fit in the type specified
     Overflow,
 
-    /// The input had a byte that was not a digit
+    /// The input was empty or had a byte that was not a digit
     InvalidCharacter,
 };
 
-pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseUnsignedError!T {
+pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) ParseIntError!T {
+    if (buf.len == 0) return error.InvalidCharacter;
+    if (buf[0] == '+') return parseWithSign(T, buf[1..], radix, .Pos);
+    if (buf[0] == '-') return parseWithSign(T, buf[1..], radix, .Neg);
+    return parseWithSign(T, buf, radix, .Pos);
+}
+
+test "parseInt" {
+    std.testing.expect((try parseInt(i32, "-10", 10)) == -10);
+    std.testing.expect((try parseInt(i32, "+10", 10)) == 10);
+    std.testing.expect((try parseInt(u32, "+10", 10)) == 10);
+    std.testing.expectError(error.Overflow, parseInt(u32, "-10", 10));
+    std.testing.expectError(error.InvalidCharacter, parseInt(u32, " 10", 10));
+    std.testing.expectError(error.InvalidCharacter, parseInt(u32, "10 ", 10));
+    std.testing.expect((try parseInt(u8, "255", 10)) == 255);
+    std.testing.expectError(error.Overflow, parseInt(u8, "256", 10));
+
+    // +0 and -0 should work for unsigned
+    std.testing.expect((try parseInt(u8, "-0", 10)) == 0);
+    std.testing.expect((try parseInt(u8, "+0", 10)) == 0);
+
+    // ensure minInt is parsed correctly
+    std.testing.expect((try parseInt(i8, "-128", 10)) == math.minInt(i8));
+    std.testing.expect((try parseInt(i43, "-4398046511104", 10)) == math.minInt(i43));
+
+    // empty string or bare +- is invalid
+    std.testing.expectError(error.InvalidCharacter, parseInt(u32, "", 10));
+    std.testing.expectError(error.InvalidCharacter, parseInt(i32, "", 10));
+    std.testing.expectError(error.InvalidCharacter, parseInt(u32, "+", 10));
+    std.testing.expectError(error.InvalidCharacter, parseInt(i32, "+", 10));
+    std.testing.expectError(error.InvalidCharacter, parseInt(u32, "-", 10));
+    std.testing.expectError(error.InvalidCharacter, parseInt(i32, "-", 10));
+}
+
+fn parseWithSign(
+    comptime T: type,
+    buf: []const u8,
+    radix: u8,
+    comptime sign: enum { Pos, Neg },
+) ParseIntError!T {
+    if (buf.len == 0) return error.InvalidCharacter;
+
+    const add = switch (sign) {
+        .Pos => math.add,
+        .Neg => math.sub,
+    };
+
     var x: T = 0;
 
     for (buf) |c| {
         const digit = try charToDigit(c, radix);
 
         if (x != 0) x = try math.mul(T, x, try math.cast(T, radix));
-        x = try math.add(T, x, try math.cast(T, digit));
+        x = try add(T, x, try math.cast(T, digit));
     }
 
     return x;
+}
+
+pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseIntError!T {
+    return parseWithSign(T, buf, radix, .Pos);
 }
 
 test "parseUnsigned" {
@@ -1063,6 +1085,13 @@ test "parseUnsigned" {
     std.testing.expect((try parseUnsigned(u1, "001", 16)) == 1);
     std.testing.expect((try parseUnsigned(u2, "3", 16)) == 3);
     std.testing.expectError(error.Overflow, parseUnsigned(u2, "4", 16));
+
+    // parseUnsigned does not expect a sign
+    std.testing.expectError(error.InvalidCharacter, parseUnsigned(u8, "+0", 10));
+    std.testing.expectError(error.InvalidCharacter, parseUnsigned(u8, "-0", 10));
+
+    // test empty string error
+    std.testing.expectError(error.InvalidCharacter, parseUnsigned(u8, "", 10));
 }
 
 pub const parseFloat = @import("fmt/parse_float.zig").parseFloat;
@@ -1096,14 +1125,14 @@ pub const BufPrintError = error{
     /// As much as possible was written to the buffer, but it was too small to fit all the printed bytes.
     NoSpaceLeft,
 };
-pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: var) BufPrintError![]u8 {
+pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![]u8 {
     var fbs = std.io.fixedBufferStream(buf);
     try format(fbs.writer(), fmt, args);
     return fbs.getWritten();
 }
 
 // Count the characters needed for format. Useful for preallocating memory
-pub fn count(comptime fmt: []const u8, args: var) u64 {
+pub fn count(comptime fmt: []const u8, args: anytype) u64 {
     var counting_writer = std.io.countingWriter(std.io.null_writer);
     format(counting_writer.writer(), fmt, args) catch |err| switch (err) {};
     return counting_writer.bytes_written;
@@ -1111,7 +1140,7 @@ pub fn count(comptime fmt: []const u8, args: var) u64 {
 
 pub const AllocPrintError = error{OutOfMemory};
 
-pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![]u8 {
+pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![]u8 {
     const size = math.cast(usize, count(fmt, args)) catch |err| switch (err) {
         // Output too long. Can't possibly allocate enough memory to display it.
         error.Overflow => return error.OutOfMemory,
@@ -1122,7 +1151,7 @@ pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: var
     };
 }
 
-pub fn allocPrint0(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![:0]u8 {
+pub fn allocPrint0(allocator: *mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![:0]u8 {
     const result = try allocPrint(allocator, fmt ++ "\x00", args);
     return result[0 .. result.len - 1 :0];
 }
@@ -1148,8 +1177,18 @@ test "bufPrintInt" {
     std.testing.expectEqualSlices(u8, "-42", bufPrintIntToSlice(buf, @as(i32, -42), 10, false, FormatOptions{ .width = 3 }));
 }
 
-fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, options: FormatOptions) []u8 {
+fn bufPrintIntToSlice(buf: []u8, value: anytype, base: u8, uppercase: bool, options: FormatOptions) []u8 {
     return buf[0..formatIntBuf(buf, value, base, uppercase, options)];
+}
+
+pub fn comptimePrint(comptime fmt: []const u8, args: anytype) *const [count(fmt, args)]u8 {
+    comptime var buf: [count(fmt, args)]u8 = undefined;
+    _ = bufPrint(&buf, fmt, args) catch unreachable;
+    return &buf;
+}
+
+test "comptimePrint" {
+    std.testing.expectEqualSlices(u8, "100", comptime comptimePrint("{}", .{100}));
 }
 
 test "parse u64 digit too big" {
@@ -1174,6 +1213,10 @@ test "optional" {
     {
         const value: ?i32 = null;
         try testFmt("optional: null\n", "optional: {}\n", .{value});
+    }
+    {
+        const value = @intToPtr(?*i32, 0xf000d000);
+        try testFmt("optional: *i32@f000d000\n", "optional: {*}\n", .{value});
     }
 }
 
@@ -1204,11 +1247,25 @@ test "int.specifier" {
         const value: u8 = 0b1100;
         try testFmt("u8: 0b1100\n", "u8: 0b{b}\n", .{value});
     }
+    {
+        const value: u16 = 0o1234;
+        try testFmt("u16: 0o1234\n", "u16: 0o{o}\n", .{value});
+    }
 }
 
 test "int.padded" {
     try testFmt("u8: '   1'", "u8: '{:4}'", .{@as(u8, 1)});
-    try testFmt("u8: 'xxx1'", "u8: '{:x<4}'", .{@as(u8, 1)});
+    try testFmt("u8: '1000'", "u8: '{:0<4}'", .{@as(u8, 1)});
+    try testFmt("u8: '0001'", "u8: '{:0>4}'", .{@as(u8, 1)});
+    try testFmt("u8: '0100'", "u8: '{:0^4}'", .{@as(u8, 1)});
+    try testFmt("i8: '-1  '", "i8: '{:<4}'", .{@as(i8, -1)});
+    try testFmt("i8: '  -1'", "i8: '{:>4}'", .{@as(i8, -1)});
+    try testFmt("i8: ' -1 '", "i8: '{:^4}'", .{@as(i8, -1)});
+    try testFmt("i16: '-1234'", "i16: '{:4}'", .{@as(i16, -1234)});
+    try testFmt("i16: '+1234'", "i16: '{:4}'", .{@as(i16, 1234)});
+    try testFmt("i16: '-12345'", "i16: '{:4}'", .{@as(i16, -12345)});
+    try testFmt("i16: '+12345'", "i16: '{:4}'", .{@as(i16, 12345)});
+    try testFmt("u16: '12345'", "u16: '{:4}'", .{@as(u16, 12345)});
 }
 
 test "buffer" {
@@ -1254,8 +1311,14 @@ test "slice" {
         try testFmt("slice: []const u8@deadbeef\n", "slice: {}\n", .{value});
     }
 
-    try testFmt("buf: Test \n", "buf: {s:5}\n", .{"Test"});
+    try testFmt("buf:  Test\n", "buf: {s:5}\n", .{"Test"});
     try testFmt("buf: Test\n Other text", "buf: {s}\n Other text", .{"Test"});
+}
+
+test "escape non-printable" {
+    try testFmt("abc", "{e}", .{"abc"});
+    try testFmt("ab\\xffc", "{e}", .{"ab\xffc"});
+    try testFmt("ab\\xFFc", "{E}", .{"ab\xffc"});
 }
 
 test "pointer" {
@@ -1281,7 +1344,7 @@ test "cstr" {
         .{@ptrCast([*c]const u8, "Test C")},
     );
     try testFmt(
-        "cstr: Test C    \n",
+        "cstr:     Test C\n",
         "cstr: {s:10}\n",
         .{@ptrCast([*c]const u8, "Test C")},
     );
@@ -1321,6 +1384,9 @@ test "enum" {
     try testFmt("enum: Enum.Two\n", "enum: {}\n", .{&value});
     try testFmt("enum: Enum.One\n", "enum: {x}\n", .{Enum.One});
     try testFmt("enum: Enum.Two\n", "enum: {X}\n", .{Enum.Two});
+
+    // test very large enum to verify ct branch quota is large enough
+    try testFmt("enum: Win32Error.INVALID_FUNCTION\n", "enum: {}\n", .{std.os.windows.Win32Error.INVALID_FUNCTION});
 }
 
 test "non-exhaustive enum" {
@@ -1413,7 +1479,7 @@ test "custom" {
             self: SelfType,
             comptime fmt: []const u8,
             options: FormatOptions,
-            writer: var,
+            writer: anytype,
         ) !void {
             if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "p")) {
                 return std.fmt.format(writer, "({d:.3},{d:.3})", .{ self.x, self.y });
@@ -1534,7 +1600,7 @@ test "bytes.hex" {
     try testFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
 }
 
-fn testFmt(expected: []const u8, comptime template: []const u8, args: var) !void {
+fn testFmt(expected: []const u8, comptime template: []const u8, args: anytype) !void {
     var buf: [100]u8 = undefined;
     const result = try bufPrint(buf[0..], template, args);
     if (mem.eql(u8, result, expected)) return;
@@ -1630,7 +1696,7 @@ test "formatType max_depth" {
             self: SelfType,
             comptime fmt: []const u8,
             options: FormatOptions,
-            writer: var,
+            writer: anytype,
         ) !void {
             if (fmt.len == 0) {
                 return std.fmt.format(writer, "({d:.3},{d:.3})", .{ self.x, self.y });
@@ -1721,7 +1787,7 @@ test "vector" {
 
     try testFmt("{ true, false, true, false }", "{}", .{vbool});
     try testFmt("{ -2, -1, 0, 1 }", "{}", .{vi64});
-    try testFmt("{ -   2, -   1, +   0, +   1 }", "{d:5}", .{vi64});
+    try testFmt("{    -2,    -1,    +0,    +1 }", "{d:5}", .{vi64});
     try testFmt("{ 1000, 2000, 3000, 4000 }", "{}", .{vu64});
     try testFmt("{ 3e8, 7d0, bb8, fa0 }", "{x}", .{vu64});
     try testFmt("{ 1kB, 2kB, 3kB, 4kB }", "{B}", .{vu64});
@@ -1734,13 +1800,28 @@ test "enum-literal" {
 
 test "padding" {
     try testFmt("Simple", "{}", .{"Simple"});
-    try testFmt("true      ", "{:10}", .{true});
+    try testFmt("      true", "{:10}", .{true});
     try testFmt("      true", "{:>10}", .{true});
     try testFmt("======true", "{:=>10}", .{true});
     try testFmt("true======", "{:=<10}", .{true});
     try testFmt("   true   ", "{:^10}", .{true});
     try testFmt("===true===", "{:=^10}", .{true});
-    try testFmt("Minimum            width", "{:18} width", .{"Minimum"});
+    try testFmt("           Minimum width", "{:18} width", .{"Minimum"});
     try testFmt("==================Filled", "{:=>24}", .{"Filled"});
     try testFmt("        Centered        ", "{:^24}", .{"Centered"});
+    try testFmt("-", "{:-^1}", .{""});
+}
+
+test "decimal float padding" {
+    var number: f32 = 3.1415;
+    try testFmt("left-pad:   **3.141\n", "left-pad:   {d:*>7.3}\n", .{number});
+    try testFmt("center-pad: *3.141*\n", "center-pad: {d:*^7.3}\n", .{number});
+    try testFmt("right-pad:  3.141**\n", "right-pad:  {d:*<7.3}\n", .{number});
+}
+
+test "sci float padding" {
+    var number: f32 = 3.1415;
+    try testFmt("left-pad:   **3.141e+00\n", "left-pad:   {e:*>11.3}\n", .{number});
+    try testFmt("center-pad: *3.141e+00*\n", "center-pad: {e:*^11.3}\n", .{number});
+    try testFmt("right-pad:  3.141e+00**\n", "right-pad:  {e:*<11.3}\n", .{number});
 }

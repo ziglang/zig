@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from:
 //
 // https://github.com/llvm/llvm-project/commit/d674d96bc56c0f377879d01c9d8dfdaaa7859cdb/compiler-rt/lib/builtins/comparesf2.c
@@ -22,8 +27,9 @@ const GE = extern enum(i32) {
 pub fn cmp(comptime T: type, comptime RT: type, a: T, b: T) RT {
     @setRuntimeSafety(builtin.is_test);
 
-    const srep_t = std.meta.Int(true, T.bit_count);
-    const rep_t = std.meta.Int(false, T.bit_count);
+    const bits = @typeInfo(T).Float.bits;
+    const srep_t = std.meta.Int(true, bits);
+    const rep_t = std.meta.Int(false, bits);
 
     const significandBits = std.math.floatMantissaBits(T);
     const exponentBits = std.math.floatExponentBits(T);
@@ -68,7 +74,7 @@ pub fn cmp(comptime T: type, comptime RT: type, a: T, b: T) RT {
 pub fn unordcmp(comptime T: type, a: T, b: T) i32 {
     @setRuntimeSafety(builtin.is_test);
 
-    const rep_t = std.meta.Int(false, T.bit_count);
+    const rep_t = std.meta.Int(false, @typeInfo(T).Float.bits);
 
     const significandBits = std.math.floatMantissaBits(T);
     const exponentBits = std.math.floatExponentBits(T);

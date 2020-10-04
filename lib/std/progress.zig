@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std");
 const windows = std.os.windows;
 const testing = std.testing;
@@ -192,7 +197,7 @@ pub const Progress = struct {
             var maybe_node: ?*Node = &self.root;
             while (maybe_node) |node| {
                 if (need_ellipse) {
-                    self.bufWrite(&end, "...", .{});
+                    self.bufWrite(&end, "... ", .{});
                 }
                 need_ellipse = false;
                 if (node.name.len != 0 or node.estimated_total_items != null) {
@@ -213,7 +218,7 @@ pub const Progress = struct {
                 maybe_node = node.recently_updated_child;
             }
             if (need_ellipse) {
-                self.bufWrite(&end, "...", .{});
+                self.bufWrite(&end, "... ", .{});
             }
         }
 
@@ -224,7 +229,7 @@ pub const Progress = struct {
         self.prev_refresh_timestamp = self.timer.read();
     }
 
-    pub fn log(self: *Progress, comptime format: []const u8, args: var) void {
+    pub fn log(self: *Progress, comptime format: []const u8, args: anytype) void {
         const file = self.terminal orelse return;
         self.refresh();
         file.outStream().print(format, args) catch {
@@ -234,7 +239,7 @@ pub const Progress = struct {
         self.columns_written = 0;
     }
 
-    fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: var) void {
+    fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: anytype) void {
         if (std.fmt.bufPrint(self.output_buffer[end.*..], format, args)) |written| {
             const amt = written.len;
             end.* += amt;
@@ -248,7 +253,7 @@ pub const Progress = struct {
         const bytes_needed_for_esc_codes_at_end = if (std.builtin.os.tag == .windows) 0 else 11;
         const max_end = self.output_buffer.len - bytes_needed_for_esc_codes_at_end;
         if (end.* > max_end) {
-            const suffix = "...";
+            const suffix = "... ";
             self.columns_written = self.columns_written - (end.* - max_end) + suffix.len;
             std.mem.copy(u8, self.output_buffer[max_end..], suffix);
             end.* = max_end + suffix.len;

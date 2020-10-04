@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std.zig");
 const debug = std.debug;
 const assert = debug.assert;
@@ -22,12 +27,6 @@ pub fn SinglyLinkedList(comptime T: type) type {
             data: T,
 
             pub const Data = T;
-
-            pub fn init(data: T) Node {
-                return Node{
-                    .data = data,
-                };
-            }
 
             /// Insert a new node after the current one.
             ///
@@ -170,29 +169,11 @@ pub fn TailQueue(comptime T: type) type {
             prev: ?*Node = null,
             next: ?*Node = null,
             data: T,
-
-            pub fn init(data: T) Node {
-                return Node{
-                    .data = data,
-                };
-            }
         };
 
-        first: ?*Node,
-        last: ?*Node,
-        len: usize,
-
-        /// Initialize a linked list.
-        ///
-        /// Returns:
-        ///     An empty linked list.
-        pub fn init() Self {
-            return Self{
-                .first = null,
-                .last = null,
-                .len = 0,
-            };
-        }
+        first: ?*Node = null,
+        last: ?*Node = null,
+        len: usize = 0,
 
         /// Insert a new node after an existing one.
         ///
@@ -335,65 +316,24 @@ pub fn TailQueue(comptime T: type) type {
             list.remove(first);
             return first;
         }
-
-        /// Allocate a new node.
-        ///
-        /// Arguments:
-        ///     allocator: Dynamic memory allocator.
-        ///
-        /// Returns:
-        ///     A pointer to the new node.
-        pub fn allocateNode(list: *Self, allocator: *Allocator) !*Node {
-            return allocator.create(Node);
-        }
-
-        /// Deallocate a node.
-        ///
-        /// Arguments:
-        ///     node: Pointer to the node to deallocate.
-        ///     allocator: Dynamic memory allocator.
-        pub fn destroyNode(list: *Self, node: *Node, allocator: *Allocator) void {
-            allocator.destroy(node);
-        }
-
-        /// Allocate and initialize a node and its data.
-        ///
-        /// Arguments:
-        ///     data: The data to put inside the node.
-        ///     allocator: Dynamic memory allocator.
-        ///
-        /// Returns:
-        ///     A pointer to the new node.
-        pub fn createNode(list: *Self, data: T, allocator: *Allocator) !*Node {
-            var node = try list.allocateNode(allocator);
-            node.* = Node.init(data);
-            return node;
-        }
     };
 }
 
 test "basic TailQueue test" {
-    const allocator = testing.allocator;
-    var list = TailQueue(u32).init();
+    const L = TailQueue(u32);
+    var list = L{};
 
-    var one = try list.createNode(1, allocator);
-    var two = try list.createNode(2, allocator);
-    var three = try list.createNode(3, allocator);
-    var four = try list.createNode(4, allocator);
-    var five = try list.createNode(5, allocator);
-    defer {
-        list.destroyNode(one, allocator);
-        list.destroyNode(two, allocator);
-        list.destroyNode(three, allocator);
-        list.destroyNode(four, allocator);
-        list.destroyNode(five, allocator);
-    }
+    var one = L.Node{ .data = 1 };
+    var two = L.Node{ .data = 2 };
+    var three = L.Node{ .data = 3 };
+    var four = L.Node{ .data = 4 };
+    var five = L.Node{ .data = 5 };
 
-    list.append(two); // {2}
-    list.append(five); // {2, 5}
-    list.prepend(one); // {1, 2, 5}
-    list.insertBefore(five, four); // {1, 2, 4, 5}
-    list.insertAfter(two, three); // {1, 2, 3, 4, 5}
+    list.append(&two); // {2}
+    list.append(&five); // {2, 5}
+    list.prepend(&one); // {1, 2, 5}
+    list.insertBefore(&five, &four); // {1, 2, 4, 5}
+    list.insertAfter(&two, &three); // {1, 2, 3, 4, 5}
 
     // Traverse forwards.
     {
@@ -417,7 +357,7 @@ test "basic TailQueue test" {
 
     var first = list.popFirst(); // {2, 3, 4, 5}
     var last = list.pop(); // {2, 3, 4}
-    list.remove(three); // {2, 4}
+    list.remove(&three); // {2, 4}
 
     testing.expect(list.first.?.data == 2);
     testing.expect(list.last.?.data == 4);
@@ -425,30 +365,25 @@ test "basic TailQueue test" {
 }
 
 test "TailQueue concatenation" {
-    const allocator = testing.allocator;
-    var list1 = TailQueue(u32).init();
-    var list2 = TailQueue(u32).init();
+    const L = TailQueue(u32);
+    var list1 = L{};
+    var list2 = L{};
 
-    var one = try list1.createNode(1, allocator);
-    defer list1.destroyNode(one, allocator);
-    var two = try list1.createNode(2, allocator);
-    defer list1.destroyNode(two, allocator);
-    var three = try list1.createNode(3, allocator);
-    defer list1.destroyNode(three, allocator);
-    var four = try list1.createNode(4, allocator);
-    defer list1.destroyNode(four, allocator);
-    var five = try list1.createNode(5, allocator);
-    defer list1.destroyNode(five, allocator);
+    var one = L.Node{ .data = 1 };
+    var two = L.Node{ .data = 2 };
+    var three = L.Node{ .data = 3 };
+    var four = L.Node{ .data = 4 };
+    var five = L.Node{ .data = 5 };
 
-    list1.append(one);
-    list1.append(two);
-    list2.append(three);
-    list2.append(four);
-    list2.append(five);
+    list1.append(&one);
+    list1.append(&two);
+    list2.append(&three);
+    list2.append(&four);
+    list2.append(&five);
 
     list1.concatByMoving(&list2);
 
-    testing.expect(list1.last == five);
+    testing.expect(list1.last == &five);
     testing.expect(list1.len == 5);
     testing.expect(list2.first == null);
     testing.expect(list2.last == null);

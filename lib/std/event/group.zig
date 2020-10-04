@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const Lock = std.event.Lock;
@@ -65,7 +70,7 @@ pub fn Group(comptime ReturnType: type) type {
         /// allocated by the group and freed by `wait`.
         /// `func` must be async and have return type `ReturnType`.
         /// Thread-safe.
-        pub fn call(self: *Self, comptime func: var, args: var) error{OutOfMemory}!void {
+        pub fn call(self: *Self, comptime func: anytype, args: anytype) error{OutOfMemory}!void {
             var frame = try self.allocator.create(@TypeOf(@call(.{ .modifier = .async_kw }, func, args)));
             errdefer self.allocator.destroy(frame);
             const node = try self.allocator.create(AllocStack.Node);

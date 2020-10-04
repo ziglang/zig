@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const builtin = @import("builtin");
 const std = @import("std");
 const maxInt = std.math.maxInt;
@@ -5,8 +10,9 @@ const maxInt = std.math.maxInt;
 fn floatsiXf(comptime T: type, a: i32) T {
     @setRuntimeSafety(builtin.is_test);
 
-    const Z = std.meta.Int(false, T.bit_count);
-    const S = std.meta.Int(false, T.bit_count - @clz(Z, @as(Z, T.bit_count) - 1));
+    const bits = @typeInfo(T).Float.bits;
+    const Z = std.meta.Int(false, bits);
+    const S = std.meta.Int(false, bits - @clz(Z, @as(Z, bits) - 1));
 
     if (a == 0) {
         return @as(T, 0.0);
@@ -17,7 +23,7 @@ fn floatsiXf(comptime T: type, a: i32) T {
     const exponentBias = ((1 << exponentBits - 1) - 1);
 
     const implicitBit = @as(Z, 1) << significandBits;
-    const signBit = @as(Z, 1 << Z.bit_count - 1);
+    const signBit = @as(Z, 1 << bits - 1);
 
     const sign = a >> 31;
     // Take absolute value of a via abs(x) = (x^(x >> 31)) - (x >> 31).

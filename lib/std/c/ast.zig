@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std");
 const SegmentedList = std.SegmentedList;
 const Token = std.c.Token;
@@ -64,7 +69,7 @@ pub const Error = union(enum) {
     NothingDeclared: SimpleError("declaration doesn't declare anything"),
     QualifierIgnored: SingleTokenError("qualifier '{}' ignored"),
 
-    pub fn render(self: *const Error, tree: *Tree, stream: var) !void {
+    pub fn render(self: *const Error, tree: *Tree, stream: anytype) !void {
         switch (self.*) {
             .InvalidToken => |*x| return x.render(tree, stream),
             .ExpectedToken => |*x| return x.render(tree, stream),
@@ -114,7 +119,7 @@ pub const Error = union(enum) {
         token: TokenIndex,
         expected_id: @TagType(Token.Id),
 
-        pub fn render(self: *const ExpectedToken, tree: *Tree, stream: var) !void {
+        pub fn render(self: *const ExpectedToken, tree: *Tree, stream: anytype) !void {
             const found_token = tree.tokens.at(self.token);
             if (found_token.id == .Invalid) {
                 return stream.print("expected '{}', found invalid bytes", .{self.expected_id.symbol()});
@@ -129,7 +134,7 @@ pub const Error = union(enum) {
         token: TokenIndex,
         type_spec: *Node.TypeSpec,
 
-        pub fn render(self: *const ExpectedToken, tree: *Tree, stream: var) !void {
+        pub fn render(self: *const ExpectedToken, tree: *Tree, stream: anytype) !void {
             try stream.write("invalid type specifier '");
             try type_spec.spec.print(tree, stream);
             const token_name = tree.tokens.at(self.token).id.symbol();
@@ -141,7 +146,7 @@ pub const Error = union(enum) {
         kw: TokenIndex,
         name: TokenIndex,
 
-        pub fn render(self: *const ExpectedToken, tree: *Tree, stream: var) !void {
+        pub fn render(self: *const ExpectedToken, tree: *Tree, stream: anytype) !void {
             return stream.print("must use '{}' tag to refer to type '{}'", .{ tree.slice(kw), tree.slice(name) });
         }
     };
@@ -150,7 +155,7 @@ pub const Error = union(enum) {
         return struct {
             token: TokenIndex,
 
-            pub fn render(self: *const @This(), tree: *Tree, stream: var) !void {
+            pub fn render(self: *const @This(), tree: *Tree, stream: anytype) !void {
                 const actual_token = tree.tokens.at(self.token);
                 return stream.print(msg, .{actual_token.id.symbol()});
             }
@@ -163,7 +168,7 @@ pub const Error = union(enum) {
 
             token: TokenIndex,
 
-            pub fn render(self: *const ThisError, tokens: *Tree.TokenList, stream: var) !void {
+            pub fn render(self: *const ThisError, tokens: *Tree.TokenList, stream: anytype) !void {
                 return stream.write(msg);
             }
         };
@@ -317,7 +322,7 @@ pub const Node = struct {
                 sym_type: *Type,
             },
 
-            pub fn print(self: *@This(), self: *const @This(), tree: *Tree, stream: var) !void {
+            pub fn print(self: *@This(), self: *const @This(), tree: *Tree, stream: anytype) !void {
                 switch (self.spec) {
                     .None => unreachable,
                     .Void => |index| try stream.write(tree.slice(index)),

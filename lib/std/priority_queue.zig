@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -190,7 +195,7 @@ pub fn PriorityQueue(comptime T: type) type {
             count: usize,
 
             pub fn next(it: *Iterator) ?T {
-                if (it.count > it.queue.len - 1) return null;
+                if (it.count >= it.queue.len) return null;
                 const out = it.count;
                 it.count += 1;
                 return it.queue.items[out];
@@ -333,7 +338,7 @@ test "std.PriorityQueue: addSlice" {
 
 test "std.PriorityQueue: fromOwnedSlice" {
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
-    const heap_items = try std.mem.dupe(testing.allocator, u32, items[0..]);
+    const heap_items = try testing.allocator.dupe(u32, items[0..]);
     var queue = PQ.fromOwnedSlice(testing.allocator, lessThan, heap_items[0..]);
     defer queue.deinit();
 
@@ -422,4 +427,13 @@ test "std.PriorityQueue: remove at index" {
     expectEqual(queue.remove(), 1);
     expectEqual(queue.remove(), 3);
     expectEqual(queue.removeOrNull(), null);
+}
+
+test "std.PriorityQueue: iterator while empty" {
+    var queue = PQ.init(testing.allocator, lessThan);
+    defer queue.deinit();
+
+    var it = queue.iterator();
+
+    expectEqual(it.next(), null);
 }

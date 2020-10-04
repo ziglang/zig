@@ -1,9 +1,12 @@
-const mem = @import("../mem.zig");
-const math = @import("../math.zig");
-const endian = @import("../endian.zig");
-const builtin = @import("builtin");
-const debug = @import("../debug.zig");
-const fmt = @import("../fmt.zig");
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
+const std = @import("../std.zig");
+const mem = std.mem;
+const math = std.math;
+const debug = std.debug;
 
 const RoundParam = struct {
     a: usize,
@@ -27,10 +30,14 @@ fn Rp(a: usize, b: usize, c: usize, d: usize, k: usize, s: u32, t: u32) RoundPar
     };
 }
 
+/// The MD5 function is now considered cryptographically broken.
+/// Namely, it is trivial to find multiple inputs producing the same hash.
+/// For a fast-performing, cryptographically secure hash function, see SHA512/256, BLAKE2 or BLAKE3.
 pub const Md5 = struct {
     const Self = @This();
     pub const block_length = 64;
     pub const digest_length = 16;
+    pub const Options = struct {};
 
     s: [4]u32,
     // Streaming Cache
@@ -38,23 +45,22 @@ pub const Md5 = struct {
     buf_len: u8,
     total_len: u64,
 
-    pub fn init() Self {
-        var d: Self = undefined;
-        d.reset();
-        return d;
+    pub fn init(options: Options) Self {
+        return Self{
+            .s = [_]u32{
+                0x67452301,
+                0xEFCDAB89,
+                0x98BADCFE,
+                0x10325476,
+            },
+            .buf = undefined,
+            .buf_len = 0,
+            .total_len = 0,
+        };
     }
 
-    pub fn reset(d: *Self) void {
-        d.s[0] = 0x67452301;
-        d.s[1] = 0xEFCDAB89;
-        d.s[2] = 0x98BADCFE;
-        d.s[3] = 0x10325476;
-        d.buf_len = 0;
-        d.total_len = 0;
-    }
-
-    pub fn hash(b: []const u8, out: []u8) void {
-        var d = Md5.init();
+    pub fn hash(b: []const u8, out: []u8, options: Options) void {
+        var d = Md5.init(options);
         d.update(b);
         d.final(out);
     }
@@ -250,18 +256,18 @@ test "md5 single" {
 }
 
 test "md5 streaming" {
-    var h = Md5.init();
+    var h = Md5.init(.{});
     var out: [16]u8 = undefined;
 
     h.final(out[0..]);
     htest.assertEqual("d41d8cd98f00b204e9800998ecf8427e", out[0..]);
 
-    h.reset();
+    h = Md5.init(.{});
     h.update("abc");
     h.final(out[0..]);
     htest.assertEqual("900150983cd24fb0d6963f7d28e17f72", out[0..]);
 
-    h.reset();
+    h = Md5.init(.{});
     h.update("a");
     h.update("b");
     h.update("c");
@@ -274,7 +280,7 @@ test "md5 aligned final" {
     var block = [_]u8{0} ** Md5.block_length;
     var out: [Md5.digest_length]u8 = undefined;
 
-    var h = Md5.init();
+    var h = Md5.init(.{});
     h.update(&block);
     h.final(out[0..]);
 }

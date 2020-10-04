@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std.zig");
 const mem = std.mem;
 
@@ -8,7 +13,7 @@ const mem = std.mem;
 /// `kvs` expects a list literal containing list literals or an array/slice of structs
 /// where `.@"0"` is the `[]const u8` key and `.@"1"` is the associated value of type `V`.
 /// TODO: https://github.com/ziglang/zig/issues/4335
-pub fn ComptimeStringMap(comptime V: type, comptime kvs: var) type {
+pub fn ComptimeStringMap(comptime V: type, comptime kvs: anytype) type {
     const precomputed = comptime blk: {
         @setEvalBranchQuota(2000);
         const KV = struct {
@@ -126,7 +131,7 @@ test "ComptimeStringMap slice of structs" {
     testMap(map);
 }
 
-fn testMap(comptime map: var) void {
+fn testMap(comptime map: anytype) void {
     std.testing.expectEqual(TestEnum.A, map.get("have").?);
     std.testing.expectEqual(TestEnum.B, map.get("nothing").?);
     std.testing.expect(null == map.get("missing"));
@@ -165,7 +170,7 @@ test "ComptimeStringMap void value type, list literal of list literals" {
     testSet(map);
 }
 
-fn testSet(comptime map: var) void {
+fn testSet(comptime map: anytype) void {
     std.testing.expectEqual({}, map.get("have").?);
     std.testing.expectEqual({}, map.get("nothing").?);
     std.testing.expect(null == map.get("missing"));

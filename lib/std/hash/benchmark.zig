@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // zig run benchmark.zig --release-fast --override-lib-dir ..
 
 const builtin = @import("builtin");
@@ -20,23 +25,11 @@ const Hash = struct {
     init_u64: ?u64 = null,
 };
 
-const siphash_key = "0123456789abcdef";
-
 const hashes = [_]Hash{
     Hash{
         .ty = hash.Wyhash,
         .name = "wyhash",
         .init_u64 = 0,
-    },
-    Hash{
-        .ty = hash.SipHash64(1, 3),
-        .name = "siphash(1,3)",
-        .init_u8s = siphash_key,
-    },
-    Hash{
-        .ty = hash.SipHash64(2, 4),
-        .name = "siphash(2,4)",
-        .init_u8s = siphash_key,
     },
     Hash{
         .ty = hash.Fnv1a_64,
@@ -88,7 +81,7 @@ const Result = struct {
 
 const block_size: usize = 8 * 8192;
 
-pub fn benchmarkHash(comptime H: var, bytes: usize) !Result {
+pub fn benchmarkHash(comptime H: anytype, bytes: usize) !Result {
     var h = blk: {
         if (H.init_u8s) |init| {
             break :blk H.ty.init(init);
@@ -119,7 +112,7 @@ pub fn benchmarkHash(comptime H: var, bytes: usize) !Result {
     };
 }
 
-pub fn benchmarkHashSmallKeys(comptime H: var, key_size: usize, bytes: usize) !Result {
+pub fn benchmarkHashSmallKeys(comptime H: anytype, key_size: usize, bytes: usize) !Result {
     const key_count = bytes / key_size;
     var block: [block_size]u8 = undefined;
     prng.random.bytes(block[0..]);

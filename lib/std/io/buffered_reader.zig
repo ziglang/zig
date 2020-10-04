@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("../std.zig");
 const io = std.io;
 const assert = std.debug.assert;
@@ -48,7 +53,7 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
     };
 }
 
-pub fn bufferedReader(underlying_stream: var) BufferedReader(4096, @TypeOf(underlying_stream)) {
+pub fn bufferedReader(underlying_stream: anytype) BufferedReader(4096, @TypeOf(underlying_stream)) {
     return .{ .unbuffered_reader = underlying_stream };
 }
 

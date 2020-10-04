@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -13,7 +18,7 @@ const expect = std.testing.expect;
 /// Special Cases:
 ///  - exp2(+inf) = +inf
 ///  - exp2(nan)  = nan
-pub fn exp2(x: var) @TypeOf(x) {
+pub fn exp2(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => exp2_32(x),
@@ -65,7 +70,7 @@ fn exp2_32(x: f32) f32 {
         // x < -126
         if (u >= 0x80000000) {
             if (u >= 0xC3160000 or u & 0x000FFFF != 0) {
-                math.forceEval(-0x1.0p-149 / x);
+                math.doNotOptimizeAway(-0x1.0p-149 / x);
             }
             // x <= -150
             if (u >= 0x3160000) {
@@ -388,7 +393,7 @@ fn exp2_64(x: f64) f64 {
         if (ux >> 63 != 0) {
             // underflow
             if (x <= -1075 or x - 0x1.0p52 + 0x1.0p52 != x) {
-                math.forceEval(@floatCast(f32, -0x1.0p-149 / x));
+                math.doNotOptimizeAway(@floatCast(f32, -0x1.0p-149 / x));
             }
             if (x <= -1075) {
                 return 0;

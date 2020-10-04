@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const std = @import("std");
 const builtin = @import("builtin");
 const debug = std.debug;
@@ -313,9 +318,12 @@ pub fn PackedIntSliceEndian(comptime Int: type, comptime endian: builtin.Endian)
     };
 }
 
+const we_are_testing_this_with_stage1_which_leaks_comptime_memory = true;
+
 test "PackedIntArray" {
     // TODO @setEvalBranchQuota generates panics in wasm32. Investigate.
     if (builtin.arch == .wasm32) return error.SkipZigTest;
+    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
 
     @setEvalBranchQuota(10000);
     const max_bits = 256;
@@ -353,6 +361,7 @@ test "PackedIntArray" {
 }
 
 test "PackedIntArray init" {
+    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
     const PackedArray = PackedIntArray(u3, 8);
     var packed_array = PackedArray.init([_]u3{ 0, 1, 2, 3, 4, 5, 6, 7 });
     var i = @as(usize, 0);
@@ -362,6 +371,7 @@ test "PackedIntArray init" {
 test "PackedIntSlice" {
     // TODO @setEvalBranchQuota generates panics in wasm32. Investigate.
     if (builtin.arch == .wasm32) return error.SkipZigTest;
+    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
 
     @setEvalBranchQuota(10000);
     const max_bits = 256;
@@ -400,6 +410,7 @@ test "PackedIntSlice" {
 }
 
 test "PackedIntSlice of PackedInt(Array/Slice)" {
+    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
     const max_bits = 16;
     const int_count = 19;
 
@@ -465,6 +476,7 @@ test "PackedIntSlice of PackedInt(Array/Slice)" {
 }
 
 test "PackedIntSlice accumulating bit offsets" {
+    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
     //bit_offset is u3, so standard debugging asserts should catch
     // anything
     {
@@ -492,6 +504,8 @@ test "PackedIntSlice accumulating bit offsets" {
 //@NOTE: As I do not have a big endian system to test this on,
 // big endian values were not tested
 test "PackedInt(Array/Slice) sliceCast" {
+    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
+
     const PackedArray = PackedIntArray(u1, 16);
     var packed_array = PackedArray.init([_]u1{ 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1 });
     const packed_slice_cast_2 = packed_array.sliceCast(u2);
@@ -532,6 +546,8 @@ test "PackedInt(Array/Slice) sliceCast" {
 }
 
 test "PackedInt(Array/Slice)Endian" {
+    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
+
     {
         const PackedArrayBe = PackedIntArrayEndian(u4, .Big, 8);
         var packed_array_be = PackedArrayBe.init([_]u4{ 0, 1, 2, 3, 4, 5, 6, 7 });
@@ -599,6 +615,8 @@ test "PackedInt(Array/Slice)Endian" {
 // after this one is not mapped and will cause a segfault if we
 // don't account for the bounds.
 test "PackedIntArray at end of available memory" {
+    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
+
     switch (builtin.os.tag) {
         .linux, .macosx, .ios, .freebsd, .netbsd, .windows => {},
         else => return,
@@ -618,6 +636,8 @@ test "PackedIntArray at end of available memory" {
 }
 
 test "PackedIntSlice at end of available memory" {
+    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
+
     switch (builtin.os.tag) {
         .linux, .macosx, .ios, .freebsd, .netbsd, .windows => {},
         else => return,

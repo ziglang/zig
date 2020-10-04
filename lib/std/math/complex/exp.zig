@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 // Ported from musl, which is licensed under the MIT license:
 // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
@@ -14,7 +19,7 @@ const Complex = cmath.Complex;
 const ldexp_cexp = @import("ldexp.zig").ldexp_cexp;
 
 /// Returns e raised to the power of z (e^z).
-pub fn exp(z: var) @TypeOf(z) {
+pub fn exp(z: anytype) @TypeOf(z) {
     const T = @TypeOf(z.re);
 
     return switch (T) {

@@ -1,9 +1,14 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
 const builtin = @import("builtin");
 
 pub fn _allrem(a: i64, b: i64) callconv(.Stdcall) i64 {
     @setRuntimeSafety(builtin.is_test);
-    const s_a = a >> (i64.bit_count - 1);
-    const s_b = b >> (i64.bit_count - 1);
+    const s_a = a >> (64 - 1);
+    const s_b = b >> (64 - 1);
 
     const an = (a ^ s_a) -% s_a;
     const bn = (b ^ s_b) -% s_b;
