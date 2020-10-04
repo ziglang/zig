@@ -273,7 +273,7 @@ const usage_build_generic =
     \\  -rdynamic                      Add all symbols to the dynamic symbol table
     \\  -rpath [path]                  Add directory to the runtime library search path
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
-    \\  --emit-relocs                   Enable output of relocation sections for post build tools
+    \\  --emit-relocs                  Enable output of relocation sections for post build tools
     \\  -dynamic                       Force output to be dynamically linked
     \\  -static                        Force output to be statically linked
     \\  -Bsymbolic                     Bind global references locally
