@@ -1388,66 +1388,50 @@ pub const LibExeObjStep = struct {
     }
 
     fn computeOutFileNames(self: *LibExeObjStep) void {
-        // TODO make this call std.zig.binNameAlloc
-        switch (self.kind) {
-            .Obj => {
-                self.out_filename = self.builder.fmt("{}{}", .{ self.name, self.target.oFileExt() });
+        const target_info = std.zig.system.NativeTargetInfo.detect(
+            self.builder.allocator,
+            self.target,
+        ) catch unreachable;
+        const target = target_info.target;
+        self.out_filename = std.zig.binNameAlloc(self.builder.allocator, .{
+            .root_name = self.name,
+            .target = target,
+            .output_mode = switch (self.kind) {
+                .Lib => .Lib,
+                .Obj => .Obj,
+                .Exe, .Test => .Exe,
             },
-            .Exe => {
-                self.out_filename = self.builder.fmt("{}{}", .{ self.name, self.target.exeFileExt() });
-            },
-            .Test => {
-                self.out_filename = self.builder.fmt("test{}", .{self.target.exeFileExt()});
-            },
-            .Lib => {
-                if (!self.is_dynamic) {
-                    self.out_filename = self.builder.fmt("{}{}{}", .{
-                        self.target.libPrefix(),
+            .link_mode = if (self.is_dynamic) .Dynamic else .Static,
+            .version = self.version,
+        }) catch unreachable;
+
+        if (self.kind == .Lib) {
+            if (!self.is_dynamic) {
+                self.out_lib_filename = self.out_filename;
+            } else if (self.version) |version| {
+                if (target.isDarwin()) {
+                    self.major_only_filename = self.builder.fmt("lib{}.{d}.dylib", .{
                         self.name,
-                        self.target.staticLibSuffix(),
+                        version.major,
                     });
+                    self.name_only_filename = self.builder.fmt("lib{}.dylib", .{self.name});
                     self.out_lib_filename = self.out_filename;
-                } else if (self.version) |version| {
-                    if (self.target.isDarwin()) {
-                        self.out_filename = self.builder.fmt("lib{}.{d}.{d}.{d}.dylib", .{
-                            self.name,
-                            version.major,
-                            version.minor,
-                            version.patch,
-                        });
-                        self.major_only_filename = self.builder.fmt("lib{}.{d}.dylib", .{
-                            self.name,
-                            version.major,
-                        });
-                        self.name_only_filename = self.builder.fmt("lib{}.dylib", .{self.name});
-                        self.out_lib_filename = self.out_filename;
-                    } else if (self.target.isWindows()) {
-                        self.out_filename = self.builder.fmt("{}.dll", .{self.name});
-                        self.out_lib_filename = self.builder.fmt("{}.lib", .{self.name});
-                    } else {
-                        self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}", .{
-                            self.name,
-                            version.major,
-                            version.minor,
-                            version.patch,
-                        });
-                        self.major_only_filename = self.builder.fmt("lib{}.so.{d}", .{ self.name, version.major });
-                        self.name_only_filename = self.builder.fmt("lib{}.so", .{self.name});
-                        self.out_lib_filename = self.out_filename;
-                    }
+                } else if (target.os.tag == .windows) {
+                    self.out_lib_filename = self.builder.fmt("{}.lib", .{self.name});
                 } else {
-                    if (self.target.isDarwin()) {
-                        self.out_filename = self.builder.fmt("lib{}.dylib", .{self.name});
-                        self.out_lib_filename = self.out_filename;
-                    } else if (self.target.isWindows()) {
-                        self.out_filename = self.builder.fmt("{}.dll", .{self.name});
-                        self.out_lib_filename = self.builder.fmt("{}.lib", .{self.name});
-                    } else {
-                        self.out_filename = self.builder.fmt("lib{}.so", .{self.name});
-                        self.out_lib_filename = self.out_filename;
-                    }
+                    self.major_only_filename = self.builder.fmt("lib{}.so.{d}", .{ self.name, version.major });
+                    self.name_only_filename = self.builder.fmt("lib{}.so", .{self.name});
+                    self.out_lib_filename = self.out_filename;
                 }
-            },
+            } else {
+                if (target.isDarwin()) {
+                    self.out_lib_filename = self.out_filename;
+                } else if (target.os.tag == .windows) {
+                    self.out_lib_filename = self.builder.fmt("{}.lib", .{self.name});
+                } else {
+                    self.out_lib_filename = self.out_filename;
+                }
+            }
         }
     }
 
@@ -2046,7 +2030,7 @@ pub const LibExeObjStep = struct {
 
         if (self.image_base) |image_base| {
             try zig_args.append("--image-base");
-            try zig_args.append(image_base);
+            try zig_args.append(builder.fmt("0x{x}", .{image_base}));
         }
 
         if (self.filter) |filter| {
