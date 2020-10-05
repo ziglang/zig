@@ -250,7 +250,7 @@ pub const Ghash = struct {
             }
             mb = mb[want..];
             st.leftover += want;
-            if (st.leftover > block_size) {
+            if (st.leftover < block_size) {
                 return;
             }
             st.blocks(&st.buf);
@@ -269,14 +269,21 @@ pub const Ghash = struct {
         }
     }
 
-    pub fn final(st: *Ghash, out: *[mac_length]u8) void {
-        if (st.leftover > 0) {
-            var i = st.leftover;
-            while (i < block_size) : (i += 1) {
-                st.buf[i] = 0;
-            }
-            st.blocks(&st.buf);
+    /// Zero-pad to align the next input to the first byte of a block
+    pub fn pad(st: *Ghash) void {
+        if (st.leftover == 0) {
+            return;
         }
+        var i = st.leftover;
+        while (i < block_size) : (i += 1) {
+            st.buf[i] = 0;
+        }
+        st.blocks(&st.buf);
+        st.leftover = 0;
+    }
+
+    pub fn final(st: *Ghash, out: *[mac_length]u8) void {
+        st.pad();
         mem.writeIntBig(u64, out[0..8], st.y1);
         mem.writeIntBig(u64, out[8..16], st.y0);
 
