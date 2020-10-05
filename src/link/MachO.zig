@@ -64,6 +64,97 @@ const LoadCommand = union(enum) {
     }
 };
 
+/// Represents export trie used in MachO executables and dynamic libraries.
+/// The purpose of an export trie is to encode as compactly as possible all
+/// export symbols for the loader `dyld`.
+/// The export trie encodes offset and other information using ULEB128
+/// encoding, and is part of the __LINKEDIT segment.
+const Trie = struct {
+    const Node = struct {
+        const Edge = struct {
+            from: *Node,
+            to: *Node,
+            label: []const u8,
+
+            pub fn deinit(self: *Edge, alloc: *Allocator) void {
+                self.to.deinit(alloc);
+                alloc.destroy(self.to);
+                self.from = undefined;
+                self.to = undefined;
+            }
+        };
+
+        edges: std.ArrayListUnmanaged(Edge) = .{},
+
+        pub fn deinit(self: *Node, alloc: *Allocator) void {
+            for (self.edges.items) |*edge| {
+                edge.deinit(alloc);
+            }
+            self.edges.deinit(alloc);
+        }
+
+        pub fn put(self: *Node, alloc: *Allocator, fromEdge: ?*Edge, prefix: usize, label: []const u8) !void {
+            // Traverse all edges.
+            for (self.edges.items) |*edge| {
+                const match = mem.indexOfDiff(u8, edge.label, label) orelse return; // Got a full match, don't do anything.
+                if (match - prefix > 0) {
+                    // If we match, we advance further down the trie.
+                    return edge.to.put(alloc, edge, match, label);
+                }
+            }
+
+            if (fromEdge) |from| {
+                if (mem.eql(u8, from.label, label[0..prefix])) {
+                    if (prefix == label.len) return;
+                } else {
+                    // Fixup nodes. We need to insert an intermediate node between
+                    // from.to and self.
+                    const mid = try alloc.create(Node);
+                    mid.* = .{};
+                    const to_label = from.label;
+                    from.to = mid;
+                    from.label = label[0..prefix];
+
+                    try mid.edges.append(alloc, .{
+                        .from = mid,
+                        .to = self,
+                        .label = to_label,
+                    });
+
+                    if (prefix == label.len) return; // We're done.
+
+                    const new_node = try alloc.create(Node);
+                    new_node.* = .{};
+                    return mid.edges.append(alloc, .{
+                        .from = mid,
+                        .to = new_node,
+                        .label = label,
+                    });
+                }
+            }
+
+            // Add a new edge.
+            const node = try alloc.create(Node);
+            node.* = .{};
+            return self.edges.append(alloc, .{
+                .from = self,
+                .to = node,
+                .label = label,
+            });
+        }
+    };
+
+    root: Node,
+
+    pub fn put(self: *Trie, alloc: *Allocator, word: []const u8) !void {
+        return self.root.put(alloc, null, 0, word);
+    }
+
+    pub fn deinit(self: *Trie, alloc: *Allocator) void {
+        self.root.deinit(alloc);
+    }
+};
+
 base: File,
 
 /// Table of all load commands
@@ -1532,4 +1623,49 @@ fn writeMachOHeader(self: *MachO) !void {
 fn satMul(a: anytype, b: anytype) @TypeOf(a, b) {
     const T = @TypeOf(a, b);
     return std.math.mul(T, a, b) catch std.math.maxInt(T);
+}
+
+test "Trie basic" {
+    const testing = @import("std").testing;
+    var gpa = testing.allocator;
+
+    var trie: Trie = .{
+        .root = .{},
+    };
+    defer trie.deinit(gpa);
+
+    // root
+    testing.expect(trie.root.edges.items.len == 0);
+
+    // root --- _st ---> node
+    try trie.put(gpa, "_st");
+    testing.expect(trie.root.edges.items.len == 1);
+    testing.expect(mem.eql(u8, trie.root.edges.items[0].label, "_st"));
+
+    {
+        // root --- _st ---> node --- _start ---> node
+        try trie.put(gpa, "_start");
+        testing.expect(trie.root.edges.items.len == 1);
+
+        const nextEdge = &trie.root.edges.items[0];
+        testing.expect(mem.eql(u8, nextEdge.label, "_st"));
+        testing.expect(nextEdge.to.edges.items.len == 1);
+        testing.expect(mem.eql(u8, nextEdge.to.edges.items[0].label, "_start"));
+    }
+    {
+        // root --- _ ---> node --- _st ---> node --- _start ---> node
+        //                  |
+        //                  |   --- _main ---> node
+        try trie.put(gpa, "_main");
+        testing.expect(trie.root.edges.items.len == 1);
+
+        const nextEdge = &trie.root.edges.items[0];
+        testing.expect(mem.eql(u8, nextEdge.label, "_"));
+        testing.expect(nextEdge.to.edges.items.len == 2);
+        testing.expect(mem.eql(u8, nextEdge.to.edges.items[0].label, "_st"));
+        testing.expect(mem.eql(u8, nextEdge.to.edges.items[1].label, "_main"));
+
+        const nextNextEdge = &nextEdge.to.edges.items[0];
+        testing.expect(mem.eql(u8, nextNextEdge.to.edges.items[0].label, "_start"));
+    }
 }
