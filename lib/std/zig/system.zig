@@ -213,6 +213,8 @@ pub const NativeTargetInfo = struct {
                     // kernel version
                     const kernel_version = if (mem.indexOfScalar(u8, release, '-')) |pos|
                         release[0..pos]
+                    else if (mem.indexOfScalar(u8, release, '_')) |pos|
+                        release[0..pos]
                     else
                         release;
 
