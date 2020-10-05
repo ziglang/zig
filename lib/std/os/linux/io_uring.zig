@@ -1033,11 +1033,11 @@ test "write/read" {
 
     const buffer_write = [_]u8{97} ** 20;
     var buffer_read = [_]u8{98} ** 20;
-    const sqe_write = try ring.write(123, fd, buffer_write[0..], 10);
+    const sqe_write = try ring.write(0x11111111, fd, buffer_write[0..], 10);
     testing.expectEqual(linux.IORING_OP.WRITE, sqe_write.opcode);
     testing.expectEqual(@as(u64, 10), sqe_write.off);
     sqe_write.flags |= linux.IOSQE_IO_LINK;
-    const sqe_read = try ring.read(456, fd, buffer_read[0..], 10);
+    const sqe_read = try ring.read(0x22222222, fd, buffer_read[0..], 10);
     testing.expectEqual(linux.IORING_OP.READ, sqe_read.opcode);
     testing.expectEqual(@as(u64, 10), sqe_read.off);
     testing.expectEqual(@as(u32, 2), try ring.submit());
@@ -1049,12 +1049,12 @@ test "write/read" {
     if (cqe_write.res == -linux.EINVAL) return error.SkipZigTest;
     if (cqe_read.res == -linux.EINVAL) return error.SkipZigTest;
     testing.expectEqual(linux.io_uring_cqe {
-        .user_data = 123,
+        .user_data = 0x11111111,
         .res = buffer_write.len,
         .flags = 0,
     }, cqe_write);
     testing.expectEqual(linux.io_uring_cqe {
-        .user_data = 456,
+        .user_data = 0x22222222,
         .res = buffer_read.len,
         .flags = 0,
     }, cqe_read);
@@ -1076,7 +1076,7 @@ test "openat" {
 
     const flags: u32 = os.O_CLOEXEC | os.O_RDWR | os.O_CREAT;
     const mode: os.mode_t = 0o666;
-    const sqe_openat = try ring.openat(789, linux.AT_FDCWD, path, flags, mode);
+    const sqe_openat = try ring.openat(0x33333333, linux.AT_FDCWD, path, flags, mode);
     testing.expectEqual(io_uring_sqe {
         .opcode = .OPENAT,
         .flags = 0,
@@ -1086,7 +1086,7 @@ test "openat" {
         .addr = @ptrToInt(path),
         .len = mode,
         .rw_flags = flags,
-        .user_data = 789,
+        .user_data = 0x33333333,
         .buf_index = 0,
         .personality = 0,
         .splice_fd_in = 0,
@@ -1095,7 +1095,7 @@ test "openat" {
     testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const cqe_openat = try ring.copy_cqe();
-    testing.expectEqual(@as(u64, 789), cqe_openat.user_data);
+    testing.expectEqual(@as(u64, 0x33333333), cqe_openat.user_data);
     if (cqe_openat.res == -linux.EINVAL) return error.SkipZigTest;
     // AT_FDCWD is not fully supported before kernel 5.6:
     // See https://lore.kernel.org/io-uring/20200207155039.12819-1-axboe@kernel.dk/T/
@@ -1125,7 +1125,7 @@ test "close" {
     errdefer file.close();
     defer std.fs.cwd().deleteFile(path) catch {};
 
-    const sqe_close = try ring.close(1011, file.handle);
+    const sqe_close = try ring.close(0x44444444, file.handle);
     testing.expectEqual(linux.IORING_OP.CLOSE, sqe_close.opcode);
     testing.expectEqual(file.handle, sqe_close.fd);
     testing.expectEqual(@as(u32, 1), try ring.submit());
@@ -1133,7 +1133,7 @@ test "close" {
     const cqe_close = try ring.copy_cqe();
     if (cqe_close.res == -linux.EINVAL) return error.SkipZigTest;
     testing.expectEqual(linux.io_uring_cqe {
-        .user_data = 1011,
+        .user_data = 0x44444444,
         .res = 0,
         .flags = 0,
     }, cqe_close);
