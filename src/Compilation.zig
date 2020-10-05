@@ -800,7 +800,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .llvm_cpu_features = llvm_cpu_features,
             .is_compiler_rt_or_libc = options.is_compiler_rt_or_libc,
             .parent_compilation_link_libc = options.parent_compilation_link_libc,
-            .each_lib_rpath = options.each_lib_rpath orelse false,
+            .each_lib_rpath = options.each_lib_rpath orelse options.is_native_os,
             .disable_lld_caching = options.disable_lld_caching,
             .subsystem = options.subsystem,
             .is_test = options.is_test,

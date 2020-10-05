@@ -268,10 +268,11 @@ const usage_build_generic =
     \\  -T[script], --script [script]  Use a custom linker script
     \\  --version-script [path]        Provide a version .map file
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
-    \\  --each-lib-rpath               Add rpath for each used dynamic library
     \\  --version [ver]                Dynamic library semver
     \\  -rdynamic                      Add all symbols to the dynamic symbol table
     \\  -rpath [path]                  Add directory to the runtime library search path
+    \\  -feach-lib-rpath               Ensure adding rpath for each used dynamic library
+    \\  -fno-each-lib-rpath            Prevent adding rpath for each used dynamic library
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  --emit-relocs                  Enable output of relocation sections for post build tools
     \\  -dynamic                       Force output to be dynamically linked
@@ -442,7 +443,7 @@ fn buildOutputType(
     var use_clang: ?bool = null;
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
-    var each_lib_rpath = false;
+    var each_lib_rpath: ?bool = null;
     var libc_paths_file: ?[]const u8 = null;
     var machine_code_model: std.builtin.CodeModel = .default;
     var runtime_args_start: ?usize = null;
@@ -739,8 +740,10 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
                         override_lib_dir = args[i];
-                    } else if (mem.eql(u8, arg, "--each-lib-rpath")) {
+                    } else if (mem.eql(u8, arg, "-feach-lib-rpath")) {
                         each_lib_rpath = true;
+                    } else if (mem.eql(u8, arg, "-fno-each-lib-rpath")) {
+                        each_lib_rpath = false;
                     } else if (mem.eql(u8, arg, "--enable-cache")) {
                         enable_cache = true;
                     } else if (mem.eql(u8, arg, "--test-cmd-bin")) {

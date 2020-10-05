@@ -1453,10 +1453,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         var test_path = std.ArrayList(u8).init(self.base.allocator);
         defer test_path.deinit();
         for (self.base.options.lib_dirs) |lib_dir_path| {
-            for (self.base.options.system_libs.items()) |link_lib| {
+            for (self.base.options.system_libs.items()) |entry| {
+                const link_lib = entry.key;
                 test_path.shrinkRetainingCapacity(0);
                 const sep = fs.path.sep_str;
-                try test_path.writer().print("{}" ++ sep ++ "lib{}.so", .{ lib_dir_path, link_lib });
+                try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{ lib_dir_path, link_lib });
                 fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
                     error.FileNotFound => continue,
                     else => |e| return e,
