@@ -17,9 +17,6 @@ const DW = std.dwarf;
 const leb128 = std.debug.leb;
 const log = std.log.scoped(.codegen);
 
-// TODO Turn back on zig fmt when https://github.com/ziglang/zig/issues/5948 is implemented.
-// zig fmt: off
-
 /// The codegen-related data that is stored in `ir.Inst.Block` instructions.
 pub const BlockData = struct {
     relocs: std.ArrayListUnmanaged(Reloc) = undefined,
@@ -170,7 +167,6 @@ pub fn generateSymbol(
         },
         .Pointer => {
             // TODO populate .debug_info for the pointer
-
             if (typed_value.val.cast(Value.Payload.DeclRef)) |payload| {
                 const decl = payload.decl;
                 if (decl.analysis != .complete) return error.AnalysisFail;
@@ -206,7 +202,6 @@ pub fn generateSymbol(
         },
         .Int => {
             // TODO populate .debug_info for the integer
-
             const info = typed_value.ty.intInfo(bin_file.options.target);
             if (info.bits == 8 and !info.signed) {
                 const x = typed_value.val.toUnsignedInt();
@@ -399,7 +394,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             self.free_registers &= ~(@as(FreeRegInt, 1) << free_index);
             const reg = callee_preserved_regs[free_index];
             self.registers.putAssumeCapacityNoClobber(reg, inst);
-            log.debug("alloc {} => {*}", .{reg, inst});
+            log.debug("alloc {} => {*}", .{ reg, inst });
             return reg;
         }
 
@@ -439,7 +434,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             }
             try branch_stack.append(.{});
 
-            const src_data: struct {lbrace_src: usize, rbrace_src: usize, source: []const u8} = blk: {
+            const src_data: struct { lbrace_src: usize, rbrace_src: usize, source: []const u8 } = blk: {
                 if (module_fn.owner_decl.scope.cast(Module.Scope.Container)) |container_scope| {
                     const tree = container_scope.file_scope.contents.tree;
                     const fn_proto = tree.root_node.decls()[module_fn.owner_decl.src_index].castTag(.FnProto).?;
@@ -619,7 +614,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                 const mcv = try self.genFuncInst(inst);
                 if (!inst.isUnused()) {
-                    log.debug("{*} => {}", .{inst, mcv});
+                    log.debug("{*} => {}", .{ inst, mcv });
                     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
                     try branch.inst_table.putNoClobber(self.gpa, inst, mcv);
                 }
@@ -884,7 +879,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             // No side effects, so if it's unreferenced, do nothing.
             if (inst.base.isUnused())
                 return MCValue.dead;
-            
+
             const operand = try self.resolveInst(inst.operand);
             const info_a = inst.operand.ty.intInfo(self.target.*);
             const info_b = inst.base.ty.intInfo(self.target.*);
@@ -1005,10 +1000,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     if (self.registers.getEntry(toCanonicalReg(reg))) |entry| {
                         entry.value = inst;
                     }
-                    log.debug("reusing {} => {*}", .{reg, inst});
+                    log.debug("reusing {} => {*}", .{ reg, inst });
                 },
                 .stack_offset => |off| {
-                    log.debug("reusing stack offset {} => {*}", .{off, inst});
+                    log.debug("reusing stack offset {} => {*}", .{ off, inst });
                     return true;
                 },
                 else => return false,
@@ -1307,7 +1302,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const result = self.args[self.arg_index];
             self.arg_index += 1;
 
-            const name_with_null = inst.name[0..mem.lenZ(inst.name) + 1];
+            const name_with_null = inst.name[0 .. mem.lenZ(inst.name) + 1];
             switch (result) {
                 .register => |reg| {
                     self.registers.putAssumeCapacityNoClobber(toCanonicalReg(reg), &inst.base);
@@ -1779,7 +1774,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     self.code.items.len += 4;
                     break :reloc reloc;
                 },
-                else => return self.fail(inst.base.src, "TODO implement condbr {}", .{ self.target.cpu.arch }),
+                else => return self.fail(inst.base.src, "TODO implement condbr {}", .{self.target.cpu.arch}),
             };
 
             // Capture the state of register and stack allocation state so that we can revert to it.
@@ -1859,7 +1854,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     }
                 };
-                log.debug("consolidating else_entry {*} {}=>{}", .{else_entry.key, else_entry.value, canon_mcv});
+                log.debug("consolidating else_entry {*} {}=>{}", .{ else_entry.key, else_entry.value, canon_mcv });
                 // TODO make sure the destination stack offset / register does not already have something
                 // going on there.
                 try self.setRegOrMem(inst.base.src, else_entry.key.ty, canon_mcv, else_entry.value);
@@ -1883,7 +1878,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     }
                 };
-                log.debug("consolidating then_entry {*} {}=>{}", .{then_entry.key, parent_mcv, then_entry.value});
+                log.debug("consolidating then_entry {*} {}=>{}", .{ then_entry.key, parent_mcv, then_entry.value });
                 // TODO make sure the destination stack offset / register does not already have something
                 // going on there.
                 try self.setRegOrMem(inst.base.src, then_entry.key.ty, parent_mcv, then_entry.value);
@@ -1950,7 +1945,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 // break instruction will choose a MCValue for the block result and overwrite
                 // this field. Following break instructions will use that MCValue to put their
                 // block results.
-                .mcv = @bitCast(AnyMCValue, MCValue { .none = {} }),
+                .mcv = @bitCast(AnyMCValue, MCValue{ .none = {} }),
             };
             defer inst.codegen.relocs.deinit(self.gpa);
 
@@ -2232,7 +2227,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 mem.writeIntLittle(u64, &buf, x_big);
 
                                 // mov    DWORD PTR [rbp+offset+4], immediate
-                                self.code.appendSliceAssumeCapacity(&[_]u8{ 0xc7, 0x45, twos_comp + 4});
+                                self.code.appendSliceAssumeCapacity(&[_]u8{ 0xc7, 0x45, twos_comp + 4 });
                                 self.code.appendSliceAssumeCapacity(buf[4..8]);
 
                                 // mov    DWORD PTR [rbp+offset], immediate
@@ -2288,7 +2283,6 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         } else if (x <= math.maxInt(u16)) {
                             // TODO Use movw Note: Not supported on
                             // all ARM targets!
-
                             mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
                             mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 8), 12)).toU32());
                         } else if (x <= math.maxInt(u32)) {
