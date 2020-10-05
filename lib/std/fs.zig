@@ -1856,7 +1856,7 @@ pub const Dir = struct {
     }
 };
 
-/// Returns an handle to the current working directory. It is not opened with iteration capability.
+/// Returns a handle to the current working directory. It is not opened with iteration capability.
 /// Closing the returned `Dir` is checked illegal behavior. Iterating over the result is illegal behavior.
 /// On POSIX targets, this function is comptime-callable.
 pub fn cwd() Dir {
