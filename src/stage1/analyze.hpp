@@ -50,7 +50,13 @@ bool handle_is_ptr(CodeGen *g, ZigType *type_entry);
 bool type_has_bits(CodeGen *g, ZigType *type_entry);
 Error type_has_bits2(CodeGen *g, ZigType *type_entry, bool *result);
 
-Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result);
+enum ExternPosition {
+    ExternPositionFunctionParameter,
+    ExternPositionFunctionReturn,
+    ExternPositionOther, // array element, struct field, optional element, etc
+};
+
+Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, ExternPosition position, bool *result);
 bool ptr_allows_addr_zero(ZigType *ptr_type);
 
 // Deprecated, use `type_is_nonnull_ptr2`
