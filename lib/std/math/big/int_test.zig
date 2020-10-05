@@ -1486,6 +1486,13 @@ test "big.int pow" {
         var a = try Managed.initSet(testing.allocator, 10);
         defer a.deinit();
 
+        try a.pow(a, 8);
+        testing.expectEqual(@as(u32, 100000000), try a.to(u32));
+    }
+    {
+        var a = try Managed.initSet(testing.allocator, 10);
+        defer a.deinit();
+
         var y = try Managed.init(testing.allocator);
         defer y.deinit();
 
