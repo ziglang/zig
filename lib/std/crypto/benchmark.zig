@@ -152,6 +152,8 @@ const aeads = [_]Crypto{
     Crypto{ .ty = crypto.aead.Gimli, .name = "gimli-aead" },
     Crypto{ .ty = crypto.aead.AEGIS128L, .name = "aegis-128l" },
     Crypto{ .ty = crypto.aead.AEGIS256, .name = "aegis-256" },
+    Crypto{ .ty = crypto.aead.AES128GCM, .name = "aes128-gcm" },
+    Crypto{ .ty = crypto.aead.AES256GCM, .name = "aes256-gcm" },
 };
 
 pub fn benchmarkAead(comptime Aead: anytype, comptime bytes: comptime_int) !u64 {
