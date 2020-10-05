@@ -4384,6 +4384,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
                 }
             }
             LLVMTypeRef frame_with_args_type = LLVMStructType(field_types, field_count, false);
+            heap::c_allocator.deallocate(field_types, field_count);
             LLVMTypeRef ptr_frame_with_args_type = LLVMPointerType(frame_with_args_type, 0);
 
             casted_frame = LLVMBuildBitCast(g->builder, frame_result_loc, ptr_frame_with_args_type, "");
@@ -4398,6 +4399,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
             gen_assign_raw(g, arg_ptr, get_pointer_to_type(g, gen_param_types.at(arg_i), true),
                     gen_param_values.at(arg_i));
         }
+        gen_param_types.deinit();
 
         if (instruction->modifier == CallModifierAsync) {
             gen_resume(g, fn_val, frame_result_loc, ResumeIdCall);
@@ -4475,6 +4477,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
             LLVMValueRef result_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_ret_start + 2, "");
             return LLVMBuildLoad(g->builder, result_ptr, "");
         }
+    } else {
+        gen_param_types.deinit();
     }
 
     if (instruction->new_stack == nullptr || instruction->is_async_call_builtin) {
@@ -4792,12 +4796,15 @@ static LLVMValueRef ir_render_asm_gen(CodeGen *g, IrExecutableGen *executable, I
         ret_type = get_llvm_type(g, instruction->base.value->type);
     }
     LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, (unsigned)input_and_output_count, false);
+    heap::c_allocator.deallocate(param_types, input_and_output_count);
 
     bool is_volatile = instruction->has_side_effects || (asm_expr->output_list.length == 0);
     LLVMValueRef asm_fn = LLVMGetInlineAsm(function_type, buf_ptr(&llvm_template), buf_len(&llvm_template),
             buf_ptr(&constraint_buf), buf_len(&constraint_buf), is_volatile, false, LLVMInlineAsmDialectATT);
 
-    return LLVMBuildCall(g->builder, asm_fn, param_values, (unsigned)input_and_output_count, "");
+    LLVMValueRef built_call = LLVMBuildCall(g->builder, asm_fn, param_values, (unsigned)input_and_output_count, "");
+    heap::c_allocator.deallocate(param_values, input_and_output_count);
+    return built_call;
 }
 
 static LLVMValueRef gen_non_null_bit(CodeGen *g, ZigType *maybe_type, LLVMValueRef maybe_handle) {
@@ -5050,6 +5057,8 @@ static LLVMValueRef ir_render_phi(CodeGen *g, IrExecutableGen *executable, IrIns
         incoming_blocks[i] = instruction->incoming_blocks[i]->llvm_exit_block;
     }
     LLVMAddIncoming(phi, incoming_values, incoming_blocks, (unsigned)instruction->incoming_count);
+    heap::c_allocator.deallocate(incoming_values, instruction->incoming_count);
+    heap::c_allocator.deallocate(incoming_blocks, instruction->incoming_count);
     return phi;
 }
 
@@ -7472,10 +7481,14 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
                     }
                 }
                 if (make_unnamed_struct) {
-                    return LLVMConstStruct(fields, type_entry->data.structure.gen_field_count,
+                    LLVMValueRef unnamed_struct = LLVMConstStruct(fields, type_entry->data.structure.gen_field_count,
                         type_entry->data.structure.layout == ContainerLayoutPacked);
+                    heap::c_allocator.deallocate(fields, type_entry->data.structure.gen_field_count);
+                    return unnamed_struct;
                 } else {
-                    return LLVMConstNamedStruct(get_llvm_type(g, type_entry), fields, type_entry->data.structure.gen_field_count);
+                    LLVMValueRef named_struct = LLVMConstNamedStruct(get_llvm_type(g, type_entry), fields, type_entry->data.structure.gen_field_count);
+                    heap::c_allocator.deallocate(fields, type_entry->data.structure.gen_field_count);
+                    return named_struct;
                 }
             }
         case ZigTypeIdArray:
@@ -7500,9 +7513,13 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
                             values[len] = gen_const_val(g, type_entry->data.array.sentinel, "");
                         }
                         if (make_unnamed_struct) {
-                            return LLVMConstStruct(values, full_len, true);
+                            LLVMValueRef unnamed_struct = LLVMConstStruct(values, full_len, true);
+                            heap::c_allocator.deallocate(values, full_len);
+                            return unnamed_struct;
                         } else {
-                            return LLVMConstArray(element_type_ref, values, (unsigned)full_len);
+                            LLVMValueRef array = LLVMConstArray(element_type_ref, values, (unsigned)full_len);
+                            heap::c_allocator.deallocate(values, full_len);
+                            return array;
                         }
                     }
                     case ConstArraySpecialBuf: {
@@ -7524,7 +7541,9 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
                         ZigValue *elem_value = &const_val->data.x_array.data.s_none.elements[i];
                         values[i] = gen_const_val(g, elem_value, "");
                     }
-                    return LLVMConstVector(values, len);
+                    LLVMValueRef vector = LLVMConstVector(values, len);
+                    heap::c_allocator.deallocate(values, len);
+                    return vector;
                 }
                 case ConstArraySpecialBuf: {
                     Buf *buf = const_val->data.x_array.data.s_buf;
@@ -7533,7 +7552,9 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
                     for (uint64_t i = 0; i < len; i += 1) {
                         values[i] = LLVMConstInt(g->builtin_types.entry_u8->llvm_type, buf_ptr(buf)[i], false);
                     }
-                    return LLVMConstVector(values, len);
+                    LLVMValueRef vector = LLVMConstVector(values, len);
+                    heap::c_allocator.deallocate(values, len);
+                    return vector;
                 }
             }
             zig_unreachable();
@@ -7755,6 +7776,7 @@ static void generate_error_name_table(CodeGen *g) {
     }
 
     LLVMValueRef err_name_table_init = LLVMConstArray(get_llvm_type(g, str_type), values, (unsigned)g->errors_by_index.length);
+    heap::c_allocator.deallocate(values, g->errors_by_index.length);
 
     g->err_name_table = LLVMAddGlobal(g->module, LLVMTypeOf(err_name_table_init),
             get_mangled_name(g, buf_ptr(buf_create_from_str("__zig_err_name_table"))));

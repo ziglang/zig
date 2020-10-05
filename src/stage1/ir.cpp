@@ -9656,6 +9656,7 @@ static IrInstSrc *ir_gen_continue(IrBuilderSrc *irb, Scope *continue_scope, AstN
         ScopeRuntime *scope_runtime = runtime_scopes.at(i);
         ir_mark_gen(ir_build_check_runtime_scope(irb, continue_scope, node, scope_runtime->is_comptime, is_comptime));
     }
+    runtime_scopes.deinit();
 
     IrBasicBlockSrc *dest_block = loop_scope->continue_block;
     if (!ir_gen_defers_for_block(irb, continue_scope, dest_block->scope, nullptr, nullptr))
@@ -21594,6 +21595,7 @@ static IrInstGen *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstSrcPhi *phi_i
                     predecessor->instruction_list.append(instrs_to_move.pop());
                 }
                 predecessor->instruction_list.append(branch_instruction);
+                instrs_to_move.deinit();
             }
         }
 
@@ -21644,7 +21646,10 @@ static IrInstGen *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstSrcPhi *phi_i
     }
 
     if (new_incoming_blocks.length == 1) {
-        return new_incoming_values.at(0);
+        IrInstGen *incoming_value = new_incoming_values.at(0);
+        new_incoming_blocks.deinit();
+        new_incoming_values.deinit();
+        return incoming_value;
     }
 
     ZigType *resolved_type = nullptr;
@@ -24207,6 +24212,7 @@ static IrInstGen *ir_analyze_container_init_fields(IrAnalyze *ira, IrInst *sourc
             first_non_const_instruction = result_loc;
         }
     }
+    heap::c_allocator.deallocate(field_assign_nodes, actual_field_count);
     if (any_missing)
         return ira->codegen->invalid_inst_gen;
 
@@ -24222,6 +24228,7 @@ static IrInstGen *ir_analyze_container_init_fields(IrAnalyze *ira, IrInst *sourc
         }
     }
 
+    const_ptrs.deinit();
     IrInstGen *result = ir_get_deref(ira, source_instr, result_loc, nullptr);
 
     if (is_comptime && !instr_is_comptime(result)) {
@@ -30184,6 +30191,7 @@ static IrInstGen *ir_analyze_bit_cast(IrAnalyze *ira, IrInst* source_instr, IrIn
         buf_write_value_bytes(ira->codegen, buf, val);
         if ((err = buf_read_value_bytes(ira, ira->codegen, source_instr->source_node, buf, result->value)))
             return ira->codegen->invalid_inst_gen;
+        heap::c_allocator.deallocate(buf, src_size_bytes);
         return result;
     }
 
@@ -31221,6 +31229,8 @@ static IrInstGen *ir_analyze_instruction_bit_reverse(IrAnalyze *ira, IrInstSrcBi
                                     ira->codegen->is_big_endian,
                                     int_type->data.integral.is_signed);
 
+        heap::c_allocator.deallocate(comptime_buf, buf_size);
+        heap::c_allocator.deallocate(result_buf, buf_size);
         return result;
     }
 
