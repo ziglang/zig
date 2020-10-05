@@ -22,10 +22,10 @@ const minimum_text_block_size = 64 * allocation_padding;
 
 const section_alignment = 4096;
 const file_alignment = 512;
-const image_base = 0x400_000;
+const default_image_base = 0x400_000;
 const section_table_size = 2 * 40;
 comptime {
-    assert(mem.isAligned(image_base, section_alignment));
+    assert(mem.isAligned(default_image_base, section_alignment));
 }
 
 pub const base_tag: link.File.Tag = .coff;
@@ -55,7 +55,7 @@ offset_table: std.ArrayListUnmanaged(u64) = .{},
 /// Free list of offset table indices
 offset_table_free_list: std.ArrayListUnmanaged(u32) = .{},
 
-/// Virtual address of the entry point procedure relative to `image_base`
+/// Virtual address of the entry point procedure relative to image base.
 entry_addr: ?u32 = null,
 
 /// Absolute virtual address of the text section when the executable is loaded in memory.
@@ -183,14 +183,14 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
 
     self.section_data_offset = mem.alignForwardGeneric(u32, self.section_table_offset + section_table_size, file_alignment);
     const section_data_relative_virtual_address = mem.alignForwardGeneric(u32, self.section_table_offset + section_table_size, section_alignment);
-    self.offset_table_virtual_address = image_base + section_data_relative_virtual_address;
+    self.offset_table_virtual_address = default_image_base + section_data_relative_virtual_address;
     self.offset_table_size = default_offset_table_size;
     self.section_table_offset = section_table_offset;
-    self.text_section_virtual_address = image_base + section_data_relative_virtual_address + section_alignment;
+    self.text_section_virtual_address = default_image_base + section_data_relative_virtual_address + section_alignment;
     self.text_section_size = default_size_of_code;
 
     // Size of file when loaded in memory
-    const size_of_image = mem.alignForwardGeneric(u32, self.text_section_virtual_address - image_base + default_size_of_code, section_alignment);
+    const size_of_image = mem.alignForwardGeneric(u32, self.text_section_virtual_address - default_image_base + default_size_of_code, section_alignment);
 
     mem.writeIntLittle(u16, hdr_data[index..][0..2], optional_header_size);
     index += 2;
@@ -234,11 +234,11 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
             index += 4;
 
             // Image base address
-            mem.writeIntLittle(u32, hdr_data[index..][0..4], image_base);
+            mem.writeIntLittle(u32, hdr_data[index..][0..4], default_image_base);
             index += 4;
         } else {
             // Image base address
-            mem.writeIntLittle(u64, hdr_data[index..][0..8], image_base);
+            mem.writeIntLittle(u64, hdr_data[index..][0..8], default_image_base);
             index += 8;
         }
 
@@ -328,7 +328,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         mem.writeIntLittle(u32, hdr_data[index..][0..4], default_offset_table_size);
         index += 4;
         // Virtual address (u32)
-        mem.writeIntLittle(u32, hdr_data[index..][0..4], self.offset_table_virtual_address - image_base);
+        mem.writeIntLittle(u32, hdr_data[index..][0..4], self.offset_table_virtual_address - default_image_base);
         index += 4;
     } else {
         mem.set(u8, hdr_data[index..][0..8], 0);
@@ -354,7 +354,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
         mem.writeIntLittle(u32, hdr_data[index..][0..4], default_size_of_code);
         index += 4;
         // Virtual address (u32)
-        mem.writeIntLittle(u32, hdr_data[index..][0..4], self.text_section_virtual_address - image_base);
+        mem.writeIntLittle(u32, hdr_data[index..][0..4], self.text_section_virtual_address - default_image_base);
         index += 4;
     } else {
         mem.set(u8, hdr_data[index..][0..8], 0);
@@ -601,7 +601,7 @@ fn writeOffsetTableEntry(self: *Coff, index: usize) !void {
 
             // Write .text new virtual address
             self.text_section_virtual_address = self.text_section_virtual_address + va_offset;
-            mem.writeIntLittle(u32, buf[0..4], self.text_section_virtual_address - image_base);
+            mem.writeIntLittle(u32, buf[0..4], self.text_section_virtual_address - default_image_base);
             try self.base.file.?.pwriteAll(buf[0..4], self.section_table_offset + 40 + 12);
 
             // Fix the VAs in the offset table
@@ -716,7 +716,7 @@ pub fn updateDeclExports(self: *Coff, module: *Module, decl: *const Module.Decl,
             }
         }
         if (mem.eql(u8, exp.options.name, "_start")) {
-            self.entry_addr = decl.link.coff.getVAddr(self.*) - image_base;
+            self.entry_addr = decl.link.coff.getVAddr(self.*) - default_image_base;
         } else {
             try module.failed_exports.ensureCapacity(module.gpa, module.failed_exports.items().len + 1);
             module.failed_exports.putAssumeCapacityNoClobber(
@@ -754,7 +754,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation) !void {
     }
 
     if (self.base.options.output_mode == .Exe and self.size_of_image_dirty) {
-        const new_size_of_image = mem.alignForwardGeneric(u32, self.text_section_virtual_address - image_base + self.text_section_size, section_alignment);
+        const new_size_of_image = mem.alignForwardGeneric(u32, self.text_section_virtual_address - default_image_base + self.text_section_size, section_alignment);
         var buf: [4]u8 = undefined;
         mem.writeIntLittle(u32, &buf, new_size_of_image);
         try self.base.file.?.pwriteAll(&buf, self.optional_header_offset + 56);
@@ -832,6 +832,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         }
         try man.addOptionalFile(module_obj_path);
         man.hash.addOptional(self.base.options.stack_size_override);
+        man.hash.addOptional(self.base.options.image_base_override);
         man.hash.addListOfBytes(self.base.options.extra_lld_args);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.add(self.base.options.is_compiler_rt_or_libc);
@@ -913,6 +914,9 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
         if (self.base.options.output_mode == .Exe) {
             const stack_size = self.base.options.stack_size_override orelse 16777216;
             try argv.append(try allocPrint(arena, "-STACK:{d}", .{stack_size}));
+        }
+        if (self.base.options.image_base_override) |image_base| {
+            try argv.append(try std.fmt.allocPrint(arena, "-BASE:{d}", .{image_base}));
         }
 
         if (target.cpu.arch == .i386) {

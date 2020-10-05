@@ -279,6 +279,7 @@ const usage_build_generic =
     \\  -Bsymbolic                     Bind global references locally
     \\  --subsystem [subsystem]        (windows) /SUBSYSTEM:<subsystem> to the linker\n"
     \\  --stack [size]                 Override default stack size
+    \\  --image-base [addr]            Set base address for executable image
     \\  -framework [name]              (darwin) link against framework
     \\  -F[dir]                        (darwin) add search path for frameworks
     \\
@@ -435,6 +436,7 @@ fn buildOutputType(
     var linker_z_defs = false;
     var test_evented_io = false;
     var stack_size_override: ?u64 = null;
+    var image_base_override: ?u64 = null;
     var use_llvm: ?bool = null;
     var use_lld: ?bool = null;
     var use_clang: ?bool = null;
@@ -628,9 +630,11 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--stack")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
-                        stack_size_override = std.fmt.parseInt(u64, args[i], 10) catch |err| {
-                            fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
-                        };
+                        stack_size_override = parseAnyBaseInt(args[i]);
+                    } else if (mem.eql(u8, arg, "--image-base")) {
+                        if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
+                        i += 1;
+                        image_base_override = parseAnyBaseInt(args[i]);
                     } else if (mem.eql(u8, arg, "--name")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
@@ -1147,9 +1151,13 @@ fn buildOutputType(
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{}'", .{arg});
                     }
-                    stack_size_override = std.fmt.parseInt(u64, linker_args.items[i], 10) catch |err| {
-                        fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
-                    };
+                    stack_size_override = parseAnyBaseInt(linker_args.items[i]);
+                } else if (mem.eql(u8, arg, "--image-base")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{}'", .{arg});
+                    }
+                    image_base_override = parseAnyBaseInt(linker_args.items[i]);
                 } else {
                     warn("unsupported linker arg: {}", .{arg});
                 }
@@ -1595,6 +1603,7 @@ fn buildOutputType(
         .link_eh_frame_hdr = link_eh_frame_hdr,
         .link_emit_relocs = link_emit_relocs,
         .stack_size_override = stack_size_override,
+        .image_base_override = image_base_override,
         .strip = strip,
         .single_threaded = single_threaded,
         .function_sections = function_sections,
@@ -3050,4 +3059,19 @@ pub fn cleanExit() void {
     } else {
         process.exit(0);
     }
+}
+
+fn parseAnyBaseInt(prefixed_bytes: []const u8) u64 {
+    const base: u8 = if (mem.startsWith(u8, prefixed_bytes, "0x"))
+        16
+    else if (mem.startsWith(u8, prefixed_bytes, "0o"))
+        8
+    else if (mem.startsWith(u8, prefixed_bytes, "0b"))
+        2
+    else
+        @as(u8, 10);
+    const bytes = if (base == 10) prefixed_bytes else prefixed_bytes[2..];
+    return std.fmt.parseInt(u64, bytes, base) catch |err| {
+        fatal("unable to parse '{}': {}", .{ prefixed_bytes, @errorName(err) });
+    };
 }

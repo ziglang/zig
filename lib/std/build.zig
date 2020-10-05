@@ -1232,6 +1232,9 @@ pub const LibExeObjStep = struct {
     installed_path: ?[]const u8,
     install_step: ?*InstallArtifactStep,
 
+    /// Base address for an executable image.
+    image_base: ?u64 = null,
+
     libc_file: ?[]const u8 = null,
 
     valgrind_support: ?bool = null,
@@ -2039,6 +2042,11 @@ pub const LibExeObjStep = struct {
             try zig_args.append("build_options");
             try zig_args.append(path_from_root);
             try zig_args.append("--pkg-end");
+        }
+
+        if (self.image_base) |image_base| {
+            try zig_args.append("--image-base");
+            try zig_args.append(image_base);
         }
 
         if (self.filter) |filter| {

@@ -45,6 +45,7 @@ pub const Options = struct {
     program_code_size_hint: u64 = 256 * 1024,
     entry_addr: ?u64 = null,
     stack_size_override: ?u64,
+    image_base_override: ?u64,
     /// Set to `true` to omit debug info.
     strip: bool,
     /// If this is true then this link code is responsible for outputting an object

@@ -378,6 +378,7 @@ pub const InitOptions = struct {
     is_compiler_rt_or_libc: bool = false,
     parent_compilation_link_libc: bool = false,
     stack_size_override: ?u64 = null,
+    image_base_override: ?u64 = null,
     self_exe_path: ?[]const u8 = null,
     version: ?std.builtin.Version = null,
     libc_installation: ?*const LibCInstallation = null,
@@ -452,6 +453,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 options.link_emit_relocs or
                 options.output_mode == .Lib or
                 options.lld_argv.len != 0 or
+                options.image_base_override != null or
                 options.linker_script != null or options.version_script != null)
             {
                 break :blk true;
@@ -772,6 +774,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .z_nodelete = options.linker_z_nodelete,
             .z_defs = options.linker_z_defs,
             .stack_size_override = options.stack_size_override,
+            .image_base_override = options.image_base_override,
             .linker_script = options.linker_script,
             .version_script = options.version_script,
             .gc_sections = options.linker_gc_sections,

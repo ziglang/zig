@@ -1284,6 +1284,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
         man.hash.add(stack_size);
+        man.hash.addOptional(self.base.options.image_base_override);
         man.hash.add(gc_sections);
         man.hash.add(self.base.options.eh_frame_hdr);
         man.hash.add(self.base.options.emit_relocs);
@@ -1351,6 +1352,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     if (self.base.options.output_mode == .Exe) {
         try argv.append("-z");
         try argv.append(try std.fmt.allocPrint(arena, "stack-size={}", .{stack_size}));
+    }
+
+    if (self.base.options.image_base_override) |image_base| {
+        try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{image_base}));
     }
 
     if (self.base.options.linker_script) |linker_script| {
