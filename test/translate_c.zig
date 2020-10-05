@@ -3,6 +3,22 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("macro expressions respect C operator precedence",
+        \\#define FOO *((foo) + 2)
+        \\#define VALUE  (1 + 2 * 3 + 4 * 5 + 6 << 7 | 8 == 9)
+        \\#define _AL_READ3BYTES(p)   ((*(unsigned char *)(p))            \
+        \\                             | (*((unsigned char *)(p) + 1) << 8)  \
+        \\                             | (*((unsigned char *)(p) + 2) << 16))
+    , &[_][]const u8{
+        \\pub const FOO = (foo + 2).*;
+    ,
+        \\pub const VALUE = ((((1 + (2 * 3)) + (4 * 5)) + 6) << 7) | @boolToInt(8 == 9);
+    ,
+        \\pub inline fn _AL_READ3BYTES(p: anytype) @TypeOf(((@import("std").meta.cast([*c]u8, p)).* | (((@import("std").meta.cast([*c]u8, p)) + 1).* << 8)) | (((@import("std").meta.cast([*c]u8, p)) + 2).* << 16)) {
+        \\    return ((@import("std").meta.cast([*c]u8, p)).* | (((@import("std").meta.cast([*c]u8, p)) + 1).* << 8)) | (((@import("std").meta.cast([*c]u8, p)) + 2).* << 16);
+        \\}
+    });
+
     cases.add("extern variable in block scope",
         \\float bar;
         \\int foo() {
@@ -2978,7 +2994,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("string concatenation in macros: three strings",
         \\#define FOO "a" "b" "c"
     , &[_][]const u8{
-        \\pub const FOO = "a" ++ ("b" ++ "c");
+        \\pub const FOO = "a" ++ "b" ++ "c";
     });
 
     cases.add("multibyte character literals",
