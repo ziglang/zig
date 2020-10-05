@@ -591,3 +591,13 @@ test "fsync" {
     try os.fsync(file.handle);
     try os.fdatasync(file.handle);
 }
+
+test "getrlimit and setrlimit" {
+    // TODO enable for other systems when implemented
+    if(builtin.os.tag != .linux){
+        return error.SkipZigTest;
+    }
+
+    const cpuLimit = try os.getrlimit(.CPU);
+    try os.setrlimit(.CPU, cpuLimit);
+}
