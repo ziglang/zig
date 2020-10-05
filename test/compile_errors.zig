@@ -2,6 +2,19 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("array in c exported function",
+        \\export fn zig_array(x: [10]u8) void {
+        \\    expect(std.mem.eql(u8, &x, "1234567890"));
+        \\}
+        \\
+        \\export fn zig_return_array() [10]u8 {
+        \\    return "1234567890".*;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:1:24: error: parameter of type '[10]u8' not allowed in function with calling convention 'C'",
+        "tmp.zig:5:30: error: return type '[10]u8' not allowed in function with calling convention 'C'",
+    });
+
     cases.add("@Type for exhaustive enum with undefined tag type",
         \\const TypeInfo = @import("builtin").TypeInfo;
         \\const Tag = @Type(.{

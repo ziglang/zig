@@ -18963,7 +18963,7 @@ static IrInstGen *ir_analyze_instruction_export(IrAnalyze *ira, IrInstSrcExport 
             break;
         case ZigTypeIdArray: {
             bool ok_type;
-            if ((err = type_allowed_in_extern(ira->codegen, target->value->type->data.array.child_type, &ok_type)))
+            if ((err = type_allowed_in_extern(ira->codegen, target->value->type->data.array.child_type, ExternPositionOther, &ok_type)))
                 return ira->codegen->invalid_inst_gen;
 
             if (!ok_type) {
@@ -32745,7 +32745,7 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
                 return ErrorSemanticAnalyzeFail;
             } else if (lazy_ptr_type->ptr_len == PtrLenC) {
                 bool ok_type;
-                if ((err = type_allowed_in_extern(ira->codegen, elem_type, &ok_type)))
+                if ((err = type_allowed_in_extern(ira->codegen, elem_type, ExternPositionOther, &ok_type)))
                     return err;
                 if (!ok_type) {
                     ir_add_error(ira, &lazy_ptr_type->elem_type->base,

@@ -1754,7 +1754,7 @@ static Error emit_error_unless_type_allowed_in_packed_union(CodeGen *g, ZigType 
     return emit_error_unless_type_allowed_in_packed_container(g, type_entry, source_node, "union");
 }
 
-Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
+Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, ExternPosition position, bool *result) {
     Error err;
     switch (type_entry->id) {
         case ZigTypeIdInvalid:
@@ -1773,8 +1773,10 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
         case ZigTypeIdAnyFrame:
             *result = false;
             return ErrorNone;
-        case ZigTypeIdOpaque:
         case ZigTypeIdUnreachable:
+            *result = position == ExternPositionFunctionReturn;
+            return ErrorNone;
+        case ZigTypeIdOpaque:
         case ZigTypeIdBool:
             *result = true;
             return ErrorNone;
@@ -1792,23 +1794,27 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
                     return ErrorNone;
             }
         case ZigTypeIdVector:
-            return type_allowed_in_extern(g, type_entry->data.vector.elem_type, result);
+            return type_allowed_in_extern(g, type_entry->data.vector.elem_type, ExternPositionOther, result);
         case ZigTypeIdFloat:
             *result = true;
             return ErrorNone;
         case ZigTypeIdArray:
-            return type_allowed_in_extern(g, type_entry->data.array.child_type, result);
+            if ((err = type_allowed_in_extern(g, type_entry->data.array.child_type, ExternPositionOther, result)))
+                return err;
+            *result = *result &&
+                position != ExternPositionFunctionParameter &&
+                position != ExternPositionFunctionReturn;
+            return ErrorNone;
         case ZigTypeIdFn:
             *result = !calling_convention_allows_zig_types(type_entry->data.fn.fn_type_id.cc);
             return ErrorNone;
         case ZigTypeIdPointer:
             if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
                 return err;
-            if (!type_has_bits(g, type_entry)) {
-                *result = false;
-                return ErrorNone;
-            }
-            *result = true;
+            bool has_bits;
+            if ((err = type_has_bits2(g, type_entry, &has_bits)))
+                return err;
+            *result = has_bits;
             return ErrorNone;
         case ZigTypeIdStruct:
             *result = type_entry->data.structure.layout == ContainerLayoutExtern ||
@@ -1820,23 +1826,24 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
                 *result = false;
                 return ErrorNone;
             }
-            if (!type_is_nonnull_ptr(g, child_type)) {
+            bool is_nonnull_ptr;
+            if ((err = type_is_nonnull_ptr2(g, child_type, &is_nonnull_ptr)))
+                return err;
+            if (!is_nonnull_ptr) {
                 *result = false;
                 return ErrorNone;
             }
-            return type_allowed_in_extern(g, child_type, result);
+            return type_allowed_in_extern(g, child_type, ExternPositionOther, result);
         }
         case ZigTypeIdEnum: {
             if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
                 return err;
             ZigType *tag_int_type = type_entry->data.enumeration.tag_int_type;
-            if (type_entry->data.enumeration.has_explicit_tag_type) {
-                return type_allowed_in_extern(g, tag_int_type, result);
-            } else {
-                *result = type_entry->data.enumeration.layout == ContainerLayoutExtern ||
-                    type_entry->data.enumeration.layout == ContainerLayoutPacked;
-                return ErrorNone;
-            }
+            if (type_entry->data.enumeration.has_explicit_tag_type)
+                return type_allowed_in_extern(g, tag_int_type, position, result);
+            *result = type_entry->data.enumeration.layout == ContainerLayoutExtern ||
+                type_entry->data.enumeration.layout == ContainerLayoutPacked;
+            return ErrorNone;
         }
         case ZigTypeIdUnion:
             *result = type_entry->data.unionation.layout == ContainerLayoutExtern ||
@@ -1933,7 +1940,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
 
         if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
             bool ok_type;
-            if ((err = type_allowed_in_extern(g, type_entry, &ok_type)))
+            if ((err = type_allowed_in_extern(g, type_entry, ExternPositionFunctionParameter, &ok_type)))
                 return g->builtin_types.entry_invalid;
             if (!ok_type) {
                 add_node_error(g, param_node->data.param_decl.type,
@@ -2038,7 +2045,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         if ((err = type_resolve(g, fn_type_id.return_type, ResolveStatusSizeKnown)))
             return g->builtin_types.entry_invalid;
         bool ok_type;
-        if ((err = type_allowed_in_extern(g, fn_type_id.return_type, &ok_type)))
+        if ((err = type_allowed_in_extern(g, fn_type_id.return_type, ExternPositionFunctionReturn, &ok_type)))
             return g->builtin_types.entry_invalid;
         if (!ok_type) {
             add_node_error(g, fn_proto->return_type,
@@ -2357,7 +2364,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
 
         if (struct_type->data.structure.layout == ContainerLayoutExtern) {
             bool ok_type;
-            if ((err = type_allowed_in_extern(g, field_type, &ok_type))) {
+            if ((err = type_allowed_in_extern(g, field_type, ExternPositionOther, &ok_type))) {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
                 return ErrorSemanticAnalyzeFail;
             }
@@ -2612,7 +2619,7 @@ static Error type_is_valid_extern_enum_tag(CodeGen *g, ZigType *ty, bool *result
     // signed char, a signed integer or an unsigned one. But GCC/Clang allow
     // other integral types as a compiler extension so let's accomodate them
     // aswell.
-    return type_allowed_in_extern(g, ty, result);
+    return type_allowed_in_extern(g, ty, ExternPositionOther, result);
 }
 
 static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {

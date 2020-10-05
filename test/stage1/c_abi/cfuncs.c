@@ -28,8 +28,6 @@ void zig_ptr(void *);
 
 void zig_bool(bool);
 
-void zig_array(uint8_t[10]);
-
 struct BigStruct {
     uint64_t a;
     uint64_t b;
@@ -96,9 +94,6 @@ void run_c_tests(void) {
     zig_ptr((void*)0xdeadbeefL);
 
     zig_bool(true);
-
-    uint8_t array[10] = {'1', '2', '3', '4', '5', '6', '7', '8', '9', '0'};
-    zig_array(array);
 
     {
         struct BigStruct s = {1, 2, 3, 4, 5};
@@ -188,19 +183,6 @@ void c_five_floats(float a, float b, float c, float d, float e) {
     assert_or_panic(c == 3.0);
     assert_or_panic(d == 4.0);
     assert_or_panic(e == 5.0);
-}
-
-void c_array(uint8_t x[10]) {
-    assert_or_panic(x[0] == '1');
-    assert_or_panic(x[1] == '2');
-    assert_or_panic(x[2] == '3');
-    assert_or_panic(x[3] == '4');
-    assert_or_panic(x[4] == '5');
-    assert_or_panic(x[5] == '6');
-    assert_or_panic(x[6] == '7');
-    assert_or_panic(x[7] == '8');
-    assert_or_panic(x[8] == '9');
-    assert_or_panic(x[9] == '0');
 }
 
 void c_big_struct(struct BigStruct x) {
