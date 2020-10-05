@@ -493,7 +493,7 @@ if("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
   endif()
 else()
   add_custom_target(zig_build_zig1 ALL
-      COMMAND "${ZIG_EXECUTABLE}" ${BUILD_ZIG1_ARGS}
+      COMMAND "${ZIG_EXECUTABLE}" "build-obj" ${BUILD_ZIG1_ARGS}
       BYPRODUCTS "${ZIG1_OBJECT}"
       COMMENT STATUS "Building self-hosted component ${ZIG1_OBJECT}"
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
