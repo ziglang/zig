@@ -4945,6 +4945,7 @@ pub fn sendfile(
 pub const CopyFileRangeError = error{
     FileTooBig,
     InputOutput,
+    InvalidFileDescriptor,
     IsDir,
     OutOfMemory,
     NoSpaceLeft,
@@ -4978,6 +4979,11 @@ pub const CopyFileRangeError = error{
 /// Other systems fall back to calling `pread` / `pwrite`.
 ///
 /// Maximum offsets on Linux are `math.maxInt(i64)`.
+var has_copy_file_range_syscall = init: {
+    const kernel_has_syscall = comptime std.Target.current.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) orelse true;
+    break :init std.atomic.Int(u1).init(@boolToInt(kernel_has_syscall));
+};
+
 pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
     const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
 
@@ -4992,7 +4998,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
         const rc = sys.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, flags);
         switch (sys.getErrno(rc)) {
             0 => return @intCast(usize, rc),
-            EBADF => unreachable,
+            EBADF => return error.InvalidFileDescriptor,
             EFBIG => return error.FileTooBig,
             EIO => return error.InputOutput,
             EISDIR => return error.IsDir,
@@ -5013,96 +5019,24 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
         }
     }
 
-    var buf: [8 * 4096]u8 = undefined;
-    const adjusted_count = math.min(buf.len, len);
-    const amt_read = try pread(fd_in, buf[0..adjusted_count], off_in);
-    // TODO without @as the line below fails to compile for wasm32-wasi:
-    // error: integer value 0 cannot be coerced to type 'os.PWriteError!usize'
-    if (amt_read == 0) return @as(usize, 0);
-    return pwrite(fd_out, buf[0..amt_read], off_out);
-}
+    var buf: [2 * 4096]u8 = undefined;
 
-var has_copy_file_range_syscall = std.atomic.Int(u1).init(1);
-
-pub const CopyFileOptions = struct {};
-
-pub const CopyFileError = error{
-    BadFileHandle,
-    SystemResources,
-    FileTooBig,
-    InputOutput,
-    IsDir,
-    OutOfMemory,
-    NoSpaceLeft,
-    Unseekable,
-    PermissionDenied,
-    FileBusy,
-} || FStatError || SendFileError;
-
-/// Transfer all the data between two file descriptors in the most efficient way.
-/// No metadata is transferred over.
-pub fn copy_file(fd_in: fd_t, fd_out: fd_t, options: CopyFileOptions) CopyFileError!void {
-    if (comptime std.Target.current.isDarwin()) {
-        const rc = system.fcopyfile(fd_in, fd_out, null, system.COPYFILE_DATA);
-        switch (errno(rc)) {
-            0 => return,
-            EINVAL => unreachable,
-            ENOMEM => return error.SystemResources,
-            // The source file was not a directory, symbolic link, or regular file.
-            // Try with the fallback path before giving up.
-            ENOTSUP => {},
-            else => |err| return unexpectedErrno(err),
-        }
+    var total_copied: usize = 0;
+    var read_off = off_in;
+    var write_off = off_out;
+    while (total_copied < len) {
+        const adjusted_count = math.min(buf.len, len - total_copied);
+        const amt_read = try pread(fd_in, buf[0..adjusted_count], read_off);
+        if (amt_read == 0) break;
+        const amt_written = try pwrite(fd_out, buf[0..amt_read], write_off);
+        // pwrite may write less than the specified amount, handle the remaining
+        // chunk of data in the next iteration
+        read_off += amt_written;
+        write_off += amt_written;
+        total_copied += amt_written;
     }
 
-    if (std.Target.current.os.tag == .linux) {
-        // Try copy_file_range first as that works at the FS level and is the
-        // most efficient method (if available).
-        if (has_copy_file_range_syscall.get() != 0) {
-            cfr_loop: while (true) {
-                // The kernel checks `file_pos+count` for overflow, use a 32 bit
-                // value so that the syscall won't return EINVAL except for
-                // impossibly large files.
-                const rc = linux.copy_file_range(fd_in, null, fd_out, null, math.maxInt(u32), 0);
-                switch (errno(rc)) {
-                    0 => {},
-                    EBADF => return error.BadFileHandle,
-                    EFBIG => return error.FileTooBig,
-                    EIO => return error.InputOutput,
-                    EISDIR => return error.IsDir,
-                    ENOMEM => return error.OutOfMemory,
-                    ENOSPC => return error.NoSpaceLeft,
-                    EOVERFLOW => return error.Unseekable,
-                    EPERM => return error.PermissionDenied,
-                    ETXTBSY => return error.FileBusy,
-                    // These may not be regular files, try fallback
-                    EINVAL => break :cfr_loop,
-                    // Support for cross-filesystem copy added in Linux 5.3, use fallback
-                    EXDEV => break :cfr_loop,
-                    // Syscall added in Linux 4.5, use fallback
-                    ENOSYS => {
-                        has_copy_file_range_syscall.set(0);
-                        break :cfr_loop;
-                    },
-                    else => |err| return unexpectedErrno(err),
-                }
-                // Terminate when no data was copied
-                if (rc == 0) return;
-            }
-            // This point is reached when an error occurred, hopefully no data
-            // was transferred yet
-        }
-    }
-
-    // Sendfile is a zero-copy mechanism iff the OS supports it, otherwise the
-    // fallback code will copy the contents chunk by chunk.
-    const empty_iovec = [0]iovec_const{};
-    var offset: u64 = 0;
-    sendfile_loop: while (true) {
-        const amt = try sendfile(fd_out, fd_in, offset, 0, &empty_iovec, &empty_iovec, 0);
-        if (amt == 0) break :sendfile_loop;
-        offset += amt;
-    }
+    return total_copied;
 }
 
 pub const PollError = error{
