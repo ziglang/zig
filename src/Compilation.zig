@@ -2590,6 +2590,8 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     man.hash.add(comp.emit_llvm_ir != null);
     man.hash.add(comp.emit_analysis != null);
     man.hash.add(comp.emit_docs != null);
+    man.hash.add(comp.test_filter != null);
+    man.hash.add(comp.test_name_prefix != null);
 
     // Capture the state in case we come back from this branch where the hash doesn't match.
     const prev_hash_state = man.hash.peekBin();
