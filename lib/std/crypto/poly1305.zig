@@ -91,7 +91,7 @@ pub const Poly1305 = struct {
             }
             mb = mb[want..];
             st.leftover += want;
-            if (st.leftover > block_size) {
+            if (st.leftover < block_size) {
                 return;
             }
             st.blocks(&st.buf, false);
@@ -112,6 +112,19 @@ pub const Poly1305 = struct {
             }
             st.leftover += mb.len;
         }
+    }
+
+    /// Zero-pad to align the next input to the first byte of a block
+    pub fn pad(st: *Poly1305) void {
+        if (st.leftover == 0) {
+            return;
+        }
+        var i = st.leftover;
+        while (i < block_size) : (i += 1) {
+            st.buf[i] = 0;
+        }
+        st.blocks(&st.buf);
+        st.leftover = 0;
     }
 
     pub fn final(st: *Poly1305, out: *[mac_length]u8) void {
