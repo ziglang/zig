@@ -2270,14 +2270,14 @@ const CopyFileError = error{SystemResources} || os.CopyFileRangeError || os.Send
 fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t) CopyFileError!void {
     if (comptime std.Target.current.isDarwin()) {
         const rc = os.system.fcopyfile(fd_in, fd_out, null, os.system.COPYFILE_DATA);
-        switch (errno(rc)) {
+        switch (os.errno(rc)) {
             0 => return,
-            EINVAL => unreachable,
-            ENOMEM => return error.SystemResources,
-            // The source file was not a directory, symbolic link, or regular file.
+            os.EINVAL => unreachable,
+            os.ENOMEM => return error.SystemResources,
+            // The source file is not a directory, symbolic link, or regular file.
             // Try with the fallback path before giving up.
-            ENOTSUP => {},
-            else => |err| return unexpectedErrno(err),
+            os.ENOTSUP => {},
+            else => |err| return os.unexpectedErrno(err),
         }
     }
 
@@ -2286,9 +2286,9 @@ fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t) CopyFileError!void {
         // most efficient method (if available).
         var offset: u64 = 0;
         cfr_loop: while (true) {
-            // The kernel checks `offset+count` for overflow, use a 32 bit
-            // value so that the syscall won't return EINVAL except for
-            // impossibly large files.
+            // The kernel checks the u64 value `offset+count` for overflow, use
+            // a 32 bit value so that the syscall won't return EINVAL except for
+            // impossibly large files (> 2^64-1 - 2^32-1).
             const amt = try os.copy_file_range(fd_in, offset, fd_out, offset, math.maxInt(u32), 0);
             // Terminate when no data was copied
             if (amt == 0) break :cfr_loop;

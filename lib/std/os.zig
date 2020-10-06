@@ -4954,6 +4954,11 @@ pub const CopyFileRangeError = error{
     FileBusy,
 } || PReadError || PWriteError || UnexpectedError;
 
+var has_copy_file_range_syscall = init: {
+    const kernel_has_syscall = comptime std.Target.current.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) orelse true;
+    break :init std.atomic.Int(bool).init(kernel_has_syscall);
+};
+
 /// Transfer data between file descriptors at specified offsets.
 /// Returns the number of bytes written, which can less than requested.
 ///
@@ -4979,16 +4984,11 @@ pub const CopyFileRangeError = error{
 /// Other systems fall back to calling `pread` / `pwrite`.
 ///
 /// Maximum offsets on Linux are `math.maxInt(i64)`.
-var has_copy_file_range_syscall = init: {
-    const kernel_has_syscall = comptime std.Target.current.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) orelse true;
-    break :init std.atomic.Int(u1).init(@boolToInt(kernel_has_syscall));
-};
-
 pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
     const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
 
     if (std.Target.current.os.tag == .linux and
-        (use_c or has_copy_file_range_syscall.get() != 0))
+        (use_c or has_copy_file_range_syscall.get()))
     {
         const sys = if (use_c) std.c else linux;
 
@@ -5013,7 +5013,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
             EXDEV => {},
             // syscall added in Linux 4.5, use fallback
             ENOSYS => {
-                has_copy_file_range_syscall.set(0);
+                has_copy_file_range_syscall.set(false);
             },
             else => |err| return unexpectedErrno(err),
         }
