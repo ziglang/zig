@@ -84,6 +84,8 @@ const Trie = struct {
             }
         };
 
+        export_flags: ?u64 = null,
+        offset: ?u64 = null,
         edges: std.ArrayListUnmanaged(Edge) = .{},
 
         pub fn deinit(self: *Node, alloc: *Allocator) void {
@@ -93,10 +95,10 @@ const Trie = struct {
             self.edges.deinit(alloc);
         }
 
-        pub fn put(self: *Node, alloc: *Allocator, fromEdge: ?*Edge, prefix: usize, label: []const u8) !void {
+        pub fn put(self: *Node, alloc: *Allocator, fromEdge: ?*Edge, prefix: usize, label: []const u8) !*Node {
             // Traverse all edges.
             for (self.edges.items) |*edge| {
-                const match = mem.indexOfDiff(u8, edge.label, label) orelse return; // Got a full match, don't do anything.
+                const match = mem.indexOfDiff(u8, edge.label, label) orelse return self; // Got a full match, don't do anything.
                 if (match - prefix > 0) {
                     // If we match, we advance further down the trie.
                     return edge.to.put(alloc, edge, match, label);
@@ -105,7 +107,7 @@ const Trie = struct {
 
             if (fromEdge) |from| {
                 if (mem.eql(u8, from.label, label[0..prefix])) {
-                    if (prefix == label.len) return;
+                    if (prefix == label.len) return self;
                 } else {
                     // Fixup nodes. We need to insert an intermediate node between
                     // from.to and self.
@@ -121,33 +123,84 @@ const Trie = struct {
                         .label = to_label,
                     });
 
-                    if (prefix == label.len) return; // We're done.
+                    if (prefix == label.len) return self; // We're done.
 
                     const new_node = try alloc.create(Node);
                     new_node.* = .{};
-                    return mid.edges.append(alloc, .{
+
+                    try mid.edges.append(alloc, .{
                         .from = mid,
                         .to = new_node,
                         .label = label,
                     });
+
+                    return new_node;
                 }
             }
 
             // Add a new edge.
             const node = try alloc.create(Node);
             node.* = .{};
-            return self.edges.append(alloc, .{
+
+            try self.edges.append(alloc, .{
                 .from = self,
                 .to = node,
                 .label = label,
             });
+
+            return node;
+        }
+
+        pub fn write(self: Node, buf: []u8, offset: u64) error{NoSpaceLeft}!usize {
+            var pos: usize = 0;
+            if (self.offset) |off| {
+                var info_buf_pos: usize = 0;
+                var info_buf: [@sizeOf(u64) * 2]u8 = undefined;
+                info_buf_pos += try std.debug.leb.writeULEB128Mem(info_buf[0..], self.export_flags.?);
+                info_buf_pos += try std.debug.leb.writeULEB128Mem(info_buf[info_buf_pos..], off);
+                log.debug("info_buf = {x}\n", .{info_buf[0..info_buf_pos]});
+                pos += try std.debug.leb.writeULEB128Mem(buf[pos..], info_buf_pos);
+                mem.copy(u8, buf[pos..], info_buf[0..info_buf_pos]);
+                pos += info_buf_pos;
+                log.debug("buf = {x}\n", .{buf});
+            } else {
+                buf[pos] = 0;
+                pos += 1;
+            }
+            buf[pos] = @intCast(u8, self.edges.items.len);
+            pos += 1;
+
+            for (self.edges.items) |edge| {
+                mem.copy(u8, buf[pos..], edge.label);
+                pos += edge.label.len;
+                buf[pos] = 0;
+                pos += 1;
+                const curr_offset = pos + offset + 1;
+                pos += try std.debug.leb.writeULEB128Mem(buf[pos..], curr_offset);
+                pos += try edge.to.write(buf[pos..], curr_offset);
+                log.debug("buf = {x}\n", .{buf});
+            }
+
+            return pos;
         }
     };
 
     root: Node,
 
-    pub fn put(self: *Trie, alloc: *Allocator, word: []const u8) !void {
+    pub fn put(self: *Trie, alloc: *Allocator, word: []const u8) !*Node {
         return self.root.put(alloc, null, 0, word);
+    }
+
+    pub fn write(self: Trie, alloc: *Allocator, file: *fs.File, offset: u64) !void {
+        // TODO get the actual node count
+        const count = 10;
+        const node_size = @sizeOf(u64) * 2;
+
+        var buf = try alloc.alloc(u8, count * node_size);
+        defer alloc.free(buf);
+
+        const written = try self.root.write(buf, 0);
+        return file.pwriteAll(buf[0..written], offset);
     }
 
     pub fn deinit(self: *Trie, alloc: *Allocator) void {
@@ -347,10 +400,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
 
     switch (self.base.options.output_mode) {
         .Exe => {
-            if (self.entry_addr) |addr| {
-                // Write export trie.
-                try self.writeExportTrie();
+            // Write export trie.
+            try self.writeExportTrie();
 
+            if (self.entry_addr) |addr| {
                 // Update LC_MAIN with entry offset
                 const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                 const main_cmd = &self.load_commands.items[self.main_cmd_index.?].EntryPoint;
@@ -1474,25 +1527,25 @@ fn writeAllUndefSymbols(self: *MachO) !void {
 }
 
 fn writeExportTrie(self: *MachO) !void {
-    assert(self.entry_addr != null);
+    if (self.global_symbols.items.len == 0) return; // No exports, nothing to do.
 
-    // TODO implement mechanism for generating a prefix tree of the exported symbols
-    // single branch export trie
-    var buf = [_]u8{0} ** 24;
-    buf[0] = 0; // root node
-    buf[1] = 1; // 1 branch from root
-    mem.copy(u8, buf[2..], "_start");
-    buf[8] = 0;
-    buf[9] = 9 + 1;
+    var trie: Trie = .{
+        .root = .{},
+    };
+    defer trie.deinit(self.base.allocator);
 
     const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const addr = self.entry_addr.? - text_segment.vmaddr;
-    const written = try std.debug.leb.writeULEB128Mem(buf[12..], addr);
-    buf[10] = @intCast(u8, written) + 1;
-    buf[11] = 0;
+
+    for (self.global_symbols.items) |symbol| {
+        // TODO figure out if we should put all global symbols into the export trie
+        const name = self.getString(symbol.n_strx);
+        const node = try trie.put(self.base.allocator, name);
+        node.offset = symbol.n_value - text_segment.vmaddr;
+        node.export_flags = 0; // TODO workout creation of export flags
+    }
 
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfo;
-    try self.base.file.?.pwriteAll(buf[0..], dyld_info.export_off);
+    try trie.write(self.base.allocator, &self.base.file.?, dyld_info.export_off);
 }
 
 fn writeStringTable(self: *MachO) !void {
