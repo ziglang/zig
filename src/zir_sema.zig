@@ -1208,9 +1208,9 @@ fn analyzeInstImport(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerErr
     const operand = try resolveConstString(mod, scope, inst.positionals.operand);
 
     const file_scope = mod.analyzeImport(scope, inst.base.src, operand) catch |err| switch (err) {
-        // error.ImportOutsidePkgPath => {
-        //     return mod.fail(scope, inst.base.src, "import of file outside package path: '{}'", .{operand});
-        // },
+        error.ImportOutsidePkgPath => {
+            return mod.fail(scope, inst.base.src, "import of file outside package path: '{}'", .{operand});
+        },
         error.FileNotFound => {
             return mod.fail(scope, inst.base.src, "unable to find '{}'", .{operand});
         },

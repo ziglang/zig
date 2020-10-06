@@ -2400,25 +2400,40 @@ pub fn analyzeSlice(self: *Module, scope: *Scope, src: usize, array_ptr: *Inst, 
 }
 
 pub fn analyzeImport(self: *Module, scope: *Scope, src: usize, target_string: []const u8) !*Scope.File {
-    // TODO if (package_table.get(target_string)) |pkg|
-    if (self.import_table.get(target_string)) |some| {
+    // TODO scope.getCurPkg();
+    const cur_pkg = self.root_pkg;
+    const cur_pkg_dir_path = cur_pkg.root_src_directory.path orelse ".";
+    const found_pkg = cur_pkg.table.get(target_string);
+
+    const resolved_path = if (found_pkg) |pkg|
+        try std.fs.path.resolve(self.gpa, &[_][]const u8{ pkg.root_src_directory.path orelse ".", pkg.root_src_path })
+    else
+        try std.fs.path.resolve(self.gpa, &[_][]const u8{ cur_pkg_dir_path, target_string });
+    errdefer self.gpa.free(resolved_path);
+
+    if (self.import_table.get(resolved_path)) |some| {
+        self.gpa.free(resolved_path);
         return some;
     }
 
-    // TODO check for imports outside of pkg path
-    if (false) return error.ImportOutsidePkgPath;
+    if (found_pkg == null) {
+        const resolved_root_path = try std.fs.path.resolve(self.gpa, &[_][]const u8{cur_pkg_dir_path});
+        defer self.gpa.free(resolved_root_path);
+
+        if (!mem.startsWith(u8, resolved_path, resolved_root_path)) {
+            return error.ImportOutsidePkgPath;
+        }
+    }
 
     // TODO Scope.Container arena for ty and sub_file_path
     const struct_payload = try self.gpa.create(Type.Payload.EmptyStruct);
     errdefer self.gpa.destroy(struct_payload);
     const file_scope = try self.gpa.create(Scope.File);
     errdefer self.gpa.destroy(file_scope);
-    const file_path = try self.gpa.dupe(u8, target_string);
-    errdefer self.gpa.free(file_path);
 
     struct_payload.* = .{ .scope = &file_scope.root_container };
     file_scope.* = .{
-        .sub_file_path = file_path,
+        .sub_file_path = resolved_path,
         .source = .{ .unloaded = {} },
         .contents = .{ .not_available = {} },
         .status = .never_loaded,
