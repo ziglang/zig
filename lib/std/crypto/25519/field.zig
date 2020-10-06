@@ -307,12 +307,14 @@ pub const Fe = struct {
     }
 
     pub fn pow2523(a: Fe) Fe {
-        var c = a;
-        var i: usize = 0;
-        while (i < 249) : (i += 1) {
-            c = c.sq().mul(a);
-        }
-        return c.sq().sq().mul(a);
+        var t0 = a.mul(a.sq());
+        var t1 = t0.mul(t0.sqn(2)).sq().mul(a);
+        t0 = t1.sqn(5).mul(t1);
+        var t2 = t0.sqn(5).mul(t1);
+        t1 = t2.sqn(15).mul(t2);
+        t2 = t1.sqn(30).mul(t1);
+        t1 = t2.sqn(60).mul(t2);
+        return t1.sqn(120).mul(t1).sqn(10).mul(t0).sqn(2).mul(a);
     }
 
     pub fn abs(a: Fe) Fe {
