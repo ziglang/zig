@@ -151,37 +151,49 @@ const Trie = struct {
             return node;
         }
 
-        pub fn write(self: Node, buf: []u8, offset: u64) error{NoSpaceLeft}!usize {
-            var pos: usize = 0;
+        pub fn write(self: Node, alloc: *Allocator, buffer: *std.ArrayListUnmanaged(u8)) Trie.WriteError!void {
             if (self.offset) |off| {
-                var info_buf_pos: usize = 0;
+                // Terminal node info: encode export flags and vmaddr offset of this symbol.
+                var info_buf_len: usize = 0;
                 var info_buf: [@sizeOf(u64) * 2]u8 = undefined;
-                info_buf_pos += try std.debug.leb.writeULEB128Mem(info_buf[0..], self.export_flags.?);
-                info_buf_pos += try std.debug.leb.writeULEB128Mem(info_buf[info_buf_pos..], off);
-                log.debug("info_buf = {x}\n", .{info_buf[0..info_buf_pos]});
-                pos += try std.debug.leb.writeULEB128Mem(buf[pos..], info_buf_pos);
-                mem.copy(u8, buf[pos..], info_buf[0..info_buf_pos]);
-                pos += info_buf_pos;
-                log.debug("buf = {x}\n", .{buf});
+                info_buf_len += try std.debug.leb.writeULEB128Mem(info_buf[0..], self.export_flags.?);
+                info_buf_len += try std.debug.leb.writeULEB128Mem(info_buf[info_buf_len..], off);
+
+                // Encode the size of the terminal node info.
+                var size_buf: [@sizeOf(u64)]u8 = undefined;
+                const size_buf_len = try std.debug.leb.writeULEB128Mem(size_buf[0..], info_buf_len);
+
+                // Now, write them to the output buffer.
+                try buffer.ensureCapacity(alloc, buffer.items.len + info_buf_len + size_buf_len);
+                buffer.appendSliceAssumeCapacity(size_buf[0..size_buf_len]);
+                buffer.appendSliceAssumeCapacity(info_buf[0..info_buf_len]);
             } else {
-                buf[pos] = 0;
-                pos += 1;
+                // Non-terminal node is delimited by 0 byte.
+                try buffer.append(alloc, 0);
             }
-            buf[pos] = @intCast(u8, self.edges.items.len);
-            pos += 1;
+            // Write number of edges (max legal number of edges is 256).
+            try buffer.append(alloc, @intCast(u8, self.edges.items.len));
 
-            for (self.edges.items) |edge| {
-                mem.copy(u8, buf[pos..], edge.label);
-                pos += edge.label.len;
-                buf[pos] = 0;
-                pos += 1;
-                const curr_offset = pos + offset + 1;
-                pos += try std.debug.leb.writeULEB128Mem(buf[pos..], curr_offset);
-                pos += try edge.to.write(buf[pos..], curr_offset);
-                log.debug("buf = {x}\n", .{buf});
+            var node_offset_info: [@sizeOf(u8)]u64 = undefined;
+            for (self.edges.items) |edge, i| {
+                // Write edges labels leaving out space in-between to later populate
+                // with offsets to each node.
+                try buffer.ensureCapacity(alloc, buffer.items.len + edge.label.len + 1 + @sizeOf(u64)); // +1 to account for null-byte
+                buffer.appendSliceAssumeCapacity(edge.label);
+                buffer.appendAssumeCapacity(0);
+                node_offset_info[i] = buffer.items.len;
+                const padding = [_]u8{0} ** @sizeOf(u64);
+                buffer.appendSliceAssumeCapacity(padding[0..]);
             }
 
-            return pos;
+            for (self.edges.items) |edge, i| {
+                const offset = buffer.items.len;
+                try edge.to.write(alloc, buffer);
+                // We can now populate the offset to the node pointed by this edge.
+                var offset_buf: [@sizeOf(u64)]u8 = undefined;
+                const offset_buf_len = try std.debug.leb.writeULEB128Mem(offset_buf[0..], offset);
+                mem.copy(u8, buffer.items[node_offset_info[i]..], offset_buf[0..offset_buf_len]);
+            }
         }
     };
 
@@ -191,16 +203,10 @@ const Trie = struct {
         return self.root.put(alloc, null, 0, word);
     }
 
-    pub fn write(self: Trie, alloc: *Allocator, file: *fs.File, offset: u64) !void {
-        // TODO get the actual node count
-        const count = 10;
-        const node_size = @sizeOf(u64) * 2;
+    pub const WriteError = error{ OutOfMemory, NoSpaceLeft };
 
-        var buf = try alloc.alloc(u8, count * node_size);
-        defer alloc.free(buf);
-
-        const written = try self.root.write(buf, 0);
-        return file.pwriteAll(buf[0..written], offset);
+    pub fn write(self: Trie, alloc: *Allocator, buffer: *std.ArrayListUnmanaged(u8)) WriteError!void {
+        return self.root.write(alloc, buffer);
     }
 
     pub fn deinit(self: *Trie, alloc: *Allocator) void {
@@ -1544,8 +1550,13 @@ fn writeExportTrie(self: *MachO) !void {
         node.export_flags = 0; // TODO workout creation of export flags
     }
 
+    var buffer: std.ArrayListUnmanaged(u8) = .{};
+    defer buffer.deinit(self.base.allocator);
+
+    try trie.write(self.base.allocator, &buffer);
+
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfo;
-    try trie.write(self.base.allocator, &self.base.file.?, dyld_info.export_off);
+    try self.base.file.?.pwriteAll(buffer.items, dyld_info.export_off);
 }
 
 fn writeStringTable(self: *MachO) !void {
