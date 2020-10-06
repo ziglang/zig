@@ -842,7 +842,7 @@ pub const Value = extern union {
             .int_u64 => {
                 const x = self.cast(Payload.Int_u64).?.int;
                 if (x == 0) return 0;
-                return std.math.log2(x) + 1;
+                return @intCast(usize, std.math.log2(x) + 1);
             },
             .int_i64 => {
                 @panic("TODO implement i64 intBitCountTwosComp");
