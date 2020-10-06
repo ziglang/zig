@@ -469,6 +469,22 @@ pub const Scope = struct {
         }
     }
 
+    pub fn getOwnerPkg(base: *Scope) *Package {
+        var cur = base;
+        while (true) {
+            cur = switch (cur.tag) {
+                .container => return @fieldParentPtr(Container, "base", cur).file_scope.pkg,
+                .file => return @fieldParentPtr(File, "base", cur).pkg,
+                .zir_module => unreachable, // TODO are zir modules allowed to import packages?
+                .gen_zir => @fieldParentPtr(GenZIR, "base", cur).parent,
+                .local_val => @fieldParentPtr(LocalVal, "base", cur).parent,
+                .local_ptr => @fieldParentPtr(LocalPtr, "base", cur).parent,
+                .block => @fieldParentPtr(Block, "base", cur).decl.scope,
+                .decl => @fieldParentPtr(DeclAnalysis, "base", cur).decl.scope,
+            };
+        }
+    }
+
     /// Asserts the scope is a namespace Scope and removes the Decl from the namespace.
     pub fn removeDecl(base: *Scope, child: *Decl) void {
         switch (base.tag) {
@@ -576,6 +592,8 @@ pub const Scope = struct {
             unloaded_parse_failure,
             loaded_success,
         },
+        /// Package that this file is a part of, managed externally.
+        pkg: *Package,
 
         root_container: Container,
 
@@ -614,7 +632,7 @@ pub const Scope = struct {
         pub fn getSource(self: *File, module: *Module) ![:0]const u8 {
             switch (self.source) {
                 .unloaded => {
-                    const source = try module.root_pkg.root_src_directory.handle.readFileAllocOptions(
+                    const source = try self.pkg.root_src_directory.handle.readFileAllocOptions(
                         module.gpa,
                         self.sub_file_path,
                         std.math.maxInt(u32),
@@ -2400,8 +2418,7 @@ pub fn analyzeSlice(self: *Module, scope: *Scope, src: usize, array_ptr: *Inst, 
 }
 
 pub fn analyzeImport(self: *Module, scope: *Scope, src: usize, target_string: []const u8) !*Scope.File {
-    // TODO scope.getCurPkg();
-    const cur_pkg = self.root_pkg;
+    const cur_pkg = scope.getOwnerPkg();
     const cur_pkg_dir_path = cur_pkg.root_src_directory.path orelse ".";
     const found_pkg = cur_pkg.table.get(target_string);
 
@@ -2437,6 +2454,7 @@ pub fn analyzeImport(self: *Module, scope: *Scope, src: usize, target_string: []
         .source = .{ .unloaded = {} },
         .contents = .{ .not_available = {} },
         .status = .never_loaded,
+        .pkg = found_pkg orelse cur_pkg,
         .root_container = .{
             .file_scope = file_scope,
             .decls = .{},
