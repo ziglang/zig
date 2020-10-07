@@ -992,15 +992,20 @@ fn buildOutputType(
                     },
                     .optimize => {
                         // Alright, what release mode do they want?
-                        if (mem.eql(u8, it.only_arg, "Os")) {
+                        const level = if (it.only_arg.len >= 1 and it.only_arg[0] == 'O') it.only_arg[1..] else it.only_arg;
+                        if (mem.eql(u8, level, "s") or
+                            mem.eql(u8, level, "z"))
+                        {
                             optimize_mode = .ReleaseSmall;
-                        } else if (mem.eql(u8, it.only_arg, "O2") or
-                            mem.eql(u8, it.only_arg, "O3") or
-                            mem.eql(u8, it.only_arg, "O4"))
+                        } else if (mem.eql(u8, level, "1") or
+                            mem.eql(u8, level, "2") or
+                            mem.eql(u8, level, "3") or
+                            mem.eql(u8, level, "4") or
+                            mem.eql(u8, level, "fast"))
                         {
                             optimize_mode = .ReleaseFast;
-                        } else if (mem.eql(u8, it.only_arg, "Og") or
-                            mem.eql(u8, it.only_arg, "O0"))
+                        } else if (mem.eql(u8, level, "g") or
+                            mem.eql(u8, level, "0"))
                         {
                             optimize_mode = .Debug;
                         } else {
@@ -1009,8 +1014,13 @@ fn buildOutputType(
                     },
                     .debug => {
                         strip = false;
-                        if (mem.eql(u8, it.only_arg, "-g")) {
+                        if (mem.eql(u8, it.only_arg, "g")) {
                             // We handled with strip = false above.
+                        } else if (mem.eql(u8, it.only_arg, "g1") or
+                            mem.eql(u8, it.only_arg, "gline-tables-only"))
+                        {
+                            // We handled with strip = false above. but we also want reduced debug info.
+                            try clang_argv.append("-gline-tables-only");
                         } else {
                             try clang_argv.appendSlice(it.other_args);
                         }
