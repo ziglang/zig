@@ -2193,7 +2193,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             }
             // Search up parent directories until we find build.zig.
             var dirname: []const u8 = cwd_path;
-            var prevDirname: []const u8 = dirname;
+            var prev_dirname = dirname;
             while (true) {
                 const joined_path = try fs.path.join(arena, &[_][]const u8{ dirname, build_zig_basename });
                 if (fs.cwd().access(joined_path, .{})) |_| {
@@ -2201,20 +2201,20 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                     break :blk .{ .path = dirname, .handle = dir };
                 } else |err| switch (err) {
                     error.FileNotFound => {
-                        dirname = fs.path.dirname(dirname) orelse {
-                            std.log.info("{}", .{
-                                \\Initialize a 'build.zig' template file with `zig init-lib` or `zig init-exe`,
-                                \\or see `zig --help` for more options.
-                            });
-                            fatal("No 'build.zig' file found, in the current directory or any parent directories.", .{});
-                        };
+                        if (fs.path.dirname(dirname)) |dn| {
+                            dirname = dn;
 
-                        //Avoid getting stuck in loop when at root.
-                        if (dirname.len != prevDirname.len) {
-                            prevDirname = dirname;
-                            continue;
+                            //Avoid getting stuck in loop when dirname returns null or the same slice.
+                            if (dirname.len != prev_dirname.len) {
+                                prev_dirname = dirname;
+                                continue;
+                            }
                         }
 
+                        std.log.info("{}", .{
+                            \\Initialize a 'build.zig' template file with `zig init-lib` or `zig init-exe`,
+                            \\or see `zig --help` for more options.
+                        });
                         fatal("No 'build.zig' file found, in the current directory or any parent directories.", .{});
                     },
                     else => |e| return e,
