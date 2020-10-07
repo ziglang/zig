@@ -4945,7 +4945,9 @@ pub fn sendfile(
 pub const CopyFileRangeError = error{
     FileTooBig,
     InputOutput,
-    InvalidFileDescriptor,
+    /// `fd_in` is not open for reading; or `fd_out` is not open  for  writing;
+    /// or the  `O_APPEND`  flag  is  set  for `fd_out`.
+    FilesOpenedWithWrongFlags,
     IsDir,
     OutOfMemory,
     NoSpaceLeft,
@@ -4955,7 +4957,7 @@ pub const CopyFileRangeError = error{
 } || PReadError || PWriteError || UnexpectedError;
 
 var has_copy_file_range_syscall = init: {
-    const kernel_has_syscall = comptime std.Target.current.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) orelse true;
+    const kernel_has_syscall = std.Target.current.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) orelse true;
     break :init std.atomic.Int(bool).init(kernel_has_syscall);
 };
 
@@ -4998,7 +5000,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
         const rc = sys.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, flags);
         switch (sys.getErrno(rc)) {
             0 => return @intCast(usize, rc),
-            EBADF => return error.InvalidFileDescriptor,
+            EBADF => return error.FilesOpenedWithWrongFlags,
             EFBIG => return error.FileTooBig,
             EIO => return error.InputOutput,
             EISDIR => return error.IsDir,
@@ -5019,24 +5021,13 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
         }
     }
 
-    var buf: [2 * 4096]u8 = undefined;
-
-    var total_copied: usize = 0;
-    var read_off = off_in;
-    var write_off = off_out;
-    while (total_copied < len) {
-        const adjusted_count = math.min(buf.len, len - total_copied);
-        const amt_read = try pread(fd_in, buf[0..adjusted_count], read_off);
-        if (amt_read == 0) break;
-        const amt_written = try pwrite(fd_out, buf[0..amt_read], write_off);
-        // pwrite may write less than the specified amount, handle the remaining
-        // chunk of data in the next iteration
-        read_off += amt_written;
-        write_off += amt_written;
-        total_copied += amt_written;
-    }
-
-    return total_copied;
+    var buf: [8 * 4096]u8 = undefined;
+    const adjusted_count = math.min(buf.len, len);
+    const amt_read = try pread(fd_in, buf[0..adjusted_count], off_in);
+    // TODO without @as the line below fails to compile for wasm32-wasi:
+    // error: integer value 0 cannot be coerced to type 'os.PWriteError!usize'
+    if (amt_read == 0) return @as(usize, 0);
+    return pwrite(fd_out, buf[0..amt_read], off_out);
 }
 
 pub const PollError = error{

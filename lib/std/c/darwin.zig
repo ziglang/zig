@@ -24,8 +24,6 @@ pub const COPYFILE_XATTR = 1 << 2;
 pub const COPYFILE_DATA = 1 << 3;
 
 pub const copyfile_state_t = *@Type(.Opaque);
-pub extern "c" fn copyfile_state_alloc() copyfile_state_t;
-pub extern "c" fn copyfile_state_free(state: copyfile_state_t) c_int;
 pub extern "c" fn fcopyfile(from: fd_t, to: fd_t, state: ?copyfile_state_t, flags: u32) c_int;
 
 pub extern "c" fn @"realpath$DARWIN_EXTSN"(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;

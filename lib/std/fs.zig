@@ -2265,8 +2265,9 @@ pub fn realpathAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
 
 const CopyFileError = error{SystemResources} || os.CopyFileRangeError || os.SendFileError;
 
-/// Transfer all the data between two file descriptors in the most efficient way.
-/// No metadata is transferred over.
+// Transfer all the data between two file descriptors in the most efficient way.
+// The copy starts at offset 0, the initial offsets are preserved.
+// No metadata is transferred over.
 fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t) CopyFileError!void {
     if (comptime std.Target.current.isDarwin()) {
         const rc = os.system.fcopyfile(fd_in, fd_out, null, os.system.COPYFILE_DATA);
