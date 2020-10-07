@@ -2911,7 +2911,7 @@ fn pwriteDbgLineNops(
     prev_padding_size: usize,
     buf: []const u8,
     next_padding_size: usize,
-    offset: usize,
+    offset: u64,
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -2990,7 +2990,7 @@ fn pwriteDbgInfoNops(
     buf: []const u8,
     next_padding_size: usize,
     trailing_zero: bool,
-    offset: usize,
+    offset: u64,
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();

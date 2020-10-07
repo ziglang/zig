@@ -2554,7 +2554,7 @@ fn fmtPathFile(
     const source_code = source_file.readToEndAllocOptions(
         fmt.gpa,
         max_src_size,
-        stat.size,
+        std.math.cast(usize, stat.size) catch return error.FileTooBig,
         @alignOf(u8),
         null,
     ) catch |err| switch (err) {

@@ -32,7 +32,7 @@ pub const BlockData = struct {
 /// comptime assert that makes sure we guessed correctly about the size. This only
 /// exists so that we can bitcast an arch-independent field to and from the real MCValue.
 pub const AnyMCValue = extern struct {
-    a: u64,
+    a: usize,
     b: u64,
 };
 
