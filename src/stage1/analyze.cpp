@@ -1861,6 +1861,58 @@ ZigType *get_auto_err_set_type(CodeGen *g, ZigFn *fn_entry) {
     return err_set_type;
 }
 
+// Sync this with get_llvm_cc in codegen.cpp
+static Error emit_error_unless_callconv_allowed_for_target(CodeGen *g, AstNode *source_node, CallingConvention cc) {
+    Error ret = ErrorNone;
+    const char *allowed_platforms = nullptr;
+    switch (cc) {
+        case CallingConventionUnspecified:
+        case CallingConventionC:
+        case CallingConventionNaked:
+        case CallingConventionAsync:
+            break;
+        case CallingConventionInterrupt:
+            if (g->zig_target->arch != ZigLLVM_x86
+                && g->zig_target->arch != ZigLLVM_x86_64
+                && g->zig_target->arch != ZigLLVM_avr
+                && g->zig_target->arch != ZigLLVM_msp430)
+            {
+                allowed_platforms = "x86, x86_64, AVR, and MS430";
+            }
+            break;
+        case CallingConventionSignal:
+            if (g->zig_target->arch != ZigLLVM_avr)
+                allowed_platforms = "AVR";
+            break;
+        case CallingConventionStdcall:
+        case CallingConventionFastcall:
+        case CallingConventionThiscall:
+            if (g->zig_target->arch != ZigLLVM_x86)
+                allowed_platforms = "x86";
+            break;
+        case CallingConventionVectorcall:
+            if (g->zig_target->arch != ZigLLVM_x86
+                && !(target_is_arm(g->zig_target) && target_arch_pointer_bit_width(g->zig_target->arch) == 64))
+            {
+                allowed_platforms = "x86 and AArch64";
+            }
+            break;
+        case CallingConventionAPCS:
+        case CallingConventionAAPCS:
+        case CallingConventionAAPCSVFP:
+            if (!target_is_arm(g->zig_target))
+                allowed_platforms = "ARM";
+    }
+    if (allowed_platforms != nullptr) {
+        add_node_error(g, source_node, buf_sprintf(
+            "callconv '%s' is only available on %s, not %s",
+            calling_convention_name(cc), allowed_platforms,
+            target_arch_name(g->zig_target->arch)));
+        ret = ErrorSemanticAnalyzeFail;
+    }
+    return ret;
+}
+
 static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_scope, ZigFn *fn_entry,
         CallingConvention cc)
 {
@@ -1994,6 +2046,9 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         }
         fn_entry->align_bytes = fn_type_id.alignment;
     }
+
+    if ((err = emit_error_unless_callconv_allowed_for_target(g, proto_node, cc)))
+        return g->builtin_types.entry_invalid;
 
     if (fn_proto->return_anytype_token != nullptr) {
         if (!calling_convention_allows_zig_types(fn_type_id.cc)) {

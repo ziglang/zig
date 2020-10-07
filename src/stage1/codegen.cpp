@@ -154,6 +154,7 @@ static const char *get_mangled_name(CodeGen *g, const char *original_name) {
     }
 }
 
+// Sync this with emit_error_unless_callconv_allowed_for_target in analyze.cpp
 static ZigLLVM_CallingConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
     switch (cc) {
         case CallingConventionUnspecified:
@@ -163,38 +164,32 @@ static ZigLLVM_CallingConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
         case CallingConventionNaked:
             zig_unreachable();
         case CallingConventionStdcall:
-            if (g->zig_target->arch == ZigLLVM_x86)
-                return ZigLLVM_X86_StdCall;
-            return ZigLLVM_C;
+            assert(g->zig_target->arch == ZigLLVM_x86);
+            return ZigLLVM_X86_StdCall;
         case CallingConventionFastcall:
-            if (g->zig_target->arch == ZigLLVM_x86)
-                return ZigLLVM_X86_FastCall;
-            return ZigLLVM_C;
+            assert(g->zig_target->arch == ZigLLVM_x86);
+            return ZigLLVM_X86_FastCall;
         case CallingConventionVectorcall:
             if (g->zig_target->arch == ZigLLVM_x86)
                 return ZigLLVM_X86_VectorCall;
             if (target_is_arm(g->zig_target) &&
                 target_arch_pointer_bit_width(g->zig_target->arch) == 64)
                 return ZigLLVM_AArch64_VectorCall;
-            return ZigLLVM_C;
+            zig_unreachable();
         case CallingConventionThiscall:
-            if (g->zig_target->arch == ZigLLVM_x86)
-                return ZigLLVM_X86_ThisCall;
-            return ZigLLVM_C;
+            assert(g->zig_target->arch == ZigLLVM_x86);
+            return ZigLLVM_X86_ThisCall;
         case CallingConventionAsync:
             return ZigLLVM_Fast;
         case CallingConventionAPCS:
-            if (target_is_arm(g->zig_target))
-                return ZigLLVM_ARM_APCS;
-            return ZigLLVM_C;
+            assert(target_is_arm(g->zig_target));
+            return ZigLLVM_ARM_APCS;
         case CallingConventionAAPCS:
-            if (target_is_arm(g->zig_target))
-                return ZigLLVM_ARM_AAPCS;
-            return ZigLLVM_C;
+            assert(target_is_arm(g->zig_target));
+            return ZigLLVM_ARM_AAPCS;
         case CallingConventionAAPCSVFP:
-            if (target_is_arm(g->zig_target))
-                return ZigLLVM_ARM_AAPCS_VFP;
-            return ZigLLVM_C;
+            assert(target_is_arm(g->zig_target));
+            return ZigLLVM_ARM_AAPCS_VFP;
         case CallingConventionInterrupt:
             if (g->zig_target->arch == ZigLLVM_x86 ||
                 g->zig_target->arch == ZigLLVM_x86_64)
@@ -203,11 +198,10 @@ static ZigLLVM_CallingConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
                 return ZigLLVM_AVR_INTR;
             if (g->zig_target->arch == ZigLLVM_msp430)
                 return ZigLLVM_MSP430_INTR;
-            return ZigLLVM_C;
+            zig_unreachable();
         case CallingConventionSignal:
-            if (g->zig_target->arch == ZigLLVM_avr)
-                return ZigLLVM_AVR_SIGNAL;
-            return ZigLLVM_C;
+            assert(g->zig_target->arch == ZigLLVM_avr);
+            return ZigLLVM_AVR_SIGNAL;
     }
     zig_unreachable();
 }
