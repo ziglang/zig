@@ -110,7 +110,12 @@ pub fn approxEq(comptime T: type, x: T, y: T, epsilon: T) bool {
 }
 
 pub fn doNotOptimizeAway(value: anytype) void {
-    mem.doNotOptimizeAway(value);
+    // TODO: use @declareSideEffect() when it is available.
+    // https://github.com/ziglang/zig/issues/6168
+    const T = @TypeOf(value);
+    var x: T = undefined;
+    const p = @ptrCast(*volatile T, &x);
+    p.* = x;
 }
 
 pub fn raiseInvalid() void {
@@ -1131,3 +1136,9 @@ test "compare between signed and unsigned" {
     testing.expect(!compare(@as(u8, 255), .eq, @as(i8, -1)));
     testing.expect(compare(@as(u8, 1), .eq, @as(u8, 1)));
 }
+
+test "math.comptime" {
+    comptime const v = sin(@as(f32, 1)) + ln(@as(f32, 5));
+    testing.expect(v == sin(@as(f32, 1)) + ln(@as(f32, 5)));
+}
+
