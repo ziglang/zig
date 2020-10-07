@@ -2287,7 +2287,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.OutOfMemory;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:12: error: error is discarded",
+        "tmp.zig:2:12: error: error is discarded. consider using `try`, `catch`, or `if`",
     });
 
     cases.add("volatile on global assembly",
@@ -2338,9 +2338,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.Bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:24: error: expression value is ignored",
-        "tmp.zig:6:25: error: expression value is ignored",
-        "tmp.zig:10:25: error: expression value is ignored",
+        "tmp.zig:2:24: error: error is ignored. consider using `try`, `catch`, or `if`",
+        "tmp.zig:6:25: error: error is ignored. consider using `try`, `catch`, or `if`",
+        "tmp.zig:10:25: error: error is ignored. consider using `try`, `catch`, or `if`",
     });
 
     cases.add("empty while loop body",
@@ -6236,7 +6236,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn bar() anyerror!i32 { return 0; }
     , &[_][]const u8{
-        "tmp.zig:2:14: error: expression value is ignored",
+        "tmp.zig:2:14: error: error is ignored. consider using `try`, `catch`, or `if`",
     });
 
     cases.add("dereference an array",

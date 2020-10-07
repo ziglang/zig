@@ -20102,7 +20102,7 @@ static IrInstGen *ir_analyze_store_ptr(IrAnalyze *ira, IrInst* source_instr,
         if (uncasted_value->value->type->id == ZigTypeIdErrorUnion ||
             uncasted_value->value->type->id == ZigTypeIdErrorSet)
         {
-            ir_add_error(ira, source_instr, buf_sprintf("error is discarded"));
+            ir_add_error(ira, source_instr, buf_sprintf("error is discarded. consider using `try`, `catch`, or `if`"));
             return ira->codegen->invalid_inst_gen;
         }
         return ir_const_void(ira, source_instr);
@@ -29492,7 +29492,11 @@ static IrInstGen *ir_analyze_instruction_check_statement_is_void(IrAnalyze *ira,
         return ira->codegen->invalid_inst_gen;
 
     if (statement_type->id != ZigTypeIdVoid && statement_type->id != ZigTypeIdUnreachable) {
-        ir_add_error(ira, &instruction->base.base, buf_sprintf("expression value is ignored"));
+        if(statement_type->id == ZigTypeIdErrorUnion || statement_type->id == ZigTypeIdErrorSet) {
+            ir_add_error(ira, &instruction->base.base, buf_sprintf("error is ignored. consider using `try`, `catch`, or `if`"));
+        }else{
+            ir_add_error(ira, &instruction->base.base, buf_sprintf("expression value is ignored"));
+        }
     }
 
     return ir_const_void(ira, &instruction->base.base);
