@@ -133,6 +133,14 @@ pub const File = struct {
         wasm: ?Wasm.FnData,
     };
 
+    pub const Export = union {
+        elf: Elf.Export,
+        coff: void,
+        macho: MachO.Export,
+        c: void,
+        wasm: void,
+    };
+
     /// For DWARF .debug_info.
     pub const DbgInfoTypeRelocsTable = std.HashMapUnmanaged(Type, DbgInfoTypeReloc, Type.hash, Type.eql, std.hash_map.DefaultMaxLoadPercentage);
 

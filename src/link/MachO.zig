@@ -115,6 +115,9 @@ local_symbols: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 global_symbols: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 /// Table of all undefined symbols
 undef_symbols: std.ArrayListUnmanaged(macho.nlist_64) = .{},
+
+global_symbol_free_list: std.ArrayListUnmanaged(u32) = .{},
+
 dyld_stub_binder_index: ?u16 = null,
 
 /// Table of symbol names aka the string table.
@@ -176,6 +179,10 @@ pub const TextBlock = struct {
         .prev = null,
         .next = null,
     };
+};
+
+pub const Export = struct {
+    sym_index: ?u32 = null,
 };
 
 pub const SrcFn = struct {
@@ -713,6 +720,7 @@ pub fn deinit(self: *MachO) void {
     self.string_table.deinit(self.base.allocator);
     self.undef_symbols.deinit(self.base.allocator);
     self.global_symbols.deinit(self.base.allocator);
+    self.global_symbol_free_list.deinit(self.base.allocator);
     self.local_symbols.deinit(self.base.allocator);
     self.sections.deinit(self.base.allocator);
     self.load_commands.deinit(self.base.allocator);
@@ -837,7 +845,7 @@ pub fn updateDeclExports(
             },
         };
         const n_type = decl_sym.n_type | macho.N_EXT;
-        if (exp.link.sym_index) |i| {
+        if (exp.link.macho.sym_index) |i| {
             const sym = &self.global_symbols.items[i];
             sym.* = .{
                 .n_strx = try self.updateString(sym.n_strx, exp.options.name),
@@ -848,8 +856,10 @@ pub fn updateDeclExports(
             };
         } else {
             const name_str_index = try self.makeString(exp.options.name);
-            _ = self.global_symbols.addOneAssumeCapacity();
-            const i = self.global_symbols.items.len - 1;
+            const i = if (self.global_symbol_free_list.popOrNull()) |i| i else blk: {
+                _ = self.global_symbols.addOneAssumeCapacity();
+                break :blk self.global_symbols.items.len - 1;
+            };
             self.global_symbols.items[i] = .{
                 .n_strx = name_str_index,
                 .n_type = n_type,
@@ -858,9 +868,15 @@ pub fn updateDeclExports(
                 .n_value = decl_sym.n_value,
             };
 
-            exp.link.sym_index = @intCast(u32, i);
+            exp.link.macho.sym_index = @intCast(u32, i);
         }
     }
+}
+
+pub fn deleteExport(self: *MachO, exp: Export) void {
+    const sym_index = exp.sym_index orelse return;
+    self.global_symbol_free_list.append(self.base.allocator, sym_index) catch {};
+    self.global_symbols.items[sym_index].n_type = 0;
 }
 
 pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {}
