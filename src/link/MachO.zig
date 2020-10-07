@@ -1264,6 +1264,10 @@ fn updateString(self: *MachO, old_str_off: u32, new_name: []const u8) !u32 {
     return self.makeString(new_name);
 }
 
+/// TODO This should not heap allocate, instead it should utilize a fixed size, statically allocated
+/// global const array. You could even use pwritev to write the same buffer multiple times with only
+/// 1 syscall if you needed to, for example, write 8192 bytes using a buffer of only 4096 bytes.
+/// This size parameter should probably be a usize not u64.
 fn addPadding(self: *MachO, size: u64, file_offset: u64) !void {
     if (size == 0) return;
 

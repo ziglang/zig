@@ -652,25 +652,26 @@ pub const File = struct {
 
     pub const CopyRangeError = os.CopyFileRangeError;
 
-    pub fn copyRange(in: File, in_offset: u64, out: File, out_offset: u64, len: u64) CopyRangeError!usize {
+    pub fn copyRange(in: File, in_offset: u64, out: File, out_offset: u64, len: u64) CopyRangeError!u64 {
         const adjusted_len = math.cast(usize, len) catch math.maxInt(usize);
-        return os.copy_file_range(in.handle, in_offset, out.handle, out_offset, adjusted_len, 0);
+        const result = try os.copy_file_range(in.handle, in_offset, out.handle, out_offset, adjusted_len, 0);
+        return result;
     }
 
     /// Returns the number of bytes copied. If the number read is smaller than `buffer.len`, it
     /// means the in file reached the end. Reaching the end of a file is not an error condition.
-    pub fn copyRangeAll(in: File, in_offset: u64, out: File, out_offset: u64, len: u64) CopyRangeError!usize {
+    pub fn copyRangeAll(in: File, in_offset: u64, out: File, out_offset: u64, len: u64) CopyRangeError!u64 {
         var total_bytes_copied: u64 = 0;
         var in_off = in_offset;
         var out_off = out_offset;
         while (total_bytes_copied < len) {
-            const amt_copied = try copyRange(in, in_off, out, out_off, len);
-            if (amt_copied == 0) return @intCast(usize, total_bytes_copied);
+            const amt_copied = try copyRange(in, in_off, out, out_off, len - total_bytes_copied);
+            if (amt_copied == 0) return total_bytes_copied;
             total_bytes_copied += amt_copied;
             in_off += amt_copied;
             out_off += amt_copied;
         }
-        return @intCast(usize, total_bytes_copied);
+        return total_bytes_copied;
     }
 
     pub const WriteFileOptions = struct {

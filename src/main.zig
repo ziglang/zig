@@ -2541,7 +2541,7 @@ fn fmtPathFile(
     check_mode: bool,
     dir: fs.Dir,
     sub_path: []const u8,
-) (FmtError || error{Overflow})!void {
+) FmtError!void {
     const source_file = try dir.openFile(sub_path, .{});
     var file_closed = false;
     errdefer if (!file_closed) source_file.close();
@@ -2554,7 +2554,7 @@ fn fmtPathFile(
     const source_code = source_file.readToEndAllocOptions(
         fmt.gpa,
         max_src_size,
-        try std.math.cast(usize, stat.size),
+        std.math.cast(usize, stat.size) catch return error.FileTooBig,
         @alignOf(u8),
         null,
     ) catch |err| switch (err) {

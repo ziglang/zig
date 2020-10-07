@@ -2757,7 +2757,7 @@ fn writeSymbol(self: *Elf, index: usize) !void {
         if (needed_size > self.allocatedSize(syms_sect.sh_offset)) {
             // Move all the symbols to a new file location.
             const new_offset = self.findFreeSpace(needed_size, sym_align);
-            const existing_size = syms_sect.sh_info * sym_size;
+            const existing_size = @as(u64, syms_sect.sh_info) * sym_size;
             const amt = try self.base.file.?.copyRangeAll(syms_sect.sh_offset, self.base.file.?, new_offset, existing_size);
             if (amt != existing_size) return error.InputOutput;
             syms_sect.sh_offset = new_offset;
@@ -2990,7 +2990,7 @@ fn pwriteDbgInfoNops(
     buf: []const u8,
     next_padding_size: usize,
     trailing_zero: bool,
-    offset: usize,
+    offset: u64,
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();
