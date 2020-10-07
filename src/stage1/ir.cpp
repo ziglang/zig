@@ -18916,7 +18916,6 @@ static IrInstGen *ir_analyze_instruction_export(IrAnalyze *ira, IrInstSrcExport 
                     add_error_note(ira->codegen, msg, fn_entry->proto_node, buf_sprintf("declared here"));
                 } break;
                 case CallingConventionC:
-                case CallingConventionCold:
                 case CallingConventionNaked:
                 case CallingConventionInterrupt:
                 case CallingConventionSignal:
