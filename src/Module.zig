@@ -2661,8 +2661,12 @@ pub fn resolvePeerTypes(self: *Module, scope: *Scope, instructions: []*Inst) !Ty
             continue;
         }
 
-        if ((prev_inst.ty.zigTypeTag() == .ComptimeInt and next_inst.ty.isInt()) or (next_inst.ty.zigTypeTag() == .ComptimeInt and prev_inst.ty.isInt())) {
+        if (prev_inst.ty.zigTypeTag() == .ComptimeInt and next_inst.ty.isInt()) {
             prev_inst = next_inst;
+            continue;
+        }
+
+        if (prev_inst.ty.isInt() and next_inst.ty.zigTypeTag() == .ComptimeInt) {
             continue;
         }
 
