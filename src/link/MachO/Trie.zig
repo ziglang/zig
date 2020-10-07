@@ -34,6 +34,7 @@ const std = @import("std");
 const mem = std.mem;
 const leb = std.debug.leb;
 const log = std.log.scoped(.link);
+const testing = std.testing;
 const Allocator = mem.Allocator;
 
 pub const Symbol = struct {
@@ -67,48 +68,33 @@ const Node = struct {
         self.edges.deinit(alloc);
     }
 
-    fn put(self: *Node, alloc: *Allocator, fromEdge: ?*Edge, prefix: usize, label: []const u8) !*Node {
-        // Traverse all edges.
+    fn put(self: *Node, alloc: *Allocator, label: []const u8) !*Node {
+        // Check for match with edges from this node.
         for (self.edges.items) |*edge| {
-            const match = mem.indexOfDiff(u8, edge.label, label) orelse return self; // Got a full match, don't do anything.
-            if (match - prefix > 0) {
-                // If we match, we advance further down the trie.
-                return edge.to.put(alloc, edge, match, label);
-            }
-        }
+            const match = mem.indexOfDiff(u8, edge.label, label) orelse return edge.to;
+            if (match == 0) continue;
+            if (match == edge.label.len) return edge.to.put(alloc, label[match..]);
 
-        if (fromEdge) |from| {
-            if (mem.eql(u8, from.label, label[0..prefix])) {
-                if (prefix == label.len) return self;
+            // Found a match, need to splice up nodes.
+            // From: A -> B
+            // To: A -> C -> B
+            const mid = try alloc.create(Node);
+            mid.* = .{};
+            const to_label = edge.label;
+            const to_node = edge.to;
+            edge.to = mid;
+            edge.label = label[0..match];
+
+            try mid.edges.append(alloc, .{
+                .from = mid,
+                .to = to_node,
+                .label = to_label[match..],
+            });
+
+            if (match == label.len) {
+                return to_node;
             } else {
-                // Fixup nodes. We need to insert an intermediate node between
-                // from.to and self.
-                // Is: A -> B
-                // Should be: A -> C -> B
-                const mid = try alloc.create(Node);
-                mid.* = .{};
-                const to_label = from.label;
-                from.to = mid;
-                from.label = label[0..prefix];
-
-                try mid.edges.append(alloc, .{
-                    .from = mid,
-                    .to = self,
-                    .label = to_label,
-                });
-
-                if (prefix == label.len) return self; // We're done.
-
-                const new_node = try alloc.create(Node);
-                new_node.* = .{};
-
-                try mid.edges.append(alloc, .{
-                    .from = mid,
-                    .to = new_node,
-                    .label = label,
-                });
-
-                return new_node;
+                return mid.put(alloc, label[match..]);
             }
         }
 
@@ -148,7 +134,7 @@ const Node = struct {
         // Write number of edges (max legal number of edges is 256).
         try buffer.append(alloc, @intCast(u8, self.edges.items.len));
 
-        var node_offset_info: [@sizeOf(u8)]u64 = undefined;
+        var node_offset_info: [std.math.maxInt(u8)]u64 = undefined;
         for (self.edges.items) |edge, i| {
             // Write edges labels leaving out space in-between to later populate
             // with offsets to each node.
@@ -185,7 +171,7 @@ root: Node,
 /// This operation may change the layout of the trie by splicing edges in
 /// certain circumstances.
 pub fn put(self: *Trie, alloc: *Allocator, symbol: Symbol) !void {
-    const node = try self.root.put(alloc, null, 0, symbol.name);
+    const node = try self.root.put(alloc, symbol.name);
     node.offset = symbol.offset;
     node.export_flags = symbol.export_flags;
 }
@@ -202,9 +188,7 @@ pub fn deinit(self: *Trie, alloc: *Allocator) void {
 }
 
 test "Trie basic" {
-    const testing = @import("std").testing;
     var gpa = testing.allocator;
-
     var trie: Trie = .{
         .root = .{},
     };
@@ -223,7 +207,7 @@ test "Trie basic" {
     testing.expect(mem.eql(u8, trie.root.edges.items[0].label, "_st"));
 
     {
-        // root --- _st ---> node --- _start ---> node
+        // root --- _st ---> node --- art ---> node
         try trie.put(gpa, .{
             .name = "_start",
             .offset = 0,
@@ -234,12 +218,12 @@ test "Trie basic" {
         const nextEdge = &trie.root.edges.items[0];
         testing.expect(mem.eql(u8, nextEdge.label, "_st"));
         testing.expect(nextEdge.to.edges.items.len == 1);
-        testing.expect(mem.eql(u8, nextEdge.to.edges.items[0].label, "_start"));
+        testing.expect(mem.eql(u8, nextEdge.to.edges.items[0].label, "art"));
     }
     {
-        // root --- _ ---> node --- _st ---> node --- _start ---> node
+        // root --- _ ---> node --- st ---> node --- art ---> node
         //                  |
-        //                  |   --- _main ---> node
+        //                  |   --- main ---> node
         try trie.put(gpa, .{
             .name = "_main",
             .offset = 0,
@@ -250,10 +234,103 @@ test "Trie basic" {
         const nextEdge = &trie.root.edges.items[0];
         testing.expect(mem.eql(u8, nextEdge.label, "_"));
         testing.expect(nextEdge.to.edges.items.len == 2);
-        testing.expect(mem.eql(u8, nextEdge.to.edges.items[0].label, "_st"));
-        testing.expect(mem.eql(u8, nextEdge.to.edges.items[1].label, "_main"));
+        testing.expect(mem.eql(u8, nextEdge.to.edges.items[0].label, "st"));
+        testing.expect(mem.eql(u8, nextEdge.to.edges.items[1].label, "main"));
 
         const nextNextEdge = &nextEdge.to.edges.items[0];
-        testing.expect(mem.eql(u8, nextNextEdge.to.edges.items[0].label, "_start"));
+        testing.expect(mem.eql(u8, nextNextEdge.to.edges.items[0].label, "art"));
     }
+}
+
+test "Trie.writeULEB128Mem" {
+    var gpa = testing.allocator;
+    var trie: Trie = .{
+        .root = .{},
+    };
+    defer trie.deinit(gpa);
+
+    try trie.put(gpa, .{
+        .name = "__mh_execute_header",
+        .offset = 0,
+        .export_flags = 0,
+    });
+    try trie.put(gpa, .{
+        .name = "_main",
+        .offset = 0x1000,
+        .export_flags = 0,
+    });
+
+    var buffer: std.ArrayListUnmanaged(u8) = .{};
+    defer buffer.deinit(gpa);
+
+    try trie.writeULEB128Mem(gpa, &buffer);
+
+    const exp_buffer = [_]u8{
+        0x0,
+        0x1,
+        0x5f,
+        0x0,
+        0xc,
+        0x0,
+        0x0,
+        0x0,
+        0x0,
+        0x0,
+        0x0,
+        0x0,
+        0x0,
+        0x2,
+        0x5f,
+        0x6d,
+        0x68,
+        0x5f,
+        0x65,
+        0x78,
+        0x65,
+        0x63,
+        0x75,
+        0x74,
+        0x65,
+        0x5f,
+        0x68,
+        0x65,
+        0x61,
+        0x64,
+        0x65,
+        0x72,
+        0x0,
+        0x36,
+        0x0,
+        0x0,
+        0x0,
+        0x0,
+        0x0,
+        0x0,
+        0x0,
+        0x6d,
+        0x61,
+        0x69,
+        0x6e,
+        0x0,
+        0x3a,
+        0x0,
+        0x0,
+        0x0,
+        0x0,
+        0x0,
+        0x0,
+        0x0,
+        0x2,
+        0x0,
+        0x0,
+        0x0,
+        0x3,
+        0x0,
+        0x80,
+        0x20,
+        0x0,
+    };
+
+    testing.expect(buffer.items.len == exp_buffer.len);
+    testing.expect(mem.eql(u8, buffer.items, exp_buffer[0..]));
 }
