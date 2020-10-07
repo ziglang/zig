@@ -2193,6 +2193,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             }
             // Search up parent directories until we find build.zig.
             var dirname: []const u8 = cwd_path;
+            var prevDirname: []const u8 = dirname;
             while (true) {
                 const joined_path = try fs.path.join(arena, &[_][]const u8{ dirname, build_zig_basename });
                 if (fs.cwd().access(joined_path, .{})) |_| {
@@ -2207,6 +2208,12 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                             });
                             fatal("No 'build.zig' file found, in the current directory or any parent directories.", .{});
                         };
+
+                        //Avoid getting stuck in loop when at root.
+                        if (std.mem.eql(u8, dirname, prevDirname))
+                            fatal("No 'build.zig' file found, in the current directory or any parent directories.", .{});
+
+                        prevDirname = dirname;
                         continue;
                     },
                     else => |e| return e,
