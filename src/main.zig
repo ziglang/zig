@@ -2210,11 +2210,12 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                         };
 
                         //Avoid getting stuck in loop when at root.
-                        if (std.mem.eql(u8, dirname, prevDirname))
-                            fatal("No 'build.zig' file found, in the current directory or any parent directories.", .{});
+                        if (dirname.len != prevDirname.len) {
+                            prevDirname = dirname;
+                            continue;
+                        }
 
-                        prevDirname = dirname;
-                        continue;
+                        fatal("No 'build.zig' file found, in the current directory or any parent directories.", .{});
                     },
                     else => |e| return e,
                 }
