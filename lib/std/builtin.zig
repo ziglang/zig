@@ -151,7 +151,6 @@ pub const Mode = enum {
 pub const CallingConvention = enum {
     Unspecified,
     C,
-    Cold,
     Naked,
     Async,
     Interrupt,

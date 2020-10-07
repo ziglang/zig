@@ -72,7 +72,6 @@ enum PtrLen {
 enum CallingConvention {
     CallingConventionUnspecified,
     CallingConventionC,
-    CallingConventionCold,
     CallingConventionNaked,
     CallingConventionAsync,
     CallingConventionInterrupt,

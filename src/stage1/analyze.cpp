@@ -949,7 +949,6 @@ const char *calling_convention_name(CallingConvention cc) {
     switch (cc) {
         case CallingConventionUnspecified: return "Unspecified";
         case CallingConventionC: return "C";
-        case CallingConventionCold: return "Cold";
         case CallingConventionNaked: return "Naked";
         case CallingConventionAsync: return "Async";
         case CallingConventionInterrupt: return "Interrupt";
@@ -971,7 +970,6 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
         case CallingConventionAsync:
             return true;
         case CallingConventionC:
-        case CallingConventionCold:
         case CallingConventionNaked:
         case CallingConventionInterrupt:
         case CallingConventionSignal:
@@ -3603,7 +3601,6 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                     tld_fn->base.resolution = TldResolutionInvalid;
                     return;
                 case CallingConventionC:
-                case CallingConventionCold:
                 case CallingConventionNaked:
                 case CallingConventionInterrupt:
                 case CallingConventionSignal:
