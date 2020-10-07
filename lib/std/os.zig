@@ -3123,19 +3123,18 @@ pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
 
 
 pub const WaitpidRet = struct {
-   pid: i32,
+   pid: pid_t,
    status: u32
 };
 
-pub fn waitpid(pid: i32, flags: u32) waitpid_ret {
+pub fn waitpid(pid: pid_t, flags: u32) WaitpidRet {
     // TODO allow implicit pointer cast from *u32 to *c_uint ?
     const Status = if (builtin.link_libc) c_uint else u32;
-    const Return = if (builtin.link_libc) c_int else usize;
     var status: Status = undefined;
     while (true) {
-        var ret: Return = system.waitpid(pid, &status, flags);
-        switch (errno(ret)) {
-            0 => return waitpid_ret{ .pid =  if (@TypeOf(ret) == c_int) @intCast(i32,ret) else  @intCast(i32, @truncate(u32, ret)), .status = @bitCast(u32, status) },
+        const rc = system.waitpid(pid, &status, flags);
+        switch (errno(rc)) {
+            0 => return WaitpidRet{ .pid =  @intCast(pid_t,rc), .status = @bitCast(u32, status) },
             EINTR => continue,
             ECHILD => unreachable, // The process specified does not exist. It would be a race condition to handle this error.
             EINVAL => unreachable, // The options argument was invalid
