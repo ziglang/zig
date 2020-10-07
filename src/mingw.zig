@@ -32,6 +32,8 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             var args = std.ArrayList([]const u8).init(arena);
             try add_cc_args(comp, arena, &args);
             try args.appendSlice(&[_][]const u8{
+                "-D_SYSCRT=1",
+                "-DCRTDLL=1",
                 "-U__CRTDLL__",
                 "-D__MSVCRT__",
                 // Uncomment these 3 things for crtu
@@ -53,6 +55,8 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             var args = std.ArrayList([]const u8).init(arena);
             try add_cc_args(comp, arena, &args);
             try args.appendSlice(&[_][]const u8{
+                "-D_SYSCRT=1",
+                "-DCRTDLL=1",
                 "-U__CRTDLL__",
                 "-D__MSVCRT__",
             });
@@ -437,11 +441,8 @@ fn findDef(comp: *Compilation, allocator: *Allocator, lib_name: []const u8) ![]u
     const lib_path = switch (target.cpu.arch) {
         .i386 => "lib32",
         .x86_64 => "lib64",
-        .arm, .armeb => switch (target.cpu.arch.ptrBitWidth()) {
-            32 => "libarm32",
-            64 => "libarm64",
-            else => unreachable,
-        },
+        .arm, .armeb, .thumb, .thumbeb, .aarch64_32 => "libarm32",
+        .aarch64, .aarch64_be => "libarm64",
         else => unreachable,
     };
 

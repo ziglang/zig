@@ -27,23 +27,26 @@ set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 set(ZIG_VERSION_MAJOR 0)
 set(ZIG_VERSION_MINOR 6)
 set(ZIG_VERSION_PATCH 0)
-set(ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}")
+set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
 
-find_program(GIT_EXE NAMES git)
-if(GIT_EXE)
-    execute_process(
-        COMMAND ${GIT_EXE} -C ${CMAKE_SOURCE_DIR} name-rev HEAD --tags --name-only --no-undefined --always
-        RESULT_VARIABLE EXIT_STATUS
-        OUTPUT_VARIABLE ZIG_GIT_REV
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_QUIET)
-    if(EXIT_STATUS EQUAL "0")
-        if(ZIG_GIT_REV MATCHES "\\^0$")
-            if(NOT("${ZIG_GIT_REV}" STREQUAL "${ZIG_VERSION}^0"))
-                message("WARNING: Tag does not match configured Zig version")
+if("${ZIG_VERSION}" STREQUAL "")
+    set(ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}")
+    find_program(GIT_EXE NAMES git)
+    if(GIT_EXE)
+        execute_process(
+            COMMAND ${GIT_EXE} -C ${CMAKE_SOURCE_DIR} name-rev HEAD --tags --name-only --no-undefined --always
+            RESULT_VARIABLE EXIT_STATUS
+            OUTPUT_VARIABLE ZIG_GIT_REV
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET)
+        if(EXIT_STATUS EQUAL "0")
+            if(ZIG_GIT_REV MATCHES "\\^0$")
+                if(NOT("${ZIG_GIT_REV}" STREQUAL "${ZIG_VERSION}^0"))
+                    message("WARNING: Tag does not match configured Zig version")
+                endif()
+            else()
+                set(ZIG_VERSION "${ZIG_VERSION}+${ZIG_GIT_REV}")
             endif()
-        else()
-            set(ZIG_VERSION "${ZIG_VERSION}+${ZIG_GIT_REV}")
         endif()
     endif()
 endif()
@@ -63,6 +66,9 @@ endif()
 
 if(ZIG_STATIC)
     set(ZIG_STATIC_LLVM "on")
+    set(ZIG_LINK_MODE "Static")
+else()
+    set(ZIG_LINK_MODE "Dynamic")
 endif()
 
 string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_LIB_DIR_ESCAPED "${ZIG_LIBC_LIB_DIR}")
@@ -74,6 +80,7 @@ option(ZIG_TEST_COVERAGE "Build Zig with test coverage instrumentation" OFF)
 set(ZIG_TARGET_TRIPLE "native" CACHE STRING "arch-os-abi to output binaries for")
 set(ZIG_TARGET_MCPU "baseline" CACHE STRING "-mcpu parameter to output binaries for")
 set(ZIG_EXECUTABLE "" CACHE STRING "(when cross compiling) path to already-built zig binary")
+set(ZIG_PREFER_LLVM_CONFIG off CACHE BOOL "(when cross compiling) use llvm-config to find target llvm dependencies if needed")
 
 find_package(llvm)
 find_package(clang)
@@ -257,7 +264,6 @@ target_include_directories(embedded_softfloat PUBLIC
 )
 include_directories("${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/include")
 set(SOFTFLOAT_LIBRARIES embedded_softfloat)
-include_directories("${CMAKE_SOURCE_DIR}/deps/dbg-macro")
 
 find_package(Threads)
 
@@ -487,7 +493,7 @@ if("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
   endif()
 else()
   add_custom_target(zig_build_zig1 ALL
-      COMMAND "${ZIG_EXECUTABLE}" ${BUILD_ZIG1_ARGS}
+      COMMAND "${ZIG_EXECUTABLE}" "build-obj" ${BUILD_ZIG1_ARGS}
       BYPRODUCTS "${ZIG1_OBJECT}"
       COMMENT STATUS "Building self-hosted component ${ZIG1_OBJECT}"
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"

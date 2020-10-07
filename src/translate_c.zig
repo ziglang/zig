@@ -5527,58 +5527,41 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
 const ParseError = Error || error{ParseError};
 
 fn parseCExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
-    const node = try parseCPrefixOpExpr(c, m, scope);
-    switch (m.next().?) {
-        .QuestionMark => {
-            // must come immediately after expr
-            _ = try appendToken(c, .RParen, ")");
-            const if_node = try transCreateNodeIf(c);
-            if_node.condition = node;
-            if_node.body = try parseCPrimaryExpr(c, m, scope);
-            if (m.next().? != .Colon) {
-                try m.fail(c, "unable to translate C expr: expected ':'", .{});
-                return error.ParseError;
-            }
-            if_node.@"else" = try transCreateNodeElse(c);
-            if_node.@"else".?.body = try parseCPrimaryExpr(c, m, scope);
-            return &if_node.base;
-        },
-        .Comma => {
-            _ = try appendToken(c, .Semicolon, ";");
-            var block_scope = try Scope.Block.init(c, scope, true);
-            defer block_scope.deinit();
-
-            var last = node;
-            while (true) {
-                // suppress result
-                const lhs = try transCreateNodeIdentifier(c, "_");
-                const op_token = try appendToken(c, .Equal, "=");
-                const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
-                op_node.* = .{
-                    .base = .{ .tag = .Assign },
-                    .op_token = op_token,
-                    .lhs = lhs,
-                    .rhs = last,
-                };
-                try block_scope.statements.append(&op_node.base);
-
-                last = try parseCPrefixOpExpr(c, m, scope);
-                _ = try appendToken(c, .Semicolon, ";");
-                if (m.next().? != .Comma) {
-                    m.i -= 1;
-                    break;
-                }
-            }
-
-            const break_node = try transCreateNodeBreak(c, block_scope.label, last);
-            try block_scope.statements.append(&break_node.base);
-            return try block_scope.complete(c);
-        },
-        else => {
-            m.i -= 1;
-            return node;
-        },
+    // TODO parseCAssignExpr here
+    const node = try parseCCondExpr(c, m, scope);
+    if (m.next().? != .Comma) {
+        m.i -= 1;
+        return node;
     }
+    _ = try appendToken(c, .Semicolon, ";");
+    var block_scope = try Scope.Block.init(c, scope, true);
+    defer block_scope.deinit();
+
+    var last = node;
+    while (true) {
+        // suppress result
+        const lhs = try transCreateNodeIdentifier(c, "_");
+        const op_token = try appendToken(c, .Equal, "=");
+        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
+        op_node.* = .{
+            .base = .{ .tag = .Assign },
+            .op_token = op_token,
+            .lhs = lhs,
+            .rhs = last,
+        };
+        try block_scope.statements.append(&op_node.base);
+
+        last = try parseCCondExpr(c, m, scope);
+        _ = try appendToken(c, .Semicolon, ";");
+        if (m.next().? != .Comma) {
+            m.i -= 1;
+            break;
+        }
+    }
+
+    const break_node = try transCreateNodeBreak(c, block_scope.label, last);
+    try block_scope.statements.append(&break_node.base);
+    return try block_scope.complete(c);
 }
 
 fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!*ast.Node {
@@ -5805,7 +5788,7 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
     return bytes[0..i];
 }
 
-fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
     const tok = m.next().?;
     const slice = m.slice();
     switch (tok) {
@@ -5952,6 +5935,30 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.N
     }
 }
 
+fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+    var node = try parseCPrimaryExprInner(c, m, scope);
+    // In C the preprocessor would handle concatting strings while expanding macros.
+    // This should do approximately the same by concatting any strings and identifiers
+    // after a primary expression.
+    while (true) {
+        var op_token: ast.TokenIndex = undefined;
+        var op_id: ast.Node.Tag = undefined;
+        switch (m.peek().?) {
+            .StringLiteral, .Identifier => {},
+            else => break,
+        }
+        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
+        op_node.* = .{
+            .base = .{ .tag = .ArrayCat },
+            .op_token = try appendToken(c, .PlusPlus, "++"),
+            .lhs = node,
+            .rhs = try parseCPrimaryExprInner(c, m, scope),
+        };
+        node = &op_node.base;
+    }
+    return node;
+}
+
 fn nodeIsInfixOp(tag: ast.Node.Tag) bool {
     return switch (tag) {
         .Add,
@@ -6053,31 +6060,268 @@ fn macroIntToBool(c: *Context, node: *ast.Node) !*ast.Node {
     return &group_node.base;
 }
 
-fn parseCSuffixOpExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
-    var node = try parseCPrimaryExpr(c, m, scope);
+fn macroGroup(c: *Context, node: *ast.Node) !*ast.Node {
+    if (!nodeIsInfixOp(node.tag)) return node;
+
+    const group_node = try c.arena.create(ast.Node.GroupedExpression);
+    group_node.* = .{
+        .lparen = try appendToken(c, .LParen, "("),
+        .expr = node,
+        .rparen = try appendToken(c, .RParen, ")"),
+    };
+    return &group_node.base;
+}
+
+fn parseCCondExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+    const node = try parseCOrExpr(c, m, scope);
+    if (m.peek().? != .QuestionMark) {
+        return node;
+    }
+    _ = m.next();
+
+    // must come immediately after expr
+    _ = try appendToken(c, .RParen, ")");
+    const if_node = try transCreateNodeIf(c);
+    if_node.condition = node;
+    if_node.body = try parseCOrExpr(c, m, scope);
+    if (m.next().? != .Colon) {
+        try m.fail(c, "unable to translate C expr: expected ':'", .{});
+        return error.ParseError;
+    }
+    if_node.@"else" = try transCreateNodeElse(c);
+    if_node.@"else".?.body = try parseCCondExpr(c, m, scope);
+    return &if_node.base;
+}
+
+fn parseCOrExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+    var node = try parseCAndExpr(c, m, scope);
+    while (m.next().? == .PipePipe) {
+        const lhs_node = try macroIntToBool(c, node);
+        const op_token = try appendToken(c, .Keyword_or, "or");
+        const rhs_node = try parseCAndExpr(c, m, scope);
+        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
+        op_node.* = .{
+            .base = .{ .tag = .BoolOr },
+            .op_token = op_token,
+            .lhs = lhs_node,
+            .rhs = try macroIntToBool(c, rhs_node),
+        };
+        node = &op_node.base;
+    }
+    m.i -= 1;
+    return node;
+}
+
+fn parseCAndExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+    var node = try parseCBitOrExpr(c, m, scope);
+    while (m.next().? == .AmpersandAmpersand) {
+        const lhs_node = try macroIntToBool(c, node);
+        const op_token = try appendToken(c, .Keyword_and, "and");
+        const rhs_node = try parseCBitOrExpr(c, m, scope);
+        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
+        op_node.* = .{
+            .base = .{ .tag = .BoolAnd },
+            .op_token = op_token,
+            .lhs = lhs_node,
+            .rhs = try macroIntToBool(c, rhs_node),
+        };
+        node = &op_node.base;
+    }
+    m.i -= 1;
+    return node;
+}
+
+fn parseCBitOrExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+    var node = try parseCBitXorExpr(c, m, scope);
+    while (m.next().? == .Pipe) {
+        const lhs_node = try macroBoolToInt(c, node);
+        const op_token = try appendToken(c, .Pipe, "|");
+        const rhs_node = try parseCBitXorExpr(c, m, scope);
+        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
+        op_node.* = .{
+            .base = .{ .tag = .BitOr },
+            .op_token = op_token,
+            .lhs = lhs_node,
+            .rhs = try macroBoolToInt(c, rhs_node),
+        };
+        node = &op_node.base;
+    }
+    m.i -= 1;
+    return node;
+}
+
+fn parseCBitXorExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+    var node = try parseCBitAndExpr(c, m, scope);
+    while (m.next().? == .Caret) {
+        const lhs_node = try macroBoolToInt(c, node);
+        const op_token = try appendToken(c, .Caret, "^");
+        const rhs_node = try parseCBitAndExpr(c, m, scope);
+        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
+        op_node.* = .{
+            .base = .{ .tag = .BitXor },
+            .op_token = op_token,
+            .lhs = lhs_node,
+            .rhs = try macroBoolToInt(c, rhs_node),
+        };
+        node = &op_node.base;
+    }
+    m.i -= 1;
+    return node;
+}
+
+fn parseCBitAndExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+    var node = try parseCEqExpr(c, m, scope);
+    while (m.next().? == .Ampersand) {
+        const lhs_node = try macroBoolToInt(c, node);
+        const op_token = try appendToken(c, .Ampersand, "&");
+        const rhs_node = try parseCEqExpr(c, m, scope);
+        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
+        op_node.* = .{
+            .base = .{ .tag = .BitAnd },
+            .op_token = op_token,
+            .lhs = lhs_node,
+            .rhs = try macroBoolToInt(c, rhs_node),
+        };
+        node = &op_node.base;
+    }
+    m.i -= 1;
+    return node;
+}
+
+fn parseCEqExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+    var node = try parseCRelExpr(c, m, scope);
     while (true) {
         var op_token: ast.TokenIndex = undefined;
         var op_id: ast.Node.Tag = undefined;
-        var bool_op = false;
-        switch (m.next().?) {
-            .Period => {
-                if (m.next().? != .Identifier) {
-                    try m.fail(c, "unable to translate C expr: expected identifier", .{});
-                    return error.ParseError;
-                }
+        switch (m.peek().?) {
+            .BangEqual => {
+                op_token = try appendToken(c, .BangEqual, "!=");
+                op_id = .BangEqual;
+            },
+            .EqualEqual => {
+                op_token = try appendToken(c, .EqualEqual, "==");
+                op_id = .EqualEqual;
+            },
+            else => return node,
+        }
+        _ = m.next();
+        const lhs_node = try macroBoolToInt(c, node);
+        const rhs_node = try parseCRelExpr(c, m, scope);
+        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
+        op_node.* = .{
+            .base = .{ .tag = op_id },
+            .op_token = op_token,
+            .lhs = lhs_node,
+            .rhs = try macroBoolToInt(c, rhs_node),
+        };
+        node = &op_node.base;
+    }
+}
 
-                node = try transCreateNodeFieldAccess(c, node, m.slice());
-                continue;
+fn parseCRelExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+    var node = try parseCShiftExpr(c, m, scope);
+    while (true) {
+        var op_token: ast.TokenIndex = undefined;
+        var op_id: ast.Node.Tag = undefined;
+        switch (m.peek().?) {
+            .AngleBracketRight => {
+                op_token = try appendToken(c, .AngleBracketRight, ">");
+                op_id = .GreaterThan;
             },
-            .Arrow => {
-                if (m.next().? != .Identifier) {
-                    try m.fail(c, "unable to translate C expr: expected identifier", .{});
-                    return error.ParseError;
-                }
-                const deref = try transCreateNodePtrDeref(c, node);
-                node = try transCreateNodeFieldAccess(c, deref, m.slice());
-                continue;
+            .AngleBracketRightEqual => {
+                op_token = try appendToken(c, .AngleBracketRightEqual, ">=");
+                op_id = .GreaterOrEqual;
             },
+            .AngleBracketLeft => {
+                op_token = try appendToken(c, .AngleBracketLeft, "<");
+                op_id = .LessThan;
+            },
+            .AngleBracketLeftEqual => {
+                op_token = try appendToken(c, .AngleBracketLeftEqual, "<=");
+                op_id = .LessOrEqual;
+            },
+            else => return node,
+        }
+        _ = m.next();
+        const lhs_node = try macroBoolToInt(c, node);
+        const rhs_node = try parseCShiftExpr(c, m, scope);
+        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
+        op_node.* = .{
+            .base = .{ .tag = op_id },
+            .op_token = op_token,
+            .lhs = lhs_node,
+            .rhs = try macroBoolToInt(c, rhs_node),
+        };
+        node = &op_node.base;
+    }
+}
+
+fn parseCShiftExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+    var node = try parseCAddSubExpr(c, m, scope);
+    while (true) {
+        var op_token: ast.TokenIndex = undefined;
+        var op_id: ast.Node.Tag = undefined;
+        switch (m.peek().?) {
+            .AngleBracketAngleBracketLeft => {
+                op_token = try appendToken(c, .AngleBracketAngleBracketLeft, "<<");
+                op_id = .BitShiftLeft;
+            },
+            .AngleBracketAngleBracketRight => {
+                op_token = try appendToken(c, .AngleBracketAngleBracketRight, ">>");
+                op_id = .BitShiftRight;
+            },
+            else => return node,
+        }
+        _ = m.next();
+        const lhs_node = try macroBoolToInt(c, node);
+        const rhs_node = try parseCAddSubExpr(c, m, scope);
+        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
+        op_node.* = .{
+            .base = .{ .tag = op_id },
+            .op_token = op_token,
+            .lhs = lhs_node,
+            .rhs = try macroBoolToInt(c, rhs_node),
+        };
+        node = &op_node.base;
+    }
+}
+
+fn parseCAddSubExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+    var node = try parseCMulExpr(c, m, scope);
+    while (true) {
+        var op_token: ast.TokenIndex = undefined;
+        var op_id: ast.Node.Tag = undefined;
+        switch (m.peek().?) {
+            .Plus => {
+                op_token = try appendToken(c, .Plus, "+");
+                op_id = .Add;
+            },
+            .Minus => {
+                op_token = try appendToken(c, .Minus, "-");
+                op_id = .Sub;
+            },
+            else => return node,
+        }
+        _ = m.next();
+        const lhs_node = try macroBoolToInt(c, node);
+        const rhs_node = try parseCMulExpr(c, m, scope);
+        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
+        op_node.* = .{
+            .base = .{ .tag = op_id },
+            .op_token = op_token,
+            .lhs = lhs_node,
+            .rhs = try macroBoolToInt(c, rhs_node),
+        };
+        node = &op_node.base;
+    }
+}
+
+fn parseCMulExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+    var node = try parseCUnaryExpr(c, m, scope);
+    while (true) {
+        var op_token: ast.TokenIndex = undefined;
+        var op_id: ast.Node.Tag = undefined;
+        switch (m.next().?) {
             .Asterisk => {
                 if (m.peek().? == .RParen) {
                     // type *)
@@ -6105,59 +6349,57 @@ fn parseCSuffixOpExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.
                     op_id = .BitShiftLeft;
                 }
             },
-            .AngleBracketAngleBracketLeft => {
-                op_token = try appendToken(c, .AngleBracketAngleBracketLeft, "<<");
-                op_id = .BitShiftLeft;
+            .Slash => {
+                op_id = .Div;
+                op_token = try appendToken(c, .Slash, "/");
             },
-            .AngleBracketAngleBracketRight => {
-                op_token = try appendToken(c, .AngleBracketAngleBracketRight, ">>");
-                op_id = .BitShiftRight;
+            .Percent => {
+                op_id = .Mod;
+                op_token = try appendToken(c, .Percent, "%");
             },
-            .Pipe => {
-                op_token = try appendToken(c, .Pipe, "|");
-                op_id = .BitOr;
+            else => {
+                m.i -= 1;
+                return node;
             },
-            .Ampersand => {
-                op_token = try appendToken(c, .Ampersand, "&");
-                op_id = .BitAnd;
+        }
+        const lhs_node = try macroBoolToInt(c, node);
+        const rhs_node = try parseCUnaryExpr(c, m, scope);
+        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
+        op_node.* = .{
+            .base = .{ .tag = op_id },
+            .op_token = op_token,
+            .lhs = lhs_node,
+            .rhs = try macroBoolToInt(c, rhs_node),
+        };
+        node = &op_node.base;
+    }
+}
+
+fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+    var node = try parseCPrimaryExpr(c, m, scope);
+    while (true) {
+        switch (m.next().?) {
+            .Period => {
+                if (m.next().? != .Identifier) {
+                    try m.fail(c, "unable to translate C expr: expected identifier", .{});
+                    return error.ParseError;
+                }
+
+                node = try transCreateNodeFieldAccess(c, node, m.slice());
+                continue;
             },
-            .Plus => {
-                op_token = try appendToken(c, .Plus, "+");
-                op_id = .Add;
-            },
-            .Minus => {
-                op_token = try appendToken(c, .Minus, "-");
-                op_id = .Sub;
-            },
-            .AmpersandAmpersand => {
-                op_token = try appendToken(c, .Keyword_and, "and");
-                op_id = .BoolAnd;
-                bool_op = true;
-            },
-            .PipePipe => {
-                op_token = try appendToken(c, .Keyword_or, "or");
-                op_id = .BoolOr;
-                bool_op = true;
-            },
-            .AngleBracketRight => {
-                op_token = try appendToken(c, .AngleBracketRight, ">");
-                op_id = .GreaterThan;
-            },
-            .AngleBracketRightEqual => {
-                op_token = try appendToken(c, .AngleBracketRightEqual, ">=");
-                op_id = .GreaterOrEqual;
-            },
-            .AngleBracketLeft => {
-                op_token = try appendToken(c, .AngleBracketLeft, "<");
-                op_id = .LessThan;
-            },
-            .AngleBracketLeftEqual => {
-                op_token = try appendToken(c, .AngleBracketLeftEqual, "<=");
-                op_id = .LessOrEqual;
+            .Arrow => {
+                if (m.next().? != .Identifier) {
+                    try m.fail(c, "unable to translate C expr: expected identifier", .{});
+                    return error.ParseError;
+                }
+                const deref = try transCreateNodePtrDeref(c, node);
+                node = try transCreateNodeFieldAccess(c, deref, m.slice());
+                continue;
             },
             .LBracket => {
                 const arr_node = try transCreateNodeArrayAccess(c, node);
-                arr_node.index_expr = try parseCPrefixOpExpr(c, m, scope);
+                arr_node.index_expr = try parseCExpr(c, m, scope);
                 arr_node.rtoken = try appendToken(c, .RBracket, "]");
                 node = &arr_node.base;
                 if (m.next().? != .RBracket) {
@@ -6171,7 +6413,7 @@ fn parseCSuffixOpExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.
                 var call_params = std.ArrayList(*ast.Node).init(c.gpa);
                 defer call_params.deinit();
                 while (true) {
-                    const arg = try parseCPrefixOpExpr(c, m, scope);
+                    const arg = try parseCCondExpr(c, m, scope);
                     try call_params.append(arg);
                     switch (m.next().?) {
                         .Comma => _ = try appendToken(c, .Comma, ","),
@@ -6204,7 +6446,7 @@ fn parseCSuffixOpExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.
                 defer init_vals.deinit();
 
                 while (true) {
-                    const val = try parseCPrefixOpExpr(c, m, scope);
+                    const val = try parseCCondExpr(c, m, scope);
                     try init_vals.append(val);
                     switch (m.next().?) {
                         .Comma => _ = try appendToken(c, .Comma, ","),
@@ -6239,90 +6481,57 @@ fn parseCSuffixOpExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.
                 node = &zero_init_call.base;
                 continue;
             },
-            .BangEqual => {
-                op_token = try appendToken(c, .BangEqual, "!=");
-                op_id = .BangEqual;
-            },
-            .EqualEqual => {
-                op_token = try appendToken(c, .EqualEqual, "==");
-                op_id = .EqualEqual;
-            },
-            .Slash => {
-                op_id = .Div;
-                op_token = try appendToken(c, .Slash, "/");
-            },
-            .Percent => {
-                op_id = .Mod;
-                op_token = try appendToken(c, .Percent, "%");
-            },
-            .StringLiteral => {
-                op_id = .ArrayCat;
-                op_token = try appendToken(c, .PlusPlus, "++");
-
-                m.i -= 1;
-            },
-            .Identifier => {
-                op_id = .ArrayCat;
-                op_token = try appendToken(c, .PlusPlus, "++");
-
-                m.i -= 1;
+            .PlusPlus, .MinusMinus => {
+                try m.fail(c, "TODO postfix inc/dec expr", .{});
+                return error.ParseError;
             },
             else => {
                 m.i -= 1;
                 return node;
             },
         }
-        const cast_fn = if (bool_op) macroIntToBool else macroBoolToInt;
-        const lhs_node = try cast_fn(c, node);
-        const rhs_node = try parseCPrefixOpExpr(c, m, scope);
-        const op_node = try c.arena.create(ast.Node.SimpleInfixOp);
-        op_node.* = .{
-            .base = .{ .tag = op_id },
-            .op_token = op_token,
-            .lhs = lhs_node,
-            .rhs = try cast_fn(c, rhs_node),
-        };
-        node = &op_node.base;
     }
 }
 
-fn parseCPrefixOpExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
+fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Node {
     switch (m.next().?) {
         .Bang => {
             const node = try transCreateNodeSimplePrefixOp(c, .BoolNot, .Bang, "!");
-            node.rhs = try parseCPrefixOpExpr(c, m, scope);
+            node.rhs = try macroIntToBool(c, try parseCUnaryExpr(c, m, scope));
             return &node.base;
         },
         .Minus => {
             const node = try transCreateNodeSimplePrefixOp(c, .Negation, .Minus, "-");
-            node.rhs = try parseCPrefixOpExpr(c, m, scope);
+            node.rhs = try macroBoolToInt(c, try parseCUnaryExpr(c, m, scope));
             return &node.base;
         },
-        .Plus => return try parseCPrefixOpExpr(c, m, scope),
+        .Plus => return try parseCUnaryExpr(c, m, scope),
         .Tilde => {
             const node = try transCreateNodeSimplePrefixOp(c, .BitNot, .Tilde, "~");
-            node.rhs = try parseCPrefixOpExpr(c, m, scope);
+            node.rhs = try macroBoolToInt(c, try parseCUnaryExpr(c, m, scope));
             return &node.base;
         },
         .Asterisk => {
-            const node = try parseCPrefixOpExpr(c, m, scope);
+            const node = try macroGroup(c, try parseCUnaryExpr(c, m, scope));
             return try transCreateNodePtrDeref(c, node);
         },
         .Ampersand => {
             const node = try transCreateNodeSimplePrefixOp(c, .AddressOf, .Ampersand, "&");
-            node.rhs = try parseCPrefixOpExpr(c, m, scope);
+            node.rhs = try macroGroup(c, try parseCUnaryExpr(c, m, scope));
             return &node.base;
         },
         .Keyword_sizeof => {
             const inner = if (m.peek().? == .LParen) blk: {
                 _ = m.next();
-                const inner = try parseCExpr(c, m, scope);
+                // C grammar says this should be 'type-name' but we have to
+                // use parseCMulExpr to correctly handle pointer types.
+                const inner = try parseCMulExpr(c, m, scope);
                 if (m.next().? != .RParen) {
                     try m.fail(c, "unable to translate C expr: expected ')'", .{});
                     return error.ParseError;
                 }
                 break :blk inner;
-            } else try parseCPrefixOpExpr(c, m, scope);
+            } else try parseCUnaryExpr(c, m, scope);
 
             //(@import("std").meta.sizeof(dest, x))
             const import_fn_call = try c.createBuiltinCall("@import", 1);
@@ -6344,7 +6553,9 @@ fn parseCPrefixOpExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.
                 try m.fail(c, "unable to translate C expr: expected '('", .{});
                 return error.ParseError;
             }
-            const inner = try parseCExpr(c, m, scope);
+            // C grammar says this should be 'type-name' but we have to
+            // use parseCMulExpr to correctly handle pointer types.
+            const inner = try parseCMulExpr(c, m, scope);
             if (m.next().? != .RParen) {
                 try m.fail(c, "unable to translate C expr: expected ')'", .{});
                 return error.ParseError;
@@ -6355,9 +6566,13 @@ fn parseCPrefixOpExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.
             builtin_call.rparen_token = try appendToken(c, .RParen, ")");
             return &builtin_call.base;
         },
+        .PlusPlus, .MinusMinus => {
+            try m.fail(c, "TODO unary inc/dec expr", .{});
+            return error.ParseError;
+        },
         else => {
             m.i -= 1;
-            return try parseCSuffixOpExpr(c, m, scope);
+            return try parseCPostfixExpr(c, m, scope);
         },
     }
 }

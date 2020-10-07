@@ -1802,10 +1802,18 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
             }
             return type_allowed_in_extern(g, child_type, result);
         }
-        case ZigTypeIdEnum:
-            *result = type_entry->data.enumeration.layout == ContainerLayoutExtern ||
-                type_entry->data.enumeration.layout == ContainerLayoutPacked;
-            return ErrorNone;
+        case ZigTypeIdEnum: {
+            if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
+                return err;
+            ZigType *tag_int_type = type_entry->data.enumeration.tag_int_type;
+            if (type_entry->data.enumeration.has_explicit_tag_type) {
+                return type_allowed_in_extern(g, tag_int_type, result);
+            } else {
+                *result = type_entry->data.enumeration.layout == ContainerLayoutExtern ||
+                    type_entry->data.enumeration.layout == ContainerLayoutPacked;
+                return ErrorNone;
+            }
+        }
         case ZigTypeIdUnion:
             *result = type_entry->data.unionation.layout == ContainerLayoutExtern ||
                 type_entry->data.unionation.layout == ContainerLayoutPacked;
@@ -2639,9 +2647,11 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     if (decl_node->type == NodeTypeContainerDecl) {
         if (decl_node->data.container_decl.init_arg_expr != nullptr) {
             wanted_tag_int_type = analyze_type_expr(g, scope, decl_node->data.container_decl.init_arg_expr);
+            enum_type->data.enumeration.has_explicit_tag_type = true;
         }
     } else {
         wanted_tag_int_type = enum_type->data.enumeration.tag_int_type;
+        enum_type->data.enumeration.has_explicit_tag_type = true;
     }
 
     if (wanted_tag_int_type != nullptr) {
@@ -3120,11 +3130,8 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
     bool create_enum_type = is_auto_enum || (!is_explicit_enum && want_safety);
     bool *covered_enum_fields;
     bool *is_zero_bits = heap::c_allocator.allocate<bool>(field_count);
-    ZigLLVMDIEnumerator **di_enumerators;
     if (create_enum_type) {
         occupied_tag_values.init(field_count);
-
-        di_enumerators = heap::c_allocator.allocate<ZigLLVMDIEnumerator*>(field_count);
 
         ZigType *tag_int_type;
         if (enum_type_node != nullptr) {
@@ -3269,7 +3276,6 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
         }
 
         if (create_enum_type) {
-            di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(union_field->name), i);
             union_field->enum_field = &tag_type->data.enumeration.fields[i];
             union_field->enum_field->name = union_field->name;
             union_field->enum_field->decl_index = i;
@@ -3336,6 +3342,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
             gen_field_index += 1;
         }
     }
+    heap::c_allocator.deallocate(is_zero_bits, field_count);
 
     bool src_have_tag = is_auto_enum || is_explicit_enum;
 
@@ -3403,6 +3410,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
             }
         }
+        heap::c_allocator.deallocate(covered_enum_fields, tag_type->data.enumeration.src_field_count);
     }
 
     if (union_type->data.unionation.resolve_status == ResolveStatusInvalid) {

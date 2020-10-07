@@ -1257,3 +1257,47 @@ pub const reloc_type_x86_64 = packed enum(u4) {
     /// for thread local variables
     X86_64_RELOC_TLV,
 };
+
+/// This symbol is a reference to an external non-lazy (data) symbol.
+pub const REFERENCE_FLAG_UNDEFINED_NON_LAZY: u16 = 0x0;
+
+/// This symbol is a reference to an external lazy symbol—that is, to a function call.
+pub const REFERENCE_FLAG_UNDEFINED_LAZY: u16 = 0x1;
+
+/// This symbol is defined in this module.
+pub const REFERENCE_FLAG_DEFINED: u16 = 0x2;
+
+/// This symbol is defined in this module and is visible only to modules within this shared library.
+pub const REFERENCE_FLAG_PRIVATE_DEFINED: u16 = 3;
+
+/// This symbol is defined in another module in this file, is a non-lazy (data) symbol, and is visible
+/// only to modules within this shared library.
+pub const REFERENCE_FLAG_PRIVATE_UNDEFINED_NON_LAZY: u16 = 4;
+
+/// This symbol is defined in another module in this file, is a lazy (function) symbol, and is visible
+/// only to modules within this shared library.
+pub const REFERENCE_FLAG_PRIVATE_UNDEFINED_LAZY: u16 = 5;
+
+/// Must be set for any defined symbol that is referenced by dynamic-loader APIs (such as dlsym and
+/// NSLookupSymbolInImage) and not ordinary undefined symbol references. The strip tool uses this bit
+/// to avoid removing symbols that must exist: If the symbol has this bit set, strip does not strip it.
+pub const REFERENCED_DYNAMICALLY: u16 = 0x10;
+
+/// Used by the dynamic linker at runtime. Do not set this bit.
+pub const N_DESC_DISCARDED: u16 = 0x20;
+
+/// Indicates that this symbol is a weak reference. If the dynamic linker cannot find a definition
+/// for this symbol, it sets the address of this symbol to 0. The static linker sets this symbol given
+/// the appropriate weak-linking flags.
+pub const N_WEAK_REF: u16 = 0x40;
+
+/// Indicates that this symbol is a weak definition. If the static linker or the dynamic linker finds
+/// another (non-weak) definition for this symbol, the weak definition is ignored. Only symbols in a
+/// coalesced section (page 23) can be marked as a weak definition.
+pub const N_WEAK_DEF: u16 = 0x80;
+
+/// The N_SYMBOL_RESOLVER bit of the n_desc field indicates that the
+/// that the function is actually a resolver function and should
+/// be called to get the address of the real function to use.
+/// This bit is only available in .o files (MH_OBJECT filetype)
+pub const N_SYMBOL_RESOLVER: u16 = 0x100;

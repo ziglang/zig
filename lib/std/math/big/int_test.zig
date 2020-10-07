@@ -1480,3 +1480,55 @@ test "big.int const to managed" {
 
     testing.expect(a.toConst().eq(b.toConst()));
 }
+
+test "big.int pow" {
+    {
+        var a = try Managed.initSet(testing.allocator, 10);
+        defer a.deinit();
+
+        try a.pow(a, 8);
+        testing.expectEqual(@as(u32, 100000000), try a.to(u32));
+    }
+    {
+        var a = try Managed.initSet(testing.allocator, 10);
+        defer a.deinit();
+
+        var y = try Managed.init(testing.allocator);
+        defer y.deinit();
+
+        // y and a are not aliased
+        try y.pow(a, 123);
+        // y and a are aliased
+        try a.pow(a, 123);
+
+        testing.expect(a.eq(y));
+
+        const ys = try y.toString(testing.allocator, 16, false);
+        defer testing.allocator.free(ys);
+        testing.expectEqualSlices(
+            u8,
+            "183425a5f872f126e00a5ad62c839075cd6846c6fb0230887c7ad7a9dc530fcb" ++
+                "4933f60e8000000000000000000000000000000",
+            ys,
+        );
+    }
+    // Special cases
+    {
+        var a = try Managed.initSet(testing.allocator, 0);
+        defer a.deinit();
+
+        try a.pow(a, 100);
+        testing.expectEqual(@as(i32, 0), try a.to(i32));
+
+        try a.set(1);
+        try a.pow(a, 0);
+        testing.expectEqual(@as(i32, 1), try a.to(i32));
+        try a.pow(a, 100);
+        testing.expectEqual(@as(i32, 1), try a.to(i32));
+        try a.set(-1);
+        try a.pow(a, 15);
+        testing.expectEqual(@as(i32, -1), try a.to(i32));
+        try a.pow(a, 16);
+        testing.expectEqual(@as(i32, 1), try a.to(i32));
+    }
+}

@@ -1856,7 +1856,7 @@ pub const Dir = struct {
     }
 };
 
-/// Returns an handle to the current working directory. It is not opened with iteration capability.
+/// Returns a handle to the current working directory. It is not opened with iteration capability.
 /// Closing the returned `Dir` is checked illegal behavior. Iterating over the result is illegal behavior.
 /// On POSIX targets, this function is comptime-callable.
 pub fn cwd() Dir {
@@ -2162,7 +2162,7 @@ pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
     return openFileAbsoluteZ(buf[0..self_exe_path.len :0].ptr, flags);
 }
 
-pub const SelfExePathError = os.ReadLinkError || os.SysCtlError;
+pub const SelfExePathError = os.ReadLinkError || os.SysCtlError || os.RealPathError;
 
 /// `selfExePath` except allocates the result on the heap.
 /// Caller owns returned memory.
@@ -2190,10 +2190,18 @@ pub fn selfExePathAlloc(allocator: *Allocator) ![]u8 {
 /// TODO make the return type of this a null terminated pointer
 pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
     if (is_darwin) {
-        var u32_len: u32 = @intCast(u32, math.min(out_buffer.len, math.maxInt(u32)));
-        const rc = std.c._NSGetExecutablePath(out_buffer.ptr, &u32_len);
+        // Note that _NSGetExecutablePath() will return "a path" to
+        // the executable not a "real path" to the executable.
+        var symlink_path_buf: [MAX_PATH_BYTES:0]u8 = undefined;
+        var u32_len: u32 = MAX_PATH_BYTES + 1; // include the sentinel
+        const rc = std.c._NSGetExecutablePath(&symlink_path_buf, &u32_len);
         if (rc != 0) return error.NameTooLong;
-        return mem.spanZ(@ptrCast([*:0]u8, out_buffer));
+
+        var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+        const real_path = try std.os.realpathZ(&symlink_path_buf, &real_path_buf);
+        if (real_path.len > out_buffer.len) return error.NameTooLong;
+        std.mem.copy(u8, out_buffer, real_path);
+        return out_buffer[0..real_path.len];
     }
     switch (builtin.os.tag) {
         .linux => return os.readlinkZ("/proc/self/exe", out_buffer),

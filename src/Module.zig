@@ -70,6 +70,9 @@ deletion_set: ArrayListUnmanaged(*Decl) = .{},
 /// Error tags and their values, tag names are duped with mod.gpa.
 global_error_set: std.StringHashMapUnmanaged(u16) = .{},
 
+/// Keys are fully qualified paths
+import_table: std.StringArrayHashMapUnmanaged(*Scope.File) = .{},
+
 /// Incrementing integer used to compare against the corresponding Decl
 /// field to determine whether a Decl's status applies to an ongoing update, or a
 /// previous analysis.
@@ -208,7 +211,7 @@ pub const Decl = struct {
             .container => {
                 const container = @fieldParentPtr(Scope.Container, "base", self.scope);
                 const tree = container.file_scope.contents.tree;
-                // TODO Container should have it's own decls()
+                // TODO Container should have its own decls()
                 const decl_node = tree.root_node.decls()[self.src_index];
                 return tree.token_locs[decl_node.firstToken()].start;
             },
@@ -532,12 +535,13 @@ pub const Scope = struct {
 
         /// Direct children of the file.
         decls: std.AutoArrayHashMapUnmanaged(*Decl, void),
-
-        // TODO implement container types and put this in a status union
-        // ty: Type
+        ty: Type,
 
         pub fn deinit(self: *Container, gpa: *Allocator) void {
             self.decls.deinit(gpa);
+            // TODO either Container of File should have an arena for sub_file_path and ty
+            gpa.destroy(self.ty.cast(Type.Payload.EmptyStruct).?);
+            gpa.free(self.file_scope.sub_file_path);
             self.* = undefined;
         }
 
@@ -854,6 +858,11 @@ pub fn deinit(self: *Module) void {
         gpa.free(entry.key);
     }
     self.global_error_set.deinit(gpa);
+
+    for (self.import_table.items()) |entry| {
+        entry.value.base.destroy(gpa);
+    }
+    self.import_table.deinit(gpa);
 }
 
 fn freeExportList(gpa: *Allocator, export_list: []*Export) void {
@@ -2379,6 +2388,45 @@ pub fn analyzeSlice(self: *Module, scope: *Scope, src: usize, array_ptr: *Inst, 
     );
 
     return self.fail(scope, src, "TODO implement analysis of slice", .{});
+}
+
+pub fn analyzeImport(self: *Module, scope: *Scope, src: usize, target_string: []const u8) !*Scope.File {
+    // TODO if (package_table.get(target_string)) |pkg|
+    if (self.import_table.get(target_string)) |some| {
+        return some;
+    }
+
+    // TODO check for imports outside of pkg path
+    if (false) return error.ImportOutsidePkgPath;
+
+    // TODO Scope.Container arena for ty and sub_file_path
+    const struct_payload = try self.gpa.create(Type.Payload.EmptyStruct);
+    errdefer self.gpa.destroy(struct_payload);
+    const file_scope = try self.gpa.create(Scope.File);
+    errdefer self.gpa.destroy(file_scope);
+    const file_path = try self.gpa.dupe(u8, target_string);
+    errdefer self.gpa.free(file_path);
+
+    struct_payload.* = .{ .scope = &file_scope.root_container };
+    file_scope.* = .{
+        .sub_file_path = file_path,
+        .source = .{ .unloaded = {} },
+        .contents = .{ .not_available = {} },
+        .status = .never_loaded,
+        .root_container = .{
+            .file_scope = file_scope,
+            .decls = .{},
+            .ty = Type.initPayload(&struct_payload.base),
+        },
+    };
+    self.analyzeContainer(&file_scope.root_container) catch |err| switch (err) {
+        error.AnalysisFail => {
+            assert(self.comp.totalErrorCount() != 0);
+        },
+        else => |e| return e,
+    };
+    try self.import_table.put(self.gpa, file_scope.sub_file_path, file_scope);
+    return file_scope;
 }
 
 /// Asserts that lhs and rhs types are both numeric.

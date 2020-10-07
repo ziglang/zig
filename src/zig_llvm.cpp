@@ -1126,6 +1126,34 @@ LLVMValueRef ZigLLVMBuildAtomicRMW(LLVMBuilderRef B, enum ZigLLVM_AtomicRMWBinOp
         singleThread ? SyncScope::SingleThread : SyncScope::System));
 }
 
+LLVMValueRef ZigLLVMBuildAndReduce(LLVMBuilderRef B, LLVMValueRef Val) {
+    return wrap(unwrap(B)->CreateAndReduce(unwrap(Val)));
+}
+
+LLVMValueRef ZigLLVMBuildOrReduce(LLVMBuilderRef B, LLVMValueRef Val) {
+    return wrap(unwrap(B)->CreateOrReduce(unwrap(Val)));
+}
+
+LLVMValueRef ZigLLVMBuildXorReduce(LLVMBuilderRef B, LLVMValueRef Val) {
+    return wrap(unwrap(B)->CreateXorReduce(unwrap(Val)));
+}
+
+LLVMValueRef ZigLLVMBuildIntMaxReduce(LLVMBuilderRef B, LLVMValueRef Val, bool is_signed) {
+    return wrap(unwrap(B)->CreateIntMaxReduce(unwrap(Val), is_signed));
+}
+
+LLVMValueRef ZigLLVMBuildIntMinReduce(LLVMBuilderRef B, LLVMValueRef Val, bool is_signed) {
+    return wrap(unwrap(B)->CreateIntMinReduce(unwrap(Val), is_signed));
+}
+
+LLVMValueRef ZigLLVMBuildFPMaxReduce(LLVMBuilderRef B, LLVMValueRef Val) {
+    return wrap(unwrap(B)->CreateFPMaxReduce(unwrap(Val)));
+}
+
+LLVMValueRef ZigLLVMBuildFPMinReduce(LLVMBuilderRef B, LLVMValueRef Val) {
+    return wrap(unwrap(B)->CreateFPMinReduce(unwrap(Val)));
+}
+
 static_assert((Triple::ArchType)ZigLLVM_UnknownArch == Triple::UnknownArch, "");
 static_assert((Triple::ArchType)ZigLLVM_arm == Triple::arm, "");
 static_assert((Triple::ArchType)ZigLLVM_armeb == Triple::armeb, "");

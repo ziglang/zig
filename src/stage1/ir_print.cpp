@@ -200,6 +200,8 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcCmpxchg";
         case IrInstSrcIdFence:
             return "SrcFence";
+        case IrInstSrcIdReduce:
+            return "SrcReduce";
         case IrInstSrcIdTruncate:
             return "SrcTruncate";
         case IrInstSrcIdIntCast:
@@ -436,6 +438,8 @@ const char* ir_inst_gen_type_str(IrInstGenId id) {
             return "GenCmpxchg";
         case IrInstGenIdFence:
             return "GenFence";
+        case IrInstGenIdReduce:
+            return "GenReduce";
         case IrInstGenIdTruncate:
             return "GenTruncate";
         case IrInstGenIdBoolNot:
@@ -1584,6 +1588,14 @@ static void ir_print_fence(IrPrintSrc *irp, IrInstSrcFence *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_reduce(IrPrintSrc *irp, IrInstSrcReduce *instruction) {
+    fprintf(irp->f, "@reduce(");
+    ir_print_other_inst_src(irp, instruction->op);
+    fprintf(irp->f, ", ");
+    ir_print_other_inst_src(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
 static const char *atomic_order_str(AtomicOrder order) {
     switch (order) {
         case AtomicOrderUnordered: return "Unordered";
@@ -1598,6 +1610,23 @@ static const char *atomic_order_str(AtomicOrder order) {
 
 static void ir_print_fence(IrPrintGen *irp, IrInstGenFence *instruction) {
     fprintf(irp->f, "fence %s", atomic_order_str(instruction->order));
+}
+
+static const char *reduce_op_str(ReduceOp op) {
+    switch (op) {
+        case ReduceOp_and: return "And";
+        case ReduceOp_or: return "Or";
+        case ReduceOp_xor: return "Xor";
+        case ReduceOp_min: return "Min";
+        case ReduceOp_max: return "Max";
+    }
+    zig_unreachable();
+}
+
+static void ir_print_reduce(IrPrintGen *irp, IrInstGenReduce *instruction) {
+    fprintf(irp->f, "@reduce(.%s, ", reduce_op_str(instruction->op));
+    ir_print_other_inst_gen(irp, instruction->value);
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_truncate(IrPrintSrc *irp, IrInstSrcTruncate *instruction) {
@@ -2749,6 +2778,9 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
         case IrInstSrcIdFence:
             ir_print_fence(irp, (IrInstSrcFence *)instruction);
             break;
+        case IrInstSrcIdReduce:
+            ir_print_reduce(irp, (IrInstSrcReduce *)instruction);
+            break;
         case IrInstSrcIdTruncate:
             ir_print_truncate(irp, (IrInstSrcTruncate *)instruction);
             break;
@@ -3096,6 +3128,9 @@ static void ir_print_inst_gen(IrPrintGen *irp, IrInstGen *instruction, bool trai
             break;
         case IrInstGenIdFence:
             ir_print_fence(irp, (IrInstGenFence *)instruction);
+            break;
+        case IrInstGenIdReduce:
+            ir_print_reduce(irp, (IrInstGenReduce *)instruction);
             break;
         case IrInstGenIdTruncate:
             ir_print_truncate(irp, (IrInstGenTruncate *)instruction);

@@ -430,6 +430,16 @@ int main(int argc, char **argv) {
         return print_error_usage(arg0);
     }
 
+    if (override_lib_dir == nullptr) {
+        fprintf(stderr, "missing --override-lib-dir\n");
+        return print_error_usage(arg0);
+    }
+
+    if (emit_bin_path == nullptr) {
+        fprintf(stderr, "missing -femit-bin=\n");
+        return print_error_usage(arg0);
+    }
+
     ZigStage1 *stage1 = zig_stage1_create(optimize_mode,
         nullptr, 0,
         in_file, strlen(in_file),

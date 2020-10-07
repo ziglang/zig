@@ -8,6 +8,7 @@ const log = std.log.scoped(.compilation);
 const Target = std.Target;
 
 const Value = @import("value.zig").Value;
+const Type = @import("type.zig").Type;
 const target_util = @import("target.zig");
 const Package = @import("Package.zig");
 const link = @import("link.zig");
@@ -352,6 +353,7 @@ pub const InitOptions = struct {
     time_report: bool = false,
     stack_report: bool = false,
     link_eh_frame_hdr: bool = false,
+    link_emit_relocs: bool = false,
     linker_script: ?[]const u8 = null,
     version_script: ?[]const u8 = null,
     override_soname: ?[]const u8 = null,
@@ -376,6 +378,7 @@ pub const InitOptions = struct {
     is_compiler_rt_or_libc: bool = false,
     parent_compilation_link_libc: bool = false,
     stack_size_override: ?u64 = null,
+    image_base_override: ?u64 = null,
     self_exe_path: ?[]const u8 = null,
     version: ?std.builtin.Version = null,
     libc_installation: ?*const LibCInstallation = null,
@@ -447,8 +450,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 options.system_libs.len != 0 or
                 options.link_libc or options.link_libcpp or
                 options.link_eh_frame_hdr or
+                options.link_emit_relocs or
                 options.output_mode == .Lib or
                 options.lld_argv.len != 0 or
+                options.image_base_override != null or
                 options.linker_script != null or options.version_script != null)
             {
                 break :blk true;
@@ -473,8 +478,12 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             {
                 break :dl true;
             }
-            if (options.system_libs.len != 0)
-                break :dl true;
+            if (options.system_libs.len != 0) {
+                // when creating a executable that links to system libraries,
+                // we require dynamic linking, but we must not link static libraries
+                // or object files dynamically!
+                break :dl (options.output_mode == .Exe);
+            }
 
             break :dl false;
         };
@@ -638,15 +647,19 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
             const root_scope = rs: {
                 if (mem.endsWith(u8, root_pkg.root_src_path, ".zig")) {
+                    const struct_payload = try gpa.create(Type.Payload.EmptyStruct);
                     const root_scope = try gpa.create(Module.Scope.File);
+                    struct_payload.* = .{ .scope = &root_scope.root_container };
                     root_scope.* = .{
-                        .sub_file_path = root_pkg.root_src_path,
+                        // TODO this is duped so it can be freed in Container.deinit
+                        .sub_file_path = try gpa.dupe(u8, root_pkg.root_src_path),
                         .source = .{ .unloaded = {} },
                         .contents = .{ .not_available = {} },
                         .status = .never_loaded,
                         .root_container = .{
                             .file_scope = root_scope,
                             .decls = .{},
+                            .ty = Type.initPayload(&struct_payload.base),
                         },
                     };
                     break :rs &root_scope.base;
@@ -765,10 +778,12 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .z_nodelete = options.linker_z_nodelete,
             .z_defs = options.linker_z_defs,
             .stack_size_override = options.stack_size_override,
+            .image_base_override = options.image_base_override,
             .linker_script = options.linker_script,
             .version_script = options.version_script,
             .gc_sections = options.linker_gc_sections,
             .eh_frame_hdr = options.link_eh_frame_hdr,
+            .emit_relocs = options.link_emit_relocs,
             .rdynamic = options.rdynamic,
             .extra_lld_args = options.lld_argv,
             .override_soname = options.override_soname,
@@ -785,7 +800,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .llvm_cpu_features = llvm_cpu_features,
             .is_compiler_rt_or_libc = options.is_compiler_rt_or_libc,
             .parent_compilation_link_libc = options.parent_compilation_link_libc,
-            .each_lib_rpath = options.each_lib_rpath orelse false,
+            .each_lib_rpath = options.each_lib_rpath orelse options.is_native_os,
             .disable_lld_caching = options.disable_lld_caching,
             .subsystem = options.subsystem,
             .is_test = options.is_test,
@@ -1022,6 +1037,17 @@ pub fn update(self: *Compilation) !void {
                     else => |e| return e,
                 };
             }
+
+            // TODO only analyze imports if they are still referenced
+            for (module.import_table.items()) |entry| {
+                entry.value.unload(module.gpa);
+                module.analyzeContainer(&entry.value.root_container) catch |err| switch (err) {
+                    error.AnalysisFail => {
+                        assert(self.totalErrorCount() != 0);
+                    },
+                    else => |e| return e,
+                };
+            }
         }
     }
 
@@ -1146,7 +1172,15 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
     };
 }
 
-pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
+pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemory }!void {
+    var progress: std.Progress = .{};
+    var main_progress_node = try progress.start("", null);
+    defer main_progress_node.end();
+    if (self.color == .Off) progress.terminal = null;
+
+    var c_comp_progress_node = main_progress_node.start("Compile C Objects", self.c_source_files.len);
+    defer c_comp_progress_node.end();
+
     while (self.work_queue.readItem()) |work_item| switch (work_item) {
         .codegen_decl => |decl| switch (decl.analysis) {
             .unreferenced => unreachable,
@@ -1223,7 +1257,7 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
             };
         },
         .c_object => |c_object| {
-            self.updateCObject(c_object) catch |err| switch (err) {
+            self.updateCObject(c_object, &c_comp_progress_node) catch |err| switch (err) {
                 error.AnalysisFail => continue,
                 else => {
                     try self.failed_c_objects.ensureCapacity(self.gpa, self.failed_c_objects.items().len + 1);
@@ -1309,7 +1343,7 @@ pub fn performAllTheWork(self: *Compilation) error{OutOfMemory}!void {
             if (!build_options.is_stage1)
                 unreachable;
 
-            self.updateStage1Module() catch |err| {
+            self.updateStage1Module(main_progress_node) catch |err| {
                 fatal("unable to build stage1 zig object: {}", .{@errorName(err)});
             };
         },
@@ -1470,7 +1504,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
     };
 }
 
-fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
+fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return comp.failCObj(c_object, "clang not available: compiler built without LLVM extensions", .{});
     }
@@ -1513,6 +1547,12 @@ fn updateCObject(comp: *Compilation, c_object: *CObject) !void {
     const arena = &arena_allocator.allocator;
 
     const c_source_basename = std.fs.path.basename(c_object.src.src_path);
+
+    c_comp_progress_node.activate();
+    var child_progress_node = c_comp_progress_node.start(c_source_basename, null);
+    child_progress_node.activate();
+    defer child_progress_node.end();
+
     // Special case when doing build-obj for just one C file. When there are more than one object
     // file and building an object we need to link them together, but with just one it should go
     // directly to the output file.
@@ -2506,7 +2546,7 @@ fn buildStaticLibFromZig(comp: *Compilation, src_basename: []const u8, out: *?CR
     };
 }
 
-fn updateStage1Module(comp: *Compilation) !void {
+fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2550,6 +2590,8 @@ fn updateStage1Module(comp: *Compilation) !void {
     man.hash.add(comp.emit_llvm_ir != null);
     man.hash.add(comp.emit_analysis != null);
     man.hash.add(comp.emit_docs != null);
+    man.hash.addOptionalBytes(comp.test_filter);
+    man.hash.addOptionalBytes(comp.test_name_prefix);
 
     // Capture the state in case we come back from this branch where the hash doesn't match.
     const prev_hash_state = man.hash.peekBin();
@@ -2612,10 +2654,6 @@ fn updateStage1Module(comp: *Compilation) !void {
         .llvm_cpu_name = if (target.cpu.model.llvm_name) |s| s.ptr else null,
         .llvm_cpu_features = comp.bin_file.options.llvm_cpu_features.?,
     };
-    var progress: std.Progress = .{};
-    var main_progress_node = try progress.start("", null);
-    defer main_progress_node.end();
-    if (comp.color == .Off) progress.terminal = null;
 
     comp.stage1_cache_manifest = &man;
 

@@ -57,6 +57,7 @@ pub fn benchmarkHash(comptime Hash: anytype, comptime bytes: comptime_int) !u64 
 }
 
 const macs = [_]Crypto{
+    Crypto{ .ty = crypto.onetimeauth.Ghash, .name = "ghash" },
     Crypto{ .ty = crypto.onetimeauth.Poly1305, .name = "poly1305" },
     Crypto{ .ty = crypto.auth.hmac.HmacMd5, .name = "hmac-md5" },
     Crypto{ .ty = crypto.auth.hmac.HmacSha1, .name = "hmac-sha1" },
@@ -151,6 +152,8 @@ const aeads = [_]Crypto{
     Crypto{ .ty = crypto.aead.Gimli, .name = "gimli-aead" },
     Crypto{ .ty = crypto.aead.AEGIS128L, .name = "aegis-128l" },
     Crypto{ .ty = crypto.aead.AEGIS256, .name = "aegis-256" },
+    Crypto{ .ty = crypto.aead.AES128GCM, .name = "aes128-gcm" },
+    Crypto{ .ty = crypto.aead.AES256GCM, .name = "aes256-gcm" },
 };
 
 pub fn benchmarkAead(comptime Aead: anytype, comptime bytes: comptime_int) !u64 {

@@ -130,7 +130,6 @@ pub fn osRequiresLibC(target: std.Target) bool {
 
 pub fn libcNeedsLibUnwind(target: std.Target) bool {
     return switch (target.os.tag) {
-        .windows,
         .macosx,
         .ios,
         .watchos,
@@ -138,6 +137,7 @@ pub fn libcNeedsLibUnwind(target: std.Target) bool {
         .freestanding,
         => false,
 
+        .windows => target.abi != .msvc,
         else => true,
     };
 }

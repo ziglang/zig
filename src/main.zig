@@ -268,16 +268,19 @@ const usage_build_generic =
     \\  -T[script], --script [script]  Use a custom linker script
     \\  --version-script [path]        Provide a version .map file
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
-    \\  --each-lib-rpath               Add rpath for each used dynamic library
     \\  --version [ver]                Dynamic library semver
     \\  -rdynamic                      Add all symbols to the dynamic symbol table
     \\  -rpath [path]                  Add directory to the runtime library search path
+    \\  -feach-lib-rpath               Ensure adding rpath for each used dynamic library
+    \\  -fno-each-lib-rpath            Prevent adding rpath for each used dynamic library
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
+    \\  --emit-relocs                  Enable output of relocation sections for post build tools
     \\  -dynamic                       Force output to be dynamically linked
     \\  -static                        Force output to be statically linked
     \\  -Bsymbolic                     Bind global references locally
     \\  --subsystem [subsystem]        (windows) /SUBSYSTEM:<subsystem> to the linker\n"
     \\  --stack [size]                 Override default stack size
+    \\  --image-base [addr]            Set base address for executable image
     \\  -framework [name]              (darwin) link against framework
     \\  -F[dir]                        (darwin) add search path for frameworks
     \\
@@ -434,11 +437,13 @@ fn buildOutputType(
     var linker_z_defs = false;
     var test_evented_io = false;
     var stack_size_override: ?u64 = null;
+    var image_base_override: ?u64 = null;
     var use_llvm: ?bool = null;
     var use_lld: ?bool = null;
     var use_clang: ?bool = null;
     var link_eh_frame_hdr = false;
-    var each_lib_rpath = false;
+    var link_emit_relocs = false;
+    var each_lib_rpath: ?bool = null;
     var libc_paths_file: ?[]const u8 = null;
     var machine_code_model: std.builtin.CodeModel = .default;
     var runtime_args_start: ?usize = null;
@@ -520,7 +525,7 @@ fn buildOutputType(
             //}
             const args = all_args[2..];
             var i: usize = 0;
-            while (i < args.len) : (i += 1) {
+            args_loop: while (i < args.len) : (i += 1) {
                 const arg = args[i];
                 if (mem.startsWith(u8, arg, "-")) {
                     if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
@@ -528,7 +533,10 @@ fn buildOutputType(
                         return cleanExit();
                     } else if (mem.eql(u8, arg, "--")) {
                         if (arg_mode == .run) {
-                            runtime_args_start = i + 1;
+                            // The index refers to all_args so skip `zig` `run`
+                            // and `--`
+                            runtime_args_start = i + 3;
+                            break :args_loop;
                         } else {
                             fatal("unexpected end-of-parameter mark: --", .{});
                         }
@@ -626,9 +634,11 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--stack")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
-                        stack_size_override = std.fmt.parseInt(u64, args[i], 10) catch |err| {
-                            fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
-                        };
+                        stack_size_override = parseAnyBaseInt(args[i]);
+                    } else if (mem.eql(u8, arg, "--image-base")) {
+                        if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
+                        i += 1;
+                        image_base_override = parseAnyBaseInt(args[i]);
                     } else if (mem.eql(u8, arg, "--name")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
@@ -733,8 +743,10 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
                         override_lib_dir = args[i];
-                    } else if (mem.eql(u8, arg, "--each-lib-rpath")) {
+                    } else if (mem.eql(u8, arg, "-feach-lib-rpath")) {
                         each_lib_rpath = true;
+                    } else if (mem.eql(u8, arg, "-fno-each-lib-rpath")) {
+                        each_lib_rpath = false;
                     } else if (mem.eql(u8, arg, "--enable-cache")) {
                         enable_cache = true;
                     } else if (mem.eql(u8, arg, "--test-cmd-bin")) {
@@ -838,6 +850,8 @@ fn buildOutputType(
                         function_sections = true;
                     } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
                         link_eh_frame_hdr = true;
+                    } else if (mem.eql(u8, arg, "--emit-relocs")) {
+                        link_emit_relocs = true;
                     } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                         linker_bind_global_refs_locally = true;
                     } else if (mem.eql(u8, arg, "--verbose-link")) {
@@ -1143,9 +1157,13 @@ fn buildOutputType(
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{}'", .{arg});
                     }
-                    stack_size_override = std.fmt.parseInt(u64, linker_args.items[i], 10) catch |err| {
-                        fatal("unable to parse '{}': {}", .{ arg, @errorName(err) });
-                    };
+                    stack_size_override = parseAnyBaseInt(linker_args.items[i]);
+                } else if (mem.eql(u8, arg, "--image-base")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{}'", .{arg});
+                    }
+                    image_base_override = parseAnyBaseInt(linker_args.items[i]);
                 } else {
                     warn("unsupported linker arg: {}", .{arg});
                 }
@@ -1204,6 +1222,10 @@ fn buildOutputType(
 
     if (arg_mode == .translate_c and c_source_files.items.len != 1) {
         fatal("translate-c expects exactly 1 source file (found {})", .{c_source_files.items.len});
+    }
+
+    if (root_src_file == null and arg_mode == .zig_test) {
+        fatal("one zig source file is required to run `zig test`", .{});
     }
 
     const root_name = if (provided_name) |n| n else blk: {
@@ -1446,6 +1468,11 @@ fn buildOutputType(
             cleanup_root_dir = dir;
             root_pkg_memory.root_src_directory = .{ .path = p, .handle = dir };
             root_pkg_memory.root_src_path = try fs.path.relative(arena, p, src_path);
+        } else if (fs.path.dirname(src_path)) |p| {
+            const dir = try fs.cwd().openDir(p, .{});
+            cleanup_root_dir = dir;
+            root_pkg_memory.root_src_directory = .{ .path = p, .handle = dir };
+            root_pkg_memory.root_src_path = fs.path.basename(src_path);
         } else {
             root_pkg_memory.root_src_directory = .{ .path = null, .handle = fs.cwd() };
             root_pkg_memory.root_src_path = src_path;
@@ -1580,7 +1607,9 @@ fn buildOutputType(
         .linker_z_nodelete = linker_z_nodelete,
         .linker_z_defs = linker_z_defs,
         .link_eh_frame_hdr = link_eh_frame_hdr,
+        .link_emit_relocs = link_emit_relocs,
         .stack_size_override = stack_size_override,
+        .image_base_override = image_base_override,
         .strip = strip,
         .single_threaded = single_threaded,
         .function_sections = function_sections,
@@ -2525,7 +2554,7 @@ fn fmtPathFile(
     const source_code = source_file.readToEndAllocOptions(
         fmt.gpa,
         max_src_size,
-        stat.size,
+        std.math.cast(usize, stat.size) catch return error.FileTooBig,
         @alignOf(u8),
         null,
     ) catch |err| switch (err) {
@@ -3036,4 +3065,19 @@ pub fn cleanExit() void {
     } else {
         process.exit(0);
     }
+}
+
+fn parseAnyBaseInt(prefixed_bytes: []const u8) u64 {
+    const base: u8 = if (mem.startsWith(u8, prefixed_bytes, "0x"))
+        16
+    else if (mem.startsWith(u8, prefixed_bytes, "0o"))
+        8
+    else if (mem.startsWith(u8, prefixed_bytes, "0b"))
+        2
+    else
+        @as(u8, 10);
+    const bytes = if (base == 10) prefixed_bytes else prefixed_bytes[2..];
+    return std.fmt.parseInt(u64, bytes, base) catch |err| {
+        fatal("unable to parse '{}': {}", .{ prefixed_bytes, @errorName(err) });
+    };
 }

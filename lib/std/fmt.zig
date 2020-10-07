@@ -1181,6 +1181,16 @@ fn bufPrintIntToSlice(buf: []u8, value: anytype, base: u8, uppercase: bool, opti
     return buf[0..formatIntBuf(buf, value, base, uppercase, options)];
 }
 
+pub fn comptimePrint(comptime fmt: []const u8, args: anytype) *const [count(fmt, args)]u8 {
+    comptime var buf: [count(fmt, args)]u8 = undefined;
+    _ = bufPrint(&buf, fmt, args) catch unreachable;
+    return &buf;
+}
+
+test "comptimePrint" {
+    std.testing.expectEqualSlices(u8, "100", comptime comptimePrint("{}", .{100}));
+}
+
 test "parse u64 digit too big" {
     _ = parseUnsigned(u64, "123a", 10) catch |err| {
         if (err == error.InvalidCharacter) return;

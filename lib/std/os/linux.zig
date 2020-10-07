@@ -1263,6 +1263,26 @@ pub fn prctl(option: i32, arg2: usize, arg3: usize, arg4: usize, arg5: usize) us
     return syscall5(.prctl, @bitCast(usize, @as(isize, option)), arg2, arg3, arg4, arg5);
 }
 
+pub fn getrlimit(resource: rlimit_resource, rlim: *rlimit) usize {
+    // use prlimit64 to have 64 bit limits on 32 bit platforms
+    return prlimit(0, resource, null, rlim);
+}
+
+pub fn setrlimit(resource: rlimit_resource, rlim: *const rlimit) usize {
+    // use prlimit64 to have 64 bit limits on 32 bit platforms
+    return prlimit(0, resource, rlim, null);
+}
+
+pub fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: ?*const rlimit, old_limit: ?*rlimit) usize {
+    return syscall4(
+        .prlimit64,
+        @bitCast(usize, @as(isize, pid)),
+        @bitCast(usize, @as(isize, @enumToInt(resource))),
+        @ptrToInt(new_limit),
+        @ptrToInt(old_limit)
+    );
+}
+
 test "" {
     if (builtin.os.tag == .linux) {
         _ = @import("linux/test.zig");

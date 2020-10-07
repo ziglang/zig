@@ -37,7 +37,6 @@ This step must be repeated when you make changes to any of the C++ source code.
 
  * cmake >= 3.15.3
  * Microsoft Visual Studio. Supported versions:
-   - 2015 (version 14)
    - 2017 (version 15.8)
    - 2019 (version 16)
  * LLVM, Clang, LLD development libraries == 11.x

@@ -689,9 +689,6 @@ pub const BuiltSharedObjects = struct {
 
 const all_map_basename = "all.map";
 
-// TODO Turn back on zig fmt when https://github.com/ziglang/zig/issues/5948 is implemented.
-// zig fmt: off
-
 pub fn buildSharedObjects(comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -827,8 +824,9 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
 
                         if (ver.patch == 0) {
                             const sym_plus_ver = try std.fmt.allocPrint(
-                                arena, "{s}_{d}_{d}",
-                                .{sym_name, ver.major, ver.minor},
+                                arena,
+                                "{s}_{d}_{d}",
+                                .{ sym_name, ver.major, ver.minor },
                             );
                             try zig_body.writer().print(
                                 \\.globl {s}
@@ -840,13 +838,19 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                             , .{
                                 sym_plus_ver,
                                 sym_plus_ver,
-                                sym_plus_ver, sym_name, at_sign_str, ver.major, ver.minor,
+                                sym_plus_ver,
+                                sym_name,
+                                at_sign_str,
+                                ver.major,
+                                ver.minor,
                                 sym_plus_ver,
                                 sym_plus_ver,
                             });
                         } else {
-                            const sym_plus_ver = try std.fmt.allocPrint(arena, "{s}_{d}_{d}_{d}",
-                                .{sym_name, ver.major, ver.minor, ver.patch},
+                            const sym_plus_ver = try std.fmt.allocPrint(
+                                arena,
+                                "{s}_{d}_{d}_{d}",
+                                .{ sym_name, ver.major, ver.minor, ver.patch },
                             );
                             try zig_body.writer().print(
                                 \\.globl {s}
@@ -858,7 +862,12 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                             , .{
                                 sym_plus_ver,
                                 sym_plus_ver,
-                                sym_plus_ver, sym_name, at_sign_str, ver.major, ver.minor, ver.patch,
+                                sym_plus_ver,
+                                sym_name,
+                                at_sign_str,
+                                ver.major,
+                                ver.minor,
+                                ver.patch,
                                 sym_plus_ver,
                                 sym_plus_ver,
                             });

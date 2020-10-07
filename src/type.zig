@@ -89,6 +89,8 @@ pub const Type = extern union {
             .anyerror_void_error_union, .error_union => return .ErrorUnion,
 
             .anyframe_T, .@"anyframe" => return .AnyFrame,
+
+            .empty_struct => return .Struct,
         }
     }
 
@@ -439,6 +441,7 @@ pub const Type = extern union {
             },
             .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
             .error_set_single => return self.copyPayloadShallow(allocator, Payload.ErrorSetSingle),
+            .empty_struct => return self.copyPayloadShallow(allocator, Payload.EmptyStruct),
         }
     }
 
@@ -505,6 +508,8 @@ pub const Type = extern union {
                 .@"null" => return out_stream.writeAll("@Type(.Null)"),
                 .@"undefined" => return out_stream.writeAll("@Type(.Undefined)"),
 
+                // TODO this should print the structs name
+                .empty_struct => return out_stream.writeAll("struct {}"),
                 .@"anyframe" => return out_stream.writeAll("anyframe"),
                 .anyerror_void_error_union => return out_stream.writeAll("anyerror!void"),
                 .const_slice_u8 => return out_stream.writeAll("[]const u8"),
@@ -788,6 +793,7 @@ pub const Type = extern union {
             .@"null",
             .@"undefined",
             .enum_literal,
+            .empty_struct,
             => false,
         };
     }
@@ -910,6 +916,7 @@ pub const Type = extern union {
             .@"null",
             .@"undefined",
             .enum_literal,
+            .empty_struct,
             => unreachable,
         };
     }
@@ -932,6 +939,7 @@ pub const Type = extern union {
             .@"undefined" => unreachable,
             .enum_literal => unreachable,
             .single_const_pointer_to_comptime_int => unreachable,
+            .empty_struct => unreachable,
 
             .u8,
             .i8,
@@ -1107,6 +1115,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => false,
 
             .single_const_pointer,
@@ -1181,6 +1190,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => false,
 
             .const_slice,
@@ -1252,6 +1262,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => false,
 
             .single_const_pointer,
@@ -1332,6 +1343,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => false,
 
             .pointer => {
@@ -1407,6 +1419,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => false,
 
             .pointer => {
@@ -1524,6 +1537,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
 
             .array => self.cast(Payload.Array).?.elem_type,
@@ -1651,6 +1665,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
 
             .array => self.cast(Payload.Array).?.len,
@@ -1716,6 +1731,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
 
             .single_const_pointer,
@@ -1798,6 +1814,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => false,
 
             .int_signed,
@@ -1872,6 +1889,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => false,
 
             .int_unsigned,
@@ -1936,6 +1954,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
 
             .int_unsigned => .{ .signed = false, .bits = self.cast(Payload.IntUnsigned).?.bits },
@@ -2018,6 +2037,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => false,
 
             .usize,
@@ -2129,6 +2149,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
         };
     }
@@ -2206,6 +2227,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
         }
     }
@@ -2282,6 +2304,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
         }
     }
@@ -2358,6 +2381,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
         };
     }
@@ -2431,6 +2455,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
         };
     }
@@ -2504,6 +2529,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => unreachable,
         };
     }
@@ -2577,6 +2603,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => false,
         };
     }
@@ -2636,6 +2663,7 @@ pub const Type = extern union {
             .error_set_single,
             => return null,
 
+            .empty_struct => return Value.initTag(.empty_struct_value),
             .void => return Value.initTag(.void_value),
             .noreturn => return Value.initTag(.unreachable_value),
             .@"null" => return Value.initTag(.null_value),
@@ -2743,6 +2771,7 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set,
             .error_set_single,
+            .empty_struct,
             => return false,
 
             .c_const_pointer,
@@ -2758,6 +2787,80 @@ pub const Type = extern union {
         // TODO tuples are indexable
         return zig_tag == .Array or zig_tag == .Vector or self.isSlice() or
             (self.isSinglePointer() and self.elemType().zigTypeTag() == .Array);
+    }
+
+    /// Asserts that the type is a container. (note: ErrorSet is not a container).
+    pub fn getContainerScope(self: Type) *Module.Scope.Container {
+        return switch (self.tag()) {
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_longdouble,
+            .comptime_int,
+            .comptime_float,
+            .u8,
+            .i8,
+            .u16,
+            .i16,
+            .u32,
+            .i32,
+            .u64,
+            .i64,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .bool,
+            .type,
+            .anyerror,
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .function,
+            .single_const_pointer_to_comptime_int,
+            .const_slice_u8,
+            .c_void,
+            .void,
+            .noreturn,
+            .@"null",
+            .@"undefined",
+            .int_unsigned,
+            .int_signed,
+            .array,
+            .array_sentinel,
+            .array_u8,
+            .array_u8_sentinel_0,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            .optional,
+            .optional_single_mut_pointer,
+            .optional_single_const_pointer,
+            .enum_literal,
+            .error_union,
+            .@"anyframe",
+            .anyframe_T,
+            .anyerror_void_error_union,
+            .error_set,
+            .error_set_single,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .pointer,
+            => unreachable,
+
+            .empty_struct => self.cast(Type.Payload.EmptyStruct).?.scope,
+        };
     }
 
     /// This enum does not directly correspond to `std.builtin.TypeId` because
@@ -2835,6 +2938,7 @@ pub const Type = extern union {
         anyframe_T,
         error_set,
         error_set_single,
+        empty_struct,
 
         pub const last_no_payload_tag = Tag.const_slice_u8;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -2941,6 +3045,14 @@ pub const Type = extern union {
 
             /// memory is owned by `Module`
             name: []const u8,
+        };
+
+        /// Mostly used for namespace like structs with zero fields.
+        /// Most commonly used for files.
+        pub const EmptyStruct = struct {
+            base: Payload = .{ .tag = .empty_struct },
+
+            scope: *Module.Scope.Container,
         };
     };
 };

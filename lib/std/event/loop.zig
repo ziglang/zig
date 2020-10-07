@@ -647,6 +647,31 @@ pub const Loop = struct {
         }
     }
 
+    /// Runs the provided function asynchronously. The function's frame is allocated
+    /// with `allocator` and freed when the function returns.
+    /// `func` must return void and it can be an async function.
+    /// Yields to the event loop, running the function on the next tick.
+    pub fn runDetached(self: *Loop, alloc: *mem.Allocator, comptime func: anytype, args: anytype) error{OutOfMemory}!void {
+        if (!std.io.is_async) @compileError("Can't use runDetached in non-async mode!");
+        if (@TypeOf(@call(.{}, func, args)) != void) {
+            @compileError("`func` must not have a return value");
+        }
+
+        const Wrapper = struct {
+            const Args = @TypeOf(args);
+            fn run(func_args: Args, loop: *Loop, allocator: *mem.Allocator) void {
+                loop.yield();
+                const result = @call(.{}, func, func_args);
+                suspend {
+                    allocator.destroy(@frame());
+                }
+            }
+        };
+
+        var run_frame = try alloc.create(@Frame(Wrapper.run));
+        run_frame.* = async Wrapper.run(args, self, alloc);
+    }
+
     /// Yielding lets the event loop run, starting any unstarted async operations.
     /// Note that async operations automatically start when a function yields for any other reason,
     /// for example, when async I/O is performed. This function is intended to be used only when
@@ -1492,4 +1517,34 @@ fn testEventLoop2(h: anyframe->i32, did_it: *bool) void {
     const value = await h;
     testing.expect(value == 1234);
     did_it.* = true;
+}
+
+var testRunDetachedData: usize = 0;
+test "std.event.Loop - runDetached" {
+    // https://github.com/ziglang/zig/issues/1908
+    if (builtin.single_threaded) return error.SkipZigTest;
+    if (!std.io.is_async) return error.SkipZigTest;
+    if (true) {
+        // https://github.com/ziglang/zig/issues/4922
+        return error.SkipZigTest;
+    }
+
+    var loop: Loop = undefined;
+    try loop.initMultiThreaded();
+    defer loop.deinit();
+
+    // Schedule the execution, won't actually start until we start the
+    // event loop.
+    try loop.runDetached(std.testing.allocator, testRunDetached, .{});
+
+    // Now we can start the event loop. The function will return only
+    // after all tasks have been completed, allowing us to synchonize
+    // with the previous runDetached.
+    loop.run();
+
+    testing.expect(testRunDetachedData == 1);
+}
+
+fn testRunDetached() void {
+    testRunDetachedData += 1;
 }

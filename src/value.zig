@@ -68,6 +68,7 @@ pub const Value = extern union {
         one,
         void_value,
         unreachable_value,
+        empty_struct_value,
         empty_array,
         null_value,
         bool_true,
@@ -182,6 +183,7 @@ pub const Value = extern union {
             .null_value,
             .bool_true,
             .bool_false,
+            .empty_struct_value,
             => unreachable,
 
             .ty => {
@@ -312,6 +314,8 @@ pub const Value = extern union {
             .enum_literal_type => return out_stream.writeAll("@Type(.EnumLiteral)"),
             .anyframe_type => return out_stream.writeAll("anyframe"),
 
+            // TODO this should print `NAME{}`
+            .empty_struct_value => return out_stream.writeAll("struct {}{}"),
             .null_value => return out_stream.writeAll("null"),
             .undef => return out_stream.writeAll("undefined"),
             .zero => return out_stream.writeAll("0"),
@@ -475,6 +479,7 @@ pub const Value = extern union {
             .float_128,
             .enum_literal,
             .@"error",
+            .empty_struct_value,
             => unreachable,
         };
     }
@@ -543,6 +548,7 @@ pub const Value = extern union {
             .enum_literal,
             .error_set,
             .@"error",
+            .empty_struct_value,
             => unreachable,
 
             .undef => unreachable,
@@ -626,6 +632,7 @@ pub const Value = extern union {
             .enum_literal,
             .error_set,
             .@"error",
+            .empty_struct_value,
             => unreachable,
 
             .undef => unreachable,
@@ -709,6 +716,7 @@ pub const Value = extern union {
             .enum_literal,
             .error_set,
             .@"error",
+            .empty_struct_value,
             => unreachable,
 
             .undef => unreachable,
@@ -820,6 +828,7 @@ pub const Value = extern union {
             .enum_literal,
             .error_set,
             .@"error",
+            .empty_struct_value,
             => unreachable,
 
             .zero,
@@ -833,7 +842,7 @@ pub const Value = extern union {
             .int_u64 => {
                 const x = self.cast(Payload.Int_u64).?.int;
                 if (x == 0) return 0;
-                return std.math.log2(x) + 1;
+                return @intCast(usize, std.math.log2(x) + 1);
             },
             .int_i64 => {
                 @panic("TODO implement i64 intBitCountTwosComp");
@@ -907,6 +916,7 @@ pub const Value = extern union {
             .enum_literal,
             .error_set,
             .@"error",
+            .empty_struct_value,
             => unreachable,
 
             .zero,
@@ -1078,6 +1088,7 @@ pub const Value = extern union {
             .enum_literal,
             .error_set,
             .@"error",
+            .empty_struct_value,
             => unreachable,
 
             .zero,
@@ -1152,6 +1163,7 @@ pub const Value = extern union {
             .enum_literal,
             .error_set,
             .@"error",
+            .empty_struct_value,
             => unreachable,
 
             .zero,
@@ -1300,6 +1312,7 @@ pub const Value = extern union {
             .enum_literal,
             .error_set,
             .@"error",
+            .empty_struct_value,
             => unreachable,
 
             .ref_val => self.cast(Payload.RefVal).?.val,
@@ -1383,6 +1396,7 @@ pub const Value = extern union {
             .enum_literal,
             .error_set,
             .@"error",
+            .empty_struct_value,
             => unreachable,
 
             .empty_array => unreachable, // out of bounds array index
@@ -1483,6 +1497,7 @@ pub const Value = extern union {
             .enum_literal,
             .error_set,
             .@"error",
+            .empty_struct_value,
             => false,
 
             .undef => unreachable,

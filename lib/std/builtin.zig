@@ -100,6 +100,16 @@ pub const AtomicOrder = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const ReduceOp = enum {
+    And,
+    Or,
+    Xor,
+    Min,
+    Max,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const AtomicRmwOp = enum {
     Xchg,
     Add,
@@ -262,6 +272,7 @@ pub const TypeInfo = union(enum) {
         field_type: type,
         default_value: anytype,
         is_comptime: bool,
+        alignment: comptime_int,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -318,6 +329,7 @@ pub const TypeInfo = union(enum) {
     pub const UnionField = struct {
         name: []const u8,
         field_type: type,
+        alignment: comptime_int,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -341,6 +353,7 @@ pub const TypeInfo = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const Fn = struct {
         calling_convention: CallingConvention,
+        alignment: comptime_int,
         is_generic: bool,
         is_var_args: bool,
         return_type: ?type,

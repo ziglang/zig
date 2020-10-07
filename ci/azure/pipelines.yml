@@ -28,20 +28,10 @@ jobs:
 - job: BuildWindows
   pool:
     vmImage: 'windows-2019'
-  strategy:
-    matrix:
-      mingw64:
-        CHERE_INVOKING: yes
-        MSYSTEM: MINGW64
-        SCRIPT: '%CD:~0,2%\msys64\usr\bin\bash -lc "bash ci/azure/windows_mingw_script"'
-      msvc:
-        SCRIPT: ci/azure/windows_msvc_script.bat
-
   timeoutInMinutes: 360
-
   steps:
   - powershell: |
-      (New-Object Net.WebClient).DownloadFile("https://github.com/msys2/msys2-installer/releases/download/2020-07-20/msys2-base-x86_64-20200720.sfx.exe", "sfx.exe")
+      (New-Object Net.WebClient).DownloadFile("https://github.com/msys2/msys2-installer/releases/download/2020-09-03/msys2-base-x86_64-20200903.sfx.exe", "sfx.exe")
       .\sfx.exe -y -o\
       del sfx.exe
     displayName: Download/Extract/Install MSYS2
@@ -57,7 +47,7 @@ jobs:
   - task: DownloadSecureFile@1
     inputs:
       secureFile: s3cfg
-  - script: $(SCRIPT)
+  - script: ci/azure/windows_msvc_script.bat
     name: main
     displayName: 'Build and test'
 - job: OnMasterSuccess

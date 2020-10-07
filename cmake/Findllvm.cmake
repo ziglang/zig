@@ -32,7 +32,7 @@ if(ZIG_PREFER_CLANG_CPP_DYLIB)
       /usr/local/llvm11/lib
       /usr/local/llvm110/lib
   )
-elseif("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
+elseif(("${ZIG_TARGET_TRIPLE}" STREQUAL "native") OR ZIG_PREFER_LLVM_CONFIG)
   find_program(LLVM_CONFIG_EXE
       NAMES llvm-config-11 llvm-config-11.0 llvm-config110 llvm-config11 llvm-config
       PATHS
@@ -55,13 +55,13 @@ elseif("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
     OUTPUT_STRIP_TRAILING_WHITESPACE)
 
   if("${LLVM_CONFIG_VERSION}" VERSION_LESS 11)
-    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION}")
+    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
   if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 12)
-    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION}")
+    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
   if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 11)
-    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION}")
+    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
 
   execute_process(
@@ -72,12 +72,13 @@ elseif("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
   function(NEED_TARGET TARGET_NAME)
       list (FIND LLVM_TARGETS_BUILT "${TARGET_NAME}" _index)
       if (${_index} EQUAL -1)
-          message(FATAL_ERROR "LLVM is missing target ${TARGET_NAME}. Zig requires LLVM to be built with all default targets enabled.")
+          message(FATAL_ERROR "LLVM (according to ${LLVM_CONFIG_EXE}) is missing target ${TARGET_NAME}. Zig requires LLVM to be built with all default targets enabled.")
       endif()
   endfunction(NEED_TARGET)
   NEED_TARGET("AArch64")
   NEED_TARGET("AMDGPU")
   NEED_TARGET("ARM")
+  NEED_TARGET("AVR")
   NEED_TARGET("BPF")
   NEED_TARGET("Hexagon")
   NEED_TARGET("Lanai")
@@ -141,8 +142,7 @@ elseif("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
   link_directories("${LLVM_LIBDIRS}")
 else()
   # Here we assume that we're cross compiling with Zig, of course. No reason
-  # to support more complicated setups. We also assume the experimental target
-  # AVR is enabled.
+  # to support more complicated setups.
 
   macro(FIND_AND_ADD_LLVM_LIB _libname_)
     string(TOUPPER ${_libname_} _prettylibname_)

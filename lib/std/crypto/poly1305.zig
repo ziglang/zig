@@ -22,8 +22,7 @@ pub const Poly1305 = struct {
     // partial block buffer
     buf: [block_size]u8 align(16) = undefined,
 
-    pub fn init(key: []const u8) Poly1305 {
-        std.debug.assert(key.len >= minimum_key_length);
+    pub fn init(key: *const [minimum_key_length]u8) Poly1305 {
         const t0 = mem.readIntLittle(u64, key[0..8]);
         const t1 = mem.readIntLittle(u64, key[8..16]);
         return Poly1305{
@@ -92,7 +91,7 @@ pub const Poly1305 = struct {
             }
             mb = mb[want..];
             st.leftover += want;
-            if (st.leftover > block_size) {
+            if (st.leftover < block_size) {
                 return;
             }
             st.blocks(&st.buf, false);
@@ -115,8 +114,20 @@ pub const Poly1305 = struct {
         }
     }
 
-    pub fn final(st: *Poly1305, out: []u8) void {
-        std.debug.assert(out.len >= mac_length);
+    /// Zero-pad to align the next input to the first byte of a block
+    pub fn pad(st: *Poly1305) void {
+        if (st.leftover == 0) {
+            return;
+        }
+        var i = st.leftover;
+        while (i < block_size) : (i += 1) {
+            st.buf[i] = 0;
+        }
+        st.blocks(&st.buf);
+        st.leftover = 0;
+    }
+
+    pub fn final(st: *Poly1305, out: *[mac_length]u8) void {
         if (st.leftover > 0) {
             var i = st.leftover;
             st.buf[i] = 1;
@@ -187,10 +198,7 @@ pub const Poly1305 = struct {
         std.mem.secureZero(u8, @ptrCast([*]u8, st)[0..@sizeOf(Poly1305)]);
     }
 
-    pub fn create(out: []u8, msg: []const u8, key: []const u8) void {
-        std.debug.assert(out.len >= mac_length);
-        std.debug.assert(key.len >= minimum_key_length);
-
+    pub fn create(out: *[mac_length]u8, msg: []const u8, key: *const [minimum_key_length]u8) void {
         var st = Poly1305.init(key);
         st.update(msg);
         st.final(out);

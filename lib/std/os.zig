@@ -3993,7 +3993,7 @@ pub const RealPathError = error{
 /// Expands all symbolic links and resolves references to `.`, `..`, and
 /// extra `/` characters in `pathname`.
 /// The return value is a slice of `out_buffer`, but not necessarily from the beginning.
-/// See also `realpathC` and `realpathW`.
+/// See also `realpathZ` and `realpathW`.
 pub fn realpath(pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     if (builtin.os.tag == .windows) {
         const pathname_w = try windows.sliceToPrefixedFileW(pathname);
@@ -5407,6 +5407,36 @@ pub fn prctl(option: i32, args: anytype) PrctlError!u31 {
         EOPNOTSUPP => return error.OperationNotSupported,
         EPERM, EBUSY => return error.PermissionDenied,
         ERANGE => unreachable,
+        else => |err| return std.os.unexpectedErrno(err),
+    }
+}
+
+pub const GetrlimitError = UnexpectedError;
+
+pub fn getrlimit(resource: rlimit_resource) GetrlimitError!rlimit {
+    // TODO implement for systems other than linux and enable test
+    var limits: rlimit = undefined;
+    const rc = system.getrlimit(resource, &limits);
+    switch (errno(rc)) {
+        0 => return limits,
+        EFAULT => unreachable, // bogus pointer
+        EINVAL => unreachable,
+        else => |err| return std.os.unexpectedErrno(err),
+    }
+}
+
+pub const SetrlimitError = error{
+    PermissionDenied,
+} || UnexpectedError;
+
+pub fn setrlimit(resource: rlimit_resource, limits: rlimit) SetrlimitError!void {
+    // TODO implement for systems other than linux and enable test
+    const rc = system.setrlimit(resource, &limits);
+    switch (errno(rc)) {
+        0 => return,
+        EFAULT => unreachable, // bogus pointer
+        EINVAL => unreachable,
+        EPERM => return error.PermissionDenied,
         else => |err| return std.os.unexpectedErrno(err),
     }
 }
