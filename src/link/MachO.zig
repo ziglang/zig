@@ -287,9 +287,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 }
                 const cmd = &self.load_commands.items[self.dylinker_cmd_index.?].Dylinker;
                 off += cmd.name;
-                const padding = cmd.cmdsize - @sizeOf(macho.dylinker_command);
-                log.debug("writing LC_LOAD_DYLINKER padding of size {} at 0x{x}\n", .{ padding, off });
-                try self.addPadding(padding, off);
                 log.debug("writing LC_LOAD_DYLINKER path to dyld at 0x{x}\n", .{off});
                 try self.base.file.?.pwriteAll(mem.spanZ(DEFAULT_DYLD_PATH), off);
             }
@@ -302,9 +299,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 }
                 const cmd = &self.load_commands.items[self.libsystem_cmd_index.?].Dylib;
                 off += cmd.dylib.name;
-                const padding = cmd.cmdsize - @sizeOf(macho.dylib_command);
-                log.debug("writing LC_LOAD_DYLIB padding of size {} at 0x{x}\n", .{ padding, off });
-                try self.addPadding(padding, off);
                 log.debug("writing LC_LOAD_DYLIB path to libSystem at 0x{x}\n", .{off});
                 try self.base.file.?.pwriteAll(mem.spanZ(LIB_SYSTEM_PATH), off);
             }
@@ -1262,21 +1256,6 @@ fn updateString(self: *MachO, old_str_off: u32, new_name: []const u8) !u32 {
         return old_str_off;
     }
     return self.makeString(new_name);
-}
-
-/// TODO This should not heap allocate, instead it should utilize a fixed size, statically allocated
-/// global const array. You could even use pwritev to write the same buffer multiple times with only
-/// 1 syscall if you needed to, for example, write 8192 bytes using a buffer of only 4096 bytes.
-/// This size parameter should probably be a usize not u64.
-fn addPadding(self: *MachO, size: u64, file_offset: u64) !void {
-    if (size == 0) return;
-
-    const buf = try self.base.allocator.alloc(u8, @intCast(usize, size));
-    defer self.base.allocator.free(buf);
-
-    mem.set(u8, buf[0..], 0);
-
-    try self.base.file.?.pwriteAll(buf, file_offset);
 }
 
 fn detectAllocCollision(self: *MachO, start: u64, size: u64) ?u64 {
