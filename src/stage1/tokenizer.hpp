@@ -81,6 +81,7 @@ enum TokenId {
     TokenIdKeywordNoAlias,
     TokenIdKeywordNoSuspend,
     TokenIdKeywordNull,
+    TokenIdKeywordOpaque,
     TokenIdKeywordOr,
     TokenIdKeywordOrElse,
     TokenIdKeywordPacked,

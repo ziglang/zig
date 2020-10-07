@@ -1492,7 +1492,19 @@ fn renderExpression(
 
             // TODO remove after 0.7.0 release
             if (mem.eql(u8, tree.tokenSlice(builtin_call.builtin_token), "@OpaqueType"))
-                return ais.writer().writeAll("@Type(.Opaque)");
+                return ais.writer().writeAll("opaque {}");
+
+            // TODO remove after 0.7.0 release
+            {
+                const params = builtin_call.paramsConst();
+                if (mem.eql(u8, tree.tokenSlice(builtin_call.builtin_token), "@Type") and
+                    params.len == 1)
+                {
+                    if (params[0].castTag(.EnumLiteral)) |enum_literal|
+                        if (mem.eql(u8, tree.tokenSlice(enum_literal.name), "Opaque"))
+                            return ais.writer().writeAll("opaque {}");
+                }
+            }
 
             try renderToken(tree, ais, builtin_call.builtin_token, Space.None); // @name
 

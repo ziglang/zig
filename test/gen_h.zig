@@ -74,7 +74,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
     });
 
     cases.add("declare opaque type",
-        \\const Foo = @Type(.Opaque);
+        \\const Foo = opaque {};
         \\
         \\export fn entry(foo: ?*Foo) void { }
     , &[_][]const u8{

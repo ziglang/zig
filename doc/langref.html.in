@@ -1988,7 +1988,7 @@ test "null terminated array" {
               <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#}</li>
               <li>Supports pointer arithmetic: {#syntax#}ptr + x{#endsyntax#}, {#syntax#}ptr - x{#endsyntax#}</li>
               <li>{#syntax#}T{#endsyntax#} must have a known size, which means that it cannot be
-              {#syntax#}c_void{#endsyntax#} or any other {#link|opaque type|Opaque Types#}.</li>
+              {#syntax#}c_void{#endsyntax#} or any other {#link|opaque type|opaque#}.</li>
             </ul>
           </li>
       </ul>
@@ -5545,7 +5545,7 @@ test "turn HashMap into a set with void" {
       </p>
       <p>
       {#syntax#}void{#endsyntax#} is distinct from {#syntax#}c_void{#endsyntax#}, which is defined like this:
-              {#syntax#}pub const c_void = @Type(.Opaque);{#endsyntax#}.
+              {#syntax#}pub const c_void = opaque {};{#endsyntax#}.
                   {#syntax#}void{#endsyntax#} has a known size of 0 bytes, and {#syntax#}c_void{#endsyntax#} has an unknown, but non-zero, size.
       </p>
       <p>
@@ -8471,7 +8471,7 @@ test "integer truncation" {
           <li>{#link|Error Set Type#}</li>
           <li>{#link|Error Union Type#}</li>
           <li>{#link|Vectors#}</li>
-          <li>{#link|Opaque Types#}</li>
+          <li>{#link|opaque#}</li>
           <li>{#link|@Frame#}</li>
           <li>{#syntax#}anyframe{#endsyntax#}</li>
           <li>{#link|struct#}</li>
@@ -8547,17 +8547,18 @@ fn foo(comptime T: type, ptr: *T) T {
       {#header_close#}
       {#header_close#}
 
-      {#header_open|Opaque Types#}
+      {#header_open|opaque#}
       <p>
-      {#syntax#}@Type(.Opaque){#endsyntax#} creates a new type with an unknown (but non-zero) size and alignment.
+      {#syntax#}opaque {}{#endsyntax#} declares a new type with an unknown (but non-zero) size and alignment.
+      It can have declarations like structs, unions, or enums.
       </p>
       <p>
       This is typically used for type safety when interacting with C code that does not expose struct details.
       Example:
       </p>
       {#code_begin|test_err|expected type '*Derp', found '*Wat'#}
-const Derp = @Type(.Opaque);
-const Wat = @Type(.Opaque);
+const Derp = opaque {};
+const Wat = opaque {};
 
 extern fn bar(d: *Derp) void;
 fn foo(w: *Wat) callconv(.C) void {
@@ -11193,7 +11194,7 @@ PtrTypeStart
 ContainerDeclAuto &lt;- ContainerDeclType LBRACE ContainerMembers RBRACE
 
 ContainerDeclType
-    &lt;- (KEYWORD_struct / KEYWORD_enum) (LPAREN Expr RPAREN)?
+    &lt;- (KEYWORD_struct / KEYWORD_enum / KEYWORD_opaque) (LPAREN Expr RPAREN)?
      / KEYWORD_union (LPAREN (KEYWORD_enum (LPAREN Expr RPAREN)? / Expr) RPAREN)?
 
 # Alignment
@@ -11340,6 +11341,7 @@ KEYWORD_inline      &lt;- 'inline'      end_of_word
 KEYWORD_noalias     &lt;- 'noalias'     end_of_word
 KEYWORD_nosuspend   &lt;- 'nosuspend'   end_of_word
 KEYWORD_null        &lt;- 'null'        end_of_word
+KEYWORD_opaque      &lt;- 'opaque'      end_of_word
 KEYWORD_or          &lt;- 'or'          end_of_word
 KEYWORD_orelse      &lt;- 'orelse'      end_of_word
 KEYWORD_packed      &lt;- 'packed'      end_of_word
@@ -11368,7 +11370,7 @@ keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_anyframe / KEYWORD_anytype
          / KEYWORD_defer / KEYWORD_else / KEYWORD_enum / KEYWORD_errdefer
          / KEYWORD_error / KEYWORD_export / KEYWORD_extern / KEYWORD_false
          / KEYWORD_fn / KEYWORD_for / KEYWORD_if / KEYWORD_inline
-         / KEYWORD_noalias / KEYWORD_null / KEYWORD_or
+         / KEYWORD_noalias / KEYWORD_null / KEYWORD_opaque / KEYWORD_or
          / KEYWORD_orelse / KEYWORD_packed / KEYWORD_pub
          / KEYWORD_resume / KEYWORD_return / KEYWORD_linksection
          / KEYWORD_struct / KEYWORD_suspend

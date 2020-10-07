@@ -930,9 +930,9 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
     const init_node = blk: {
         const rp = makeRestorePoint(c);
         const record_def = ZigClangRecordDecl_getDefinition(record_decl) orelse {
-            const opaque = try transCreateNodeOpaqueType(c);
+            const opaque_type = try transCreateNodeOpaqueType(c);
             semicolon = try appendToken(c, .Semicolon, ";");
-            break :blk opaque;
+            break :blk opaque_type;
         };
 
         const layout_tok = try if (ZigClangRecordDecl_getPackedAttribute(record_decl))
@@ -954,17 +954,17 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
             const field_qt = ZigClangFieldDecl_getType(field_decl);
 
             if (ZigClangFieldDecl_isBitField(field_decl)) {
-                const opaque = try transCreateNodeOpaqueType(c);
+                const opaque_type = try transCreateNodeOpaqueType(c);
                 semicolon = try appendToken(c, .Semicolon, ";");
                 try emitWarning(c, field_loc, "{} demoted to opaque type - has bitfield", .{container_kind_name});
-                break :blk opaque;
+                break :blk opaque_type;
             }
 
             if (ZigClangType_isIncompleteOrZeroLengthArrayType(qualTypeCanon(field_qt), c.clang_context)) {
-                const opaque = try transCreateNodeOpaqueType(c);
+                const opaque_type = try transCreateNodeOpaqueType(c);
                 semicolon = try appendToken(c, .Semicolon, ";");
                 try emitWarning(c, field_loc, "{} demoted to opaque type - has variable length array", .{container_kind_name});
-                break :blk opaque;
+                break :blk opaque_type;
             }
 
             var is_anon = false;
@@ -979,10 +979,10 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
             _ = try appendToken(c, .Colon, ":");
             const field_type = transQualType(rp, field_qt, field_loc) catch |err| switch (err) {
                 error.UnsupportedType => {
-                    const opaque = try transCreateNodeOpaqueType(c);
+                    const opaque_type = try transCreateNodeOpaqueType(c);
                     semicolon = try appendToken(c, .Semicolon, ";");
                     try emitWarning(c, record_loc, "{} demoted to opaque type - unable to translate type of field {}", .{ container_kind_name, raw_name });
-                    break :blk opaque;
+                    break :blk opaque_type;
                 },
                 else => |e| return e,
             };
@@ -4438,10 +4438,18 @@ fn transCreateNodeFloat(c: *Context, int: anytype) !*ast.Node {
 }
 
 fn transCreateNodeOpaqueType(c: *Context) !*ast.Node {
-    const call_node = try c.createBuiltinCall("@Type", 1);
-    call_node.params()[0] = try transCreateNodeEnumLiteral(c, "Opaque");
-    call_node.rparen_token = try appendToken(c, .RParen, ")");
-    return &call_node.base;
+    const container_tok = try appendToken(c, .Keyword_opaque, "opaque");
+    const lbrace_token = try appendToken(c, .LBrace, "{");
+    const container_node = try ast.Node.ContainerDecl.alloc(c.arena, 0);
+    container_node.* = .{
+        .kind_token = container_tok,
+        .layout_token = null,
+        .lbrace_token = lbrace_token,
+        .rbrace_token = try appendToken(c, .RBrace, "}"),
+        .fields_and_decls_len = 0,
+        .init_arg_expr = .None,
+    };
+    return &container_node.base;
 }
 
 fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_alias: *ast.Node.FnProto) !*ast.Node {

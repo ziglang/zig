@@ -198,7 +198,7 @@ pub const TypeInfo = union(enum) {
     Union: Union,
     Fn: Fn,
     BoundFn: Fn,
-    Opaque: void,
+    Opaque: Opaque,
     Frame: Frame,
     AnyFrame: AnyFrame,
     Vector: Vector,
@@ -357,6 +357,12 @@ pub const TypeInfo = union(enum) {
         is_var_args: bool,
         return_type: ?type,
         args: []const FnArg,
+    };
+
+    /// This data structure is used by the Zig language code generation and
+    /// therefore must be kept in sync with the compiler implementation.
+    pub const Opaque = struct {
+        decls: []const Declaration,
     };
 
     /// This data structure is used by the Zig language code generation and
