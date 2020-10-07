@@ -103,7 +103,7 @@ pub const CS_OWNDC = 0x0020;
 pub const SW_HIDE = 0;
 pub const SW_SHOW = 5;
 
-pub const WNDPROC = fn (HWND, UINT, WPARAM, LPARAM) callconv(.Stdcall) LRESULT;
+pub const WNDPROC = fn (HWND, UINT, WPARAM, LPARAM) callconv(WINAPI) LRESULT;
 
 pub const WNDCLASSEXA = extern struct {
     cbSize: UINT = @sizeOf(WNDCLASSEXA),
@@ -147,13 +147,13 @@ pub extern "user32" fn CreateWindowExA(
     hMenu: ?HMENU,
     hInstance: HINSTANCE,
     lpParam: ?LPVOID,
-) callconv(.Stdcall) ?HWND;
+) callconv(WINAPI) ?HWND;
 
-pub extern "user32" fn RegisterClassExA(*const WNDCLASSEXA) callconv(.Stdcall) c_ushort;
-pub extern "user32" fn DefWindowProcA(HWND, Msg: UINT, WPARAM, LPARAM) callconv(.Stdcall) LRESULT;
-pub extern "user32" fn ShowWindow(hWnd: ?HWND, nCmdShow: i32) callconv(.Stdcall) bool;
-pub extern "user32" fn UpdateWindow(hWnd: ?HWND) callconv(.Stdcall) bool;
-pub extern "user32" fn GetDC(hWnd: ?HWND) callconv(.Stdcall) ?HDC;
+pub extern "user32" fn RegisterClassExA(*const WNDCLASSEXA) callconv(WINAPI) c_ushort;
+pub extern "user32" fn DefWindowProcA(HWND, Msg: UINT, WPARAM, LPARAM) callconv(WINAPI) LRESULT;
+pub extern "user32" fn ShowWindow(hWnd: ?HWND, nCmdShow: i32) callconv(WINAPI) bool;
+pub extern "user32" fn UpdateWindow(hWnd: ?HWND) callconv(WINAPI) bool;
+pub extern "user32" fn GetDC(hWnd: ?HWND) callconv(WINAPI) ?HDC;
 
 pub extern "user32" fn PeekMessageA(
     lpMsg: ?*MSG,
@@ -161,15 +161,15 @@ pub extern "user32" fn PeekMessageA(
     wMsgFilterMin: UINT,
     wMsgFilterMax: UINT,
     wRemoveMsg: UINT,
-) callconv(.Stdcall) bool;
+) callconv(WINAPI) bool;
 
 pub extern "user32" fn GetMessageA(
     lpMsg: ?*MSG,
     hWnd: ?HWND,
     wMsgFilterMin: UINT,
     wMsgFilterMax: UINT,
-) callconv(.Stdcall) bool;
+) callconv(WINAPI) bool;
 
-pub extern "user32" fn TranslateMessage(lpMsg: *const MSG) callconv(.Stdcall) bool;
-pub extern "user32" fn DispatchMessageA(lpMsg: *const MSG) callconv(.Stdcall) LRESULT;
-pub extern "user32" fn PostQuitMessage(nExitCode: i32) callconv(.Stdcall) void;
+pub extern "user32" fn TranslateMessage(lpMsg: *const MSG) callconv(WINAPI) bool;
+pub extern "user32" fn DispatchMessageA(lpMsg: *const MSG) callconv(WINAPI) LRESULT;
+pub extern "user32" fn PostQuitMessage(nExitCode: i32) callconv(WINAPI) void;

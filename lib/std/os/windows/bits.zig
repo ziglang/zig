@@ -24,6 +24,11 @@ pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
 /// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
 pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
 
+pub const WINAPI: builtin.CallingConvention = if (builtin.arch == .i386)
+    .Stdcall
+else
+    .C;
+
 pub const BOOL = c_int;
 pub const BOOLEAN = BYTE;
 pub const BYTE = u8;
@@ -1149,7 +1154,7 @@ pub const EXCEPTION_POINTERS = extern struct {
     ContextRecord: PCONTEXT,
 };
 
-pub const VECTORED_EXCEPTION_HANDLER = fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(.Stdcall) c_long;
+pub const VECTORED_EXCEPTION_HANDLER = fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(WINAPI) c_long;
 
 pub const OBJECT_ATTRIBUTES = extern struct {
     Length: ULONG,

@@ -45,7 +45,7 @@ fn _DllMainCRTStartup(
     hinstDLL: std.os.windows.HINSTANCE,
     fdwReason: std.os.windows.DWORD,
     lpReserved: std.os.windows.LPVOID,
-) callconv(.Stdcall) std.os.windows.BOOL {
+) callconv(std.os.windows.WINAPI) std.os.windows.BOOL {
     if (!builtin.single_threaded) {
         _ = @import("start_windows_tls.zig");
     }
@@ -143,7 +143,7 @@ fn _start() callconv(.Naked) noreturn {
     @call(.{ .modifier = .never_inline }, posixCallMainAndExit, .{});
 }
 
-fn WinMainCRTStartup() callconv(.Stdcall) noreturn {
+fn WinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
     @setAlignStack(16);
     if (!builtin.single_threaded) {
         _ = @import("start_windows_tls.zig");
