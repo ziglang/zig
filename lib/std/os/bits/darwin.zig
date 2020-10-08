@@ -1474,3 +1474,25 @@ pub const CLOCK_UPTIME_RAW = 8;
 pub const CLOCK_UPTIME_RAW_APPROX = 9;
 pub const CLOCK_PROCESS_CPUTIME_ID = 12;
 pub const CLOCK_THREAD_CPUTIME_ID = 16;
+
+pub const RUSAGE_SELF = 0;
+pub const RUSAGE_CHILDREN = -1;
+
+pub const rusage = extern struct {
+    utime: timeval,
+    stime: timeval,
+    maxrss: isize,
+    ixrss: isize,
+    idrss: isize,
+    isrss: isize,
+    minflt: isize,
+    majflt: isize,
+    nswap: isize,
+    inblock: isize,
+    oublock: isize,
+    msgsnd: isize,
+    msgrcv: isize,
+    nsignals: isize,
+    nvcsw: isize,
+    nivcsw: isize,
+};
