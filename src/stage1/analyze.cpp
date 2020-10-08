@@ -86,14 +86,18 @@ ZigType *new_type_table_entry(ZigTypeId id) {
 }
 
 static ScopeDecls **get_container_scope_ptr(ZigType *type_entry) {
-    if (type_entry->id == ZigTypeIdStruct) {
-        return &type_entry->data.structure.decls_scope;
-    } else if (type_entry->id == ZigTypeIdEnum) {
-        return &type_entry->data.enumeration.decls_scope;
-    } else if (type_entry->id == ZigTypeIdUnion) {
-        return &type_entry->data.unionation.decls_scope;
+    switch (type_entry->id) {
+        case ZigTypeIdStruct:
+            return &type_entry->data.structure.decls_scope;
+        case ZigTypeIdEnum:
+            return &type_entry->data.enumeration.decls_scope;
+        case ZigTypeIdUnion:
+            return &type_entry->data.unionation.decls_scope;
+        case ZigTypeIdOpaque:
+            return &type_entry->data.opaque.decls_scope;
+        default:
+            zig_unreachable();
     }
-    zig_unreachable();
 }
 
 static ScopeExpr *find_expr_scope(Scope *scope) {
@@ -912,13 +916,17 @@ ZigType *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const c
     ZigType *import = scope ? get_scope_import(scope) : nullptr;
     unsigned line = source_node ? (unsigned)(source_node->line + 1) : 0;
 
+    // Note: duplicated in get_partial_container_type
     entry->llvm_type = LLVMInt8Type();
     entry->llvm_di_type = ZigLLVMCreateDebugForwardDeclType(g->dbuilder,
         ZigLLVMTag_DW_structure_type(), full_name,
         import ? ZigLLVMFileToScope(import->data.structure.root_struct->di_file) : nullptr,
         import ? import->data.structure.root_struct->di_file : nullptr,
         line);
+    entry->data.opaque.decl_node = source_node;
     entry->data.opaque.bare_name = bare_name;
+    entry->data.opaque.decls_scope = create_decls_scope(
+        g, source_node, scope, entry, import, &entry->name);
 
     // The actual size is unknown, but the value must not be 0 because that
     // is how type_has_bits is determined.
@@ -949,7 +957,6 @@ const char *calling_convention_name(CallingConvention cc) {
     switch (cc) {
         case CallingConventionUnspecified: return "Unspecified";
         case CallingConventionC: return "C";
-        case CallingConventionCold: return "Cold";
         case CallingConventionNaked: return "Naked";
         case CallingConventionAsync: return "Async";
         case CallingConventionInterrupt: return "Interrupt";
@@ -971,7 +978,6 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
         case CallingConventionAsync:
             return true;
         case CallingConventionC:
-        case CallingConventionCold:
         case CallingConventionNaked:
         case CallingConventionInterrupt:
         case CallingConventionSignal:
@@ -1080,6 +1086,8 @@ static ZigTypeId container_to_type(ContainerKind kind) {
             return ZigTypeIdEnum;
         case ContainerKindUnion:
             return ZigTypeIdUnion;
+        case ContainerKindOpaque:
+            return ZigTypeIdOpaque;
     }
     zig_unreachable();
 }
@@ -1121,6 +1129,22 @@ ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind
             entry->data.unionation.decl_node = decl_node;
             entry->data.unionation.layout = layout;
             break;
+        case ContainerKindOpaque: {
+            ZigType *import = scope ? get_scope_import(scope) : nullptr;
+            unsigned line = decl_node ? (unsigned)(decl_node->line + 1) : 0;
+            // Note: duplicated in get_opaque_type
+            entry->llvm_type = LLVMInt8Type();
+            entry->llvm_di_type = ZigLLVMCreateDebugForwardDeclType(g->dbuilder,
+                ZigLLVMTag_DW_structure_type(), full_name,
+                import ? ZigLLVMFileToScope(import->data.structure.root_struct->di_file) : nullptr,
+                import ? import->data.structure.root_struct->di_file : nullptr,
+                line);
+            entry->data.opaque.decl_node = decl_node;
+            entry->abi_size = SIZE_MAX;
+            entry->size_in_bits = SIZE_MAX;
+            entry->abi_align = 1;
+            break;
+        }
     }
 
     buf_init_from_str(&entry->name, full_name);
@@ -1730,7 +1754,7 @@ static Error emit_error_unless_type_allowed_in_packed_union(CodeGen *g, ZigType 
     return emit_error_unless_type_allowed_in_packed_container(g, type_entry, source_node, "union");
 }
 
-Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
+Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, ExternPosition position, bool *result) {
     Error err;
     switch (type_entry->id) {
         case ZigTypeIdInvalid:
@@ -1749,8 +1773,10 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
         case ZigTypeIdAnyFrame:
             *result = false;
             return ErrorNone;
-        case ZigTypeIdOpaque:
         case ZigTypeIdUnreachable:
+            *result = position == ExternPositionFunctionReturn;
+            return ErrorNone;
+        case ZigTypeIdOpaque:
         case ZigTypeIdBool:
             *result = true;
             return ErrorNone;
@@ -1768,23 +1794,27 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
                     return ErrorNone;
             }
         case ZigTypeIdVector:
-            return type_allowed_in_extern(g, type_entry->data.vector.elem_type, result);
+            return type_allowed_in_extern(g, type_entry->data.vector.elem_type, ExternPositionOther, result);
         case ZigTypeIdFloat:
             *result = true;
             return ErrorNone;
         case ZigTypeIdArray:
-            return type_allowed_in_extern(g, type_entry->data.array.child_type, result);
+            if ((err = type_allowed_in_extern(g, type_entry->data.array.child_type, ExternPositionOther, result)))
+                return err;
+            *result = *result &&
+                position != ExternPositionFunctionParameter &&
+                position != ExternPositionFunctionReturn;
+            return ErrorNone;
         case ZigTypeIdFn:
             *result = !calling_convention_allows_zig_types(type_entry->data.fn.fn_type_id.cc);
             return ErrorNone;
         case ZigTypeIdPointer:
             if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
                 return err;
-            if (!type_has_bits(g, type_entry)) {
-                *result = false;
-                return ErrorNone;
-            }
-            *result = true;
+            bool has_bits;
+            if ((err = type_has_bits2(g, type_entry, &has_bits)))
+                return err;
+            *result = has_bits;
             return ErrorNone;
         case ZigTypeIdStruct:
             *result = type_entry->data.structure.layout == ContainerLayoutExtern ||
@@ -1796,23 +1826,24 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
                 *result = false;
                 return ErrorNone;
             }
-            if (!type_is_nonnull_ptr(g, child_type)) {
+            bool is_nonnull_ptr;
+            if ((err = type_is_nonnull_ptr2(g, child_type, &is_nonnull_ptr)))
+                return err;
+            if (!is_nonnull_ptr) {
                 *result = false;
                 return ErrorNone;
             }
-            return type_allowed_in_extern(g, child_type, result);
+            return type_allowed_in_extern(g, child_type, ExternPositionOther, result);
         }
         case ZigTypeIdEnum: {
             if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
                 return err;
             ZigType *tag_int_type = type_entry->data.enumeration.tag_int_type;
-            if (type_entry->data.enumeration.has_explicit_tag_type) {
-                return type_allowed_in_extern(g, tag_int_type, result);
-            } else {
-                *result = type_entry->data.enumeration.layout == ContainerLayoutExtern ||
-                    type_entry->data.enumeration.layout == ContainerLayoutPacked;
-                return ErrorNone;
-            }
+            if (type_entry->data.enumeration.has_explicit_tag_type)
+                return type_allowed_in_extern(g, tag_int_type, position, result);
+            *result = type_entry->data.enumeration.layout == ContainerLayoutExtern ||
+                type_entry->data.enumeration.layout == ContainerLayoutPacked;
+            return ErrorNone;
         }
         case ZigTypeIdUnion:
             *result = type_entry->data.unionation.layout == ContainerLayoutExtern ||
@@ -1909,7 +1940,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
 
         if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
             bool ok_type;
-            if ((err = type_allowed_in_extern(g, type_entry, &ok_type)))
+            if ((err = type_allowed_in_extern(g, type_entry, ExternPositionFunctionParameter, &ok_type)))
                 return g->builtin_types.entry_invalid;
             if (!ok_type) {
                 add_node_error(g, param_node->data.param_decl.type,
@@ -2014,7 +2045,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         if ((err = type_resolve(g, fn_type_id.return_type, ResolveStatusSizeKnown)))
             return g->builtin_types.entry_invalid;
         bool ok_type;
-        if ((err = type_allowed_in_extern(g, fn_type_id.return_type, &ok_type)))
+        if ((err = type_allowed_in_extern(g, fn_type_id.return_type, ExternPositionFunctionReturn, &ok_type)))
             return g->builtin_types.entry_invalid;
         if (!ok_type) {
             add_node_error(g, fn_proto->return_type,
@@ -2333,7 +2364,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
 
         if (struct_type->data.structure.layout == ContainerLayoutExtern) {
             bool ok_type;
-            if ((err = type_allowed_in_extern(g, field_type, &ok_type))) {
+            if ((err = type_allowed_in_extern(g, field_type, ExternPositionOther, &ok_type))) {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
                 return ErrorSemanticAnalyzeFail;
             }
@@ -2588,7 +2619,7 @@ static Error type_is_valid_extern_enum_tag(CodeGen *g, ZigType *ty, bool *result
     // signed char, a signed integer or an unsigned one. But GCC/Clang allow
     // other integral types as a compiler extension so let's accomodate them
     // aswell.
-    return type_allowed_in_extern(g, ty, result);
+    return type_allowed_in_extern(g, ty, ExternPositionOther, result);
 }
 
 static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
@@ -3430,6 +3461,21 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
     return ErrorNone;
 }
 
+static Error resolve_opaque_type(CodeGen *g, ZigType *opaque_type) {
+    Error err = ErrorNone;
+    AstNode *container_node = opaque_type->data.opaque.decl_node;
+    if (container_node != nullptr) {
+        assert(container_node->type == NodeTypeContainerDecl);
+        AstNodeContainerDecl *container_decl = &container_node->data.container_decl;
+        for (size_t i = 0; i < container_decl->fields.length; i++) {
+            AstNode *field_node = container_decl->fields.items[i];
+            add_node_error(g, field_node, buf_create_from_str("opaque types cannot have fields"));
+            err = ErrorSemanticAnalyzeFail;
+        }
+    }
+    return err;
+}
+
 void append_namespace_qualification(CodeGen *g, Buf *buf, ZigType *container_type) {
     if (g->root_import == container_type || buf_len(&container_type->name) == 0) return;
     buf_append_buf(buf, &container_type->name);
@@ -3603,7 +3649,6 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                     tld_fn->base.resolution = TldResolutionInvalid;
                     return;
                 case CallingConventionC:
-                case CallingConventionCold:
                 case CallingConventionNaked:
                 case CallingConventionInterrupt:
                 case CallingConventionSignal:
@@ -3896,6 +3941,8 @@ static Error resolve_decl_container(CodeGen *g, TldContainer *tld_container) {
             return resolve_enum_zero_bits(g, tld_container->type_entry);
         case ZigTypeIdUnion:
             return resolve_union_type(g, tld_container->type_entry);
+        case ZigTypeIdOpaque:
+            return resolve_opaque_type(g, tld_container->type_entry);
         default:
             zig_unreachable();
     }
@@ -4462,6 +4509,7 @@ bool is_container(ZigType *type_entry) {
             return type_entry->data.structure.special != StructSpecialSlice;
         case ZigTypeIdEnum:
         case ZigTypeIdUnion:
+        case ZigTypeIdOpaque:
             return true;
         case ZigTypeIdPointer:
         case ZigTypeIdMetaType:
@@ -4481,7 +4529,6 @@ bool is_container(ZigType *type_entry) {
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdOpaque:
         case ZigTypeIdVector:
         case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
@@ -8168,6 +8215,7 @@ const char *container_string(ContainerKind kind) {
         case ContainerKindEnum: return "enum";
         case ContainerKindStruct: return "struct";
         case ContainerKindUnion: return "union";
+        case ContainerKindOpaque: return "opaque";
     }
     zig_unreachable();
 }
@@ -8186,8 +8234,6 @@ Buf *type_bare_name(ZigType *type_entry) {
         return &type_entry->name;
     } else if (is_container(type_entry)) {
         return get_container_scope(type_entry)->bare_name;
-    } else if (type_entry->id == ZigTypeIdOpaque) {
-        return type_entry->data.opaque.bare_name;
     } else {
         return &type_entry->name;
     }

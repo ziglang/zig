@@ -32,16 +32,16 @@ pub const UCHAR = u8;
 pub const FLOAT = f32;
 pub const HANDLE = *c_void;
 pub const HCRYPTPROV = ULONG_PTR;
-pub const HBRUSH = *@Type(.Opaque);
-pub const HCURSOR = *@Type(.Opaque);
-pub const HICON = *@Type(.Opaque);
-pub const HINSTANCE = *@Type(.Opaque);
-pub const HMENU = *@Type(.Opaque);
-pub const HMODULE = *@Type(.Opaque);
-pub const HWND = *@Type(.Opaque);
-pub const HDC = *@Type(.Opaque);
-pub const HGLRC = *@Type(.Opaque);
-pub const FARPROC = *@Type(.Opaque);
+pub const HBRUSH = *opaque {};
+pub const HCURSOR = *opaque {};
+pub const HICON = *opaque {};
+pub const HINSTANCE = *opaque {};
+pub const HMENU = *opaque {};
+pub const HMODULE = *opaque {};
+pub const HWND = *opaque {};
+pub const HDC = *opaque {};
+pub const HGLRC = *opaque {};
+pub const FARPROC = *opaque {};
 pub const INT = c_int;
 pub const LPBYTE = *BYTE;
 pub const LPCH = *CHAR;
@@ -81,7 +81,7 @@ pub const WPARAM = usize;
 pub const LPARAM = ?*c_void;
 pub const LRESULT = ?*c_void;
 
-pub const va_list = *@Type(.Opaque);
+pub const va_list = *opaque {};
 
 pub const TRUE = 1;
 pub const FALSE = 0;
@@ -1175,10 +1175,10 @@ pub const UNICODE_STRING = extern struct {
     Buffer: [*]WCHAR,
 };
 
-const ACTIVATION_CONTEXT_DATA = @Type(.Opaque);
-const ASSEMBLY_STORAGE_MAP = @Type(.Opaque);
-const FLS_CALLBACK_INFO = @Type(.Opaque);
-const RTL_BITMAP = @Type(.Opaque);
+const ACTIVATION_CONTEXT_DATA = opaque {};
+const ASSEMBLY_STORAGE_MAP = opaque {};
+const FLS_CALLBACK_INFO = opaque {};
+const RTL_BITMAP = opaque {};
 pub const PRTL_BITMAP = *RTL_BITMAP;
 const KAFFINITY = usize;
 

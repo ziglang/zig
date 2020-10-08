@@ -438,8 +438,8 @@ export fn writeToVRam() void {
     vram[0] = 'X';
 }
 
-const OpaqueA = @Type(.Opaque);
-const OpaqueB = @Type(.Opaque);
+const OpaqueA = opaque {};
+const OpaqueB = opaque {};
 test "opaque types" {
     expect(*OpaqueA != *OpaqueB);
     expect(mem.eql(u8, @typeName(OpaqueA), "OpaqueA"));
@@ -704,7 +704,7 @@ test "auto created variables have correct alignment" {
     comptime expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
 }
 
-extern var opaque_extern_var: @Type(.Opaque);
+extern var opaque_extern_var: opaque {};
 var var_to_export: u32 = 42;
 test "extern variable with non-pointer opaque type" {
     @export(var_to_export, .{ .name = "opaque_extern_var" });

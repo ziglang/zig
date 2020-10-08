@@ -2920,12 +2920,21 @@ static AstNode *ast_parse_container_decl_auto(ParseContext *pc) {
 //     <- KEYWORD_struct
 //      / KEYWORD_enum (LPAREN Expr RPAREN)?
 //      / KEYWORD_union (LPAREN (KEYWORD_enum (LPAREN Expr RPAREN)? / Expr) RPAREN)?
+//      / KEYWORD_opaque
 static AstNode *ast_parse_container_decl_type(ParseContext *pc) {
     Token *first = eat_token_if(pc, TokenIdKeywordStruct);
     if (first != nullptr) {
         AstNode *res = ast_create_node(pc, NodeTypeContainerDecl, first);
         res->data.container_decl.init_arg_expr = nullptr;
         res->data.container_decl.kind = ContainerKindStruct;
+        return res;
+    }
+
+    first = eat_token_if(pc, TokenIdKeywordOpaque);
+    if (first != nullptr) {
+        AstNode *res = ast_create_node(pc, NodeTypeContainerDecl, first);
+        res->data.container_decl.init_arg_expr = nullptr;
+        res->data.container_decl.kind = ContainerKindOpaque;
         return res;
     }
 

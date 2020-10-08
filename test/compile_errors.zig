@@ -2,6 +2,19 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("array in c exported function",
+        \\export fn zig_array(x: [10]u8) void {
+        \\    expect(std.mem.eql(u8, &x, "1234567890"));
+        \\}
+        \\
+        \\export fn zig_return_array() [10]u8 {
+        \\    return "1234567890".*;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:1:24: error: parameter of type '[10]u8' not allowed in function with calling convention 'C'",
+        "tmp.zig:5:30: error: return type '[10]u8' not allowed in function with calling convention 'C'",
+    });
+
     cases.add("@Type for exhaustive enum with undefined tag type",
         \\const TypeInfo = @import("builtin").TypeInfo;
         \\const Tag = @Type(.{
@@ -125,6 +138,31 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:15:23: error: enum field missing: 'arst'",
         "tmp.zig:27:24: note: referenced here",
     });
+
+    cases.add("field access of opaque type",
+        \\const MyType = opaque {};
+        \\
+        \\export fn entry() bool {
+        \\    var x: i32 = 1;
+        \\    return bar(@ptrCast(*MyType, &x));
+        \\}
+        \\
+        \\fn bar(x: *MyType) bool {
+        \\    return x.blah;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:9:13: error: no member named 'blah' in opaque type 'MyType'",
+    });
+
+    cases.add("opaque type with field",
+        \\const Opaque = opaque { foo: i32 };
+        \\export fn entry() void {
+        \\    const foo: ?*Opaque = null;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:1:25: error: opaque types cannot have fields",
+    });
+
     cases.add("@Type(.Fn) with is_generic = true",
         \\const Foo = @Type(.{
         \\    .Fn = .{
@@ -180,7 +218,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\        .layout = .Auto,
         \\        .tag_type = null,
         \\        .fields = &[_]TypeInfo.UnionField{
-        \\            .{ .name = "foo", .field_type = @Type(.Opaque), .alignment = 1 },
+        \\            .{ .name = "foo", .field_type = opaque {}, .alignment = 1 },
         \\        },
         \\        .decls = &[_]TypeInfo.Declaration{},
         \\    },
@@ -2287,7 +2325,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.OutOfMemory;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:12: error: error is discarded",
+        "tmp.zig:2:12: error: error is discarded. consider using `try`, `catch`, or `if`",
     });
 
     cases.add("volatile on global assembly",
@@ -2338,9 +2376,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.Bad;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:24: error: expression value is ignored",
-        "tmp.zig:6:25: error: expression value is ignored",
-        "tmp.zig:10:25: error: expression value is ignored",
+        "tmp.zig:2:24: error: error is ignored. consider using `try`, `catch`, or `if`",
+        "tmp.zig:6:25: error: error is ignored. consider using `try`, `catch`, or `if`",
+        "tmp.zig:10:25: error: error is ignored. consider using `try`, `catch`, or `if`",
     });
 
     cases.add("empty while loop body",
@@ -2613,7 +2651,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("directly embedding opaque type in struct and union",
-        \\const O = @Type(.Opaque);
+        \\const O = opaque {};
         \\const Foo = struct {
         \\    o: O,
         \\};
@@ -2628,7 +2666,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bar: Bar = undefined;
         \\}
         \\export fn c() void {
-        \\    var baz: *@Type(.Opaque) = undefined;
+        \\    var baz: *opaque {} = undefined;
         \\    const qux = .{baz.*};
         \\}
     , &[_][]const u8{
@@ -3592,7 +3630,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("unknown length pointer to opaque",
-        \\export const T = [*]@Type(.Opaque);
+        \\export const T = [*]opaque {};
     , &[_][]const u8{
         "tmp.zig:1:21: error: unknown-length pointer to opaque",
     });
@@ -6236,7 +6274,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn bar() anyerror!i32 { return 0; }
     , &[_][]const u8{
-        "tmp.zig:2:14: error: expression value is ignored",
+        "tmp.zig:2:14: error: error is ignored. consider using `try`, `catch`, or `if`",
     });
 
     cases.add("dereference an array",
@@ -6827,8 +6865,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:31: error: index 2 outside array of size 2",
     });
 
-    cases.add("wrong pointer coerced to pointer to @Type(.Opaque)",
-        \\const Derp = @Type(.Opaque);
+    cases.add("wrong pointer coerced to pointer to opaque {}",
+        \\const Derp = opaque {};
         \\extern fn bar(d: *Derp) void;
         \\export fn foo() void {
         \\    var x = @as(u8, 1);
@@ -6854,8 +6892,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry5() void {
         \\   var d = null;
         \\}
-        \\export fn entry6(opaque: *Opaque) void {
-        \\   var e = opaque.*;
+        \\export fn entry6(opaque_: *Opaque) void {
+        \\   var e = opaque_.*;
         \\}
         \\export fn entry7() void {
         \\   var f = i32;
@@ -6866,7 +6904,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry9() void {
         \\   var z: noreturn = return;
         \\}
-        \\const Opaque = @Type(.Opaque);
+        \\const Opaque = opaque {};
         \\const Foo = struct {
         \\    fn bar(self: *const Foo) void {}
         \\};
@@ -7017,21 +7055,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     , &[_][]const u8{
         "tmp.zig:37:29: error: cannot store runtime value in compile time variable",
-    });
-
-    cases.add("field access of opaque type",
-        \\const MyType = @Type(.Opaque);
-        \\
-        \\export fn entry() bool {
-        \\    var x: i32 = 1;
-        \\    return bar(@ptrCast(*MyType, &x));
-        \\}
-        \\
-        \\fn bar(x: *MyType) bool {
-        \\    return x.blah;
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:9:13: error: type '*MyType' does not support field access",
     });
 
     cases.add("invalid legacy unicode escape",
@@ -7623,7 +7646,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("function returning opaque type",
-        \\const FooType = @Type(.Opaque);
+        \\const FooType = opaque {};
         \\export fn bar() !FooType {
         \\    return error.InvalidValue;
         \\}
@@ -7641,7 +7664,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("generic function returning opaque type",
-        \\const FooType = @Type(.Opaque);
+        \\const FooType = opaque {};
         \\fn generic(comptime T: type) !T {
         \\    return undefined;
         \\}
@@ -7665,7 +7688,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("function parameter is opaque",
-        \\const FooType = @Type(.Opaque);
+        \\const FooType = opaque {};
         \\export fn entry1() void {
         \\    const someFuncPtr: fn (FooType) void = undefined;
         \\}

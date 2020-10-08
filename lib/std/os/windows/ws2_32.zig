@@ -5,7 +5,7 @@
 // and substantial portions of the software.
 usingnamespace @import("bits.zig");
 
-pub const SOCKET = *@Type(.Opaque);
+pub const SOCKET = *opaque {};
 pub const INVALID_SOCKET = @intToPtr(SOCKET, ~@as(usize, 0));
 pub const SOCKET_ERROR = -1;
 

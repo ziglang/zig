@@ -18917,7 +18917,6 @@ static IrInstGen *ir_analyze_instruction_export(IrAnalyze *ira, IrInstSrcExport 
                     add_error_note(ira->codegen, msg, fn_entry->proto_node, buf_sprintf("declared here"));
                 } break;
                 case CallingConventionC:
-                case CallingConventionCold:
                 case CallingConventionNaked:
                 case CallingConventionInterrupt:
                 case CallingConventionSignal:
@@ -18965,7 +18964,7 @@ static IrInstGen *ir_analyze_instruction_export(IrAnalyze *ira, IrInstSrcExport 
             break;
         case ZigTypeIdArray: {
             bool ok_type;
-            if ((err = type_allowed_in_extern(ira->codegen, target->value->type->data.array.child_type, &ok_type)))
+            if ((err = type_allowed_in_extern(ira->codegen, target->value->type->data.array.child_type, ExternPositionOther, &ok_type)))
                 return ira->codegen->invalid_inst_gen;
 
             if (!ok_type) {
@@ -20103,7 +20102,7 @@ static IrInstGen *ir_analyze_store_ptr(IrAnalyze *ira, IrInst* source_instr,
         if (uncasted_value->value->type->id == ZigTypeIdErrorUnion ||
             uncasted_value->value->type->id == ZigTypeIdErrorSet)
         {
-            ir_add_error(ira, source_instr, buf_sprintf("error is discarded"));
+            ir_add_error(ira, source_instr, buf_sprintf("error is discarded. consider using `try`, `catch`, or `if`"));
             return ira->codegen->invalid_inst_gen;
         }
         return ir_const_void(ira, source_instr);
@@ -22388,6 +22387,8 @@ static IrInstGen *ir_analyze_container_member_access_inner(IrAnalyze *ira,
         prefix_name = "enum ";
     } else if (bare_struct_type->id == ZigTypeIdUnion) {
         prefix_name = "union ";
+    } else if (bare_struct_type->id == ZigTypeIdOpaque) {
+        prefix_name = "opaque type ";
     } else {
         prefix_name = "";
     }
@@ -22588,7 +22589,7 @@ static IrInstGen *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name
         }
     }
 
-    if (bare_type->id == ZigTypeIdEnum) {
+    if (bare_type->id == ZigTypeIdEnum || bare_type->id == ZigTypeIdOpaque) {
         return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
             source_instr, container_ptr, container_ptr_src, container_type);
     }
@@ -25184,7 +25185,6 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
         case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdOpaque:
             result = ira->codegen->intern.for_void();
             break;
         case ZigTypeIdInt:
@@ -25740,6 +25740,25 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
 
                 break;
             }
+        case ZigTypeIdOpaque:
+            {
+                result = ira->codegen->pass1_arena->create<ZigValue>();
+                result->special = ConstValSpecialStatic;
+                result->type = ir_type_info_get_type(ira, "Opaque", nullptr);
+
+                ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 1);
+                result->data.x_struct.fields = fields;
+
+                // decls: []TypeInfo.Declaration
+                ensure_field_index(result->type, "decls", 0);
+                if ((err = ir_make_type_info_decls(ira, source_instr, fields[0],
+                            type_entry->data.opaque.decls_scope, false)))
+                {
+                    return err;
+                }
+
+                break;
+            }
         case ZigTypeIdFnFrame:
             {
                 result = ira->codegen->pass1_arena->create<ZigValue>();
@@ -26045,6 +26064,21 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
             return get_error_union_type(ira->codegen, err_set_type, payload_type);
         }
         case ZigTypeIdOpaque: {
+            assert(payload->special == ConstValSpecialStatic);
+            assert(payload->type == ir_type_info_get_type(ira, "Opaque", nullptr));
+
+            ZigValue *decls_value = get_const_field(ira, source_instr->source_node, payload, "decls", 0);
+            if (decls_value == nullptr)
+                return ira->codegen->invalid_inst_gen->value->type;
+            assert(decls_value->special == ConstValSpecialStatic);
+            assert(is_slice(decls_value->type));
+            ZigValue *decls_len_value = decls_value->data.x_struct.fields[slice_len_index];
+            size_t decls_len = bigint_as_usize(&decls_len_value->data.x_bigint);
+            if (decls_len != 0) {
+                ir_add_error(ira, source_instr, buf_create_from_str("TypeInfo.Struct.decls must be empty for @Type"));
+                return ira->codegen->invalid_inst_gen->value->type;
+            }
+
             Buf *bare_name = buf_alloc();
             Buf *full_name = get_anon_type_name(ira->codegen,
                 ira->old_irb.exec, "opaque", source_instr->scope, source_instr->source_node, bare_name);
@@ -29493,7 +29527,11 @@ static IrInstGen *ir_analyze_instruction_check_statement_is_void(IrAnalyze *ira,
         return ira->codegen->invalid_inst_gen;
 
     if (statement_type->id != ZigTypeIdVoid && statement_type->id != ZigTypeIdUnreachable) {
-        ir_add_error(ira, &instruction->base.base, buf_sprintf("expression value is ignored"));
+        if(statement_type->id == ZigTypeIdErrorUnion || statement_type->id == ZigTypeIdErrorSet) {
+            ir_add_error(ira, &instruction->base.base, buf_sprintf("error is ignored. consider using `try`, `catch`, or `if`"));
+        }else{
+            ir_add_error(ira, &instruction->base.base, buf_sprintf("expression value is ignored"));
+        }
     }
 
     return ir_const_void(ira, &instruction->base.base);
@@ -32708,7 +32746,7 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
                 return ErrorSemanticAnalyzeFail;
             } else if (lazy_ptr_type->ptr_len == PtrLenC) {
                 bool ok_type;
-                if ((err = type_allowed_in_extern(ira->codegen, elem_type, &ok_type)))
+                if ((err = type_allowed_in_extern(ira->codegen, elem_type, ExternPositionOther, &ok_type)))
                     return err;
                 if (!ok_type) {
                     ir_add_error(ira, &lazy_ptr_type->elem_type->base,

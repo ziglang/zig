@@ -199,7 +199,7 @@ fn testUnion() void {
     expect(typeinfo_info.Union.tag_type.? == TypeId);
     expect(typeinfo_info.Union.fields.len == 25);
     expect(typeinfo_info.Union.fields[4].field_type == @TypeOf(@typeInfo(u8).Int));
-    expect(typeinfo_info.Union.decls.len == 21);
+    expect(typeinfo_info.Union.decls.len == 22);
 
     const TestNoTagUnion = union {
         Foo: void,
@@ -264,6 +264,21 @@ const TestStruct = packed struct {
     pub fn foo(self: *const Self) void {}
     const Self = @This();
 };
+
+test "type info: opaque info" {
+    testOpaque();
+    comptime testOpaque();
+}
+
+fn testOpaque() void {
+    const Foo = opaque {
+        const A = 1;
+        fn b() void {}
+    };
+
+    const foo_info = @typeInfo(Foo);
+    expect(foo_info.Opaque.decls.len == 2);
+}
 
 test "type info: function type info" {
     // wasm doesn't support align attributes on functions

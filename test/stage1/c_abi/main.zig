@@ -116,17 +116,6 @@ export fn zig_bool(x: bool) void {
     expect(x);
 }
 
-extern fn c_array([10]u8) void;
-
-test "C ABI array" {
-    var array: [10]u8 = "1234567890".*;
-    c_array(array);
-}
-
-export fn zig_array(x: [10]u8) void {
-    expect(std.mem.eql(u8, &x, "1234567890"));
-}
-
 const BigStruct = extern struct {
     a: u64,
     b: u64,

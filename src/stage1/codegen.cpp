@@ -161,12 +161,6 @@ static ZigLLVM_CallingConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
             return ZigLLVM_Fast;
         case CallingConventionC:
             return ZigLLVM_C;
-        case CallingConventionCold:
-            if ((g->zig_target->arch == ZigLLVM_x86 ||
-                 g->zig_target->arch == ZigLLVM_x86_64) &&
-                g->zig_target->os != OsWindows)
-                return ZigLLVM_Cold;
-            return ZigLLVM_C;
         case CallingConventionNaked:
             zig_unreachable();
         case CallingConventionStdcall:
@@ -340,7 +334,6 @@ static bool cc_want_sret_attr(CallingConvention cc) {
         case CallingConventionNaked:
             zig_unreachable();
         case CallingConventionC:
-        case CallingConventionCold:
         case CallingConventionInterrupt:
         case CallingConventionSignal:
         case CallingConventionStdcall:
@@ -449,7 +442,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         ZigLLVMFunctionSetCallingConv(llvm_fn, get_llvm_cc(g, cc));
     }
 
-    bool want_cold = fn->is_cold || cc == CallingConventionCold;
+    bool want_cold = fn->is_cold;
     if (want_cold) {
         ZigLLVMAddFunctionAttrCold(llvm_fn);
     }
@@ -8819,18 +8812,17 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
 
     static_assert(CallingConventionUnspecified == 0, "");
     static_assert(CallingConventionC == 1, "");
-    static_assert(CallingConventionCold == 2, "");
-    static_assert(CallingConventionNaked == 3, "");
-    static_assert(CallingConventionAsync == 4, "");
-    static_assert(CallingConventionInterrupt == 5, "");
-    static_assert(CallingConventionSignal == 6, "");
-    static_assert(CallingConventionStdcall == 7, "");
-    static_assert(CallingConventionFastcall == 8, "");
-    static_assert(CallingConventionVectorcall == 9, "");
-    static_assert(CallingConventionThiscall == 10, "");
-    static_assert(CallingConventionAPCS == 11, "");
-    static_assert(CallingConventionAAPCS == 12, "");
-    static_assert(CallingConventionAAPCSVFP == 13, "");
+    static_assert(CallingConventionNaked == 2, "");
+    static_assert(CallingConventionAsync == 3, "");
+    static_assert(CallingConventionInterrupt == 4, "");
+    static_assert(CallingConventionSignal == 5, "");
+    static_assert(CallingConventionStdcall == 6, "");
+    static_assert(CallingConventionFastcall == 7, "");
+    static_assert(CallingConventionVectorcall == 8, "");
+    static_assert(CallingConventionThiscall == 9, "");
+    static_assert(CallingConventionAPCS == 10, "");
+    static_assert(CallingConventionAAPCS == 11, "");
+    static_assert(CallingConventionAAPCSVFP == 12, "");
 
     static_assert(FnInlineAuto == 0, "");
     static_assert(FnInlineAlways == 1, "");

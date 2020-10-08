@@ -808,6 +808,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: anytype, source_token:
             .Keyword_noalias,
             .Keyword_noinline,
             .Keyword_nosuspend,
+            .Keyword_opaque,
             .Keyword_or,
             .Keyword_orelse,
             .Keyword_packed,
