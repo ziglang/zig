@@ -35,14 +35,20 @@ pub const Block = struct {
         return mem.toBytes(x);
     }
 
+    const zero = Vector(2, u64){ 0, 0 };
+
     /// Encrypt a block with a round key.
     pub inline fn encrypt(block: Block, round_key: Block) Block {
         return Block{
             .repr = asm (
-                \\ vaesenc %[rk], %[in], %[out]
-                : [out] "=x" (-> BlockVec)
+                \\ mov   %[out].16b, %[in].16b
+                \\ aese  %[out].16b, %[zero].16b
+                \\ aesmc %[out].16b, %[out].16b
+                \\ eor   %[out].16b, %[out].16b, %[rk].16b
+                : [out] "=&x" (-> BlockVec)
                 : [in] "x" (block.repr),
-                  [rk] "x" (round_key.repr)
+                  [rk] "x" (round_key.repr),
+                  [zero] "x" (zero)
             ),
         };
     }
@@ -51,10 +57,13 @@ pub const Block = struct {
     pub inline fn encryptLast(block: Block, round_key: Block) Block {
         return Block{
             .repr = asm (
-                \\ vaesenclast %[rk], %[in], %[out]
-                : [out] "=x" (-> BlockVec)
+                \\ mov   %[out].16b, %[in].16b
+                \\ aese  %[out].16b, %[zero].16b
+                \\ eor   %[out].16b, %[out].16b, %[rk].16b
+                : [out] "=&x" (-> BlockVec)
                 : [in] "x" (block.repr),
-                  [rk] "x" (round_key.repr)
+                  [rk] "x" (round_key.repr),
+                  [zero] "x" (zero)
             ),
         };
     }
@@ -63,10 +72,14 @@ pub const Block = struct {
     pub inline fn decrypt(block: Block, inv_round_key: Block) Block {
         return Block{
             .repr = asm (
-                \\ vaesdec %[rk], %[in], %[out]
-                : [out] "=x" (-> BlockVec)
+                \\ mov   %[out].16b, %[in].16b
+                \\ aesd  %[out].16b, %[zero].16b
+                \\ aesimc %[out].16b, %[out].16b
+                \\ eor   %[out].16b, %[out].16b, %[rk].16b
+                : [out] "=&x" (-> BlockVec)
                 : [in] "x" (block.repr),
-                  [rk] "x" (inv_round_key.repr)
+                  [rk] "x" (inv_round_key.repr),
+                  [zero] "x" (zero)
             ),
         };
     }
@@ -75,10 +88,13 @@ pub const Block = struct {
     pub inline fn decryptLast(block: Block, inv_round_key: Block) Block {
         return Block{
             .repr = asm (
-                \\ vaesdeclast %[rk], %[in], %[out]
-                : [out] "=x" (-> BlockVec)
+                \\ mov   %[out].16b, %[in].16b
+                \\ aesd  %[out].16b, %[zero].16b
+                \\ eor   %[out].16b, %[out].16b, %[rk].16b
+                : [out] "=&x" (-> BlockVec)
                 : [in] "x" (block.repr),
-                  [rk] "x" (inv_round_key.repr)
+                  [rk] "x" (inv_round_key.repr),
+                  [zero] "x" (zero)
             ),
         };
     }
@@ -171,26 +187,71 @@ fn KeySchedule(comptime AES: type) type {
 
     return struct {
         const Self = @This();
+
+        const zero = Vector(2, u64){ 0, 0 };
+        const mask1 = @Vector(16, u8){ 13, 14, 15, 12, 13, 14, 15, 12, 13, 14, 15, 12, 13, 14, 15, 12 };
+        const mask2 = @Vector(16, u8){ 12, 13, 14, 15, 12, 13, 14, 15, 12, 13, 14, 15, 12, 13, 14, 15 };
+
         round_keys: [rounds + 1]Block,
 
-        fn drc(comptime second: bool, comptime rc: u8, t: BlockVec, tx: BlockVec) BlockVec {
-            var s: BlockVec = undefined;
-            var ts: BlockVec = undefined;
+        fn drc128(comptime rc: u8, t: BlockVec) BlockVec {
+            var v1: BlockVec = undefined;
+            var v2: BlockVec = undefined;
+            var v3: BlockVec = undefined;
+            var v4: BlockVec = undefined;
+
             return asm (
-                \\ vaeskeygenassist %[rc], %[t], %[s]
-                \\ vpslldq $4, %[tx], %[ts]
-                \\ vpxor   %[ts], %[tx], %[r]
-                \\ vpslldq $8, %[r], %[ts]
-                \\ vpxor   %[ts], %[r], %[r]
-                \\ vpshufd %[mask], %[s], %[ts]
-                \\ vpxor   %[ts], %[r], %[r]
+                \\ movi %[v2].4s, %[rc]
+                \\ tbl  %[v4].16b, {%[t].16b}, %[mask].16b
+                \\ ext  %[r].16b, %[zero].16b, %[t].16b, #12
+                \\ aese %[v4].16b, %[zero].16b
+                \\ eor  %[v2].16b, %[r].16b, %[v2].16b
+                \\ ext  %[r].16b, %[zero].16b, %[r].16b, #12
+                \\ eor  %[v1].16b, %[v2].16b, %[t].16b
+                \\ ext  %[v3].16b, %[zero].16b, %[r].16b, #12
+                \\ eor  %[v1].16b, %[v1].16b, %[r].16b
+                \\ eor  %[r].16b, %[v1].16b, %[v3].16b
+                \\ eor  %[r].16b, %[r].16b, %[v4].16b
                 : [r] "=&x" (-> BlockVec),
-                  [s] "=&x" (s),
-                  [ts] "=&x" (ts)
-                : [rc] "n" (rc),
+                  [v1] "=&x" (v1),
+                  [v2] "=&x" (v2),
+                  [v3] "=&x" (v3),
+                  [v4] "=&x" (v4)
+                : [rc] "N" (rc),
+                  [t] "x" (t),
+                  [zero] "x" (zero),
+                  [mask] "x" (mask1)
+            );
+        }
+
+        fn drc256(comptime second: bool, comptime rc: u8, t: BlockVec, tx: BlockVec) BlockVec {
+            var v1: BlockVec = undefined;
+            var v2: BlockVec = undefined;
+            var v3: BlockVec = undefined;
+            var v4: BlockVec = undefined;
+
+            return asm (
+                \\ movi %[v2].4s, %[rc]
+                \\ tbl  %[v4].16b, {%[t].16b}, %[mask].16b
+                \\ ext  %[r].16b, %[zero].16b, %[tx].16b, #12
+                \\ aese %[v4].16b, %[zero].16b
+                \\ eor  %[v1].16b, %[tx].16b, %[r].16b
+                \\ ext  %[r].16b, %[zero].16b, %[r].16b, #12
+                \\ eor  %[v1].16b, %[v1].16b, %[r].16b
+                \\ ext  %[v3].16b, %[zero].16b, %[r].16b, #12
+                \\ eor  %[v1].16b, %[v1].16b, %[v2].16b
+                \\ eor  %[v1].16b, %[v1].16b, %[v3].16b
+                \\ eor  %[r].16b, %[v1].16b, %[v4].16b
+                : [r] "=&x" (-> BlockVec),
+                  [v1] "=&x" (v1),
+                  [v2] "=&x" (v2),
+                  [v3] "=&x" (v3),
+                  [v4] "=&x" (v4)
+                : [rc] "N" (if (second) @as(u8, 0) else rc),
                   [t] "x" (t),
                   [tx] "x" (tx),
-                  [mask] "n" (@as(u8, if (second) 0xaa else 0xff))
+                  [zero] "x" (zero),
+                  [mask] "x" (if (second) mask2 else mask1)
             );
         }
 
@@ -199,7 +260,7 @@ fn KeySchedule(comptime AES: type) type {
             const rcs = [_]u8{ 1, 2, 4, 8, 16, 32, 64, 128, 27, 54 };
             inline for (rcs) |rc, round| {
                 round_keys[round] = t1.*;
-                t1.repr = drc(false, rc, t1.repr, t1.repr);
+                t1.repr = drc128(rc, t1.repr);
             }
             round_keys[rcs.len] = t1.*;
             return Self{ .round_keys = round_keys };
@@ -211,12 +272,12 @@ fn KeySchedule(comptime AES: type) type {
             round_keys[0] = t1.*;
             inline for (rcs) |rc, round| {
                 round_keys[round * 2 + 1] = t2.*;
-                t1.repr = drc(false, rc, t2.repr, t1.repr);
+                t1.repr = drc256(false, rc, t2.repr, t1.repr);
                 round_keys[round * 2 + 2] = t1.*;
-                t2.repr = drc(true, rc, t1.repr, t2.repr);
+                t2.repr = drc256(true, rc, t1.repr, t2.repr);
             }
             round_keys[rcs.len * 2 + 1] = t2.*;
-            t1.repr = drc(false, 64, t2.repr, t1.repr);
+            t1.repr = drc256(false, 64, t2.repr, t1.repr);
             round_keys[rcs.len * 2 + 2] = t1.*;
             return Self{ .round_keys = round_keys };
         }
@@ -230,7 +291,7 @@ fn KeySchedule(comptime AES: type) type {
             inline while (i < rounds) : (i += 1) {
                 inv_round_keys[i] = Block{
                     .repr = asm (
-                        \\ vaesimc %[rk], %[inv_rk]
+                        \\ aesimc %[inv_rk].16b, %[rk].16b
                         : [inv_rk] "=x" (-> BlockVec)
                         : [rk] "x" (round_keys[rounds - i].repr)
                     ),
