@@ -35,6 +35,7 @@ const mem = std.mem;
 const leb = std.debug.leb;
 const log = std.log.scoped(.link);
 const testing = std.testing;
+const assert = std.debug.assert;
 const Allocator = mem.Allocator;
 
 pub const Symbol = struct {
@@ -57,9 +58,13 @@ const Edge = struct {
 };
 
 const Node = struct {
+    /// Export flags associated with this exported symbol (if any).
     export_flags: ?u64 = null,
+    /// VM address offset wrt to the section this symbol is defined against (if any).
     vmaddr_offset: ?u64 = null,
-    trie_offset: usize = 0,
+    /// Offset of this node in the trie output byte stream.
+    trie_offset: ?usize = null,
+    /// List of all edges originating from this node.
     edges: std.ArrayListUnmanaged(Edge) = .{},
 
     fn deinit(self: *Node, alloc: *Allocator) void {
@@ -69,12 +74,24 @@ const Node = struct {
         self.edges.deinit(alloc);
     }
 
-    fn put(self: *Node, alloc: *Allocator, label: []const u8) !*Node {
+    const PutResult = struct {
+        /// Node reached at this stage of `put` op.
+        node: *Node,
+        /// Count of newly inserted nodes at this stage of `put` op.
+        node_count: usize,
+    };
+
+    /// Inserts a new node starting from `self`.
+    fn put(self: *Node, alloc: *Allocator, label: []const u8, node_count: usize) !PutResult {
+        var curr_node_count = node_count;
         // Check for match with edges from this node.
         for (self.edges.items) |*edge| {
-            const match = mem.indexOfDiff(u8, edge.label, label) orelse return edge.to;
+            const match = mem.indexOfDiff(u8, edge.label, label) orelse return PutResult{
+                .node = edge.to,
+                .node_count = curr_node_count,
+            };
             if (match == 0) continue;
-            if (match == edge.label.len) return edge.to.put(alloc, label[match..]);
+            if (match == edge.label.len) return edge.to.put(alloc, label[match..], curr_node_count);
 
             // Found a match, need to splice up nodes.
             // From: A -> B
@@ -85,6 +102,7 @@ const Node = struct {
             const to_node = edge.to;
             edge.to = mid;
             edge.label = label[0..match];
+            curr_node_count += 1;
 
             try mid.edges.append(alloc, .{
                 .from = mid,
@@ -93,15 +111,16 @@ const Node = struct {
             });
 
             if (match == label.len) {
-                return to_node;
+                return PutResult{ .node = to_node, .node_count = curr_node_count };
             } else {
-                return mid.put(alloc, label[match..]);
+                return mid.put(alloc, label[match..], curr_node_count);
             }
         }
 
-        // Add a new edge.
+        // Add a new node.
         const node = try alloc.create(Node);
         node.* = .{};
+        curr_node_count += 1;
 
         try self.edges.append(alloc, .{
             .from = self,
@@ -109,10 +128,13 @@ const Node = struct {
             .label = label,
         });
 
-        return node;
+        return PutResult{ .node = node, .node_count = curr_node_count };
     }
 
-    fn writeULEB128Mem(self: Node, alloc: *Allocator, buffer: *std.ArrayListUnmanaged(u8)) !void {
+    /// This method should only be called *after* updateOffset has been called!
+    /// In case this is not upheld, this method will panic.
+    fn writeULEB128Mem(self: Node, buffer: *std.ArrayListUnmanaged(u8)) !void {
+        assert(self.trie_offset != null); // You need to call updateOffset first.
         if (self.vmaddr_offset) |offset| {
             // Terminal node info: encode export flags and vmaddr offset of this symbol.
             var info_buf_len: usize = 0;
@@ -125,33 +147,35 @@ const Node = struct {
             const size_buf_len = try leb.writeULEB128Mem(size_buf[0..], info_buf_len);
 
             // Now, write them to the output buffer.
-            try buffer.ensureCapacity(alloc, buffer.items.len + info_buf_len + size_buf_len);
             buffer.appendSliceAssumeCapacity(size_buf[0..size_buf_len]);
             buffer.appendSliceAssumeCapacity(info_buf[0..info_buf_len]);
         } else {
             // Non-terminal node is delimited by 0 byte.
-            try buffer.append(alloc, 0);
+            buffer.appendAssumeCapacity(0);
         }
         // Write number of edges (max legal number of edges is 256).
-        try buffer.append(alloc, @intCast(u8, self.edges.items.len));
+        buffer.appendAssumeCapacity(@intCast(u8, self.edges.items.len));
 
         for (self.edges.items) |edge| {
             // Write edges labels.
-            try buffer.ensureCapacity(alloc, buffer.items.len + edge.label.len + 1); // +1 to account for null-byte
             buffer.appendSliceAssumeCapacity(edge.label);
             buffer.appendAssumeCapacity(0);
 
             var buf: [@sizeOf(u64)]u8 = undefined;
-            const buf_len = try leb.writeULEB128Mem(buf[0..], edge.to.trie_offset);
-            try buffer.appendSlice(alloc, buf[0..buf_len]);
+            const buf_len = try leb.writeULEB128Mem(buf[0..], edge.to.trie_offset.?);
+            buffer.appendSliceAssumeCapacity(buf[0..buf_len]);
         }
     }
 
     const UpdateResult = struct {
+        /// Current size of this node in bytes.
         node_size: usize,
+        /// True if the trie offset of this node in the output byte stream
+        /// would need updating; false otherwise.
         updated: bool,
     };
 
+    /// Updates offset of this node in the output byte stream.
     fn updateOffset(self: *Node, offset: usize) UpdateResult {
         var node_size: usize = 0;
         if (self.vmaddr_offset) |vmaddr| {
@@ -164,15 +188,18 @@ const Node = struct {
         node_size += 1; // 1 byte for edge count
 
         for (self.edges.items) |edge| {
-            node_size += edge.label.len + 1 + sizeULEB128Mem(edge.to.trie_offset);
+            const next_node_offset = edge.to.trie_offset orelse 0;
+            node_size += edge.label.len + 1 + sizeULEB128Mem(next_node_offset);
         }
 
-        const updated = offset != self.trie_offset;
+        const trie_offset = self.trie_offset orelse 0;
+        const updated = offset != trie_offset;
         self.trie_offset = offset;
 
         return .{ .node_size = node_size, .updated = updated };
     }
 
+    /// Calculates number of bytes in ULEB128 encoding of value.
     fn sizeULEB128Mem(value: u64) usize {
         var res: usize = 0;
         var v = value;
@@ -185,15 +212,22 @@ const Node = struct {
     }
 };
 
-root: Node,
+/// Count of nodes in the trie.
+/// The count is updated at every `put` call.
+/// The trie always consists of at least a root node, hence
+/// the count always starts at 1.
+node_count: usize = 1,
+/// The root node of the trie.
+root: Node = .{},
 
 /// Insert a symbol into the trie, updating the prefixes in the process.
 /// This operation may change the layout of the trie by splicing edges in
 /// certain circumstances.
 pub fn put(self: *Trie, alloc: *Allocator, symbol: Symbol) !void {
-    const node = try self.root.put(alloc, symbol.name);
-    node.vmaddr_offset = symbol.vmaddr_offset;
-    node.export_flags = symbol.export_flags;
+    const res = try self.root.put(alloc, symbol.name, 0);
+    self.node_count += res.node_count;
+    res.node.vmaddr_offset = symbol.vmaddr_offset;
+    res.node.export_flags = symbol.export_flags;
 }
 
 /// Write the trie to a buffer ULEB128 encoded.
@@ -201,11 +235,13 @@ pub fn writeULEB128Mem(self: *Trie, alloc: *Allocator, buffer: *std.ArrayListUnm
     var ordered_nodes: std.ArrayListUnmanaged(*Node) = .{};
     defer ordered_nodes.deinit(alloc);
 
-    try walkInOrder(&self.root, alloc, &ordered_nodes);
+    try ordered_nodes.ensureCapacity(alloc, self.node_count);
+    walkInOrder(&self.root, &ordered_nodes);
 
+    var offset: usize = 0;
     var more: bool = true;
     while (more) {
-        var offset: usize = 0;
+        offset = 0;
         more = false;
         for (ordered_nodes.items) |node| {
             const res = node.updateOffset(offset);
@@ -214,15 +250,17 @@ pub fn writeULEB128Mem(self: *Trie, alloc: *Allocator, buffer: *std.ArrayListUnm
         }
     }
 
+    try buffer.ensureCapacity(alloc, buffer.items.len + offset);
     for (ordered_nodes.items) |node| {
-        try node.writeULEB128Mem(alloc, buffer);
+        try node.writeULEB128Mem(buffer);
     }
 }
 
-fn walkInOrder(node: *Node, alloc: *Allocator, list: *std.ArrayListUnmanaged(*Node)) error{OutOfMemory}!void {
-    try list.append(alloc, node);
+/// Walks the trie in DFS order gathering all nodes into a linear stream of nodes.
+fn walkInOrder(node: *Node, list: *std.ArrayListUnmanaged(*Node)) void {
+    list.appendAssumeCapacity(node);
     for (node.edges.items) |*edge| {
-        try walkInOrder(edge.to, alloc, list);
+        walkInOrder(edge.to, list);
     }
 }
 
@@ -230,11 +268,53 @@ pub fn deinit(self: *Trie, alloc: *Allocator) void {
     self.root.deinit(alloc);
 }
 
+test "Trie node count" {
+    var gpa = testing.allocator;
+    var trie: Trie = .{};
+    defer trie.deinit(gpa);
+
+    testing.expectEqual(trie.node_count, 1);
+
+    try trie.put(gpa, .{
+        .name = "_main",
+        .vmaddr_offset = 0,
+        .export_flags = 0,
+    });
+    testing.expectEqual(trie.node_count, 2);
+
+    // Inserting the same node shouldn't update the trie.
+    try trie.put(gpa, .{
+        .name = "_main",
+        .vmaddr_offset = 0,
+        .export_flags = 0,
+    });
+    testing.expectEqual(trie.node_count, 2);
+
+    try trie.put(gpa, .{
+        .name = "__mh_execute_header",
+        .vmaddr_offset = 0x1000,
+        .export_flags = 0,
+    });
+    testing.expectEqual(trie.node_count, 4);
+
+    // Inserting the same node shouldn't update the trie.
+    try trie.put(gpa, .{
+        .name = "__mh_execute_header",
+        .vmaddr_offset = 0x1000,
+        .export_flags = 0,
+    });
+    testing.expectEqual(trie.node_count, 4);
+    try trie.put(gpa, .{
+        .name = "_main",
+        .vmaddr_offset = 0,
+        .export_flags = 0,
+    });
+    testing.expectEqual(trie.node_count, 4);
+}
+
 test "Trie basic" {
     var gpa = testing.allocator;
-    var trie: Trie = .{
-        .root = .{},
-    };
+    var trie: Trie = .{};
     defer trie.deinit(gpa);
 
     // root
@@ -287,9 +367,7 @@ test "Trie basic" {
 
 test "Trie.writeULEB128Mem" {
     var gpa = testing.allocator;
-    var trie: Trie = .{
-        .root = .{},
-    };
+    var trie: Trie = .{};
     defer trie.deinit(gpa);
 
     try trie.put(gpa, .{

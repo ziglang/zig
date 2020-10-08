@@ -1403,9 +1403,7 @@ fn writeAllUndefSymbols(self: *MachO) !void {
 fn writeExportTrie(self: *MachO) !void {
     if (self.global_symbols.items.len == 0) return; // No exports, nothing to do.
 
-    var trie: Trie = .{
-        .root = .{},
-    };
+    var trie: Trie = .{};
     defer trie.deinit(self.base.allocator);
 
     const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
