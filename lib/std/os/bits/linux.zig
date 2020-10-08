@@ -1769,7 +1769,7 @@ pub const rusage = extern struct {
     utime: timeval,
     stime: timeval,
     maxrss: isize,
-    ix_rss: isize,
+    ixrss: isize,
     idrss: isize,
     isrss: isize,
     minflt: isize,
