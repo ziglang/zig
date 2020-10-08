@@ -39,7 +39,7 @@ const Allocator = mem.Allocator;
 
 pub const Symbol = struct {
     name: []const u8,
-    offset: u64,
+    vmaddr_offset: u64,
     export_flags: u64,
 };
 
@@ -58,7 +58,8 @@ const Edge = struct {
 
 const Node = struct {
     export_flags: ?u64 = null,
-    offset: ?u64 = null,
+    vmaddr_offset: ?u64 = null,
+    trie_offset: usize = 0,
     edges: std.ArrayListUnmanaged(Edge) = .{},
 
     fn deinit(self: *Node, alloc: *Allocator) void {
@@ -111,8 +112,8 @@ const Node = struct {
         return node;
     }
 
-    fn writeULEB128Mem(self: Node, alloc: *Allocator, buffer: *std.ArrayListUnmanaged(u8)) Trie.WriteError!void {
-        if (self.offset) |offset| {
+    fn writeULEB128Mem(self: Node, alloc: *Allocator, buffer: *std.ArrayListUnmanaged(u8)) !void {
+        if (self.vmaddr_offset) |offset| {
             // Terminal node info: encode export flags and vmaddr offset of this symbol.
             var info_buf_len: usize = 0;
             var info_buf: [@sizeOf(u64) * 2]u8 = undefined;
@@ -134,34 +135,53 @@ const Node = struct {
         // Write number of edges (max legal number of edges is 256).
         try buffer.append(alloc, @intCast(u8, self.edges.items.len));
 
-        var node_offset_info: [std.math.maxInt(u8)]u64 = undefined;
-        for (self.edges.items) |edge, i| {
-            // Write edges labels leaving out space in-between to later populate
-            // with offsets to each node.
-            try buffer.ensureCapacity(alloc, buffer.items.len + edge.label.len + 1 + @sizeOf(u64)); // +1 to account for null-byte
+        for (self.edges.items) |edge| {
+            // Write edges labels.
+            try buffer.ensureCapacity(alloc, buffer.items.len + edge.label.len + 1); // +1 to account for null-byte
             buffer.appendSliceAssumeCapacity(edge.label);
             buffer.appendAssumeCapacity(0);
-            node_offset_info[i] = buffer.items.len;
-            const padding = [_]u8{0} ** @sizeOf(u64);
-            buffer.appendSliceAssumeCapacity(padding[0..]);
+
+            var buf: [@sizeOf(u64)]u8 = undefined;
+            const buf_len = try leb.writeULEB128Mem(buf[0..], edge.to.trie_offset);
+            try buffer.appendSlice(alloc, buf[0..buf_len]);
+        }
+    }
+
+    const UpdateResult = struct {
+        node_size: usize,
+        updated: bool,
+    };
+
+    fn updateOffset(self: *Node, offset: usize) UpdateResult {
+        var node_size: usize = 0;
+        if (self.vmaddr_offset) |vmaddr| {
+            node_size += sizeULEB128Mem(self.export_flags.?);
+            node_size += sizeULEB128Mem(vmaddr);
+            node_size += sizeULEB128Mem(node_size);
+        } else {
+            node_size += 1; // 0x0 for non-terminal nodes
+        }
+        node_size += 1; // 1 byte for edge count
+
+        for (self.edges.items) |edge| {
+            node_size += edge.label.len + 1 + sizeULEB128Mem(edge.to.trie_offset);
         }
 
-        for (self.edges.items) |edge, i| {
-            const offset = buffer.items.len;
-            try edge.to.writeULEB128Mem(alloc, buffer);
-            // We can now populate the offset to the node pointed by this edge.
-            // TODO this is not the approach taken by `ld64` which does several iterations
-            // to close the gap between the space encoding the offset to the node pointed
-            // by this edge. However, it seems that as long as we are contiguous, the padding
-            // introduced here should not influence the performance of `dyld`. I'm leaving
-            // this TODO here though as a reminder to re-investigate in the future and especially
-            // when we start working on dylibs in case `dyld` refuses to cooperate and/or the
-            // performance is noticably sufferring.
-            // Link to official impl: https://opensource.apple.com/source/ld64/ld64-123.2.1/src/abstraction/MachOTrie.hpp
-            var offset_buf: [@sizeOf(u64)]u8 = undefined;
-            const offset_buf_len = try leb.writeULEB128Mem(offset_buf[0..], offset);
-            mem.copy(u8, buffer.items[node_offset_info[i]..], offset_buf[0..offset_buf_len]);
+        const updated = offset != self.trie_offset;
+        self.trie_offset = offset;
+
+        return .{ .node_size = node_size, .updated = updated };
+    }
+
+    fn sizeULEB128Mem(value: u64) usize {
+        var res: usize = 0;
+        var v = value;
+        while (true) {
+            v = v >> 7;
+            res += 1;
+            if (v == 0) break;
         }
+        return res;
     }
 };
 
@@ -172,15 +192,38 @@ root: Node,
 /// certain circumstances.
 pub fn put(self: *Trie, alloc: *Allocator, symbol: Symbol) !void {
     const node = try self.root.put(alloc, symbol.name);
-    node.offset = symbol.offset;
+    node.vmaddr_offset = symbol.vmaddr_offset;
     node.export_flags = symbol.export_flags;
 }
 
-pub const WriteError = error{ OutOfMemory, NoSpaceLeft };
-
 /// Write the trie to a buffer ULEB128 encoded.
-pub fn writeULEB128Mem(self: Trie, alloc: *Allocator, buffer: *std.ArrayListUnmanaged(u8)) WriteError!void {
-    return self.root.writeULEB128Mem(alloc, buffer);
+pub fn writeULEB128Mem(self: *Trie, alloc: *Allocator, buffer: *std.ArrayListUnmanaged(u8)) !void {
+    var ordered_nodes: std.ArrayListUnmanaged(*Node) = .{};
+    defer ordered_nodes.deinit(alloc);
+
+    try walkInOrder(&self.root, alloc, &ordered_nodes);
+
+    var more: bool = true;
+    while (more) {
+        var offset: usize = 0;
+        more = false;
+        for (ordered_nodes.items) |node| {
+            const res = node.updateOffset(offset);
+            offset += res.node_size;
+            if (res.updated) more = true;
+        }
+    }
+
+    for (ordered_nodes.items) |node| {
+        try node.writeULEB128Mem(alloc, buffer);
+    }
+}
+
+fn walkInOrder(node: *Node, alloc: *Allocator, list: *std.ArrayListUnmanaged(*Node)) error{OutOfMemory}!void {
+    try list.append(alloc, node);
+    for (node.edges.items) |*edge| {
+        try walkInOrder(edge.to, alloc, list);
+    }
 }
 
 pub fn deinit(self: *Trie, alloc: *Allocator) void {
@@ -200,7 +243,7 @@ test "Trie basic" {
     // root --- _st ---> node
     try trie.put(gpa, .{
         .name = "_st",
-        .offset = 0,
+        .vmaddr_offset = 0,
         .export_flags = 0,
     });
     testing.expect(trie.root.edges.items.len == 1);
@@ -210,7 +253,7 @@ test "Trie basic" {
         // root --- _st ---> node --- art ---> node
         try trie.put(gpa, .{
             .name = "_start",
-            .offset = 0,
+            .vmaddr_offset = 0,
             .export_flags = 0,
         });
         testing.expect(trie.root.edges.items.len == 1);
@@ -226,7 +269,7 @@ test "Trie basic" {
         //                  |   --- main ---> node
         try trie.put(gpa, .{
             .name = "_main",
-            .offset = 0,
+            .vmaddr_offset = 0,
             .export_flags = 0,
         });
         testing.expect(trie.root.edges.items.len == 1);
@@ -251,12 +294,12 @@ test "Trie.writeULEB128Mem" {
 
     try trie.put(gpa, .{
         .name = "__mh_execute_header",
-        .offset = 0,
+        .vmaddr_offset = 0,
         .export_flags = 0,
     });
     try trie.put(gpa, .{
         .name = "_main",
-        .offset = 0x1000,
+        .vmaddr_offset = 0x1000,
         .export_flags = 0,
     });
 
@@ -270,14 +313,7 @@ test "Trie.writeULEB128Mem" {
         0x1,
         0x5f,
         0x0,
-        0xc,
-        0x0,
-        0x0,
-        0x0,
-        0x0,
-        0x0,
-        0x0,
-        0x0,
+        0x5,
         0x0,
         0x2,
         0x5f,
@@ -299,27 +335,13 @@ test "Trie.writeULEB128Mem" {
         0x65,
         0x72,
         0x0,
-        0x36,
-        0x0,
-        0x0,
-        0x0,
-        0x0,
-        0x0,
-        0x0,
-        0x0,
+        0x21,
         0x6d,
         0x61,
         0x69,
         0x6e,
         0x0,
-        0x3a,
-        0x0,
-        0x0,
-        0x0,
-        0x0,
-        0x0,
-        0x0,
-        0x0,
+        0x25,
         0x2,
         0x0,
         0x0,

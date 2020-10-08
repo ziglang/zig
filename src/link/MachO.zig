@@ -1415,7 +1415,7 @@ fn writeExportTrie(self: *MachO) !void {
         assert(symbol.n_value >= text_segment.vmaddr);
         try trie.put(self.base.allocator, .{
             .name = name,
-            .offset = symbol.n_value - text_segment.vmaddr,
+            .vmaddr_offset = symbol.n_value - text_segment.vmaddr,
             .export_flags = 0, // TODO workout creation of export flags
         });
     }
