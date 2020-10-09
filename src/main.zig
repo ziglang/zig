@@ -1269,6 +1269,10 @@ fn buildOutputType(
         fatal("one zig source file is required to run `zig test`", .{});
     }
 
+    if (link_objects.items.len == 0 and root_src_file == null and c_source_files.items.len == 0 and arg_mode == .run) {
+        fatal("one source file is required to run `zig run`", .{});
+    }
+
     const root_name = if (provided_name) |n| n else blk: {
         if (arg_mode == .zig_test) {
             break :blk "test";
