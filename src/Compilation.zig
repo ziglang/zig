@@ -580,6 +580,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         const cache = try arena.create(Cache);
         cache.* = .{
             .gpa = gpa,
+            .work_dir = std.fs.cwd(),
             .manifest_dir = try options.local_cache_directory.handle.makeOpenPath("h", .{}),
         };
         errdefer cache.manifest_dir.close();

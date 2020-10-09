@@ -1,4 +1,5 @@
 gpa: *Allocator,
+work_dir: fs.Dir,
 manifest_dir: fs.Dir,
 hash: HashHelper = .{},
 
@@ -11,6 +12,7 @@ const testing = std.testing;
 const mem = std.mem;
 const fmt = std.fmt;
 const Allocator = std.mem.Allocator;
+const tmpDir = testing.tmpDir;
 
 /// Be sure to call `Manifest.deinit` after successful initialization.
 pub fn obtain(cache: *const Cache) Manifest {
@@ -315,7 +317,7 @@ pub const Manifest = struct {
                 cache_hash_file.path = try self.cache.gpa.dupe(u8, file_path);
             }
 
-            const this_file = fs.cwd().openFile(cache_hash_file.path.?, .{ .read = true }) catch {
+            const this_file = self.cache.work_dir.openFile(cache_hash_file.path.?, .{ .read = true }) catch {
                 return error.CacheUnavailable;
             };
             defer this_file.close();
@@ -386,7 +388,7 @@ pub const Manifest = struct {
     }
 
     fn populateFileHash(self: *Manifest, ch_file: *File) !void {
-        const file = try fs.cwd().openFile(ch_file.path.?, .{});
+        const file = try self.cache.work_dir.openFile(ch_file.path.?, .{});
         defer file.close();
 
         ch_file.stat = try file.stat();
@@ -621,17 +623,14 @@ fn isProblematicTimestamp(fs_clock: i128) bool {
 }
 
 test "cache file and then recall it" {
-    if (std.Target.current.os.tag == .wasi) {
-        // https://github.com/ziglang/zig/issues/5437
-        return error.SkipZigTest;
-    }
-    const cwd = fs.cwd();
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
 
     const temp_file = "test.txt";
     const temp_manifest_dir = "temp_manifest_dir";
 
     const ts = std.time.nanoTimestamp();
-    try cwd.writeFile(temp_file, "Hello, world!\n");
+    try tmp.dir.writeFile(temp_file, "Hello, world!\n");
 
     while (isProblematicTimestamp(ts)) {
         std.time.sleep(1);
@@ -643,7 +642,8 @@ test "cache file and then recall it" {
     {
         var cache = Cache{
             .gpa = testing.allocator,
-            .manifest_dir = try cwd.makeOpenPath(temp_manifest_dir, .{}),
+            .work_dir = tmp.dir,
+            .manifest_dir = try tmp.dir.makeOpenPath(temp_manifest_dir, .{}),
         };
         defer cache.manifest_dir.close();
 
@@ -680,9 +680,6 @@ test "cache file and then recall it" {
 
         testing.expectEqual(digest1, digest2);
     }
-
-    try cwd.deleteTree(temp_manifest_dir);
-    try cwd.deleteFile(temp_file);
 }
 
 test "give problematic timestamp" {
@@ -698,22 +695,16 @@ test "give nonproblematic timestamp" {
 }
 
 test "check that changing a file makes cache fail" {
-    if (std.Target.current.os.tag == .wasi) {
-        // https://github.com/ziglang/zig/issues/5437
-        return error.SkipZigTest;
-    }
-    const cwd = fs.cwd();
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
 
     const temp_file = "cache_hash_change_file_test.txt";
     const temp_manifest_dir = "cache_hash_change_file_manifest_dir";
     const original_temp_file_contents = "Hello, world!\n";
     const updated_temp_file_contents = "Hello, world; but updated!\n";
 
-    try cwd.deleteTree(temp_manifest_dir);
-    try cwd.deleteTree(temp_file);
-
     const ts = std.time.nanoTimestamp();
-    try cwd.writeFile(temp_file, original_temp_file_contents);
+    try tmp.dir.writeFile(temp_file, original_temp_file_contents);
 
     while (isProblematicTimestamp(ts)) {
         std.time.sleep(1);
@@ -725,7 +716,8 @@ test "check that changing a file makes cache fail" {
     {
         var cache = Cache{
             .gpa = testing.allocator,
-            .manifest_dir = try cwd.makeOpenPath(temp_manifest_dir, .{}),
+            .work_dir = tmp.dir,
+            .manifest_dir = try tmp.dir.makeOpenPath(temp_manifest_dir, .{}),
         };
         defer cache.manifest_dir.close();
 
@@ -746,7 +738,7 @@ test "check that changing a file makes cache fail" {
             try ch.writeManifest();
         }
 
-        try cwd.writeFile(temp_file, updated_temp_file_contents);
+        try tmp.dir.writeFile(temp_file, updated_temp_file_contents);
 
         {
             var ch = cache.obtain();
@@ -768,26 +760,21 @@ test "check that changing a file makes cache fail" {
 
         testing.expect(!mem.eql(u8, digest1[0..], digest2[0..]));
     }
-
-    try cwd.deleteTree(temp_manifest_dir);
-    try cwd.deleteTree(temp_file);
 }
 
 test "no file inputs" {
-    if (std.Target.current.os.tag == .wasi) {
-        // https://github.com/ziglang/zig/issues/5437
-        return error.SkipZigTest;
-    }
-    const cwd = fs.cwd();
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
     const temp_manifest_dir = "no_file_inputs_manifest_dir";
-    defer cwd.deleteTree(temp_manifest_dir) catch {};
 
     var digest1: [hex_digest_len]u8 = undefined;
     var digest2: [hex_digest_len]u8 = undefined;
 
     var cache = Cache{
         .gpa = testing.allocator,
-        .manifest_dir = try cwd.makeOpenPath(temp_manifest_dir, .{}),
+        .work_dir = tmp.dir,
+        .manifest_dir = try tmp.dir.makeOpenPath(temp_manifest_dir, .{}),
     };
     defer cache.manifest_dir.close();
 
@@ -819,19 +806,16 @@ test "no file inputs" {
 }
 
 test "Manifest with files added after initial hash work" {
-    if (std.Target.current.os.tag == .wasi) {
-        // https://github.com/ziglang/zig/issues/5437
-        return error.SkipZigTest;
-    }
-    const cwd = fs.cwd();
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
 
     const temp_file1 = "cache_hash_post_file_test1.txt";
     const temp_file2 = "cache_hash_post_file_test2.txt";
     const temp_manifest_dir = "cache_hash_post_file_manifest_dir";
 
     const ts1 = std.time.nanoTimestamp();
-    try cwd.writeFile(temp_file1, "Hello, world!\n");
-    try cwd.writeFile(temp_file2, "Hello world the second!\n");
+    try tmp.dir.writeFile(temp_file1, "Hello, world!\n");
+    try tmp.dir.writeFile(temp_file2, "Hello world the second!\n");
 
     while (isProblematicTimestamp(ts1)) {
         std.time.sleep(1);
@@ -844,7 +828,8 @@ test "Manifest with files added after initial hash work" {
     {
         var cache = Cache{
             .gpa = testing.allocator,
-            .manifest_dir = try cwd.makeOpenPath(temp_manifest_dir, .{}),
+            .work_dir = tmp.dir,
+            .manifest_dir = try tmp.dir.makeOpenPath(temp_manifest_dir, .{}),
         };
         defer cache.manifest_dir.close();
 
@@ -879,7 +864,7 @@ test "Manifest with files added after initial hash work" {
 
         // Modify the file added after initial hash
         const ts2 = std.time.nanoTimestamp();
-        try cwd.writeFile(temp_file2, "Hello world the second, updated\n");
+        try tmp.dir.writeFile(temp_file2, "Hello world the second, updated\n");
 
         while (isProblematicTimestamp(ts2)) {
             std.time.sleep(1);
@@ -904,8 +889,4 @@ test "Manifest with files added after initial hash work" {
 
         testing.expect(!mem.eql(u8, &digest1, &digest3));
     }
-
-    try cwd.deleteTree(temp_manifest_dir);
-    try cwd.deleteFile(temp_file1);
-    try cwd.deleteFile(temp_file2);
 }

@@ -306,6 +306,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
     var cache: Cache = .{
         .gpa = comp.gpa,
+        .work_dir = std.fs.cwd(),
         .manifest_dir = comp.cache_parent.manifest_dir,
     };
     cache.hash.addBytes(build_options.version);

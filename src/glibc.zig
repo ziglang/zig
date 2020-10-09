@@ -707,6 +707,7 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
     // Use the global cache directory.
     var cache_parent: Cache = .{
         .gpa = comp.gpa,
+        .work_dir = std.fs.cwd(),
         .manifest_dir = try comp.global_cache_directory.handle.makeOpenPath("h", .{}),
     };
     defer cache_parent.manifest_dir.close();
