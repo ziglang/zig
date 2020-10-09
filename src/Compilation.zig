@@ -2605,8 +2605,8 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
 
         // We use an extra hex-encoded byte here to store some flags.
         var prev_digest_buf: [digest.len + 2]u8 = undefined;
-        const prev_digest: []u8 = directory.handle.readLink(id_symlink_basename, &prev_digest_buf) catch |err| blk: {
-            log.debug("stage1 {} new_digest={} readlink error: {}", .{ mod.root_pkg.root_src_path, digest, @errorName(err) });
+        const prev_digest: []u8 = directory.handle.readFile(id_symlink_basename, &prev_digest_buf) catch |err| blk: {
+            log.debug("stage1 {} new_digest={} readFile error: {}", .{ mod.root_pkg.root_src_path, digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
@@ -2792,8 +2792,8 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     log.debug("saved digest + flags: '{s}' (byte = {}) have_winmain_crt_startup={}", .{
         digest_plus_flags, stage1_flags_byte, mod.stage1_flags.have_winmain_crt_startup,
     });
-    directory.handle.symLink(&digest_plus_flags, id_symlink_basename, .{}) catch |err| {
-        log.warn("failed to save stage1 hash digest symlink: {}", .{@errorName(err)});
+    directory.handle.writeFile(id_symlink_basename, &digest_plus_flags) catch |err| {
+        log.warn("failed to save stage1 hash digest file: {}", .{@errorName(err)});
     };
     // Again failure here only means an unnecessary cache miss.
     man.writeManifest() catch |err| {

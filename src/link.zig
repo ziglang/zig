@@ -466,8 +466,8 @@ pub const File = struct {
         const digest = ch.final();
 
         var prev_digest_buf: [digest.len]u8 = undefined;
-        const prev_digest: []u8 = directory.handle.readLink(id_symlink_basename, &prev_digest_buf) catch |err| b: {
-            log.debug("archive new_digest={} readlink error: {}", .{ digest, @errorName(err) });
+        const prev_digest: []u8 = directory.handle.readFile(id_symlink_basename, &prev_digest_buf) catch |err| b: {
+            log.debug("archive new_digest={} readFile error: {}", .{ digest, @errorName(err) });
             break :b prev_digest_buf[0..0];
         };
         if (mem.eql(u8, prev_digest, &digest)) {
@@ -512,8 +512,8 @@ pub const File = struct {
         const bad = llvm.WriteArchive(full_out_path_z, object_files.items.ptr, object_files.items.len, os_type);
         if (bad) return error.UnableToWriteArchive;
 
-        directory.handle.symLink(&digest, id_symlink_basename, .{}) catch |err| {
-            std.log.warn("failed to save archive hash digest symlink: {}", .{@errorName(err)});
+        directory.handle.writeFile(id_symlink_basename, &digest) catch |err| {
+            std.log.warn("failed to save archive hash digest file: {}", .{@errorName(err)});
         };
 
         ch.writeManifest() catch |err| {

@@ -1490,6 +1490,15 @@ pub const Dir = struct {
         return os.windows.ReadLink(self.fd, sub_path_w, buffer);
     }
 
+    /// Read all of file contents using a preallocated buffer
+    pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
+        var file = try self.openFile(file_path, .{});
+        defer file.close();
+
+        const end_index = try file.readAll(buffer);
+        return buffer[0..end_index];
+    }
+
     /// On success, caller owns returned buffer.
     /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
     pub fn readFileAlloc(self: Dir, allocator: *mem.Allocator, file_path: []const u8, max_bytes: usize) ![]u8 {
