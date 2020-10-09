@@ -28,6 +28,15 @@ pub const State = struct {
 
     const Self = @This();
 
+    pub fn init(initial_state: [State.BLOCKBYTES]u8) Self {
+        var data: [BLOCKBYTES / 4]u32 = undefined;
+        var i: usize = 0;
+        while (i < State.BLOCKBYTES) : (i += 4) {
+            data[i / 4] = mem.readIntLittle(u32, initial_state[i..][0..4]);
+        }
+        return Self{ .data = data };
+    }
+
     /// TODO follow the span() convention instead of having this and `toSliceConst`
     pub fn toSlice(self: *Self) []u8 {
         return mem.sliceAsBytes(self.data[0..]);
