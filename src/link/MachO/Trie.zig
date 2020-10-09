@@ -1,33 +1,33 @@
-/// Represents export trie used in MachO executables and dynamic libraries.
-/// The purpose of an export trie is to encode as compactly as possible all
-/// export symbols for the loader `dyld`.
-/// The export trie encodes offset and other information using ULEB128
-/// encoding, and is part of the __LINKEDIT segment.
-///
-/// Description from loader.h:
-///
-/// The symbols exported by a dylib are encoded in a trie. This is a compact
-/// representation that factors out common prefixes. It also reduces LINKEDIT pages
-/// in RAM because it encodes all information (name, address, flags) in one small,
-/// contiguous range. The export area is a stream of nodes. The first node sequentially
-/// is the start node for the trie.
-///
-/// Nodes for a symbol start with a uleb128 that is the length of the exported symbol
-/// information for the string so far. If there is no exported symbol, the node starts
-/// with a zero byte. If there is exported info, it follows the length.
-///
-/// First is a uleb128 containing flags. Normally, it is followed by a uleb128 encoded
-/// offset which is location of the content named by the symbol from the mach_header
-/// for the image. If the flags is EXPORT_SYMBOL_FLAGS_REEXPORT, then following the flags
-/// is a uleb128 encoded library ordinal, then a zero terminated UTF8 string. If the string
-/// is zero length, then the symbol is re-export from the specified dylib with the same name.
-/// If the flags is EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER, then following the flags is two
-/// uleb128s: the stub offset and the resolver offset. The stub is used by non-lazy pointers.
-/// The resolver is used by lazy pointers and must be called to get the actual address to use.
-///
-/// After the optional exported symbol information is a byte of how many edges (0-255) that
-/// this node has leaving it, followed by each edge. Each edge is a zero terminated UTF8 of
-/// the addition chars in the symbol, followed by a uleb128 offset for the node that edge points to.
+//! Represents export trie used in MachO executables and dynamic libraries.
+//! The purpose of an export trie is to encode as compactly as possible all
+//! export symbols for the loader `dyld`.
+//! The export trie encodes offset and other information using ULEB128
+//! encoding, and is part of the __LINKEDIT segment.
+//!
+//! Description from loader.h:
+//!
+//! The symbols exported by a dylib are encoded in a trie. This is a compact
+//! representation that factors out common prefixes. It also reduces LINKEDIT pages
+//! in RAM because it encodes all information (name, address, flags) in one small,
+//! contiguous range. The export area is a stream of nodes. The first node sequentially
+//! is the start node for the trie.
+//!
+//! Nodes for a symbol start with a uleb128 that is the length of the exported symbol
+//! information for the string so far. If there is no exported symbol, the node starts
+//! with a zero byte. If there is exported info, it follows the length.
+//!
+//! First is a uleb128 containing flags. Normally, it is followed by a uleb128 encoded
+//! offset which is location of the content named by the symbol from the mach_header
+//! for the image. If the flags is EXPORT_SYMBOL_FLAGS_REEXPORT, then following the flags
+//! is a uleb128 encoded library ordinal, then a zero terminated UTF8 string. If the string
+//! is zero length, then the symbol is re-export from the specified dylib with the same name.
+//! If the flags is EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER, then following the flags is two
+//! uleb128s: the stub offset and the resolver offset. The stub is used by non-lazy pointers.
+//! The resolver is used by lazy pointers and must be called to get the actual address to use.
+//!
+//! After the optional exported symbol information is a byte of how many edges (0-255) that
+//! this node has leaving it, followed by each edge. Each edge is a zero terminated UTF8 of
+//! the addition chars in the symbol, followed by a uleb128 offset for the node that edge points to.
 const Trie = @This();
 
 const std = @import("std");
