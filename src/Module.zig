@@ -93,7 +93,7 @@ pub const Export = struct {
     /// Byte offset into the file that contains the export directive.
     src: usize,
     /// Represents the position of the export, if any, in the output file.
-    link: link.File.Elf.Export,
+    link: link.File.Export,
     /// The Decl that performs the export. Note that this is *not* the Decl being exported.
     owner_decl: *Decl,
     /// The Decl being exported. Note this is *not* the Decl performing the export.
@@ -1712,7 +1712,10 @@ fn deleteDeclExports(self: *Module, decl: *Decl) void {
             }
         }
         if (self.comp.bin_file.cast(link.File.Elf)) |elf| {
-            elf.deleteExport(exp.link);
+            elf.deleteExport(exp.link.elf);
+        }
+        if (self.comp.bin_file.cast(link.File.MachO)) |macho| {
+            macho.deleteExport(exp.link.macho);
         }
         if (self.failed_exports.remove(exp)) |entry| {
             entry.value.destroy(self.gpa);
@@ -1875,7 +1878,13 @@ pub fn analyzeExport(self: *Module, scope: *Scope, src: usize, borrowed_symbol_n
     new_export.* = .{
         .options = .{ .name = symbol_name },
         .src = src,
-        .link = .{},
+        .link = switch (self.comp.bin_file.tag) {
+            .coff => .{ .coff = {} },
+            .elf => .{ .elf = link.File.Elf.Export{} },
+            .macho => .{ .macho = link.File.MachO.Export{} },
+            .c => .{ .c = {} },
+            .wasm => .{ .wasm = {} },
+        },
         .owner_decl = owner_decl,
         .exported_decl = exported_decl,
         .status = .in_progress,

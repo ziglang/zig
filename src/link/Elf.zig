@@ -2588,7 +2588,7 @@ pub fn updateDeclExports(
             },
         };
         const stt_bits: u8 = @truncate(u4, decl_sym.st_info);
-        if (exp.link.sym_index) |i| {
+        if (exp.link.elf.sym_index) |i| {
             const sym = &self.global_symbols.items[i];
             sym.* = .{
                 .st_name = try self.updateString(sym.st_name, exp.options.name),
@@ -2613,7 +2613,7 @@ pub fn updateDeclExports(
                 .st_size = decl_sym.st_size,
             };
 
-            exp.link.sym_index = @intCast(u32, i);
+            exp.link.elf.sym_index = @intCast(u32, i);
         }
     }
 }
