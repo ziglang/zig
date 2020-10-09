@@ -1272,6 +1272,10 @@ fn buildOutputType(
         fatal("`zig run` expects at least one positional argument", .{});
     }
 
+    if (root_src_file == null and arg_mode == .run) {
+        fatal("one zig source file is required to run `zig run`", .{});
+    }
+
     const root_name = if (provided_name) |n| n else blk: {
         if (arg_mode == .zig_test) {
             break :blk "test";
