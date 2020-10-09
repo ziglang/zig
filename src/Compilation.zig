@@ -922,7 +922,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             try comp.work_queue.writeItem(.libcxx);
             try comp.work_queue.writeItem(.libcxxabi);
         }
-        if (is_exe_or_dyn_lib and build_options.is_stage1) {
+
+        const needs_compiler_rt_and_c = is_exe_or_dyn_lib or
+            (comp.getTarget().isWasm() and comp.bin_file.options.output_mode != .Obj);
+        if (needs_compiler_rt_and_c and build_options.is_stage1) {
             try comp.work_queue.writeItem(.{ .libcompiler_rt = {} });
             if (!comp.bin_file.options.link_libc) {
                 try comp.work_queue.writeItem(.{ .zig_libc = {} });
