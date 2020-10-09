@@ -1326,8 +1326,12 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         digest = man.final();
 
         var prev_digest_buf: [digest.len]u8 = undefined;
-        const prev_digest: []u8 = directory.handle.readLink(id_symlink_basename, &prev_digest_buf) catch |err| blk: {
-            log.debug("ELF LLD new_digest={} readlink error: {}", .{ digest, @errorName(err) });
+        const prev_digest: []u8 = Cache.readSmallFile(
+            directory.handle,
+            id_symlink_basename,
+            &prev_digest_buf,
+        ) catch |err| blk: {
+            log.debug("ELF LLD new_digest={} error: {}", .{ digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
@@ -1647,10 +1651,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     }
 
     if (!self.base.options.disable_lld_caching) {
-        // Update the dangling symlink with the digest. If it fails we can continue; it only
+        // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
-        directory.handle.symLink(&digest, id_symlink_basename, .{}) catch |err| {
-            std.log.warn("failed to save linking hash digest symlink: {}", .{@errorName(err)});
+        Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
+            std.log.warn("failed to save linking hash digest file: {}", .{@errorName(err)});
         };
         // Again failure here only means an unnecessary cache miss.
         man.writeManifest() catch |err| {
