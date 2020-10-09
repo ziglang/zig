@@ -4945,6 +4945,9 @@ pub fn sendfile(
 pub const CopyFileRangeError = error{
     FileTooBig,
     InputOutput,
+    /// `fd_in` is not open for reading; or `fd_out` is not open  for  writing;
+    /// or the  `O_APPEND`  flag  is  set  for `fd_out`.
+    FilesOpenedWithWrongFlags,
     IsDir,
     OutOfMemory,
     NoSpaceLeft,
@@ -4952,6 +4955,11 @@ pub const CopyFileRangeError = error{
     PermissionDenied,
     FileBusy,
 } || PReadError || PWriteError || UnexpectedError;
+
+var has_copy_file_range_syscall = init: {
+    const kernel_has_syscall = std.Target.current.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) orelse true;
+    break :init std.atomic.Int(bool).init(kernel_has_syscall);
+};
 
 /// Transfer data between file descriptors at specified offsets.
 /// Returns the number of bytes written, which can less than requested.
@@ -4981,22 +4989,18 @@ pub const CopyFileRangeError = error{
 pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
     const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
 
-    // TODO support for other systems than linux
-    const try_syscall = comptime std.Target.current.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) != false;
-
-    if (use_c or try_syscall) {
+    if (std.Target.current.os.tag == .linux and
+        (use_c or has_copy_file_range_syscall.get()))
+    {
         const sys = if (use_c) std.c else linux;
 
         var off_in_copy = @bitCast(i64, off_in);
         var off_out_copy = @bitCast(i64, off_out);
 
         const rc = sys.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, flags);
-
-        // TODO avoid wasting a syscall every time if kernel is too old and returns ENOSYS https://github.com/ziglang/zig/issues/1018
-
         switch (sys.getErrno(rc)) {
             0 => return @intCast(usize, rc),
-            EBADF => unreachable,
+            EBADF => return error.FilesOpenedWithWrongFlags,
             EFBIG => return error.FileTooBig,
             EIO => return error.InputOutput,
             EISDIR => return error.IsDir,
@@ -5005,9 +5009,14 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
             EOVERFLOW => return error.Unseekable,
             EPERM => return error.PermissionDenied,
             ETXTBSY => return error.FileBusy,
-            EINVAL => {}, // these may not be regular files, try fallback
-            EXDEV => {}, // support for cross-filesystem copy added in Linux 5.3, use fallback
-            ENOSYS => {}, // syscall added in Linux 4.5, use fallback
+            // these may not be regular files, try fallback
+            EINVAL => {},
+            // support for cross-filesystem copy added in Linux 5.3, use fallback
+            EXDEV => {},
+            // syscall added in Linux 4.5, use fallback
+            ENOSYS => {
+                has_copy_file_range_syscall.set(false);
+            },
             else => |err| return unexpectedErrno(err),
         }
     }
