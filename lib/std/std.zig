@@ -82,6 +82,7 @@ pub const ascii = @import("ascii.zig");
 pub const testing = @import("testing.zig");
 pub const time = @import("time.zig");
 pub const unicode = @import("unicode.zig");
+pub const uuid = @import("uuid.zig");
 pub const valgrind = @import("valgrind.zig");
 pub const zig = @import("zig.zig");
 pub const start = @import("start.zig");
