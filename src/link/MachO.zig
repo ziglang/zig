@@ -116,7 +116,9 @@ global_symbols: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 /// Table of all undefined symbols
 undef_symbols: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 
+local_symbol_free_list: std.ArrayListUnmanaged(u32) = .{},
 global_symbol_free_list: std.ArrayListUnmanaged(u32) = .{},
+offset_table_free_list: std.ArrayListUnmanaged(u32) = .{},
 
 dyld_stub_binder_index: ?u16 = null,
 
@@ -153,6 +155,12 @@ const LIB_SYSTEM_NAME: [*:0]const u8 = "System";
 /// TODO we should search for libSystem and fail if it doesn't exist, instead of hardcoding it
 const LIB_SYSTEM_PATH: [*:0]const u8 = DEFAULT_LIB_SEARCH_PATH ++ "/libSystem.B.dylib";
 
+/// In order for a slice of bytes to be considered eligible to keep metadata pointing at
+/// it as a possible place to put new symbols, it must have enough room for this many bytes
+/// (plus extra for reserved capacity).
+const minimum_text_block_size = 64;
+const min_text_capacity = minimum_text_block_size * alloc_num / alloc_den;
+
 pub const TextBlock = struct {
     /// Each decl always gets a local symbol with the fully qualified name.
     /// The vaddr and size are found here directly.
@@ -179,6 +187,33 @@ pub const TextBlock = struct {
         .prev = null,
         .next = null,
     };
+
+    /// Returns how much room there is to grow in virtual address space.
+    /// File offset relocation happens transparently, so it is not included in
+    /// this calculation.
+    fn capacity(self: TextBlock, macho_file: MachO) u64 {
+        const self_sym = macho_file.local_symbols.items[self.local_sym_index];
+        if (self.next) |next| {
+            const next_sym = macho_file.local_symbols.items[next.local_sym_index];
+            return next_sym.n_value - self_sym.n_value;
+        } else {
+            // We are the last block.
+            // The capacity is limited only by virtual address space.
+            return std.math.maxInt(u64) - self_sym.n_value;
+        }
+    }
+
+    fn freeListEligible(self: TextBlock, macho_file: MachO) bool {
+        // No need to keep a free list node for the last block.
+        const next = self.next orelse return false;
+        const self_sym = macho_file.local_symbols.items[self.local_sym_index];
+        const next_sym = macho_file.local_symbols.items[next.local_sym_index];
+        const cap = next_sym.n_value - self_sym.n_value;
+        const ideal_cap = self.size * alloc_num / alloc_den;
+        if (cap <= ideal_cap) return false;
+        const surplus = cap - ideal_cap;
+        return surplus >= min_text_capacity;
+    }
 };
 
 pub const Export = struct {
@@ -721,11 +756,13 @@ fn darwinArchString(arch: std.Target.Cpu.Arch) []const u8 {
 
 pub fn deinit(self: *MachO) void {
     self.offset_table.deinit(self.base.allocator);
+    self.offset_table_free_list.deinit(self.base.allocator);
     self.string_table.deinit(self.base.allocator);
     self.undef_symbols.deinit(self.base.allocator);
     self.global_symbols.deinit(self.base.allocator);
     self.global_symbol_free_list.deinit(self.base.allocator);
     self.local_symbols.deinit(self.base.allocator);
+    self.local_symbol_free_list.deinit(self.base.allocator);
     self.sections.deinit(self.base.allocator);
     self.load_commands.deinit(self.base.allocator);
 }
