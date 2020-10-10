@@ -367,8 +367,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         .Lib => return error.TODOImplementWritingLibFiles,
     }
 
-    if (self.cmd_table_dirty) try self.writeCmdHeaders();
-
     {
         // Update symbol table.
         const nlocals = @intCast(u32, self.local_symbols.items.len);
@@ -377,6 +375,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
         symtab.nsyms = nlocals + nglobals + nundefs;
     }
+
+    if (self.cmd_table_dirty) try self.writeCmdHeaders();
 
     if (self.entry_addr == null and self.base.options.output_mode == .Exe) {
         log.debug("flushing. no_entry_point_found = true\n", .{});
