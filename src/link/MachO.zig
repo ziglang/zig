@@ -134,6 +134,22 @@ error_flags: File.ErrorFlags = File.ErrorFlags{},
 
 cmd_table_dirty: bool = false,
 
+/// A list of text blocks that have surplus capacity. This list can have false
+/// positives, as functions grow and shrink over time, only sometimes being added
+/// or removed from the freelist.
+///
+/// A text block has surplus capacity when its overcapacity value is greater than
+/// minimum_text_block_size * alloc_num / alloc_den. That is, when it has so
+/// much extra capacity, that we could fit a small new symbol in it, itself with
+/// ideal_capacity or more.
+///
+/// Ideal capacity is defined by size * alloc_num / alloc_den.
+///
+/// Overcapacity is measured by actual_capacity - ideal_capacity. Note that
+/// overcapacity can be negative. A simple way to have negative overcapacity is to
+/// allocate a fresh text block, which will have ideal capacity, and then grow it
+/// by 1 byte. It will then have -1 overcapacity.
+text_block_free_list: std.ArrayListUnmanaged(*TextBlock) = .{},
 /// Pointer to the last allocated text block
 last_text_block: ?*TextBlock = null,
 
@@ -755,6 +771,7 @@ fn darwinArchString(arch: std.Target.Cpu.Arch) []const u8 {
 }
 
 pub fn deinit(self: *MachO) void {
+    self.text_block_free_list.deinit(self.base.allocator);
     self.offset_table.deinit(self.base.allocator);
     self.offset_table_free_list.deinit(self.base.allocator);
     self.string_table.deinit(self.base.allocator);
@@ -765,6 +782,61 @@ pub fn deinit(self: *MachO) void {
     self.local_symbol_free_list.deinit(self.base.allocator);
     self.sections.deinit(self.base.allocator);
     self.load_commands.deinit(self.base.allocator);
+}
+
+fn freeTextBlock(self: *MachO, text_block: *TextBlock) void {
+    var already_have_free_list_node = false;
+    {
+        var i: usize = 0;
+        // TODO turn text_block_free_list into a hash map
+        while (i < self.text_block_free_list.items.len) {
+            if (self.text_block_free_list.items[i] == text_block) {
+                _ = self.text_block_free_list.swapRemove(i);
+                continue;
+            }
+            if (self.text_block_free_list.items[i] == text_block.prev) {
+                already_have_free_list_node = true;
+            }
+            i += 1;
+        }
+    }
+    // TODO process free list for dbg info just like we do above for vaddrs
+
+    if (self.last_text_block == text_block) {
+        // TODO shrink the __text section size here
+        self.last_text_block = text_block.prev;
+    }
+
+    if (text_block.prev) |prev| {
+        prev.next = text_block.next;
+
+        if (!already_have_free_list_node and prev.freeListEligible(self.*)) {
+            // The free list is heuristics, it doesn't have to be perfect, so we can ignore
+            // the OOM here.
+            self.text_block_free_list.append(self.base.allocator, prev) catch {};
+        }
+    } else {
+        text_block.prev = null;
+    }
+
+    if (text_block.next) |next| {
+        next.prev = text_block.prev;
+    } else {
+        text_block.next = null;
+    }
+}
+
+fn shrinkTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64) void {
+    // TODO check the new capacity, and if it crosses the size threshold into a big enough
+    // capacity, insert a free list node for it.
+}
+
+fn growTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
+    const sym = self.local_symbols.items[text_block.local_sym_index];
+    const align_ok = mem.alignBackwardGeneric(u64, sym.n_value, alignment) == sym.n_value;
+    const need_realloc = !align_ok or new_block_size > text_block.capacity(self.*);
+    if (!need_realloc) return sym.n_value;
+    return self.allocateTextBlock(text_block, new_block_size, alignment);
 }
 
 pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
@@ -811,24 +883,51 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     };
 
     const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
+    assert(decl.link.macho.local_sym_index != 0); // Caller forgot to call allocateDeclIndexes()
     const symbol = &self.local_symbols.items[decl.link.macho.local_sym_index];
 
-    const decl_name = mem.spanZ(decl.name);
-    const name_str_index = try self.makeString(decl_name);
-    const addr = try self.allocateTextBlock(&decl.link.macho, code.len, required_alignment);
-    log.debug("allocated text block for {} at 0x{x}\n", .{ decl_name, addr });
+    if (decl.link.macho.size != 0) {
+        const capacity = decl.link.macho.capacity(self.*);
+        const need_realloc = code.len > capacity or !mem.isAlignedGeneric(u64, symbol.n_value, required_alignment);
+        if (need_realloc) {
+            const vaddr = try self.growTextBlock(&decl.link.macho, code.len, required_alignment);
+            log.debug("growing {} from 0x{x} to 0x{x}\n", .{ decl.name, symbol.n_value, vaddr });
+            if (vaddr != symbol.n_value) {
+                symbol.n_value = vaddr;
 
-    symbol.* = .{
-        .n_strx = name_str_index,
-        .n_type = macho.N_SECT,
-        .n_sect = @intCast(u8, self.text_section_index.?) + 1,
-        .n_desc = 0,
-        .n_value = addr,
-    };
-    self.offset_table.items[decl.link.macho.offset_table_index] = addr;
+                log.debug(" (writing new offset table entry)\n", .{});
+                self.offset_table.items[decl.link.macho.offset_table_index] = vaddr;
+                try self.writeOffsetTableEntry(decl.link.macho.offset_table_index);
+            }
+        } else if (code.len < decl.link.macho.size) {
+            self.shrinkTextBlock(&decl.link.macho, code.len);
+        }
+        decl.link.macho.size = code.len;
+        symbol.n_strx = try self.updateString(symbol.n_strx, mem.spanZ(decl.name));
+        symbol.n_type = macho.N_SECT;
+        symbol.n_sect = @intCast(u8, self.text_section_index.?) + 1;
+        symbol.n_desc = 0;
+        // TODO this write could be avoided if no fields of the symbol were changed.
+        try self.writeSymbol(decl.link.macho.local_sym_index);
+    } else {
+        const decl_name = mem.spanZ(decl.name);
+        const name_str_index = try self.makeString(decl_name);
+        const addr = try self.allocateTextBlock(&decl.link.macho, code.len, required_alignment);
+        log.debug("allocated text block for {} at 0x{x}\n", .{ decl_name, addr });
+        errdefer self.freeTextBlock(&decl.link.macho);
 
-    try self.writeSymbol(decl.link.macho.local_sym_index);
-    try self.writeOffsetTableEntry(decl.link.macho.offset_table_index);
+        symbol.* = .{
+            .n_strx = name_str_index,
+            .n_type = macho.N_SECT,
+            .n_sect = @intCast(u8, self.text_section_index.?) + 1,
+            .n_desc = 0,
+            .n_value = addr,
+        };
+        self.offset_table.items[decl.link.macho.offset_table_index] = addr;
+
+        try self.writeSymbol(decl.link.macho.local_sym_index);
+        try self.writeOffsetTableEntry(decl.link.macho.offset_table_index);
+    }
 
     const text_section = self.sections.items[self.text_section_index.?];
     const section_offset = symbol.n_value - text_section.addr;
