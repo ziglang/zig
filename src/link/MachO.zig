@@ -1019,7 +1019,18 @@ pub fn deleteExport(self: *MachO, exp: Export) void {
     self.global_symbols.items[sym_index].n_type = 0;
 }
 
-pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {}
+pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
+    // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
+    self.freeTextBlock(&decl.link.macho);
+    if (decl.link.macho.local_sym_index != 0) {
+        self.local_symbol_free_list.append(self.base.allocator, decl.link.macho.local_sym_index) catch {};
+        self.offset_table_free_list.append(self.base.allocator, decl.link.macho.offset_table_index) catch {};
+
+        self.local_symbols.items[decl.link.macho.local_sym_index].n_type = 0;
+
+        decl.link.macho.local_sym_index = 0;
+    }
+}
 
 pub fn getDeclVAddr(self: *MachO, decl: *const Module.Decl) u64 {
     assert(decl.link.macho.local_sym_index != 0);
@@ -1341,18 +1352,63 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
     const text_section = &self.sections.items[self.text_section_index.?];
     const new_block_ideal_capacity = new_block_size * alloc_num / alloc_den;
 
+    // We use these to indicate our intention to update metadata, placing the new block,
+    // and possibly removing a free list node.
+    // It would be simpler to do it inside the for loop below, but that would cause a
+    // problem if an error was returned later in the function. So this action
+    // is actually carried out at the end of the function, when errors are no longer possible.
     var block_placement: ?*TextBlock = null;
-    const addr = blk: {
-        if (self.last_text_block) |last| {
+    var free_list_removal: ?usize = null;
+
+    // First we look for an appropriately sized free list node.
+    // The list is unordered. We'll just take the first thing that works.
+    const vaddr = blk: {
+        var i: usize = 0;
+        while (i < self.text_block_free_list.items.len) {
+            const big_block = self.text_block_free_list.items[i];
+            // We now have a pointer to a live text block that has too much capacity.
+            // Is it enough that we could fit this new text block?
+            const sym = self.local_symbols.items[big_block.local_sym_index];
+            const capacity = big_block.capacity(self.*);
+            const ideal_capacity = capacity * alloc_num / alloc_den;
+            const ideal_capacity_end_vaddr = sym.n_value + ideal_capacity;
+            const capacity_end_vaddr = sym.n_value + capacity;
+            const new_start_vaddr_unaligned = capacity_end_vaddr - new_block_ideal_capacity;
+            const new_start_vaddr = mem.alignBackwardGeneric(u64, new_start_vaddr_unaligned, alignment);
+            if (new_start_vaddr < ideal_capacity_end_vaddr) {
+                // Additional bookkeeping here to notice if this free list node
+                // should be deleted because the block that it points to has grown to take up
+                // more of the extra capacity.
+                if (!big_block.freeListEligible(self.*)) {
+                    _ = self.text_block_free_list.swapRemove(i);
+                } else {
+                    i += 1;
+                }
+                continue;
+            }
+            // At this point we know that we will place the new block here. But the
+            // remaining question is whether there is still yet enough capacity left
+            // over for there to still be a free list node.
+            const remaining_capacity = new_start_vaddr - ideal_capacity_end_vaddr;
+            const keep_free_list_node = remaining_capacity >= min_text_capacity;
+
+            // Set up the metadata to be updated, after errors are no longer possible.
+            block_placement = big_block;
+            if (!keep_free_list_node) {
+                free_list_removal = i;
+            }
+            break :blk new_start_vaddr;
+        }
+        else if (self.last_text_block) |last| {
             const last_symbol = self.local_symbols.items[last.local_sym_index];
             // TODO pad out with NOPs and reenable
             // const ideal_capacity = last.size * alloc_num / alloc_den;
             // const ideal_capacity_end_addr = last_symbol.n_value + ideal_capacity;
             // const new_start_addr = mem.alignForwardGeneric(u64, ideal_capacity_end_addr, alignment);
-            const end_addr = last_symbol.n_value + last.size;
-            const new_start_addr = mem.alignForwardGeneric(u64, end_addr, alignment);
+            const end_vaddr = last_symbol.n_value + last.size;
+            const new_start_vaddr = mem.alignForwardGeneric(u64, end_vaddr, alignment);
             block_placement = last;
-            break :blk new_start_addr;
+            break :blk new_start_vaddr;
         } else {
             break :blk text_section.addr;
         }
@@ -1361,11 +1417,13 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
     const expand_text_section = block_placement == null or block_placement.?.next == null;
     if (expand_text_section) {
         const text_capacity = self.allocatedSize(text_section.offset);
-        const needed_size = (addr + new_block_size) - text_section.addr;
-        assert(needed_size <= text_capacity); // TODO handle growth
+        const needed_size = (vaddr + new_block_size) - text_section.addr;
+        assert(needed_size <= text_capacity); // TODO must move the entire text section.
 
         self.last_text_block = text_block;
         text_section.size = needed_size; // TODO temp until we pad out with NOPs
+
+        self.cmd_table_dirty = true;
     }
     text_block.size = new_block_size;
 
@@ -1384,8 +1442,11 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
         text_block.prev = null;
         text_block.next = null;
     }
+    if (free_list_removal) |i| {
+        _ = self.text_block_free_list.swapRemove(i);
+    }
 
-    return addr;
+    return vaddr;
 }
 
 fn makeStaticString(comptime bytes: []const u8) [16]u8 {
