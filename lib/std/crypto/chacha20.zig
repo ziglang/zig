@@ -34,67 +34,52 @@ const ChaCha20VecImpl = struct {
         };
     }
 
-    inline fn chacha20Core(x: *BlockVec, input: BlockVec) void {
-        const rot8 = [_]i32{ 3, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14 };
-        const rot16 = [_]i32{ 2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9, 14, 15, 12, 13 };
+    inline fn rot(x: Lane, comptime n: comptime_int) Lane {
+        return (x << @splat(4, @as(u5, n))) | (x >> @splat(4, @as(u5, 32 - n)));
+    }
 
+    inline fn chacha20Core(x: *BlockVec, input: BlockVec) void {
         x.* = input;
 
         var r: usize = 0;
         while (r < 20) : (r += 2) {
             x[0] +%= x[1];
             x[3] ^= x[0];
-            x[3] = @bitCast(Vector(4, u32), @shuffle(u8, @bitCast(Vector(16, u8), x[3]), undefined, rot16));
+            x[3] = rot(x[3], 16);
 
             x[2] +%= x[3];
             x[1] ^= x[2];
-
-            var t1 = x[1];
-            x[1] <<= @splat(4, @as(u5, 12));
-            t1 >>= @splat(4, @as(u5, 20));
-            x[1] ^= t1;
+            x[1] = rot(x[1], 12);
 
             x[0] +%= x[1];
             x[3] ^= x[0];
-            x[0] = @shuffle(u32, x[0], undefined, Vector(4, i32){ 3, 0, 1, 2 });
-            x[3] = @bitCast(Vector(4, u32), @shuffle(u8, @bitCast(Vector(16, u8), x[3]), undefined, rot8));
+            x[0] = @shuffle(u32, x[0], undefined, [_]i32{ 3, 0, 1, 2 });
+            x[3] = rot(x[3], 8);
 
             x[2] +%= x[3];
-            x[3] = @shuffle(u32, x[3], undefined, Vector(4, i32){ 2, 3, 0, 1 });
+            x[3] = @shuffle(u32, x[3], undefined, [_]i32{ 2, 3, 0, 1 });
             x[1] ^= x[2];
-            x[2] = @shuffle(u32, x[2], undefined, Vector(4, i32){ 1, 2, 3, 0 });
-
-            t1 = x[1];
-            x[1] <<= @splat(4, @as(u5, 7));
-            t1 >>= @splat(4, @as(u5, 25));
-            x[1] ^= t1;
+            x[2] = @shuffle(u32, x[2], undefined, [_]i32{ 1, 2, 3, 0 });
+            x[1] = rot(x[1], 7);
 
             x[0] +%= x[1];
             x[3] ^= x[0];
-            x[3] = @bitCast(Vector(4, u32), @shuffle(u8, @bitCast(Vector(16, u8), x[3]), undefined, rot16));
+            x[3] = rot(x[3], 16);
 
             x[2] +%= x[3];
             x[1] ^= x[2];
-
-            t1 = x[1];
-            x[1] <<= @splat(4, @as(u5, 12));
-            t1 >>= @splat(4, @as(u5, 20));
-            x[1] ^= t1;
+            x[1] = rot(x[1], 12);
 
             x[0] +%= x[1];
             x[3] ^= x[0];
-            x[0] = @shuffle(u32, x[0], undefined, Vector(4, i32){ 1, 2, 3, 0 });
-            x[3] = @bitCast(Vector(4, u32), @shuffle(u8, @bitCast(Vector(16, u8), x[3]), undefined, rot8));
+            x[0] = @shuffle(u32, x[0], undefined, [_]i32{ 1, 2, 3, 0 });
+            x[3] = rot(x[3], 8);
 
             x[2] +%= x[3];
-            x[3] = @shuffle(u32, x[3], undefined, Vector(4, i32){ 2, 3, 0, 1 });
+            x[3] = @shuffle(u32, x[3], undefined, [_]i32{ 2, 3, 0, 1 });
             x[1] ^= x[2];
-            x[2] = @shuffle(u32, x[2], undefined, Vector(4, i32){ 3, 0, 1, 2 });
-
-            t1 = x[1];
-            x[1] <<= @splat(4, @as(u5, 7));
-            t1 >>= @splat(4, @as(u5, 25));
-            x[1] ^= t1;
+            x[2] = @shuffle(u32, x[2], undefined, [_]i32{ 3, 0, 1, 2 });
+            x[1] = rot(x[1], 7);
         }
     }
 
