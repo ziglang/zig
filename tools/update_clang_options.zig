@@ -601,6 +601,7 @@ fn objectLessThan(context: void, a: *json.ObjectMap, b: *json.ObjectMap) bool {
 fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
     file.outStream().print(
         \\Usage: {} /path/to/llvm-tblgen /path/to/git/llvm/llvm-project
+        \\Alternative Usage: zig run /path/to/git/zig/tools/update_clang_options.zig -- /path/to/llvm-tblgen /path/to/git/llvm/llvm-project
         \\
         \\Prints to stdout Zig code which you can use to replace the file src/clang_options_data.zig.
         \\
