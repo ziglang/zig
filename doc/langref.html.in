@@ -9905,7 +9905,10 @@ const std = @import("std");
 const PreopenList = std.fs.wasi.PreopenList;
 
 pub fn main() !void {
-    var preopens = PreopenList.init(std.heap.page_allocator);
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    const gpa = &general_purpose_allocator.allocator;
+
+    var preopens = PreopenList.init(gpa);
     defer preopens.deinit();
 
     try preopens.populate();
