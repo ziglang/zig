@@ -602,7 +602,7 @@ fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
     file.outStream().print(
         \\Usage: {} /path/to/llvm-tblgen /path/to/git/llvm/llvm-project
         \\
-        \\Prints to stdout Zig code which you can use to replace the file src-self-hosted/clang_options_data.zig.
+        \\Prints to stdout Zig code which you can use to replace the file src/clang_options_data.zig.
         \\
     , .{arg0}) catch std.process.exit(1);
     std.process.exit(code);
