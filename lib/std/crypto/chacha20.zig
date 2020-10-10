@@ -35,8 +35,8 @@ const ChaCha20VecImpl = struct {
     }
 
     inline fn chacha20Core(x: *BlockVec, input: BlockVec) void {
-        const rot8 = Vector(16, i32){ 3, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14 };
-        const rot16 = Vector(16, i32){ 2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9, 14, 15, 12, 13 };
+        const rot8 = [_]i32{ 3, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14 };
+        const rot16 = [_]i32{ 2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9, 14, 15, 12, 13 };
 
         x.* = input;
 
