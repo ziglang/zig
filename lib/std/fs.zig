@@ -2177,14 +2177,6 @@ pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
 
 pub const SelfExePathError = os.ReadLinkError || os.SysCtlError || os.RealPathError;
 
-fn str_containsZ(s: [*:0]const u8, c: u8) bool {
-    var i: usize = 0;
-    while (s[i] != '\x00' and s[i] != c) {
-        i += 1;
-    }
-    return (s[i] == '/');
-}
-
 /// `selfExePath` except allocates the result on the heap.
 /// Caller owns returned memory.
 pub fn selfExePathAlloc(allocator: *Allocator) ![]u8 {
@@ -2243,7 +2235,8 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
         .openbsd => {
             // OpenBSD doesn't support getting the path of a running process, so try to guess it
             if (os.argv.len >= 1) {
-                if (str_containsZ(os.argv[0], '/')) {
+                const argv0 = mem.span(os.argv[0]);
+                if (mem.indexOf(u8, argv0, "/") != null) {
                     // argv[0] is a path (relative or absolute): use realpath(3) directly
                     var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
                     const real_path = try os.realpathZ(os.argv[0], &real_path_buf);
