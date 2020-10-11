@@ -488,11 +488,26 @@ pub const Version = struct {
     }
 
     pub fn parse(text: []const u8) !Version {
-        var it = std.mem.split(text, ".");
+        var end: usize = 0;
+        while (end < text.len) : (end += 1) {
+            const c = text[end];
+            if (!std.ascii.isDigit(c) and c != '.') break;
+        }
+        // found no digits or '.' before unexpected character
+        if (end == 0) return error.InvalidVersion;
+
+        var it = std.mem.split(text[0..end], ".");
+        // substring is not empty, first call will succeed
+        const major = it.next().?;
+        if (major.len == 0) return error.InvalidVersion;
+        const minor = it.next() orelse "0";
+        // ignore 'patch' if 'minor' is invalid
+        const patch = if (minor.len == 0) "0" else (it.next() orelse "0");
+
         return Version{
-            .major = try std.fmt.parseInt(u32, it.next() orelse return error.InvalidVersion, 10),
-            .minor = try std.fmt.parseInt(u32, it.next() orelse "0", 10),
-            .patch = try std.fmt.parseInt(u32, it.next() orelse "0", 10),
+            .major = try std.fmt.parseUnsigned(u32, major, 10),
+            .minor = try std.fmt.parseUnsigned(u32, if (minor.len == 0) "0" else minor, 10),
+            .patch = try std.fmt.parseUnsigned(u32, if (patch.len == 0) "0" else patch, 10),
         };
     }
 
