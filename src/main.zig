@@ -2210,16 +2210,15 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                     break :blk .{ .path = dirname, .handle = dir };
                 } else |err| switch (err) {
                     error.FileNotFound => {
-                        dirname = fs.path.dirname(dirname) orelse {
+                        if (fs.path.isRoot(dirname)) {
                             std.log.info("{}", .{
                                 \\Initialize a 'build.zig' template file with `zig init-lib` or `zig init-exe`,
                                 \\or see `zig --help` for more options.
                             });
                             fatal("No 'build.zig' file found, in the current directory or any parent directories.", .{});
-                        };
-                        if (std.fs.path.isRoot(dirname)) {
-                            dirname = "";
                         }
+
+                        dirname = fs.path.dirname(dirname).?; // this is not null because it is null on not a real path but all our paths are real because it comes from cwd
                         continue;
                     },
                     else => |e| return e,
