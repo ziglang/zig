@@ -164,12 +164,8 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
         }
         return;
     }
-    if (builtin.os.tag == .netbsd) {
-        netbsd.arc4random_buf(buffer.ptr, buffer.len);
-        return;
-    }
-    if (builtin.os.tag == .openbsd) {
-        openbsd.arc4random_buf(buffer.ptr, buffer.len);
+    if (builtin.os.tag == .netbsd or builtin.os.tag == .openbsd) {
+        system.arc4random_buf(buffer.ptr, buffer.len);
         return;
     }
     if (builtin.os.tag == .wasi) {
