@@ -2244,19 +2244,18 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                         return error.NameTooLong;
                     mem.copy(u8, out_buffer, real_path);
                     return out_buffer[0..real_path.len];
-
-                } else if (os.argv[0][0] != '\x00') {
+                } else if (argv0.len != 0) {
                     // argv[0] is not empty (and not a path): search it inside PATH
-                    const paths = std.os.getenv("PATH") orelse "";
-                    var path_it = mem.split(paths, ":");
+                    const PATH = std.os.getenv("PATH") orelse "";
+                    var path_it = mem.tokenize(PATH, &[_]u8{path.delimiter});
                     while (path_it.next()) |a_path| {
-                        var resolved_path_buf: [MAX_PATH_BYTES:0]u8 = undefined;
+                        var resolved_path_buf: [MAX_PATH_BYTES-1:0]u8 = undefined;
                         const resolved_path = std.fmt.bufPrint(&resolved_path_buf, "{}/{}\x00", .{
                             a_path,
                             os.argv[0],
                         }) catch "";
 
-                        var real_path_buf: [MAX_PATH_BYTES:0]u8 = undefined;
+                        var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
                         if (os.realpathZ(&resolved_path_buf, &real_path_buf) catch null) |real_path| {
                             // found a file, and hope it is the right file
                             if (real_path.len > out_buffer.len)
