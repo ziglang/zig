@@ -133,6 +133,8 @@ offset_table: std.ArrayListUnmanaged(u64) = .{},
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 
 cmd_table_dirty: bool = false,
+dylinker_cmd_dirty: bool = false,
+libsystem_cmd_dirty: bool = false,
 
 /// A list of text blocks that have surplus capacity. This list can have false
 /// positives, as functions grow and shrink over time, only sometimes being added
@@ -318,14 +320,12 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         .Exe => {
             // Write export trie.
             try self.writeExportTrie();
-
             if (self.entry_addr) |addr| {
-                // Update LC_MAIN with entry offset
+                // Update LC_MAIN with entry offset.
                 const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                 const main_cmd = &self.load_commands.items[self.main_cmd_index.?].EntryPoint;
                 main_cmd.entryoff = addr - text_segment.vmaddr;
             }
-
             {
                 // Update dynamic symbol table.
                 const nlocals = @intCast(u32, self.local_symbols.items.len);
@@ -338,7 +338,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 dysymtab.iundefsym = nlocals + nglobals;
                 dysymtab.nundefsym = nundefs;
             }
-            {
+            if (self.dylinker_cmd_dirty) {
                 // Write path to dyld loader.
                 var off: usize = @sizeOf(macho.mach_header_64);
                 for (self.load_commands.items) |cmd| {
@@ -349,8 +349,9 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 off += cmd.name;
                 log.debug("writing LC_LOAD_DYLINKER path to dyld at 0x{x}\n", .{off});
                 try self.base.file.?.pwriteAll(mem.spanZ(DEFAULT_DYLD_PATH), off);
+                self.dylinker_cmd_dirty = false;
             }
-            {
+            if (self.libsystem_cmd_dirty) {
                 // Write path to libSystem.
                 var off: usize = @sizeOf(macho.mach_header_64);
                 for (self.load_commands.items) |cmd| {
@@ -361,6 +362,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 off += cmd.dylib.name;
                 log.debug("writing LC_LOAD_DYLIB path to libSystem at 0x{x}\n", .{off});
                 try self.base.file.?.pwriteAll(mem.spanZ(LIB_SYSTEM_PATH), off);
+                self.libsystem_cmd_dirty = false;
             }
         },
         .Obj => {},
@@ -376,7 +378,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         symtab.nsyms = nlocals + nglobals + nundefs;
     }
 
-    if (self.cmd_table_dirty) try self.writeCmdHeaders();
+    if (self.cmd_table_dirty) {
+        try self.writeCmdHeaders();
+        try self.writeMachOHeader();
+        self.cmd_table_dirty = false;
+    }
 
     if (self.entry_addr == null and self.base.options.output_mode == .Exe) {
         log.debug("flushing. no_entry_point_found = true\n", .{});
@@ -384,8 +390,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     } else {
         log.debug("flushing. no_entry_point_found = false\n", .{});
         self.error_flags.no_entry_point_found = false;
-        try self.writeMachOHeader();
     }
+
+    assert(!self.cmd_table_dirty);
+    assert(!self.dylinker_cmd_dirty);
+    assert(!self.libsystem_cmd_dirty);
 }
 
 fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
@@ -846,7 +855,7 @@ pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
     try self.offset_table.ensureCapacity(self.base.allocator, self.offset_table.items.len + 1);
 
     if (self.local_symbol_free_list.popOrNull()) |i| {
-        log.debug("reusing symbol index {} for {}\n", .{i, decl.name});
+        log.debug("reusing symbol index {} for {}\n", .{ i, decl.name });
         decl.link.macho.local_sym_index = i;
     } else {
         log.debug("allocating symbol index {} for {}\n", .{ self.local_symbols.items.len, decl.name });
@@ -980,6 +989,7 @@ pub fn updateDeclExports(
             .Strong => blk: {
                 if (mem.eql(u8, exp.options.name, "_start")) {
                     self.entry_addr = decl_sym.n_value;
+                    self.cmd_table_dirty = true; // TODO This should be handled more granularly instead of invalidating all commands.
                 }
                 break :blk macho.REFERENCE_FLAG_DEFINED;
             },
@@ -1121,6 +1131,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         text_segment.vmsize = file_size + off; // We add off here since __TEXT segment includes everything prior to __text section.
         text_segment.filesize = file_size + off;
+        self.cmd_table_dirty = true;
     }
     if (self.data_segment_cmd_index == null) {
         self.data_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
@@ -1173,6 +1184,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         data_segment.vmsize = segment_size;
         data_segment.filesize = segment_size;
         data_segment.fileoff = off;
+        self.cmd_table_dirty = true;
     }
     if (self.linkedit_segment_cmd_index == null) {
         self.linkedit_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
@@ -1268,6 +1280,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             },
         });
         self.cmd_table_dirty = true;
+        self.dylinker_cmd_dirty = true;
     }
     if (self.libsystem_cmd_index == null) {
         self.libsystem_cmd_index = @intCast(u16, self.load_commands.items.len);
@@ -1289,6 +1302,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             },
         });
         self.cmd_table_dirty = true;
+        self.libsystem_cmd_dirty = true;
     }
     if (self.main_cmd_index == null) {
         self.main_cmd_index = @intCast(u16, self.load_commands.items.len);
@@ -1407,8 +1421,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
                 free_list_removal = i;
             }
             break :blk new_start_vaddr;
-        }
-        else if (self.last_text_block) |last| {
+        } else if (self.last_text_block) |last| {
             const last_symbol = self.local_symbols.items[last.local_sym_index];
             // TODO We should pad out the excess capacity with NOPs. For executables,
             // no padding seems to be OK, but it will probably not be for objects.
@@ -1431,7 +1444,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
         self.last_text_block = text_block;
         text_section.size = needed_size;
 
-        self.cmd_table_dirty = true;
+        self.cmd_table_dirty = true; // TODO Make more granular.
     }
     text_block.size = new_block_size;
 
@@ -1684,7 +1697,7 @@ fn writeCmdHeaders(self: *MachO) !void {
             return error.TODOImplementWritingObjFiles;
         };
         const idx = self.text_section_index.?;
-        log.debug("writing text section {} at 0x{x}\n", .{ self.sections.items[idx .. idx + 1], off });
+        log.debug("writing text section header at 0x{x}\n", .{off});
         try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.sections.items[idx .. idx + 1]), off);
     }
     {
@@ -1702,7 +1715,7 @@ fn writeCmdHeaders(self: *MachO) !void {
             return error.TODOImplementWritingObjFiles;
         };
         const idx = self.got_section_index.?;
-        log.debug("writing got section {} at 0x{x}\n", .{ self.sections.items[idx .. idx + 1], off });
+        log.debug("writing got section header at 0x{x}\n", .{off});
         try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.sections.items[idx .. idx + 1]), off);
     }
 }
