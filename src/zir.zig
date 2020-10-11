@@ -272,6 +272,10 @@ pub const Inst = struct {
         ensure_err_payload_void,
         /// Enum literal
         enum_literal,
+        /// A switch expression.
+        @"switch",
+        /// A range in a switch case, `lhs...rhs`.
+        switch_range,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
@@ -351,6 +355,7 @@ pub const Inst = struct {
                 .error_union_type,
                 .merge_error_sets,
                 .slice_start,
+                .switch_range,
                 => BinOp,
 
                 .block,
@@ -389,6 +394,7 @@ pub const Inst = struct {
                 .enum_literal => EnumLiteral,
                 .error_set => ErrorSet,
                 .slice => Slice,
+                .@"switch" => Switch,
             };
         }
 
@@ -493,6 +499,7 @@ pub const Inst = struct {
                 .slice,
                 .slice_start,
                 .import,
+                .switch_range,
                 => false,
 
                 .@"break",
@@ -504,6 +511,7 @@ pub const Inst = struct {
                 .unreach_nocheck,
                 .@"unreachable",
                 .loop,
+                .@"switch",
                 => true,
             };
         }
@@ -987,6 +995,33 @@ pub const Inst = struct {
             sentinel: ?*Inst = null,
         },
     };
+
+    pub const Switch = struct {
+        pub const base_tag = Tag.@"switch";
+        base: Inst,
+
+        positionals: struct {
+            target_ptr: *Inst,
+            cases: []Case,
+        },
+        kw_args: struct {
+            /// if not null target must support ranges, (be int)
+            support_range: ?*Inst = null,
+            special_case: enum {
+                /// all of positionals.cases are regular cases
+                none,
+                /// last case in positionals.cases is an else case
+                @"else",
+                /// last case in positionals.cases is an underscore case
+                underscore,
+            } = .none,
+        },
+
+        pub const Case = struct {
+            values: []*Inst,
+            body: Module.Body,
+        };
+    };
 };
 
 pub const ErrorMsg = struct {
@@ -1237,6 +1272,26 @@ const Writer = struct {
                     try stream.print("\"{Z}\"", .{str});
                 }
                 try stream.writeByte(']');
+            },
+            []Inst.Switch.Case => {
+                if (param.len == 0) {
+                    return stream.writeAll("{}");
+                }
+                try stream.writeAll("{\n");
+                self.indent += 2;
+                for (param) |*case, i| {
+                    if (i != 0) {
+                        try stream.writeAll(",\n");
+                    }
+                    try stream.writeByteNTimes(' ', self.indent);
+                    try self.writeParamToStream(stream, &case.values);
+                    try stream.writeAll(" => ");
+                    try self.writeParamToStream(stream, &case.body);
+                }
+                try stream.writeByte('\n');
+                self.indent -= 2;
+                try stream.writeByteNTimes(' ', self.indent);
+                try stream.writeByte('}');
             },
             else => |T| @compileError("unimplemented: rendering parameter of type " ++ @typeName(T)),
         }
@@ -1649,6 +1704,26 @@ const Parser = struct {
                 }
                 try requireEatBytes(self, "]");
                 return strings.toOwnedSlice();
+            },
+            []Inst.Switch.Case => {
+                try requireEatBytes(self, "{");
+                skipSpace(self);
+                if (eatByte(self, '}')) return &[0]Inst.Switch.Case{};
+
+                var cases = std.ArrayList(Inst.Switch.Case).init(&self.arena.allocator);
+                while (true) {
+                    const cur = try cases.addOne();
+                    skipSpace(self);
+                    cur.values = try self.parseParameterGeneric([]*Inst, body_ctx);
+                    skipSpace(self);
+                    try requireEatBytes(self, "=>");
+                    cur.body = try self.parseBody(body_ctx);
+                    skipSpace(self);
+                    if (!eatByte(self, ',')) break;
+                }
+                skipSpace(self);
+                try requireEatBytes(self, "}");
+                return cases.toOwnedSlice();
             },
             else => @compileError("Unimplemented: ir parseParameterGeneric for type " ++ @typeName(T)),
         }

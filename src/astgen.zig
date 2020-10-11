@@ -183,6 +183,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .VarDecl => unreachable, // Handled in `blockExpr`.
         .SwitchCase => unreachable, // Handled in `switchExpr`.
         .SwitchElse => unreachable, // Handled in `switchExpr`.
+        .Range => unreachable, // Handled in `switchExpr`.
         .Else => unreachable, // Handled explicitly the control flow expression functions.
         .Payload => unreachable, // Handled explicitly.
         .PointerPayload => unreachable, // Handled explicitly.
@@ -279,9 +280,9 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .Catch => return catchExpr(mod, scope, rl, node.castTag(.Catch).?),
         .Comptime => return comptimeKeyword(mod, scope, rl, node.castTag(.Comptime).?),
         .OrElse => return orelseExpr(mod, scope, rl, node.castTag(.OrElse).?),
+        .Switch => return switchExpr(mod, scope, rl, node.castTag(.Switch).?),
 
         .Defer => return mod.failNode(scope, node, "TODO implement astgen.expr for .Defer", .{}),
-        .Range => return mod.failNode(scope, node, "TODO implement astgen.expr for .Range", .{}),
         .Await => return mod.failNode(scope, node, "TODO implement astgen.expr for .Await", .{}),
         .Resume => return mod.failNode(scope, node, "TODO implement astgen.expr for .Resume", .{}),
         .Try => return mod.failNode(scope, node, "TODO implement astgen.expr for .Try", .{}),
@@ -289,7 +290,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .ArrayInitializerDot => return mod.failNode(scope, node, "TODO implement astgen.expr for .ArrayInitializerDot", .{}),
         .StructInitializer => return mod.failNode(scope, node, "TODO implement astgen.expr for .StructInitializer", .{}),
         .StructInitializerDot => return mod.failNode(scope, node, "TODO implement astgen.expr for .StructInitializerDot", .{}),
-        .Switch => return mod.failNode(scope, node, "TODO implement astgen.expr for .Switch", .{}),
         .Suspend => return mod.failNode(scope, node, "TODO implement astgen.expr for .Suspend", .{}),
         .Continue => return mod.failNode(scope, node, "TODO implement astgen.expr for .Continue", .{}),
         .AnyType => return mod.failNode(scope, node, "TODO implement astgen.expr for .AnyType", .{}),
@@ -1559,6 +1559,156 @@ fn forExpr(mod: *Module, scope: *Scope, rl: ResultLoc, for_node: *ast.Node.For) 
         .instructions = try else_scope.arena.dupe(*zir.Inst, else_scope.instructions.items),
     };
     return &for_block.base;
+}
+
+fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node.Switch) InnerError!*zir.Inst {
+    var block_scope: Scope.GenZIR = .{
+        .parent = scope,
+        .decl = scope.decl().?,
+        .arena = scope.arena(),
+        .instructions = .{},
+    };
+    defer block_scope.instructions.deinit(mod.gpa);
+
+    const tree = scope.tree();
+    const switch_src = tree.token_locs[switch_node.switch_token].start;
+    const target_ptr = try expr(mod, &block_scope.base, .ref, switch_node.expr);
+    const cases = try scope.arena().alloc(zir.Inst.Switch.Case, switch_node.cases_len);
+    var kw_args: std.meta.fieldInfo(zir.Inst.Switch, "kw_args").field_type = .{};
+
+    // first we gather all the switch items and check else/'_' prongs
+    var case_index: usize = 0;
+    var else_src: ?usize = null;
+    var underscore_src: ?usize = null;
+    for (switch_node.cases()) |uncasted_case| {
+        const case = uncasted_case.castTag(.SwitchCase).?;
+        const case_src = tree.token_locs[case.firstToken()].start;
+
+        if (case.items_len == 1 and case.items()[0].tag == .SwitchElse) {
+            if (else_src) |src| {
+                return mod.fail(scope, case_src, "multiple else prongs in switch expression", .{});
+                // TODO notes "previous else prong is here"
+            }
+            kw_args.special_case = .@"else";
+            else_src = case_src;
+            cases[cases.len - 1] = .{
+                .values = &[_]*zir.Inst{},
+                .body = undefined, // filled below
+            };
+            continue;
+        } else if (case.items_len == 1 and case.items()[0].tag == .Identifier and
+            mem.eql(u8, tree.tokenSlice(case.items()[0].firstToken()), "_"))
+        {
+            if (underscore_src) |src| {
+                return mod.fail(scope, case_src, "multiple '_' prongs in switch expression", .{});
+                // TODO notes "previous '_' prong is here"
+            }
+            kw_args.special_case = .underscore;
+            underscore_src = case_src;
+            cases[cases.len - 1] = .{
+                .values = &[_]*zir.Inst{},
+                .body = undefined, // filled below
+            };
+            continue;
+        }
+
+        if (else_src) |some_else| {
+            if (underscore_src) |some_underscore| {
+                return mod.fail(scope, case_src, "else and '_' prong in switch expression", .{});
+                // TODO notes "else prong is here"
+                // TODO notes "'_' prong is here"
+            }
+        }
+
+        // Regular case, we need to fill `values`.
+        const values = try block_scope.arena.alloc(*zir.Inst, case.items_len);
+        for (case.items()) |item, i| {
+            if (item.castTag(.Range)) |range| {
+                values[i] = try switchRange(mod, &block_scope.base, range);
+                if (kw_args.support_range == null)
+                    kw_args.support_range = values[i];
+            } else {
+                values[i] = try expr(mod, &block_scope.base, .none, item);
+            }
+        }
+        cases[case_index] = .{
+            .values = values,
+            .body = undefined, // filled below
+        };
+        case_index += 1;
+    }
+
+    // Then we add the switch instruction to finish the block.
+    _ = try addZIRInst(mod, scope, switch_src, zir.Inst.Switch, .{
+        .target_ptr = target_ptr,
+        .cases = cases,
+    }, kw_args);
+    const block = try addZIRInstBlock(mod, scope, switch_src, .block, .{
+        .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
+    });
+
+    // Most result location types can be forwarded directly; however
+    // if we need to write to a pointer which has an inferred type,
+    // proper type inference requires peer type resolution on the switch case.
+    const case_rl: ResultLoc = switch (rl) {
+        .discard, .none, .ty, .ptr, .ref => rl,
+        .inferred_ptr, .bitcasted_ptr, .block_ptr => .{ .block_ptr = block },
+    };
+
+    var case_scope: Scope.GenZIR = .{
+        .parent = scope,
+        .decl = block_scope.decl,
+        .arena = block_scope.arena,
+        .instructions = .{},
+    };
+    defer case_scope.instructions.deinit(mod.gpa);
+
+    // And finally we fill generate the bodies of each case.
+    case_index = 0;
+    for (switch_node.cases()) |uncasted_case| {
+        const case = uncasted_case.castTag(.SwitchCase).?;
+        const case_src = tree.token_locs[case.firstToken()].start;
+        // reset without freeing to reduce allocations.
+        defer case_scope.instructions.items.len = 0;
+
+        // What index in positionals.cases should this one be placed at.
+        // For special cases it will be at the end.
+        var cur_index = case_index;
+        if (case.items_len == 1 and case.items()[0].tag == .SwitchElse) {
+            // validated above
+            cur_index = cases.len - 1;
+        } else if (case.items_len == 1 and case.items()[0].tag == .Identifier and
+            mem.eql(u8, tree.tokenSlice(case.items()[0].firstToken()), "_"))
+        {
+            // validated above
+            cur_index = cases.len - 1;
+        }
+
+        // Generate the body of this case.
+        const case_body = try expr(mod, &case_scope.base, case_rl, case.expr);
+        if (!case_body.tag.isNoReturn()) {
+            _ = try addZIRInst(mod, &case_scope.base, case_src, zir.Inst.Break, .{
+                .block = block,
+                .operand = case_body,
+            }, .{});
+        }
+        cases[cur_index].body = .{
+            .instructions = try scope.arena().dupe(*zir.Inst, case_scope.instructions.items),
+        };
+    }
+
+    return &block.base;
+}
+
+/// Only used for `a...b` in switches.
+fn switchRange(mod: *Module, scope: *Scope, node: *ast.Node.SimpleInfixOp) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.op_token].start;
+
+    const start = try expr(mod, scope, .none, node.lhs);
+    const end = try expr(mod, scope, .none, node.rhs);
+
+    return try addZIRBinOp(mod, scope, src, .switch_range, start, end);
 }
 
 fn ret(mod: *Module, scope: *Scope, cfe: *ast.Node.ControlFlowExpression) InnerError!*zir.Inst {
