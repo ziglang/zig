@@ -1712,7 +1712,7 @@ fn buildOutputType(
             if (runtime_args_start) |i| {
                 try argv.appendSlice(all_args[i..]);
             }
-            if (std.builtin.os.tag == .linux and (arg_mode == .run or arg_mode == .zig_test) and watch == false) { // TODO does other posix os support execve in zig stdlib?
+            if (std.builtin.os.tag == .linux and arg_mode == .run and watch == false) { // TODO does other posix os support execve in zig stdlib?
                 var env_vars = try process.getEnvMap(gpa);
                 defer env_vars.deinit();
                 const term = os.execvpe(gpa, argv.items, &env_vars);
