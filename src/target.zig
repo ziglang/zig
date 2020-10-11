@@ -123,7 +123,7 @@ pub fn cannotDynamicLink(target: std.Target) bool {
 /// since this is the stable syscall interface.
 pub fn osRequiresLibC(target: std.Target) bool {
     return switch (target.os.tag) {
-        .freebsd, .netbsd, .dragonfly, .macosx, .ios, .watchos, .tvos => true,
+        .freebsd, .netbsd, .dragonfly, .openbsd, .macosx, .ios, .watchos, .tvos => true,
         else => false,
     };
 }
@@ -143,7 +143,7 @@ pub fn libcNeedsLibUnwind(target: std.Target) bool {
 }
 
 pub fn requiresPIE(target: std.Target) bool {
-    return target.isAndroid() or target.isDarwin();
+    return target.isAndroid() or target.isDarwin() or target.os.tag == .openbsd;
 }
 
 /// This function returns whether non-pic code is completely invalid on the given target.

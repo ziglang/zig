@@ -654,6 +654,7 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
             .freebsd,
             .netbsd,
             .dragonfly,
+            .openbsd,
             .macosx,
             .windows,
             => return DebugInfo.init(allocator),
@@ -1640,7 +1641,7 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
             };
         }
     },
-    .linux, .netbsd, .freebsd, .dragonfly => struct {
+    .linux, .netbsd, .freebsd, .dragonfly, .openbsd => struct {
         base_address: usize,
         dwarf: DW.DwarfInfo,
         mapped_memory: []const u8,

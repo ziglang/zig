@@ -585,7 +585,7 @@ pub const UserInfo = struct {
 /// POSIX function which gets a uid from username.
 pub fn getUserInfo(name: []const u8) !UserInfo {
     return switch (builtin.os.tag) {
-        .linux, .macosx, .watchos, .tvos, .ios, .freebsd, .netbsd => posixGetUserInfo(name),
+        .linux, .macosx, .watchos, .tvos, .ios, .freebsd, .netbsd, .openbsd => posixGetUserInfo(name),
         else => @compileError("Unsupported OS"),
     };
 }
@@ -712,6 +712,7 @@ pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]
         .freebsd,
         .netbsd,
         .dragonfly,
+        .openbsd,
         => {
             var paths = List.init(allocator);
             errdefer {

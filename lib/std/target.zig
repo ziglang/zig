@@ -266,8 +266,8 @@ pub const Target = struct {
                     },
                     .openbsd => return .{
                         .semver = .{
-                            .min = .{ .major = 6, .minor = 6 },
-                            .max = .{ .major = 6, .minor = 6 },
+                            .min = .{ .major = 6, .minor = 8 },
+                            .max = .{ .major = 6, .minor = 8 },
                         },
                     },
                     .dragonfly => return .{
@@ -1358,6 +1358,7 @@ pub const Target = struct {
         switch (self.os.tag) {
             .freebsd => return copy(&result, "/libexec/ld-elf.so.1"),
             .netbsd => return copy(&result, "/libexec/ld.elf_so"),
+            .openbsd => return copy(&result, "/libexec/ld.so"),
             .dragonfly => return copy(&result, "/libexec/ld-elf.so.2"),
             .linux => switch (self.cpu.arch) {
                 .i386,
@@ -1465,7 +1466,6 @@ pub const Target = struct {
             .fuchsia,
             .kfreebsd,
             .lv2,
-            .openbsd,
             .solaris,
             .haiku,
             .minix,

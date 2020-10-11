@@ -33,6 +33,7 @@ pub const darwin = @import("os/darwin.zig");
 pub const dragonfly = @import("os/dragonfly.zig");
 pub const freebsd = @import("os/freebsd.zig");
 pub const netbsd = @import("os/netbsd.zig");
+pub const openbsd = @import("os/openbsd.zig");
 pub const linux = @import("os/linux.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
@@ -47,6 +48,7 @@ test "" {
     _ = freebsd;
     _ = linux;
     _ = netbsd;
+    _ = openbsd;
     _ = uefi;
     _ = wasi;
     _ = windows;
@@ -66,6 +68,7 @@ else switch (builtin.os.tag) {
     .freebsd => freebsd,
     .linux => linux,
     .netbsd => netbsd,
+    .openbsd => openbsd,
     .dragonfly => dragonfly,
     .wasi => wasi,
     .windows => windows,
@@ -163,6 +166,10 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
     }
     if (builtin.os.tag == .netbsd) {
         netbsd.arc4random_buf(buffer.ptr, buffer.len);
+        return;
+    }
+    if (builtin.os.tag == .openbsd) {
+        openbsd.arc4random_buf(buffer.ptr, buffer.len);
         return;
     }
     if (builtin.os.tag == .wasi) {

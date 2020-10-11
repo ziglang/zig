@@ -196,7 +196,7 @@ pub const LibCInstallation = struct {
                 errdefer batch.wait() catch {};
                 batch.add(&async self.findNativeIncludeDirPosix(args));
                 switch (Target.current.os.tag) {
-                    .freebsd, .netbsd => self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/usr/lib"),
+                    .freebsd, .netbsd, .openbsd => self.crt_dir = try std.mem.dupeZ(args.allocator, u8, "/usr/lib"),
                     .linux, .dragonfly => batch.add(&async self.findNativeCrtDirPosix(args)),
                     else => {},
                 }
