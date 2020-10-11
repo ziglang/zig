@@ -533,6 +533,55 @@ pub const Version = struct {
     }
 };
 
+test "Version.parse" {
+    @setEvalBranchQuota(3000);
+    try testVersionParse();
+    comptime (try testVersionParse());
+}
+
+pub fn testVersionParse() !void {
+    const f = struct {
+        fn eql(text: []const u8, v1: u32, v2: u32, v3: u32) !void {
+            const v = try Version.parse(text);
+            std.testing.expect(v.major == v1 and v.minor == v2 and v.patch == v3);
+        }
+
+        fn err(text: []const u8, expected_err: anyerror) !void {
+            _ = Version.parse(text) catch |actual_err| {
+                if (actual_err == expected_err) return;
+                return actual_err;
+            };
+            return error.Unreachable;
+        }
+    };
+
+    try f.eql("2.6.32.11-svn21605", 2, 6, 32); // Debian PPC
+    try f.eql("2.11.2(0.329/5/3)", 2, 11, 2); // MinGW
+    try f.eql("5.4.0-1018-raspi", 5, 4, 0); // Ubuntu
+    try f.eql("5.7.12_3", 5, 7, 12); // Void
+    try f.eql("2.13-DEVELOPMENT", 2, 13, 0); // DragonFly
+    try f.eql("2.3-35", 2, 3, 0);
+    try f.eql("1a.4", 1, 0, 0);
+    try f.eql("3.b1.0", 3, 0, 0);
+    try f.eql("1.4beta", 1, 4, 0);
+    try f.eql("2.7.pre", 2, 7, 0);
+    try f.eql("0..3", 0, 0, 0);
+    try f.eql("8.008.", 8, 8, 0);
+    try f.eql("55", 55, 0, 0);
+    try f.eql("4294967295.0.1", 4294967295, 0, 1);
+    try f.eql("429496729_6", 429496729, 0, 0);
+
+    try f.err("foobar", error.InvalidVersion);
+    try f.err("", error.InvalidVersion);
+    try f.err("-1", error.InvalidVersion);
+    try f.err("+4", error.InvalidVersion);
+    try f.err(".", error.InvalidVersion);
+    try f.err("....3", error.InvalidVersion);
+    try f.err("4294967296", error.Overflow);
+    try f.err("5000877755", error.Overflow);
+    // error.InvalidCharacter is not possible anymore
+}
+
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const CallOptions = struct {
