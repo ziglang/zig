@@ -2268,12 +2268,6 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                 }
             }
 
-            if (os.getenv("_")) |sh_exefile| {
-                // sh (or bash) sets "_" environment variable
-                mem.copy(u8, out_buffer, sh_exefile);
-                return out_buffer[0..sh_exefile.len];
-            }
-
             // sorry, we don't find it
             return error.FileNotFound;
         },
