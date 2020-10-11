@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const io = std.io;
 const fs = std.fs;
+const os = std.os;
 const mem = std.mem;
 const process = std.process;
 const Allocator = mem.Allocator;
@@ -1742,47 +1743,52 @@ fn buildOutputType(
             if (runtime_args_start) |i| {
                 try argv.appendSlice(all_args[i..]);
             }
-            // TODO On operating systems that support it, do an execve here rather than child process,
-            // when watch=false and arg_mode == .run
-            const child = try std.ChildProcess.init(argv.items, gpa);
-            defer child.deinit();
+            if (std.builtin.os.tag != .windows and arg_mode == .run and !watch) {
+                var env_vars = try process.getEnvMap(gpa);
+                const err = os.execvpe(gpa, argv.items, &env_vars);
+                env_vars.deinit(); // it would cause a memory leak because a defer would be unreachable because of fatal
+                fatal("There was an error with `zig run`: {}", .{@errorName(err)});
+            } else {
+                const child = try std.ChildProcess.init(argv.items, gpa);
+                defer child.deinit();
 
-            child.stdin_behavior = .Inherit;
-            child.stdout_behavior = .Inherit;
-            child.stderr_behavior = .Inherit;
+                child.stdin_behavior = .Inherit;
+                child.stdout_behavior = .Inherit;
+                child.stderr_behavior = .Inherit;
 
-            const term = try child.spawnAndWait();
-            switch (arg_mode) {
-                .run => {
-                    switch (term) {
-                        .Exited => |code| {
-                            if (code == 0) {
-                                if (!watch) return cleanExit();
-                            } else {
-                                // TODO https://github.com/ziglang/zig/issues/6342
-                                process.exit(1);
-                            }
-                        },
-                        else => process.exit(1),
-                    }
-                },
-                .zig_test => {
-                    switch (term) {
-                        .Exited => |code| {
-                            if (code == 0) {
-                                if (!watch) return cleanExit();
-                            } else {
+                const term = try child.spawnAndWait();
+                switch (arg_mode) {
+                    .run => {
+                        switch (term) {
+                            .Exited => |code| {
+                                if (code == 0) {
+                                    if (!watch) return cleanExit();
+                                } else {
+                                    // TODO https://github.com/ziglang/zig/issues/6342
+                                    process.exit(1);
+                                }
+                            },
+                            else => process.exit(1),
+                        }
+                    },
+                    .zig_test => {
+                        switch (term) {
+                            .Exited => |code| {
+                                if (code == 0) {
+                                    if (!watch) return cleanExit();
+                                } else {
+                                    const cmd = try argvCmd(arena, argv.items);
+                                    fatal("the following test command failed with exit code {}:\n{}", .{ code, cmd });
+                                }
+                            },
+                            else => {
                                 const cmd = try argvCmd(arena, argv.items);
-                                fatal("the following test command failed with exit code {}:\n{}", .{ code, cmd });
-                            }
-                        },
-                        else => {
-                            const cmd = try argvCmd(arena, argv.items);
-                            fatal("the following test command crashed:\n{}", .{cmd});
-                        },
-                    }
-                },
-                else => unreachable,
+                                fatal("the following test command crashed:\n{}", .{cmd});
+                            },
+                        }
+                    },
+                    else => unreachable,
+                }
             }
         },
         else => {},
