@@ -792,7 +792,7 @@ pub const Loop = struct {
                 .waiters = DelayQueue.Waiters{
                     .entries = std.atomic.Queue(anyframe).init(),
                 },
-                .thread = try std.Thread.spawn(&self.delay_queue, DelayQueue.run),
+                .thread = try std.Thread.spawn(self, DelayQueue.run),
                 .event = std.AutoResetEvent{},
                 .is_running = true,
             };
@@ -858,7 +858,7 @@ pub const Loop = struct {
                 return entry.expires;
             }
 
-            fn peekExpiringEntry() ?*Entry {
+            fn peekExpiringEntry(self: *Waiters) ?*Entry {
                 const held = self.entries.mutex.acquire();
                 defer held.release();
 
