@@ -218,6 +218,41 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "What is up? This is a longer message that will force the data to be relocated in virtual address space.\n",
         );
+        // Now we print it twice.
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    print();
+            \\    print();
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn print() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (0x2000004),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("What is up? This is a longer message that will force the data to be relocated in virtual address space.\n")),
+            \\          [arg3] "{rdx}" (104)
+            \\        : "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (0x2000001),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            \\What is up? This is a longer message that will force the data to be relocated in virtual address space.
+            \\What is up? This is a longer message that will force the data to be relocated in virtual address space.
+            \\
+        );
     }
 
     {

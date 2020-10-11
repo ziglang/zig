@@ -845,12 +845,21 @@ pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
     try self.local_symbols.ensureCapacity(self.base.allocator, self.local_symbols.items.len + 1);
     try self.offset_table.ensureCapacity(self.base.allocator, self.offset_table.items.len + 1);
 
-    log.debug("allocating symbol index {} for {}\n", .{ self.local_symbols.items.len, decl.name });
-    decl.link.macho.local_sym_index = @intCast(u32, self.local_symbols.items.len);
-    _ = self.local_symbols.addOneAssumeCapacity();
+    if (self.local_symbol_free_list.popOrNull()) |i| {
+        log.debug("reusing symbol index {} for {}\n", .{i, decl.name});
+        decl.link.macho.local_sym_index = i;
+    } else {
+        log.debug("allocating symbol index {} for {}\n", .{ self.local_symbols.items.len, decl.name });
+        decl.link.macho.local_sym_index = @intCast(u32, self.local_symbols.items.len);
+        _ = self.local_symbols.addOneAssumeCapacity();
+    }
 
-    decl.link.macho.offset_table_index = @intCast(u32, self.offset_table.items.len);
-    _ = self.offset_table.addOneAssumeCapacity();
+    if (self.offset_table_free_list.popOrNull()) |i| {
+        decl.link.macho.offset_table_index = i;
+    } else {
+        decl.link.macho.offset_table_index = @intCast(u32, self.offset_table.items.len);
+        _ = self.offset_table.addOneAssumeCapacity();
+    }
 
     self.local_symbols.items[decl.link.macho.local_sym_index] = .{
         .n_strx = 0,
@@ -1401,12 +1410,11 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
         }
         else if (self.last_text_block) |last| {
             const last_symbol = self.local_symbols.items[last.local_sym_index];
-            // TODO pad out with NOPs and reenable
-            // const ideal_capacity = last.size * alloc_num / alloc_den;
-            // const ideal_capacity_end_addr = last_symbol.n_value + ideal_capacity;
-            // const new_start_addr = mem.alignForwardGeneric(u64, ideal_capacity_end_addr, alignment);
-            const end_vaddr = last_symbol.n_value + last.size;
-            const new_start_vaddr = mem.alignForwardGeneric(u64, end_vaddr, alignment);
+            // TODO We should pad out the excess capacity with NOPs. For executables,
+            // no padding seems to be OK, but it will probably not be for objects.
+            const ideal_capacity = last.size * alloc_num / alloc_den;
+            const ideal_capacity_end_vaddr = last_symbol.n_value + ideal_capacity;
+            const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, alignment);
             block_placement = last;
             break :blk new_start_vaddr;
         } else {
@@ -1421,7 +1429,7 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
         assert(needed_size <= text_capacity); // TODO must move the entire text section.
 
         self.last_text_block = text_block;
-        text_section.size = needed_size; // TODO temp until we pad out with NOPs
+        text_section.size = needed_size;
 
         self.cmd_table_dirty = true;
     }
