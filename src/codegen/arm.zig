@@ -317,6 +317,29 @@ pub const Instruction = union(enum) {
                 },
             };
         }
+
+        /// Tries to convert an unsigned 32 bit integer into an
+        /// immediate operand using rotation. Returns null when there
+        /// is no conversion
+        pub fn fromU32(x: u32) ?Operand {
+            const masks = comptime blk: {
+                const base_mask: u32 = std.math.maxInt(u8);
+                var result = [_]u32{0} ** 16;
+                for (result) |*mask, i| mask.* = std.math.rotr(u32, base_mask, 2 * i);
+                break :blk result;
+            };
+
+            return for (masks) |mask, i| {
+                if (x & mask == x) {
+                    break Operand{
+                        .Immediate = .{
+                            .imm = @intCast(u8, std.math.rotl(u32, x, 2 * i)),
+                            .rotate = @intCast(u4, i),
+                        },
+                    };
+                }
+            } else null;
+        }
     };
 
     /// Represents the offset operand of a load or store
@@ -408,6 +431,25 @@ pub const Instruction = union(enum) {
                 .rn = rn.id(),
                 .rd = rd.id(),
                 .op2 = op2.toU12(),
+            },
+        };
+    }
+
+    fn specialMov(
+        cond: Condition,
+        rd: Register,
+        imm: u16,
+        top: bool,
+    ) Instruction {
+        return Instruction{
+            .DataProcessing = .{
+                .cond = @enumToInt(cond),
+                .i = 1,
+                .opcode = if (top) 0b1010 else 0b1000,
+                .s = 0,
+                .rn = @truncate(u4, imm >> 12),
+                .rd = rd.id(),
+                .op2 = @truncate(u12, imm),
             },
         };
     }
@@ -616,6 +658,16 @@ pub const Instruction = union(enum) {
 
     pub fn mvns(cond: Condition, rd: Register, op2: Operand) Instruction {
         return dataProcessing(cond, .mvn, 1, rd, .r0, op2);
+    }
+
+    // movw and movt
+
+    pub fn movw(cond: Condition, rd: Register, imm: u16) Instruction {
+        return specialMov(cond, rd, imm, false);
+    }
+
+    pub fn movt(cond: Condition, rd: Register, imm: u16) Instruction {
+        return specialMov(cond, rd, imm, true);
     }
 
     // PSR transfer

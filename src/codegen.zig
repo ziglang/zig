@@ -2274,35 +2274,39 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaa });
                     },
                     .immediate => |x| {
-                        // TODO better analysis of x to determine the
-                        // least amount of necessary instructions (use
-                        // more intelligent rotating)
-                        if (x <= math.maxInt(u8)) {
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
-                            return;
-                        } else if (x <= math.maxInt(u16)) {
-                            // TODO Use movw Note: Not supported on
-                            // all ARM targets!
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 8), 12)).toU32());
-                        } else if (x <= math.maxInt(u32)) {
-                            // TODO Use movw and movt Note: Not
-                            // supported on all ARM targets! Also TODO
-                            // write constant to code and load
-                            // relative to pc
+                        if (x > math.maxInt(u32)) return self.fail(src, "ARM registers are 32-bit wide", .{});
 
-                            // immediate: 0xaabbccdd
-                            // mov reg, #0xaa
-                            // orr reg, reg, #0xbb, 24
-                            // orr reg, reg, #0xcc, 16
-                            // orr reg, reg, #0xdd, 8
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 8), 12)).toU32());
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 16), 8)).toU32());
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 24), 4)).toU32());
-                            return;
+                        if (Instruction.Operand.fromU32(@intCast(u32, x))) |op| {
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, op).toU32());
+                        } else if (Instruction.Operand.fromU32(~@intCast(u32, x))) |op| {
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mvn(.al, reg, op).toU32());
+                        } else if (x <= math.maxInt(u16)) {
+                            if (Target.arm.featureSetHas(self.target.cpu.features, .has_v7)) {
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movw(.al, reg, @intCast(u16, x)).toU32());
+                            } else {
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 8), 12)).toU32());
+                            }
                         } else {
-                            return self.fail(src, "ARM registers are 32-bit wide", .{});
+                            // TODO write constant to code and load
+                            // relative to pc
+                            if (Target.arm.featureSetHas(self.target.cpu.features, .has_v7)) {
+                                // immediate: 0xaaaabbbb
+                                // movw reg, #0xbbbb
+                                // movt reg, #0xaaaa
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movw(.al, reg, @truncate(u16, x)).toU32());
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movt(.al, reg, @truncate(u16, x >> 16)).toU32());
+                            } else {
+                                // immediate: 0xaabbccdd
+                                // mov reg, #0xaa
+                                // orr reg, reg, #0xbb, 24
+                                // orr reg, reg, #0xcc, 16
+                                // orr reg, reg, #0xdd, 8
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 8), 12)).toU32());
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 16), 8)).toU32());
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 24), 4)).toU32());
+                            }
                         }
                     },
                     .register => |src_reg| {
