@@ -1718,10 +1718,6 @@ fn buildOutputType(
                 const term = os.execvpe(gpa, argv.items, &env_vars);
                 switch (arg_mode) {
                     .run => process.exit(1),
-                    .zig_test => {
-                        const cmd = try argvCmd(arena, argv.items);
-                        fatal("the following test command failed with exit status {}:\n{}", .{ term, cmd });
-                    },
                     else => unreachable,
                 }
             } else {
