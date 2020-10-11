@@ -567,6 +567,7 @@ pub fn testVersionParse() !void {
     try f.eql("2.7.pre", 2, 7, 0);
     try f.eql("0..3", 0, 0, 0);
     try f.eql("8.008.", 8, 8, 0);
+    try f.eql("01...", 1, 0, 0);
     try f.eql("55", 55, 0, 0);
     try f.eql("4294967295.0.1", 4294967295, 0, 1);
     try f.eql("429496729_6", 429496729, 0, 0);
