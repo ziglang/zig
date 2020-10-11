@@ -2217,6 +2217,9 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                             });
                             fatal("No 'build.zig' file found, in the current directory or any parent directories.", .{});
                         };
+                        if (std.fs.path.isRoot(dirname)) {
+                            dirname = "";
+                        }
                         continue;
                     },
                     else => |e| return e,

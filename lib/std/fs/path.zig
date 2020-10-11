@@ -748,6 +748,44 @@ fn testResolvePosix(paths: []const []const u8, expected: []const u8) !void {
     defer testing.allocator.free(actual);
     return testing.expect(mem.eql(u8, actual, expected));
 }
+/// If the path is at the root of the filesystem ex: "/" returns true else returns false
+pub fn isRoot(path: []const u8) bool {
+    if (builtin.os.tag == .windows) {
+        return isRootWindows(path);
+    } else {
+        return isRootPosix(path);
+    }
+}
+
+pub fn isRootWindows(path: []const u8) bool {
+    return mem.eql(u8, dirnameWindows(path) orelse return false, path);
+}
+pub fn isRootPosix(path: []const u8) bool {
+    return mem.eql(u8, dirnamePosix(path) orelse return false, path);
+}
+
+fn testIsRootWindows(input: []const u8, expected_output: bool) void {
+    testing.expect(isRootWindows(input) == expected_output);
+}
+fn testIsRootPosix(input: []const u8, expected_output: bool) void {
+    testing.expect(isRootPosix(input) == expected_output);
+}
+
+test "isRootWindows" {
+    testIsRootWindows("", false);
+    testIsRootWindows("c:\\", true);
+    testIsRootWindows("c:\\foo", false);
+    testIsRootWindows("\\", true);
+    testIsRootWindows("\\Users\\foo\\bar\\baz\\quux\\", false);
+    testIsRootWindows("/", true);
+}
+test "isRootPosix" {
+    testIsRootPosix("/", true);
+    testIsRootPosix("/a", false);
+    testIsRootPosix("", false);
+    testIsRootPosix("foo", false);
+    testIsRootPosix("/a/b", false);
+}
 
 /// If the path is a file in the current directory (no directory component)
 /// then returns null
