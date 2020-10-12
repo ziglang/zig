@@ -1714,8 +1714,8 @@ fn buildOutputType(
             }
             if (std.builtin.os.tag != .windows and arg_mode == .run and !watch) {
                 var env_vars = try process.getEnvMap(gpa);
-                defer env_vars.deinit();
                 const err = os.execvpe(gpa, argv.items, &env_vars);
+                env_vars.deinit(); // it would cause a memory leak because a defer would be unreachable
                 fatal("There was an error with `zig run`: {}", .{@errorName(err)});
             } else {
                 const child = try std.ChildProcess.init(argv.items, gpa);
