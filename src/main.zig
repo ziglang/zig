@@ -1712,14 +1712,10 @@ fn buildOutputType(
             if (runtime_args_start) |i| {
                 try argv.appendSlice(all_args[i..]);
             }
-            if (std.builtin.os.tag == .linux and arg_mode == .run and watch == false) { // TODO does other posix os support execve in zig stdlib?
+            if (std.builtin.os.tag != .windows and arg_mode == .run and !watch) {
                 var env_vars = try process.getEnvMap(gpa);
                 defer env_vars.deinit();
-                const term = os.execvpe(gpa, argv.items, &env_vars);
-                switch (arg_mode) {
-                    .run => process.exit(1),
-                    else => unreachable,
-                }
+                return os.execvpe(gpa, argv.items, &env_vars);
             } else {
                 const child = try std.ChildProcess.init(argv.items, gpa);
                 defer child.deinit();
