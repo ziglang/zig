@@ -1242,8 +1242,139 @@ pub const Value = extern union {
         return compare(a, .eq, b);
     }
 
-    pub fn hash(a: Value) u64 {
-        @panic("TODO Value.hash");
+    pub fn hash(self: Value) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        std.hash.autoHash(&hasher, self.tag());
+
+        switch (self.tag()) {
+            .u8_type,
+            .i8_type,
+            .u16_type,
+            .i16_type,
+            .u32_type,
+            .i32_type,
+            .u64_type,
+            .i64_type,
+            .usize_type,
+            .isize_type,
+            .c_short_type,
+            .c_ushort_type,
+            .c_int_type,
+            .c_uint_type,
+            .c_long_type,
+            .c_ulong_type,
+            .c_longlong_type,
+            .c_ulonglong_type,
+            .c_longdouble_type,
+            .f16_type,
+            .f32_type,
+            .f64_type,
+            .f128_type,
+            .c_void_type,
+            .bool_type,
+            .void_type,
+            .type_type,
+            .anyerror_type,
+            .comptime_int_type,
+            .comptime_float_type,
+            .noreturn_type,
+            .null_type,
+            .undefined_type,
+            .fn_noreturn_no_args_type,
+            .fn_void_no_args_type,
+            .fn_naked_noreturn_no_args_type,
+            .fn_ccc_void_no_args_type,
+            .single_const_pointer_to_comptime_int_type,
+            .const_slice_u8_type,
+            .enum_literal_type,
+            .anyframe_type,
+            .ty,
+            => {
+                // Directly return Type.hash, toType can only fail for .int_type and .error_set.
+                var allocator = std.heap.FixedBufferAllocator.init(&[_]u8{});
+                return (self.toType(&allocator.allocator) catch unreachable).hash();
+            },
+            .error_set => {
+                // Payload.decl should be same for all instances of the type.
+                const payload = @fieldParentPtr(Payload.ErrorSet, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.decl);
+            },
+            .int_type => {
+                const payload = self.cast(Payload.IntType).?;
+                if (payload.signed) {
+                    var new = Type.Payload.IntSigned{ .bits = payload.bits };
+                    return Type.initPayload(&new.base).hash();
+                } else {
+                    var new = Type.Payload.IntUnsigned{ .bits = payload.bits };
+                    return Type.initPayload(&new.base).hash();
+                }
+            },
+
+            .undef,
+            .zero,
+            .one,
+            .void_value,
+            .unreachable_value,
+            .empty_struct_value,
+            .empty_array,
+            .null_value,
+            .bool_true,
+            .bool_false,
+            => {},
+
+            .float_16, .float_32, .float_64, .float_128 => {},
+            .enum_literal, .bytes => {
+                const payload = @fieldParentPtr(Payload.Bytes, "base", self.ptr_otherwise);
+                hasher.update(payload.data);
+            },
+            .int_u64 => {
+                const payload = @fieldParentPtr(Payload.Int_u64, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.int);
+            },
+            .int_i64 => {
+                const payload = @fieldParentPtr(Payload.Int_i64, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.int);
+            },
+            .repeated => {
+                const payload = @fieldParentPtr(Payload.Repeated, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.val.hash());
+            },
+            .ref_val => {
+                const payload = @fieldParentPtr(Payload.RefVal, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.val.hash());
+            },
+            .int_big_positive, .int_big_negative => {
+                var space: BigIntSpace = undefined;
+                const big = self.toBigInt(&space);
+                std.hash.autoHash(&hasher, big.positive);
+                for (big.limbs) |limb| {
+                    std.hash.autoHash(&hasher, limb);
+                }
+            },
+            .elem_ptr => {
+                const payload = @fieldParentPtr(Payload.ElemPtr, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.array_ptr.hash());
+                std.hash.autoHash(&hasher, payload.index);
+            },
+            .decl_ref => {
+                const payload = @fieldParentPtr(Payload.DeclRef, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.decl);
+            },
+            .function => {
+                const payload = @fieldParentPtr(Payload.Function, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.func);
+            },
+            .variable => {
+                const payload = @fieldParentPtr(Payload.Variable, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.variable);
+            },
+            .@"error" => {
+                const payload = @fieldParentPtr(Payload.Error, "base", self.ptr_otherwise);
+                hasher.update(payload.name);
+                std.hash.autoHash(&hasher, payload.value);
+            },
+        }
+        return hasher.final();
     }
 
     /// Asserts the value is a pointer and dereferences it.
