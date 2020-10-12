@@ -39,7 +39,7 @@ pub const Watch = @import("fs/watch.zig").Watch;
 /// fit into a UTF-8 encoded array of this length.
 /// The byte count includes room for a null sentinel byte.
 pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
-    .linux, .macosx, .ios, .freebsd, .netbsd, .dragonfly => os.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .netbsd, .dragonfly => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -303,7 +303,7 @@ pub const Dir = struct {
     const IteratorError = error{AccessDenied} || os.UnexpectedError;
 
     pub const Iterator = switch (builtin.os.tag) {
-        .macosx, .ios, .freebsd, .netbsd, .dragonfly => struct {
+        .macos, .ios, .freebsd, .netbsd, .dragonfly => struct {
             dir: Dir,
             seek: i64,
             buf: [8192]u8, // TODO align(@alignOf(os.dirent)),
@@ -318,7 +318,7 @@ pub const Dir = struct {
             /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
             pub fn next(self: *Self) Error!?Entry {
                 switch (builtin.os.tag) {
-                    .macosx, .ios => return self.nextDarwin(),
+                    .macos, .ios => return self.nextDarwin(),
                     .freebsd, .netbsd, .dragonfly => return self.nextBsd(),
                     else => @compileError("unimplemented"),
                 }
@@ -615,7 +615,7 @@ pub const Dir = struct {
 
     pub fn iterate(self: Dir) Iterator {
         switch (builtin.os.tag) {
-            .macosx, .ios, .freebsd, .netbsd, .dragonfly => return Iterator{
+            .macos, .ios, .freebsd, .netbsd, .dragonfly => return Iterator{
                 .dir = self,
                 .seek = 0,
                 .index = 0,
@@ -1302,7 +1302,7 @@ pub const Dir = struct {
             error.AccessDenied => |e| switch (builtin.os.tag) {
                 // non-Linux POSIX systems return EPERM when trying to delete a directory, so
                 // we need to handle that case specifically and translate the error
-                .macosx, .ios, .freebsd, .netbsd, .dragonfly => {
+                .macos, .ios, .freebsd, .netbsd, .dragonfly => {
                     // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
                     const fstat = os.fstatatZ(self.fd, sub_path_c, os.AT_SYMLINK_NOFOLLOW) catch return e;
                     const is_dir = fstat.mode & os.S_IFMT == os.S_IFDIR;

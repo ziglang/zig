@@ -62,7 +62,7 @@ pub const system = if (@hasDecl(root, "os") and root.os != @This())
 else if (builtin.link_libc)
     std.c
 else switch (builtin.os.tag) {
-    .macosx, .ios, .watchos, .tvos => darwin,
+    .macos, .ios, .watchos, .tvos => darwin,
     .freebsd => freebsd,
     .linux => linux,
     .netbsd => netbsd,
@@ -354,7 +354,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     // Prevents EINVAL.
     const max_count = switch (std.Target.current.os.tag) {
         .linux => 0x7ffff000,
-        .macosx, .ios, .watchos, .tvos => math.maxInt(i32),
+        .macos, .ios, .watchos, .tvos => math.maxInt(i32),
         else => math.maxInt(isize),
     };
     const adjusted_len = math.min(max_count, buf.len);
@@ -582,7 +582,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
 /// On these systems, the read races with concurrent writes to the same file descriptor.
 pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
     const have_pread_but_not_preadv = switch (std.Target.current.os.tag) {
-        .windows, .macosx, .ios, .watchos, .tvos => true,
+        .windows, .macos, .ios, .watchos, .tvos => true,
         else => false,
     };
     if (have_pread_but_not_preadv) {
@@ -709,7 +709,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
 
     const max_count = switch (std.Target.current.os.tag) {
         .linux => 0x7ffff000,
-        .macosx, .ios, .watchos, .tvos => math.maxInt(i32),
+        .macos, .ios, .watchos, .tvos => math.maxInt(i32),
         else => math.maxInt(isize),
     };
     const adjusted_len = math.min(max_count, bytes.len);
@@ -863,7 +863,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
     // Prevent EINVAL.
     const max_count = switch (std.Target.current.os.tag) {
         .linux => 0x7ffff000,
-        .macosx, .ios, .watchos, .tvos => math.maxInt(i32),
+        .macos, .ios, .watchos, .tvos => math.maxInt(i32),
         else => math.maxInt(isize),
     };
     const adjusted_len = math.min(max_count, bytes.len);
@@ -915,7 +915,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
 /// If `iov.len` is larger than will fit in a `u31`, a partial write will occur.
 pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usize {
     const have_pwrite_but_not_pwritev = switch (std.Target.current.os.tag) {
-        .windows, .macosx, .ios, .watchos, .tvos => true,
+        .windows, .macos, .ios, .watchos, .tvos => true,
         else => false,
     };
 
@@ -4091,7 +4091,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             const end_index = std.unicode.utf16leToUtf8(out_buffer, wide_slice) catch unreachable;
             return out_buffer[0..end_index];
         },
-        .macosx, .ios, .watchos, .tvos => {
+        .macos, .ios, .watchos, .tvos => {
             // On macOS, we can use F_GETPATH fcntl command to query the OS for
             // the path to the file descriptor.
             @memset(out_buffer, 0, MAX_PATH_BYTES);
@@ -4688,7 +4688,7 @@ pub fn sendfile(
     });
     const max_count = switch (std.Target.current.os.tag) {
         .linux => 0x7ffff000,
-        .macosx, .ios, .watchos, .tvos => math.maxInt(i32),
+        .macos, .ios, .watchos, .tvos => math.maxInt(i32),
         else => math.maxInt(size_t),
     };
 
@@ -4846,7 +4846,7 @@ pub fn sendfile(
                 }
             }
         },
-        .macosx, .ios, .tvos, .watchos => sf: {
+        .macos, .ios, .tvos, .watchos => sf: {
             var hdtr_data: std.c.sf_hdtr = undefined;
             var hdtr: ?*std.c.sf_hdtr = null;
             if (headers.len != 0 or trailers.len != 0) {

@@ -525,7 +525,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         try argv.append(darwinArchString(target.cpu.arch));
 
         switch (target.os.tag) {
-            .macosx => {
+            .macos => {
                 try argv.append("-macosx_version_min");
             },
             .ios, .tvos, .watchos => switch (target.cpu.arch) {

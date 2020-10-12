@@ -585,7 +585,7 @@ pub const UserInfo = struct {
 /// POSIX function which gets a uid from username.
 pub fn getUserInfo(name: []const u8) !UserInfo {
     return switch (builtin.os.tag) {
-        .linux, .macosx, .watchos, .tvos, .ios, .freebsd, .netbsd => posixGetUserInfo(name),
+        .linux, .macos, .watchos, .tvos, .ios, .freebsd, .netbsd => posixGetUserInfo(name),
         else => @compileError("Unsupported OS"),
     };
 }
@@ -688,7 +688,7 @@ pub fn getBaseAddress() usize {
             const phdr = os.system.getauxval(std.elf.AT_PHDR);
             return phdr - @sizeOf(std.elf.Ehdr);
         },
-        .macosx, .freebsd, .netbsd => {
+        .macos, .freebsd, .netbsd => {
             return @ptrToInt(&std.c._mh_execute_header);
         },
         .windows => return @ptrToInt(os.windows.kernel32.GetModuleHandleW(null)),
@@ -733,7 +733,7 @@ pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]
             }.callback);
             return paths.toOwnedSlice();
         },
-        .macosx, .ios, .watchos, .tvos => {
+        .macos, .ios, .watchos, .tvos => {
             var paths = List.init(allocator);
             errdefer {
                 const slice = paths.toOwnedSlice();
