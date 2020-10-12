@@ -275,6 +275,8 @@ pub const Inst = struct {
         /// A switch expression.
         @"switch",
         /// A range in a switch case, `lhs...rhs`.
+        /// Only checks that `lhs >= rhs` if they are ints or floats, everything else is
+        /// validated by the .switch instruction.
         switch_range,
 
         pub fn Type(tag: Tag) type {
@@ -1018,7 +1020,7 @@ pub const Inst = struct {
         },
 
         pub const Case = struct {
-            values: []*Inst,
+            items: []*Inst,
             body: Module.Body,
         };
     };
@@ -1284,7 +1286,7 @@ const Writer = struct {
                         try stream.writeAll(",\n");
                     }
                     try stream.writeByteNTimes(' ', self.indent);
-                    try self.writeParamToStream(stream, &case.values);
+                    try self.writeParamToStream(stream, &case.items);
                     try stream.writeAll(" => ");
                     try self.writeParamToStream(stream, &case.body);
                 }
@@ -1714,7 +1716,7 @@ const Parser = struct {
                 while (true) {
                     const cur = try cases.addOne();
                     skipSpace(self);
-                    cur.values = try self.parseParameterGeneric([]*Inst, body_ctx);
+                    cur.items = try self.parseParameterGeneric([]*Inst, body_ctx);
                     skipSpace(self);
                     try requireEatBytes(self, "=>");
                     cur.body = try self.parseBody(body_ctx);

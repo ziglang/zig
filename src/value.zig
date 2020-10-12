@@ -1242,6 +1242,10 @@ pub const Value = extern union {
         return compare(a, .eq, b);
     }
 
+    pub fn hash(a: Value) u64 {
+        @panic("TODO Value.hash");
+    }
+
     /// Asserts the value is a pointer and dereferences it.
     /// Returns error.AnalysisFail if the pointer points to a Decl that failed semantic analysis.
     pub fn pointerDeref(self: Value, allocator: *Allocator) error{ AnalysisFail, OutOfMemory }!Value {

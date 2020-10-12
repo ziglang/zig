@@ -1592,7 +1592,7 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
             kw_args.special_case = .@"else";
             else_src = case_src;
             cases[cases.len - 1] = .{
-                .values = &[_]*zir.Inst{},
+                .items = &[0]*zir.Inst{},
                 .body = undefined, // filled below
             };
             continue;
@@ -1606,7 +1606,7 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
             kw_args.special_case = .underscore;
             underscore_src = case_src;
             cases[cases.len - 1] = .{
-                .values = &[_]*zir.Inst{},
+                .items = &[0]*zir.Inst{},
                 .body = undefined, // filled below
             };
             continue;
@@ -1620,26 +1620,26 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
             }
         }
 
-        // Regular case, we need to fill `values`.
-        const values = try block_scope.arena.alloc(*zir.Inst, case.items_len);
+        // Regular case, we need to fill `items`.
+        const items = try block_scope.arena.alloc(*zir.Inst, case.items_len);
         for (case.items()) |item, i| {
             if (item.castTag(.Range)) |range| {
-                values[i] = try switchRange(mod, &block_scope.base, range);
+                items[i] = try switchRange(mod, &block_scope.base, range);
                 if (kw_args.support_range == null)
-                    kw_args.support_range = values[i];
+                    kw_args.support_range = items[i];
             } else {
-                values[i] = try expr(mod, &block_scope.base, .none, item);
+                items[i] = try expr(mod, &block_scope.base, .none, item);
             }
         }
         cases[case_index] = .{
-            .values = values,
+            .items = items,
             .body = undefined, // filled below
         };
         case_index += 1;
     }
 
     // Then we add the switch instruction to finish the block.
-    _ = try addZIRInst(mod, scope, switch_src, zir.Inst.Switch, .{
+    _ = try addZIRInst(mod, &block_scope.base, switch_src, zir.Inst.Switch, .{
         .target_ptr = target_ptr,
         .cases = cases,
     }, kw_args);
