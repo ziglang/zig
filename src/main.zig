@@ -1715,7 +1715,8 @@ fn buildOutputType(
             if (std.builtin.os.tag != .windows and arg_mode == .run and !watch) {
                 var env_vars = try process.getEnvMap(gpa);
                 defer env_vars.deinit();
-                return os.execvpe(gpa, argv.items, &env_vars);
+                const err = os.execvpe(gpa, argv.items, &env_vars);
+                fatal("There was an error with `zig run`: {}", .{@errorName(err)});
             } else {
                 const child = try std.ChildProcess.init(argv.items, gpa);
                 defer child.deinit();
