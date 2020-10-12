@@ -862,8 +862,11 @@ pub const Loop = struct {
                 const held = self.entries.mutex.acquire();
                 defer held.release();
 
+                // starting from the head
                 var head = self.entries.head orelse return null;
 
+                // traverse the list of waiting entires to
+                // find the Node with the smallest `expires` field
                 var min = head;
                 while (head.next) |node| {
                     const minEntry = @fieldParentPtr(Entry, "node", min);
