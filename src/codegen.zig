@@ -786,6 +786,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .unwrap_optional => return self.genUnwrapOptional(inst.castTag(.unwrap_optional).?),
                 .wrap_optional => return self.genWrapOptional(inst.castTag(.wrap_optional).?),
                 .varptr => return self.genVarPtr(inst.castTag(.varptr).?),
+                .@"switch" => return self.genSwitch(inst.castTag(.@"switch").?),
             }
         }
 
@@ -1987,6 +1988,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             for (inst.codegen.relocs.items) |reloc| try self.performReloc(inst.base.src, reloc);
 
             return @bitCast(MCValue, inst.codegen.mcv);
+        }
+
+        fn genSwitch(self: *Self, inst: *ir.Inst.Switch) !MCValue {
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO genSwitch for {}", .{self.target.cpu.arch}),
+            }
         }
 
         fn performReloc(self: *Self, src: usize, reloc: Reloc) !void {

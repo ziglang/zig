@@ -2549,6 +2549,9 @@ const EmitZIR = struct {
                 },
 
                 .varptr => @panic("TODO"),
+                .@"switch" => {
+                    @panic("TODO");
+                },
             };
             try self.metadata.put(new_inst, .{
                 .deaths = inst.deaths,

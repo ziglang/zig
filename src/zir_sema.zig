@@ -1233,7 +1233,70 @@ fn analyzeInstSwitch(mod: *Module, scope: *Scope, inst: *zir.Inst.Switch) InnerE
     const target = try mod.analyzeDeref(scope, inst.base.src, target_ptr, inst.positionals.target_ptr.src);
     try validateSwitch(mod, scope, target, inst);
 
-    return mod.fail(scope, inst.base.src, "TODO analyzeInstSwitch", .{});
+    // TODO comptime execution
+
+    // excludes else and '_' cases
+    const case_count = inst.positionals.cases.len - @boolToInt(inst.kw_args.special_case != .none);
+
+    const parent_block = try mod.requireRuntimeBlock(scope, inst.base.src);
+    const switch_inst = try parent_block.arena.create(Inst.Switch);
+    switch_inst.* = .{
+        .base = .{
+            .tag = Inst.Switch.base_tag,
+            .ty = Type.initTag(.noreturn),
+            .src = inst.base.src,
+        },
+        .target_ptr = target_ptr,
+        .@"else" = null,
+        .cases = try parent_block.arena.alloc(Inst.Switch.Case, case_count),
+    };
+
+    var case_block: Scope.Block = .{
+        .parent = parent_block,
+        .func = parent_block.func,
+        .decl = parent_block.decl,
+        .instructions = .{},
+        .arena = parent_block.arena,
+        .is_comptime = parent_block.is_comptime,
+    };
+    defer case_block.instructions.deinit(mod.gpa);
+
+    var items_tmp = std.ArrayList(Value).init(mod.gpa);
+    defer items_tmp.deinit();
+
+    for (inst.positionals.cases[0..case_count]) |case, i| {
+        // Reset without freeing.
+        case_block.instructions.items.len = 0;
+        items_tmp.items.len = 0;
+
+        for (case.items) |item| {
+            if (item.castTag(.switch_range)) |range| {
+                return mod.fail(scope, item.src, "genSwitch expand range", .{});
+            }
+            const resolved = try resolveInst(mod, scope, item);
+            const casted = try mod.coerce(scope, target.ty, resolved);
+            const val = try mod.resolveConstValue(scope, casted);
+            try items_tmp.append(val);
+        }
+
+        try analyzeBody(mod, &case_block.base, case.body);
+
+        switch_inst.cases[i] = .{
+            .items = try parent_block.arena.dupe(Value, items_tmp.items),
+            .body = .{ .instructions = try parent_block.arena.dupe(*Inst, case_block.instructions.items) },
+        };
+    }
+
+    if (inst.kw_args.special_case != .none) {
+        case_block.instructions.items.len = 0;
+
+        try analyzeBody(mod, &case_block.base, inst.positionals.cases[case_count].body);
+        switch_inst.@"else" = .{
+            .instructions = try parent_block.arena.dupe(*Inst, case_block.instructions.items),
+        };
+    }
+    
+    return &switch_inst.base;
 }
 
 fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Switch) InnerError!void {

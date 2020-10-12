@@ -1584,6 +1584,10 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
         const case = uncasted_case.castTag(.SwitchCase).?;
         const case_src = tree.token_locs[case.firstToken()].start;
 
+        if (case.payload != null) {
+            return mod.fail(scope, case_src, "TODO switch case payload capture", .{});
+        }
+
         if (case.items_len == 1 and case.items()[0].tag == .SwitchElse) {
             if (else_src) |src| {
                 return mod.fail(scope, case_src, "multiple else prongs in switch expression", .{});

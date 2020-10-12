@@ -91,6 +91,7 @@ pub const Inst = struct {
         intcast,
         unwrap_optional,
         wrap_optional,
+        @"switch",
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
@@ -137,6 +138,7 @@ pub const Inst = struct {
                 .constant => Constant,
                 .loop => Loop,
                 .varptr => VarPtr,
+                .@"switch" => Switch,
             };
         }
 
@@ -457,6 +459,28 @@ pub const Inst = struct {
         pub fn getOperand(self: *const VarPtr, index: usize) ?*Inst {
             return null;
         }
+    };
+
+    pub const Switch = struct {
+        pub const base_tag = Tag.@"switch";
+
+        base: Inst,
+        target_ptr: *Inst,
+        cases: []Case,
+        @"else": ?Body,
+
+        pub const Case = struct {
+            items: []Value,
+            body: Body,
+        };
+
+        pub fn operandCount(self: *const Switch) usize {
+            return 1;
+        }
+        pub fn getOperand(self: *const Switch, index: usize) ?*Inst {
+            return self.target_ptr;
+        }
+        // TODO case body deaths
     };
 };
 
