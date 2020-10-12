@@ -608,8 +608,13 @@ pub const CrossTarget = struct {
         // If the OS and CPU arch match, the binary can be considered native.
         if (os_match and cpu_arch == Target.current.cpu.arch) {
             // However, we also need to verify that the dynamic linker path is valid.
-            // TODO Until that is implemented, we prevent returning `.native` when the OS is non-native.
             if (self.os_tag == null) {
+                return .native;
+            }
+            if (self.dynamic_linker.max_byte) |len| blk: {
+                std.fs.cwd().access(self.dynamic_linker.buffer[0..len + 1], .{}) catch {
+                    break :blk;
+                };
                 return .native;
             }
         }
