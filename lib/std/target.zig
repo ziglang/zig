@@ -31,7 +31,7 @@ pub const Target = struct {
             kfreebsd,
             linux,
             lv2,
-            macosx,
+            macos,
             netbsd,
             openbsd,
             solaris,
@@ -61,7 +61,7 @@ pub const Target = struct {
 
             pub fn isDarwin(tag: Tag) bool {
                 return switch (tag) {
-                    .ios, .macosx, .watchos, .tvos => true,
+                    .ios, .macos, .watchos, .tvos => true,
                     else => false,
                 };
             }
@@ -234,7 +234,7 @@ pub const Target = struct {
                             .max = .{ .major = 12, .minor = 1 },
                         },
                     },
-                    .macosx => return .{
+                    .macos => return .{
                         .semver = .{
                             .min = .{ .major = 10, .minor = 13 },
                             .max = .{ .major = 10, .minor = 15, .patch = 3 },
@@ -312,7 +312,7 @@ pub const Target = struct {
                 .windows => return TaggedVersionRange{ .windows = self.version_range.windows },
 
                 .freebsd,
-                .macosx,
+                .macos,
                 .ios,
                 .tvos,
                 .watchos,
@@ -341,7 +341,7 @@ pub const Target = struct {
             return switch (os.tag) {
                 .freebsd,
                 .netbsd,
-                .macosx,
+                .macos,
                 .ios,
                 .tvos,
                 .watchos,
@@ -450,7 +450,7 @@ pub const Target = struct {
                 .other,
                 => return .eabi,
                 .openbsd,
-                .macosx,
+                .macos,
                 .freebsd,
                 .ios,
                 .tvos,
@@ -1277,7 +1277,7 @@ pub const Target = struct {
             .ios,
             .tvos,
             .watchos,
-            .macosx,
+            .macos,
             .uefi,
             .windows,
             .emscripten,
@@ -1450,7 +1450,7 @@ pub const Target = struct {
             .ios,
             .tvos,
             .watchos,
-            .macosx,
+            .macos,
             .uefi,
             .windows,
             .emscripten,

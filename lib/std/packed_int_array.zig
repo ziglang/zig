@@ -618,7 +618,7 @@ test "PackedIntArray at end of available memory" {
     if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
 
     switch (builtin.os.tag) {
-        .linux, .macosx, .ios, .freebsd, .netbsd, .windows => {},
+        .linux, .macos, .ios, .freebsd, .netbsd, .windows => {},
         else => return,
     }
     const PackedArray = PackedIntArray(u3, 8);
@@ -639,7 +639,7 @@ test "PackedIntSlice at end of available memory" {
     if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
 
     switch (builtin.os.tag) {
-        .linux, .macosx, .ios, .freebsd, .netbsd, .windows => {},
+        .linux, .macos, .ios, .freebsd, .netbsd, .windows => {},
         else => return,
     }
     const PackedSlice = PackedIntSlice(u11);

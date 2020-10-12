@@ -19,7 +19,7 @@ const max = std.math.max;
 pub const DynLib = switch (builtin.os.tag) {
     .linux => if (builtin.link_libc) DlDynlib else ElfDynLib,
     .windows => WindowsDynLib,
-    .macosx, .tvos, .watchos, .ios, .freebsd => DlDynlib,
+    .macos, .tvos, .watchos, .ios, .freebsd => DlDynlib,
     else => void,
 };
 
@@ -404,7 +404,7 @@ test "dynamic_library" {
     const libname = switch (builtin.os.tag) {
         .linux, .freebsd => "invalid_so.so",
         .windows => "invalid_dll.dll",
-        .macosx, .tvos, .watchos, .ios => "invalid_dylib.dylib",
+        .macos, .tvos, .watchos, .ios => "invalid_dylib.dylib",
         else => return error.SkipZigTest,
     };
 

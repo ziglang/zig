@@ -143,7 +143,7 @@ fn contains(entries: *const std.ArrayList(Dir.Entry), el: Dir.Entry) bool {
 
 test "Dir.realpath smoke test" {
     switch (builtin.os.tag) {
-        .linux, .windows, .macosx, .ios, .watchos, .tvos => {},
+        .linux, .windows, .macos, .ios, .watchos, .tvos => {},
         else => return error.SkipZigTest,
     }
 

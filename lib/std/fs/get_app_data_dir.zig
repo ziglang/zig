@@ -42,7 +42,7 @@ pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataD
                 else => return error.AppDataDirUnavailable,
             }
         },
-        .macosx => {
+        .macos => {
             const home_dir = os.getenv("HOME") orelse {
                 // TODO look in /etc/passwd
                 return error.AppDataDirUnavailable;
