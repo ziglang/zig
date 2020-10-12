@@ -1233,12 +1233,23 @@ pub const Value = extern union {
     }
 
     pub fn eql(a: Value, b: Value) bool {
-        if (a.tag() == b.tag() and a.tag() == .enum_literal) {
-            const a_name = @fieldParentPtr(Payload.Bytes, "base", a.ptr_otherwise).data;
-            const b_name = @fieldParentPtr(Payload.Bytes, "base", b.ptr_otherwise).data;
-            return std.mem.eql(u8, a_name, b_name);
+        if (a.tag() == b.tag()) {
+            if (a.tag() == .void_value or a.tag() == .null_value) {
+                return true;
+            } else if (a.tag() == .enum_literal) {
+                const a_name = @fieldParentPtr(Payload.Bytes, "base", a.ptr_otherwise).data;
+                const b_name = @fieldParentPtr(Payload.Bytes, "base", b.ptr_otherwise).data;
+                return std.mem.eql(u8, a_name, b_name);
+            }
         }
-        // TODO non numerical comparisons
+        if (a.isType() and b.isType()) {
+            // 128 bytes should be enough to hold both types
+            var buf: [128]u8 = undefined;
+            var fib = std.heap.FixedBufferAllocator.init(&buf);
+            const a_type = a.toType(&fib.allocator) catch unreachable;
+            const b_type = b.toType(&fib.allocator) catch unreachable;
+            return a_type.eql(b_type);
+        }
         return compare(a, .eq, b);
     }
 
@@ -1653,6 +1664,87 @@ pub const Value = extern union {
             .float_128,
             => true,
             else => false,
+        };
+    }
+
+    /// Valid for all types. Asserts the value is not undefined.
+    pub fn isType(self: Value) bool {
+        return switch (self.tag()) {
+            .ty,
+            .int_type,
+            .u8_type,
+            .i8_type,
+            .u16_type,
+            .i16_type,
+            .u32_type,
+            .i32_type,
+            .u64_type,
+            .i64_type,
+            .usize_type,
+            .isize_type,
+            .c_short_type,
+            .c_ushort_type,
+            .c_int_type,
+            .c_uint_type,
+            .c_long_type,
+            .c_ulong_type,
+            .c_longlong_type,
+            .c_ulonglong_type,
+            .c_longdouble_type,
+            .f16_type,
+            .f32_type,
+            .f64_type,
+            .f128_type,
+            .c_void_type,
+            .bool_type,
+            .void_type,
+            .type_type,
+            .anyerror_type,
+            .comptime_int_type,
+            .comptime_float_type,
+            .noreturn_type,
+            .null_type,
+            .undefined_type,
+            .fn_noreturn_no_args_type,
+            .fn_void_no_args_type,
+            .fn_naked_noreturn_no_args_type,
+            .fn_ccc_void_no_args_type,
+            .single_const_pointer_to_comptime_int_type,
+            .const_slice_u8_type,
+            .enum_literal_type,
+            .anyframe_type,
+            .error_set,
+            => true,
+
+            .zero,
+            .one,
+            .empty_array,
+            .bool_true,
+            .bool_false,
+            .function,
+            .variable,
+            .int_u64,
+            .int_i64,
+            .int_big_positive,
+            .int_big_negative,
+            .ref_val,
+            .decl_ref,
+            .elem_ptr,
+            .bytes,
+            .repeated,
+            .float_16,
+            .float_32,
+            .float_64,
+            .float_128,
+            .void_value,
+            .enum_literal,
+            .@"error",
+            .empty_struct_value,
+            .null_value,
+             => false,
+
+            .undef => unreachable,
+            .unreachable_value => unreachable,
         };
     }
 
