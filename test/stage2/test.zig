@@ -14,6 +14,7 @@ const linux_x64 = std.zig.CrossTarget{
 const macosx_x64 = std.zig.CrossTarget{
     .cpu_arch = .x86_64,
     .os_tag = .macos,
+    .dynamic_linker = std.zig.CrossTarget.DynamicLinker.init("/usr/lib/dyld"),
 };
 
 const linux_riscv64 = std.zig.CrossTarget{
@@ -145,7 +146,7 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.exe("hello world", macosx_x64);
+        var case = ctx.exe("hello world with updates", macosx_x64);
         case.addError("", &[_][]const u8{":1:1: error: no entry point found"});
 
         // Incorrect return type
