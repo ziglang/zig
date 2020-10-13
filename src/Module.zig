@@ -2098,6 +2098,29 @@ pub fn addCall(
     return &inst.base;
 }
 
+pub fn addSwitchBr(
+    self: *Module,
+    block: *Scope.Block,
+    src: usize,
+    target_ptr: *Inst,
+    cases: []Inst.SwitchBr.Case,
+    else_body: ?Module.Body,
+) !*Inst {
+    const inst = try block.arena.create(Inst.SwitchBr);
+    inst.* = .{
+        .base = .{
+            .tag = .switchbr,
+            .ty = Type.initTag(.noreturn),
+            .src = src,
+        },
+        .target_ptr = target_ptr,
+        .cases = cases,
+        .@"else" = else_body,
+    };
+    try block.instructions.append(self.gpa, &inst.base);
+    return &inst.base;
+}
+
 pub fn constInst(self: *Module, scope: *Scope, src: usize, typed_value: TypedValue) !*Inst {
     const const_inst = try scope.arena().create(Inst.Constant);
     const_inst.* = .{

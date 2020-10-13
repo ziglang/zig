@@ -91,7 +91,7 @@ pub const Inst = struct {
         intcast,
         unwrap_optional,
         wrap_optional,
-        @"switch",
+        switchbr,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
@@ -138,7 +138,7 @@ pub const Inst = struct {
                 .constant => Constant,
                 .loop => Loop,
                 .varptr => VarPtr,
-                .@"switch" => Switch,
+                .switchbr => SwitchBr,
             };
         }
 
@@ -461,26 +461,45 @@ pub const Inst = struct {
         }
     };
 
-    pub const Switch = struct {
-        pub const base_tag = Tag.@"switch";
+    pub const SwitchBr = struct {
+        pub const base_tag = Tag.switchbr;
 
         base: Inst,
         target_ptr: *Inst,
         cases: []Case,
         @"else": ?Body,
+        /// Set of instructions whose lifetimes end at the start of one of the cases.
+        /// In same order as cases, deaths[0..case_0_count, case_0_count .. case_1_count, ... , case_n_count ... else_count].
+        deaths: [*]*Inst = undefined,
+        else_index: u32 = 0,
+        else_deaths: u32 = 0,
 
         pub const Case = struct {
             items: []Value,
             body: Body,
+            index: u32 = 0,
+            deaths: u32 = 0,
         };
 
-        pub fn operandCount(self: *const Switch) usize {
+        pub fn operandCount(self: *const SwitchBr) usize {
             return 1;
         }
-        pub fn getOperand(self: *const Switch, index: usize) ?*Inst {
-            return self.target_ptr;
+        pub fn getOperand(self: *const SwitchBr, index: usize) ?*Inst {
+            var i = index;
+
+            if (i < 1)
+                return self.target_ptr;
+            i -= 1;
+
+            return null;
         }
-        // TODO case body deaths
+        pub fn caseDeaths(self: *const SwitchBr, case_index: usize) []*Inst {
+            const case = self.cases[case_index];
+            return (self.deaths + case.index)[0..case.deaths];
+        }
+        pub fn elseDeaths(self: *const SwitchBr) []*Inst {
+            return (self.deaths + self.else_deaths)[0..self.else_deaths];
+        }
     };
 };
 

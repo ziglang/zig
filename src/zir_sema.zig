@@ -135,7 +135,7 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .slice => return analyzeInstSlice(mod, scope, old_inst.castTag(.slice).?),
         .slice_start => return analyzeInstSliceStart(mod, scope, old_inst.castTag(.slice_start).?),
         .import => return analyzeInstImport(mod, scope, old_inst.castTag(.import).?),
-        .@"switch" => return analyzeInstSwitch(mod, scope, old_inst.castTag(.@"switch").?),
+        .switchbr => return analyzeInstSwitchBr(mod, scope, old_inst.castTag(.switchbr).?),
         .switch_range => return analyzeInstSwitchRange(mod, scope, old_inst.castTag(.switch_range).?),
     }
 }
@@ -1228,7 +1228,7 @@ fn analyzeInstSwitchRange(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) In
     return mod.constVoid(scope, inst.base.src);
 }
 
-fn analyzeInstSwitch(mod: *Module, scope: *Scope, inst: *zir.Inst.Switch) InnerError!*Inst {
+fn analyzeInstSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) InnerError!*Inst {
     const target_ptr = try resolveInst(mod, scope, inst.positionals.target_ptr);
     const target = try mod.analyzeDeref(scope, inst.base.src, target_ptr, inst.positionals.target_ptr.src);
     try validateSwitch(mod, scope, target, inst);
@@ -1239,17 +1239,7 @@ fn analyzeInstSwitch(mod: *Module, scope: *Scope, inst: *zir.Inst.Switch) InnerE
     const case_count = inst.positionals.cases.len - @boolToInt(inst.kw_args.special_case != .none);
 
     const parent_block = try mod.requireRuntimeBlock(scope, inst.base.src);
-    const switch_inst = try parent_block.arena.create(Inst.Switch);
-    switch_inst.* = .{
-        .base = .{
-            .tag = Inst.Switch.base_tag,
-            .ty = Type.initTag(.noreturn),
-            .src = inst.base.src,
-        },
-        .target_ptr = target_ptr,
-        .@"else" = null,
-        .cases = try parent_block.arena.alloc(Inst.Switch.Case, case_count),
-    };
+    const cases = try parent_block.arena.alloc(Inst.SwitchBr.Case, case_count);
 
     var case_block: Scope.Block = .{
         .parent = parent_block,
@@ -1281,25 +1271,25 @@ fn analyzeInstSwitch(mod: *Module, scope: *Scope, inst: *zir.Inst.Switch) InnerE
 
         try analyzeBody(mod, &case_block.base, case.body);
 
-        switch_inst.cases[i] = .{
+        cases[i] = .{
             .items = try parent_block.arena.dupe(Value, items_tmp.items),
             .body = .{ .instructions = try parent_block.arena.dupe(*Inst, case_block.instructions.items) },
         };
     }
 
-    if (inst.kw_args.special_case != .none) {
+    const else_body = if (inst.kw_args.special_case != .none) blk: {
         case_block.instructions.items.len = 0;
 
         try analyzeBody(mod, &case_block.base, inst.positionals.cases[case_count].body);
-        switch_inst.@"else" = .{
+        break: blk Body{
             .instructions = try parent_block.arena.dupe(*Inst, case_block.instructions.items),
         };
-    }
+    } else null;
     
-    return &switch_inst.base;
+    return mod.addSwitchBr(parent_block, inst.base.src, target_ptr, cases, else_body);
 }
 
-fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Switch) InnerError!void {
+fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.SwitchBr) InnerError!void {
     // validate usage of '_' prongs
     if (inst.kw_args.special_case == .underscore and target.ty.zigTypeTag() != .Enum) {
         return mod.fail(scope, inst.base.src, "'_' prong only allowed when switching on non-exhaustive enums", .{});

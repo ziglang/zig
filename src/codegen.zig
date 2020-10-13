@@ -786,7 +786,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .unwrap_optional => return self.genUnwrapOptional(inst.castTag(.unwrap_optional).?),
                 .wrap_optional => return self.genWrapOptional(inst.castTag(.wrap_optional).?),
                 .varptr => return self.genVarPtr(inst.castTag(.varptr).?),
-                .@"switch" => return self.genSwitch(inst.castTag(.@"switch").?),
+                .switchbr => return self.genSwitch(inst.castTag(.switchbr).?),
             }
         }
 
@@ -1990,7 +1990,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return @bitCast(MCValue, inst.codegen.mcv);
         }
 
-        fn genSwitch(self: *Self, inst: *ir.Inst.Switch) !MCValue {
+        fn genSwitch(self: *Self, inst: *ir.Inst.SwitchBr) !MCValue {
             switch (arch) {
                 else => return self.fail(inst.base.src, "TODO genSwitch for {}", .{self.target.cpu.arch}),
             }

@@ -1573,8 +1573,8 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
     const tree = scope.tree();
     const switch_src = tree.token_locs[switch_node.switch_token].start;
     const target_ptr = try expr(mod, &block_scope.base, .ref, switch_node.expr);
-    const cases = try scope.arena().alloc(zir.Inst.Switch.Case, switch_node.cases_len);
-    var kw_args: std.meta.fieldInfo(zir.Inst.Switch, "kw_args").field_type = .{};
+    const cases = try scope.arena().alloc(zir.Inst.SwitchBr.Case, switch_node.cases_len);
+    var kw_args: std.meta.fieldInfo(zir.Inst.SwitchBr, "kw_args").field_type = .{};
 
     // first we gather all the switch items and check else/'_' prongs
     var case_index: usize = 0;
@@ -1643,7 +1643,7 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
     }
 
     // Then we add the switch instruction to finish the block.
-    _ = try addZIRInst(mod, &block_scope.base, switch_src, zir.Inst.Switch, .{
+    _ = try addZIRInst(mod, &block_scope.base, switch_src, zir.Inst.SwitchBr, .{
         .target_ptr = target_ptr,
         .cases = cases,
     }, kw_args);

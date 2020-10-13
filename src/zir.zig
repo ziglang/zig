@@ -273,7 +273,7 @@ pub const Inst = struct {
         /// Enum literal
         enum_literal,
         /// A switch expression.
-        @"switch",
+        switchbr,
         /// A range in a switch case, `lhs...rhs`.
         /// Only checks that `lhs >= rhs` if they are ints or floats, everything else is
         /// validated by the .switch instruction.
@@ -396,7 +396,7 @@ pub const Inst = struct {
                 .enum_literal => EnumLiteral,
                 .error_set => ErrorSet,
                 .slice => Slice,
-                .@"switch" => Switch,
+                .switchbr => SwitchBr,
             };
         }
 
@@ -513,7 +513,7 @@ pub const Inst = struct {
                 .unreach_nocheck,
                 .@"unreachable",
                 .loop,
-                .@"switch",
+                .switchbr,
                 => true,
             };
         }
@@ -998,8 +998,8 @@ pub const Inst = struct {
         },
     };
 
-    pub const Switch = struct {
-        pub const base_tag = Tag.@"switch";
+    pub const SwitchBr = struct {
+        pub const base_tag = Tag.switchbr;
         base: Inst,
 
         positionals: struct {
@@ -1275,24 +1275,24 @@ const Writer = struct {
                 }
                 try stream.writeByte(']');
             },
-            []Inst.Switch.Case => {
+            []Inst.SwitchBr.Case => {
                 if (param.len == 0) {
                     return stream.writeAll("{}");
                 }
                 try stream.writeAll("{\n");
-                self.indent += 2;
                 for (param) |*case, i| {
                     if (i != 0) {
                         try stream.writeAll(",\n");
                     }
                     try stream.writeByteNTimes(' ', self.indent);
+                    self.indent += 2;
                     try self.writeParamToStream(stream, &case.items);
                     try stream.writeAll(" => ");
                     try self.writeParamToStream(stream, &case.body);
+                    self.indent -= 2;
                 }
                 try stream.writeByte('\n');
-                self.indent -= 2;
-                try stream.writeByteNTimes(' ', self.indent);
+                try stream.writeByteNTimes(' ', self.indent - 2);
                 try stream.writeByte('}');
             },
             else => |T| @compileError("unimplemented: rendering parameter of type " ++ @typeName(T)),
@@ -1707,12 +1707,12 @@ const Parser = struct {
                 try requireEatBytes(self, "]");
                 return strings.toOwnedSlice();
             },
-            []Inst.Switch.Case => {
+            []Inst.SwitchBr.Case => {
                 try requireEatBytes(self, "{");
                 skipSpace(self);
-                if (eatByte(self, '}')) return &[0]Inst.Switch.Case{};
+                if (eatByte(self, '}')) return &[0]Inst.SwitchBr.Case{};
 
-                var cases = std.ArrayList(Inst.Switch.Case).init(&self.arena.allocator);
+                var cases = std.ArrayList(Inst.SwitchBr.Case).init(&self.arena.allocator);
                 while (true) {
                     const cur = try cases.addOne();
                     skipSpace(self);
@@ -1824,7 +1824,7 @@ pub fn dumpFn(old_module: IrModule, module_fn: *IrModule.Fn) void {
         .arena = std.heap.ArenaAllocator.init(allocator),
         .old_module = &old_module,
         .next_auto_name = 0,
-        .names = std.StringHashMap(void).init(allocator),
+        .names = std.StringArrayHashMap(void).init(allocator),
         .primitive_table = std.AutoHashMap(Inst.Primitive.Builtin, *Decl).init(allocator),
         .indent = 0,
         .block_table = std.AutoHashMap(*ir.Inst.Block, *Inst.Block).init(allocator),
@@ -2547,11 +2547,58 @@ const EmitZIR = struct {
                     };
                     break :blk &new_inst.base;
                 },
+                .switchbr => blk: {
+                    const old_inst = inst.castTag(.switchbr).?;
+                    const case_count = old_inst.cases.len + @boolToInt(old_inst.@"else" != null);
+                    const cases = try self.arena.allocator.alloc(Inst.SwitchBr.Case, case_count);
+                    const new_inst = try self.arena.allocator.create(Inst.SwitchBr);
+                    new_inst.* = .{
+                        .base = .{
+                            .src = inst.src,
+                            .tag = Inst.SwitchBr.base_tag,
+                        },
+                        .positionals = .{
+                            .target_ptr = try self.resolveInst(new_body, old_inst.target_ptr),
+                            .cases = cases,
+                        },
+                        .kw_args = .{
+                            .special_case = if (old_inst.@"else" != null) .@"else" else .none,
+                            .support_range = null,
+                        },
+                    };
 
-                .varptr => @panic("TODO"),
-                .@"switch" => {
-                    @panic("TODO");
+                    var body_tmp = std.ArrayList(*Inst).init(self.allocator);
+                    defer body_tmp.deinit();
+
+                    for (old_inst.cases) |case, i| {
+                        body_tmp.items.len = 0;
+
+                        try self.emitBody(case.body, inst_table, &body_tmp);
+                        const items = try self.arena.allocator.alloc(*Inst, case.items.len);
+                        for (case.items) |item, j| {
+                            items[j] = (try self.emitTypedValue(inst.src, .{
+                                .ty = old_inst.target_ptr.ty.elemType(),
+                                .val = item,
+                            })).inst;
+                        }
+
+                        cases[i] = .{
+                            .items = items,
+                            .body = .{ .instructions = try self.arena.allocator.dupe(*Inst, body_tmp.items) },
+                        };
+                    }
+                    if (old_inst.@"else") |some| {
+                        body_tmp.items.len = 0;
+
+                        try self.emitBody(some, inst_table, &body_tmp);
+                        cases[cases.len - 1] = .{
+                            .items = &[0]*Inst{},
+                            .body = .{ .instructions = try self.arena.allocator.dupe(*Inst, body_tmp.items) },
+                        };
+                    }
+                    break :blk &new_inst.base;
                 },
+                .varptr => @panic("TODO"),
             };
             try self.metadata.put(new_inst, .{
                 .deaths = inst.deaths,
