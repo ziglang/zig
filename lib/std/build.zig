@@ -45,6 +45,7 @@ pub const Builder = struct {
     verbose_llvm_ir: bool,
     verbose_cimport: bool,
     verbose_llvm_cpu_features: bool,
+    color: enum { auto, on, off } = .auto,
     invalid_user_input: bool,
     zig_exe: []const u8,
     default_step: *Step,
@@ -1945,6 +1946,11 @@ pub const LibExeObjStep = struct {
             .Test => "test",
         };
         zig_args.append(cmd) catch unreachable;
+
+        if (builder.color != .auto) {
+            try zig_args.append("--color");
+            try zig_args.append(@tagName(builder.color));
+        }
 
         if (self.root_src) |root_src| try zig_args.append(root_src.getPath(builder));
 
