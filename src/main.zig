@@ -28,9 +28,9 @@ pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
 pub const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
 pub const Color = enum {
-    Auto,
-    Off,
-    On,
+    auto,
+    off,
+    on,
 };
 
 const usage =
@@ -380,7 +380,7 @@ fn buildOutputType(
         run,
     },
 ) !void {
-    var color: Color = .Auto;
+    var color: Color = .auto;
     var optimize_mode: std.builtin.Mode = .Debug;
     var provided_name: ?[]const u8 = null;
     var link_mode: ?std.builtin.LinkMode = null;
@@ -585,15 +585,9 @@ fn buildOutputType(
                         }
                         i += 1;
                         const next_arg = args[i];
-                        if (mem.eql(u8, next_arg, "auto")) {
-                            color = .Auto;
-                        } else if (mem.eql(u8, next_arg, "on")) {
-                            color = .On;
-                        } else if (mem.eql(u8, next_arg, "off")) {
-                            color = .Off;
-                        } else {
+                        color = std.meta.stringToEnum(Color, next_arg) orelse {
                             fatal("expected [auto|on|off] after --color, found '{}'", .{next_arg});
-                        }
+                        };
                     } else if (mem.eql(u8, arg, "--subsystem")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
@@ -2374,7 +2368,7 @@ const Fmt = struct {
 
 pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
     const stderr_file = io.getStdErr();
-    var color: Color = .Auto;
+    var color: Color = .auto;
     var stdin_flag: bool = false;
     var check_flag: bool = false;
     var input_files = ArrayList([]const u8).init(gpa);
@@ -2394,15 +2388,9 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
                     }
                     i += 1;
                     const next_arg = args[i];
-                    if (mem.eql(u8, next_arg, "auto")) {
-                        color = .Auto;
-                    } else if (mem.eql(u8, next_arg, "on")) {
-                        color = .On;
-                    } else if (mem.eql(u8, next_arg, "off")) {
-                        color = .Off;
-                    } else {
+                    color = std.meta.stringToEnum(Color, next_arg) orelse {
                         fatal("expected [auto|on|off] after --color, found '{}'", .{next_arg});
-                    }
+                    };
                 } else if (mem.eql(u8, arg, "--stdin")) {
                     stdin_flag = true;
                 } else if (mem.eql(u8, arg, "--check")) {
@@ -2626,9 +2614,9 @@ fn printErrMsgToFile(
     color: Color,
 ) !void {
     const color_on = switch (color) {
-        .Auto => file.isTty(),
-        .On => true,
-        .Off => false,
+        .auto => file.isTty(),
+        .on => true,
+        .off => false,
     };
     const lok_token = parse_error.loc();
     const span_first = lok_token;

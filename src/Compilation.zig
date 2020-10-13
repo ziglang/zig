@@ -103,7 +103,7 @@ owned_link_dir: ?std.fs.Dir,
 
 /// This is for stage1 and should be deleted upon completion of self-hosting.
 /// Don't use this for anything other than stage1 compatibility.
-color: @import("main.zig").Color = .Auto,
+color: @import("main.zig").Color = .auto,
 
 test_filter: ?[]const u8,
 test_name_prefix: ?[]const u8,
@@ -385,7 +385,7 @@ pub const InitOptions = struct {
     machine_code_model: std.builtin.CodeModel = .default,
     clang_preprocessor_mode: ClangPreprocessorMode = .no,
     /// This is for stage1 and should be deleted upon completion of self-hosting.
-    color: @import("main.zig").Color = .Auto,
+    color: @import("main.zig").Color = .auto,
     test_filter: ?[]const u8 = null,
     test_name_prefix: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
@@ -1179,7 +1179,7 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
     var progress: std.Progress = .{};
     var main_progress_node = try progress.start("", null);
     defer main_progress_node.end();
-    if (self.color == .Off) progress.terminal = null;
+    if (self.color == .off) progress.terminal = null;
 
     var c_comp_progress_node = main_progress_node.start("Compile C Objects", self.c_source_files.len);
     defer c_comp_progress_node.end();
