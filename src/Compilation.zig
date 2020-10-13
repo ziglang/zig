@@ -922,7 +922,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             try comp.work_queue.writeItem(.libcxx);
             try comp.work_queue.writeItem(.libcxxabi);
         }
-        if (is_exe_or_dyn_lib and build_options.is_stage1) {
+
+        const needs_compiler_rt_and_c = is_exe_or_dyn_lib or
+            (comp.getTarget().isWasm() and comp.bin_file.options.output_mode != .Obj);
+        if (needs_compiler_rt_and_c and build_options.is_stage1) {
             try comp.work_queue.writeItem(.{ .libcompiler_rt = {} });
             if (!comp.bin_file.options.link_libc) {
                 try comp.work_queue.writeItem(.{ .zig_libc = {} });
@@ -2602,8 +2605,12 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
 
         // We use an extra hex-encoded byte here to store some flags.
         var prev_digest_buf: [digest.len + 2]u8 = undefined;
-        const prev_digest: []u8 = directory.handle.readLink(id_symlink_basename, &prev_digest_buf) catch |err| blk: {
-            log.debug("stage1 {} new_digest={} readlink error: {}", .{ mod.root_pkg.root_src_path, digest, @errorName(err) });
+        const prev_digest: []u8 = Cache.readSmallFile(
+            directory.handle,
+            id_symlink_basename,
+            &prev_digest_buf,
+        ) catch |err| blk: {
+            log.debug("stage1 {} new_digest={} error: {}", .{ mod.root_pkg.root_src_path, digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
@@ -2774,7 +2781,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
 
     const digest = man.final();
 
-    // Update the dangling symlink with the digest. If it fails we can continue; it only
+    // Update the small file with the digest. If it fails we can continue; it only
     // means that the next invocation will have an unnecessary cache miss.
     const stage1_flags_byte = @bitCast(u8, mod.stage1_flags);
     log.debug("stage1 {} final digest={} flags={x}", .{
@@ -2789,10 +2796,10 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     log.debug("saved digest + flags: '{s}' (byte = {}) have_winmain_crt_startup={}", .{
         digest_plus_flags, stage1_flags_byte, mod.stage1_flags.have_winmain_crt_startup,
     });
-    directory.handle.symLink(&digest_plus_flags, id_symlink_basename, .{}) catch |err| {
-        log.warn("failed to save stage1 hash digest symlink: {}", .{@errorName(err)});
+    Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest_plus_flags) catch |err| {
+        log.warn("failed to save stage1 hash digest file: {}", .{@errorName(err)});
     };
-    // Again failure here only means an unnecessary cache miss.
+    // Failure here only means an unnecessary cache miss.
     man.writeManifest() catch |err| {
         log.warn("failed to write cache manifest when linking: {}", .{@errorName(err)});
     };

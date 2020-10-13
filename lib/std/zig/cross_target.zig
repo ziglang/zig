@@ -137,7 +137,7 @@ pub const CrossTarget = struct {
             },
 
             .freebsd,
-            .macosx,
+            .macos,
             .ios,
             .tvos,
             .watchos,
@@ -578,7 +578,7 @@ pub const CrossTarget = struct {
         const os = switch (self.getOsTag()) {
             .windows => "windows",
             .linux => "linux",
-            .macosx => "macos",
+            .macos => "macos",
             else => return error.UnsupportedVcpkgOperatingSystem,
         };
 
@@ -718,7 +718,7 @@ pub const CrossTarget = struct {
             => return error.InvalidOperatingSystemVersion,
 
             .freebsd,
-            .macosx,
+            .macos,
             .ios,
             .tvos,
             .watchos,

@@ -720,6 +720,27 @@ test "big.int mul 0*0" {
     testing.expect((try c.to(u32)) == 0);
 }
 
+test "big.int mul large" {
+    var a = try Managed.initCapacity(testing.allocator, 50);
+    defer a.deinit();
+    var b = try Managed.initCapacity(testing.allocator, 100);
+    defer b.deinit();
+    var c = try Managed.initCapacity(testing.allocator, 100);
+    defer c.deinit();
+
+    // Generate a number that's large enough to cross the thresholds for the use
+    // of subquadratic algorithms
+    for (a.limbs) |*p| {
+        p.* = std.math.maxInt(Limb);
+    }
+    a.setMetadata(true, 50);
+
+    try b.mul(a.toConst(), a.toConst());
+    try c.sqr(a.toConst());
+
+    testing.expect(b.eq(c));
+}
+
 test "big.int div single-single no rem" {
     var a = try Managed.initSet(testing.allocator, 50);
     defer a.deinit();
@@ -1483,11 +1504,14 @@ test "big.int const to managed" {
 
 test "big.int pow" {
     {
-        var a = try Managed.initSet(testing.allocator, 10);
+        var a = try Managed.initSet(testing.allocator, -3);
         defer a.deinit();
 
-        try a.pow(a, 8);
-        testing.expectEqual(@as(u32, 100000000), try a.to(u32));
+        try a.pow(a.toConst(), 3);
+        testing.expectEqual(@as(i32, -27), try a.to(i32));
+
+        try a.pow(a.toConst(), 4);
+        testing.expectEqual(@as(i32, 531441), try a.to(i32));
     }
     {
         var a = try Managed.initSet(testing.allocator, 10);
@@ -1497,9 +1521,9 @@ test "big.int pow" {
         defer y.deinit();
 
         // y and a are not aliased
-        try y.pow(a, 123);
+        try y.pow(a.toConst(), 123);
         // y and a are aliased
-        try a.pow(a, 123);
+        try a.pow(a.toConst(), 123);
 
         testing.expect(a.eq(y));
 
@@ -1517,18 +1541,18 @@ test "big.int pow" {
         var a = try Managed.initSet(testing.allocator, 0);
         defer a.deinit();
 
-        try a.pow(a, 100);
+        try a.pow(a.toConst(), 100);
         testing.expectEqual(@as(i32, 0), try a.to(i32));
 
         try a.set(1);
-        try a.pow(a, 0);
+        try a.pow(a.toConst(), 0);
         testing.expectEqual(@as(i32, 1), try a.to(i32));
-        try a.pow(a, 100);
+        try a.pow(a.toConst(), 100);
         testing.expectEqual(@as(i32, 1), try a.to(i32));
         try a.set(-1);
-        try a.pow(a, 15);
+        try a.pow(a.toConst(), 15);
         testing.expectEqual(@as(i32, -1), try a.to(i32));
-        try a.pow(a, 16);
+        try a.pow(a.toConst(), 16);
         testing.expectEqual(@as(i32, 1), try a.to(i32));
     }
 }

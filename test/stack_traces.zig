@@ -308,7 +308,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 },
             );
         },
-        .macosx => {
+        .macos => {
             cases.addCase(
                 "return",
                 source_return,

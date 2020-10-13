@@ -820,7 +820,9 @@ const char *ZigLLVMGetVendorTypeName(ZigLLVM_VendorType vendor) {
 }
 
 const char *ZigLLVMGetOSTypeName(ZigLLVM_OSType os) {
-    return (const char*)Triple::getOSTypeName((Triple::OSType)os).bytes_begin();
+    const char* name = (const char*)Triple::getOSTypeName((Triple::OSType)os).bytes_begin();
+    if (strcmp(name, "macosx") == 0) return "macos";
+    return name;
 }
 
 const char *ZigLLVMGetEnvironmentTypeName(ZigLLVM_EnvironmentType env_type) {

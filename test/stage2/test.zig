@@ -13,7 +13,7 @@ const linux_x64 = std.zig.CrossTarget{
 
 const macosx_x64 = std.zig.CrossTarget{
     .cpu_arch = .x86_64,
-    .os_tag = .macosx,
+    .os_tag = .macos,
 };
 
 const linux_riscv64 = std.zig.CrossTarget{

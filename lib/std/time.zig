@@ -143,7 +143,7 @@ pub const Timer = struct {
     ///  be less precise
     frequency: switch (builtin.os.tag) {
         .windows => u64,
-        .macosx, .ios, .tvos, .watchos => os.darwin.mach_timebase_info_data,
+        .macos, .ios, .tvos, .watchos => os.darwin.mach_timebase_info_data,
         else => void,
     },
     resolution: u64,

@@ -3104,7 +3104,7 @@ pub const CType = enum {
             },
 
             .linux,
-            .macosx,
+            .macos,
             .freebsd,
             .netbsd,
             .dragonfly,

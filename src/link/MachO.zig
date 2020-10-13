@@ -20,6 +20,8 @@ const File = link.File;
 const Cache = @import("../Cache.zig");
 const target_util = @import("../target.zig");
 
+const Trie = @import("MachO/Trie.zig");
+
 pub const base_tag: File.Tag = File.Tag.macho;
 
 const LoadCommand = union(enum) {
@@ -113,6 +115,9 @@ local_symbols: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 global_symbols: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 /// Table of all undefined symbols
 undef_symbols: std.ArrayListUnmanaged(macho.nlist_64) = .{},
+
+global_symbol_free_list: std.ArrayListUnmanaged(u32) = .{},
+
 dyld_stub_binder_index: ?u16 = null,
 
 /// Table of symbol names aka the string table.
@@ -174,6 +179,10 @@ pub const TextBlock = struct {
         .prev = null,
         .next = null,
     };
+};
+
+pub const Export = struct {
+    sym_index: ?u32 = null,
 };
 
 pub const SrcFn = struct {
@@ -256,10 +265,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
 
     switch (self.base.options.output_mode) {
         .Exe => {
-            if (self.entry_addr) |addr| {
-                // Write export trie.
-                try self.writeExportTrie();
+            // Write export trie.
+            try self.writeExportTrie();
 
+            if (self.entry_addr) |addr| {
                 // Update LC_MAIN with entry offset
                 const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                 const main_cmd = &self.load_commands.items[self.main_cmd_index.?].EntryPoint;
@@ -410,8 +419,12 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         digest = man.final();
 
         var prev_digest_buf: [digest.len]u8 = undefined;
-        const prev_digest: []u8 = directory.handle.readLink(id_symlink_basename, &prev_digest_buf) catch |err| blk: {
-            log.debug("MachO LLD new_digest={} readlink error: {}", .{ digest, @errorName(err) });
+        const prev_digest: []u8 = Cache.readSmallFile(
+            directory.handle,
+            id_symlink_basename,
+            &prev_digest_buf,
+        ) catch |err| blk: {
+            log.debug("MachO LLD new_digest={} error: {}", .{ digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
@@ -512,7 +525,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         try argv.append(darwinArchString(target.cpu.arch));
 
         switch (target.os.tag) {
-            .macosx => {
+            .macos => {
                 try argv.append("-macosx_version_min");
             },
             .ios, .tvos, .watchos => switch (target.cpu.arch) {
@@ -665,10 +678,10 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
     }
 
     if (!self.base.options.disable_lld_caching) {
-        // Update the dangling symlink with the digest. If it fails we can continue; it only
+        // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
-        directory.handle.symLink(&digest, id_symlink_basename, .{}) catch |err| {
-            std.log.warn("failed to save linking hash digest symlink: {}", .{@errorName(err)});
+        Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
+            std.log.warn("failed to save linking hash digest file: {}", .{@errorName(err)});
         };
         // Again failure here only means an unnecessary cache miss.
         man.writeManifest() catch |err| {
@@ -711,6 +724,7 @@ pub fn deinit(self: *MachO) void {
     self.string_table.deinit(self.base.allocator);
     self.undef_symbols.deinit(self.base.allocator);
     self.global_symbols.deinit(self.base.allocator);
+    self.global_symbol_free_list.deinit(self.base.allocator);
     self.local_symbols.deinit(self.base.allocator);
     self.sections.deinit(self.base.allocator);
     self.load_commands.deinit(self.base.allocator);
@@ -835,7 +849,7 @@ pub fn updateDeclExports(
             },
         };
         const n_type = decl_sym.n_type | macho.N_EXT;
-        if (exp.link.sym_index) |i| {
+        if (exp.link.macho.sym_index) |i| {
             const sym = &self.global_symbols.items[i];
             sym.* = .{
                 .n_strx = try self.updateString(sym.n_strx, exp.options.name),
@@ -846,8 +860,10 @@ pub fn updateDeclExports(
             };
         } else {
             const name_str_index = try self.makeString(exp.options.name);
-            _ = self.global_symbols.addOneAssumeCapacity();
-            const i = self.global_symbols.items.len - 1;
+            const i = if (self.global_symbol_free_list.popOrNull()) |i| i else blk: {
+                _ = self.global_symbols.addOneAssumeCapacity();
+                break :blk self.global_symbols.items.len - 1;
+            };
             self.global_symbols.items[i] = .{
                 .n_strx = name_str_index,
                 .n_type = n_type,
@@ -856,9 +872,15 @@ pub fn updateDeclExports(
                 .n_value = decl_sym.n_value,
             };
 
-            exp.link.sym_index = @intCast(u32, i);
+            exp.link.macho.sym_index = @intCast(u32, i);
         }
     }
+}
+
+pub fn deleteExport(self: *MachO, exp: Export) void {
+    const sym_index = exp.sym_index orelse return;
+    self.global_symbol_free_list.append(self.base.allocator, sym_index) catch {};
+    self.global_symbols.items[sym_index].n_type = 0;
 }
 
 pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {}
@@ -1383,25 +1405,30 @@ fn writeAllUndefSymbols(self: *MachO) !void {
 }
 
 fn writeExportTrie(self: *MachO) !void {
-    assert(self.entry_addr != null);
+    if (self.global_symbols.items.len == 0) return; // No exports, nothing to do.
 
-    // TODO implement mechanism for generating a prefix tree of the exported symbols
-    // single branch export trie
-    var buf = [_]u8{0} ** 24;
-    buf[0] = 0; // root node
-    buf[1] = 1; // 1 branch from root
-    mem.copy(u8, buf[2..], "_start");
-    buf[8] = 0;
-    buf[9] = 9 + 1;
+    var trie: Trie = .{};
+    defer trie.deinit(self.base.allocator);
 
     const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-    const addr = self.entry_addr.? - text_segment.vmaddr;
-    const written = try std.debug.leb.writeULEB128Mem(buf[12..], addr);
-    buf[10] = @intCast(u8, written) + 1;
-    buf[11] = 0;
+    for (self.global_symbols.items) |symbol| {
+        // TODO figure out if we should put all global symbols into the export trie
+        const name = self.getString(symbol.n_strx);
+        assert(symbol.n_value >= text_segment.vmaddr);
+        try trie.put(self.base.allocator, .{
+            .name = name,
+            .vmaddr_offset = symbol.n_value - text_segment.vmaddr,
+            .export_flags = 0, // TODO workout creation of export flags
+        });
+    }
+
+    var buffer: std.ArrayListUnmanaged(u8) = .{};
+    defer buffer.deinit(self.base.allocator);
+
+    try trie.writeULEB128Mem(self.base.allocator, &buffer);
 
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfo;
-    try self.base.file.?.pwriteAll(buf[0..], dyld_info.export_off);
+    try self.base.file.?.pwriteAll(buffer.items, dyld_info.export_off);
 }
 
 fn writeStringTable(self: *MachO) !void {

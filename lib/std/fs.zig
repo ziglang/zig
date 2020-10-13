@@ -39,7 +39,7 @@ pub const Watch = @import("fs/watch.zig").Watch;
 /// fit into a UTF-8 encoded array of this length.
 /// The byte count includes room for a null sentinel byte.
 pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
-    .linux, .macosx, .ios, .freebsd, .netbsd, .dragonfly => os.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .netbsd, .dragonfly => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -303,7 +303,7 @@ pub const Dir = struct {
     const IteratorError = error{AccessDenied} || os.UnexpectedError;
 
     pub const Iterator = switch (builtin.os.tag) {
-        .macosx, .ios, .freebsd, .netbsd, .dragonfly => struct {
+        .macos, .ios, .freebsd, .netbsd, .dragonfly => struct {
             dir: Dir,
             seek: i64,
             buf: [8192]u8, // TODO align(@alignOf(os.dirent)),
@@ -318,7 +318,7 @@ pub const Dir = struct {
             /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
             pub fn next(self: *Self) Error!?Entry {
                 switch (builtin.os.tag) {
-                    .macosx, .ios => return self.nextDarwin(),
+                    .macos, .ios => return self.nextDarwin(),
                     .freebsd, .netbsd, .dragonfly => return self.nextBsd(),
                     else => @compileError("unimplemented"),
                 }
@@ -615,7 +615,7 @@ pub const Dir = struct {
 
     pub fn iterate(self: Dir) Iterator {
         switch (builtin.os.tag) {
-            .macosx, .ios, .freebsd, .netbsd, .dragonfly => return Iterator{
+            .macos, .ios, .freebsd, .netbsd, .dragonfly => return Iterator{
                 .dir = self,
                 .seek = 0,
                 .index = 0,
@@ -1302,7 +1302,7 @@ pub const Dir = struct {
             error.AccessDenied => |e| switch (builtin.os.tag) {
                 // non-Linux POSIX systems return EPERM when trying to delete a directory, so
                 // we need to handle that case specifically and translate the error
-                .macosx, .ios, .freebsd, .netbsd, .dragonfly => {
+                .macos, .ios, .freebsd, .netbsd, .dragonfly => {
                     // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
                     const fstat = os.fstatatZ(self.fd, sub_path_c, os.AT_SYMLINK_NOFOLLOW) catch return e;
                     const is_dir = fstat.mode & os.S_IFMT == os.S_IFDIR;
@@ -1488,6 +1488,19 @@ pub const Dir = struct {
     /// is null-terminated, WTF16 encoded.
     pub fn readLinkW(self: Dir, sub_path_w: []const u16, buffer: []u8) ![]u8 {
         return os.windows.ReadLink(self.fd, sub_path_w, buffer);
+    }
+
+    /// Read all of file contents using a preallocated buffer.
+    /// The returned slice has the same pointer as `buffer`. If the length matches `buffer.len`
+    /// the situation is ambiguous. It could either mean that the entire file was read, and
+    /// it exactly fits the buffer, or it could mean the buffer was not big enough for the
+    /// entire file.
+    pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
+        var file = try self.openFile(file_path, .{});
+        defer file.close();
+
+        const end_index = try file.readAll(buffer);
+        return buffer[0..end_index];
     }
 
     /// On success, caller owns returned buffer.
@@ -1823,7 +1836,7 @@ pub const Dir = struct {
         var atomic_file = try dest_dir.atomicFile(dest_path, .{ .mode = mode });
         defer atomic_file.deinit();
 
-        try atomic_file.file.writeFileAll(in_file, .{ .in_len = size });
+        try copy_file(in_file.handle, atomic_file.file.handle);
         return atomic_file.finish();
     }
 
@@ -2269,6 +2282,53 @@ pub fn realpathAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
     // anyway.
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     return allocator.dupe(u8, try os.realpath(pathname, &buf));
+}
+
+const CopyFileError = error{SystemResources} || os.CopyFileRangeError || os.SendFileError;
+
+// Transfer all the data between two file descriptors in the most efficient way.
+// The copy starts at offset 0, the initial offsets are preserved.
+// No metadata is transferred over.
+fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t) CopyFileError!void {
+    if (comptime std.Target.current.isDarwin()) {
+        const rc = os.system.fcopyfile(fd_in, fd_out, null, os.system.COPYFILE_DATA);
+        switch (os.errno(rc)) {
+            0 => return,
+            os.EINVAL => unreachable,
+            os.ENOMEM => return error.SystemResources,
+            // The source file is not a directory, symbolic link, or regular file.
+            // Try with the fallback path before giving up.
+            os.ENOTSUP => {},
+            else => |err| return os.unexpectedErrno(err),
+        }
+    }
+
+    if (std.Target.current.os.tag == .linux) {
+        // Try copy_file_range first as that works at the FS level and is the
+        // most efficient method (if available).
+        var offset: u64 = 0;
+        cfr_loop: while (true) {
+            // The kernel checks the u64 value `offset+count` for overflow, use
+            // a 32 bit value so that the syscall won't return EINVAL except for
+            // impossibly large files (> 2^64-1 - 2^32-1).
+            const amt = try os.copy_file_range(fd_in, offset, fd_out, offset, math.maxInt(u32), 0);
+            // Terminate when no data was copied
+            if (amt == 0) break :cfr_loop;
+            offset += amt;
+        }
+        return;
+    }
+
+    // Sendfile is a zero-copy mechanism iff the OS supports it, otherwise the
+    // fallback code will copy the contents chunk by chunk.
+    const empty_iovec = [0]os.iovec_const{};
+    var offset: u64 = 0;
+    sendfile_loop: while (true) {
+        const amt = try os.sendfile(fd_out, fd_in, offset, 0, &empty_iovec, &empty_iovec, 0);
+        // Terminate when no data was copied
+        if (amt == 0) break :sendfile_loop;
+        offset += amt;
+    }
 }
 
 test "" {

@@ -654,7 +654,7 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
             .freebsd,
             .netbsd,
             .dragonfly,
-            .macosx,
+            .macos,
             .windows,
             => return DebugInfo.init(allocator),
             else => @compileError("openSelfDebugInfo unsupported for this platform"),
@@ -1320,7 +1320,7 @@ const SymbolInfo = struct {
 };
 
 pub const ModuleDebugInfo = switch (builtin.os.tag) {
-    .macosx, .ios, .watchos, .tvos => struct {
+    .macos, .ios, .watchos, .tvos => struct {
         base_address: usize,
         mapped_memory: []const u8,
         symbols: []const MachoSymbol,

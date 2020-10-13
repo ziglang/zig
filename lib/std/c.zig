@@ -22,7 +22,7 @@ pub usingnamespace @import("os/bits.zig");
 pub usingnamespace switch (std.Target.current.os.tag) {
     .linux => @import("c/linux.zig"),
     .windows => @import("c/windows.zig"),
-    .macosx, .ios, .tvos, .watchos => @import("c/darwin.zig"),
+    .macos, .ios, .tvos, .watchos => @import("c/darwin.zig"),
     .freebsd, .kfreebsd => @import("c/freebsd.zig"),
     .netbsd => @import("c/netbsd.zig"),
     .dragonfly => @import("c/dragonfly.zig"),
@@ -122,7 +122,7 @@ pub extern "c" fn readlink(noalias path: [*:0]const u8, noalias buf: [*]u8, bufs
 pub extern "c" fn readlinkat(dirfd: fd_t, noalias path: [*:0]const u8, noalias buf: [*]u8, bufsize: usize) isize;
 
 pub usingnamespace switch (builtin.os.tag) {
-    .macosx, .ios, .watchos, .tvos => struct {
+    .macos, .ios, .watchos, .tvos => struct {
         pub const realpath = @"realpath$DARWIN_EXTSN";
         pub const fstatat = @"fstatat$INODE64";
     },
@@ -189,7 +189,7 @@ pub usingnamespace switch (builtin.os.tag) {
         pub const sigprocmask = __sigprocmask14;
         pub const stat = __stat50;
     },
-    .macosx, .ios, .watchos, .tvos => struct {
+    .macos, .ios, .watchos, .tvos => struct {
         // XXX: close -> close$NOCANCEL
         // XXX: getdirentries -> _getdirentries64
         pub extern "c" fn clock_getres(clk_id: c_int, tp: *timespec) c_int;
@@ -252,7 +252,7 @@ pub usingnamespace switch (builtin.os.tag) {
     .linux, .freebsd, .kfreebsd, .netbsd, .openbsd => struct {
         pub extern "c" fn malloc_usable_size(?*const c_void) usize;
     },
-    .macosx, .ios, .watchos, .tvos => struct {
+    .macos, .ios, .watchos, .tvos => struct {
         pub extern "c" fn malloc_size(?*const c_void) usize;
     },
     else => struct {},

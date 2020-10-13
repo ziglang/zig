@@ -576,6 +576,30 @@ pub const Manifest = struct {
     }
 };
 
+/// On operating systems that support symlinks, does a readlink. On other operating systems,
+/// uses the file contents. Windows supports symlinks but only with elevated privileges, so
+/// it is treated as not supporting symlinks.
+pub fn readSmallFile(dir: fs.Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
+    if (std.Target.current.os.tag == .windows) {
+        return dir.readFile(sub_path, buffer);
+    } else {
+        return dir.readLink(sub_path, buffer);
+    }
+}
+
+/// On operating systems that support symlinks, does a symlink. On other operating systems,
+/// uses the file contents. Windows supports symlinks but only with elevated privileges, so
+/// it is treated as not supporting symlinks.
+/// `data` must be a valid UTF-8 encoded file path and 255 bytes or fewer.
+pub fn writeSmallFile(dir: fs.Dir, sub_path: []const u8, data: []const u8) !void {
+    assert(data.len <= 255);
+    if (std.Target.current.os.tag == .windows) {
+        return dir.writeFile(sub_path, data);
+    } else {
+        return dir.symLink(data, sub_path, .{});
+    }
+}
+
 fn hashFile(file: fs.File, bin_digest: []u8) !void {
     var buf: [1024]u8 = undefined;
 

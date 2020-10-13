@@ -310,8 +310,12 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         digest = man.final();
 
         var prev_digest_buf: [digest.len]u8 = undefined;
-        const prev_digest: []u8 = directory.handle.readLink(id_symlink_basename, &prev_digest_buf) catch |err| blk: {
-            log.debug("WASM LLD new_digest={} readlink error: {}", .{ digest, @errorName(err) });
+        const prev_digest: []u8 = Cache.readSmallFile(
+            directory.handle,
+            id_symlink_basename,
+            &prev_digest_buf,
+        ) catch |err| blk: {
+            log.debug("WASM LLD new_digest={} error: {}", .{ digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
@@ -374,7 +378,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
         try argv.append(p);
     }
 
-    if (self.base.options.output_mode == .Exe and !self.base.options.is_compiler_rt_or_libc) {
+    if (self.base.options.output_mode != .Obj and !self.base.options.is_compiler_rt_or_libc) {
         if (!self.base.options.link_libc) {
             try argv.append(comp.libc_static_lib.?.full_object_path);
         }
@@ -424,9 +428,9 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
     }
 
     if (!self.base.options.disable_lld_caching) {
-        // Update the dangling symlink with the digest. If it fails we can continue; it only
+        // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
-        directory.handle.symLink(&digest, id_symlink_basename, .{}) catch |err| {
+        Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
             std.log.warn("failed to save linking hash digest symlink: {}", .{@errorName(err)});
         };
         // Again failure here only means an unnecessary cache miss.

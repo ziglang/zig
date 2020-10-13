@@ -123,14 +123,14 @@ pub fn cannotDynamicLink(target: std.Target) bool {
 /// since this is the stable syscall interface.
 pub fn osRequiresLibC(target: std.Target) bool {
     return switch (target.os.tag) {
-        .freebsd, .netbsd, .dragonfly, .macosx, .ios, .watchos, .tvos => true,
+        .freebsd, .netbsd, .dragonfly, .macos, .ios, .watchos, .tvos => true,
         else => false,
     };
 }
 
 pub fn libcNeedsLibUnwind(target: std.Target) bool {
     return switch (target.os.tag) {
-        .macosx,
+        .macos,
         .ios,
         .watchos,
         .tvos,
@@ -197,7 +197,7 @@ pub fn osToLLVM(os_tag: std.Target.Os.Tag) llvm.OSType {
         .kfreebsd => .KFreeBSD,
         .linux => .Linux,
         .lv2 => .Lv2,
-        .macosx => .MacOSX,
+        .macos => .MacOSX,
         .netbsd => .NetBSD,
         .openbsd => .OpenBSD,
         .solaris => .Solaris,
