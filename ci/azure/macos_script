@@ -3,8 +3,6 @@
 set -x
 set -e
 
-system_profiler SPHardwareDataType
-
 brew install s3cmd gcc@10
 
 ZIGDIR="$(pwd)"
@@ -33,7 +31,7 @@ git config core.abbrev 9
 
 mkdir build
 cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_INSTALL_PREFIX=$(pwd)/release -DZIG_STATIC=ON
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_INSTALL_PREFIX=$(pwd)/release -DZIG_STATIC=ON -DZIG_TARGET_TRIPLE=x86_64-macos.10.15.7-gnu
 make $JOBS install
 release/bin/zig build test
 
