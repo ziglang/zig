@@ -45,6 +45,7 @@ pub const Builder = struct {
     verbose_llvm_ir: bool,
     verbose_cimport: bool,
     verbose_llvm_cpu_features: bool,
+    verbose_build: bool,
     invalid_user_input: bool,
     zig_exe: []const u8,
     default_step: *Step,
@@ -143,6 +144,7 @@ pub const Builder = struct {
             .verbose_llvm_ir = false,
             .verbose_cimport = false,
             .verbose_llvm_cpu_features = false,
+            .verbose_build = false,
             .invalid_user_input = false,
             .allocator = allocator,
             .user_input_options = UserInputOptionsMap.init(allocator),
@@ -812,15 +814,18 @@ pub const Builder = struct {
         switch (term) {
             .Exited => |code| {
                 if (code != 0) {
-                    warn("The following command exited with error code {}:\n", .{code});
-                    printCmd(cwd, argv);
+                    if(self.verbose_build) {
+                        warn("The following command exited with error code {}:\n", .{code});
+                        printCmd(cwd, argv);
+                    }
                     return error.UncleanExit;
                 }
             },
             else => {
-                warn("The following command terminated unexpectedly:\n", .{});
-                printCmd(cwd, argv);
-
+                if(self.verbose_build) {
+                    warn("The following command terminated unexpectedly:\n", .{});
+                    printCmd(cwd, argv);
+                }
                 return error.UncleanExit;
             },
         }
@@ -1021,20 +1026,26 @@ pub const Builder = struct {
         return self.execAllowFail(argv, &code, .Inherit) catch |err| switch (err) {
             error.FileNotFound => {
                 if (src_step) |s| warn("{}...", .{s.name});
-                warn("Unable to spawn the following command: file not found\n", .{});
-                printCmd(null, argv);
+                if(self.verbose_build) {
+                    warn("Unable to spawn the following command: file not found\n", .{});
+                    printCmd(null, argv);
+                }
                 std.os.exit(@truncate(u8, code));
             },
             error.ExitCodeFailure => {
                 if (src_step) |s| warn("{}...", .{s.name});
-                warn("The following command exited with error code {}:\n", .{code});
-                printCmd(null, argv);
+                if(self.verbose_build) {
+                    warn("The following command exited with error code {}:\n", .{code});
+                    printCmd(null, argv);
+                }
                 std.os.exit(@truncate(u8, code));
             },
             error.ProcessTerminated => {
                 if (src_step) |s| warn("{}...", .{s.name});
-                warn("The following command terminated unexpectedly:\n", .{});
-                printCmd(null, argv);
+                if(self.verbose_build) {
+                    warn("The following command terminated unexpectedly:\n", .{});
+                    printCmd(null, argv);
+                }
                 std.os.exit(@truncate(u8, code));
             },
             else => |e| return e,
