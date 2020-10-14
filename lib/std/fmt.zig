@@ -510,7 +510,7 @@ pub fn formatType(
                     for (value) |one| {
                         if (i == value.len - 1) {
                             try format(writer, "{}", .{one});
-                        } else{ 
+                        } else { 
                             try format(writer, "{}, ", .{one});
                         }
                         i += 1;
