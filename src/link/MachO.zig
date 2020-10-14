@@ -116,7 +116,9 @@ global_symbols: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 /// Table of all undefined symbols
 undef_symbols: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 
+local_symbol_free_list: std.ArrayListUnmanaged(u32) = .{},
 global_symbol_free_list: std.ArrayListUnmanaged(u32) = .{},
+offset_table_free_list: std.ArrayListUnmanaged(u32) = .{},
 
 dyld_stub_binder_index: ?u16 = null,
 
@@ -131,7 +133,25 @@ offset_table: std.ArrayListUnmanaged(u64) = .{},
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 
 cmd_table_dirty: bool = false,
+dylinker_cmd_dirty: bool = false,
+libsystem_cmd_dirty: bool = false,
 
+/// A list of text blocks that have surplus capacity. This list can have false
+/// positives, as functions grow and shrink over time, only sometimes being added
+/// or removed from the freelist.
+///
+/// A text block has surplus capacity when its overcapacity value is greater than
+/// minimum_text_block_size * alloc_num / alloc_den. That is, when it has so
+/// much extra capacity, that we could fit a small new symbol in it, itself with
+/// ideal_capacity or more.
+///
+/// Ideal capacity is defined by size * alloc_num / alloc_den.
+///
+/// Overcapacity is measured by actual_capacity - ideal_capacity. Note that
+/// overcapacity can be negative. A simple way to have negative overcapacity is to
+/// allocate a fresh text block, which will have ideal capacity, and then grow it
+/// by 1 byte. It will then have -1 overcapacity.
+text_block_free_list: std.ArrayListUnmanaged(*TextBlock) = .{},
 /// Pointer to the last allocated text block
 last_text_block: ?*TextBlock = null,
 
@@ -152,6 +172,12 @@ const DEFAULT_LIB_SEARCH_PATH: []const u8 = "/usr/lib";
 const LIB_SYSTEM_NAME: [*:0]const u8 = "System";
 /// TODO we should search for libSystem and fail if it doesn't exist, instead of hardcoding it
 const LIB_SYSTEM_PATH: [*:0]const u8 = DEFAULT_LIB_SEARCH_PATH ++ "/libSystem.B.dylib";
+
+/// In order for a slice of bytes to be considered eligible to keep metadata pointing at
+/// it as a possible place to put new symbols, it must have enough room for this many bytes
+/// (plus extra for reserved capacity).
+const minimum_text_block_size = 64;
+const min_text_capacity = minimum_text_block_size * alloc_num / alloc_den;
 
 pub const TextBlock = struct {
     /// Each decl always gets a local symbol with the fully qualified name.
@@ -179,6 +205,33 @@ pub const TextBlock = struct {
         .prev = null,
         .next = null,
     };
+
+    /// Returns how much room there is to grow in virtual address space.
+    /// File offset relocation happens transparently, so it is not included in
+    /// this calculation.
+    fn capacity(self: TextBlock, macho_file: MachO) u64 {
+        const self_sym = macho_file.local_symbols.items[self.local_sym_index];
+        if (self.next) |next| {
+            const next_sym = macho_file.local_symbols.items[next.local_sym_index];
+            return next_sym.n_value - self_sym.n_value;
+        } else {
+            // We are the last block.
+            // The capacity is limited only by virtual address space.
+            return std.math.maxInt(u64) - self_sym.n_value;
+        }
+    }
+
+    fn freeListEligible(self: TextBlock, macho_file: MachO) bool {
+        // No need to keep a free list node for the last block.
+        const next = self.next orelse return false;
+        const self_sym = macho_file.local_symbols.items[self.local_sym_index];
+        const next_sym = macho_file.local_symbols.items[next.local_sym_index];
+        const cap = next_sym.n_value - self_sym.n_value;
+        const ideal_cap = self.size * alloc_num / alloc_den;
+        if (cap <= ideal_cap) return false;
+        const surplus = cap - ideal_cap;
+        return surplus >= min_text_capacity;
+    }
 };
 
 pub const Export = struct {
@@ -267,14 +320,12 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         .Exe => {
             // Write export trie.
             try self.writeExportTrie();
-
             if (self.entry_addr) |addr| {
-                // Update LC_MAIN with entry offset
+                // Update LC_MAIN with entry offset.
                 const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                 const main_cmd = &self.load_commands.items[self.main_cmd_index.?].EntryPoint;
                 main_cmd.entryoff = addr - text_segment.vmaddr;
             }
-
             {
                 // Update dynamic symbol table.
                 const nlocals = @intCast(u32, self.local_symbols.items.len);
@@ -287,7 +338,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 dysymtab.iundefsym = nlocals + nglobals;
                 dysymtab.nundefsym = nundefs;
             }
-            {
+            if (self.dylinker_cmd_dirty) {
                 // Write path to dyld loader.
                 var off: usize = @sizeOf(macho.mach_header_64);
                 for (self.load_commands.items) |cmd| {
@@ -298,8 +349,9 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 off += cmd.name;
                 log.debug("writing LC_LOAD_DYLINKER path to dyld at 0x{x}\n", .{off});
                 try self.base.file.?.pwriteAll(mem.spanZ(DEFAULT_DYLD_PATH), off);
+                self.dylinker_cmd_dirty = false;
             }
-            {
+            if (self.libsystem_cmd_dirty) {
                 // Write path to libSystem.
                 var off: usize = @sizeOf(macho.mach_header_64);
                 for (self.load_commands.items) |cmd| {
@@ -310,13 +362,12 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 off += cmd.dylib.name;
                 log.debug("writing LC_LOAD_DYLIB path to libSystem at 0x{x}\n", .{off});
                 try self.base.file.?.pwriteAll(mem.spanZ(LIB_SYSTEM_PATH), off);
+                self.libsystem_cmd_dirty = false;
             }
         },
         .Obj => {},
         .Lib => return error.TODOImplementWritingLibFiles,
     }
-
-    if (self.cmd_table_dirty) try self.writeCmdHeaders();
 
     {
         // Update symbol table.
@@ -327,14 +378,23 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         symtab.nsyms = nlocals + nglobals + nundefs;
     }
 
+    if (self.cmd_table_dirty) {
+        try self.writeCmdHeaders();
+        try self.writeMachOHeader();
+        self.cmd_table_dirty = false;
+    }
+
     if (self.entry_addr == null and self.base.options.output_mode == .Exe) {
         log.debug("flushing. no_entry_point_found = true\n", .{});
         self.error_flags.no_entry_point_found = true;
     } else {
         log.debug("flushing. no_entry_point_found = false\n", .{});
         self.error_flags.no_entry_point_found = false;
-        try self.writeMachOHeader();
     }
+
+    assert(!self.cmd_table_dirty);
+    assert(!self.dylinker_cmd_dirty);
+    assert(!self.libsystem_cmd_dirty);
 }
 
 fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
@@ -720,14 +780,72 @@ fn darwinArchString(arch: std.Target.Cpu.Arch) []const u8 {
 }
 
 pub fn deinit(self: *MachO) void {
+    self.text_block_free_list.deinit(self.base.allocator);
     self.offset_table.deinit(self.base.allocator);
+    self.offset_table_free_list.deinit(self.base.allocator);
     self.string_table.deinit(self.base.allocator);
     self.undef_symbols.deinit(self.base.allocator);
     self.global_symbols.deinit(self.base.allocator);
     self.global_symbol_free_list.deinit(self.base.allocator);
     self.local_symbols.deinit(self.base.allocator);
+    self.local_symbol_free_list.deinit(self.base.allocator);
     self.sections.deinit(self.base.allocator);
     self.load_commands.deinit(self.base.allocator);
+}
+
+fn freeTextBlock(self: *MachO, text_block: *TextBlock) void {
+    var already_have_free_list_node = false;
+    {
+        var i: usize = 0;
+        // TODO turn text_block_free_list into a hash map
+        while (i < self.text_block_free_list.items.len) {
+            if (self.text_block_free_list.items[i] == text_block) {
+                _ = self.text_block_free_list.swapRemove(i);
+                continue;
+            }
+            if (self.text_block_free_list.items[i] == text_block.prev) {
+                already_have_free_list_node = true;
+            }
+            i += 1;
+        }
+    }
+    // TODO process free list for dbg info just like we do above for vaddrs
+
+    if (self.last_text_block == text_block) {
+        // TODO shrink the __text section size here
+        self.last_text_block = text_block.prev;
+    }
+
+    if (text_block.prev) |prev| {
+        prev.next = text_block.next;
+
+        if (!already_have_free_list_node and prev.freeListEligible(self.*)) {
+            // The free list is heuristics, it doesn't have to be perfect, so we can ignore
+            // the OOM here.
+            self.text_block_free_list.append(self.base.allocator, prev) catch {};
+        }
+    } else {
+        text_block.prev = null;
+    }
+
+    if (text_block.next) |next| {
+        next.prev = text_block.prev;
+    } else {
+        text_block.next = null;
+    }
+}
+
+fn shrinkTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64) void {
+    // TODO check the new capacity, and if it crosses the size threshold into a big enough
+    // capacity, insert a free list node for it.
+}
+
+fn growTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, alignment: u64) !u64 {
+    const sym = self.local_symbols.items[text_block.local_sym_index];
+    const align_ok = mem.alignBackwardGeneric(u64, sym.n_value, alignment) == sym.n_value;
+    const need_realloc = !align_ok or new_block_size > text_block.capacity(self.*);
+    if (!need_realloc) return sym.n_value;
+    return self.allocateTextBlock(text_block, new_block_size, alignment);
 }
 
 pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
@@ -736,12 +854,21 @@ pub fn allocateDeclIndexes(self: *MachO, decl: *Module.Decl) !void {
     try self.local_symbols.ensureCapacity(self.base.allocator, self.local_symbols.items.len + 1);
     try self.offset_table.ensureCapacity(self.base.allocator, self.offset_table.items.len + 1);
 
-    log.debug("allocating symbol index {} for {}\n", .{ self.local_symbols.items.len, decl.name });
-    decl.link.macho.local_sym_index = @intCast(u32, self.local_symbols.items.len);
-    _ = self.local_symbols.addOneAssumeCapacity();
+    if (self.local_symbol_free_list.popOrNull()) |i| {
+        log.debug("reusing symbol index {} for {}\n", .{ i, decl.name });
+        decl.link.macho.local_sym_index = i;
+    } else {
+        log.debug("allocating symbol index {} for {}\n", .{ self.local_symbols.items.len, decl.name });
+        decl.link.macho.local_sym_index = @intCast(u32, self.local_symbols.items.len);
+        _ = self.local_symbols.addOneAssumeCapacity();
+    }
 
-    decl.link.macho.offset_table_index = @intCast(u32, self.offset_table.items.len);
-    _ = self.offset_table.addOneAssumeCapacity();
+    if (self.offset_table_free_list.popOrNull()) |i| {
+        decl.link.macho.offset_table_index = i;
+    } else {
+        decl.link.macho.offset_table_index = @intCast(u32, self.offset_table.items.len);
+        _ = self.offset_table.addOneAssumeCapacity();
+    }
 
     self.local_symbols.items[decl.link.macho.local_sym_index] = .{
         .n_strx = 0,
@@ -774,24 +901,51 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     };
 
     const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
+    assert(decl.link.macho.local_sym_index != 0); // Caller forgot to call allocateDeclIndexes()
     const symbol = &self.local_symbols.items[decl.link.macho.local_sym_index];
 
-    const decl_name = mem.spanZ(decl.name);
-    const name_str_index = try self.makeString(decl_name);
-    const addr = try self.allocateTextBlock(&decl.link.macho, code.len, required_alignment);
-    log.debug("allocated text block for {} at 0x{x}\n", .{ decl_name, addr });
+    if (decl.link.macho.size != 0) {
+        const capacity = decl.link.macho.capacity(self.*);
+        const need_realloc = code.len > capacity or !mem.isAlignedGeneric(u64, symbol.n_value, required_alignment);
+        if (need_realloc) {
+            const vaddr = try self.growTextBlock(&decl.link.macho, code.len, required_alignment);
+            log.debug("growing {} from 0x{x} to 0x{x}\n", .{ decl.name, symbol.n_value, vaddr });
+            if (vaddr != symbol.n_value) {
+                symbol.n_value = vaddr;
 
-    symbol.* = .{
-        .n_strx = name_str_index,
-        .n_type = macho.N_SECT,
-        .n_sect = @intCast(u8, self.text_section_index.?) + 1,
-        .n_desc = 0,
-        .n_value = addr,
-    };
-    self.offset_table.items[decl.link.macho.offset_table_index] = addr;
+                log.debug(" (writing new offset table entry)\n", .{});
+                self.offset_table.items[decl.link.macho.offset_table_index] = vaddr;
+                try self.writeOffsetTableEntry(decl.link.macho.offset_table_index);
+            }
+        } else if (code.len < decl.link.macho.size) {
+            self.shrinkTextBlock(&decl.link.macho, code.len);
+        }
+        decl.link.macho.size = code.len;
+        symbol.n_strx = try self.updateString(symbol.n_strx, mem.spanZ(decl.name));
+        symbol.n_type = macho.N_SECT;
+        symbol.n_sect = @intCast(u8, self.text_section_index.?) + 1;
+        symbol.n_desc = 0;
+        // TODO this write could be avoided if no fields of the symbol were changed.
+        try self.writeSymbol(decl.link.macho.local_sym_index);
+    } else {
+        const decl_name = mem.spanZ(decl.name);
+        const name_str_index = try self.makeString(decl_name);
+        const addr = try self.allocateTextBlock(&decl.link.macho, code.len, required_alignment);
+        log.debug("allocated text block for {} at 0x{x}\n", .{ decl_name, addr });
+        errdefer self.freeTextBlock(&decl.link.macho);
 
-    try self.writeSymbol(decl.link.macho.local_sym_index);
-    try self.writeOffsetTableEntry(decl.link.macho.offset_table_index);
+        symbol.* = .{
+            .n_strx = name_str_index,
+            .n_type = macho.N_SECT,
+            .n_sect = @intCast(u8, self.text_section_index.?) + 1,
+            .n_desc = 0,
+            .n_value = addr,
+        };
+        self.offset_table.items[decl.link.macho.offset_table_index] = addr;
+
+        try self.writeSymbol(decl.link.macho.local_sym_index);
+        try self.writeOffsetTableEntry(decl.link.macho.offset_table_index);
+    }
 
     const text_section = self.sections.items[self.text_section_index.?];
     const section_offset = symbol.n_value - text_section.addr;
@@ -835,6 +989,7 @@ pub fn updateDeclExports(
             .Strong => blk: {
                 if (mem.eql(u8, exp.options.name, "_start")) {
                     self.entry_addr = decl_sym.n_value;
+                    self.cmd_table_dirty = true; // TODO This should be handled more granularly instead of invalidating all commands.
                 }
                 break :blk macho.REFERENCE_FLAG_DEFINED;
             },
@@ -883,7 +1038,18 @@ pub fn deleteExport(self: *MachO, exp: Export) void {
     self.global_symbols.items[sym_index].n_type = 0;
 }
 
-pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {}
+pub fn freeDecl(self: *MachO, decl: *Module.Decl) void {
+    // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
+    self.freeTextBlock(&decl.link.macho);
+    if (decl.link.macho.local_sym_index != 0) {
+        self.local_symbol_free_list.append(self.base.allocator, decl.link.macho.local_sym_index) catch {};
+        self.offset_table_free_list.append(self.base.allocator, decl.link.macho.offset_table_index) catch {};
+
+        self.local_symbols.items[decl.link.macho.local_sym_index].n_type = 0;
+
+        decl.link.macho.local_sym_index = 0;
+    }
+}
 
 pub fn getDeclVAddr(self: *MachO, decl: *const Module.Decl) u64 {
     assert(decl.link.macho.local_sym_index != 0);
@@ -965,6 +1131,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         text_segment.vmsize = file_size + off; // We add off here since __TEXT segment includes everything prior to __text section.
         text_segment.filesize = file_size + off;
+        self.cmd_table_dirty = true;
     }
     if (self.data_segment_cmd_index == null) {
         self.data_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
@@ -1017,6 +1184,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         data_segment.vmsize = segment_size;
         data_segment.filesize = segment_size;
         data_segment.fileoff = off;
+        self.cmd_table_dirty = true;
     }
     if (self.linkedit_segment_cmd_index == null) {
         self.linkedit_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
@@ -1112,6 +1280,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             },
         });
         self.cmd_table_dirty = true;
+        self.dylinker_cmd_dirty = true;
     }
     if (self.libsystem_cmd_index == null) {
         self.libsystem_cmd_index = @intCast(u16, self.load_commands.items.len);
@@ -1133,6 +1302,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             },
         });
         self.cmd_table_dirty = true;
+        self.libsystem_cmd_dirty = true;
     }
     if (self.main_cmd_index == null) {
         self.main_cmd_index = @intCast(u16, self.load_commands.items.len);
@@ -1205,18 +1375,61 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
     const text_section = &self.sections.items[self.text_section_index.?];
     const new_block_ideal_capacity = new_block_size * alloc_num / alloc_den;
 
+    // We use these to indicate our intention to update metadata, placing the new block,
+    // and possibly removing a free list node.
+    // It would be simpler to do it inside the for loop below, but that would cause a
+    // problem if an error was returned later in the function. So this action
+    // is actually carried out at the end of the function, when errors are no longer possible.
     var block_placement: ?*TextBlock = null;
-    const addr = blk: {
-        if (self.last_text_block) |last| {
+    var free_list_removal: ?usize = null;
+
+    // First we look for an appropriately sized free list node.
+    // The list is unordered. We'll just take the first thing that works.
+    const vaddr = blk: {
+        var i: usize = 0;
+        while (i < self.text_block_free_list.items.len) {
+            const big_block = self.text_block_free_list.items[i];
+            // We now have a pointer to a live text block that has too much capacity.
+            // Is it enough that we could fit this new text block?
+            const sym = self.local_symbols.items[big_block.local_sym_index];
+            const capacity = big_block.capacity(self.*);
+            const ideal_capacity = capacity * alloc_num / alloc_den;
+            const ideal_capacity_end_vaddr = sym.n_value + ideal_capacity;
+            const capacity_end_vaddr = sym.n_value + capacity;
+            const new_start_vaddr_unaligned = capacity_end_vaddr - new_block_ideal_capacity;
+            const new_start_vaddr = mem.alignBackwardGeneric(u64, new_start_vaddr_unaligned, alignment);
+            if (new_start_vaddr < ideal_capacity_end_vaddr) {
+                // Additional bookkeeping here to notice if this free list node
+                // should be deleted because the block that it points to has grown to take up
+                // more of the extra capacity.
+                if (!big_block.freeListEligible(self.*)) {
+                    _ = self.text_block_free_list.swapRemove(i);
+                } else {
+                    i += 1;
+                }
+                continue;
+            }
+            // At this point we know that we will place the new block here. But the
+            // remaining question is whether there is still yet enough capacity left
+            // over for there to still be a free list node.
+            const remaining_capacity = new_start_vaddr - ideal_capacity_end_vaddr;
+            const keep_free_list_node = remaining_capacity >= min_text_capacity;
+
+            // Set up the metadata to be updated, after errors are no longer possible.
+            block_placement = big_block;
+            if (!keep_free_list_node) {
+                free_list_removal = i;
+            }
+            break :blk new_start_vaddr;
+        } else if (self.last_text_block) |last| {
             const last_symbol = self.local_symbols.items[last.local_sym_index];
-            // TODO pad out with NOPs and reenable
-            // const ideal_capacity = last.size * alloc_num / alloc_den;
-            // const ideal_capacity_end_addr = last_symbol.n_value + ideal_capacity;
-            // const new_start_addr = mem.alignForwardGeneric(u64, ideal_capacity_end_addr, alignment);
-            const end_addr = last_symbol.n_value + last.size;
-            const new_start_addr = mem.alignForwardGeneric(u64, end_addr, alignment);
+            // TODO We should pad out the excess capacity with NOPs. For executables,
+            // no padding seems to be OK, but it will probably not be for objects.
+            const ideal_capacity = last.size * alloc_num / alloc_den;
+            const ideal_capacity_end_vaddr = last_symbol.n_value + ideal_capacity;
+            const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, alignment);
             block_placement = last;
-            break :blk new_start_addr;
+            break :blk new_start_vaddr;
         } else {
             break :blk text_section.addr;
         }
@@ -1225,11 +1438,13 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
     const expand_text_section = block_placement == null or block_placement.?.next == null;
     if (expand_text_section) {
         const text_capacity = self.allocatedSize(text_section.offset);
-        const needed_size = (addr + new_block_size) - text_section.addr;
-        assert(needed_size <= text_capacity); // TODO handle growth
+        const needed_size = (vaddr + new_block_size) - text_section.addr;
+        assert(needed_size <= text_capacity); // TODO must move the entire text section.
 
         self.last_text_block = text_block;
-        text_section.size = needed_size; // TODO temp until we pad out with NOPs
+        text_section.size = needed_size;
+
+        self.cmd_table_dirty = true; // TODO Make more granular.
     }
     text_block.size = new_block_size;
 
@@ -1248,8 +1463,11 @@ fn allocateTextBlock(self: *MachO, text_block: *TextBlock, new_block_size: u64, 
         text_block.prev = null;
         text_block.next = null;
     }
+    if (free_list_removal) |i| {
+        _ = self.text_block_free_list.swapRemove(i);
+    }
 
-    return addr;
+    return vaddr;
 }
 
 fn makeStaticString(comptime bytes: []const u8) [16]u8 {
@@ -1479,7 +1697,7 @@ fn writeCmdHeaders(self: *MachO) !void {
             return error.TODOImplementWritingObjFiles;
         };
         const idx = self.text_section_index.?;
-        log.debug("writing text section {} at 0x{x}\n", .{ self.sections.items[idx .. idx + 1], off });
+        log.debug("writing text section header at 0x{x}\n", .{off});
         try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.sections.items[idx .. idx + 1]), off);
     }
     {
@@ -1497,7 +1715,7 @@ fn writeCmdHeaders(self: *MachO) !void {
             return error.TODOImplementWritingObjFiles;
         };
         const idx = self.got_section_index.?;
-        log.debug("writing got section {} at 0x{x}\n", .{ self.sections.items[idx .. idx + 1], off });
+        log.debug("writing got section header at 0x{x}\n", .{off});
         try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.sections.items[idx .. idx + 1]), off);
     }
 }
