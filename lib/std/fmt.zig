@@ -456,6 +456,18 @@ pub fn formatType(
                 }
                 if (ptr_info.child == u8) {
                     return formatText(value, fmt, options, writer);
+                } else if (fmt.len > 0 and ((fmt[0] == 'v') or (fmt[0] == 'V'))) {
+                    try format(writer, "[", .{});
+                    var i: usize = 0;
+                    for (value) |one| {
+                        if (i == value.len - 1) {
+                            try format(writer, "{}", .{one});
+                        } else{ 
+                            try format(writer, "{}, ", .{one});
+                        }
+                        i += 1;
+                    }
+                    return format(writer, "]", .{});
                 }
                 return format(writer, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value.ptr) });
             },
