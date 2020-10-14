@@ -2631,8 +2631,8 @@ fn fmtPathFile(
     if (check_mode) {
         const anything_changed = try std.zig.render(fmt.gpa, io.null_out_stream, tree);
         if (anything_changed) {
-            // TODO this should output to stdout instead of stderr.
-            std.debug.print("{}\n", .{file_path});
+            const stdout = io.getStdOut().writer();
+            try stdout.print("{}\n", .{file_path});
             fmt.any_error = true;
         }
     } else {
@@ -2649,8 +2649,8 @@ fn fmtPathFile(
 
         try af.file.writeAll(fmt.out_buffer.items);
         try af.finish();
-        // TODO this should output to stdout instead of stderr.
-        std.debug.print("{}\n", .{file_path});
+        const stdout = io.getStdOut().writer();
+        try stdout.print("{}\n", .{file_path});
     }
 }
 
