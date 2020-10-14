@@ -120,6 +120,39 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         fatal("expected command argument", .{});
     }
 
+    if (std.Target.current.os.tag != .windows and
+        std.os.getenvZ("ZIG_IS_DETECTING_LIBC_PATHS") != null)
+    {
+        // In this case we have accidentally invoked ourselves as "the system C compiler"
+        // to figure out where libc is installed. This is essentially infinite recursion
+        // via child process execution due to the CC environment variable pointing to Zig.
+        // Here we ignore the CC environment variable and exec `cc` as a child process.
+        // However it's possible Zig is installed as *that* C compiler as well, which is
+        // why we have this additional environment variable here to check.
+        var env_map = try std.process.getEnvMap(arena);
+
+        const inf_loop_env_key = "ZIG_IS_TRYING_TO_NOT_CALL_ITSELF";
+        if (env_map.get(inf_loop_env_key) != null) {
+            fatal("The compilation links against libc, but Zig is unable to provide a libc " ++
+                "for this operating system, and no --libc " ++
+                "parameter was provided, so Zig attempted to invoke the system C compiler " ++
+                "in order to determine where libc is installed. However the system C " ++
+                "compiler is `zig cc`, so no libc installation was found.", .{});
+        }
+        try env_map.set(inf_loop_env_key, "1");
+
+        // Some programs such as CMake will strip the `cc` and subsequent args from the
+        // CC environment variable. We detect and support this scenario here because of
+        // the ZIG_IS_DETECTING_LIBC_PATHS environment variable.
+        if (mem.eql(u8, args[1], "cc")) {
+            return std.os.execvpe(arena, args[1..], &env_map);
+        } else {
+            const modified_args = try arena.dupe([]const u8, args);
+            modified_args[0] = "cc";
+            return std.os.execvpe(arena, modified_args, &env_map);
+        }
+    }
+
     const cmd = args[1];
     const cmd_args = args[2..];
     if (mem.eql(u8, cmd, "build-exe")) {
@@ -444,7 +477,10 @@ fn buildOutputType(
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
     var each_lib_rpath: ?bool = null;
-    var libc_paths_file: ?[]const u8 = null;
+    var libc_paths_file: ?[]const u8 = std.process.getEnvVarOwned(arena, "ZIG_LIBC") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => |e| return e,
+    };
     var machine_code_model: std.builtin.CodeModel = .default;
     var runtime_args_start: ?usize = null;
     var test_filter: ?[]const u8 = null;
