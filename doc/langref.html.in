@@ -2839,81 +2839,81 @@ const mem = @import("std").mem;
 
 // Declare an enum.
 const Type = enum {
-    Ok,
-    NotOk,
+    ok,
+    not_ok,
 };
 
 // Declare a specific instance of the enum variant.
-const c = Type.Ok;
+const c = Type.ok;
 
 // If you want access to the ordinal value of an enum, you
 // can specify the tag type.
 const Value = enum(u2) {
-    Zero,
-    One,
-    Two,
+    zero,
+    one,
+    two,
 };
 
 // Now you can cast between u2 and Value.
 // The ordinal value starts from 0, counting up for each member.
 test "enum ordinal value" {
-    assert(@enumToInt(Value.Zero) == 0);
-    assert(@enumToInt(Value.One) == 1);
-    assert(@enumToInt(Value.Two) == 2);
+    assert(@enumToInt(Value.zero) == 0);
+    assert(@enumToInt(Value.one) == 1);
+    assert(@enumToInt(Value.two) == 2);
 }
 
 // You can override the ordinal value for an enum.
 const Value2 = enum(u32) {
-    Hundred = 100,
-    Thousand = 1000,
-    Million = 1000000,
+    hundred = 100,
+    thousand = 1000,
+    million = 1000000,
 };
 test "set enum ordinal value" {
-    assert(@enumToInt(Value2.Hundred) == 100);
-    assert(@enumToInt(Value2.Thousand) == 1000);
-    assert(@enumToInt(Value2.Million) == 1000000);
+    assert(@enumToInt(Value2.hundred) == 100);
+    assert(@enumToInt(Value2.thousand) == 1000);
+    assert(@enumToInt(Value2.million) == 1000000);
 }
 
 // Enums can have methods, the same as structs and unions.
 // Enum methods are not special, they are only namespaced
 // functions that you can call with dot syntax.
 const Suit = enum {
-    Clubs,
-    Spades,
-    Diamonds,
-    Hearts,
+    clubs,
+    spades,
+    diamonds,
+    hearts,
 
     pub fn isClubs(self: Suit) bool {
-        return self == Suit.Clubs;
+        return self == Suit.clubs;
     }
 };
 test "enum method" {
-    const p = Suit.Spades;
+    const p = Suit.spades;
     assert(!p.isClubs());
 }
 
 // An enum variant of different types can be switched upon.
 const Foo = enum {
-    String,
-    Number,
-    None,
+    string,
+    number,
+    none,
 };
 test "enum variant switch" {
-    const p = Foo.Number;
+    const p = Foo.number;
     const what_is_it = switch (p) {
-        Foo.String => "this is a string",
-        Foo.Number => "this is a number",
-        Foo.None => "this is a none",
+        Foo.string => "this is a string",
+        Foo.number => "this is a number",
+        Foo.none => "this is a none",
     };
     assert(mem.eql(u8, what_is_it, "this is a number"));
 }
 
 // @TagType can be used to access the integer tag type of an enum.
 const Small = enum {
-    One,
-    Two,
-    Three,
-    Four,
+    one,
+    two,
+    three,
+    four,
 };
 test "@TagType" {
     assert(@TagType(Small) == u2);
@@ -2922,12 +2922,12 @@ test "@TagType" {
 // @typeInfo tells us the field count and the fields names:
 test "@typeInfo" {
     assert(@typeInfo(Small).Enum.fields.len == 4);
-    assert(mem.eql(u8, @typeInfo(Small).Enum.fields[1].name, "Two"));
+    assert(mem.eql(u8, @typeInfo(Small).Enum.fields[1].name, "two"));
 }
 
 // @tagName gives a []const u8 representation of an enum value:
 test "@tagName" {
-    assert(mem.eql(u8, @tagName(Small.Three), "Three"));
+    assert(mem.eql(u8, @tagName(Small.three), "three"));
 }
       {#code_end#}
       {#see_also|@typeInfo|@tagName|@sizeOf#}
@@ -2937,14 +2937,14 @@ test "@tagName" {
       By default, enums are not guaranteed to be compatible with the C ABI:
       </p>
       {#code_begin|obj_err|parameter of type 'Foo' not allowed in function with calling convention 'C'#}
-const Foo = enum { A, B, C };
+const Foo = enum { a, b, c };
 export fn entry(foo: Foo) void { }
       {#code_end#}
       <p>
       For a C-ABI-compatible enum, use {#syntax#}extern enum{#endsyntax#}:
       </p>
       {#code_begin|obj#}
-const Foo = extern enum { A, B, C };
+const Foo = extern enum { a, b, c };
 export fn entry(foo: Foo) void { }
       {#code_end#}
       {#header_close#}
@@ -2958,9 +2958,9 @@ const std = @import("std");
 
 test "packed enum" {
     const Number = packed enum(u8) {
-        One,
-        Two,
-        Three,
+        one,
+        two,
+        three,
     };
     std.debug.assert(@sizeOf(Number) == @sizeOf(u8));
 }
@@ -2977,23 +2977,23 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const Color = enum {
-    Auto,
-    Off,
-    On,
+    auto,
+    off,
+    on,
 };
 
 test "enum literals" {
-    const color1: Color = .Auto;
-    const color2 = Color.Auto;
+    const color1: Color = .auto;
+    const color2 = Color.auto;
     assert(color1 == color2);
 }
 
 test "switch using enum literals" {
-    const color = Color.On;
+    const color = Color.on;
     const result = switch (color) {
-        .Auto => false,
-        .On => true,
-        .Off => false,
+        .auto => false,
+        .on => true,
+        .off => false,
     };
     assert(result);
 }
@@ -3017,23 +3017,23 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const Number = enum(u8) {
-    One,
-    Two,
-    Three,
+    one,
+    two,
+    three,
     _,
 };
 
 test "switch on non-exhaustive enum" {
-    const number = Number.One;
+    const number = Number.one;
     const result = switch (number) {
-        .One => true,
-        .Two,
-        .Three => false,
+        .one => true,
+        .two,
+        .three => false,
         _ => false,
     };
     assert(result);
     const is_one = switch (number) {
-        .One => true,
+        .one => true,
         else => false,
     };
     assert(is_one);
@@ -3055,13 +3055,13 @@ test "switch on non-exhaustive enum" {
       </p>
       {#code_begin|test_err|inactive union field#}
 const Payload = union {
-    Int: i64,
-    Float: f64,
-    Bool: bool,
+    int: i64,
+    float: f64,
+    boolean: bool,
 };
 test "simple union" {
-    var payload = Payload{ .Int = 1234 };
-    payload.Float = 12.34;
+    var payload = Payload{ .int = 1234 };
+    payload.float = 12.34;
 }
       {#code_end#}
       <p>You can activate another field by assigning the entire union:</p>
@@ -3070,15 +3070,15 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const Payload = union {
-    Int: i64,
-    Float: f64,
-    Bool: bool,
+    int: i64,
+    float: f64,
+    boolean: bool,
 };
 test "simple union" {
-    var payload = Payload{ .Int = 1234 };
-    assert(payload.Int == 1234);
-    payload = Payload{ .Float = 12.34 };
-    assert(payload.Float == 12.34);
+    var payload = Payload{ .int = 1234 };
+    assert(payload.int == 1234);
+    payload = Payload{ .float = 12.34 };
+    assert(payload.float == 12.34);
 }
       {#code_end#}
       <p>
@@ -3100,21 +3100,21 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const ComplexTypeTag = enum {
-    Ok,
-    NotOk,
+    ok,
+    not_ok,
 };
 const ComplexType = union(ComplexTypeTag) {
-    Ok: u8,
-    NotOk: void,
+    ok: u8,
+    not_ok: void,
 };
 
 test "switch on tagged union" {
-    const c = ComplexType{ .Ok = 42 };
-    assert(@as(ComplexTypeTag, c) == ComplexTypeTag.Ok);
+    const c = ComplexType{ .ok = 42 };
+    assert(@as(ComplexTypeTag, c) == ComplexTypeTag.ok);
 
     switch (c) {
-        ComplexTypeTag.Ok => |value| assert(value == 42),
-        ComplexTypeTag.NotOk => unreachable,
+        ComplexTypeTag.ok => |value| assert(value == 42),
+        ComplexTypeTag.not_ok => unreachable,
     }
 }
 
@@ -3123,11 +3123,11 @@ test "@TagType" {
 }
 
 test "coerce to enum" {
-    const c1 = ComplexType{ .Ok = 42 };
-    const c2 = ComplexType.NotOk;
+    const c1 = ComplexType{ .ok = 42 };
+    const c2 = ComplexType.not_ok;
 
-    assert(c1 == .Ok);
-    assert(c2 == .NotOk);
+    assert(c1 == .ok);
+    assert(c2 == .not_ok);
 }
       {#code_end#}
       <p>In order to modify the payload of a tagged union in a switch expression,
@@ -3138,24 +3138,24 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const ComplexTypeTag = enum {
-    Ok,
-    NotOk,
+    ok,
+    not_ok,
 };
 const ComplexType = union(ComplexTypeTag) {
-    Ok: u8,
-    NotOk: void,
+    ok: u8,
+    not_ok: void,
 };
 
 test "modify tagged union in switch" {
-    var c = ComplexType{ .Ok = 42 };
-    assert(@as(ComplexTypeTag, c) == ComplexTypeTag.Ok);
+    var c = ComplexType{ .ok = 42 };
+    assert(@as(ComplexTypeTag, c) == ComplexTypeTag.ok);
 
     switch (c) {
-        ComplexTypeTag.Ok => |*value| value.* += 1,
-        ComplexTypeTag.NotOk => unreachable,
+        ComplexTypeTag.ok => |*value| value.* += 1,
+        ComplexTypeTag.not_ok => unreachable,
     }
 
-    assert(c.Ok == 43);
+    assert(c.ok == 43);
 }
       {#code_end#}
       <p>
@@ -3167,24 +3167,24 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const Variant = union(enum) {
-    Int: i32,
-    Bool: bool,
+    int: i32,
+    boolean: bool,
 
     // void can be omitted when inferring enum tag type.
-    None,
+    none,
 
     fn truthy(self: Variant) bool {
         return switch (self) {
-            Variant.Int => |x_int| x_int != 0,
-            Variant.Bool => |x_bool| x_bool,
-            Variant.None => false,
+            Variant.int => |x_int| x_int != 0,
+            Variant.boolean => |x_bool| x_bool,
+            Variant.none => false,
         };
     }
 };
 
 test "union method" {
-    var v1 = Variant{ .Int = 1 };
-    var v2 = Variant{ .Bool = false };
+    var v1 = Variant{ .int = 1 };
+    var v2 = Variant{ .boolean = false };
 
     assert(v1.truthy());
     assert(!v2.truthy());
@@ -3199,12 +3199,12 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const Small2 = union(enum) {
-    A: i32,
-    B: bool,
-    C: u8,
+    a: i32,
+    b: bool,
+    c: u8,
 };
 test "@tagName" {
-    assert(std.mem.eql(u8, @tagName(Small2.C), "C"));
+    assert(std.mem.eql(u8, @tagName(Small2.a), "a"));
 }
       {#code_end#}
       {#header_close#}
@@ -3392,33 +3392,33 @@ test "switch on tagged union" {
         y: u8,
     };
     const Item = union(enum) {
-        A: u32,
-        C: Point,
-        D,
-        E: u32,
+        a: u32,
+        c: Point,
+        d,
+        e: u32,
     };
 
-    var a = Item{ .C = Point{ .x = 1, .y = 2 } };
+    var a = Item{ .c = Point{ .x = 1, .y = 2 } };
 
     // Switching on more complex enums is allowed.
     const b = switch (a) {
         // A capture group is allowed on a match, and will return the enum
         // value matched. If the payload types of both cases are the same
         // they can be put into the same switch prong.
-        Item.A, Item.E => |item| item,
+        Item.a, Item.e => |item| item,
 
         // A reference to the matched value can be obtained using `*` syntax.
-        Item.C => |*item| blk: {
+        Item.c => |*item| blk: {
             item.*.x += 1;
             break :blk 6;
         },
 
         // No else is required if the types cases was exhaustively handled
-        Item.D => 8,
+        Item.d => 8,
     };
 
     assert(b == 6);
-    assert(a.C.x == 2);
+    assert(a.c.x == 2);
 }
       {#code_end#}
       {#see_also|comptime|enum|@compileError|Compile Variables#}
@@ -3430,16 +3430,16 @@ test "switch on tagged union" {
       </p>
       {#code_begin|test_err|not handled in switch#}
 const Color = enum {
-    Auto,
-    Off,
-    On,
+    auto,
+    off,
+    on,
 };
 
 test "exhaustive switching" {
-    const color = Color.Off;
+    const color = Color.off;
     switch (color) {
-        Color.Auto => {},
-        Color.On => {},
+        Color.auto => {},
+        Color.on => {},
     }
 }
       {#code_end#}
@@ -3455,17 +3455,17 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const Color = enum {
-    Auto,
-    Off,
-    On,
+    auto,
+    off,
+    on,
 };
 
 test "enum literals with switch" {
-    const color = Color.Off;
+    const color = Color.off;
     const result = switch (color) {
-        .Auto => false,
-        .On => false,
-        .Off => true,
+        .auto => false,
+        .on => false,
+        .off => true,
     };
     assert(result);
 }
@@ -5302,25 +5302,25 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const E = enum {
-    One,
-    Two,
-    Three,
+    one,
+    two,
+    three,
 };
 
 const U = union(E) {
-    One: i32,
-    Two: f32,
-    Three,
+    one: i32,
+    two: f32,
+    three,
 };
 
 test "coercion between unions and enums" {
-    var u = U{ .Two = 12.34 };
+    var u = U{ .two = 12.34 };
     var e: E = u;
-    assert(e == E.Two);
+    assert(e == E.two);
 
-    const three = E.Three;
+    const three = E.three;
     var another_u: U = three;
-    assert(another_u == E.Three);
+    assert(another_u == E.three);
 }
       {#code_end#}
       {#see_also|union|enum#}
@@ -6096,44 +6096,44 @@ pub fn main() void {
 /// Calls print and then flushes the buffer.
 pub fn printf(self: *OutStream, comptime format: []const u8, args: anytype) anyerror!void {
     const State = enum {
-        Start,
-        OpenBrace,
-        CloseBrace,
+        start,
+        open_brace,
+        close_brace,
     };
 
     comptime var start_index: usize = 0;
-    comptime var state = State.Start;
+    comptime var state = State.start;
     comptime var next_arg: usize = 0;
 
     inline for (format) |c, i| {
         switch (state) {
-            State.Start => switch (c) {
+            State.start => switch (c) {
                 '{' => {
                     if (start_index < i) try self.write(format[start_index..i]);
-                    state = State.OpenBrace;
+                    state = State.open_brace;
                 },
                 '}' => {
                     if (start_index < i) try self.write(format[start_index..i]);
-                    state = State.CloseBrace;
+                    state = State.close_brace;
                 },
                 else => {},
             },
-            State.OpenBrace => switch (c) {
+            State.open_brace => switch (c) {
                 '{' => {
-                    state = State.Start;
+                    state = State.start;
                     start_index = i;
                 },
                 '}' => {
                     try self.printValue(args[next_arg]);
                     next_arg += 1;
-                    state = State.Start;
+                    state = State.start;
                     start_index = i + 1;
                 },
                 else => @compileError("Unknown format character: " ++ c),
             },
-            State.CloseBrace => switch (c) {
+            State.close_brace => switch (c) {
                 '}' => {
-                    state = State.Start;
+                    state = State.start;
                     start_index = i;
                 },
                 else => @compileError("Single '}' encountered in format string"),
@@ -9069,9 +9069,9 @@ pub fn main() void {
       <p>At compile-time:</p>
       {#code_begin|test_err|has no tag matching integer value 3#}
 const Foo = enum {
-    A,
-    B,
-    C,
+    a,
+    b,
+    c,
 };
 comptime {
     const a: u2 = 3;
@@ -9083,9 +9083,9 @@ comptime {
 const std = @import("std");
 
 const Foo = enum {
-    A,
-    B,
-    C,
+    a,
+    b,
+    c,
 };
 
 pub fn main() void {
