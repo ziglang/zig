@@ -18804,9 +18804,12 @@ static IrInstGen *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstSrcDeclV
     case ReqCompTimeYes:
         var_class_requires_const = true;
         if (!var->gen_is_const && !is_comptime_var) {
-            ir_add_error_node(ira, source_node,
+            ErrorMsg *msg = ir_add_error_node(ira, source_node,
                 buf_sprintf("variable of type '%s' must be const or comptime",
                     buf_ptr(&result_type->name)));
+            if(result_type->id == ZigTypeIdComptimeInt || result_type -> id == ZigTypeIdComptimeFloat) {
+                add_error_note(ira->codegen, msg, source_node, buf_sprintf("to modify this variable at runtime, it must be given an explicit fixed-size number type"));
+            }
             result_type = ira->codegen->builtin_types.entry_invalid;
         }
         break;
