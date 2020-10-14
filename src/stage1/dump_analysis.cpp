@@ -1054,6 +1054,13 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
             anal_dump_type_ref(ctx, ty->data.vector.elem_type);
             break;
         }
+        case ZigTypeIdAnyFrame: {
+            if (ty->data.any_frame.result_type != nullptr) {
+                jw_object_field(jw, "result");
+                anal_dump_type_ref(ctx, ty->data.any_frame.result_type);
+            }
+            break;
+        }
         case ZigTypeIdInvalid:
             zig_unreachable();
         default:
