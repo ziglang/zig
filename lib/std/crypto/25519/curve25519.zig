@@ -39,6 +39,11 @@ pub const Curve25519 = struct {
         }
     }
 
+    /// Multiply a point by the cofactor
+    pub fn clearCofactor(p: Edwards25519) Edwards25519 {
+        return p.dbl().dbl().dbl();
+    }
+
     fn ladder(p: Curve25519, s: [32]u8, comptime bits: usize) !Curve25519 {
         var x1 = p.x;
         var x2 = Fe.one;

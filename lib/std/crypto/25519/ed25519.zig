@@ -97,6 +97,7 @@ pub const Ed25519 = struct {
         try Curve.rejectNonCanonical(public_key);
         const a = try Curve.fromBytes(public_key);
         try a.rejectIdentity();
+        const expected_r = try Curve.fromBytes(r.*);
 
         var h = Sha512.init(.{});
         h.update(r);
@@ -106,11 +107,11 @@ pub const Ed25519 = struct {
         h.final(&hram64);
         const hram = Curve.scalar.reduce64(hram64);
 
-        const p = try a.neg().mul(hram);
-        const check = (try Curve.basePoint.mul(s.*)).add(p).toBytes();
-        if (mem.eql(u8, &check, r) == false) {
+        const ah = try a.neg().mul(hram);
+        const sb_ah = (try Curve.basePoint.mul(s.*)).add(ah);
+        if (expected_r.sub(sb_ah).clearCofactor().rejectIdentity()) |_| {
             return error.InvalidSignature;
-        }
+        } else |_| {}
     }
 };
 

@@ -73,6 +73,11 @@ pub const Edwards25519 = struct {
         }
     }
 
+    /// Multiply a point by the cofactor
+    pub fn clearCofactor(p: Edwards25519) Edwards25519 {
+        return p.dbl().dbl().dbl();
+    }
+
     /// Flip the sign of the X coordinate.
     pub inline fn neg(p: Edwards25519) Edwards25519 {
         return .{ .x = p.x.neg(), .y = p.y, .z = p.z, .t = p.t.neg() };
@@ -112,6 +117,11 @@ pub const Edwards25519 = struct {
             .z = z.mul(t),
             .t = x.mul(y),
         };
+    }
+
+    /// Substract two Edwards25519 points.
+    pub fn sub(p: Edwards25519, q: Edwards25519) Edwards25519 {
+        return p.add(q.neg());
     }
 
     inline fn cMov(p: *Edwards25519, a: Edwards25519, c: u64) void {
@@ -216,4 +226,18 @@ test "edwards25519 packing/unpacking" {
         const small_p = try Edwards25519.fromBytes(small_order_s);
         std.testing.expectError(error.WeakPublicKey, small_p.mul(s));
     }
+}
+
+test "edwards25519 point addition/substraction" {
+    var s1: [32]u8 = undefined;
+    var s2: [32]u8 = undefined;
+    try std.crypto.randomBytes(&s1);
+    try std.crypto.randomBytes(&s2);
+    const p = try Edwards25519.basePoint.clampedMul(s1);
+    const q = try Edwards25519.basePoint.clampedMul(s2);
+    const r = p.add(q).add(q).sub(q).sub(q);
+    try r.rejectIdentity();
+    std.testing.expectError(error.IdentityElement, r.sub(p).rejectIdentity());
+    std.testing.expectError(error.IdentityElement, p.sub(p).rejectIdentity());
+    std.testing.expectError(error.IdentityElement, p.sub(q).add(q).sub(p).rejectIdentity());
 }
