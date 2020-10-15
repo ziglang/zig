@@ -14,7 +14,6 @@ const linux_x64 = std.zig.CrossTarget{
 const macosx_x64 = std.zig.CrossTarget{
     .cpu_arch = .x86_64,
     .os_tag = .macos,
-    .dynamic_linker = std.zig.CrossTarget.DynamicLinker.init("/usr/lib/dyld"),
 };
 
 const linux_riscv64 = std.zig.CrossTarget{
@@ -184,7 +183,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "Hello, World!\n",
         );
         // Now change the message only
@@ -994,7 +993,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "Hello, World!\n",
         );
         try case.files.append(.{
