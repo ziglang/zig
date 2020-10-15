@@ -2553,6 +2553,9 @@ pub fn isatty(handle: fd_t) bool {
         var out: windows.DWORD = undefined;
         return windows.kernel32.GetConsoleMode(handle, &out) != 0;
     }
+    if (builtin.link_libc) {
+        return system.isatty(handle) != 0;
+    }
     if (builtin.os.tag == .wasi) {
         var statbuf: fdstat_t = undefined;
         const err = system.fd_fdstat_get(handle, &statbuf);
