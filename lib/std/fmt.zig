@@ -1151,7 +1151,10 @@ pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: any
     };
 }
 
-pub fn allocPrint0(allocator: *mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![:0]u8 {
+/// Deprecated, use allocPrintZ
+pub const allocPrint0 = allocPrintZ;
+
+pub fn allocPrintZ(allocator: *mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![:0]u8 {
     const result = try allocPrint(allocator, fmt ++ "\x00", args);
     return result[0 .. result.len - 1 :0];
 }
