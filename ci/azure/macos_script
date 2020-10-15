@@ -7,7 +7,7 @@ brew install s3cmd
 
 ZIGDIR="$(pwd)"
 ARCH="x86_64"
-CACHE_BASENAME="zig+llvm+lld+clang-$ARCH-macos-gnu-0.6.0+0f4386875f"
+CACHE_BASENAME="zig+llvm+lld+clang-$ARCH-macos-gnu-0.6.0+1c9ef63a"
 PREFIX="$HOME/$CACHE_BASENAME"
 JOBS="-j2"
 
@@ -17,6 +17,9 @@ wget -nv "https://ziglang.org/deps/$CACHE_BASENAME.tar.xz"
 tar xf "$CACHE_BASENAME.tar.xz"
 
 ZIG="$PREFIX/bin/zig"
+NATIVE_LIBC_TXT="$HOME/native_libc.txt"
+$ZIG libc > "$NATIVE_LIBC_TXT"
+export ZIG_LIBC="$NATIVE_LIBC_TXT"
 export CC="$ZIG cc"
 export CXX="$ZIG c++"
 
@@ -31,14 +34,16 @@ cd build
 cmake .. \
   -DCMAKE_INSTALL_PREFIX="$(pwd)/release" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
-  -DCMAKE_CROSSCOMPILING=True \
-  -DCMAKE_SYSTEM_NAME="Darwin" \
-  -DCMAKE_AR="$PREFIX/bin/llvm-ar" \
-  -DCMAKE_RANLIB="$PREFIX/bin/llvm-ranlib" \
   -DCMAKE_BUILD_TYPE=Release \
-  -DZIG_TARGET_TRIPLE="$ARCH-macos.10.15.7-gnu" \
+  -DZIG_TARGET_TRIPLE="$ARCH-native-gnu" \
   -DZIG_TARGET_MCPU="baseline" \
-  -DZIG_EXECUTABLE="$ZIG"
+  -DZIG_EXECUTABLE="$ZIG" \
+  -DZIG_STATIC=ON
+
+# TODO unsetting this before `make install` is a workaround for Zig crashing
+# with "unable to exec C compiler".
+unset CC
+unset CXX
 
 make $JOBS install
 release/bin/zig build test
