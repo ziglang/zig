@@ -82,6 +82,15 @@ pub fn main() !void {
                     return usageAndErr(builder, false, stderr_stream);
                 };
                 builder.addSearchPrefix(search_prefix);
+            } else if (mem.eql(u8, arg, "--color")) {
+                const next_arg = nextArg(args, &arg_idx) orelse {
+                    warn("expected [auto|on|off] after --color", .{});
+                    return usageAndErr(builder, false, stderr_stream);
+                };
+                builder.color = std.meta.stringToEnum(@TypeOf(builder.color), next_arg) orelse {
+                    warn("expected [auto|on|off] after --color, found '{}'", .{next_arg});
+                    return usageAndErr(builder, false, stderr_stream);
+                };
             } else if (mem.eql(u8, arg, "--override-lib-dir")) {
                 builder.override_lib_dir = nextArg(args, &arg_idx) orelse {
                     warn("Expected argument after --override-lib-dir\n\n", .{});
@@ -171,6 +180,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
         \\  --verbose                   Print commands before executing them
         \\  --prefix [path]             Override default install prefix
         \\  --search-prefix [path]      Add a path to look for binaries, libraries, headers
+        \\  --color [auto|off|on]       Enable or disable colored error messages
         \\
         \\Project-Specific Options:
         \\
