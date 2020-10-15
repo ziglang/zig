@@ -2012,7 +2012,8 @@ pub fn hasAsmExt(filename: []const u8) bool {
 pub fn hasSharedLibraryExt(filename: []const u8) bool {
     if (mem.endsWith(u8, filename, ".so") or
         mem.endsWith(u8, filename, ".dll") or
-        mem.endsWith(u8, filename, ".dylib"))
+        mem.endsWith(u8, filename, ".dylib") or
+        mem.endsWith(u8, filename, ".tbd"))
     {
         return true;
     }

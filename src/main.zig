@@ -221,6 +221,7 @@ const usage_build_generic =
     \\                     .so    ELF shared object (dynamic link)
     \\                    .dll    Windows Dynamic Link Library
     \\                  .dylib    MACH-O (macOS) dynamic library
+    \\                    .tbd    (macOS) text-based dylib definition
     \\                      .s    Target-specific assembly source code
     \\                      .S    Assembly with C preprocessor (requires LLVM extensions)
     \\                      .c    C source code (requires LLVM extensions)
