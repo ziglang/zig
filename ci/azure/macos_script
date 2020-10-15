@@ -40,10 +40,11 @@ cmake .. \
   -DZIG_EXECUTABLE="$ZIG" \
   -DZIG_STATIC=ON
 
-# TODO unsetting this before `make install` is a workaround for Zig crashing
-# with "unable to exec C compiler".
+# Now cmake will use zig as the C/C++ compiler. We reset the environment variables
+# so that installation and testing do not get affected by them.
 unset CC
 unset CXX
+unset ZIG_LIBC
 
 make $JOBS install
 release/bin/zig build test
