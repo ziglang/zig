@@ -1131,6 +1131,11 @@ pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErro
     return fbs.getWritten();
 }
 
+pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![:0]u8 {
+    const result = try bufPrint(buf, fmt ++ "\x00", args);
+    return result[0 .. result.len - 1 :0];
+}
+
 // Count the characters needed for format. Useful for preallocating memory
 pub fn count(comptime fmt: []const u8, args: anytype) u64 {
     var counting_writer = std.io.countingWriter(std.io.null_writer);
