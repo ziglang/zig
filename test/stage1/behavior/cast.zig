@@ -375,6 +375,22 @@ test "comptime_int @intToFloat" {
         expect(@TypeOf(result) == f32);
         expect(result == 1234.0);
     }
+    {
+        const result = @intToFloat(f64, 1234);
+        expect(@TypeOf(result) == f64);
+        expect(result == 1234.0);
+    }
+    {
+        const result = @intToFloat(f128, 1234);
+        expect(@TypeOf(result) == f128);
+        expect(result == 1234.0);
+    }
+    // big comptime_int (> 64 bits) to f128 conversion
+    {
+        const result = @intToFloat(f128, 0x1_0000_0000_0000_0000);
+        expect(@TypeOf(result) == f128);
+        expect(result == 0x1_0000_0000_0000_0000.0);
+    }
 }
 
 test "@intCast i32 to u7" {
