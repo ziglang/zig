@@ -606,10 +606,18 @@ pub const CrossTarget = struct {
         const os_match = os_tag == Target.current.os.tag;
 
         // If the OS and CPU arch match, the binary can be considered native.
+        // TODO additionally match the CPU features. This `getExternalExecutor` function should
+        // be moved to std.Target and match any chosen target against the native target.
         if (os_match and cpu_arch == Target.current.cpu.arch) {
             // However, we also need to verify that the dynamic linker path is valid.
-            // TODO Until that is implemented, we prevent returning `.native` when the OS is non-native.
             if (self.os_tag == null) {
+                return .native;
+            }
+            // TODO here we call toTarget, a deprecated function, because of the above TODO about moving
+            // this code to std.Target.
+            const opt_dl = self.dynamic_linker.get() orelse self.toTarget().standardDynamicLinkerPath().get();
+            if (opt_dl) |dl| blk: {
+                std.fs.cwd().access(dl, .{}) catch break :blk;
                 return .native;
             }
         }

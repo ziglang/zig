@@ -483,6 +483,16 @@ pub const Target = struct {
                 else => false,
             };
         }
+
+        pub fn floatAbi(abi: Abi) FloatAbi {
+            return switch (abi) {
+                .gnueabihf,
+                .eabihf,
+                .musleabihf,
+                => .hard,
+                else => .soft,
+            };
+        }
     };
 
     pub const ObjectFormat = enum {
@@ -1259,13 +1269,7 @@ pub const Target = struct {
     };
 
     pub fn getFloatAbi(self: Target) FloatAbi {
-        return switch (self.abi) {
-            .gnueabihf,
-            .eabihf,
-            .musleabihf,
-            => .hard,
-            else => .soft,
-        };
+        return self.abi.floatAbi();
     }
 
     pub fn hasDynamicLinker(self: Target) bool {
@@ -1336,12 +1340,12 @@ pub const Target = struct {
         const print = S.print;
         const copy = S.copy;
 
-        if (self.isAndroid()) {
+        if (self.abi == .android) {
             const suffix = if (self.cpu.arch.ptrBitWidth() == 64) "64" else "";
             return print(&result, "/system/bin/linker{}", .{suffix});
         }
 
-        if (self.isMusl()) {
+        if (self.abi.isMusl()) {
             const is_arm = switch (self.cpu.arch) {
                 .arm, .armeb, .thumb, .thumbeb => true,
                 else => false,
@@ -1351,7 +1355,7 @@ pub const Target = struct {
                 .armeb, .thumbeb => "armeb",
                 else => |arch| @tagName(arch),
             };
-            const arch_suffix = if (is_arm and self.getFloatAbi() == .hard) "hf" else "";
+            const arch_suffix = if (is_arm and self.abi.floatAbi() == .hard) "hf" else "";
             return print(&result, "/lib/ld-musl-{}{}.so.1", .{ arch_part, arch_suffix });
         }
 
@@ -1373,7 +1377,7 @@ pub const Target = struct {
                 .armeb,
                 .thumb,
                 .thumbeb,
-                => return copy(&result, switch (self.getFloatAbi()) {
+                => return copy(&result, switch (self.abi.floatAbi()) {
                     .hard => "/lib/ld-linux-armhf.so.3",
                     else => "/lib/ld-linux.so.3",
                 }),
@@ -1444,13 +1448,15 @@ pub const Target = struct {
                 => return result,
             },
 
-            // Operating systems in this list have been verified as not having a standard
-            // dynamic linker path.
-            .freestanding,
             .ios,
             .tvos,
             .watchos,
             .macos,
+            => return copy(&result, "/usr/lib/dyld"),
+
+            // Operating systems in this list have been verified as not having a standard
+            // dynamic linker path.
+            .freestanding,
             .uefi,
             .windows,
             .emscripten,

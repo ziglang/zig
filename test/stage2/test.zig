@@ -145,7 +145,7 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.exe("hello world", macosx_x64);
+        var case = ctx.exe("hello world with updates", macosx_x64);
         case.addError("", &[_][]const u8{":1:1: error: no entry point found"});
 
         // Incorrect return type
@@ -183,7 +183,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "Hello, World!\n",
         );
         // Now change the message only
@@ -993,7 +993,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "Hello, World!\n",
         );
         try case.files.append(.{
