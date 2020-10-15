@@ -138,6 +138,29 @@ pub const Instruction = union(enum) {
         fixed: u2 = 0b00,
         cond: u4,
     },
+    Multiply: packed struct {
+        rn: u4,
+        fixed_1: u4 = 0b1001,
+        rm: u4,
+        ra: u4,
+        rd: u4,
+        set_cond: u1,
+        accumulate: u1,
+        fixed_2: u6 = 0b000000,
+        cond: u4,
+    },
+    MultiplyLong: packed struct {
+        rn: u4,
+        fixed_1: u4 = 0b1001,
+        rm: u4,
+        rdlo: u4,
+        rdhi: u4,
+        set_cond: u1,
+        accumulate: u1,
+        unsigned: u1,
+        fixed_2: u5 = 0b00001,
+        cond: u4,
+    },
     SingleDataTransfer: packed struct {
         offset: u12,
         rd: u4,
@@ -403,6 +426,8 @@ pub const Instruction = union(enum) {
     pub fn toU32(self: Instruction) u32 {
         return switch (self) {
             .DataProcessing => |v| @bitCast(u32, v),
+            .Multiply => |v| @bitCast(u32, v),
+            .MultiplyLong => |v| @bitCast(u32, v),
             .SingleDataTransfer => |v| @bitCast(u32, v),
             .BlockDataTransfer => |v| @bitCast(u32, v),
             .Branch => |v| @bitCast(u32, v),
@@ -450,6 +475,51 @@ pub const Instruction = union(enum) {
                 .rn = @truncate(u4, imm >> 12),
                 .rd = rd.id(),
                 .op2 = @truncate(u12, imm),
+            },
+        };
+    }
+
+    fn multiply(
+        cond: Condition,
+        set_cond: u1,
+        rd: Register,
+        rn: Register,
+        rm: Register,
+        ra: ?Register,
+    ) Instruction {
+        return Instruction{
+            .Multiply = .{
+                .cond = @enumToInt(cond),
+                .accumulate = @boolToInt(ra != null),
+                .set_cond = set_cond,
+                .rd = rd.id(),
+                .rn = rn.id(),
+                .ra = if (ra) |reg| reg.id() else 0b0000,
+                .rm = rm.id(),
+            },
+        };
+    }
+
+    fn multiplyLong(
+        cond: Condition,
+        signed: u1,
+        accumulate: u1,
+        set_cond: u1,
+        rdhi: Register,
+        rdlo: Register,
+        rm: Register,
+        rn: Register,
+    ) Instruction {
+        return Instruction{
+            .MultiplyLong = .{
+                .cond = @enumToInt(cond),
+                .unsigned = signed,
+                .accumulate = accumulate,
+                .set_cond = set_cond,
+                .rdlo = rdlo.id(),
+                .rdhi = rdhi.id(),
+                .rn = rn.id(),
+                .rm = rm.id(),
             },
         };
     }
@@ -673,7 +743,83 @@ pub const Instruction = union(enum) {
     // PSR transfer
 
     pub fn mrs(cond: Condition, rd: Register, psr: Psr) Instruction {
-        return dataProcessing(cond, if (psr == .cpsr) .tst else .cmp, 0, rd, .r15, Operand.reg(.r0, Operand.Shift.none));
+        return Instruction{
+            .DataProcessing = .{
+                .cond = @enumToInt(cond),
+                .i = 0,
+                .opcode = if (psr == .spsr) 0b1010 else 0b1000,
+                .s = 0,
+                .rn = 0b1111,
+                .rd = rd.id(),
+                .op2 = 0b0000_0000_0000,
+            },
+        };
+    }
+
+    pub fn msr(cond: Condition, psr: Psr, op: Operand) Instruction {
+        return Instruction{
+            .DataProcessing = .{
+                .cond = @enumToInt(cond),
+                .i = 0,
+                .opcode = if (psr == .spsr) 0b1011 else 0b1001,
+                .s = 0,
+                .rn = 0b1111,
+                .rd = 0b1111,
+                .op2 = op.toU12(),
+            },
+        };
+    }
+
+    // Multiply
+
+    pub fn mul(cond: Condition, rd: Register, rn: Register, rm: Register) Instruction {
+        return multiply(cond, 0, rd, rn, rm, null);
+    }
+
+    pub fn muls(cond: Condition, rd: Register, rn: Register, rm: Register) Instruction {
+        return multiply(cond, 1, rd, rn, rm, null);
+    }
+
+    pub fn mla(cond: Condition, rd: Register, rn: Register, rm: Register, ra: Register) Instruction {
+        return multiply(cond, 0, rd, rn, rm, ra);
+    }
+
+    pub fn mlas(cond: Condition, rd: Register, rn: Register, rm: Register, ra: Register) Instruction {
+        return multiply(cond, 1, rd, rn, rm, ra);
+    }
+
+    // Multiply long
+
+    pub fn umull(cond: Condition, rdlo: Register, rdhi: Register, rn: Register, rm: Register) Instruction {
+        return multiplyLong(cond, 0, 0, 0, rdhi, rdlo, rm, rn);
+    }
+
+    pub fn umulls(cond: Condition, rdlo: Register, rdhi: Register, rn: Register, rm: Register) Instruction {
+        return multiplyLong(cond, 0, 0, 1, rdhi, rdlo, rm, rn);
+    }
+
+    pub fn umlal(cond: Condition, rdlo: Register, rdhi: Register, rn: Register, rm: Register) Instruction {
+        return multiplyLong(cond, 0, 1, 0, rdhi, rdlo, rm, rn);
+    }
+
+    pub fn umlals(cond: Condition, rdlo: Register, rdhi: Register, rn: Register, rm: Register) Instruction {
+        return multiplyLong(cond, 0, 1, 1, rdhi, rdlo, rm, rn);
+    }
+
+    pub fn smull(cond: Condition, rdlo: Register, rdhi: Register, rn: Register, rm: Register) Instruction {
+        return multiplyLong(cond, 1, 0, 0, rdhi, rdlo, rm, rn);
+    }
+
+    pub fn smulls(cond: Condition, rdlo: Register, rdhi: Register, rn: Register, rm: Register) Instruction {
+        return multiplyLong(cond, 1, 0, 1, rdhi, rdlo, rm, rn);
+    }
+
+    pub fn smlal(cond: Condition, rdlo: Register, rdhi: Register, rn: Register, rm: Register) Instruction {
+        return multiplyLong(cond, 1, 1, 0, rdhi, rdlo, rm, rn);
+    }
+
+    pub fn smlals(cond: Condition, rdlo: Register, rdhi: Register, rn: Register, rm: Register) Instruction {
+        return multiplyLong(cond, 1, 1, 1, rdhi, rdlo, rm, rn);
     }
 
     // Single data transfer
@@ -856,6 +1002,14 @@ test "serialize instructions" {
         .{ // mrs r5, cpsr
             .inst = Instruction.mrs(.al, .r5, .cpsr),
             .expected = 0b1110_00010_0_001111_0101_000000000000,
+        },
+        .{ // mul r0, r1, r2
+            .inst = Instruction.mul(.al, .r0, .r1, .r2),
+            .expected = 0b1110_000000_0_0_0000_0000_0010_1001_0001,
+        },
+        .{ // umlal r0, r1, r5, r6
+            .inst = Instruction.umlal(.al, .r0, .r1, .r5, .r6),
+            .expected = 0b1110_00001_0_1_0_0001_0000_0110_1001_0101,
         },
         .{ // ldr r0, [r2, #42]
             .inst = Instruction.ldr(.al, .r0, .r2, .{
