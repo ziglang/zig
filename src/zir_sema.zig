@@ -1214,11 +1214,11 @@ fn analyzeInstSwitchRange(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) In
     const end = try resolveInst(mod, scope, inst.positionals.rhs);
 
     switch (start.ty.zigTypeTag()) {
-        .Int, .ComptimeInt, .Float, .ComptimeFloat => {},
+        .Int, .ComptimeInt => {},
         else => return mod.constVoid(scope, inst.base.src),
     }
     switch (end.ty.zigTypeTag()) {
-        .Int, .ComptimeInt, .Float, .ComptimeFloat => {},
+        .Int, .ComptimeInt => {},
         else => return mod.constVoid(scope, inst.base.src),
     }
     if (start.value()) |start_val| {
@@ -1280,7 +1280,7 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
     // check that target type supports ranges
     if (inst.kw_args.range) |range_inst| {
         switch (target.ty.zigTypeTag()) {
-            .Int, .ComptimeInt, .Float, .ComptimeFloat => {},
+            .Int, .ComptimeInt => {},
             else => {
                 return mod.fail(scope, target.src, "ranges not allowed when switching on type {}", .{target.ty});
                 // TODO notes "range used here" range_inst.src
@@ -1291,7 +1291,6 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
     // validate for duplicate items/missing else prong
     switch (target.ty.zigTypeTag()) {
         .Int, .ComptimeInt => return mod.fail(scope, inst.base.src, "TODO validateSwitch .Int, .ComptimeInt", .{}),
-        .Float, .ComptimeFloat => return mod.fail(scope, inst.base.src, "TODO validateSwitch .Float, .ComptimeFloat", .{}),
         .Enum => return mod.fail(scope, inst.base.src, "TODO validateSwitch .Enum", .{}),
         .ErrorSet => return mod.fail(scope, inst.base.src, "TODO validateSwitch .ErrorSet", .{}),
         .Union => return mod.fail(scope, inst.base.src, "TODO validateSwitch .Union", .{}),
@@ -1350,6 +1349,8 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
         .Vector,
         .Frame,
         .AnyFrame,
+        .ComptimeFloat,
+        .Float,
         => {
             return mod.fail(scope, target.src, "invalid switch target type '{}'", .{target.ty});
         },

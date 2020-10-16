@@ -275,7 +275,7 @@ pub const Inst = struct {
         /// A switch expression.
         switchbr,
         /// A range in a switch case, `lhs...rhs`.
-        /// Only checks that `lhs >= rhs` if they are ints or floats, everything else is
+        /// Only checks that `lhs >= rhs` if they are ints, everything else is
         /// validated by the .switch instruction.
         switch_range,
 
