@@ -137,6 +137,8 @@ pub fn analyzeInst(mod: *Module, scope: *Scope, old_inst: *zir.Inst) InnerError!
         .import => return analyzeInstImport(mod, scope, old_inst.castTag(.import).?),
         .switchbr => return analyzeInstSwitchBr(mod, scope, old_inst.castTag(.switchbr).?),
         .switch_range => return analyzeInstSwitchRange(mod, scope, old_inst.castTag(.switch_range).?),
+        .booland => return analyzeInstBoolOp(mod, scope, old_inst.castTag(.booland).?),
+        .boolor => return analyzeInstBoolOp(mod, scope, old_inst.castTag(.boolor).?),
     }
 }
 
@@ -1224,7 +1226,7 @@ fn analyzeInstSwitchRange(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) In
     if (start.value()) |start_val| {
         if (end.value()) |end_val| {
             if (start_val.compare(.gte, end_val)) {
-                return mod.fail(scope, inst.base.src, "range start value is greater than the end value", .{});
+                return mod.fail(scope, inst.base.src, "range start value must be smaller than the end value", .{});
             }
         }
     }
@@ -1607,6 +1609,28 @@ fn analyzeInstBoolNot(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerEr
     }
     const b = try mod.requireRuntimeBlock(scope, inst.base.src);
     return mod.addUnOp(b, inst.base.src, bool_type, .not, operand);
+}
+
+fn analyzeInstBoolOp(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
+    const bool_type = Type.initTag(.bool);
+    const uncasted_lhs = try resolveInst(mod, scope, inst.positionals.lhs);
+    const lhs = try mod.coerce(scope, bool_type, uncasted_lhs);
+    const uncasted_rhs = try resolveInst(mod, scope, inst.positionals.rhs);
+    const rhs = try mod.coerce(scope, bool_type, uncasted_rhs);
+
+    const is_bool_or = inst.base.tag == .boolor;
+
+    if (lhs.value()) |lhs_val| {
+        if (rhs.value()) |rhs_val| {
+            if (is_bool_or) {
+                return mod.constBool(scope, inst.base.src, lhs_val.toBool() or rhs_val.toBool());
+            } else {
+                return mod.constBool(scope, inst.base.src, lhs_val.toBool() and rhs_val.toBool());
+            }
+        }
+    }
+    const b = try mod.requireRuntimeBlock(scope, inst.base.src);
+    return mod.addBinOp(b, inst.base.src, bool_type, if (is_bool_or) .boolor else .booland, lhs, rhs);
 }
 
 fn analyzeInstIsNonNull(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp, invert_logic: bool) InnerError!*Inst {

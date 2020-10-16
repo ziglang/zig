@@ -74,6 +74,8 @@ pub const Inst = struct {
         isnonnull,
         isnull,
         iserr,
+        booland,
+        boolor,
         /// Read a value from a pointer.
         load,
         loop,
@@ -126,6 +128,8 @@ pub const Inst = struct {
                 .cmp_gt,
                 .cmp_neq,
                 .store,
+                .booland,
+                .boolor,
                 => BinOp,
 
                 .arg => Arg,

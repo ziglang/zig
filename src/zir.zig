@@ -85,8 +85,12 @@ pub const Inst = struct {
         block_comptime,
         /// Same as `block_flat` but additionally makes the inner instructions execute at comptime.
         block_comptime_flat,
+        /// Boolean AND. See also `bitand`.
+        booland,
         /// Boolean NOT. See also `bitnot`.
         boolnot,
+        /// Boolean OR. See also `bitor`.
+        boolor,
         /// Return a value from a `Block`.
         @"break",
         breakpoint,
@@ -333,6 +337,8 @@ pub const Inst = struct {
                 .array_type,
                 .bitand,
                 .bitor,
+                .booland,
+                .boolor,
                 .div,
                 .mod_rem,
                 .mul,
@@ -425,6 +431,8 @@ pub const Inst = struct {
                 .block_comptime,
                 .block_comptime_flat,
                 .boolnot,
+                .booland,
+                .boolor,
                 .breakpoint,
                 .call,
                 .cmp_lt,
@@ -502,6 +510,7 @@ pub const Inst = struct {
                 .slice_start,
                 .import,
                 .switchbr,
+                .switch_range,
                 => false,
 
                 .@"break",
@@ -513,7 +522,6 @@ pub const Inst = struct {
                 .unreach_nocheck,
                 .@"unreachable",
                 .loop,
-                .switch_range,
                 => true,
             };
         }
@@ -2320,6 +2328,8 @@ const EmitZIR = struct {
                 .cmp_gte => try self.emitBinOp(inst.src, new_body, inst.castTag(.cmp_gte).?, .cmp_gte),
                 .cmp_gt => try self.emitBinOp(inst.src, new_body, inst.castTag(.cmp_gt).?, .cmp_gt),
                 .cmp_neq => try self.emitBinOp(inst.src, new_body, inst.castTag(.cmp_neq).?, .cmp_neq),
+                .booland => try self.emitBinOp(inst.src, new_body, inst.castTag(.booland).?, .booland),
+                .boolor => try self.emitBinOp(inst.src, new_body, inst.castTag(.boolor).?, .boolor),
 
                 .bitcast => try self.emitCast(inst.src, new_body, inst.castTag(.bitcast).?, .bitcast),
                 .intcast => try self.emitCast(inst.src, new_body, inst.castTag(.intcast).?, .intcast),

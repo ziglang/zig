@@ -758,6 +758,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .br => return self.genBr(inst.castTag(.br).?),
                 .breakpoint => return self.genBreakpoint(inst.src),
                 .brvoid => return self.genBrVoid(inst.castTag(.brvoid).?),
+                .booland => return self.genBoolOp(inst.castTag(.booland).?),
+                .boolor => return self.genBoolOp(inst.castTag(.boolor).?),
                 .call => return self.genCall(inst.castTag(.call).?),
                 .cmp_lt => return self.genCmp(inst.castTag(.cmp_lt).?, .lt),
                 .cmp_lte => return self.genCmp(inst.castTag(.cmp_lte).?, .lte),
@@ -782,11 +784,11 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .retvoid => return self.genRetVoid(inst.castTag(.retvoid).?),
                 .store => return self.genStore(inst.castTag(.store).?),
                 .sub => return self.genSub(inst.castTag(.sub).?),
+                .switchbr => return self.genSwitch(inst.castTag(.switchbr).?),
                 .unreach => return MCValue{ .unreach = {} },
                 .unwrap_optional => return self.genUnwrapOptional(inst.castTag(.unwrap_optional).?),
                 .wrap_optional => return self.genWrapOptional(inst.castTag(.wrap_optional).?),
                 .varptr => return self.genVarPtr(inst.castTag(.varptr).?),
-                .switchbr => return self.genSwitch(inst.castTag(.switchbr).?),
             }
         }
 
@@ -2028,6 +2030,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         fn genBrVoid(self: *Self, inst: *ir.Inst.BrVoid) !MCValue {
             return self.brVoid(inst.base.src, inst.block);
+        }
+
+        fn genBoolOp(self: *Self, inst: *ir.Inst.BinOp) !MCValue {
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO genBoolOp for {}", .{self.target.cpu.arch}),
+            }
         }
 
         fn brVoid(self: *Self, src: usize, block: *ir.Inst.Block) !MCValue {
