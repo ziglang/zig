@@ -29,11 +29,11 @@ comptime {
             if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
                 !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
             {
-                @export(WinStartup, .{ .name = "WinMainCRTStartup" });
+                @export(WinStartup, .{ .name = "wWinMainCRTStartup" });
             } else if (@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
                 !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
             {
-                @export(WinMainCRTStartup, .{ .name = "WinMainCRTStartup" });
+                @compileError("WinMain not supported; declare wWinMain or main instead");
             } else if (@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup") and
                 !@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup"))
             {
@@ -162,18 +162,6 @@ fn WinStartup() callconv(.Stdcall) noreturn {
     std.os.windows.kernel32.ExitProcess(initEventLoopAndCallMain(u8, callMain));
 }
 
-fn WinMainCRTStartup() callconv(.Stdcall) noreturn {
-    @setAlignStack(16);
-    if (!builtin.single_threaded) {
-        _ = @import("start_windows_tls.zig");
-    }
-
-    std.debug.maybeEnableSegfaultHandler();
-
-    const result = initEventLoopAndCallMain(std.os.windows.INT, callWinMain);
-    std.os.windows.kernel32.ExitProcess(@bitCast(std.os.windows.UINT, result));
-}
-
 fn wWinMainCRTStartup() callconv(.Stdcall) noreturn {
     @setAlignStack(16);
     if (!builtin.single_threaded) {
@@ -182,7 +170,7 @@ fn wWinMainCRTStartup() callconv(.Stdcall) noreturn {
 
     std.debug.maybeEnableSegfaultHandler();
 
-    const result = initEventLoopAndCallMain(std.os.windows.INT, callWWinMain);
+    const result = initEventLoopAndCallMain(std.os.windows.INT, call_wWinMain);
     std.os.windows.kernel32.ExitProcess(@bitCast(std.os.windows.UINT, result));
 }
 
@@ -266,7 +254,7 @@ inline fn initEventLoopAndCallMain(comptime Out: type, comptime mainFunc: fn () 
 
             var result: u8 = undefined;
             var frame: @Frame(callMainAsync) = undefined;
-            _ = @asyncCall(&frame, &result, callMainAsync, .{u8, mainFunc, loop});
+            _ = @asyncCall(&frame, &result, callMainAsync, .{ u8, mainFunc, loop });
             loop.run();
             return result;
         }
@@ -323,24 +311,14 @@ pub fn callMain() u8 {
     }
 }
 
-pub fn callWinMain() std.os.windows.INT {
-    const hInstance = std.os.windows.kernel32.GetModuleHandleA(null);
-    const lpCmdLine = std.os.windows.kernel32.GetCommandLineA();
-
-    // There's no (documented) way to get the nCmdShow parameter, so we're
-    // using this fairly standard default.
-    const nCmdShow = std.os.windows.user32.SW_SHOW;
-
-    return root.WinMain(hInstance, null, lpCmdLine, nCmdShow);
-}
-
-pub fn callWWinMain() std.os.windows.INT {
-    const hInstance = std.os.windows.kernel32.GetModuleHandleA(null);
+pub fn call_wWinMain() std.os.windows.INT {
+    const hInstance = @ptrCast(std.os.windows.HINSTANCE, std.os.windows.kernel32.GetModuleHandleW(null).?);
+    const hPrevInstance: ?std.os.windows.HINSTANCE = null; // MSDN: "This parameter is always NULL"
     const lpCmdLine = std.os.windows.kernel32.GetCommandLineW();
 
     // There's no (documented) way to get the nCmdShow parameter, so we're
     // using this fairly standard default.
     const nCmdShow = std.os.windows.user32.SW_SHOW;
 
-    return root.wWinMain(hInstance, null, lpCmdLine, nCmdShow);
+    return root.wWinMain(hInstance, hPrevInstance, lpCmdLine, nCmdShow);
 }
