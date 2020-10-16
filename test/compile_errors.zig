@@ -5245,7 +5245,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@TypeOf(test1)); }
     , &[_][]const u8{
-        "tmp.zig:3:16: error: unable to evaluate constant expression",
+        "tmp.zig:3:16: error: runtime value cannot be passed to comptime arg",
     });
 
     cases.add("assign null to non-optional pointer",
