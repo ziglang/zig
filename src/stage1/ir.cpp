@@ -22188,6 +22188,8 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
                     }
                     return result;
                 } else if (is_slice(array_type)) {
+                    expand_undef_struct(ira->codegen, array_ptr_val);
+
                     ZigValue *ptr_field = array_ptr_val->data.x_struct.fields[slice_ptr_index];
                     ir_assert(ptr_field != nullptr, &elem_ptr_instruction->base.base);
                     if (ptr_field->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
@@ -22252,6 +22254,8 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
                     }
                     return result;
                 } else if (array_type->id == ZigTypeIdArray || array_type->id == ZigTypeIdVector) {
+                    expand_undef_array(ira->codegen, array_ptr_val);
+
                     IrInstGen *result;
                     if (orig_array_ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
                         result = ir_build_elem_ptr_gen(ira, elem_ptr_instruction->base.base.scope,

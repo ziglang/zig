@@ -2,6 +2,15 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("indexing a undefined slice at comptime",
+        \\comptime {
+        \\    var slice: []u8 = undefined;
+        \\    slice[0] = 2;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:10: error: index 0 outside slice of size 0",
+    });
+
     cases.add("array in c exported function",
         \\export fn zig_array(x: [10]u8) void {
         \\    expect(std.mem.eql(u8, &x, "1234567890"));
@@ -7714,7 +7723,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add( // fixed bug #2032
-    "compile diagnostic string for top level decl type",
+        "compile diagnostic string for top level decl type",
         \\export fn entry() void {
         \\    var foo: u32 = @This(){};
         \\}
