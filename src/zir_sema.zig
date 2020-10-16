@@ -1268,7 +1268,7 @@ fn analyzeInstSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) In
             .body = .{ .instructions = try parent_block.arena.dupe(*Inst, case_block.instructions.items) },
         };
     }
-    
+
     return mod.addSwitchBr(parent_block, inst.base.src, target_ptr, cases);
 }
 
@@ -1292,10 +1292,56 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
 
     // validate for duplicate items/missing else prong
     switch (target.ty.zigTypeTag()) {
-        .Int, .ComptimeInt => return mod.fail(scope, inst.base.src, "TODO validateSwitch .Int, .ComptimeInt", .{}),
         .Enum => return mod.fail(scope, inst.base.src, "TODO validateSwitch .Enum", .{}),
         .ErrorSet => return mod.fail(scope, inst.base.src, "TODO validateSwitch .ErrorSet", .{}),
         .Union => return mod.fail(scope, inst.base.src, "TODO validateSwitch .Union", .{}),
+        .Int, .ComptimeInt => {
+            var range_set = @import("RangeSet.zig").init(mod.gpa);
+            defer range_set.deinit();
+
+            for (inst.positionals.items) |item| {
+                const maybe_src = if (item.castTag(.switch_range)) |range| blk: {
+                    const start_resolved = try resolveInst(mod, scope, range.positionals.lhs);
+                    const start_casted = try mod.coerce(scope, target.ty, start_resolved);
+                    const end_resolved = try resolveInst(mod, scope, range.positionals.rhs);
+                    const end_casted = try mod.coerce(scope, target.ty, end_resolved);
+
+                    break :blk try range_set.add(
+                        try mod.resolveConstValue(scope, start_casted),
+                        try mod.resolveConstValue(scope, end_casted),
+                        item.src,
+                    );
+                } else blk: {
+                    const resolved = try resolveInst(mod, scope, item);
+                    const casted = try mod.coerce(scope, target.ty, resolved);
+                    const value = try mod.resolveConstValue(scope, casted);
+                    break :blk try range_set.add(value, value, item.src);
+                };
+
+                if (maybe_src) |previous_src| {
+                    return mod.fail(scope, item.src, "duplicate switch value", .{});
+                    // TODO notes "previous value is here" previous_src
+                }
+            }
+
+            if (target.ty.zigTypeTag() == .Int) {
+                var arena = std.heap.ArenaAllocator.init(mod.gpa);
+                defer arena.deinit();
+
+                const start = try target.ty.minInt(&arena, mod.getTarget());
+                const end = try target.ty.maxInt(&arena, mod.getTarget());
+                if (try range_set.spans(start, end)) {
+                    if (inst.kw_args.special_prong == .@"else") {
+                        return mod.fail(scope, inst.base.src, "unreachable else prong, all cases already handled", .{});
+                    }
+                    return;
+                }
+            }
+
+            if (inst.kw_args.special_prong != .@"else") {
+                return mod.fail(scope, inst.base.src, "switch must handle all possibilities", .{});
+            }
+        },
         .Bool => {
             var true_count: u8 = 0;
             var false_count: u8 = 0;

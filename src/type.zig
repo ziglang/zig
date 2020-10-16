@@ -2863,6 +2863,78 @@ pub const Type = extern union {
         };
     }
 
+    /// Asserts that self.zigTypeTag() == .Int.
+    pub fn minInt(self: Type, arena: *std.heap.ArenaAllocator, target: Target) !Value {
+        assert(self.zigTypeTag() == .Int);
+        const info = self.intInfo(target);
+
+        if (!info.signed) {
+            return Value.initTag(.zero);
+        }
+
+        if ((info.bits - 1) <= std.math.maxInt(u6)) {
+            const payload = try arena.allocator.create(Value.Payload.Int_i64);
+            payload.* = .{
+                .int = -(@as(i64, 1) << @truncate(u6, info.bits - 1)),
+            };
+            return Value.initPayload(&payload.base);
+        }
+
+        var res = try std.math.big.int.Managed.initSet(&arena.allocator, 1);
+        try res.shiftLeft(res, info.bits - 1);
+        res.negate();
+
+        const res_const = res.toConst();
+        if (res_const.positive) {
+            const val_payload = try arena.allocator.create(Value.Payload.IntBigPositive);
+            val_payload.* = .{ .limbs = res_const.limbs };
+            return Value.initPayload(&val_payload.base);
+        } else {
+            const val_payload = try arena.allocator.create(Value.Payload.IntBigNegative);
+            val_payload.* = .{ .limbs = res_const.limbs };
+            return Value.initPayload(&val_payload.base);
+        }
+    }
+
+    /// Asserts that self.zigTypeTag() == .Int.
+    pub fn maxInt(self: Type, arena: *std.heap.ArenaAllocator, target: Target) !Value {
+        assert(self.zigTypeTag() == .Int);
+        const info = self.intInfo(target);
+
+        if (info.signed and (info.bits - 1) <= std.math.maxInt(u6)) {
+            const payload = try arena.allocator.create(Value.Payload.Int_i64);
+            payload.* = .{
+                .int = (@as(i64, 1) << @truncate(u6, info.bits - 1)) - 1,
+            };
+            return Value.initPayload(&payload.base);
+        } else if (!info.signed and info.bits <= std.math.maxInt(u6)) {
+            const payload = try arena.allocator.create(Value.Payload.Int_u64);
+            payload.* = .{
+                .int = (@as(u64, 1) << @truncate(u6, info.bits)) - 1,
+            };
+            return Value.initPayload(&payload.base);
+        }
+
+        var res = try std.math.big.int.Managed.initSet(&arena.allocator, 1);
+        try res.shiftLeft(res, info.bits - @boolToInt(info.signed));
+        const one = std.math.big.int.Const{
+            .limbs = &[_]std.math.big.Limb{1},
+            .positive = true,
+        };
+        res.sub(res.toConst(), one) catch unreachable;
+
+        const res_const = res.toConst();
+        if (res_const.positive) {
+            const val_payload = try arena.allocator.create(Value.Payload.IntBigPositive);
+            val_payload.* = .{ .limbs = res_const.limbs };
+            return Value.initPayload(&val_payload.base);
+        } else {
+            const val_payload = try arena.allocator.create(Value.Payload.IntBigNegative);
+            val_payload.* = .{ .limbs = res_const.limbs };
+            return Value.initPayload(&val_payload.base);
+        }
+    }
+
     /// This enum does not directly correspond to `std.builtin.TypeId` because
     /// it has extra enum tags in it, as a way of using less memory. For example,
     /// even though Zig recognizes `*align(10) i32` and `*i32` both as Pointer types
