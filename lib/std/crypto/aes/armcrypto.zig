@@ -13,7 +13,7 @@ const BlockVec = Vector(2, u64);
 
 /// A single AES block.
 pub const Block = struct {
-    pub const block_size: usize = 16;
+    pub const block_length: usize = 16;
 
     /// Internal representation of a block.
     repr: BlockVec,
@@ -181,9 +181,9 @@ pub const Block = struct {
     };
 };
 
-fn KeySchedule(comptime AES: type) type {
-    std.debug.assert(AES.rounds == 10 or AES.rounds == 14);
-    const rounds = AES.rounds;
+fn KeySchedule(comptime Aes: type) type {
+    std.debug.assert(Aes.rounds == 10 or Aes.rounds == 14);
+    const rounds = Aes.rounds;
 
     return struct {
         const Self = @This();
@@ -304,24 +304,24 @@ fn KeySchedule(comptime AES: type) type {
 }
 
 /// A context to perform encryption using the standard AES key schedule.
-pub fn AESEncryptCtx(comptime AES: type) type {
-    std.debug.assert(AES.key_bits == 128 or AES.key_bits == 256);
-    const rounds = AES.rounds;
+pub fn AesEncryptCtx(comptime Aes: type) type {
+    std.debug.assert(Aes.key_bits == 128 or Aes.key_bits == 256);
+    const rounds = Aes.rounds;
 
     return struct {
         const Self = @This();
-        pub const block = AES.block;
-        pub const block_size = block.block_size;
-        key_schedule: KeySchedule(AES),
+        pub const block = Aes.block;
+        pub const block_length = block.block_length;
+        key_schedule: KeySchedule(Aes),
 
         /// Create a new encryption context with the given key.
-        pub fn init(key: [AES.key_bits / 8]u8) Self {
+        pub fn init(key: [Aes.key_bits / 8]u8) Self {
             var t1 = Block.fromBytes(key[0..16]);
-            const key_schedule = if (AES.key_bits == 128) ks: {
-                break :ks KeySchedule(AES).expand128(&t1);
+            const key_schedule = if (Aes.key_bits == 128) ks: {
+                break :ks KeySchedule(Aes).expand128(&t1);
             } else ks: {
                 var t2 = Block.fromBytes(key[16..32]);
-                break :ks KeySchedule(AES).expand256(&t1, &t2);
+                break :ks KeySchedule(Aes).expand256(&t1, &t2);
             };
             return Self{
                 .key_schedule = key_schedule,
@@ -396,26 +396,26 @@ pub fn AESEncryptCtx(comptime AES: type) type {
 }
 
 /// A context to perform decryption using the standard AES key schedule.
-pub fn AESDecryptCtx(comptime AES: type) type {
-    std.debug.assert(AES.key_bits == 128 or AES.key_bits == 256);
-    const rounds = AES.rounds;
+pub fn AesDecryptCtx(comptime Aes: type) type {
+    std.debug.assert(Aes.key_bits == 128 or Aes.key_bits == 256);
+    const rounds = Aes.rounds;
 
     return struct {
         const Self = @This();
-        pub const block = AES.block;
-        pub const block_size = block.block_size;
-        key_schedule: KeySchedule(AES),
+        pub const block = Aes.block;
+        pub const block_length = block.block_length;
+        key_schedule: KeySchedule(Aes),
 
         /// Create a decryption context from an existing encryption context.
-        pub fn initFromEnc(ctx: AESEncryptCtx(AES)) Self {
+        pub fn initFromEnc(ctx: AesEncryptCtx(Aes)) Self {
             return Self{
                 .key_schedule = ctx.key_schedule.invert(),
             };
         }
 
         /// Create a new decryption context with the given key.
-        pub fn init(key: [AES.key_bits / 8]u8) Self {
-            const enc_ctx = AESEncryptCtx(AES).init(key);
+        pub fn init(key: [Aes.key_bits / 8]u8) Self {
+            const enc_ctx = AesEncryptCtx(Aes).init(key);
             return initFromEnc(enc_ctx);
         }
 
@@ -456,35 +456,35 @@ pub fn AESDecryptCtx(comptime AES: type) type {
 }
 
 /// AES-128 with the standard key schedule.
-pub const AES128 = struct {
+pub const Aes128 = struct {
     pub const key_bits: usize = 128;
     pub const rounds = ((key_bits - 64) / 32 + 8);
     pub const block = Block;
 
     /// Create a new context for encryption.
-    pub fn initEnc(key: [key_bits / 8]u8) AESEncryptCtx(AES128) {
-        return AESEncryptCtx(AES128).init(key);
+    pub fn initEnc(key: [key_bits / 8]u8) AesEncryptCtx(Aes128) {
+        return AesEncryptCtx(Aes128).init(key);
     }
 
     /// Create a new context for decryption.
-    pub fn initDec(key: [key_bits / 8]u8) AESDecryptCtx(AES128) {
-        return AESDecryptCtx(AES128).init(key);
+    pub fn initDec(key: [key_bits / 8]u8) AesDecryptCtx(Aes128) {
+        return AesDecryptCtx(Aes128).init(key);
     }
 };
 
 /// AES-256 with the standard key schedule.
-pub const AES256 = struct {
+pub const Aes256 = struct {
     pub const key_bits: usize = 256;
     pub const rounds = ((key_bits - 64) / 32 + 8);
     pub const block = Block;
 
     /// Create a new context for encryption.
-    pub fn initEnc(key: [key_bits / 8]u8) AESEncryptCtx(AES256) {
-        return AESEncryptCtx(AES256).init(key);
+    pub fn initEnc(key: [key_bits / 8]u8) AesEncryptCtx(Aes256) {
+        return AesEncryptCtx(Aes256).init(key);
     }
 
     /// Create a new context for decryption.
-    pub fn initDec(key: [key_bits / 8]u8) AESDecryptCtx(AES256) {
-        return AESDecryptCtx(AES256).init(key);
+    pub fn initDec(key: [key_bits / 8]u8) AesDecryptCtx(Aes256) {
+        return AesDecryptCtx(Aes256).init(key);
     }
 };

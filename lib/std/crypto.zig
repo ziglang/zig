@@ -11,10 +11,10 @@ pub const aead = struct {
     pub const Gimli = @import("crypto/gimli.zig").Aead;
     pub const ChaCha20Poly1305 = chacha20.Chacha20Poly1305;
     pub const XChaCha20Poly1305 = chacha20.XChacha20Poly1305;
-    pub const AEGIS128L = @import("crypto/aegis.zig").AEGIS128L;
-    pub const AEGIS256 = @import("crypto/aegis.zig").AEGIS256;
-    pub const AES128GCM = @import("crypto/aes_gcm.zig").AES128GCM;
-    pub const AES256GCM = @import("crypto/aes_gcm.zig").AES256GCM;
+    pub const Aegis128L = @import("crypto/aegis.zig").Aegis128L;
+    pub const Aegis256 = @import("crypto/aegis.zig").Aegis256;
+    pub const Aes128Gcm = @import("crypto/aes_gcm.zig").Aes128Gcm;
+    pub const Aes256Gcm = @import("crypto/aes_gcm.zig").Aes256Gcm;
 };
 
 /// Authentication (MAC) functions.
@@ -156,8 +156,11 @@ test "issue #4532: no index out of bounds" {
         hash.sha3.Sha3_256,
         hash.sha3.Sha3_384,
         hash.sha3.Sha3_512,
+        hash.blake2.Blake2s128,
         hash.blake2.Blake2s224,
         hash.blake2.Blake2s256,
+        hash.blake2.Blake2b128,
+        hash.blake2.Blake2b256,
         hash.blake2.Blake2b384,
         hash.blake2.Blake2b512,
         hash.Gimli,
@@ -170,11 +173,11 @@ test "issue #4532: no index out of bounds" {
         const h0 = Hasher.init(.{});
         var h = h0;
         h.update(block[0..]);
-        h.final(out1[0..]);
+        h.final(&out1);
         h = h0;
         h.update(block[0..1]);
         h.update(block[1..]);
-        h.final(out2[0..]);
+        h.final(&out2);
 
         std.testing.expectEqual(out1, out2);
     }

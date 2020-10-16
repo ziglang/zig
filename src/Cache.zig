@@ -35,7 +35,7 @@ const manifest_file_size_max = 50 * 1024 * 1024;
 pub const Hasher = crypto.auth.siphash.SipHash128(1, 3);
 
 /// Initial state, that can be copied.
-pub const hasher_init: Hasher = Hasher.init(&[_]u8{0} ** Hasher.minimum_key_length);
+pub const hasher_init: Hasher = Hasher.init(&[_]u8{0} ** Hasher.key_length);
 
 pub const File = struct {
     path: ?[]const u8,
@@ -600,7 +600,7 @@ pub fn writeSmallFile(dir: fs.Dir, sub_path: []const u8, data: []const u8) !void
     }
 }
 
-fn hashFile(file: fs.File, bin_digest: []u8) !void {
+fn hashFile(file: fs.File, bin_digest: *[Hasher.mac_length]u8) !void {
     var buf: [1024]u8 = undefined;
 
     var hasher = hasher_init;

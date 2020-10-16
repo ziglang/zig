@@ -6,7 +6,6 @@
 const std = @import("../std.zig");
 const mem = std.mem;
 const math = std.math;
-const debug = std.debug;
 
 const RoundParam = struct {
     a: usize,
@@ -17,7 +16,7 @@ const RoundParam = struct {
     i: u32,
 };
 
-fn Rp(a: usize, b: usize, c: usize, d: usize, e: usize, i: u32) RoundParam {
+fn roundParam(a: usize, b: usize, c: usize, d: usize, e: usize, i: u32) RoundParam {
     return RoundParam{
         .a = a,
         .b = b,
@@ -55,7 +54,7 @@ pub const Sha1 = struct {
         };
     }
 
-    pub fn hash(b: []const u8, out: []u8, options: Options) void {
+    pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
         var d = Sha1.init(options);
         d.update(b);
         d.final(out);
@@ -75,7 +74,7 @@ pub const Sha1 = struct {
 
         // Full middle blocks.
         while (off + 64 <= b.len) : (off += 64) {
-            d.round(b[off .. off + 64]);
+            d.round(b[off..][0..64]);
         }
 
         // Copy any remainder for next pass.
@@ -85,9 +84,7 @@ pub const Sha1 = struct {
         d.total_len += b.len;
     }
 
-    pub fn final(d: *Self, out: []u8) void {
-        debug.assert(out.len >= 20);
-
+    pub fn final(d: *Self, out: *[digest_length]u8) void {
         // The buffer here will never be completely full.
         mem.set(u8, d.buf[d.buf_len..], 0);
 
@@ -117,9 +114,7 @@ pub const Sha1 = struct {
         }
     }
 
-    fn round(d: *Self, b: []const u8) void {
-        debug.assert(b.len == 64);
-
+    fn round(d: *Self, b: *const [64]u8) void {
         var s: [16]u32 = undefined;
 
         var v: [5]u32 = [_]u32{
@@ -131,22 +126,22 @@ pub const Sha1 = struct {
         };
 
         const round0a = comptime [_]RoundParam{
-            Rp(0, 1, 2, 3, 4, 0),
-            Rp(4, 0, 1, 2, 3, 1),
-            Rp(3, 4, 0, 1, 2, 2),
-            Rp(2, 3, 4, 0, 1, 3),
-            Rp(1, 2, 3, 4, 0, 4),
-            Rp(0, 1, 2, 3, 4, 5),
-            Rp(4, 0, 1, 2, 3, 6),
-            Rp(3, 4, 0, 1, 2, 7),
-            Rp(2, 3, 4, 0, 1, 8),
-            Rp(1, 2, 3, 4, 0, 9),
-            Rp(0, 1, 2, 3, 4, 10),
-            Rp(4, 0, 1, 2, 3, 11),
-            Rp(3, 4, 0, 1, 2, 12),
-            Rp(2, 3, 4, 0, 1, 13),
-            Rp(1, 2, 3, 4, 0, 14),
-            Rp(0, 1, 2, 3, 4, 15),
+            roundParam(0, 1, 2, 3, 4, 0),
+            roundParam(4, 0, 1, 2, 3, 1),
+            roundParam(3, 4, 0, 1, 2, 2),
+            roundParam(2, 3, 4, 0, 1, 3),
+            roundParam(1, 2, 3, 4, 0, 4),
+            roundParam(0, 1, 2, 3, 4, 5),
+            roundParam(4, 0, 1, 2, 3, 6),
+            roundParam(3, 4, 0, 1, 2, 7),
+            roundParam(2, 3, 4, 0, 1, 8),
+            roundParam(1, 2, 3, 4, 0, 9),
+            roundParam(0, 1, 2, 3, 4, 10),
+            roundParam(4, 0, 1, 2, 3, 11),
+            roundParam(3, 4, 0, 1, 2, 12),
+            roundParam(2, 3, 4, 0, 1, 13),
+            roundParam(1, 2, 3, 4, 0, 14),
+            roundParam(0, 1, 2, 3, 4, 15),
         };
         inline for (round0a) |r| {
             s[r.i] = (@as(u32, b[r.i * 4 + 0]) << 24) | (@as(u32, b[r.i * 4 + 1]) << 16) | (@as(u32, b[r.i * 4 + 2]) << 8) | (@as(u32, b[r.i * 4 + 3]) << 0);
@@ -156,10 +151,10 @@ pub const Sha1 = struct {
         }
 
         const round0b = comptime [_]RoundParam{
-            Rp(4, 0, 1, 2, 3, 16),
-            Rp(3, 4, 0, 1, 2, 17),
-            Rp(2, 3, 4, 0, 1, 18),
-            Rp(1, 2, 3, 4, 0, 19),
+            roundParam(4, 0, 1, 2, 3, 16),
+            roundParam(3, 4, 0, 1, 2, 17),
+            roundParam(2, 3, 4, 0, 1, 18),
+            roundParam(1, 2, 3, 4, 0, 19),
         };
         inline for (round0b) |r| {
             const t = s[(r.i - 3) & 0xf] ^ s[(r.i - 8) & 0xf] ^ s[(r.i - 14) & 0xf] ^ s[(r.i - 16) & 0xf];
@@ -170,26 +165,26 @@ pub const Sha1 = struct {
         }
 
         const round1 = comptime [_]RoundParam{
-            Rp(0, 1, 2, 3, 4, 20),
-            Rp(4, 0, 1, 2, 3, 21),
-            Rp(3, 4, 0, 1, 2, 22),
-            Rp(2, 3, 4, 0, 1, 23),
-            Rp(1, 2, 3, 4, 0, 24),
-            Rp(0, 1, 2, 3, 4, 25),
-            Rp(4, 0, 1, 2, 3, 26),
-            Rp(3, 4, 0, 1, 2, 27),
-            Rp(2, 3, 4, 0, 1, 28),
-            Rp(1, 2, 3, 4, 0, 29),
-            Rp(0, 1, 2, 3, 4, 30),
-            Rp(4, 0, 1, 2, 3, 31),
-            Rp(3, 4, 0, 1, 2, 32),
-            Rp(2, 3, 4, 0, 1, 33),
-            Rp(1, 2, 3, 4, 0, 34),
-            Rp(0, 1, 2, 3, 4, 35),
-            Rp(4, 0, 1, 2, 3, 36),
-            Rp(3, 4, 0, 1, 2, 37),
-            Rp(2, 3, 4, 0, 1, 38),
-            Rp(1, 2, 3, 4, 0, 39),
+            roundParam(0, 1, 2, 3, 4, 20),
+            roundParam(4, 0, 1, 2, 3, 21),
+            roundParam(3, 4, 0, 1, 2, 22),
+            roundParam(2, 3, 4, 0, 1, 23),
+            roundParam(1, 2, 3, 4, 0, 24),
+            roundParam(0, 1, 2, 3, 4, 25),
+            roundParam(4, 0, 1, 2, 3, 26),
+            roundParam(3, 4, 0, 1, 2, 27),
+            roundParam(2, 3, 4, 0, 1, 28),
+            roundParam(1, 2, 3, 4, 0, 29),
+            roundParam(0, 1, 2, 3, 4, 30),
+            roundParam(4, 0, 1, 2, 3, 31),
+            roundParam(3, 4, 0, 1, 2, 32),
+            roundParam(2, 3, 4, 0, 1, 33),
+            roundParam(1, 2, 3, 4, 0, 34),
+            roundParam(0, 1, 2, 3, 4, 35),
+            roundParam(4, 0, 1, 2, 3, 36),
+            roundParam(3, 4, 0, 1, 2, 37),
+            roundParam(2, 3, 4, 0, 1, 38),
+            roundParam(1, 2, 3, 4, 0, 39),
         };
         inline for (round1) |r| {
             const t = s[(r.i - 3) & 0xf] ^ s[(r.i - 8) & 0xf] ^ s[(r.i - 14) & 0xf] ^ s[(r.i - 16) & 0xf];
@@ -200,26 +195,26 @@ pub const Sha1 = struct {
         }
 
         const round2 = comptime [_]RoundParam{
-            Rp(0, 1, 2, 3, 4, 40),
-            Rp(4, 0, 1, 2, 3, 41),
-            Rp(3, 4, 0, 1, 2, 42),
-            Rp(2, 3, 4, 0, 1, 43),
-            Rp(1, 2, 3, 4, 0, 44),
-            Rp(0, 1, 2, 3, 4, 45),
-            Rp(4, 0, 1, 2, 3, 46),
-            Rp(3, 4, 0, 1, 2, 47),
-            Rp(2, 3, 4, 0, 1, 48),
-            Rp(1, 2, 3, 4, 0, 49),
-            Rp(0, 1, 2, 3, 4, 50),
-            Rp(4, 0, 1, 2, 3, 51),
-            Rp(3, 4, 0, 1, 2, 52),
-            Rp(2, 3, 4, 0, 1, 53),
-            Rp(1, 2, 3, 4, 0, 54),
-            Rp(0, 1, 2, 3, 4, 55),
-            Rp(4, 0, 1, 2, 3, 56),
-            Rp(3, 4, 0, 1, 2, 57),
-            Rp(2, 3, 4, 0, 1, 58),
-            Rp(1, 2, 3, 4, 0, 59),
+            roundParam(0, 1, 2, 3, 4, 40),
+            roundParam(4, 0, 1, 2, 3, 41),
+            roundParam(3, 4, 0, 1, 2, 42),
+            roundParam(2, 3, 4, 0, 1, 43),
+            roundParam(1, 2, 3, 4, 0, 44),
+            roundParam(0, 1, 2, 3, 4, 45),
+            roundParam(4, 0, 1, 2, 3, 46),
+            roundParam(3, 4, 0, 1, 2, 47),
+            roundParam(2, 3, 4, 0, 1, 48),
+            roundParam(1, 2, 3, 4, 0, 49),
+            roundParam(0, 1, 2, 3, 4, 50),
+            roundParam(4, 0, 1, 2, 3, 51),
+            roundParam(3, 4, 0, 1, 2, 52),
+            roundParam(2, 3, 4, 0, 1, 53),
+            roundParam(1, 2, 3, 4, 0, 54),
+            roundParam(0, 1, 2, 3, 4, 55),
+            roundParam(4, 0, 1, 2, 3, 56),
+            roundParam(3, 4, 0, 1, 2, 57),
+            roundParam(2, 3, 4, 0, 1, 58),
+            roundParam(1, 2, 3, 4, 0, 59),
         };
         inline for (round2) |r| {
             const t = s[(r.i - 3) & 0xf] ^ s[(r.i - 8) & 0xf] ^ s[(r.i - 14) & 0xf] ^ s[(r.i - 16) & 0xf];
@@ -230,26 +225,26 @@ pub const Sha1 = struct {
         }
 
         const round3 = comptime [_]RoundParam{
-            Rp(0, 1, 2, 3, 4, 60),
-            Rp(4, 0, 1, 2, 3, 61),
-            Rp(3, 4, 0, 1, 2, 62),
-            Rp(2, 3, 4, 0, 1, 63),
-            Rp(1, 2, 3, 4, 0, 64),
-            Rp(0, 1, 2, 3, 4, 65),
-            Rp(4, 0, 1, 2, 3, 66),
-            Rp(3, 4, 0, 1, 2, 67),
-            Rp(2, 3, 4, 0, 1, 68),
-            Rp(1, 2, 3, 4, 0, 69),
-            Rp(0, 1, 2, 3, 4, 70),
-            Rp(4, 0, 1, 2, 3, 71),
-            Rp(3, 4, 0, 1, 2, 72),
-            Rp(2, 3, 4, 0, 1, 73),
-            Rp(1, 2, 3, 4, 0, 74),
-            Rp(0, 1, 2, 3, 4, 75),
-            Rp(4, 0, 1, 2, 3, 76),
-            Rp(3, 4, 0, 1, 2, 77),
-            Rp(2, 3, 4, 0, 1, 78),
-            Rp(1, 2, 3, 4, 0, 79),
+            roundParam(0, 1, 2, 3, 4, 60),
+            roundParam(4, 0, 1, 2, 3, 61),
+            roundParam(3, 4, 0, 1, 2, 62),
+            roundParam(2, 3, 4, 0, 1, 63),
+            roundParam(1, 2, 3, 4, 0, 64),
+            roundParam(0, 1, 2, 3, 4, 65),
+            roundParam(4, 0, 1, 2, 3, 66),
+            roundParam(3, 4, 0, 1, 2, 67),
+            roundParam(2, 3, 4, 0, 1, 68),
+            roundParam(1, 2, 3, 4, 0, 69),
+            roundParam(0, 1, 2, 3, 4, 70),
+            roundParam(4, 0, 1, 2, 3, 71),
+            roundParam(3, 4, 0, 1, 2, 72),
+            roundParam(2, 3, 4, 0, 1, 73),
+            roundParam(1, 2, 3, 4, 0, 74),
+            roundParam(0, 1, 2, 3, 4, 75),
+            roundParam(4, 0, 1, 2, 3, 76),
+            roundParam(3, 4, 0, 1, 2, 77),
+            roundParam(2, 3, 4, 0, 1, 78),
+            roundParam(1, 2, 3, 4, 0, 79),
         };
         inline for (round3) |r| {
             const t = s[(r.i - 3) & 0xf] ^ s[(r.i - 8) & 0xf] ^ s[(r.i - 14) & 0xf] ^ s[(r.i - 16) & 0xf];
@@ -279,19 +274,19 @@ test "sha1 streaming" {
     var h = Sha1.init(.{});
     var out: [20]u8 = undefined;
 
-    h.final(out[0..]);
+    h.final(&out);
     htest.assertEqual("da39a3ee5e6b4b0d3255bfef95601890afd80709", out[0..]);
 
     h = Sha1.init(.{});
     h.update("abc");
-    h.final(out[0..]);
+    h.final(&out);
     htest.assertEqual("a9993e364706816aba3e25717850c26c9cd0d89d", out[0..]);
 
     h = Sha1.init(.{});
     h.update("a");
     h.update("b");
     h.update("c");
-    h.final(out[0..]);
+    h.final(&out);
     htest.assertEqual("a9993e364706816aba3e25717850c26c9cd0d89d", out[0..]);
 }
 

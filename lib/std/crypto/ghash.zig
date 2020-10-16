@@ -18,9 +18,9 @@ const mem = std.mem;
 ///
 /// GHASH is typically used to compute the authentication tag in the AES-GCM construction.
 pub const Ghash = struct {
-    pub const block_size: usize = 16;
+    pub const block_length: usize = 16;
     pub const mac_length = 16;
-    pub const minimum_key_length = 16;
+    pub const key_length = 16;
 
     y0: u64 = 0,
     y1: u64 = 0,
@@ -39,9 +39,9 @@ pub const Ghash = struct {
     hh2r: u64 = undefined,
 
     leftover: usize = 0,
-    buf: [block_size]u8 align(16) = undefined,
+    buf: [block_length]u8 align(16) = undefined,
 
-    pub fn init(key: *const [minimum_key_length]u8) Ghash {
+    pub fn init(key: *const [key_length]u8) Ghash {
         const h1 = mem.readIntBig(u64, key[0..8]);
         const h0 = mem.readIntBig(u64, key[8..16]);
         const h1r = @bitReverse(u64, h1);
@@ -261,21 +261,21 @@ pub const Ghash = struct {
         var mb = m;
 
         if (st.leftover > 0) {
-            const want = math.min(block_size - st.leftover, mb.len);
+            const want = math.min(block_length - st.leftover, mb.len);
             const mc = mb[0..want];
             for (mc) |x, i| {
                 st.buf[st.leftover + i] = x;
             }
             mb = mb[want..];
             st.leftover += want;
-            if (st.leftover < block_size) {
+            if (st.leftover < block_length) {
                 return;
             }
             st.blocks(&st.buf);
             st.leftover = 0;
         }
-        if (mb.len >= block_size) {
-            const want = mb.len & ~(block_size - 1);
+        if (mb.len >= block_length) {
+            const want = mb.len & ~(block_length - 1);
             st.blocks(mb[0..want]);
             mb = mb[want..];
         }
@@ -293,7 +293,7 @@ pub const Ghash = struct {
             return;
         }
         var i = st.leftover;
-        while (i < block_size) : (i += 1) {
+        while (i < block_length) : (i += 1) {
             st.buf[i] = 0;
         }
         st.blocks(&st.buf);
@@ -308,7 +308,7 @@ pub const Ghash = struct {
         mem.secureZero(u8, @ptrCast([*]u8, st)[0..@sizeOf(Ghash)]);
     }
 
-    pub fn create(out: *[mac_length]u8, msg: []const u8, key: *const [minimum_key_length]u8) void {
+    pub fn create(out: *[mac_length]u8, msg: []const u8, key: *const [key_length]u8) void {
         var st = Ghash.init(key);
         st.update(msg);
         st.final(out);

@@ -7,9 +7,9 @@ const std = @import("../std.zig");
 const mem = std.mem;
 
 pub const Poly1305 = struct {
-    pub const block_size: usize = 16;
+    pub const block_length: usize = 16;
     pub const mac_length = 16;
-    pub const minimum_key_length = 32;
+    pub const key_length = 32;
 
     // constant multiplier (from the secret key)
     r: [3]u64,
@@ -20,9 +20,9 @@ pub const Poly1305 = struct {
     // how many bytes are waiting to be processed in a partial block
     leftover: usize = 0,
     // partial block buffer
-    buf: [block_size]u8 align(16) = undefined,
+    buf: [block_length]u8 align(16) = undefined,
 
-    pub fn init(key: *const [minimum_key_length]u8) Poly1305 {
+    pub fn init(key: *const [key_length]u8) Poly1305 {
         const t0 = mem.readIntLittle(u64, key[0..8]);
         const t1 = mem.readIntLittle(u64, key[8..16]);
         return Poly1305{
@@ -49,7 +49,7 @@ pub const Poly1305 = struct {
         const s1 = r1 * (5 << 2);
         const s2 = r2 * (5 << 2);
         var i: usize = 0;
-        while (i + block_size <= m.len) : (i += block_size) {
+        while (i + block_length <= m.len) : (i += block_length) {
             // h += m[i]
             const t0 = mem.readIntLittle(u64, m[i..][0..8]);
             const t1 = mem.readIntLittle(u64, m[i + 8 ..][0..8]);
@@ -84,14 +84,14 @@ pub const Poly1305 = struct {
 
         // handle leftover
         if (st.leftover > 0) {
-            const want = std.math.min(block_size - st.leftover, mb.len);
+            const want = std.math.min(block_length - st.leftover, mb.len);
             const mc = mb[0..want];
             for (mc) |x, i| {
                 st.buf[st.leftover + i] = x;
             }
             mb = mb[want..];
             st.leftover += want;
-            if (st.leftover < block_size) {
+            if (st.leftover < block_length) {
                 return;
             }
             st.blocks(&st.buf, false);
@@ -99,8 +99,8 @@ pub const Poly1305 = struct {
         }
 
         // process full blocks
-        if (mb.len >= block_size) {
-            const want = mb.len & ~(block_size - 1);
+        if (mb.len >= block_length) {
+            const want = mb.len & ~(block_length - 1);
             st.blocks(mb[0..want], false);
             mb = mb[want..];
         }
@@ -120,7 +120,7 @@ pub const Poly1305 = struct {
             return;
         }
         var i = st.leftover;
-        while (i < block_size) : (i += 1) {
+        while (i < block_length) : (i += 1) {
             st.buf[i] = 0;
         }
         st.blocks(&st.buf);
@@ -132,7 +132,7 @@ pub const Poly1305 = struct {
             var i = st.leftover;
             st.buf[i] = 1;
             i += 1;
-            while (i < block_size) : (i += 1) {
+            while (i < block_length) : (i += 1) {
                 st.buf[i] = 0;
             }
             st.blocks(&st.buf, true);
@@ -198,7 +198,7 @@ pub const Poly1305 = struct {
         std.mem.secureZero(u8, @ptrCast([*]u8, st)[0..@sizeOf(Poly1305)]);
     }
 
-    pub fn create(out: *[mac_length]u8, msg: []const u8, key: *const [minimum_key_length]u8) void {
+    pub fn create(out: *[mac_length]u8, msg: []const u8, key: *const [key_length]u8) void {
         var st = Poly1305.init(key);
         st.update(msg);
         st.final(out);

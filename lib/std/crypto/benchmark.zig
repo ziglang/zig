@@ -73,7 +73,7 @@ pub fn benchmarkMac(comptime Mac: anytype, comptime bytes: comptime_int) !u64 {
     var in: [512 * KiB]u8 = undefined;
     prng.random.bytes(in[0..]);
 
-    const key_length = if (Mac.minimum_key_length == 0) 32 else Mac.minimum_key_length;
+    const key_length = if (Mac.key_length == 0) 32 else Mac.key_length;
     var key: [key_length]u8 = undefined;
     prng.random.bytes(key[0..]);
 
@@ -96,12 +96,12 @@ pub fn benchmarkMac(comptime Mac: anytype, comptime bytes: comptime_int) !u64 {
 const exchanges = [_]Crypto{Crypto{ .ty = crypto.dh.X25519, .name = "x25519" }};
 
 pub fn benchmarkKeyExchange(comptime DhKeyExchange: anytype, comptime exchange_count: comptime_int) !u64 {
-    std.debug.assert(DhKeyExchange.minimum_key_length >= DhKeyExchange.secret_length);
+    std.debug.assert(DhKeyExchange.key_length >= DhKeyExchange.secret_length);
 
-    var in: [DhKeyExchange.minimum_key_length]u8 = undefined;
+    var in: [DhKeyExchange.key_length]u8 = undefined;
     prng.random.bytes(in[0..]);
 
-    var out: [DhKeyExchange.minimum_key_length]u8 = undefined;
+    var out: [DhKeyExchange.key_length]u8 = undefined;
     prng.random.bytes(out[0..]);
 
     var timer = try Timer.start();
@@ -150,10 +150,10 @@ const aeads = [_]Crypto{
     Crypto{ .ty = crypto.aead.ChaCha20Poly1305, .name = "chacha20Poly1305" },
     Crypto{ .ty = crypto.aead.XChaCha20Poly1305, .name = "xchacha20Poly1305" },
     Crypto{ .ty = crypto.aead.Gimli, .name = "gimli-aead" },
-    Crypto{ .ty = crypto.aead.AEGIS128L, .name = "aegis-128l" },
-    Crypto{ .ty = crypto.aead.AEGIS256, .name = "aegis-256" },
-    Crypto{ .ty = crypto.aead.AES128GCM, .name = "aes128-gcm" },
-    Crypto{ .ty = crypto.aead.AES256GCM, .name = "aes256-gcm" },
+    Crypto{ .ty = crypto.aead.Aegis128L, .name = "aegis-128l" },
+    Crypto{ .ty = crypto.aead.Aegis256, .name = "aegis-256" },
+    Crypto{ .ty = crypto.aead.Aes128Gcm, .name = "aes128-gcm" },
+    Crypto{ .ty = crypto.aead.Aes256Gcm, .name = "aes256-gcm" },
 };
 
 pub fn benchmarkAead(comptime Aead: anytype, comptime bytes: comptime_int) !u64 {
@@ -185,14 +185,14 @@ pub fn benchmarkAead(comptime Aead: anytype, comptime bytes: comptime_int) !u64 
 }
 
 const aes = [_]Crypto{
-    Crypto{ .ty = crypto.core.aes.AES128, .name = "aes128-single" },
-    Crypto{ .ty = crypto.core.aes.AES256, .name = "aes256-single" },
+    Crypto{ .ty = crypto.core.aes.Aes128, .name = "aes128-single" },
+    Crypto{ .ty = crypto.core.aes.Aes256, .name = "aes256-single" },
 };
 
-pub fn benchmarkAES(comptime AES: anytype, comptime count: comptime_int) !u64 {
-    var key: [AES.key_bits / 8]u8 = undefined;
+pub fn benchmarkAes(comptime Aes: anytype, comptime count: comptime_int) !u64 {
+    var key: [Aes.key_bits / 8]u8 = undefined;
     prng.random.bytes(key[0..]);
-    const ctx = AES.initEnc(key);
+    const ctx = Aes.initEnc(key);
 
     var in = [_]u8{0} ** 16;
 
@@ -214,14 +214,14 @@ pub fn benchmarkAES(comptime AES: anytype, comptime count: comptime_int) !u64 {
 }
 
 const aes8 = [_]Crypto{
-    Crypto{ .ty = crypto.core.aes.AES128, .name = "aes128-8" },
-    Crypto{ .ty = crypto.core.aes.AES256, .name = "aes256-8" },
+    Crypto{ .ty = crypto.core.aes.Aes128, .name = "aes128-8" },
+    Crypto{ .ty = crypto.core.aes.Aes256, .name = "aes256-8" },
 };
 
-pub fn benchmarkAES8(comptime AES: anytype, comptime count: comptime_int) !u64 {
-    var key: [AES.key_bits / 8]u8 = undefined;
+pub fn benchmarkAes8(comptime Aes: anytype, comptime count: comptime_int) !u64 {
+    var key: [Aes.key_bits / 8]u8 = undefined;
     prng.random.bytes(key[0..]);
-    const ctx = AES.initEnc(key);
+    const ctx = Aes.initEnc(key);
 
     var in = [_]u8{0} ** (8 * 16);
 
@@ -335,14 +335,14 @@ pub fn main() !void {
 
     inline for (aes) |E| {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
-            const throughput = try benchmarkAES(E.ty, mode(100000000));
+            const throughput = try benchmarkAes(E.ty, mode(100000000));
             try stdout.print("{:>17}: {:10} ops/s\n", .{ E.name, throughput });
         }
     }
 
     inline for (aes8) |E| {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
-            const throughput = try benchmarkAES8(E.ty, mode(10000000));
+            const throughput = try benchmarkAes8(E.ty, mode(10000000));
             try stdout.print("{:>17}: {:10} ops/s\n", .{ E.name, throughput });
         }
     }
