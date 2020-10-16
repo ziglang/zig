@@ -587,11 +587,36 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                         try self.dbgSetEpilogueBegin();
 
+                        // exitlude jumps
+                        if (self.exitlude_jump_relocs.items.len == 1) {
+                            // There is only one relocation. Hence,
+                            // this relocation must be at the end of
+                            // the code. Therefore, we can just delete
+                            // the space initially reserved for the
+                            // jump
+                            self.code.items.len -= 4;
+                        } else for (self.exitlude_jump_relocs.items) |jmp_reloc| {
+                            const amt = self.code.items.len - (jmp_reloc + 4);
+                            if (amt == 0) {
+                                // This return is at the end of the
+                                // code block. We can't just delete
+                                // the space because there may be
+                                // other jumps we already relocated to
+                                // the address. Instead, insert a nop
+                                mem.writeIntLittle(u32, self.code.items[jmp_reloc..][0..4], Instruction.nop().toU32());
+                            } else {
+                                if (math.cast(i26, amt)) |offset| {
+                                    mem.writeIntLittle(u32, self.code.items[jmp_reloc..][0..4], Instruction.b(.al, offset).toU32());
+                                } else |err| {
+                                    return self.fail(self.src, "exitlude jump is too large", .{});
+                                }
+                            }
+                        }
+
                         // mov sp, fp
                         // pop {fp, pc}
-                        // TODO: return by jumping to this code, use relocations
-                        // mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .sp, Instruction.Operand.reg(.fp, Instruction.Operand.Shift.none)).toU32());
-                        // mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.pop(.al, .{ .fp, .pc }).toU32());
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .sp, Instruction.Operand.reg(.fp, Instruction.Operand.Shift.none)).toU32());
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.pop(.al, .{ .fp, .pc }).toU32());
                     } else {
                         try self.dbgSetPrologueEnd();
                         try self.genBody(self.mod_fn.analysis.success);
@@ -1661,12 +1686,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.jalr(.zero, 0, .ra).toU32());
                 },
                 .arm => {
-                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .sp, Instruction.Operand.reg(.fp, Instruction.Operand.Shift.none)).toU32());
-                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.pop(.al, .{ .fp, .pc }).toU32());
-                    // TODO: jump to the end with relocation
-                    // // Just add space for an instruction, patch this later
-                    // try self.code.resize(self.code.items.len + 4);
-                    // try self.exitlude_jump_relocs.append(self.gpa, self.code.items.len - 4);
+                    // Just add space for an instruction, patch this later
+                    try self.code.resize(self.code.items.len + 4);
+                    try self.exitlude_jump_relocs.append(self.gpa, self.code.items.len - 4);
                 },
                 else => return self.fail(src, "TODO implement return for {}", .{self.target.cpu.arch}),
             }
@@ -1930,6 +1952,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const delta = @intCast(i32, index) - (@intCast(i32, self.code.items.len + 5));
                         self.code.appendAssumeCapacity(0xe9); // jmp rel32
                         mem.writeIntLittle(i32, self.code.addManyAsArrayAssumeCapacity(4), delta);
+                    }
+                },
+                .arm => {
+                    if (math.cast(i26, @intCast(i32, index) - @intCast(i32, self.code.items.len))) |delta| {
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.b(.al, delta).toU32());
+                    } else |err| {
+                        return self.fail(src, "TODO: enable larger branch offset", .{});
                     }
                 },
                 else => return self.fail(src, "TODO implement jump for {}", .{self.target.cpu.arch}),

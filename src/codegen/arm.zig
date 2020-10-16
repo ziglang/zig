@@ -575,12 +575,12 @@ pub const Instruction = union(enum) {
         };
     }
 
-    fn branch(cond: Condition, offset: i24, link: u1) Instruction {
+    fn branch(cond: Condition, offset: i26, link: u1) Instruction {
         return Instruction{
             .Branch = .{
                 .cond = @enumToInt(cond),
                 .link = link,
-                .offset = @bitCast(u24, offset),
+                .offset = @bitCast(u24, @intCast(i24, offset >> 2)),
             },
         };
     }
@@ -895,11 +895,11 @@ pub const Instruction = union(enum) {
 
     // Branch
 
-    pub fn b(cond: Condition, offset: i24) Instruction {
+    pub fn b(cond: Condition, offset: i26) Instruction {
         return branch(cond, offset, 0);
     }
 
-    pub fn bl(cond: Condition, offset: i24) Instruction {
+    pub fn bl(cond: Condition, offset: i26) Instruction {
         return branch(cond, offset, 1);
     }
 
@@ -928,6 +928,10 @@ pub const Instruction = union(enum) {
     }
 
     // Aliases
+
+    pub fn nop() Instruction {
+        return mov(.al, .r0, Instruction.Operand.reg(.r0, Instruction.Operand.Shift.none));
+    }
 
     pub fn pop(cond: Condition, args: anytype) Instruction {
         if (@typeInfo(@TypeOf(args)) != .Struct) {
@@ -1025,11 +1029,11 @@ test "serialize instructions" {
         },
         .{ // b #12
             .inst = Instruction.b(.al, 12),
-            .expected = 0b1110_101_0_0000_0000_0000_0000_0000_1100,
+            .expected = 0b1110_101_0_0000_0000_0000_0000_0000_0011,
         },
         .{ // bl #-4
             .inst = Instruction.bl(.al, -4),
-            .expected = 0b1110_101_1_1111_1111_1111_1111_1111_1100,
+            .expected = 0b1110_101_1_1111_1111_1111_1111_1111_1111,
         },
         .{ // bx lr
             .inst = Instruction.bx(.al, .lr),
