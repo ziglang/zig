@@ -1097,17 +1097,13 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
                     try argv.append("-NODEFAULTLIB");
                     if (!is_lib) {
                         if (self.base.options.module) |module| {
-                            if (module.stage1_flags.have_winmain) {
-                                try argv.append("-ENTRY:WinMain");
-                            } else if (module.stage1_flags.have_wwinmain) {
-                                try argv.append("-ENTRY:wWinMain");
-                            } else if (module.stage1_flags.have_wwinmain_crt_startup) {
-                                try argv.append("-ENTRY:wWinMainCRTStartup");
-                            } else {
+                            if (module.stage1_flags.have_winmain_crt_startup) {
                                 try argv.append("-ENTRY:WinMainCRTStartup");
+                            } else {
+                                try argv.append("-ENTRY:wWinMainCRTStartup");
                             }
                         } else {
-                            try argv.append("-ENTRY:WinMainCRTStartup");
+                            try argv.append("-ENTRY:wWinMainCRTStartup");
                         }
                     }
                 }
