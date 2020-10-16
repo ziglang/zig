@@ -929,7 +929,7 @@ fn buildOutputType(
                         });
                     },
                     .shared_library => {
-                        fatal("linking against dynamic libraries not yet supported", .{});
+                        try link_objects.append(arg);
                     },
                     .zig, .zir => {
                         if (root_src_file) |other| {
