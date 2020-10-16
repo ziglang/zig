@@ -317,7 +317,7 @@ fn keyToWords(key: [32]u8) [8]u32 {
 /// counter, nonce, and key.
 pub const ChaCha20IETF = struct {
     pub fn xor(out: []u8, in: []const u8, counter: u32, key: [32]u8, nonce: [12]u8) void {
-        assert(in.len >= out.len);
+        assert(in.len == out.len);
         assert((in.len >> 6) + counter <= maxInt(u32));
 
         var c: [4]u32 = undefined;
@@ -334,7 +334,7 @@ pub const ChaCha20IETF = struct {
 /// exceed the 256 GiB limit of the 96-bit nonce version.
 pub const ChaCha20With64BitNonce = struct {
     pub fn xor(out: []u8, in: []const u8, counter: u64, key: [32]u8, nonce: [8]u8) void {
-        assert(in.len >= out.len);
+        assert(in.len == out.len);
         assert(counter +% (in.len >> 6) >= counter);
 
         var cursor: usize = 0;
@@ -345,9 +345,9 @@ pub const ChaCha20With64BitNonce = struct {
         c[2] = mem.readIntLittle(u32, nonce[0..4]);
         c[3] = mem.readIntLittle(u32, nonce[4..8]);
 
-        const block_size = (1 << 6);
+        const block_length = (1 << 6);
         // The full block size is greater than the address space on a 32bit machine
-        const big_block = if (@sizeOf(usize) > 4) (block_size << 32) else maxInt(usize);
+        const big_block = if (@sizeOf(usize) > 4) (block_length << 32) else maxInt(usize);
 
         // first partial big block
         if (((@intCast(u64, maxInt(u32) - @truncate(u32, counter)) + 1) << 6) < in.len) {
@@ -621,10 +621,10 @@ test "crypto.chacha20 test vector 5" {
     testing.expectEqualSlices(u8, &expected_result, &result);
 }
 
-pub const chacha20poly1305_tag_size = 16;
+pub const chacha20poly1305_tag_length = 16;
 
-fn chacha20poly1305SealDetached(ciphertext: []u8, tag: *[chacha20poly1305_tag_size]u8, plaintext: []const u8, data: []const u8, key: [32]u8, nonce: [12]u8) void {
-    assert(ciphertext.len >= plaintext.len);
+fn chacha20poly1305SealDetached(ciphertext: []u8, tag: *[chacha20poly1305_tag_length]u8, plaintext: []const u8, data: []const u8, key: [32]u8, nonce: [12]u8) void {
+    assert(ciphertext.len == plaintext.len);
 
     // derive poly1305 key
     var polyKey = [_]u8{0} ** 32;
@@ -655,13 +655,13 @@ fn chacha20poly1305SealDetached(ciphertext: []u8, tag: *[chacha20poly1305_tag_si
 }
 
 fn chacha20poly1305Seal(ciphertextAndTag: []u8, plaintext: []const u8, data: []const u8, key: [32]u8, nonce: [12]u8) void {
-    return chacha20poly1305SealDetached(ciphertextAndTag[0..plaintext.len], ciphertextAndTag[plaintext.len..][0..chacha20poly1305_tag_size], plaintext, data, key, nonce);
+    return chacha20poly1305SealDetached(ciphertextAndTag[0..plaintext.len], ciphertextAndTag[plaintext.len..][0..chacha20poly1305_tag_length], plaintext, data, key, nonce);
 }
 
 /// Verifies and decrypts an authenticated message produced by chacha20poly1305SealDetached.
-fn chacha20poly1305OpenDetached(dst: []u8, ciphertext: []const u8, tag: *const [chacha20poly1305_tag_size]u8, data: []const u8, key: [32]u8, nonce: [12]u8) !void {
+fn chacha20poly1305OpenDetached(dst: []u8, ciphertext: []const u8, tag: *const [chacha20poly1305_tag_length]u8, data: []const u8, key: [32]u8, nonce: [12]u8) !void {
     // split ciphertext and tag
-    assert(dst.len >= ciphertext.len);
+    assert(dst.len == ciphertext.len);
 
     // derive poly1305 key
     var polyKey = [_]u8{0} ** 32;
@@ -706,11 +706,11 @@ fn chacha20poly1305OpenDetached(dst: []u8, ciphertext: []const u8, tag: *const [
 
 /// Verifies and decrypts an authenticated message produced by chacha20poly1305Seal.
 fn chacha20poly1305Open(dst: []u8, ciphertextAndTag: []const u8, data: []const u8, key: [32]u8, nonce: [12]u8) !void {
-    if (ciphertextAndTag.len < chacha20poly1305_tag_size) {
+    if (ciphertextAndTag.len < chacha20poly1305_tag_length) {
         return error.InvalidMessage;
     }
-    const ciphertextLen = ciphertextAndTag.len - chacha20poly1305_tag_size;
-    return try chacha20poly1305OpenDetached(dst, ciphertextAndTag[0..ciphertextLen], ciphertextAndTag[ciphertextLen..][0..chacha20poly1305_tag_size], data, key, nonce);
+    const ciphertextLen = ciphertextAndTag.len - chacha20poly1305_tag_length;
+    return try chacha20poly1305OpenDetached(dst, ciphertextAndTag[0..ciphertextLen], ciphertextAndTag[ciphertextLen..][0..chacha20poly1305_tag_length], data, key, nonce);
 }
 
 fn extend(key: [32]u8, nonce: [24]u8) struct { key: [32]u8, nonce: [12]u8 } {
@@ -730,9 +730,9 @@ pub const XChaCha20IETF = struct {
     }
 };
 
-pub const xchacha20poly1305_tag_size = 16;
+pub const xchacha20poly1305_tag_length = 16;
 
-fn xchacha20poly1305SealDetached(ciphertext: []u8, tag: *[chacha20poly1305_tag_size]u8, plaintext: []const u8, data: []const u8, key: [32]u8, nonce: [24]u8) void {
+fn xchacha20poly1305SealDetached(ciphertext: []u8, tag: *[chacha20poly1305_tag_length]u8, plaintext: []const u8, data: []const u8, key: [32]u8, nonce: [24]u8) void {
     const extended = extend(key, nonce);
     return chacha20poly1305SealDetached(ciphertext, tag, plaintext, data, extended.key, extended.nonce);
 }
@@ -743,7 +743,7 @@ fn xchacha20poly1305Seal(ciphertextAndTag: []u8, plaintext: []const u8, data: []
 }
 
 /// Verifies and decrypts an authenticated message produced by xchacha20poly1305SealDetached.
-fn xchacha20poly1305OpenDetached(plaintext: []u8, ciphertext: []const u8, tag: *const [chacha20poly1305_tag_size]u8, data: []const u8, key: [32]u8, nonce: [24]u8) !void {
+fn xchacha20poly1305OpenDetached(plaintext: []u8, ciphertext: []const u8, tag: *const [chacha20poly1305_tag_length]u8, data: []const u8, key: [32]u8, nonce: [24]u8) !void {
     const extended = extend(key, nonce);
     return try chacha20poly1305OpenDetached(plaintext, ciphertext, tag, data, extended.key, extended.nonce);
 }
@@ -883,7 +883,7 @@ test "crypto.xchacha20" {
     }
     {
         const data = "Additional data";
-        var ciphertext: [input.len + xchacha20poly1305_tag_size]u8 = undefined;
+        var ciphertext: [input.len + xchacha20poly1305_tag_length]u8 = undefined;
         xchacha20poly1305Seal(ciphertext[0..], input, data, key, nonce);
         var out: [input.len]u8 = undefined;
         try xchacha20poly1305Open(out[0..], ciphertext[0..], data, key, nonce);

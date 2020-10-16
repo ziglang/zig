@@ -7,16 +7,16 @@ const Ghash = std.crypto.onetimeauth.Ghash;
 const mem = std.mem;
 const modes = crypto.core.modes;
 
-pub const AES128GCM = AESGCM(crypto.core.aes.AES128);
-pub const AES256GCM = AESGCM(crypto.core.aes.AES256);
+pub const Aes128Gcm = AesGcm(crypto.core.aes.Aes128);
+pub const Aes256Gcm = AesGcm(crypto.core.aes.Aes256);
 
-fn AESGCM(comptime AES: anytype) type {
-    debug.assert(AES.block.block_size == 16);
+fn AesGcm(comptime Aes: anytype) type {
+    debug.assert(Aes.block.block_length == 16);
 
     return struct {
         pub const tag_length = 16;
         pub const nonce_length = 12;
-        pub const key_length = AES.key_bits / 8;
+        pub const key_length = Aes.key_bits / 8;
 
         const zeros = [_]u8{0} ** 16;
 
@@ -24,7 +24,7 @@ fn AESGCM(comptime AES: anytype) type {
             debug.assert(c.len == m.len);
             debug.assert(m.len <= 16 * ((1 << 32) - 2));
 
-            const aes = AES.initEnc(key);
+            const aes = Aes.initEnc(key);
             var h: [16]u8 = undefined;
             aes.encrypt(&h, &zeros);
 
@@ -56,7 +56,7 @@ fn AESGCM(comptime AES: anytype) type {
         pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) !void {
             assert(c.len == m.len);
 
-            const aes = AES.initEnc(key);
+            const aes = Aes.initEnc(key);
             var h: [16]u8 = undefined;
             aes.encrypt(&h, &zeros);
 
@@ -101,59 +101,59 @@ fn AESGCM(comptime AES: anytype) type {
 const htest = @import("test.zig");
 const testing = std.testing;
 
-test "AES256GCM - Empty message and no associated data" {
-    const key: [AES256GCM.key_length]u8 = [_]u8{0x69} ** AES256GCM.key_length;
-    const nonce: [AES256GCM.nonce_length]u8 = [_]u8{0x42} ** AES256GCM.nonce_length;
+test "Aes256Gcm - Empty message and no associated data" {
+    const key: [Aes256Gcm.key_length]u8 = [_]u8{0x69} ** Aes256Gcm.key_length;
+    const nonce: [Aes256Gcm.nonce_length]u8 = [_]u8{0x42} ** Aes256Gcm.nonce_length;
     const ad = "";
     const m = "";
     var c: [m.len]u8 = undefined;
     var m2: [m.len]u8 = undefined;
-    var tag: [AES256GCM.tag_length]u8 = undefined;
+    var tag: [Aes256Gcm.tag_length]u8 = undefined;
 
-    AES256GCM.encrypt(&c, &tag, m, ad, nonce, key);
+    Aes256Gcm.encrypt(&c, &tag, m, ad, nonce, key);
     htest.assertEqual("6b6ff610a16fa4cd59f1fb7903154e92", &tag);
 }
 
-test "AES256GCM - Associated data only" {
-    const key: [AES256GCM.key_length]u8 = [_]u8{0x69} ** AES256GCM.key_length;
-    const nonce: [AES256GCM.nonce_length]u8 = [_]u8{0x42} ** AES256GCM.nonce_length;
+test "Aes256Gcm - Associated data only" {
+    const key: [Aes256Gcm.key_length]u8 = [_]u8{0x69} ** Aes256Gcm.key_length;
+    const nonce: [Aes256Gcm.nonce_length]u8 = [_]u8{0x42} ** Aes256Gcm.nonce_length;
     const m = "";
     const ad = "Test with associated data";
     var c: [m.len]u8 = undefined;
-    var tag: [AES256GCM.tag_length]u8 = undefined;
+    var tag: [Aes256Gcm.tag_length]u8 = undefined;
 
-    AES256GCM.encrypt(&c, &tag, m, ad, nonce, key);
+    Aes256Gcm.encrypt(&c, &tag, m, ad, nonce, key);
     htest.assertEqual("262ed164c2dfb26e080a9d108dd9dd4c", &tag);
 }
 
-test "AES256GCM - Message only" {
-    const key: [AES256GCM.key_length]u8 = [_]u8{0x69} ** AES256GCM.key_length;
-    const nonce: [AES256GCM.nonce_length]u8 = [_]u8{0x42} ** AES256GCM.nonce_length;
+test "Aes256Gcm - Message only" {
+    const key: [Aes256Gcm.key_length]u8 = [_]u8{0x69} ** Aes256Gcm.key_length;
+    const nonce: [Aes256Gcm.nonce_length]u8 = [_]u8{0x42} ** Aes256Gcm.nonce_length;
     const m = "Test with message only";
     const ad = "";
     var c: [m.len]u8 = undefined;
     var m2: [m.len]u8 = undefined;
-    var tag: [AES256GCM.tag_length]u8 = undefined;
+    var tag: [Aes256Gcm.tag_length]u8 = undefined;
 
-    AES256GCM.encrypt(&c, &tag, m, ad, nonce, key);
-    try AES256GCM.decrypt(&m2, &c, tag, ad, nonce, key);
+    Aes256Gcm.encrypt(&c, &tag, m, ad, nonce, key);
+    try Aes256Gcm.decrypt(&m2, &c, tag, ad, nonce, key);
     testing.expectEqualSlices(u8, m[0..], m2[0..]);
 
     htest.assertEqual("5ca1642d90009fea33d01f78cf6eefaf01d539472f7c", &c);
     htest.assertEqual("07cd7fc9103e2f9e9bf2dfaa319caff4", &tag);
 }
 
-test "AES256GCM - Message and associated data" {
-    const key: [AES256GCM.key_length]u8 = [_]u8{0x69} ** AES256GCM.key_length;
-    const nonce: [AES256GCM.nonce_length]u8 = [_]u8{0x42} ** AES256GCM.nonce_length;
+test "Aes256Gcm - Message and associated data" {
+    const key: [Aes256Gcm.key_length]u8 = [_]u8{0x69} ** Aes256Gcm.key_length;
+    const nonce: [Aes256Gcm.nonce_length]u8 = [_]u8{0x42} ** Aes256Gcm.nonce_length;
     const m = "Test with message";
     const ad = "Test with associated data";
     var c: [m.len]u8 = undefined;
     var m2: [m.len]u8 = undefined;
-    var tag: [AES256GCM.tag_length]u8 = undefined;
+    var tag: [Aes256Gcm.tag_length]u8 = undefined;
 
-    AES256GCM.encrypt(&c, &tag, m, ad, nonce, key);
-    try AES256GCM.decrypt(&m2, &c, tag, ad, nonce, key);
+    Aes256Gcm.encrypt(&c, &tag, m, ad, nonce, key);
+    try Aes256Gcm.decrypt(&m2, &c, tag, ad, nonce, key);
     testing.expectEqualSlices(u8, m[0..], m2[0..]);
 
     htest.assertEqual("5ca1642d90009fea33d01f78cf6eefaf01", &c);

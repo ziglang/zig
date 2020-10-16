@@ -18,7 +18,7 @@ const RoundParam = struct {
     y: usize,
 };
 
-fn Rp(a: usize, b: usize, c: usize, d: usize, x: usize, y: usize) RoundParam {
+fn roundParam(a: usize, b: usize, c: usize, d: usize, x: usize, y: usize) RoundParam {
     return RoundParam{
         .a = a,
         .b = b,
@@ -32,14 +32,18 @@ fn Rp(a: usize, b: usize, c: usize, d: usize, x: usize, y: usize) RoundParam {
 /////////////////////
 // Blake2s
 
+pub const Blake2s128 = Blake2s(128);
 pub const Blake2s224 = Blake2s(224);
 pub const Blake2s256 = Blake2s(256);
 
-pub fn Blake2s(comptime out_len: usize) type {
+pub fn Blake2s(comptime out_bits: usize) type {
     return struct {
         const Self = @This();
         pub const block_length = 64;
-        pub const digest_length = out_len / 8;
+        pub const digest_length = out_bits / 8;
+        pub const key_length_min = 0;
+        pub const key_length_max = 32;
+        pub const key_length = 32; // recommended key length
         pub const Options = struct { key: ?[]const u8 = null, salt: ?[8]u8 = null, context: ?[8]u8 = null };
 
         const iv = [8]u32{
@@ -73,14 +77,14 @@ pub fn Blake2s(comptime out_len: usize) type {
         buf_len: u8,
 
         pub fn init(options: Options) Self {
-            debug.assert(8 <= out_len and out_len <= 512);
+            debug.assert(8 <= out_bits and out_bits <= 256);
 
             var d: Self = undefined;
             mem.copy(u32, d.h[0..], iv[0..]);
 
             const key_len = if (options.key) |key| key.len else 0;
             // default parameters
-            d.h[0] ^= 0x01010000 ^ @truncate(u32, key_len << 8) ^ @intCast(u32, out_len >> 3);
+            d.h[0] ^= 0x01010000 ^ @truncate(u32, key_len << 8) ^ @intCast(u32, out_bits >> 3);
             d.t = 0;
             d.buf_len = 0;
 
@@ -100,7 +104,7 @@ pub fn Blake2s(comptime out_len: usize) type {
             return d;
         }
 
-        pub fn hash(b: []const u8, out: []u8, options: Options) void {
+        pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
             var d = Self.init(options);
             d.update(b);
             d.final(out);
@@ -129,14 +133,12 @@ pub fn Blake2s(comptime out_len: usize) type {
             d.buf_len += @intCast(u8, b[off..].len);
         }
 
-        pub fn final(d: *Self, out: []u8) void {
-            debug.assert(out.len >= out_len / 8);
-
+        pub fn final(d: *Self, out: *[digest_length]u8) void {
             mem.set(u8, d.buf[d.buf_len..], 0);
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
 
-            const rr = d.h[0 .. out_len / 32];
+            const rr = d.h[0 .. digest_length / 4];
 
             for (rr) |s, j| {
                 mem.writeIntSliceLittle(u32, out[4 * j ..], s);
@@ -164,14 +166,14 @@ pub fn Blake2s(comptime out_len: usize) type {
             if (last) v[14] = ~v[14];
 
             const rounds = comptime [_]RoundParam{
-                Rp(0, 4, 8, 12, 0, 1),
-                Rp(1, 5, 9, 13, 2, 3),
-                Rp(2, 6, 10, 14, 4, 5),
-                Rp(3, 7, 11, 15, 6, 7),
-                Rp(0, 5, 10, 15, 8, 9),
-                Rp(1, 6, 11, 12, 10, 11),
-                Rp(2, 7, 8, 13, 12, 13),
-                Rp(3, 4, 9, 14, 14, 15),
+                roundParam(0, 4, 8, 12, 0, 1),
+                roundParam(1, 5, 9, 13, 2, 3),
+                roundParam(2, 6, 10, 14, 4, 5),
+                roundParam(3, 7, 11, 15, 6, 7),
+                roundParam(0, 5, 10, 15, 8, 9),
+                roundParam(1, 6, 11, 12, 10, 11),
+                roundParam(2, 7, 8, 13, 12, 13),
+                roundParam(3, 4, 9, 14, 14, 15),
             };
 
             comptime var j: usize = 0;
@@ -372,15 +374,19 @@ test "comptime blake2s256" {
 /////////////////////
 // Blake2b
 
+pub const Blake2b128 = Blake2b(128);
 pub const Blake2b256 = Blake2b(256);
 pub const Blake2b384 = Blake2b(384);
 pub const Blake2b512 = Blake2b(512);
 
-pub fn Blake2b(comptime out_len: usize) type {
+pub fn Blake2b(comptime out_bits: usize) type {
     return struct {
         const Self = @This();
         pub const block_length = 128;
-        pub const digest_length = out_len / 8;
+        pub const digest_length = out_bits / 8;
+        pub const key_length_min = 0;
+        pub const key_length_max = 64;
+        pub const key_length = 32; // recommended key length
         pub const Options = struct { key: ?[]const u8 = null, salt: ?[16]u8 = null, context: ?[16]u8 = null };
 
         const iv = [8]u64{
@@ -416,14 +422,14 @@ pub fn Blake2b(comptime out_len: usize) type {
         buf_len: u8,
 
         pub fn init(options: Options) Self {
-            debug.assert(8 <= out_len and out_len <= 512);
+            debug.assert(8 <= out_bits and out_bits <= 512);
 
             var d: Self = undefined;
             mem.copy(u64, d.h[0..], iv[0..]);
 
             const key_len = if (options.key) |key| key.len else 0;
             // default parameters
-            d.h[0] ^= 0x01010000 ^ (key_len << 8) ^ (out_len >> 3);
+            d.h[0] ^= 0x01010000 ^ (key_len << 8) ^ (out_bits >> 3);
             d.t = 0;
             d.buf_len = 0;
 
@@ -443,7 +449,7 @@ pub fn Blake2b(comptime out_len: usize) type {
             return d;
         }
 
-        pub fn hash(b: []const u8, out: []u8, options: Options) void {
+        pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
             var d = Self.init(options);
             d.update(b);
             d.final(out);
@@ -472,12 +478,12 @@ pub fn Blake2b(comptime out_len: usize) type {
             d.buf_len += @intCast(u8, b[off..].len);
         }
 
-        pub fn final(d: *Self, out: []u8) void {
+        pub fn final(d: *Self, out: *[digest_length]u8) void {
             mem.set(u8, d.buf[d.buf_len..], 0);
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
 
-            const rr = d.h[0 .. out_len / 64];
+            const rr = d.h[0 .. digest_length / 8];
 
             for (rr) |s, j| {
                 mem.writeIntSliceLittle(u64, out[8 * j ..], s);
@@ -505,14 +511,14 @@ pub fn Blake2b(comptime out_len: usize) type {
             if (last) v[14] = ~v[14];
 
             const rounds = comptime [_]RoundParam{
-                Rp(0, 4, 8, 12, 0, 1),
-                Rp(1, 5, 9, 13, 2, 3),
-                Rp(2, 6, 10, 14, 4, 5),
-                Rp(3, 7, 11, 15, 6, 7),
-                Rp(0, 5, 10, 15, 8, 9),
-                Rp(1, 6, 11, 12, 10, 11),
-                Rp(2, 7, 8, 13, 12, 13),
-                Rp(3, 4, 9, 14, 14, 15),
+                roundParam(0, 4, 8, 12, 0, 1),
+                roundParam(1, 5, 9, 13, 2, 3),
+                roundParam(2, 6, 10, 14, 4, 5),
+                roundParam(3, 7, 11, 15, 6, 7),
+                roundParam(0, 5, 10, 15, 8, 9),
+                roundParam(1, 6, 11, 12, 10, 11),
+                roundParam(2, 7, 8, 13, 12, 13),
+                roundParam(3, 4, 9, 14, 14, 15),
             };
 
             comptime var j: usize = 0;

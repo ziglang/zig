@@ -21,10 +21,10 @@ impl: {
 };
 
 pub const Block = impl.Block;
-pub const AESEncryptCtx = impl.AESEncryptCtx;
-pub const AESDecryptCtx = impl.AESDecryptCtx;
-pub const AES128 = impl.AES128;
-pub const AES256 = impl.AES256;
+pub const AesEncryptCtx = impl.AesEncryptCtx;
+pub const AesDecryptCtx = impl.AesDecryptCtx;
+pub const Aes128 = impl.Aes128;
+pub const Aes256 = impl.Aes256;
 
 test "ctr" {
     // NIST SP 800-38A pp 55-58
@@ -46,8 +46,8 @@ test "ctr" {
     };
 
     var out: [exp_out.len]u8 = undefined;
-    var ctx = AES128.initEnc(key);
-    ctr(AESEncryptCtx(AES128), ctx, out[0..], in[0..], iv, builtin.Endian.Big);
+    var ctx = Aes128.initEnc(key);
+    ctr(AesEncryptCtx(Aes128), ctx, out[0..], in[0..], iv, builtin.Endian.Big);
     testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
 }
 
@@ -59,7 +59,7 @@ test "encrypt" {
         const exp_out = [_]u8{ 0x39, 0x25, 0x84, 0x1d, 0x02, 0xdc, 0x09, 0xfb, 0xdc, 0x11, 0x85, 0x97, 0x19, 0x6a, 0x0b, 0x32 };
 
         var out: [exp_out.len]u8 = undefined;
-        var ctx = AES128.initEnc(key);
+        var ctx = Aes128.initEnc(key);
         ctx.encrypt(out[0..], in[0..]);
         testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
     }
@@ -74,7 +74,7 @@ test "encrypt" {
         const exp_out = [_]u8{ 0x8e, 0xa2, 0xb7, 0xca, 0x51, 0x67, 0x45, 0xbf, 0xea, 0xfc, 0x49, 0x90, 0x4b, 0x49, 0x60, 0x89 };
 
         var out: [exp_out.len]u8 = undefined;
-        var ctx = AES256.initEnc(key);
+        var ctx = Aes256.initEnc(key);
         ctx.encrypt(out[0..], in[0..]);
         testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
     }
@@ -88,7 +88,7 @@ test "decrypt" {
         const exp_out = [_]u8{ 0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34 };
 
         var out: [exp_out.len]u8 = undefined;
-        var ctx = AES128.initDec(key);
+        var ctx = Aes128.initDec(key);
         ctx.decrypt(out[0..], in[0..]);
         testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
     }
@@ -103,7 +103,7 @@ test "decrypt" {
         const exp_out = [_]u8{ 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff };
 
         var out: [exp_out.len]u8 = undefined;
-        var ctx = AES256.initDec(key);
+        var ctx = Aes256.initDec(key);
         ctx.decrypt(out[0..], in[0..]);
         testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
     }
@@ -117,8 +117,8 @@ test "expand 128-bit key" {
     const exp_dec = [_]*const [32:0]u8{
         "2b7e151628aed2a6abf7158809cf4f3c", "a0fafe1788542cb123a339392a6c7605", "f2c295f27a96b9435935807a7359f67f", "3d80477d4716fe3e1e237e446d7a883b", "ef44a541a8525b7fb671253bdb0bad00", "d4d1c6f87c839d87caf2b8bc11f915bc", "6d88a37a110b3efddbf98641ca0093fd", "4e54f70e5f5fc9f384a64fb24ea6dc4f", "ead27321b58dbad2312bf5607f8d292f", "ac7766f319fadc2128d12941575c006e", "d014f9a8c9ee2589e13f0cc8b6630ca6",
     };
-    const enc = AES128.initEnc(key);
-    const dec = AES128.initDec(key);
+    const enc = Aes128.initEnc(key);
+    const dec = Aes128.initDec(key);
     var exp: [16]u8 = undefined;
 
     for (enc.key_schedule.round_keys) |round_key, i| {
@@ -139,8 +139,8 @@ test "expand 256-bit key" {
     const exp_dec = [_]*const [32:0]u8{
         "fe4890d1e6188d0b046df344706c631e", "ada23f4963e23b2455427c8a5c709104", "57c96cf6074f07c0706abb07137f9241", "b668b621ce40046d36a047ae0932ed8e", "34ad1e4450866b367725bcc763152946", "32526c367828b24cf8e043c33f92aa20", "c440b289642b757227a3d7f114309581", "d669a7334a7ade7a80c8f18fc772e9e3", "25ba3c22a06bc7fb4388a28333934270", "54fb808b9c137949cab22ff547ba186c", "6c3d632985d1fbd9e3e36578701be0f3", "4a7459f9c8e8f9c256a156bc8d083799", "42107758e9ec98f066329ea193f8858b", "8ec6bff6829ca03b9e49af7edba96125", "603deb1015ca71be2b73aef0857d7781",
     };
-    const enc = AES256.initEnc(key);
-    const dec = AES256.initDec(key);
+    const enc = Aes256.initEnc(key);
+    const dec = Aes256.initDec(key);
     var exp: [16]u8 = undefined;
 
     for (enc.key_schedule.round_keys) |round_key, i| {

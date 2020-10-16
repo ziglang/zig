@@ -29,7 +29,7 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
             return Self{ .s = [_]u8{0} ** 200, .offset = 0, .rate = 200 - (bits / 4) };
         }
 
-        pub fn hash(b: []const u8, out: []u8, options: Options) void {
+        pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
             var d = Self.init(options);
             d.update(b);
             d.final(out);
@@ -46,7 +46,7 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
                 for (d.s[offset .. offset + rate]) |*r, i|
                     r.* ^= b[ip..][i];
 
-                keccak_f(1600, d.s[0..]);
+                keccakF(1600, &d.s);
 
                 ip += rate;
                 len -= rate;
@@ -60,12 +60,12 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
             d.offset = offset + len;
         }
 
-        pub fn final(d: *Self, out: []u8) void {
+        pub fn final(d: *Self, out: *[digest_length]u8) void {
             // padding
             d.s[d.offset] ^= delim;
             d.s[d.rate - 1] ^= 0x80;
 
-            keccak_f(1600, d.s[0..]);
+            keccakF(1600, &d.s);
 
             // squeeze
             var op: usize = 0;
@@ -73,7 +73,7 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
 
             while (len >= d.rate) {
                 mem.copy(u8, out[op..], d.s[0..d.rate]);
-                keccak_f(1600, d.s[0..]);
+                keccakF(1600, &d.s);
                 op += d.rate;
                 len -= d.rate;
             }
@@ -104,9 +104,7 @@ const M5 = [_]usize{
     0, 1, 2, 3, 4, 0, 1, 2, 3, 4,
 };
 
-fn keccak_f(comptime F: usize, d: []u8) void {
-    debug.assert(d.len == F / 8);
-
+fn keccakF(comptime F: usize, d: *[F / 8]u8) void {
     const B = F / 25;
     const no_rounds = comptime x: {
         break :x 12 + 2 * math.log2(B);

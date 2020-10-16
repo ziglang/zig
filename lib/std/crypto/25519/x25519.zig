@@ -14,12 +14,12 @@ pub const X25519 = struct {
     /// Length (in bytes) of a secret key.
     pub const secret_length = 32;
     /// Length (in bytes) of the output of the DH function.
-    pub const minimum_key_length = 32;
+    pub const key_length = 32;
 
     /// Compute the public key for a given private key.
     pub fn createPublicKey(public_key: []u8, private_key: []const u8) bool {
-        std.debug.assert(private_key.len >= minimum_key_length);
-        std.debug.assert(public_key.len >= minimum_key_length);
+        std.debug.assert(private_key.len >= key_length);
+        std.debug.assert(public_key.len >= key_length);
         var s: [32]u8 = undefined;
         mem.copy(u8, &s, private_key[0..32]);
         if (Curve.basePoint.clampedMul(s)) |q| {
@@ -35,8 +35,8 @@ pub const X25519 = struct {
     /// hashing it first.
     pub fn create(out: []u8, private_key: []const u8, public_key: []const u8) bool {
         std.debug.assert(out.len >= secret_length);
-        std.debug.assert(private_key.len >= minimum_key_length);
-        std.debug.assert(public_key.len >= minimum_key_length);
+        std.debug.assert(private_key.len >= key_length);
+        std.debug.assert(public_key.len >= key_length);
         var s: [32]u8 = undefined;
         var b: [32]u8 = undefined;
         mem.copy(u8, &s, private_key[0..32]);

@@ -51,8 +51,9 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
 
     return struct {
         const Self = @This();
-        const digest_size = 64;
-        const block_size = 64;
+        const block_length = 64;
+        const digest_length = 64;
+        const key_length = 16;
 
         v0: u64,
         v1: u64,
@@ -60,9 +61,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
         v3: u64,
         msg_len: u8,
 
-        pub fn init(key: []const u8) Self {
-            assert(key.len >= 16);
-
+        pub fn init(key: *const [key_length]u8) Self {
             const k0 = mem.readIntLittle(u64, key[0..8]);
             const k1 = mem.readIntLittle(u64, key[8..16]);
 
@@ -86,7 +85,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
 
             var off: usize = 0;
             while (off < b.len) : (off += 8) {
-                @call(.{ .modifier = .always_inline }, self.round, .{b[off .. off + 8]});
+                @call(.{ .modifier = .always_inline }, self.round, .{b[off..][0..8].*});
             }
 
             self.msg_len +%= @truncate(u8, b.len);
@@ -100,7 +99,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             var buf = [_]u8{0} ** 8;
             mem.copy(u8, buf[0..], b[0..]);
             buf[7] = self.msg_len;
-            self.round(buf[0..]);
+            self.round(buf);
 
             if (T == u128) {
                 self.v2 ^= 0xee;
@@ -132,9 +131,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             return (@as(u128, b2) << 64) | b1;
         }
 
-        fn round(self: *Self, b: []const u8) void {
-            assert(b.len == 8);
-
+        fn round(self: *Self, b: [8]u8) void {
             const m = mem.readIntLittle(u64, b[0..8]);
             self.v3 ^= m;
 
@@ -165,7 +162,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             d.v2 = math.rotl(u64, d.v2, @as(u64, 32));
         }
 
-        pub fn hash(msg: []const u8, key: []const u8) T {
+        pub fn hash(msg: []const u8, key: *const [key_length]u8) T {
             const aligned_len = msg.len - (msg.len % 8);
             var c = Self.init(key);
             @call(.{ .modifier = .always_inline }, c.update, .{msg[0..aligned_len]});
@@ -181,7 +178,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
     return struct {
         const State = SipHashStateless(T, c_rounds, d_rounds);
         const Self = @This();
-        pub const minimum_key_length = 16;
+        pub const key_length = 16;
         pub const mac_length = @sizeOf(T);
         pub const block_length = 8;
 
@@ -190,7 +187,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
         buf_len: usize,
 
         /// Initialize a state for a SipHash function
-        pub fn init(key: []const u8) Self {
+        pub fn init(key: *const [key_length]u8) Self {
             return Self{
                 .state = State.init(key),
                 .buf = undefined,
@@ -219,16 +216,15 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
 
         /// Return an authentication tag for the current state
         /// Assumes `out` is less than or equal to `mac_length`.
-        pub fn final(self: *Self, out: []u8) void {
-            std.debug.assert(out.len <= mac_length);
-            mem.writeIntLittle(T, out[0..mac_length], self.state.final(self.buf[0..self.buf_len]));
+        pub fn final(self: *Self, out: *[mac_length]u8) void {
+            mem.writeIntLittle(T, out, self.state.final(self.buf[0..self.buf_len]));
         }
 
         /// Return an authentication tag for a message and a key
-        pub fn create(out: []u8, msg: []const u8, key: []const u8) void {
+        pub fn create(out: *[mac_length]u8, msg: []const u8, key: *const [key_length]u8) void {
             var ctx = Self.init(key);
             ctx.update(msg);
-            ctx.final(out[0..]);
+            ctx.final(out);
         }
 
         /// Return an authentication tag for the current state, as an integer
@@ -237,7 +233,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
         }
 
         /// Return an authentication tag for a message and a key, as an integer
-        pub fn toInt(msg: []const u8, key: []const u8) T {
+        pub fn toInt(msg: []const u8, key: *const [key_length]u8) T {
             return State.hash(msg, key);
         }
     };

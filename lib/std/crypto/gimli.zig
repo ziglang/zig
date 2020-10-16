@@ -149,6 +149,7 @@ pub const Hash = struct {
     buf_off: usize,
 
     pub const block_length = State.RATE;
+    pub const digest_length = 32;
     pub const Options = struct {};
 
     const Self = @This();
@@ -180,15 +181,13 @@ pub const Hash = struct {
         }
     }
 
-    pub const digest_length = 32;
-
     /// Finish the current hashing operation, writing the hash to `out`
     ///
     /// From 4.9 "Application to hashing"
     /// By default, Gimli-Hash provides a fixed-length output of 32 bytes
     /// (the concatenation of two 16-byte blocks).  However, Gimli-Hash can
     /// be used as an “extendable one-way function” (XOF).
-    pub fn final(self: *Self, out: []u8) void {
+    pub fn final(self: *Self, out: *[digest_length]u8) void {
         const buf = self.state.toSlice();
 
         // XOR 1 into the next byte of the state
@@ -200,7 +199,7 @@ pub const Hash = struct {
     }
 };
 
-pub fn hash(out: []u8, in: []const u8, options: Hash.Options) void {
+pub fn hash(out: *[Hash.digest_length]u8, in: []const u8, options: Hash.Options) void {
     var st = Hash.init(options);
     st.update(in);
     st.final(out);

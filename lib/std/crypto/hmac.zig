@@ -22,14 +22,15 @@ pub fn Hmac(comptime Hash: type) type {
     return struct {
         const Self = @This();
         pub const mac_length = Hash.digest_length;
-        pub const minimum_key_length = 0;
+        pub const key_length_min = 0;
+        pub const key_length = 32; // recommended key length
 
         o_key_pad: [Hash.block_length]u8,
         i_key_pad: [Hash.block_length]u8,
         scratch: [Hash.block_length]u8,
         hash: Hash,
 
-        // HMAC(k, m) = H(o_key_pad | H(i_key_pad | msg)) where | is concatenation
+        // HMAC(k, m) = H(o_key_pad || H(i_key_pad || msg)) where || is concatenation
         pub fn create(out: []u8, msg: []const u8, key: []const u8) void {
             var ctx = Self.init(key);
             ctx.update(msg);
