@@ -1266,7 +1266,13 @@ fn buildOutputType(
     }
 
     if (root_src_file == null and arg_mode == .zig_test) {
-        fatal("one zig source file is required to run `zig test`", .{});
+        fatal("`zig test` expects a zig source file argument", .{});
+    }
+
+    if (link_objects.items.len == 0 and root_src_file == null and
+        c_source_files.items.len == 0 and arg_mode == .run)
+    {
+        fatal("`zig run` expects at least one positional argument", .{});
     }
 
     const root_name = if (provided_name) |n| n else blk: {
