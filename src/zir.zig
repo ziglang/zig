@@ -501,7 +501,7 @@ pub const Inst = struct {
                 .slice,
                 .slice_start,
                 .import,
-                .switch_range,
+                .switchbr,
                 => false,
 
                 .@"break",
@@ -513,7 +513,7 @@ pub const Inst = struct {
                 .unreach_nocheck,
                 .@"unreachable",
                 .loop,
-                .switchbr,
+                .switch_range,
                 => true,
             };
         }
@@ -1005,22 +1005,21 @@ pub const Inst = struct {
         positionals: struct {
             target_ptr: *Inst,
             cases: []Case,
+            /// List of all individual items and ranges
+            items: []*Inst,
         },
         kw_args: struct {
-            /// if not null target must support ranges, (be int)
-            support_range: ?*Inst = null,
-            special_case: enum {
-                /// all of positionals.cases are regular cases
+            /// Pointer to first range if such exists.
+            range: ?*Inst = null,
+            special_prong: enum {
                 none,
-                /// last case in positionals.cases is an else case
                 @"else",
-                /// last case in positionals.cases is an underscore case
                 underscore,
             } = .none,
         },
 
         pub const Case = struct {
-            items: []*Inst,
+            item: *Inst,
             body: Module.Body,
         };
     };
@@ -1286,7 +1285,7 @@ const Writer = struct {
                     }
                     try stream.writeByteNTimes(' ', self.indent);
                     self.indent += 2;
-                    try self.writeParamToStream(stream, &case.items);
+                    try self.writeParamToStream(stream, &case.item);
                     try stream.writeAll(" => ");
                     try self.writeParamToStream(stream, &case.body);
                     self.indent -= 2;
@@ -1716,7 +1715,7 @@ const Parser = struct {
                 while (true) {
                     const cur = try cases.addOne();
                     skipSpace(self);
-                    cur.items = try self.parseParameterGeneric([]*Inst, body_ctx);
+                    cur.item = try self.parseParameterGeneric(*Inst, body_ctx);
                     skipSpace(self);
                     try requireEatBytes(self, "=>");
                     cur.body = try self.parseBody(body_ctx);
@@ -2549,8 +2548,7 @@ const EmitZIR = struct {
                 },
                 .switchbr => blk: {
                     const old_inst = inst.castTag(.switchbr).?;
-                    const case_count = old_inst.cases.len + @boolToInt(old_inst.@"else" != null);
-                    const cases = try self.arena.allocator.alloc(Inst.SwitchBr.Case, case_count);
+                    const cases = try self.arena.allocator.alloc(Inst.SwitchBr.Case, old_inst.cases.len);
                     const new_inst = try self.arena.allocator.create(Inst.SwitchBr);
                     new_inst.* = .{
                         .base = .{
@@ -2560,11 +2558,9 @@ const EmitZIR = struct {
                         .positionals = .{
                             .target_ptr = try self.resolveInst(new_body, old_inst.target_ptr),
                             .cases = cases,
+                            .items = &[_]*Inst{}, // TODO this should actually be populated
                         },
-                        .kw_args = .{
-                            .special_case = if (old_inst.@"else" != null) .@"else" else .none,
-                            .support_range = null,
-                        },
+                        .kw_args = .{},
                     };
 
                     var body_tmp = std.ArrayList(*Inst).init(self.allocator);
@@ -2574,25 +2570,13 @@ const EmitZIR = struct {
                         body_tmp.items.len = 0;
 
                         try self.emitBody(case.body, inst_table, &body_tmp);
-                        const items = try self.arena.allocator.alloc(*Inst, case.items.len);
-                        for (case.items) |item, j| {
-                            items[j] = (try self.emitTypedValue(inst.src, .{
-                                .ty = old_inst.target_ptr.ty.elemType(),
-                                .val = item,
-                            })).inst;
-                        }
+                        const item = (try self.emitTypedValue(inst.src, .{
+                            .ty = old_inst.target_ptr.ty.elemType(),
+                            .val = case.item,
+                        })).inst;
 
                         cases[i] = .{
-                            .items = items,
-                            .body = .{ .instructions = try self.arena.allocator.dupe(*Inst, body_tmp.items) },
-                        };
-                    }
-                    if (old_inst.@"else") |some| {
-                        body_tmp.items.len = 0;
-
-                        try self.emitBody(some, inst_table, &body_tmp);
-                        cases[cases.len - 1] = .{
-                            .items = &[0]*Inst{},
+                            .item = item,
                             .body = .{ .instructions = try self.arena.allocator.dupe(*Inst, body_tmp.items) },
                         };
                     }
@@ -2846,7 +2830,7 @@ pub fn dumpZir(allocator: *Allocator, kind: []const u8, decl_name: [*:0]const u8
         .block_table = std.AutoHashMap(*Inst.Block, []const u8).init(allocator),
         .loop_table = std.AutoHashMap(*Inst.Loop, []const u8).init(allocator),
         .arena = std.heap.ArenaAllocator.init(allocator),
-        .indent = 2,
+        .indent = 4,
         .next_instr_index = 0,
     };
     defer write.arena.deinit();

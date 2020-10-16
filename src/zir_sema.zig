@@ -553,10 +553,13 @@ fn analyzeInstBlockFlat(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_c
 
     try analyzeBody(mod, &child_block.base, inst.positionals.body);
 
-    const copied_instructions = try parent_block.arena.dupe(*Inst, child_block.instructions.items);
-    try parent_block.instructions.appendSlice(mod.gpa, copied_instructions);
+    try parent_block.instructions.appendSlice(mod.gpa, child_block.instructions.items);
 
-    return copied_instructions[copied_instructions.len - 1];
+    // comptime blocks won't generate any runtime values
+    if (child_block.instructions.items.len == 0)
+        return mod.constVoid(scope, inst.base.src);
+
+    return parent_block.instructions.items[parent_block.instructions.items.len - 1];
 }
 
 fn analyzeInstBlock(mod: *Module, scope: *Scope, inst: *zir.Inst.Block, is_comptime: bool) InnerError!*Inst {
@@ -1235,11 +1238,8 @@ fn analyzeInstSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) In
 
     // TODO comptime execution
 
-    // excludes else and '_' cases
-    const case_count = inst.positionals.cases.len - @boolToInt(inst.kw_args.special_case != .none);
-
     const parent_block = try mod.requireRuntimeBlock(scope, inst.base.src);
-    const cases = try parent_block.arena.alloc(Inst.SwitchBr.Case, case_count);
+    const cases = try parent_block.arena.alloc(Inst.SwitchBr.Case, inst.positionals.cases.len);
 
     var case_block: Scope.Block = .{
         .parent = parent_block,
@@ -1251,58 +1251,39 @@ fn analyzeInstSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) In
     };
     defer case_block.instructions.deinit(mod.gpa);
 
-    var items_tmp = std.ArrayList(Value).init(mod.gpa);
-    defer items_tmp.deinit();
-
-    for (inst.positionals.cases[0..case_count]) |case, i| {
+    for (inst.positionals.cases[0..inst.positionals.cases.len]) |case, i| {
         // Reset without freeing.
         case_block.instructions.items.len = 0;
-        items_tmp.items.len = 0;
 
-        for (case.items) |item| {
-            if (item.castTag(.switch_range)) |range| {
-                return mod.fail(scope, item.src, "genSwitch expand range", .{});
-            }
-            const resolved = try resolveInst(mod, scope, item);
-            const casted = try mod.coerce(scope, target.ty, resolved);
-            const val = try mod.resolveConstValue(scope, casted);
-            try items_tmp.append(val);
-        }
+        const resolved = try resolveInst(mod, scope, case.item);
+        const casted = try mod.coerce(scope, target.ty, resolved);
+        const item = try mod.resolveConstValue(scope, casted);
 
         try analyzeBody(mod, &case_block.base, case.body);
 
         cases[i] = .{
-            .items = try parent_block.arena.dupe(Value, items_tmp.items),
+            .item = item,
             .body = .{ .instructions = try parent_block.arena.dupe(*Inst, case_block.instructions.items) },
         };
     }
-
-    const else_body = if (inst.kw_args.special_case != .none) blk: {
-        case_block.instructions.items.len = 0;
-
-        try analyzeBody(mod, &case_block.base, inst.positionals.cases[case_count].body);
-        break: blk Body{
-            .instructions = try parent_block.arena.dupe(*Inst, case_block.instructions.items),
-        };
-    } else null;
     
-    return mod.addSwitchBr(parent_block, inst.base.src, target_ptr, cases, else_body);
+    return mod.addSwitchBr(parent_block, inst.base.src, target_ptr, cases);
 }
 
 fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.SwitchBr) InnerError!void {
     // validate usage of '_' prongs
-    if (inst.kw_args.special_case == .underscore and target.ty.zigTypeTag() != .Enum) {
+    if (inst.kw_args.special_prong == .underscore and target.ty.zigTypeTag() != .Enum) {
         return mod.fail(scope, inst.base.src, "'_' prong only allowed when switching on non-exhaustive enums", .{});
         // TODO notes "'_' prong here" inst.positionals.cases[last].src
     }
 
     // check that target type supports ranges
-    if (inst.kw_args.support_range) |some| {
+    if (inst.kw_args.range) |range_inst| {
         switch (target.ty.zigTypeTag()) {
             .Int, .ComptimeInt, .Float, .ComptimeFloat => {},
             else => {
                 return mod.fail(scope, target.src, "ranges not allowed when switching on type {}", .{target.ty});
-                // TODO notes "range used here" some.src
+                // TODO notes "range used here" range_inst.src
             },
         }
     }
@@ -1317,46 +1298,42 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
         .Bool => {
             var true_count: u8 = 0;
             var false_count: u8 = 0;
-            for (inst.positionals.cases) |case| {
-                for (case.items) |item| {
-                    const resolved = try resolveInst(mod, scope, item);
-                    const casted = try mod.coerce(scope, Type.initTag(.bool), resolved);
-                    if ((try mod.resolveConstValue(scope, casted)).toBool()) {
-                        true_count += 1;
-                    } else {
-                        false_count += 1;
-                    }
+            for (inst.positionals.items) |item| {
+                const resolved = try resolveInst(mod, scope, item);
+                const casted = try mod.coerce(scope, Type.initTag(.bool), resolved);
+                if ((try mod.resolveConstValue(scope, casted)).toBool()) {
+                    true_count += 1;
+                } else {
+                    false_count += 1;
+                }
 
-                    if (true_count > 1 or false_count > 1) {
-                        return mod.fail(scope, item.src, "duplicate switch value", .{});
-                    }
+                if (true_count > 1 or false_count > 1) {
+                    return mod.fail(scope, item.src, "duplicate switch value", .{});
                 }
             }
-            if ((true_count == 0 or false_count == 0) and inst.kw_args.special_case != .@"else") {
+            if ((true_count == 0 or false_count == 0) and inst.kw_args.special_prong != .@"else") {
                 return mod.fail(scope, inst.base.src, "switch must handle all possibilities", .{});
             }
-            if ((true_count == 1 and false_count == 1) and inst.kw_args.special_case == .@"else") {
+            if ((true_count == 1 and false_count == 1) and inst.kw_args.special_prong == .@"else") {
                 return mod.fail(scope, inst.base.src, "unreachable else prong, all cases already handled", .{});
             }
         },
         .EnumLiteral, .Void, .Fn, .Pointer, .Type => {
-            if (inst.kw_args.special_case != .@"else") {
+            if (inst.kw_args.special_prong != .@"else") {
                 return mod.fail(scope, inst.base.src, "else prong required when switching on type '{}'", .{target.ty});
             }
 
             var seen_values = std.HashMap(Value, usize, Value.hash, Value.eql, std.hash_map.DefaultMaxLoadPercentage).init(mod.gpa);
             defer seen_values.deinit();
 
-            for (inst.positionals.cases) |case| {
-                for (case.items) |item| {
-                    const resolved = try resolveInst(mod, scope, item);
-                    const casted = try mod.coerce(scope, target.ty, resolved);
-                    const val = try mod.resolveConstValue(scope, casted);
+            for (inst.positionals.items) |item| {
+                const resolved = try resolveInst(mod, scope, item);
+                const casted = try mod.coerce(scope, target.ty, resolved);
+                const val = try mod.resolveConstValue(scope, casted);
 
-                    if (try seen_values.fetchPut(val, item.src)) |prev| {
-                        return mod.fail(scope, item.src, "duplicate switch value", .{});
-                        // TODO notes "previous value here" prev.value
-                    }
+                if (try seen_values.fetchPut(val, item.src)) |prev| {
+                    return mod.fail(scope, item.src, "duplicate switch value", .{});
+                    // TODO notes "previous value here" prev.value
                 }
             }
         },
