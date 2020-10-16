@@ -32,6 +32,37 @@ if(ZIG_PREFER_CLANG_CPP_DYLIB)
       /usr/local/llvm11/lib
       /usr/local/llvm110/lib
   )
+
+  find_program(LLVM_CONFIG_EXE
+      NAMES llvm-config-11 llvm-config-11.0 llvm-config110 llvm-config11 llvm-config
+      PATHS
+          "/mingw64/bin"
+          "/c/msys64/mingw64/bin"
+          "c:/msys64/mingw64/bin"
+          "C:/Libraries/llvm-11.0.0/bin")
+
+  if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
+    message(FATAL_ERROR "unable to find llvm-config")
+  endif()
+
+  if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
+    message(FATAL_ERROR "unable to find llvm-config")
+  endif()
+
+  execute_process(
+    COMMAND ${LLVM_CONFIG_EXE} --version
+    OUTPUT_VARIABLE LLVM_CONFIG_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+  if("${LLVM_CONFIG_VERSION}" VERSION_LESS 11)
+    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  endif()
+  if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 12)
+    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  endif()
+  if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 11)
+    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  endif()
 elseif(("${ZIG_TARGET_TRIPLE}" STREQUAL "native") OR ZIG_PREFER_LLVM_CONFIG)
   find_program(LLVM_CONFIG_EXE
       NAMES llvm-config-11 llvm-config-11.0 llvm-config110 llvm-config11 llvm-config
