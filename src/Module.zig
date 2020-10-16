@@ -1054,6 +1054,10 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 .param_types = param_types,
             }, .{});
 
+            if (self.comp.verbose_ir) {
+                zir.dumpZir(self.gpa, "fn_type", decl.name, fn_type_scope.instructions.items) catch {};
+            }
+
             // We need the memory for the Type to go into the arena for the Decl
             var decl_arena = std.heap.ArenaAllocator.init(self.gpa);
             errdefer decl_arena.deinit();
@@ -1125,6 +1129,10 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                 {
                     const src = tree.token_locs[body_block.rbrace].start;
                     _ = try astgen.addZIRNoOp(self, &gen_scope.base, src, .returnvoid);
+                }
+
+                if (self.comp.verbose_ir) {
+                    zir.dumpZir(self.gpa, "fn_body", decl.name, gen_scope.instructions.items) catch {};
                 }
 
                 const fn_zir = try gen_scope_arena.allocator.create(Fn.ZIR);
@@ -1258,6 +1266,9 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
 
                 const src = tree.token_locs[init_node.firstToken()].start;
                 const init_inst = try astgen.expr(self, &gen_scope.base, init_result_loc, init_node);
+                if (self.comp.verbose_ir) {
+                    zir.dumpZir(self.gpa, "var_init", decl.name, gen_scope.instructions.items) catch {};
+                }
 
                 var inner_block: Scope.Block = .{
                     .parent = null,
@@ -1299,6 +1310,10 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
                     .val = Value.initTag(.type_type),
                 });
                 const var_type = try astgen.expr(self, &type_scope.base, .{ .ty = type_type }, type_node);
+                if (self.comp.verbose_ir) {
+                    zir.dumpZir(self.gpa, "var_type", decl.name, type_scope.instructions.items) catch {};
+                }
+
                 const ty = try zir_sema.analyzeBodyValueAsType(self, &block_scope, var_type, .{
                     .instructions = type_scope.instructions.items,
                 });
@@ -1372,6 +1387,9 @@ fn astGenAndAnalyzeDecl(self: *Module, decl: *Decl) !bool {
             defer gen_scope.instructions.deinit(self.gpa);
 
             _ = try astgen.comptimeExpr(self, &gen_scope.base, .none, comptime_decl.expr);
+            if (self.comp.verbose_ir) {
+                zir.dumpZir(self.gpa, "comptime_block", decl.name, gen_scope.instructions.items) catch {};
+            }
 
             var block_scope: Scope.Block = .{
                 .parent = null,

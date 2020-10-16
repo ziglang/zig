@@ -1255,8 +1255,8 @@ const Writer = struct {
             bool => return stream.writeByte("01"[@boolToInt(param)]),
             []u8, []const u8 => return stream.print("\"{Z}\"", .{param}),
             BigIntConst, usize => return stream.print("{}", .{param}),
-            TypedValue => unreachable, // this is a special case
-            *IrModule.Decl => unreachable, // this is a special case
+            TypedValue => return stream.print("TypedValue{{ .ty = {}, .val = {}}}", .{ param.ty, param.val }),
+            *IrModule.Decl => return stream.print("Decl({s})", .{param.name}),
             *Inst.Block => {
                 const name = self.block_table.get(param).?;
                 return stream.print("\"{Z}\"", .{name});
@@ -2830,3 +2830,52 @@ const EmitZIR = struct {
         return decl;
     }
 };
+
+/// For debugging purposes, like dumpFn but for unanalyzed zir blocks
+pub fn dumpZir(allocator: *Allocator, kind: []const u8, decl_name: [*:0]const u8, instructions: []*Inst) !void {
+    var fib = std.heap.FixedBufferAllocator.init(&[_]u8{});
+    var module = Module{
+        .decls = &[_]*Decl{},
+        .arena = std.heap.ArenaAllocator.init(&fib.allocator),
+        .metadata = std.AutoHashMap(*Inst, Module.MetaData).init(&fib.allocator),
+        .body_metadata = std.AutoHashMap(*Module.Body, Module.BodyMetaData).init(&fib.allocator),
+    };
+    var write = Writer{
+        .module = &module,
+        .inst_table = InstPtrTable.init(allocator),
+        .block_table = std.AutoHashMap(*Inst.Block, []const u8).init(allocator),
+        .loop_table = std.AutoHashMap(*Inst.Loop, []const u8).init(allocator),
+        .arena = std.heap.ArenaAllocator.init(allocator),
+        .indent = 2,
+        .next_instr_index = 0,
+    };
+    defer write.arena.deinit();
+    defer write.inst_table.deinit();
+    defer write.block_table.deinit();
+    defer write.loop_table.deinit();
+
+    try write.inst_table.ensureCapacity(@intCast(u32, instructions.len));
+
+    const stderr = std.io.getStdErr().outStream();
+    try stderr.print("{} {s} {{ // unanalyzed\n", .{ kind, decl_name });
+
+    for (instructions) |inst| {
+        const my_i = write.next_instr_index;
+        write.next_instr_index += 1;
+
+        if (inst.cast(Inst.Block)) |block| {
+            const name = try std.fmt.allocPrint(&write.arena.allocator, "label_{}", .{my_i});
+            try write.block_table.put(block, name);
+        } else if (inst.cast(Inst.Loop)) |loop| {
+            const name = try std.fmt.allocPrint(&write.arena.allocator, "loop_{}", .{my_i});
+            try write.loop_table.put(loop, name);
+        }
+
+        try write.inst_table.putNoClobber(inst, .{ .inst = inst, .index = my_i, .name = "inst" });
+        try stderr.print("  %{} ", .{my_i});
+        try write.writeInstToStream(stderr, inst);
+        try stderr.writeByte('\n');
+    }
+
+    try stderr.print("}} // {} {s}\n\n", .{ kind, decl_name });
+}
