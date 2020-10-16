@@ -919,7 +919,7 @@ fn buildOutputType(
                         fatal("unrecognized parameter: '{}'", .{arg});
                     }
                 } else switch (Compilation.classifyFileExt(arg)) {
-                    .object, .static_library => {
+                    .object, .static_library, .shared_library => {
                         try link_objects.append(arg);
                     },
                     .assembly, .c, .cpp, .h, .ll, .bc => {
@@ -927,9 +927,6 @@ fn buildOutputType(
                             .src_path = arg,
                             .extra_flags = try arena.dupe([]const u8, extra_cflags.items),
                         });
-                    },
-                    .shared_library => {
-                        try link_objects.append(arg);
                     },
                     .zig, .zir => {
                         if (root_src_file) |other| {
