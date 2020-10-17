@@ -49,7 +49,12 @@ pub fn PriorityQueue(comptime T: type) type {
 
         fn addUnchecked(self: *Self, elem: T) void {
             self.items[self.len] = elem;
-            var child_index = self.len;
+            siftUp(self, self.len);
+            self.len += 1;
+        }
+
+        fn siftUp(self: *Self, start_index: usize) void {
+            var child_index = start_index;
             while (child_index > 0) {
                 var parent_index = ((child_index - 1) >> 1);
                 const child = self.items[child_index];
@@ -61,7 +66,6 @@ pub fn PriorityQueue(comptime T: type) type {
                 self.items[child_index] = parent;
                 child_index = parent_index;
             }
-            self.len += 1;
         }
 
         /// Add each element in `items` to the queue.
@@ -188,6 +192,17 @@ pub fn PriorityQueue(comptime T: type) type {
             // TODO take advantage of the new realloc semantics
             assert(new_len <= self.len);
             self.len = new_len;
+        }
+
+        pub fn update(self: *Self, elem: T, new_elem: T) !void {
+            var update_index: usize = std.mem.indexOfScalar(T, self.items, elem) orelse return error.ElementNotFound;
+            const old_elem: T = self.items[update_index];
+            self.items[update_index] = new_elem;
+            if (self.compareFn(new_elem, old_elem)) {
+                siftUp(self, update_index);
+            } else {
+                siftDown(self, update_index);
+            }
         }
 
         pub const Iterator = struct {
@@ -436,4 +451,67 @@ test "std.PriorityQueue: iterator while empty" {
     var it = queue.iterator();
 
     expectEqual(it.next(), null);
+}
+
+test "std.PriorityQueue: update min heap" {
+    var queue = PQ.init(testing.allocator, lessThan);
+    defer queue.deinit();
+
+    try queue.add(55);
+    try queue.add(44);
+    try queue.add(11);
+    try queue.update(55, 5);
+    try queue.update(44, 4);
+    try queue.update(11, 1);
+    expectEqual(@as(u32, 1), queue.remove());
+    expectEqual(@as(u32, 4), queue.remove());
+    expectEqual(@as(u32, 5), queue.remove());
+}
+
+
+test "std.PriorityQueue: update same min heap" {
+    var queue = PQ.init(testing.allocator, lessThan);
+    defer queue.deinit();
+
+    try queue.add(1);
+    try queue.add(1);
+    try queue.add(2);
+    try queue.add(2);
+    try queue.update(1, 5);
+    try queue.update(2, 4);
+    expectEqual(@as(u32, 1), queue.remove());
+    expectEqual(@as(u32, 2), queue.remove());
+    expectEqual(@as(u32, 4), queue.remove());
+    expectEqual(@as(u32, 5), queue.remove());
+}
+
+test "std.PriorityQueue: update max heap" {
+    var queue = PQ.init(testing.allocator, greaterThan);
+    defer queue.deinit();
+
+    try queue.add(55);
+    try queue.add(44);
+    try queue.add(11);
+    try queue.update(55, 5);
+    try queue.update(44, 1);
+    try queue.update(11, 4);
+    expectEqual(@as(u32, 5), queue.remove());
+    expectEqual(@as(u32, 4), queue.remove());
+    expectEqual(@as(u32, 1), queue.remove());
+}
+
+test "std.PriorityQueue: update same max heap" {
+    var queue = PQ.init(testing.allocator, greaterThan);
+    defer queue.deinit();
+
+    try queue.add(1);
+    try queue.add(1);
+    try queue.add(2);
+    try queue.add(2);
+    try queue.update(1, 5);
+    try queue.update(2, 4);
+    expectEqual(@as(u32, 5), queue.remove());
+    expectEqual(@as(u32, 4), queue.remove());
+    expectEqual(@as(u32, 2), queue.remove());
+    expectEqual(@as(u32, 1), queue.remove());
 }

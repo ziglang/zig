@@ -919,7 +919,7 @@ fn buildOutputType(
                         fatal("unrecognized parameter: '{}'", .{arg});
                     }
                 } else switch (Compilation.classifyFileExt(arg)) {
-                    .object, .static_library => {
+                    .object, .static_library, .shared_library => {
                         try link_objects.append(arg);
                     },
                     .assembly, .c, .cpp, .h, .ll, .bc => {
@@ -927,9 +927,6 @@ fn buildOutputType(
                             .src_path = arg,
                             .extra_flags = try arena.dupe([]const u8, extra_cflags.items),
                         });
-                    },
-                    .shared_library => {
-                        fatal("linking against dynamic libraries not yet supported", .{});
                     },
                     .zig, .zir => {
                         if (root_src_file) |other| {
@@ -2640,8 +2637,8 @@ fn fmtPathFile(
     if (check_mode) {
         const anything_changed = try std.zig.render(fmt.gpa, io.null_out_stream, tree);
         if (anything_changed) {
-            // TODO this should output to stdout instead of stderr.
-            std.debug.print("{}\n", .{file_path});
+            const stdout = io.getStdOut().writer();
+            try stdout.print("{}\n", .{file_path});
             fmt.any_error = true;
         }
     } else {
@@ -2658,8 +2655,8 @@ fn fmtPathFile(
 
         try af.file.writeAll(fmt.out_buffer.items);
         try af.finish();
-        // TODO this should output to stdout instead of stderr.
-        std.debug.print("{}\n", .{file_path});
+        const stdout = io.getStdOut().writer();
+        try stdout.print("{}\n", .{file_path});
     }
 }
 

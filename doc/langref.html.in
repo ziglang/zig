@@ -3249,6 +3249,31 @@ fn makeNumber() Number {
 
       {#header_close#}
 
+      {#header_open|opaque#}
+      <p>
+      {#syntax#}opaque {}{#endsyntax#} declares a new type with an unknown (but non-zero) size and alignment.
+      It can contain declarations the same as {#link|structs|struct#}, {#link|unions|union#},
+      and {#link|enums|enum#}.
+      </p>
+      <p>
+      This is typically used for type safety when interacting with C code that does not expose struct details.
+      Example:
+      </p>
+      {#code_begin|test_err|expected type '*Derp', found '*Wat'#}
+const Derp = opaque {};
+const Wat = opaque {};
+
+extern fn bar(d: *Derp) void;
+fn foo(w: *Wat) callconv(.C) void {
+    bar(w);
+}
+
+test "call foo" {
+    foo(undefined);
+}
+      {#code_end#}
+      {#header_close#}
+
       {#header_open|blocks#}
       <p>
       Blocks are used to limit the scope of variable declarations:
@@ -8547,30 +8572,6 @@ fn foo(comptime T: type, ptr: *T) T {
       {#header_close#}
       {#header_close#}
 
-      {#header_open|opaque#}
-      <p>
-      {#syntax#}opaque {}{#endsyntax#} declares a new type with an unknown (but non-zero) size and alignment.
-      It can have declarations like structs, unions, or enums.
-      </p>
-      <p>
-      This is typically used for type safety when interacting with C code that does not expose struct details.
-      Example:
-      </p>
-      {#code_begin|test_err|expected type '*Derp', found '*Wat'#}
-const Derp = opaque {};
-const Wat = opaque {};
-
-extern fn bar(d: *Derp) void;
-fn foo(w: *Wat) callconv(.C) void {
-    bar(w);
-}
-
-test "call foo" {
-    foo(undefined);
-}
-      {#code_end#}
-      {#header_close#}
-
       {#header_open|Build Mode#}
       <p>
       Zig has four build modes:
@@ -9625,10 +9626,102 @@ test "assert in release fast mode" {
       isolation.
       </p>
       {#header_close#}
+
       {#header_open|Zig Build System#}
-      <p>TODO: explain purpose, it's supposed to replace make/cmake</p>
-      <p>TODO: example of building a zig executable</p>
-      <p>TODO: example of building a C library</p>
+      <p>
+      The Zig Build System provides a cross-platform, dependency-free way to declare
+      the logic required to build a project. With this system, the logic to build
+      a project is written in a build.zig file, using the Zig Build System API to
+      declare and configure build artifacts and other tasks.
+      </p>
+      <p>
+      Some examples of tasks the build system can help with:
+      </p>
+      <ul>
+        <li>Creating build artifacts by executing the Zig compiler. This includes
+          building Zig source code as well as C and C++ source code.</li>
+        <li>Capturing user-configured options and using those options to configure
+          the build.</li>
+        <li>Surfacing build configuration as {#link|comptime#} values by providing a
+          file that can be {#link|imported|@import#} by Zig code.</li>
+        <li>Caching build artifacts to avoid unnecessarily repeating steps.</li>
+        <li>Executing build artifacts or system-installed tools.</li>
+        <li>Running tests and verifying the output of executing a build artifact matches
+        the expected value.</li>
+        <li>Running <code>zig fmt</code> on a codebase or a subset of it.</li>
+        <li>Custom tasks.</li>
+      </ul>
+      <p>
+      To use the build system, run <code class="shell">zig build --help</code>
+      to see a command-line usage help menu. This will include project-specific
+      options that were declared in the build.zig script.
+      </p>
+      
+      {#header_open|Building an Executable#}
+      <p>This <code>build.zig</code> file is automatically generated
+        by <code>zig init-exe</code>.</p>
+      {#code_begin|syntax|build#}
+const Builder = @import("std").build.Builder;
+
+pub fn build(b: *Builder) void {
+    // Standard target options allows the person running `zig build` to choose
+    // what target to build for. Here we do not override the defaults, which
+    // means any target is allowed, and the default is native. Other options
+    // for restricting supported target set are available.
+    const target = b.standardTargetOptions(.{});
+
+    // Standard release options allow the person running `zig build` to select
+    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
+    const mode = b.standardReleaseOptions();
+
+    const exe = b.addExecutable("example", "src/main.zig");
+    exe.setTarget(target);
+    exe.setBuildMode(mode);
+    exe.install();
+
+    const run_cmd = exe.run();
+    run_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
+
+    const run_step = b.step("run", "Run the app");
+    run_step.dependOn(&run_cmd.step);
+}
+      {#code_end#}
+      {#header_close#}
+
+      {#header_open|Building a Library#}
+      <p>This <code>build.zig</code> file is automatically generated
+        by <code>zig init-lib</code>.</p>
+      {#code_begin|syntax|build#}
+const Builder = @import("std").build.Builder;
+
+pub fn build(b: *Builder) void {
+    const mode = b.standardReleaseOptions();
+    const lib = b.addStaticLibrary("example", "src/main.zig");
+    lib.setBuildMode(mode);
+    lib.install();
+
+    var main_tests = b.addTest("src/main.zig");
+    main_tests.setBuildMode(mode);
+
+    const test_step = b.step("test", "Run library tests");
+    test_step.dependOn(&main_tests.step);
+}
+      {#code_end#}
+      {#header_close#}
+
+      {#header_open|Compiling C Source Code#}
+      <pre>{#syntax#}
+lib.addCSourceFile("src/lib.c", &[_][]const u8{
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+});
+      {#endsyntax#}</pre>
+      {#header_close#}
+
       {#header_close#}
       {#header_open|C#}
       <p>
