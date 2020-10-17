@@ -64,6 +64,15 @@ pub const Edwards25519 = struct {
         .is_base = true,
     };
 
+    /// The edwards25519 neutral element.
+    pub const neutralElement = Edwards25519{
+        .x = Fe{ .limbs = .{ 2251799813685229, 2251799813685247, 2251799813685247, 2251799813685247, 2251799813685247 } },
+        .y = Fe{ .limbs = .{ 1507481815385608, 2223447444246085, 1083941587175919, 2059929906842505, 1581435440146976 } },
+        .z = Fe{ .limbs = .{ 1507481815385608, 2223447444246085, 1083941587175919, 2059929906842505, 1581435440146976 } },
+        .t = Fe{ .limbs = .{ 2251799813685229, 2251799813685247, 2251799813685247, 2251799813685247, 2251799813685247 } },
+        .is_base = false,
+    };
+
     const identityElement = Edwards25519{ .x = Fe.zero, .y = Fe.one, .z = Fe.one, .t = Fe.zero };
 
     /// Reject the neutral element.

@@ -6,10 +6,18 @@
 const std = @import("std");
 const mem = std.mem;
 
-const field_size = [32]u8{
+/// A 32-byte representation of a scalar in 0 .. 2^252 + 27742317777372353535851937790883648493
+pub const Scalar = [32]u8;
+
+/// 2^252 + 27742317777372353535851937790883648493
+pub const field_size = [32]u8{
     0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, // 2^252+27742317777372353535851937790883648493
 };
 
+/// Zero
+pub const zero = [_]u8{0} ** 32;
+
+/// Double-word scalar representation
 const ScalarExpanded = struct {
     limbs: [64]i64 = [_]i64{0} ** 64,
 
@@ -62,6 +70,11 @@ const ScalarExpanded = struct {
         inline while (j < 32) : (j += 1) {
             limbs[j + 1] += limbs[j] >> 8;
         }
+        j = 0;
+        inline while (j < 32) : (j += 1) {
+            limbs[j] &= 0xff;
+        }
+        limbs[32] = 0;
     }
 
     fn toBytes(e: *ScalarExpanded) [32]u8 {
@@ -150,9 +163,49 @@ pub inline fn clamp(s: *[32]u8) void {
     s[31] = (s[31] & 127) | 64;
 }
 
+/// Return a*b (mod L)
+pub fn mul(a: [32]u8, b: [32]u8) [32]u8 {
+    return ScalarExpanded.fromBytes(a).mul(ScalarExpanded.fromBytes(b)).toBytes();
+}
+
 /// Return a*b+c (mod L)
 pub fn mulAdd(a: [32]u8, b: [32]u8, c: [32]u8) [32]u8 {
     return ScalarExpanded.fromBytes(a).mulAdd(ScalarExpanded.fromBytes(b), ScalarExpanded.fromBytes(c)).toBytes();
+}
+
+/// Return a*8 (mod L)
+pub fn mul8(s: [32]u8) [32]u8 {
+    var x = ScalarExpanded.fromBytes(s);
+    x = x.add(x);
+    x = x.add(x);
+    x = x.add(x);
+    return x.toBytes();
+}
+
+/// Return a+b (mod L)
+pub fn add(a: [32]u8, b: [32]u8) [32]u8 {
+    return ScalarExpanded.fromBytes(a).add(ScalarExpanded.fromBytes(b)).toBytes();
+}
+
+/// Return -s (mod L)
+pub fn neg(s: [32]u8) [32]u8 {
+    const fs: [64]u8 = field_size ++ [_]u8{0} ** 32;
+    var sx: [64]u8 = undefined;
+    mem.copy(u8, sx[0..32], s[0..]);
+    mem.set(u8, sx[32..], 0);
+    var carry: u32 = 0;
+    var i: usize = 0;
+    while (i < 64) : (i += 1) {
+        carry = @as(u32, fs[i]) -% sx[i] -% @as(u32, carry);
+        sx[i] = @truncate(u8, carry);
+        carry = (carry >> 8) & 1;
+    }
+    return reduce64(sx);
+}
+
+/// Return (a-b) (mod L)
+pub fn sub(a: [32]u8, b: [32]u8) [32]u8 {
+    return add(a, neg(b));
 }
 
 test "scalar25519" {
