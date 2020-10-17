@@ -540,8 +540,6 @@ const char* ir_inst_gen_type_str(IrInstGenId id) {
             return "GenBinaryNot";
         case IrInstGenIdNegation:
             return "GenNegation";
-        case IrInstGenIdNegationWrapping:
-            return "GenNegationWrapping";
         case IrInstGenIdWasmMemorySize:
             return "GenWasmMemorySize";
         case IrInstGenIdWasmMemoryGrow:
@@ -1144,15 +1142,9 @@ static void ir_print_binary_not(IrPrintGen *irp, IrInstGenBinaryNot *instruction
 }
 
 static void ir_print_negation(IrPrintGen *irp, IrInstGenNegation *instruction) {
-    fprintf(irp->f, "-");
+    fprintf(irp->f, instruction->wrapping ? "-%%" : "-");
     ir_print_other_inst_gen(irp, instruction->operand);
 }
-
-static void ir_print_negation_wrapping(IrPrintGen *irp, IrInstGenNegationWrapping *instruction) {
-    fprintf(irp->f, "-%%");
-    ir_print_other_inst_gen(irp, instruction->operand);
-}
-
 
 static void ir_print_field_ptr(IrPrintSrc *irp, IrInstSrcFieldPtr *instruction) {
     if (instruction->field_name_buffer) {
@@ -3293,9 +3285,6 @@ static void ir_print_inst_gen(IrPrintGen *irp, IrInstGen *instruction, bool trai
             break;
         case IrInstGenIdNegation:
             ir_print_negation(irp, (IrInstGenNegation *)instruction);
-            break;
-        case IrInstGenIdNegationWrapping:
-            ir_print_negation_wrapping(irp, (IrInstGenNegationWrapping *)instruction);
             break;
         case IrInstGenIdWasmMemorySize:
             ir_print_wasm_memory_size(irp, (IrInstGenWasmMemorySize *)instruction);

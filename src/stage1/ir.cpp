@@ -749,8 +749,6 @@ void destroy_instruction_gen(IrInstGen *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstGenBinaryNot *>(inst));
         case IrInstGenIdNegation:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstGenNegation *>(inst));
-        case IrInstGenIdNegationWrapping:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenNegationWrapping *>(inst));
         case IrInstGenIdWasmMemorySize:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstGenWasmMemorySize *>(inst));
         case IrInstGenIdWasmMemoryGrow:
@@ -1670,10 +1668,6 @@ static constexpr IrInstGenId ir_inst_id(IrInstGenBinaryNot *) {
 
 static constexpr IrInstGenId ir_inst_id(IrInstGenNegation *) {
     return IrInstGenIdNegation;
-}
-
-static constexpr IrInstGenId ir_inst_id(IrInstGenNegationWrapping *) {
-    return IrInstGenIdNegationWrapping;
 }
 
 static constexpr IrInstGenId ir_inst_id(IrInstGenBinOp *) {
@@ -2652,24 +2646,12 @@ static IrInstSrc *ir_build_un_op(IrBuilderSrc *irb, Scope *scope, AstNode *sourc
     return ir_build_un_op_lval(irb, scope, source_node, op_id, value, LValNone, nullptr);
 }
 
-static IrInstGen *ir_build_negation(IrAnalyze *ira, IrInst *source_instr, IrInstGen *operand, ZigType *expr_type) {
+static IrInstGen *ir_build_negation(IrAnalyze *ira, IrInst *source_instr, IrInstGen *operand, ZigType *expr_type, bool wrapping) {
     IrInstGenNegation *instruction = ir_build_inst_gen<IrInstGenNegation>(&ira->new_irb,
             source_instr->scope, source_instr->source_node);
     instruction->base.value->type = expr_type;
     instruction->operand = operand;
-
-    ir_ref_inst_gen(operand);
-
-    return &instruction->base;
-}
-
-static IrInstGen *ir_build_negation_wrapping(IrAnalyze *ira, IrInst *source_instr, IrInstGen *operand,
-        ZigType *expr_type)
-{
-    IrInstGenNegationWrapping *instruction = ir_build_inst_gen<IrInstGenNegationWrapping>(&ira->new_irb,
-            source_instr->scope, source_instr->source_node);
-    instruction->base.value->type = expr_type;
-    instruction->operand = operand;
+    instruction->wrapping = wrapping;
 
     ir_ref_inst_gen(operand);
 
@@ -21273,23 +21255,23 @@ static IrInstGen *ir_analyze_negation(IrAnalyze *ira, IrInstSrcUnOp *instruction
 
     bool is_wrap_op = (instruction->op_id == IrUnOpNegationWrap);
 
-    switch (expr_type->id) {
+    ZigType *scalar_type = (expr_type->id == ZigTypeIdVector) ?
+            expr_type->data.vector.elem_type : expr_type;
+
+    switch (scalar_type->id) {
         case ZigTypeIdComptimeInt:
         case ZigTypeIdFloat:
         case ZigTypeIdComptimeFloat:
-        case ZigTypeIdVector:
             break;
         case ZigTypeIdInt:
-            if (is_wrap_op || expr_type->data.integral.is_signed)
+            if (is_wrap_op || scalar_type->data.integral.is_signed)
                 break;
             ZIG_FALLTHROUGH;
         default:
             ir_add_error(ira, &instruction->base.base,
-                buf_sprintf("negation of type '%s'", buf_ptr(&expr_type->name)));
+                buf_sprintf("negation of type '%s'", buf_ptr(&scalar_type->name)));
             return ira->codegen->invalid_inst_gen;
     }
-
-    ZigType *scalar_type = (expr_type->id == ZigTypeIdVector) ? expr_type->data.vector.elem_type : expr_type;
 
     if (instr_is_comptime(value)) {
         ZigValue *operand_val = ir_resolve_const(ira, value, UndefBad);
@@ -21328,11 +21310,7 @@ static IrInstGen *ir_analyze_negation(IrAnalyze *ira, IrInstSrcUnOp *instruction
         return result_instruction;
     }
 
-    if (is_wrap_op) {
-        return ir_build_negation_wrapping(ira, &instruction->base.base, value, expr_type);
-    } else {
-        return ir_build_negation(ira, &instruction->base.base, value, expr_type);
-    }
+    return ir_build_negation(ira, &instruction->base.base, value, expr_type, is_wrap_op);
 }
 
 static IrInstGen *ir_analyze_bin_not(IrAnalyze *ira, IrInstSrcUnOp *instruction) {
@@ -32214,7 +32192,6 @@ bool ir_inst_gen_has_side_effects(IrInstGen *instruction) {
         case IrInstGenIdVectorExtractElem:
         case IrInstGenIdBinaryNot:
         case IrInstGenIdNegation:
-        case IrInstGenIdNegationWrapping:
         case IrInstGenIdWasmMemorySize:
         case IrInstGenIdReduce:
             return false;

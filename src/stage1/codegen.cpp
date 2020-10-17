@@ -3564,13 +3564,7 @@ static LLVMValueRef ir_gen_negation(CodeGen *g, IrInstGen *inst, IrInstGen *oper
 static LLVMValueRef ir_render_negation(CodeGen *g, IrExecutableGen *executable,
         IrInstGenNegation *inst)
 {
-    return ir_gen_negation(g, &inst->base, inst->operand, false);
-}
-
-static LLVMValueRef ir_render_negation_wrapping(CodeGen *g, IrExecutableGen *executable,
-        IrInstGenNegationWrapping *inst)
-{
-    return ir_gen_negation(g, &inst->base, inst->operand, true);
+    return ir_gen_negation(g, &inst->base, inst->operand, inst->wrapping);
 }
 
 static LLVMValueRef ir_render_bool_not(CodeGen *g, IrExecutableGen *executable, IrInstGenBoolNot *instruction) {
@@ -6645,8 +6639,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutableGen *executabl
             return ir_render_binary_not(g, executable, (IrInstGenBinaryNot *)instruction);
         case IrInstGenIdNegation:
             return ir_render_negation(g, executable, (IrInstGenNegation *)instruction);
-        case IrInstGenIdNegationWrapping:
-            return ir_render_negation_wrapping(g, executable, (IrInstGenNegationWrapping *)instruction);
         case IrInstGenIdLoadPtr:
             return ir_render_load_ptr(g, executable, (IrInstGenLoadPtr *)instruction);
         case IrInstGenIdStorePtr:
