@@ -269,9 +269,9 @@ pub const ChildProcess = struct {
     }
 
     fn waitUnwrapped(self: *ChildProcess) void {
-        const ret = os.waitpid(self.pid, 0);
+        const status = os.waitpid(self.pid, 0).status;
         self.cleanupStreams();
-        self.handleWaitResult(ret.status);
+        self.handleWaitResult(status);
     }
 
     fn handleWaitResult(self: *ChildProcess, status: u32) void {
