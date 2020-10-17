@@ -1593,35 +1593,16 @@ static const BuildBinOpFunc unsigned_op[3] = { LLVMBuildNUWAdd, LLVMBuildNUWSub,
 static LLVMValueRef gen_overflow_op(CodeGen *g, ZigType *operand_type, AddSubMul op,
         LLVMValueRef val1, LLVMValueRef val2)
 {
-    LLVMValueRef overflow_bit;
-    LLVMValueRef result;
-
+    LLVMValueRef fn_val = get_int_overflow_fn(g, operand_type, op);
+    LLVMValueRef params[] = {
+        val1,
+        val2,
+    };
+    LLVMValueRef result_struct = LLVMBuildCall(g->builder, fn_val, params, 2, "");
+    LLVMValueRef result = LLVMBuildExtractValue(g->builder, result_struct, 0, "");
+    LLVMValueRef overflow_bit = LLVMBuildExtractValue(g->builder, result_struct, 1, "");
     if (operand_type->id == ZigTypeIdVector) {
-        ZigType *int_type = operand_type->data.vector.elem_type;
-        assert(int_type->id == ZigTypeIdInt);
-        LLVMTypeRef one_more_bit_int = LLVMIntType(int_type->data.integral.bit_count + 1);
-        LLVMTypeRef one_more_bit_int_vector = LLVMVectorType(one_more_bit_int, operand_type->data.vector.len);
-        const auto buildExtFn = int_type->data.integral.is_signed ? LLVMBuildSExt : LLVMBuildZExt;
-        LLVMValueRef extended1 = buildExtFn(g->builder, val1, one_more_bit_int_vector, "");
-        LLVMValueRef extended2 = buildExtFn(g->builder, val2, one_more_bit_int_vector, "");
-        LLVMValueRef extended_result = wrap_op[op](g->builder, extended1, extended2, "");
-        result = LLVMBuildTrunc(g->builder, extended_result, get_llvm_type(g, operand_type), "");
-
-        LLVMValueRef re_extended_result = buildExtFn(g->builder, result, one_more_bit_int_vector, "");
-        LLVMValueRef overflow_vector = LLVMBuildICmp(g->builder, LLVMIntNE, extended_result, re_extended_result, "");
-        LLVMTypeRef bitcast_int_type = LLVMIntType(operand_type->data.vector.len);
-        LLVMValueRef bitcasted_overflow = LLVMBuildBitCast(g->builder, overflow_vector, bitcast_int_type, "");
-        LLVMValueRef zero = LLVMConstNull(bitcast_int_type);
-        overflow_bit = LLVMBuildICmp(g->builder, LLVMIntNE, bitcasted_overflow, zero, "");
-    } else {
-        LLVMValueRef fn_val = get_int_overflow_fn(g, operand_type, op);
-        LLVMValueRef params[] = {
-            val1,
-            val2,
-        };
-        LLVMValueRef result_struct = LLVMBuildCall(g->builder, fn_val, params, 2, "");
-        result = LLVMBuildExtractValue(g->builder, result_struct, 0, "");
-        overflow_bit = LLVMBuildExtractValue(g->builder, result_struct, 1, "");
+        overflow_bit = ZigLLVMBuildOrReduce(g->builder, overflow_bit);
     }
 
     LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "OverflowFail");
