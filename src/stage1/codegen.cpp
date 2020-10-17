@@ -1433,6 +1433,9 @@ static void add_sentinel_check(CodeGen *g, LLVMValueRef sentinel_elem_ptr, ZigVa
 static LLVMValueRef gen_assert_zero(CodeGen *g, LLVMValueRef expr_val, ZigType *int_type) {
     LLVMValueRef zero = LLVMConstNull(get_llvm_type(g, int_type));
     LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, expr_val, zero, "");
+    if (int_type->id == ZigTypeIdVector) {
+        ok_bit = ZigLLVMBuildAndReduce(g->builder, ok_bit);
+    }
     LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "CastShortenOk");
     LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "CastShortenFail");
     LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
@@ -1450,29 +1453,37 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, Z
     assert(actual_type->id == wanted_type->id);
     assert(expr_val != nullptr);
 
+    ZigType *scalar_actual_type = (actual_type->id == ZigTypeIdVector) ?
+        actual_type->data.vector.elem_type : actual_type;
+    ZigType *scalar_wanted_type = (wanted_type->id == ZigTypeIdVector) ?
+        wanted_type->data.vector.elem_type : wanted_type;
+
     uint64_t actual_bits;
     uint64_t wanted_bits;
-    if (actual_type->id == ZigTypeIdFloat) {
-        actual_bits = actual_type->data.floating.bit_count;
-        wanted_bits = wanted_type->data.floating.bit_count;
-    } else if (actual_type->id == ZigTypeIdInt) {
-        actual_bits = actual_type->data.integral.bit_count;
-        wanted_bits = wanted_type->data.integral.bit_count;
+    if (scalar_actual_type->id == ZigTypeIdFloat) {
+        actual_bits = scalar_actual_type->data.floating.bit_count;
+        wanted_bits = scalar_wanted_type->data.floating.bit_count;
+    } else if (scalar_actual_type->id == ZigTypeIdInt) {
+        actual_bits = scalar_actual_type->data.integral.bit_count;
+        wanted_bits = scalar_wanted_type->data.integral.bit_count;
     } else {
         zig_unreachable();
     }
 
-    if (actual_type->id == ZigTypeIdInt && want_runtime_safety && (
+    if (scalar_actual_type->id == ZigTypeIdInt && want_runtime_safety && (
         // negative to unsigned
-        (!wanted_type->data.integral.is_signed && actual_type->data.integral.is_signed) ||
+        (!scalar_wanted_type->data.integral.is_signed && scalar_actual_type->data.integral.is_signed) ||
         // unsigned would become negative
-        (wanted_type->data.integral.is_signed && !actual_type->data.integral.is_signed && actual_bits == wanted_bits)))
+        (scalar_wanted_type->data.integral.is_signed && !scalar_actual_type->data.integral.is_signed && actual_bits == wanted_bits)))
     {
         LLVMValueRef zero = LLVMConstNull(get_llvm_type(g, actual_type));
         LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntSGE, expr_val, zero, "");
 
         LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "SignCastOk");
         LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "SignCastFail");
+        if (actual_type->id == ZigTypeIdVector) {
+            ok_bit = ZigLLVMBuildAndReduce(g->builder, ok_bit);
+        }
         LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
         LLVMPositionBuilderAtEnd(g->builder, fail_block);
@@ -1484,10 +1495,10 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, Z
     if (actual_bits == wanted_bits) {
         return expr_val;
     } else if (actual_bits < wanted_bits) {
-        if (actual_type->id == ZigTypeIdFloat) {
+        if (scalar_actual_type->id == ZigTypeIdFloat) {
             return LLVMBuildFPExt(g->builder, expr_val, get_llvm_type(g, wanted_type), "");
-        } else if (actual_type->id == ZigTypeIdInt) {
-            if (actual_type->data.integral.is_signed) {
+        } else if (scalar_actual_type->id == ZigTypeIdInt) {
+            if (scalar_actual_type->data.integral.is_signed) {
                 return LLVMBuildSExt(g->builder, expr_val, get_llvm_type(g, wanted_type), "");
             } else {
                 return LLVMBuildZExt(g->builder, expr_val, get_llvm_type(g, wanted_type), "");
@@ -1496,9 +1507,9 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, Z
             zig_unreachable();
         }
     } else if (actual_bits > wanted_bits) {
-        if (actual_type->id == ZigTypeIdFloat) {
+        if (scalar_actual_type->id == ZigTypeIdFloat) {
             return LLVMBuildFPTrunc(g->builder, expr_val, get_llvm_type(g, wanted_type), "");
-        } else if (actual_type->id == ZigTypeIdInt) {
+        } else if (scalar_actual_type->id == ZigTypeIdInt) {
             if (wanted_bits == 0) {
                 if (!want_runtime_safety)
                     return nullptr;
@@ -1510,12 +1521,15 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, Z
                 return trunc_val;
             }
             LLVMValueRef orig_val;
-            if (wanted_type->data.integral.is_signed) {
+            if (scalar_wanted_type->data.integral.is_signed) {
                 orig_val = LLVMBuildSExt(g->builder, trunc_val, get_llvm_type(g, actual_type), "");
             } else {
                 orig_val = LLVMBuildZExt(g->builder, trunc_val, get_llvm_type(g, actual_type), "");
             }
             LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, expr_val, orig_val, "");
+            if (actual_type->id == ZigTypeIdVector) {
+                ok_bit = ZigLLVMBuildAndReduce(g->builder, ok_bit);
+            }
             LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "CastShortenOk");
             LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "CastShortenFail");
             LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
