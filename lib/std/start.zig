@@ -159,7 +159,7 @@ fn WinStartup() callconv(.Stdcall) noreturn {
 
     std.debug.maybeEnableSegfaultHandler();
 
-    std.os.windows.kernel32.ExitProcess(initEventLoopAndCallMain(u8, callMain));
+    std.os.windows.kernel32.ExitProcess(initEventLoopAndCallMain());
 }
 
 fn wWinMainCRTStartup() callconv(.Stdcall) noreturn {
@@ -170,8 +170,7 @@ fn wWinMainCRTStartup() callconv(.Stdcall) noreturn {
 
     std.debug.maybeEnableSegfaultHandler();
 
-    const result = initEventLoopAndCallMain(std.os.windows.INT, call_wWinMain);
-    std.os.windows.kernel32.ExitProcess(@bitCast(std.os.windows.UINT, result));
+    std.os.windows.kernel32.ExitProcess(initEventLoopAndCallWinMain());
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -225,7 +224,7 @@ fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
 
     std.debug.maybeEnableSegfaultHandler();
 
-    return initEventLoopAndCallMain(u8, callMain);
+    return initEventLoopAndCallMain();
 }
 
 fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) callconv(.C) i32 {
@@ -240,7 +239,7 @@ const bad_main_ret = "expected return type of main to be 'void', '!void', 'noret
 
 // This is marked inline because for some reason LLVM in release mode fails to inline it,
 // and we want fewer call frames in stack traces.
-inline fn initEventLoopAndCallMain(comptime Out: type, comptime mainFunc: fn () Out) Out {
+inline fn initEventLoopAndCallMain() u8 {
     if (std.event.Loop.instance) |loop| {
         if (!@hasDecl(root, "event_loop")) {
             loop.init() catch |err| {
@@ -254,7 +253,7 @@ inline fn initEventLoopAndCallMain(comptime Out: type, comptime mainFunc: fn () 
 
             var result: u8 = undefined;
             var frame: @Frame(callMainAsync) = undefined;
-            _ = @asyncCall(&frame, &result, callMainAsync, .{ u8, mainFunc, loop });
+            _ = @asyncCall(&frame, &result, callMainAsync, .{loop});
             loop.run();
             return result;
         }
@@ -262,13 +261,44 @@ inline fn initEventLoopAndCallMain(comptime Out: type, comptime mainFunc: fn () 
 
     // This is marked inline because for some reason LLVM in release mode fails to inline it,
     // and we want fewer call frames in stack traces.
-    return @call(.{ .modifier = .always_inline }, mainFunc, .{});
+    return @call(.{ .modifier = .always_inline }, callMain, .{});
 }
-fn callMainAsync(comptime Out: type, comptime mainProc: fn () Out, loop: *std.event.Loop) callconv(.Async) Out {
+
+// This is marked inline because for some reason LLVM in release mode fails to inline it,
+// and we want fewer call frames in stack traces.
+// TODO This function is duplicated from initEventLoopAndCallMain instead of using generics
+// because it is working around stage1 compiler bugs.
+inline fn initEventLoopAndCallWinMain() std.os.windows.INT {
+    if (std.event.Loop.instance) |loop| {
+        if (!@hasDecl(root, "event_loop")) {
+            loop.init() catch |err| {
+                std.log.err("{}", .{@errorName(err)});
+                if (@errorReturnTrace()) |trace| {
+                    std.debug.dumpStackTrace(trace.*);
+                }
+                return 1;
+            };
+            defer loop.deinit();
+
+            var result: u8 = undefined;
+            var frame: @Frame(callMainAsync) = undefined;
+            _ = @asyncCall(&frame, &result, callMainAsync, .{loop});
+            loop.run();
+            return result;
+        }
+    }
+
+    // This is marked inline because for some reason LLVM in release mode fails to inline it,
+    // and we want fewer call frames in stack traces.
+    return @call(.{ .modifier = .always_inline }, call_wWinMain, .{});
+}
+
+fn callMainAsync(loop: *std.event.Loop) callconv(.Async) u8 {
     // This prevents the event loop from terminating at least until main() has returned.
+    // TODO This shouldn't be needed here; it should be in the event loop code.
     loop.beginOneEvent();
     defer loop.finishOneEvent();
-    return mainProc();
+    return callMain();
 }
 
 // This is not marked inline because it is called with @asyncCall when
