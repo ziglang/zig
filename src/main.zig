@@ -28,9 +28,9 @@ pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
 pub const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
 pub const Color = enum {
-    Auto,
-    Off,
-    On,
+    auto,
+    off,
+    on,
 };
 
 const usage =
@@ -114,10 +114,43 @@ pub fn main() anyerror!void {
     return mainArgs(gpa, arena, args);
 }
 
+const os_can_execve = std.builtin.os.tag != .windows;
+
 pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !void {
     if (args.len <= 1) {
         std.log.info("{}", .{usage});
         fatal("expected command argument", .{});
+    }
+
+    if (os_can_execve and std.os.getenvZ("ZIG_IS_DETECTING_LIBC_PATHS") != null) {
+        // In this case we have accidentally invoked ourselves as "the system C compiler"
+        // to figure out where libc is installed. This is essentially infinite recursion
+        // via child process execution due to the CC environment variable pointing to Zig.
+        // Here we ignore the CC environment variable and exec `cc` as a child process.
+        // However it's possible Zig is installed as *that* C compiler as well, which is
+        // why we have this additional environment variable here to check.
+        var env_map = try std.process.getEnvMap(arena);
+
+        const inf_loop_env_key = "ZIG_IS_TRYING_TO_NOT_CALL_ITSELF";
+        if (env_map.get(inf_loop_env_key) != null) {
+            fatal("The compilation links against libc, but Zig is unable to provide a libc " ++
+                "for this operating system, and no --libc " ++
+                "parameter was provided, so Zig attempted to invoke the system C compiler " ++
+                "in order to determine where libc is installed. However the system C " ++
+                "compiler is `zig cc`, so no libc installation was found.", .{});
+        }
+        try env_map.set(inf_loop_env_key, "1");
+
+        // Some programs such as CMake will strip the `cc` and subsequent args from the
+        // CC environment variable. We detect and support this scenario here because of
+        // the ZIG_IS_DETECTING_LIBC_PATHS environment variable.
+        if (mem.eql(u8, args[1], "cc")) {
+            return std.os.execvpe(arena, args[1..], &env_map);
+        } else {
+            const modified_args = try arena.dupe([]const u8, args);
+            modified_args[0] = "cc";
+            return std.os.execvpe(arena, modified_args, &env_map);
+        }
     }
 
     const cmd = args[1];
@@ -188,6 +221,7 @@ const usage_build_generic =
     \\                     .so    ELF shared object (dynamic link)
     \\                    .dll    Windows Dynamic Link Library
     \\                  .dylib    MACH-O (macOS) dynamic library
+    \\                    .tbd    (macOS) text-based dylib definition
     \\                      .s    Target-specific assembly source code
     \\                      .S    Assembly with C preprocessor (requires LLVM extensions)
     \\                      .c    C source code (requires LLVM extensions)
@@ -380,7 +414,7 @@ fn buildOutputType(
         run,
     },
 ) !void {
-    var color: Color = .Auto;
+    var color: Color = .auto;
     var optimize_mode: std.builtin.Mode = .Debug;
     var provided_name: ?[]const u8 = null;
     var link_mode: ?std.builtin.LinkMode = null;
@@ -444,7 +478,10 @@ fn buildOutputType(
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
     var each_lib_rpath: ?bool = null;
-    var libc_paths_file: ?[]const u8 = null;
+    var libc_paths_file: ?[]const u8 = std.process.getEnvVarOwned(arena, "ZIG_LIBC") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => |e| return e,
+    };
     var machine_code_model: std.builtin.CodeModel = .default;
     var runtime_args_start: ?usize = null;
     var test_filter: ?[]const u8 = null;
@@ -585,15 +622,9 @@ fn buildOutputType(
                         }
                         i += 1;
                         const next_arg = args[i];
-                        if (mem.eql(u8, next_arg, "auto")) {
-                            color = .Auto;
-                        } else if (mem.eql(u8, next_arg, "on")) {
-                            color = .On;
-                        } else if (mem.eql(u8, next_arg, "off")) {
-                            color = .Off;
-                        } else {
+                        color = std.meta.stringToEnum(Color, next_arg) orelse {
                             fatal("expected [auto|on|off] after --color, found '{}'", .{next_arg});
-                        }
+                        };
                     } else if (mem.eql(u8, arg, "--subsystem")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
@@ -888,7 +919,7 @@ fn buildOutputType(
                         fatal("unrecognized parameter: '{}'", .{arg});
                     }
                 } else switch (Compilation.classifyFileExt(arg)) {
-                    .object, .static_library => {
+                    .object, .static_library, .shared_library => {
                         try link_objects.append(arg);
                     },
                     .assembly, .c, .cpp, .h, .ll, .bc => {
@@ -896,9 +927,6 @@ fn buildOutputType(
                             .src_path = arg,
                             .extra_flags = try arena.dupe([]const u8, extra_cflags.items),
                         });
-                    },
-                    .shared_library => {
-                        fatal("linking against dynamic libraries not yet supported", .{});
                     },
                     .zig, .zir => {
                         if (root_src_file) |other| {
@@ -1235,7 +1263,13 @@ fn buildOutputType(
     }
 
     if (root_src_file == null and arg_mode == .zig_test) {
-        fatal("one zig source file is required to run `zig test`", .{});
+        fatal("`zig test` expects a zig source file argument", .{});
+    }
+
+    if (link_objects.items.len == 0 and root_src_file == null and
+        c_source_files.items.len == 0 and arg_mode == .run)
+    {
+        fatal("`zig run` expects at least one positional argument", .{});
     }
 
     const root_name = if (provided_name) |n| n else blk: {
@@ -1679,40 +1713,50 @@ fn buildOutputType(
         warn("--watch is not recommended with the stage1 backend; it leaks memory and is not capable of incremental compilation", .{});
     }
 
-    switch (arg_mode) {
-        .run, .zig_test => run: {
-            const exe_loc = emit_bin_loc orelse break :run;
-            const exe_directory = exe_loc.directory orelse comp.bin_file.options.emit.?.directory;
-            const exe_path = try fs.path.join(arena, &[_][]const u8{
-                exe_directory.path orelse ".", exe_loc.basename,
-            });
+    const run_or_test = switch (arg_mode) {
+        .run, .zig_test => true,
+        else => false,
+    };
+    if (run_or_test) run: {
+        const exe_loc = emit_bin_loc orelse break :run;
+        const exe_directory = exe_loc.directory orelse comp.bin_file.options.emit.?.directory;
+        const exe_path = try fs.path.join(arena, &[_][]const u8{
+            exe_directory.path orelse ".", exe_loc.basename,
+        });
 
-            var argv = std.ArrayList([]const u8).init(gpa);
-            defer argv.deinit();
+        var argv = std.ArrayList([]const u8).init(gpa);
+        defer argv.deinit();
 
-            if (test_exec_args.items.len == 0) {
-                if (!std.Target.current.canExecBinariesOf(target_info.target)) {
-                    switch (arg_mode) {
-                        .zig_test => {
-                            warn("created {s} but skipping execution because it is non-native", .{exe_path});
-                            if (!watch) return cleanExit();
-                            break :run;
-                        },
-                        .run => fatal("unable to execute {s}: non-native", .{exe_path}),
-                        else => unreachable,
-                    }
-                }
-                try argv.append(exe_path);
-            } else {
-                for (test_exec_args.items) |arg| {
-                    try argv.append(arg orelse exe_path);
+        if (test_exec_args.items.len == 0) {
+            if (!std.Target.current.canExecBinariesOf(target_info.target)) {
+                switch (arg_mode) {
+                    .zig_test => {
+                        warn("created {s} but skipping execution because it is non-native", .{exe_path});
+                        if (!watch) return cleanExit();
+                        break :run;
+                    },
+                    .run => fatal("unable to execute {s}: non-native", .{exe_path}),
+                    else => unreachable,
                 }
             }
-            if (runtime_args_start) |i| {
-                try argv.appendSlice(all_args[i..]);
+            try argv.append(exe_path);
+        } else {
+            for (test_exec_args.items) |arg| {
+                try argv.append(arg orelse exe_path);
             }
-            // TODO On operating systems that support it, do an execve here rather than child process,
-            // when watch=false and arg_mode == .run
+        }
+        if (runtime_args_start) |i| {
+            try argv.appendSlice(all_args[i..]);
+        }
+        // We do not execve for tests because if the test fails we want to print the error message and
+        // invocation below.
+        if (os_can_execve and arg_mode == .run and !watch) {
+            // TODO improve the std lib so that we don't need a call to getEnvMap here.
+            var env_vars = try process.getEnvMap(arena);
+            const err = std.os.execvpe(gpa, argv.items, &env_vars);
+            const cmd = try argvCmd(arena, argv.items);
+            fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
+        } else {
             const child = try std.ChildProcess.init(argv.items, gpa);
             defer child.deinit();
 
@@ -1753,8 +1797,7 @@ fn buildOutputType(
                 },
                 else => unreachable,
             }
-        },
-        else => {},
+        }
     }
 
     const stdin = std.io.getStdIn().inStream();
@@ -2374,7 +2417,7 @@ const Fmt = struct {
 
 pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
     const stderr_file = io.getStdErr();
-    var color: Color = .Auto;
+    var color: Color = .auto;
     var stdin_flag: bool = false;
     var check_flag: bool = false;
     var input_files = ArrayList([]const u8).init(gpa);
@@ -2394,15 +2437,9 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
                     }
                     i += 1;
                     const next_arg = args[i];
-                    if (mem.eql(u8, next_arg, "auto")) {
-                        color = .Auto;
-                    } else if (mem.eql(u8, next_arg, "on")) {
-                        color = .On;
-                    } else if (mem.eql(u8, next_arg, "off")) {
-                        color = .Off;
-                    } else {
+                    color = std.meta.stringToEnum(Color, next_arg) orelse {
                         fatal("expected [auto|on|off] after --color, found '{}'", .{next_arg});
-                    }
+                    };
                 } else if (mem.eql(u8, arg, "--stdin")) {
                     stdin_flag = true;
                 } else if (mem.eql(u8, arg, "--check")) {
@@ -2594,8 +2631,8 @@ fn fmtPathFile(
     if (check_mode) {
         const anything_changed = try std.zig.render(fmt.gpa, io.null_out_stream, tree);
         if (anything_changed) {
-            // TODO this should output to stdout instead of stderr.
-            std.debug.print("{}\n", .{file_path});
+            const stdout = io.getStdOut().writer();
+            try stdout.print("{}\n", .{file_path});
             fmt.any_error = true;
         }
     } else {
@@ -2612,8 +2649,8 @@ fn fmtPathFile(
 
         try af.file.writeAll(fmt.out_buffer.items);
         try af.finish();
-        // TODO this should output to stdout instead of stderr.
-        std.debug.print("{}\n", .{file_path});
+        const stdout = io.getStdOut().writer();
+        try stdout.print("{}\n", .{file_path});
     }
 }
 
@@ -2626,9 +2663,9 @@ fn printErrMsgToFile(
     color: Color,
 ) !void {
     const color_on = switch (color) {
-        .Auto => file.isTty(),
-        .On => true,
-        .Off => false,
+        .auto => file.isTty(),
+        .on => true,
+        .off => false,
     };
     const lok_token = parse_error.loc();
     const span_first = lok_token;

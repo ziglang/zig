@@ -31,11 +31,17 @@
 // Include some forward declares that must come before cmath.
 #include <__clang_cuda_math_forward_declares.h>
 
+// Define __CUDACC__ early as libstdc++ standard headers with GNU extensions
+// enabled depend on it to avoid using __float128, which is unsupported in
+// CUDA.
+#define __CUDACC__
+
 // Include some standard headers to avoid CUDA headers including them
 // while some required macros (like __THROW) are in a weird state.
 #include <cmath>
 #include <cstdlib>
 #include <stdlib.h>
+#undef __CUDACC__
 
 // Preserve common macros that will be changed below by us or by CUDA
 // headers.
@@ -83,13 +89,15 @@
 #if CUDA_VERSION < 9000
 #define __CUDABE__
 #else
+#define __CUDACC__
 #define __CUDA_LIBDEVICE__
 #endif
 // Disables definitions of device-side runtime support stubs in
 // cuda_device_runtime_api.h
+#include "host_defines.h"
+#undef __CUDACC__
 #include "driver_types.h"
 #include "host_config.h"
-#include "host_defines.h"
 
 // Temporarily replace "nv_weak" with weak, so __attribute__((nv_weak)) in
 // cuda_device_runtime_api.h ends up being __attribute__((weak)) which is the
@@ -141,11 +149,12 @@ inline __host__ double __signbitd(double x) {
 // to provide our own.
 #include <__clang_cuda_libdevice_declares.h>
 
-// Wrappers for many device-side standard library functions became compiler
-// builtins in CUDA-9 and have been removed from the CUDA headers. Clang now
-// provides its own implementation of the wrappers.
+// Wrappers for many device-side standard library functions, incl. math
+// functions, became compiler builtins in CUDA-9 and have been removed from the
+// CUDA headers. Clang now provides its own implementation of the wrappers.
 #if CUDA_VERSION >= 9000
 #include <__clang_cuda_device_functions.h>
+#include <__clang_cuda_math.h>
 #endif
 
 // __THROW is redefined to be empty by device_functions_decls.h in CUDA. Clang's

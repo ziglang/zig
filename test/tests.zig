@@ -234,7 +234,7 @@ const test_targets = blk: {
         TestTarget{
             .target = .{
                 .cpu_arch = .x86_64,
-                .os_tag = .macosx,
+                .os_tag = .macos,
                 .abi = .gnu,
             },
             // https://github.com/ziglang/zig/issues/3295

@@ -147,4 +147,100 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\
     );
+    ctx.c("exit with u8 arithmetic", linux_x64,
+        \\export fn _start() noreturn {
+        \\    exitMath(1);
+        \\}
+        \\
+        \\fn exitMath(a: u8) noreturn {
+        \\    exit(0 + a - a);
+        \\}
+        \\
+        \\fn exit(code: u8) noreturn {
+        \\    asm volatile ("syscall"
+        \\        :
+        \\        : [number] "{rax}" (231),
+        \\          [arg1] "{rdi}" (code)
+        \\    );
+        \\    unreachable;
+        \\}
+        \\
+    ,
+        \\#include <stddef.h>
+        \\#include <stdint.h>
+        \\
+        \\zig_noreturn void exitMath(uint8_t arg0);
+        \\zig_noreturn void exit(uint8_t arg0);
+        \\
+        \\const char *const exit__anon_0 = "{rax}";
+        \\const char *const exit__anon_1 = "{rdi}";
+        \\const char *const exit__anon_2 = "syscall";
+        \\
+        \\zig_noreturn void _start(void) {
+        \\    exitMath(1);
+        \\}
+        \\
+        \\zig_noreturn void exitMath(uint8_t arg0) {
+        \\    const uint8_t __temp_0 = 0 + arg0;
+        \\    const uint8_t __temp_1 = __temp_0 - arg0;
+        \\    exit(__temp_1);
+        \\}
+        \\
+        \\zig_noreturn void exit(uint8_t arg0) {
+        \\    const size_t __temp_0 = (size_t)arg0;
+        \\    register size_t rax_constant __asm__("rax") = 231;
+        \\    register size_t rdi_constant __asm__("rdi") = __temp_0;
+        \\    __asm volatile ("syscall" :: ""(rax_constant), ""(rdi_constant));
+        \\    zig_unreachable();
+        \\}
+        \\
+    );
+    ctx.c("exit with u8 arithmetic inverted", linux_x64,
+        \\export fn _start() noreturn {
+        \\    exitMath(1);
+        \\}
+        \\
+        \\fn exitMath(a: u8) noreturn {
+        \\    exit(a + 0 - a);
+        \\}
+        \\
+        \\fn exit(code: u8) noreturn {
+        \\    asm volatile ("syscall"
+        \\        :
+        \\        : [number] "{rax}" (231),
+        \\          [arg1] "{rdi}" (code)
+        \\    );
+        \\    unreachable;
+        \\}
+        \\
+    ,
+        \\#include <stddef.h>
+        \\#include <stdint.h>
+        \\
+        \\zig_noreturn void exitMath(uint8_t arg0);
+        \\zig_noreturn void exit(uint8_t arg0);
+        \\
+        \\const char *const exit__anon_0 = "{rax}";
+        \\const char *const exit__anon_1 = "{rdi}";
+        \\const char *const exit__anon_2 = "syscall";
+        \\
+        \\zig_noreturn void _start(void) {
+        \\    exitMath(1);
+        \\}
+        \\
+        \\zig_noreturn void exitMath(uint8_t arg0) {
+        \\    const uint8_t __temp_0 = arg0 + 0;
+        \\    const uint8_t __temp_1 = __temp_0 - arg0;
+        \\    exit(__temp_1);
+        \\}
+        \\
+        \\zig_noreturn void exit(uint8_t arg0) {
+        \\    const size_t __temp_0 = (size_t)arg0;
+        \\    register size_t rax_constant __asm__("rax") = 231;
+        \\    register size_t rdi_constant __asm__("rdi") = __temp_0;
+        \\    __asm volatile ("syscall" :: ""(rax_constant), ""(rdi_constant));
+        \\    zig_unreachable();
+        \\}
+        \\
+    );
 }

@@ -30,6 +30,7 @@ pub const Feature = enum {
     jmpcall,
     lpm,
     lpmx,
+    memmappedregs,
     movw,
     mul,
     rmw,
@@ -65,6 +66,7 @@ pub const all_features = blk: {
         .dependencies = featureSet(&[_]Feature{
             .avr0,
             .lpm,
+            .memmappedregs,
         }),
     };
     result[@enumToInt(Feature.avr2)] = .{
@@ -161,6 +163,7 @@ pub const all_features = blk: {
         .dependencies = featureSet(&[_]Feature{
             .avr0,
             .@"break",
+            .memmappedregs,
             .sram,
             .tinyencoding,
         }),
@@ -210,6 +213,11 @@ pub const all_features = blk: {
         .description = "The device supports the `LPM Rd, Z[+]` instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.memmappedregs)] = .{
+        .llvm_name = "memmappedregs",
+        .description = "The device has CPU registers mapped in data address space",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.movw)] = .{
         .llvm_name = "movw",
         .description = "The device supports the 16-bit MOVW instruction",
@@ -244,6 +252,7 @@ pub const all_features = blk: {
             .jmpcall,
             .lpm,
             .lpmx,
+            .memmappedregs,
             .movw,
             .mul,
             .rmw,
@@ -276,10 +285,22 @@ pub const all_features = blk: {
         .llvm_name = "xmega",
         .description = "The device is a part of the xmega family",
         .dependencies = featureSet(&[_]Feature{
-            .avr51,
+            .addsubiw,
+            .avr0,
+            .@"break",
             .des,
             .eijmpcall,
+            .elpm,
+            .elpmx,
+            .ijmpcall,
+            .jmpcall,
+            .lpm,
+            .lpmx,
+            .movw,
+            .mul,
+            .spm,
             .spmx,
+            .sram,
         }),
     };
     result[@enumToInt(Feature.xmegau)] = .{

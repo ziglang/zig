@@ -9,37 +9,37 @@
 
 find_path(LLVM_INCLUDE_DIRS NAMES llvm/IR/IRBuilder.h
   PATHS
-    /usr/lib/llvm/10/include
-    /usr/lib/llvm-10/include
-    /usr/lib/llvm-10.0/include
-    /usr/local/llvm10/include
-    /usr/local/llvm100/include
+    /usr/lib/llvm/11/include
+    /usr/lib/llvm-11/include
+    /usr/lib/llvm-11.0/include
+    /usr/local/llvm11/include
+    /usr/local/llvm110/include
     /mingw64/include
 )
 
 if(ZIG_PREFER_CLANG_CPP_DYLIB)
   find_library(LLVM_LIBRARIES
     NAMES
-      LLVM-10.0
-      LLVM-10
-      LLVM-100
+      LLVM-11.0
+      LLVM-11
+      LLVM-110
       LLVM
     PATHS
       ${LLVM_LIBDIRS}
-      /usr/lib/llvm/10/lib
-      /usr/lib/llvm/10/lib64
-      /usr/lib/llvm-10/lib
-      /usr/local/llvm10/lib
-      /usr/local/llvm100/lib
+      /usr/lib/llvm/11/lib
+      /usr/lib/llvm/11/lib64
+      /usr/lib/llvm-11/lib
+      /usr/local/llvm11/lib
+      /usr/local/llvm110/lib
   )
-elseif(("${ZIG_TARGET_TRIPLE}" STREQUAL "native") OR ZIG_PREFER_LLVM_CONFIG)
+
   find_program(LLVM_CONFIG_EXE
-      NAMES llvm-config-10 llvm-config-10.0 llvm-config100 llvm-config10 llvm-config
+      NAMES llvm-config-11 llvm-config-11.0 llvm-config110 llvm-config11 llvm-config
       PATHS
           "/mingw64/bin"
           "/c/msys64/mingw64/bin"
           "c:/msys64/mingw64/bin"
-          "C:/Libraries/llvm-10.0.0/bin")
+          "C:/Libraries/llvm-11.0.0/bin")
 
   if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
     message(FATAL_ERROR "unable to find llvm-config")
@@ -54,14 +54,45 @@ elseif(("${ZIG_TARGET_TRIPLE}" STREQUAL "native") OR ZIG_PREFER_LLVM_CONFIG)
     OUTPUT_VARIABLE LLVM_CONFIG_VERSION
     OUTPUT_STRIP_TRAILING_WHITESPACE)
 
-  if("${LLVM_CONFIG_VERSION}" VERSION_LESS 10)
-    message(FATAL_ERROR "expected LLVM 10.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  if("${LLVM_CONFIG_VERSION}" VERSION_LESS 11)
+    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
-  if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 11)
-    message(FATAL_ERROR "expected LLVM 10.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 12)
+    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
   if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 11)
-    message(FATAL_ERROR "expected LLVM 10.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  endif()
+elseif(("${ZIG_TARGET_TRIPLE}" STREQUAL "native") OR ZIG_PREFER_LLVM_CONFIG)
+  find_program(LLVM_CONFIG_EXE
+      NAMES llvm-config-11 llvm-config-11.0 llvm-config110 llvm-config11 llvm-config
+      PATHS
+          "/mingw64/bin"
+          "/c/msys64/mingw64/bin"
+          "c:/msys64/mingw64/bin"
+          "C:/Libraries/llvm-11.0.0/bin")
+
+  if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
+    message(FATAL_ERROR "unable to find llvm-config")
+  endif()
+
+  if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
+    message(FATAL_ERROR "unable to find llvm-config")
+  endif()
+
+  execute_process(
+    COMMAND ${LLVM_CONFIG_EXE} --version
+    OUTPUT_VARIABLE LLVM_CONFIG_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+  if("${LLVM_CONFIG_VERSION}" VERSION_LESS 11)
+    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  endif()
+  if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 12)
+    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  endif()
+  if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 11)
+    message(FATAL_ERROR "expected LLVM 11.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
 
   execute_process(
@@ -78,6 +109,7 @@ elseif(("${ZIG_TARGET_TRIPLE}" STREQUAL "native") OR ZIG_PREFER_LLVM_CONFIG)
   NEED_TARGET("AArch64")
   NEED_TARGET("AMDGPU")
   NEED_TARGET("ARM")
+  NEED_TARGET("AVR")
   NEED_TARGET("BPF")
   NEED_TARGET("Hexagon")
   NEED_TARGET("Lanai")
@@ -134,26 +166,25 @@ elseif(("${ZIG_TARGET_TRIPLE}" STREQUAL "native") OR ZIG_PREFER_LLVM_CONFIG)
   set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS})
 
   if(NOT LLVM_LIBRARIES)
-    find_library(LLVM_LIBRARIES NAMES LLVM LLVM-10 LLVM-10.0)
+    find_library(LLVM_LIBRARIES NAMES LLVM LLVM-11 LLVM-11.0)
   endif()
 
   link_directories("${CMAKE_PREFIX_PATH}/lib")
   link_directories("${LLVM_LIBDIRS}")
 else()
   # Here we assume that we're cross compiling with Zig, of course. No reason
-  # to support more complicated setups. We also assume the experimental target
-  # AVR is enabled.
+  # to support more complicated setups.
 
   macro(FIND_AND_ADD_LLVM_LIB _libname_)
     string(TOUPPER ${_libname_} _prettylibname_)
     find_library(LLVM_${_prettylibname_}_LIB NAMES ${_libname_}
       PATHS
       ${LLVM_LIBDIRS}
-      /usr/lib/llvm/10/lib
-      /usr/lib/llvm-10/lib
-      /usr/lib/llvm-10.0/lib
-      /usr/local/llvm100/lib
-      /usr/local/llvm10/lib
+      /usr/lib/llvm/11/lib
+      /usr/lib/llvm-11/lib
+      /usr/lib/llvm-11.0/lib
+      /usr/local/llvm110/lib
+      /usr/local/llvm11/lib
       /mingw64/lib
       /c/msys64/mingw64/lib
       c:\\msys64\\mingw64\\lib)
@@ -174,12 +205,13 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMMCA)
   FIND_AND_ADD_LLVM_LIB(LLVMLTO)
   FIND_AND_ADD_LLVM_LIB(LLVMPasses)
+  FIND_AND_ADD_LLVM_LIB(LLVMCoroutines)
   FIND_AND_ADD_LLVM_LIB(LLVMObjCARCOpts)
+  FIND_AND_ADD_LLVM_LIB(LLVMExtensions)
   FIND_AND_ADD_LLVM_LIB(LLVMLineEditor)
   FIND_AND_ADD_LLVM_LIB(LLVMLibDriver)
   FIND_AND_ADD_LLVM_LIB(LLVMInterpreter)
   FIND_AND_ADD_LLVM_LIB(LLVMFuzzMutate)
-  FIND_AND_ADD_LLVM_LIB(LLVMFrontendOpenMP)
   FIND_AND_ADD_LLVM_LIB(LLVMMCJIT)
   FIND_AND_ADD_LLVM_LIB(LLVMExecutionEngine)
   FIND_AND_ADD_LLVM_LIB(LLVMRuntimeDyld)
@@ -188,21 +220,14 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMOption)
   FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoGSYM)
   FIND_AND_ADD_LLVM_LIB(LLVMCoverage)
-  FIND_AND_ADD_LLVM_LIB(LLVMCoroutines)
-  FIND_AND_ADD_LLVM_LIB(LLVMAVRDisassembler)
-  FIND_AND_ADD_LLVM_LIB(LLVMAVRCodeGen)
-  FIND_AND_ADD_LLVM_LIB(LLVMAVRAsmParser)
-  FIND_AND_ADD_LLVM_LIB(LLVMAVRDesc)
-  FIND_AND_ADD_LLVM_LIB(LLVMAVRInfo)
   FIND_AND_ADD_LLVM_LIB(LLVMXCoreDisassembler)
   FIND_AND_ADD_LLVM_LIB(LLVMXCoreCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMXCoreDesc)
   FIND_AND_ADD_LLVM_LIB(LLVMXCoreInfo)
   FIND_AND_ADD_LLVM_LIB(LLVMX86Disassembler)
-  FIND_AND_ADD_LLVM_LIB(LLVMX86AsmParser)
   FIND_AND_ADD_LLVM_LIB(LLVMX86CodeGen)
+  FIND_AND_ADD_LLVM_LIB(LLVMX86AsmParser)
   FIND_AND_ADD_LLVM_LIB(LLVMX86Desc)
-  FIND_AND_ADD_LLVM_LIB(LLVMX86Utils)
   FIND_AND_ADD_LLVM_LIB(LLVMX86Info)
   FIND_AND_ADD_LLVM_LIB(LLVMWebAssemblyDisassembler)
   FIND_AND_ADD_LLVM_LIB(LLVMWebAssemblyCodeGen)
@@ -258,6 +283,11 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMBPFAsmParser)
   FIND_AND_ADD_LLVM_LIB(LLVMBPFDesc)
   FIND_AND_ADD_LLVM_LIB(LLVMBPFInfo)
+  FIND_AND_ADD_LLVM_LIB(LLVMAVRDisassembler)
+  FIND_AND_ADD_LLVM_LIB(LLVMAVRCodeGen)
+  FIND_AND_ADD_LLVM_LIB(LLVMAVRAsmParser)
+  FIND_AND_ADD_LLVM_LIB(LLVMAVRDesc)
+  FIND_AND_ADD_LLVM_LIB(LLVMAVRInfo)
   FIND_AND_ADD_LLVM_LIB(LLVMARMDisassembler)
   FIND_AND_ADD_LLVM_LIB(LLVMARMCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMARMAsmParser)
@@ -273,6 +303,7 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMLinker)
   FIND_AND_ADD_LLVM_LIB(LLVMIRReader)
   FIND_AND_ADD_LLVM_LIB(LLVMAsmParser)
+  FIND_AND_ADD_LLVM_LIB(LLVMFrontendOpenMP)
   FIND_AND_ADD_LLVM_LIB(LLVMAMDGPUAsmParser)
   FIND_AND_ADD_LLVM_LIB(LLVMAMDGPUDesc)
   FIND_AND_ADD_LLVM_LIB(LLVMAMDGPUUtils)

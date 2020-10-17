@@ -1063,18 +1063,24 @@ public:
       }
       __impl __tmp(_VSTD::move(*__rhs));
 #ifndef _LIBCPP_NO_EXCEPTIONS
-      // EXTENSION: When the move construction of `__lhs` into `__rhs` throws
-      // and `__tmp` is nothrow move constructible then we move `__tmp` back
-      // into `__rhs` and provide the strong exception safety guarantee.
-      try {
+      if constexpr (__all<is_nothrow_move_constructible_v<_Types>...>::value) {
         this->__generic_construct(*__rhs, _VSTD::move(*__lhs));
-      } catch (...) {
-        if (__tmp.__move_nothrow()) {
-          this->__generic_construct(*__rhs, _VSTD::move(__tmp));
+      } else {
+        // EXTENSION: When the move construction of `__lhs` into `__rhs` throws
+        // and `__tmp` is nothrow move constructible then we move `__tmp` back
+        // into `__rhs` and provide the strong exception safety guarantee.
+        try {
+          this->__generic_construct(*__rhs, _VSTD::move(*__lhs));
+        } catch (...) {
+          if (__tmp.__move_nothrow()) {
+            this->__generic_construct(*__rhs, _VSTD::move(__tmp));
+          }
+          throw;
         }
-        throw;
       }
 #else
+      // this isn't consolidated with the `if constexpr` branch above due to
+      // `throw` being ill-formed with exceptions disabled even when discarded.
       this->__generic_construct(*__rhs, _VSTD::move(*__lhs));
 #endif
       this->__generic_construct(*__lhs, _VSTD::move(__tmp));

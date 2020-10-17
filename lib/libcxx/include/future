@@ -506,6 +506,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     const error_code& code() const _NOEXCEPT {return __ec_;}
 
+    future_error(const future_error&) _NOEXCEPT = default;
     virtual ~future_error() _NOEXCEPT;
 };
 

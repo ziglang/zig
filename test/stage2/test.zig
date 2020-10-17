@@ -13,7 +13,7 @@ const linux_x64 = std.zig.CrossTarget{
 
 const macosx_x64 = std.zig.CrossTarget{
     .cpu_arch = .x86_64,
-    .os_tag = .macosx,
+    .os_tag = .macos,
 };
 
 const linux_riscv64 = std.zig.CrossTarget{
@@ -145,7 +145,7 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.exe("hello world", macosx_x64);
+        var case = ctx.exe("hello world with updates", macosx_x64);
         case.addError("", &[_][]const u8{":1:1: error: no entry point found"});
 
         // Incorrect return type
@@ -183,8 +183,75 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "Hello, World!\n",
+        );
+        // Now change the message only
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    print();
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn print() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (0x2000004),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("What is up? This is a longer message that will force the data to be relocated in virtual address space.\n")),
+            \\          [arg3] "{rdx}" (104)
+            \\        : "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (0x2000001),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "What is up? This is a longer message that will force the data to be relocated in virtual address space.\n",
+        );
+        // Now we print it twice.
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    print();
+            \\    print();
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn print() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (0x2000004),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("What is up? This is a longer message that will force the data to be relocated in virtual address space.\n")),
+            \\          [arg3] "{rdx}" (104)
+            \\        : "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (0x2000001),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            \\What is up? This is a longer message that will force the data to be relocated in virtual address space.
+            \\What is up? This is a longer message that will force the data to be relocated in virtual address space.
+            \\
         );
     }
 
@@ -926,7 +993,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    );
             \\    unreachable;
             \\}
-            ,
+        ,
             "Hello, World!\n",
         );
         try case.files.append(.{

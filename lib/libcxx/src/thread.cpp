@@ -23,9 +23,9 @@
 # endif
 #endif // defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
 
-#if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__)) || defined(__CloudABI__) || defined(__Fuchsia__) || defined(__wasi__)
-# include <unistd.h>
-#endif // defined(__unix__) || (defined(__APPLE__) && defined(__MACH__)) || defined(__CloudABI__) || defined(__Fuchsia__) || defined(__wasi__)
+#if __has_include(<unistd.h>)
+#include <unistd.h>
+#endif
 
 #if defined(__NetBSD__)
 #pragma weak pthread_create // Do not create libpthread dependency

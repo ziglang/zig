@@ -7,7 +7,7 @@ sudo pkg update -fq
 sudo pkg install -y cmake py27-s3cmd wget curl jq
 
 ZIGDIR="$(pwd)"
-CACHE_BASENAME="llvm+clang+lld-10.0.0-x86_64-freebsd-release"
+CACHE_BASENAME="llvm+clang+lld-11.0.0-x86_64-freebsd-release"
 PREFIX="$HOME/$CACHE_BASENAME"
 JOBS="-j$(sysctl -n hw.ncpu)"
 
@@ -31,24 +31,7 @@ cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX "-DCMAKE_INSTALL_PREFIX=$(pwd)/release" -DZIG_STATIC=ON
 make $JOBS install
 
-release/bin/zig build test-fmt
-release/bin/zig build test-behavior
-# TODO get these tests passing on freebsd and re-enable
-#release/bin/zig build test-std
-release/bin/zig build test-compiler-rt
-release/bin/zig build test-compare-output
-release/bin/zig build test-standalone
-release/bin/zig build test-stack-traces
-release/bin/zig build test-cli
-release/bin/zig build test-asm-link
-release/bin/zig build test-runtime-safety
-release/bin/zig build test-translate-c
-release/bin/zig build test-run-translated-c
-# TODO disabled until we are shipping self-hosted
-#release/bin/zig build test-gen-h
-# TODO disabled to save time and hit that 45 minute limit
-#release/bin/zig build test-compile-errors
-release/bin/zig build docs
+release/bin/zig build test
 
 if [ -f ~/.s3cfg ]; then
   mv ../LICENSE release/

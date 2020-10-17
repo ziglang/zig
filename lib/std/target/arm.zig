@@ -16,6 +16,16 @@ pub const Feature = enum {
     aes,
     avoid_movs_shop,
     avoid_partial_cpsr,
+    bf16,
+    cde,
+    cdecp0,
+    cdecp1,
+    cdecp2,
+    cdecp3,
+    cdecp4,
+    cdecp5,
+    cdecp6,
+    cdecp7,
     cheap_predicable_cpsr,
     crc,
     crypto,
@@ -58,11 +68,13 @@ pub const Feature = enum {
     has_v8_3a,
     has_v8_4a,
     has_v8_5a,
+    has_v8_6a,
     has_v8,
     has_v8m,
     has_v8m_main,
     hwdiv,
     hwdiv_arm,
+    i8mm,
     iwmmxt,
     iwmmxt2,
     lob,
@@ -146,6 +158,7 @@ pub const Feature = enum {
     v8_3a,
     v8_4a,
     v8_5a,
+    v8_6a,
     vfp2,
     vfp2sp,
     vfp3,
@@ -213,6 +226,76 @@ pub const all_features = blk: {
         .llvm_name = "avoid-partial-cpsr",
         .description = "Avoid CPSR partial update for OOO execution",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.bf16)] = .{
+        .llvm_name = "bf16",
+        .description = "Enable support for BFloat16 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .neon,
+        }),
+    };
+    result[@enumToInt(Feature.cde)] = .{
+        .llvm_name = "cde",
+        .description = "Support CDE instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .v8m_main,
+        }),
+    };
+    result[@enumToInt(Feature.cdecp0)] = .{
+        .llvm_name = "cdecp0",
+        .description = "Coprocessor 0 ISA is CDEv1",
+        .dependencies = featureSet(&[_]Feature{
+            .cde,
+        }),
+    };
+    result[@enumToInt(Feature.cdecp1)] = .{
+        .llvm_name = "cdecp1",
+        .description = "Coprocessor 1 ISA is CDEv1",
+        .dependencies = featureSet(&[_]Feature{
+            .cde,
+        }),
+    };
+    result[@enumToInt(Feature.cdecp2)] = .{
+        .llvm_name = "cdecp2",
+        .description = "Coprocessor 2 ISA is CDEv1",
+        .dependencies = featureSet(&[_]Feature{
+            .cde,
+        }),
+    };
+    result[@enumToInt(Feature.cdecp3)] = .{
+        .llvm_name = "cdecp3",
+        .description = "Coprocessor 3 ISA is CDEv1",
+        .dependencies = featureSet(&[_]Feature{
+            .cde,
+        }),
+    };
+    result[@enumToInt(Feature.cdecp4)] = .{
+        .llvm_name = "cdecp4",
+        .description = "Coprocessor 4 ISA is CDEv1",
+        .dependencies = featureSet(&[_]Feature{
+            .cde,
+        }),
+    };
+    result[@enumToInt(Feature.cdecp5)] = .{
+        .llvm_name = "cdecp5",
+        .description = "Coprocessor 5 ISA is CDEv1",
+        .dependencies = featureSet(&[_]Feature{
+            .cde,
+        }),
+    };
+    result[@enumToInt(Feature.cdecp6)] = .{
+        .llvm_name = "cdecp6",
+        .description = "Coprocessor 6 ISA is CDEv1",
+        .dependencies = featureSet(&[_]Feature{
+            .cde,
+        }),
+    };
+    result[@enumToInt(Feature.cdecp7)] = .{
+        .llvm_name = "cdecp7",
+        .description = "Coprocessor 7 ISA is CDEv1",
+        .dependencies = featureSet(&[_]Feature{
+            .cde,
+        }),
     };
     result[@enumToInt(Feature.cheap_predicable_cpsr)] = .{
         .llvm_name = "cheap-predicable-cpsr",
@@ -513,6 +596,15 @@ pub const all_features = blk: {
             .has_v8_4a,
         }),
     };
+    result[@enumToInt(Feature.has_v8_6a)] = .{
+        .llvm_name = "v8.6a",
+        .description = "Support ARM v8.6a instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .bf16,
+            .i8mm,
+            .has_v8_5a,
+        }),
+    };
     result[@enumToInt(Feature.has_v8m)] = .{
         .llvm_name = "v8m",
         .description = "Support ARM v8M Baseline instructions",
@@ -536,6 +628,13 @@ pub const all_features = blk: {
         .llvm_name = "hwdiv-arm",
         .description = "Enable divide instructions in ARM mode",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.i8mm)] = .{
+        .llvm_name = "i8mm",
+        .description = "Enable Matrix Multiply Int8 Extension",
+        .dependencies = featureSet(&[_]Feature{
+            .neon,
+        }),
     };
     result[@enumToInt(Feature.iwmmxt)] = .{
         .llvm_name = "iwmmxt",
@@ -1182,6 +1281,25 @@ pub const all_features = blk: {
             .virtualization,
         }),
     };
+    result[@enumToInt(Feature.v8_6a)] = .{
+        .llvm_name = "armv8.6-a",
+        .description = "ARMv86a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .aclass,
+            .crc,
+            .crypto,
+            .db,
+            .dotprod,
+            .dsp,
+            .fp_armv8,
+            .mp,
+            .neon,
+            .ras,
+            .trustzone,
+            .has_v8_6a,
+            .virtualization,
+        }),
+    };
     result[@enumToInt(Feature.vfp2)] = .{
         .llvm_name = "vfp2",
         .description = "Enable VFP2 instructions",
@@ -1727,6 +1845,32 @@ pub const cpu = struct {
             .hwdiv_arm,
         }),
     };
+    pub const cortex_a77 = CpuModel{
+        .name = "cortex_a77",
+        .llvm_name = "cortex-a77",
+        .features = featureSet(&[_]Feature{
+            .v8_2a,
+            .crc,
+            .crypto,
+            .dotprod,
+            .fullfp16,
+            .hwdiv,
+            .hwdiv_arm,
+        }),
+    };
+    pub const cortex_a78 = CpuModel{
+        .name = "cortex_a78",
+        .llvm_name = "cortex-a78",
+        .features = featureSet(&[_]Feature{
+            .v8_2a,
+            .crc,
+            .crypto,
+            .dotprod,
+            .fullfp16,
+            .hwdiv,
+            .hwdiv_arm,
+        }),
+    };
     pub const cortex_a8 = CpuModel{
         .name = "cortex_a8",
         .llvm_name = "cortex-a8",
@@ -1842,6 +1986,20 @@ pub const cpu = struct {
             .vfp4d16sp,
         }),
     };
+    pub const cortex_m55 = CpuModel{
+        .name = "cortex_m55",
+        .llvm_name = "cortex-m55",
+        .features = featureSet(&[_]Feature{
+            .v8_1m_main,
+            .dsp,
+            .fp_armv8d16,
+            .loop_align,
+            .mve_fp,
+            .no_branch_predictor,
+            .slowfpvmlx,
+            .use_misched,
+        }),
+    };
     pub const cortex_m7 = CpuModel{
         .name = "cortex_m7",
         .llvm_name = "cortex-m7",
@@ -1927,6 +2085,19 @@ pub const cpu = struct {
             .slowfpvfmx,
             .slowfpvmlx,
             .vfp3d16,
+        }),
+    };
+    pub const cortex_x1 = CpuModel{
+        .name = "cortex_x1",
+        .llvm_name = "cortex-x1",
+        .features = featureSet(&[_]Feature{
+            .v8_2a,
+            .crc,
+            .crypto,
+            .dotprod,
+            .fullfp16,
+            .hwdiv,
+            .hwdiv_arm,
         }),
     };
     pub const cyclone = CpuModel{

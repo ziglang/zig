@@ -60,6 +60,7 @@ public:
 #include <exception>
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 #ifdef _LIBCPP_NO_EXCEPTIONS
 #include <cstdlib>
 #endif
@@ -120,6 +121,7 @@ public:
 // ========================================================================== //
 // ------------------------------------------------------------------------- //
 //                               Unique
+//               (_LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION = 1)
 // ------------------------------------------------------------------------- //
 // This implementation of type_info assumes a unique copy of the RTTI for a
 // given type inside a program. This is a valid assumption when abiding to
@@ -129,6 +131,7 @@ public:
 // a deep string comparison.
 // -------------------------------------------------------------------------- //
 //                             NonUnique
+//               (_LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION = 2)
 // -------------------------------------------------------------------------- //
 // This implementation of type_info does not assume there is always a unique
 // copy of the RTTI for a given type inside a program. For various reasons
@@ -138,6 +141,7 @@ public:
 // comparison is equal.
 // -------------------------------------------------------------------------- //
 //                          NonUniqueARMRTTIBit
+// (selected on ARM64 regardless of _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION)
 // -------------------------------------------------------------------------- //
 // This implementation of type_info does not assume always a unique copy of
 // the RTTI for a given type inside a program. It packs the pointer to the
@@ -255,12 +259,12 @@ struct __type_info_implementations {
   typedef
 #if defined(__APPLE__) && defined(__LP64__) && !defined(__x86_64__)
     __non_unique_arm_rtti_bit_impl
-#elif _LIBCPP_HAS_MERGED_TYPEINFO_NAMES_DEFAULT == 0
-    __non_unique_impl
-#elif _LIBCPP_HAS_MERGED_TYPEINFO_NAMES_DEFAULT == 1
+#elif _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION == 1
     __unique_impl
+#elif _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION == 2
+    __non_unique_impl
 #else
-#   error invalid configuration for _LIBCPP_HAS_MERGED_TYPEINFO_NAMES_DEFAULT
+#   error invalid configuration for _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION
 #endif
      __impl;
 };
@@ -318,6 +322,7 @@ class _LIBCPP_EXCEPTION_ABI bad_cast
 {
  public:
   bad_cast() _NOEXCEPT;
+  bad_cast(const bad_cast&) _NOEXCEPT = default;
   virtual ~bad_cast() _NOEXCEPT;
   virtual const char* what() const _NOEXCEPT;
 };

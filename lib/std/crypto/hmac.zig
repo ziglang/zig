@@ -18,10 +18,6 @@ pub const sha2 = struct {
     pub const HmacSha512 = Hmac(crypto.hash.sha2.Sha512);
 };
 
-pub const blake2 = struct {
-    pub const HmacBlake2s256 = Hmac(crypto.hash.blake2.Blake2s256);
-};
-
 pub fn Hmac(comptime Hash: type) type {
     return struct {
         const Self = @This();

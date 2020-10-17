@@ -19,14 +19,24 @@ const debug = std.debug;
 const assert = std.debug.assert;
 const testing = std.testing;
 const htest = @import("test.zig");
+const Vector = std.meta.Vector;
 
 pub const State = struct {
     pub const BLOCKBYTES = 48;
     pub const RATE = 16;
 
-    data: [BLOCKBYTES / 4]u32,
+    data: [BLOCKBYTES / 4]u32 align(16),
 
     const Self = @This();
+
+    pub fn init(initial_state: [State.BLOCKBYTES]u8) Self {
+        var data: [BLOCKBYTES / 4]u32 = undefined;
+        var i: usize = 0;
+        while (i < State.BLOCKBYTES) : (i += 4) {
+            data[i / 4] = mem.readIntLittle(u32, initial_state[i..][0..4]);
+        }
+        return Self{ .data = data };
+    }
 
     /// TODO follow the span() convention instead of having this and `toSliceConst`
     pub fn toSlice(self: *Self) []u8 {
@@ -94,7 +104,57 @@ pub const State = struct {
         }
     }
 
-    pub const permute = if (std.builtin.mode == .ReleaseSmall) permute_small else permute_unrolled;
+    const Lane = Vector(4, u32);
+
+    inline fn shift(x: Lane, comptime n: comptime_int) Lane {
+        return x << @splat(4, @as(u5, n));
+    }
+
+    inline fn rot(x: Lane, comptime n: comptime_int) Lane {
+        return (x << @splat(4, @as(u5, n))) | (x >> @splat(4, @as(u5, 32 - n)));
+    }
+
+    fn permute_vectorized(self: *Self) void {
+        const state = &self.data;
+        var x = Lane{ state[0], state[1], state[2], state[3] };
+        var y = Lane{ state[4], state[5], state[6], state[7] };
+        var z = Lane{ state[8], state[9], state[10], state[11] };
+        var round = @as(u32, 24);
+        while (round > 0) : (round -= 1) {
+            x = rot(x, 24);
+            y = rot(y, 9);
+            const newz = x ^ shift(z, 1) ^ shift(y & z, 2);
+            const newy = y ^ x ^ shift(x | z, 1);
+            const newx = z ^ y ^ shift(x & y, 3);
+            x = newx;
+            y = newy;
+            z = newz;
+            switch (round & 3) {
+                0 => {
+                    x = @shuffle(u32, x, undefined, [_]i32{ 1, 0, 3, 2 });
+                    x[0] ^= round | 0x9e377900;
+                },
+                2 => {
+                    x = @shuffle(u32, x, undefined, [_]i32{ 2, 3, 0, 1 });
+                },
+                else => {},
+            }
+        }
+        comptime var i: usize = 0;
+        inline while (i < 4) : (i += 1) {
+            state[0 + i] = x[i];
+            state[4 + i] = y[i];
+            state[8 + i] = z[i];
+        }
+    }
+
+    pub const permute = if (std.Target.current.cpu.arch == .x86_64) impl: {
+        break :impl permute_vectorized;
+    } else if (std.builtin.mode == .ReleaseSmall) impl: {
+        break :impl permute_small;
+    } else impl: {
+        break :impl permute_unrolled;
+    };
 
     pub fn squeeze(self: *Self, out: []u8) void {
         var i = @as(usize, 0);

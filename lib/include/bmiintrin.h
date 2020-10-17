@@ -111,7 +111,8 @@ _mm_tzcnt_64(unsigned long long __X)
 
 #undef __RELAXED_FN_ATTRS
 
-#if !defined(_MSC_VER) || __has_feature(modules) || defined(__BMI__)
+#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
+    defined(__BMI__)
 
 /* Define the default attributes for the functions in this file. */
 #define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("bmi")))
@@ -190,6 +191,28 @@ static __inline__ unsigned int __DEFAULT_FN_ATTRS
 _bextr_u32(unsigned int __X, unsigned int __Y, unsigned int __Z)
 {
   return __builtin_ia32_bextr_u32 (__X, ((__Y & 0xff) | ((__Z & 0xff) << 8)));
+}
+
+/* Intel-specified, single-leading-underscore version of BEXTR2 */
+/// Extracts the specified bits from the first operand and returns them
+///    in the least significant bits of the result.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> BEXTR </c> instruction.
+///
+/// \param __X
+///    An unsigned integer whose bits are to be extracted.
+/// \param __Y
+///    An unsigned integer used to specify which bits are extracted. Bits [7:0]
+///    specify the index of the least significant bit. Bits [15:8] specify the
+///    number of bits to be extracted.
+/// \returns An unsigned integer whose least significant bits contain the
+///    extracted bits.
+/// \see __bextr_u32
+static __inline__ unsigned int __DEFAULT_FN_ATTRS
+_bextr2_u32(unsigned int __X, unsigned int __Y) {
+  return __builtin_ia32_bextr_u32(__X, __Y);
 }
 
 /// Clears all bits in the source except for the least significant bit
@@ -321,6 +344,28 @@ _bextr_u64(unsigned long long __X, unsigned int __Y, unsigned int __Z)
   return __builtin_ia32_bextr_u64 (__X, ((__Y & 0xff) | ((__Z & 0xff) << 8)));
 }
 
+/* Intel-specified, single-leading-underscore version of BEXTR2 */
+/// Extracts the specified bits from the first operand and returns them
+///    in the least significant bits of the result.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> BEXTR </c> instruction.
+///
+/// \param __X
+///    An unsigned 64-bit integer whose bits are to be extracted.
+/// \param __Y
+///    An unsigned 64-bit integer used to specify which bits are extracted. Bits
+///    [7:0] specify the index of the least significant bit. Bits [15:8] specify
+///    the number of bits to be extracted.
+/// \returns An unsigned 64-bit integer whose least significant bits contain the
+///    extracted bits.
+/// \see __bextr_u64
+static __inline__ unsigned long long __DEFAULT_FN_ATTRS
+_bextr2_u64(unsigned long long __X, unsigned long long __Y) {
+  return __builtin_ia32_bextr_u64(__X, __Y);
+}
+
 /// Clears all bits in the source except for the least significant bit
 ///    containing a value of 1 and returns the result.
 ///
@@ -376,6 +421,7 @@ __blsr_u64(unsigned long long __X)
 
 #undef __DEFAULT_FN_ATTRS
 
-#endif /* !defined(_MSC_VER) || __has_feature(modules) || defined(__BMI__) */
+#endif /* !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules)   \
+          || defined(__BMI__) */
 
 #endif /* __BMIINTRIN_H */

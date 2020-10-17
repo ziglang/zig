@@ -170,9 +170,11 @@ template <class T, class Alloc>
          noexcept(noexcept(x.swap(y)));
 
 template <class T, class Allocator, class U>
-    void erase(list<T, Allocator>& c, const U& value);       // C++20
+    typename list<T, Allocator>::size_type
+    erase(list<T, Allocator>& c, const U& value);       // C++20
 template <class T, class Allocator, class Predicate>
-    void erase_if(list<T, Allocator>& c, Predicate pred);    // C++20
+    typename list<T, Allocator>::size_type
+    erase_if(list<T, Allocator>& c, Predicate pred);    // C++20
 
 }  // std
 
@@ -2471,14 +2473,16 @@ swap(list<_Tp, _Alloc>& __x, list<_Tp, _Alloc>& __y)
 
 #if _LIBCPP_STD_VER > 17
 template <class _Tp, class _Allocator, class _Predicate>
-inline _LIBCPP_INLINE_VISIBILITY
-void erase_if(list<_Tp, _Allocator>& __c, _Predicate __pred)
-{ __c.remove_if(__pred); }
+inline _LIBCPP_INLINE_VISIBILITY typename list<_Tp, _Allocator>::size_type
+erase_if(list<_Tp, _Allocator>& __c, _Predicate __pred) {
+  return __c.remove_if(__pred);
+}
 
 template <class _Tp, class _Allocator, class _Up>
-inline _LIBCPP_INLINE_VISIBILITY
-void erase(list<_Tp, _Allocator>& __c, const _Up& __v)
-{ _VSTD::erase_if(__c, [&](auto& __elem) { return __elem == __v; }); }
+inline _LIBCPP_INLINE_VISIBILITY typename list<_Tp, _Allocator>::size_type
+erase(list<_Tp, _Allocator>& __c, const _Up& __v) {
+  return _VSTD::erase_if(__c, [&](auto& __elem) { return __elem == __v; });
+}
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

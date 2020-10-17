@@ -84,6 +84,7 @@ pub extern "kernel32" fn FormatMessageW(dwFlags: DWORD, lpSource: ?LPVOID, dwMes
 pub extern "kernel32" fn FreeEnvironmentStringsW(penv: [*:0]u16) callconv(.Stdcall) BOOL;
 
 pub extern "kernel32" fn GetCommandLineA() callconv(.Stdcall) LPSTR;
+pub extern "kernel32" fn GetCommandLineW() callconv(.Stdcall) LPWSTR;
 
 pub extern "kernel32" fn GetConsoleMode(in_hConsoleHandle: HANDLE, out_lpMode: *DWORD) callconv(.Stdcall) BOOL;
 
@@ -110,8 +111,6 @@ pub extern "kernel32" fn GetFileSizeEx(hFile: HANDLE, lpFileSize: *LARGE_INTEGER
 pub extern "kernel32" fn GetFileAttributesW(lpFileName: [*]const WCHAR) callconv(.Stdcall) DWORD;
 
 pub extern "kernel32" fn GetModuleFileNameW(hModule: ?HMODULE, lpFilename: [*]u16, nSize: DWORD) callconv(.Stdcall) DWORD;
-
-pub extern "kernel32" fn GetModuleHandleA(lpModuleName: ?LPCSTR) callconv(.Stdcall) ?HMODULE;
 
 pub extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*:0]const WCHAR) callconv(.Stdcall) ?HMODULE;
 

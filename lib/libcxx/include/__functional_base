@@ -522,7 +522,7 @@ inline _LIBCPP_INLINE_VISIBILITY
 reference_wrapper<_Tp>
 ref(reference_wrapper<_Tp> __t) _NOEXCEPT
 {
-    return ref(__t.get());
+    return _VSTD::ref(__t.get());
 }
 
 template <class _Tp>
@@ -538,7 +538,7 @@ inline _LIBCPP_INLINE_VISIBILITY
 reference_wrapper<const _Tp>
 cref(reference_wrapper<_Tp> __t) _NOEXCEPT
 {
-    return cref(__t.get());
+    return _VSTD::cref(__t.get());
 }
 
 #ifndef _LIBCPP_CXX03_LANG

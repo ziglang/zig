@@ -267,7 +267,7 @@ pub const NativeTargetInfo = struct {
                     os.version_range.windows.max = @intToEnum(Target.Os.WindowsVersion, version);
                     os.version_range.windows.min = @intToEnum(Target.Os.WindowsVersion, version);
                 },
-                .macosx => {
+                .macos => {
                     var scbuf: [32]u8 = undefined;
                     var size: usize = undefined;
 

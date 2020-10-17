@@ -13,8 +13,21 @@ pub const Feature = enum {
     c,
     d,
     e,
+    experimental_b,
+    experimental_v,
+    experimental_zbb,
+    experimental_zbc,
+    experimental_zbe,
+    experimental_zbf,
+    experimental_zbm,
+    experimental_zbp,
+    experimental_zbproposedc,
+    experimental_zbr,
+    experimental_zbs,
+    experimental_zbt,
     f,
     m,
+    no_rvc_hints,
     relax,
     reserve_x1,
     reserve_x10,
@@ -47,7 +60,7 @@ pub const Feature = enum {
     reserve_x7,
     reserve_x8,
     reserve_x9,
-    rvc_hints,
+    save_restore,
 };
 
 pub usingnamespace CpuFeature.feature_set_fns(Feature);
@@ -83,6 +96,78 @@ pub const all_features = blk: {
         .description = "Implements RV32E (provides 16 rather than 32 GPRs)",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.experimental_b)] = .{
+        .llvm_name = "experimental-b",
+        .description = "'B' (Bit Manipulation Instructions)",
+        .dependencies = featureSet(&[_]Feature{
+            .experimental_zbb,
+            .experimental_zbc,
+            .experimental_zbe,
+            .experimental_zbf,
+            .experimental_zbm,
+            .experimental_zbp,
+            .experimental_zbr,
+            .experimental_zbs,
+            .experimental_zbt,
+        }),
+    };
+    result[@enumToInt(Feature.experimental_v)] = .{
+        .llvm_name = "experimental-v",
+        .description = "'V' (Vector Instructions)",
+        .dependencies = featureSet(&[_]Feature{
+            .f,
+        }),
+    };
+    result[@enumToInt(Feature.experimental_zbb)] = .{
+        .llvm_name = "experimental-zbb",
+        .description = "'Zbb' (Base 'B' Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.experimental_zbc)] = .{
+        .llvm_name = "experimental-zbc",
+        .description = "'Zbc' (Carry-Less 'B' Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.experimental_zbe)] = .{
+        .llvm_name = "experimental-zbe",
+        .description = "'Zbe' (Extract-Deposit 'B' Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.experimental_zbf)] = .{
+        .llvm_name = "experimental-zbf",
+        .description = "'Zbf' (Bit-Field 'B' Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.experimental_zbm)] = .{
+        .llvm_name = "experimental-zbm",
+        .description = "'Zbm' (Matrix 'B' Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.experimental_zbp)] = .{
+        .llvm_name = "experimental-zbp",
+        .description = "'Zbp' (Permutation 'B' Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.experimental_zbproposedc)] = .{
+        .llvm_name = "experimental-zbproposedc",
+        .description = "'Zbproposedc' (Proposed Compressed 'B' Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.experimental_zbr)] = .{
+        .llvm_name = "experimental-zbr",
+        .description = "'Zbr' (Polynomial Reduction 'B' Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.experimental_zbs)] = .{
+        .llvm_name = "experimental-zbs",
+        .description = "'Zbs' (Single-Bit 'B' Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.experimental_zbt)] = .{
+        .llvm_name = "experimental-zbt",
+        .description = "'Zbt' (Ternary 'B' Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.f)] = .{
         .llvm_name = "f",
         .description = "'F' (Single-Precision Floating-Point)",
@@ -91,6 +176,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.m)] = .{
         .llvm_name = "m",
         .description = "'M' (Integer Multiplication and Division)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.no_rvc_hints)] = .{
+        .llvm_name = "no-rvc-hints",
+        .description = "Disable RVC Hint Instructions.",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.relax)] = .{
@@ -253,9 +343,9 @@ pub const all_features = blk: {
         .description = "Reserve X9",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.rvc_hints)] = .{
-        .llvm_name = "rvc-hints",
-        .description = "Enable RVC Hint Instructions.",
+    result[@enumToInt(Feature.save_restore)] = .{
+        .llvm_name = "save-restore",
+        .description = "Enable save/restore.",
         .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);
@@ -278,7 +368,6 @@ pub const cpu = struct {
             .m,
         }),
     };
-
     pub const baseline_rv64 = CpuModel{
         .name = "baseline_rv64",
         .llvm_name = null,
@@ -291,20 +380,49 @@ pub const cpu = struct {
             .m,
         }),
     };
-
     pub const generic_rv32 = CpuModel{
         .name = "generic_rv32",
-        .llvm_name = null,
-        .features = featureSet(&[_]Feature{
-            .rvc_hints,
-        }),
+        .llvm_name = "generic-rv32",
+        .features = featureSet(&[_]Feature{}),
     };
     pub const generic_rv64 = CpuModel{
         .name = "generic_rv64",
-        .llvm_name = null,
+        .llvm_name = "generic-rv64",
         .features = featureSet(&[_]Feature{
             .@"64bit",
-            .rvc_hints,
+        }),
+    };
+    pub const rocket_rv32 = CpuModel{
+        .name = "rocket_rv32",
+        .llvm_name = "rocket-rv32",
+        .features = featureSet(&[_]Feature{}),
+    };
+    pub const rocket_rv64 = CpuModel{
+        .name = "rocket_rv64",
+        .llvm_name = "rocket-rv64",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+        }),
+    };
+    pub const sifive_e31 = CpuModel{
+        .name = "sifive_e31",
+        .llvm_name = "sifive-e31",
+        .features = featureSet(&[_]Feature{
+            .a,
+            .c,
+            .m,
+        }),
+    };
+    pub const sifive_u54 = CpuModel{
+        .name = "sifive_u54",
+        .llvm_name = "sifive-u54",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .a,
+            .c,
+            .d,
+            .f,
+            .m,
         }),
     };
 };

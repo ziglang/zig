@@ -39,7 +39,7 @@ struct _Unwind_FunctionContext {
   uint32_t                        resumeParameters[4];
 
   // set by calling function before registering
-  __personality_routine           personality; // arm offset=24
+  _Unwind_Personality_Fn personality;          // arm offset=24
   uintptr_t                       lsda;        // arm offset=28
 
   // variable length array, contains registers to restore
@@ -268,7 +268,7 @@ unwind_phase2_forced(struct _Unwind_Exception *exception_object,
 
     // if there is a personality routine, tell it we are unwinding
     if (c->personality != NULL) {
-      __personality_routine p = (__personality_routine) c->personality;
+      _Unwind_Personality_Fn p = (_Unwind_Personality_Fn)c->personality;
       _LIBUNWIND_TRACE_UNWINDING("unwind_phase2_forced(ex_ojb=%p): "
                                  "calling personality function %p",
                                  (void *)exception_object, (void *)p);

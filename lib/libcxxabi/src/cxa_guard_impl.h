@@ -40,7 +40,6 @@
 #include "__cxxabi_config.h"
 #include "include/atomic_support.h"
 #include <unistd.h>
-#include <sys/types.h>
 #if defined(__has_include)
 # if __has_include(<sys/syscall.h>)
 #   include <sys/syscall.h>
@@ -106,6 +105,32 @@ struct LazyValue {
  private:
   T value;
   bool is_init = false;
+};
+
+template <class IntType>
+class AtomicInt {
+public:
+  using MemoryOrder = std::__libcpp_atomic_order;
+
+  explicit AtomicInt(IntType *b) : b(b) {}
+  AtomicInt(AtomicInt const&) = delete;
+  AtomicInt& operator=(AtomicInt const&) = delete;
+
+  IntType load(MemoryOrder ord) {
+    return std::__libcpp_atomic_load(b, ord);
+  }
+  void store(IntType val, MemoryOrder ord) {
+    std::__libcpp_atomic_store(b, val, ord);
+  }
+  IntType exchange(IntType new_val, MemoryOrder ord) {
+    return std::__libcpp_atomic_exchange(b, new_val, ord);
+  }
+  bool compare_exchange(IntType *expected, IntType desired, MemoryOrder ord_success, MemoryOrder ord_failure) {
+    return std::__libcpp_atomic_compare_exchange(b, expected, desired, ord_success, ord_failure);
+  }
+
+private:
+  IntType *b;
 };
 
 //===----------------------------------------------------------------------===//
@@ -195,7 +220,7 @@ public:
 public:
   /// base_address - the address of the original guard object.
   void* const base_address;
-  /// The address of the guord byte at offset 0.
+  /// The address of the guard byte at offset 0.
   uint8_t* const guard_byte_address;
   /// The address of the byte used by the implementation during initialization.
   uint8_t* const init_byte_address;

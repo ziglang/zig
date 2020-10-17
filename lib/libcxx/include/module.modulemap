@@ -231,6 +231,11 @@ module std [system] {
     header "atomic"
     export *
   }
+  module barrier {
+    requires cplusplus14
+    header "barrier"
+    export *
+  }
   module bit {
     header "bit"
     export *
@@ -260,6 +265,10 @@ module std [system] {
   }
   module complex {
     header "complex"
+    export *
+  }
+  module concepts {
+    header "concepts"
     export *
   }
   module condition_variable {
@@ -334,6 +343,11 @@ module std [system] {
     header "iterator"
     export *
   }
+  module latch {
+    requires cplusplus14
+    header "latch"
+    export *
+  }
   module limits {
     header "limits"
     export *
@@ -362,6 +376,10 @@ module std [system] {
   }
   module new {
     header "new"
+    export *
+  }
+  module numbers {
+    header "numbers"
     export *
   }
   module numeric {
@@ -398,6 +416,11 @@ module std [system] {
   }
   module scoped_allocator {
     header "scoped_allocator"
+    export *
+  }
+  module semaphore {
+    requires cplusplus14
+    header "semaphore"
     export *
   }
   module set {

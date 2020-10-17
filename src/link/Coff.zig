@@ -1097,17 +1097,13 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
                     try argv.append("-NODEFAULTLIB");
                     if (!is_lib) {
                         if (self.base.options.module) |module| {
-                            if (module.stage1_flags.have_winmain) {
-                                try argv.append("-ENTRY:WinMain");
-                            } else if (module.stage1_flags.have_wwinmain) {
-                                try argv.append("-ENTRY:wWinMain");
-                            } else if (module.stage1_flags.have_wwinmain_crt_startup) {
-                                try argv.append("-ENTRY:wWinMainCRTStartup");
-                            } else {
+                            if (module.stage1_flags.have_winmain_crt_startup) {
                                 try argv.append("-ENTRY:WinMainCRTStartup");
+                            } else {
+                                try argv.append("-ENTRY:wWinMainCRTStartup");
                             }
                         } else {
-                            try argv.append("-ENTRY:WinMainCRTStartup");
+                            try argv.append("-ENTRY:wWinMainCRTStartup");
                         }
                     }
                 }
@@ -1121,10 +1117,14 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
             try argv.append(comp.libunwind_static_lib.?.full_object_path);
         }
 
-        // compiler-rt and libc
+        // compiler-rt, libc and libssp
         if (is_exe_or_dyn_lib and !self.base.options.is_compiler_rt_or_libc) {
             if (!self.base.options.link_libc) {
                 try argv.append(comp.libc_static_lib.?.full_object_path);
+            }
+            // MinGW doesn't provide libssp symbols
+            if (target.abi.isGnu()) {
+                try argv.append(comp.libssp_static_lib.?.full_object_path);
             }
             // MSVC compiler_rt is missing some stuff, so we build it unconditionally but
             // and rely on weak linkage to allow MSVC compiler_rt functions to override ours.

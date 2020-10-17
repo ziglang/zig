@@ -3,27 +3,25 @@
 set -x
 set -e
 
-system_profiler SPHardwareDataType
-
-brew install s3cmd gcc@9
+brew install s3cmd
 
 ZIGDIR="$(pwd)"
-LLVMVER="10.0.1"
 ARCH="x86_64"
-CACHE_BASENAME="llvm+clang+lld-$LLVMVER-$ARCH-macosx-gcc9-release"
+CACHE_BASENAME="zig+llvm+lld+clang-$ARCH-macos-gnu-0.6.0+1c9ef63a"
 PREFIX="$HOME/$CACHE_BASENAME"
 JOBS="-j2"
 
-# I tried using the system default compiler (clang), but it couldn't statically link libc++.
-# So we use gcc-9 from homebrew.
-export CC=gcc-9
-export CXX=g++-9
-
 rm -rf $PREFIX
-
 cd $HOME
-wget -nv "https://ziglang.org/builds/$CACHE_BASENAME.tar.xz"
+wget -nv "https://ziglang.org/deps/$CACHE_BASENAME.tar.xz"
 tar xf "$CACHE_BASENAME.tar.xz"
+
+ZIG="$PREFIX/bin/zig"
+NATIVE_LIBC_TXT="$HOME/native_libc.txt"
+$ZIG libc > "$NATIVE_LIBC_TXT"
+export ZIG_LIBC="$NATIVE_LIBC_TXT"
+export CC="$ZIG cc"
+export CXX="$ZIG c++"
 
 cd $ZIGDIR
 
@@ -33,7 +31,21 @@ git config core.abbrev 9
 
 mkdir build
 cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_INSTALL_PREFIX=$(pwd)/release -DZIG_STATIC=ON
+cmake .. \
+  -DCMAKE_INSTALL_PREFIX="$(pwd)/release" \
+  -DCMAKE_PREFIX_PATH="$PREFIX" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DZIG_TARGET_TRIPLE="$ARCH-native-gnu" \
+  -DZIG_TARGET_MCPU="baseline" \
+  -DZIG_EXECUTABLE="$ZIG" \
+  -DZIG_STATIC=ON
+
+# Now cmake will use zig as the C/C++ compiler. We reset the environment variables
+# so that installation and testing do not get affected by them.
+unset CC
+unset CXX
+unset ZIG_LIBC
+
 make $JOBS install
 release/bin/zig build test
 

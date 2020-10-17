@@ -15,6 +15,7 @@
 
 namespace std {
 
+  // [bit.pow.two], integral powers of 2
   template <class T>
     constexpr bool ispow2(T x) noexcept; // C++20
   template <class T>
@@ -24,13 +25,13 @@ namespace std {
   template <class T>
     constexpr T log2p1(T x) noexcept;    // C++20
 
-  // 23.20.2, rotating
+  // [bit.rotate], rotating
   template<class T>
     constexpr T rotl(T x, unsigned int s) noexcept; // C++20
   template<class T>
     constexpr T rotr(T x, unsigned int s) noexcept; // C++20
 
-  // 23.20.3, counting
+  // [bit.count], counting
   template<class T>
     constexpr int countl_zero(T x) noexcept;  // C++20
   template<class T>
@@ -42,7 +43,7 @@ namespace std {
   template<class T>
     constexpr int popcount(T x) noexcept;     // C++20
 
-  // 20.15.9, endian
+  // [bit.endian], endian
   enum class endian {
     little = see below,        // C++20
     big = see below,           // C++20
@@ -350,7 +351,7 @@ _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
 bool __ispow2(_Tp __t) _NOEXCEPT
 {
     static_assert(__bitop_unsigned_integer<_Tp>::value, "__ispow2 requires unsigned");
-	return __t != 0 && (((__t & (__t - 1)) == 0));
+    return __t != 0 && (((__t & (__t - 1)) == 0));
 }
 
 

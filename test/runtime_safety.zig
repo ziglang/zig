@@ -13,7 +13,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
 
         cases.addRuntimeSafety("slicing operator with sentinel",
             \\const std = @import("std");
-        ++ check_panic_msg ++
+            ++ check_panic_msg ++
             \\pub fn main() void {
             \\    var buf = [4]u8{'a','b','c',0};
             \\    const slice = buf[0..4 :0];
@@ -21,7 +21,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         );
         cases.addRuntimeSafety("slicing operator with sentinel",
             \\const std = @import("std");
-        ++ check_panic_msg ++
+            ++ check_panic_msg ++
             \\pub fn main() void {
             \\    var buf = [4]u8{'a','b','c',0};
             \\    const slice = buf[0..:0];
@@ -29,7 +29,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         );
         cases.addRuntimeSafety("slicing operator with sentinel",
             \\const std = @import("std");
-        ++ check_panic_msg ++
+            ++ check_panic_msg ++
             \\pub fn main() void {
             \\    var buf_zero = [0]u8{};
             \\    const slice = buf_zero[0..0 :0];
@@ -37,7 +37,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         );
         cases.addRuntimeSafety("slicing operator with sentinel",
             \\const std = @import("std");
-        ++ check_panic_msg ++
+            ++ check_panic_msg ++
             \\pub fn main() void {
             \\    var buf_zero = [0]u8{};
             \\    const slice = buf_zero[0..:0];
@@ -45,7 +45,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         );
         cases.addRuntimeSafety("slicing operator with sentinel",
             \\const std = @import("std");
-        ++ check_panic_msg ++
+            ++ check_panic_msg ++
             \\pub fn main() void {
             \\    var buf_sentinel = [2:0]u8{'a','b'};
             \\    @ptrCast(*[3]u8, &buf_sentinel)[2] = 0;
@@ -54,7 +54,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         );
         cases.addRuntimeSafety("slicing operator with sentinel",
             \\const std = @import("std");
-        ++ check_panic_msg ++
+            ++ check_panic_msg ++
             \\pub fn main() void {
             \\    var buf_slice: []const u8 = &[3]u8{ 'a', 'b', 0 };
             \\    const slice = buf_slice[0..3 :0];
@@ -62,7 +62,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         );
         cases.addRuntimeSafety("slicing operator with sentinel",
             \\const std = @import("std");
-        ++ check_panic_msg ++
+            ++ check_panic_msg ++
             \\pub fn main() void {
             \\    var buf_slice: []const u8 = &[3]u8{ 'a', 'b', 0 };
             \\    const slice = buf_slice[0.. :0];
@@ -354,13 +354,23 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
     );
 
-    cases.addRuntimeSafety("@ptrToInt address zero to non-optional pointer",
+    cases.addRuntimeSafety("@intToPtr address zero to non-optional pointer",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\pub fn main() void {
         \\    var zero: usize = 0;
         \\    var b = @intToPtr(*i32, zero);
+        \\}
+    );
+
+    cases.addRuntimeSafety("@intToPtr address zero to non-optional byte-aligned pointer",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var zero: usize = 0;
+        \\    var b = @intToPtr(*u8, zero);
         \\}
     );
 

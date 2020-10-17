@@ -37,6 +37,7 @@ pub const Feature = enum {
     population_count,
     processor_assist,
     reset_reference_bits_multiple,
+    soft_float,
     transactional_execution,
     vector,
     vector_enhancements_1,
@@ -194,6 +195,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.reset_reference_bits_multiple)] = .{
         .llvm_name = "reset-reference-bits-multiple",
         .description = "Assume that the reset-reference-bits-multiple facility is installed",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.soft_float)] = .{
+        .llvm_name = "soft-float",
+        .description = "Use software emulation for floating point",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.transactional_execution)] = .{

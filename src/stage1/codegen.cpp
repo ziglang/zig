@@ -23,6 +23,7 @@
 
 #include <stdio.h>
 #include <errno.h>
+#include <math.h>
 
 enum ResumeId {
     ResumeIdManual,
@@ -1644,11 +1645,13 @@ static void gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type,
 
         ZigType *usize = g->builtin_types.entry_usize;
         uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, get_llvm_type(g, child_type));
-        uint64_t align_bytes = get_ptr_align(g, ptr_type);
+        uint64_t src_align_bytes = get_abi_alignment(g, child_type);
+        uint64_t dest_align_bytes = get_ptr_align(g, ptr_type);
         assert(size_bytes > 0);
-        assert(align_bytes > 0);
+        assert(src_align_bytes > 0);
+        assert(dest_align_bytes > 0);
 
-        ZigLLVMBuildMemCpy(g->builder, dest_ptr, align_bytes, src_ptr, align_bytes,
+        ZigLLVMBuildMemCpy(g->builder, dest_ptr, dest_align_bytes, src_ptr, src_align_bytes,
                 LLVMConstInt(usize->llvm_type, size_bytes, false),
                 ptr_type->data.pointer.is_volatile);
         return;
@@ -3378,7 +3381,7 @@ static LLVMValueRef ir_render_int_to_ptr(CodeGen *g, IrExecutableGen *executable
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
     const uint32_t align_bytes = get_ptr_align(g, wanted_type);
 
-    if (ir_want_runtime_safety(g, &instruction->base) && align_bytes > 1) {
+    if (ir_want_runtime_safety(g, &instruction->base)) {
         ZigType *usize = g->builtin_types.entry_usize;
         LLVMValueRef zero = LLVMConstNull(usize->llvm_type);
 
@@ -3394,7 +3397,7 @@ static LLVMValueRef ir_render_int_to_ptr(CodeGen *g, IrExecutableGen *executable
             LLVMPositionBuilderAtEnd(g->builder, ok_block);
         }
 
-        {
+        if (align_bytes > 1) {
             LLVMValueRef alignment_minus_1 = LLVMConstInt(usize->llvm_type, align_bytes - 1, false);
             LLVMValueRef anded_val = LLVMBuildAnd(g->builder, target_val, alignment_minus_1, "");
             LLVMValueRef is_ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, anded_val, zero, "");

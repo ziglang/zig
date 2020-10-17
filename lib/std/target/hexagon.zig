@@ -8,6 +8,8 @@ const CpuFeature = std.Target.Cpu.Feature;
 const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
+    audio,
+    compound,
     duplex,
     hvx,
     hvx_length128b,
@@ -16,6 +18,7 @@ pub const Feature = enum {
     hvxv62,
     hvxv65,
     hvxv66,
+    hvxv67,
     long_calls,
     mem_noshuf,
     memops,
@@ -23,14 +26,18 @@ pub const Feature = enum {
     nvj,
     nvs,
     packets,
+    prev65,
     reserved_r19,
     small_data,
+    tinycore,
+    unsafe_fp,
     v5,
     v55,
     v60,
     v62,
     v65,
     v66,
+    v67,
     zreg,
 };
 
@@ -40,6 +47,16 @@ pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
+    result[@enumToInt(Feature.audio)] = .{
+        .llvm_name = "audio",
+        .description = "Hexagon Audio extension instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.compound)] = .{
+        .llvm_name = "compound",
+        .description = "Use compound instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.duplex)] = .{
         .llvm_name = "duplex",
         .description = "Enable generation of duplex instruction",
@@ -99,6 +116,16 @@ pub const all_features = blk: {
             .zreg,
         }),
     };
+    result[@enumToInt(Feature.hvxv67)] = .{
+        .llvm_name = "hvxv67",
+        .description = "Hexagon HVX instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .hvxv60,
+            .hvxv62,
+            .hvxv65,
+            .hvxv66,
+        }),
+    };
     result[@enumToInt(Feature.long_calls)] = .{
         .llvm_name = "long-calls",
         .description = "Use constant-extended calls",
@@ -138,6 +165,11 @@ pub const all_features = blk: {
         .description = "Support for instruction packets",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.prev65)] = .{
+        .llvm_name = "prev65",
+        .description = "Support features deprecated in v65",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.reserved_r19)] = .{
         .llvm_name = "reserved-r19",
         .description = "Reserve register R19",
@@ -146,6 +178,16 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.small_data)] = .{
         .llvm_name = "small-data",
         .description = "Allow GP-relative addressing of global variables",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.tinycore)] = .{
+        .llvm_name = "tinycore",
+        .description = "Hexagon Tiny Core",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.unsafe_fp)] = .{
+        .llvm_name = "unsafe-fp",
+        .description = "Use unsafe FP math",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.v5)] = .{
@@ -178,6 +220,11 @@ pub const all_features = blk: {
         .description = "Enable Hexagon V66 architecture",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.v67)] = .{
+        .llvm_name = "v67",
+        .description = "Enable Hexagon V67 architecture",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.zreg)] = .{
         .llvm_name = "zreg",
         .description = "Hexagon ZReg extension instructions",
@@ -196,11 +243,13 @@ pub const cpu = struct {
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{
+            .compound,
             .duplex,
             .memops,
             .nvj,
             .nvs,
             .packets,
+            .prev65,
             .small_data,
             .v5,
             .v55,
@@ -211,11 +260,13 @@ pub const cpu = struct {
         .name = "hexagonv5",
         .llvm_name = "hexagonv5",
         .features = featureSet(&[_]Feature{
+            .compound,
             .duplex,
             .memops,
             .nvj,
             .nvs,
             .packets,
+            .prev65,
             .small_data,
             .v5,
         }),
@@ -224,11 +275,13 @@ pub const cpu = struct {
         .name = "hexagonv55",
         .llvm_name = "hexagonv55",
         .features = featureSet(&[_]Feature{
+            .compound,
             .duplex,
             .memops,
             .nvj,
             .nvs,
             .packets,
+            .prev65,
             .small_data,
             .v5,
             .v55,
@@ -238,11 +291,13 @@ pub const cpu = struct {
         .name = "hexagonv60",
         .llvm_name = "hexagonv60",
         .features = featureSet(&[_]Feature{
+            .compound,
             .duplex,
             .memops,
             .nvj,
             .nvs,
             .packets,
+            .prev65,
             .small_data,
             .v5,
             .v55,
@@ -253,11 +308,13 @@ pub const cpu = struct {
         .name = "hexagonv62",
         .llvm_name = "hexagonv62",
         .features = featureSet(&[_]Feature{
+            .compound,
             .duplex,
             .memops,
             .nvj,
             .nvs,
             .packets,
+            .prev65,
             .small_data,
             .v5,
             .v55,
@@ -269,6 +326,7 @@ pub const cpu = struct {
         .name = "hexagonv65",
         .llvm_name = "hexagonv65",
         .features = featureSet(&[_]Feature{
+            .compound,
             .duplex,
             .mem_noshuf,
             .memops,
@@ -287,6 +345,7 @@ pub const cpu = struct {
         .name = "hexagonv66",
         .llvm_name = "hexagonv66",
         .features = featureSet(&[_]Feature{
+            .compound,
             .duplex,
             .mem_noshuf,
             .memops,
@@ -300,6 +359,48 @@ pub const cpu = struct {
             .v62,
             .v65,
             .v66,
+        }),
+    };
+    pub const hexagonv67 = CpuModel{
+        .name = "hexagonv67",
+        .llvm_name = "hexagonv67",
+        .features = featureSet(&[_]Feature{
+            .compound,
+            .duplex,
+            .mem_noshuf,
+            .memops,
+            .nvj,
+            .nvs,
+            .packets,
+            .small_data,
+            .v5,
+            .v55,
+            .v60,
+            .v62,
+            .v65,
+            .v66,
+            .v67,
+        }),
+    };
+    pub const hexagonv67t = CpuModel{
+        .name = "hexagonv67t",
+        .llvm_name = "hexagonv67t",
+        .features = featureSet(&[_]Feature{
+            .audio,
+            .compound,
+            .mem_noshuf,
+            .memops,
+            .nvs,
+            .packets,
+            .small_data,
+            .tinycore,
+            .v5,
+            .v55,
+            .v60,
+            .v62,
+            .v65,
+            .v66,
+            .v67,
         }),
     };
 };

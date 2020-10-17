@@ -32,7 +32,7 @@ static constexpr char cDigitsLut[200] = {
 
 template <typename T>
 inline _LIBCPP_INLINE_VISIBILITY char*
-append1(char* buffer, T i)
+append1(char* buffer, T i) noexcept
 {
     *buffer = '0' + static_cast<char>(i);
     return buffer + 1;
@@ -40,7 +40,7 @@ append1(char* buffer, T i)
 
 template <typename T>
 inline _LIBCPP_INLINE_VISIBILITY char*
-append2(char* buffer, T i)
+append2(char* buffer, T i) noexcept
 {
     memcpy(buffer, &cDigitsLut[(i)*2], 2);
     return buffer + 2;
@@ -48,21 +48,21 @@ append2(char* buffer, T i)
 
 template <typename T>
 inline _LIBCPP_INLINE_VISIBILITY char*
-append3(char* buffer, T i)
+append3(char* buffer, T i) noexcept
 {
     return append2(append1(buffer, (i) / 100), (i) % 100);
 }
 
 template <typename T>
 inline _LIBCPP_INLINE_VISIBILITY char*
-append4(char* buffer, T i)
+append4(char* buffer, T i) noexcept
 {
     return append2(append2(buffer, (i) / 100), (i) % 100);
 }
 
 template <typename T>
 inline _LIBCPP_INLINE_VISIBILITY char*
-append2_no_zeros(char* buffer, T v)
+append2_no_zeros(char* buffer, T v) noexcept
 {
     if (v < 10)
         return append1(buffer, v);
@@ -72,7 +72,7 @@ append2_no_zeros(char* buffer, T v)
 
 template <typename T>
 inline _LIBCPP_INLINE_VISIBILITY char*
-append4_no_zeros(char* buffer, T v)
+append4_no_zeros(char* buffer, T v) noexcept
 {
     if (v < 100)
         return append2_no_zeros(buffer, v);
@@ -84,7 +84,7 @@ append4_no_zeros(char* buffer, T v)
 
 template <typename T>
 inline _LIBCPP_INLINE_VISIBILITY char*
-append8_no_zeros(char* buffer, T v)
+append8_no_zeros(char* buffer, T v) noexcept
 {
     if (v < 10000)
     {
@@ -99,7 +99,7 @@ append8_no_zeros(char* buffer, T v)
 }
 
 char*
-__u32toa(uint32_t value, char* buffer)
+__u32toa(uint32_t value, char* buffer) _NOEXCEPT
 {
     if (value < 100000000)
     {
@@ -120,7 +120,7 @@ __u32toa(uint32_t value, char* buffer)
 }
 
 char*
-__u64toa(uint64_t value, char* buffer)
+__u64toa(uint64_t value, char* buffer) _NOEXCEPT
 {
     if (value < 100000000)
     {

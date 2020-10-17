@@ -536,7 +536,7 @@ locale::operator=(const locale& other)  _NOEXCEPT
 
 locale::locale(const char* name)
     : __locale_(name ? new __imp(name)
-                     : (__throw_runtime_error("locale constructed with null"), (__imp*)0))
+                     : (__throw_runtime_error("locale constructed with null"), nullptr))
 {
     __locale_->__add_shared();
 }
@@ -549,7 +549,7 @@ locale::locale(const string& name)
 
 locale::locale(const locale& other, const char* name, category c)
     : __locale_(name ? new __imp(*other.__locale_, name, c)
-                     : (__throw_runtime_error("locale constructed with null"), (__imp*)0))
+                     : (__throw_runtime_error("locale constructed with null"), nullptr))
 {
     __locale_->__add_shared();
 }

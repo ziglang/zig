@@ -14,8 +14,11 @@ const is_windows = std.Target.current.os.tag == .windows;
 pub const epoch = @import("time/epoch.zig");
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
-/// TODO integrate with evented I/O
 pub fn sleep(nanoseconds: u64) void {
+    // TODO: opting out of async sleeping?
+    if (std.io.is_async)
+        return std.event.Loop.instance.?.sleep(nanoseconds);
+
     if (is_windows) {
         const big_ms_from_ns = nanoseconds / ns_per_ms;
         const ms = math.cast(os.windows.DWORD, big_ms_from_ns) catch math.maxInt(os.windows.DWORD);
@@ -143,7 +146,7 @@ pub const Timer = struct {
     ///  be less precise
     frequency: switch (builtin.os.tag) {
         .windows => u64,
-        .macosx, .ios, .tvos, .watchos => os.darwin.mach_timebase_info_data,
+        .macos, .ios, .tvos, .watchos => os.darwin.mach_timebase_info_data,
         else => void,
     },
     resolution: u64,

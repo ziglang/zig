@@ -33,6 +33,7 @@ pub const Feature = enum {
     mips32r6,
     mips3_32,
     mips3_32r2,
+    mips3d,
     mips4,
     mips4_32,
     mips4_32r2,
@@ -225,6 +226,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.mips3_32r2)] = .{
         .llvm_name = "mips3_32r2",
         .description = "Subset of MIPS-III that is also in MIPS32r2 [highly experimental]",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.mips3d)] = .{
+        .llvm_name = "mips3d",
+        .description = "Mips 3D ASE",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mips4)] = .{

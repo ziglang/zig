@@ -14,6 +14,7 @@ pub const Feature = enum {
     multivalue,
     mutable_globals,
     nontrapping_fptoint,
+    reference_types,
     sign_ext,
     simd128,
     tail_call,
@@ -56,6 +57,11 @@ pub const all_features = blk: {
         .description = "Enable non-trapping float-to-int conversion operators",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.reference_types)] = .{
+        .llvm_name = "reference-types",
+        .description = "Enable reference types",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.sign_ext)] = .{
         .llvm_name = "sign-ext",
         .description = "Enable sign extension operators",
@@ -92,10 +98,12 @@ pub const cpu = struct {
         .llvm_name = "bleeding-edge",
         .features = featureSet(&[_]Feature{
             .atomics,
+            .bulk_memory,
             .mutable_globals,
             .nontrapping_fptoint,
             .sign_ext,
             .simd128,
+            .tail_call,
         }),
     };
     pub const generic = CpuModel{

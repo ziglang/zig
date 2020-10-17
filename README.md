@@ -32,7 +32,7 @@ This step must be repeated when you make changes to any of the C++ source code.
 
  * cmake >= 2.8.5
  * gcc >= 5.0.0 or clang >= 3.6.0
- * LLVM, Clang, LLD development libraries == 10.x, compiled with the same gcc or clang version above
+ * LLVM, Clang, LLD development libraries == 11.x, compiled with the same gcc or clang version above
    - Use the system package manager, or [build from source](https://github.com/ziglang/zig/wiki/How-to-build-LLVM,-libclang,-and-liblld-from-source#posix).
 
 ##### Windows
@@ -41,7 +41,7 @@ This step must be repeated when you make changes to any of the C++ source code.
  * Microsoft Visual Studio. Supported versions:
    - 2017 (version 15.8)
    - 2019 (version 16)
- * LLVM, Clang, LLD development libraries == 10.x
+ * LLVM, Clang, LLD development libraries == 11.x
    - Use the [pre-built binaries](https://github.com/ziglang/zig/wiki/Building-Zig-on-Windows) or [build from source](https://github.com/ziglang/zig/wiki/How-to-build-LLVM,-libclang,-and-liblld-from-source#windows).
 
 #### Instructions
@@ -67,19 +67,6 @@ cd build
 cmake .. -DCMAKE_PREFIX_PATH=$(brew --prefix llvm)
 make install
 ```
-
-You will now run into this issue:
-[homebrew and llvm 10 packages in apt.llvm.org are broken with undefined reference to getPollyPluginInfo](https://github.com/ziglang/zig/issues/4799)
-or
-[error: unable to create target: 'Unable to find target for this triple (no targets are registered)'](https://github.com/ziglang/zig/issues/5055),
-in which case try `-DZIG_WORKAROUND_4799=ON`
-
-This has been fixed upstream with LLVM 10.0.1.
-
-Building with LLVM 10.0.1 you might run into this problem:
-`ld: library not found for -llibxml2.tbd`
-[Building with LLVM 10.0.1 installed via Homebrew fails](https://github.com/ziglang/zig/issues/6087),
-in which case you can try `-DZIG_WORKAROUND_6087=ON`.
 
 ##### Windows
 

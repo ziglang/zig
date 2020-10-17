@@ -94,11 +94,13 @@ pub fn Channel(comptime T: type) type {
         /// buffer, or in the case of a zero size buffer, when the item has been retrieved by a getter.
         /// Or when the channel is destroyed.
         pub fn put(self: *SelfChannel, data: T) void {
-            var my_tick_node = Loop.NextTickNode.init(@frame());
-            var queue_node = std.atomic.Queue(PutNode).Node.init(PutNode{
-                .tick_node = &my_tick_node,
-                .data = data,
-            });
+            var my_tick_node = Loop.NextTickNode{ .data = @frame() };
+            var queue_node = std.atomic.Queue(PutNode).Node{
+                .data = PutNode{
+                    .tick_node = &my_tick_node,
+                    .data = data,
+                },
+            };
 
             suspend {
                 self.putters.put(&queue_node);
@@ -113,13 +115,15 @@ pub fn Channel(comptime T: type) type {
         pub fn get(self: *SelfChannel) callconv(.Async) T {
             // TODO https://github.com/ziglang/zig/issues/2765
             var result: T = undefined;
-            var my_tick_node = Loop.NextTickNode.init(@frame());
-            var queue_node = std.atomic.Queue(GetNode).Node.init(GetNode{
-                .tick_node = &my_tick_node,
-                .data = GetNode.Data{
-                    .Normal = GetNode.Normal{ .ptr = &result },
+            var my_tick_node = Loop.NextTickNode{ .data = @frame() };
+            var queue_node = std.atomic.Queue(GetNode).Node{
+                .data = GetNode{
+                    .tick_node = &my_tick_node,
+                    .data = GetNode.Data{
+                        .Normal = GetNode.Normal{ .ptr = &result },
+                    },
                 },
-            });
+            };
 
             suspend {
                 self.getters.put(&queue_node);
@@ -145,17 +149,19 @@ pub fn Channel(comptime T: type) type {
             // TODO integrate this function with named return values
             // so we can get rid of this extra result copy
             var result: ?T = null;
-            var my_tick_node = Loop.NextTickNode.init(@frame());
-            var or_null_node = std.atomic.Queue(*std.atomic.Queue(GetNode).Node).Node.init(undefined);
-            var queue_node = std.atomic.Queue(GetNode).Node.init(GetNode{
-                .tick_node = &my_tick_node,
-                .data = GetNode.Data{
-                    .OrNull = GetNode.OrNull{
-                        .ptr = &result,
-                        .or_null = &or_null_node,
+            var my_tick_node = Loop.NextTickNode{ .data = @frame() };
+            var or_null_node = std.atomic.Queue(*std.atomic.Queue(GetNode).Node).Node{ .data = undefined };
+            var queue_node = std.atomic.Queue(GetNode).Node{
+                .data = GetNode{
+                    .tick_node = &my_tick_node,
+                    .data = GetNode.Data{
+                        .OrNull = GetNode.OrNull{
+                            .ptr = &result,
+                            .or_null = &or_null_node,
+                        },
                     },
                 },
-            });
+            };
             or_null_node.data = &queue_node;
 
             suspend {

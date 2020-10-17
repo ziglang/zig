@@ -341,10 +341,12 @@ template <class Value, class Hash, class Pred, class Alloc>
               noexcept(noexcept(x.swap(y)));
 
 template <class K, class T, class H, class P, class A, class Predicate>
-    void erase_if(unordered_set<K, T, H, P, A>& c, Predicate pred);       // C++20
+    typename unordered_set<K, T, H, P, A>::size_type
+    erase_if(unordered_set<K, T, H, P, A>& c, Predicate pred);       // C++20
 
 template <class K, class T, class H, class P, class A, class Predicate>
-    void erase_if(unordered_multiset<K, T, H, P, A>& c, Predicate pred);  // C++20
+    typename unordered_multiset<K, T, H, P, A>::size_type
+    erase_if(unordered_multiset<K, T, H, P, A>& c, Predicate pred);  // C++20
 
 
 template <class Value, class Hash, class Pred, class Alloc>
@@ -1006,10 +1008,14 @@ swap(unordered_set<_Value, _Hash, _Pred, _Alloc>& __x,
 }
 
 #if _LIBCPP_STD_VER > 17
-template <class _Value, class _Hash, class _Pred, class _Alloc, class _Predicate>
+template <class _Value, class _Hash, class _Pred, class _Alloc,
+          class _Predicate>
 inline _LIBCPP_INLINE_VISIBILITY
-void erase_if(unordered_set<_Value, _Hash, _Pred, _Alloc>& __c, _Predicate __pred)
-{ __libcpp_erase_if_container(__c, __pred); }
+    typename unordered_set<_Value, _Hash, _Pred, _Alloc>::size_type
+    erase_if(unordered_set<_Value, _Hash, _Pred, _Alloc>& __c,
+             _Predicate __pred) {
+  return __libcpp_erase_if_container(__c, __pred);
+}
 #endif
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
@@ -1637,10 +1643,14 @@ swap(unordered_multiset<_Value, _Hash, _Pred, _Alloc>& __x,
 }
 
 #if _LIBCPP_STD_VER > 17
-template <class _Value, class _Hash, class _Pred, class _Alloc, class _Predicate>
+template <class _Value, class _Hash, class _Pred, class _Alloc,
+          class _Predicate>
 inline _LIBCPP_INLINE_VISIBILITY
-void erase_if(unordered_multiset<_Value, _Hash, _Pred, _Alloc>& __c, _Predicate __pred)
-{ __libcpp_erase_if_container(__c, __pred); }
+    typename unordered_multiset<_Value, _Hash, _Pred, _Alloc>::size_type
+    erase_if(unordered_multiset<_Value, _Hash, _Pred, _Alloc>& __c,
+             _Predicate __pred) {
+  return __libcpp_erase_if_container(__c, __pred);
+}
 #endif
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>

@@ -18,6 +18,8 @@ const A = struct {
     e: u5,
     f: u16,
     g: u16,
+    h: u9,
+    i: u7,
 };
 
 const P = packed struct {
@@ -28,6 +30,8 @@ const P = packed struct {
     e: u5,
     f: u16,
     g: u16,
+    h: u9,
+    i: u7,
 };
 
 test "@byteOffsetOf" {
@@ -39,6 +43,8 @@ test "@byteOffsetOf" {
     expect(@byteOffsetOf(P, "e") == 6);
     expect(@byteOffsetOf(P, "f") == 7);
     expect(@byteOffsetOf(P, "g") == 9);
+    expect(@byteOffsetOf(P, "h") == 11);
+    expect(@byteOffsetOf(P, "i") == 12);
 
     // Normal struct fields can be moved/padded
     var a: A = undefined;
@@ -49,6 +55,52 @@ test "@byteOffsetOf" {
     expect(@ptrToInt(&a.e) - @ptrToInt(&a) == @byteOffsetOf(A, "e"));
     expect(@ptrToInt(&a.f) - @ptrToInt(&a) == @byteOffsetOf(A, "f"));
     expect(@ptrToInt(&a.g) - @ptrToInt(&a) == @byteOffsetOf(A, "g"));
+    expect(@ptrToInt(&a.h) - @ptrToInt(&a) == @byteOffsetOf(A, "h"));
+    expect(@ptrToInt(&a.i) - @ptrToInt(&a) == @byteOffsetOf(A, "i"));
+}
+
+test "@byteOffsetOf packed struct, array length not power of 2 or multiple of native pointer width in bytes" {
+    const p3a_len = 3;
+    const P3 = packed struct {
+        a: [p3a_len]u8,
+        b: usize,
+    };
+    std.testing.expectEqual(0, @byteOffsetOf(P3, "a"));
+    std.testing.expectEqual(p3a_len, @byteOffsetOf(P3, "b"));
+
+    const p5a_len = 5;
+    const P5 = packed struct {
+        a: [p5a_len]u8,
+        b: usize,
+    };
+    std.testing.expectEqual(0, @byteOffsetOf(P5, "a"));
+    std.testing.expectEqual(p5a_len, @byteOffsetOf(P5, "b"));
+
+    const p6a_len = 6;
+    const P6 = packed struct {
+        a: [p6a_len]u8,
+        b: usize,
+    };
+    std.testing.expectEqual(0, @byteOffsetOf(P6, "a"));
+    std.testing.expectEqual(p6a_len, @byteOffsetOf(P6, "b"));
+
+    const p7a_len = 7;
+    const P7 = packed struct {
+        a: [p7a_len]u8,
+        b: usize,
+    };
+    std.testing.expectEqual(0, @byteOffsetOf(P7, "a"));
+    std.testing.expectEqual(p7a_len, @byteOffsetOf(P7, "b"));
+
+    const p9a_len = 9;
+    const P9 = packed struct {
+        a: [p9a_len]u8,
+        b: usize,
+    };
+    std.testing.expectEqual(0, @byteOffsetOf(P9, "a"));
+    std.testing.expectEqual(p9a_len, @byteOffsetOf(P9, "b"));
+
+    // 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 25 etc. are further cases
 }
 
 test "@bitOffsetOf" {

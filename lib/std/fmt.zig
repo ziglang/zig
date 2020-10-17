@@ -1131,6 +1131,11 @@ pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErro
     return fbs.getWritten();
 }
 
+pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![:0]u8 {
+    const result = try bufPrint(buf, fmt ++ "\x00", args);
+    return result[0 .. result.len - 1 :0];
+}
+
 // Count the characters needed for format. Useful for preallocating memory
 pub fn count(comptime fmt: []const u8, args: anytype) u64 {
     var counting_writer = std.io.countingWriter(std.io.null_writer);
@@ -1151,7 +1156,10 @@ pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: any
     };
 }
 
-pub fn allocPrint0(allocator: *mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![:0]u8 {
+/// Deprecated, use allocPrintZ
+pub const allocPrint0 = allocPrintZ;
+
+pub fn allocPrintZ(allocator: *mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![:0]u8 {
     const result = try allocPrint(allocator, fmt ++ "\x00", args);
     return result[0 .. result.len - 1 :0];
 }
@@ -1182,10 +1190,12 @@ fn bufPrintIntToSlice(buf: []u8, value: anytype, base: u8, uppercase: bool, opti
 }
 
 pub fn comptimePrint(comptime fmt: []const u8, args: anytype) *const [count(fmt, args):0]u8 {
-    comptime var buf: [count(fmt, args):0]u8 = undefined;
-    _ = bufPrint(&buf, fmt, args) catch unreachable;
-    buf[buf.len] = 0;
-    return &buf;
+    comptime {
+        var buf: [count(fmt, args):0]u8 = undefined;
+        _ = bufPrint(&buf, fmt, args) catch unreachable;
+        buf[buf.len] = 0;
+        return &buf;
+    }
 }
 
 test "comptimePrint" {

@@ -46,6 +46,10 @@ void bigfloat_init_bigint(BigFloat *dest, const BigInt *op) {
 
     float128_t base;
     ui64_to_f128M(UINT64_MAX, &base);
+    float128_t one_f128;
+    ui32_to_f128M(1, &one_f128);
+    f128M_add(&base, &one_f128, &base);
+
     const uint64_t *digits = bigint_ptr(op);
 
     for (size_t i = op->digit_count - 1;;) {
