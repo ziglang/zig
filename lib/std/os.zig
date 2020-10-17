@@ -3121,16 +3121,24 @@ pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
     }
 }
 
-pub fn waitpid(pid: i32, flags: u32) u32 {
-    // TODO allow implicit pointer cast from *u32 to *c_uint ?
+pub const WaitPidResult = struct {
+    pid: pid_t,
+    status: u32,
+};
+
+pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
     const Status = if (builtin.link_libc) c_uint else u32;
     var status: Status = undefined;
     while (true) {
-        switch (errno(system.waitpid(pid, &status, flags))) {
-            0 => return @bitCast(u32, status),
+        const rc = system.waitpid(pid, &status, flags);
+        switch (errno(rc)) {
+            0 => return .{
+                .pid = @intCast(pid_t, rc),
+                .status = @bitCast(u32, status),
+            },
             EINTR => continue,
             ECHILD => unreachable, // The process specified does not exist. It would be a race condition to handle this error.
-            EINVAL => unreachable, // The options argument was invalid
+            EINVAL => unreachable, // Invalid flags.
             else => unreachable,
         }
     }
@@ -5434,9 +5442,7 @@ pub fn getrlimit(resource: rlimit_resource) GetrlimitError!rlimit {
     }
 }
 
-pub const SetrlimitError = error{
-    PermissionDenied,
-} || UnexpectedError;
+pub const SetrlimitError = error{PermissionDenied} || UnexpectedError;
 
 pub fn setrlimit(resource: rlimit_resource, limits: rlimit) SetrlimitError!void {
     // TODO implement for systems other than linux and enable test
