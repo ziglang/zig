@@ -22,7 +22,7 @@ const Loop = std.event.Loop;
 pub const WaitGroup = WaitGroupGeneric(std.meta.bitCount(usize));
 
 pub fn WaitGroupGeneric(comptime counter_size: u16) type {
-    const CounterType = std.meta.Int(false, counter_size);
+    const CounterType = std.meta.Int(.unsigned, counter_size);
 
     const global_event_loop = Loop.instance orelse
         @compileError("std.event.WaitGroup currently only works with event-based I/O");

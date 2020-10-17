@@ -34,7 +34,7 @@ pub fn __aeabi_dmul(a: f64, b: f64) callconv(.C) f64 {
 fn mulXf3(comptime T: type, a: T, b: T) T {
     @setRuntimeSafety(builtin.is_test);
     const typeWidth = @typeInfo(T).Float.bits;
-    const Z = std.meta.Int(false, typeWidth);
+    const Z = std.meta.Int(.unsigned, typeWidth);
 
     const significandBits = std.math.floatMantissaBits(T);
     const exponentBits = std.math.floatExponentBits(T);
@@ -269,9 +269,9 @@ fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
     }
 }
 
-fn normalize(comptime T: type, significand: *std.meta.Int(false, @typeInfo(T).Float.bits)) i32 {
+fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeInfo(T).Float.bits)) i32 {
     @setRuntimeSafety(builtin.is_test);
-    const Z = std.meta.Int(false, @typeInfo(T).Float.bits);
+    const Z = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
     const significandBits = std.math.floatMantissaBits(T);
     const implicitBit = @as(Z, 1) << significandBits;
 

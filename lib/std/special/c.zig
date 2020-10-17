@@ -652,7 +652,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
     @setRuntimeSafety(false);
 
     const bits = @typeInfo(T).Float.bits;
-    const uint = std.meta.Int(false, bits);
+    const uint = std.meta.Int(.unsigned, bits);
     const log2uint = math.Log2Int(uint);
     const digits = if (T == f32) 23 else 52;
     const exp_bits = if (T == f32) 9 else 12;

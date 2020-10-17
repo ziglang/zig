@@ -10,8 +10,8 @@ pub const Rational = @import("big/rational.zig").Rational;
 pub const int = @import("big/int.zig");
 pub const Limb = usize;
 const limb_info = @typeInfo(Limb).Int;
-pub const DoubleLimb = std.meta.IntType(false, 2 * limb_info.bits);
-pub const SignedDoubleLimb = std.meta.IntType(true, 2 * limb_info.bits);
+pub const DoubleLimb = std.meta.Int(.unsigned, 2 * limb_info.bits);
+pub const SignedDoubleLimb = std.meta.Int(.signed, 2 * limb_info.bits);
 pub const Log2Limb = std.math.Log2Int(Limb);
 
 comptime {

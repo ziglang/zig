@@ -16,7 +16,7 @@ pub fn fixuint(comptime fp_t: type, comptime fixuint_t: type, a: fp_t) fixuint_t
         else => unreachable,
     };
     const typeWidth = @typeInfo(rep_t).Int.bits;
-    const srep_t = @import("std").meta.Int(true, typeWidth);
+    const srep_t = @import("std").meta.Int(.signed, typeWidth);
     const significandBits = switch (fp_t) {
         f32 => 23,
         f64 => 52,

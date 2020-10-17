@@ -17,8 +17,8 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
 
     const double_int_bits = @typeInfo(DoubleInt).Int.bits;
     const single_int_bits = @divExact(double_int_bits, 2);
-    const SingleInt = @import("std").meta.Int(false, single_int_bits);
-    const SignedDoubleInt = @import("std").meta.Int(true, double_int_bits);
+    const SingleInt = @import("std").meta.Int(.unsigned, single_int_bits);
+    const SignedDoubleInt = @import("std").meta.Int(.signed, double_int_bits);
     const Log2SingleInt = @import("std").math.Log2Int(SingleInt);
 
     const n = @ptrCast(*const [2]SingleInt, &a).*; // TODO issue #421

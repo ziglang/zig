@@ -11,8 +11,8 @@ fn floatsiXf(comptime T: type, a: i32) T {
     @setRuntimeSafety(builtin.is_test);
 
     const bits = @typeInfo(T).Float.bits;
-    const Z = std.meta.Int(false, bits);
-    const S = std.meta.Int(false, bits - @clz(Z, @as(Z, bits) - 1));
+    const Z = std.meta.Int(.unsigned, bits);
+    const S = std.meta.Int(.unsigned, bits - @clz(Z, @as(Z, bits) - 1));
 
     if (a == 0) {
         return @as(T, 0.0);

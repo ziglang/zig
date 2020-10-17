@@ -28,8 +28,8 @@ pub fn cmp(comptime T: type, comptime RT: type, a: T, b: T) RT {
     @setRuntimeSafety(builtin.is_test);
 
     const bits = @typeInfo(T).Float.bits;
-    const srep_t = std.meta.Int(true, bits);
-    const rep_t = std.meta.Int(false, bits);
+    const srep_t = std.meta.Int(.signed, bits);
+    const rep_t = std.meta.Int(.unsigned, bits);
 
     const significandBits = std.math.floatMantissaBits(T);
     const exponentBits = std.math.floatExponentBits(T);
@@ -74,7 +74,7 @@ pub fn cmp(comptime T: type, comptime RT: type, a: T, b: T) RT {
 pub fn unordcmp(comptime T: type, a: T, b: T) i32 {
     @setRuntimeSafety(builtin.is_test);
 
-    const rep_t = std.meta.Int(false, @typeInfo(T).Float.bits);
+    const rep_t = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
 
     const significandBits = std.math.floatMantissaBits(T);
     const exponentBits = std.math.floatExponentBits(T);

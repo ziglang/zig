@@ -36,7 +36,7 @@ pub fn sqrt(x: anytype) Sqrt(@TypeOf(x)) {
     }
 }
 
-fn sqrt_int(comptime T: type, value: T) std.meta.Int(false, @typeInfo(T).Int.bits / 2) {
+fn sqrt_int(comptime T: type, value: T) std.meta.Int(.unsigned, @typeInfo(T).Int.bits / 2) {
     var op = value;
     var res: T = 0;
     var one: T = 1 << (@typeInfo(T).Int.bits - 2);
@@ -55,7 +55,7 @@ fn sqrt_int(comptime T: type, value: T) std.meta.Int(false, @typeInfo(T).Int.bit
         one >>= 2;
     }
 
-    const ResultType = std.meta.Int(false, @typeInfo(T).Int.bits / 2);
+    const ResultType = std.meta.Int(.unsigned, @typeInfo(T).Int.bits / 2);
     return @intCast(ResultType, res);
 }
 
@@ -71,7 +71,7 @@ test "math.sqrt_int" {
 /// Returns the return type `sqrt` will return given an operand of type `T`.
 pub fn Sqrt(comptime T: type) type {
     return switch (@typeInfo(T)) {
-        .Int => |int| std.meta.Int(false, int.bits / 2),
+        .Int => |int| std.meta.Int(.unsigned, int.bits / 2),
         else => T,
     };
 }

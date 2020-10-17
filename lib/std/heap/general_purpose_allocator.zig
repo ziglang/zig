@@ -107,7 +107,7 @@ const page_size = std.mem.page_size;
 const StackTrace = std.builtin.StackTrace;
 
 /// Integer type for pointing to slots in a small allocation
-const SlotIndex = std.meta.Int(false, math.log2(page_size) + 1);
+const SlotIndex = std.meta.Int(.unsigned, math.log2(page_size) + 1);
 
 const sys_can_stack_trace = switch (std.Target.current.cpu.arch) {
     // Observed to go into an infinite loop.

@@ -60,7 +60,7 @@ pub fn BitReader(endian: builtin.Endian, comptime ReaderType: type) type {
                 assert(u_bit_count >= bits);
                 break :bc if (u_bit_count <= u8_bit_count) u8_bit_count else u_bit_count;
             };
-            const Buf = std.meta.Int(false, buf_bit_count);
+            const Buf = std.meta.Int(.unsigned, buf_bit_count);
             const BufShift = math.Log2Int(Buf);
 
             out_bits.* = @as(usize, 0);

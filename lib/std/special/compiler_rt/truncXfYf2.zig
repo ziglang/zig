@@ -41,8 +41,8 @@ pub fn __aeabi_f2h(a: f32) callconv(.AAPCS) u16 {
 }
 
 fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t {
-    const src_rep_t = std.meta.Int(false, @typeInfo(src_t).Float.bits);
-    const dst_rep_t = std.meta.Int(false, @typeInfo(dst_t).Float.bits);
+    const src_rep_t = std.meta.Int(.unsigned, @typeInfo(src_t).Float.bits);
+    const dst_rep_t = std.meta.Int(.unsigned, @typeInfo(dst_t).Float.bits);
     const srcSigBits = std.math.floatMantissaBits(src_t);
     const dstSigBits = std.math.floatMantissaBits(dst_t);
     const SrcShift = std.math.Log2Int(src_rep_t);
