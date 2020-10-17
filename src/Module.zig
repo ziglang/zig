@@ -2638,43 +2638,52 @@ pub fn resolvePeerTypes(self: *Module, scope: *Scope, instructions: []*Inst) !Ty
     if (instructions.len == 1)
         return instructions[0].ty;
 
-    var prev_inst = instructions[0];
-    for (instructions[1..]) |next_inst| {
-        if (next_inst.ty.eql(prev_inst.ty))
+    var chosen = instructions[0];
+    for (instructions[1..]) |candidate| {
+        if (candidate.ty.eql(chosen.ty))
             continue;
-        if (next_inst.ty.zigTypeTag() == .NoReturn)
+        if (candidate.ty.zigTypeTag() == .NoReturn)
             continue;
-        if (prev_inst.ty.zigTypeTag() == .NoReturn) {
-            prev_inst = next_inst;
-            continue;
-        }
-        if (next_inst.ty.zigTypeTag() == .Undefined)
-            continue;
-        if (prev_inst.ty.zigTypeTag() == .Undefined) {
-            prev_inst = next_inst;
+        if (chosen.ty.zigTypeTag() == .NoReturn) {
+            chosen = candidate;
             continue;
         }
-        if (prev_inst.ty.isInt() and
-            next_inst.ty.isInt() and
-            prev_inst.ty.isSignedInt() == next_inst.ty.isSignedInt())
+        if (candidate.ty.zigTypeTag() == .Undefined)
+            continue;
+        if (chosen.ty.zigTypeTag() == .Undefined) {
+            chosen = candidate;
+            continue;
+        }
+        if (chosen.ty.isInt() and
+            candidate.ty.isInt() and
+            chosen.ty.isSignedInt() == candidate.ty.isSignedInt())
         {
-            if (prev_inst.ty.intInfo(self.getTarget()).bits < next_inst.ty.intInfo(self.getTarget()).bits) {
-                prev_inst = next_inst;
+            if (chosen.ty.intInfo(self.getTarget()).bits < candidate.ty.intInfo(self.getTarget()).bits) {
+                chosen = candidate;
             }
             continue;
         }
-        if (prev_inst.ty.isFloat() and next_inst.ty.isFloat()) {
-            if (prev_inst.ty.floatBits(self.getTarget()) < next_inst.ty.floatBits(self.getTarget())) {
-                prev_inst = next_inst;
+        if (chosen.ty.isFloat() and candidate.ty.isFloat()) {
+            if (chosen.ty.floatBits(self.getTarget()) < candidate.ty.floatBits(self.getTarget())) {
+                chosen = candidate;
             }
+            continue;
+        }
+
+        if (chosen.ty.zigTypeTag() == .ComptimeInt and candidate.ty.isInt()) {
+            chosen = candidate;
+            continue;
+        }
+
+        if (chosen.ty.isInt() and candidate.ty.zigTypeTag() == .ComptimeInt) {
             continue;
         }
 
         // TODO error notes pointing out each type
-        return self.fail(scope, next_inst.src, "incompatible types: '{}' and '{}'", .{ prev_inst.ty, next_inst.ty });
+        return self.fail(scope, candidate.src, "incompatible types: '{}' and '{}'", .{ chosen.ty, candidate.ty });
     }
 
-    return prev_inst.ty;
+    return chosen.ty;
 }
 
 pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst {
