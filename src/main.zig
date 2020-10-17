@@ -1476,7 +1476,7 @@ fn buildOutputType(
 
     if (emit_bin_loc) |loc| {
         if (std.fs.cwd().openDir(loc.basename, .{ .access_sub_paths = false })) |_| {
-            fatal("error: The output binary is the same name as a directory: {}", .{loc.basename});
+            fatal("The output binary file name is the same name as a directory: \"{}\"", .{loc.basename});
         } else |_| {}
     }
 
