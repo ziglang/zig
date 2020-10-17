@@ -1474,6 +1474,12 @@ fn buildOutputType(
         },
     };
 
+    if (emit_bin_loc) |loc| {
+        if (std.fs.cwd().openDir(loc.basename, .{ .access_sub_paths = false })) |_| {
+            fatal("error: The output binary is the same name as a directory: {}", .{loc.basename});
+        } else |_| {}
+    }
+
     const default_h_basename = try std.fmt.allocPrint(arena, "{}.h", .{root_name});
     var emit_h_resolved = try emit_h.resolve(default_h_basename);
     defer emit_h_resolved.deinit();
