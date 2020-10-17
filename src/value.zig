@@ -350,7 +350,8 @@ pub const Value = extern union {
                 val = elem_ptr.array_ptr;
             },
             .empty_array => return out_stream.writeAll(".{}"),
-            .enum_literal, .bytes => return std.zig.renderStringLiteral(self.cast(Payload.Bytes).?.data, out_stream),
+            .enum_literal => return out_stream.print(".{z}", .{self.cast(Payload.Bytes).?.data}),
+            .bytes => return out_stream.print("\"{Z}\"", .{self.cast(Payload.Bytes).?.data}),
             .repeated => {
                 try out_stream.writeAll("(repeated) ");
                 val = val.cast(Payload.Repeated).?.val;

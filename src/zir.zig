@@ -1216,17 +1216,17 @@ const Writer = struct {
                 try stream.writeByte('}');
             },
             bool => return stream.writeByte("01"[@boolToInt(param)]),
-            []u8, []const u8 => return std.zig.renderStringLiteral(param, stream),
+            []u8, []const u8 => return stream.print("\"{Z}\"", .{param}),
             BigIntConst, usize => return stream.print("{}", .{param}),
             TypedValue => unreachable, // this is a special case
             *IrModule.Decl => unreachable, // this is a special case
             *Inst.Block => {
                 const name = self.block_table.get(param).?;
-                return std.zig.renderStringLiteral(name, stream);
+                return stream.print("\"{Z}\"", .{name});
             },
             *Inst.Loop => {
                 const name = self.loop_table.get(param).?;
-                return std.zig.renderStringLiteral(name, stream);
+                return stream.print("\"{Z}\"", .{name});
             },
             [][]const u8 => {
                 try stream.writeByte('[');
@@ -1234,7 +1234,7 @@ const Writer = struct {
                     if (i != 0) {
                         try stream.writeAll(", ");
                     }
-                    try std.zig.renderStringLiteral(str, stream);
+                    try stream.print("\"{Z}\"", .{str});
                 }
                 try stream.writeByte(']');
             },

@@ -552,7 +552,7 @@ pub fn formatIntValue(
         } else {
             @compileError("Cannot escape character with more than 8 bits");
         }
-    }else if (comptime std.mem.eql(u8, fmt, "b")) {
+    } else if (comptime std.mem.eql(u8, fmt, "b")) {
         radix = 2;
         uppercase = false;
     } else if (comptime std.mem.eql(u8, fmt, "x")) {
@@ -695,27 +695,20 @@ pub fn formatZigEscapes(
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    for (bytes) |c| {
-        const s: []const u8 = switch (c) {
-            '\"' => "\\\"",
-            '\'' => "\\'",
-            '\\' => "\\\\",
-            '\n' => "\\n",
-            '\r' => "\\r",
-            '\t' => "\\t",
-            // Handle the remaining escapes Zig doesn't support by turning them
-            // into their respective hex representation
-            else => if (std.ascii.isCntrl(c)) {
-                try writer.writeAll("\\x");
-                try formatInt(c, 16, false, .{ .width = 2, .fill = '0' }, writer);
-                continue;
-            } else {
-                try writer.writeByte(c);
-                continue;
-            },
-        };
-        try writer.writeAll(s);
-    }
+    for (bytes) |byte| switch (byte) {
+        '\n' => try writer.writeAll("\\n"),
+        '\r' => try writer.writeAll("\\r"),
+        '\t' => try writer.writeAll("\\t"),
+        '\\' => try writer.writeAll("\\\\"),
+        '"' => try writer.writeAll("\\\""),
+        '\'' => try writer.writeAll("\\'"),
+        ' ', '!', '#'...'&', '('...'[', ']'...'~' => try writer.writeByte(byte),
+        // Use hex escapes for rest any unprintable characters.
+        else => {
+            try writer.writeAll("\\x");
+            try formatInt(byte, 16, false, .{ .width = 2, .fill = '0' }, writer);
+        },
+    };
 }
 
 /// Print a float in scientific notation to the specified precision. Null uses full precision.
@@ -1406,6 +1399,9 @@ test "escape invalid identifiers" {
     try testFmt("@\"11\\\"23\"", "{z}", .{"11\"23"});
     try testFmt("@\"11\\x0f23\"", "{z}", .{"11\x0F23"});
     try testFmt("\\x0f", "{Z}", .{0x0f});
+    try testFmt(
+        \\" \\ hi \x07 \x11 \" derp \'"
+    , "\"{Z}\"", .{" \\ hi \x07 \x11 \" derp '"});
 }
 
 test "pointer" {
