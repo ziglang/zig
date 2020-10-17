@@ -2653,7 +2653,6 @@ enum IrInstGenId {
     IrInstGenIdPhi,
     IrInstGenIdBinaryNot,
     IrInstGenIdNegation,
-    IrInstGenIdNegationWrapping,
     IrInstGenIdBinOp,
     IrInstGenIdLoadPtr,
     IrInstGenIdStorePtr,
@@ -2932,11 +2931,7 @@ struct IrInstGenBinaryNot {
 struct IrInstGenNegation {
     IrInstGen base;
     IrInstGen *operand;
-};
-
-struct IrInstGenNegationWrapping {
-    IrInstGen base;
-    IrInstGen *operand;
+    bool wrapping;
 };
 
 enum IrBinOp {
