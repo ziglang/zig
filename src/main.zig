@@ -1434,7 +1434,13 @@ fn buildOutputType(
                 }
             },
             .basename = try std.zig.binNameAlloc(arena, .{
-                .root_name = root_name,
+                .root_name = check_output: {
+                    if (std.fs.cwd().openDir(root_name, .{ .access_sub_paths = false })) |_| {
+                        fatal("The output binary file name is the same name as a directory: \"{}\"", .{root_name});
+                    } else |_| {
+                        break :check_output root_name;
+                    }
+                },
                 .target = target_info.target,
                 .output_mode = output_mode,
                 .link_mode = link_mode,
@@ -1443,6 +1449,9 @@ fn buildOutputType(
             }),
         },
         .yes => |full_path| b: {
+            if (std.fs.cwd().openDir(full_path, .{ .access_sub_paths = false })) |_| {
+                fatal("The output binary file name is the same name as a directory: \"{}\"", .{fs.path.dirname(full_path)});
+            } else |_| {}
             const basename = fs.path.basename(full_path);
             if (have_enable_cache) {
                 break :b Compilation.EmitLoc{
@@ -1470,12 +1479,6 @@ fn buildOutputType(
             }
         },
     };
-
-    if (emit_bin_loc) |loc| {
-        if (std.fs.cwd().openDir(loc.basename, .{ .access_sub_paths = false })) |_| {
-            fatal("The output binary file name is the same name as a directory: \"{}\"", .{loc.basename});
-        } else |_| {}
-    }
 
     const default_h_basename = try std.fmt.allocPrint(arena, "{}.h", .{root_name});
     var emit_h_resolved = try emit_h.resolve(default_h_basename);
