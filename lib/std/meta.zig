@@ -678,10 +678,15 @@ pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const De
 /// Deprecated: use Int
 pub const IntType = Int;
 
-pub fn Int(comptime is_signed: bool, comptime bit_count: u16) type {
+pub const Signedness = enum {
+    unsigned,
+    signed,
+};
+
+pub fn Int(comptime signedness: Signedness, comptime bit_count: u16) type {
     return @Type(TypeInfo{
         .Int = .{
-            .is_signed = is_signed,
+            .is_signed = signedness == .signed,
             .bits = bit_count,
         },
     });

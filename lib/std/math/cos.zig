@@ -49,7 +49,7 @@ const pi4c = 2.69515142907905952645E-15;
 const m4pi = 1.273239544735162542821171882678754627704620361328125;
 
 fn cos_(comptime T: type, x_: T) T {
-    const I = std.meta.Int(true, @typeInfo(T).Float.bits);
+    const I = std.meta.Int(.signed, @typeInfo(T).Float.bits);
 
     var x = x_;
     if (math.isNan(x) or math.isInf(x)) {

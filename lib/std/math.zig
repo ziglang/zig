@@ -448,7 +448,7 @@ pub fn Log2Int(comptime T: type) type {
         count += 1;
     }
 
-    return std.meta.Int(false, count);
+    return std.meta.Int(.unsigned, count);
 }
 
 pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) type {
@@ -456,15 +456,15 @@ pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) t
     if (from == 0 and to == 0) {
         return u0;
     }
-    const is_signed = from < 0;
+    const sign: std.meta.Signedness = if (from < 0) .signed else .unsigned;
     const largest_positive_integer = max(if (from < 0) (-from) - 1 else from, to); // two's complement
     const base = log2(largest_positive_integer);
     const upper = (1 << base) - 1;
     var magnitude_bits = if (upper >= largest_positive_integer) base else base + 1;
-    if (is_signed) {
+    if (sign == .signed) {
         magnitude_bits += 1;
     }
-    return std.meta.Int(is_signed, magnitude_bits);
+    return std.meta.Int(sign, magnitude_bits);
 }
 
 test "math.IntFittingRange" {
@@ -729,7 +729,7 @@ fn testRem() void {
 /// Result is an unsigned integer.
 pub fn absCast(x: anytype) switch (@typeInfo(@TypeOf(x))) {
     .ComptimeInt => comptime_int,
-    .Int => |intInfo| std.meta.Int(false, intInfo.bits),
+    .Int => |intInfo| std.meta.Int(.unsigned, intInfo.bits),
     else => @compileError("absCast only accepts integers"),
 } {
     switch (@typeInfo(@TypeOf(x))) {
@@ -741,7 +741,7 @@ pub fn absCast(x: anytype) switch (@typeInfo(@TypeOf(x))) {
             }
         },
         .Int => |intInfo| {
-            const Uint = std.meta.Int(false, intInfo.bits);
+            const Uint = std.meta.Int(.unsigned, intInfo.bits);
             if (x < 0) {
                 return ~@bitCast(Uint, x +% -1);
             } else {
@@ -762,10 +762,10 @@ test "math.absCast" {
 
 /// Returns the negation of the integer parameter.
 /// Result is a signed integer.
-pub fn negateCast(x: anytype) !std.meta.Int(true, std.meta.bitCount(@TypeOf(x))) {
+pub fn negateCast(x: anytype) !std.meta.Int(.signed, std.meta.bitCount(@TypeOf(x))) {
     if (@typeInfo(@TypeOf(x)).Int.is_signed) return negate(x);
 
-    const int = std.meta.Int(true, std.meta.bitCount(@TypeOf(x)));
+    const int = std.meta.Int(.signed, std.meta.bitCount(@TypeOf(x)));
     if (x > -minInt(int)) return error.Overflow;
 
     if (x == -minInt(int)) return minInt(int);
@@ -852,11 +852,11 @@ fn testFloorPowerOfTwo() void {
 /// Returns the next power of two (if the value is not already a power of two).
 /// Only unsigned integers can be used. Zero is not an allowed input.
 /// Result is a type with 1 more bit than the input type.
-pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) std.meta.Int(@typeInfo(T).Int.is_signed, @typeInfo(T).Int.bits + 1) {
+pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) std.meta.Int(if (@typeInfo(T).Int.is_signed) .signed else .unsigned, @typeInfo(T).Int.bits + 1) {
     comptime assert(@typeInfo(T) == .Int);
     comptime assert(!@typeInfo(T).Int.is_signed);
     assert(value != 0);
-    comptime const PromotedType = std.meta.Int(@typeInfo(T).Int.is_signed, @typeInfo(T).Int.bits + 1);
+    comptime const PromotedType = std.meta.Int(if (@typeInfo(T).Int.is_signed) .signed else .unsigned, @typeInfo(T).Int.bits + 1);
     comptime const shiftType = std.math.Log2Int(PromotedType);
     return @as(PromotedType, 1) << @intCast(shiftType, @typeInfo(T).Int.bits - @clz(T, value - 1));
 }
@@ -868,7 +868,7 @@ pub fn ceilPowerOfTwo(comptime T: type, value: T) (error{Overflow}!T) {
     comptime assert(@typeInfo(T) == .Int);
     const info = @typeInfo(T).Int;
     comptime assert(!info.is_signed);
-    comptime const PromotedType = std.meta.Int(info.is_signed, info.bits + 1);
+    comptime const PromotedType = std.meta.Int(if (info.is_signed) .signed else .unsigned, info.bits + 1);
     comptime const overflowBit = @as(PromotedType, 1) << info.bits;
     var x = ceilPowerOfTwoPromote(T, value);
     if (overflowBit & x != 0) {
@@ -1014,8 +1014,8 @@ test "max value type" {
     testing.expect(x == 2147483647);
 }
 
-pub fn mulWide(comptime T: type, a: T, b: T) std.meta.Int(@typeInfo(T).Int.is_signed, @typeInfo(T).Int.bits * 2) {
-    const ResultInt = std.meta.Int(@typeInfo(T).Int.is_signed, @typeInfo(T).Int.bits * 2);
+pub fn mulWide(comptime T: type, a: T, b: T) std.meta.Int(if (@typeInfo(T).Int.is_signed) .signed else .unsigned, @typeInfo(T).Int.bits * 2) {
+    const ResultInt = std.meta.Int(if (@typeInfo(T).Int.is_signed) .signed else .unsigned, @typeInfo(T).Int.bits * 2);
     return @as(ResultInt, a) * @as(ResultInt, b);
 }
 

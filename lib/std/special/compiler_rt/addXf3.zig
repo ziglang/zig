@@ -59,14 +59,14 @@ pub fn __aeabi_dsub(a: f64, b: f64) callconv(.AAPCS) f64 {
 }
 
 // TODO: restore inline keyword, see: https://github.com/ziglang/zig/issues/2154
-fn normalize(comptime T: type, significand: *std.meta.Int(false, @typeInfo(T).Float.bits)) i32 {
+fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeInfo(T).Float.bits)) i32 {
     const bits = @typeInfo(T).Float.bits;
-    const Z = std.meta.Int(false, bits);
-    const S = std.meta.Int(false, bits - @clz(Z, @as(Z, bits) - 1));
+    const Z = std.meta.Int(.unsigned, bits);
+    const S = std.meta.Int(.unsigned, bits - @clz(Z, @as(Z, bits) - 1));
     const significandBits = std.math.floatMantissaBits(T);
     const implicitBit = @as(Z, 1) << significandBits;
 
-    const shift = @clz(std.meta.Int(false, bits), significand.*) - @clz(Z, implicitBit);
+    const shift = @clz(std.meta.Int(.unsigned, bits), significand.*) - @clz(Z, implicitBit);
     significand.* <<= @intCast(S, shift);
     return 1 - shift;
 }
@@ -74,8 +74,8 @@ fn normalize(comptime T: type, significand: *std.meta.Int(false, @typeInfo(T).Fl
 // TODO: restore inline keyword, see: https://github.com/ziglang/zig/issues/2154
 fn addXf3(comptime T: type, a: T, b: T) T {
     const bits = @typeInfo(T).Float.bits;
-    const Z = std.meta.Int(false, bits);
-    const S = std.meta.Int(false, bits - @clz(Z, @as(Z, bits) - 1));
+    const Z = std.meta.Int(.unsigned, bits);
+    const S = std.meta.Int(.unsigned, bits - @clz(Z, @as(Z, bits) - 1));
 
     const typeWidth = bits;
     const significandBits = std.math.floatMantissaBits(T);
@@ -189,7 +189,7 @@ fn addXf3(comptime T: type, a: T, b: T) T {
         // If partial cancellation occured, we need to left-shift the result
         // and adjust the exponent:
         if (aSignificand < implicitBit << 3) {
-            const shift = @intCast(i32, @clz(Z, aSignificand)) - @intCast(i32, @clz(std.meta.Int(false, bits), implicitBit << 3));
+            const shift = @intCast(i32, @clz(Z, aSignificand)) - @intCast(i32, @clz(std.meta.Int(.unsigned, bits), implicitBit << 3));
             aSignificand <<= @intCast(S, shift);
             aExponent -= shift;
         }

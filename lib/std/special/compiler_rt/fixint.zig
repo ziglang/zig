@@ -51,7 +51,7 @@ pub fn fixint(comptime fp_t: type, comptime fixint_t: type, a: fp_t) fixint_t {
 
     // The unsigned result needs to be large enough to handle an fixint_t or rep_t
     const fixint_bits = @typeInfo(fixint_t).Int.bits;
-    const fixuint_t = std.meta.Int(false, fixint_bits);
+    const fixuint_t = std.meta.Int(.unsigned, fixint_bits);
     const UintResultType = if (fixint_bits > typeWidth) fixuint_t else rep_t;
     var uint_result: UintResultType = undefined;
 

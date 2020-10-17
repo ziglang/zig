@@ -13,8 +13,8 @@ fn __floatXisf(comptime T: type, arg: T) f32 {
     @setRuntimeSafety(builtin.is_test);
 
     const bits = @typeInfo(T).Int.bits;
-    const Z = std.meta.Int(false, bits);
-    const S = std.meta.Int(false, bits - @clz(Z, @as(Z, bits) - 1));
+    const Z = std.meta.Int(.unsigned, bits);
+    const S = std.meta.Int(.unsigned, bits - @clz(Z, @as(Z, bits) - 1));
 
     if (arg == 0) {
         return @as(f32, 0.0);

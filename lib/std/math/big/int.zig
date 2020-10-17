@@ -24,7 +24,7 @@ pub fn calcLimbLen(scalar: anytype) usize {
     const T = @TypeOf(scalar);
     switch (@typeInfo(T)) {
         .Int => |info| {
-            const UT = if (info.is_signed) std.meta.Int(false, info.bits - 1) else T;
+            const UT = if (info.is_signed) std.meta.Int(.unsigned, info.bits - 1) else T;
             return @sizeOf(UT) / @sizeOf(Limb);
         },
         .ComptimeInt => {
@@ -187,7 +187,7 @@ pub const Mutable = struct {
 
         switch (@typeInfo(T)) {
             .Int => |info| {
-                const UT = if (info.is_signed) std.meta.Int(false, info.bits - 1) else T;
+                const UT = if (info.is_signed) std.meta.Int(.unsigned, info.bits - 1) else T;
 
                 const needed_limbs = @sizeOf(UT) / @sizeOf(Limb);
                 assert(needed_limbs <= self.limbs.len); // value too big
@@ -1092,7 +1092,7 @@ pub const Const = struct {
     pub fn to(self: Const, comptime T: type) ConvertError!T {
         switch (@typeInfo(T)) {
             .Int => |info| {
-                const UT = std.meta.Int(false, info.bits);
+                const UT = std.meta.Int(.unsigned, info.bits);
 
                 if (self.bitCountTwosComp() > info.bits) {
                     return error.TargetTooSmall;

@@ -55,7 +55,7 @@ pub fn writeULEB128(writer: anytype, uint_value: anytype) !void {
     }
 }
 
-/// Read a single unsinged integer from the given memory as type T.
+/// Read a single unsigned integer from the given memory as type T.
 /// The provided slice reference will be updated to point to the byte after the last byte read.
 pub fn readULEB128Mem(comptime T: type, ptr: *[]const u8) !T {
     var buf = std.io.fixedBufferStream(ptr.*);
@@ -78,7 +78,7 @@ pub fn writeULEB128Mem(ptr: []u8, uint_value: anytype) !usize {
 /// or error.Overflow if the value cannot fit.
 pub fn readILEB128(comptime T: type, reader: anytype) !T {
     const S = if (@typeInfo(T).Int.bits < 8) i8 else T;
-    const U = std.meta.Int(false, @typeInfo(S).Int.bits);
+    const U = std.meta.Int(.unsigned, @typeInfo(S).Int.bits);
     const ShiftU = std.math.Log2Int(U);
 
     const max_group = (@typeInfo(U).Int.bits + 6) / 7;
@@ -128,7 +128,7 @@ pub fn readILEB128(comptime T: type, reader: anytype) !T {
 pub fn writeILEB128(writer: anytype, int_value: anytype) !void {
     const T = @TypeOf(int_value);
     const S = if (@typeInfo(T).Int.bits < 8) i8 else T;
-    const U = std.meta.Int(false, @typeInfo(S).Int.bits);
+    const U = std.meta.Int(.unsigned, @typeInfo(S).Int.bits);
 
     var value = @intCast(S, int_value);
 
@@ -171,7 +171,7 @@ pub fn writeILEB128Mem(ptr: []u8, int_value: anytype) !usize {
 /// An example use case of this is in emitting DWARF info where one wants to make a ULEB128 field
 /// "relocatable", meaning that it becomes possible to later go back and patch the number to be a
 /// different value without shifting all the following code.
-pub fn writeUnsignedFixed(comptime l: usize, ptr: *[l]u8, int: std.meta.Int(false, l * 7)) void {
+pub fn writeUnsignedFixed(comptime l: usize, ptr: *[l]u8, int: std.meta.Int(.unsigned, l * 7)) void {
     const T = @TypeOf(int);
     const U = if (@typeInfo(T).Int.bits < 8) u8 else T;
     var value = @intCast(U, int);
@@ -347,6 +347,7 @@ test "deserialize unsigned LEB128" {
 fn test_write_leb128(value: anytype) !void {
     const T = @TypeOf(value);
     const t_signed = @typeInfo(T).Int.is_signed;
+    const signedness = if (t_signed) .signed else .unsigned;
 
     const writeStream = if (t_signed) writeILEB128 else writeULEB128;
     const writeMem = if (t_signed) writeILEB128Mem else writeULEB128Mem;
@@ -356,10 +357,10 @@ fn test_write_leb128(value: anytype) !void {
     // decode to a larger bit size too, to ensure sign extension
     // is working as expected
     const larger_type_bits = ((@typeInfo(T).Int.bits + 8) / 8) * 8;
-    const B = std.meta.Int(t_signed, larger_type_bits);
+    const B = std.meta.Int(signedness, larger_type_bits);
 
     const bytes_needed = bn: {
-        const S = std.meta.Int(t_signed, @sizeOf(T) * 8);
+        const S = std.meta.Int(signedness, @sizeOf(T) * 8);
         if (@typeInfo(T).Int.bits <= 7) break :bn @as(u16, 1);
 
         const unused_bits = if (value < 0) @clz(T, ~value) else @clz(T, value);
@@ -412,10 +413,10 @@ test "serialize unsigned LEB128" {
 
     comptime var t = 0;
     inline while (t <= max_bits) : (t += 1) {
-        const T = std.meta.Int(false, t);
+        const T = std.meta.Int(.unsigned, t);
         const min = std.math.minInt(T);
         const max = std.math.maxInt(T);
-        var i = @as(std.meta.Int(false, @typeInfo(T).Int.bits + 1), min);
+        var i = @as(std.meta.Int(.unsigned, @typeInfo(T).Int.bits + 1), min);
 
         while (i <= max) : (i += 1) try test_write_leb128(@intCast(T, i));
     }
@@ -430,10 +431,10 @@ test "serialize signed LEB128" {
 
     comptime var t = 1;
     inline while (t <= max_bits) : (t += 1) {
-        const T = std.meta.Int(true, t);
+        const T = std.meta.Int(.signed, t);
         const min = std.math.minInt(T);
         const max = std.math.maxInt(T);
-        var i = @as(std.meta.Int(true, @typeInfo(T).Int.bits + 1), min);
+        var i = @as(std.meta.Int(.signed, @typeInfo(T).Int.bits + 1), min);
 
         while (i <= max) : (i += 1) try test_write_leb128(@intCast(T, i));
     }

@@ -950,7 +950,7 @@ pub fn formatInt(
     // The type must have the same size as `base` or be wider in order for the
     // division to work
     const min_int_bits = comptime math.max(value_info.bits, 8);
-    const MinInt = std.meta.Int(false, min_int_bits);
+    const MinInt = std.meta.Int(.unsigned, min_int_bits);
 
     const abs_value = math.absCast(int_value);
     // The worst case in terms of space needed is base 2, plus 1 for the sign
