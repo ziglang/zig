@@ -515,7 +515,7 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![][:0]u8 {
     while (it.next(allocator)) |arg_or_err| {
         const arg = try arg_or_err;
         defer allocator.free(arg);
-        try contents.appendSlice(@ptrCast([*]u8, arg.ptr)[0 .. arg.len + 1]);
+        try contents.appendSlice(arg[0 .. arg.len + 1]);
         try slice_list.append(arg.len);
     }
 
