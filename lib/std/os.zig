@@ -2588,7 +2588,7 @@ pub fn isatty(handle: fd_t) bool {
             }
         }
     }
-    unreachable;
+    return system.isatty(handle) != 0;
 }
 
 pub fn isCygwinPty(handle: fd_t) bool {
