@@ -853,7 +853,9 @@ pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize 
 
 /// Find the index in a slice of a sub-slice, searching from the end backwards.
 /// To start looking at a different index, slice the haystack first.
-fn lastIndexOfLinear(comptime T: type, haystack: []const T, needle: []const T) ?usize {
+/// Consider using `lastIndexOf` instead of this, which will automatically use a
+/// more sophisticated algorithm on larger inputs.
+pub fn lastIndexOfLinear(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     var i: usize = haystack.len - needle.len;
     while (true) : (i -= 1) {
         if (mem.eql(T, haystack[i .. i + needle.len], needle)) return i;
@@ -861,7 +863,9 @@ fn lastIndexOfLinear(comptime T: type, haystack: []const T, needle: []const T) ?
     }
 }
 
-fn indexOfPosLinear(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
+/// Consider using `indexOfPos` instead of this, which will automatically use a
+/// more sophisticated algorithm on larger inputs.
+pub fn indexOfPosLinear(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
     var i: usize = start_index;
     const end = haystack.len - needle.len;
     while (i <= end) : (i += 1) {
@@ -897,7 +901,8 @@ fn boyerMooreHorspoolPreprocess(pattern: []const u8, table: *[256]usize) void {
 }
 /// Find the index in a slice of a sub-slice, searching from the end backwards.
 /// To start looking at a different index, slice the haystack first.
-// Reverse boyer-moore-horspool algorithm
+/// Uses the Reverse boyer-moore-horspool algorithm on large inputs;
+/// `lastIndexOfLinear` on small inputs.
 pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     if (needle.len > haystack.len) return null;
     if (needle.len == 0) return haystack.len;
@@ -922,7 +927,7 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
     return null;
 }
 
-// Boyer-moore-horspool algorithm
+/// Uses Boyer-moore-horspool algorithm on large inputs; `indexOfPosLinear` on small inputs.
 pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
     if (needle.len > haystack.len) return null;
     if (needle.len == 0) return 0;
