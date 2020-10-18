@@ -1293,7 +1293,7 @@ pub const Value = union(enum) {
         var held = std.debug.getStderrMutex().acquire();
         defer held.release();
 
-        const stderr = io.getStdErr().writer();
+        const stderr = std.io.getStdErr().writer();
         std.json.stringify(self, std.json.StringifyOptions{ .whitespace = null }, stderr) catch return;
     }
 };
