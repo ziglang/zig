@@ -2709,6 +2709,8 @@ pub const InstalledFile = struct {
 };
 
 test "Builder.dupePkg()" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     var builder = try Builder.create(
@@ -2750,6 +2752,8 @@ test "Builder.dupePkg()" {
 }
 
 test "LibExeObjStep.addPackage" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
