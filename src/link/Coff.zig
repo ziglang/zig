@@ -811,7 +811,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation) !void {
     const is_lib = self.base.options.output_mode == .Lib;
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
-    const link_in_crt = self.base.options.link_libc and self.base.options.output_mode == .Exe;
+    const link_in_crt = self.base.options.link_libc and is_exe_or_dyn_lib;
     const target = self.base.options.target;
 
     // See link/Elf.zig for comments on how this mechanism works.
