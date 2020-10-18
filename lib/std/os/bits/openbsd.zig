@@ -174,7 +174,7 @@ pub const Stat = extern struct {
     blksize: blksize_t,
     flags: u32,
     gen: u32,
-    birthtim: timespec,    
+    birthtim: timespec,
 
     pub fn atime(self: Stat) timespec {
         return self.atim;
@@ -203,7 +203,7 @@ pub const dirent = extern struct {
     d_type: u8,
     d_namlen: u8,
     __d_padding: [4]u8,
-    d_name: [MAXNAMLEN+1]u8,
+    d_name: [MAXNAMLEN + 1]u8,
 
     pub fn reclen(self: dirent) u16 {
         return self.d_reclen;

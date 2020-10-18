@@ -2234,40 +2234,39 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
         },
         .openbsd => {
             // OpenBSD doesn't support getting the path of a running process, so try to guess it
-            if (os.argv.len >= 1) {
-                const argv0 = mem.span(os.argv[0]);
-                if (mem.indexOf(u8, argv0, "/") != null) {
-                    // argv[0] is a path (relative or absolute): use realpath(3) directly
-                    var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
-                    const real_path = try os.realpathZ(os.argv[0], &real_path_buf);
-                    if (real_path.len > out_buffer.len)
-                        return error.NameTooLong;
-                    mem.copy(u8, out_buffer, real_path);
-                    return out_buffer[0..real_path.len];
-                } else if (argv0.len != 0) {
-                    // argv[0] is not empty (and not a path): search it inside PATH
-                    const PATH = std.os.getenv("PATH") orelse "";
-                    var path_it = mem.tokenize(PATH, &[_]u8{path.delimiter});
-                    while (path_it.next()) |a_path| {
-                        var resolved_path_buf: [MAX_PATH_BYTES-1:0]u8 = undefined;
-                        const resolved_path = std.fmt.bufPrint(&resolved_path_buf, "{}/{}\x00", .{
-                            a_path,
-                            os.argv[0],
-                        }) catch "";
+            if (os.argv.len == 0)
+                return error.FileNotFound;
 
-                        var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
-                        if (os.realpathZ(&resolved_path_buf, &real_path_buf) catch null) |real_path| {
-                            // found a file, and hope it is the right file
-                            if (real_path.len > out_buffer.len)
-                                return error.NameTooLong;
-                            mem.copy(u8, out_buffer, real_path);
-                            return out_buffer[0..real_path.len];
-                        }
-                    }
+            const argv0 = mem.span(os.argv[0]);
+            if (mem.indexOf(u8, argv0, "/") != null) {
+                // argv[0] is a path (relative or absolute): use realpath(3) directly
+                var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+                const real_path = try os.realpathZ(os.argv[0], &real_path_buf);
+                if (real_path.len > out_buffer.len)
+                    return error.NameTooLong;
+                mem.copy(u8, out_buffer, real_path);
+                return out_buffer[0..real_path.len];
+            } else if (argv0.len != 0) {
+                // argv[0] is not empty (and not a path): search it inside PATH
+                const PATH = std.os.getenvZ("PATH") orelse return error.FileNotFound;
+                var path_it = mem.tokenize(PATH, &[_]u8{path.delimiter});
+                while (path_it.next()) |a_path| {
+                    var resolved_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+                    const resolved_path = std.fmt.bufPrintZ(&resolved_path_buf, "{s}/{s}", .{
+                        a_path,
+                        os.argv[0],
+                    }) catch continue;
+
+                    var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+                    if (os.realpathZ(&resolved_path_buf, &real_path_buf)) |real_path| {
+                        // found a file, and hope it is the right file
+                        if (real_path.len > out_buffer.len)
+                            return error.NameTooLong;
+                        mem.copy(u8, out_buffer, real_path);
+                        return out_buffer[0..real_path.len];
+                    } else |_| continue;
                 }
             }
-
-            // sorry, we don't find it
             return error.FileNotFound;
         },
         .windows => {

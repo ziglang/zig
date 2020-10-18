@@ -161,7 +161,7 @@ pub fn supports_fpic(target: std.Target) bool {
 }
 
 pub fn libc_needs_crti_crtn(target: std.Target) bool {
-    return !(target.cpu.arch.isRISCV() or target.isAndroid());
+    return !(target.cpu.arch.isRISCV() or target.isAndroid() or target.os.tag == .openbsd);
 }
 
 pub fn isSingleThreaded(target: std.Target) bool {
