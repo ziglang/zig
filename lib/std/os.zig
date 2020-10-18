@@ -164,17 +164,17 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
         }
         return;
     }
-    if (builtin.os.tag == .netbsd or builtin.os.tag == .openbsd) {
-        system.arc4random_buf(buffer.ptr, buffer.len);
-        return;
-    }
-    if (builtin.os.tag == .wasi) {
-        switch (wasi.random_get(buffer.ptr, buffer.len)) {
+    switch (builtin.os.tag) {
+        .netbsd, .openbsd, .macos, .ios, .tvos, .watchos => {
+            system.arc4random_buf(buffer.ptr, buffer.len);
+            return;
+        },
+        .wasi => switch (wasi.random_get(buffer.ptr, buffer.len)) {
             0 => return,
             else => |err| return unexpectedErrno(err),
-        }
+        },
+        else => return getRandomBytesDevURandom(buffer),
     }
-    return getRandomBytesDevURandom(buffer);
 }
 
 fn getRandomBytesDevURandom(buf: []u8) !void {
