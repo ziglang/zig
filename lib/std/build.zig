@@ -1843,7 +1843,7 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn addPackage(self: *LibExeObjStep, package: Pkg) void {
-        self.packages.append(self.dupePkg(package)) catch unreachable;
+        self.packages.append(self.builder.dupePkg(package)) catch unreachable;
     }
 
     pub fn addPackagePath(self: *LibExeObjStep, name: []const u8, pkg_index_path: []const u8) void {
@@ -2747,6 +2747,37 @@ test "Builder.dupePkg()" {
     std.testing.expect(dupe.path.ptr != pkg_top.path.ptr);
     std.testing.expect(dupe_deps[0].name.ptr != pkg_dep.name.ptr);
     std.testing.expect(dupe_deps[0].path.ptr != pkg_dep.path.ptr);
+}
+
+test "LibExeObjStep.addPackage" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var builder = try Builder.create(
+        &arena.allocator,
+        "test",
+        "test",
+        "test",
+    );
+    defer builder.destroy();
+
+    const pkg_dep = Pkg{
+        .name = "pkg_dep",
+        .path = "/not/a/pkg_dep.zig",
+    };
+    const pkg_top = Pkg{
+        .name = "pkg_dep",
+        .path = "/not/a/pkg_top.zig",
+        .dependencies = &[_]Pkg{pkg_dep},
+    };
+
+    var exe = builder.addExecutable("not_an_executable", "/not/an/executable.zig");
+    exe.addPackage(pkg_top);
+
+    std.testing.expectEqual(@as(usize, 1), exe.packages.items.len);
+
+    const dupe = exe.packages.items[0];
+    std.testing.expectEqualStrings(pkg_top.name, dupe.name);
 }
 
 test "" {
