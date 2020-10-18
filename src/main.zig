@@ -1454,11 +1454,6 @@ fn buildOutputType(
             },
         },
         .yes => |full_path| b: {
-            if (std.fs.cwd().openDir(full_path, .{ .access_sub_paths = false })) |_| {
-                if (arg_mode != .zig_test) {
-                    fatal("The output binary file name is the same name as a directory: \"{}\"", .{fs.path.dirname(full_path)});
-                } else {}
-            } else |_| {}
             const basename = fs.path.basename(full_path);
             if (have_enable_cache) {
                 break :b Compilation.EmitLoc{
