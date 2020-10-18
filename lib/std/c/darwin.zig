@@ -171,3 +171,5 @@ pub const pthread_attr_t = extern struct {
     __sig: c_long,
     __opaque: [56]u8,
 };
+
+pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
