@@ -209,7 +209,7 @@ pub const TypeInfo = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Int = struct {
-        is_signed: bool,
+        signedness: Signedness,
         bits: comptime_int,
     };
 
@@ -436,6 +436,13 @@ pub const FloatMode = enum {
 pub const Endian = enum {
     Big,
     Little,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const Signedness = enum {
+    signed,
+    unsigned,
 };
 
 /// This data structure is used by the Zig language code generation and

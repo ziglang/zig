@@ -72,6 +72,18 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:8:12: note: called from here",
     });
 
+    cases.add("@Type with TypeInfo.Int",
+        \\const builtin = @import("builtin");
+        \\export fn entry() void {
+        \\    _ = @Type(builtin.TypeInfo.Int {
+        \\        .signedness = .signed,
+        \\        .bits = 8,
+        \\    });
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:36: error: expected type 'std.builtin.TypeInfo', found 'std.builtin.Int'",
+    });
+
     cases.add("indexing a undefined slice at comptime",
         \\comptime {
         \\    var slice: []u8 = undefined;
@@ -1827,17 +1839,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:4:15: error: unable to evaluate constant expression",
     });
 
-    cases.add("@Type with TypeInfo.Int",
-        \\const builtin = @import("builtin");
-        \\export fn entry() void {
-        \\    _ = @Type(builtin.TypeInfo.Int {
-        \\        .is_signed = true,
-        \\        .bits = 8,
-        \\    });
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:3:36: error: expected type 'std.builtin.TypeInfo', found 'std.builtin.Int'",
-    });
     cases.add("wrong type for argument tuple to @asyncCall",
         \\export fn entry1() void {
         \\    var frame: @Frame(foo) = undefined;

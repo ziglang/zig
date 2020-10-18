@@ -73,7 +73,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
 
             if (int_size == 1) {
                 if (t_bit_count == 8) return @bitCast(T, buffer[0]);
-                const PossiblySignedByte = std.meta.Int(if (@typeInfo(T).Int.is_signed) .signed else .unsigned, 8);
+                const PossiblySignedByte = std.meta.Int(@typeInfo(T).Int.signedness, 8);
                 return @truncate(T, @bitCast(PossiblySignedByte, buffer[0]));
             }
 

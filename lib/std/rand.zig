@@ -69,7 +69,7 @@ pub const Random = struct {
     /// Constant-time implementation off `uintLessThan`.
     /// The results of this function may be biased.
     pub fn uintLessThanBiased(r: *Random, comptime T: type, less_than: T) T {
-        comptime assert(@typeInfo(T).Int.is_signed == false);
+        comptime assert(@typeInfo(T).Int.signedness == .unsigned);
         const bits = @typeInfo(T).Int.bits;
         comptime assert(bits <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
         assert(0 < less_than);
@@ -89,7 +89,7 @@ pub const Random = struct {
     /// this function is guaranteed to return.
     /// If you need deterministic runtime bounds, use `uintLessThanBiased`.
     pub fn uintLessThan(r: *Random, comptime T: type, less_than: T) T {
-        comptime assert(@typeInfo(T).Int.is_signed == false);
+        comptime assert(@typeInfo(T).Int.signedness == .unsigned);
         const bits = @typeInfo(T).Int.bits;
         comptime assert(bits <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
         assert(0 < less_than);
@@ -129,7 +129,7 @@ pub const Random = struct {
     /// Constant-time implementation off `uintAtMost`.
     /// The results of this function may be biased.
     pub fn uintAtMostBiased(r: *Random, comptime T: type, at_most: T) T {
-        assert(@typeInfo(T).Int.is_signed == false);
+        assert(@typeInfo(T).Int.signedness == .unsigned);
         if (at_most == maxInt(T)) {
             // have the full range
             return r.int(T);
@@ -141,7 +141,7 @@ pub const Random = struct {
     /// See `uintLessThan`, which this function uses in most cases,
     /// for commentary on the runtime of this function.
     pub fn uintAtMost(r: *Random, comptime T: type, at_most: T) T {
-        assert(@typeInfo(T).Int.is_signed == false);
+        assert(@typeInfo(T).Int.signedness == .unsigned);
         if (at_most == maxInt(T)) {
             // have the full range
             return r.int(T);
@@ -154,7 +154,7 @@ pub const Random = struct {
     pub fn intRangeLessThanBiased(r: *Random, comptime T: type, at_least: T, less_than: T) T {
         assert(at_least < less_than);
         const info = @typeInfo(T).Int;
-        if (info.is_signed) {
+        if (info.signedness == .signed) {
             // Two's complement makes this math pretty easy.
             const UnsignedT = std.meta.Int(.unsigned, info.bits);
             const lo = @bitCast(UnsignedT, at_least);
@@ -173,7 +173,7 @@ pub const Random = struct {
     pub fn intRangeLessThan(r: *Random, comptime T: type, at_least: T, less_than: T) T {
         assert(at_least < less_than);
         const info = @typeInfo(T).Int;
-        if (info.is_signed) {
+        if (info.signedness == .signed) {
             // Two's complement makes this math pretty easy.
             const UnsignedT = std.meta.Int(.unsigned, info.bits);
             const lo = @bitCast(UnsignedT, at_least);
@@ -191,7 +191,7 @@ pub const Random = struct {
     pub fn intRangeAtMostBiased(r: *Random, comptime T: type, at_least: T, at_most: T) T {
         assert(at_least <= at_most);
         const info = @typeInfo(T).Int;
-        if (info.is_signed) {
+        if (info.signedness == .signed) {
             // Two's complement makes this math pretty easy.
             const UnsignedT = std.meta.Int(.unsigned, info.bits);
             const lo = @bitCast(UnsignedT, at_least);
@@ -210,7 +210,7 @@ pub const Random = struct {
     pub fn intRangeAtMost(r: *Random, comptime T: type, at_least: T, at_most: T) T {
         assert(at_least <= at_most);
         const info = @typeInfo(T).Int;
-        if (info.is_signed) {
+        if (info.signedness == .signed) {
             // Two's complement makes this math pretty easy.
             const UnsignedT = std.meta.Int(.unsigned, info.bits);
             const lo = @bitCast(UnsignedT, at_least);
@@ -288,7 +288,7 @@ pub const Random = struct {
 /// into an integer 0 <= result < less_than.
 /// This function introduces a minor bias.
 pub fn limitRangeBiased(comptime T: type, random_int: T, less_than: T) T {
-    comptime assert(@typeInfo(T).Int.is_signed == false);
+    comptime assert(@typeInfo(T).Int.signedness == .unsigned);
     const bits = @typeInfo(T).Int.bits;
     const T2 = std.meta.Int(.unsigned, bits * 2);
 

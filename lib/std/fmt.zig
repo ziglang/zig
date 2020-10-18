@@ -1028,7 +1028,7 @@ pub fn formatInt(
         if (a == 0) break;
     }
 
-    if (value_info.is_signed) {
+    if (value_info.signedness == .signed) {
         if (value < 0) {
             // Negative integer
             index -= 1;

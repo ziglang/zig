@@ -2443,7 +2443,10 @@ fn addDbgInfoType(self: *Elf, ty: Type, dbg_info_buffer: *std.ArrayList(u8)) !vo
             try dbg_info_buffer.ensureCapacity(dbg_info_buffer.items.len + 12);
             dbg_info_buffer.appendAssumeCapacity(abbrev_base_type);
             // DW.AT_encoding, DW.FORM_data1
-            dbg_info_buffer.appendAssumeCapacity(if (info.signed) DW.ATE_signed else DW.ATE_unsigned);
+            dbg_info_buffer.appendAssumeCapacity(switch (info.signedness) {
+                .signed => DW.ATE_signed,
+                .unsigned => DW.ATE_unsigned,
+            });
             // DW.AT_byte_size,  DW.FORM_data1
             dbg_info_buffer.appendAssumeCapacity(@intCast(u8, ty.abiSize(self.base.options.target)));
             // DW.AT_name,  DW.FORM_string

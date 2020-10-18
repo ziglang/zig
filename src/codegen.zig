@@ -203,7 +203,7 @@ pub fn generateSymbol(
         .Int => {
             // TODO populate .debug_info for the integer
             const info = typed_value.ty.intInfo(bin_file.options.target);
-            if (info.bits == 8 and !info.signed) {
+            if (info.bits == 8 and info.signedness == .unsigned) {
                 const x = typed_value.val.toUnsignedInt();
                 try code.append(@intCast(u8, x));
                 return Result{ .appended = {} };
@@ -920,7 +920,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             const operand = try self.resolveInst(inst.operand);
             const info_a = inst.operand.ty.intInfo(self.target.*);
             const info_b = inst.base.ty.intInfo(self.target.*);
-            if (info_a.signed != info_b.signed)
+            if (info_a.signedness != info_b.signedness)
                 return self.fail(inst.base.src, "TODO gen intcast sign safety in semantic analysis", .{});
 
             if (info_a.bits == info_b.bits)
@@ -1780,7 +1780,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         fn genCmp(self: *Self, inst: *ir.Inst.BinOp, op: math.CompareOperator) !MCValue {
             // No side effects, so if it's unreferenced, do nothing.
             if (inst.base.isUnused())
-                return MCValue.dead;
+                return MCValue{ .dead = {} };
             switch (arch) {
                 .x86_64 => {
                     try self.code.ensureCapacity(self.code.items.len + 8);
@@ -1800,11 +1800,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
                     try self.genX8664BinMathCode(inst.base.src, inst.base.ty, dst_mcv, src_mcv, 7, 0x38);
                     const info = inst.lhs.ty.intInfo(self.target.*);
-                    if (info.signed) {
-                        return MCValue{ .compare_flags_signed = op };
-                    } else {
-                        return MCValue{ .compare_flags_unsigned = op };
-                    }
+                    return switch (info.signedness) {
+                        .signed => MCValue{ .compare_flags_signed = op },
+                        .unsigned => MCValue{ .compare_flags_unsigned = op },
+                    };
                 },
                 else => return self.fail(inst.base.src, "TODO implement cmp for {}", .{self.target.cpu.arch}),
             }
@@ -2904,12 +2903,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             switch (mcv) {
                 .immediate => |imm| {
                     // This immediate is unsigned.
-                    const U = @Type(.{
-                        .Int = .{
-                            .bits = ti.bits - @boolToInt(ti.is_signed),
-                            .is_signed = false,
-                        },
-                    });
+                    const U = std.meta.Int(.unsigned, ti.bits - @boolToInt(ti.signedness == .signed));
                     if (imm >= math.maxInt(U)) {
                         return MCValue{ .register = try self.copyToTmpRegister(inst.src, mcv) };
                     }
@@ -2949,7 +2943,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 },
                 .Int => {
                     const info = typed_value.ty.intInfo(self.target.*);
-                    if (info.bits > ptr_bits or info.signed) {
+                    if (info.bits > ptr_bits or info.signedness == .signed) {
                         return self.fail(src, "TODO const int bigger than ptr and signed int", .{});
                     }
                     return MCValue{ .immediate = typed_value.val.toUnsignedInt() };

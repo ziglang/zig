@@ -48,7 +48,7 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
             //  powi(x, y)     = Overflow for for y >= @sizeOf(x) - 1 y > 0
             //  powi(x, y)     = Underflow for for y > @sizeOf(x) - 1 y < 0
             const bit_size = @sizeOf(T) * 8;
-            if (info.Int.is_signed) {
+            if (info.Int.signedness == .signed) {
                 if (x == -1) {
                     //  powi(-1, y)    = -1 for for y an odd integer
                     //  powi(-1, y)    = 1 for for y an even integer

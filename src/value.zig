@@ -929,11 +929,10 @@ pub const Value = extern union {
             .bool_true,
             => {
                 const info = ty.intInfo(target);
-                if (info.signed) {
-                    return info.bits >= 2;
-                } else {
-                    return info.bits >= 1;
-                }
+                return switch (info.signedness) {
+                    .signed => info.bits >= 2,
+                    .unsigned => info.bits >= 1,
+                };
             },
 
             .int_u64 => switch (ty.zigTypeTag()) {
@@ -941,7 +940,7 @@ pub const Value = extern union {
                     const x = self.cast(Payload.Int_u64).?.int;
                     if (x == 0) return true;
                     const info = ty.intInfo(target);
-                    const needed_bits = std.math.log2(x) + 1 + @boolToInt(info.signed);
+                    const needed_bits = std.math.log2(x) + 1 + @boolToInt(info.signedness == .signed);
                     return info.bits >= needed_bits;
                 },
                 .ComptimeInt => return true,
@@ -952,7 +951,7 @@ pub const Value = extern union {
                     const x = self.cast(Payload.Int_i64).?.int;
                     if (x == 0) return true;
                     const info = ty.intInfo(target);
-                    if (!info.signed and x < 0)
+                    if (info.signedness == .unsigned and x < 0)
                         return false;
                     @panic("TODO implement i64 intFitsInType");
                 },
@@ -962,7 +961,7 @@ pub const Value = extern union {
             .int_big_positive => switch (ty.zigTypeTag()) {
                 .Int => {
                     const info = ty.intInfo(target);
-                    return self.cast(Payload.IntBigPositive).?.asBigInt().fitsInTwosComp(info.signed, info.bits);
+                    return self.cast(Payload.IntBigPositive).?.asBigInt().fitsInTwosComp(info.signedness, info.bits);
                 },
                 .ComptimeInt => return true,
                 else => unreachable,
@@ -970,7 +969,7 @@ pub const Value = extern union {
             .int_big_negative => switch (ty.zigTypeTag()) {
                 .Int => {
                     const info = ty.intInfo(target);
-                    return self.cast(Payload.IntBigNegative).?.asBigInt().fitsInTwosComp(info.signed, info.bits);
+                    return self.cast(Payload.IntBigNegative).?.asBigInt().fitsInTwosComp(info.signedness, info.bits);
                 },
                 .ComptimeInt => return true,
                 else => unreachable,

@@ -2633,7 +2633,7 @@ pub fn cmpNumeric(
         dest_float_type = lhs.ty;
     } else {
         const int_info = lhs.ty.intInfo(self.getTarget());
-        lhs_bits = int_info.bits + @boolToInt(!int_info.signed and dest_int_is_signed);
+        lhs_bits = int_info.bits + @boolToInt(int_info.signedness == .unsigned and dest_int_is_signed);
     }
 
     var rhs_bits: usize = undefined;
@@ -2668,7 +2668,7 @@ pub fn cmpNumeric(
         dest_float_type = rhs.ty;
     } else {
         const int_info = rhs.ty.intInfo(self.getTarget());
-        rhs_bits = int_info.bits + @boolToInt(!int_info.signed and dest_int_is_signed);
+        rhs_bits = int_info.bits + @boolToInt(int_info.signedness == .unsigned and dest_int_is_signed);
     }
 
     const dest_type = if (dest_float_type) |ft| ft else blk: {
@@ -2817,9 +2817,9 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
 
         const src_info = inst.ty.intInfo(self.getTarget());
         const dst_info = dest_type.intInfo(self.getTarget());
-        if ((src_info.signed == dst_info.signed and dst_info.bits >= src_info.bits) or
+        if ((src_info.signedness == dst_info.signedness and dst_info.bits >= src_info.bits) or
             // small enough unsigned ints can get casted to large enough signed ints
-            (src_info.signed and !dst_info.signed and dst_info.bits > src_info.bits))
+            (src_info.signedness == .signed and dst_info.signedness == .unsigned and dst_info.bits > src_info.bits))
         {
             const b = try self.requireRuntimeBlock(scope, inst.src);
             return self.addUnOp(b, inst.src, dest_type, .intcast, inst);

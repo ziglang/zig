@@ -195,7 +195,7 @@ test "std.meta.trait.isPacked" {
 
 pub fn isUnsignedInt(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        .Int => |i| !i.is_signed,
+        .Int => |i| i.signedness == .unsigned,
         else => false,
     };
 }
@@ -210,7 +210,7 @@ test "isUnsignedInt" {
 pub fn isSignedInt(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .ComptimeInt => true,
-        .Int => |i| i.is_signed,
+        .Int => |i| i.signedness == .signed,
         else => false,
     };
 }

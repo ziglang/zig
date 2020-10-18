@@ -17,7 +17,7 @@ pub const Log2Limb = std.math.Log2Int(Limb);
 comptime {
     assert(std.math.floorPowerOfTwo(usize, limb_info.bits) == limb_info.bits);
     assert(limb_info.bits <= 64); // u128 set is unsupported
-    assert(limb_info.is_signed == false);
+    assert(limb_info.signedness == .unsigned);
 }
 
 test "" {

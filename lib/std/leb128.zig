@@ -297,8 +297,8 @@ test "deserialize unsigned LEB128" {
 
 fn test_write_leb128(value: anytype) !void {
     const T = @TypeOf(value);
-    const t_signed = @typeInfo(T).Int.is_signed;
-    const signedness = if (t_signed) .signed else .unsigned;
+    const signedness = @typeInfo(T).Int.signedness;
+    const t_signed = signedness == .signed;
 
     const writeStream = if (t_signed) writeILEB128 else writeULEB128;
     const readStream = if (t_signed) readILEB128 else readULEB128;
