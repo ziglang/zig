@@ -1433,24 +1433,31 @@ fn buildOutputType(
                     },
                 }
             },
-            .basename = try std.zig.binNameAlloc(arena, .{
-                .root_name = check_output: {
-                    if (std.fs.cwd().openDir(root_name, .{ .access_sub_paths = false })) |_| {
+            .basename = check_output: {
+                const name_to_check = try std.zig.binNameAlloc(arena, .{
+                    .root_name = root_name,
+                    .target = target_info.target,
+                    .output_mode = output_mode,
+                    .link_mode = link_mode,
+                    .object_format = object_format,
+                    .version = optional_version,
+                });
+                if (std.fs.cwd().openDir(name_to_check, .{ .access_sub_paths = false })) |_| {
+                    if (arg_mode != .zig_test) {
                         fatal("The output binary file name is the same name as a directory: \"{}\"", .{root_name});
-                    } else |_| {
+                    } else {
                         break :check_output root_name;
                     }
-                },
-                .target = target_info.target,
-                .output_mode = output_mode,
-                .link_mode = link_mode,
-                .object_format = object_format,
-                .version = optional_version,
-            }),
+                } else |_| {
+                    break :check_output root_name;
+                }
+            },
         },
         .yes => |full_path| b: {
             if (std.fs.cwd().openDir(full_path, .{ .access_sub_paths = false })) |_| {
-                fatal("The output binary file name is the same name as a directory: \"{}\"", .{fs.path.dirname(full_path)});
+                if (arg_mode != .zig_test) {
+                    fatal("The output binary file name is the same name as a directory: \"{}\"", .{fs.path.dirname(full_path)});
+                } else {}
             } else |_| {}
             const basename = fs.path.basename(full_path);
             if (have_enable_cache) {
