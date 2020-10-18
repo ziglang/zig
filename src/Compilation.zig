@@ -1640,16 +1640,16 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
             }
         } else {
             child.stdin_behavior = .Ignore;
-            child.stdout_behavior = .Pipe;
+            child.stdout_behavior = .Ignore;
             child.stderr_behavior = .Pipe;
 
             try child.spawn();
 
-            const stdout_reader = child.stdout.?.reader();
             const stderr_reader = child.stderr.?.reader();
 
             // TODO https://github.com/ziglang/zig/issues/6343
-            const stdout = try stdout_reader.readAllAlloc(arena, std.math.maxInt(u32));
+            // Please uncomment and use stdout once this issue is fixed
+            // const stdout = try stdout_reader.readAllAlloc(arena, std.math.maxInt(u32));
             const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
 
             const term = child.wait() catch |err| {
