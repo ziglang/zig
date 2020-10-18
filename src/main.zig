@@ -540,6 +540,9 @@ fn buildOutputType(
             switch (arg_mode) {
                 .build => |m| {
                     output_mode = m;
+                    if (output_mode == .Lib) {
+                        link_mode = .Static;
+                    }
                 },
                 .translate_c => {
                     emit_bin = .no;
