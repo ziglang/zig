@@ -31,12 +31,12 @@ test "Type.NoReturn" {
 }
 
 test "Type.Int" {
-    testing.expect(u1 == @Type(TypeInfo{ .Int = TypeInfo.Int{ .is_signed = false, .bits = 1 } }));
-    testing.expect(i1 == @Type(TypeInfo{ .Int = TypeInfo.Int{ .is_signed = true, .bits = 1 } }));
-    testing.expect(u8 == @Type(TypeInfo{ .Int = TypeInfo.Int{ .is_signed = false, .bits = 8 } }));
-    testing.expect(i8 == @Type(TypeInfo{ .Int = TypeInfo.Int{ .is_signed = true, .bits = 8 } }));
-    testing.expect(u64 == @Type(TypeInfo{ .Int = TypeInfo.Int{ .is_signed = false, .bits = 64 } }));
-    testing.expect(i64 == @Type(TypeInfo{ .Int = TypeInfo.Int{ .is_signed = true, .bits = 64 } }));
+    testing.expect(u1 == @Type(TypeInfo{ .Int = TypeInfo.Int{ .signedness = .unsigned, .bits = 1 } }));
+    testing.expect(i1 == @Type(TypeInfo{ .Int = TypeInfo.Int{ .signedness = .signed, .bits = 1 } }));
+    testing.expect(u8 == @Type(TypeInfo{ .Int = TypeInfo.Int{ .signedness = .unsigned, .bits = 8 } }));
+    testing.expect(i8 == @Type(TypeInfo{ .Int = TypeInfo.Int{ .signedness = .signed, .bits = 8 } }));
+    testing.expect(u64 == @Type(TypeInfo{ .Int = TypeInfo.Int{ .signedness = .unsigned, .bits = 64 } }));
+    testing.expect(i64 == @Type(TypeInfo{ .Int = TypeInfo.Int{ .signedness = .signed, .bits = 64 } }));
     testTypes(&[_]type{ u8, u32, i64 });
 }
 

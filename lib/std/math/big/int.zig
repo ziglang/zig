@@ -24,7 +24,7 @@ pub fn calcLimbLen(scalar: anytype) usize {
     const T = @TypeOf(scalar);
     switch (@typeInfo(T)) {
         .Int => |info| {
-            const UT = if (info.is_signed) std.meta.Int(.unsigned, info.bits - 1) else T;
+            const UT = if (info.signedness == .signed) std.meta.Int(.unsigned, info.bits - 1) else T;
             return @sizeOf(UT) / @sizeOf(Limb);
         },
         .ComptimeInt => {
@@ -187,7 +187,7 @@ pub const Mutable = struct {
 
         switch (@typeInfo(T)) {
             .Int => |info| {
-                const UT = if (info.is_signed) std.meta.Int(.unsigned, info.bits - 1) else T;
+                const UT = if (info.signedness == .signed) std.meta.Int(.unsigned, info.bits - 1) else T;
 
                 const needed_limbs = @sizeOf(UT) / @sizeOf(Limb);
                 assert(needed_limbs <= self.limbs.len); // value too big
@@ -1054,22 +1054,22 @@ pub const Const = struct {
         return bits;
     }
 
-    pub fn fitsInTwosComp(self: Const, is_signed: bool, bit_count: usize) bool {
+    pub fn fitsInTwosComp(self: Const, signedness: std.builtin.Signedness, bit_count: usize) bool {
         if (self.eqZero()) {
             return true;
         }
-        if (!is_signed and !self.positive) {
+        if (signedness == .unsigned and !self.positive) {
             return false;
         }
 
-        const req_bits = self.bitCountTwosComp() + @boolToInt(self.positive and is_signed);
+        const req_bits = self.bitCountTwosComp() + @boolToInt(self.positive and signedness == .signed);
         return bit_count >= req_bits;
     }
 
     /// Returns whether self can fit into an integer of the requested type.
     pub fn fits(self: Const, comptime T: type) bool {
         const info = @typeInfo(T).Int;
-        return self.fitsInTwosComp(info.is_signed, info.bits);
+        return self.fitsInTwosComp(info.signedness, info.bits);
     }
 
     /// Returns the approximate size of the integer in the given base. Negative values accommodate for
@@ -1110,7 +1110,7 @@ pub const Const = struct {
                     }
                 }
 
-                if (!info.is_signed) {
+                if (info.signedness == .unsigned) {
                     return if (self.positive) @intCast(T, r) else error.NegativeIntoUnsigned;
                 } else {
                     if (self.positive) {
@@ -1558,8 +1558,8 @@ pub const Managed = struct {
         return self.toConst().bitCountTwosComp();
     }
 
-    pub fn fitsInTwosComp(self: Managed, is_signed: bool, bit_count: usize) bool {
-        return self.toConst().fitsInTwosComp(is_signed, bit_count);
+    pub fn fitsInTwosComp(self: Managed, signedness: std.builtin.Signedness, bit_count: usize) bool {
+        return self.toConst().fitsInTwosComp(signedness, bit_count);
     }
 
     /// Returns whether self can fit into an integer of the requested type.

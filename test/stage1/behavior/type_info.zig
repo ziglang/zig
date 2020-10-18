@@ -28,7 +28,7 @@ test "type info: integer, floating point type info" {
 fn testIntFloat() void {
     const u8_info = @typeInfo(u8);
     expect(u8_info == .Int);
-    expect(!u8_info.Int.is_signed);
+    expect(u8_info.Int.signedness == .unsigned);
     expect(u8_info.Int.bits == 8);
 
     const f64_info = @typeInfo(f64);

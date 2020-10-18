@@ -313,7 +313,7 @@ pub fn floatExponentBits(comptime T: type) comptime_int {
 pub fn Min(comptime A: type, comptime B: type) type {
     switch (@typeInfo(A)) {
         .Int => |a_info| switch (@typeInfo(B)) {
-            .Int => |b_info| if (!a_info.is_signed and !b_info.is_signed) {
+            .Int => |b_info| if (a_info.signedness == .unsigned and b_info.signedness == .unsigned) {
                 if (a_info.bits < b_info.bits) {
                     return A;
                 } else {
@@ -450,7 +450,7 @@ pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
         }
     };
 
-    if (@TypeOf(shift_amt) == comptime_int or @typeInfo(@TypeOf(shift_amt)).Int.is_signed) {
+    if (@TypeOf(shift_amt) == comptime_int or @typeInfo(@TypeOf(shift_amt)).Int.signedness == .signed) {
         if (shift_amt < 0) {
             return a >> casted_shift_amt;
         }
@@ -490,7 +490,7 @@ pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
         }
     };
 
-    if (@TypeOf(shift_amt) == comptime_int or @typeInfo(@TypeOf(shift_amt)).Int.is_signed) {
+    if (@TypeOf(shift_amt) == comptime_int or @typeInfo(@TypeOf(shift_amt)).Int.signedness == .signed) {
         if (shift_amt < 0) {
             return a << casted_shift_amt;
         }
@@ -518,12 +518,12 @@ test "math.shr" {
 pub fn rotr(comptime T: type, x: T, r: anytype) T {
     if (@typeInfo(T) == .Vector) {
         const C = @typeInfo(T).Vector.child;
-        if (@typeInfo(C).Int.is_signed) {
+        if (@typeInfo(C).Int.signedness == .signed) {
             @compileError("cannot rotate signed integers");
         }
         const ar = @intCast(Log2Int(C), @mod(r, @typeInfo(C).Int.bits));
         return (x >> @splat(@typeInfo(T).Vector.len, ar)) | (x << @splat(@typeInfo(T).Vector.len, 1 + ~ar));
-    } else if (@typeInfo(T).Int.is_signed) {
+    } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
         const ar = @mod(r, @typeInfo(T).Int.bits);
@@ -546,12 +546,12 @@ test "math.rotr" {
 pub fn rotl(comptime T: type, x: T, r: anytype) T {
     if (@typeInfo(T) == .Vector) {
         const C = @typeInfo(T).Vector.child;
-        if (@typeInfo(C).Int.is_signed) {
+        if (@typeInfo(C).Int.signedness == .signed) {
             @compileError("cannot rotate signed integers");
         }
         const ar = @intCast(Log2Int(C), @mod(r, @typeInfo(C).Int.bits));
         return (x << @splat(@typeInfo(T).Vector.len, ar)) | (x >> @splat(@typeInfo(T).Vector.len, 1 +% ~ar));
-    } else if (@typeInfo(T).Int.is_signed) {
+    } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
         const ar = @mod(r, @typeInfo(T).Int.bits);
@@ -585,7 +585,7 @@ pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) t
     if (from == 0 and to == 0) {
         return u0;
     }
-    const sign: std.meta.Signedness = if (from < 0) .signed else .unsigned;
+    const sign: std.builtin.Signedness = if (from < 0) .signed else .unsigned;
     const largest_positive_integer = max(if (from < 0) (-from) - 1 else from, to); // two's complement
     const base = log2(largest_positive_integer);
     const upper = (1 << base) - 1;
@@ -658,7 +658,7 @@ fn testOverflow() void {
 pub fn absInt(x: anytype) !@TypeOf(x) {
     const T = @TypeOf(x);
     comptime assert(@typeInfo(T) == .Int); // must pass an integer to absInt
-    comptime assert(@typeInfo(T).Int.is_signed); // must pass a signed integer to absInt
+    comptime assert(@typeInfo(T).Int.signedness == .signed); // must pass a signed integer to absInt
 
     if (x == minInt(@TypeOf(x))) {
         return error.Overflow;
@@ -691,7 +691,7 @@ fn testAbsFloat() void {
 pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
-    if (@typeInfo(T) == .Int and @typeInfo(T).Int.is_signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
+    if (@typeInfo(T) == .Int and @typeInfo(T).Int.signedness == .signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
     return @divTrunc(numerator, denominator);
 }
 
@@ -712,7 +712,7 @@ fn testDivTrunc() void {
 pub fn divFloor(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
-    if (@typeInfo(T) == .Int and @typeInfo(T).Int.is_signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
+    if (@typeInfo(T) == .Int and @typeInfo(T).Int.signedness == .signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
     return @divFloor(numerator, denominator);
 }
 
@@ -786,7 +786,7 @@ fn testDivCeil() void {
 pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
-    if (@typeInfo(T) == .Int and @typeInfo(T).Int.is_signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
+    if (@typeInfo(T) == .Int and @typeInfo(T).Int.signedness == .signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
     const result = @divTrunc(numerator, denominator);
     if (result * denominator != numerator) return error.UnexpectedRemainder;
     return result;
@@ -892,7 +892,7 @@ test "math.absCast" {
 /// Returns the negation of the integer parameter.
 /// Result is a signed integer.
 pub fn negateCast(x: anytype) !std.meta.Int(.signed, std.meta.bitCount(@TypeOf(x))) {
-    if (@typeInfo(@TypeOf(x)).Int.is_signed) return negate(x);
+    if (@typeInfo(@TypeOf(x)).Int.signedness == .signed) return negate(x);
 
     const int = std.meta.Int(.signed, std.meta.bitCount(@TypeOf(x)));
     if (x > -minInt(int)) return error.Overflow;
@@ -981,11 +981,11 @@ fn testFloorPowerOfTwo() void {
 /// Returns the next power of two (if the value is not already a power of two).
 /// Only unsigned integers can be used. Zero is not an allowed input.
 /// Result is a type with 1 more bit than the input type.
-pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) std.meta.Int(if (@typeInfo(T).Int.is_signed) .signed else .unsigned, @typeInfo(T).Int.bits + 1) {
+pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) std.meta.Int(@typeInfo(T).Int.signedness, @typeInfo(T).Int.bits + 1) {
     comptime assert(@typeInfo(T) == .Int);
-    comptime assert(!@typeInfo(T).Int.is_signed);
+    comptime assert(@typeInfo(T).Int.signedness == .unsigned);
     assert(value != 0);
-    comptime const PromotedType = std.meta.Int(if (@typeInfo(T).Int.is_signed) .signed else .unsigned, @typeInfo(T).Int.bits + 1);
+    comptime const PromotedType = std.meta.Int(@typeInfo(T).Int.signedness, @typeInfo(T).Int.bits + 1);
     comptime const shiftType = std.math.Log2Int(PromotedType);
     return @as(PromotedType, 1) << @intCast(shiftType, @typeInfo(T).Int.bits - @clz(T, value - 1));
 }
@@ -996,8 +996,8 @@ pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) std.meta.Int(if (@typeI
 pub fn ceilPowerOfTwo(comptime T: type, value: T) (error{Overflow}!T) {
     comptime assert(@typeInfo(T) == .Int);
     const info = @typeInfo(T).Int;
-    comptime assert(!info.is_signed);
-    comptime const PromotedType = std.meta.Int(if (info.is_signed) .signed else .unsigned, info.bits + 1);
+    comptime assert(info.signedness == .unsigned);
+    comptime const PromotedType = std.meta.Int(info.signedness, info.bits + 1);
     comptime const overflowBit = @as(PromotedType, 1) << info.bits;
     var x = ceilPowerOfTwoPromote(T, value);
     if (overflowBit & x != 0) {
@@ -1090,13 +1090,13 @@ pub fn maxInt(comptime T: type) comptime_int {
     const info = @typeInfo(T);
     const bit_count = info.Int.bits;
     if (bit_count == 0) return 0;
-    return (1 << (bit_count - @boolToInt(info.Int.is_signed))) - 1;
+    return (1 << (bit_count - @boolToInt(info.Int.signedness == .signed))) - 1;
 }
 
 pub fn minInt(comptime T: type) comptime_int {
     const info = @typeInfo(T);
     const bit_count = info.Int.bits;
-    if (!info.Int.is_signed) return 0;
+    if (info.Int.signedness == .unsigned) return 0;
     if (bit_count == 0) return 0;
     return -(1 << (bit_count - 1));
 }
@@ -1143,8 +1143,8 @@ test "max value type" {
     testing.expect(x == 2147483647);
 }
 
-pub fn mulWide(comptime T: type, a: T, b: T) std.meta.Int(if (@typeInfo(T).Int.is_signed) .signed else .unsigned, @typeInfo(T).Int.bits * 2) {
-    const ResultInt = std.meta.Int(if (@typeInfo(T).Int.is_signed) .signed else .unsigned, @typeInfo(T).Int.bits * 2);
+pub fn mulWide(comptime T: type, a: T, b: T) std.meta.Int(@typeInfo(T).Int.signedness, @typeInfo(T).Int.bits * 2) {
+    const ResultInt = std.meta.Int(@typeInfo(T).Int.signedness, @typeInfo(T).Int.bits * 2);
     return @as(ResultInt, a) * @as(ResultInt, b);
 }
 

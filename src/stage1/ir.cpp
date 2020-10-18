@@ -25306,11 +25306,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 2);
                 result->data.x_struct.fields = fields;
 
-                // is_signed: bool
-                ensure_field_index(result->type, "is_signed", 0);
+                // is_signed: Signedness
+                ensure_field_index(result->type, "signedness", 0);
                 fields[0]->special = ConstValSpecialStatic;
-                fields[0]->type = ira->codegen->builtin_types.entry_bool;
-                fields[0]->data.x_bool = type_entry->data.integral.is_signed;
+                fields[0]->type = get_builtin_type(ira->codegen, "Signedness");
+                bigint_init_unsigned(&fields[0]->data.x_enum_tag, !type_entry->data.integral.is_signed);
                 // bits: u8
                 ensure_field_index(result->type, "bits", 1);
                 fields[1]->special = ConstValSpecialStatic;
@@ -26073,9 +26073,11 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
             BigInt *bi = get_const_field_lit_int(ira, source_instr->source_node, payload, "bits", 1);
             if (bi == nullptr)
                 return ira->codegen->invalid_inst_gen->value->type;
-            bool is_signed;
-            if ((err = get_const_field_bool(ira, source_instr->source_node, payload, "is_signed", 0, &is_signed)))
+            ZigValue *value = get_const_field(ira, source_instr->source_node, payload, "signedness", 0);
+            if (value == nullptr)
                 return ira->codegen->invalid_inst_gen->value->type;
+            assert(value->type == get_builtin_type(ira->codegen, "Signedness"));
+            bool is_signed = !bigint_as_u32(&value->data.x_enum_tag);
             return get_int_type(ira->codegen, is_signed, bigint_as_u32(bi));
         }
         case ZigTypeIdFloat:

@@ -332,7 +332,7 @@ test "PackedIntArray" {
     comptime var bits = 0;
     inline while (bits <= max_bits) : (bits += 1) {
         //alternate unsigned and signed
-        const sign: std.meta.Signedness = if (bits % 2 == 0) .signed else .unsigned;
+        const sign: builtin.Signedness = if (bits % 2 == 0) .signed else .unsigned;
         const I = std.meta.Int(sign, bits);
 
         const PackedArray = PackedIntArray(I, int_count);
@@ -384,7 +384,7 @@ test "PackedIntSlice" {
     comptime var bits = 0;
     inline while (bits <= max_bits) : (bits += 1) {
         //alternate unsigned and signed
-        const sign: std.meta.Signedness = if (bits % 2 == 0) .signed else .unsigned;
+        const sign: builtin.Signedness = if (bits % 2 == 0) .signed else .unsigned;
         const I = std.meta.Int(sign, bits);
         const P = PackedIntSlice(I);
 

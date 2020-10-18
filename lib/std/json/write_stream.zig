@@ -167,7 +167,7 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
                         self.popState();
                         return;
                     }
-                    if (value < 4503599627370496 and (!info.is_signed or value > -4503599627370496)) {
+                    if (value < 4503599627370496 and (info.signedness == .unsigned or value > -4503599627370496)) {
                         try self.stream.print("{}", .{value});
                         self.popState();
                         return;

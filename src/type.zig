@@ -186,7 +186,7 @@ pub const Type = extern union {
                 // The target will not be branched upon, because we handled target-dependent cases above.
                 const info_a = a.intInfo(@as(Target, undefined));
                 const info_b = b.intInfo(@as(Target, undefined));
-                return info_a.signed == info_b.signed and info_a.bits == info_b.bits;
+                return info_a.signedness == info_b.signedness and info_a.bits == info_b.bits;
             },
             .Array => {
                 if (a.arrayLen() != b.arrayLen())
@@ -266,7 +266,7 @@ pub const Type = extern union {
                     // Remaining cases are arbitrary sized integers.
                     // The target will not be branched upon, because we handled target-dependent cases above.
                     const info = self.intInfo(@as(Target, undefined));
-                    std.hash.autoHash(&hasher, info.signed);
+                    std.hash.autoHash(&hasher, info.signedness);
                     std.hash.autoHash(&hasher, info.bits);
                 }
             },
@@ -1908,7 +1908,7 @@ pub const Type = extern union {
     }
 
     /// Asserts the type is an integer.
-    pub fn intInfo(self: Type, target: Target) struct { signed: bool, bits: u16 } {
+    pub fn intInfo(self: Type, target: Target) struct { signedness: std.builtin.Signedness, bits: u16 } {
         return switch (self.tag()) {
             .f16,
             .f32,
@@ -1958,26 +1958,26 @@ pub const Type = extern union {
             .empty_struct,
             => unreachable,
 
-            .int_unsigned => .{ .signed = false, .bits = self.cast(Payload.IntUnsigned).?.bits },
-            .int_signed => .{ .signed = true, .bits = self.cast(Payload.IntSigned).?.bits },
-            .u8 => .{ .signed = false, .bits = 8 },
-            .i8 => .{ .signed = true, .bits = 8 },
-            .u16 => .{ .signed = false, .bits = 16 },
-            .i16 => .{ .signed = true, .bits = 16 },
-            .u32 => .{ .signed = false, .bits = 32 },
-            .i32 => .{ .signed = true, .bits = 32 },
-            .u64 => .{ .signed = false, .bits = 64 },
-            .i64 => .{ .signed = true, .bits = 64 },
-            .usize => .{ .signed = false, .bits = target.cpu.arch.ptrBitWidth() },
-            .isize => .{ .signed = true, .bits = target.cpu.arch.ptrBitWidth() },
-            .c_short => .{ .signed = true, .bits = CType.short.sizeInBits(target) },
-            .c_ushort => .{ .signed = false, .bits = CType.ushort.sizeInBits(target) },
-            .c_int => .{ .signed = true, .bits = CType.int.sizeInBits(target) },
-            .c_uint => .{ .signed = false, .bits = CType.uint.sizeInBits(target) },
-            .c_long => .{ .signed = true, .bits = CType.long.sizeInBits(target) },
-            .c_ulong => .{ .signed = false, .bits = CType.ulong.sizeInBits(target) },
-            .c_longlong => .{ .signed = true, .bits = CType.longlong.sizeInBits(target) },
-            .c_ulonglong => .{ .signed = false, .bits = CType.ulonglong.sizeInBits(target) },
+            .int_unsigned => .{ .signedness = .unsigned, .bits = self.cast(Payload.IntUnsigned).?.bits },
+            .int_signed => .{ .signedness = .signed, .bits = self.cast(Payload.IntSigned).?.bits },
+            .u8 => .{ .signedness = .unsigned, .bits = 8 },
+            .i8 => .{ .signedness = .signed, .bits = 8 },
+            .u16 => .{ .signedness = .unsigned, .bits = 16 },
+            .i16 => .{ .signedness = .signed, .bits = 16 },
+            .u32 => .{ .signedness = .unsigned, .bits = 32 },
+            .i32 => .{ .signedness = .signed, .bits = 32 },
+            .u64 => .{ .signedness = .unsigned, .bits = 64 },
+            .i64 => .{ .signedness = .signed, .bits = 64 },
+            .usize => .{ .signedness = .unsigned, .bits = target.cpu.arch.ptrBitWidth() },
+            .isize => .{ .signedness = .signed, .bits = target.cpu.arch.ptrBitWidth() },
+            .c_short => .{ .signedness = .signed, .bits = CType.short.sizeInBits(target) },
+            .c_ushort => .{ .signedness = .unsigned, .bits = CType.ushort.sizeInBits(target) },
+            .c_int => .{ .signedness = .signed, .bits = CType.int.sizeInBits(target) },
+            .c_uint => .{ .signedness = .unsigned, .bits = CType.uint.sizeInBits(target) },
+            .c_long => .{ .signedness = .signed, .bits = CType.long.sizeInBits(target) },
+            .c_ulong => .{ .signedness = .unsigned, .bits = CType.ulong.sizeInBits(target) },
+            .c_longlong => .{ .signedness = .signed, .bits = CType.longlong.sizeInBits(target) },
+            .c_ulonglong => .{ .signedness = .unsigned, .bits = CType.ulonglong.sizeInBits(target) },
         };
     }
 
@@ -2869,7 +2869,7 @@ pub const Type = extern union {
         assert(self.zigTypeTag() == .Int);
         const info = self.intInfo(target);
 
-        if (!info.signed) {
+        if (info.signedness == .unsigned) {
             return Value.initTag(.zero);
         }
 
@@ -2902,13 +2902,13 @@ pub const Type = extern union {
         assert(self.zigTypeTag() == .Int);
         const info = self.intInfo(target);
 
-        if (info.signed and (info.bits - 1) <= std.math.maxInt(u6)) {
+        if (info.signedness == .signed and (info.bits - 1) <= std.math.maxInt(u6)) {
             const payload = try arena.allocator.create(Value.Payload.Int_i64);
             payload.* = .{
                 .int = (@as(i64, 1) << @truncate(u6, info.bits - 1)) - 1,
             };
             return Value.initPayload(&payload.base);
-        } else if (!info.signed and info.bits <= std.math.maxInt(u6)) {
+        } else if (info.signedness == .signed and info.bits <= std.math.maxInt(u6)) {
             const payload = try arena.allocator.create(Value.Payload.Int_u64);
             payload.* = .{
                 .int = (@as(u64, 1) << @truncate(u6, info.bits)) - 1,
@@ -2917,7 +2917,7 @@ pub const Type = extern union {
         }
 
         var res = try std.math.big.int.Managed.initSet(&arena.allocator, 1);
-        try res.shiftLeft(res, info.bits - @boolToInt(info.signed));
+        try res.shiftLeft(res, info.bits - @boolToInt(info.signedness == .signed));
         const one = std.math.big.int.Const{
             .limbs = &[_]std.math.big.Limb{1},
             .positive = true,

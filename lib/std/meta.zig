@@ -718,15 +718,10 @@ pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const De
 
 pub const IntType = @compileError("replaced by std.meta.Int");
 
-pub const Signedness = enum {
-    unsigned,
-    signed,
-};
-
-pub fn Int(comptime signedness: Signedness, comptime bit_count: u16) type {
+pub fn Int(comptime signedness: builtin.Signedness, comptime bit_count: u16) type {
     return @Type(TypeInfo{
         .Int = .{
-            .is_signed = signedness == .signed,
+            .signedness = signedness,
             .bits = bit_count,
         },
     });

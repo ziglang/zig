@@ -4868,12 +4868,7 @@ pub fn sendfile(
     var total_written: usize = 0;
 
     // Prevents EOVERFLOW.
-    const size_t = @Type(std.builtin.TypeInfo{
-        .Int = .{
-            .is_signed = false,
-            .bits = @typeInfo(usize).Int.bits - 1,
-        },
-    });
+    const size_t = std.meta.Int(.unsigned, @typeInfo(usize).Int.bits - 1);
     const max_count = switch (std.Target.current.os.tag) {
         .linux => 0x7ffff000,
         .macos, .ios, .watchos, .tvos => math.maxInt(i32),
