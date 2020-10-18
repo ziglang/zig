@@ -1432,7 +1432,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
 
     if (link_in_crt) {
         const crt1o: []const u8 = o: {
-            if (target.os.tag == .netbsd) {
+            if (target.os.tag == .netbsd or target.os.tag == .openbsd) {
                 break :o "crt0.o";
             } else if (target.isAndroid()) {
                 if (self.base.options.link_mode == .Dynamic) {
@@ -1449,6 +1449,9 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         try argv.append(try comp.get_libc_crt_file(arena, crt1o));
         if (target_util.libc_needs_crti_crtn(target)) {
             try argv.append(try comp.get_libc_crt_file(arena, "crti.o"));
+        }
+        if (target.os.tag == .openbsd) {
+            try argv.append(try comp.get_libc_crt_file(arena, "crtbegin.o"));
         }
     }
 
@@ -1594,6 +1597,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     if (link_in_crt) {
         if (target.isAndroid()) {
             try argv.append(try comp.get_libc_crt_file(arena, "crtend_android.o"));
+        } else if (target.os.tag == .openbsd) {
+            try argv.append(try comp.get_libc_crt_file(arena, "crtend.o"));
         } else if (target_util.libc_needs_crti_crtn(target)) {
             try argv.append(try comp.get_libc_crt_file(arena, "crtn.o"));
         }

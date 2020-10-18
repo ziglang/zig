@@ -39,7 +39,7 @@ pub const Watch = @import("fs/watch.zig").Watch;
 /// fit into a UTF-8 encoded array of this length.
 /// The byte count includes room for a null sentinel byte.
 pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
-    .linux, .macos, .ios, .freebsd, .netbsd, .dragonfly => os.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -303,7 +303,7 @@ pub const Dir = struct {
     const IteratorError = error{AccessDenied} || os.UnexpectedError;
 
     pub const Iterator = switch (builtin.os.tag) {
-        .macos, .ios, .freebsd, .netbsd, .dragonfly => struct {
+        .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => struct {
             dir: Dir,
             seek: i64,
             buf: [8192]u8, // TODO align(@alignOf(os.dirent)),
@@ -319,7 +319,7 @@ pub const Dir = struct {
             pub fn next(self: *Self) Error!?Entry {
                 switch (builtin.os.tag) {
                     .macos, .ios => return self.nextDarwin(),
-                    .freebsd, .netbsd, .dragonfly => return self.nextBsd(),
+                    .freebsd, .netbsd, .dragonfly, .openbsd => return self.nextBsd(),
                     else => @compileError("unimplemented"),
                 }
             }
@@ -615,7 +615,7 @@ pub const Dir = struct {
 
     pub fn iterate(self: Dir) Iterator {
         switch (builtin.os.tag) {
-            .macos, .ios, .freebsd, .netbsd, .dragonfly => return Iterator{
+            .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => return Iterator{
                 .dir = self,
                 .seek = 0,
                 .index = 0,
@@ -1302,7 +1302,7 @@ pub const Dir = struct {
             error.AccessDenied => |e| switch (builtin.os.tag) {
                 // non-Linux POSIX systems return EPERM when trying to delete a directory, so
                 // we need to handle that case specifically and translate the error
-                .macos, .ios, .freebsd, .netbsd, .dragonfly => {
+                .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd => {
                     // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
                     const fstat = os.fstatatZ(self.fd, sub_path_c, os.AT_SYMLINK_NOFOLLOW) catch return e;
                     const is_dir = fstat.mode & os.S_IFMT == os.S_IFDIR;
@@ -2231,6 +2231,43 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             try os.sysctl(&mib, out_buffer.ptr, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
             return mem.spanZ(@ptrCast([*:0]u8, out_buffer));
+        },
+        .openbsd => {
+            // OpenBSD doesn't support getting the path of a running process, so try to guess it
+            if (os.argv.len == 0)
+                return error.FileNotFound;
+
+            const argv0 = mem.span(os.argv[0]);
+            if (mem.indexOf(u8, argv0, "/") != null) {
+                // argv[0] is a path (relative or absolute): use realpath(3) directly
+                var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+                const real_path = try os.realpathZ(os.argv[0], &real_path_buf);
+                if (real_path.len > out_buffer.len)
+                    return error.NameTooLong;
+                mem.copy(u8, out_buffer, real_path);
+                return out_buffer[0..real_path.len];
+            } else if (argv0.len != 0) {
+                // argv[0] is not empty (and not a path): search it inside PATH
+                const PATH = std.os.getenvZ("PATH") orelse return error.FileNotFound;
+                var path_it = mem.tokenize(PATH, &[_]u8{path.delimiter});
+                while (path_it.next()) |a_path| {
+                    var resolved_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+                    const resolved_path = std.fmt.bufPrintZ(&resolved_path_buf, "{s}/{s}", .{
+                        a_path,
+                        os.argv[0],
+                    }) catch continue;
+
+                    var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+                    if (os.realpathZ(&resolved_path_buf, &real_path_buf)) |real_path| {
+                        // found a file, and hope it is the right file
+                        if (real_path.len > out_buffer.len)
+                            return error.NameTooLong;
+                        mem.copy(u8, out_buffer, real_path);
+                        return out_buffer[0..real_path.len];
+                    } else |_| continue;
+                }
+            }
+            return error.FileNotFound;
         },
         .windows => {
             const utf16le_slice = selfExePathW();

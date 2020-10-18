@@ -29,6 +29,8 @@
 #define ZIG_OS_NETBSD
 #elif defined(__DragonFly__)
 #define ZIG_OS_DRAGONFLY
+#elif defined(__OpenBSD__)
+#define ZIG_OS_OPENBSD
 #else
 #define ZIG_OS_UNKNOWN
 #endif

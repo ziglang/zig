@@ -69,7 +69,7 @@ pub const Loop = struct {
         };
 
         pub const EventFd = switch (builtin.os.tag) {
-            .macos, .freebsd, .netbsd, .dragonfly => KEventFd,
+            .macos, .freebsd, .netbsd, .dragonfly, .openbsd => KEventFd,
             .linux => struct {
                 base: ResumeNode,
                 epoll_op: u32,
@@ -88,7 +88,7 @@ pub const Loop = struct {
         };
 
         pub const Basic = switch (builtin.os.tag) {
-            .macos, .freebsd, .netbsd, .dragonfly => KEventBasic,
+            .macos, .freebsd, .netbsd, .dragonfly, .openbsd => KEventBasic,
             .linux => struct {
                 base: ResumeNode,
             },
@@ -266,7 +266,7 @@ pub const Loop = struct {
                     self.extra_threads[extra_thread_index] = try Thread.spawn(self, workerRun);
                 }
             },
-            .macos, .freebsd, .netbsd, .dragonfly => {
+            .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
                 self.os_data.kqfd = try os.kqueue();
                 errdefer os.close(self.os_data.kqfd);
 
@@ -391,7 +391,7 @@ pub const Loop = struct {
                 while (self.available_eventfd_resume_nodes.pop()) |node| os.close(node.data.eventfd);
                 os.close(self.os_data.epollfd);
             },
-            .macos, .freebsd, .netbsd, .dragonfly => {
+            .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
                 os.close(self.os_data.kqfd);
             },
             .windows => {
@@ -485,7 +485,7 @@ pub const Loop = struct {
             .linux => {
                 self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLONESHOT | os.EPOLLIN);
             },
-            .macos, .freebsd, .netbsd, .dragonfly => {
+            .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
                 self.bsdWaitKev(@intCast(usize, fd), os.EVFILT_READ, os.EV_ONESHOT);
             },
             else => @compileError("Unsupported OS"),
@@ -497,7 +497,7 @@ pub const Loop = struct {
             .linux => {
                 self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLONESHOT | os.EPOLLOUT);
             },
-            .macos, .freebsd, .netbsd, .dragonfly => {
+            .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
                 self.bsdWaitKev(@intCast(usize, fd), os.EVFILT_WRITE, os.EV_ONESHOT);
             },
             else => @compileError("Unsupported OS"),
@@ -509,7 +509,7 @@ pub const Loop = struct {
             .linux => {
                 self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLONESHOT | os.EPOLLOUT | os.EPOLLIN);
             },
-            .macos, .freebsd, .netbsd, .dragonfly => {
+            .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
                 self.bsdWaitKev(@intCast(usize, fd), os.EVFILT_READ, os.EV_ONESHOT);
                 self.bsdWaitKev(@intCast(usize, fd), os.EVFILT_WRITE, os.EV_ONESHOT);
             },
@@ -578,7 +578,7 @@ pub const Loop = struct {
             const eventfd_node = &resume_stack_node.data;
             eventfd_node.base.handle = next_tick_node.data;
             switch (builtin.os.tag) {
-                .macos, .freebsd, .netbsd, .dragonfly => {
+                .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
                     const kevent_array = @as(*const [1]os.Kevent, &eventfd_node.kevent);
                     const empty_kevs = &[0]os.Kevent{};
                     _ = os.kevent(self.os_data.kqfd, kevent_array, empty_kevs, null) catch {
@@ -644,6 +644,7 @@ pub const Loop = struct {
                 .freebsd,
                 .netbsd,
                 .dragonfly,
+                .openbsd,
                 => self.fs_thread.wait(),
                 else => {},
             }
@@ -736,7 +737,7 @@ pub const Loop = struct {
                     }
                     return;
                 },
-                .macos, .freebsd, .netbsd, .dragonfly => {
+                .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
                     const final_kevent = @as(*const [1]os.Kevent, &self.os_data.final_kevent);
                     const empty_kevs = &[0]os.Kevent{};
                     // cannot fail because we already added it and this just enables it
@@ -1351,7 +1352,7 @@ pub const Loop = struct {
                         }
                     }
                 },
-                .macos, .freebsd, .netbsd, .dragonfly => {
+                .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
                     var eventlist: [1]os.Kevent = undefined;
                     const empty_kevs = &[0]os.Kevent{};
                     const count = os.kevent(self.os_data.kqfd, empty_kevs, eventlist[0..], null) catch unreachable;
@@ -1477,7 +1478,7 @@ pub const Loop = struct {
 
     const OsData = switch (builtin.os.tag) {
         .linux => LinuxOsData,
-        .macos, .freebsd, .netbsd, .dragonfly => KEventData,
+        .macos, .freebsd, .netbsd, .dragonfly, .openbsd => KEventData,
         .windows => struct {
             io_port: windows.HANDLE,
             extra_thread_count: usize,
