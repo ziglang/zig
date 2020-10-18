@@ -31,6 +31,7 @@ const ziggurat = @import("rand/ziggurat.zig");
 const maxInt = std.math.maxInt;
 
 /// Fast unbiased random numbers.
+/// Note: this is not a cryptographically secure random number generator.
 pub const DefaultPrng = Xoroshiro128;
 
 /// Cryptographically secure random numbers.
@@ -742,9 +743,8 @@ test "xoroshiro sequence" {
     }
 }
 
-// Gimli
-//
-// CSPRNG
+/// Gimli-based  cryptographically secure random number generator.
+/// The seed must be secret and uniformly sampled.
 pub const Gimli = struct {
     random: Random,
     state: std.crypto.core.Gimli,
@@ -773,6 +773,22 @@ pub const Gimli = struct {
             self.state.permute();
         }
         mem.set(u8, self.state.toSlice()[0..std.crypto.core.Gimli.RATE], 0);
+    }
+};
+
+/// Cryptographically secure random number generator based on system calls.
+/// This is just a wrapper for `std.crypto.randomBytes()` that implements the `Random` interface.
+pub const OsRandom = struct {
+    random: Random,
+
+    pub fn init() OsRandom {
+        return OsRandom{
+            .random = Random{ .fillFn = fill },
+        };
+    }
+
+    fn fill(r: *Random, buf: []u8) void {
+        std.crypto.randomBytes(buf) catch @panic("System random number generator not available");
     }
 };
 
@@ -1145,10 +1161,8 @@ fn testRangeBias(r: *Random, start: i8, end: i8, biased: bool) void {
     }
 }
 
-test "CSPRNG" {
-    var secret_seed: [DefaultCsprng.secret_seed_length]u8 = undefined;
-    try std.crypto.randomBytes(&secret_seed);
-    var csprng = DefaultCsprng.init(secret_seed);
+test "OsRandom CSPRNG" {
+    var csprng = OsRandom.init();
     const a = csprng.random.int(u64);
     const b = csprng.random.int(u64);
     const c = csprng.random.int(u64);
