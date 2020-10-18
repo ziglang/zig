@@ -249,7 +249,7 @@ pub extern "c" fn aligned_alloc(alignment: usize, size: usize) ?*c_void;
 pub extern "c" fn malloc(usize) ?*c_void;
 
 pub usingnamespace switch (builtin.os.tag) {
-    .linux, .freebsd, .kfreebsd, .netbsd, .openbsd => struct {
+    .linux, .freebsd, .kfreebsd, .netbsd => struct {
         pub extern "c" fn malloc_usable_size(?*const c_void) usize;
     },
     .macos, .ios, .watchos, .tvos => struct {

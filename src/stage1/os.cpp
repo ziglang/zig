@@ -59,7 +59,7 @@ typedef SSIZE_T ssize_t;
 
 #endif
 
-#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_DRAGONFLY)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_DRAGONFLY) || defined(ZIG_OS_OPENBSD)
 #include <link.h>
 #endif
 
@@ -67,7 +67,7 @@ typedef SSIZE_T ssize_t;
 #include <sys/auxv.h>
 #endif
 
-#if defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_DRAGONFLY)
+#if defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_DRAGONFLY) || defined(ZIG_OS_OPENBSD)
 #include <sys/sysctl.h>
 #endif
 

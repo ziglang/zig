@@ -25,7 +25,9 @@ comptime {
 pub const log = stage2.log;
 pub const log_level = stage2.log_level;
 
-pub export fn main(argc: c_int, argv: [*]const [*:0]const u8) c_int {
+pub export fn main(argc: c_int, argv: [*][*:0]u8) c_int {
+    std.os.argv = argv[0.. @intCast(usize, argc)];
+    
     std.debug.maybeEnableSegfaultHandler();
 
     zig_stage1_os_init();

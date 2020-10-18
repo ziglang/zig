@@ -49,7 +49,7 @@ pub fn Watch(comptime V: type) type {
 
         const OsData = switch (builtin.os.tag) {
             // TODO https://github.com/ziglang/zig/issues/3778
-            .macos, .freebsd, .netbsd, .dragonfly => KqOsData,
+            .macos, .freebsd, .netbsd, .dragonfly, .openbsd => KqOsData,
             .linux => LinuxOsData,
             .windows => WindowsOsData,
 
@@ -160,7 +160,7 @@ pub fn Watch(comptime V: type) type {
                     return self;
                 },
 
-                .macos, .freebsd, .netbsd, .dragonfly => {
+                .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
                     self.* = Self{
                         .allocator = allocator,
                         .channel = channel,
@@ -178,7 +178,7 @@ pub fn Watch(comptime V: type) type {
         /// All addFile calls and removeFile calls must have completed.
         pub fn deinit(self: *Self) void {
             switch (builtin.os.tag) {
-                .macos, .freebsd, .netbsd, .dragonfly => {
+                .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
                     // TODO we need to cancel the frames before destroying the lock
                     self.os_data.table_lock.deinit();
                     var it = self.os_data.file_table.iterator();
@@ -229,7 +229,7 @@ pub fn Watch(comptime V: type) type {
 
         pub fn addFile(self: *Self, file_path: []const u8, value: V) !?V {
             switch (builtin.os.tag) {
-                .macos, .freebsd, .netbsd, .dragonfly => return addFileKEvent(self, file_path, value),
+                .macos, .freebsd, .netbsd, .dragonfly, .openbsd => return addFileKEvent(self, file_path, value),
                 .linux => return addFileLinux(self, file_path, value),
                 .windows => return addFileWindows(self, file_path, value),
                 else => @compileError("Unsupported OS"),
