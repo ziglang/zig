@@ -2787,6 +2787,12 @@ test "LibExeObjStep.addPackage" {
 test "" {
     // The only purpose of this test is to get all these untested functions
     // to be referenced to avoid regression so it is okay to skip some targets.
-    if (comptime std.Target.current.cpu.arch.ptrBitWidth() == 64)
+    if (comptime std.Target.current.cpu.arch.ptrBitWidth() == 64) {
         std.testing.refAllDecls(@This());
+        std.testing.refAllDecls(Builder);
+
+        inline for (std.meta.declarations(@This())) |decl|
+            if (comptime mem.endsWith(u8, decl.name, "Step"))
+                std.testing.refAllDecls(decl.data.Type);
+    }
 }
