@@ -853,10 +853,7 @@ pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize 
 
 /// Find the index in a slice of a sub-slice, searching from the end backwards.
 /// To start looking at a different index, slice the haystack first.
-/// TODO is there even a better algorithm for this?
-pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
-    if (needle.len > haystack.len) return null;
-
+fn lastIndexOfLinear(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     var i: usize = haystack.len - needle.len;
     while (true) : (i -= 1) {
         if (mem.eql(T, haystack[i .. i + needle.len], needle)) return i;
@@ -864,10 +861,7 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
     }
 }
 
-// TODO boyer-moore algorithm
-pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
-    if (needle.len > haystack.len) return null;
-
+fn indexOfPosLinear(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
     var i: usize = start_index;
     const end = haystack.len - needle.len;
     while (i <= end) : (i += 1) {
@@ -876,7 +870,90 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
     return null;
 }
 
+fn boyerMooreHorspoolPreprocessReverse(pattern: []const u8, table: *[256]usize) void {
+    for (table) |*c| {
+        c.* = pattern.len;
+    }
+
+    var i: usize = pattern.len - 1;
+    // The first item is intentionally ignored and the skip size will be pattern.len.
+    // This is the standard way boyer-moore-horspool is implemented.
+    while (i > 0) : (i -= 1) {
+        table[pattern[i]] = i;
+    }
+}
+
+fn boyerMooreHorspoolPreprocess(pattern: []const u8, table: *[256]usize) void {
+    for (table) |*c| {
+        c.* = pattern.len;
+    }
+
+    var i: usize = 0;
+    // The last item is intentionally ignored and the skip size will be pattern.len.
+    // This is the standard way boyer-moore-horspool is implemented.
+    while (i < pattern.len - 1) : (i += 1) {
+        table[pattern[i]] = pattern.len - 1 - i;
+    }
+}
+/// Find the index in a slice of a sub-slice, searching from the end backwards.
+/// To start looking at a different index, slice the haystack first.
+// Reverse boyer-moore-horspool algorithm
+pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
+    if (needle.len > haystack.len) return null;
+    if (needle.len == 0) return haystack.len;
+
+    if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 32 or needle.len <= 2)
+        return lastIndexOfLinear(T, haystack, needle);
+
+    const haystack_bytes = sliceAsBytes(haystack);
+    const needle_bytes = sliceAsBytes(needle);
+
+    var skip_table: [256]usize = undefined;
+    boyerMooreHorspoolPreprocessReverse(needle_bytes, skip_table[0..]);
+
+    var i: usize = haystack_bytes.len - needle_bytes.len;
+    while (true) {
+        if (mem.eql(u8, haystack_bytes[i .. i + needle_bytes.len], needle_bytes)) return i;
+        const skip = skip_table[haystack_bytes[i]];
+        if (skip > i) break;
+        i -= skip;
+    }
+
+    return null;
+}
+
+// Boyer-moore-horspool algorithm
+pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
+    if (needle.len > haystack.len) return null;
+    if (needle.len == 0) return 0;
+
+    if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
+        return indexOfPosLinear(T, haystack, start_index, needle);
+
+    const haystack_bytes = sliceAsBytes(haystack);
+    const needle_bytes = sliceAsBytes(needle);
+
+    var skip_table: [256]usize = undefined;
+    boyerMooreHorspoolPreprocess(needle_bytes, skip_table[0..]);
+
+    var i: usize = start_index * @sizeOf(T);
+    while (i <= haystack_bytes.len - needle_bytes.len) {
+        if (mem.eql(u8, haystack_bytes[i .. i + needle_bytes.len], needle_bytes)) return i;
+        i += skip_table[haystack_bytes[i + needle_bytes.len - 1]];
+    }
+
+    return null;
+}
+
 test "mem.indexOf" {
+    testing.expect(indexOf(u8, "one two three four five six seven eight nine ten", "three four").? == 8);
+    testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten", "three four").? == 8);
+    testing.expect(indexOf(u8, "one two three four five six seven eight nine ten", "two two") == null);
+    testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten", "two two") == null);
+
+    testing.expect(indexOf(u8, "one two three four five six seven eight nine ten", "").? == 0);
+    testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten", "").? == 48);
+
     testing.expect(indexOf(u8, "one two three four", "four").? == 14);
     testing.expect(lastIndexOf(u8, "one two three two four", "two").? == 14);
     testing.expect(indexOf(u8, "one two three four", "gour") == null);
