@@ -615,6 +615,7 @@ pub fn connectUnixSocket(path: []const u8) !fs.File {
     var addr = try std.net.Address.initUnix(path);
 
     if (std.io.is_async) {
+        const loop = std.event.Loop.instance orelse return error.WouldBlock;
         try loop.connect(sockfd, &addr.any, addr.getOsSockLen());
     } else {
         try os.connect(sockfd, &addr.any, addr.getOsSockLen());
