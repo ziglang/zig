@@ -8611,7 +8611,7 @@ pub fn build(b: *Builder) void {
       </ul>
       {#header_close#}
       {#header_open|ReleaseFast#}
-      <pre><code class="shell">$ zig build-exe example.zig --release-fast</code></pre>
+      <pre><code class="shell">$ zig build-exe example.zig -O ReleaseFast</code></pre>
       <ul>
         <li>Fast runtime performance</li>
         <li>Safety checks disabled</li>
@@ -8621,7 +8621,7 @@ pub fn build(b: *Builder) void {
       </ul>
       {#header_close#}
       {#header_open|ReleaseSafe#}
-      <pre><code class="shell">$ zig build-exe example.zig --release-safe</code></pre>
+      <pre><code class="shell">$ zig build-exe example.zig -O ReleaseSafe</code></pre>
       <ul>
         <li>Medium runtime performance</li>
         <li>Safety checks enabled</li>
@@ -8631,7 +8631,7 @@ pub fn build(b: *Builder) void {
       </ul>
       {#header_close#}
       {#header_open|ReleaseSmall#}
-      <pre><code class="shell">$ zig build-exe example.zig --release-small</code></pre>
+      <pre><code class="shell">$ zig build-exe example.zig -O ReleaseSmall</code></pre>
       <ul>
         <li>Medium runtime performance</li>
         <li>Safety checks disabled</li>
