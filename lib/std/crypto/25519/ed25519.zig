@@ -144,7 +144,7 @@ pub const Ed25519 = struct {
             a_batch[i] = a;
         }
 
-        var hram_batch: [count]Curve.scalar.Scalar = undefined;
+        var hram_batch: [count]Curve.scalar.CompressedScalar = undefined;
         for (signature_batch) |signature, i| {
             var h = Sha512.init(.{});
             h.update(&r_batch[i]);
@@ -155,7 +155,7 @@ pub const Ed25519 = struct {
             hram_batch[i] = Curve.scalar.reduce64(hram64);
         }
 
-        var z_batch: [count]Curve.scalar.Scalar = undefined;
+        var z_batch: [count]Curve.scalar.CompressedScalar = undefined;
         for (z_batch) |*z| {
             try std.crypto.randomBytes(z[0..16]);
             mem.set(u8, z[16..], 0);
