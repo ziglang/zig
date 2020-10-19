@@ -46,7 +46,7 @@ pub fn findZigLibDirFromSelfExe(
 ) error{ OutOfMemory, FileNotFound }!Compilation.Directory {
     const cwd = fs.cwd();
     var cur_path: []const u8 = self_exe_path;
-    while (fs.path.dirname(cur_path)) |dirname| : (cur_path = dirname) {
+    while (fs.path.parent(cur_path)) |dirname| : (cur_path = dirname) {
         var base_dir = cwd.openDir(dirname, .{}) catch continue;
         defer base_dir.close();
 

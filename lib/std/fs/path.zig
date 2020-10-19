@@ -749,8 +749,34 @@ fn testResolvePosix(paths: []const []const u8, expected: []const u8) !void {
     return testing.expect(mem.eql(u8, actual, expected));
 }
 
+/// Returns the parent path of a path, or null when the root is reached.
+/// TODO: Handle edge cases. See comments in https://github.com/ziglang/zig/pull/6746
+pub fn parent(path: []const u8) ?[]const u8 {
+    const new_path = dirname(path) orelse return null;
+    if (new_path.len == path.len) return null;
+    return new_path;
+}
+
+test "parent path" {
+    var test_path: []const u8 = undefined;
+    if (builtin.os.tag == .windows) {
+        test_path = "C:\\dev\\master\\zig";
+    } else {
+        test_path = "/dev/master/zig";
+    }
+
+    var i: usize = 0;
+    while(parent(test_path)) |parent_path| : (test_path = parent_path) {
+        // This checks that the loop terminates correctly when the root is reached.
+        testing.expect(i < 3);
+        i += 1;
+    }
+}
+
 /// If the path is a file in the current directory (no directory component)
 /// then returns null
+/// Note: In a loop `fs.path.parent` might be better to use, because `dirname`
+/// doesn't return null when the root is reached.
 pub fn dirname(path: []const u8) ?[]const u8 {
     if (builtin.os.tag == .windows) {
         return dirnameWindows(path);

@@ -2253,7 +2253,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                     break :blk .{ .path = dirname, .handle = dir };
                 } else |err| switch (err) {
                     error.FileNotFound => {
-                        dirname = fs.path.dirname(dirname) orelse {
+                        dirname = fs.path.parent(dirname) orelse {
                             std.log.info("{}", .{
                                 \\Initialize a 'build.zig' template file with `zig init-lib` or `zig init-exe`,
                                 \\or see `zig --help` for more options.
