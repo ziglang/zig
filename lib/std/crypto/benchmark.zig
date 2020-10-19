@@ -134,14 +134,73 @@ pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count
     {
         var i: usize = 0;
         while (i < signatures_count) : (i += 1) {
-            const s = try Signature.sign(&msg, key_pair, null);
-            mem.doNotOptimizeAway(&s);
+            const sig = try Signature.sign(&msg, key_pair, null);
+            mem.doNotOptimizeAway(&sig);
         }
     }
     const end = timer.read();
 
     const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
     const throughput = @floatToInt(u64, signatures_count / elapsed_s);
+
+    return throughput;
+}
+
+const signature_verifications = [_]Crypto{Crypto{ .ty = crypto.sign.Ed25519, .name = "ed25519" }};
+
+pub fn benchmarkSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
+    var seed: [Signature.seed_length]u8 = undefined;
+    prng.random.bytes(seed[0..]);
+    const msg = [_]u8{0} ** 64;
+    const key_pair = try Signature.createKeyPair(seed);
+    const public_key = Signature.publicKey(key_pair);
+    const sig = try Signature.sign(&msg, key_pair, null);
+
+    var timer = try Timer.start();
+    const start = timer.lap();
+    {
+        var i: usize = 0;
+        while (i < signatures_count) : (i += 1) {
+            try Signature.verify(sig, &msg, public_key);
+            mem.doNotOptimizeAway(&sig);
+        }
+    }
+    const end = timer.read();
+
+    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
+    const throughput = @floatToInt(u64, signatures_count / elapsed_s);
+
+    return throughput;
+}
+
+const batch_signature_verifications = [_]Crypto{Crypto{ .ty = crypto.sign.Ed25519, .name = "ed25519" }};
+
+pub fn benchmarkBatchSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
+    var seed: [Signature.seed_length]u8 = undefined;
+    prng.random.bytes(seed[0..]);
+    const msg = [_]u8{0} ** 64;
+    const key_pair = try Signature.createKeyPair(seed);
+    const public_key = Signature.publicKey(key_pair);
+    const sig = try Signature.sign(&msg, key_pair, null);
+
+    var batch: [64]Signature.BatchElement = undefined;
+    for (batch) |*element| {
+        element.* = Signature.BatchElement{ .sig = sig, .msg = &msg, .public_key = public_key };
+    }
+
+    var timer = try Timer.start();
+    const start = timer.lap();
+    {
+        var i: usize = 0;
+        while (i < signatures_count) : (i += 1) {
+            try Signature.verifyBatch(batch.len, batch);
+            mem.doNotOptimizeAway(&sig);
+        }
+    }
+    const end = timer.read();
+
+    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
+    const throughput = batch.len * @floatToInt(u64, signatures_count / elapsed_s);
 
     return throughput;
 }
@@ -323,6 +382,20 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkSignature(E.ty, mode(1000));
             try stdout.print("{:>17}: {:10} signatures/s\n", .{ E.name, throughput });
+        }
+    }
+
+    inline for (signature_verifications) |E| {
+        if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
+            const throughput = try benchmarkSignatureVerification(E.ty, mode(1000));
+            try stdout.print("{:>17}: {:10} verifications/s\n", .{ E.name, throughput });
+        }
+    }
+
+    inline for (batch_signature_verifications) |E| {
+        if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
+            const throughput = try benchmarkBatchSignatureVerification(E.ty, mode(1000));
+            try stdout.print("{:>17}: {:10} verifications/s (batch)\n", .{ E.name, throughput });
         }
     }
 
