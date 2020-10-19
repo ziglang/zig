@@ -7389,7 +7389,7 @@ test "main" {
       </p>
       <ul>
           <li>{#syntax#}@divFloor(-5, 3) == -2{#endsyntax#}</li>
-          <li>{#syntax#}@divFloor(a, b) + @mod(a, b) == a{#endsyntax#}</li>
+          <li>{#syntax#}(@divFloor(a, b) * b) + @mod(a, b) == a{#endsyntax#}</li>
       </ul>
       <p>For a function that returns a possible error code, use {#syntax#}@import("std").math.divFloor{#endsyntax#}.</p>
       {#see_also|@divTrunc|@divExact#}
@@ -7403,7 +7403,7 @@ test "main" {
       </p>
       <ul>
           <li>{#syntax#}@divTrunc(-5, 3) == -1{#endsyntax#}</li>
-          <li>{#syntax#}@divTrunc(a, b) + @rem(a, b) == a{#endsyntax#}</li>
+          <li>{#syntax#}(@divTrunc(a, b) * b) + @rem(a, b) == a{#endsyntax#}</li>
       </ul>
       <p>For a function that returns a possible error code, use {#syntax#}@import("std").math.divTrunc{#endsyntax#}.</p>
       {#see_also|@divFloor|@divExact#}
@@ -7872,7 +7872,7 @@ test "@wasmMemoryGrow" {
       </p>
       <ul>
           <li>{#syntax#}@mod(-5, 3) == 1{#endsyntax#}</li>
-          <li>{#syntax#}@divFloor(a, b) + @mod(a, b) == a{#endsyntax#}</li>
+          <li>{#syntax#}(@divFloor(a, b) * b) + @mod(a, b) == a{#endsyntax#}</li>
       </ul>
       <p>For a function that returns an error code, see {#syntax#}@import("std").math.mod{#endsyntax#}.</p>
       {#see_also|@rem#}
@@ -7951,7 +7951,7 @@ test "@wasmMemoryGrow" {
       </p>
       <ul>
           <li>{#syntax#}@rem(-5, 3) == -2{#endsyntax#}</li>
-          <li>{#syntax#}@divTrunc(a, b) + @rem(a, b) == a{#endsyntax#}</li>
+          <li>{#syntax#}(@divTrunc(a, b) * b) + @rem(a, b) == a{#endsyntax#}</li>
       </ul>
       <p>For a function that returns an error code, see {#syntax#}@import("std").math.rem{#endsyntax#}.</p>
       {#see_also|@mod#}
