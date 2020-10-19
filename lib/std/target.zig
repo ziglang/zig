@@ -637,8 +637,27 @@ pub const Target = struct {
                         return x;
                     }
 
+                    /// Returns true if the specified feature is enabled.
                     pub fn featureSetHas(set: Set, feature: F) bool {
                         return set.isEnabled(@enumToInt(feature));
+                    }
+
+                    /// Returns true if any specified feature is enabled.
+                    pub fn featureSetHasAny(set: Set, features: anytype) bool {
+                        comptime std.debug.assert(std.meta.trait.isIndexable(@TypeOf(features)));
+                        inline for (features) |feature| {
+                            if (set.isEnabled(@enumToInt(@as(F, feature)))) return true;
+                        }
+                        return false;
+                    }
+
+                    /// Returns true if every specified feature is enabled.
+                    pub fn featureSetHasAll(set: Set, features: anytype) bool {
+                        comptime std.debug.assert(std.meta.trait.isIndexable(@TypeOf(features)));
+                        inline for (features) |feature| {
+                            if (!set.isEnabled(@enumToInt(@as(F, feature)))) return false;
+                        }
+                        return true;
                     }
                 };
             }

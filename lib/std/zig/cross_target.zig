@@ -823,6 +823,11 @@ test "CrossTarget.parse" {
         std.testing.expect(Target.x86.featureSetHas(target.cpu.features, .cmov));
         std.testing.expect(Target.x86.featureSetHas(target.cpu.features, .fxsr));
 
+        std.testing.expect(Target.x86.featureSetHasAny(target.cpu.features, .{ .sse, .avx, .cmov }));
+        std.testing.expect(!Target.x86.featureSetHasAny(target.cpu.features, .{ .sse, .avx }));
+        std.testing.expect(Target.x86.featureSetHasAll(target.cpu.features, .{ .mmx, .x87 }));
+        std.testing.expect(!Target.x86.featureSetHasAll(target.cpu.features, .{ .mmx, .x87, .sse }));
+
         const text = try cross_target.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
         std.testing.expectEqualSlices(u8, "x86_64-linux-gnu", text);
