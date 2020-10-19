@@ -315,8 +315,9 @@ pub const Manifest = struct {
                 cache_hash_file.path = try self.cache.gpa.dupe(u8, file_path);
             }
 
-            const this_file = fs.cwd().openFile(cache_hash_file.path.?, .{ .read = true }) catch {
-                return error.CacheUnavailable;
+            const this_file = fs.cwd().openFile(cache_hash_file.path.?, .{ .read = true }) catch |err| switch (err) {
+                error.FileNotFound => return false,
+                else => return error.CacheUnavailable,
             };
             defer this_file.close();
 
