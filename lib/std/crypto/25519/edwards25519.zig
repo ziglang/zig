@@ -149,13 +149,19 @@ pub const Edwards25519 = struct {
         return t;
     }
 
-    fn pcMul(pc: [16]Edwards25519, s: [32]u8) !Edwards25519 {
+    fn pcMul(pc: [16]Edwards25519, s: [32]u8, comptime vartime: bool) !Edwards25519 {
         var q = Edwards25519.identityElement;
         var pos: usize = 252;
         while (true) : (pos -= 4) {
             q = q.dbl().dbl().dbl().dbl();
             const bit = (s[pos >> 3] >> @truncate(u3, pos)) & 0xf;
-            q = q.add(pcSelect(pc, bit));
+            if (vartime) {
+                if (bit != 0) {
+                    q = q.add(pc[bit]);
+                }
+            } else {
+                q = q.add(pcSelect(pc, bit));
+            }
             if (pos == 0) break;
         }
         try q.rejectIdentity();
@@ -185,7 +191,21 @@ pub const Edwards25519 = struct {
             pc = precompute(p);
             pc[4].rejectIdentity() catch |_| return error.WeakPublicKey;
         }
-        return pcMul(pc, s);
+        return pcMul(pc, s, false);
+    }
+
+    /// Multiply an Edwards25519 point by a *PUBLIC* scalar *IN VARIABLE TIME*
+    /// This can be used for signature verification.
+    pub fn mulPublic(p: Edwards25519, s: [32]u8) !Edwards25519 {
+        var pc: [16]Edwards25519 = undefined;
+        if (p.is_base) {
+            @setEvalBranchQuota(10000);
+            pc = comptime precompute(Edwards25519.basePoint);
+        } else {
+            pc = precompute(p);
+            pc[4].rejectIdentity() catch |_| return error.WeakPublicKey;
+        }
+        return pcMul(pc, s, true);
     }
 
     /// Multiply an Edwards25519 point by a scalar after "clamping" it.

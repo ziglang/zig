@@ -108,8 +108,8 @@ pub const Ed25519 = struct {
         h.final(&hram64);
         const hram = Curve.scalar.reduce64(hram64);
 
-        const ah = try a.neg().mul(hram);
-        const sb_ah = (try Curve.basePoint.mul(s.*)).add(ah);
+        const ah = try a.neg().mulPublic(hram);
+        const sb_ah = (try Curve.basePoint.mulPublic(s.*)).add(ah);
         if (expected_r.sub(sb_ah).clearCofactor().rejectIdentity()) |_| {
             return error.InvalidSignature;
         } else |_| {}
@@ -170,18 +170,18 @@ pub const Ed25519 = struct {
 
         var zr = Curve.neutralElement;
         for (z_batch) |z, i| {
-            zr = zr.add(try expected_r_batch[i].mul(z));
+            zr = zr.add(try expected_r_batch[i].mulPublic(z));
         }
         zr = zr.clearCofactor();
 
         var zah = Curve.neutralElement;
         for (z_batch) |z, i| {
             const zh = Curve.scalar.mul(z, hram_batch[i]);
-            zah = zah.add(try a_batch[i].mul(zh));
+            zah = zah.add(try a_batch[i].mulPublic(zh));
         }
         zah = zah.clearCofactor();
 
-        const zsb = try Curve.basePoint.mul(zs_sum);
+        const zsb = try Curve.basePoint.mulPublic(zs_sum);
         if (zr.add(zah).sub(zsb).rejectIdentity()) |_| {
             return error.InvalidSignature;
         } else |_| {}
