@@ -102,46 +102,49 @@ fn _start() callconv(.Naked) noreturn {
 
     switch (builtin.arch) {
         .x86_64 => {
-            starting_stack_ptr = asm (""
+            starting_stack_ptr = asm volatile (
+                \\ xor %%rbp, %%rbp
                 : [argc] "={rsp}" (-> [*]usize)
             );
         },
         .i386 => {
-            starting_stack_ptr = asm (""
+            starting_stack_ptr = asm volatile (
+                \\ xor %%ebp, %%ebp
                 : [argc] "={esp}" (-> [*]usize)
             );
         },
-        .aarch64, .aarch64_be, .arm => {
-            starting_stack_ptr = asm ("mov %[argc], sp"
-                : [argc] "=r" (-> [*]usize)
+        .aarch64, .aarch64_be, .arm, .armeb => {
+            starting_stack_ptr = asm volatile (
+                \\ mov fp, #0
+                \\ mov lr, #0
+                : [argc] "={sp}" (-> [*]usize)
             );
         },
         .riscv64 => {
-            starting_stack_ptr = asm ("mv %[argc], sp"
-                : [argc] "=r" (-> [*]usize)
+            starting_stack_ptr = asm volatile (
+                \\ li s0, 0
+                \\ li ra, 0
+                : [argc] "={sp}" (-> [*]usize)
             );
         },
         .mips, .mipsel => {
-            // Need noat here because LLVM is free to pick any register
-            starting_stack_ptr = asm (
-                \\ .set noat
-                \\ move %[argc], $sp
-                : [argc] "=r" (-> [*]usize)
+            // The lr is already zeroed on entry, as specified by the ABI.
+            starting_stack_ptr = asm volatile (
+                \\ move $fp, $0
+                : [argc] "={sp}" (-> [*]usize)
             );
         },
         .powerpc64le => {
-            // Before returning the stack pointer, we have to set up a backchain
-            // and a few other registers required by the ELFv2 ABI.
+            // Setup the initial stack frame and clear the back chain pointer.
             // TODO: Support powerpc64 (big endian) on ELFv2.
-            starting_stack_ptr = asm (
+            starting_stack_ptr = asm volatile (
                 \\ mr 4, 1
-                \\ subi 1, 1, 32
-                \\ li 5, 0
-                \\ std 5, 0(1)
-                \\ mr %[argc], 4
-                : [argc] "=r" (-> [*]usize)
+                \\ li 0, 0
+                \\ stdu 0, -32(1)
+                \\ mtlr 0
+                : [argc] "={r4}" (-> [*]usize)
                 :
-                : "r4", "r5"
+                : "r0"
             );
         },
         else => @compileError("unsupported arch"),

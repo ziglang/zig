@@ -29,6 +29,7 @@ pub usingnamespace @import("linux/prctl.zig");
 pub usingnamespace @import("linux/securebits.zig");
 
 const is_mips = builtin.arch.isMIPS();
+const is_ppc64 = builtin.arch.isPPC64();
 
 pub const pid_t = i32;
 pub const fd_t = i32;
@@ -540,8 +541,8 @@ pub const TIOCGPGRP = 0x540F;
 pub const TIOCSPGRP = 0x5410;
 pub const TIOCOUTQ = if (is_mips) 0x7472 else 0x5411;
 pub const TIOCSTI = 0x5412;
-pub const TIOCGWINSZ = if (is_mips) 0x40087468 else 0x5413;
-pub const TIOCSWINSZ = if (is_mips) 0x80087467 else 0x5414;
+pub const TIOCGWINSZ = if (is_mips or is_ppc64) 0x40087468 else 0x5413;
+pub const TIOCSWINSZ = if (is_mips or is_ppc64) 0x80087467 else 0x5414;
 pub const TIOCMGET = 0x5415;
 pub const TIOCMBIS = 0x5416;
 pub const TIOCMBIC = 0x5417;

@@ -327,9 +327,9 @@ pub fn writeStackTrace(
 }
 
 pub const StackIterator = struct {
-    // Skip every frame before this address is found
+    // Skip every frame before this address is found.
     first_address: ?usize,
-    // Last known value of the frame pointer register
+    // Last known value of the frame pointer register.
     fp: usize,
 
     pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
@@ -339,14 +339,19 @@ pub const StackIterator = struct {
         };
     }
 
-    // On some architectures such as x86 the frame pointer is the address where
-    // the previous fp is stored, while on some other architectures such as
-    // RISC-V it points to the "top" of the frame, just above where the previous
-    // fp and the return address are stored.
+    // Negative offset of the saved BP wrt the frame pointer.
     const fp_offset = if (builtin.arch.isRISCV())
+        // On RISC-V the frame pointer points to the top of the saved register
+        // area, on pretty much every other architecture it points to the stack
+        // slot where the previous frame pointer is saved.
         2 * @sizeOf(usize)
     else
         0;
+    // Positive offset of the saved PC wrt the frame pointer.
+    const pc_offset = if (builtin.arch == .powerpc64le)
+        2 * @sizeOf(usize)
+    else
+        @sizeOf(usize);
 
     pub fn next(self: *StackIterator) ?usize {
         var address = self.next_internal() orelse return null;
@@ -364,7 +369,7 @@ pub const StackIterator = struct {
     fn next_internal(self: *StackIterator) ?usize {
         const fp = math.sub(usize, self.fp, fp_offset) catch return null;
 
-        // Sanity check
+        // Sanity check.
         if (fp == 0 or !mem.isAligned(fp, @alignOf(usize)))
             return null;
 
@@ -373,11 +378,14 @@ pub const StackIterator = struct {
         // Sanity check: the stack grows down thus all the parent frames must be
         // be at addresses that are greater (or equal) than the previous one.
         // A zero frame pointer often signals this is the last frame, that case
-        // is gracefully handled by the next call to next_internal
+        // is gracefully handled by the next call to next_internal.
         if (new_fp != 0 and new_fp < self.fp)
             return null;
 
-        const new_pc = @intToPtr(*const usize, fp + @sizeOf(usize)).*;
+        const new_pc = @intToPtr(
+            *const usize,
+            math.add(usize, fp, pc_offset) catch return null,
+        ).*;
 
         self.fp = new_fp;
 
