@@ -168,18 +168,13 @@ pub const Ed25519 = struct {
         }
         zs_sum = Curve.scalar.mul8(zs_sum);
 
-        var zr = Curve.neutralElement;
+        var zhs: [count]Curve.scalar.CompressedScalar = undefined;
         for (z_batch) |z, i| {
-            zr = zr.add(try expected_r_batch[i].mulPublic(z));
+            zhs[i] = Curve.scalar.mul(z, hram_batch[i]);
         }
-        zr = zr.clearCofactor();
 
-        var zah = Curve.neutralElement;
-        for (z_batch) |z, i| {
-            const zh = Curve.scalar.mul(z, hram_batch[i]);
-            zah = zah.add(try a_batch[i].mulPublic(zh));
-        }
-        zah = zah.clearCofactor();
+        const zr = (try Curve.mulMulti(count, expected_r_batch, z_batch)).clearCofactor();
+        const zah = (try Curve.mulMulti(count, a_batch, zhs)).clearCofactor();
 
         const zsb = try Curve.basePoint.mulPublic(zs_sum);
         if (zr.add(zah).sub(zsb).rejectIdentity()) |_| {

@@ -208,6 +208,35 @@ pub const Edwards25519 = struct {
         return pcMul(pc, s, true);
     }
 
+    /// Multiscalar multiplication *IN VARIABLE TIME* for public data
+    /// Computes ps0*ss0 + ps1*ss1 + ps2*ss2... faster than doing many of these operations individually
+    pub fn mulMulti(comptime count: usize, ps: [count]Edwards25519, ss: [count][32]u8) !Edwards25519 {
+        var pcs: [count][16]Edwards25519 = undefined;
+        for (ps) |p, i| {
+            if (p.is_base) {
+                @setEvalBranchQuota(10000);
+                pcs[i] = comptime precompute(Edwards25519.basePoint);
+            } else {
+                pcs[i] = precompute(p);
+                pcs[i][4].rejectIdentity() catch |_| return error.WeakPublicKey;
+            }
+        }
+        var q = Edwards25519.identityElement;
+        var pos: usize = 252;
+        while (true) : (pos -= 4) {
+            q = q.dbl().dbl().dbl().dbl();
+            for (ss) |s, i| {
+                const bit = (s[pos >> 3] >> @truncate(u3, pos)) & 0xf;
+                if (bit != 0) {
+                    q = q.add(pcs[i][bit]);
+                }
+            }
+            if (pos == 0) break;
+        }
+        try q.rejectIdentity();
+        return q;
+    }
+
     /// Multiply an Edwards25519 point by a scalar after "clamping" it.
     /// Clamping forces the scalar to be a multiple of the cofactor in
     /// order to prevent small subgroups attacks.
