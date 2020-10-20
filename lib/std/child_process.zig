@@ -257,6 +257,68 @@ pub const ChildProcess = struct {
         }
     }
 
+    fn collectOutputWindows(child: *const ChildProcess, stdout: *std.ArrayList(u8), stderr: *std.ArrayList(u8), max_output_bytes: usize) !void {
+        // The order of the objects here is important, WaitForMultipleObjects
+        // uses the same order when scanning the events.
+        var wait_objects = [_]windows.kernel32.HANDLE{
+            child.handle, child.stdout.?.handle, child.stderr.?.handle,
+        };
+        // XXX: Calling zeroes([2]windows.OVERLAPPED) causes the stage1 compiler
+        // to crash and burn.
+        var overlapped = [_]windows.OVERLAPPED{
+            mem.zeroes(windows.OVERLAPPED),
+            mem.zeroes(windows.OVERLAPPED),
+        };
+        var temp_buf: [2][4096]u8 = undefined;
+
+        // Kickstart the loop by issuing two async reads.
+        // ReadFile returns false and GetLastError returns ERROR_IO_PENDING if
+        // everything is ok.
+        _ = windows.kernel32.ReadFile(wait_objects[1], &temp_buf[0], temp_buf[0].len, null, &overlapped[0]);
+        _ = windows.kernel32.ReadFile(wait_objects[2], &temp_buf[1], temp_buf[1].len, null, &overlapped[1]);
+
+        while (true) {
+            const status = windows.kernel32.WaitForMultipleObjects(wait_objects.len, &wait_objects, 0, windows.INFINITE);
+            std.debug.print("status {x}\n", .{status});
+            switch (status) {
+                windows.WAIT_OBJECT_0 + 0 => {
+                    // The child process was terminated.
+                    break;
+                },
+                windows.WAIT_OBJECT_0 + 1 => {
+                    // stdout is ready.
+                    var read_bytes: u32 = undefined;
+                    if (windows.kernel32.GetOverlappedResult(wait_objects[1], &overlapped[0], &read_bytes, 0) == 0) {
+                        switch (windows.kernel32.GetLastError()) {
+                            else => |err| return windows.unexpectedError(err),
+                        }
+                    }
+                    try stdout.appendSlice(temp_buf[0][0..read_bytes]);
+                    _ = windows.kernel32.ReadFile(wait_objects[1], &temp_buf[0], temp_buf[0].len, null, &overlapped[0]);
+                },
+                windows.WAIT_OBJECT_0 + 2 => {
+                    // stderr is ready.
+                    var read_bytes: u32 = undefined;
+                    if (windows.kernel32.GetOverlappedResult(wait_objects[2], &overlapped[1], &read_bytes, 0) == 0) {
+                        switch (windows.kernel32.GetLastError()) {
+                            else => |err| return windows.unexpectedError(err),
+                        }
+                    }
+                    try stdout.appendSlice(temp_buf[1][0..read_bytes]);
+                    _ = windows.kernel32.ReadFile(wait_objects[2], &temp_buf[1], temp_buf[1].len, null, &overlapped[1]);
+                },
+                windows.WAIT_FAILED => {
+                    switch (windows.kernel32.GetLastError()) {
+                        else => |err| return windows.unexpectedError(err),
+                    }
+                },
+                // We're waiting with an infinite timeout
+                windows.WAIT_TIMEOUT => unreachable,
+                else => unreachable,
+            }
+        }
+    }
+
     /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
     /// If it succeeds, the caller owns result.stdout and result.stderr memory.
     pub fn exec(args: struct {
@@ -307,6 +369,14 @@ pub const ChildProcess = struct {
         }
 
         try collectOutputPosix(child, &stdout, &stderr, args.max_output_bytes);
+
+        // XXX: Respect max_output_bytes
+        // XXX: Smarter reading logic, read directly into the ArrayList
+        if (builtin.os.tag == .windows) {
+            try collectOutputWindows(child, &stdout, &stderr, args.max_output_bytes);
+        } else {
+            try collectOutputPosix(child, &stdout, &stderr, args.max_output_bytes);
+        }
 
         return ExecResult{
             .term = try child.wait(),
@@ -644,7 +714,7 @@ pub const ChildProcess = struct {
         var g_hChildStd_OUT_Wr: ?windows.HANDLE = null;
         switch (self.stdout_behavior) {
             StdIo.Pipe => {
-                try windowsMakePipeOut(&g_hChildStd_OUT_Rd, &g_hChildStd_OUT_Wr, &saAttr);
+                try windowsMakePipe(&g_hChildStd_OUT_Rd, &g_hChildStd_OUT_Wr, &saAttr);
             },
             StdIo.Ignore => {
                 g_hChildStd_OUT_Wr = nul_handle;
@@ -664,7 +734,7 @@ pub const ChildProcess = struct {
         var g_hChildStd_ERR_Wr: ?windows.HANDLE = null;
         switch (self.stderr_behavior) {
             StdIo.Pipe => {
-                try windowsMakePipeOut(&g_hChildStd_ERR_Rd, &g_hChildStd_ERR_Wr, &saAttr);
+                try windowsMakePipe(&g_hChildStd_ERR_Rd, &g_hChildStd_ERR_Wr, &saAttr);
             },
             StdIo.Ignore => {
                 g_hChildStd_ERR_Wr = nul_handle;
@@ -895,6 +965,55 @@ fn windowsCreateCommandLine(allocator: *mem.Allocator, argv: []const []const u8)
 fn windowsDestroyPipe(rd: ?windows.HANDLE, wr: ?windows.HANDLE) void {
     if (rd) |h| os.close(h);
     if (wr) |h| os.close(h);
+}
+
+var pipe_name_counter = std.atomic.Int(u32).init(1);
+
+fn windowsMakePipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
+    var tmp_buf: [128]u8 = undefined;
+    // Forge a random path for the pipe.
+    const pipe_path = std.fmt.bufPrintZ(
+        &tmp_buf,
+        "\\\\.\\pipe\\zig-childprocess-{d}-{d}",
+        .{ windows.kernel32.GetCurrentProcessId(), pipe_name_counter.fetchAdd(1) },
+    ) catch unreachable;
+
+    // Create the read handle that can be used with overlapped IO ops.
+    const read_handle = windows.kernel32.CreateNamedPipeA(
+        pipe_path,
+        windows.PIPE_ACCESS_INBOUND | windows.FILE_FLAG_OVERLAPPED,
+        windows.PIPE_TYPE_BYTE,
+        1,
+        0x1000,
+        0x1000,
+        0,
+        sattr,
+    );
+    if (read_handle == windows.INVALID_HANDLE_VALUE) {
+        switch (windows.kernel32.GetLastError()) {
+            else => |err| return windows.unexpectedError(err),
+        }
+    }
+
+    const write_handle = windows.kernel32.CreateFileA(
+        pipe_path,
+        windows.GENERIC_WRITE,
+        0,
+        sattr,
+        windows.OPEN_EXISTING,
+        windows.FILE_ATTRIBUTE_NORMAL,
+        null,
+    );
+    if (write_handle == windows.INVALID_HANDLE_VALUE) {
+        switch (windows.kernel32.GetLastError()) {
+            else => |err| return windows.unexpectedError(err),
+        }
+    }
+
+    try windows.SetHandleInformation(read_handle, windows.HANDLE_FLAG_INHERIT, 0);
+
+    rd.* = read_handle;
+    wr.* = write_handle;
 }
 
 fn windowsMakePipeIn(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
