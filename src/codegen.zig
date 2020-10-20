@@ -573,17 +573,21 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // sub sp, sp, #reloc
                         mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.push(.al, .{ .fp, .lr }).toU32());
                         mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .fp, Instruction.Operand.reg(.sp, Instruction.Operand.Shift.none)).toU32());
-                        // TODO: prepare stack for local variables
-                        // const backpatch_reloc = try self.code.addManyAsArray(4);
+                        const backpatch_reloc = self.code.items.len;
+                        try self.code.resize(backpatch_reloc + 4);
 
                         try self.dbgSetPrologueEnd();
 
                         try self.genBody(self.mod_fn.analysis.success);
 
                         // Backpatch stack offset
-                        // const stack_end = self.max_end_stack;
-                        // const aligned_stack_end = mem.alignForward(stack_end, self.stack_align);
-                        // mem.writeIntLittle(u32, backpatch_reloc, Instruction.sub(.al, .sp, .sp, Instruction.Operand.imm()));
+                        const stack_end = self.max_end_stack;
+                        const aligned_stack_end = mem.alignForward(stack_end, self.stack_align);
+                        if (Instruction.Operand.fromU32(@intCast(u32, aligned_stack_end))) |op| {
+                            mem.writeIntLittle(u32, self.code.items[backpatch_reloc..][0..4], Instruction.sub(.al, .sp, .sp, op).toU32());
+                        } else {
+                            return self.fail(self.src, "TODO ARM: allow larger stacks", .{});
+                        }
 
                         try self.dbgSetEpilogueBegin();
 
@@ -2196,6 +2200,58 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         fn genSetStack(self: *Self, src: usize, ty: Type, stack_offset: u32, mcv: MCValue) InnerError!void {
             switch (arch) {
+                .arm => switch (mcv) {
+                    .dead => unreachable,
+                    .ptr_stack_offset => unreachable,
+                    .ptr_embedded_in_code => unreachable,
+                    .unreach, .none => return, // Nothing to do.
+                    .undef => {
+                        if (!self.wantSafety())
+                            return; // The already existing value will do just fine.
+                        // TODO Upgrade this to a memset call when we have that available.
+                        switch (ty.abiSize(self.target.*)) {
+                            1 => return self.genSetStack(src, ty, stack_offset, .{ .immediate = 0xaa }),
+                            2 => return self.genSetStack(src, ty, stack_offset, .{ .immediate = 0xaaaa }),
+                            4 => return self.genSetStack(src, ty, stack_offset, .{ .immediate = 0xaaaaaaaa }),
+                            8 => return self.genSetStack(src, ty, stack_offset, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
+                            else => return self.fail(src, "TODO implement memset", .{}),
+                        }
+                    },
+                    .compare_flags_unsigned => |op| {
+                        return self.fail(src, "TODO implement set stack variable with compare flags value (unsigned)", .{});
+                    },
+                    .compare_flags_signed => |op| {
+                        return self.fail(src, "TODO implement set stack variable with compare flags value (signed)", .{});
+                    },
+                    .immediate => {
+                        const reg = try self.copyToTmpRegister(src, mcv);
+                        return self.genSetStack(src, ty, stack_offset, MCValue{ .register = reg });
+                    },
+                    .embedded_in_code => |code_offset| {
+                        return self.fail(src, "TODO implement set stack variable from embedded_in_code", .{});
+                    },
+                    .register => |reg| {
+                        // TODO: strb, strh
+                        if (stack_offset <= math.maxInt(u12)) {
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.str(.al, reg, .fp, .{
+                                .offset = Instruction.Offset.imm(@intCast(u12, stack_offset)),
+                                .positive = false,
+                            }).toU32());
+                        } else {
+                            return self.fail(src, "TODO genSetStack with larger offsets", .{});
+                        }
+                    },
+                    .memory => |vaddr| {
+                        return self.fail(src, "TODO implement set stack variable from memory vaddr", .{});
+                    },
+                    .stack_offset => |off| {
+                        if (stack_offset == off)
+                            return; // Copy stack variable to itself; nothing to do.
+
+                        const reg = try self.copyToTmpRegister(src, mcv);
+                        return self.genSetStack(src, ty, stack_offset, MCValue{ .register = reg });
+                    },
+                },
                 .x86_64 => switch (mcv) {
                     .dead => unreachable,
                     .ptr_stack_offset => unreachable,
@@ -2351,6 +2407,18 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // If the type is a pointer, it means the pointer address is at this memory location.
                         try self.genSetReg(src, reg, .{ .immediate = addr });
                         mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(.al, reg, reg, .{ .offset = Instruction.Offset.none }).toU32());
+                    },
+                    .stack_offset => |unadjusted_off| {
+                        // TODO: ldrb, ldrh
+                        // TODO: maybe addressing from sp instead of fp
+                        if (unadjusted_off <= math.maxInt(u12)) {
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(.al, reg, .fp, .{
+                                .offset = Instruction.Offset.imm(@intCast(u12, unadjusted_off)),
+                                .positive = false,
+                            }).toU32());
+                        } else {
+                            return self.fail(src, "TODO genSetReg with larger stack offset", .{});
+                        }
                     },
                     else => return self.fail(src, "TODO implement getSetReg for arm {}", .{mcv}),
                 },

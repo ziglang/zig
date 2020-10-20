@@ -395,7 +395,7 @@ pub const Instruction = union(enum) {
             };
         }
 
-        pub fn imm(immediate: u8) Offset {
+        pub fn imm(immediate: u12) Offset {
             return Offset{
                 .Immediate = immediate,
             };
