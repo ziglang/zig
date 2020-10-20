@@ -1238,7 +1238,20 @@ fn analyzeInstSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) In
     const target = try mod.analyzeDeref(scope, inst.base.src, target_ptr, inst.positionals.target_ptr.src);
     try validateSwitch(mod, scope, target, inst);
 
-    // TODO comptime execution
+    if (try mod.resolveDefinedValue(scope, target)) |target_val| {
+        for (inst.positionals.cases) |case| {
+            const resolved = try resolveInst(mod, scope, case.item);
+            const casted = try mod.coerce(scope, target.ty, resolved);
+            const item = try mod.resolveConstValue(scope, casted);
+
+            if (target_val.eql(item)) {
+                try analyzeBody(mod, scope, case.body);
+                return mod.constNoReturn(scope, inst.base.src);
+            }
+        }
+        try analyzeBody(mod, scope, inst.positionals.else_body);
+        return mod.constNoReturn(scope, inst.base.src);
+    }
 
     const parent_block = try mod.requireRuntimeBlock(scope, inst.base.src);
     const cases = try parent_block.arena.alloc(Inst.SwitchBr.Case, inst.positionals.cases.len);
@@ -1253,7 +1266,7 @@ fn analyzeInstSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) In
     };
     defer case_block.instructions.deinit(mod.gpa);
 
-    for (inst.positionals.cases[0..inst.positionals.cases.len]) |case, i| {
+    for (inst.positionals.cases) |case, i| {
         // Reset without freeing.
         case_block.instructions.items.len = 0;
 
@@ -1269,7 +1282,14 @@ fn analyzeInstSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) In
         };
     }
 
-    return mod.addSwitchBr(parent_block, inst.base.src, target_ptr, cases);
+    case_block.instructions.items.len = 0;
+    try analyzeBody(mod, &case_block.base, inst.positionals.else_body);
+
+    const else_body: ir.Body = .{
+        .instructions = try parent_block.arena.dupe(*Inst, case_block.instructions.items),
+    };
+
+    return mod.addSwitchBr(parent_block, inst.base.src, target_ptr, cases, else_body);
 }
 
 fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.SwitchBr) InnerError!void {
@@ -1354,14 +1374,14 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
                     false_count += 1;
                 }
 
-                if (true_count > 1 or false_count > 1) {
+                if (true_count + false_count > 2) {
                     return mod.fail(scope, item.src, "duplicate switch value", .{});
                 }
             }
-            if ((true_count == 0 or false_count == 0) and inst.kw_args.special_prong != .@"else") {
+            if ((true_count + false_count < 2) and inst.kw_args.special_prong != .@"else") {
                 return mod.fail(scope, inst.base.src, "switch must handle all possibilities", .{});
             }
-            if ((true_count == 1 and false_count == 1) and inst.kw_args.special_prong == .@"else") {
+            if ((true_count + false_count == 2) and inst.kw_args.special_prong == .@"else") {
                 return mod.fail(scope, inst.base.src, "unreachable else prong, all cases already handled", .{});
             }
         },
@@ -1696,7 +1716,7 @@ fn analyzeInstCondBr(mod: *Module, scope: *Scope, inst: *zir.Inst.CondBr) InnerE
     if (try mod.resolveDefinedValue(scope, cond)) |cond_val| {
         const body = if (cond_val.toBool()) &inst.positionals.then_body else &inst.positionals.else_body;
         try analyzeBody(mod, scope, body.*);
-        return mod.constVoid(scope, inst.base.src);
+        return mod.constNoReturn(scope, inst.base.src);
     }
 
     const parent_block = try mod.requireRuntimeBlock(scope, inst.base.src);

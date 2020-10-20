@@ -509,7 +509,6 @@ pub const Inst = struct {
                 .slice,
                 .slice_start,
                 .import,
-                .switchbr,
                 .switch_range,
                 => false,
 
@@ -522,6 +521,7 @@ pub const Inst = struct {
                 .unreach_nocheck,
                 .@"unreachable",
                 .loop,
+                .switchbr,
                 => true,
             };
         }
@@ -1012,9 +1012,10 @@ pub const Inst = struct {
 
         positionals: struct {
             target_ptr: *Inst,
-            cases: []Case,
             /// List of all individual items and ranges
             items: []*Inst,
+            cases: []Case,
+            else_body: Module.Body,
         },
         kw_args: struct {
             /// Pointer to first range if such exists.
@@ -2569,6 +2570,7 @@ const EmitZIR = struct {
                             .target_ptr = try self.resolveInst(new_body, old_inst.target_ptr),
                             .cases = cases,
                             .items = &[_]*Inst{}, // TODO this should actually be populated
+                            .else_body = undefined, // populated below
                         },
                         .kw_args = .{},
                     };
@@ -2590,6 +2592,12 @@ const EmitZIR = struct {
                             .body = .{ .instructions = try self.arena.allocator.dupe(*Inst, body_tmp.items) },
                         };
                     }
+
+                    body_tmp.items.len = 0;
+                    try self.emitBody(old_inst.else_body, inst_table, &body_tmp);
+                    new_inst.positionals.else_body = .{
+                        .instructions = try self.arena.allocator.dupe(*Inst, body_tmp.items),
+                    };
                     break :blk &new_inst.base;
                 },
                 .varptr => @panic("TODO"),

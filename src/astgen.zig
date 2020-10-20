@@ -1581,14 +1581,6 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
     };
     defer block_scope.instructions.deinit(mod.gpa);
 
-    var item_scope: Scope.GenZIR = .{
-        .parent = scope,
-        .decl = scope.decl().?,
-        .arena = scope.arena(),
-        .instructions = .{},
-    };
-    defer item_scope.instructions.deinit(mod.gpa);
-
     const tree = scope.tree();
     const switch_src = tree.token_locs[switch_node.switch_token].start;
     const target_ptr = try expr(mod, &block_scope.base, .ref, switch_node.expr);
@@ -1598,6 +1590,7 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
         .target_ptr = target_ptr,
         .cases = undefined, // populated below
         .items = &[_]*zir.Inst{}, // populated below
+        .else_body = undefined, // populated below
     }, .{})).castTag(.switchbr).?;
 
     var items = std.ArrayList(*zir.Inst).init(mod.gpa);
@@ -1611,7 +1604,7 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
     });
     // then add block containing the switch.
     const block = try addZIRInstBlock(mod, scope, switch_src, .block, .{
-        .instructions = undefined, // populated below
+        .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
     });
 
     // Most result location types can be forwarded directly; however
@@ -1622,6 +1615,14 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
         .inferred_ptr, .bitcasted_ptr, .block_ptr => .{ .block_ptr = block },
     };
 
+    var item_scope: Scope.GenZIR = .{
+        .parent = scope,
+        .decl = scope.decl().?,
+        .arena = scope.arena(),
+        .instructions = .{},
+    };
+    defer item_scope.instructions.deinit(mod.gpa);
+
     var case_scope: Scope.GenZIR = .{
         .parent = scope,
         .decl = block_scope.decl,
@@ -1629,6 +1630,14 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
         .instructions = .{},
     };
     defer case_scope.instructions.deinit(mod.gpa);
+
+    var else_scope: Scope.GenZIR = .{
+        .parent = scope,
+        .decl = block_scope.decl,
+        .arena = block_scope.arena,
+        .instructions = .{},
+    };
+    defer else_scope.instructions.deinit(mod.gpa);
 
     // first we gather all the switch items and check else/'_' prongs
     var else_src: ?usize = null;
@@ -1701,12 +1710,12 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
                 if (first_range == null) first_range = range_inst;
 
                 // target >= start and target <= end
-                const range_start_ok = try addZIRBinOp(mod, &block_scope.base, range_src, .cmp_gte, target, start);
-                const range_end_ok = try addZIRBinOp(mod, &block_scope.base, range_src, .cmp_lte, target, end);
-                const range_ok = try addZIRBinOp(mod, &block_scope.base, range_src, .booland, range_start_ok, range_end_ok);
+                const range_start_ok = try addZIRBinOp(mod, &else_scope.base, range_src, .cmp_gte, target, start);
+                const range_end_ok = try addZIRBinOp(mod, &else_scope.base, range_src, .cmp_lte, target, end);
+                const range_ok = try addZIRBinOp(mod, &else_scope.base, range_src, .booland, range_start_ok, range_end_ok);
 
                 if (any_ok) |some| {
-                    any_ok = try addZIRBinOp(mod, &block_scope.base, range_src, .boolor, some, range_ok);
+                    any_ok = try addZIRBinOp(mod, &else_scope.base, range_src, .boolor, some, range_ok);
                 } else {
                     any_ok = range_ok;
                 }
@@ -1715,16 +1724,16 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
 
             const item_inst = try expr(mod, &item_scope.base, .none, item);
             try items.append(item_inst);
-            const cpm_ok = try addZIRBinOp(mod, &block_scope.base, item_inst.src, .cmp_eq, target, item_inst);
+            const cpm_ok = try addZIRBinOp(mod, &else_scope.base, item_inst.src, .cmp_eq, target, item_inst);
 
             if (any_ok) |some| {
-                any_ok = try addZIRBinOp(mod, &block_scope.base, item_inst.src, .boolor, some, cpm_ok);
+                any_ok = try addZIRBinOp(mod, &else_scope.base, item_inst.src, .boolor, some, cpm_ok);
             } else {
                 any_ok = cpm_ok;
             }
         }
 
-        const condbr = try addZIRInstSpecial(mod, &block_scope.base, case_src, zir.Inst.CondBr, .{
+        const condbr = try addZIRInstSpecial(mod, &else_scope.base, case_src, zir.Inst.CondBr, .{
             .condition = any_ok.?,
             .then_body = undefined, // populated below
             .else_body = undefined, // populated below
@@ -1754,6 +1763,14 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
         };
     }
 
+    // Generate else block or a break last to finish the block.
+    if (special_case) |case| {
+        try switchCaseExpr(mod, &else_scope.base, case_rl, block, case);
+    } else {
+        // Not handling all possible cases is a compile error.
+        _ = try addZIRNoOp(mod, &else_scope.base, switch_src, .unreach_nocheck);
+    }
+
     // All items have been generated, add the instructions to the comptime block.
     item_block.positionals.body = .{
         .instructions = try block_scope.arena.dupe(*zir.Inst, item_scope.instructions.items),
@@ -1765,18 +1782,8 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
     switch_inst.positionals.cases = try block_scope.arena.dupe(zir.Inst.SwitchBr.Case, cases.items);
     switch_inst.positionals.items = try block_scope.arena.dupe(*zir.Inst, items.items);
     switch_inst.kw_args.range = first_range;
-
-    // Generate else block or a break last to finish the block.
-    if (special_case) |case| {
-        try switchCaseExpr(mod, &block_scope.base, case_rl, block, case);
-    } else {
-        // Not handling all possible cases is a compile error.
-        _ = try addZIRNoOp(mod, &block_scope.base, switch_src, .unreach_nocheck);
-    }
-
-    // Set block instructions now that it is finished.
-    block.positionals.body = .{
-        .instructions = try block_scope.arena.dupe(*zir.Inst, block_scope.instructions.items),
+    switch_inst.positionals.else_body = .{
+        .instructions = try block_scope.arena.dupe(*zir.Inst, else_scope.instructions.items),
     };
     return &block.base;
 }

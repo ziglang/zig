@@ -2122,16 +2122,18 @@ pub fn addSwitchBr(
     src: usize,
     target_ptr: *Inst,
     cases: []Inst.SwitchBr.Case,
+    else_body: ir.Body,
 ) !*Inst {
     const inst = try block.arena.create(Inst.SwitchBr);
     inst.* = .{
         .base = .{
             .tag = .switchbr,
-            .ty = Type.initTag(.void),
+            .ty = Type.initTag(.noreturn),
             .src = src,
         },
         .target_ptr = target_ptr,
         .cases = cases,
+        .else_body = else_body,
     };
     try block.instructions.append(self.gpa, &inst.base);
     return &inst.base;

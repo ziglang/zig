@@ -472,8 +472,11 @@ pub const Inst = struct {
         target_ptr: *Inst,
         cases: []Case,
         /// Set of instructions whose lifetimes end at the start of one of the cases.
-        /// In same order as cases, deaths[0..case_0_count, case_0_count .. case_1_count, ... , case_n_count ... else_count].
+        /// In same order as cases, deaths[0..case_0_count, case_0_count .. case_1_count, ... ].
         deaths: [*]*Inst = undefined,
+        else_index: u32 = 0,
+        else_deaths: u32 = 0,
+        else_body: Body,
 
         pub const Case = struct {
             item: Value,
@@ -497,6 +500,9 @@ pub const Inst = struct {
         pub fn caseDeaths(self: *const SwitchBr, case_index: usize) []*Inst {
             const case = self.cases[case_index];
             return (self.deaths + case.index)[0..case.deaths];
+        }
+        pub fn elseDeaths(self: *const SwitchBr) []*Inst {
+            return (self.deaths + self.else_index)[0..self.else_deaths];
         }
     };
 };
