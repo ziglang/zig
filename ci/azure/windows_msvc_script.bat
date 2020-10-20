@@ -37,7 +37,6 @@ msbuild /maxcpucount /p:Configuration=Release INSTALL.vcxproj || exit /b
 "%ZIGINSTALLDIR%\bin\zig.exe" build test-runtime-safety -Dskip-non-native || exit /b
 "%ZIGINSTALLDIR%\bin\zig.exe" build test-translate-c -Dskip-non-native || exit /b
 "%ZIGINSTALLDIR%\bin\zig.exe" build test-run-translated-c -Dskip-non-native || exit /b
-"%ZIGINSTALLDIR%\bin\zig.exe" build test-compile-errors -Dskip-non-native || exit /b
 
 set "PATH=%CD:~0,2%\msys64\usr\bin;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem"
 SET "MSYSTEM=MINGW64"
