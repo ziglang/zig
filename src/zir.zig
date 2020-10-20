@@ -2578,8 +2578,14 @@ const EmitZIR = struct {
                     var body_tmp = std.ArrayList(*Inst).init(self.allocator);
                     defer body_tmp.deinit();
 
-                    for (old_inst.cases) |case, i| {
+                    for (old_inst.cases) |*case, i| {
                         body_tmp.items.len = 0;
+
+                        const case_deaths = try self.arena.allocator.alloc(*Inst, old_inst.caseDeaths(i).len);
+                        for (old_inst.caseDeaths(i)) |death, j| {
+                            case_deaths[j] = try self.resolveInst(new_body, death);
+                        }
+                        try self.body_metadata.put(&cases[i].body, .{ .deaths = case_deaths });
 
                         try self.emitBody(case.body, inst_table, &body_tmp);
                         const item = (try self.emitTypedValue(inst.src, .{
@@ -2592,12 +2598,20 @@ const EmitZIR = struct {
                             .body = .{ .instructions = try self.arena.allocator.dupe(*Inst, body_tmp.items) },
                         };
                     }
+                    { // else
+                        const else_deaths = try self.arena.allocator.alloc(*Inst, old_inst.elseDeaths().len);
+                        for (old_inst.elseDeaths()) |death, j| {
+                            else_deaths[j] = try self.resolveInst(new_body, death);
+                        }
+                        try self.body_metadata.put(&new_inst.positionals.else_body, .{ .deaths = else_deaths });
 
-                    body_tmp.items.len = 0;
-                    try self.emitBody(old_inst.else_body, inst_table, &body_tmp);
-                    new_inst.positionals.else_body = .{
-                        .instructions = try self.arena.allocator.dupe(*Inst, body_tmp.items),
-                    };
+                        body_tmp.items.len = 0;
+                        try self.emitBody(old_inst.else_body, inst_table, &body_tmp);
+                        new_inst.positionals.else_body = .{
+                            .instructions = try self.arena.allocator.dupe(*Inst, body_tmp.items),
+                        };
+                    }
+
                     break :blk &new_inst.base;
                 },
                 .varptr => @panic("TODO"),
