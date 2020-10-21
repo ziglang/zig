@@ -907,6 +907,9 @@ pub const Builder = struct {
         install_dir: InstallDir,
         dest_rel_path: []const u8,
     ) *InstallFileStep {
+        if (dest_rel_path.len == 0) {
+            panic("dest_rel_path must be non-empty", .{});
+        }
         const install_step = self.allocator.create(InstallFileStep) catch unreachable;
         install_step.* = InstallFileStep.init(self, src_path, install_dir, dest_rel_path);
         return install_step;
