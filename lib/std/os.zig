@@ -2706,22 +2706,15 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
     }
 }
 
-pub const ShutdownError = error{
-    ConnectionAborted,
-
-    /// Connection was reset by peer, application should close socket as it is no longer usable.
-    ConnectionResetByPeer,
-
-    BlockingOperationInProgress,
-
-    /// The network subsystem has failed.
-    NetworkSubsystemFailed,
-
-    /// The socket is not connected (connection-oriented sockets only).
-    SocketNotConnected,
-
-    SystemResources
-} || UnexpectedError;
+pub const ShutdownError = error{ ConnectionAborted, 
+/// Connection was reset by peer, application should close socket as it is no longer usable.
+ConnectionResetByPeer, 
+BlockingOperationInProgress, 
+/// The network subsystem has failed.
+NetworkSubsystemFailed, 
+/// The socket is not connected (connection-oriented sockets only).
+SocketNotConnected, 
+SystemResources } || UnexpectedError;
 
 pub const ShutdownHow = enum { recv, send, both };
 
@@ -5291,11 +5284,16 @@ pub const PollError = error{
 
     /// The kernel had no space to allocate file descriptor tables.
     SystemResources,
+    /// The number of descriptors to poll is greater than the maximum number
+    /// supported by the libc/kernel.
+    TooManyDescriptors,
 } || UnexpectedError;
 
 pub fn poll(fds: []pollfd, timeout: i32) PollError!usize {
     while (true) {
-        const rc = system.poll(fds.ptr, fds.len, timeout);
+        const fds_count = math.cast(nfds_t, fds.len) catch
+            return error.TooManyDescriptors;
+        const rc = system.poll(fds.ptr, fds_count, timeout);
         if (builtin.os.tag == .windows) {
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
