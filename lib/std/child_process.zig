@@ -258,11 +258,11 @@ pub const ChildProcess = struct {
     }
 
     fn collectOutputWindows(child: *const ChildProcess, stdout: *std.ArrayList(u8), stderr: *std.ArrayList(u8), max_output_bytes: usize) !void {
-        // The order of the objects here is important, WaitForMultipleObjects
-        // uses the same order when scanning the events.
         var wait_objects = [_]windows.kernel32.HANDLE{
-            child.handle, child.stdout.?.handle, child.stderr.?.handle,
+            child.stdout.?.handle, child.stderr.?.handle,
         };
+        var waiting_objects: u32 = wait_objects.len;
+
         // XXX: Calling zeroes([2]windows.OVERLAPPED) causes the stage1 compiler
         // to crash and burn.
         var overlapped = [_]windows.OVERLAPPED{
@@ -274,38 +274,31 @@ pub const ChildProcess = struct {
         // Kickstart the loop by issuing two async reads.
         // ReadFile returns false and GetLastError returns ERROR_IO_PENDING if
         // everything is ok.
-        _ = windows.kernel32.ReadFile(wait_objects[1], &temp_buf[0], temp_buf[0].len, null, &overlapped[0]);
-        _ = windows.kernel32.ReadFile(wait_objects[2], &temp_buf[1], temp_buf[1].len, null, &overlapped[1]);
+        _ = windows.kernel32.ReadFile(wait_objects[0], &temp_buf[0], temp_buf[0].len, null, &overlapped[0]);
+        _ = windows.kernel32.ReadFile(wait_objects[1], &temp_buf[1], temp_buf[1].len, null, &overlapped[1]);
 
-        while (true) {
-            const status = windows.kernel32.WaitForMultipleObjects(wait_objects.len, &wait_objects, 0, windows.INFINITE);
-            std.debug.print("status {x}\n", .{status});
+        poll: while (waiting_objects > 0) {
+            const status = windows.kernel32.WaitForMultipleObjects(waiting_objects, &wait_objects, 0, windows.INFINITE);
             switch (status) {
-                windows.WAIT_OBJECT_0 + 0 => {
-                    // The child process was terminated.
-                    break;
-                },
-                windows.WAIT_OBJECT_0 + 1 => {
-                    // stdout is ready.
+                windows.WAIT_OBJECT_0 + 0...windows.WAIT_OBJECT_0 + 1 => {
+                    // stdout (or stderr) is ready.
+                    const object = status - windows.WAIT_OBJECT_0;
+
                     var read_bytes: u32 = undefined;
-                    if (windows.kernel32.GetOverlappedResult(wait_objects[1], &overlapped[0], &read_bytes, 0) == 0) {
+                    if (windows.kernel32.GetOverlappedResult(wait_objects[object], &overlapped[object], &read_bytes, 0) == 0) {
                         switch (windows.kernel32.GetLastError()) {
+                            .BROKEN_PIPE => {
+                                // Move it to the end to remove it.
+                                if (object != waiting_objects - 1)
+                                    mem.swap(windows.kernel32.HANDLE, &wait_objects[object], &wait_objects[waiting_objects - 1]);
+                                waiting_objects -= 1;
+                                continue :poll;
+                            },
                             else => |err| return windows.unexpectedError(err),
                         }
                     }
-                    try stdout.appendSlice(temp_buf[0][0..read_bytes]);
-                    _ = windows.kernel32.ReadFile(wait_objects[1], &temp_buf[0], temp_buf[0].len, null, &overlapped[0]);
-                },
-                windows.WAIT_OBJECT_0 + 2 => {
-                    // stderr is ready.
-                    var read_bytes: u32 = undefined;
-                    if (windows.kernel32.GetOverlappedResult(wait_objects[2], &overlapped[1], &read_bytes, 0) == 0) {
-                        switch (windows.kernel32.GetLastError()) {
-                            else => |err| return windows.unexpectedError(err),
-                        }
-                    }
-                    try stdout.appendSlice(temp_buf[1][0..read_bytes]);
-                    _ = windows.kernel32.ReadFile(wait_objects[2], &temp_buf[1], temp_buf[1].len, null, &overlapped[1]);
+                    try stdout.appendSlice(temp_buf[object][0..read_bytes]);
+                    _ = windows.kernel32.ReadFile(wait_objects[object], &temp_buf[object], temp_buf[object].len, null, &overlapped[object]);
                 },
                 windows.WAIT_FAILED => {
                     switch (windows.kernel32.GetLastError()) {
