@@ -496,6 +496,7 @@ pub fn formatType(
             const buffer = [_]u8{'.'} ++ @tagName(value);
             return formatType(buffer, fmt, options, writer, max_depth);
         },
+        .Null => return formatBuf("null", options, writer),
         else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
     }
 }
@@ -1908,3 +1909,9 @@ test "sci float padding" {
     try testFmt("center-pad: *3.141e+00*\n", "center-pad: {e:*^11.3}\n", .{number});
     try testFmt("right-pad:  3.141e+00**\n", "right-pad:  {e:*<11.3}\n", .{number});
 }
+
+test "null" {
+    const inst = null;
+    try testFmt("null", "{}", .{inst});
+}
+
