@@ -1505,3 +1505,12 @@ pub const POLLRDBAND = 0x0080;
 pub const POLLWRBAND = 0x0100;
 /// like POLLIN, except ignore EOF.
 pub const POLLINIGNEOF = 0x2000;
+/// some poll error occurred.
+pub const POLLERR = 0x0008;
+/// file descriptor was "hung up".
+pub const POLLHUP = 0x0010;
+/// requested events "invalid".
+pub const POLLNVAL = 0x0020;
+
+pub const POLLSTANDARD = POLLIN | POLLPRI | POLLOUT | POLLRDNORM | POLLRDBAND |
+    POLLWRBAND | POLLERR | POLLHUP | POLLNVAL;
