@@ -5973,7 +5973,8 @@ ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
             }
             ZigType *field_type = resolve_struct_field_type(g, field);
             assert(field_type != nullptr);
-            result->data.x_struct.fields[i] = get_the_one_possible_value(g, field_type);
+            copy_const_val(g, result->data.x_struct.fields[i],
+                    get_the_one_possible_value(g, field_type));
         }
     } else if (result->type->id == ZigTypeIdArray) {
         // The elements array cannot be left unpopulated
@@ -5986,7 +5987,20 @@ ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
             ZigValue *elem_val = &result->data.x_array.data.s_none.elements[i];
             copy_const_val(g, elem_val, get_the_one_possible_value(g, elem_type));
         }
+    } else if (result->type->id == ZigTypeIdUnion) {
+        // The payload/tag fields cannot be left unpopulated
+        ZigType *union_type = result->type;
+        assert(union_type->data.unionation.src_field_count == 1);
+        TypeUnionField *only_field = &union_type->data.unionation.fields[0];
+        ZigType *field_type = resolve_union_field_type(g, only_field);
+        assert(field_type);
+        bigint_init_unsigned(&result->data.x_union.tag, 0);
+        result->data.x_union.payload = g->pass1_arena->create<ZigValue>();
+        copy_const_val(g, result->data.x_union.payload,
+                get_the_one_possible_value(g, field_type));
     } else if (result->type->id == ZigTypeIdPointer) {
+        // Make sure nobody can modify the constant value
+        result->data.x_ptr.mut = ConstPtrMutComptimeConst;
         result->data.x_ptr.special = ConstPtrSpecialRef;
         result->data.x_ptr.data.ref.pointee = get_the_one_possible_value(g, result->type->data.pointer.child_type);
     }

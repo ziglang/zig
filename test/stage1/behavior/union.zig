@@ -713,3 +713,27 @@ test "switching on non exhaustive union" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "containers with single-field enums" {
+    const S = struct {
+        const A = union(enum) { f1 };
+        const B = union(enum) { f1: void };
+        const C = struct { a: A };
+        const D = struct { a: B };
+
+        fn doTheTest() void {
+            var array1 = [1]A{A{ .f1 = {} }};
+            var array2 = [1]B{B{ .f1 = {} }};
+            expect(array1[0] == .f1);
+            expect(array2[0] == .f1);
+
+            var struct1 = C{ .a = A{ .f1 = {} } };
+            var struct2 = D{ .a = B{ .f1 = {} } };
+            expect(struct1.a == .f1);
+            expect(struct2.a == .f1);
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
