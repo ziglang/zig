@@ -1461,7 +1461,7 @@ pub const LOCK_EX = 2;
 pub const LOCK_UN = 8;
 pub const LOCK_NB = 4;
 
-pub const nfds_t = usize;
+pub const nfds_t = u32;
 pub const pollfd = extern struct {
     fd: fd_t,
     events: i16,
