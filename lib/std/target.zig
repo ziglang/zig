@@ -754,6 +754,13 @@ pub const Target = struct {
                 };
             }
 
+            pub fn isPPC64(arch: Arch) bool {
+                return switch (arch) {
+                    .powerpc64, .powerpc64le => true,
+                    else => false,
+                };
+            }
+
             pub fn parseCpuModel(arch: Arch, cpu_name: []const u8) !*const Cpu.Model {
                 for (arch.allCpuModels()) |cpu| {
                     if (mem.eql(u8, cpu_name, cpu.name)) {
