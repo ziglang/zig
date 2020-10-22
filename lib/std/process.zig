@@ -194,7 +194,7 @@ pub const ArgIteratorPosix = struct {
         };
     }
 
-    pub fn next(self: *ArgIteratorPosix) ?[]const u8 {
+    pub fn next(self: *ArgIteratorPosix) ?[:0]const u8 {
         if (self.index == self.count) return null;
 
         const s = os.argv[self.index];
@@ -213,7 +213,7 @@ pub const ArgIteratorPosix = struct {
 pub const ArgIteratorWasi = struct {
     allocator: *mem.Allocator,
     index: usize,
-    args: [][]u8,
+    args: [][:0]u8,
 
     pub const InitError = error{OutOfMemory} || os.UnexpectedError;
 
@@ -228,7 +228,7 @@ pub const ArgIteratorWasi = struct {
         };
     }
 
-    fn internalInit(allocator: *mem.Allocator) InitError![][]u8 {
+    fn internalInit(allocator: *mem.Allocator) InitError![][:0]u8 {
         const w = os.wasi;
         var count: usize = undefined;
         var buf_size: usize = undefined;
@@ -248,7 +248,7 @@ pub const ArgIteratorWasi = struct {
             else => |err| return os.unexpectedErrno(err),
         }
 
-        var result_args = try allocator.alloc([]u8, count);
+        var result_args = try allocator.alloc([:0]u8, count);
         var i: usize = 0;
         while (i < count) : (i += 1) {
             result_args[i] = mem.spanZ(argv[i]);
@@ -257,7 +257,7 @@ pub const ArgIteratorWasi = struct {
         return result_args;
     }
 
-    pub fn next(self: *ArgIteratorWasi) ?[]const u8 {
+    pub fn next(self: *ArgIteratorWasi) ?[:0]const u8 {
         if (self.index == self.args.len) return null;
 
         const arg = self.args[self.index];
@@ -301,7 +301,7 @@ pub const ArgIteratorWindows = struct {
     }
 
     /// You must free the returned memory when done.
-    pub fn next(self: *ArgIteratorWindows, allocator: *Allocator) ?(NextError![]u8) {
+    pub fn next(self: *ArgIteratorWindows, allocator: *Allocator) ?(NextError![:0]u8) {
         // march forward over whitespace
         while (true) : (self.index += 1) {
             const byte = self.cmd_line[self.index];
@@ -355,8 +355,8 @@ pub const ArgIteratorWindows = struct {
         }
     }
 
-    fn internalNext(self: *ArgIteratorWindows, allocator: *Allocator) NextError![]u8 {
-        var buf = std.ArrayList(u8).init(allocator);
+    fn internalNext(self: *ArgIteratorWindows, allocator: *Allocator) NextError![:0]u8 {
+        var buf = try std.ArrayListSentineled(u8, 0).init(allocator, "");
         defer buf.deinit();
 
         var backslash_count: usize = 0;
@@ -397,7 +397,7 @@ pub const ArgIteratorWindows = struct {
         }
     }
 
-    fn emitBackslashes(self: *ArgIteratorWindows, buf: *std.ArrayList(u8), emit_count: usize) !void {
+    fn emitBackslashes(self: *ArgIteratorWindows, buf: *std.ArrayListSentineled(u8, 0), emit_count: usize) !void {
         var i: usize = 0;
         while (i < emit_count) : (i += 1) {
             try buf.append('\\');
@@ -437,21 +437,21 @@ pub const ArgIterator = struct {
     pub const NextError = ArgIteratorWindows.NextError;
 
     /// You must free the returned memory when done.
-    pub fn next(self: *ArgIterator, allocator: *Allocator) ?(NextError![]u8) {
+    pub fn next(self: *ArgIterator, allocator: *Allocator) ?(NextError![:0]u8) {
         if (builtin.os.tag == .windows) {
             return self.inner.next(allocator);
         } else {
-            return allocator.dupe(u8, self.inner.next() orelse return null);
+            return allocator.dupeZ(u8, self.inner.next() orelse return null);
         }
     }
 
     /// If you only are targeting posix you can call this and not need an allocator.
-    pub fn nextPosix(self: *ArgIterator) ?[]const u8 {
+    pub fn nextPosix(self: *ArgIterator) ?[:0]const u8 {
         return self.inner.next();
     }
 
     /// If you only are targeting WASI, you can call this and not need an allocator.
-    pub fn nextWasi(self: *ArgIterator) ?[]const u8 {
+    pub fn nextWasi(self: *ArgIterator) ?[:0]const u8 {
         return self.inner.next();
     }
 
@@ -501,7 +501,7 @@ test "args iterator" {
 }
 
 /// Caller must call argsFree on result.
-pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
+pub fn argsAlloc(allocator: *mem.Allocator) ![][:0]u8 {
     // TODO refactor to only make 1 allocation.
     var it = if (builtin.os.tag == .wasi) try argsWithAllocator(allocator) else args();
     defer it.deinit();
@@ -515,35 +515,36 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
     while (it.next(allocator)) |arg_or_err| {
         const arg = try arg_or_err;
         defer allocator.free(arg);
-        try contents.appendSlice(arg);
+        try contents.appendSlice(arg[0 .. arg.len + 1]);
         try slice_list.append(arg.len);
     }
 
     const contents_slice = contents.span();
     const slice_sizes = slice_list.span();
+    const contents_size_bytes = try math.add(usize, contents_slice.len, slice_sizes.len);
     const slice_list_bytes = try math.mul(usize, @sizeOf([]u8), slice_sizes.len);
-    const total_bytes = try math.add(usize, slice_list_bytes, contents_slice.len);
+    const total_bytes = try math.add(usize, slice_list_bytes, contents_size_bytes);
     const buf = try allocator.alignedAlloc(u8, @alignOf([]u8), total_bytes);
     errdefer allocator.free(buf);
 
-    const result_slice_list = mem.bytesAsSlice([]u8, buf[0..slice_list_bytes]);
+    const result_slice_list = mem.bytesAsSlice([:0]u8, buf[0..slice_list_bytes]);
     const result_contents = buf[slice_list_bytes..];
     mem.copy(u8, result_contents, contents_slice);
 
     var contents_index: usize = 0;
     for (slice_sizes) |len, i| {
         const new_index = contents_index + len;
-        result_slice_list[i] = result_contents[contents_index..new_index];
-        contents_index = new_index;
+        result_slice_list[i] = result_contents[contents_index..new_index :0];
+        contents_index = new_index + 1;
     }
 
     return result_slice_list;
 }
 
-pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const []u8) void {
+pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const [:0]u8) void {
     var total_bytes: usize = 0;
     for (args_alloc) |arg| {
-        total_bytes += @sizeOf([]u8) + arg.len;
+        total_bytes += @sizeOf([]u8) + arg.len + 1;
     }
     const unaligned_allocated_buf = @ptrCast([*]const u8, args_alloc.ptr)[0..total_bytes];
     const aligned_allocated_buf = @alignCast(@alignOf([]u8), unaligned_allocated_buf);
