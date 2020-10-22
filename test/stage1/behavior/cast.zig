@@ -2,6 +2,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 const mem = std.mem;
 const maxInt = std.math.maxInt;
+const Vector = std.meta.Vector;
 
 test "int to ptr cast" {
     const x = @as(usize, 13);
@@ -362,6 +363,43 @@ test "@floatCast comptime_int and comptime_float" {
         expect(@TypeOf(result) == f32);
         expect(result == 1234.0);
     }
+}
+
+test "vector casts" {
+    const S = struct {
+        fn doTheTest() void {
+            // Upcast (implicit, equivalent to @intCast)
+            var up0: Vector(2, u8) = [_]u8{ 0x55, 0xaa };
+            var up1 = @as(Vector(2, u16), up0);
+            var up2 = @as(Vector(2, u32), up0);
+            var up3 = @as(Vector(2, u64), up0);
+            // Downcast (safety-checked)
+            var down0 = up3;
+            var down1 = @intCast(Vector(2, u32), down0);
+            var down2 = @intCast(Vector(2, u16), down0);
+            var down3 = @intCast(Vector(2, u8), down0);
+
+            expect(mem.eql(u16, &@as([2]u16, up1), &[2]u16{ 0x55, 0xaa }));
+            expect(mem.eql(u32, &@as([2]u32, up2), &[2]u32{ 0x55, 0xaa }));
+            expect(mem.eql(u64, &@as([2]u64, up3), &[2]u64{ 0x55, 0xaa }));
+
+            expect(mem.eql(u32, &@as([2]u32, down1), &[2]u32{ 0x55, 0xaa }));
+            expect(mem.eql(u16, &@as([2]u16, down2), &[2]u16{ 0x55, 0xaa }));
+            expect(mem.eql(u8, &@as([2]u8, down3), &[2]u8{ 0x55, 0xaa }));
+        }
+
+        fn doTheTestFloat() void {
+            var vec = @splat(2, @as(f32, 1234.0));
+            var wider: Vector(2, f64) = vec;
+            expect(wider[0] == 1234.0);
+            expect(wider[1] == 1234.0);
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+    S.doTheTestFloat();
+    comptime S.doTheTestFloat();
 }
 
 test "comptime_int @intToFloat" {
