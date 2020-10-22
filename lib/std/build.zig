@@ -2286,9 +2286,9 @@ pub const LibExeObjStep = struct {
 
         if (self.valgrind_support) |valgrind_support| {
             if (valgrind_support) {
-                try zig_args.append("--enable-valgrind");
+                try zig_args.append("-fvalgrind");
             } else {
-                try zig_args.append("--disable-valgrind");
+                try zig_args.append("-fno-valgrind");
             }
         }
 
