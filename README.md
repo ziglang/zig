@@ -111,16 +111,20 @@ stage2/bin/zig build install -Drelease
 
 The ultimate goal of the Zig project is to serve users. As a first-order
 effect, this means users of the compiler, helping programmers to write better
-code. Even more important, however, are the end users.
+software. Even more important, however, are the end users.
 
-Zig is intended to be used to help end users accomplish their goals. For
-example, it would be inappropriate and offensive to use Zig to implement
-[dark patterns](https://en.wikipedia.org/wiki/Dark_pattern) and it would be
-shameful to utilize Zig to exploit people instead of benefit them.
+Zig is intended to be used to help **end users** accomplish their goals. Zig
+should be used to empower end users, never to exploit them financially or to
+limit their freedom to interact with hardware or software in any way.
 
 However, such problems are best solved with social norms, not with software
 licenses. Any attempt to complicate the software license of Zig would risk
-compromising the value Zig provides to users.
+compromising the value Zig provides.
 
 Therefore, Zig is available under the MIT (Expat) License, and comes with a
 humble request: use it to make software better serve the needs of end users.
+
+This project redistributes code from other projects, some of which have other
+licenses besides MIT. Such licenses are generally similar to the MIT license
+for practical purposes. See the subdirectories and files inside lib/ for more
+details.
