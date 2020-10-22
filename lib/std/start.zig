@@ -173,7 +173,8 @@ fn wWinMainCRTStartup() callconv(.Stdcall) noreturn {
 
     std.debug.maybeEnableSegfaultHandler();
 
-    std.os.windows.kernel32.ExitProcess(initEventLoopAndCallWinMain());
+    const result: std.os.windows.INT = initEventLoopAndCallWinMain();
+    std.os.windows.kernel32.ExitProcess(@bitCast(std.os.windows.UINT, result));
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
