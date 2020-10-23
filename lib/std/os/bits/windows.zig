@@ -172,7 +172,7 @@ pub const AT_REMOVEDIR = 0x200;
 
 pub const in_port_t = u16;
 pub const sa_family_t = ws2_32.ADDRESS_FAMILY;
-pub const socklen_t = u32;
+pub const socklen_t = ws2_32.socklen_t;
 
 pub const sockaddr = ws2_32.sockaddr;
 pub const sockaddr_in = ws2_32.sockaddr_in;
@@ -242,6 +242,19 @@ pub const IPPROTO_TCP = ws2_32.IPPROTO_TCP;
 pub const IPPROTO_UDP = ws2_32.IPPROTO_UDP;
 pub const IPPROTO_ICMPV6 = ws2_32.IPPROTO_ICMPV6;
 pub const IPPROTO_RM = ws2_32.IPPROTO_RM;
+
+pub const pollfd = ws2_32.pollfd;
+
+pub const POLLRDNORM = ws2_32.POLLRDNORM;
+pub const POLLRDBAND = ws2_32.POLLRDBAND;
+pub const POLLIN = ws2_32.POLLIN;
+pub const POLLPRI = ws2_32.POLLPRI;
+pub const POLLWRNORM = ws2_32.POLLWRNORM;
+pub const POLLOUT = ws2_32.POLLOUT;
+pub const POLLWRBAND = ws2_32.POLLWRBAND;
+pub const POLLERR = ws2_32.POLLERR;
+pub const POLLHUP = ws2_32.POLLHUP;
+pub const POLLNVAL = ws2_32.POLLNVAL;
 
 pub const O_RDONLY = 0o0;
 pub const O_WRONLY = 0o1;
