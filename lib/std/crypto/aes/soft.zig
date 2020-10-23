@@ -180,7 +180,7 @@ pub const Block = struct {
             return out;
         }
 
-        /// Encrypt multple blocks in parallel with the same round key.
+        /// Encrypt multiple blocks in parallel with the same round key.
         pub fn encryptWide(comptime count: usize, blocks: [count]Block, round_key: Block) [count]Block {
             var i = 0;
             var out: [count]Block = undefined;
@@ -190,7 +190,7 @@ pub const Block = struct {
             return out;
         }
 
-        /// Decrypt multple blocks in parallel with the same round key.
+        /// Decrypt multiple blocks in parallel with the same round key.
         pub fn decryptWide(comptime count: usize, blocks: [count]Block, round_key: Block) [count]Block {
             var i = 0;
             var out: [count]Block = undefined;
@@ -200,7 +200,7 @@ pub const Block = struct {
             return out;
         }
 
-        /// Encrypt multple blocks in parallel with the same last round key.
+        /// Encrypt multiple blocks in parallel with the same last round key.
         pub fn encryptLastWide(comptime count: usize, blocks: [count]Block, round_key: Block) [count]Block {
             var i = 0;
             var out: [count]Block = undefined;
@@ -210,7 +210,7 @@ pub const Block = struct {
             return out;
         }
 
-        /// Decrypt multple blocks in parallel with the same last round key.
+        /// Decrypt multiple blocks in parallel with the same last round key.
         pub fn decryptLastWide(comptime count: usize, blocks: [count]Block, round_key: Block) [count]Block {
             var i = 0;
             var out: [count]Block = undefined;
