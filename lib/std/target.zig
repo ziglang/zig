@@ -763,7 +763,7 @@ pub const Target = struct {
 
             pub fn isSPARC(arch: Arch) bool {
                 return switch (arch) {
-                    .sparcv8, .sparcv9 => true,
+                    .sparc, .sparcel, .sparcv9 => true,
                     else => false,
                 };
             }
