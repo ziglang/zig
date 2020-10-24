@@ -148,8 +148,14 @@ fn _start() callconv(.Naked) noreturn {
             );
         },
         .sparcv9 => {
-            starting_stack_ptr = asm (""
-                : [argc] "={o6}" (-> [*]usize)
+            // On sparc64, the stack pointer register points to a place
+            // 2047 bytes below the actual stack. Also, argc and friends are
+            // placed starting at [stack-start + 128], so we need to account for that too.
+            // Ref: System V Application Binary Interface: SPARC Version 9 Processor Supplement
+            // Version 1.35, figure 3-16.
+            // TODO: find a better way to do this.
+            starting_stack_ptr = asm ("add %%o6, 2175, %[argc]"
+                : [argc] "=r" (-> [*]usize)
             );
         },
         else => @compileError("unsupported arch"),
