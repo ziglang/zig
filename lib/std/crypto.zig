@@ -87,6 +87,7 @@ pub const onetimeauth = struct {
 ///
 /// Password hashing functions must be used whenever sensitive data has to be directly derived from a password.
 pub const pwhash = struct {
+    pub const bcrypt = @import("crypto/bcrypt.zig");
     pub const pbkdf2 = @import("crypto/pbkdf2.zig").pbkdf2;
 };
 
@@ -122,6 +123,7 @@ test "crypto" {
     }
 
     _ = @import("crypto/aes.zig");
+    _ = @import("crypto/bcrypt.zig");
     _ = @import("crypto/blake2.zig");
     _ = @import("crypto/blake3.zig");
     _ = @import("crypto/chacha20.zig");
