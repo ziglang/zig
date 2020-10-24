@@ -86,7 +86,7 @@ pub fn main() anyerror!void {
         std.debug.print("{} errors were logged.\n", .{log_err_count});
     }
     if (leaks != 0) {
-        std.debug.print("{} tests leaked memory.\n", .{ok_count});
+        std.debug.print("{} tests leaked memory.\n", .{leaks});
     }
     if (leaks != 0 or log_err_count != 0) {
         std.process.exit(1);
