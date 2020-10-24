@@ -818,7 +818,12 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
     var ksa_old: k_sigaction = undefined;
     const ksa_mask_size = @sizeOf(@TypeOf(ksa_old.mask));
     @memcpy(@ptrCast([*]u8, &ksa.mask), @ptrCast([*]const u8, &act.mask), ksa_mask_size);
-    const result = syscall4(.rt_sigaction, sig, @ptrToInt(&ksa), @ptrToInt(&ksa_old), ksa_mask_size);
+    const result = switch (builtin.arch) {
+        // The sparc version of rt_sigaction needs the restorer function to be passed as an argument too.
+        .sparc, .sparcv9 => syscall5(.rt_sigaction, sig,
+            @ptrToInt(&ksa), @ptrToInt(&ksa_old), @ptrToInt(ksa.restorer), ksa_mask_size),
+        else => syscall4(.rt_sigaction, sig, @ptrToInt(&ksa), @ptrToInt(&ksa_old), ksa_mask_size),
+    };
     const err = getErrno(result);
     if (err != 0) {
         return result;
