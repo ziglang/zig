@@ -389,26 +389,26 @@ pub const SYS = extern enum(usize) {
     _,
 };
 
-pub const O_CREAT = 0o100;
-pub const O_EXCL = 0o200;
-pub const O_NOCTTY = 0o400;
-pub const O_TRUNC = 0o1000;
-pub const O_APPEND = 0o2000;
-pub const O_NONBLOCK = 0o4000;
-pub const O_DSYNC = 0o10000;
-pub const O_SYNC = 0o4010000;
-pub const O_RSYNC = 0o4010000;
-pub const O_DIRECTORY = 0o200000;
-pub const O_NOFOLLOW = 0o400000;
-pub const O_CLOEXEC = 0o2000000;
+pub const O_CREAT = 0x200;
+pub const O_EXCL = 0x800;
+pub const O_NOCTTY = 0x8000;
+pub const O_TRUNC = 0x400;
+pub const O_APPEND = 0x8;
+pub const O_NONBLOCK = 0x4000;
+pub const O_SYNC = 0x802000;
+pub const O_DSYNC = 0x2000;
+pub const O_RSYNC = O_SYNC;
+pub const O_DIRECTORY = 0x10000;
+pub const O_NOFOLLOW = 0x20000;
+pub const O_CLOEXEC = 0x400000;
 
-pub const O_ASYNC = 0o20000;
-pub const O_DIRECT = 0o40000;
-pub const O_LARGEFILE = 0o100000;
-pub const O_NOATIME = 0o1000000;
-pub const O_PATH = 0o10000000;
-pub const O_TMPFILE = 0o20200000;
-pub const O_NDELAY = O_NONBLOCK;
+pub const O_ASYNC = 0x40;
+pub const O_DIRECT = 0x100000;
+pub const O_LARGEFILE = 0;
+pub const O_NOATIME = 0x200000;
+pub const O_PATH = 0x1000000;
+pub const O_TMPFILE = 0x2010000;
+pub const O_NDELAY = O_NONBLOCK | 0x4;
 
 pub const F_DUPFD = 0;
 pub const F_GETFD = 1;
@@ -416,18 +416,15 @@ pub const F_SETFD = 2;
 pub const F_GETFL = 3;
 pub const F_SETFL = 4;
 
-pub const F_SETOWN = 8;
-pub const F_GETOWN = 9;
-pub const F_SETSIG = 10;
-pub const F_GETSIG = 11;
+pub const F_SETOWN = 5;
+pub const F_GETOWN = 6;
+pub const F_GETLK = 7;
+pub const F_SETLK = 8;
+pub const F_SETLKW = 9;
 
-pub const F_RDLCK = 0;
-pub const F_WRLCK = 1;
-pub const F_UNLCK = 2;
-
-pub const F_GETLK = 5;
-pub const F_SETLK = 6;
-pub const F_SETLKW = 7;
+pub const F_RDLCK = 1;
+pub const F_WRLCK = 2;
+pub const F_UNLCK = 3;
 
 pub const F_SETOWN_EX = 15;
 pub const F_GETOWN_EX = 16;
@@ -436,8 +433,8 @@ pub const F_GETOWNER_UIDS = 17;
 
 pub const LOCK_SH = 1;
 pub const LOCK_EX = 2;
-pub const LOCK_UN = 8;
 pub const LOCK_NB = 4;
+pub const LOCK_UN = 8;
 
 /// stack-like segment
 pub const MAP_GROWSDOWN = 0x0200;
@@ -456,8 +453,6 @@ pub const MAP_NORESERVE = 0x0040;
 
 pub const VDSO_CGT_SYM = "__vdso_clock_gettime";
 pub const VDSO_CGT_VER = "LINUX_2.6";
-
-// TODO do this
 
 pub const Flock = extern struct {
     l_type: i16,
