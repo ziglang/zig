@@ -907,7 +907,7 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
     if (needle.len > haystack.len) return null;
     if (needle.len == 0) return haystack.len;
 
-    if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 32 or needle.len <= 2)
+    if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
         return lastIndexOfLinear(T, haystack, needle);
 
     const haystack_bytes = sliceAsBytes(haystack);
@@ -951,10 +951,10 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
 }
 
 test "mem.indexOf" {
-    testing.expect(indexOf(u8, "one two three four five six seven eight nine ten", "three four").? == 8);
-    testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten", "three four").? == 8);
-    testing.expect(indexOf(u8, "one two three four five six seven eight nine ten", "two two") == null);
-    testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten", "two two") == null);
+    testing.expect(indexOf(u8, "one two three four five six seven eight nine ten eleven", "three four").? == 8);
+    testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten eleven", "three four").? == 8);
+    testing.expect(indexOf(u8, "one two three four five six seven eight nine ten eleven", "two two") == null);
+    testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten eleven", "two two") == null);
 
     testing.expect(indexOf(u8, "one two three four five six seven eight nine ten", "").? == 0);
     testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten", "").? == 48);
