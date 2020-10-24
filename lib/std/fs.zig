@@ -2251,7 +2251,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                 const PATH = std.os.getenvZ("PATH") orelse return error.FileNotFound;
                 var path_it = mem.tokenize(PATH, &[_]u8{path.delimiter});
                 while (path_it.next()) |a_path| {
-                    var resolved_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+                    var resolved_path_buf: [MAX_PATH_BYTES-1:0]u8 = undefined;
                     const resolved_path = std.fmt.bufPrintZ(&resolved_path_buf, "{s}/{s}", .{
                         a_path,
                         os.argv[0],
