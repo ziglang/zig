@@ -1816,7 +1816,7 @@ pub const LibExeObjStep = struct {
             },
             else => {},
         }
-        out.print("pub const {z} = {};\n", .{ name, value }) catch unreachable;
+        out.print("pub const {z}: {} = {};\n", .{ name, @typeName(T), value }) catch unreachable;
     }
 
     /// The value is the path in the cache dir.
