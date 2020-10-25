@@ -550,7 +550,31 @@ pub const fpstate = extern struct {
     gsr: u64,
     fprs: u64,
 };
-pub const fpregset_t = *fpstate;
+
+pub const __fpq = extern struct {
+    fpq_addr: *u32,
+    fpq_instr: u32,
+};
+
+pub const __fq = extern struct {
+    FQu: extern union {
+        whole: f64,
+        fpq: __fpq,
+    },
+};
+
+pub const fpregset_t = extern struct {
+    fpu_fr: extern union {
+        fpu_regs: [32]u32,
+        fpu_dregs: [32]f64,
+        fpu_qregs: [16]c_longdouble,
+    },
+    fpu_q: *__fq,
+    fpu_fsr: u64,
+    fpu_qcnt: u8,
+    fpu_q_entrysize: u8,
+    fpu_en: u8,
+};
 
 pub const siginfo_fpu_t = extern struct {
     float_regs: [64]u32,
@@ -594,6 +618,7 @@ pub const fpu_t = extern struct {
     },
     fsr: u64,
     fprs: u64,
+    gsr: u64,
     fq: *fq,
     qcnt: u8,
     qentsz: u8,
@@ -603,14 +628,14 @@ pub const fpu_t = extern struct {
 pub const mcontext_t = extern struct {
     gregs: gregset_t,
     fp: greg_t,
-    i7: greg_t,
+    @"i7": greg_t,
     fpregs: fpu_t,
 };
 
 pub const ucontext_t = extern struct {
     link: *ucontext_t,
     flags: u64,
-    __sigmask: u64,
+    sigmask: u64,
     mcontext: mcontext_t,
     stack: stack_t,
     sigmask: sigset_t,
