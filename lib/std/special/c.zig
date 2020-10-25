@@ -528,10 +528,8 @@ fn clone() callconv(.Naked) void {
             );
         },
         .sparcv9 => {
-            // Implementation by @LemonBoy (https://github.com/LemonBoy)
             // __clone(func, stack, flags, arg, ptid, tls, ctid)
             //           i0,    i1,    i2,  i3,   i4,  i5,   sp
-
             // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
             //                g1     o0,    o1,   o2,  o3,   o4
             asm volatile (

@@ -1279,7 +1279,13 @@ pub fn setrlimit(resource: rlimit_resource, rlim: *const rlimit) usize {
 }
 
 pub fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: ?*const rlimit, old_limit: ?*rlimit) usize {
-    return syscall4(.prlimit64, @bitCast(usize, @as(isize, pid)), @bitCast(usize, @as(isize, @enumToInt(resource))), @ptrToInt(new_limit), @ptrToInt(old_limit));
+    return syscall4(
+        .prlimit64,
+        @bitCast(usize, @as(isize, pid)),
+        @bitCast(usize, @as(isize, @enumToInt(resource))),
+        @ptrToInt(new_limit),
+        @ptrToInt(old_limit),
+    );
 }
 
 test "" {
