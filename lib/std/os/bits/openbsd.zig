@@ -33,10 +33,10 @@ pub const Kevent = extern struct {
 };
 
 pub const dl_phdr_info = extern struct {
-    dlpi_addr: usize,
+    dlpi_addr: std.elf.Addr,
     dlpi_name: ?[*:0]const u8,
     dlpi_phdr: [*]std.elf.Phdr,
-    dlpi_phnum: u16,
+    dlpi_phnum: std.elf.Half,
 };
 
 pub const Flock = extern struct {
