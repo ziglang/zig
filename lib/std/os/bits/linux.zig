@@ -186,6 +186,9 @@ pub usingnamespace if (is_mips)
         pub const SA_SIGINFO = 8;
         pub const SA_RESTART = 0x10000000;
         pub const SA_RESETHAND = 0x80000000;
+        pub const SA_ONSTACK = 0x08000000;
+        pub const SA_NODEFER = 0x40000000;
+        pub const SA_RESTORER = 0x04000000;
 
         pub const SIG_BLOCK = 1;
         pub const SIG_UNBLOCK = 2;
@@ -193,15 +196,18 @@ pub usingnamespace if (is_mips)
     }
 else if (is_sparc)
     struct {
-        pub const SA_NOCLDSTOP = 1;
-        pub const SA_NOCLDWAIT = 2;
+        pub const SA_NOCLDSTOP = 0x8;
+        pub const SA_NOCLDWAIT = 0x100;
         pub const SA_SIGINFO = 0x200;
         pub const SA_RESTART = 0x2;
         pub const SA_RESETHAND = 0x4;
+        pub const SA_ONSTACK = 0x1;
+        pub const SA_NODEFER = 0x20;
+        pub const SA_RESTORER = 0x04000000;
 
-        pub const SIG_BLOCK = 0;
-        pub const SIG_UNBLOCK = 1;
-        pub const SIG_SETMASK = 2;
+        pub const SIG_BLOCK = 1;
+        pub const SIG_UNBLOCK = 2;
+        pub const SIG_SETMASK = 4;
     }
 else
     struct {
@@ -210,15 +216,14 @@ else
         pub const SA_SIGINFO = 4;
         pub const SA_RESTART = 0x10000000;
         pub const SA_RESETHAND = 0x80000000;
+        pub const SA_ONSTACK = 0x08000000;
+        pub const SA_NODEFER = 0x40000000;
+        pub const SA_RESTORER = 0x04000000;
 
         pub const SIG_BLOCK = 0;
         pub const SIG_UNBLOCK = 1;
         pub const SIG_SETMASK = 2;
     };
-
-pub const SA_ONSTACK = 0x08000000;
-pub const SA_NODEFER = 0x40000000;
-pub const SA_RESTORER = 0x04000000;
 
 pub const SIGHUP = 1;
 pub const SIGINT = 2;
