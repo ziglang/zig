@@ -12,8 +12,6 @@ const socklen_t = linux.socklen_t;
 const iovec = linux.iovec;
 const iovec_const = linux.iovec_const;
 
-pub const mode_t = usize;
-
 pub const SYS = extern enum(usize) {
     restart_syscall = 0,
     exit = 1,
@@ -484,14 +482,14 @@ pub const msghdr_const = extern struct {
 
 pub const off_t = i64;
 pub const ino_t = u64;
+pub const mode_t = u32;
 
-/// Renamed to Stat to not conflict with the stat function.
 /// atime, mtime, and ctime have functions to return `timespec`,
 /// because although this is a POSIX API, the layout and names of
 /// the structs are inconsistent across operating systems, and
 /// in C, macros are used to hide the differences. Here we use
 /// methods to accomplish this.
-pub const Stat = extern struct {
+pub const libc_stat = extern struct {
     dev: u64,
     ino: ino_t,
     mode: u32,
@@ -523,6 +521,45 @@ pub const Stat = extern struct {
         return self.ctim;
     }
 };
+
+pub const kernel_stat = extern struct {
+    dev: u32,
+    ino: ino_t,
+    mode: mode_t,
+    nlink: i16,
+
+    uid: u32,
+    gid: u32,
+    rdev: u32,
+
+    size: off_t,
+    atim: isize,
+    mtim: isize,
+    ctim: isize,
+
+    blksize: off_t,
+    blocks: off_t,
+
+    __unused4: [2]isize,
+
+    // Hack to make the stdlib not complain about atime
+    // and friends not being a method.
+    // TODO what should tv_nsec be filled with?
+    pub fn atime(self: Stat) timespec {
+        return timespec{.tv_sec=self.atim, .tv_nsec=0};
+    }
+
+    pub fn mtime(self: Stat) timespec {
+        return timespec{.tv_sec=self.mtim, .tv_nsec=0};
+    }
+
+    pub fn ctime(self: Stat) timespec {
+        return timespec{.tv_sec=self.ctim, .tv_nsec=0};
+    }
+};
+
+/// Renamed to Stat to not conflict with the stat function.
+pub const Stat = kernel_stat;
 
 pub const timespec = extern struct {
     tv_sec: isize,
