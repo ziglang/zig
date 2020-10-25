@@ -820,8 +820,7 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
     @memcpy(@ptrCast([*]u8, &ksa.mask), @ptrCast([*]const u8, &act.mask), ksa_mask_size);
     const result = switch (builtin.arch) {
         // The sparc version of rt_sigaction needs the restorer function to be passed as an argument too.
-        .sparc, .sparcv9 => syscall5(.rt_sigaction, sig,
-            @ptrToInt(&ksa), @ptrToInt(&ksa_old), @ptrToInt(ksa.restorer), ksa_mask_size),
+        .sparc, .sparcv9 => syscall5(.rt_sigaction, sig, @ptrToInt(&ksa), @ptrToInt(&ksa_old), @ptrToInt(ksa.restorer), ksa_mask_size),
         else => syscall4(.rt_sigaction, sig, @ptrToInt(&ksa), @ptrToInt(&ksa_old), ksa_mask_size),
     };
     const err = getErrno(result);
@@ -1280,13 +1279,7 @@ pub fn setrlimit(resource: rlimit_resource, rlim: *const rlimit) usize {
 }
 
 pub fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: ?*const rlimit, old_limit: ?*rlimit) usize {
-    return syscall4(
-        .prlimit64,
-        @bitCast(usize, @as(isize, pid)),
-        @bitCast(usize, @as(isize, @enumToInt(resource))),
-        @ptrToInt(new_limit),
-        @ptrToInt(old_limit)
-    );
+    return syscall4(.prlimit64, @bitCast(usize, @as(isize, pid)), @bitCast(usize, @as(isize, @enumToInt(resource))), @ptrToInt(new_limit), @ptrToInt(old_limit));
 }
 
 test "" {
