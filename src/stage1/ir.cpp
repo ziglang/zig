@@ -16313,6 +16313,9 @@ static void set_optional_payload(ZigValue *opt_val, ZigValue *payload) {
     assert(opt_val->type->id == ZigTypeIdOptional);
     if (payload == nullptr) {
         set_optional_value_to_null(opt_val);
+    } else if (get_src_ptr_type(opt_val->type)) {
+        assert(get_src_ptr_type(payload->type));
+        opt_val->data.x_ptr = payload->data.x_ptr;
     } else if (is_opt_err_set(opt_val->type)) {
         assert(payload->type->id == ZigTypeIdErrorSet);
         opt_val->data.x_err_set = payload->data.x_err_set;

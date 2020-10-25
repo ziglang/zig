@@ -1,9 +1,12 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const builtin = std.builtin;
 const mem = std.mem;
-const builtin = @import("builtin");
+
 const TypeInfo = builtin.TypeInfo;
 const TypeId = builtin.TypeId;
+
+const expect = std.testing.expect;
+const expectEqualStrings = std.testing.expectEqualStrings;
 
 test "type info: tag type, void info" {
     testBasic();
@@ -232,10 +235,14 @@ test "type info: struct info" {
 
 fn testStruct() void {
     const unpacked_struct_info = @typeInfo(TestUnpackedStruct);
+    expect(unpacked_struct_info.Struct.is_tuple == false);
     expect(unpacked_struct_info.Struct.fields[0].alignment == @alignOf(u32));
+    expect(unpacked_struct_info.Struct.fields[0].default_value.? == 4);
+    expectEqualStrings("foobar", unpacked_struct_info.Struct.fields[1].default_value.?);
 
     const struct_info = @typeInfo(TestStruct);
     expect(struct_info == .Struct);
+    expect(struct_info.Struct.is_tuple == false);
     expect(struct_info.Struct.layout == .Packed);
     expect(struct_info.Struct.fields.len == 4);
     expect(struct_info.Struct.fields[0].alignment == 2 * @alignOf(usize));
@@ -253,6 +260,7 @@ fn testStruct() void {
 
 const TestUnpackedStruct = struct {
     fieldA: u32 = 4,
+    fieldB: *const [6:0]u8 = "foobar",
 };
 
 const TestStruct = packed struct {
@@ -371,7 +379,7 @@ test "type info: extern fns with and without lib names" {
             if (std.mem.eql(u8, decl.name, "bar1")) {
                 expect(decl.data.Fn.lib_name == null);
             } else {
-                std.testing.expectEqual(@as([]const u8, "cool"), decl.data.Fn.lib_name.?);
+                expectEqualStrings("cool", decl.data.Fn.lib_name.?);
             }
         }
     }
