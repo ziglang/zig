@@ -3056,8 +3056,15 @@ pub const ClangArgIterator = struct {
                     @panic("TODO");
                 }
             },
-            .multi_arg => if (clang_arg.matchEql(arg) > 0) {
-                @panic("TODO");
+            .multi_arg => |num_args| if (clang_arg.matchEql(arg) > 0) {
+                // Example `-sectcreate <arg1> <arg2> <arg3>`.
+                var i: usize = 0;
+                while (i < num_args) : (i += 1) {
+                    self.incrementArgIndex();
+                    self.other_args.len += 1;
+                }
+                self.zig_equivalent = clang_arg.zig_equivalent;
+                break :find_clang_arg;
             },
         }
         else {
