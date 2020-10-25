@@ -4,6 +4,7 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std");
+const crypto = std.crypto;
 const fmt = std.fmt;
 const mem = std.mem;
 const Sha512 = std.crypto.hash.sha2.Sha512;
@@ -31,14 +32,19 @@ pub const Ed25519 = struct {
     ///
     /// For this reason, an EdDSA secret key is commonly called a seed,
     /// from which the actual secret is derived.
-    pub fn createKeyPair(seed: [seed_length]u8) ![keypair_length]u8 {
+    pub fn createKeyPair(seed: ?[seed_length]u8) ![keypair_length]u8 {
+        const sk = seed orelse sk: {
+            var random_seed: [seed_length]u8 = undefined;
+            try crypto.randomBytes(&random_seed);
+            break :sk random_seed;
+        };
         var az: [Sha512.digest_length]u8 = undefined;
         var h = Sha512.init(.{});
-        h.update(&seed);
+        h.update(&sk);
         h.final(&az);
         const p = try Curve.basePoint.clampedMul(az[0..32].*);
         var keypair: [keypair_length]u8 = undefined;
-        mem.copy(u8, &keypair, &seed);
+        mem.copy(u8, &keypair, &sk);
         mem.copy(u8, keypair[seed_length..], &p.toBytes());
         return keypair;
     }

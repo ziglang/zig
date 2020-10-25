@@ -96,12 +96,12 @@ pub fn benchmarkMac(comptime Mac: anytype, comptime bytes: comptime_int) !u64 {
 const exchanges = [_]Crypto{Crypto{ .ty = crypto.dh.X25519, .name = "x25519" }};
 
 pub fn benchmarkKeyExchange(comptime DhKeyExchange: anytype, comptime exchange_count: comptime_int) !u64 {
-    std.debug.assert(DhKeyExchange.key_length >= DhKeyExchange.secret_length);
+    std.debug.assert(DhKeyExchange.shared_length >= DhKeyExchange.secret_length);
 
-    var in: [DhKeyExchange.key_length]u8 = undefined;
+    var in: [DhKeyExchange.shared_length]u8 = undefined;
     prng.random.bytes(in[0..]);
 
-    var out: [DhKeyExchange.key_length]u8 = undefined;
+    var out: [DhKeyExchange.shared_length]u8 = undefined;
     prng.random.bytes(out[0..]);
 
     var timer = try Timer.start();
@@ -109,7 +109,7 @@ pub fn benchmarkKeyExchange(comptime DhKeyExchange: anytype, comptime exchange_c
     {
         var i: usize = 0;
         while (i < exchange_count) : (i += 1) {
-            _ = DhKeyExchange.create(out[0..], out[0..], in[0..]);
+            try DhKeyExchange.scalarmult(&out, out, in);
             mem.doNotOptimizeAway(&out);
         }
     }
@@ -208,6 +208,7 @@ pub fn benchmarkBatchSignatureVerification(comptime Signature: anytype, comptime
 const aeads = [_]Crypto{
     Crypto{ .ty = crypto.aead.ChaCha20Poly1305, .name = "chacha20Poly1305" },
     Crypto{ .ty = crypto.aead.XChaCha20Poly1305, .name = "xchacha20Poly1305" },
+    Crypto{ .ty = crypto.aead.XSalsa20Poly1305, .name = "xsalsa20Poly1305" },
     Crypto{ .ty = crypto.aead.Gimli, .name = "gimli-aead" },
     Crypto{ .ty = crypto.aead.Aegis128L, .name = "aegis-128l" },
     Crypto{ .ty = crypto.aead.Aegis256, .name = "aegis-256" },
