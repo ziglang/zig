@@ -148,13 +148,10 @@ fn _start() callconv(.Naked) noreturn {
             );
         },
         .sparcv9 => {
-            // On sparc64, the stack pointer register points to a place
-            // 2047 bytes below the actual stack. Also, argc and friends are
-            // placed starting at [stack-start + 128], so we need to account for that too.
-            // Ref: System V Application Binary Interface: SPARC Version 9 Processor Supplement
-            // Version 1.35, figure 3-16.
-            // TODO: find a better way to do this.
-            starting_stack_ptr = asm ("add %%o6, 2175, %[argc]"
+            // argc is stored after a register window (16 registers) plus stack bias
+            starting_stack_ptr = asm (
+                \\ mov %%g0, %%i6
+                \\ add %%o6, 2175, %[argc]
                 : [argc] "=r" (-> [*]usize)
             );
         },
