@@ -8675,7 +8675,7 @@ test "safety check" {
       {#code_end#}
       {#header_open|Reaching Unreachable Code#}
       <p>At compile-time:</p>
-      {#code_begin|test_err|unable to evaluate constant expression#}
+      {#code_begin|test_err|reached unreachable code#}
 comptime {
     assert(false);
 }

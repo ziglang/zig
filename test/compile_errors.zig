@@ -2,6 +2,21 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("unreachable executed at comptime",
+        \\fn foo(comptime x: i32) i32 {
+        \\    comptime {
+        \\        if (x >= 0) return -x;
+        \\        unreachable;
+        \\    }
+        \\}
+        \\export fn entry() void {
+        \\    _ = foo(-42);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:4:9: error: reached unreachable code",
+        "tmp.zig:8:12: note: called from here",
+    });
+
     cases.add("indexing a undefined slice at comptime",
         \\comptime {
         \\    var slice: []u8 = undefined;
@@ -6208,7 +6223,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    if (!ok) unreachable;
         \\}
     , &[_][]const u8{
-        "tmp.zig:10:14: error: unable to evaluate constant expression",
+        "tmp.zig:10:14: error: reached unreachable code",
         "tmp.zig:6:20: note: referenced here",
     });
 
