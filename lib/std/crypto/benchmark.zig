@@ -124,10 +124,8 @@ pub fn benchmarkKeyExchange(comptime DhKeyExchange: anytype, comptime exchange_c
 const signatures = [_]Crypto{Crypto{ .ty = crypto.sign.Ed25519, .name = "ed25519" }};
 
 pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
-    var seed: [Signature.seed_length]u8 = undefined;
-    prng.random.bytes(seed[0..]);
     const msg = [_]u8{0} ** 64;
-    const key_pair = try Signature.createKeyPair(seed);
+    const key_pair = try Signature.KeyPair.create(null);
 
     var timer = try Timer.start();
     const start = timer.lap();
@@ -149,11 +147,8 @@ pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count
 const signature_verifications = [_]Crypto{Crypto{ .ty = crypto.sign.Ed25519, .name = "ed25519" }};
 
 pub fn benchmarkSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
-    var seed: [Signature.seed_length]u8 = undefined;
-    prng.random.bytes(seed[0..]);
     const msg = [_]u8{0} ** 64;
-    const key_pair = try Signature.createKeyPair(seed);
-    const public_key = Signature.publicKey(key_pair);
+    const key_pair = try Signature.KeyPair.create(null);
     const sig = try Signature.sign(&msg, key_pair, null);
 
     var timer = try Timer.start();
@@ -161,7 +156,7 @@ pub fn benchmarkSignatureVerification(comptime Signature: anytype, comptime sign
     {
         var i: usize = 0;
         while (i < signatures_count) : (i += 1) {
-            try Signature.verify(sig, &msg, public_key);
+            try Signature.verify(sig, &msg, key_pair.public_key);
             mem.doNotOptimizeAway(&sig);
         }
     }
@@ -176,16 +171,13 @@ pub fn benchmarkSignatureVerification(comptime Signature: anytype, comptime sign
 const batch_signature_verifications = [_]Crypto{Crypto{ .ty = crypto.sign.Ed25519, .name = "ed25519" }};
 
 pub fn benchmarkBatchSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
-    var seed: [Signature.seed_length]u8 = undefined;
-    prng.random.bytes(seed[0..]);
     const msg = [_]u8{0} ** 64;
-    const key_pair = try Signature.createKeyPair(seed);
-    const public_key = Signature.publicKey(key_pair);
+    const key_pair = try Signature.KeyPair.create(null);
     const sig = try Signature.sign(&msg, key_pair, null);
 
     var batch: [64]Signature.BatchElement = undefined;
     for (batch) |*element| {
-        element.* = Signature.BatchElement{ .sig = sig, .msg = &msg, .public_key = public_key };
+        element.* = Signature.BatchElement{ .sig = sig, .msg = &msg, .public_key = key_pair.public_key };
     }
 
     var timer = try Timer.start();
