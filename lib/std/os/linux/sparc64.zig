@@ -4,7 +4,7 @@ pub fn syscall_pipe(fd: *[2]i32) usize {
     return asm volatile (
         \\ mov %%o0, %%o2
         \\ t 0x6d
-        \\ bcc %%xcc, 1f
+        \\ bcc,pt %%xcc, 1f
         \\ nop
         \\ ba 2f
         \\ neg %%o0
@@ -21,8 +21,8 @@ pub fn syscall_pipe(fd: *[2]i32) usize {
 
 pub fn syscall0(number: SYS) usize {
     return asm volatile (
-        \\ t   0x6d
-        \\ bcc %%xcc, 1f
+        \\ t 0x6d
+        \\ bcc,pt %%xcc, 1f
         \\ nop
         \\ neg %%o0
         \\ 1:
@@ -34,8 +34,8 @@ pub fn syscall0(number: SYS) usize {
 
 pub fn syscall1(number: SYS, arg1: usize) usize {
     return asm volatile (
-        \\ t   0x6d
-        \\ bcc %%xcc, 1f
+        \\ t 0x6d
+        \\ bcc,pt %%xcc, 1f
         \\ nop
         \\ neg %%o0
         \\ 1:
@@ -48,8 +48,8 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
 
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
     return asm volatile (
-        \\ t   0x6d
-        \\ bcc %%xcc, 1f
+        \\ t 0x6d
+        \\ bcc,pt %%xcc, 1f
         \\ nop
         \\ neg %%o0
         \\ 1:
@@ -63,8 +63,8 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
 
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
     return asm volatile (
-        \\ t   0x6d
-        \\ bcc %%xcc, 1f
+        \\ t 0x6d
+        \\ bcc,pt %%xcc, 1f
         \\ nop
         \\ neg %%o0
         \\ 1:
@@ -79,8 +79,8 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
 
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
     return asm volatile (
-        \\ t   0x6d
-        \\ bcc %%xcc, 1f
+        \\ t 0x6d
+        \\ bcc,pt %%xcc, 1f
         \\ nop
         \\ neg %%o0
         \\ 1:
@@ -96,8 +96,8 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
 
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
     return asm volatile (
-        \\ t   0x6d
-        \\ bcc %%xcc, 1f
+        \\ t 0x6d
+        \\ bcc,pt %%xcc, 1f
         \\ nop
         \\ neg %%o0
         \\ 1:
@@ -122,8 +122,8 @@ pub fn syscall6(
     arg6: usize,
 ) usize {
     return asm volatile (
-        \\ t   0x6d
-        \\ bcc %%xcc, 1f
+        \\ t 0x6d
+        \\ bcc,pt %%xcc, 1f
         \\ nop
         \\ neg %%o0
         \\ 1:
