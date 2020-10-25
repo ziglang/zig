@@ -93,3 +93,21 @@ test "pass tuple to comptime var parameter" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "tuple initializer for var" {
+    const S = struct {
+        fn doTheTest() void {
+            const Bytes = struct {
+                id: usize,
+            };
+
+            var tmp = .{
+                .id = @as(usize, 2),
+                .name = Bytes{ .id = 20 },
+            };
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}

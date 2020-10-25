@@ -5686,7 +5686,13 @@ static bool can_mutate_comptime_var_state(ZigValue *value) {
             zig_unreachable();
         case ZigTypeIdStruct:
             for (uint32_t i = 0; i < value->type->data.structure.src_field_count; i += 1) {
-                if (can_mutate_comptime_var_state(value->data.x_struct.fields[i]))
+                TypeStructField *type_struct_field = value->type->data.structure.fields[i];
+
+                ZigValue *field_value = type_struct_field->is_comptime ?
+                        type_struct_field->init_val :
+                        value->data.x_struct.fields[i];
+
+                if (can_mutate_comptime_var_state(field_value))
                     return true;
             }
             return false;
@@ -9690,6 +9696,11 @@ void copy_const_val(CodeGen *g, ZigValue *dest, ZigValue *src) {
     if (dest->type->id == ZigTypeIdStruct) {
         dest->data.x_struct.fields = alloc_const_vals_ptrs(g, dest->type->data.structure.src_field_count);
         for (size_t i = 0; i < dest->type->data.structure.src_field_count; i += 1) {
+            TypeStructField *type_struct_field = dest->type->data.structure.fields[i];
+            // comptime-known values are stored in the field init_val inside
+            // the struct type.
+            if (type_struct_field->is_comptime)
+                continue;
             copy_const_val(g, dest->data.x_struct.fields[i], src->data.x_struct.fields[i]);
             dest->data.x_struct.fields[i]->parent.id = ConstParentIdStruct;
             dest->data.x_struct.fields[i]->parent.data.p_struct.struct_val = dest;
