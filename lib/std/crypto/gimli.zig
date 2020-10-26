@@ -39,13 +39,13 @@ pub const State = struct {
     }
 
     /// TODO follow the span() convention instead of having this and `toSliceConst`
-    pub fn toSlice(self: *Self) []u8 {
-        return mem.sliceAsBytes(self.data[0..]);
+    pub fn toSlice(self: *Self) *[BLOCKBYTES]u8 {
+        return mem.asBytes(&self.data);
     }
 
     /// TODO follow the span() convention instead of having this and `toSlice`
-    pub fn toSliceConst(self: *Self) []const u8 {
-        return mem.sliceAsBytes(self.data[0..]);
+    pub fn toSliceConst(self: *const Self) *const [BLOCKBYTES]u8 {
+        return mem.asBytes(&self.data);
     }
 
     fn permute_unrolled(self: *Self) void {

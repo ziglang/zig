@@ -77,7 +77,7 @@ pub fn Blake2s(comptime out_bits: usize) type {
         buf_len: u8,
 
         pub fn init(options: Options) Self {
-            debug.assert(8 <= out_bits and out_bits <= 256);
+            comptime debug.assert(8 <= out_bits and out_bits <= 256);
 
             var d: Self = undefined;
             mem.copy(u32, d.h[0..], iv[0..]);
@@ -125,7 +125,7 @@ pub fn Blake2s(comptime out_bits: usize) type {
             // Full middle blocks.
             while (off + 64 < b.len) : (off += 64) {
                 d.t += 64;
-                d.round(b[off .. off + 64], false);
+                d.round(b[off..][0..64], false);
             }
 
             // Copy any remainder for next pass.
@@ -145,9 +145,7 @@ pub fn Blake2s(comptime out_bits: usize) type {
             }
         }
 
-        fn round(d: *Self, b: []const u8, last: bool) void {
-            debug.assert(b.len == 64);
-
+        fn round(d: *Self, b: *const [64]u8, last: bool) void {
             var m: [16]u32 = undefined;
             var v: [16]u32 = undefined;
 
@@ -422,7 +420,7 @@ pub fn Blake2b(comptime out_bits: usize) type {
         buf_len: u8,
 
         pub fn init(options: Options) Self {
-            debug.assert(8 <= out_bits and out_bits <= 512);
+            comptime debug.assert(8 <= out_bits and out_bits <= 512);
 
             var d: Self = undefined;
             mem.copy(u64, d.h[0..], iv[0..]);
@@ -470,7 +468,7 @@ pub fn Blake2b(comptime out_bits: usize) type {
             // Full middle blocks.
             while (off + 128 < b.len) : (off += 128) {
                 d.t += 128;
-                d.round(b[off .. off + 128], false);
+                d.round(b[off..][0..128], false);
             }
 
             // Copy any remainder for next pass.
@@ -490,9 +488,7 @@ pub fn Blake2b(comptime out_bits: usize) type {
             }
         }
 
-        fn round(d: *Self, b: []const u8, last: bool) void {
-            debug.assert(b.len == 128);
-
+        fn round(d: *Self, b: *const [128]u8, last: bool) void {
             var m: [16]u64 = undefined;
             var v: [16]u64 = undefined;
 
