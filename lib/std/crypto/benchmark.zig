@@ -98,18 +98,20 @@ const exchanges = [_]Crypto{Crypto{ .ty = crypto.dh.X25519, .name = "x25519" }};
 pub fn benchmarkKeyExchange(comptime DhKeyExchange: anytype, comptime exchange_count: comptime_int) !u64 {
     std.debug.assert(DhKeyExchange.shared_length >= DhKeyExchange.secret_length);
 
-    var in: [DhKeyExchange.shared_length]u8 = undefined;
-    prng.random.bytes(in[0..]);
+    var secret: [DhKeyExchange.shared_length]u8 = undefined;
+    prng.random.bytes(secret[0..]);
 
-    var out: [DhKeyExchange.shared_length]u8 = undefined;
-    prng.random.bytes(out[0..]);
+    var public: [DhKeyExchange.shared_length]u8 = undefined;
+    prng.random.bytes(public[0..]);
 
     var timer = try Timer.start();
     const start = timer.lap();
     {
         var i: usize = 0;
         while (i < exchange_count) : (i += 1) {
-            try DhKeyExchange.scalarmult(&out, out, in);
+            const out = try DhKeyExchange.scalarmult(secret, public);
+            mem.copy(u8, secret[0..16], out[0..16]);
+            mem.copy(u8, public[0..16], out[16..32]);
             mem.doNotOptimizeAway(&out);
         }
     }

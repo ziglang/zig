@@ -314,8 +314,7 @@ pub const Box = struct {
 
     /// Compute a secret suitable for `secretbox` given a recipent's public key and a sender's secret key.
     pub fn createSharedSecret(public_key: [public_length]u8, secret_key: [secret_length]u8) ![shared_length]u8 {
-        var p: [32]u8 = undefined;
-        try X25519.scalarmult(&p, secret_key, public_key);
+        const p = try X25519.scalarmult(secret_key, public_key);
         const zero = [_]u8{0} ** 16;
         return Salsa20Impl.hsalsa20(zero, p);
     }

@@ -12,6 +12,8 @@ pub const Edwards25519 = struct {
     pub const Fe = @import("field.zig").Fe;
     /// Field arithmetic mod the order of the main subgroup.
     pub const scalar = @import("scalar.zig");
+    /// Length in bytes of a compressed representation of a point.
+    pub const encoded_length: usize = 32;
 
     x: Fe,
     y: Fe,
@@ -21,7 +23,7 @@ pub const Edwards25519 = struct {
     is_base: bool = false,
 
     /// Decode an Edwards25519 point from its compressed (Y+sign) coordinates.
-    pub fn fromBytes(s: [32]u8) !Edwards25519 {
+    pub fn fromBytes(s: [encoded_length]u8) !Edwards25519 {
         const z = Fe.one;
         const y = Fe.fromBytes(s);
         var u = y.sq();
@@ -43,7 +45,7 @@ pub const Edwards25519 = struct {
     }
 
     /// Encode an Edwards25519 point.
-    pub fn toBytes(p: Edwards25519) [32]u8 {
+    pub fn toBytes(p: Edwards25519) [encoded_length]u8 {
         const zi = p.z.invert();
         var s = p.y.mul(zi).toBytes();
         s[31] ^= @as(u8, @boolToInt(p.x.mul(zi).isNegative())) << 7;
