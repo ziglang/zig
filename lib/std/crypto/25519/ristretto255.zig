@@ -14,6 +14,8 @@ pub const Ristretto255 = struct {
     pub const Fe = Curve.Fe;
     /// Field arithmetic mod the order of the main subgroup.
     pub const scalar = Curve.scalar;
+    /// Length in byte of an encoded element.
+    pub const encoded_length: usize = 32;
 
     p: Curve,
 
@@ -32,7 +34,7 @@ pub const Ristretto255 = struct {
         return .{ .ratio_is_square = @boolToInt(has_m_root) | @boolToInt(has_p_root), .root = x.abs() };
     }
 
-    fn rejectNonCanonical(s: [32]u8) !void {
+    fn rejectNonCanonical(s: [encoded_length]u8) !void {
         if ((s[0] & 1) != 0) {
             return error.NonCanonical;
         }
@@ -48,7 +50,7 @@ pub const Ristretto255 = struct {
     pub const basePoint = Ristretto255{ .p = Curve.basePoint };
 
     /// Decode a Ristretto255 representative.
-    pub fn fromBytes(s: [32]u8) !Ristretto255 {
+    pub fn fromBytes(s: [encoded_length]u8) !Ristretto255 {
         try rejectNonCanonical(s);
         const s_ = Fe.fromBytes(s);
         const ss = s_.sq(); // s^2
@@ -78,7 +80,7 @@ pub const Ristretto255 = struct {
     }
 
     /// Encode to a Ristretto255 representative.
-    pub fn toBytes(e: Ristretto255) [32]u8 {
+    pub fn toBytes(e: Ristretto255) [encoded_length]u8 {
         const p = &e.p;
         var u1_ = p.z.add(p.y); // Z+Y
         const zmy = p.z.sub(p.y); // Z-Y
@@ -151,7 +153,7 @@ pub const Ristretto255 = struct {
     /// Multiply a Ristretto255 element with a scalar.
     /// Return error.WeakPublicKey if the resulting element is
     /// the identity element.
-    pub inline fn mul(p: Ristretto255, s: [32]u8) !Ristretto255 {
+    pub inline fn mul(p: Ristretto255, s: [encoded_length]u8) !Ristretto255 {
         return Ristretto255{ .p = try p.p.mul(s) };
     }
 
@@ -170,7 +172,7 @@ test "ristretto255" {
     var buf: [256]u8 = undefined;
     std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{p.toBytes()}), "E2F2AE0A6ABC4E71A884A961C500515F58E30B6AA582DD8DB6A65945E08D2D76");
 
-    var r: [32]u8 = undefined;
+    var r: [Ristretto255.encoded_length]u8 = undefined;
     try fmt.hexToBytes(r[0..], "6a493210f7499cd17fecb510ae0cea23a110e8d5b901f8acadd3095c73a3b919");
     var q = try Ristretto255.fromBytes(r);
     q = q.dbl().add(p);
