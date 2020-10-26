@@ -40,7 +40,7 @@ const Salsa20NonVecImpl = struct {
         d: u6,
     };
 
-    inline fn Rp(comptime a: usize, comptime b: usize, comptime c: usize, comptime d: u6) QuarterRound {
+    inline fn Rp(a: usize, b: usize, c: usize, d: u6) QuarterRound {
         return QuarterRound{
             .a = a,
             .b = b,
@@ -82,7 +82,7 @@ const Salsa20NonVecImpl = struct {
         }
     }
 
-    fn salsa20Internal(out: []u8, in: []const u8, key: [8]u32, d: [4]u32) void {
+    fn salsa20Xor(out: []u8, in: []const u8, key: [8]u32, d: [4]u32) void {
         var ctx = initContext(key, d);
         var x: BlockVec = undefined;
         var buf: [64]u8 = undefined;
@@ -174,7 +174,7 @@ pub const Salsa20 = struct {
         d[1] = mem.readIntLittle(u32, nonce[4..8]);
         d[2] = @truncate(u32, counter);
         d[3] = @truncate(u32, counter >> 32);
-        Salsa20Impl.salsa20Internal(out, in, keyToWords(key), d);
+        Salsa20Impl.salsa20Xor(out, in, keyToWords(key), d);
     }
 };
 
@@ -244,7 +244,7 @@ pub const XSalsa20Poly1305 = struct {
         mac.final(&computedTag);
         var acc: u8 = 0;
         for (computedTag) |_, i| {
-            acc |= (computedTag[i] ^ tag[i]);
+            acc |= computedTag[i] ^ tag[i];
         }
         if (acc != 0) {
             mem.secureZero(u8, &computedTag);
@@ -261,7 +261,7 @@ pub const XSalsa20Poly1305 = struct {
 /// A secret key shared by all the recipients must be already known in order to use this API.
 ///
 /// Nonces are 192-bit large and can safely be chosen with a random number generator.
-pub const secretBox = struct {
+pub const SecretBox = struct {
     /// Key length in bytes.
     pub const key_length = XSalsa20Poly1305.key_length;
     /// Nonce length in bytes.
@@ -295,7 +295,7 @@ pub const secretBox = struct {
 /// and is decrypted using the recipient's secret key and the sender's public key.
 ///
 /// Nonces are 192-bit large and can safely be chosen with a random number generator.
-pub const box = struct {
+pub const Box = struct {
     /// Public key length in bytes.
     pub const public_length = X25519.public_length;
     /// Secret key length in bytes.
@@ -323,13 +323,13 @@ pub const box = struct {
     /// Encrypt and authenticate a message using a recipient's public key `public_key` and a sender's `secret_key`.
     pub fn seal(c: []u8, m: []const u8, npub: [nonce_length]u8, public_key: [public_length]u8, secret_key: [secret_length]u8) !void {
         const shared_key = try createSharedSecret(public_key, secret_key);
-        return secretBox.seal(c, m, npub, shared_key);
+        return SecretBox.seal(c, m, npub, shared_key);
     }
 
     /// Verify and decrypt a message using a recipient's secret key `public_key` and a sender's `public_key`.
     pub fn open(m: []u8, c: []const u8, npub: [nonce_length]u8, public_key: [public_length]u8, secret_key: [secret_length]u8) !void {
         const shared_key = try createSharedSecret(public_key, secret_key);
-        return secretBox.open(m, c, npub, shared_key);
+        return SecretBox.open(m, c, npub, shared_key);
     }
 };
 
@@ -340,20 +340,20 @@ pub const box = struct {
 /// While the recipient can verify the integrity of the message, it cannot verify the identity of the sender.
 ///
 /// A message is encrypted using an ephemeral key pair, whose secret part is destroyed right after the encryption process.
-pub const sealedBox = struct {
-    pub const public_length = box.public_length;
-    pub const secret_length = box.secret_length;
-    pub const seed_length = box.seed_length;
-    pub const seal_length = box.public_length + box.tag_length;
+pub const SealedBox = struct {
+    pub const public_length = Box.public_length;
+    pub const secret_length = Box.secret_length;
+    pub const seed_length = Box.seed_length;
+    pub const seal_length = Box.public_length + Box.tag_length;
 
     /// A key pair.
-    pub const KeyPair = box.KeyPair;
+    pub const KeyPair = Box.KeyPair;
 
-    fn createNonce(pk1: [public_length]u8, pk2: [public_length]u8) [box.nonce_length]u8 {
-        var hasher = Blake2b(box.nonce_length * 8).init(.{});
+    fn createNonce(pk1: [public_length]u8, pk2: [public_length]u8) [Box.nonce_length]u8 {
+        var hasher = Blake2b(Box.nonce_length * 8).init(.{});
         hasher.update(&pk1);
         hasher.update(&pk2);
-        var nonce: [box.nonce_length]u8 = undefined;
+        var nonce: [Box.nonce_length]u8 = undefined;
         hasher.final(&nonce);
         return nonce;
     }
@@ -365,7 +365,7 @@ pub const sealedBox = struct {
         var ekp = try KeyPair.create(null);
         const nonce = createNonce(ekp.public_key, public_key);
         mem.copy(u8, c[0..public_length], ekp.public_key[0..]);
-        try box.seal(c[box.public_length..], m, nonce, public_key, ekp.secret_key);
+        try Box.seal(c[Box.public_length..], m, nonce, public_key, ekp.secret_key);
         mem.secureZero(u8, ekp.secret_key[0..]);
     }
 
@@ -377,7 +377,7 @@ pub const sealedBox = struct {
         }
         const epk = c[0..public_length];
         const nonce = createNonce(epk.*, keypair.public_key);
-        return box.open(m, c[public_length..], nonce, epk.*, keypair.secret_key);
+        return Box.open(m, c[public_length..], nonce, epk.*, keypair.secret_key);
     }
 };
 
@@ -400,37 +400,37 @@ test "xsalsa20poly1305 secretbox" {
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
     var key: [XSalsa20Poly1305.key_length]u8 = undefined;
-    var nonce: [box.nonce_length]u8 = undefined;
-    var boxed: [msg.len + box.tag_length]u8 = undefined;
+    var nonce: [Box.nonce_length]u8 = undefined;
+    var boxed: [msg.len + Box.tag_length]u8 = undefined;
     try crypto.randomBytes(&msg);
     try crypto.randomBytes(&key);
     try crypto.randomBytes(&nonce);
 
-    secretBox.seal(boxed[0..], msg[0..], nonce, key);
-    try secretBox.open(msg2[0..], boxed[0..], nonce, key);
+    SecretBox.seal(boxed[0..], msg[0..], nonce, key);
+    try SecretBox.open(msg2[0..], boxed[0..], nonce, key);
 }
 
 test "xsalsa20poly1305 box" {
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
-    var nonce: [box.nonce_length]u8 = undefined;
-    var boxed: [msg.len + box.tag_length]u8 = undefined;
+    var nonce: [Box.nonce_length]u8 = undefined;
+    var boxed: [msg.len + Box.tag_length]u8 = undefined;
     try crypto.randomBytes(&msg);
     try crypto.randomBytes(&nonce);
 
-    var kp1 = try box.KeyPair.create(null);
-    var kp2 = try box.KeyPair.create(null);
-    try box.seal(boxed[0..], msg[0..], nonce, kp1.public_key, kp2.secret_key);
-    try box.open(msg2[0..], boxed[0..], nonce, kp2.public_key, kp1.secret_key);
+    var kp1 = try Box.KeyPair.create(null);
+    var kp2 = try Box.KeyPair.create(null);
+    try Box.seal(boxed[0..], msg[0..], nonce, kp1.public_key, kp2.secret_key);
+    try Box.open(msg2[0..], boxed[0..], nonce, kp2.public_key, kp1.secret_key);
 }
 
 test "xsalsa20poly1305 sealedbox" {
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
-    var boxed: [msg.len + sealedBox.seal_length]u8 = undefined;
+    var boxed: [msg.len + SealedBox.seal_length]u8 = undefined;
     try crypto.randomBytes(&msg);
 
-    var kp = try box.KeyPair.create(null);
-    try sealedBox.seal(boxed[0..], msg[0..], kp.public_key);
-    try sealedBox.open(msg2[0..], boxed[0..], kp);
+    var kp = try Box.KeyPair.create(null);
+    try SealedBox.seal(boxed[0..], msg[0..], kp.public_key);
+    try SealedBox.open(msg2[0..], boxed[0..], kp);
 }

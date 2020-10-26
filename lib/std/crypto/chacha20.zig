@@ -100,7 +100,7 @@ const ChaCha20VecImpl = struct {
         x[3] +%= ctx[3];
     }
 
-    fn chaCha20Internal(out: []u8, in: []const u8, key: [8]u32, counter: [4]u32) void {
+    fn chacha20Xor(out: []u8, in: []const u8, key: [8]u32, counter: [4]u32) void {
         var ctx = initContext(key, counter);
         var x: BlockVec = undefined;
         var buf: [64]u8 = undefined;
@@ -239,7 +239,7 @@ const ChaCha20NonVecImpl = struct {
         }
     }
 
-    fn chaCha20Internal(out: []u8, in: []const u8, key: [8]u32, counter: [4]u32) void {
+    fn chacha20Xor(out: []u8, in: []const u8, key: [8]u32, counter: [4]u32) void {
         var ctx = initContext(key, counter);
         var x: BlockVec = undefined;
         var buf: [64]u8 = undefined;
@@ -325,7 +325,7 @@ pub const ChaCha20IETF = struct {
         c[1] = mem.readIntLittle(u32, nonce[0..4]);
         c[2] = mem.readIntLittle(u32, nonce[4..8]);
         c[3] = mem.readIntLittle(u32, nonce[8..12]);
-        ChaCha20Impl.chaCha20Internal(out, in, keyToWords(key), c);
+        ChaCha20Impl.chacha20Xor(out, in, keyToWords(key), c);
     }
 };
 
@@ -351,7 +351,7 @@ pub const ChaCha20With64BitNonce = struct {
 
         // first partial big block
         if (((@intCast(u64, maxInt(u32) - @truncate(u32, counter)) + 1) << 6) < in.len) {
-            ChaCha20Impl.chaCha20Internal(out[cursor..big_block], in[cursor..big_block], k, c);
+            ChaCha20Impl.chacha20Xor(out[cursor..big_block], in[cursor..big_block], k, c);
             cursor = big_block - cursor;
             c[1] += 1;
             if (comptime @sizeOf(usize) > 4) {
@@ -359,14 +359,14 @@ pub const ChaCha20With64BitNonce = struct {
                 var remaining_blocks: u32 = @intCast(u32, (in.len / big_block));
                 var i: u32 = 0;
                 while (remaining_blocks > 0) : (remaining_blocks -= 1) {
-                    ChaCha20Impl.chaCha20Internal(out[cursor .. cursor + big_block], in[cursor .. cursor + big_block], k, c);
-                    c[1] += 1; // upper 32-bit of counter, generic chaCha20Internal() doesn't know about this.
+                    ChaCha20Impl.chacha20Xor(out[cursor .. cursor + big_block], in[cursor .. cursor + big_block], k, c);
+                    c[1] += 1; // upper 32-bit of counter, generic chacha20Xor() doesn't know about this.
                     cursor += big_block;
                 }
             }
         }
 
-        ChaCha20Impl.chaCha20Internal(out[cursor..], in[cursor..], k, c);
+        ChaCha20Impl.chacha20Xor(out[cursor..], in[cursor..], k, c);
     }
 };
 
@@ -694,7 +694,7 @@ fn chacha20poly1305OpenDetached(dst: []u8, ciphertext: []const u8, tag: *const [
     // See https://github.com/ziglang/zig/issues/1776
     var acc: u8 = 0;
     for (computedTag) |_, i| {
-        acc |= (computedTag[i] ^ tag[i]);
+        acc |= computedTag[i] ^ tag[i];
     }
     if (acc != 0) {
         return error.AuthenticationFailed;
