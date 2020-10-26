@@ -466,8 +466,9 @@ pub const Loop = struct {
                         .revents = undefined,
                     }};
                     _ = os.poll(&pfd, -1) catch |poll_err| switch (poll_err) {
+                        error.NetworkSubsystemFailed => unreachable, // only possible on windows
+
                         error.SystemResources,
-                        error.NetworkSubsystemFailed,
                         error.Unexpected,
                         => {
                             // Even poll() didn't work. The best we can do now is sleep for a
