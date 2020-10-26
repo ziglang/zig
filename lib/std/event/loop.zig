@@ -466,6 +466,7 @@ pub const Loop = struct {
                         .revents = undefined,
                     }};
                     _ = os.poll(&pfd, -1) catch |poll_err| switch (poll_err) {
+                        error.NetworkSubsystemFailed,
                         error.SystemResources,
                         error.Unexpected,
                         => {
