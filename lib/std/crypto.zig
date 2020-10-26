@@ -119,7 +119,10 @@ pub const nacl = struct {
 };
 
 const std = @import("std.zig");
-pub const randomBytes = std.os.getrandom;
+
+pub const random = struct {
+    pub const bytes = std.os.getrandom;
+};
 
 test "crypto" {
     inline for (std.meta.declarations(@This())) |decl| {

@@ -1538,7 +1538,7 @@ fn buildOutputType(
 
     const random_seed = blk: {
         var random_seed: u64 = undefined;
-        try std.crypto.randomBytes(mem.asBytes(&random_seed));
+        try std.crypto.random.bytes(mem.asBytes(&random_seed));
         break :blk random_seed;
     };
     var default_prng = std.rand.DefaultPrng.init(random_seed);
@@ -2316,7 +2316,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         };
         const random_seed = blk: {
             var random_seed: u64 = undefined;
-            try std.crypto.randomBytes(mem.asBytes(&random_seed));
+            try std.crypto.random.bytes(mem.asBytes(&random_seed));
             break :blk random_seed;
         };
         var default_prng = std.rand.DefaultPrng.init(random_seed);

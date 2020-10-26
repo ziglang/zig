@@ -10,7 +10,7 @@ pub fn main() !void {
     try stdout.print("Welcome to the Guess Number Game in Zig.\n", .{});
 
     var seed_bytes: [@sizeOf(u64)]u8 = undefined;
-    std.crypto.randomBytes(seed_bytes[0..]) catch |err| {
+    std.crypto.random.bytes(seed_bytes[0..]) catch |err| {
         std.debug.warn("unable to seed random number generator: {}", .{err});
         return err;
     };

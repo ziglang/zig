@@ -4,13 +4,13 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 
-//! The engines provided here should be initialized from an external source. For now, randomBytes
+//! The engines provided here should be initialized from an external source. For now, random.bytes
 //! from the crypto package is the most suitable. Be sure to use a CSPRNG when required, otherwise using
 //! a normal PRNG will be faster and use substantially less stack space.
 //!
 //! ```
 //! var buf: [8]u8 = undefined;
-//! try std.crypto.randomBytes(buf[0..]);
+//! try std.crypto.random.bytes(buf[0..]);
 //! const seed = mem.readIntLittle(u64, buf[0..8]);
 //!
 //! var r = DefaultPrng.init(seed);
@@ -752,7 +752,7 @@ pub const Gimli = struct {
     pub const secret_seed_length = 32;
 
     /// The seed must be uniform, secret and `secret_seed_length` bytes long.
-    /// It can be generated using `std.crypto.randomBytes()`.
+    /// It can be generated using `std.crypto.random.bytes()`.
     pub fn init(secret_seed: [secret_seed_length]u8) Gimli {
         var initial_state: [std.crypto.core.Gimli.BLOCKBYTES]u8 = undefined;
         mem.copy(u8, initial_state[0..secret_seed_length], &secret_seed);
@@ -1147,7 +1147,7 @@ fn testRangeBias(r: *Random, start: i8, end: i8, biased: bool) void {
 
 test "CSPRNG" {
     var secret_seed: [DefaultCsprng.secret_seed_length]u8 = undefined;
-    try std.crypto.randomBytes(&secret_seed);
+    try std.crypto.random.bytes(&secret_seed);
     var csprng = DefaultCsprng.init(secret_seed);
     const a = csprng.random.int(u64);
     const b = csprng.random.int(u64);

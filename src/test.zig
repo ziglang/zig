@@ -424,7 +424,7 @@ pub const TestContext = struct {
 
         const random_seed = blk: {
             var random_seed: u64 = undefined;
-            try std.crypto.randomBytes(std.mem.asBytes(&random_seed));
+            try std.crypto.random.bytes(std.mem.asBytes(&random_seed));
             break :blk random_seed;
         };
         var default_prng = std.rand.DefaultPrng.init(random_seed);

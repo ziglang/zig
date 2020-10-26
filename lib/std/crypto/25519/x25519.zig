@@ -32,7 +32,7 @@ pub const X25519 = struct {
         pub fn create(seed: ?[seed_length]u8) !KeyPair {
             const sk = seed orelse sk: {
                 var random_seed: [seed_length]u8 = undefined;
-                try crypto.randomBytes(&random_seed);
+                try crypto.random.bytes(&random_seed);
                 break :sk random_seed;
             };
             var kp: KeyPair = undefined;
