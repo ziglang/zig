@@ -16,3 +16,7 @@ test "import in non-toplevel scope" {
     };
     expectEqual(@as(i32, 1234), S.foo());
 }
+
+test "import empty file" {
+    const empty = @import("import/empty.zig");
+}
