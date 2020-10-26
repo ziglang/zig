@@ -357,6 +357,33 @@ Error target_parse_arch(ZigLLVM_ArchType *out_arch, const char *arch_ptr, size_t
 }
 
 Error target_parse_os(Os *out_os, const char *os_ptr, size_t os_len) {
+    if (mem_eql_str(os_ptr, os_len, "native")) {
+#if defined(ZIG_OS_DARWIN)
+        *out_os = OsMacOSX;
+        return ErrorNone;
+#elif defined(ZIG_OS_WINDOWS)
+        *out_os = OsWindows;
+        return ErrorNone;
+#elif defined(ZIG_OS_LINUX)
+        *out_os = OsLinux;
+        return ErrorNone;
+#elif defined(ZIG_OS_FREEBSD)
+        *out_os = OsFreeBSD;
+        return ErrorNone;
+#elif defined(ZIG_OS_NETBSD)
+        *out_os = OsNetBSD;
+        return ErrorNone;
+#elif defined(ZIG_OS_DRAGONFLY)
+        *out_os = OsDragonFly;
+        return ErrorNone;
+#elif defined(ZIG_OS_OPENBSD)
+        *out_os = OsOpenBSD;
+        return ErrorNone;
+#else
+        zig_panic("stage1 is unable to detect native target for this OS");
+#endif
+    }
+
     for (size_t i = 0; i < array_length(os_list); i += 1) {
         Os os = os_list[i];
         const char *os_name = target_os_name(os);
