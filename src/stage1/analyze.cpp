@@ -8052,13 +8052,10 @@ not_integer:
 }
 
 Error file_fetch(CodeGen *g, Buf *resolved_path, Buf *contents_buf) {
-    size_t len = 0xAA;
+    size_t len;
     const char *contents = stage2_fetch_file(&g->stage1, buf_ptr(resolved_path), buf_len(resolved_path), &len);
-    if (len == 0) {
-        // File exists but is empty (otherwise it would be 0xAA)
-    } else if (contents == nullptr) {
+    if (contents == nullptr)
         return ErrorFileNotFound;
-    }
     buf_init_from_mem(contents_buf, contents, len);
     return ErrorNone;
 }

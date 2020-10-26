@@ -428,5 +428,7 @@ export fn stage2_fetch_file(
     const max_file_size = std.math.maxInt(u32);
     const contents = comp.stage1_cache_manifest.addFilePostFetch(file_path, max_file_size) catch return null;
     result_len.* = contents.len;
+    // TODO https://github.com/ziglang/zig/issues/3328#issuecomment-716749475
+    if (contents.len == 0) return @intToPtr(?[*]const u8, 0x1);
     return contents.ptr;
 }
