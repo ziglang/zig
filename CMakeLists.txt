@@ -467,7 +467,7 @@ set(BUILD_ZIG1_ARGS
     --pkg-end
 )
 
-if("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
+if("${ZIG_EXECUTABLE}" STREQUAL "")
   add_custom_target(zig_build_zig1 ALL
       COMMAND zig0 ${BUILD_ZIG1_ARGS}
       DEPENDS zig0

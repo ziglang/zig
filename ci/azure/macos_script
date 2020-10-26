@@ -37,7 +37,6 @@ cmake .. \
   -DCMAKE_BUILD_TYPE=Release \
   -DZIG_TARGET_TRIPLE="$ARCH-native-gnu" \
   -DZIG_TARGET_MCPU="baseline" \
-  -DZIG_EXECUTABLE="$ZIG" \
   -DZIG_STATIC=ON
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables
