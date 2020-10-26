@@ -44,7 +44,7 @@ pub fn Blake2s(comptime out_bits: usize) type {
         pub const key_length_min = 0;
         pub const key_length_max = 32;
         pub const key_length = 32; // recommended key length
-        pub const Options = struct { key: ?[]const u8 = null, salt: ?[8]u8 = null, context: ?[8]u8 = null };
+        pub const Options = struct { key: ?[]const u8 = null, salt: ?[8]u8 = null, context: ?[8]u8 = null, expected_out_bits: usize = out_bits };
 
         const iv = [8]u32{
             0x6A09E667,
@@ -84,7 +84,7 @@ pub fn Blake2s(comptime out_bits: usize) type {
 
             const key_len = if (options.key) |key| key.len else 0;
             // default parameters
-            d.h[0] ^= 0x01010000 ^ @truncate(u32, key_len << 8) ^ @intCast(u32, out_bits >> 3);
+            d.h[0] ^= 0x01010000 ^ @truncate(u32, key_len << 8) ^ @intCast(u32, options.expected_out_bits >> 3);
             d.t = 0;
             d.buf_len = 0;
 
@@ -385,7 +385,7 @@ pub fn Blake2b(comptime out_bits: usize) type {
         pub const key_length_min = 0;
         pub const key_length_max = 64;
         pub const key_length = 32; // recommended key length
-        pub const Options = struct { key: ?[]const u8 = null, salt: ?[16]u8 = null, context: ?[16]u8 = null };
+        pub const Options = struct { key: ?[]const u8 = null, salt: ?[16]u8 = null, context: ?[16]u8 = null, expected_out_bits: usize = out_bits };
 
         const iv = [8]u64{
             0x6a09e667f3bcc908,
@@ -427,7 +427,7 @@ pub fn Blake2b(comptime out_bits: usize) type {
 
             const key_len = if (options.key) |key| key.len else 0;
             // default parameters
-            d.h[0] ^= 0x01010000 ^ (key_len << 8) ^ (out_bits >> 3);
+            d.h[0] ^= 0x01010000 ^ (key_len << 8) ^ (options.expected_out_bits >> 3);
             d.t = 0;
             d.buf_len = 0;
 
