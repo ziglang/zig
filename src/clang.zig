@@ -434,8 +434,8 @@ pub const FieldDecl = opaque {
 pub const FileID = opaque {};
 
 pub const FloatingLiteral = opaque {
-    pub const getValueAsApproximateDouble = ZigClangAPFloat_getValueAsApproximateDouble;
-    extern fn ZigClangAPFloat_getValueAsApproximateDouble(*const FloatingLiteral) f64;
+    pub const getValueAsApproximateDouble = ZigClangFloatingLiteral_getValueAsApproximateDouble;
+    extern fn ZigClangFloatingLiteral_getValueAsApproximateDouble(*const FloatingLiteral) f64;
 };
 
 pub const ForStmt = opaque {

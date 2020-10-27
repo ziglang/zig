@@ -2494,7 +2494,7 @@ unsigned ZigClangAPFloat_convertToHexString(const ZigClangAPFloat *self, char *D
     return casted->convertToHexString(DST, HexDigits, UpperCase, (llvm::APFloat::roundingMode)RM);
 }
 
-double ZigClangAPFloat_getValueAsApproximateDouble(const ZigClangFloatingLiteral *self) {
+double ZigClangFloatingLiteral_getValueAsApproximateDouble(const ZigClangFloatingLiteral *self) {
     auto casted = reinterpret_cast<const clang::FloatingLiteral *>(self);
     return casted->getValueAsApproximateDouble();
 }
