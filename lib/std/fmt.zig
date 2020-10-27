@@ -4,12 +4,13 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std.zig");
-const math = std.math;
 const assert = std.debug.assert;
-const mem = std.mem;
 const builtin = @import("builtin");
 const errol = @import("fmt/errol.zig");
+const expectFmt = std.testing.expectFmt;
 const lossyCast = std.math.lossyCast;
+const math = std.math;
+const mem = std.mem;
 
 pub const default_max_depth = 3;
 
@@ -1281,64 +1282,64 @@ test "parse unsigned comptime" {
 test "optional" {
     {
         const value: ?i32 = 1234;
-        try testFmt("optional: 1234\n", "optional: {}\n", .{value});
+        expectFmt("optional: 1234\n", "optional: {}\n", .{value});
     }
     {
         const value: ?i32 = null;
-        try testFmt("optional: null\n", "optional: {}\n", .{value});
+        expectFmt("optional: null\n", "optional: {}\n", .{value});
     }
     {
         const value = @intToPtr(?*i32, 0xf000d000);
-        try testFmt("optional: *i32@f000d000\n", "optional: {*}\n", .{value});
+        expectFmt("optional: *i32@f000d000\n", "optional: {*}\n", .{value});
     }
 }
 
 test "error" {
     {
         const value: anyerror!i32 = 1234;
-        try testFmt("error union: 1234\n", "error union: {}\n", .{value});
+        expectFmt("error union: 1234\n", "error union: {}\n", .{value});
     }
     {
         const value: anyerror!i32 = error.InvalidChar;
-        try testFmt("error union: error.InvalidChar\n", "error union: {}\n", .{value});
+        expectFmt("error union: error.InvalidChar\n", "error union: {}\n", .{value});
     }
 }
 
 test "int.small" {
     {
         const value: u3 = 0b101;
-        try testFmt("u3: 5\n", "u3: {}\n", .{value});
+        expectFmt("u3: 5\n", "u3: {}\n", .{value});
     }
 }
 
 test "int.specifier" {
     {
         const value: u8 = 'a';
-        try testFmt("u8: a\n", "u8: {c}\n", .{value});
+        expectFmt("u8: a\n", "u8: {c}\n", .{value});
     }
     {
         const value: u8 = 0b1100;
-        try testFmt("u8: 0b1100\n", "u8: 0b{b}\n", .{value});
+        expectFmt("u8: 0b1100\n", "u8: 0b{b}\n", .{value});
     }
     {
         const value: u16 = 0o1234;
-        try testFmt("u16: 0o1234\n", "u16: 0o{o}\n", .{value});
+        expectFmt("u16: 0o1234\n", "u16: 0o{o}\n", .{value});
     }
 }
 
 test "int.padded" {
-    try testFmt("u8: '   1'", "u8: '{:4}'", .{@as(u8, 1)});
-    try testFmt("u8: '1000'", "u8: '{:0<4}'", .{@as(u8, 1)});
-    try testFmt("u8: '0001'", "u8: '{:0>4}'", .{@as(u8, 1)});
-    try testFmt("u8: '0100'", "u8: '{:0^4}'", .{@as(u8, 1)});
-    try testFmt("i8: '-1  '", "i8: '{:<4}'", .{@as(i8, -1)});
-    try testFmt("i8: '  -1'", "i8: '{:>4}'", .{@as(i8, -1)});
-    try testFmt("i8: ' -1 '", "i8: '{:^4}'", .{@as(i8, -1)});
-    try testFmt("i16: '-1234'", "i16: '{:4}'", .{@as(i16, -1234)});
-    try testFmt("i16: '+1234'", "i16: '{:4}'", .{@as(i16, 1234)});
-    try testFmt("i16: '-12345'", "i16: '{:4}'", .{@as(i16, -12345)});
-    try testFmt("i16: '+12345'", "i16: '{:4}'", .{@as(i16, 12345)});
-    try testFmt("u16: '12345'", "u16: '{:4}'", .{@as(u16, 12345)});
+    expectFmt("u8: '   1'", "u8: '{:4}'", .{@as(u8, 1)});
+    expectFmt("u8: '1000'", "u8: '{:0<4}'", .{@as(u8, 1)});
+    expectFmt("u8: '0001'", "u8: '{:0>4}'", .{@as(u8, 1)});
+    expectFmt("u8: '0100'", "u8: '{:0^4}'", .{@as(u8, 1)});
+    expectFmt("i8: '-1  '", "i8: '{:<4}'", .{@as(i8, -1)});
+    expectFmt("i8: '  -1'", "i8: '{:>4}'", .{@as(i8, -1)});
+    expectFmt("i8: ' -1 '", "i8: '{:^4}'", .{@as(i8, -1)});
+    expectFmt("i16: '-1234'", "i16: '{:4}'", .{@as(i16, -1234)});
+    expectFmt("i16: '+1234'", "i16: '{:4}'", .{@as(i16, 1234)});
+    expectFmt("i16: '-12345'", "i16: '{:4}'", .{@as(i16, -12345)});
+    expectFmt("i16: '+12345'", "i16: '{:4}'", .{@as(i16, 12345)});
+    expectFmt("u16: '12345'", "u16: '{:4}'", .{@as(u16, 12345)});
 }
 
 test "buffer" {
@@ -1361,11 +1362,11 @@ test "buffer" {
 test "array" {
     {
         const value: [3]u8 = "abc".*;
-        try testFmt("array: abc\n", "array: {}\n", .{value});
-        try testFmt("array: abc\n", "array: {}\n", .{&value});
+        expectFmt("array: abc\n", "array: {}\n", .{value});
+        expectFmt("array: abc\n", "array: {}\n", .{&value});
 
         var buf: [100]u8 = undefined;
-        try testFmt(
+        expectFmt(
             try bufPrint(buf[0..], "array: [3]u8@{x}\n", .{@ptrToInt(&value)}),
             "array: {*}\n",
             .{&value},
@@ -1376,31 +1377,31 @@ test "array" {
 test "slice" {
     {
         const value: []const u8 = "abc";
-        try testFmt("slice: abc\n", "slice: {}\n", .{value});
+        expectFmt("slice: abc\n", "slice: {}\n", .{value});
     }
     {
         var runtime_zero: usize = 0;
         const value = @intToPtr([*]align(1) const []const u8, 0xdeadbeef)[runtime_zero..runtime_zero];
-        try testFmt("slice: []const u8@deadbeef\n", "slice: {}\n", .{value});
+        expectFmt("slice: []const u8@deadbeef\n", "slice: {}\n", .{value});
     }
 
-    try testFmt("buf:  Test\n", "buf: {s:5}\n", .{"Test"});
-    try testFmt("buf: Test\n Other text", "buf: {s}\n Other text", .{"Test"});
+    expectFmt("buf:  Test\n", "buf: {s:5}\n", .{"Test"});
+    expectFmt("buf: Test\n Other text", "buf: {s}\n Other text", .{"Test"});
 }
 
 test "escape non-printable" {
-    try testFmt("abc", "{e}", .{"abc"});
-    try testFmt("ab\\xffc", "{e}", .{"ab\xffc"});
-    try testFmt("ab\\xFFc", "{E}", .{"ab\xffc"});
+    expectFmt("abc", "{e}", .{"abc"});
+    expectFmt("ab\\xffc", "{e}", .{"ab\xffc"});
+    expectFmt("ab\\xFFc", "{E}", .{"ab\xffc"});
 }
 
 test "escape invalid identifiers" {
-    try testFmt("@\"while\"", "{z}", .{"while"});
-    try testFmt("hello", "{z}", .{"hello"});
-    try testFmt("@\"11\\\"23\"", "{z}", .{"11\"23"});
-    try testFmt("@\"11\\x0f23\"", "{z}", .{"11\x0F23"});
-    try testFmt("\\x0f", "{Z}", .{0x0f});
-    try testFmt(
+    expectFmt("@\"while\"", "{z}", .{"while"});
+    expectFmt("hello", "{z}", .{"hello"});
+    expectFmt("@\"11\\\"23\"", "{z}", .{"11\"23"});
+    expectFmt("@\"11\\x0f23\"", "{z}", .{"11\x0F23"});
+    expectFmt("\\x0f", "{Z}", .{0x0f});
+    expectFmt(
         \\" \\ hi \x07 \x11 \" derp \'"
     , "\"{Z}\"", .{" \\ hi \x07 \x11 \" derp '"});
 }
@@ -1408,26 +1409,26 @@ test "escape invalid identifiers" {
 test "pointer" {
     {
         const value = @intToPtr(*align(1) i32, 0xdeadbeef);
-        try testFmt("pointer: i32@deadbeef\n", "pointer: {}\n", .{value});
-        try testFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", .{value});
+        expectFmt("pointer: i32@deadbeef\n", "pointer: {}\n", .{value});
+        expectFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", .{value});
     }
     {
         const value = @intToPtr(fn () void, 0xdeadbeef);
-        try testFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
+        expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
     }
     {
         const value = @intToPtr(fn () void, 0xdeadbeef);
-        try testFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
+        expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
     }
 }
 
 test "cstr" {
-    try testFmt(
+    expectFmt(
         "cstr: Test C\n",
         "cstr: {s}\n",
         .{@ptrCast([*c]const u8, "Test C")},
     );
-    try testFmt(
+    expectFmt(
         "cstr:     Test C\n",
         "cstr: {s:10}\n",
         .{@ptrCast([*c]const u8, "Test C")},
@@ -1435,8 +1436,8 @@ test "cstr" {
 }
 
 test "filesize" {
-    try testFmt("file size: 63MiB\n", "file size: {Bi}\n", .{@as(usize, 63 * 1024 * 1024)});
-    try testFmt("file size: 66.06MB\n", "file size: {B:.2}\n", .{@as(usize, 63 * 1024 * 1024)});
+    expectFmt("file size: 63MiB\n", "file size: {Bi}\n", .{@as(usize, 63 * 1024 * 1024)});
+    expectFmt("file size: 66.06MB\n", "file size: {B:.2}\n", .{@as(usize, 63 * 1024 * 1024)});
 }
 
 test "struct" {
@@ -1445,8 +1446,8 @@ test "struct" {
             field: u8,
         };
         const value = Struct{ .field = 42 };
-        try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", .{value});
-        try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", .{&value});
+        expectFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", .{value});
+        expectFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", .{&value});
     }
     {
         const Struct = struct {
@@ -1454,7 +1455,7 @@ test "struct" {
             b: u1,
         };
         const value = Struct{ .a = 0, .b = 1 };
-        try testFmt("struct: Struct{ .a = 0, .b = 1 }\n", "struct: {}\n", .{value});
+        expectFmt("struct: Struct{ .a = 0, .b = 1 }\n", "struct: {}\n", .{value});
     }
 }
 
@@ -1464,13 +1465,13 @@ test "enum" {
         Two,
     };
     const value = Enum.Two;
-    try testFmt("enum: Enum.Two\n", "enum: {}\n", .{value});
-    try testFmt("enum: Enum.Two\n", "enum: {}\n", .{&value});
-    try testFmt("enum: Enum.One\n", "enum: {x}\n", .{Enum.One});
-    try testFmt("enum: Enum.Two\n", "enum: {X}\n", .{Enum.Two});
+    expectFmt("enum: Enum.Two\n", "enum: {}\n", .{value});
+    expectFmt("enum: Enum.Two\n", "enum: {}\n", .{&value});
+    expectFmt("enum: Enum.One\n", "enum: {x}\n", .{Enum.One});
+    expectFmt("enum: Enum.Two\n", "enum: {X}\n", .{Enum.Two});
 
     // test very large enum to verify ct branch quota is large enough
-    try testFmt("enum: Win32Error.INVALID_FUNCTION\n", "enum: {}\n", .{std.os.windows.Win32Error.INVALID_FUNCTION});
+    expectFmt("enum: Win32Error.INVALID_FUNCTION\n", "enum: {}\n", .{std.os.windows.Win32Error.INVALID_FUNCTION});
 }
 
 test "non-exhaustive enum" {
@@ -1479,78 +1480,78 @@ test "non-exhaustive enum" {
         Two = 0xbeef,
         _,
     };
-    try testFmt("enum: Enum.One\n", "enum: {}\n", .{Enum.One});
-    try testFmt("enum: Enum.Two\n", "enum: {}\n", .{Enum.Two});
-    try testFmt("enum: Enum(4660)\n", "enum: {}\n", .{@intToEnum(Enum, 0x1234)});
-    try testFmt("enum: Enum.One\n", "enum: {x}\n", .{Enum.One});
-    try testFmt("enum: Enum.Two\n", "enum: {x}\n", .{Enum.Two});
-    try testFmt("enum: Enum.Two\n", "enum: {X}\n", .{Enum.Two});
-    try testFmt("enum: Enum(1234)\n", "enum: {x}\n", .{@intToEnum(Enum, 0x1234)});
+    expectFmt("enum: Enum.One\n", "enum: {}\n", .{Enum.One});
+    expectFmt("enum: Enum.Two\n", "enum: {}\n", .{Enum.Two});
+    expectFmt("enum: Enum(4660)\n", "enum: {}\n", .{@intToEnum(Enum, 0x1234)});
+    expectFmt("enum: Enum.One\n", "enum: {x}\n", .{Enum.One});
+    expectFmt("enum: Enum.Two\n", "enum: {x}\n", .{Enum.Two});
+    expectFmt("enum: Enum.Two\n", "enum: {X}\n", .{Enum.Two});
+    expectFmt("enum: Enum(1234)\n", "enum: {x}\n", .{@intToEnum(Enum, 0x1234)});
 }
 
 test "float.scientific" {
-    try testFmt("f32: 1.34000003e+00", "f32: {e}", .{@as(f32, 1.34)});
-    try testFmt("f32: 1.23400001e+01", "f32: {e}", .{@as(f32, 12.34)});
-    try testFmt("f64: -1.234e+11", "f64: {e}", .{@as(f64, -12.34e10)});
-    try testFmt("f64: 9.99996e-40", "f64: {e}", .{@as(f64, 9.999960e-40)});
+    expectFmt("f32: 1.34000003e+00", "f32: {e}", .{@as(f32, 1.34)});
+    expectFmt("f32: 1.23400001e+01", "f32: {e}", .{@as(f32, 12.34)});
+    expectFmt("f64: -1.234e+11", "f64: {e}", .{@as(f64, -12.34e10)});
+    expectFmt("f64: 9.99996e-40", "f64: {e}", .{@as(f64, 9.999960e-40)});
 }
 
 test "float.scientific.precision" {
-    try testFmt("f64: 1.40971e-42", "f64: {e:.5}", .{@as(f64, 1.409706e-42)});
-    try testFmt("f64: 1.00000e-09", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 814313563)))});
-    try testFmt("f64: 7.81250e-03", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1006632960)))});
+    expectFmt("f64: 1.40971e-42", "f64: {e:.5}", .{@as(f64, 1.409706e-42)});
+    expectFmt("f64: 1.00000e-09", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 814313563)))});
+    expectFmt("f64: 7.81250e-03", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1006632960)))});
     // libc rounds 1.000005e+05 to 1.00000e+05 but zig does 1.00001e+05.
     // In fact, libc doesn't round a lot of 5 cases up when one past the precision point.
-    try testFmt("f64: 1.00001e+05", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1203982400)))});
+    expectFmt("f64: 1.00001e+05", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1203982400)))});
 }
 
 test "float.special" {
-    try testFmt("f64: nan", "f64: {}", .{math.nan_f64});
+    expectFmt("f64: nan", "f64: {}", .{math.nan_f64});
     // negative nan is not defined by IEE 754,
     // and ARM thus normalizes it to positive nan
     if (builtin.arch != builtin.Arch.arm) {
-        try testFmt("f64: -nan", "f64: {}", .{-math.nan_f64});
+        expectFmt("f64: -nan", "f64: {}", .{-math.nan_f64});
     }
-    try testFmt("f64: inf", "f64: {}", .{math.inf_f64});
-    try testFmt("f64: -inf", "f64: {}", .{-math.inf_f64});
+    expectFmt("f64: inf", "f64: {}", .{math.inf_f64});
+    expectFmt("f64: -inf", "f64: {}", .{-math.inf_f64});
 }
 
 test "float.decimal" {
-    try testFmt("f64: 152314000000000000000000000000", "f64: {d}", .{@as(f64, 1.52314e+29)});
-    try testFmt("f32: 0", "f32: {d}", .{@as(f32, 0.0)});
-    try testFmt("f32: 1.1", "f32: {d:.1}", .{@as(f32, 1.1234)});
-    try testFmt("f32: 1234.57", "f32: {d:.2}", .{@as(f32, 1234.567)});
+    expectFmt("f64: 152314000000000000000000000000", "f64: {d}", .{@as(f64, 1.52314e+29)});
+    expectFmt("f32: 0", "f32: {d}", .{@as(f32, 0.0)});
+    expectFmt("f32: 1.1", "f32: {d:.1}", .{@as(f32, 1.1234)});
+    expectFmt("f32: 1234.57", "f32: {d:.2}", .{@as(f32, 1234.567)});
     // -11.1234 is converted to f64 -11.12339... internally (errol3() function takes f64).
     // -11.12339... is rounded back up to -11.1234
-    try testFmt("f32: -11.1234", "f32: {d:.4}", .{@as(f32, -11.1234)});
-    try testFmt("f32: 91.12345", "f32: {d:.5}", .{@as(f32, 91.12345)});
-    try testFmt("f64: 91.1234567890", "f64: {d:.10}", .{@as(f64, 91.12345678901235)});
-    try testFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 0.0)});
-    try testFmt("f64: 6", "f64: {d:.0}", .{@as(f64, 5.700)});
-    try testFmt("f64: 10.0", "f64: {d:.1}", .{@as(f64, 9.999)});
-    try testFmt("f64: 1.000", "f64: {d:.3}", .{@as(f64, 1.0)});
-    try testFmt("f64: 0.00030000", "f64: {d:.8}", .{@as(f64, 0.0003)});
-    try testFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 1.40130e-45)});
-    try testFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 9.999960e-40)});
+    expectFmt("f32: -11.1234", "f32: {d:.4}", .{@as(f32, -11.1234)});
+    expectFmt("f32: 91.12345", "f32: {d:.5}", .{@as(f32, 91.12345)});
+    expectFmt("f64: 91.1234567890", "f64: {d:.10}", .{@as(f64, 91.12345678901235)});
+    expectFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 0.0)});
+    expectFmt("f64: 6", "f64: {d:.0}", .{@as(f64, 5.700)});
+    expectFmt("f64: 10.0", "f64: {d:.1}", .{@as(f64, 9.999)});
+    expectFmt("f64: 1.000", "f64: {d:.3}", .{@as(f64, 1.0)});
+    expectFmt("f64: 0.00030000", "f64: {d:.8}", .{@as(f64, 0.0003)});
+    expectFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 1.40130e-45)});
+    expectFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 9.999960e-40)});
 }
 
 test "float.libc.sanity" {
-    try testFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 916964781)))});
-    try testFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 925353389)))});
-    try testFmt("f64: 0.10000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1036831278)))});
-    try testFmt("f64: 1.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1065353133)))});
-    try testFmt("f64: 10.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1092616192)))});
+    expectFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 916964781)))});
+    expectFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 925353389)))});
+    expectFmt("f64: 0.10000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1036831278)))});
+    expectFmt("f64: 1.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1065353133)))});
+    expectFmt("f64: 10.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1092616192)))});
 
     // libc differences
     //
     // This is 0.015625 exactly according to gdb. We thus round down,
     // however glibc rounds up for some reason. This occurs for all
     // floats of the form x.yyyy25 on a precision point.
-    try testFmt("f64: 0.01563", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1015021568)))});
+    expectFmt("f64: 0.01563", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1015021568)))});
     // errol3 rounds to ... 630 but libc rounds to ...632. Grisu3
     // also rounds to 630 so I'm inclined to believe libc is not
     // optimal here.
-    try testFmt("f64: 18014400656965630.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1518338049)))});
+    expectFmt("f64: 18014400656965630.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1518338049)))});
 }
 
 test "custom" {
@@ -1580,12 +1581,12 @@ test "custom" {
         .x = 10.2,
         .y = 2.22,
     };
-    try testFmt("point: (10.200,2.220)\n", "point: {}\n", .{&value});
-    try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", .{&value});
+    expectFmt("point: (10.200,2.220)\n", "point: {}\n", .{&value});
+    expectFmt("dim: 10.200x2.220\n", "dim: {d}\n", .{&value});
 
     // same thing but not passing a pointer
-    try testFmt("point: (10.200,2.220)\n", "point: {}\n", .{value});
-    try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", .{value});
+    expectFmt("point: (10.200,2.220)\n", "point: {}\n", .{value});
+    expectFmt("dim: 10.200x2.220\n", "dim: {d}\n", .{value});
 }
 
 test "struct" {
@@ -1599,7 +1600,7 @@ test "struct" {
         .b = error.Unused,
     };
 
-    try testFmt("S{ .a = 456, .b = error.Unused }", "{}", .{inst});
+    expectFmt("S{ .a = 456, .b = error.Unused }", "{}", .{inst});
 }
 
 test "union" {
@@ -1622,7 +1623,7 @@ test "union" {
     const uu_inst = UU{ .int = 456 };
     const eu_inst = EU{ .float = 321.123 };
 
-    try testFmt("TU{ .int = 123 }", "{}", .{tu_inst});
+    expectFmt("TU{ .int = 123 }", "{}", .{tu_inst});
 
     var buf: [100]u8 = undefined;
     const uu_result = try bufPrint(buf[0..], "{}", .{uu_inst});
@@ -1641,7 +1642,7 @@ test "enum" {
 
     const inst = E.Two;
 
-    try testFmt("E.Two", "{}", .{inst});
+    expectFmt("E.Two", "{}", .{inst});
 }
 
 test "struct.self-referential" {
@@ -1655,7 +1656,7 @@ test "struct.self-referential" {
     };
     inst.a = &inst;
 
-    try testFmt("S{ .a = S{ .a = S{ .a = S{ ... } } } }", "{}", .{inst});
+    expectFmt("S{ .a = S{ .a = S{ .a = S{ ... } } } }", "{}", .{inst});
 }
 
 test "struct.zero-size" {
@@ -1670,31 +1671,18 @@ test "struct.zero-size" {
     const a = A{};
     const b = B{ .a = a, .c = 0 };
 
-    try testFmt("B{ .a = A{ }, .c = 0 }", "{}", .{b});
+    expectFmt("B{ .a = A{ }, .c = 0 }", "{}", .{b});
 }
 
 test "bytes.hex" {
     const some_bytes = "\xCA\xFE\xBA\xBE";
-    try testFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{some_bytes});
-    try testFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{some_bytes});
+    expectFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{some_bytes});
+    expectFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{some_bytes});
     //Test Slices
-    try testFmt("uppercase: CAFE\n", "uppercase: {X}\n", .{some_bytes[0..2]});
-    try testFmt("lowercase: babe\n", "lowercase: {x}\n", .{some_bytes[2..]});
+    expectFmt("uppercase: CAFE\n", "uppercase: {X}\n", .{some_bytes[0..2]});
+    expectFmt("lowercase: babe\n", "lowercase: {x}\n", .{some_bytes[2..]});
     const bytes_with_zeros = "\x00\x0E\xBA\xBE";
-    try testFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
-}
-
-fn testFmt(expected: []const u8, comptime template: []const u8, args: anytype) !void {
-    var buf: [100]u8 = undefined;
-    const result = try bufPrint(buf[0..], template, args);
-    if (mem.eql(u8, result, expected)) return;
-
-    std.debug.warn("\n====== expected this output: =========\n", .{});
-    std.debug.warn("{}", .{expected});
-    std.debug.warn("\n======== instead found this: =========\n", .{});
-    std.debug.warn("{}", .{result});
-    std.debug.warn("\n======================================\n", .{});
-    return error.TestFailed;
+    expectFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
 }
 
 pub fn trim(buf: []const u8) []const u8 {
@@ -1746,7 +1734,7 @@ test "hexToBytes" {
     const test_hex_str = "909A312BB12ED1F819B3521AC4C1E896F2160507FFC1C8381E3B07BB16BD1706";
     var pb: [32]u8 = undefined;
     try hexToBytes(pb[0..], test_hex_str);
-    try testFmt(test_hex_str, "{X}", .{pb});
+    expectFmt(test_hex_str, "{X}", .{pb});
 }
 
 test "formatIntValue with comptime_int" {
@@ -1766,8 +1754,8 @@ test "formatFloatValue with comptime_float" {
     try formatFloatValue(value, "", FormatOptions{}, fbs.writer());
     std.testing.expect(mem.eql(u8, fbs.getWritten(), "1.0e+00"));
 
-    try testFmt("1.0e+00", "{}", .{value});
-    try testFmt("1.0e+00", "{}", .{1.0});
+    expectFmt("1.0e+00", "{}", .{value});
+    expectFmt("1.0e+00", "{}", .{1.0});
 }
 
 test "formatType max_depth" {
@@ -1836,19 +1824,19 @@ test "formatType max_depth" {
 }
 
 test "positional" {
-    try testFmt("2 1 0", "{2} {1} {0}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
-    try testFmt("2 1 0", "{2} {1} {}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
-    try testFmt("0 0", "{0} {0}", .{@as(usize, 0)});
-    try testFmt("0 1", "{} {1}", .{ @as(usize, 0), @as(usize, 1) });
-    try testFmt("1 0 0 1", "{1} {} {0} {}", .{ @as(usize, 0), @as(usize, 1) });
+    expectFmt("2 1 0", "{2} {1} {0}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
+    expectFmt("2 1 0", "{2} {1} {}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
+    expectFmt("0 0", "{0} {0}", .{@as(usize, 0)});
+    expectFmt("0 1", "{} {1}", .{ @as(usize, 0), @as(usize, 1) });
+    expectFmt("1 0 0 1", "{1} {} {0} {}", .{ @as(usize, 0), @as(usize, 1) });
 }
 
 test "positional with specifier" {
-    try testFmt("10.0", "{0d:.1}", .{@as(f64, 9.999)});
+    expectFmt("10.0", "{0d:.1}", .{@as(f64, 9.999)});
 }
 
 test "positional/alignment/width/precision" {
-    try testFmt("10.0", "{0d: >3.1}", .{@as(f64, 9.999)});
+    expectFmt("10.0", "{0d: >3.1}", .{@as(f64, 9.999)});
 }
 
 test "vector" {
@@ -1869,49 +1857,48 @@ test "vector" {
     const vi64: std.meta.Vector(4, i64) = [_]i64{ -2, -1, 0, 1 };
     const vu64: std.meta.Vector(4, u64) = [_]u64{ 1000, 2000, 3000, 4000 };
 
-    try testFmt("{ true, false, true, false }", "{}", .{vbool});
-    try testFmt("{ -2, -1, 0, 1 }", "{}", .{vi64});
-    try testFmt("{    -2,    -1,    +0,    +1 }", "{d:5}", .{vi64});
-    try testFmt("{ 1000, 2000, 3000, 4000 }", "{}", .{vu64});
-    try testFmt("{ 3e8, 7d0, bb8, fa0 }", "{x}", .{vu64});
-    try testFmt("{ 1kB, 2kB, 3kB, 4kB }", "{B}", .{vu64});
-    try testFmt("{ 1000B, 1.953125KiB, 2.9296875KiB, 3.90625KiB }", "{Bi}", .{vu64});
+    expectFmt("{ true, false, true, false }", "{}", .{vbool});
+    expectFmt("{ -2, -1, 0, 1 }", "{}", .{vi64});
+    expectFmt("{    -2,    -1,    +0,    +1 }", "{d:5}", .{vi64});
+    expectFmt("{ 1000, 2000, 3000, 4000 }", "{}", .{vu64});
+    expectFmt("{ 3e8, 7d0, bb8, fa0 }", "{x}", .{vu64});
+    expectFmt("{ 1kB, 2kB, 3kB, 4kB }", "{B}", .{vu64});
+    expectFmt("{ 1000B, 1.953125KiB, 2.9296875KiB, 3.90625KiB }", "{Bi}", .{vu64});
 }
 
 test "enum-literal" {
-    try testFmt(".hello_world", "{}", .{.hello_world});
+    expectFmt(".hello_world", "{}", .{.hello_world});
 }
 
 test "padding" {
-    try testFmt("Simple", "{}", .{"Simple"});
-    try testFmt("      true", "{:10}", .{true});
-    try testFmt("      true", "{:>10}", .{true});
-    try testFmt("======true", "{:=>10}", .{true});
-    try testFmt("true======", "{:=<10}", .{true});
-    try testFmt("   true   ", "{:^10}", .{true});
-    try testFmt("===true===", "{:=^10}", .{true});
-    try testFmt("           Minimum width", "{:18} width", .{"Minimum"});
-    try testFmt("==================Filled", "{:=>24}", .{"Filled"});
-    try testFmt("        Centered        ", "{:^24}", .{"Centered"});
-    try testFmt("-", "{:-^1}", .{""});
+    expectFmt("Simple", "{}", .{"Simple"});
+    expectFmt("      true", "{:10}", .{true});
+    expectFmt("      true", "{:>10}", .{true});
+    expectFmt("======true", "{:=>10}", .{true});
+    expectFmt("true======", "{:=<10}", .{true});
+    expectFmt("   true   ", "{:^10}", .{true});
+    expectFmt("===true===", "{:=^10}", .{true});
+    expectFmt("           Minimum width", "{:18} width", .{"Minimum"});
+    expectFmt("==================Filled", "{:=>24}", .{"Filled"});
+    expectFmt("        Centered        ", "{:^24}", .{"Centered"});
+    expectFmt("-", "{:-^1}", .{""});
 }
 
 test "decimal float padding" {
     var number: f32 = 3.1415;
-    try testFmt("left-pad:   **3.141\n", "left-pad:   {d:*>7.3}\n", .{number});
-    try testFmt("center-pad: *3.141*\n", "center-pad: {d:*^7.3}\n", .{number});
-    try testFmt("right-pad:  3.141**\n", "right-pad:  {d:*<7.3}\n", .{number});
+    expectFmt("left-pad:   **3.141\n", "left-pad:   {d:*>7.3}\n", .{number});
+    expectFmt("center-pad: *3.141*\n", "center-pad: {d:*^7.3}\n", .{number});
+    expectFmt("right-pad:  3.141**\n", "right-pad:  {d:*<7.3}\n", .{number});
 }
 
 test "sci float padding" {
     var number: f32 = 3.1415;
-    try testFmt("left-pad:   **3.141e+00\n", "left-pad:   {e:*>11.3}\n", .{number});
-    try testFmt("center-pad: *3.141e+00*\n", "center-pad: {e:*^11.3}\n", .{number});
-    try testFmt("right-pad:  3.141e+00**\n", "right-pad:  {e:*<11.3}\n", .{number});
+    expectFmt("left-pad:   **3.141e+00\n", "left-pad:   {e:*>11.3}\n", .{number});
+    expectFmt("center-pad: *3.141e+00*\n", "center-pad: {e:*^11.3}\n", .{number});
+    expectFmt("right-pad:  3.141e+00**\n", "right-pad:  {e:*<11.3}\n", .{number});
 }
 
 test "null" {
     const inst = null;
-    try testFmt("null", "{}", .{inst});
+    expectFmt("null", "{}", .{inst});
 }
-
