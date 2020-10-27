@@ -2706,7 +2706,7 @@ fn writeOffsetTableEntry(self: *Elf, index: usize) !void {
     if (self.offset_table_count_dirty) {
         // TODO Also detect virtual address collisions.
         const allocated_size = self.allocatedSize(shdr.sh_offset);
-        const needed_size = self.local_symbols.items.len * entry_size;
+        const needed_size = self.offset_table.items.len * entry_size;
         if (needed_size > allocated_size) {
             // Must move the entire got section.
             const new_offset = self.findFreeSpace(needed_size, entry_size);
