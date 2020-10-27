@@ -594,7 +594,7 @@ test "fsync" {
 
 test "getrlimit and setrlimit" {
     // TODO enable for other systems when implemented
-    if(builtin.os.tag != .linux){
+    if (builtin.os.tag != .linux) {
         return error.SkipZigTest;
     }
 

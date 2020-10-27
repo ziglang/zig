@@ -11,11 +11,7 @@ const mem = std.mem;
 const os = std.os;
 const fs = std.fs;
 
-test "" {
-    _ = @import("net/test.zig");
-}
-
-const has_unix_sockets = @hasDecl(os, "sockaddr_un");
+pub const has_unix_sockets = @hasDecl(os, "sockaddr_un");
 
 pub const Address = extern union {
     any: os.sockaddr,
@@ -1546,16 +1542,14 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
             if (data.len != 4) return error.InvalidDnsARecord;
             const new_addr = try ctx.addrs.addOne();
             new_addr.* = LookupAddr{
-                // TODO slice [0..4] to make this *[4]u8 without @ptrCast
-                .addr = Address.initIp4(@ptrCast(*const [4]u8, data.ptr).*, ctx.port),
+                .addr = Address.initIp4(data[0..4].*, ctx.port),
             };
         },
         os.RR_AAAA => {
             if (data.len != 16) return error.InvalidDnsAAAARecord;
             const new_addr = try ctx.addrs.addOne();
             new_addr.* = LookupAddr{
-                // TODO slice [0..16] to make this *[16]u8 without @ptrCast
-                .addr = Address.initIp6(@ptrCast(*const [16]u8, data.ptr).*, ctx.port, 0, 0),
+                .addr = Address.initIp6(data[0..16].*, ctx.port, 0, 0),
             };
         },
         os.RR_CNAME => {
@@ -1579,7 +1573,7 @@ pub const StreamServer = struct {
     /// `undefined` until `listen` returns successfully.
     listen_address: Address,
 
-    sockfd: ?os.fd_t,
+    sockfd: ?os.socket_t,
 
     pub const Options = struct {
         /// How many connections the kernel will accept on the application's behalf.
@@ -1622,7 +1616,7 @@ pub const StreamServer = struct {
 
         if (self.reuse_address) {
             try os.setsockopt(
-                self.sockfd.?,
+                sockfd,
                 os.SOL_SOCKET,
                 os.SO_REUSEADDR,
                 &mem.toBytes(@as(c_int, 1)),
@@ -1670,6 +1664,14 @@ pub const StreamServer = struct {
         /// Permission to create a socket of the specified type and/or
         /// protocol is denied.
         PermissionDenied,
+
+        FileDescriptorNotASocket,
+
+        ConnectionResetByPeer,
+
+        NetworkSubsystemFailed,
+
+        OperationNotSupported,
     } || os.UnexpectedError;
 
     pub const Connection = struct {
@@ -1701,3 +1703,7 @@ pub const StreamServer = struct {
         }
     }
 };
+
+test "" {
+    _ = @import("net/test.zig");
+}

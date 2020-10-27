@@ -718,6 +718,41 @@ const IOC_WS2 = 0x08000000;
 
 pub const SIO_BASE_HANDLE = IOC_OUT | IOC_WS2 | 34;
 
+pub const SOL_SOCKET = 0xffff;
+
+pub const SO_DEBUG = 0x0001;
+pub const SO_ACCEPTCONN = 0x0002;
+pub const SO_REUSEADDR = 0x0004;
+pub const SO_KEEPALIVE = 0x0008;
+pub const SO_DONTROUTE = 0x0010;
+pub const SO_BROADCAST = 0x0020;
+pub const SO_USELOOPBACK = 0x0040;
+pub const SO_LINGER = 0x0080;
+pub const SO_OOBINLINE = 0x0100;
+
+pub const SO_DONTLINGER = ~@as(u32, SO_LINGER);
+pub const SO_EXCLUSIVEADDRUSE = ~@as(u32, SO_REUSEADDR);
+
+pub const SO_SNDBUF = 0x1001;
+pub const SO_RCVBUF = 0x1002;
+pub const SO_SNDLOWAT = 0x1003;
+pub const SO_RCVLOWAT = 0x1004;
+pub const SO_SNDTIMEO = 0x1005;
+pub const SO_RCVTIMEO = 0x1006;
+pub const SO_ERROR = 0x1007;
+pub const SO_TYPE = 0x1008;
+
+pub const SO_GROUP_ID = 0x2001;
+pub const SO_GROUP_PRIORITY = 0x2002;
+pub const SO_MAX_MSG_SIZE = 0x2003;
+pub const SO_PROTOCOL_INFOA = 0x2004;
+pub const SO_PROTOCOL_INFOW = 0x2005;
+
+pub const PVD_CONFIG = 0x3001;
+pub const SO_CONDITIONAL_ACCEPT = 0x3002;
+
+pub const TCP_NODELAY = 0x0001;
+
 pub extern "ws2_32" fn WSAStartup(
     wVersionRequired: WORD,
     lpWSAData: *WSADATA,
@@ -834,4 +869,11 @@ pub extern "ws2_32" fn getsockname(
     s: SOCKET,
     name: *sockaddr,
     namelen: *c_int,
+) callconv(.Stdcall) c_int;
+pub extern "ws2_32" fn setsockopt(
+    s: SOCKET,
+    level: u32,
+    optname: u32,
+    optval: ?*const c_void,
+    optlen: socklen_t,
 ) callconv(.Stdcall) c_int;

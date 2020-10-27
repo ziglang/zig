@@ -1279,7 +1279,7 @@ pub fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: ?*const rlimit,
         @bitCast(usize, @as(isize, pid)),
         @bitCast(usize, @as(isize, @enumToInt(resource))),
         @ptrToInt(new_limit),
-        @ptrToInt(old_limit)
+        @ptrToInt(old_limit),
     );
 }
 
