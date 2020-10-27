@@ -100,8 +100,18 @@ pub const Block = struct {
 
     /// Perform operations on multiple blocks in parallel.
     pub const parallel = struct {
+        const cpu = std.Target.x86.cpu;
+
         /// The recommended number of AES encryption/decryption to perform in parallel for the chosen implementation.
-        pub const optimal_parallel_blocks = 8;
+        pub const optimal_parallel_blocks = switch (std.Target.current.cpu.model) {
+            &cpu.westmere => 6,
+            &cpu.sandybridge, &cpu.ivybridge => 8,
+            &cpu.haswell, &cpu.broadwell => 7,
+            &cpu.cannonlake, &cpu.skylake, &cpu.skylake_avx512 => 4,
+            &cpu.icelake_client, &cpu.icelake_server => 6,
+            &cpu.znver1, &cpu.znver2 => 8,
+            else => 8,
+        };
 
         /// Encrypt multiple blocks in parallel, each their own round key.
         pub inline fn encryptParallel(comptime count: usize, blocks: [count]Block, round_keys: [count]Block) [count]Block {
