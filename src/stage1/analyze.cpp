@@ -1896,7 +1896,7 @@ static Error emit_error_unless_callconv_allowed_for_target(CodeGen *g, AstNode *
                 && g->zig_target->arch != ZigLLVM_avr
                 && g->zig_target->arch != ZigLLVM_msp430)
             {
-                allowed_platforms = "x86, x86_64, AVR, and MS430";
+                allowed_platforms = "x86, x86_64, AVR, and MSP430";
             }
             break;
         case CallingConventionSignal:
@@ -3632,9 +3632,13 @@ void add_var_export(CodeGen *g, ZigVar *var, const char *symbol_name, GlobalLink
 }
 
 void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, const char *symbol_name, GlobalLinkageId linkage, CallingConvention cc) {
+    CallingConvention winapi_cc = g->zig_target->arch == ZigLLVM_x86
+        ? CallingConventionStdcall
+        : CallingConventionC;
+
     if (cc == CallingConventionC && strcmp(symbol_name, "main") == 0 && g->link_libc) {
         g->stage1.have_c_main = true;
-    } else if (cc == CallingConventionStdcall && g->zig_target->os == OsWindows) {
+    } else if (cc == winapi_cc && g->zig_target->os == OsWindows) {
         if (strcmp(symbol_name, "WinMain") == 0) {
             g->stage1.have_winmain = true;
         } else if (strcmp(symbol_name, "wWinMain") == 0) {
