@@ -83,9 +83,9 @@ pub fn generateSymbol(
                 .wasm64 => unreachable, // has its own code path
                 .arm => return Function(.arm).generateSymbol(bin_file, src, typed_value, code, debug_output),
                 .armeb => return Function(.armeb).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.aarch64 => return Function(.aarch64).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.aarch64_be => return Function(.aarch64_be).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.aarch64_32 => return Function(.aarch64_32).generateSymbol(bin_file, src, typed_value, code, debug_output),
+                .aarch64 => return Function(.aarch64).generateSymbol(bin_file, src, typed_value, code, debug_output),
+                .aarch64_be => return Function(.aarch64_be).generateSymbol(bin_file, src, typed_value, code, debug_output),
+                .aarch64_32 => return Function(.aarch64_32).generateSymbol(bin_file, src, typed_value, code, debug_output),
                 //.arc => return Function(.arc).generateSymbol(bin_file, src, typed_value, code, debug_output),
                 //.avr => return Function(.avr).generateSymbol(bin_file, src, typed_value, code, debug_output),
                 //.bpfel => return Function(.bpfel).generateSymbol(bin_file, src, typed_value, code, debug_output),
@@ -3007,6 +3007,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             .riscv64 => @import("codegen/riscv64.zig"),
             .spu_2 => @import("codegen/spu-mk2.zig"),
             .arm, .armeb => @import("codegen/arm.zig"),
+            .aarch64, .aarch64_be, .aarch64_32 => @import("codegen/aarch64.zig"),
             else => struct {
                 pub const Register = enum {
                     dummy,
