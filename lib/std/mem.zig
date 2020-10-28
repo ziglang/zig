@@ -16,6 +16,10 @@ const testing = std.testing;
 /// https://github.com/ziglang/zig/issues/2564
 pub const page_size = switch (builtin.arch) {
     .wasm32, .wasm64 => 64 * 1024,
+    .aarch64 => switch (builtin.os.tag) {
+        .macos, .ios, .watchos, .tvos => 16 * 1024,
+        else => 4 * 1024,
+    },
     else => 4 * 1024,
 };
 
