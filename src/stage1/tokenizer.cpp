@@ -1493,6 +1493,7 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateSawGreaterThan:
         case TokenizeStateSawGreaterThanGreaterThan:
         case TokenizeStateSawDot:
+        case TokenizeStateSawDotStar:
         case TokenizeStateSawAtSign:
         case TokenizeStateSawStarPercent:
         case TokenizeStateSawPlusPercent:
