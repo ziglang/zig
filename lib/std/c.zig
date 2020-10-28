@@ -124,14 +124,7 @@ pub extern "c" fn readlinkat(dirfd: fd_t, noalias path: [*:0]const u8, noalias b
 pub usingnamespace switch (builtin.os.tag) {
     .macos, .ios, .watchos, .tvos => struct {
         pub const realpath = @"realpath$DARWIN_EXTSN";
-        pub usingnamespace switch (builtin.arch) {
-            .aarch64 => struct {
-                pub extern "c" fn fstatat(dirfd: fd_t, path: [*:0]const u8, stat_buf: *Stat, flags: u32) c_int;
-            },
-            else => struct {
-                pub const fstatat = @"fstatat$INODE64";
-            },
-        };
+        pub const fstatat = _fstatat;
     },
     else => struct {
         pub extern "c" fn realpath(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
@@ -201,14 +194,7 @@ pub usingnamespace switch (builtin.os.tag) {
         // XXX: getdirentries -> _getdirentries64
         pub extern "c" fn clock_getres(clk_id: c_int, tp: *timespec) c_int;
         pub extern "c" fn clock_gettime(clk_id: c_int, tp: *timespec) c_int;
-        pub usingnamespace switch (builtin.arch) {
-            .aarch64 => struct {
-                pub extern "c" fn fstat(fd: fd_t, buf: *Stat) c_int;
-            },
-            else => struct {
-                pub const fstat = @"fstat$INODE64";
-            }
-        };
+        pub const fstat = _fstat;
         pub extern "c" fn getrusage(who: c_int, usage: *rusage) c_int;
         pub extern "c" fn gettimeofday(noalias tv: ?*timeval, noalias tz: ?*timezone) c_int;
         pub extern "c" fn nanosleep(rqtp: *const timespec, rmtp: ?*timespec) c_int;
