@@ -6821,9 +6821,12 @@ static Error resolve_pointer_zero_bits(CodeGen *g, ZigType *ty) {
         TypeStructField *field = find_struct_type_field(isf->inferred_struct_type, isf->field_name);
         assert(field != nullptr);
         if (field->is_comptime) {
+            ty->data.pointer.resolve_loop_flag_zero_bits = false;
+
             ty->abi_size = 0;
             ty->size_in_bits = 0;
             ty->abi_align = 0;
+
             return ErrorNone;
         }
         elem_type = field->type_entry;
@@ -6834,6 +6837,8 @@ static Error resolve_pointer_zero_bits(CodeGen *g, ZigType *ty) {
     bool has_bits;
     if ((err = type_has_bits2(g, elem_type, &has_bits)))
         return err;
+
+    ty->data.pointer.resolve_loop_flag_zero_bits = false;
 
     if (has_bits) {
         ty->abi_size = g->builtin_types.entry_usize->abi_size;
