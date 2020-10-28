@@ -46,6 +46,13 @@ unset CXX
 unset ZIG_LIBC
 
 make $JOBS install
+
+# Here we rebuild zig but this time using the Zig binary we just now produced to
+# build zig1.o rather than relying on the one built with stage0. See
+# https://github.com/ziglang/zig/issues/6830 for more details.
+cmake .. -DZIG_EXECUTABLE="$(pwd)/release/bin/zig"
+make $JOBS install
+
 release/bin/zig build test
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
