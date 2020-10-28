@@ -148,6 +148,8 @@ test "listen on a port, send bytes, receive bytes" {
     const localhost = try net.Address.parseIp("127.0.0.1", 8080);
 
     var server = net.StreamServer.init(.{});
+    defer server.deinit();
+
     try server.listen(localhost);
 
     const S = struct {

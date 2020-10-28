@@ -2687,6 +2687,14 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
     }
 }
 
+pub fn closeSocket(sock: socket_t) void {
+    if (builtin.os.tag == .windows) {
+        windows.closesocket(sock) catch unreachable;
+    } else {
+        close(sock);
+    }
+}
+
 pub const BindError = error{
     /// The address is protected, and the user is not the superuser.
     /// For UNIX domain sockets: Search permission is denied on  a  component
@@ -2731,8 +2739,8 @@ pub const BindError = error{
 
 /// addr is `*const T` where T is one of the sockaddr
 pub fn bind(sock: socket_t, addr: *const sockaddr, len: socklen_t) BindError!void {
-    const rc = system.bind(sock, addr, len);
     if (builtin.os.tag == .windows) {
+        const rc = windows.bind(sock, addr, len);
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
                 .WSANOTINITIALISED => unreachable, // not initialized WSA
@@ -2750,6 +2758,7 @@ pub fn bind(sock: socket_t, addr: *const sockaddr, len: socklen_t) BindError!voi
         }
         return;
     } else {
+        const rc = system.bind(sock, addr, len);
         switch (errno(rc)) {
             0 => return,
             EACCES => return error.AccessDenied,
@@ -2800,8 +2809,8 @@ const ListenError = error{
 } || UnexpectedError;
 
 pub fn listen(sock: socket_t, backlog: u31) ListenError!void {
-    const rc = system.listen(sock, backlog);
     if (builtin.os.tag == .windows) {
+        const rc = windows.listen(sock, backlog);
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
                 .WSANOTINITIALISED => unreachable, // not initialized WSA
@@ -2818,6 +2827,7 @@ pub fn listen(sock: socket_t, backlog: u31) ListenError!void {
         }
         return;
     } else {
+        const rc = system.listen(sock, backlog);
         switch (errno(rc)) {
             0 => return,
             EADDRINUSE => return error.AddressInUse,
@@ -2905,6 +2915,8 @@ pub fn accept(
     const accepted_sock = while (true) {
         const rc = if (have_accept4)
             system.accept4(sock, addr, addr_size, flags)
+        else if (builtin.os.tag == .windows)
+            windows.accept(sock, addr, addr_size)
         else
             system.accept(sock, addr, addr_size);
 
@@ -3077,8 +3089,8 @@ pub const GetSockNameError = error{
 } || UnexpectedError;
 
 pub fn getsockname(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSockNameError!void {
-    const rc = system.getsockname(sock, addr, addrlen);
     if (builtin.os.tag == .windows) {
+        const rc = windows.getsockname(sock, addr, addrlen);
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
                 .WSANOTINITIALISED => unreachable,
@@ -3091,6 +3103,7 @@ pub fn getsockname(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSock
         }
         return;
     } else {
+        const rc = system.getsockname(sock, addr, addrlen);
         switch (errno(rc)) {
             0 => return,
             else => |err| return unexpectedErrno(err),
