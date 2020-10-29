@@ -405,7 +405,14 @@ test "math.shr" {
 /// Rotates right. Only unsigned values can be rotated.
 /// Negative shift values results in shift modulo the bit count.
 pub fn rotr(comptime T: type, x: T, r: anytype) T {
-    if (@typeInfo(T).Int.is_signed) {
+    if (@typeInfo(T) == .Vector) {
+        const C = @typeInfo(T).Vector.child;
+        if (@typeInfo(C).Int.is_signed) {
+            @compileError("cannot rotate signed integers");
+        }
+        const ar = @intCast(Log2Int(C), @mod(r, @typeInfo(C).Int.bits));
+        return (x >> @splat(@typeInfo(T).Vector.len, ar)) | (x << @splat(@typeInfo(T).Vector.len, 1 + ~ar));
+    } else if (@typeInfo(T).Int.is_signed) {
         @compileError("cannot rotate signed integer");
     } else {
         const ar = @mod(r, @typeInfo(T).Int.bits);
@@ -419,12 +426,21 @@ test "math.rotr" {
     testing.expect(rotr(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
     testing.expect(rotr(u8, 0b00000001, @as(usize, 4)) == 0b00010000);
     testing.expect(rotr(u8, 0b00000001, @as(isize, -1)) == 0b00000010);
+    testing.expect(rotr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){1}, @as(usize, 1))[0] == @as(u32, 1) << 31);
+    testing.expect(rotr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){1}, @as(isize, -1))[0] == @as(u32, 1) << 1);
 }
 
 /// Rotates left. Only unsigned values can be rotated.
 /// Negative shift values results in shift modulo the bit count.
 pub fn rotl(comptime T: type, x: T, r: anytype) T {
-    if (@typeInfo(T).Int.is_signed) {
+    if (@typeInfo(T) == .Vector) {
+        const C = @typeInfo(T).Vector.child;
+        if (@typeInfo(C).Int.is_signed) {
+            @compileError("cannot rotate signed integers");
+        }
+        const ar = @intCast(Log2Int(C), @mod(r, @typeInfo(C).Int.bits));
+        return (x << @splat(@typeInfo(T).Vector.len, ar)) | (x >> @splat(@typeInfo(T).Vector.len, 1 +% ~ar));
+    } else if (@typeInfo(T).Int.is_signed) {
         @compileError("cannot rotate signed integer");
     } else {
         const ar = @mod(r, @typeInfo(T).Int.bits);
@@ -438,6 +454,8 @@ test "math.rotl" {
     testing.expect(rotl(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
     testing.expect(rotl(u8, 0b00000001, @as(usize, 4)) == 0b00010000);
     testing.expect(rotl(u8, 0b00000001, @as(isize, -1)) == 0b10000000);
+    testing.expect(rotl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){1 << 31}, @as(usize, 1))[0] == 1);
+    testing.expect(rotl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){1 << 31}, @as(isize, -1))[0] == @as(u32, 1) << 30);
 }
 
 pub fn Log2Int(comptime T: type) type {
@@ -1141,4 +1159,3 @@ test "math.comptime" {
     comptime const v = sin(@as(f32, 1)) + ln(@as(f32, 5));
     testing.expect(v == sin(@as(f32, 1)) + ln(@as(f32, 5)));
 }
-
