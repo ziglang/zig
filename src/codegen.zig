@@ -573,25 +573,54 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // sub sp, sp, #reloc
                         mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.push(.al, .{ .fp, .lr }).toU32());
                         mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .fp, Instruction.Operand.reg(.sp, Instruction.Operand.Shift.none)).toU32());
-                        // TODO: prepare stack for local variables
-                        // const backpatch_reloc = try self.code.addManyAsArray(4);
+                        const backpatch_reloc = self.code.items.len;
+                        try self.code.resize(backpatch_reloc + 4);
 
                         try self.dbgSetPrologueEnd();
 
                         try self.genBody(self.mod_fn.analysis.success);
 
                         // Backpatch stack offset
-                        // const stack_end = self.max_end_stack;
-                        // const aligned_stack_end = mem.alignForward(stack_end, self.stack_align);
-                        // mem.writeIntLittle(u32, backpatch_reloc, Instruction.sub(.al, .sp, .sp, Instruction.Operand.imm()));
+                        const stack_end = self.max_end_stack;
+                        const aligned_stack_end = mem.alignForward(stack_end, self.stack_align);
+                        if (Instruction.Operand.fromU32(@intCast(u32, aligned_stack_end))) |op| {
+                            mem.writeIntLittle(u32, self.code.items[backpatch_reloc..][0..4], Instruction.sub(.al, .sp, .sp, op).toU32());
+                        } else {
+                            return self.fail(self.src, "TODO ARM: allow larger stacks", .{});
+                        }
 
                         try self.dbgSetEpilogueBegin();
 
+                        // exitlude jumps
+                        if (self.exitlude_jump_relocs.items.len == 1) {
+                            // There is only one relocation. Hence,
+                            // this relocation must be at the end of
+                            // the code. Therefore, we can just delete
+                            // the space initially reserved for the
+                            // jump
+                            self.code.items.len -= 4;
+                        } else for (self.exitlude_jump_relocs.items) |jmp_reloc| {
+                            const amt = self.code.items.len - (jmp_reloc + 4);
+                            if (amt == 0) {
+                                // This return is at the end of the
+                                // code block. We can't just delete
+                                // the space because there may be
+                                // other jumps we already relocated to
+                                // the address. Instead, insert a nop
+                                mem.writeIntLittle(u32, self.code.items[jmp_reloc..][0..4], Instruction.nop().toU32());
+                            } else {
+                                if (math.cast(i26, amt)) |offset| {
+                                    mem.writeIntLittle(u32, self.code.items[jmp_reloc..][0..4], Instruction.b(.al, offset).toU32());
+                                } else |err| {
+                                    return self.fail(self.src, "exitlude jump is too large", .{});
+                                }
+                            }
+                        }
+
                         // mov sp, fp
                         // pop {fp, pc}
-                        // TODO: return by jumping to this code, use relocations
-                        // mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .sp, Instruction.Operand.reg(.fp, Instruction.Operand.Shift.none)).toU32());
-                        // mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.pop(.al, .{ .fp, .pc }).toU32());
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .sp, Instruction.Operand.reg(.fp, Instruction.Operand.Shift.none)).toU32());
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.pop(.al, .{ .fp, .pc }).toU32());
                     } else {
                         try self.dbgSetPrologueEnd();
                         try self.genBody(self.mod_fn.analysis.success);
@@ -1661,12 +1690,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.jalr(.zero, 0, .ra).toU32());
                 },
                 .arm => {
-                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, .sp, Instruction.Operand.reg(.fp, Instruction.Operand.Shift.none)).toU32());
-                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.pop(.al, .{ .fp, .pc }).toU32());
-                    // TODO: jump to the end with relocation
-                    // // Just add space for an instruction, patch this later
-                    // try self.code.resize(self.code.items.len + 4);
-                    // try self.exitlude_jump_relocs.append(self.gpa, self.code.items.len - 4);
+                    // Just add space for an instruction, patch this later
+                    try self.code.resize(self.code.items.len + 4);
+                    try self.exitlude_jump_relocs.append(self.gpa, self.code.items.len - 4);
                 },
                 else => return self.fail(src, "TODO implement return for {}", .{self.target.cpu.arch}),
             }
@@ -1932,6 +1958,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         mem.writeIntLittle(i32, self.code.addManyAsArrayAssumeCapacity(4), delta);
                     }
                 },
+                .arm => {
+                    if (math.cast(i26, @intCast(i32, index) - @intCast(i32, self.code.items.len))) |delta| {
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.b(.al, delta).toU32());
+                    } else |err| {
+                        return self.fail(src, "TODO: enable larger branch offset", .{});
+                    }
+                },
                 else => return self.fail(src, "TODO implement jump for {}", .{self.target.cpu.arch}),
             }
         }
@@ -2167,6 +2200,58 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         fn genSetStack(self: *Self, src: usize, ty: Type, stack_offset: u32, mcv: MCValue) InnerError!void {
             switch (arch) {
+                .arm => switch (mcv) {
+                    .dead => unreachable,
+                    .ptr_stack_offset => unreachable,
+                    .ptr_embedded_in_code => unreachable,
+                    .unreach, .none => return, // Nothing to do.
+                    .undef => {
+                        if (!self.wantSafety())
+                            return; // The already existing value will do just fine.
+                        // TODO Upgrade this to a memset call when we have that available.
+                        switch (ty.abiSize(self.target.*)) {
+                            1 => return self.genSetStack(src, ty, stack_offset, .{ .immediate = 0xaa }),
+                            2 => return self.genSetStack(src, ty, stack_offset, .{ .immediate = 0xaaaa }),
+                            4 => return self.genSetStack(src, ty, stack_offset, .{ .immediate = 0xaaaaaaaa }),
+                            8 => return self.genSetStack(src, ty, stack_offset, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
+                            else => return self.fail(src, "TODO implement memset", .{}),
+                        }
+                    },
+                    .compare_flags_unsigned => |op| {
+                        return self.fail(src, "TODO implement set stack variable with compare flags value (unsigned)", .{});
+                    },
+                    .compare_flags_signed => |op| {
+                        return self.fail(src, "TODO implement set stack variable with compare flags value (signed)", .{});
+                    },
+                    .immediate => {
+                        const reg = try self.copyToTmpRegister(src, mcv);
+                        return self.genSetStack(src, ty, stack_offset, MCValue{ .register = reg });
+                    },
+                    .embedded_in_code => |code_offset| {
+                        return self.fail(src, "TODO implement set stack variable from embedded_in_code", .{});
+                    },
+                    .register => |reg| {
+                        // TODO: strb, strh
+                        if (stack_offset <= math.maxInt(u12)) {
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.str(.al, reg, .fp, .{
+                                .offset = Instruction.Offset.imm(@intCast(u12, stack_offset)),
+                                .positive = false,
+                            }).toU32());
+                        } else {
+                            return self.fail(src, "TODO genSetStack with larger offsets", .{});
+                        }
+                    },
+                    .memory => |vaddr| {
+                        return self.fail(src, "TODO implement set stack variable from memory vaddr", .{});
+                    },
+                    .stack_offset => |off| {
+                        if (stack_offset == off)
+                            return; // Copy stack variable to itself; nothing to do.
+
+                        const reg = try self.copyToTmpRegister(src, mcv);
+                        return self.genSetStack(src, ty, stack_offset, MCValue{ .register = reg });
+                    },
+                },
                 .x86_64 => switch (mcv) {
                     .dead => unreachable,
                     .ptr_stack_offset => unreachable,
@@ -2274,35 +2359,39 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaa });
                     },
                     .immediate => |x| {
-                        // TODO better analysis of x to determine the
-                        // least amount of necessary instructions (use
-                        // more intelligent rotating)
-                        if (x <= math.maxInt(u8)) {
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
-                            return;
-                        } else if (x <= math.maxInt(u16)) {
-                            // TODO Use movw Note: Not supported on
-                            // all ARM targets!
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 8), 12)).toU32());
-                        } else if (x <= math.maxInt(u32)) {
-                            // TODO Use movw and movt Note: Not
-                            // supported on all ARM targets! Also TODO
-                            // write constant to code and load
-                            // relative to pc
+                        if (x > math.maxInt(u32)) return self.fail(src, "ARM registers are 32-bit wide", .{});
 
-                            // immediate: 0xaabbccdd
-                            // mov reg, #0xaa
-                            // orr reg, reg, #0xbb, 24
-                            // orr reg, reg, #0xcc, 16
-                            // orr reg, reg, #0xdd, 8
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 8), 12)).toU32());
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 16), 8)).toU32());
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 24), 4)).toU32());
-                            return;
+                        if (Instruction.Operand.fromU32(@intCast(u32, x))) |op| {
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, op).toU32());
+                        } else if (Instruction.Operand.fromU32(~@intCast(u32, x))) |op| {
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mvn(.al, reg, op).toU32());
+                        } else if (x <= math.maxInt(u16)) {
+                            if (Target.arm.featureSetHas(self.target.cpu.features, .has_v7)) {
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movw(.al, reg, @intCast(u16, x)).toU32());
+                            } else {
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 8), 12)).toU32());
+                            }
                         } else {
-                            return self.fail(src, "ARM registers are 32-bit wide", .{});
+                            // TODO write constant to code and load
+                            // relative to pc
+                            if (Target.arm.featureSetHas(self.target.cpu.features, .has_v7)) {
+                                // immediate: 0xaaaabbbb
+                                // movw reg, #0xbbbb
+                                // movt reg, #0xaaaa
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movw(.al, reg, @truncate(u16, x)).toU32());
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movt(.al, reg, @truncate(u16, x >> 16)).toU32());
+                            } else {
+                                // immediate: 0xaabbccdd
+                                // mov reg, #0xaa
+                                // orr reg, reg, #0xbb, 24
+                                // orr reg, reg, #0xcc, 16
+                                // orr reg, reg, #0xdd, 8
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.mov(.al, reg, Instruction.Operand.imm(@truncate(u8, x), 0)).toU32());
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 8), 12)).toU32());
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 16), 8)).toU32());
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, reg, reg, Instruction.Operand.imm(@truncate(u8, x >> 24), 4)).toU32());
+                            }
                         }
                     },
                     .register => |src_reg| {
@@ -2318,6 +2407,18 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         // If the type is a pointer, it means the pointer address is at this memory location.
                         try self.genSetReg(src, reg, .{ .immediate = addr });
                         mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(.al, reg, reg, .{ .offset = Instruction.Offset.none }).toU32());
+                    },
+                    .stack_offset => |unadjusted_off| {
+                        // TODO: ldrb, ldrh
+                        // TODO: maybe addressing from sp instead of fp
+                        if (unadjusted_off <= math.maxInt(u12)) {
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(.al, reg, .fp, .{
+                                .offset = Instruction.Offset.imm(@intCast(u12, unadjusted_off)),
+                                .positive = false,
+                            }).toU32());
+                        } else {
+                            return self.fail(src, "TODO genSetReg with larger stack offset", .{});
+                        }
                     },
                     else => return self.fail(src, "TODO implement getSetReg for arm {}", .{mcv}),
                 },
