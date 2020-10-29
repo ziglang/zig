@@ -493,4 +493,34 @@ pub const Thread = struct {
         };
         return @intCast(usize, count);
     }
+
+    pub fn getCurrentThreadId() u64 {
+        switch (std.Target.current.os.tag) {
+            .linux => {
+                // Use the syscall directly as musl doesn't provide a wrapper.
+                return @bitCast(u32, os.linux.gettid());
+            },
+            .windows => {
+                return os.windows.kernel32.GetCurrentThreadId();
+            },
+            .macos, .ios, .watchos, .tvos => {
+                var thread_id: u64 = undefined;
+                // Pass thread=null to get the current thread ID.
+                assert(c.pthread_threadid_np(null, &thread_id) == 0);
+                return thread_id;
+            },
+            .netbsd => {
+                return @bitCast(u32, c._lwp_self());
+            },
+            .freebsd => {
+                return @bitCast(u32, c.pthread_getthreadid_np());
+            },
+            .openbsd => {
+                return @bitCast(u32, c.getthrid());
+            },
+            else => {
+                @compileError("getCurrentThreadId not implemented for this platform");
+            },
+        }
+    }
 };
