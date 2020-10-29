@@ -509,15 +509,15 @@ pub const libc_stat = extern struct {
     ctim: timespec,
     __unused: [2]isize,
 
-    pub fn atime(self: Stat) timespec {
+    pub fn atime(self: libc_stat) timespec {
         return self.atim;
     }
 
-    pub fn mtime(self: Stat) timespec {
+    pub fn mtime(self: libc_stat) timespec {
         return self.mtim;
     }
 
-    pub fn ctime(self: Stat) timespec {
+    pub fn ctime(self: libc_stat) timespec {
         return self.ctim;
     }
 };
@@ -545,15 +545,15 @@ pub const kernel_stat = extern struct {
     // Hack to make the stdlib not complain about atime
     // and friends not being a method.
     // TODO what should tv_nsec be filled with?
-    pub fn atime(self: Stat) timespec {
+    pub fn atime(self: kernel_stat) timespec {
         return timespec{.tv_sec=self.atim, .tv_nsec=0};
     }
 
-    pub fn mtime(self: Stat) timespec {
+    pub fn mtime(self: kernel_stat) timespec {
         return timespec{.tv_sec=self.mtim, .tv_nsec=0};
     }
 
-    pub fn ctime(self: Stat) timespec {
+    pub fn ctime(self: kernel_stat) timespec {
         return timespec{.tv_sec=self.ctim, .tv_nsec=0};
     }
 };
