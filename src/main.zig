@@ -1442,7 +1442,8 @@ fn buildOutputType(
                     .object_format = object_format,
                     .version = optional_version,
                 });
-                if (std.fs.cwd().openDir(name_to_check, .{ .access_sub_paths = false })) |d| {
+                var opened_dir = std.fs.cwd().openDir(name_to_check, .{ .access_sub_paths = false });
+                if (opened_dir) |d| {
                     d.close();
                     if (arg_mode != .zig_test) {
                         fatal("The output binary file name is the same name as a directory: \"{}\"", .{root_name});
