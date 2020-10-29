@@ -314,6 +314,8 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcArgType";
         case IrInstSrcIdExport:
             return "SrcExport";
+        case IrInstSrcIdExtern:
+            return "SrcExtern";
         case IrInstSrcIdErrorReturnTrace:
             return "SrcErrorReturnTrace";
         case IrInstSrcIdErrorUnion:
@@ -544,6 +546,8 @@ const char* ir_inst_gen_type_str(IrInstGenId id) {
             return "GenWasmMemorySize";
         case IrInstGenIdWasmMemoryGrow:
             return "GenWasmMemoryGrow";
+        case IrInstGenIdExtern:
+            return "GenExtrern";
     }
     zig_unreachable();
 }
@@ -2364,6 +2368,18 @@ static void ir_print_export(IrPrintSrc *irp, IrInstSrcExport *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_extern(IrPrintGen *irp, IrInstGenExtern *instruction) {
+    fprintf(irp->f, "@extern(...)");
+}
+
+static void ir_print_extern(IrPrintSrc *irp, IrInstSrcExtern *instruction) {
+    fprintf(irp->f, "@extern(");
+    ir_print_other_inst_src(irp, instruction->type);
+    fprintf(irp->f, ",");
+    ir_print_other_inst_src(irp, instruction->options);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_error_return_trace(IrPrintSrc *irp, IrInstSrcErrorReturnTrace *instruction) {
     fprintf(irp->f, "@errorReturnTrace(");
     switch (instruction->optional) {
@@ -2943,6 +2959,9 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
         case IrInstSrcIdExport:
             ir_print_export(irp, (IrInstSrcExport *)instruction);
             break;
+        case IrInstSrcIdExtern:
+            ir_print_extern(irp, (IrInstSrcExtern*)instruction);
+            break;
         case IrInstSrcIdErrorReturnTrace:
             ir_print_error_return_trace(irp, (IrInstSrcErrorReturnTrace *)instruction);
             break;
@@ -3294,6 +3313,10 @@ static void ir_print_inst_gen(IrPrintGen *irp, IrInstGen *instruction, bool trai
         case IrInstGenIdWasmMemoryGrow:
             ir_print_wasm_memory_grow(irp, (IrInstGenWasmMemoryGrow *)instruction);
             break;
+        case IrInstGenIdExtern:
+            ir_print_extern(irp, (IrInstGenExtern *)instruction);
+            break;
+
     }
     fprintf(irp->f, "\n");
 }

@@ -519,6 +519,8 @@ static void destroy_instruction_src(IrInstSrc *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTagType *>(inst));
         case IrInstSrcIdExport:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcExport *>(inst));
+        case IrInstSrcIdExtern:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcExtern *>(inst));
         case IrInstSrcIdErrorReturnTrace:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcErrorReturnTrace *>(inst));
         case IrInstSrcIdErrorUnion:
@@ -755,6 +757,8 @@ void destroy_instruction_gen(IrInstGen *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstGenWasmMemorySize *>(inst));
         case IrInstGenIdWasmMemoryGrow:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstGenWasmMemoryGrow *>(inst));
+        case IrInstGenIdExtern:
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenExtern *>(inst));
     }
     zig_unreachable();
 }
@@ -1555,6 +1559,10 @@ static constexpr IrInstSrcId ir_inst_id(IrInstSrcExport *) {
     return IrInstSrcIdExport;
 }
 
+static constexpr IrInstSrcId ir_inst_id(IrInstSrcExtern *) {
+    return IrInstSrcIdExtern;
+}
+
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcErrorReturnTrace *) {
     return IrInstSrcIdErrorReturnTrace;
 }
@@ -1997,6 +2005,10 @@ static constexpr IrInstGenId ir_inst_id(IrInstGenWasmMemorySize *) {
 
 static constexpr IrInstGenId ir_inst_id(IrInstGenWasmMemoryGrow *) {
   return IrInstGenIdWasmMemoryGrow;
+}
+
+static constexpr IrInstGenId ir_inst_id(IrInstGenExtern *) {
+    return IrInstGenIdExtern;
 }
 
 template<typename T>
@@ -2805,6 +2817,33 @@ static IrInstSrc *ir_build_export(IrBuilderSrc *irb, Scope *scope, AstNode *sour
     ir_ref_instruction(options, irb->current_basic_block);
 
     return &export_instruction->base;
+}
+
+static IrInstSrc *ir_build_extern(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
+        IrInstSrc *type, IrInstSrc *options)
+{
+    IrInstSrcExtern *extern_instruction = ir_build_instruction<IrInstSrcExtern>(
+            irb, scope, source_node);
+    extern_instruction->type = type;
+    extern_instruction->options = options;
+
+    ir_ref_instruction(type, irb->current_basic_block);
+    ir_ref_instruction(options, irb->current_basic_block);
+
+    return &extern_instruction->base;
+}
+
+static IrInstGen *ir_build_extern_gen(IrAnalyze *ira, IrInst *source_instr, Buf *name,
+        GlobalLinkageId linkage, bool is_thread_local, ZigType *expr_type)
+{
+    IrInstGenExtern *instruction = ir_build_inst_gen<IrInstGenExtern>(&ira->new_irb,
+            source_instr->scope, source_instr->source_node);
+    instruction->base.value->type = expr_type;
+    instruction->name = name;
+    instruction->linkage = linkage;
+    instruction->is_thread_local = is_thread_local;
+
+    return &instruction->base;
 }
 
 static IrInstSrc *ir_build_load_ptr(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, IrInstSrc *ptr) {
@@ -7375,6 +7414,30 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
 
                 IrInstSrc *ir_export = ir_build_export(irb, scope, node, target_value, casted_options_value);
                 return ir_lval_wrap(irb, scope, ir_export, lval, result_loc);
+            }
+        case BuiltinFnIdExtern:
+            {
+                // Cast the options parameter to the options type
+                ZigType *options_type = get_builtin_type(irb->codegen, "ExternOptions");
+                IrInstSrc *options_type_inst = ir_build_const_type(irb, scope, node, options_type);
+                ResultLocCast *result_loc_cast = ir_build_cast_result_loc(irb, options_type_inst, no_result_loc());
+
+                AstNode *type_node = node->data.fn_call_expr.params.at(0);
+                IrInstSrc *type_value = ir_gen_node(irb, type_node, scope);
+                if (type_value == irb->codegen->invalid_inst_src)
+                    return type_value;
+
+                AstNode *options_node = node->data.fn_call_expr.params.at(1);
+                IrInstSrc *options_value = ir_gen_node_extra(irb, options_node,
+                    scope, LValNone, &result_loc_cast->base);
+                if (options_value == irb->codegen->invalid_inst_src)
+                    return options_value;
+
+                IrInstSrc *casted_options_value = ir_build_implicit_cast(
+                    irb, scope, options_node, options_value, result_loc_cast);
+
+                IrInstSrc *ir_extern = ir_build_extern(irb, scope, node, type_value, casted_options_value);
+                return ir_lval_wrap(irb, scope, ir_extern, lval, result_loc);
             }
         case BuiltinFnIdErrorReturnTrace:
             {
@@ -19164,6 +19227,126 @@ static IrInstGen *ir_analyze_instruction_export(IrAnalyze *ira, IrInstSrcExport 
     }
 
     return ir_const_void(ira, &instruction->base.base);
+}
+
+static void add_link_lib_symbol(IrAnalyze *ira, Buf *lib_name, Buf *symbol_name, AstNode *source_node);
+
+static IrInstGen *ir_analyze_instruction_extern(IrAnalyze *ira, IrInstSrcExtern *instruction) {
+    IrInstGen *type_inst = instruction->type->child;
+    if (type_is_invalid(type_inst->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    IrInstGen *options = instruction->options->child;
+    if (type_is_invalid(options->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    ZigType *options_type = options->value->type;
+    assert(options_type->id == ZigTypeIdStruct);
+
+    TypeStructField *name_field = find_struct_type_field(options_type, buf_create_from_str("name"));
+    ir_assert(name_field != nullptr, &instruction->base.base);
+    IrInstGen *name_inst = ir_analyze_struct_value_field_value(ira, &instruction->base.base, options, name_field);
+    if (type_is_invalid(name_inst->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    TypeStructField *linkage_field = find_struct_type_field(options_type, buf_create_from_str("linkage"));
+    ir_assert(linkage_field != nullptr, &instruction->base.base);
+    IrInstGen *linkage_inst = ir_analyze_struct_value_field_value(ira, &instruction->base.base, options, linkage_field);
+    if (type_is_invalid(linkage_inst->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    TypeStructField *is_thread_local_field = find_struct_type_field(options_type, buf_create_from_str("is_thread_local"));
+    ir_assert(is_thread_local_field != nullptr, &instruction->base.base);
+    IrInstGen *is_thread_local_inst = ir_analyze_struct_value_field_value(ira, &instruction->base.base, options, is_thread_local_field);
+    if (type_is_invalid(is_thread_local_inst->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    TypeStructField *library_name_field = find_struct_type_field(options_type, buf_create_from_str("library_name"));
+    ir_assert(library_name_field != nullptr, &instruction->base.base);
+    IrInstGen *library_name_inst = ir_analyze_struct_value_field_value(ira, &instruction->base.base, options, library_name_field);
+    if (type_is_invalid(library_name_inst->value->type))
+        return ira->codegen->invalid_inst_gen;
+
+    // The `library_name` field is optional, we have to unwrap it first
+    IrInstGen *non_null_check = ir_analyze_test_non_null(ira, &instruction->base.base, library_name_inst);
+    bool is_non_null;
+    if (!ir_resolve_bool(ira, non_null_check, &is_non_null))
+        return ira->codegen->invalid_inst_gen;
+
+    IrInstGen *library_name_val_inst = nullptr;
+    if (is_non_null) {
+        library_name_val_inst = ir_analyze_optional_value_payload_value(ira, &instruction->base.base, library_name_inst, false);
+        if (type_is_invalid(library_name_val_inst->value->type))
+            return ira->codegen->invalid_inst_gen;
+    }
+
+    // Resolve all the comptime values
+    ZigType *value_type = ir_resolve_type(ira, type_inst);
+    if (type_is_invalid(value_type))
+        return ira->codegen->invalid_inst_gen;
+
+    if (get_src_ptr_type(value_type) == nullptr) {
+        ir_add_error(ira, &name_inst->base,
+            buf_sprintf("expected (optional) pointer type or function"));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    Buf *symbol_name = ir_resolve_str(ira, name_inst);
+    if (!symbol_name)
+        return ira->codegen->invalid_inst_gen;
+
+    if (buf_len(symbol_name) == 0) {
+        ir_add_error(ira, &name_inst->base,
+            buf_sprintf("extern symbol name cannot be empty"));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    Buf *library_name = nullptr;
+    if (library_name_val_inst) {
+        library_name = ir_resolve_str(ira, library_name_val_inst);
+        if (!library_name)
+            return ira->codegen->invalid_inst_gen;
+
+        if (buf_len(library_name) == 0) {
+            ir_add_error(ira, &library_name_inst->base,
+                buf_sprintf("library name name cannot be empty"));
+            return ira->codegen->invalid_inst_gen;
+        }
+
+        add_link_lib_symbol(ira, library_name, symbol_name, instruction->base.base.source_node);
+
+        buf_destroy(library_name);
+    }
+
+    GlobalLinkageId global_linkage_id;
+    if (!ir_resolve_global_linkage(ira, linkage_inst, &global_linkage_id))
+        return ira->codegen->invalid_inst_gen;
+
+    bool is_thread_local;
+    if (!ir_resolve_bool(ira, is_thread_local_inst, &is_thread_local))
+        return ira->codegen->invalid_inst_gen;
+
+    ZigType *expr_type = value_type;
+    if (global_linkage_id == GlobalLinkageIdWeak && value_type->id != ZigTypeIdOptional)
+        expr_type = get_optional_type(ira->codegen, expr_type);
+
+    // Create a bogus Tld object to keep track of the extern symbol.
+    // XXX: Find a better way to do this (in stage2).
+    TldFn *tld_fn = heap::c_allocator.create<TldFn>();
+    tld_fn->base.id = TldIdFn;
+    tld_fn->base.source_node = instruction->base.base.source_node;
+
+    auto entry = ira->codegen->external_symbol_names.put_unique(symbol_name, &tld_fn->base);
+    if (entry) {
+        AstNode *other_extern_node = entry->value->source_node;
+        ErrorMsg *msg = ir_add_error(ira, &instruction->base.base,
+                buf_sprintf("extern symbol collision: '%s'", buf_ptr(symbol_name)));
+        add_error_note(ira->codegen, msg, other_extern_node, buf_sprintf("other symbol is here"));
+        return ira->codegen->invalid_inst_gen;
+    }
+
+    return ir_build_extern_gen(ira, &instruction->base.base, symbol_name, global_linkage_id,
+            is_thread_local, expr_type);
 }
 
 static bool exec_has_err_ret_trace(CodeGen *g, IrExecutableSrc *exec) {
@@ -32110,6 +32293,8 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
             return ir_analyze_instruction_tag_type(ira, (IrInstSrcTagType *)instruction);
         case IrInstSrcIdExport:
             return ir_analyze_instruction_export(ira, (IrInstSrcExport *)instruction);
+        case IrInstSrcIdExtern:
+            return ir_analyze_instruction_extern(ira, (IrInstSrcExtern *)instruction);
         case IrInstSrcIdErrorReturnTrace:
             return ir_analyze_instruction_error_return_trace(ira, (IrInstSrcErrorReturnTrace *)instruction);
         case IrInstSrcIdErrorUnion:
@@ -32345,6 +32530,7 @@ bool ir_inst_gen_has_side_effects(IrInstGen *instruction) {
         case IrInstGenIdAwait:
         case IrInstGenIdSpillBegin:
         case IrInstGenIdWasmMemoryGrow:
+        case IrInstGenIdExtern:
             return true;
 
         case IrInstGenIdPhi:
@@ -32465,6 +32651,7 @@ bool ir_inst_src_has_side_effects(IrInstSrc *instruction) {
         case IrInstSrcIdPtrType:
         case IrInstSrcIdSetAlignStack:
         case IrInstSrcIdExport:
+        case IrInstSrcIdExtern:
         case IrInstSrcIdSaveErrRetAddr:
         case IrInstSrcIdAddImplicitReturnType:
         case IrInstSrcIdAtomicRmw:
