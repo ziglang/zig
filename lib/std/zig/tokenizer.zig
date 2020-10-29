@@ -78,6 +78,7 @@ pub const Token = struct {
     pub const Id = enum {
         Invalid,
         Invalid_ampersands,
+        Invalid_periodasterisks,
         Identifier,
         StringLiteral,
         MultilineStringLiteralLine,
@@ -201,6 +202,7 @@ pub const Token = struct {
             return switch (id) {
                 .Invalid => "Invalid",
                 .Invalid_ampersands => "&&",
+                .Invalid_periodasterisks => ".**",
                 .Identifier => "Identifier",
                 .StringLiteral => "StringLiteral",
                 .MultilineStringLiteralLine => "MultilineStringLiteralLine",
@@ -1002,13 +1004,13 @@ pub const Tokenizer = struct {
 
                 .period_asterisk => switch (c) {
                     '*' => {
-                        result.id = .Invalid;
+                        result.id = .Invalid_periodasterisks;
                         break;
                     },
                     else => {
                         result.id = .PeriodAsterisk;
                         break;
-                    }
+                    },
                 },
 
                 .slash => switch (c) {
@@ -1794,7 +1796,7 @@ test "correctly parse pointer dereference followed by asterisk" {
 
     testTokenize("\"b\".*** 10", &[_]Token.Id{
         .StringLiteral,
-        .Invalid,
+        .Invalid_periodasterisks,
         .AsteriskAsterisk,
         .IntegerLiteral,
     });

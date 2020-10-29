@@ -171,6 +171,7 @@ pub const Error = union(enum) {
     ExpectedBlockOrField: ExpectedBlockOrField,
     DeclBetweenFields: DeclBetweenFields,
     InvalidAnd: InvalidAnd,
+    AsteriskAfterPointerDereference: AsteriskAfterPointerDereference,
 
     pub fn render(self: *const Error, tokens: []const Token.Id, stream: anytype) !void {
         switch (self.*) {
@@ -222,6 +223,7 @@ pub const Error = union(enum) {
             .ExpectedBlockOrField => |*x| return x.render(tokens, stream),
             .DeclBetweenFields => |*x| return x.render(tokens, stream),
             .InvalidAnd => |*x| return x.render(tokens, stream),
+            .AsteriskAfterPointerDereference => |*x| return x.render(tokens, stream),
         }
     }
 
@@ -275,6 +277,7 @@ pub const Error = union(enum) {
             .ExpectedBlockOrField => |x| return x.token,
             .DeclBetweenFields => |x| return x.token,
             .InvalidAnd => |x| return x.token,
+            .AsteriskAfterPointerDereference => |x| return x.token,
         }
     }
 
@@ -323,6 +326,7 @@ pub const Error = union(enum) {
     pub const ExtraAllowZeroQualifier = SimpleError("Extra allowzero qualifier");
     pub const DeclBetweenFields = SimpleError("Declarations are not allowed between container fields");
     pub const InvalidAnd = SimpleError("`&&` is invalid. Note that `and` is boolean AND.");
+    pub const AsteriskAfterPointerDereference = SimpleError("`.*` can't be followed by `*`.  Are you missing a space?");
 
     pub const ExpectedCall = struct {
         node: *Node,

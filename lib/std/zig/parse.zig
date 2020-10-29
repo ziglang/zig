@@ -2701,6 +2701,13 @@ const Parser = struct {
             return &node.base;
         }
 
+        if (p.token_ids[p.tok_i] == .Invalid_periodasterisks) {
+            try p.errors.append(p.gpa, .{
+                .AsteriskAfterPointerDereference = .{ .token = p.tok_i },
+            });
+            return null;
+        }
+
         if (p.eatToken(.Period)) |period| {
             if (try p.parseIdentifier()) |identifier| {
                 const node = try p.arena.allocator.create(Node.SimpleInfixOp);
