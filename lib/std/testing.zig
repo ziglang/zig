@@ -53,7 +53,12 @@ pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) void {
         .Void,
         => return,
 
-        .Type,
+        .Type => {
+            if (actual != expected) {
+                std.debug.panic("expected type {}, found type {}", .{ @typeName(expected), @typeName(actual) });
+            }
+        },
+
         .Bool,
         .Int,
         .Float,
