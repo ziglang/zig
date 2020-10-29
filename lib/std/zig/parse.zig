@@ -2701,11 +2701,17 @@ const Parser = struct {
             return &node.base;
         }
 
-        if (p.token_ids[p.tok_i] == .Invalid_periodasterisks) {
+        if (p.eatToken(.Invalid_periodasterisks)) |period_asterisk| {
             try p.errors.append(p.gpa, .{
-                .AsteriskAfterPointerDereference = .{ .token = p.tok_i },
+                .AsteriskAfterPointerDereference = .{ .token = period_asterisk },
             });
-            return null;
+            const node = try p.arena.allocator.create(Node.SimpleSuffixOp);
+            node.* = .{
+                .base = .{ .tag = .Deref },
+                .lhs = lhs,
+                .rtoken = period_asterisk,
+            };
+            return &node.base;
         }
 
         if (p.eatToken(.Period)) |period| {

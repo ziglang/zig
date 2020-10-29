@@ -226,7 +226,14 @@ test "recovery: invalid asterisk after pointer dereference" {
         \\}
     , &[_]Error{
         .AsteriskAfterPointerDereference,
-        .ExpectedToken,
+    });
+    try testError(
+        \\test "" {
+        \\    var sequence = "repeat".** 10&&a;
+        \\}
+    , &[_]Error{
+        .AsteriskAfterPointerDereference,
+        .InvalidAnd,
     });
 }
 
