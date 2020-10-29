@@ -1141,4 +1141,3 @@ test "math.comptime" {
     comptime const v = sin(@as(f32, 1)) + ln(@as(f32, 5));
     testing.expect(v == sin(@as(f32, 1)) + ln(@as(f32, 5)));
 }
-

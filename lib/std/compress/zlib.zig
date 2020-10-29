@@ -144,6 +144,19 @@ test "compressed data" {
     );
 }
 
+test "don't read past deflate stream's end" {
+    try testReader(
+        &[_]u8{
+            0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0xc0, 0x00, 0xc1, 0xff,
+            0xff, 0x43, 0x30, 0x03, 0x03, 0xc3, 0xff, 0xff, 0xff, 0x01,
+            0x83, 0x95, 0x0b, 0xf5,
+        },
+        // SHA256 of
+        // 00ff 0000 00ff 0000 00ff 00ff ffff 00ff ffff 0000 0000 ffff ff
+        "3bbba1cc65408445c81abb61f3d2b86b1b60ee0d70b4c05b96d1499091a08c93",
+    );
+}
+
 test "sanity checks" {
     // Truncated header
     testing.expectError(
