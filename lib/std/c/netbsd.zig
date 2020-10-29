@@ -14,6 +14,8 @@ pub const _errno = __errno;
 pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*c_void) callconv(.C) c_int;
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_void) c_int;
 
+pub extern "c" fn _lwp_self() lwpid_t;
+
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 pub extern "c" fn __fstat50(fd: fd_t, buf: *Stat) c_int;
 pub extern "c" fn __stat50(path: [*:0]const u8, buf: *Stat) c_int;
