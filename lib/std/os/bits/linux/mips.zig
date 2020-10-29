@@ -383,6 +383,9 @@ pub const SYS = extern enum(usize) {
     statx = Linux + 366,
     rseq = Linux + 367,
     io_pgetevents = Linux + 368,
+    io_uring_setup = Linux + 425,
+    io_uring_enter = Linux + 426,
+    io_uring_register = Linux + 427,
     openat2 = Linux + 437,
     pidfd_getfd = Linux + 438,
 
