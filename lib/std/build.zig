@@ -1816,7 +1816,7 @@ pub const LibExeObjStep = struct {
             },
             else => {},
         }
-        out.print("pub const {z} = {};\n", .{ name, value }) catch unreachable;
+        out.print("pub const {z}: {} = {};\n", .{ name, @typeName(T), value }) catch unreachable;
     }
 
     /// The value is the path in the cache dir.
@@ -2749,6 +2749,34 @@ test "Builder.dupePkg()" {
     std.testing.expect(dupe.path.ptr != pkg_top.path.ptr);
     std.testing.expect(dupe_deps[0].name.ptr != pkg_dep.name.ptr);
     std.testing.expect(dupe_deps[0].path.ptr != pkg_dep.path.ptr);
+}
+
+test "LibExeObjStep.addBuildOption" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var builder = try Builder.create(
+        &arena.allocator,
+        "test",
+        "test",
+        "test",
+    );
+    defer builder.destroy();
+
+    var exe = builder.addExecutable("not_an_executable", "/not/an/executable.zig");
+    exe.addBuildOption(usize, "option1", 1);
+    exe.addBuildOption(?usize, "option2", null);
+    exe.addBuildOption([]const u8, "string", "zigisthebest");
+    exe.addBuildOption(?[]const u8, "optional_string", null);
+
+    std.testing.expectEqualStrings(
+        \\pub const option1: usize = 1;
+        \\pub const option2: ?usize = null;
+        \\pub const string: []const u8 = "zigisthebest";
+        \\pub const optional_string: ?[]const u8 = null;
+        \\
+    , exe.build_options_contents.items);
 }
 
 test "LibExeObjStep.addPackage" {
