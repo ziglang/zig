@@ -367,6 +367,36 @@ pub fn format(
     }
 }
 
+pub fn formatAddress(value: anytype, options: FormatOptions, writer: anytype) @TypeOf(writer).Error!void {
+    const T = @TypeOf(value);
+
+    switch (@typeInfo(T)) {
+        .Pointer => |info| {
+            try writer.writeAll(@typeName(info.child) ++ "@");
+            if (info.size == .Slice)
+                try formatInt(@ptrToInt(value.ptr), 16, false, FormatOptions{}, writer)
+            else
+                try formatInt(@ptrToInt(value), 16, false, FormatOptions{}, writer);
+            return;
+        },
+        .Optional => |info| {
+            if (@typeInfo(info.child) == .Pointer) {
+                try writer.writeAll(@typeName(info.child) ++ "@");
+                try formatInt(@ptrToInt(value), 16, false, FormatOptions{}, writer);
+                return;
+            }
+        },
+        .Array => |info| {
+            try writer.writeAll(@typeName(info.child) ++ "@");
+            try formatInt(@ptrToInt(value), 16, false, FormatOptions{}, writer);
+            return;
+        },
+        else => {},
+    }
+
+    @compileError("Cannot format non-pointer type " ++ @typeName(T) ++ " with * specifier");
+}
+
 pub fn formatType(
     value: anytype,
     comptime fmt: []const u8,
@@ -375,10 +405,7 @@ pub fn formatType(
     max_depth: usize,
 ) @TypeOf(writer).Error!void {
     if (comptime std.mem.eql(u8, fmt, "*")) {
-        try writer.writeAll(@typeName(std.meta.Child(@TypeOf(value))));
-        try writer.writeAll("@");
-        try formatInt(@ptrToInt(value), 16, false, FormatOptions{}, writer);
-        return;
+        return formatAddress(value, options, writer);
     }
 
     const T = @TypeOf(value);
@@ -499,25 +526,18 @@ pub fn formatType(
                 return format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) });
             },
             .Slice => {
-                if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
-                    return formatText(value, fmt, options, writer);
-                }
                 if (ptr_info.child == u8) {
                     return formatText(value, fmt, options, writer);
-                } else if (fmt.len > 0 and ((fmt[0] == 'v') or (fmt[0] == 'V'))) {
-                    try format(writer, "[", .{});
-                    var i: usize = 0;
-                    for (value) |one| {
-                        if (i == value.len - 1) {
-                            try format(writer, "{}", .{one});
-                        } else { 
-                            try format(writer, "{}, ", .{one});
-                        }
-                        i += 1;
-                    }
-                    return format(writer, "]", .{});
                 }
-                return format(writer, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value.ptr) });
+
+                try writer.writeAll("[");
+                for (value) |elem, i| {
+                    try formatType(elem, fmt, options, writer, max_depth);
+                    if (i != value.len - 1) {
+                        try writer.writeAll(", ");
+                    }
+                }
+                try writer.writeAll("]");
             },
         },
         .Array => |info| {
@@ -1553,7 +1573,7 @@ test "slice" {
     {
         var runtime_zero: usize = 0;
         const value = @intToPtr([*]align(1) const []const u8, 0xdeadbeef)[runtime_zero..runtime_zero];
-        try testFmt("slice: []const u8@deadbeef\n", "slice: {}\n", .{value});
+        try testFmt("slice: []const u8@deadbeef\n", "slice: {*}\n", .{value});
     }
     {
         const null_term_slice: [:0]const u8 = "\x00hello\x00";
@@ -1562,6 +1582,15 @@ test "slice" {
 
     try testFmt("buf:  Test\n", "buf: {s:5}\n", .{"Test"});
     try testFmt("buf: Test\n Other text", "buf: {s}\n Other text", .{"Test"});
+
+    {
+        var int_slice = [_]u32{ 1, 4096, 391891, 1111111111 };
+        var runtime_zero: usize = 0;
+        try testFmt("int: [1, 4096, 391891, 1111111111]", "int: {}", .{int_slice[runtime_zero..]});
+        try testFmt("int: [1, 4096, 391891, 1111111111]", "int: {d}", .{int_slice[runtime_zero..]});
+        try testFmt("int: [1, 1000, 5fad3, 423a35c7]", "int: {x}", .{int_slice[runtime_zero..]});
+        try testFmt("int: [00001, 01000, 5fad3, 423a35c7]", "int: {x:0>5}", .{int_slice[runtime_zero..]});
+    }
 }
 
 test "escape non-printable" {
