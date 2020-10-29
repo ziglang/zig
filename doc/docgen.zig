@@ -972,7 +972,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: anytype, source_token:
             .Tilde,
             => try writeEscaped(out, src[token.loc.start..token.loc.end]),
 
-            .Invalid, .Invalid_ampersands => return parseError(
+            .Invalid, .Invalid_ampersands, .Invalid_periodasterisks => return parseError(
                 docgen_tokenizer,
                 source_token,
                 "syntax error",
