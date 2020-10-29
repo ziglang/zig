@@ -403,6 +403,7 @@ pub const Tokenizer = struct {
         angle_bracket_angle_bracket_right,
         period,
         period_2,
+        period_asterisk,
         saw_at_sign,
     };
 
@@ -979,9 +980,7 @@ pub const Tokenizer = struct {
                         state = .period_2;
                     },
                     '*' => {
-                        result.id = .PeriodAsterisk;
-                        self.index += 1;
-                        break;
+                        state = .period_asterisk;
                     },
                     else => {
                         result.id = .Period;
@@ -999,6 +998,17 @@ pub const Tokenizer = struct {
                         result.id = .Ellipsis2;
                         break;
                     },
+                },
+
+                .period_asterisk => switch (c) {
+                    '*' => {
+                        result.id = .Invalid;
+                        break;
+                    },
+                    else => {
+                        result.id = .PeriodAsterisk;
+                        break;
+                    }
                 },
 
                 .slash => switch (c) {
@@ -1375,6 +1385,9 @@ pub const Tokenizer = struct {
                 },
                 .period_2 => {
                     result.id = .Ellipsis2;
+                },
+                .period_asterisk => {
+                    result.id = .PeriodAsterisk;
                 },
                 .pipe => {
                     result.id = .Pipe;
@@ -1759,6 +1772,31 @@ test "correctly parse pointer assignment" {
         .Equal,
         .IntegerLiteral,
         .Semicolon,
+    });
+}
+
+test "correctly parse pointer dereference followed by asterisk" {
+    testTokenize("\"b\".* ** 10", &[_]Token.Id{
+        .StringLiteral,
+        .PeriodAsterisk,
+        .AsteriskAsterisk,
+        .IntegerLiteral,
+    });
+
+    testTokenize("(\"b\".*)** 10", &[_]Token.Id{
+        .LParen,
+        .StringLiteral,
+        .PeriodAsterisk,
+        .RParen,
+        .AsteriskAsterisk,
+        .IntegerLiteral,
+    });
+
+    testTokenize("\"b\".*** 10", &[_]Token.Id{
+        .StringLiteral,
+        .Invalid,
+        .AsteriskAsterisk,
+        .IntegerLiteral,
     });
 }
 

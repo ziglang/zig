@@ -8195,4 +8195,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         "tmp.zig:4:9: error: expected type '*c_void', found '?*c_void'",
     });
+
+    cases.add("Issue #6823: don't allow .* to be followed by **",
+        \\fn foo() void {
+        \\    var sequence = "repeat".*** 10;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:30: error: `.*` can't be followed by `*`.  Are you missing a space?",
+    });
 }
