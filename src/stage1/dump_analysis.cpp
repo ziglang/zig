@@ -352,6 +352,7 @@ struct AnalDumpCtx {
 
     ZigList<ZigFn *> fn_list;
     HashMap<const ZigFn *, uint32_t, fn_ptr_hash, fn_ptr_eql> fn_map;
+    HashMap<const ZigFn *, uint32_t, fn_ptr_hash, fn_ptr_eql> fn_decl_map;
 
     ZigList<AstNode *> node_list;
     HashMap<const AstNode *, uint32_t, node_ptr_hash, node_ptr_eql> node_map;
@@ -491,6 +492,7 @@ static uint32_t anal_dump_get_decl_id(AnalDumpCtx *ctx, Tld *tld) {
 
                 if (fn != nullptr) {
                     (void)anal_dump_get_type_id(ctx, fn->type_entry);
+                    ctx->fn_decl_map.put_unique(fn, decl_id);
                 }
                 break;
             }
@@ -1050,6 +1052,31 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
             anal_dump_type_ref(ctx, ty->data.array.child_type);
             break;
         }
+        case ZigTypeIdVector: {
+            jw_object_field(jw, "len");
+            jw_int(jw, ty->data.vector.len);
+
+            jw_object_field(jw, "elem");
+            anal_dump_type_ref(ctx, ty->data.vector.elem_type);
+            break;
+        }
+        case ZigTypeIdAnyFrame: {
+            if (ty->data.any_frame.result_type != nullptr) {
+                jw_object_field(jw, "result");
+                anal_dump_type_ref(ctx, ty->data.any_frame.result_type);
+            }
+            break;
+        }
+        case ZigTypeIdFnFrame: {
+            jw_object_field(jw, "fnName");
+            jw_string(jw, buf_ptr(&ty->data.frame.fn->symbol_name));
+
+            jw_object_field(jw, "fn");
+            anal_dump_fn_ref(ctx, ty->data.frame.fn);
+            break;
+        }
+        case ZigTypeIdInvalid:
+            zig_unreachable();
         default:
             jw_object_field(jw, "name");
             jw_string(jw, buf_ptr(&ty->name));
@@ -1173,6 +1200,12 @@ static void anal_dump_fn(AnalDumpCtx *ctx, ZigFn *fn) {
     jw_object_field(jw, "type");
     anal_dump_type_ref(ctx, fn->type_entry);
 
+    auto entry = ctx->fn_decl_map.maybe_get(fn);
+    if (entry != nullptr) {
+      jw_object_field(jw, "decl");
+      jw_int(jw, entry->value);
+    }
+
     jw_end_object(jw);
 }
 
@@ -1187,6 +1220,7 @@ void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const 
     ctx.decl_map.init(16);
     ctx.node_map.init(16);
     ctx.fn_map.init(16);
+    ctx.fn_decl_map.init(16);
     ctx.err_map.init(16);
 
     jw_begin_object(jw);
