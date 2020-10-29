@@ -11,11 +11,7 @@ const mem = std.mem;
 const os = std.os;
 const fs = std.fs;
 
-test "" {
-    _ = @import("net/test.zig");
-}
-
-const has_unix_sockets = @hasDecl(os, "sockaddr_un");
+pub const has_unix_sockets = @hasDecl(os, "sockaddr_un");
 
 pub const Address = extern union {
     any: os.sockaddr,
@@ -610,7 +606,7 @@ pub fn connectUnixSocket(path: []const u8) !fs.File {
         os.SOCK_STREAM | os.SOCK_CLOEXEC | opt_non_block,
         0,
     );
-    errdefer os.close(sockfd);
+    errdefer os.closeSocket(sockfd);
 
     var addr = try std.net.Address.initUnix(path);
 
@@ -629,7 +625,7 @@ pub fn connectUnixSocket(path: []const u8) !fs.File {
 fn if_nametoindex(name: []const u8) !u32 {
     var ifr: os.ifreq = undefined;
     var sockfd = try os.socket(os.AF_UNIX, os.SOCK_DGRAM | os.SOCK_CLOEXEC, 0);
-    defer os.close(sockfd);
+    defer os.closeSocket(sockfd);
 
     std.mem.copy(u8, &ifr.ifrn.name, name);
     ifr.ifrn.name[name.len] = 0;
@@ -677,7 +673,7 @@ pub fn tcpConnectToAddress(address: Address) !fs.File {
     const sock_flags = os.SOCK_STREAM | nonblock |
         (if (builtin.os.tag == .windows) 0 else os.SOCK_CLOEXEC);
     const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO_TCP);
-    errdefer os.close(sockfd);
+    errdefer os.closeSocket(sockfd);
 
     if (std.io.is_async) {
         const loop = std.event.Loop.instance orelse return error.WouldBlock;
@@ -912,7 +908,7 @@ fn linuxLookupName(
         var prefixlen: i32 = 0;
         const sock_flags = os.SOCK_DGRAM | os.SOCK_CLOEXEC;
         if (os.socket(addr.addr.any.family, sock_flags, os.IPPROTO_UDP)) |fd| syscalls: {
-            defer os.close(fd);
+            defer os.closeSocket(fd);
             os.connect(fd, da, dalen) catch break :syscalls;
             key |= DAS_USABLE;
             os.getsockname(fd, sa, &salen) catch break :syscalls;
@@ -1392,7 +1388,7 @@ fn resMSendRc(
         },
         else => |e| return e,
     };
-    defer os.close(fd);
+    defer os.closeSocket(fd);
     try os.bind(fd, &sa.any, sl);
 
     // Past this point, there are no errors. Each individual query will
@@ -1546,16 +1542,14 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
             if (data.len != 4) return error.InvalidDnsARecord;
             const new_addr = try ctx.addrs.addOne();
             new_addr.* = LookupAddr{
-                // TODO slice [0..4] to make this *[4]u8 without @ptrCast
-                .addr = Address.initIp4(@ptrCast(*const [4]u8, data.ptr).*, ctx.port),
+                .addr = Address.initIp4(data[0..4].*, ctx.port),
             };
         },
         os.RR_AAAA => {
             if (data.len != 16) return error.InvalidDnsAAAARecord;
             const new_addr = try ctx.addrs.addOne();
             new_addr.* = LookupAddr{
-                // TODO slice [0..16] to make this *[16]u8 without @ptrCast
-                .addr = Address.initIp6(@ptrCast(*const [16]u8, data.ptr).*, ctx.port, 0, 0),
+                .addr = Address.initIp6(data[0..16].*, ctx.port, 0, 0),
             };
         },
         os.RR_CNAME => {
@@ -1579,7 +1573,7 @@ pub const StreamServer = struct {
     /// `undefined` until `listen` returns successfully.
     listen_address: Address,
 
-    sockfd: ?os.fd_t,
+    sockfd: ?os.socket_t,
 
     pub const Options = struct {
         /// How many connections the kernel will accept on the application's behalf.
@@ -1616,13 +1610,13 @@ pub const StreamServer = struct {
         const sockfd = try os.socket(address.any.family, sock_flags, proto);
         self.sockfd = sockfd;
         errdefer {
-            os.close(sockfd);
+            os.closeSocket(sockfd);
             self.sockfd = null;
         }
 
         if (self.reuse_address) {
             try os.setsockopt(
-                self.sockfd.?,
+                sockfd,
                 os.SOL_SOCKET,
                 os.SO_REUSEADDR,
                 &mem.toBytes(@as(c_int, 1)),
@@ -1640,7 +1634,7 @@ pub const StreamServer = struct {
     /// not listening.
     pub fn close(self: *StreamServer) void {
         if (self.sockfd) |fd| {
-            os.close(fd);
+            os.closeSocket(fd);
             self.sockfd = null;
             self.listen_address = undefined;
         }
@@ -1670,6 +1664,14 @@ pub const StreamServer = struct {
         /// Permission to create a socket of the specified type and/or
         /// protocol is denied.
         PermissionDenied,
+
+        FileDescriptorNotASocket,
+
+        ConnectionResetByPeer,
+
+        NetworkSubsystemFailed,
+
+        OperationNotSupported,
     } || os.UnexpectedError;
 
     pub const Connection = struct {
@@ -1701,3 +1703,7 @@ pub const StreamServer = struct {
         }
     }
 };
+
+test "" {
+    _ = @import("net/test.zig");
+}

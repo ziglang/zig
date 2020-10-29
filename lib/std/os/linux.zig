@@ -1003,14 +1003,14 @@ pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: [2]i32) usiz
     return syscall4(.socketpair, @intCast(usize, domain), @intCast(usize, socket_type), @intCast(usize, protocol), @ptrToInt(&fd[0]));
 }
 
-pub fn accept(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
+pub fn accept(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t) usize {
     if (builtin.arch == .i386) {
         return socketcall(SC_accept, &[4]usize{ fd, addr, len, 0 });
     }
     return accept4(fd, addr, len, 0);
 }
 
-pub fn accept4(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t, flags: u32) usize {
+pub fn accept4(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t, flags: u32) usize {
     if (builtin.arch == .i386) {
         return socketcall(SC_accept4, &[4]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len), flags });
     }
@@ -1279,7 +1279,7 @@ pub fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: ?*const rlimit,
         @bitCast(usize, @as(isize, pid)),
         @bitCast(usize, @as(isize, @enumToInt(resource))),
         @ptrToInt(new_limit),
-        @ptrToInt(old_limit)
+        @ptrToInt(old_limit),
     );
 }
 
