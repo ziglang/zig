@@ -31,8 +31,8 @@ cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX "-DCMAKE_INSTALL_PREFIX=$(pwd)/release" -DZIG_STATIC=ON
 make $JOBS install
 
-# Here we skip compile error tests to save time.
-release/bin/zig build test -Dskip-compile-errors
+# Here we skip some tests to save time.
+release/bin/zig build test -Dskip-compile-errors -Dskip-non-native
 
 if [ -f ~/.s3cfg ]; then
   mv ../LICENSE release/
