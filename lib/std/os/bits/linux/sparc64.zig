@@ -559,7 +559,7 @@ pub const kernel_stat = extern struct {
 };
 
 /// Renamed to Stat to not conflict with the stat function.
-pub const Stat = kernel_stat;
+pub const Stat = if (std.builtin.link_libc) libc_stat else kernel_stat;
 
 pub const timespec = extern struct {
     tv_sec: isize,
