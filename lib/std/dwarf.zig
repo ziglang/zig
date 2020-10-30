@@ -10,7 +10,7 @@ const fs = std.fs;
 const io = std.io;
 const mem = std.mem;
 const math = std.math;
-const leb = @import("debug/leb128.zig");
+const leb = @import("leb128.zig");
 
 const ArrayList = std.ArrayList;
 
