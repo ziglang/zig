@@ -1253,6 +1253,12 @@ fn analyzeInstSwitchBr(mod: *Module, scope: *Scope, inst: *zir.Inst.SwitchBr) In
         return mod.constNoReturn(scope, inst.base.src);
     }
 
+    if (inst.positionals.cases.len == 0) {
+        // no cases just analyze else_branch
+        try analyzeBody(mod, scope, inst.positionals.else_body);
+        return mod.constNoReturn(scope, inst.base.src);
+    }
+
     const parent_block = try mod.requireRuntimeBlock(scope, inst.base.src);
     const cases = try parent_block.arena.alloc(Inst.SwitchBr.Case, inst.positionals.cases.len);
 

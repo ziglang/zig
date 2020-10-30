@@ -565,7 +565,7 @@ pub const Value = extern union {
             .int_u64 => return BigIntMutable.init(&space.limbs, self.cast(Payload.Int_u64).?.int).toConst(),
             .int_i64 => return BigIntMutable.init(&space.limbs, self.cast(Payload.Int_i64).?.int).toConst(),
             .int_big_positive => return self.cast(Payload.IntBigPositive).?.asBigInt(),
-            .int_big_negative => return self.cast(Payload.IntBigPositive).?.asBigInt(),
+            .int_big_negative => return self.cast(Payload.IntBigNegative).?.asBigInt(),
         }
     }
 
@@ -1255,7 +1255,6 @@ pub const Value = extern union {
 
     pub fn hash(self: Value) u64 {
         var hasher = std.hash.Wyhash.init(0);
-        std.hash.autoHash(&hasher, self.tag());
 
         switch (self.tag()) {
             .u8_type,
@@ -1321,17 +1320,18 @@ pub const Value = extern union {
                 }
             },
 
-            .undef,
-            .zero,
-            .one,
-            .void_value,
-            .unreachable_value,
             .empty_struct_value,
             .empty_array,
-            .null_value,
-            .bool_true,
-            .bool_false,
             => {},
+
+            .undef,
+            .null_value,
+            .void_value,
+            .unreachable_value,
+            => std.hash.autoHash(&hasher, self.tag()),
+
+            .zero, .bool_false => std.hash.autoHash(&hasher, @as(u64, 0)),
+            .one, .bool_true => std.hash.autoHash(&hasher, @as(u64, 1)),
 
             .float_16, .float_32, .float_64, .float_128 => {},
             .enum_literal, .bytes => {
@@ -1357,9 +1357,18 @@ pub const Value = extern union {
             .int_big_positive, .int_big_negative => {
                 var space: BigIntSpace = undefined;
                 const big = self.toBigInt(&space);
-                std.hash.autoHash(&hasher, big.positive);
-                for (big.limbs) |limb| {
-                    std.hash.autoHash(&hasher, limb);
+                if (big.limbs.len == 1) {
+                    // handle like {u,i}64 to ensure same hash as with Int{i,u}64
+                    if (big.positive) {
+                        std.hash.autoHash(&hasher, @as(u64, big.limbs[0]));
+                    } else {
+                        std.hash.autoHash(&hasher, @as(u64, @bitCast(usize, -@bitCast(isize, big.limbs[0]))));
+                    }
+                } else {
+                    std.hash.autoHash(&hasher, big.positive);
+                    for (big.limbs) |limb| {
+                        std.hash.autoHash(&hasher, limb);
+                    }
                 }
             },
             .elem_ptr => {
@@ -1741,7 +1750,7 @@ pub const Value = extern union {
             .@"error",
             .empty_struct_value,
             .null_value,
-             => false,
+            => false,
 
             .undef => unreachable,
             .unreachable_value => unreachable,
@@ -1882,3 +1891,18 @@ pub const Value = extern union {
         limbs: [(@sizeOf(u64) / @sizeOf(std.math.big.Limb)) + 1]std.math.big.Limb,
     };
 };
+
+test "hash same value different representation" {
+    const zero_1 = Value.initTag(.zero);
+    var payload_1 = Value.Payload.Int_u64{ .int = 0 };
+    const zero_2 = Value.initPayload(&payload_1.base);
+    std.testing.expectEqual(zero_1.hash(), zero_2.hash());
+
+    var payload_2 = Value.Payload.Int_i64{ .int = 0 };
+    const zero_3 = Value.initPayload(&payload_2.base);
+    std.testing.expectEqual(zero_2.hash(), zero_3.hash());
+
+    var payload_3 = Value.Payload.IntBigNegative{ .limbs = &[_]std.math.big.Limb{0} };
+    const zero_4 = Value.initPayload(&payload_3.base);
+    std.testing.expectEqual(zero_3.hash(), zero_4.hash());
+}
