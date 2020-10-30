@@ -2701,6 +2701,19 @@ const Parser = struct {
             return &node.base;
         }
 
+        if (p.eatToken(.Invalid_periodasterisks)) |period_asterisk| {
+            try p.errors.append(p.gpa, .{
+                .AsteriskAfterPointerDereference = .{ .token = period_asterisk },
+            });
+            const node = try p.arena.allocator.create(Node.SimpleSuffixOp);
+            node.* = .{
+                .base = .{ .tag = .Deref },
+                .lhs = lhs,
+                .rtoken = period_asterisk,
+            };
+            return &node.base;
+        }
+
         if (p.eatToken(.Period)) |period| {
             if (try p.parseIdentifier()) |identifier| {
                 const node = try p.arena.allocator.create(Node.SimpleInfixOp);

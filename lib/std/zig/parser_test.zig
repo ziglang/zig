@@ -219,6 +219,24 @@ test "recovery: invalid global error set access" {
     });
 }
 
+test "recovery: invalid asterisk after pointer dereference" {
+    try testError(
+        \\test "" {
+        \\    var sequence = "repeat".*** 10;
+        \\}
+    , &[_]Error{
+        .AsteriskAfterPointerDereference,
+    });
+    try testError(
+        \\test "" {
+        \\    var sequence = "repeat".** 10&&a;
+        \\}
+    , &[_]Error{
+        .AsteriskAfterPointerDereference,
+        .InvalidAnd,
+    });
+}
+
 test "recovery: missing semicolon after if, for, while stmt" {
     try testError(
         \\test "" {
