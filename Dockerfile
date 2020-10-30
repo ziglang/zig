@@ -2,7 +2,7 @@ FROM debian:stable
 
 RUN mkdir -p /app \
     && apt-get -y update \
-    && apt-get install -y curl wget cmake build-essential \
+    && apt-get install -y curl wget cmake build-essential lsb-release software-properties-common \
     # install llvm, clang, ldd
     && wget https://apt.llvm.org/llvm.sh \
     && chmod +x llvm.sh \
