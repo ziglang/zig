@@ -4446,6 +4446,9 @@ pub const SchedGetAffinityError = error{
     NoThread,
 } || UnexpectedError;
 
+/// Retrieves the affinity mask of a thread.
+///
+/// A thread's CPU affinity mask determines the set of CPUs on which it is eligible to run.
 pub fn sched_getaffinity(pid: pid_t) SchedGetAffinityError!cpu_set_t {
     var set: cpu_set_t = undefined;
     switch (errno(system.sched_getaffinity(pid, @sizeOf(cpu_set_t), &set))) {
