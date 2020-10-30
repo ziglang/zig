@@ -166,6 +166,48 @@ test "multiline string" {
     expect(mem.eql(u8, s1, s2));
 }
 
+test "multiline string comments at start" {
+    const s1 =
+        //\\one
+        \\two)
+        \\three
+    ;
+    const s2 = "two)\nthree";
+    expect(mem.eql(u8, s1, s2));
+}
+
+test "multiline string comments at end" {
+    const s1 =
+        \\one
+        \\two)
+        //\\three
+    ;
+    const s2 = "one\ntwo)";
+    expect(mem.eql(u8, s1, s2));
+}
+
+test "multiline string comments in middle" {
+    const s1 =
+        \\one
+        //\\two)
+        \\three
+    ;
+    const s2 = "one\nthree";
+    expect(mem.eql(u8, s1, s2));
+}
+
+test "multiline string comments at multiple places" {
+    const s1 =
+        \\one
+        //\\two
+        \\three
+        //\\four
+        \\five
+    ;
+    const s2 = "one\nthree\nfive";
+    expect(mem.eql(u8, s1, s2));
+}
+
 test "multiline C string" {
     const s1 =
         \\one

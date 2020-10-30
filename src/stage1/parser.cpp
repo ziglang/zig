@@ -513,6 +513,8 @@ static Token *ast_parse_multiline_string_literal(ParseContext *pc, Buf *buf) {
         // if not, we have to revert back to before the doc comment
         if (peek_token(pc)->id != TokenIdMultilineStringLiteral) {
             pc->current_token = cur_token;
+        } else {
+            buf_append_char(buf, '\n'); // Add a newline between comments
         }
     }
     return first_str_token;
