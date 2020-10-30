@@ -8216,6 +8216,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var sequence = "repeat".*** 10;
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:30: error: `.*` can't be followed by `*`.  Are you missing a space?",
+        "tmp.zig:2:30: error: `.*` can't be followed by `*`. Are you missing a space?",
     });
 }
