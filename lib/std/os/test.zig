@@ -601,3 +601,7 @@ test "getrlimit and setrlimit" {
     const cpuLimit = try os.getrlimit(.CPU);
     try os.setrlimit(.CPU, cpuLimit);
 }
+
+test "os.sched_getaffinity" {
+    testing.expectError(error.NoThread, os.sched_getaffinity(std.math.maxInt(i32)));
+}
