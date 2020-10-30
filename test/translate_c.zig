@@ -3,6 +3,26 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("pointer to opaque demoted struct",
+        \\typedef struct {
+        \\    _Atomic int foo;
+        \\} Foo;
+        \\
+        \\typedef struct {
+        \\    Foo *bar;
+        \\} Bar;
+    , &[_][]const u8{
+        \\const struct_unnamed_1 = //
+    ,
+        \\warning: unsupported type: 'Atomic'
+        \\    opaque {}; //
+        ,
+        \\pub const Foo = struct_unnamed_1;
+        \\const struct_unnamed_2 = extern struct {
+        \\    bar: ?*Foo,
+        \\};
+    });
+
     cases.add("macro expressions respect C operator precedence",
         \\#define FOO *((foo) + 2)
         \\#define VALUE  (1 + 2 * 3 + 4 * 5 + 6 << 7 | 8 == 9)
