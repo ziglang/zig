@@ -5,7 +5,7 @@ const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const fs = std.fs;
-const leb = std.debug.leb;
+const leb = std.leb;
 const log = std.log.scoped(.link);
 
 const Module = @import("../Module.zig");

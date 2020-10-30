@@ -32,7 +32,7 @@ const Trie = @This();
 
 const std = @import("std");
 const mem = std.mem;
-const leb = std.debug.leb;
+const leb = std.leb;
 const log = std.log.scoped(.link);
 const testing = std.testing;
 const assert = std.debug.assert;
@@ -139,16 +139,18 @@ const Node = struct {
             // Terminal node info: encode export flags and vmaddr offset of this symbol.
             var info_buf_len: usize = 0;
             var info_buf: [@sizeOf(u64) * 2]u8 = undefined;
-            info_buf_len += try leb.writeULEB128Mem(info_buf[0..], self.export_flags.?);
-            info_buf_len += try leb.writeULEB128Mem(info_buf[info_buf_len..], offset);
+            var info_stream = std.io.fixedBufferStream(&info_buf);
+            try leb.writeULEB128(info_stream.writer(), self.export_flags.?);
+            try leb.writeULEB128(info_stream.writer(), offset);
 
             // Encode the size of the terminal node info.
             var size_buf: [@sizeOf(u64)]u8 = undefined;
-            const size_buf_len = try leb.writeULEB128Mem(size_buf[0..], info_buf_len);
+            var size_stream = std.io.fixedBufferStream(&size_buf);
+            try leb.writeULEB128(size_stream.writer(), info_stream.pos);
 
             // Now, write them to the output buffer.
-            buffer.appendSliceAssumeCapacity(size_buf[0..size_buf_len]);
-            buffer.appendSliceAssumeCapacity(info_buf[0..info_buf_len]);
+            buffer.appendSliceAssumeCapacity(size_buf[0..size_stream.pos]);
+            buffer.appendSliceAssumeCapacity(info_buf[0..info_stream.pos]);
         } else {
             // Non-terminal node is delimited by 0 byte.
             buffer.appendAssumeCapacity(0);
@@ -162,8 +164,9 @@ const Node = struct {
             buffer.appendAssumeCapacity(0);
 
             var buf: [@sizeOf(u64)]u8 = undefined;
-            const buf_len = try leb.writeULEB128Mem(buf[0..], edge.to.trie_offset.?);
-            buffer.appendSliceAssumeCapacity(buf[0..buf_len]);
+            var buf_stream = std.io.fixedBufferStream(&buf);
+            try leb.writeULEB128(buf_stream.writer(), edge.to.trie_offset.?);
+            buffer.appendSliceAssumeCapacity(buf[0..buf_stream.pos]);
         }
     }
 
