@@ -16,6 +16,8 @@ export DEBIAN_FRONTEND=noninteractive
 git config core.abbrev 9
 export CC=gcc-7
 export CXX=g++-7
+
+# from https://github.com/ziglang/zig/blob/master/README.md#Building-from-Source
 rm -rf /app/build \
 mkdir -p /app/build
 cd /app/build
