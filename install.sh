@@ -14,3 +14,4 @@ mkdir -p build
 cd /app/build
 cmake ..
 make install
+cd /app/
