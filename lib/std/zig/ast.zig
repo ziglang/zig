@@ -326,7 +326,7 @@ pub const Error = union(enum) {
     pub const ExtraAllowZeroQualifier = SimpleError("Extra allowzero qualifier");
     pub const DeclBetweenFields = SimpleError("Declarations are not allowed between container fields");
     pub const InvalidAnd = SimpleError("`&&` is invalid. Note that `and` is boolean AND.");
-    pub const AsteriskAfterPointerDereference = SimpleError("`.*` can't be followed by `*`.  Are you missing a space?");
+    pub const AsteriskAfterPointerDereference = SimpleError("`.*` can't be followed by `*`. Are you missing a space?");
 
     pub const ExpectedCall = struct {
         node: *Node,

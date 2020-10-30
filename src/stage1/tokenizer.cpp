@@ -594,7 +594,7 @@ void tokenize(Buf *buf, Tokenization *out) {
             case TokenizeStateSawDotStar:
                 switch (c) {
                     case '*':
-                        tokenize_error(&t, "`.*` can't be followed by `*`.  Are you missing a space?");
+                        tokenize_error(&t, "`.*` can't be followed by `*`. Are you missing a space?");
                         break;
                     default:
                         t.pos -= 1;
