@@ -7,6 +7,7 @@ WORKDIR /app
 
 RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y update \
+    && rm -rf /usr/local/* \
     && apt-get -y install software-properties-common curl wget gnupg gnupg1 gnupg2 git
 
 
@@ -18,7 +19,6 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && add-apt-repository -y ppa:ubuntu-toolchain-r/test \
     && apt-get -y update -q \
     && apt-get remove -y llvm-* \
-    && rm -rf /usr/local/* \
     && apt-get install -y libxml2-dev libclang-11-dev llvm-11 llvm-11-dev liblld-11-dev cmake s3cmd gcc-7 g++-7 ninja-build tidy
 
 RUN export DEBIAN_FRONTEND=noninteractive \
