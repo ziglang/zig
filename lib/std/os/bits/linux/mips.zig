@@ -425,8 +425,11 @@ pub const SYS = extern enum(usize) {
     fspick = Linux + 433,
     pidfd_open = Linux + 434,
     clone3 = Linux + 435,
+    close_range = Linux + 436,
     openat2 = Linux + 437,
     pidfd_getfd = Linux + 438,
+    faccessat2 = Linux + 439,
+    process_madvise = Linux + 440,
 
     _,
 };
