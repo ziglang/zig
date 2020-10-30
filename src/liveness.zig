@@ -189,7 +189,8 @@ fn analyzeInst(
                     for (case_tables) |*ct_inner, j| {
                         if (i == j) continue;
                         if (!ct_inner.contains(case_death)) {
-                            try case_deaths[i].append(case_death);
+                            // instruction is not referenced in this case
+                            try case_deaths[j].append(case_death);
                         }
                     }
                     // undo resetting the table
