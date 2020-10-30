@@ -132,8 +132,99 @@ fn failAllocatorAlloc(self: *Allocator, n: usize, alignment: u29, len_align: u29
 }
 
 test "mem.Allocator basics" {
-    testing.expectError(error.OutOfMemory, failAllocator.alloc(u8, 1));
-    testing.expectError(error.OutOfMemory, failAllocator.allocSentinel(u8, 1, 0));
+    const TestInstantiateAllocator = struct {
+        fn expectSlice(pointer: anytype, length: usize, slice: anytype) void {
+            testing.expectEqual(length, slice.len);
+            if (@sizeOf(@TypeOf(slice.ptr)) != 0 and length != 0) {
+                testing.expectEqual(pointer, slice.ptr);
+            }
+        }
+        fn checkAllocResult(comptime T: type, length: usize, result: anytype) !void {
+            if (@sizeOf(T) == 0) {
+                const value = try result;
+                if (@TypeOf(value) != *T) {
+                    testing.expectEqual(length, value.len);
+                }
+            } else {
+                testing.expectError(error.OutOfMemory, result);
+            }
+        }
+        pub fn runTest(comptime T: type, comptime sentinel: ?T) !void {
+            var array: [4]T = undefined;
+            const slicePtr = @as([*]T, &array);
+
+            // workaround #6951
+            var slice: []T = if (@sizeOf(T) == 0) blk: {
+                // workaround #6934 and #6936
+                var length: usize = 4;
+                break: blk @as([*]T, undefined)[0..length];
+            } else &array;
+            
+            
+            try checkAllocResult(T, 4, failAllocator.alloc(T, 4));
+            try checkAllocResult(T, 4, failAllocator.create(T));
+            try checkAllocResult(T, 4, failAllocator.dupe(T, slice));
+            if (@typeInfo(T) == .Int) {
+                // dupeZ assumes 0 is a valid sentinel, so only works for integer types.
+                // somebody braver than me can test u0.
+                try checkAllocResult(T, 4, failAllocator.dupeZ(T, slice));
+            }
+            if (sentinel) |s| {
+                try checkAllocResult(T, 1, failAllocator.allocSentinel(T, 1, s));
+            }
+
+            try checkAllocResult(T, 4, failAllocator.allocWithOptions(T, 4, null, sentinel));
+            try checkAllocResult(T, 4, failAllocator.allocWithOptions(T, 4, null, null));
+
+            expectSlice(slicePtr, 2, failAllocator.shrink(slice, 2));
+
+            try checkAllocResult(T, 6, failAllocator.realloc(slice, 6));
+            expectSlice(slicePtr, 2, try failAllocator.realloc(slice, 2));
+            expectSlice(slicePtr, 0, try failAllocator.realloc(slice, 0));
+
+            try checkAllocResult(T, 6, failAllocator.resize(slice, 6));
+            expectSlice(slicePtr, 2, try failAllocator.resize(slice, 2));
+            expectSlice(slicePtr, 0, try failAllocator.resize(slice, 0));
+
+            failAllocator.free(slice);
+            // workaround #6947
+            if (@sizeOf(T) == 0) {
+                failAllocator.destroy(@as(*T, undefined));
+            } else {
+                failAllocator.destroy(&slice[0]);
+            }
+
+            if (@sizeOf(T) != 0) {
+                // zero-sized types don't have alignment
+                const big_align = @alignOf(T) * 2;
+                const normal_align = @alignOf(T);
+                const small_align = comptime std.math.max(@alignOf(T) / 2, 1);
+
+                try checkAllocResult(T, 4, failAllocator.alignedAlloc(T, big_align, 4));
+                try checkAllocResult(T, 4, failAllocator.alignedAlloc(T, normal_align, 4));
+                try checkAllocResult(T, 4, failAllocator.alignedAlloc(T, small_align, 4));
+
+                try checkAllocResult(T, 4, failAllocator.allocWithOptions(T, 4, big_align, sentinel));
+                try checkAllocResult(T, 4, failAllocator.allocWithOptions(T, 4, big_align, null));
+                try checkAllocResult(T, 4, failAllocator.allocWithOptions(T, 4, normal_align, sentinel));
+                try checkAllocResult(T, 4, failAllocator.allocWithOptions(T, 4, normal_align, null));
+                try checkAllocResult(T, 4, failAllocator.allocWithOptions(T, 4, small_align, sentinel));
+                try checkAllocResult(T, 4, failAllocator.allocWithOptions(T, 4, small_align, null));
+
+                expectSlice(@as([*]align(small_align)T, slicePtr), 2, failAllocator.alignedShrink(slice, small_align, 2));
+                expectSlice(slicePtr, 2, failAllocator.alignedShrink(slice, @alignOf(T), 2));
+            }
+        }
+    };
+
+    // instantiate with byte type
+    try TestInstantiateAllocator.runTest(u8, 0);
+    // instantiate with larger type
+    try TestInstantiateAllocator.runTest(u32, 0);
+    // instantiate with empty type with 0 sentel (for dupeZ)
+    try TestInstantiateAllocator.runTest(u0, 0);
+    // instantiate with zero-sized type
+    try TestInstantiateAllocator.runTest(void, {});
 }
 
 /// Copy all of source into dest at position 0.

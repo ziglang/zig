@@ -434,12 +434,14 @@ pub fn formatType(
                     if (info.child == u8) {
                         return formatText(value, fmt, options, writer);
                     }
-                    return format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) });
+                    return if (@sizeOf(T) == 0) format(writer, "{}@void", .{ @typeName(@typeInfo(T).Pointer.child) })
+                        else format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) });
                 },
                 .Enum, .Union, .Struct => {
                     return formatType(value.*, fmt, options, writer, max_depth);
                 },
-                else => return format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) }),
+                else => return if (@sizeOf(T) == 0) format(writer, "{}@void", .{ @typeName(@typeInfo(T).Pointer.child) })
+                    else format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) }),
             },
             .Many, .C => {
                 if (ptr_info.sentinel) |sentinel| {
@@ -450,7 +452,8 @@ pub fn formatType(
                         return formatText(mem.span(value), fmt, options, writer);
                     }
                 }
-                return format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) });
+                return if (@sizeOf(T) == 0) format(writer, "{}@void", .{ @typeName(@typeInfo(T).Pointer.child) })
+                    else format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) });
             },
             .Slice => {
                 if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
@@ -459,7 +462,8 @@ pub fn formatType(
                 if (ptr_info.child == u8) {
                     return formatText(value, fmt, options, writer);
                 }
-                return format(writer, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value.ptr) });
+                return if (@sizeOf(ptr_info.child) == 0) format(writer, "[{}]{}@void", .{ value.len, @typeName(ptr_info.child) })
+                    else format(writer, "[{}]{}@{x}", .{ value.len, @typeName(ptr_info.child), @ptrToInt(value.ptr) });
             },
         },
         .Array => |info| {
@@ -1381,7 +1385,7 @@ test "slice" {
     {
         var runtime_zero: usize = 0;
         const value = @intToPtr([*]align(1) const []const u8, 0xdeadbeef)[runtime_zero..runtime_zero];
-        try testFmt("slice: []const u8@deadbeef\n", "slice: {}\n", .{value});
+        try testFmt("slice: [0][]const u8@deadbeef\n", "slice: {}\n", .{value});
     }
 
     try testFmt("buf:  Test\n", "buf: {s:5}\n", .{"Test"});
