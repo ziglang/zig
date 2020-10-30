@@ -14,7 +14,7 @@ const Target = std.Target;
 const Allocator = mem.Allocator;
 const trace = @import("tracy.zig").trace;
 const DW = std.dwarf;
-const leb128 = std.debug.leb;
+const leb128 = std.leb;
 const log = std.log.scoped(.codegen);
 
 /// The codegen-related data that is stored in `ir.Inst.Block` instructions.
