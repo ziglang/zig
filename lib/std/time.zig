@@ -242,14 +242,23 @@ pub const Timer = struct {
 
     fn nativeDurationToNanos(self: Timer, duration: u64) u64 {
         if (is_windows) {
-            return @divFloor(duration * ns_per_s, self.frequency);
+            return safeMulDiv(duration, ns_per_s, self.frequency);
         }
         if (comptime std.Target.current.isDarwin()) {
-            return @divFloor(duration * self.frequency.numer, self.frequency.denom);
+            return safeMulDiv(duration, self.frequency.numer, self.frequency.denom);
         }
         return duration;
     }
 };
+
+// Calculate (a * b) / c without risk of overflowing too early because of the
+// multiplication.
+fn safeMulDiv(a: u64, b: u64, c: u64) u64 {
+    const q = a / c;
+    const r = a % c;
+    // (a * b) / c == (a / c) * b + ((a % c) * b) / c
+    return (q * b) + (r * b) / c;
+}
 
 test "sleep" {
     sleep(1);
