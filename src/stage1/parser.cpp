@@ -493,6 +493,31 @@ static AstNode *ast_parse_root(ParseContext *pc) {
     return node;
 }
 
+static Token *ast_parse_multiline_string_literal(ParseContext *pc, Buf *buf) {
+    Token *first_str_token = nullptr;
+    Token *str_token = nullptr;
+    while ((str_token = eat_token_if(pc, TokenIdMultilineStringLiteral))) {
+        if (first_str_token == nullptr) {
+            first_str_token = str_token;
+        }
+        if (buf->list.length == 0) {
+            buf_resize(buf, 0);
+        }
+        buf_append_buf(buf, token_buf(str_token));
+
+        // Ignore inline comments
+        size_t cur_token = pc->current_token;
+        while (eat_token_if(pc, TokenIdDocComment));
+
+        // Lookahead to see if there's another multilne string literal,
+        // if not, we have to revert back to before the doc comment
+        if (peek_token(pc)->id != TokenIdMultilineStringLiteral) {
+            pc->current_token = cur_token;
+        }
+    }
+    return first_str_token;
+}
+
 static Token *ast_parse_doc_comments(ParseContext *pc, Buf *buf) {
     Token *first_doc_token = nullptr;
     Token *doc_token = nullptr;
@@ -605,7 +630,7 @@ static AstNodeContainerDecl ast_parse_container_members(ParseContext *pc) {
                 case ContainerFieldStateSeen:
                     break;
                 case ContainerFieldStateEnd:
-                    ast_error(pc, first_token, "declarations are not allowed between container fields");                    
+                    ast_error(pc, first_token, "declarations are not allowed between container fields");
             }
 
             assert(container_field->type == NodeTypeStructField);
@@ -1754,12 +1779,21 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
     if (unreachable != nullptr)
         return ast_create_node(pc, NodeTypeUnreachable, unreachable);
 
+
+    Buf *string_buf;
     Token *string_lit = eat_token_if(pc, TokenIdStringLiteral);
-    if (string_lit == nullptr)
-        string_lit = eat_token_if(pc, TokenIdMultilineStringLiteral);
+    if (string_lit != nullptr) {
+      string_buf = token_buf(string_lit);
+    } else {
+        Buf multiline_string_buf = BUF_INIT;
+        string_lit = ast_parse_multiline_string_literal(pc, &multiline_string_buf);
+        if (string_lit != nullptr) {
+            string_buf = buf_create_from_buf(&multiline_string_buf);
+        }
+    }
     if (string_lit != nullptr) {
         AstNode *res = ast_create_node(pc, NodeTypeStringLiteral, string_lit);
-        res->data.string_literal.buf = token_buf(string_lit);
+        res->data.string_literal.buf = string_buf;
         return res;
     }
 
