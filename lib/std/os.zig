@@ -4432,15 +4432,27 @@ pub fn clock_getres(clk_id: i32, res: *timespec) ClockGetTimeError!void {
     }
 }
 
-pub const SchedGetAffinityError = error{PermissionDenied} || UnexpectedError;
+pub const SchedGetAffinityError = error{
+    /// The calling thread does not have appropriate privileges.
+    PermissionDenied,
+
+    /// Memory address was invalid.
+    InvalidAddress,
+
+    /// The affinity bit mask mask contains no processors that are currently physically on the system and permitted to the process.
+    NoProcessors,
+
+    /// The thread whose ID is pid could not be found.
+    NoThread,
+} || UnexpectedError;
 
 pub fn sched_getaffinity(pid: pid_t) SchedGetAffinityError!cpu_set_t {
     var set: cpu_set_t = undefined;
     switch (errno(system.sched_getaffinity(pid, @sizeOf(cpu_set_t), &set))) {
         0 => return set,
-        EFAULT => unreachable,
-        EINVAL => unreachable,
-        ESRCH => unreachable,
+        EFAULT => return error.InvalidAddress,
+        EINVAL => return error.NoProcessors,
+        ESRCH => return error.NoThread,
         EPERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
