@@ -7,8 +7,7 @@ WORKDIR /app
 
 RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y update \
-    && apt-get -y install software-properties-common curl wget gnupg gnupg1 gnupg2 git \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get -y install software-properties-common curl wget gnupg gnupg1 gnupg2 git
 
 
 COPY . /app
@@ -32,8 +31,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && mkdir -p /app/build \
     && cd /app/build \
     && cmake .. -DCMAKE_BUILD_TYPE=Release -GNinja \
-    && ninja install \
-    && rm -rf /var/lib/apt/lists/*
+    && ninja install
 
 RUN export DEBIAN_FRONTEND=noninteractive \
     && cd /app \

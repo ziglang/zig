@@ -10,14 +10,14 @@ shopt -s nullglob globstar
 export DEBIAN_FRONTEND=noninteractive
 
 
+export DEBIAN_FRONTEND=noninteractive
+# Make the `zig version` number consistent.
+# This will affect the cmake command below.
 git config core.abbrev 9
 export CC=gcc-7
 export CXX=g++-7
-rm -rf /app/build
+rm -rf /app/build \
 mkdir -p /app/build
 cd /app/build
-cmake .. -DCMAKE_BUILD_TYPE=Release -GNinja
-ninja install
-rm -rf /var/lib/apt/lists/*
-cd /app
-./zig help
+cmake ..
+make install
