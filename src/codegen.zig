@@ -2033,8 +2033,17 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
         }
 
         fn genBoolOp(self: *Self, inst: *ir.Inst.BinOp) !MCValue {
+            if (inst.base.isUnused())
+                return MCValue.dead;
             switch (arch) {
-                else => return self.fail(inst.base.src, "TODO genBoolOp for {}", .{self.target.cpu.arch}),
+                .x86_64 => if (inst.base.tag == .booland) {
+                    // lhs AND rhs
+                    return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 4, 0x20);
+                } else {
+                    // lhs OR rhs
+                    return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 1, 0x08);
+                },
+                else => return self.fail(inst.base.src, "TODO implement sub for {}", .{self.target.cpu.arch}),
             }
         }
 

@@ -1733,32 +1733,28 @@ fn switchExpr(mod: *Module, scope: *Scope, rl: ResultLoc, switch_node: *ast.Node
             }
         }
 
-        const condbr = try addZIRInstSpecial(mod, &else_scope.base, case_src, zir.Inst.CondBr, .{
+        const condbr = try addZIRInstSpecial(mod, &case_scope.base, case_src, zir.Inst.CondBr, .{
             .condition = any_ok.?,
             .then_body = undefined, // populated below
             .else_body = undefined, // populated below
         }, .{});
+        const cond_block = try addZIRInstBlock(mod, &else_scope.base, case_src, .block, .{
+            .instructions = try scope.arena().dupe(*zir.Inst, case_scope.instructions.items),
+        });
 
+        // reset cond_scope for then_body
+        case_scope.instructions.items.len = 0;
         try switchCaseExpr(mod, &case_scope.base, case_rl, block, case);
         condbr.positionals.then_body = .{
             .instructions = try scope.arena().dupe(*zir.Inst, case_scope.instructions.items),
         };
 
-        // reset to add the empty block
-        case_scope.instructions.items.len = 0;
-        const empty_block = try addZIRInstBlock(mod, &case_scope.base, case_src, .block, .{
-            .instructions = undefined, // populated below
-        });
-        condbr.positionals.else_body = .{
-            .instructions = try scope.arena().dupe(*zir.Inst, case_scope.instructions.items),
-        };
-
-        // reset to add a break to the empty block
+        // reset cond_scope for else_body
         case_scope.instructions.items.len = 0;
         _ = try addZIRInst(mod, &case_scope.base, case_src, zir.Inst.BreakVoid, .{
-            .block = empty_block,
+            .block = cond_block,
         }, .{});
-        empty_block.positionals.body = .{
+        condbr.positionals.else_body = .{
             .instructions = try scope.arena().dupe(*zir.Inst, case_scope.instructions.items),
         };
     }
