@@ -1245,7 +1245,7 @@ test "bufPrintInt" {
     std.testing.expectEqualSlices(u8, "-42", bufPrintIntToSlice(buf, @as(i32, -42), 10, false, FormatOptions{ .width = 3 }));
 }
 
-fn bufPrintIntToSlice(buf: []u8, value: anytype, base: u8, uppercase: bool, options: FormatOptions) []u8 {
+pub fn bufPrintIntToSlice(buf: []u8, value: anytype, base: u8, uppercase: bool, options: FormatOptions) []u8 {
     return buf[0..formatIntBuf(buf, value, base, uppercase, options)];
 }
 
@@ -1697,38 +1697,8 @@ fn testFmt(expected: []const u8, comptime template: []const u8, args: anytype) !
     return error.TestFailed;
 }
 
-pub fn trim(buf: []const u8) []const u8 {
-    var start: usize = 0;
-    while (start < buf.len and isWhiteSpace(buf[start])) : (start += 1) {}
-
-    var end: usize = buf.len;
-    while (true) {
-        if (end > start) {
-            const new_end = end - 1;
-            if (isWhiteSpace(buf[new_end])) {
-                end = new_end;
-                continue;
-            }
-        }
-        break;
-    }
-    return buf[start..end];
-}
-
-test "trim" {
-    std.testing.expect(mem.eql(u8, "abc", trim("\n  abc  \t")));
-    std.testing.expect(mem.eql(u8, "", trim("   ")));
-    std.testing.expect(mem.eql(u8, "", trim("")));
-    std.testing.expect(mem.eql(u8, "abc", trim(" abc")));
-    std.testing.expect(mem.eql(u8, "abc", trim("abc ")));
-}
-
-pub fn isWhiteSpace(byte: u8) bool {
-    return switch (byte) {
-        ' ', '\t', '\n', '\r' => true,
-        else => false,
-    };
-}
+pub const trim = @compileError("deprecated; use std.mem.trim instead");
+pub const isWhiteSpace = @compileError("deprecated; use std.mem.isWhiteSpace instead");
 
 pub fn hexToBytes(out: []u8, input: []const u8) !void {
     if (out.len * 2 < input.len)
