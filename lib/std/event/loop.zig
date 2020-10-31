@@ -1273,6 +1273,7 @@ pub const Loop = struct {
     }
 
     pub fn recvfrom(
+        self: *Loop,
         sockfd: os.fd_t,
         buf: []u8,
         flags: u32,
