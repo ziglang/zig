@@ -144,6 +144,92 @@ fn analyzeInst(
             // instruction, and the deaths flag for the CondBr instruction will indicate whether the
             // condition's lifetime ends immediately before entering any branch.
         },
+        .switchbr => {
+            const inst = base.castTag(.switchbr).?;
+
+            const Table = std.AutoHashMap(*ir.Inst, void);
+            const case_tables = try table.allocator.alloc(Table, inst.cases.len + 1); // +1 for else
+            defer table.allocator.free(case_tables);
+
+            std.mem.set(Table, case_tables, Table.init(table.allocator));
+            defer for (case_tables) |*ct| ct.deinit();
+
+            for (inst.cases) |case, i| {
+                try analyzeWithTable(arena, table, &case_tables[i], case.body);
+
+                // Reset the table back to its state from before the case.
+                var it = case_tables[i].iterator();
+                while (it.next()) |entry| {
+                    table.removeAssertDiscard(entry.key);
+                }
+            }
+            { // else
+                try analyzeWithTable(arena, table, &case_tables[case_tables.len - 1], inst.else_body);
+
+                // Reset the table back to its state from before the case.
+                var it = case_tables[case_tables.len - 1].iterator();
+                while (it.next()) |entry| {
+                    table.removeAssertDiscard(entry.key);
+                }
+            }
+
+            const List = std.ArrayList(*ir.Inst);
+            const case_deaths = try table.allocator.alloc(List, case_tables.len); // +1 for else
+            defer table.allocator.free(case_deaths);
+
+            std.mem.set(List, case_deaths, List.init(table.allocator));
+            defer for (case_deaths) |*cd| cd.deinit();
+
+            var total_deaths: u32 = 0;
+            for (case_tables) |*ct, i| {
+                total_deaths += ct.count();
+                var it = ct.iterator();
+                while (it.next()) |entry| {
+                    const case_death = entry.key;
+                    for (case_tables) |*ct_inner, j| {
+                        if (i == j) continue;
+                        if (!ct_inner.contains(case_death)) {
+                            // instruction is not referenced in this case
+                            try case_deaths[j].append(case_death);
+                        }
+                    }
+                    // undo resetting the table
+                    _ = try table.put(case_death, {});
+                }
+            }
+
+            // Now we have to correctly populate new_set.
+            if (new_set) |ns| {
+                try ns.ensureCapacity(@intCast(u32, ns.count() + total_deaths));
+                for (case_tables) |*ct| {
+                    var it = ct.iterator();
+                    while (it.next()) |entry| {
+                        _ = ns.putAssumeCapacity(entry.key, {});
+                    }
+                }
+            }
+
+            total_deaths = 0;
+            for (case_deaths[0 .. case_deaths.len - 1]) |*ct, i| {
+                inst.cases[i].index = total_deaths;
+                const len = std.math.cast(@TypeOf(inst.else_deaths), ct.items.len) catch return error.OutOfMemory;
+                inst.cases[i].deaths = len;
+                total_deaths += len;
+            }
+            { // else
+                const else_deaths = std.math.cast(@TypeOf(inst.else_deaths), case_deaths[case_deaths.len - 1].items.len) catch return error.OutOfMemory;
+                inst.else_index = total_deaths;
+                inst.else_deaths = else_deaths;
+                total_deaths += else_deaths;
+            }
+
+            const allocated_slice = try arena.alloc(*ir.Inst, total_deaths);
+            inst.deaths = allocated_slice.ptr;
+            for (case_deaths[0 .. case_deaths.len - 1]) |*cd, i| {
+                std.mem.copy(*ir.Inst, inst.caseDeaths(i), cd.items);
+            }
+            std.mem.copy(*ir.Inst, inst.elseDeaths(), case_deaths[case_deaths.len - 1].items);
+        },
         else => {},
     }
 

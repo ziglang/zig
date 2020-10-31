@@ -2421,6 +2421,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
     var stdin_flag: bool = false;
     var check_flag: bool = false;
     var input_files = ArrayList([]const u8).init(gpa);
+    defer input_files.deinit();
 
     {
         var i: usize = 0;

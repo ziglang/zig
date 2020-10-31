@@ -758,6 +758,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .br => return self.genBr(inst.castTag(.br).?),
                 .breakpoint => return self.genBreakpoint(inst.src),
                 .brvoid => return self.genBrVoid(inst.castTag(.brvoid).?),
+                .booland => return self.genBoolOp(inst.castTag(.booland).?),
+                .boolor => return self.genBoolOp(inst.castTag(.boolor).?),
                 .call => return self.genCall(inst.castTag(.call).?),
                 .cmp_lt => return self.genCmp(inst.castTag(.cmp_lt).?, .lt),
                 .cmp_lte => return self.genCmp(inst.castTag(.cmp_lte).?, .lte),
@@ -782,6 +784,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .retvoid => return self.genRetVoid(inst.castTag(.retvoid).?),
                 .store => return self.genStore(inst.castTag(.store).?),
                 .sub => return self.genSub(inst.castTag(.sub).?),
+                .switchbr => return self.genSwitch(inst.castTag(.switchbr).?),
                 .unreach => return MCValue{ .unreach = {} },
                 .unwrap_optional => return self.genUnwrapOptional(inst.castTag(.unwrap_optional).?),
                 .wrap_optional => return self.genWrapOptional(inst.castTag(.wrap_optional).?),
@@ -1989,6 +1992,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             return @bitCast(MCValue, inst.codegen.mcv);
         }
 
+        fn genSwitch(self: *Self, inst: *ir.Inst.SwitchBr) !MCValue {
+            switch (arch) {
+                else => return self.fail(inst.base.src, "TODO genSwitch for {}", .{self.target.cpu.arch}),
+            }
+        }
+
         fn performReloc(self: *Self, src: usize, reloc: Reloc) !void {
             switch (reloc) {
                 .rel32 => |pos| {
@@ -2021,6 +2030,21 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
 
         fn genBrVoid(self: *Self, inst: *ir.Inst.BrVoid) !MCValue {
             return self.brVoid(inst.base.src, inst.block);
+        }
+
+        fn genBoolOp(self: *Self, inst: *ir.Inst.BinOp) !MCValue {
+            if (inst.base.isUnused())
+                return MCValue.dead;
+            switch (arch) {
+                .x86_64 => if (inst.base.tag == .booland) {
+                    // lhs AND rhs
+                    return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 4, 0x20);
+                } else {
+                    // lhs OR rhs
+                    return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 1, 0x08);
+                },
+                else => return self.fail(inst.base.src, "TODO implement sub for {}", .{self.target.cpu.arch}),
+            }
         }
 
         fn brVoid(self: *Self, src: usize, block: *ir.Inst.Block) !MCValue {

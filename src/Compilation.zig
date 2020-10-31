@@ -660,6 +660,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                         .source = .{ .unloaded = {} },
                         .contents = .{ .not_available = {} },
                         .status = .never_loaded,
+                        .pkg = root_pkg,
                         .root_container = .{
                             .file_scope = root_scope,
                             .decls = .{},

@@ -74,6 +74,8 @@ pub const Inst = struct {
         isnonnull,
         isnull,
         iserr,
+        booland,
+        boolor,
         /// Read a value from a pointer.
         load,
         loop,
@@ -91,6 +93,7 @@ pub const Inst = struct {
         intcast,
         unwrap_optional,
         wrap_optional,
+        switchbr,
 
         pub fn Type(tag: Tag) type {
             return switch (tag) {
@@ -125,6 +128,8 @@ pub const Inst = struct {
                 .cmp_gt,
                 .cmp_neq,
                 .store,
+                .booland,
+                .boolor,
                 => BinOp,
 
                 .arg => Arg,
@@ -137,6 +142,7 @@ pub const Inst = struct {
                 .constant => Constant,
                 .loop => Loop,
                 .varptr => VarPtr,
+                .switchbr => SwitchBr,
             };
         }
 
@@ -456,6 +462,47 @@ pub const Inst = struct {
         }
         pub fn getOperand(self: *const VarPtr, index: usize) ?*Inst {
             return null;
+        }
+    };
+
+    pub const SwitchBr = struct {
+        pub const base_tag = Tag.switchbr;
+
+        base: Inst,
+        target_ptr: *Inst,
+        cases: []Case,
+        /// Set of instructions whose lifetimes end at the start of one of the cases.
+        /// In same order as cases, deaths[0..case_0_count, case_0_count .. case_1_count, ... ].
+        deaths: [*]*Inst = undefined,
+        else_index: u32 = 0,
+        else_deaths: u32 = 0,
+        else_body: Body,
+
+        pub const Case = struct {
+            item: Value,
+            body: Body,
+            index: u32 = 0,
+            deaths: u32 = 0,
+        };
+
+        pub fn operandCount(self: *const SwitchBr) usize {
+            return 1;
+        }
+        pub fn getOperand(self: *const SwitchBr, index: usize) ?*Inst {
+            var i = index;
+
+            if (i < 1)
+                return self.target_ptr;
+            i -= 1;
+
+            return null;
+        }
+        pub fn caseDeaths(self: *const SwitchBr, case_index: usize) []*Inst {
+            const case = self.cases[case_index];
+            return (self.deaths + case.index)[0..case.deaths];
+        }
+        pub fn elseDeaths(self: *const SwitchBr) []*Inst {
+            return (self.deaths + self.else_index)[0..self.else_deaths];
         }
     };
 };

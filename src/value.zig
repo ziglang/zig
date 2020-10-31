@@ -565,7 +565,7 @@ pub const Value = extern union {
             .int_u64 => return BigIntMutable.init(&space.limbs, self.cast(Payload.Int_u64).?.int).toConst(),
             .int_i64 => return BigIntMutable.init(&space.limbs, self.cast(Payload.Int_i64).?.int).toConst(),
             .int_big_positive => return self.cast(Payload.IntBigPositive).?.asBigInt(),
-            .int_big_negative => return self.cast(Payload.IntBigPositive).?.asBigInt(),
+            .int_big_negative => return self.cast(Payload.IntBigNegative).?.asBigInt(),
         }
     }
 
@@ -1233,13 +1233,168 @@ pub const Value = extern union {
     }
 
     pub fn eql(a: Value, b: Value) bool {
-        if (a.tag() == b.tag() and a.tag() == .enum_literal) {
-            const a_name = @fieldParentPtr(Payload.Bytes, "base", a.ptr_otherwise).data;
-            const b_name = @fieldParentPtr(Payload.Bytes, "base", b.ptr_otherwise).data;
-            return std.mem.eql(u8, a_name, b_name);
+        if (a.tag() == b.tag()) {
+            if (a.tag() == .void_value or a.tag() == .null_value) {
+                return true;
+            } else if (a.tag() == .enum_literal) {
+                const a_name = @fieldParentPtr(Payload.Bytes, "base", a.ptr_otherwise).data;
+                const b_name = @fieldParentPtr(Payload.Bytes, "base", b.ptr_otherwise).data;
+                return std.mem.eql(u8, a_name, b_name);
+            }
         }
-        // TODO non numerical comparisons
+        if (a.isType() and b.isType()) {
+            // 128 bytes should be enough to hold both types
+            var buf: [128]u8 = undefined;
+            var fib = std.heap.FixedBufferAllocator.init(&buf);
+            const a_type = a.toType(&fib.allocator) catch unreachable;
+            const b_type = b.toType(&fib.allocator) catch unreachable;
+            return a_type.eql(b_type);
+        }
         return compare(a, .eq, b);
+    }
+
+    pub fn hash(self: Value) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+
+        switch (self.tag()) {
+            .u8_type,
+            .i8_type,
+            .u16_type,
+            .i16_type,
+            .u32_type,
+            .i32_type,
+            .u64_type,
+            .i64_type,
+            .usize_type,
+            .isize_type,
+            .c_short_type,
+            .c_ushort_type,
+            .c_int_type,
+            .c_uint_type,
+            .c_long_type,
+            .c_ulong_type,
+            .c_longlong_type,
+            .c_ulonglong_type,
+            .c_longdouble_type,
+            .f16_type,
+            .f32_type,
+            .f64_type,
+            .f128_type,
+            .c_void_type,
+            .bool_type,
+            .void_type,
+            .type_type,
+            .anyerror_type,
+            .comptime_int_type,
+            .comptime_float_type,
+            .noreturn_type,
+            .null_type,
+            .undefined_type,
+            .fn_noreturn_no_args_type,
+            .fn_void_no_args_type,
+            .fn_naked_noreturn_no_args_type,
+            .fn_ccc_void_no_args_type,
+            .single_const_pointer_to_comptime_int_type,
+            .const_slice_u8_type,
+            .enum_literal_type,
+            .anyframe_type,
+            .ty,
+            => {
+                // Directly return Type.hash, toType can only fail for .int_type and .error_set.
+                var allocator = std.heap.FixedBufferAllocator.init(&[_]u8{});
+                return (self.toType(&allocator.allocator) catch unreachable).hash();
+            },
+            .error_set => {
+                // Payload.decl should be same for all instances of the type.
+                const payload = @fieldParentPtr(Payload.ErrorSet, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.decl);
+            },
+            .int_type => {
+                const payload = self.cast(Payload.IntType).?;
+                if (payload.signed) {
+                    var new = Type.Payload.IntSigned{ .bits = payload.bits };
+                    return Type.initPayload(&new.base).hash();
+                } else {
+                    var new = Type.Payload.IntUnsigned{ .bits = payload.bits };
+                    return Type.initPayload(&new.base).hash();
+                }
+            },
+
+            .empty_struct_value,
+            .empty_array,
+            => {},
+
+            .undef,
+            .null_value,
+            .void_value,
+            .unreachable_value,
+            => std.hash.autoHash(&hasher, self.tag()),
+
+            .zero, .bool_false => std.hash.autoHash(&hasher, @as(u64, 0)),
+            .one, .bool_true => std.hash.autoHash(&hasher, @as(u64, 1)),
+
+            .float_16, .float_32, .float_64, .float_128 => {},
+            .enum_literal, .bytes => {
+                const payload = @fieldParentPtr(Payload.Bytes, "base", self.ptr_otherwise);
+                hasher.update(payload.data);
+            },
+            .int_u64 => {
+                const payload = @fieldParentPtr(Payload.Int_u64, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.int);
+            },
+            .int_i64 => {
+                const payload = @fieldParentPtr(Payload.Int_i64, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.int);
+            },
+            .repeated => {
+                const payload = @fieldParentPtr(Payload.Repeated, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.val.hash());
+            },
+            .ref_val => {
+                const payload = @fieldParentPtr(Payload.RefVal, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.val.hash());
+            },
+            .int_big_positive, .int_big_negative => {
+                var space: BigIntSpace = undefined;
+                const big = self.toBigInt(&space);
+                if (big.limbs.len == 1) {
+                    // handle like {u,i}64 to ensure same hash as with Int{i,u}64
+                    if (big.positive) {
+                        std.hash.autoHash(&hasher, @as(u64, big.limbs[0]));
+                    } else {
+                        std.hash.autoHash(&hasher, @as(u64, @bitCast(usize, -@bitCast(isize, big.limbs[0]))));
+                    }
+                } else {
+                    std.hash.autoHash(&hasher, big.positive);
+                    for (big.limbs) |limb| {
+                        std.hash.autoHash(&hasher, limb);
+                    }
+                }
+            },
+            .elem_ptr => {
+                const payload = @fieldParentPtr(Payload.ElemPtr, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.array_ptr.hash());
+                std.hash.autoHash(&hasher, payload.index);
+            },
+            .decl_ref => {
+                const payload = @fieldParentPtr(Payload.DeclRef, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.decl);
+            },
+            .function => {
+                const payload = @fieldParentPtr(Payload.Function, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.func);
+            },
+            .variable => {
+                const payload = @fieldParentPtr(Payload.Variable, "base", self.ptr_otherwise);
+                std.hash.autoHash(&hasher, payload.variable);
+            },
+            .@"error" => {
+                const payload = @fieldParentPtr(Payload.Error, "base", self.ptr_otherwise);
+                hasher.update(payload.name);
+                std.hash.autoHash(&hasher, payload.value);
+            },
+        }
+        return hasher.final();
     }
 
     /// Asserts the value is a pointer and dereferences it.
@@ -1521,6 +1676,87 @@ pub const Value = extern union {
         };
     }
 
+    /// Valid for all types. Asserts the value is not undefined.
+    pub fn isType(self: Value) bool {
+        return switch (self.tag()) {
+            .ty,
+            .int_type,
+            .u8_type,
+            .i8_type,
+            .u16_type,
+            .i16_type,
+            .u32_type,
+            .i32_type,
+            .u64_type,
+            .i64_type,
+            .usize_type,
+            .isize_type,
+            .c_short_type,
+            .c_ushort_type,
+            .c_int_type,
+            .c_uint_type,
+            .c_long_type,
+            .c_ulong_type,
+            .c_longlong_type,
+            .c_ulonglong_type,
+            .c_longdouble_type,
+            .f16_type,
+            .f32_type,
+            .f64_type,
+            .f128_type,
+            .c_void_type,
+            .bool_type,
+            .void_type,
+            .type_type,
+            .anyerror_type,
+            .comptime_int_type,
+            .comptime_float_type,
+            .noreturn_type,
+            .null_type,
+            .undefined_type,
+            .fn_noreturn_no_args_type,
+            .fn_void_no_args_type,
+            .fn_naked_noreturn_no_args_type,
+            .fn_ccc_void_no_args_type,
+            .single_const_pointer_to_comptime_int_type,
+            .const_slice_u8_type,
+            .enum_literal_type,
+            .anyframe_type,
+            .error_set,
+            => true,
+
+            .zero,
+            .one,
+            .empty_array,
+            .bool_true,
+            .bool_false,
+            .function,
+            .variable,
+            .int_u64,
+            .int_i64,
+            .int_big_positive,
+            .int_big_negative,
+            .ref_val,
+            .decl_ref,
+            .elem_ptr,
+            .bytes,
+            .repeated,
+            .float_16,
+            .float_32,
+            .float_64,
+            .float_128,
+            .void_value,
+            .enum_literal,
+            .@"error",
+            .empty_struct_value,
+            .null_value,
+            => false,
+
+            .undef => unreachable,
+            .unreachable_value => unreachable,
+        };
+    }
+
     /// This type is not copyable since it may contain pointers to its inner data.
     pub const Payload = struct {
         tag: Tag,
@@ -1655,3 +1891,18 @@ pub const Value = extern union {
         limbs: [(@sizeOf(u64) / @sizeOf(std.math.big.Limb)) + 1]std.math.big.Limb,
     };
 };
+
+test "hash same value different representation" {
+    const zero_1 = Value.initTag(.zero);
+    var payload_1 = Value.Payload.Int_u64{ .int = 0 };
+    const zero_2 = Value.initPayload(&payload_1.base);
+    std.testing.expectEqual(zero_1.hash(), zero_2.hash());
+
+    var payload_2 = Value.Payload.Int_i64{ .int = 0 };
+    const zero_3 = Value.initPayload(&payload_2.base);
+    std.testing.expectEqual(zero_2.hash(), zero_3.hash());
+
+    var payload_3 = Value.Payload.IntBigNegative{ .limbs = &[_]std.math.big.Limb{0} };
+    const zero_4 = Value.initPayload(&payload_3.base);
+    std.testing.expectEqual(zero_3.hash(), zero_4.hash());
+}

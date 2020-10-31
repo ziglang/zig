@@ -974,6 +974,43 @@ pub fn addCases(ctx: *TestContext) !void {
         ,
             "hello\nhello\nhello\nhello\nhello\n",
         );
+
+        // comptime switch
+
+        // Basic for loop
+        case.addCompareOutput(
+            \\pub export fn _start() noreturn {
+            \\    assert(foo() == 1);
+            \\    exit();
+            \\}
+            \\
+            \\fn foo() u32 {
+            \\    const a: comptime_int = 1;
+            \\    var b: u32 = 0;
+            \\    switch (a) {
+            \\        1 => b = 1,
+            \\        2 => b = 2,
+            \\        else => unreachable,
+            \\    }
+            \\    return b;
+            \\}
+            \\
+            \\pub fn assert(ok: bool) void {
+            \\    if (!ok) unreachable; // assertion failure
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            "",
+        );
     }
 
     {
