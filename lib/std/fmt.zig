@@ -1059,6 +1059,16 @@ pub const ParseIntError = error{
     InvalidCharacter,
 };
 
+/// Parses the string `buf` as signed or unsigned representation in the
+/// specified radix of an integral value of type `T`.
+///
+/// When `radix` is zero the string prefix is examined to detect the true radix:
+///  * A prefix of "0b" implies radix=2,
+///  * A prefix of "0o" implies radix=8,
+///  * A prefix of "0x" implies radix=16,
+///  * Otherwise radix=10 is assumed.
+///
+/// See also `parseUnsigned`.
 pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) ParseIntError!T {
     if (buf.len == 0) return error.InvalidCharacter;
     if (buf[0] == '+') return parseWithSign(T, buf[1..], radix, .Pos);
@@ -1091,6 +1101,20 @@ test "parseInt" {
     std.testing.expectError(error.InvalidCharacter, parseInt(i32, "+", 10));
     std.testing.expectError(error.InvalidCharacter, parseInt(u32, "-", 10));
     std.testing.expectError(error.InvalidCharacter, parseInt(i32, "-", 10));
+
+    // autodectect the radix
+    std.testing.expect((try parseInt(i32, "111", 0)) == 111);
+    std.testing.expect((try parseInt(i32, "+0b111", 0)) == 7);
+    std.testing.expect((try parseInt(i32, "+0o111", 0)) == 73);
+    std.testing.expect((try parseInt(i32, "+0x111", 0)) == 273);
+    std.testing.expect((try parseInt(i32, "-0b111", 0)) == -7);
+    std.testing.expect((try parseInt(i32, "-0o111", 0)) == -73);
+    std.testing.expect((try parseInt(i32, "-0x111", 0)) == -273);
+
+    // bare binary/octal/decimal prefix is invalid
+    std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0b", 0));
+    std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0o", 0));
+    std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0x", 0));
 }
 
 fn parseWithSign(
@@ -1101,6 +1125,31 @@ fn parseWithSign(
 ) ParseIntError!T {
     if (buf.len == 0) return error.InvalidCharacter;
 
+    var buf_radix = radix;
+    var buf_start = buf;
+    if (radix == 0) {
+        // Treat is as a decimal number by default.
+        buf_radix = 10;
+        // Detect the radix by looking at buf prefix.
+        if (buf.len > 2 and buf[0] == '0') {
+            switch (buf[1]) {
+                'b' => {
+                    buf_radix = 2;
+                    buf_start = buf[2..];
+                },
+                'o' => {
+                    buf_radix = 8;
+                    buf_start = buf[2..];
+                },
+                'x' => {
+                    buf_radix = 16;
+                    buf_start = buf[2..];
+                },
+                else => {},
+            }
+        }
+    }
+
     const add = switch (sign) {
         .Pos => math.add,
         .Neg => math.sub,
@@ -1108,16 +1157,26 @@ fn parseWithSign(
 
     var x: T = 0;
 
-    for (buf) |c| {
-        const digit = try charToDigit(c, radix);
+    for (buf_start) |c| {
+        const digit = try charToDigit(c, buf_radix);
 
-        if (x != 0) x = try math.mul(T, x, try math.cast(T, radix));
+        if (x != 0) x = try math.mul(T, x, try math.cast(T, buf_radix));
         x = try add(T, x, try math.cast(T, digit));
     }
 
     return x;
 }
 
+/// Parses the string `buf` as  unsigned representation in the specified radix
+/// of an integral value of type `T`.
+///
+/// When `radix` is zero the string prefix is examined to detect the true radix:
+///  * A prefix of "0b" implies radix=2,
+///  * A prefix of "0o" implies radix=8,
+///  * A prefix of "0x" implies radix=16,
+///  * Otherwise radix=10 is assumed.
+///
+/// See also `parseInt`.
 pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseIntError!T {
     return parseWithSign(T, buf, radix, .Pos);
 }
