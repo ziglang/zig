@@ -1364,9 +1364,13 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
             if (!build_options.is_stage1)
                 unreachable;
 
-            self.updateStage1Module(main_progress_node) catch |err| {
+            const result = self.updateStage1Module(main_progress_node) catch |err| {
                 fatal("unable to build stage1 zig object: {}", .{@errorName(err)});
             };
+
+            if (result != .Success) {
+                fatal("{}", .{result.render()});
+            }
         },
     };
 }
@@ -2570,7 +2574,7 @@ fn buildStaticLibFromZig(comp: *Compilation, src_basename: []const u8, out: *?CR
     };
 }
 
-fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node) !void {
+fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node) !CompilationResult {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2601,7 +2605,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     var man = comp.cache_parent.obtain();
     defer man.deinit();
 
-    _ = try man.addFile(main_zig_file, null);
+    const main_file_index = try man.addFile(main_zig_file, null);
     man.hash.add(comp.bin_file.options.valgrind);
     man.hash.add(comp.bin_file.options.single_threaded);
     man.hash.add(target.os.getVersionRange());
@@ -2621,7 +2625,10 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     const prev_hash_state = man.hash.peekBin();
     const input_file_count = man.files.items.len;
 
-    if (try man.hit()) {
+    if (man.hit() catch |err| {
+        const filename = man.files.items[main_file_index].path orelse main_zig_file;
+        return CompilationResult{ .HashError = try CompilationResult.HashError.init(comp.gpa, filename, @errorName(err)) };
+    }) {
         const digest = man.final();
 
         // We use an extra hex-encoded byte here to store some flags.
@@ -2660,7 +2667,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
             }
             comp.stage1_lock = man.toOwnedLock();
             mod.stage1_flags = @bitCast(@TypeOf(mod.stage1_flags), flags_bytes[0]);
-            return;
+            return CompilationResult.Success;
         }
         log.debug("stage1 {} prev_digest={} new_digest={}", .{ mod.root_pkg.root_src_path, prev_digest, digest });
         man.unhit(prev_hash_state, input_file_count);
@@ -2827,6 +2834,8 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     // We hang on to this lock so that the output file path can be used without
     // other processes clobbering it.
     comp.stage1_lock = man.toOwnedLock();
+
+    return CompilationResult.Success;
 }
 
 fn stage1LocPath(arena: *Allocator, opt_loc: ?EmitLoc, cache_directory: Directory) ![]const u8 {
@@ -2946,3 +2955,32 @@ pub fn stage1AddLinkLib(comp: *Compilation, lib_name: []const u8) !void {
         });
     }
 }
+
+const CompilationResult = union(enum) {
+    Success: void,
+    HashError: HashError,
+
+    pub const HashError = FileError("unable to hash file '{}': {}");
+
+    /// Error used for things that fail for filesystem-related reasons. Includes a filename as part of the message.
+    fn FileError(comptime fmt: []const u8) type {
+        return struct {
+            const Self = @This();
+
+            msg: []const u8,
+
+            pub fn init(gpa: *Allocator, filename: []const u8, errstr: []const u8) !Self {
+                return Self{
+                    .msg = try std.fmt.allocPrint(gpa, fmt, .{ filename, errstr }),
+                };
+            }
+        };
+    }
+
+    pub fn render(self: *const CompilationResult) []const u8 {
+        return switch (self.*) {
+            .Success => "success",
+            .HashError => |e| e.msg,
+        };
+    }
+};
