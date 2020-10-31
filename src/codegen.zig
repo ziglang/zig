@@ -2114,6 +2114,47 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return MCValue.none;
                     }
                 },
+                .aarch64 => {
+                    for (inst.inputs) |input, i| {
+                        if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
+                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
+                        }
+                        const reg_name = input[1 .. input.len - 1];
+                        const reg = parseRegName(reg_name) orelse
+                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                        const arg = try self.resolveInst(inst.args[i]);
+                        try self.genSetReg(inst.base.src, reg, arg);
+                    }
+
+                    // TODO move this to lib/std/{elf, macho}.zig, etc.
+                    const is_syscall_inst = switch (self.bin_file.tag) {
+                        .macho => mem.eql(u8, inst.asm_source, "svc #0x80"),
+                        .elf => mem.eql(u8, inst.asm_source, "svc #0"),
+                        else => |tag| return self.fail(inst.base.src, "TODO implement aarch64 support for other syscall instructions for file format: '{}'", .{tag}),
+                    };
+                    if (is_syscall_inst) {
+                        const imm16: u16 = switch (self.bin_file.tag) {
+                            .macho => 0x80,
+                            .elf => 0,
+                            else => unreachable,
+                        };
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.svc(imm16).toU32());
+                    } else {
+                        return self.fail(inst.base.src, "TODO implement support for more aarch64 assembly instructions", .{});
+                    }
+
+                    if (inst.output) |output| {
+                        if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
+                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{}'", .{output});
+                        }
+                        const reg_name = output[2 .. output.len - 1];
+                        const reg = parseRegName(reg_name) orelse
+                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                        return MCValue{ .register = reg };
+                    } else {
+                        return MCValue.none;
+                    }
+                },
                 .riscv64 => {
                     for (inst.inputs) |input, i| {
                         if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
