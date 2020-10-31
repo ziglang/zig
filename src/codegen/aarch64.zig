@@ -233,6 +233,10 @@ test "serialize instructions" {
             .inst = Instruction.svc(0),
             .expected = 0b1101_0100_000_0000000000000000_00001,
         },
+        .{ // svc #0x80 ; typical on Darwin
+            .inst = Instruction.svc(0x80),
+            .expected = 0b1101_0100_000_0000000010000000_00001,
+        },
     };
 
     for (testcases) |case| {
