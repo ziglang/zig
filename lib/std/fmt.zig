@@ -463,12 +463,11 @@ pub fn formatType(
             try formatType(@enumToInt(value), fmt, options, writer, max_depth);
             try writer.writeAll(")");
         },
-        .Union => {
+        .Union => |info| {
             try writer.writeAll(@typeName(T));
             if (max_depth == 0) {
                 return writer.writeAll("{ ... }");
             }
-            const info = @typeInfo(T).Union;
             if (info.tag_type) |UnionTagType| {
                 try writer.writeAll("{ .");
                 try writer.writeAll(@tagName(@as(UnionTagType, value)));
@@ -507,30 +506,30 @@ pub fn formatType(
                     if (info.child == u8) {
                         return formatText(value, fmt, options, writer);
                     }
-                    return format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) });
+                    return format(writer, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value) });
                 },
                 .Enum, .Union, .Struct => {
                     return formatType(value.*, fmt, options, writer, max_depth);
                 },
-                else => return format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) }),
+                else => return format(writer, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value) }),
             },
             .Many, .C => {
                 if (ptr_info.sentinel) |sentinel| {
                     return formatType(mem.span(value), fmt, options, writer, max_depth);
                 }
                 if (ptr_info.child == u8) {
-                    if (fmt.len > 0 and fmt[0] == 's') {
+                    if (fmt.len > 0 and comptime mem.indexOfScalar(u8, "sxXzZ", fmt[0]) != null) {
                         return formatText(mem.span(value), fmt, options, writer);
                     }
                 }
-                return format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) });
+                return format(writer, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value) });
             },
             .Slice => {
                 if (max_depth == 0) {
                     return writer.writeAll("[ ... ]");
                 }
                 if (ptr_info.child == u8) {
-                    if (fmt.len == 0 or fmt[0] == 's' or fmt[0] == 'x' or fmt[0] == 'X') {
+                    if (fmt.len == 0 or comptime mem.indexOfScalar(u8, "sxXzZ", fmt[0]) != null) {
                         return formatText(value, fmt, options, writer);
                     }
                 }
