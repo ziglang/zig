@@ -64,7 +64,11 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
     const held = stderr_mutex.acquire();
     defer held.release();
     const stderr = io.getStdErr().writer();
-    nosuspend stderr.print(fmt, args) catch return;
+    if (comptime std.meta.trait.isTuple(@TypeOf(args))) {
+        nosuspend stderr.print(fmt, args) catch return;
+    } else {
+        nosuspend stderr.print(fmt, .{args}) catch return;
+    }
 }
 
 pub fn getStderrMutex() *std.Mutex {
