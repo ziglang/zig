@@ -121,6 +121,16 @@ pub fn utimensat(dirfd: i32, path: ?[*:0]const u8, times: *const [2]timespec, fl
     return syscall4(.utimensat, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), @ptrToInt(times), flags);
 }
 
+pub fn fallocate(fd: i32, mode: i32, offset: usize, len: usize) usize {
+    return syscall4(
+        .fallocate,
+        @bitCast(usize, @as(isize, fd)),
+        @bitCast(usize, @as(isize, mode)),
+        offset,
+        len,
+    );
+}
+
 pub fn futex_wait(uaddr: *const i32, futex_op: u32, val: i32, timeout: ?*timespec) usize {
     return syscall4(.futex, @ptrToInt(uaddr), futex_op, @bitCast(u32, val), @ptrToInt(timeout));
 }
