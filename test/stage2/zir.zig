@@ -156,7 +156,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\  %0 = call(@a, [])
             \\  %1 = returnvoid()
             \\})
-            ,
+        ,
             &[_][]const u8{
                 ":18:21: error: message",
             },

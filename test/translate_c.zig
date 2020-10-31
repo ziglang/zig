@@ -3,6 +3,26 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("pointer to opaque demoted struct",
+        \\typedef struct {
+        \\    _Atomic int foo;
+        \\} Foo;
+        \\
+        \\typedef struct {
+        \\    Foo *bar;
+        \\} Bar;
+    , &[_][]const u8{
+        \\const struct_unnamed_1 = //
+        ,
+        \\warning: unsupported type: 'Atomic'
+        \\    opaque {}; //
+        ,
+        \\pub const Foo = struct_unnamed_1;
+        \\const struct_unnamed_2 = extern struct {
+        \\    bar: ?*Foo,
+        \\};
+    });
+
     cases.add("macro expressions respect C operator precedence",
         \\#define FOO *((foo) + 2)
         \\#define VALUE  (1 + 2 * 3 + 4 * 5 + 6 << 7 | 8 == 9)
@@ -11,9 +31,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\                             | (*((unsigned char *)(p) + 2) << 16))
     , &[_][]const u8{
         \\pub const FOO = (foo + 2).*;
-    ,
+        ,
         \\pub const VALUE = ((((1 + (2 * 3)) + (4 * 5)) + 6) << 7) | @boolToInt(8 == 9);
-    ,
+        ,
         \\pub inline fn _AL_READ3BYTES(p: anytype) @TypeOf(((@import("std").meta.cast([*c]u8, p)).* | (((@import("std").meta.cast([*c]u8, p)) + 1).* << 8)) | (((@import("std").meta.cast([*c]u8, p)) + 2).* << 16)) {
         \\    return ((@import("std").meta.cast([*c]u8, p)).* | (((@import("std").meta.cast([*c]u8, p)) + 1).* << 8)) | (((@import("std").meta.cast([*c]u8, p)) + 2).* << 16);
         \\}
@@ -81,11 +101,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    a: u8,
         \\};
         \\pub const Color = struct_Color;
-    ,
+        ,
         \\pub inline fn CLITERAL(type_1: anytype) @TypeOf(type_1) {
         \\    return type_1;
         \\}
-    ,
+        ,
         \\pub const LIGHTGRAY = @import("std").mem.zeroInit(CLITERAL(Color), .{ 200, 200, 200, 255 });
     });
 
@@ -119,7 +139,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub inline fn FOO(x: anytype) @TypeOf(@boolToInt(x >= 0) + @boolToInt(x >= 0)) {
         \\    return @boolToInt(x >= 0) + @boolToInt(x >= 0);
         \\}
-    ,
+        ,
         \\pub const BAR = (1 != 0) and (2 > 4);
     });
 
@@ -138,7 +158,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\struct bar { int x; int y[0]; };
     , &[_][]const u8{
         \\pub const struct_foo = opaque {};
-    ,
+        ,
         \\pub const struct_bar = opaque {};
     });
 
@@ -166,7 +186,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    _ = foo;
         \\    break :blk bar;
         \\};
-    ,
+        ,
         \\pub inline fn bar(x: anytype) @TypeOf(baz(1, 2)) {
         \\    return blk: {
         \\        _ = &x;
@@ -185,7 +205,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define inline 2
     , &[_][]const u8{
         \\pub const foo = 1;
-    ,
+        ,
         \\pub const @"inline" = 2;
     });
 
@@ -205,12 +225,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     , &[_][]const u8{
         \\pub const struct_arcan_shmif_page = //
-    ,
+        ,
         \\warning: unsupported type: 'Atomic'
         \\    opaque {}; //
-    ,
+        ,
         \\ warning: struct demoted to opaque type - unable to translate type of field abufused
-    , // TODO should be `addr: *struct_arcan_shmif_page`
+        , // TODO should be `addr: *struct_arcan_shmif_page`
         \\pub const struct_arcan_shmif_cont = extern struct {
         \\    addr: [*c]struct_arcan_shmif_page,
         \\};
@@ -529,7 +549,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\Foo fun(Foo *a);
     , &[_][]const u8{
         \\pub const Foo = c_void;
-    ,
+        ,
         \\pub extern fn fun(a: ?*Foo) Foo;
     });
 
@@ -629,7 +649,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     , &[_][]const u8{
         \\pub const struct_Foo = opaque {};
-    ,
+        ,
         \\pub const struct_Bar = extern struct {
         \\    foo: ?*struct_Foo,
         \\};
@@ -646,7 +666,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FLASH_BANK_SIZE    (FLASH_SIZE >> 1)   /* 1 MB   */
     , &[_][]const u8{
         \\pub const FLASH_SIZE = @as(c_ulong, 0x200000);
-    ,
+        ,
         \\pub const FLASH_BANK_SIZE = FLASH_SIZE >> 1;
     });
 
@@ -665,13 +685,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const struct_Foo = extern struct {
         \\    a: [*c]Foo,
         \\};
-    ,
+        ,
         \\pub const Foo = struct_Foo;
-    ,
+        ,
         \\pub const struct_Bar = extern struct {
         \\    a: [*c]Foo,
         \\};
-    ,
+        ,
         \\pub const Bar = struct_Bar;
     });
 
@@ -685,7 +705,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    x: c_int,
         \\    y: [*c]u8,
         \\};
-    ,
+        ,
         \\pub const Foo = struct_Foo;
     });
 
@@ -697,7 +717,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const struct_Foo = extern struct {
         \\    derp: ?fn ([*c]struct_Foo) callconv(.C) void,
         \\};
-    ,
+        ,
         \\pub const Foo = struct_Foo;
     });
 
@@ -706,9 +726,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\struct Foo *some_func(struct Foo *foo, int x);
     , &[_][]const u8{
         \\pub const struct_Foo = opaque {};
-    ,
+        ,
         \\pub extern fn some_func(foo: ?*struct_Foo, x: c_int) ?*struct_Foo;
-    ,
+        ,
         \\pub const Foo = struct_Foo;
     });
 
@@ -723,7 +743,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define THING1 1234
     , &[_][]const u8{
         \\pub const THING1 = 1234;
-    ,
+        ,
         \\pub const THING2 = THING1;
     });
 
@@ -741,7 +761,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const struct_Bar = extern struct {
         \\    next: [*c]struct_Foo,
         \\};
-    ,
+        ,
         \\pub const struct_Foo = extern struct {
         \\    next: [*c]struct_Bar,
         \\};
@@ -761,7 +781,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const struct_comptime = extern struct {
         \\    @"defer": c_int,
         \\};
-    ,
+        ,
         \\pub const @"comptime" = struct_comptime;
     });
 
@@ -1003,7 +1023,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    x: c_int,
         \\    y: f64,
         \\};
-    ,
+        ,
         \\pub const Foo = union_Foo;
     });
 
@@ -1446,7 +1466,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    p,
         \\    _,
         \\};
-    ,
+        ,
         \\pub const Baz = struct_Baz;
     });
 
@@ -1512,13 +1532,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define bar fn_ptr2
     , &[_][]const u8{
         \\pub extern var fn_ptr: ?fn () callconv(.C) void;
-    ,
+        ,
         \\pub inline fn foo() void {
         \\    return fn_ptr.?();
         \\}
-    ,
+        ,
         \\pub extern var fn_ptr2: ?fn (c_int, f32) callconv(.C) u8;
-    ,
+        ,
         \\pub inline fn bar(arg_1: c_int, arg_2: f32) u8 {
         \\    return fn_ptr2.?(arg_1, arg_2);
         \\}
@@ -1549,13 +1569,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    gl: struct_unnamed_1,
         \\};
         \\pub extern var glProcs: union_OpenGLProcs;
-    ,
+        ,
         \\pub const glClearPFN = PFNGLCLEARPROC;
-    ,
+        ,
         \\pub inline fn glClearUnion(arg_2: GLbitfield) void {
         \\    return glProcs.gl.Clear.?(arg_2);
         \\}
-    ,
+        ,
         \\pub const OpenGLProcs = union_OpenGLProcs;
     });
 
@@ -1571,11 +1591,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO(L,b) (L + b)
     , &[_][]const u8{
         \\pub extern var c: c_int;
-    ,
+        ,
         \\pub inline fn BASIC(c_1: anytype) @TypeOf(c_1 * 2) {
         \\    return c_1 * 2;
         \\}
-    ,
+        ,
         \\pub inline fn FOO(L: anytype, b: anytype) @TypeOf(L + b) {
         \\    return L + b;
         \\}
@@ -1587,9 +1607,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO_CHAR '\xfF'
     , &[_][]const u8{
         \\pub const FOO = "aoeu\xab derp";
-    ,
+        ,
         \\pub const FOO2 = "aoeu\x7a derp";
-    ,
+        ,
         \\pub const FOO_CHAR = '\xff';
     });
 
@@ -1599,9 +1619,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define RCC_BASE              (D3_AHB1PERIPH_BASE + 0x4400UL)
     , &[_][]const u8{
         \\pub const PERIPH_BASE = @as(c_ulong, 0x40000000);
-    ,
+        ,
         \\pub const D3_APB1PERIPH_BASE = PERIPH_BASE + @as(c_ulong, 0x18000000);
-    ,
+        ,
         \\pub const RCC_BASE = D3_AHB1PERIPH_BASE + @as(c_ulong, 0x4400);
     });
 
@@ -1738,7 +1758,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export var anyerror_1: c_uint = @bitCast(c_uint, @as(c_int, 2));
         ,
-
         \\pub const noreturn_2 = @compileError("unable to translate C expr: unexpected token .Keyword_noreturn");
     });
 
@@ -2011,7 +2030,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var p: c_int = @boolToInt(((c != null) and (td != 0)));
         \\    return ((((((((((e + f) + g) + h) + i) + j) + k) + l) + m) + o) + p);
         \\}
-    ,
+        ,
         \\pub const Foo = enum_Foo;
     });
 
@@ -2030,14 +2049,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    x: c_int,
         \\    y: c_int,
         \\};
-    ,
+        ,
         \\pub const enum_Bar = extern enum(c_int) {
         \\    A,
         \\    B,
         \\    _,
         \\};
         \\pub extern fn func(a: [*c]struct_Foo, b: [*c][*c]enum_Bar) void;
-    ,
+        ,
         \\pub const Foo = struct_Foo;
         \\pub const Bar = enum_Bar;
     });
@@ -2153,9 +2172,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    _ = a.b;
         \\    _ = c.*.b;
         \\}
-    ,
+        ,
         \\pub const DOT = a.b;
-    ,
+        ,
         \\pub const ARROW = a.*.b;
     });
 
@@ -2171,7 +2190,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var index = arg_index;
         \\    return array[@intCast(c_uint, index)];
         \\}
-    ,
+        ,
         \\pub const ACCESS = array[2];
     });
 
@@ -2748,9 +2767,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO_CHAR '\077'
     , &[_][]const u8{
         \\pub const FOO = "aoeu\x13 derp";
-    ,
+        ,
         \\pub const FOO2 = "aoeu\x134 derp";
-    ,
+        ,
         \\pub const FOO_CHAR = '\x3f';
     });
 
@@ -2770,7 +2789,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    @"1" = 6,
         \\    _,
         \\};
-    ,
+        ,
         \\pub const Foo = enum_Foo;
     });
 
@@ -2782,9 +2801,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub inline fn FOO(bar: anytype) @TypeOf(baz((@import("std").meta.cast(?*c_void, baz)))) {
         \\    return baz((@import("std").meta.cast(?*c_void, baz)));
         \\}
-    ,
+        ,
         \\pub const BAR = (@import("std").meta.cast(?*c_void, a));
-    ,
+        ,
         \\pub const BAZ = (@import("std").meta.cast(u32, 2));
     });
 
@@ -2824,7 +2843,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub inline fn MIN(a: anytype, b: anytype) @TypeOf(if (b < a) b else a) {
         \\    return if (b < a) b else a;
         \\}
-    ,
+        ,
         \\pub inline fn MAX(a: anytype, b: anytype) @TypeOf(if (b > a) b else a) {
         \\    return if (b > a) b else a;
         \\}
@@ -2892,7 +2911,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var bar_1 = arg_bar_1;
         \\    bar_1 = 2;
         \\}
-    ,
+        ,
         \\pub const bar = 4;
     });
 
@@ -2964,9 +2983,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define BAZ "oh, " FOO
     , &[_][]const u8{
         \\pub const FOO = "hello";
-    ,
+        ,
         \\pub const BAR = FOO ++ " world";
-    ,
+        ,
         \\pub const BAZ = "oh, " ++ FOO;
     });
 
@@ -2976,9 +2995,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define BAR FOO BAZ
     , &[_][]const u8{
         \\pub const FOO = "hello";
-    ,
+        ,
         \\pub const BAZ = " world";
-    ,
+        ,
         \\pub const BAR = FOO ++ BAZ;
     });
 
@@ -2987,7 +3006,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define BAR FOO "c"
     , &[_][]const u8{
         \\pub const FOO = "a" ++ "b";
-    ,
+        ,
         \\pub const BAR = FOO ++ "c";
     });
 
@@ -3023,7 +3042,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO ((int)0x8000)
     , &[_][]const u8{
         \\pub const NULL = (@import("std").meta.cast(?*c_void, 0));
-    ,
+        ,
         \\pub const FOO = (@import("std").meta.cast(c_int, 0x8000));
     });
 
