@@ -10,7 +10,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\    B = 1,
         \\    C = 2
         \\};
-    ,
+        ,
         \\void entry(enum Foo foo);
     });
 
@@ -33,7 +33,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\    uint64_t E;
         \\    uint64_t F;
         \\};
-    ,
+        ,
         \\void entry(struct Foo foo);
         \\
     });
@@ -68,7 +68,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\    bool C;
         \\    struct Big D;
         \\};
-    ,
+        ,
         \\void entry(union Foo foo);
         \\
     });
@@ -79,7 +79,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\export fn entry(foo: ?*Foo) void { }
     , &[_][]const u8{
         \\struct Foo;
-    ,
+        ,
         \\void entry(struct Foo * foo);
     });
 
@@ -94,7 +94,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\    int32_t A[2];
         \\    uint32_t * B[4];
         \\};
-    ,
+        ,
         \\void entry(struct Foo foo, uint8_t bar[]);
         \\
     });
@@ -109,7 +109,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\}
     , &[_][]const u8{
         \\struct S;
-    ,
+        ,
         \\uint8_t a(struct S * s);
         \\
     });
@@ -125,7 +125,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\}
     , &[_][]const u8{
         \\union U;
-    ,
+        ,
         \\uint8_t a(union U * s);
         \\
     });
@@ -141,7 +141,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\}
     , &[_][]const u8{
         \\enum E;
-    ,
+        ,
         \\uint8_t a(enum E * s);
         \\
     });

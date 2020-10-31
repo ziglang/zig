@@ -91,7 +91,7 @@ fn genArray(file: *C, decl: *Decl) !void {
     if (tv.val.cast(Value.Payload.Bytes)) |payload|
         if (tv.ty.sentinel()) |sentinel|
             if (sentinel.toUnsignedInt() == 0)
-            // TODO: static by default
+                // TODO: static by default
                 try file.constants.writer().print("const char *const {} = \"{}\";\n", .{ name, payload.data })
             else
                 return file.fail(decl.src(), "TODO byte arrays with non-zero sentinels", .{})
