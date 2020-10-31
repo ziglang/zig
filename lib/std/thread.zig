@@ -63,10 +63,10 @@ pub const Thread = struct {
             return c.pthread_self();
         } else
             return switch (std.Target.current.os.tag) {
-            .linux => os.linux.gettid(),
-            .windows => windows.kernel32.GetCurrentThreadId(),
-            else => @compileError("Unsupported OS"),
-        };
+                .linux => os.linux.gettid(),
+                .windows => windows.kernel32.GetCurrentThreadId(),
+                else => @compileError("Unsupported OS"),
+            };
     }
 
     /// Returns the handle of this thread.
@@ -479,6 +479,9 @@ pub const Thread = struct {
 
     pub const CpuCountError = error{
         PermissionDenied,
+        InvalidAddress,
+        NoProcessors,
+        NoThread,
         SystemResources,
         Unexpected,
     };
