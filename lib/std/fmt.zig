@@ -483,13 +483,13 @@ pub fn formatType(
                 try format(writer, "@{x}", .{@ptrToInt(&value)});
             }
         },
-        .Struct => |StructT| {
+        .Struct => |info| {
             try writer.writeAll(@typeName(T));
             if (max_depth == 0) {
                 return writer.writeAll("{ ... }");
             }
             try writer.writeAll("{");
-            inline for (StructT.fields) |f, i| {
+            inline for (info.fields) |f, i| {
                 if (i == 0) {
                     try writer.writeAll(" .");
                 } else {
@@ -526,10 +526,14 @@ pub fn formatType(
                 return format(writer, "{}@{x}", .{ @typeName(@typeInfo(T).Pointer.child), @ptrToInt(value) });
             },
             .Slice => {
-                if (ptr_info.child == u8) {
-                    return formatText(value, fmt, options, writer);
+                if (max_depth == 0) {
+                    return writer.writeAll("[ ... ]");
                 }
-
+                if (ptr_info.child == u8) {
+                    if (fmt.len == 0 or fmt[0] == 's' or fmt[0] == 'x' or fmt[0] == 'X') {
+                        return formatText(value, fmt, options, writer);
+                    }
+                }
                 try writer.writeAll("[");
                 for (value) |elem, i| {
                     try formatType(elem, fmt, options, writer, max_depth);
@@ -541,26 +545,29 @@ pub fn formatType(
             },
         },
         .Array => |info| {
-            const Slice = @Type(builtin.TypeInfo{
-                .Pointer = .{
-                    .size = .Slice,
-                    .is_const = true,
-                    .is_volatile = false,
-                    .is_allowzero = false,
-                    .alignment = @alignOf(info.child),
-                    .child = info.child,
-                    .sentinel = null,
-                },
-            });
-            return formatType(@as(Slice, &value), fmt, options, writer, max_depth);
+            if (max_depth == 0) {
+                return writer.writeAll("{ ... }");
+            }
+            if (info.child == u8) {
+                if (fmt.len > 0 and comptime mem.indexOfScalar(u8, "sxXeEzZ", fmt[0]) != null) {
+                    return formatText(&value, fmt, options, writer);
+                }
+            }
+            try writer.writeAll("{ ");
+            for (value) |elem, i| {
+                try formatType(elem, fmt, options, writer, max_depth - 1);
+                if (i < value.len - 1) {
+                    try writer.writeAll(", ");
+                }
+            }
+            try writer.writeAll(" }");
         },
-        .Vector => {
-            const len = @typeInfo(T).Vector.len;
+        .Vector => |info| {
             try writer.writeAll("{ ");
             var i: usize = 0;
-            while (i < len) : (i += 1) {
+            while (i < info.len) : (i += 1) {
                 try formatValue(value[i], fmt, options, writer);
-                if (i < len - 1) {
+                if (i < info.len - 1) {
                     try writer.writeAll(", ");
                 }
             }
@@ -1555,6 +1562,7 @@ test "array" {
         const value: [3]u8 = "abc".*;
         try testFmt("array: abc\n", "array: {}\n", .{value});
         try testFmt("array: abc\n", "array: {}\n", .{&value});
+        try testFmt("array: { 97, 98, 99 }\n", "array: {d}\n", .{value});
 
         var buf: [100]u8 = undefined;
         try testFmt(
