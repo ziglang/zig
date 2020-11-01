@@ -593,11 +593,13 @@ test "fsync" {
 }
 
 test "getrlimit and setrlimit" {
-    // TODO enable for other systems when implemented
-    if (builtin.os.tag != .linux) {
+    if (!@hasDecl(os, "rlimit")) {
         return error.SkipZigTest;
     }
 
-    const cpuLimit = try os.getrlimit(.CPU);
-    try os.setrlimit(.CPU, cpuLimit);
+    inline for (std.meta.fields(os.rlimit_resource)) |field| {
+        const resource = @intToEnum(os.rlimit_resource, field.value);
+        const limit = try os.getrlimit(resource);
+        try os.setrlimit(resource, limit);
+    }
 }

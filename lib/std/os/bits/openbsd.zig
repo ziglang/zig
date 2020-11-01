@@ -1050,3 +1050,32 @@ pub const IPPROTO_PFSYNC = 240;
 
 /// raw IP packet
 pub const IPPROTO_RAW = 255;
+
+pub const rlimit_resource = extern enum(c_int) {
+    CPU,
+    FSIZE,
+    DATA,
+    STACK,
+    CORE,
+    RSS,
+    MEMLOCK,
+    NPROC,
+    NOFILE,
+
+    _,
+};
+
+pub const rlim_t = u64;
+
+/// No limit
+pub const RLIM_INFINITY: rlim_t = (1 << 63) - 1;
+
+pub const RLIM_SAVED_MAX = RLIM_INFINITY;
+pub const RLIM_SAVED_CUR = RLIM_INFINITY;
+
+pub const rlimit = extern struct {
+    /// Soft limit
+    cur: rlim_t,
+    /// Hard limit
+    max: rlim_t,
+};
