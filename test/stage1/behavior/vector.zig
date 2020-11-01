@@ -4,6 +4,7 @@ const mem = std.mem;
 const math = std.math;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const expectWithinEpsilon = std.testing.expectWithinEpsilon;
 const Vector = std.meta.Vector;
 
 test "implicit cast vector to array - bool" {
@@ -492,7 +493,17 @@ test "vector reduce operation" {
             const TX = @typeInfo(@TypeOf(x)).Array.child;
 
             var r = @reduce(op, @as(Vector(N, TX), x));
-            expectEqual(expected, r);
+            switch (@typeInfo(TX)) {
+                .Int, .Bool => expectEqual(expected, r),
+                .Float => {
+                    if (math.isNan(expected) != math.isNan(r)) {
+                        std.debug.panic("unexpected NaN value!", .{});
+                    } else {
+                        expectWithinEpsilon(expected, r, 0.0001);
+                    }
+                },
+                else => unreachable,
+            }
         }
         fn doTheTest() void {
             doTheTestReduce(.And, [4]bool{ true, false, true, true }, @as(bool, false));
@@ -510,14 +521,49 @@ test "vector reduce operation" {
             doTheTestReduce(.Min, [4]i32{ 1234567, -386, 0, 3 }, @as(i32, -386));
             doTheTestReduce(.Max, [4]i32{ 1234567, -386, 0, 3 }, @as(i32, 1234567));
 
+            doTheTestReduce(.Add, [4]i32{ -9, -99, -999, -9999 }, @as(i32, -11106));
+            doTheTestReduce(.Add, [4]i64{ 9, 99, 999, 9999 }, @as(i64, 11106));
+
             doTheTestReduce(.Min, [4]u32{ 99, 9999, 9, 99999 }, @as(u32, 9));
             doTheTestReduce(.Max, [4]u32{ 99, 9999, 9, 99999 }, @as(u32, 99999));
+
+            doTheTestReduce(.Mul, [4]i32{ -9, -99, -999, 999 }, @as(i32, -889218891));
+            doTheTestReduce(.Mul, [4]i64{ 9, 99, 999, 9999 }, @as(i64, 8900199891));
 
             doTheTestReduce(.Min, [4]f32{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f32, -100.0));
             doTheTestReduce(.Max, [4]f32{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f32, 10.0e9));
 
             doTheTestReduce(.Min, [4]f64{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f64, -100.0));
             doTheTestReduce(.Max, [4]f64{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f64, 10.0e9));
+
+            doTheTestReduce(.Add, [4]f32{ -1.9, 5.1, -60.3, 100.0 }, @as(f32, 42.9));
+            doTheTestReduce(.Add, [4]f64{ -1.9, 5.1, -60.3, 100.0 }, @as(f64, 42.9));
+
+            doTheTestReduce(.Mul, [4]f32{ -1.9, 5.1, -60.3, 100.0 }, @as(f32, 58430.7));
+            doTheTestReduce(.Mul, [4]f64{ -1.9, 5.1, -60.3, 100.0 }, @as(f64, 58430.7));
+
+            // Test the reduction on vectors containing NaNs.
+            const f16_nan = math.nan(f16);
+            const f32_nan = math.nan(f32);
+            const f64_nan = math.nan(f64);
+
+            doTheTestReduce(.Add, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
+            doTheTestReduce(.Add, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
+
+            doTheTestReduce(.Add, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
+            doTheTestReduce(.Add, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
+
+            doTheTestReduce(.Add, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
+            doTheTestReduce(.Add, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
+
+            doTheTestReduce(.Mul, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
+            doTheTestReduce(.Mul, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
+
+            doTheTestReduce(.Mul, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
+            doTheTestReduce(.Mul, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
+
+            doTheTestReduce(.Mul, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
+            doTheTestReduce(.Mul, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
         }
     };
 

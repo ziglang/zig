@@ -5460,6 +5460,8 @@ static LLVMValueRef ir_render_reduce(CodeGen *g, IrExecutableGen *executable, Ir
     assert(value_type->id == ZigTypeIdVector);
     ZigType *scalar_type = value_type->data.vector.elem_type;
 
+    ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &instruction->base));
+
     LLVMValueRef result_val;
     switch (instruction->op) {
         case ReduceOp_and:
@@ -5488,6 +5490,24 @@ static LLVMValueRef ir_render_reduce(CodeGen *g, IrExecutableGen *executable, Ir
                 result_val = ZigLLVMBuildIntMaxReduce(g->builder, value, is_signed);
             } else if (scalar_type->id == ZigTypeIdFloat) {
                 result_val = ZigLLVMBuildFPMaxReduce(g->builder, value);
+            } else zig_unreachable();
+        } break;
+        case ReduceOp_add: {
+            if (scalar_type->id == ZigTypeIdInt) {
+                result_val = ZigLLVMBuildAddReduce(g->builder, value);
+            } else if (scalar_type->id == ZigTypeIdFloat) {
+                LLVMValueRef neutral_value = LLVMConstReal(
+                        get_llvm_type(g, scalar_type), -0.0);
+                result_val = ZigLLVMBuildFPAddReduce(g->builder, neutral_value, value);
+            } else zig_unreachable();
+        } break;
+        case ReduceOp_mul: {
+            if (scalar_type->id == ZigTypeIdInt) {
+                result_val = ZigLLVMBuildMulReduce(g->builder, value);
+            } else if (scalar_type->id == ZigTypeIdFloat) {
+                LLVMValueRef neutral_value = LLVMConstReal(
+                        get_llvm_type(g, scalar_type), 1.0);
+                result_val = ZigLLVMBuildFPMulReduce(g->builder, neutral_value, value);
             } else zig_unreachable();
         } break;
         default:

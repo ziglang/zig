@@ -2447,6 +2447,8 @@ enum ReduceOp {
     ReduceOp_xor,
     ReduceOp_min,
     ReduceOp_max,
+    ReduceOp_add,
+    ReduceOp_mul,
 };
 
 // synchronized with the code in define_builtin_compile_vars
