@@ -1611,6 +1611,8 @@ static const char *reduce_op_str(ReduceOp op) {
         case ReduceOp_xor: return "Xor";
         case ReduceOp_min: return "Min";
         case ReduceOp_max: return "Max";
+        case ReduceOp_add: return "Add";
+        case ReduceOp_mul: return "Mul";
     }
     zig_unreachable();
 }
