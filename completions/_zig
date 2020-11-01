@@ -1,0 +1,220 @@
+#compdef zig
+
+local -a __zig_commands
+__zig_commands=(
+  'build:Build project from build.zig'
+  'build-exe:Create executable from source or object files'
+  'build-lib:Create library from source or object files'
+  'build-obj:Create object from source or assembly'
+  'cc:Use Zig as a drop-in C compiler'
+  'c++:Use Zig as a drop-in C++ compiler'
+  'env:Print lib path, std path, compiler id and version'
+  'fmt:Parse file and render in canonical zig format'
+  'init-exe:Initialize a `zig build` application in the cwd'
+  'init-lib:Initialize a `zig build` library in the cwd'
+  'libc:Display native libc paths file or validate one'
+  'run:Create executable and run immediately'
+  'translate-c:Convert C code to Zig code'
+  'targets:List available compilation targets'
+  'test:Create and run a test build'
+  'version:Print version number and exit'
+  'zen:Print zen of zig and exit'
+)
+
+__zig_general_options=(
+  '--watch[Enable compiler REPL]'
+  '--color[Enable or disable colored error messages]: :(on off auto)'
+  '-femit-bin=[(default) Output machine code]:path:_files -/'
+  '-fno-emit-bin[Do not output machine code]:'
+  '-femit-asm[Output .s (assembly code)]:path:_files -/'
+  '-fno-emit-asm[(default) Do not output .s (assembly code)]:'
+  '-femit-zir[Produce a .zir file with Zig IR]:path:_files -/'
+  '-fno-emit-zir[(default) Do not produce a .zir file with Zig IR]:'
+  '-femit-llvm-ir[Produce a .ll file with LLVM IR (requires LLVM extensions)]:path:_files -/'
+  '-fno-emit-llvm-ir[(default) Do not produce a .ll file with LLVM IR]:'
+  '-femit-h[Generate a C header file (.h)]:path:_files -/'
+  '-fno-emit-h[(default) Do not generate a C header file (.h)]:'
+  '-femit-docs[Create a docs/ dir with html documentation]:path:_files -/'
+  '-fno-emit-docs[(default) Do not produce docs/ dir with html documentation]:'
+  '-femit-analysis[Write analysis JSON file with type information]:path:_files -/'
+  '-fno-emit-analysis[(default) Do not write analysis JSON file with type information]:'
+  '--show-builtin[Output the source of @import("builtin") then exit]:'
+  '--cache-dir[Override the local cache directory]:path:_files -/'
+  '--global-cache-dir[Override the global cache directory]:path:_files '
+  '--override-lib-dir[Override path to Zig installation lib directory]:path:_files '
+  '--enable-cache[Output to cache directory; print path to stdout]'
+)
+
+__zig_compile_options=(
+  '-target[<arch><sub>-<os>-<abi> see the targets command]:target'
+  '-mcpu[Specify target CPU and feature set]:cpu'
+  '-mcmodel=[Limit range of code and data virtual addresses]:model:(default tiny small kernel medium large)'
+  '--name[Override root name (not a file path)]:name'
+  '-O-[Choose what to optimize for]:mode:((
+    Debug\:"(default) Optimizations off, safety on"
+    ReleaseFast\:"Optimizations on, safety off"
+    ReleaseSafe\:"Optimizations on, safety on"
+    ReleaseSmall\:"Optimize for small binary, safety off"
+  ))'
+  '--pkg-begin:[Make pkg available to import and push current pkg]:string'
+  '--pkg-end[Pop current pkg]'
+  '--main-pkg-path[Set the directory of the root package]'
+  '-fPIC[Force-enable Position Independent Code]'
+  '-fno-PIC[Force-disable Position Independent Code]'
+  '-fstack-check[Enable stack probing in unsafe builds]'
+  '-fno-stack-check[Disable stack probing in safe builds]'
+  '-fsanitize-c[Enable C undefined behavior detection in unsafe builds]'
+  '-fno-sanitize-c[Disable C undefined behavior detection in safe builds]'
+  '-fvalgrind[Include valgrind client requests in release builds]'
+  '-fno-valgrind[Omit valgrind client requests in debug builds]'
+  '-fsanitize-thread[Enable Thread Sanitizer]'
+  '-fno-sanitize-thread[Disable Thread Sanitizer]'
+  '-fdll-export-fns[Mark exported functions as DLL exports (Windows)]'
+  '-fno-dll-export-fns[Force-disable marking exported functions as DLL exports]'
+  '-fno-dll-export-fns[Force-disable marking exported functions as DLL exports]'
+  '-fLLVM[Force using LLVM as the codegen backend]'
+  '-fno-LLVM[Prevent using LLVM as a codegen backend]'
+  '-fClang[Force using Clang as the C/C++ compilation backend]'
+  '--strip[Omit debug symbols]'
+  '--single-threaded[Code assumes it is only used single-threaded]'
+  '-ofmt=[Override target object format]:mode:((
+    elf\:"Executable and Linking Format"
+    c\:"Compile to C source code" wasm\:"WebAssembly"
+    pe\:"Portable Executable (Windows)"
+    coff\:"Common Object File Format (Windows)"
+    macho\:"macOS relocatables"
+    hex\:"Intel IHEX (planned)"
+    raw\:"Dump machine code directly (planned)"
+  ))'
+  '-dirafter[Add directory to AFTER include search path]:dir:_files -/'
+  '-isystem[Add directory to SYSTEM include search path]:dir:_files -/'
+  '-I-[Add directory to include search path]:dir:_files -/'
+  '-D[Define C \[macro\] to \[value\] (1 if \[value\] omitted)]:string'
+  '--libc[Provide a file which specifies libc paths]:dir:_files'
+  '-cflags[Set extra flags for the next positional C source files]:[flags]'
+  '-ffunction-sections[Places each function in a separate section]'
+)
+
+__zig_link_options=(
+  '-l-[Link against system library]:library:__zig_library'
+  '-L-[Add a directory to the library search path]:d:_files -/'
+  '-T-[Use a custom linker script]:script:_files'
+  '--library[Link against system library]:library:__zig_library'
+  '--library-directory[Add a directory to the library search path]:d:_files -/'
+  '--script[Use a custom linker script]:script:_files'
+  '--version-script[Provide a version .map file]:path:_files -/'
+  '--dynamic-linker[Set the dynamic interpreter path (usually ld.so)]:path:_files -/'
+  '--version[Dynamic library semver]'
+  '-fsoname[(Linux) Override the default SONAME value]:name'
+  '-fno-soname[(Linux) Disable emitting a SONAME]'
+  '-fLLD[Force using LLD as the linker]'
+  '-fno-LLD[Prevent using LLD as the linker]'
+  '-fcompiler-rt[Always include compiler-rt symbols in output]'
+  '-fno-compiler-rt[Prevent including compiler-rt symbols in output]'
+  '-rdynamic[Add all symbols to the dynamic symbol table]'
+  '-rpath[Add directory to the runtime library search path]:path:_files -/'
+  '-feach-lib-rpath[Ensure adding rpath for each used dynamic library]'
+  '-fno-each-lib-rpath[Prevent adding rpath for each used dynamic library]'
+  '--eh-frame-hdr[Enable C++ exception handling by passing --eh-frame-hdr to linker]'
+  '--emit-relocs[Enable output of relocation sections for post build tools]'
+  '-dynamic[Force output to be dynamically linked]'
+  '-static[Force output to be statically linked]'
+  '-Bsymbolic[Bind global references locally]'
+  '--subsystem[(Windows) /SUBSYSTEM:<subsystem> to the linker]:subsystem'
+  '--stack[Override default stack size]:int'
+  '--image-base[Set base address for executable image]:int'
+  '-framework[(Darwin) link against framework]:framework'
+  '-F[(Darwin) add search path for frameworks]:dir:_files -/'
+)
+
+__zig_debug_options=(
+  '-ftime-report[Print timing diagnostics]'
+  '-fstack-report[Print stack size diagnostics]'
+  '--verbose-link[Display linker invocations]'
+  '--verbose-cc[Display C compiler invocations]'
+  '--verbose-tokenize[Enable compiler debug output for tokenization]'
+  '--verbose-ast[Enable compiler debug output for AST parsing]'
+  '--verbose-ir[Enable compiler debug output for Zig IR]'
+  '--verbose-llvm-ir[Enable compiler debug output for LLVM IR]'
+  '--verbose-cimport[Enable compiler debug output for C imports]'
+  '--verbose-llvm-cpu-features[Enable compiler debug output for LLVM CPU features]'
+  '*:files:__zig_files'
+)
+
+__zig_test_options=(
+  '--test-filter[Skip tests that do not match filter]:string'
+  '--test-name-prefix[Add prefix to all tests]:string'
+  '--test-cmd[Specify test execution command one arg at a time]:string'
+  '--test-cmd-bin[Appends test binary path to test cmd args]'
+  '--test-evented-io[Runs the test in evented I/O mode]'
+)
+
+__zig_files() {
+  _files -g "*.{zig,zir,o,o,obj,lib,a,so,dll,dylib,tbd,s,S,c,cpp,C,cc,cxx}"
+}
+
+__zig_library() {
+  _wanted libraries expl library \
+      compadd - \
+      ${^=LD_LIBRARY_PATH:-/usr/lib /usr/local/lib}/lib*.(a|so*)(:t:fr:s/lib//)
+}
+
+__zig_build() {
+  steps=()
+  args=()
+  in_options=false
+  help=$($__zig_exe build --help 2> /dev/null | tail -n +4)
+  while IFS= read -r line ; do
+    if [ "$in_options" = "false" ]; then
+      if [ -z "$line" ]; then
+        in_options=true
+        continue
+      fi
+      #  step (default)     description  -> step:(default) description
+      steps+=("$(echo "$line" | sed -r 's/\s*(\S+)\s+(\(default\) )?\s+([^\s].*)/\1:\2\3/')")
+    elif [ -n "$(echo "$line" | grep '  -')" ]; then
+      #  --flag [arg]       description -> --flag[description]:arg
+      args+=("$(echo "$line" | sed -r "s/  ([^\[ ]+) ?(\[([^]]*)\])?\s*(.+)/\1[\4]:\3/")")
+    fi
+  done <<< $help
+
+  if [ -z "$(/usr/bin/echo $words[$CURRENT] | grep "^-")" ]; then
+    _describe 'step' steps
+  else
+    _arguments ${args[@]}
+  fi
+}
+
+__zig_exe=$words[1]
+
+_arguments \
+  "1: :{_describe 'command' __zig_commands}" \
+  "*:: :->args"
+
+case $state in
+  args)
+
+  case $words[1] in
+    build-exe | build-lib | build-obj | run | translate-c)
+      _arguments $__zig_general_options $__zig_compile_options $__zig_link_options $__zig_debug_options
+      ;;
+
+    test)
+      _arguments $__zig_general_options $__zig_compile_options $__zig_link_options $__zig_debug_options $__zig_test_options
+      ;;
+
+    fmt)
+      _arguments \
+        '--stdin[Format code from stdin; output to stdout]:' \
+        '--color[Enable or disable colored error messages]: :(on off auto)' \
+        '--check[List non-conforming files and exit with an error if the list is non-empty]' \
+        '*:files:_files -g "*.zig"'
+      ;;
+
+    build)
+      __zig_build
+      ;;
+
+  esac
+  ;;
+esac

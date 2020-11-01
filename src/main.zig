@@ -334,7 +334,7 @@ const usage_build_generic =
     \\  -dynamic                       Force output to be dynamically linked
     \\  -static                        Force output to be statically linked
     \\  -Bsymbolic                     Bind global references locally
-    \\  --subsystem [subsystem]        (Windows) /SUBSYSTEM:<subsystem> to the linker\n"
+    \\  --subsystem [subsystem]        (Windows) /SUBSYSTEM:<subsystem> to the linker
     \\  --stack [size]                 Override default stack size
     \\  --image-base [addr]            Set base address for executable image
     \\  -framework [name]              (Darwin) link against framework
