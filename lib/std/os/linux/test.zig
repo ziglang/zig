@@ -11,6 +11,25 @@ const elf = std.elf;
 const expect = std.testing.expect;
 const fs = std.fs;
 
+test "fallocate" {
+    const path = "test_fallocate";
+    const file = try fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
+    defer file.close();
+    defer fs.cwd().deleteFile(path) catch {};
+
+    expect((try file.stat()).size == 0);
+
+    const len: u64 = 65536;
+    switch (linux.getErrno(linux.fallocate(file.handle, 0, 0, len))) {
+        0 => {},
+        linux.ENOSYS => return error.SkipZigTest,
+        linux.EOPNOTSUPP => return error.SkipZigTest,
+        else => unreachable,
+    }
+
+    expect((try file.stat()).size == len);
+}
+
 test "getpid" {
     expect(linux.getpid() != 0);
 }
