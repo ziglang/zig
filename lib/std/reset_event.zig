@@ -158,7 +158,7 @@ const PosixEvent = struct {
                 var tv: os.darwin.timeval = undefined;
                 assert(os.darwin.gettimeofday(&tv, null) == 0);
                 timeout_abs += @intCast(u64, tv.tv_sec) * time.ns_per_s;
-                timeout_abs += @intCast(u64, tv.tv_usec) * time.us_per_s;
+                timeout_abs += @intCast(u64, tv.tv_usec) * time.ns_per_us;
             } else {
                 os.clock_gettime(os.CLOCK_REALTIME, &ts) catch unreachable;
                 timeout_abs += @intCast(u64, ts.tv_sec) * time.ns_per_s;
@@ -431,6 +431,20 @@ test "std.ResetEvent" {
             self.in.wait();
             assert(self.value == 3);
         }
+
+        fn sleeper(self: *Self) void {
+            self.in.set();
+            time.sleep(time.ns_per_ms);
+            self.value = 5;
+            self.out.set();
+        }
+
+        fn timedWaiter(self: *Self) !void {
+            self.in.wait();
+            testing.expectError(error.TimedOut, self.out.timedWait(time.ns_per_us));
+            try self.out.timedWait(time.ns_per_ms * 2);
+            testing.expect(self.value == 5);
+        }
     };
 
     var context = Context.init();
@@ -438,4 +452,12 @@ test "std.ResetEvent" {
     const receiver = try std.Thread.spawn(&context, Context.receiver);
     defer receiver.wait();
     context.sender();
+
+    if (builtin.link_libc) {
+        var timed = Context.init();
+        defer timed.deinit();
+        const sleeper = try std.Thread.spawn(&timed, Context.sleeper);
+        defer sleeper.wait();
+        try timed.timedWaiter();
+    }
 }
