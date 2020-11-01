@@ -87,6 +87,8 @@ pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 
 pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
 
+pub extern "c" fn fallocate(fd: fd_t, mode: c_int, offset: off_t, len: off_t) c_int;
+
 pub extern "c" fn ftruncate64(fd: c_int, length: off_t) c_int;
 
 pub extern "c" fn sendfile(
