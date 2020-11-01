@@ -106,6 +106,8 @@ pub const ReduceOp = enum {
     Xor,
     Min,
     Max,
+    Add,
+    Mul,
 };
 
 /// This data structure is used by the Zig language code generation and

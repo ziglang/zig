@@ -1156,6 +1156,22 @@ LLVMValueRef ZigLLVMBuildFPMinReduce(LLVMBuilderRef B, LLVMValueRef Val) {
     return wrap(unwrap(B)->CreateFPMinReduce(unwrap(Val)));
 }
 
+LLVMValueRef ZigLLVMBuildAddReduce(LLVMBuilderRef B, LLVMValueRef Val) {
+    return wrap(unwrap(B)->CreateAddReduce(unwrap(Val)));
+}
+
+LLVMValueRef ZigLLVMBuildMulReduce(LLVMBuilderRef B, LLVMValueRef Val) {
+    return wrap(unwrap(B)->CreateMulReduce(unwrap(Val)));
+}
+
+LLVMValueRef ZigLLVMBuildFPAddReduce(LLVMBuilderRef B, LLVMValueRef Acc, LLVMValueRef Val) {
+    return wrap(unwrap(B)->CreateFAddReduce(unwrap(Acc), unwrap(Val)));
+}
+
+LLVMValueRef ZigLLVMBuildFPMulReduce(LLVMBuilderRef B, LLVMValueRef Acc, LLVMValueRef Val) {
+    return wrap(unwrap(B)->CreateFMulReduce(unwrap(Acc), unwrap(Val)));
+}
+
 static_assert((Triple::ArchType)ZigLLVM_UnknownArch == Triple::UnknownArch, "");
 static_assert((Triple::ArchType)ZigLLVM_arm == Triple::arm, "");
 static_assert((Triple::ArchType)ZigLLVM_armeb == Triple::armeb, "");
