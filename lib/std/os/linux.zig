@@ -127,10 +127,10 @@ pub fn fallocate(fd: i32, mode: i32, offset: u64, len: u64) usize {
             .fallocate,
             @bitCast(usize, @as(isize, fd)),
             @bitCast(usize, @as(isize, mode)),
-            @truncate(usize, offset >> 32),
             @truncate(usize, offset),
-            @truncate(usize, len >> 32),
+            @truncate(usize, offset >> 32),
             @truncate(usize, len),
+            @truncate(usize, len >> 32),
         );
     } else {
         return syscall4(
