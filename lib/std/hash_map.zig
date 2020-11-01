@@ -339,7 +339,7 @@ pub fn HashMapUnmanaged(
             assert(@alignOf(Metadata) == 1);
         }
 
-        const Iterator = struct {
+        pub const Iterator = struct {
             hm: *const Self,
             index: Size = 0,
 

@@ -1918,8 +1918,8 @@ pub const LibExeObjStep = struct {
         // Inherit dependencies on darwin frameworks
         if (self.target.isDarwin() and !other.isDynamicLibrary()) {
             var it = other.frameworks.iterator();
-            while (it.next()) |entry| {
-                self.frameworks.put(entry.key) catch unreachable;
+            while (it.next()) |framework| {
+                self.frameworks.put(framework) catch unreachable;
             }
         }
     }
@@ -2277,9 +2277,9 @@ pub const LibExeObjStep = struct {
             }
 
             var it = self.frameworks.iterator();
-            while (it.next()) |entry| {
+            while (it.next()) |framework| {
                 zig_args.append("-framework") catch unreachable;
-                zig_args.append(entry.key) catch unreachable;
+                zig_args.append(framework) catch unreachable;
             }
         }
 
