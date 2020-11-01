@@ -64,7 +64,9 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 /// - `x` and `X`:
 ///   - format the non-numeric value as a string of bytes in hexadecimal notation ("binary dump") in either lower case or upper case
 ///   - output numeric value in hexadecimal notation
-/// - `s`: print a pointer-to-many as a c-string, use zero-termination
+/// - `s`:
+///   - for pointer-to-many and C pointers of u8, print as a C-string using zero-termination
+///   - for slices of u8, print the entire slice as a string without zero-termination
 /// - `z`: escape the string with @"" syntax if it is not a valid Zig identifier.
 /// - `Z`: print the string escaping non-printable characters using Zig escape sequences.
 /// - `B` and `Bi`: output a memory size in either metric (1000) or power-of-two (1024) based notation. works for both float and integer values.
@@ -1382,6 +1384,10 @@ test "slice" {
         var runtime_zero: usize = 0;
         const value = @intToPtr([*]align(1) const []const u8, 0xdeadbeef)[runtime_zero..runtime_zero];
         try testFmt("slice: []const u8@deadbeef\n", "slice: {}\n", .{value});
+    }
+    {
+        const null_term_slice: [:0]const u8 = "\x00hello\x00";
+        try testFmt("buf: \x00hello\x00\n", "buf: {s}\n", .{null_term_slice});
     }
 
     try testFmt("buf:  Test\n", "buf: {s:5}\n", .{"Test"});
