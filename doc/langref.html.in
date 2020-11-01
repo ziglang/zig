@@ -8219,6 +8219,7 @@ test "vector @splat" {
       </p>
       <p>
       Not every operator is available for every vector element type:
+      </p>
       <ul>
           <li>{#syntax#}.And{#endsyntax#}, {#syntax#}.Or{#endsyntax#},
             {#syntax#}.Xor{#endsyntax#} are available for
@@ -8228,7 +8229,6 @@ test "vector @splat" {
             available for {#link|floating point|Floats#} vectors,</li>
           <li>Every operator is available for {#link|integer|Integers#} vectors.
       </ul>
-      </p>
       <p>
       Note that {#syntax#}.Add{#endsyntax#} and {#syntax#}.Mul{#endsyntax#}
       reductions on integral types are wrapping; when applied on floating point
