@@ -109,6 +109,14 @@ test "@shlWithOverflow" {
     expect(result == 0b1011111111111100);
 }
 
+test "@*WithOverflow with u0 values" {
+    var result: u0 = undefined;
+    expect(!@addWithOverflow(u0, 0, 0, &result));
+    expect(!@subWithOverflow(u0, 0, 0, &result));
+    expect(!@mulWithOverflow(u0, 0, 0, &result));
+    expect(!@shlWithOverflow(u0, 0, 0, &result));
+}
+
 test "@clz" {
     testClz();
     comptime testClz();

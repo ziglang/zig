@@ -28880,6 +28880,10 @@ static IrInstGen *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInstSrcOv
     if (type_is_invalid(casted_result_ptr->value->type))
         return ira->codegen->invalid_inst_gen;
 
+    // Don't write anything to the result pointer.
+    if (dest_type->data.integral.bit_count == 0)
+        return ir_const_bool(ira, &instruction->base.base, false);
+
     if (instr_is_comptime(casted_op1) &&
         instr_is_comptime(casted_op2) &&
         instr_is_comptime(casted_result_ptr))
