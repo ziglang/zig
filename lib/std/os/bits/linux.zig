@@ -82,6 +82,27 @@ pub const AT_STATX_DONT_SYNC = 0x4000;
 /// Apply to the entire subtree
 pub const AT_RECURSIVE = 0x8000;
 
+/// Default is extend size
+pub const FALLOC_FL_KEEP_SIZE = 0x01;
+
+/// De-allocates range
+pub const FALLOC_FL_PUNCH_HOLE = 0x02;
+
+/// Reserved codepoint
+pub const FALLOC_FL_NO_HIDE_STALE = 0x04;
+
+/// Removes a range of a file without leaving a hole in the file
+pub const FALLOC_FL_COLLAPSE_RANGE = 0x08;
+
+/// Converts a range of file to zeros preferably without issuing data IO
+pub const FALLOC_FL_ZERO_RANGE = 0x10;
+
+/// Inserts space within the file size without overwriting any existing data
+pub const FALLOC_FL_INSERT_RANGE = 0x20;
+
+/// Unshares shared blocks within the file size without overwriting any existing data
+pub const FALLOC_FL_UNSHARE_RANGE = 0x40;
+
 pub const FUTEX_WAIT = 0;
 pub const FUTEX_WAKE = 1;
 pub const FUTEX_FD = 2;
