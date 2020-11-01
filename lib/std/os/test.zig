@@ -603,5 +603,10 @@ test "getrlimit and setrlimit" {
 }
 
 test "os.sched_getaffinity" {
+    // TODO enable for other systems when implemented
+    // https://github.com/ziglang/zig/issues/6907
+    if (builtin.os.tag != .linux) {
+        return error.SkipZigTest;
+    }
     testing.expectError(error.NoThread, os.sched_getaffinity(std.math.maxInt(i32)));
 }
