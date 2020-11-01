@@ -721,3 +721,36 @@ pub const Flock = extern struct {
     l_type: c_short,
     l_whence: c_short,
 };
+
+pub const rlimit_resource = extern enum(c_int) {
+    CPU = 0,
+    FSIZE = 1,
+    DATA = 2,
+    STACK = 3,
+    CORE = 4,
+    RSS = 5,
+    MEMLOCK = 6,
+    NPROC = 7,
+    NOFILE = 8,
+    SBSIZE = 9,
+    AS = 10,
+    VMEM = 10,
+    POSIXLOCKS = 11,
+
+    _,
+};
+
+pub const rlim_t = i64;
+
+/// No limit
+pub const RLIM_INFINITY: rlim_t = (1 << 63) - 1;
+
+pub const RLIM_SAVED_MAX = RLIM_INFINITY;
+pub const RLIM_SAVED_CUR = RLIM_INFINITY;
+
+pub const rlimit = extern struct {
+    /// Soft limit
+    cur: rlim_t,
+    /// Hard limit
+    max: rlim_t,
+};

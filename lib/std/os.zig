@@ -5663,7 +5663,6 @@ pub fn prctl(option: i32, args: anytype) PrctlError!u31 {
 pub const GetrlimitError = UnexpectedError;
 
 pub fn getrlimit(resource: rlimit_resource) GetrlimitError!rlimit {
-    // TODO implement for systems other than linux and enable test
     var limits: rlimit = undefined;
     const rc = system.getrlimit(resource, &limits);
     switch (errno(rc)) {
@@ -5677,7 +5676,6 @@ pub fn getrlimit(resource: rlimit_resource) GetrlimitError!rlimit {
 pub const SetrlimitError = error{PermissionDenied} || UnexpectedError;
 
 pub fn setrlimit(resource: rlimit_resource, limits: rlimit) SetrlimitError!void {
-    // TODO implement for systems other than linux and enable test
     const rc = system.setrlimit(resource, &limits);
     switch (errno(rc)) {
         0 => return,
