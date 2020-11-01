@@ -10953,13 +10953,13 @@ static bool float_is_nan(ZigValue *op) {
     } else if (op->type->id == ZigTypeIdFloat) {
         switch (op->type->data.floating.bit_count) {
             case 16:
-                return f16_isSignalingNaN(op->data.x_f16);
+                return zig_f16_isNaN(op->data.x_f16);
             case 32:
                 return op->data.x_f32 != op->data.x_f32;
             case 64:
                 return op->data.x_f64 != op->data.x_f64;
             case 128:
-                return f128M_isSignalingNaN(&op->data.x_f128);
+                return zig_f128_isNaN(&op->data.x_f128);
             default:
                 zig_unreachable();
         }
