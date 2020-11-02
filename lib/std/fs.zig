@@ -752,6 +752,7 @@ pub const Dir = struct {
             try std.event.Loop.instance.?.openatZ(self.fd, sub_path, os_flags, 0)
         else
             try os.openatZ(self.fd, sub_path, os_flags, 0);
+        errdefer os.close(fd);
 
         if (!has_flock_open_flags and flags.lock != .None) {
             // TODO: integrate async I/O
