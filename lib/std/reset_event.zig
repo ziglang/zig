@@ -434,7 +434,7 @@ test "std.ResetEvent" {
 
         fn sleeper(self: *Self) void {
             self.in.set();
-            time.sleep(time.ns_per_ms);
+            time.sleep(time.ns_per_ms * 2);
             self.value = 5;
             self.out.set();
         }
@@ -442,7 +442,7 @@ test "std.ResetEvent" {
         fn timedWaiter(self: *Self) !void {
             self.in.wait();
             testing.expectError(error.TimedOut, self.out.timedWait(time.ns_per_us));
-            try self.out.timedWait(time.ns_per_ms * 2);
+            try self.out.timedWait(time.ns_per_ms * 5);
             testing.expect(self.value == 5);
         }
     };
@@ -453,11 +453,9 @@ test "std.ResetEvent" {
     defer receiver.wait();
     context.sender();
 
-    if (builtin.link_libc) {
-        var timed = Context.init();
-        defer timed.deinit();
-        const sleeper = try std.Thread.spawn(&timed, Context.sleeper);
-        defer sleeper.wait();
-        try timed.timedWaiter();
-    }
+    var timed = Context.init();
+    defer timed.deinit();
+    const sleeper = try std.Thread.spawn(&timed, Context.sleeper);
+    defer sleeper.wait();
+    try timed.timedWaiter();
 }
