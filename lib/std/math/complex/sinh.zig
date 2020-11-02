@@ -164,14 +164,14 @@ test "complex.csinh32" {
     const a = Complex(f32).new(5, 3);
     const c = sinh(a);
 
-    testing.expect(math.approxEq(f32, c.re, -73.460617, epsilon));
-    testing.expect(math.approxEq(f32, c.im, 10.472508, epsilon));
+    testing.expect(math.approxEqAbs(f32, c.re, -73.460617, epsilon));
+    testing.expect(math.approxEqAbs(f32, c.im, 10.472508, epsilon));
 }
 
 test "complex.csinh64" {
     const a = Complex(f64).new(5, 3);
     const c = sinh(a);
 
-    testing.expect(math.approxEq(f64, c.re, -73.460617, epsilon));
-    testing.expect(math.approxEq(f64, c.im, 10.472508, epsilon));
+    testing.expect(math.approxEqAbs(f64, c.re, -73.460617, epsilon));
+    testing.expect(math.approxEqAbs(f64, c.im, 10.472508, epsilon));
 }

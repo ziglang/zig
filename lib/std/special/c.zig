@@ -912,14 +912,14 @@ test "sqrt" {
     const epsilon = 0.000001;
 
     std.testing.expect(sqrt(0.0) == 0.0);
-    std.testing.expect(std.math.approxEq(f64, sqrt(2.0), 1.414214, epsilon));
-    std.testing.expect(std.math.approxEq(f64, sqrt(3.6), 1.897367, epsilon));
+    std.testing.expect(std.math.approxEqAbs(f64, sqrt(2.0), 1.414214, epsilon));
+    std.testing.expect(std.math.approxEqAbs(f64, sqrt(3.6), 1.897367, epsilon));
     std.testing.expect(sqrt(4.0) == 2.0);
-    std.testing.expect(std.math.approxEq(f64, sqrt(7.539840), 2.745877, epsilon));
-    std.testing.expect(std.math.approxEq(f64, sqrt(19.230934), 4.385309, epsilon));
+    std.testing.expect(std.math.approxEqAbs(f64, sqrt(7.539840), 2.745877, epsilon));
+    std.testing.expect(std.math.approxEqAbs(f64, sqrt(19.230934), 4.385309, epsilon));
     std.testing.expect(sqrt(64.0) == 8.0);
-    std.testing.expect(std.math.approxEq(f64, sqrt(64.1), 8.006248, epsilon));
-    std.testing.expect(std.math.approxEq(f64, sqrt(8942.230469), 94.563367, epsilon));
+    std.testing.expect(std.math.approxEqAbs(f64, sqrt(64.1), 8.006248, epsilon));
+    std.testing.expect(std.math.approxEqAbs(f64, sqrt(8942.230469), 94.563367, epsilon));
 }
 
 test "sqrt special" {
@@ -1010,14 +1010,14 @@ test "sqrtf" {
     const epsilon = 0.000001;
 
     std.testing.expect(sqrtf(0.0) == 0.0);
-    std.testing.expect(std.math.approxEq(f32, sqrtf(2.0), 1.414214, epsilon));
-    std.testing.expect(std.math.approxEq(f32, sqrtf(3.6), 1.897367, epsilon));
+    std.testing.expect(std.math.approxEqAbs(f32, sqrtf(2.0), 1.414214, epsilon));
+    std.testing.expect(std.math.approxEqAbs(f32, sqrtf(3.6), 1.897367, epsilon));
     std.testing.expect(sqrtf(4.0) == 2.0);
-    std.testing.expect(std.math.approxEq(f32, sqrtf(7.539840), 2.745877, epsilon));
-    std.testing.expect(std.math.approxEq(f32, sqrtf(19.230934), 4.385309, epsilon));
+    std.testing.expect(std.math.approxEqAbs(f32, sqrtf(7.539840), 2.745877, epsilon));
+    std.testing.expect(std.math.approxEqAbs(f32, sqrtf(19.230934), 4.385309, epsilon));
     std.testing.expect(sqrtf(64.0) == 8.0);
-    std.testing.expect(std.math.approxEq(f32, sqrtf(64.1), 8.006248, epsilon));
-    std.testing.expect(std.math.approxEq(f32, sqrtf(8942.230469), 94.563370, epsilon));
+    std.testing.expect(std.math.approxEqAbs(f32, sqrtf(64.1), 8.006248, epsilon));
+    std.testing.expect(std.math.approxEqAbs(f32, sqrtf(8942.230469), 94.563370, epsilon));
 }
 
 test "sqrtf special" {

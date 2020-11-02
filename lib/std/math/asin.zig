@@ -154,23 +154,23 @@ test "math.asin" {
 test "math.asin32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, asin32(0.0), 0.0, epsilon));
-    expect(math.approxEq(f32, asin32(0.2), 0.201358, epsilon));
-    expect(math.approxEq(f32, asin32(-0.2), -0.201358, epsilon));
-    expect(math.approxEq(f32, asin32(0.3434), 0.350535, epsilon));
-    expect(math.approxEq(f32, asin32(0.5), 0.523599, epsilon));
-    expect(math.approxEq(f32, asin32(0.8923), 1.102415, epsilon));
+    expect(math.approxEqAbs(f32, asin32(0.0), 0.0, epsilon));
+    expect(math.approxEqAbs(f32, asin32(0.2), 0.201358, epsilon));
+    expect(math.approxEqAbs(f32, asin32(-0.2), -0.201358, epsilon));
+    expect(math.approxEqAbs(f32, asin32(0.3434), 0.350535, epsilon));
+    expect(math.approxEqAbs(f32, asin32(0.5), 0.523599, epsilon));
+    expect(math.approxEqAbs(f32, asin32(0.8923), 1.102415, epsilon));
 }
 
 test "math.asin64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f64, asin64(0.0), 0.0, epsilon));
-    expect(math.approxEq(f64, asin64(0.2), 0.201358, epsilon));
-    expect(math.approxEq(f64, asin64(-0.2), -0.201358, epsilon));
-    expect(math.approxEq(f64, asin64(0.3434), 0.350535, epsilon));
-    expect(math.approxEq(f64, asin64(0.5), 0.523599, epsilon));
-    expect(math.approxEq(f64, asin64(0.8923), 1.102415, epsilon));
+    expect(math.approxEqAbs(f64, asin64(0.0), 0.0, epsilon));
+    expect(math.approxEqAbs(f64, asin64(0.2), 0.201358, epsilon));
+    expect(math.approxEqAbs(f64, asin64(-0.2), -0.201358, epsilon));
+    expect(math.approxEqAbs(f64, asin64(0.3434), 0.350535, epsilon));
+    expect(math.approxEqAbs(f64, asin64(0.5), 0.523599, epsilon));
+    expect(math.approxEqAbs(f64, asin64(0.8923), 1.102415, epsilon));
 }
 
 test "math.asin32.special" {

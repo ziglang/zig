@@ -196,20 +196,20 @@ test "math.exp32" {
     const epsilon = 0.000001;
 
     assert(exp32(0.0) == 1.0);
-    assert(math.approxEq(f32, exp32(0.0), 1.0, epsilon));
-    assert(math.approxEq(f32, exp32(0.2), 1.221403, epsilon));
-    assert(math.approxEq(f32, exp32(0.8923), 2.440737, epsilon));
-    assert(math.approxEq(f32, exp32(1.5), 4.481689, epsilon));
+    assert(math.approxEqAbs(f32, exp32(0.0), 1.0, epsilon));
+    assert(math.approxEqAbs(f32, exp32(0.2), 1.221403, epsilon));
+    assert(math.approxEqAbs(f32, exp32(0.8923), 2.440737, epsilon));
+    assert(math.approxEqAbs(f32, exp32(1.5), 4.481689, epsilon));
 }
 
 test "math.exp64" {
     const epsilon = 0.000001;
 
     assert(exp64(0.0) == 1.0);
-    assert(math.approxEq(f64, exp64(0.0), 1.0, epsilon));
-    assert(math.approxEq(f64, exp64(0.2), 1.221403, epsilon));
-    assert(math.approxEq(f64, exp64(0.8923), 2.440737, epsilon));
-    assert(math.approxEq(f64, exp64(1.5), 4.481689, epsilon));
+    assert(math.approxEqAbs(f64, exp64(0.0), 1.0, epsilon));
+    assert(math.approxEqAbs(f64, exp64(0.2), 1.221403, epsilon));
+    assert(math.approxEqAbs(f64, exp64(0.8923), 2.440737, epsilon));
+    assert(math.approxEqAbs(f64, exp64(1.5), 4.481689, epsilon));
 }
 
 test "math.exp32.special" {

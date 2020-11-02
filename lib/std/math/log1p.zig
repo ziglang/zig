@@ -195,25 +195,25 @@ test "math.log1p" {
 test "math.log1p_32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, log1p_32(0.0), 0.0, epsilon));
-    expect(math.approxEq(f32, log1p_32(0.2), 0.182322, epsilon));
-    expect(math.approxEq(f32, log1p_32(0.8923), 0.637793, epsilon));
-    expect(math.approxEq(f32, log1p_32(1.5), 0.916291, epsilon));
-    expect(math.approxEq(f32, log1p_32(37.45), 3.649359, epsilon));
-    expect(math.approxEq(f32, log1p_32(89.123), 4.501175, epsilon));
-    expect(math.approxEq(f32, log1p_32(123123.234375), 11.720949, epsilon));
+    expect(math.approxEqAbs(f32, log1p_32(0.0), 0.0, epsilon));
+    expect(math.approxEqAbs(f32, log1p_32(0.2), 0.182322, epsilon));
+    expect(math.approxEqAbs(f32, log1p_32(0.8923), 0.637793, epsilon));
+    expect(math.approxEqAbs(f32, log1p_32(1.5), 0.916291, epsilon));
+    expect(math.approxEqAbs(f32, log1p_32(37.45), 3.649359, epsilon));
+    expect(math.approxEqAbs(f32, log1p_32(89.123), 4.501175, epsilon));
+    expect(math.approxEqAbs(f32, log1p_32(123123.234375), 11.720949, epsilon));
 }
 
 test "math.log1p_64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f64, log1p_64(0.0), 0.0, epsilon));
-    expect(math.approxEq(f64, log1p_64(0.2), 0.182322, epsilon));
-    expect(math.approxEq(f64, log1p_64(0.8923), 0.637793, epsilon));
-    expect(math.approxEq(f64, log1p_64(1.5), 0.916291, epsilon));
-    expect(math.approxEq(f64, log1p_64(37.45), 3.649359, epsilon));
-    expect(math.approxEq(f64, log1p_64(89.123), 4.501175, epsilon));
-    expect(math.approxEq(f64, log1p_64(123123.234375), 11.720949, epsilon));
+    expect(math.approxEqAbs(f64, log1p_64(0.0), 0.0, epsilon));
+    expect(math.approxEqAbs(f64, log1p_64(0.2), 0.182322, epsilon));
+    expect(math.approxEqAbs(f64, log1p_64(0.8923), 0.637793, epsilon));
+    expect(math.approxEqAbs(f64, log1p_64(1.5), 0.916291, epsilon));
+    expect(math.approxEqAbs(f64, log1p_64(37.45), 3.649359, epsilon));
+    expect(math.approxEqAbs(f64, log1p_64(89.123), 4.501175, epsilon));
+    expect(math.approxEqAbs(f64, log1p_64(123123.234375), 11.720949, epsilon));
 }
 
 test "math.log1p_32.special" {

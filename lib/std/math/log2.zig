@@ -185,21 +185,21 @@ test "math.log2" {
 test "math.log2_32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, log2_32(0.2), -2.321928, epsilon));
-    expect(math.approxEq(f32, log2_32(0.8923), -0.164399, epsilon));
-    expect(math.approxEq(f32, log2_32(1.5), 0.584962, epsilon));
-    expect(math.approxEq(f32, log2_32(37.45), 5.226894, epsilon));
-    expect(math.approxEq(f32, log2_32(123123.234375), 16.909744, epsilon));
+    expect(math.approxEqAbs(f32, log2_32(0.2), -2.321928, epsilon));
+    expect(math.approxEqAbs(f32, log2_32(0.8923), -0.164399, epsilon));
+    expect(math.approxEqAbs(f32, log2_32(1.5), 0.584962, epsilon));
+    expect(math.approxEqAbs(f32, log2_32(37.45), 5.226894, epsilon));
+    expect(math.approxEqAbs(f32, log2_32(123123.234375), 16.909744, epsilon));
 }
 
 test "math.log2_64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f64, log2_64(0.2), -2.321928, epsilon));
-    expect(math.approxEq(f64, log2_64(0.8923), -0.164399, epsilon));
-    expect(math.approxEq(f64, log2_64(1.5), 0.584962, epsilon));
-    expect(math.approxEq(f64, log2_64(37.45), 5.226894, epsilon));
-    expect(math.approxEq(f64, log2_64(123123.234375), 16.909744, epsilon));
+    expect(math.approxEqAbs(f64, log2_64(0.2), -2.321928, epsilon));
+    expect(math.approxEqAbs(f64, log2_64(0.8923), -0.164399, epsilon));
+    expect(math.approxEqAbs(f64, log2_64(1.5), 0.584962, epsilon));
+    expect(math.approxEqAbs(f64, log2_64(37.45), 5.226894, epsilon));
+    expect(math.approxEqAbs(f64, log2_64(123123.234375), 16.909744, epsilon));
 }
 
 test "math.log2_32.special" {

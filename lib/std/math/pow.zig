@@ -191,19 +191,19 @@ fn isOddInteger(x: f64) bool {
 test "math.pow" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, pow(f32, 0.0, 3.3), 0.0, epsilon));
-    expect(math.approxEq(f32, pow(f32, 0.8923, 3.3), 0.686572, epsilon));
-    expect(math.approxEq(f32, pow(f32, 0.2, 3.3), 0.004936, epsilon));
-    expect(math.approxEq(f32, pow(f32, 1.5, 3.3), 3.811546, epsilon));
-    expect(math.approxEq(f32, pow(f32, 37.45, 3.3), 155736.703125, epsilon));
-    expect(math.approxEq(f32, pow(f32, 89.123, 3.3), 2722489.5, epsilon));
+    expect(math.approxEqAbs(f32, pow(f32, 0.0, 3.3), 0.0, epsilon));
+    expect(math.approxEqAbs(f32, pow(f32, 0.8923, 3.3), 0.686572, epsilon));
+    expect(math.approxEqAbs(f32, pow(f32, 0.2, 3.3), 0.004936, epsilon));
+    expect(math.approxEqAbs(f32, pow(f32, 1.5, 3.3), 3.811546, epsilon));
+    expect(math.approxEqAbs(f32, pow(f32, 37.45, 3.3), 155736.703125, epsilon));
+    expect(math.approxEqAbs(f32, pow(f32, 89.123, 3.3), 2722489.5, epsilon));
 
-    expect(math.approxEq(f64, pow(f64, 0.0, 3.3), 0.0, epsilon));
-    expect(math.approxEq(f64, pow(f64, 0.8923, 3.3), 0.686572, epsilon));
-    expect(math.approxEq(f64, pow(f64, 0.2, 3.3), 0.004936, epsilon));
-    expect(math.approxEq(f64, pow(f64, 1.5, 3.3), 3.811546, epsilon));
-    expect(math.approxEq(f64, pow(f64, 37.45, 3.3), 155736.7160616, epsilon));
-    expect(math.approxEq(f64, pow(f64, 89.123, 3.3), 2722490.231436, epsilon));
+    expect(math.approxEqAbs(f64, pow(f64, 0.0, 3.3), 0.0, epsilon));
+    expect(math.approxEqAbs(f64, pow(f64, 0.8923, 3.3), 0.686572, epsilon));
+    expect(math.approxEqAbs(f64, pow(f64, 0.2, 3.3), 0.004936, epsilon));
+    expect(math.approxEqAbs(f64, pow(f64, 1.5, 3.3), 3.811546, epsilon));
+    expect(math.approxEqAbs(f64, pow(f64, 37.45, 3.3), 155736.7160616, epsilon));
+    expect(math.approxEqAbs(f64, pow(f64, 89.123, 3.3), 2722490.231436, epsilon));
 }
 
 test "math.pow.special" {
@@ -230,8 +230,8 @@ test "math.pow.special" {
     expect(pow(f32, -0.0, 1.0) == -0.0);
     expect(pow(f32, 0.0, 2.0) == 0.0);
     expect(pow(f32, -0.0, 2.0) == 0.0);
-    expect(math.approxEq(f32, pow(f32, -1.0, math.inf(f32)), 1.0, epsilon));
-    expect(math.approxEq(f32, pow(f32, -1.0, -math.inf(f32)), 1.0, epsilon));
+    expect(math.approxEqAbs(f32, pow(f32, -1.0, math.inf(f32)), 1.0, epsilon));
+    expect(math.approxEqAbs(f32, pow(f32, -1.0, -math.inf(f32)), 1.0, epsilon));
     expect(math.isPositiveInf(pow(f32, 1.2, math.inf(f32))));
     expect(math.isPositiveInf(pow(f32, -1.2, math.inf(f32))));
     expect(pow(f32, 1.2, -math.inf(f32)) == 0.0);
