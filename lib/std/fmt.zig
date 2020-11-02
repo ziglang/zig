@@ -1703,8 +1703,8 @@ fn testFmt(expected: []const u8, comptime template: []const u8, args: anytype) !
     return error.TestFailed;
 }
 
-pub const trim = @compileError("deprecated; use std.mem.trim instead");
-pub const isWhiteSpace = @compileError("deprecated; use std.mem.isWhiteSpace instead");
+pub const trim = @compileError("deprecated; use std.mem.trim with std.ascii.spaces instead");
+pub const isWhiteSpace = @compileError("deprecated; use std.ascii.isSpace instead");
 
 pub fn hexToBytes(out: []u8, input: []const u8) !void {
     if (out.len * 2 < input.len)
@@ -1890,4 +1890,3 @@ test "null" {
     const inst = null;
     try testFmt("null", "{}", .{inst});
 }
-
