@@ -19,9 +19,6 @@ pub const Address = extern union {
     in6: Ip6Address,
     un: if (has_unix_sockets) os.sockaddr_un else void,
 
-    // TODO this crashed the compiler. https://github.com/ziglang/zig/issues/3512
-    //pub const localhost = initIp4(parseIp4("127.0.0.1") catch unreachable, 0);
-
     /// Parse the given IP address string into an Address value.
     /// It is recommended to use `resolveIp` instead, to handle
     /// IPv6 link-local unix addresses.
