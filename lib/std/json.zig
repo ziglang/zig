@@ -2126,8 +2126,8 @@ fn unescapeString(output: []u8, input: []const u8) !void {
                 const secondCodeUnit = std.fmt.parseInt(u16, input[inIndex + 8 .. inIndex + 12], 16) catch unreachable;
 
                 const utf16le_seq = [2]u16{
-                    mem.littleToNative(u16, firstCodeUnit),
-                    mem.littleToNative(u16, secondCodeUnit),
+                    mem.nativeToLittle(u16, firstCodeUnit),
+                    mem.nativeToLittle(u16, secondCodeUnit),
                 };
                 if (std.unicode.utf16leToUtf8(output[outIndex..], &utf16le_seq)) |byteCount| {
                     outIndex += byteCount;
