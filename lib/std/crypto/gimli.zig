@@ -48,7 +48,14 @@ pub const State = struct {
         return mem.asBytes(&self.data);
     }
 
+    inline fn endianSwap(self: *Self) void {
+        for (self.data) |*w| {
+            w.* = mem.littleToNative(u32, w.*);
+        }
+    }
+
     fn permute_unrolled(self: *Self) void {
+        self.endianSwap();
         const state = &self.data;
         comptime var round = @as(u32, 24);
         inline while (round > 0) : (round -= 1) {
@@ -74,9 +81,11 @@ pub const State = struct {
                 else => {},
             }
         }
+        self.endianSwap();
     }
 
     fn permute_small(self: *Self) void {
+        self.endianSwap();
         const state = &self.data;
         var round = @as(u32, 24);
         while (round > 0) : (round -= 1) {
@@ -102,6 +111,7 @@ pub const State = struct {
                 else => {},
             }
         }
+        self.endianSwap();
     }
 
     const Lane = Vector(4, u32);
@@ -115,6 +125,7 @@ pub const State = struct {
     }
 
     fn permute_vectorized(self: *Self) void {
+        self.endianSwap();
         const state = &self.data;
         var x = Lane{ state[0], state[1], state[2], state[3] };
         var y = Lane{ state[4], state[5], state[6], state[7] };
@@ -146,6 +157,7 @@ pub const State = struct {
             state[4 + i] = y[i];
             state[8 + i] = z[i];
         }
+        self.endianSwap();
     }
 
     pub const permute = if (std.Target.current.cpu.arch == .x86_64) impl: {
