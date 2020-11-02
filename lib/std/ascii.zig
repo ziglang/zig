@@ -230,6 +230,20 @@ pub fn isSpace(c: u8) bool {
     return inTable(c, tIndex.Space);
 }
 
+/// All the values for which isSpace() returns true. This may be used with
+/// e.g. std.mem.trim() to trim whiteSpace.
+pub const spaces = [_]u8{ ' ', '\t', '\n', '\r', control_code.VT, control_code.FF };
+
+test "spaces" {
+    const testing = std.testing;
+    for (spaces) |space| testing.expect(isSpace(space));
+
+    var i: u8 = 0;
+    while (isASCII(i)) : (i += 1) {
+        if (isSpace(i)) testing.expect(std.mem.indexOfScalar(u8, &spaces, i) != null);
+    }
+}
+
 pub fn isUpper(c: u8) bool {
     return inTable(c, tIndex.Upper);
 }
