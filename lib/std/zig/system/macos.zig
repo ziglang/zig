@@ -461,7 +461,7 @@ test "version_from_build" {
 /// The caller needs to free the resulting path slice.
 pub fn getSDKPath(allocator: *mem.Allocator) ![]u8 {
     assert(std.Target.current.isDarwin());
-    const argv = &[_][]const u8{ "/usr/bin/xcrun", "--show-sdk-path" };
+    const argv = &[_][]const u8{ "xcrun", "--show-sdk-path" };
     const result = try std.ChildProcess.exec(.{ .allocator = allocator, .argv = argv });
     defer {
         allocator.free(result.stderr);

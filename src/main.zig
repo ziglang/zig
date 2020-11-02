@@ -315,9 +315,8 @@ const usage_build_generic =
     \\  --subsystem [subsystem]        (windows) /SUBSYSTEM:<subsystem> to the linker\n"
     \\  --stack [size]                 Override default stack size
     \\  --image-base [addr]            Set base address for executable image
-    \\  -syslibroot [dir]              (darwin) prepend a prefix to all search paths
     \\  -framework [name]              (darwin) link against framework
-    \\  -F [dir]                       (darwin) add search path for frameworks
+    \\  -F[dir]                        (darwin) add search path for frameworks
     \\
     \\Test Options:
     \\  --test-filter [text]           Skip tests that do not match filter
@@ -493,7 +492,6 @@ fn buildOutputType(
     var main_pkg_path: ?[]const u8 = null;
     var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
     var subsystem: ?std.Target.SubSystem = null;
-    var syslibroot: ?[]const u8 = null;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -684,10 +682,6 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
                         try lib_dirs.append(args[i]);
-                    } else if (mem.eql(u8, arg, "-syslibroot")) {
-                        if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
-                        i += 1;
-                        syslibroot = args[i];
                     } else if (mem.eql(u8, arg, "-F")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
@@ -1386,12 +1380,6 @@ fn buildOutputType(
         }
     }
 
-    if (cross_target.isNativeOs() and std.Target.current.isDarwin()) {
-        if (syslibroot == null) {
-            syslibroot = try std.zig.system.getSDKPath(arena);
-        }
-    }
-
     const object_format: std.Target.ObjectFormat = blk: {
         const ofmt = target_ofmt orelse break :blk target_info.target.getObjectFormat();
         if (mem.eql(u8, ofmt, "elf")) {
@@ -1640,7 +1628,6 @@ fn buildOutputType(
         .rpath_list = rpath_list.items,
         .c_source_files = c_source_files.items,
         .link_objects = link_objects.items,
-        .syslibroot = syslibroot,
         .framework_dirs = framework_dirs.items,
         .frameworks = frameworks.items,
         .system_libs = system_libs.items,
@@ -2172,7 +2159,6 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         var override_lib_dir: ?[]const u8 = null;
         var override_global_cache_dir: ?[]const u8 = null;
         var override_local_cache_dir: ?[]const u8 = null;
-        var syslibroot: ?[]const u8 = null;
         var child_argv = std.ArrayList([]const u8).init(arena);
 
         const argv_index_exe = child_argv.items.len;
@@ -2213,11 +2199,6 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                         i += 1;
                         override_global_cache_dir = args[i];
                         try child_argv.appendSlice(&[_][]const u8{ arg, args[i] });
-                        continue;
-                    } else if (mem.eql(u8, arg, "--syslibroot")) {
-                        if (i + 1 >= args.len) fatal("expected argument after '{}'", .{arg});
-                        i += 1;
-                        syslibroot = args[i];
                         continue;
                     }
                 }
@@ -2324,12 +2305,6 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         const cross_target: std.zig.CrossTarget = .{};
         const target_info = try detectNativeTargetInfo(gpa, cross_target);
 
-        if (cross_target.isNativeOs() and target_info.target.isDarwin()) {
-            if (syslibroot == null) {
-                syslibroot = try std.zig.system.getSDKPath(arena);
-            }
-        }
-
         const exe_basename = try std.zig.binNameAlloc(arena, .{
             .root_name = "build",
             .target = target_info.target,
@@ -2353,7 +2328,6 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             .target = target_info.target,
             .is_native_os = cross_target.isNativeOs(),
             .dynamic_linker = target_info.dynamic_linker.get(),
-            .syslibroot = syslibroot,
             .output_mode = .Exe,
             .root_pkg = &root_pkg,
             .emit_bin = emit_bin,

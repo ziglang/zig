@@ -333,7 +333,6 @@ pub const InitOptions = struct {
     keep_source_files_loaded: bool = false,
     clang_argv: []const []const u8 = &[0][]const u8{},
     lld_argv: []const []const u8 = &[0][]const u8{},
-    syslibroot: ?[]const u8 = null,
     lib_dirs: []const []const u8 = &[0][]const u8{},
     rpath_list: []const []const u8 = &[0][]const u8{},
     c_source_files: []const CSourceFile = &[0]CSourceFile{},
@@ -472,6 +471,11 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
             break :blk false;
         };
+
+        const syslibroot = if (use_lld and options.is_native_os and options.target.isDarwin()) blk: {
+            const syslibroot_path = try std.zig.system.getSDKPath(arena);
+            break :blk syslibroot_path;
+        } else null;
 
         const link_libc = options.link_libc or target_util.osRequiresLibC(options.target);
 
@@ -774,7 +778,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .frameworks = options.frameworks,
             .framework_dirs = options.framework_dirs,
             .system_libs = system_libs,
-            .syslibroot = options.syslibroot,
+            .syslibroot = syslibroot,
             .lib_dirs = options.lib_dirs,
             .rpath_list = options.rpath_list,
             .strip = strip,
