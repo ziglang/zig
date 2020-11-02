@@ -495,7 +495,13 @@ test "vector reduce operation" {
             var r = @reduce(op, @as(Vector(N, TX), x));
             switch (@typeInfo(TX)) {
                 .Int, .Bool => expectEqual(expected, r),
-                .Float => expectWithinEpsilon(expected, r, 0.001),
+                .Float => {
+                    if (math.isNan(expected) != math.isNan(r)) {
+                        std.debug.panic("unexpected NaN value!\n", .{});
+                    } else {
+                        expectWithinEpsilon(expected, r, 0.001);
+                    }
+                },
                 else => unreachable,
             }
         }
@@ -583,16 +589,6 @@ test "vector reduce operation" {
             doTheTestReduce(.Add, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
             doTheTestReduce(.Add, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
             doTheTestReduce(.Add, [4]f128{ -1.9, 5.1, f128_nan, 100.0 }, f128_nan);
-
-            doTheTestReduce(.Min, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
-            doTheTestReduce(.Min, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
-            doTheTestReduce(.Min, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
-            doTheTestReduce(.Min, [4]f128{ -1.9, 5.1, f128_nan, 100.0 }, f128_nan);
-
-            doTheTestReduce(.Max, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
-            doTheTestReduce(.Max, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
-            doTheTestReduce(.Max, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
-            doTheTestReduce(.Max, [4]f128{ -1.9, 5.1, f128_nan, 100.0 }, f128_nan);
 
             doTheTestReduce(.Mul, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
             doTheTestReduce(.Mul, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
