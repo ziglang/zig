@@ -11,7 +11,7 @@ const builtin = std.builtin;
 const assert = std.debug.assert;
 const uefi = std.os.uefi;
 
-var starting_stack_ptr: [*]usize = undefined;
+var argc_argv_ptr: [*]usize = undefined;
 
 const start_sym_name = if (builtin.arch.isMIPS()) "__start" else "_start";
 
@@ -102,26 +102,26 @@ fn _start() callconv(.Naked) noreturn {
 
     switch (builtin.arch) {
         .x86_64 => {
-            starting_stack_ptr = asm volatile (
+            argc_argv_ptr = asm volatile (
                 \\ xor %%rbp, %%rbp
                 : [argc] "={rsp}" (-> [*]usize)
             );
         },
         .i386 => {
-            starting_stack_ptr = asm volatile (
+            argc_argv_ptr = asm volatile (
                 \\ xor %%ebp, %%ebp
                 : [argc] "={esp}" (-> [*]usize)
             );
         },
         .aarch64, .aarch64_be, .arm, .armeb => {
-            starting_stack_ptr = asm volatile (
+            argc_argv_ptr = asm volatile (
                 \\ mov fp, #0
                 \\ mov lr, #0
                 : [argc] "={sp}" (-> [*]usize)
             );
         },
         .riscv64 => {
-            starting_stack_ptr = asm volatile (
+            argc_argv_ptr = asm volatile (
                 \\ li s0, 0
                 \\ li ra, 0
                 : [argc] "={sp}" (-> [*]usize)
@@ -129,7 +129,7 @@ fn _start() callconv(.Naked) noreturn {
         },
         .mips, .mipsel => {
             // The lr is already zeroed on entry, as specified by the ABI.
-            starting_stack_ptr = asm volatile (
+            argc_argv_ptr = asm volatile (
                 \\ move $fp, $0
                 : [argc] "={sp}" (-> [*]usize)
             );
@@ -137,7 +137,7 @@ fn _start() callconv(.Naked) noreturn {
         .powerpc64le => {
             // Setup the initial stack frame and clear the back chain pointer.
             // TODO: Support powerpc64 (big endian) on ELFv2.
-            starting_stack_ptr = asm volatile (
+            argc_argv_ptr = asm volatile (
                 \\ mr 4, 1
                 \\ li 0, 0
                 \\ stdu 0, -32(1)
@@ -145,6 +145,14 @@ fn _start() callconv(.Naked) noreturn {
                 : [argc] "={r4}" (-> [*]usize)
                 :
                 : "r0"
+            );
+        },
+        .sparcv9 => {
+            // argc is stored after a register window (16 registers) plus stack bias
+            argc_argv_ptr = asm (
+                \\ mov %%g0, %%i6
+                \\ add %%o6, 2175, %[argc]
+                : [argc] "=r" (-> [*]usize)
             );
         },
         else => @compileError("unsupported arch"),
@@ -182,8 +190,8 @@ fn posixCallMainAndExit() noreturn {
     if (builtin.os.tag == .freebsd) {
         @setAlignStack(16);
     }
-    const argc = starting_stack_ptr[0];
-    const argv = @ptrCast([*][*:0]u8, starting_stack_ptr + 1);
+    const argc = argc_argv_ptr[0];
+    const argv = @ptrCast([*][*:0]u8, argc_argv_ptr + 1);
 
     const envp_optional = @ptrCast([*:null]?[*:0]u8, @alignCast(@alignOf(usize), argv + argc + 1));
     var envp_count: usize = 0;

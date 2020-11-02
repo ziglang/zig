@@ -24,6 +24,7 @@ pub usingnamespace switch (builtin.arch) {
     .aarch64 => @import("linux/arm64.zig"),
     .arm => @import("linux/arm-eabi.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
+    .sparcv9 => @import("linux/sparc64.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
     .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
     else => struct {},
@@ -381,7 +382,7 @@ pub fn faccessat(dirfd: i32, path: [*:0]const u8, mode: u32, flags: u32) usize {
 }
 
 pub fn pipe(fd: *[2]i32) usize {
-    if (comptime builtin.arch.isMIPS()) {
+    if (comptime (builtin.arch.isMIPS() or builtin.arch.isSPARC())) {
         return syscall_pipe(fd);
     } else if (@hasField(SYS, "pipe")) {
         return syscall1(.pipe, @ptrToInt(fd));
@@ -818,7 +819,11 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
     var ksa_old: k_sigaction = undefined;
     const ksa_mask_size = @sizeOf(@TypeOf(ksa_old.mask));
     @memcpy(@ptrCast([*]u8, &ksa.mask), @ptrCast([*]const u8, &act.mask), ksa_mask_size);
-    const result = syscall4(.rt_sigaction, sig, @ptrToInt(&ksa), @ptrToInt(&ksa_old), ksa_mask_size);
+    const result = switch (builtin.arch) {
+        // The sparc version of rt_sigaction needs the restorer function to be passed as an argument too.
+        .sparc, .sparcv9 => syscall5(.rt_sigaction, sig, @ptrToInt(&ksa), @ptrToInt(&ksa_old), @ptrToInt(ksa.restorer), ksa_mask_size),
+        else => syscall4(.rt_sigaction, sig, @ptrToInt(&ksa), @ptrToInt(&ksa_old), ksa_mask_size),
+    };
     const err = getErrno(result);
     if (err != 0) {
         return result;

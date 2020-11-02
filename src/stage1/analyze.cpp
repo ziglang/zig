@@ -1016,6 +1016,7 @@ bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id) {
         target_is_arm(g->zig_target) ||
         target_is_riscv(g->zig_target) ||
         target_is_wasm(g->zig_target) ||
+        target_is_sparc(g->zig_target) ||
         target_is_ppc(g->zig_target))
     {
         X64CABIClass abi_class = type_c_abi_x86_64_class(g, fn_type_id->return_type);

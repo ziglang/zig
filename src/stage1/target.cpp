@@ -1223,6 +1223,10 @@ bool target_is_riscv(const ZigTarget *target) {
     return target->arch == ZigLLVM_riscv32 || target->arch == ZigLLVM_riscv64;
 }
 
+bool target_is_sparc(const ZigTarget *target) {
+    return target->arch == ZigLLVM_sparc || target->arch == ZigLLVM_sparcv9;
+}
+
 bool target_is_mips(const ZigTarget *target) {
     return target->arch == ZigLLVM_mips || target->arch == ZigLLVM_mipsel ||
         target->arch == ZigLLVM_mips64 || target->arch == ZigLLVM_mips64el;

@@ -761,6 +761,13 @@ pub const Target = struct {
                 };
             }
 
+            pub fn isSPARC(arch: Arch) bool {
+                return switch (arch) {
+                    .sparc, .sparcel, .sparcv9 => true,
+                    else => false,
+                };
+            }
+
             pub fn parseCpuModel(arch: Arch, cpu_name: []const u8) !*const Cpu.Model {
                 for (arch.allCpuModels()) |cpu| {
                     if (mem.eql(u8, cpu_name, cpu.name)) {
@@ -1120,7 +1127,8 @@ pub const Target = struct {
                     .amdgcn => &amdgpu.cpu.generic,
                     .riscv32 => &riscv.cpu.generic_rv32,
                     .riscv64 => &riscv.cpu.generic_rv64,
-                    .sparc, .sparcv9, .sparcel => &sparc.cpu.generic,
+                    .sparc, .sparcel => &sparc.cpu.v8,
+                    .sparcv9 => &sparc.cpu.v9,
                     .s390x => &systemz.cpu.generic,
                     .i386 => &x86.cpu._i386,
                     .x86_64 => &x86.cpu.x86_64,
