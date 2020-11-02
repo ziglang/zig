@@ -24,8 +24,8 @@ test "fallocate" {
         0 => {},
         linux.ENOSYS => return error.SkipZigTest,
         linux.EOPNOTSUPP => return error.SkipZigTest,
-        else |errno| => {
-            std.debug.print("Unhandled Errno:" errno);
+        else => |errno| {
+            std.debug.print("Unhandled Errno: {}", .{ errno });
             return error.SkipZigTest;
         },
     }
