@@ -628,6 +628,11 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             }
         }
 
+        if (self.base.options.syslibroot) |dir| {
+            try argv.append("-syslibroot");
+            try argv.append(dir);
+        }
+
         for (self.base.options.lib_dirs) |lib_dir| {
             try argv.append("-L");
             try argv.append(lib_dir);

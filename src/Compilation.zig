@@ -472,6 +472,14 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             break :blk false;
         };
 
+        const syslibroot = if (build_options.have_llvm and comptime std.Target.current.isDarwin()) outer: {
+            const path = if (use_lld and options.is_native_os and options.target.isDarwin()) inner: {
+                const syslibroot_path = try std.zig.system.getSDKPath(arena);
+                break :inner syslibroot_path;
+            } else null;
+            break :outer path;
+        } else null;
+
         const link_libc = options.link_libc or target_util.osRequiresLibC(options.target);
 
         const must_dynamic_link = dl: {
@@ -773,6 +781,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .frameworks = options.frameworks,
             .framework_dirs = options.framework_dirs,
             .system_libs = system_libs,
+            .syslibroot = syslibroot,
             .lib_dirs = options.lib_dirs,
             .rpath_list = options.rpath_list,
             .strip = strip,

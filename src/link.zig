@@ -88,6 +88,8 @@ pub const Options = struct {
     llvm_cpu_features: ?[*:0]const u8,
     /// Extra args passed directly to LLD. Ignored when not linking with LLD.
     extra_lld_args: []const []const u8,
+    /// Darwin-only. Set the root path to the system libraries and frameworks.
+    syslibroot: ?[]const u8,
 
     objects: []const []const u8,
     framework_dirs: []const []const u8,

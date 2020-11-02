@@ -17,6 +17,8 @@ const macos = @import("system/macos.zig");
 
 const is_windows = Target.current.os.tag == .windows;
 
+pub const getSDKPath = macos.getSDKPath;
+
 pub const NativePaths = struct {
     include_dirs: ArrayList([:0]u8),
     lib_dirs: ArrayList([:0]u8),
