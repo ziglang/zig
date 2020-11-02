@@ -6,18 +6,26 @@
 
 /// Authenticated Encryption with Associated Data
 pub const aead = struct {
-    pub const Aegis128L = @import("crypto/aegis.zig").Aegis128L;
-    pub const Aegis256 = @import("crypto/aegis.zig").Aegis256;
+    pub const aegis = struct {
+        pub const Aegis128L = @import("crypto/aegis.zig").Aegis128L;
+        pub const Aegis256 = @import("crypto/aegis.zig").Aegis256;
+    };
 
-    pub const Aes128Gcm = @import("crypto/aes_gcm.zig").Aes128Gcm;
-    pub const Aes256Gcm = @import("crypto/aes_gcm.zig").Aes256Gcm;
+    pub const aes_gcm = struct {
+        pub const Aes128Gcm = @import("crypto/aes_gcm.zig").Aes128Gcm;
+        pub const Aes256Gcm = @import("crypto/aes_gcm.zig").Aes256Gcm;
+    };
 
     pub const Gimli = @import("crypto/gimli.zig").Aead;
 
-    pub const ChaCha20Poly1305 = @import("crypto/chacha20.zig").Chacha20Poly1305;
-    pub const XChaCha20Poly1305 = @import("crypto/chacha20.zig").XChacha20Poly1305;
+    pub const chacha_poly = struct {
+        pub const ChaCha20Poly1305 = @import("crypto/chacha20.zig").Chacha20Poly1305;
+        pub const XChaCha20Poly1305 = @import("crypto/chacha20.zig").XChacha20Poly1305;
+    };
 
-    pub const XSalsa20Poly1305 = @import("crypto/salsa20.zig").XSalsa20Poly1305;
+    pub const salsa_poly = struct {
+        pub const XSalsa20Poly1305 = @import("crypto/salsa20.zig").XSalsa20Poly1305;
+    };
 };
 
 /// Authentication (MAC) functions.
@@ -102,12 +110,16 @@ pub const sign = struct {
 /// Stream ciphers. These do not provide any kind of authentication.
 /// Most applications should be using AEAD constructions instead of stream ciphers directly.
 pub const stream = struct {
-    pub const ChaCha20IETF = @import("crypto/chacha20.zig").ChaCha20IETF;
-    pub const ChaCha20With64BitNonce = @import("crypto/chacha20.zig").ChaCha20With64BitNonce;
-    pub const XChaCha20IETF = @import("crypto/chacha20.zig").XChaCha20IETF;
+    pub const chacha = struct {
+        pub const ChaCha20IETF = @import("crypto/chacha20.zig").ChaCha20IETF;
+        pub const ChaCha20With64BitNonce = @import("crypto/chacha20.zig").ChaCha20With64BitNonce;
+        pub const XChaCha20IETF = @import("crypto/chacha20.zig").XChaCha20IETF;
+    };
 
-    pub const Salsa20 = @import("crypto/salsa20.zig").Salsa20;
-    pub const XSalsa20 = @import("crypto/salsa20.zig").XSalsa20;
+    pub const salsa = struct {
+        pub const Salsa20 = @import("crypto/salsa20.zig").Salsa20;
+        pub const XSalsa20 = @import("crypto/salsa20.zig").XSalsa20;
+    };
 };
 
 pub const nacl = struct {
