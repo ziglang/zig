@@ -6,10 +6,11 @@
 // Based on public domain Supercop by Daniel J. Bernstein
 
 const std = @import("../std.zig");
+const math = std.math;
 const mem = std.mem;
 const assert = std.debug.assert;
 const testing = std.testing;
-const maxInt = std.math.maxInt;
+const maxInt = math.maxInt;
 const Vector = std.meta.Vector;
 const Poly1305 = std.crypto.onetimeauth.Poly1305;
 
@@ -34,10 +35,6 @@ const ChaCha20VecImpl = struct {
         };
     }
 
-    inline fn rot(x: Lane, comptime n: comptime_int) Lane {
-        return (x << @splat(4, @as(u5, n))) | (x >> @splat(4, @as(u5, 32 - n)));
-    }
-
     inline fn chacha20Core(x: *BlockVec, input: BlockVec) void {
         x.* = input;
 
@@ -45,41 +42,41 @@ const ChaCha20VecImpl = struct {
         while (r < 20) : (r += 2) {
             x[0] +%= x[1];
             x[3] ^= x[0];
-            x[3] = rot(x[3], 16);
+            x[3] = math.rotl(Lane, x[3], 16);
 
             x[2] +%= x[3];
             x[1] ^= x[2];
-            x[1] = rot(x[1], 12);
+            x[1] = math.rotl(Lane, x[1], 12);
 
             x[0] +%= x[1];
             x[3] ^= x[0];
             x[0] = @shuffle(u32, x[0], undefined, [_]i32{ 3, 0, 1, 2 });
-            x[3] = rot(x[3], 8);
+            x[3] = math.rotl(Lane, x[3], 8);
 
             x[2] +%= x[3];
             x[3] = @shuffle(u32, x[3], undefined, [_]i32{ 2, 3, 0, 1 });
             x[1] ^= x[2];
             x[2] = @shuffle(u32, x[2], undefined, [_]i32{ 1, 2, 3, 0 });
-            x[1] = rot(x[1], 7);
+            x[1] = math.rotl(Lane, x[1], 7);
 
             x[0] +%= x[1];
             x[3] ^= x[0];
-            x[3] = rot(x[3], 16);
+            x[3] = math.rotl(Lane, x[3], 16);
 
             x[2] +%= x[3];
             x[1] ^= x[2];
-            x[1] = rot(x[1], 12);
+            x[1] = math.rotl(Lane, x[1], 12);
 
             x[0] +%= x[1];
             x[3] ^= x[0];
             x[0] = @shuffle(u32, x[0], undefined, [_]i32{ 1, 2, 3, 0 });
-            x[3] = rot(x[3], 8);
+            x[3] = math.rotl(Lane, x[3], 8);
 
             x[2] +%= x[3];
             x[3] = @shuffle(u32, x[3], undefined, [_]i32{ 2, 3, 0, 1 });
             x[1] ^= x[2];
             x[2] = @shuffle(u32, x[2], undefined, [_]i32{ 3, 0, 1, 2 });
-            x[1] = rot(x[1], 7);
+            x[1] = math.rotl(Lane, x[1], 7);
         }
     }
 
@@ -211,13 +208,13 @@ const ChaCha20NonVecImpl = struct {
         inline while (j < 20) : (j += 2) {
             inline for (rounds) |r| {
                 x[r.a] +%= x[r.b];
-                x[r.d] = std.math.rotl(u32, x[r.d] ^ x[r.a], @as(u32, 16));
+                x[r.d] = math.rotl(u32, x[r.d] ^ x[r.a], @as(u32, 16));
                 x[r.c] +%= x[r.d];
-                x[r.b] = std.math.rotl(u32, x[r.b] ^ x[r.c], @as(u32, 12));
+                x[r.b] = math.rotl(u32, x[r.b] ^ x[r.c], @as(u32, 12));
                 x[r.a] +%= x[r.b];
-                x[r.d] = std.math.rotl(u32, x[r.d] ^ x[r.a], @as(u32, 8));
+                x[r.d] = math.rotl(u32, x[r.d] ^ x[r.a], @as(u32, 8));
                 x[r.c] +%= x[r.d];
-                x[r.b] = std.math.rotl(u32, x[r.b] ^ x[r.c], @as(u32, 7));
+                x[r.b] = math.rotl(u32, x[r.b] ^ x[r.c], @as(u32, 7));
             }
         }
     }
