@@ -2998,7 +2998,7 @@ fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
     }
 
     while (true) {
-        lim.cur = min + (max - min) / 2;
+        lim.cur = min + @divTrunc(max - min, 2); // on freebsd rlim_t is signed
         if (posix.setrlimit(.NOFILE, lim)) |_| {
             min = lim.cur;
         } else |_| {
