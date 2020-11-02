@@ -472,7 +472,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             break :blk false;
         };
 
-        const syslibroot = if (use_lld and options.is_native_os and options.target.isDarwin()) blk: {
+        const syslibroot = if (build_options.have_llvm and use_lld and options.is_native_os and options.target.isDarwin()) blk: {
             const syslibroot_path = try std.zig.system.getSDKPath(arena);
             break :blk syslibroot_path;
         } else null;
