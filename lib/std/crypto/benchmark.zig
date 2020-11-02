@@ -200,14 +200,14 @@ pub fn benchmarkBatchSignatureVerification(comptime Signature: anytype, comptime
 }
 
 const aeads = [_]Crypto{
-    Crypto{ .ty = crypto.aead.ChaCha20Poly1305, .name = "chacha20Poly1305" },
-    Crypto{ .ty = crypto.aead.XChaCha20Poly1305, .name = "xchacha20Poly1305" },
-    Crypto{ .ty = crypto.aead.XSalsa20Poly1305, .name = "xsalsa20Poly1305" },
+    Crypto{ .ty = crypto.aead.chacha_poly.ChaCha20Poly1305, .name = "chacha20Poly1305" },
+    Crypto{ .ty = crypto.aead.chacha_poly.XChaCha20Poly1305, .name = "xchacha20Poly1305" },
+    Crypto{ .ty = crypto.aead.salsa_poly.XSalsa20Poly1305, .name = "xsalsa20Poly1305" },
     Crypto{ .ty = crypto.aead.Gimli, .name = "gimli-aead" },
-    Crypto{ .ty = crypto.aead.Aegis128L, .name = "aegis-128l" },
-    Crypto{ .ty = crypto.aead.Aegis256, .name = "aegis-256" },
-    Crypto{ .ty = crypto.aead.Aes128Gcm, .name = "aes128-gcm" },
-    Crypto{ .ty = crypto.aead.Aes256Gcm, .name = "aes256-gcm" },
+    Crypto{ .ty = crypto.aead.aegis.Aegis128L, .name = "aegis-128l" },
+    Crypto{ .ty = crypto.aead.aegis.Aegis256, .name = "aegis-256" },
+    Crypto{ .ty = crypto.aead.aes_gcm.Aes128Gcm, .name = "aes128-gcm" },
+    Crypto{ .ty = crypto.aead.aes_gcm.Aes256Gcm, .name = "aes256-gcm" },
 };
 
 pub fn benchmarkAead(comptime Aead: anytype, comptime bytes: comptime_int) !u64 {
