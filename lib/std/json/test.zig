@@ -337,18 +337,12 @@ test "y_string_1_2_3_bytes_UTF-8_sequences" {
 }
 
 test "y_string_accepted_surrogate_pair" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     ok(
         \\["\uD801\udc37"]
     );
 }
 
 test "y_string_accepted_surrogate_pairs" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     ok(
         \\["\ud83d\ude39\ud83d\udc8d"]
     );
@@ -415,9 +409,6 @@ test "y_string_in_array_with_leading_space" {
 }
 
 test "y_string_last_surrogates_1_and_2" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     ok(
         \\["\uDBFF\uDFFF"]
     );
@@ -478,9 +469,6 @@ test "y_string_space" {
 }
 
 test "y_string_surrogates_U+1D11E_MUSICAL_SYMBOL_G_CLEF" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     ok(
         \\["\uD834\uDd1e"]
     );
@@ -523,90 +511,60 @@ test "y_string_unescaped_char_delete" {
 }
 
 test "y_string_unicode_2" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     ok(
         \\["⍂㈴⍂"]
     );
 }
 
 test "y_string_unicodeEscapedBackslash" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     ok(
         \\["\u005C"]
     );
 }
 
 test "y_string_unicode_escaped_double_quote" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     ok(
         \\["\u0022"]
     );
 }
 
 test "y_string_unicode" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     ok(
         \\["\uA66D"]
     );
 }
 
 test "y_string_unicode_U+10FFFE_nonchar" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     ok(
         \\["\uDBFF\uDFFE"]
     );
 }
 
 test "y_string_unicode_U+1FFFE_nonchar" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     ok(
         \\["\uD83F\uDFFE"]
     );
 }
 
 test "y_string_unicode_U+200B_ZERO_WIDTH_SPACE" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     ok(
         \\["\u200B"]
     );
 }
 
 test "y_string_unicode_U+2064_invisible_plus" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     ok(
         \\["\u2064"]
     );
 }
 
 test "y_string_unicode_U+FDD0_nonchar" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     ok(
         \\["\uFDD0"]
     );
 }
 
 test "y_string_unicode_U+FFFE_nonchar" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     ok(
         \\["\uFFFE"]
     );
@@ -1858,63 +1816,42 @@ test "i_object_key_lone_2nd_surrogate" {
 }
 
 test "i_string_1st_surrogate_but_2nd_missing" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     anyStreamingErrNonStreaming(
         \\["\uDADA"]
     );
 }
 
 test "i_string_1st_valid_surrogate_2nd_invalid" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     anyStreamingErrNonStreaming(
         \\["\uD888\u1234"]
     );
 }
 
 test "i_string_incomplete_surrogate_and_escape_valid" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     anyStreamingErrNonStreaming(
         \\["\uD800\n"]
     );
 }
 
 test "i_string_incomplete_surrogate_pair" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     anyStreamingErrNonStreaming(
         \\["\uDd1ea"]
     );
 }
 
 test "i_string_incomplete_surrogates_escape_valid" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     anyStreamingErrNonStreaming(
         \\["\uD800\uD800\n"]
     );
 }
 
 test "i_string_invalid_lonely_surrogate" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     anyStreamingErrNonStreaming(
         \\["\ud800"]
     );
 }
 
 test "i_string_invalid_surrogate" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     anyStreamingErrNonStreaming(
         \\["\ud800abc"]
     );
@@ -1927,9 +1864,6 @@ test "i_string_invalid_utf-8" {
 }
 
 test "i_string_inverted_surrogates_U+1D11E" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     anyStreamingErrNonStreaming(
         \\["\uDd1e\uD834"]
     );
@@ -1942,9 +1876,6 @@ test "i_string_iso_latin_1" {
 }
 
 test "i_string_lone_second_surrogate" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     anyStreamingErrNonStreaming(
         \\["\uDFAA"]
     );

@@ -930,9 +930,6 @@ test "basic hash map usage" {
 }
 
 test "iterator hash map" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     var reset_map = AutoArrayHashMap(i32, i32).init(std.testing.allocator);
     defer reset_map.deinit();
 

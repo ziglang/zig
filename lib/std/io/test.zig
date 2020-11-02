@@ -140,9 +140,6 @@ test "File seek ops" {
 }
 
 test "setEndPos" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 

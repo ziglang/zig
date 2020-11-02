@@ -2125,7 +2125,11 @@ fn unescapeString(output: []u8, input: []const u8) !void {
 
                 const secondCodeUnit = std.fmt.parseInt(u16, input[inIndex + 8 .. inIndex + 12], 16) catch unreachable;
 
-                if (std.unicode.utf16leToUtf8(output[outIndex..], &[2]u16{ firstCodeUnit, secondCodeUnit })) |byteCount| {
+                const utf16le_seq = [2]u16{
+                    mem.littleToNative(u16, firstCodeUnit),
+                    mem.littleToNative(u16, secondCodeUnit),
+                };
+                if (std.unicode.utf16leToUtf8(output[outIndex..], &utf16le_seq)) |byteCount| {
                     outIndex += byteCount;
                     inIndex += 12;
                 } else |_| {
@@ -2265,9 +2269,6 @@ test "integer after float has proper type" {
 }
 
 test "escaped characters" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
     const input =
@@ -2300,9 +2301,6 @@ test "escaped characters" {
 }
 
 test "string copy option" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     const input =
         \\{
         \\  "noescape": "aą😂",
@@ -2721,9 +2719,9 @@ test "stringify struct with indentation" {
         \\}
     ,
         struct {
-                foo: u32,
-                bar: [3]u32,
-            }{
+            foo: u32,
+            bar: [3]u32,
+        }{
             .foo = 42,
             .bar = .{ 1, 2, 3 },
         },
@@ -2734,9 +2732,9 @@ test "stringify struct with indentation" {
     try teststringify(
         "{\n\t\"foo\":42,\n\t\"bar\":[\n\t\t1,\n\t\t2,\n\t\t3\n\t]\n}",
         struct {
-                foo: u32,
-                bar: [3]u32,
-            }{
+            foo: u32,
+            bar: [3]u32,
+        }{
             .foo = 42,
             .bar = .{ 1, 2, 3 },
         },

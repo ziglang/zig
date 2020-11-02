@@ -706,41 +706,52 @@ fn calcUtf16LeLen(utf8: []const u8) usize {
 }
 
 test "utf8ToUtf16LeStringLiteral" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     {
-        const bytes = [_:0]u16{0x41};
+        const bytes = [_:0]u16{
+            mem.nativeToLittle(u16, 0x41),
+        };
         const utf16 = utf8ToUtf16LeStringLiteral("A");
         testing.expectEqualSlices(u16, &bytes, utf16);
         testing.expect(utf16[1] == 0);
     }
     {
-        const bytes = [_:0]u16{ 0xD801, 0xDC37 };
+        const bytes = [_:0]u16{
+            mem.nativeToLittle(u16, 0xD801),
+            mem.nativeToLittle(u16, 0xDC37),
+        };
         const utf16 = utf8ToUtf16LeStringLiteral("𐐷");
         testing.expectEqualSlices(u16, &bytes, utf16);
         testing.expect(utf16[2] == 0);
     }
     {
-        const bytes = [_:0]u16{0x02FF};
+        const bytes = [_:0]u16{
+            mem.nativeToLittle(u16, 0x02FF),
+        };
         const utf16 = utf8ToUtf16LeStringLiteral("\u{02FF}");
         testing.expectEqualSlices(u16, &bytes, utf16);
         testing.expect(utf16[1] == 0);
     }
     {
-        const bytes = [_:0]u16{0x7FF};
+        const bytes = [_:0]u16{
+            mem.nativeToLittle(u16, 0x7FF),
+        };
         const utf16 = utf8ToUtf16LeStringLiteral("\u{7FF}");
         testing.expectEqualSlices(u16, &bytes, utf16);
         testing.expect(utf16[1] == 0);
     }
     {
-        const bytes = [_:0]u16{0x801};
+        const bytes = [_:0]u16{
+            mem.nativeToLittle(u16, 0x801),
+        };
         const utf16 = utf8ToUtf16LeStringLiteral("\u{801}");
         testing.expectEqualSlices(u16, &bytes, utf16);
         testing.expect(utf16[1] == 0);
     }
     {
-        const bytes = [_:0]u16{ 0xDBFF, 0xDFFF };
+        const bytes = [_:0]u16{
+            mem.nativeToLittle(u16, 0xDBFF),
+            mem.nativeToLittle(u16, 0xDFFF),
+        };
         const utf16 = utf8ToUtf16LeStringLiteral("\u{10FFFF}");
         testing.expectEqualSlices(u16, &bytes, utf16);
         testing.expect(utf16[2] == 0);

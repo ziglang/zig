@@ -48,12 +48,26 @@ pub fn getauxval(index: usize) usize {
     return 0;
 }
 
-// Some architectures require 64bit parameters for some syscalls to be passed in
-// even-aligned register pair
+// Some architectures (and some syscalls) require 64bit parameters to be passed
+// in a even-aligned register pair.
 const require_aligned_register_pair = //
     std.Target.current.cpu.arch.isMIPS() or
     std.Target.current.cpu.arch.isARM() or
     std.Target.current.cpu.arch.isThumb();
+
+// Split a 64bit value into a {LSB,MSB} pair.
+fn splitValue64(val: u64) [2]u32 {
+    switch (builtin.endian) {
+        .Little => return [2]u32{
+            @truncate(u32, val),
+            @truncate(u32, val >> 32),
+        },
+        .Big => return [2]u32{
+            @truncate(u32, val >> 32),
+            @truncate(u32, val),
+        },
+    }
+}
 
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) u12 {
@@ -263,24 +277,26 @@ pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
 }
 
 pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: u64) usize {
+    const offset_halves = splitValue64(offset);
     return syscall5(
         .preadv,
         @bitCast(usize, @as(isize, fd)),
         @ptrToInt(iov),
         count,
-        @truncate(usize, offset),
-        @truncate(usize, offset >> 32),
+        offset_halves[0],
+        offset_halves[1],
     );
 }
 
 pub fn preadv2(fd: i32, iov: [*]const iovec, count: usize, offset: u64, flags: kernel_rwf) usize {
+    const offset_halves = splitValue64(offset);
     return syscall6(
         .preadv2,
         @bitCast(usize, @as(isize, fd)),
         @ptrToInt(iov),
         count,
-        @truncate(usize, offset),
-        @truncate(usize, offset >> 32),
+        offset_halves[0],
+        offset_halves[1],
         flags,
     );
 }
@@ -294,24 +310,26 @@ pub fn writev(fd: i32, iov: [*]const iovec_const, count: usize) usize {
 }
 
 pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64) usize {
+    const offset_halves = splitValue64(offset);
     return syscall5(
         .pwritev,
         @bitCast(usize, @as(isize, fd)),
         @ptrToInt(iov),
         count,
-        @truncate(usize, offset),
-        @truncate(usize, offset >> 32),
+        offset_halves[0],
+        offset_halves[1],
     );
 }
 
 pub fn pwritev2(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64, flags: kernel_rwf) usize {
+    const offset_halves = splitValue64(offset);
     return syscall6(
         .pwritev2,
         @bitCast(usize, @as(isize, fd)),
         @ptrToInt(iov),
         count,
-        @truncate(usize, offset),
-        @truncate(usize, offset >> 32),
+        offset_halves[0],
+        offset_halves[1],
         flags,
     );
 }
@@ -338,6 +356,7 @@ pub fn symlinkat(existing: [*:0]const u8, newfd: i32, newpath: [*:0]const u8) us
 
 pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: u64) usize {
     if (@hasField(SYS, "pread64")) {
+        const offset_halves = splitValue64(offset);
         if (require_aligned_register_pair) {
             return syscall6(
                 .pread64,
@@ -345,8 +364,8 @@ pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: u64) usize {
                 @ptrToInt(buf),
                 count,
                 0,
-                @truncate(usize, offset),
-                @truncate(usize, offset >> 32),
+                offset_halves[0],
+                offset_halves[1],
             );
         } else {
             return syscall5(
@@ -354,8 +373,8 @@ pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: u64) usize {
                 @bitCast(usize, @as(isize, fd)),
                 @ptrToInt(buf),
                 count,
-                @truncate(usize, offset),
-                @truncate(usize, offset >> 32),
+                offset_halves[0],
+                offset_halves[1],
             );
         }
     } else {
@@ -401,20 +420,21 @@ pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
 
 pub fn ftruncate(fd: i32, length: u64) usize {
     if (@hasField(SYS, "ftruncate64")) {
+        const length_halves = splitValue64(length);
         if (require_aligned_register_pair) {
             return syscall4(
                 .ftruncate64,
                 @bitCast(usize, @as(isize, fd)),
                 0,
-                @truncate(usize, length),
-                @truncate(usize, length >> 32),
+                length_halves[0],
+                length_halves[1],
             );
         } else {
             return syscall3(
                 .ftruncate64,
                 @bitCast(usize, @as(isize, fd)),
-                @truncate(usize, length),
-                @truncate(usize, length >> 32),
+                length_halves[0],
+                length_halves[1],
             );
         }
     } else {
@@ -428,6 +448,8 @@ pub fn ftruncate(fd: i32, length: u64) usize {
 
 pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: u64) usize {
     if (@hasField(SYS, "pwrite64")) {
+        const offset_halves = splitValue64(offset);
+
         if (require_aligned_register_pair) {
             return syscall6(
                 .pwrite64,
@@ -435,8 +457,8 @@ pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: u64) usize {
                 @ptrToInt(buf),
                 count,
                 0,
-                @truncate(usize, offset),
-                @truncate(usize, offset >> 32),
+                offset_halves[0],
+                offset_halves[1],
             );
         } else {
             return syscall5(
@@ -444,8 +466,8 @@ pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: u64) usize {
                 @bitCast(usize, @as(isize, fd)),
                 @ptrToInt(buf),
                 count,
-                @truncate(usize, offset),
-                @truncate(usize, offset >> 32),
+                offset_halves[0],
+                offset_halves[1],
             );
         }
     } else {
@@ -540,6 +562,8 @@ pub fn close(fd: i32) usize {
 
 /// Can only be called on 32 bit systems. For 64 bit see `lseek`.
 pub fn llseek(fd: i32, offset: u64, result: ?*u64, whence: usize) usize {
+    // NOTE: The offset parameter splitting is independent from the target
+    // endianness.
     return syscall5(
         ._llseek,
         @bitCast(usize, @as(isize, fd)),
