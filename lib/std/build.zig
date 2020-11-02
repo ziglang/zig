@@ -1207,6 +1207,7 @@ pub const LibExeObjStep = struct {
     name_only_filename: []const u8,
     strip: bool,
     lib_paths: ArrayList([]const u8),
+    syslibroot: ?[]const u8 = null,
     framework_dirs: ArrayList([]const u8),
     frameworks: BufSet,
     verbose_link: bool,
@@ -1841,6 +1842,10 @@ pub const LibExeObjStep = struct {
         self.lib_paths.append(self.builder.dupe(path)) catch unreachable;
     }
 
+    pub fn addSyslibroot(self: *LibExeObjStep, path: []const u8) void {
+        self.syslibroot = path;
+    }
+
     pub fn addFrameworkDir(self: *LibExeObjStep, dir_path: []const u8) void {
         self.framework_dirs.append(self.builder.dupe(dir_path)) catch unreachable;
     }
@@ -1915,11 +1920,18 @@ pub const LibExeObjStep = struct {
             }
         }
 
-        // Inherit dependencies on darwin frameworks
-        if (self.target.isDarwin() and !other.isDynamicLibrary()) {
-            var it = other.frameworks.iterator();
-            while (it.next()) |entry| {
-                self.frameworks.put(entry.key) catch unreachable;
+        if (self.target.isDarwin()) {
+            // Inherit syslibroot
+            if (other.syslibroot) |path| {
+                self.syslibroot = path;
+            }
+
+            // Inherit dependencies on darwin frameworks
+            if (!other.isDynamicLibrary()) {
+                var it = other.frameworks.iterator();
+                while (it.next()) |entry| {
+                    self.frameworks.put(entry.key) catch unreachable;
+                }
             }
         }
     }
@@ -2271,6 +2283,18 @@ pub const LibExeObjStep = struct {
         }
 
         if (self.target.isDarwin()) {
+            if (self.syslibroot) |path| {
+                try zig_args.append("-syslibroot");
+                try zig_args.append(path);
+            } else {
+                if (self.target.isNative()) {
+                    const syslibroot = try std.zig.system.getSDKPath(builder.allocator);
+                    errdefer builder.allocator.free(syslibroot);
+                    try zig_args.append("-syslibroot");
+                    try zig_args.append(syslibroot);
+                }
+            }
+
             for (self.framework_dirs.span()) |dir| {
                 try zig_args.append("-F");
                 try zig_args.append(dir);
