@@ -2986,6 +2986,14 @@ fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
     const posix = std.os;
 
     var lim = posix.getrlimit(.NOFILE) catch return; // Oh well; we tried.
+    if (std.Target.current.isDarwin()) {
+        // On Darwin, `NOFILE` is bounded by a hardcoded value `OPEN_MAX`.
+        // According to the man pages for setrlimit():
+        //   setrlimit() now returns with errno set to EINVAL in places that historically succeeded.
+        //   It no longer accepts "rlim_cur = RLIM_INFINITY" for RLIM_NOFILE.
+        //   Use "rlim_cur = min(OPEN_MAX, rlim_max)".
+        lim.max = std.math.min(posix.darwin.OPEN_MAX, lim.max);
+    }
     if (lim.cur == lim.max) return;
 
     // Do a binary search for the limit.
