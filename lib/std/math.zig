@@ -352,7 +352,18 @@ pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) !T {
 /// A negative shift amount results in a right shift.
 pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
     const abs_shift_amt = absCast(shift_amt);
-    const casted_shift_amt = if (abs_shift_amt >= @typeInfo(T).Int.bits) return 0 else @intCast(Log2Int(T), abs_shift_amt);
+
+    const casted_shift_amt = blk: {
+        if (@typeInfo(T) == .Vector) {
+            const C = @typeInfo(T).Vector.child;
+            const len = @typeInfo(T).Vector.len;
+            if (abs_shift_amt >= @typeInfo(C).Int.bits) return @splat(len, @as(C, 0));
+            break :blk @splat(len, @intCast(Log2Int(C), abs_shift_amt));
+        } else {
+            if (abs_shift_amt >= @typeInfo(T).Int.bits) return 0;
+            break :blk @intCast(Log2Int(T), abs_shift_amt);
+        }
+    };
 
     if (@TypeOf(shift_amt) == comptime_int or @typeInfo(@TypeOf(shift_amt)).Int.is_signed) {
         if (shift_amt < 0) {
@@ -372,18 +383,30 @@ test "math.shl" {
     testing.expect(shl(u8, 0b11111111, 8) == 0);
     testing.expect(shl(u8, 0b11111111, 9) == 0);
     testing.expect(shl(u8, 0b11111111, -2) == 0b00111111);
+    testing.expect(shl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, @as(usize, 1))[0] == @as(u32, 42) << 1);
+    testing.expect(shl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, @as(isize, -1))[0] == @as(u32, 42) >> 1);
+    testing.expect(shl(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, 33)[0] == 0);
 }
 
 /// Shifts right. Overflowed bits are truncated.
 /// A negative shift amount results in a left shift.
 pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
     const abs_shift_amt = absCast(shift_amt);
-    const casted_shift_amt = if (abs_shift_amt >= @typeInfo(T).Int.bits) return 0 else @intCast(Log2Int(T), abs_shift_amt);
+
+    const casted_shift_amt = blk: {
+        if (@typeInfo(T) == .Vector) {
+            const C = @typeInfo(T).Vector.child;
+            const len = @typeInfo(T).Vector.len;
+            if (abs_shift_amt >= @typeInfo(C).Int.bits) return @splat(len, @as(C, 0));
+            break :blk @splat(len, @intCast(Log2Int(C), abs_shift_amt));
+        } else {
+            if (abs_shift_amt >= @typeInfo(T).Int.bits) return 0;
+            break :blk @intCast(Log2Int(T), abs_shift_amt);
+        }
+    };
 
     if (@TypeOf(shift_amt) == comptime_int or @typeInfo(@TypeOf(shift_amt)).Int.is_signed) {
-        if (shift_amt >= 0) {
-            return a >> casted_shift_amt;
-        } else {
+        if (shift_amt < 0) {
             return a << casted_shift_amt;
         }
     }
@@ -400,6 +423,9 @@ test "math.shr" {
     testing.expect(shr(u8, 0b11111111, 8) == 0);
     testing.expect(shr(u8, 0b11111111, 9) == 0);
     testing.expect(shr(u8, 0b11111111, -2) == 0b11111100);
+    testing.expect(shr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, @as(usize, 1))[0] == @as(u32, 42) >> 1);
+    testing.expect(shr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, @as(isize, -1))[0] == @as(u32, 42) << 1);
+    testing.expect(shr(std.meta.Vector(1, u32), std.meta.Vector(1, u32){42}, 33)[0] == 0);
 }
 
 /// Rotates right. Only unsigned values can be rotated.
