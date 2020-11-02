@@ -495,75 +495,109 @@ test "vector reduce operation" {
             var r = @reduce(op, @as(Vector(N, TX), x));
             switch (@typeInfo(TX)) {
                 .Int, .Bool => expectEqual(expected, r),
-                .Float => {
-                    if (math.isNan(expected) != math.isNan(r)) {
-                        std.debug.panic("unexpected NaN value!", .{});
-                    } else {
-                        expectWithinEpsilon(expected, r, 0.0001);
-                    }
-                },
+                .Float => expectWithinEpsilon(expected, r, 0.001),
                 else => unreachable,
             }
         }
         fn doTheTest() void {
-            doTheTestReduce(.And, [4]bool{ true, false, true, true }, @as(bool, false));
-            doTheTestReduce(.Or, [4]bool{ false, true, false, false }, @as(bool, true));
-            doTheTestReduce(.Xor, [4]bool{ true, true, true, false }, @as(bool, true));
-
-            doTheTestReduce(.And, [4]u1{ 1, 0, 1, 1 }, @as(u1, 0));
-            doTheTestReduce(.Or, [4]u1{ 0, 1, 0, 0 }, @as(u1, 1));
-            doTheTestReduce(.Xor, [4]u1{ 1, 1, 1, 0 }, @as(u1, 1));
-
-            doTheTestReduce(.And, [4]u32{ 0xffffffff, 0xffff5555, 0xaaaaffff, 0x10101010 }, @as(u32, 0x1010));
-            doTheTestReduce(.Or, [4]u32{ 0xffff0000, 0xff00, 0xf0, 0xf }, ~@as(u32, 0));
-            doTheTestReduce(.Xor, [4]u32{ 0x00000000, 0x33333333, 0x88888888, 0x44444444 }, ~@as(u32, 0));
-
-            doTheTestReduce(.Min, [4]i32{ 1234567, -386, 0, 3 }, @as(i32, -386));
-            doTheTestReduce(.Max, [4]i32{ 1234567, -386, 0, 3 }, @as(i32, 1234567));
-
+            doTheTestReduce(.Add, [4]i16{ -9, -99, -999, -9999 }, @as(i32, -11106));
+            doTheTestReduce(.Add, [4]u16{ 9, 99, 999, 9999 }, @as(u32, 11106));
             doTheTestReduce(.Add, [4]i32{ -9, -99, -999, -9999 }, @as(i32, -11106));
-            doTheTestReduce(.Add, [4]i64{ 9, 99, 999, 9999 }, @as(i64, 11106));
-
-            doTheTestReduce(.Min, [4]u32{ 99, 9999, 9, 99999 }, @as(u32, 9));
-            doTheTestReduce(.Max, [4]u32{ 99, 9999, 9, 99999 }, @as(u32, 99999));
-
-            doTheTestReduce(.Mul, [4]i32{ -9, -99, -999, 999 }, @as(i32, -889218891));
-            doTheTestReduce(.Mul, [4]i64{ 9, 99, 999, 9999 }, @as(i64, 8900199891));
-
-            doTheTestReduce(.Min, [4]f32{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f32, -100.0));
-            doTheTestReduce(.Max, [4]f32{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f32, 10.0e9));
-
-            doTheTestReduce(.Min, [4]f64{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f64, -100.0));
-            doTheTestReduce(.Max, [4]f64{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f64, 10.0e9));
-
+            doTheTestReduce(.Add, [4]u32{ 9, 99, 999, 9999 }, @as(u32, 11106));
+            doTheTestReduce(.Add, [4]i64{ -9, -99, -999, -9999 }, @as(i64, -11106));
+            doTheTestReduce(.Add, [4]u64{ 9, 99, 999, 9999 }, @as(u64, 11106));
+            doTheTestReduce(.Add, [4]i128{ -9, -99, -999, -9999 }, @as(i128, -11106));
+            doTheTestReduce(.Add, [4]u128{ 9, 99, 999, 9999 }, @as(u128, 11106));
+            doTheTestReduce(.Add, [4]f16{ -1.9, 5.1, -60.3, 100.0 }, @as(f16, 42.9));
             doTheTestReduce(.Add, [4]f32{ -1.9, 5.1, -60.3, 100.0 }, @as(f32, 42.9));
             doTheTestReduce(.Add, [4]f64{ -1.9, 5.1, -60.3, 100.0 }, @as(f64, 42.9));
+            doTheTestReduce(.Add, [4]f128{ -1.9, 5.1, -60.3, 100.0 }, @as(f128, 42.9));
 
+            doTheTestReduce(.And, [4]bool{ true, false, true, true }, @as(bool, false));
+            doTheTestReduce(.And, [4]u1{ 1, 0, 1, 1 }, @as(u1, 0));
+            doTheTestReduce(.And, [4]u16{ 0xffff, 0xff55, 0xaaff, 0x1010 }, @as(u16, 0x10));
+            doTheTestReduce(.And, [4]u32{ 0xffffffff, 0xffff5555, 0xaaaaffff, 0x10101010 }, @as(u32, 0x1010));
+            doTheTestReduce(.And, [4]u64{ 0xffffffff, 0xffff5555, 0xaaaaffff, 0x10101010 }, @as(u64, 0x1010));
+            doTheTestReduce(.And, [4]u128{ 0xffffffff, 0xffff5555, 0xaaaaffff, 0x10101010 }, @as(u128, 0x1010));
+
+            doTheTestReduce(.Min, [4]i16{ -1, 2, 3, 4 }, @as(i16, -1));
+            doTheTestReduce(.Min, [4]u16{ 1, 2, 3, 4 }, @as(u16, 1));
+            doTheTestReduce(.Min, [4]i32{ 1234567, -386, 0, 3 }, @as(i32, -386));
+            doTheTestReduce(.Min, [4]u32{ 99, 9999, 9, 99999 }, @as(u32, 9));
+            doTheTestReduce(.Min, [4]i64{ 1234567, -386, 0, 3 }, @as(i64, -386));
+            doTheTestReduce(.Min, [4]u64{ 99, 9999, 9, 99999 }, @as(u64, 9));
+            doTheTestReduce(.Min, [4]i128{ 1234567, -386, 0, 3 }, @as(i128, -386));
+            doTheTestReduce(.Min, [4]u128{ 99, 9999, 9, 99999 }, @as(u128, 9));
+            doTheTestReduce(.Min, [4]f16{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f16, -100.0));
+            doTheTestReduce(.Min, [4]f32{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f32, -100.0));
+            doTheTestReduce(.Min, [4]f64{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f64, -100.0));
+            doTheTestReduce(.Min, [4]f128{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f128, -100.0));
+
+            doTheTestReduce(.Max, [4]i16{ -1, 2, 3, 4 }, @as(i16, 4));
+            doTheTestReduce(.Max, [4]u16{ 1, 2, 3, 4 }, @as(u16, 4));
+            doTheTestReduce(.Max, [4]i32{ 1234567, -386, 0, 3 }, @as(i32, 1234567));
+            doTheTestReduce(.Max, [4]u32{ 99, 9999, 9, 99999 }, @as(u32, 99999));
+            doTheTestReduce(.Max, [4]i64{ 1234567, -386, 0, 3 }, @as(i64, 1234567));
+            doTheTestReduce(.Max, [4]u64{ 99, 9999, 9, 99999 }, @as(u64, 99999));
+            doTheTestReduce(.Max, [4]i128{ 1234567, -386, 0, 3 }, @as(i128, 1234567));
+            doTheTestReduce(.Max, [4]u128{ 99, 9999, 9, 99999 }, @as(u128, 99999));
+            doTheTestReduce(.Max, [4]f16{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f16, 10.0e9));
+            doTheTestReduce(.Max, [4]f32{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f32, 10.0e9));
+            doTheTestReduce(.Max, [4]f64{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f64, 10.0e9));
+            doTheTestReduce(.Max, [4]f128{ -10.3, 10.0e9, 13.0, -100.0 }, @as(f128, 10.0e9));
+
+            doTheTestReduce(.Mul, [4]i16{ -1, 2, 3, 4 }, @as(i16, -24));
+            doTheTestReduce(.Mul, [4]u16{ 1, 2, 3, 4 }, @as(u16, 24));
+            doTheTestReduce(.Mul, [4]i32{ -9, -99, -999, 999 }, @as(i32, -889218891));
+            doTheTestReduce(.Mul, [4]u32{ 1, 2, 3, 4 }, @as(u32, 24));
+            doTheTestReduce(.Mul, [4]i64{ 9, 99, 999, 9999 }, @as(i64, 8900199891));
+            doTheTestReduce(.Mul, [4]u64{ 9, 99, 999, 9999 }, @as(u64, 8900199891));
+            doTheTestReduce(.Mul, [4]i128{ -9, -99, -999, 9999 }, @as(i128, -8900199891));
+            doTheTestReduce(.Mul, [4]u128{ 9, 99, 999, 9999 }, @as(u128, 8900199891));
+            doTheTestReduce(.Mul, [4]f16{ -1.9, 5.1, -60.3, 100.0 }, @as(f16, 58430.7));
             doTheTestReduce(.Mul, [4]f32{ -1.9, 5.1, -60.3, 100.0 }, @as(f32, 58430.7));
             doTheTestReduce(.Mul, [4]f64{ -1.9, 5.1, -60.3, 100.0 }, @as(f64, 58430.7));
+            doTheTestReduce(.Mul, [4]f128{ -1.9, 5.1, -60.3, 100.0 }, @as(f128, 58430.7));
+
+            doTheTestReduce(.Or, [4]bool{ false, true, false, false }, @as(bool, true));
+            doTheTestReduce(.Or, [4]u1{ 0, 1, 0, 0 }, @as(u1, 1));
+            doTheTestReduce(.Or, [4]u16{ 0xff00, 0xff00, 0xf0, 0xf }, ~@as(u16, 0));
+            doTheTestReduce(.Or, [4]u32{ 0xffff0000, 0xff00, 0xf0, 0xf }, ~@as(u32, 0));
+            doTheTestReduce(.Or, [4]u64{ 0xffff0000, 0xff00, 0xf0, 0xf }, @as(u64, 0xffffffff));
+            doTheTestReduce(.Or, [4]u128{ 0xffff0000, 0xff00, 0xf0, 0xf }, @as(u128, 0xffffffff));
+
+            doTheTestReduce(.Xor, [4]bool{ true, true, true, false }, @as(bool, true));
+            doTheTestReduce(.Xor, [4]u1{ 1, 1, 1, 0 }, @as(u1, 1));
+            doTheTestReduce(.Xor, [4]u16{ 0x0000, 0x3333, 0x8888, 0x4444 }, ~@as(u16, 0));
+            doTheTestReduce(.Xor, [4]u32{ 0x00000000, 0x33333333, 0x88888888, 0x44444444 }, ~@as(u32, 0));
+            doTheTestReduce(.Xor, [4]u64{ 0x00000000, 0x33333333, 0x88888888, 0x44444444 }, @as(u64, 0xffffffff));
+            doTheTestReduce(.Xor, [4]u128{ 0x00000000, 0x33333333, 0x88888888, 0x44444444 }, @as(u128, 0xffffffff));
 
             // Test the reduction on vectors containing NaNs.
             const f16_nan = math.nan(f16);
             const f32_nan = math.nan(f32);
             const f64_nan = math.nan(f64);
+            const f128_nan = math.nan(f128);
 
             doTheTestReduce(.Add, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
-            doTheTestReduce(.Add, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
-
             doTheTestReduce(.Add, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
-            doTheTestReduce(.Add, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
+            doTheTestReduce(.Add, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
+            doTheTestReduce(.Add, [4]f128{ -1.9, 5.1, f128_nan, 100.0 }, f128_nan);
 
-            doTheTestReduce(.Add, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
-            doTheTestReduce(.Add, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
+            doTheTestReduce(.Min, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
+            doTheTestReduce(.Min, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
+            doTheTestReduce(.Min, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
+            doTheTestReduce(.Min, [4]f128{ -1.9, 5.1, f128_nan, 100.0 }, f128_nan);
+
+            doTheTestReduce(.Max, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
+            doTheTestReduce(.Max, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
+            doTheTestReduce(.Max, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
+            doTheTestReduce(.Max, [4]f128{ -1.9, 5.1, f128_nan, 100.0 }, f128_nan);
 
             doTheTestReduce(.Mul, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
-            doTheTestReduce(.Mul, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
-
             doTheTestReduce(.Mul, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
-            doTheTestReduce(.Mul, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
-
             doTheTestReduce(.Mul, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
-            doTheTestReduce(.Mul, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
+            doTheTestReduce(.Mul, [4]f128{ -1.9, 5.1, f128_nan, 100.0 }, f128_nan);
         }
     };
 
