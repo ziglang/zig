@@ -66,17 +66,13 @@ const CompressVectorized = struct {
     const Lane = Vector(4, u32);
     const Rows = [4]Lane;
 
-    inline fn rot(x: Lane, comptime n: u5) Lane {
-        return (x >> @splat(4, @as(u5, n))) | (x << @splat(4, @as(u5, 1 +% ~n)));
-    }
-
     inline fn g(comptime even: bool, rows: *Rows, m: Lane) void {
         rows[0] +%= rows[1] +% m;
         rows[3] ^= rows[0];
-        rows[3] = rot(rows[3], if (even) 8 else 16);
+        rows[3] = math.rotr(Lane, rows[3], if (even) 8 else 16);
         rows[2] +%= rows[3];
         rows[1] ^= rows[2];
-        rows[1] = rot(rows[1], if (even) 7 else 12);
+        rows[1] = math.rotr(Lane, rows[1], if (even) 7 else 12);
     }
 
     inline fn diagonalize(rows: *Rows) void {

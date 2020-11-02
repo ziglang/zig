@@ -36,10 +36,6 @@ const Salsa20VecImpl = struct {
         };
     }
 
-    inline fn rot(x: Lane, comptime n: u5) Lane {
-        return (x << @splat(4, @as(u5, n))) | (x >> @splat(4, @as(u5, 1 +% ~n)));
-    }
-
     inline fn salsa20Core(x: *BlockVec, input: BlockVec, comptime feedback: bool) void {
         const n1n2n3n0 = Lane{ input[3][1], input[3][2], input[3][3], input[3][0] };
         const n1n2 = Half{ n1n2n3n0[0], n1n2n3n0[1] };
@@ -71,13 +67,13 @@ const Salsa20VecImpl = struct {
         var i: usize = 0;
         while (i < 20) : (i += 2) {
             var a0 = diag1 +% diag0;
-            diag3 ^= rot(a0, 7);
+            diag3 ^= math.rotl(Lane, a0, 7);
             var a1 = diag0 +% diag3;
-            diag2 ^= rot(a1, 9);
+            diag2 ^= math.rotl(Lane, a1, 9);
             var a2 = diag3 +% diag2;
-            diag1 ^= rot(a2, 13);
+            diag1 ^= math.rotl(Lane, a2, 13);
             var a3 = diag2 +% diag1;
-            diag0 ^= rot(a3, 18);
+            diag0 ^= math.rotl(Lane, a3, 18);
 
             var diag3_shift = @shuffle(u32, diag3, undefined, [_]i32{ 3, 0, 1, 2 });
             var diag2_shift = @shuffle(u32, diag2, undefined, [_]i32{ 2, 3, 0, 1 });
@@ -87,13 +83,13 @@ const Salsa20VecImpl = struct {
             diag1 = diag1_shift;
 
             a0 = diag3 +% diag0;
-            diag1 ^= rot(a0, 7);
+            diag1 ^= math.rotl(Lane, a0, 7);
             a1 = diag0 +% diag1;
-            diag2 ^= rot(a1, 9);
+            diag2 ^= math.rotl(Lane, a1, 9);
             a2 = diag1 +% diag2;
-            diag3 ^= rot(a2, 13);
+            diag3 ^= math.rotl(Lane, a2, 13);
             a3 = diag2 +% diag3;
-            diag0 ^= rot(a3, 18);
+            diag0 ^= math.rotl(Lane, a3, 18);
 
             diag1_shift = @shuffle(u32, diag1, undefined, [_]i32{ 3, 0, 1, 2 });
             diag2_shift = @shuffle(u32, diag2, undefined, [_]i32{ 2, 3, 0, 1 });

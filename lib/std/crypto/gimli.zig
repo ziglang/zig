@@ -120,10 +120,6 @@ pub const State = struct {
         return x << @splat(4, @as(u5, n));
     }
 
-    inline fn rot(x: Lane, comptime n: comptime_int) Lane {
-        return (x << @splat(4, @as(u5, n))) | (x >> @splat(4, @as(u5, 32 - n)));
-    }
-
     fn permute_vectorized(self: *Self) void {
         self.endianSwap();
         const state = &self.data;
@@ -132,8 +128,8 @@ pub const State = struct {
         var z = Lane{ state[8], state[9], state[10], state[11] };
         var round = @as(u32, 24);
         while (round > 0) : (round -= 1) {
-            x = rot(x, 24);
-            y = rot(y, 9);
+            x = math.rotl(Lane, x, 24);
+            y = math.rotl(Lane, y, 9);
             const newz = x ^ shift(z, 1) ^ shift(y & z, 2);
             const newy = y ^ x ^ shift(x | z, 1);
             const newx = z ^ y ^ shift(x & y, 3);
