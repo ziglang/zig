@@ -839,6 +839,20 @@ fn linuxLookupName(
             if (addrs.items.len == 0) {
                 try linuxLookupNameFromDnsSearch(addrs, canon, name, family, port);
             }
+            if (addrs.items.len == 0) {
+                // RFC 6761 Section 6.3
+                // Name resolution APIs and libraries SHOULD recognize localhost
+                // names as special and SHOULD always return the IP loopback address
+                // for address queries and negative responses for all other query
+                // types.
+
+                // Check for equal to "localhost" or ends in ".localhost"
+                if (mem.endsWith(u8, name, "localhost") and (name.len == "localhost".len or name[name.len - "localhost".len] == '.')) {
+                    try addrs.append(LookupAddr{ .addr = .{ .in = Ip4Address.parse("127.0.0.1", port) catch unreachable } });
+                    // TODO: ipv6?
+                    return;
+                }
+            }
         }
     } else {
         try canon.resize(0);
