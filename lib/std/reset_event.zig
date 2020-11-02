@@ -442,7 +442,7 @@ test "std.ResetEvent" {
         fn timedWaiter(self: *Self) !void {
             self.in.wait();
             testing.expectError(error.TimedOut, self.out.timedWait(time.ns_per_us));
-            try self.out.timedWait(time.ns_per_ms * 5);
+            try self.out.timedWait(time.ns_per_ms * 10);
             testing.expect(self.value == 5);
         }
     };
