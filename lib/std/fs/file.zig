@@ -690,10 +690,54 @@ pub const File = struct {
         header_count: usize = 0,
     };
 
-    pub const WriteFileError = os.SendFileError;
+    pub const WriteFileError = ReadError || WriteError;
 
-    /// TODO integrate with async I/O
     pub fn writeFileAll(self: File, in_file: File, args: WriteFileOptions) WriteFileError!void {
+        return self.writeFileAllSendfile(in_file, args) catch |err| switch (err) {
+            error.Unseekable,
+            error.FastOpenAlreadyInProgress,
+            error.MessageTooBig,
+            error.FileDescriptorNotASocket,
+            => return self.writeFileAllUnseekable(in_file, args),
+
+            else => |e| return e,
+        };
+    }
+
+    /// Does not try seeking in either of the File parameters.
+    /// See `writeFileAll` as an alternative to calling this.
+    pub fn writeFileAllUnseekable(self: File, in_file: File, args: WriteFileOptions) WriteFileError!void {
+        const headers = args.headers_and_trailers[0..args.header_count];
+        const trailers = args.headers_and_trailers[args.header_count..];
+
+        try self.writevAll(headers);
+
+        var buffer: [4096]u8 = undefined;
+        {
+            var index: usize = 0;
+            // Skip in_offset bytes.
+            while (index < args.in_offset) {
+                const ask = math.min(buffer.len, args.in_offset - index);
+                const amt = try in_file.read(buffer[0..ask]);
+                index += amt;
+            }
+        }
+        const in_len = args.in_len orelse math.maxInt(u64);
+        var index: usize = 0;
+        while (index < in_len) {
+            const ask = math.min(buffer.len, in_len - index);
+            const amt = try in_file.read(buffer[0..ask]);
+            if (amt == 0) break;
+            index += try self.write(buffer[0..amt]);
+        }
+
+        try self.writevAll(trailers);
+    }
+
+    /// Low level function which can fail for OS-specific reasons.
+    /// See `writeFileAll` as an alternative to calling this.
+    /// TODO integrate with async I/O
+    fn writeFileAllSendfile(self: File, in_file: File, args: WriteFileOptions) os.SendFileError!void {
         const count = blk: {
             if (args.in_len) |l| {
                 if (l == 0) {
