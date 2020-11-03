@@ -7455,7 +7455,7 @@ test "main" {
       <p>
       If the binary is built with error return tracing, and this function is invoked in a
       function that calls a function with an error or error union return type, returns a
-      stack trace object. Otherwise returns `null`.
+      stack trace object. Otherwise returns {#link|null#}.
       </p>
       {#header_close#}
 
@@ -9446,17 +9446,17 @@ test "string literal to constant slice" {
 }
       {#code_end#}
       <p>
-      Just like string literals, `const` declarations, when the value is known at {#link|comptime#},
+      Just like string literals, {#syntax#}const{#endsyntax#} declarations, when the value is known at {#link|comptime#},
       are stored in the global constant data section. Also {#link|Compile Time Variables#} are stored
       in the global constant data section.
       </p>
       <p>
-      `var` declarations inside functions are stored in the function's stack frame. Once a function returns,
+      {#syntax#}var{#endsyntax#} declarations inside functions are stored in the function's stack frame. Once a function returns,
       any {#link|Pointers#} to variables in the function's stack frame become invalid references, and
       dereferencing them becomes unchecked {#link|Undefined Behavior#}.
       </p>
       <p>
-      `var` declarations at the top level or in {#link|struct#} declarations are stored in the global
+      {#syntax#}var{#endsyntax#} declarations at the top level or in {#link|struct#} declarations are stored in the global
       data section.
       </p>
       <p>
