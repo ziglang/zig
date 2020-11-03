@@ -12,9 +12,6 @@ const expect = std.testing.expect;
 const fs = std.fs;
 
 test "fallocate" {
-    // TODO https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-    
     const path = "test_fallocate";
     const file = try fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
     defer file.close();
