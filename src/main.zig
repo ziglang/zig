@@ -1267,7 +1267,7 @@ fn buildOutputType(
     }
 
     if (link_objects.items.len == 0 and root_src_file == null and
-        c_source_files.items.len == 0)
+        c_source_files.items.len == 0 and !show_builtin)
     {
         switch (arg_mode) {
             .run => fatal("`zig run` expects at least one positional argument", .{}),
