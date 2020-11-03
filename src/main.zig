@@ -213,6 +213,7 @@ const usage_build_generic =
     \\Supported file types:
     \\                    .zig    Zig source code
     \\                    .zir    Zig Intermediate Representation code
+    \\                       -    Alias for stdin
     \\                      .o    ELF object file
     \\                      .o    MACH-O (macOS) object file
     \\                    .obj    COFF (Windows) object file
@@ -251,6 +252,7 @@ const usage_build_generic =
     \\  --global-cache-dir [path] Override the global cache directory
     \\  --override-lib-dir [path] Override path to Zig installation lib directory
     \\  --enable-cache            Output to cache directory; print path to stdout
+    \\  -x [extension]            Override the file extension of the next positional arguments
     \\
     \\Compile Options:
     \\  -target [name]            <arch><sub>-<os>-<abi> see the targets command
@@ -347,6 +349,12 @@ const repl_help =
     \\
 ;
 
+const RootSrcFile = union(enum) {
+    none,
+    path: []const u8,
+    stdin: Compilation.FileExt,
+};
+
 const Emit = union(enum) {
     no,
     yes_default_path,
@@ -419,7 +427,7 @@ fn buildOutputType(
     var provided_name: ?[]const u8 = null;
     var link_mode: ?std.builtin.LinkMode = null;
     var dll_export_fns: ?bool = null;
-    var root_src_file: ?[]const u8 = null;
+    var root_src_file: RootSrcFile = .none;
     var version: std.builtin.Version = .{ .major = 0, .minor = 0, .patch = 0 };
     var have_version = false;
     var strip = false;
@@ -492,6 +500,7 @@ fn buildOutputType(
     var main_pkg_path: ?[]const u8 = null;
     var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
     var subsystem: ?std.Target.SubSystem = null;
+    var override_extension: Compilation.FileExt = .unknown;
 
     var system_libs = std.ArrayList([]const u8).init(gpa);
     defer system_libs.deinit();
@@ -564,7 +573,7 @@ fn buildOutputType(
             var i: usize = 0;
             args_loop: while (i < args.len) : (i += 1) {
                 const arg = args[i];
-                if (mem.startsWith(u8, arg, "-")) {
+                if (mem.startsWith(u8, arg, "-") and arg.len != 1) {
                     if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                         try io.getStdOut().writeAll(usage_build_generic);
                         return cleanExit();
@@ -662,6 +671,15 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
                         optimize_mode_string = args[i];
+                    } else if (mem.eql(u8, arg, "-x")) {
+                        if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
+                        i += 1;
+                        const with_dot = try std.fmt.allocPrint(arena, ".{s}", .{args[i]});
+                        const file_ext = Compilation.classifyFileExt(with_dot);
+                        if (file_ext == .unknown) {
+                            fatal("unknown file extension: '{s}'", .{with_dot});
+                        }
+                        override_extension = file_ext;
                     } else if (mem.eql(u8, arg, "--stack")) {
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
@@ -918,26 +936,62 @@ fn buildOutputType(
                     } else {
                         fatal("unrecognized parameter: '{}'", .{arg});
                     }
-                } else switch (Compilation.classifyFileExt(arg)) {
-                    .object, .static_library, .shared_library => {
-                        try link_objects.append(arg);
-                    },
-                    .assembly, .c, .cpp, .h, .ll, .bc => {
-                        try c_source_files.append(.{
-                            .src_path = arg,
-                            .extra_flags = try arena.dupe([]const u8, extra_cflags.items),
-                        });
-                    },
-                    .zig, .zir => {
-                        if (root_src_file) |other| {
-                            fatal("found another zig file '{}' after root source file '{}'", .{ arg, other });
+                } else if (mem.eql(u8, arg, "-")) {
+                    switch (override_extension) {
+                        .zig, .zir => switch (root_src_file) {
+                            .none => root_src_file = .{ .stdin = override_extension },
+                            .path => |other| {
+                                fatal("found another zig file <stdin> after root source file '{s}'", .{
+                                    other,
+                                });
+                            },
+                            .stdin => {
+                                fatal("found another zig file <stdin> after root source file <stdin>", .{});
+                            },
+                        },
+                        .unknown => {
+                            fatal("'-x [extension]' required when using '-' for stdin", .{});
+                        },
+                        else => {
+                            fatal("stdin ('-') not supported for extension '{s}'", .{override_extension});
+                        },
+                    }
+                    override_extension = .unknown; // Reset.
+                } else {
+                    const file_ext = blk: {
+                        if (override_extension == .unknown) {
+                            break :blk Compilation.classifyFileExt(arg);
                         } else {
-                            root_src_file = arg;
+                            const file_ext = override_extension;
+                            override_extension = .unknown; // Reset.
+                            break :blk file_ext;
                         }
-                    },
-                    .unknown => {
-                        fatal("unrecognized file extension of parameter '{}'", .{arg});
-                    },
+                    };
+                    switch (file_ext) {
+                        .object, .static_library, .shared_library => {
+                            try link_objects.append(arg);
+                        },
+                        .assembly, .c, .cpp, .h, .ll, .bc => {
+                            try c_source_files.append(.{
+                                .src_path = arg,
+                                .extra_flags = try arena.dupe([]const u8, extra_cflags.items),
+                            });
+                        },
+                        .zig, .zir => switch (root_src_file) {
+                            .none => root_src_file = .{ .path = arg },
+                            .path => |other| {
+                                fatal("found another zig file '{s}' after root source file '{s}'", .{
+                                    arg, other,
+                                });
+                            },
+                            .stdin => {
+                                fatal("found another zig file '{s}' after root source file <stdin>", .{arg});
+                            },
+                        },
+                        .unknown => {
+                            fatal("unrecognized file extension of parameter '{}'", .{arg});
+                        },
+                    }
                 }
             }
             if (optimize_mode_string) |s| {
@@ -983,12 +1037,18 @@ fn buildOutputType(
                             .unknown, .shared_library, .object, .static_library => {
                                 try link_objects.append(it.only_arg);
                             },
-                            .zig, .zir => {
-                                if (root_src_file) |other| {
-                                    fatal("found another zig file '{}' after root source file '{}'", .{ it.only_arg, other });
-                                } else {
-                                    root_src_file = it.only_arg;
-                                }
+                            .zig, .zir => switch (root_src_file) {
+                                .none => root_src_file = .{ .path = it.only_arg },
+                                .path => |other| {
+                                    fatal("found another zig file '{}' after root source file '{}'", .{
+                                        it.only_arg, other,
+                                    });
+                                },
+                                .stdin => {
+                                    fatal("found another zig file '{}' after root source file <stdin>", .{
+                                        it.only_arg,
+                                    });
+                                },
                             },
                         }
                     },
@@ -1262,21 +1322,28 @@ fn buildOutputType(
         fatal("translate-c expects exactly 1 source file (found {})", .{c_source_files.items.len});
     }
 
-    if (root_src_file == null and arg_mode == .zig_test) {
+    if (root_src_file == .none and arg_mode == .zig_test) {
         fatal("`zig test` expects a zig source file argument", .{});
     }
 
-    if (link_objects.items.len == 0 and root_src_file == null and
+    if (link_objects.items.len == 0 and root_src_file == .none and
         c_source_files.items.len == 0 and arg_mode == .run)
     {
         fatal("`zig run` expects at least one positional argument", .{});
     }
 
+    const random_seed = blk: {
+        var random_seed: u64 = undefined;
+        try std.crypto.randomBytes(mem.asBytes(&random_seed));
+        break :blk random_seed;
+    };
+    var default_prng = std.rand.DefaultPrng.init(random_seed);
+
     const root_name = if (provided_name) |n| n else blk: {
         if (arg_mode == .zig_test) {
             break :blk "test";
-        } else if (root_src_file) |file| {
-            const basename = fs.path.basename(file);
+        } else if (root_src_file == .path) {
+            const basename = fs.path.basename(root_src_file.path);
             break :blk mem.split(basename, ".").next().?;
         } else if (c_source_files.items.len == 1) {
             const basename = fs.path.basename(c_source_files.items[0].src_path);
@@ -1405,7 +1472,7 @@ fn buildOutputType(
 
     if (output_mode == .Obj and (object_format == .coff or object_format == .macho)) {
         const total_obj_count = c_source_files.items.len +
-            @boolToInt(root_src_file != null) +
+            @boolToInt(root_src_file != .none) +
             link_objects.items.len;
         if (total_obj_count > 1) {
             fatal("{s} does not support linking multiple objects into one", .{@tagName(object_format)});
@@ -1493,12 +1560,11 @@ fn buildOutputType(
     const zir_out_path: ?[]const u8 = switch (emit_zir) {
         .no => null,
         .yes_default_path => blk: {
-            if (root_src_file) |rsf| {
-                if (mem.endsWith(u8, rsf, ".zir")) {
-                    break :blk try std.fmt.allocPrint(arena, "{}.out.zir", .{root_name});
-                }
-            }
-            break :blk try std.fmt.allocPrint(arena, "{}.zir", .{root_name});
+            const out_ext = if (root_src_file == .path and mem.endsWith(u8, root_src_file.path, ".zir"))
+                ".out"
+            else
+                "";
+            break :blk try std.fmt.allocPrint(arena, "{s}{s}.zir", .{ root_name, out_ext });
         },
         .yes => |p| p,
     };
@@ -1506,50 +1572,26 @@ fn buildOutputType(
     var cleanup_root_dir: ?fs.Dir = null;
     defer if (cleanup_root_dir) |*dir| dir.close();
 
-    const root_pkg: ?*Package = if (root_src_file) |src_path| blk: {
-        if (main_pkg_path) |p| {
-            const dir = try fs.cwd().openDir(p, .{});
-            cleanup_root_dir = dir;
-            root_pkg_memory.root_src_directory = .{ .path = p, .handle = dir };
-            root_pkg_memory.root_src_path = try fs.path.relative(arena, p, src_path);
-        } else if (fs.path.dirname(src_path)) |p| {
-            const dir = try fs.cwd().openDir(p, .{});
-            cleanup_root_dir = dir;
-            root_pkg_memory.root_src_directory = .{ .path = p, .handle = dir };
-            root_pkg_memory.root_src_path = fs.path.basename(src_path);
-        } else {
-            root_pkg_memory.root_src_directory = .{ .path = null, .handle = fs.cwd() };
-            root_pkg_memory.root_src_path = src_path;
-        }
-        break :blk &root_pkg_memory;
-    } else null;
-
-    const self_exe_path = try fs.selfExePathAlloc(arena);
-    var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir|
-        .{
-            .path = lib_dir,
-            .handle = try fs.cwd().openDir(lib_dir, .{}),
-        }
-    else
-        introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-            fatal("unable to find zig installation directory: {}", .{@errorName(err)});
-        };
-    defer zig_lib_directory.handle.close();
-
-    const random_seed = blk: {
-        var random_seed: u64 = undefined;
-        try std.crypto.randomBytes(mem.asBytes(&random_seed));
-        break :blk random_seed;
-    };
-    var default_prng = std.rand.DefaultPrng.init(random_seed);
-
-    var libc_installation: ?LibCInstallation = null;
-    defer if (libc_installation) |*l| l.deinit(gpa);
-
-    if (libc_paths_file) |paths_file| {
-        libc_installation = LibCInstallation.parse(gpa, paths_file) catch |err| {
-            fatal("unable to parse libc paths file: {}", .{@errorName(err)});
-        };
+    switch (root_src_file) {
+        .none => {},
+        .path => |rsp| {
+            if (main_pkg_path) |p| {
+                const dir = try fs.cwd().openDir(p, .{});
+                cleanup_root_dir = dir;
+                root_pkg_memory.root_src_directory = .{ .path = p, .handle = dir };
+            } else if (fs.path.dirname(rsp)) |p| {
+                const dir = try fs.cwd().openDir(p, .{});
+                cleanup_root_dir = dir;
+                root_pkg_memory.root_src_directory = .{ .path = p, .handle = dir };
+            } else {
+                root_pkg_memory.root_src_directory = .{ .path = null, .handle = fs.cwd() };
+            }
+        },
+        .stdin => {
+            if (main_pkg_path != null) {
+                fatal("--main-pkg-path not compatible with <stdin> as root source file", .{});
+            }
+        },
     }
 
     var global_cache_directory: Compilation.Directory = l: {
@@ -1577,14 +1619,17 @@ fn buildOutputType(
             break :l global_cache_directory;
         }
         const cache_dir_path = blk: {
-            if (root_pkg) |pkg| {
-                if (pkg.root_src_directory.path) |p| {
+            if (root_src_file != .none) {
+                if (root_pkg_memory.root_src_directory.path) |p| {
                     break :blk try fs.path.join(arena, &[_][]const u8{ p, "zig-cache" });
                 }
             }
             break :blk "zig-cache";
         };
-        const cache_parent_dir = if (root_pkg) |pkg| pkg.root_src_directory.handle else fs.cwd();
+        const cache_parent_dir = if (root_src_file != .none)
+            root_pkg_memory.root_src_directory.handle
+        else
+            fs.cwd();
         const dir = try cache_parent_dir.makeOpenPath("zig-cache", .{});
         cleanup_local_cache_dir = dir;
         break :l .{
@@ -1592,6 +1637,75 @@ fn buildOutputType(
             .path = cache_dir_path,
         };
     };
+
+    var stdin_tmp_sub_path: ?[]const u8 = null;
+    defer if (stdin_tmp_sub_path) |p| local_cache_directory.handle.deleteFile(p) catch {};
+
+    const root_pkg: ?*Package = root_pkg: {
+        const src_path = switch (root_src_file) {
+            .none => break :root_pkg null,
+            .stdin => |ext| src_path: {
+                var zig_cache_tmp_dir = try local_cache_directory.handle.makeOpenPath("tmp", .{});
+                cleanup_root_dir = zig_cache_tmp_dir;
+
+                const ext_name = @tagName(ext);
+                var random_buf: [8]u8 = undefined;
+                default_prng.random.bytes(&random_buf);
+
+                var basename_buf: [random_buf.len * 2 + 8]u8 = undefined;
+                const basename = std.fmt.bufPrint(&basename_buf, "{x}.{s}", .{
+                    random_buf, ext_name,
+                }) catch unreachable;
+
+                var file = try zig_cache_tmp_dir.createFile(basename, .{});
+                defer file.close();
+
+                const cache_sub_path = try std.fmt.allocPrint(arena, "tmp" ++ fs.path.sep_str ++ "{s}", .{
+                    basename,
+                });
+                stdin_tmp_sub_path = cache_sub_path;
+
+                try file.writeFileAll(std.io.getStdIn(), .{});
+
+                const src_path = try local_cache_directory.join(arena, &[_][]const u8{cache_sub_path});
+                root_pkg_memory.root_src_directory = .{
+                    .path = fs.path.dirname(src_path).?,
+                    .handle = zig_cache_tmp_dir,
+                };
+                break :src_path src_path;
+            },
+            .path => |p| p,
+        };
+        if (main_pkg_path) |p| {
+            root_pkg_memory.root_src_path = try fs.path.relative(arena, p, src_path);
+        } else if (fs.path.dirname(src_path) != null) {
+            root_pkg_memory.root_src_path = fs.path.basename(src_path);
+        } else {
+            root_pkg_memory.root_src_path = src_path;
+        }
+        break :root_pkg &root_pkg_memory;
+    };
+
+    const self_exe_path = try fs.selfExePathAlloc(arena);
+    var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir|
+        .{
+            .path = lib_dir,
+            .handle = try fs.cwd().openDir(lib_dir, .{}),
+        }
+    else
+        introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
+            fatal("unable to find zig installation directory: {}", .{@errorName(err)});
+        };
+    defer zig_lib_directory.handle.close();
+
+    var libc_installation: ?LibCInstallation = null;
+    defer if (libc_installation) |*l| l.deinit(gpa);
+
+    if (libc_paths_file) |paths_file| {
+        libc_installation = LibCInstallation.parse(gpa, paths_file) catch |err| {
+            fatal("unable to parse libc paths file: {}", .{@errorName(err)});
+        };
+    }
 
     if (build_options.have_llvm and emit_asm != .no) {
         // LLVM has no way to set this non-globally.
@@ -1750,7 +1864,8 @@ fn buildOutputType(
         }
         // We do not execve for tests because if the test fails we want to print the error message and
         // invocation below.
-        if (os_can_execve and arg_mode == .run and !watch) {
+        // We also avoid execve when we want to delete a temp file after running.
+        if (os_can_execve and arg_mode == .run and !watch and stdin_tmp_sub_path == null) {
             // TODO improve the std lib so that we don't need a call to getEnvMap here.
             var env_vars = try process.getEnvMap(arena);
             const err = std.os.execvpe(gpa, argv.items, &env_vars);
