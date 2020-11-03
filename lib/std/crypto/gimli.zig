@@ -33,7 +33,7 @@ pub const State = struct {
         var data: [BLOCKBYTES / 4]u32 = undefined;
         var i: usize = 0;
         while (i < State.BLOCKBYTES) : (i += 4) {
-            data[i / 4] = mem.readIntLittle(u32, initial_state[i..][0..4]);
+            data[i / 4] = mem.readIntNative(u32, initial_state[i..][0..4]);
         }
         return Self{ .data = data };
     }
@@ -184,27 +184,31 @@ pub const State = struct {
 
 test "permute" {
     // test vector from gimli-20170627
-    var state = State{
-        .data = blk: {
-            var input: [12]u32 = undefined;
-            var i = @as(u32, 0);
-            while (i < 12) : (i += 1) {
-                input[i] = i * i * i + i *% 0x9e3779b9;
-            }
-            testing.expectEqualSlices(u32, &input, &[_]u32{
-                0x00000000, 0x9e3779ba, 0x3c6ef37a, 0xdaa66d46,
-                0x78dde724, 0x1715611a, 0xb54cdb2e, 0x53845566,
-                0xf1bbcfc8, 0x8ff34a5a, 0x2e2ac522, 0xcc624026,
-            });
-            break :blk input;
-        },
+    const tv_input = [3][4]u32{
+        [4]u32{ 0x00000000, 0x9e3779ba, 0x3c6ef37a, 0xdaa66d46 },
+        [4]u32{ 0x78dde724, 0x1715611a, 0xb54cdb2e, 0x53845566 },
+        [4]u32{ 0xf1bbcfc8, 0x8ff34a5a, 0x2e2ac522, 0xcc624026 },
     };
+    var input: [48]u8 = undefined;
+    var i: usize = 0;
+    while (i < 12) : (i += 1) {
+        mem.writeIntLittle(u32, input[i * 4 ..][0..4], tv_input[i / 4][i % 4]);
+    }
+
+    var state = State.init(input);
     state.permute();
-    testing.expectEqualSlices(u32, &state.data, &[_]u32{
-        0xba11c85a, 0x91bad119, 0x380ce880, 0xd24c2c68,
-        0x3eceffea, 0x277a921c, 0x4f73a0bd, 0xda5a9cd8,
-        0x84b673f0, 0x34e52ff7, 0x9e2bef49, 0xf41bb8d6,
-    });
+
+    const tv_output = [3][4]u32{
+        [4]u32{ 0xba11c85a, 0x91bad119, 0x380ce880, 0xd24c2c68 },
+        [4]u32{ 0x3eceffea, 0x277a921c, 0x4f73a0bd, 0xda5a9cd8 },
+        [4]u32{ 0x84b673f0, 0x34e52ff7, 0x9e2bef49, 0xf41bb8d6 },
+    };
+    var expected_output: [48]u8 = undefined;
+    i = 0;
+    while (i < 12) : (i += 1) {
+        mem.writeIntLittle(u32, expected_output[i * 4 ..][0..4], tv_output[i / 4][i % 4]);
+    }
+    testing.expectEqualSlices(u8, state.toSliceConst(), expected_output[0..]);
 }
 
 pub const Hash = struct {
@@ -269,9 +273,6 @@ pub fn hash(out: *[Hash.digest_length]u8, in: []const u8, options: Hash.Options)
 }
 
 test "hash" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     // a test vector (30) from NIST KAT submission.
     var msg: [58 / 2]u8 = undefined;
     try std.fmt.hexToBytes(&msg, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C");
@@ -423,9 +424,6 @@ pub const Aead = struct {
 };
 
 test "cipher" {
-    // https://github.com/ziglang/zig/issues/5127
-    if (std.Target.current.cpu.arch == .mips) return error.SkipZigTest;
-
     var key: [32]u8 = undefined;
     try std.fmt.hexToBytes(&key, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F");
     var nonce: [16]u8 = undefined;
