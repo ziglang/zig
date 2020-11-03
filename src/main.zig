@@ -2982,35 +2982,37 @@ fn parseCodeModel(arg: []const u8) std.builtin.CodeModel {
 /// garbage collector to run concurrently to zig processes, and to allow multiple
 /// zig processes to run concurrently with each other, without clobbering each other.
 fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
-    switch (std.Target.current.os.tag) {
-        .windows, .wasi, .uefi, .other, .freestanding => return,
-        // std lib is missing getrlimit/setrlimit.
-        // https://github.com/ziglang/zig/issues/6361
-        //else => {},
-        else => return,
-    }
+    if (!@hasDecl(std.os, "rlimit")) return;
     const posix = std.os;
-    var lim = posix.getrlimit(posix.RLIMIT_NOFILE, &lim) catch return; // Oh well; we tried.
+
+    var lim = posix.getrlimit(.NOFILE) catch return; // Oh well; we tried.
+    if (comptime std.Target.current.isDarwin()) {
+        // On Darwin, `NOFILE` is bounded by a hardcoded value `OPEN_MAX`.
+        // According to the man pages for setrlimit():
+        //   setrlimit() now returns with errno set to EINVAL in places that historically succeeded.
+        //   It no longer accepts "rlim_cur = RLIM_INFINITY" for RLIM_NOFILE.
+        //   Use "rlim_cur = min(OPEN_MAX, rlim_max)".
+        lim.max = std.math.min(std.os.darwin.OPEN_MAX, lim.max);
+    }
     if (lim.cur == lim.max) return;
+
+    // Do a binary search for the limit.
+    var min: posix.rlim_t = lim.cur;
+    var max: posix.rlim_t = 1 << 20;
+    // But if there's a defined upper bound, don't search, just set it.
+    if (lim.max != posix.RLIM_INFINITY) {
+        min = lim.max;
+        max = lim.max;
+    }
+
     while (true) {
-        // Do a binary search for the limit.
-        var min: posix.rlim_t = lim.cur;
-        var max: posix.rlim_t = 1 << 20;
-        // But if there's a defined upper bound, don't search, just set it.
-        if (lim.max != posix.RLIM_INFINITY) {
-            min = lim.max;
-            max = lim.max;
+        lim.cur = min + @divTrunc(max - min, 2); // on freebsd rlim_t is signed
+        if (posix.setrlimit(.NOFILE, lim)) |_| {
+            min = lim.cur;
+        } else |_| {
+            max = lim.cur;
         }
-        while (true) {
-            lim.cur = min + (max - min) / 2;
-            if (posix.setrlimit(posix.RLIMIT_NOFILE, lim)) |_| {
-                min = lim.cur;
-            } else |_| {
-                max = lim.cur;
-            }
-            if (min + 1 < max) continue;
-            return;
-        }
+        if (min + 1 >= max) break;
     }
 }
 

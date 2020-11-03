@@ -1475,6 +1475,9 @@ pub const CLOCK_UPTIME_RAW_APPROX = 9;
 pub const CLOCK_PROCESS_CPUTIME_ID = 12;
 pub const CLOCK_THREAD_CPUTIME_ID = 16;
 
+/// Max open files per process
+/// https://opensource.apple.com/source/xnu/xnu-4903.221.2/bsd/sys/syslimits.h.auto.html
+pub const OPEN_MAX = 10240;
 pub const RUSAGE_SELF = 0;
 pub const RUSAGE_CHILDREN = -1;
 

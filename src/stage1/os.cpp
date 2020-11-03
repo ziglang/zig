@@ -978,29 +978,6 @@ int os_init(void) {
     host_get_clock_service(mach_host_self(), SYSTEM_CLOCK, &macos_monotonic_clock);
     host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &macos_calendar_clock);
 #endif
-#if defined(ZIG_OS_POSIX)
-    // Raise the open file descriptor limit.
-    // Code lifted from node.js
-    struct rlimit lim;
-    if (getrlimit(RLIMIT_NOFILE, &lim) == 0 && lim.rlim_cur != lim.rlim_max) {
-        // Do a binary search for the limit.
-        rlim_t min = lim.rlim_cur;
-        rlim_t max = 1 << 20;
-        // But if there's a defined upper bound, don't search, just set it.
-        if (lim.rlim_max != RLIM_INFINITY) {
-            min = lim.rlim_max;
-            max = lim.rlim_max;
-        }
-        do {
-            lim.rlim_cur = min + (max - min) / 2;
-            if (setrlimit(RLIMIT_NOFILE, &lim)) {
-                max = lim.rlim_cur;
-            } else {
-                min = lim.rlim_cur;
-            }
-        } while (min + 1 < max);
-    }
-#endif
     return 0;
 }
 
