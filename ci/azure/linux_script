@@ -19,8 +19,8 @@ wget https://ziglang.org/deps/$QEMUBASE.tar.xz
 tar xf $QEMUBASE.tar.xz
 PATH=$PWD/$QEMUBASE/bin:$PATH
 
-WASMTIME="wasmtime-v0.15.0-x86_64-linux"
-wget https://github.com/bytecodealliance/wasmtime/releases/download/v0.15.0/$WASMTIME.tar.xz
+WASMTIME="wasmtime-v0.20.0-x86_64-linux"
+wget https://github.com/bytecodealliance/wasmtime/releases/download/v0.20.0/$WASMTIME.tar.xz
 tar xf $WASMTIME.tar.xz
 PATH=$PWD/$WASMTIME:$PATH
 
