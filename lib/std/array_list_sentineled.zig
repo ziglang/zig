@@ -107,7 +107,10 @@ pub fn ArrayListSentineled(comptime T: type, comptime sentinel: T) type {
         }
 
         pub fn len(self: Self) usize {
-            return self.list.items.len - 1;
+            return if (self.list.items.len == 0) 
+                0
+            else
+                self.list.items.len - 1;
         }
 
         pub fn capacity(self: Self) usize {
