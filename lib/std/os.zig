@@ -3267,6 +3267,11 @@ pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
     }
 }
 
+pub const Stat = if (builtin.link_libc)
+    system.libc_stat
+else
+    system.kernel_stat;
+
 pub const FStatError = error{
     SystemResources,
 

@@ -152,7 +152,7 @@ pub const PATH_MAX = 1024;
 
 pub const ino_t = c_ulong;
 
-pub const Stat = extern struct {
+pub const libc_stat = extern struct {
     ino: ino_t,
     nlink: c_uint,
     dev: c_uint,
@@ -172,15 +172,15 @@ pub const Stat = extern struct {
     lspare: i32,
     qspare1: i64,
     qspare2: i64,
-    pub fn atime(self: Stat) timespec {
+    pub fn atime(self: @This()) timespec {
         return self.atim;
     }
 
-    pub fn mtime(self: Stat) timespec {
+    pub fn mtime(self: @This()) timespec {
         return self.mtim;
     }
 
-    pub fn ctime(self: Stat) timespec {
+    pub fn ctime(self: @This()) timespec {
         return self.ctim;
     }
 };

@@ -546,13 +546,8 @@ pub const ino_t = u64;
 pub const dev_t = u64;
 pub const blkcnt_t = i64;
 
-/// Renamed to Stat to not conflict with the stat function.
-/// atime, mtime, and ctime have functions to return `timespec`,
-/// because although this is a POSIX API, the layout and names of
-/// the structs are inconsistent across operating systems, and
-/// in C, macros are used to hide the differences. Here we use
-/// methods to accomplish this.
-pub const Stat = extern struct {
+// The `stat` definition used by the Linux kernel.
+pub const kernel_stat = extern struct {
     dev: dev_t,
     __dev_padding: u32,
     __ino_truncated: u32,
@@ -570,18 +565,21 @@ pub const Stat = extern struct {
     ctim: timespec,
     ino: ino_t,
 
-    pub fn atime(self: Stat) timespec {
+    pub fn atime(self: @This()) timespec {
         return self.atim;
     }
 
-    pub fn mtime(self: Stat) timespec {
+    pub fn mtime(self: @This()) timespec {
         return self.mtim;
     }
 
-    pub fn ctime(self: Stat) timespec {
+    pub fn ctime(self: @This()) timespec {
         return self.ctim;
     }
 };
+
+// The `stat64` definition used by the libc.
+pub const libc_stat = kernel_stat;
 
 pub const timespec = extern struct {
     tv_sec: i32,

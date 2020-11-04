@@ -12,6 +12,7 @@ pub fn syscall_pipe(fd: *[2]i32) usize {
         \\1:
         \\ st %%o0, [%%g3+0]
         \\ st %%o1, [%%g3+4]
+        \\ clr %%o0
         \\2:
         : [ret] "={o0}" (-> usize)
         : [number] "{g1}" (@enumToInt(SYS.pipe)),

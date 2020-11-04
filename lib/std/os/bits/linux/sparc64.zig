@@ -484,11 +484,7 @@ pub const off_t = i64;
 pub const ino_t = u64;
 pub const mode_t = u32;
 
-/// atime, mtime, and ctime have functions to return `timespec`,
-/// because although this is a POSIX API, the layout and names of
-/// the structs are inconsistent across operating systems, and
-/// in C, macros are used to hide the differences. Here we use
-/// methods to accomplish this.
+// The `stat64` definition used by the libc.
 pub const libc_stat = extern struct {
     dev: u64,
     ino: ino_t,
@@ -522,44 +518,39 @@ pub const libc_stat = extern struct {
     }
 };
 
+// The `stat64` definition used by the kernel.
 pub const kernel_stat = extern struct {
-    dev: u32,
-    ino: ino_t,
-    mode: mode_t,
-    nlink: i16,
+    dev: u64,
+    ino: u64,
+    nlink: u64,
 
+    mode: u32,
     uid: u32,
     gid: u32,
-    rdev: u32,
+    __pad0: u32,
 
-    size: off_t,
-    atim: isize,
-    mtim: isize,
-    ctim: isize,
+    rdev: u64,
+    size: i64,
+    blksize: i64,
+    blocks: i64,
 
-    blksize: off_t,
-    blocks: off_t,
+    atim: timespec,
+    mtim: timespec,
+    ctim: timespec,
+    __unused: [3]u64,
 
-    __unused4: [2]isize,
-
-    // Hack to make the stdlib not complain about atime
-    // and friends not being a method.
-    // TODO what should tv_nsec be filled with?
-    pub fn atime(self: kernel_stat) timespec {
-        return timespec{.tv_sec=self.atim, .tv_nsec=0};
+    pub fn atime(self: @This()) timespec {
+        return self.atim;
     }
 
-    pub fn mtime(self: kernel_stat) timespec {
-        return timespec{.tv_sec=self.mtim, .tv_nsec=0};
+    pub fn mtime(self: @This()) timespec {
+        return self.mtim;
     }
 
-    pub fn ctime(self: kernel_stat) timespec {
-        return timespec{.tv_sec=self.ctim, .tv_nsec=0};
+    pub fn ctime(self: @This()) timespec {
+        return self.ctim;
     }
 };
-
-/// Renamed to Stat to not conflict with the stat function.
-pub const Stat = if (std.builtin.link_libc) libc_stat else kernel_stat;
 
 pub const timespec = extern struct {
     tv_sec: isize,
