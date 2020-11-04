@@ -5643,7 +5643,10 @@ pub fn prctl(option: i32, args: anytype) PrctlError!u31 {
         @compileError("prctl takes a maximum of 4 optional arguments");
 
     var buf: [4]usize = undefined;
-    inline for (args) |arg, i| buf[i] = arg;
+    {
+        comptime var i = 0;
+        inline while (i < args.len) : (i += 1) buf[i] = args[i];
+    }
 
     const rc = system.prctl(option, buf[0], buf[1], buf[2], buf[3]);
     switch (errno(rc)) {
