@@ -532,11 +532,25 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         // Create an LLD command line and invoke it.
         var argv = std.ArrayList([]const u8).init(self.base.allocator);
         defer argv.deinit();
-        // Even though we're calling LLD as a library it thinks the first argument is its own exe name.
-        try argv.append("lld");
 
-        try argv.append("-error-limit");
-        try argv.append("0");
+        if (self.base.options.is_native_os) {
+            // If we're compiling on native OS, we fall back to system linker, ld.
+            // This is a temporary solution which resolves code signing issues on latest
+            // macOS Big Sur.
+            // When LLD is updated to codesign as well, we should remove this prong.
+            // TODO https://github.com/ziglang/zig/issues/6971
+            try argv.append("ld");
+
+            if (is_dyn_lib) {
+                try argv.append("-headerpad_max_install_names");
+            }
+        } else {
+            // Even though we're calling LLD as a library it thinks the first argument is its own exe name.
+            try argv.append("lld");
+
+            try argv.append("-error-limit");
+            try argv.append("0");
+        }
 
         try argv.append("-demangle");
 
@@ -708,37 +722,62 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             new_argv[i] = try arena.dupeZ(u8, arg);
         }
 
-        var stderr_context: LLDContext = .{
-            .macho = self,
-            .data = std.ArrayList(u8).init(self.base.allocator),
-        };
-        defer stderr_context.data.deinit();
-        var stdout_context: LLDContext = .{
-            .macho = self,
-            .data = std.ArrayList(u8).init(self.base.allocator),
-        };
-        defer stdout_context.data.deinit();
-        const llvm = @import("../llvm.zig");
-        const ok = llvm.Link(
-            .MachO,
-            new_argv.ptr,
-            new_argv.len,
-            append_diagnostic,
-            @ptrToInt(&stdout_context),
-            @ptrToInt(&stderr_context),
-        );
-        if (stderr_context.oom or stdout_context.oom) return error.OutOfMemory;
-        if (stdout_context.data.items.len != 0) {
-            std.log.warn("unexpected LLD stdout: {}", .{stdout_context.data.items});
-        }
-        if (!ok) {
-            // TODO parse this output and surface with the Compilation API rather than
-            // directly outputting to stderr here.
-            std.debug.print("{}", .{stderr_context.data.items});
-            return error.LLDReportedFailure;
-        }
-        if (stderr_context.data.items.len != 0) {
-            std.log.warn("unexpected LLD stderr: {}", .{stderr_context.data.items});
+        if (self.base.options.is_native_os) {
+            // If we're compiling on native OS, we fall back to system linker, ld.
+            // This is a temporary solution which resolves code signing issues on latest
+            // macOS Big Sur.
+            // When LLD is updated to codesign as well, we should remove this prong.
+            // TODO https://github.com/ziglang/zig/issues/6971
+            const result = try std.ChildProcess.exec(.{ .allocator = self.base.allocator, .argv = argv.items });
+            defer {
+                self.base.allocator.free(result.stdout);
+                self.base.allocator.free(result.stderr);
+            }
+            if (result.stdout.len != 0) {
+                std.log.warn("unexpected LD stdout: {}", .{result.stdout});
+            }
+            if (result.stderr.len != 0) {
+                std.log.warn("unexpected LD stderr: {}", .{result.stderr});
+            }
+            if (result.term.Exited != 0) {
+                // TODO parse this output and surface with the Compilation API rather than
+                // directly outputting to stderr here.
+                std.debug.print("{}", .{result.stderr});
+                return error.LDReportedFailure;
+            }
+        } else {
+            var stderr_context: LLDContext = .{
+                .macho = self,
+                .data = std.ArrayList(u8).init(self.base.allocator),
+            };
+            defer stderr_context.data.deinit();
+            var stdout_context: LLDContext = .{
+                .macho = self,
+                .data = std.ArrayList(u8).init(self.base.allocator),
+            };
+            defer stdout_context.data.deinit();
+            const llvm = @import("../llvm.zig");
+            const ok = llvm.Link(
+                .MachO,
+                new_argv.ptr,
+                new_argv.len,
+                append_diagnostic,
+                @ptrToInt(&stdout_context),
+                @ptrToInt(&stderr_context),
+            );
+            if (stderr_context.oom or stdout_context.oom) return error.OutOfMemory;
+            if (stdout_context.data.items.len != 0) {
+                std.log.warn("unexpected LLD stdout: {}", .{stdout_context.data.items});
+            }
+            if (!ok) {
+                // TODO parse this output and surface with the Compilation API rather than
+                // directly outputting to stderr here.
+                std.debug.print("{}", .{stderr_context.data.items});
+                return error.LLDReportedFailure;
+            }
+            if (stderr_context.data.items.len != 0) {
+                std.log.warn("unexpected LLD stderr: {}", .{stderr_context.data.items});
+            }
         }
     }
 
