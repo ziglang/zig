@@ -2,20 +2,21 @@ usingnamespace @import("../bits.zig");
 
 pub fn syscall_pipe(fd: *[2]i32) usize {
     return asm volatile (
-        \\ mov %%o0, %%o2
+        \\ mov %[arg], %%g3
         \\ t 0x6d
         \\ bcc,pt %%xcc, 1f
         \\ nop
+        \\ # Return the error code
         \\ ba 2f
         \\ neg %%o0
-        \\ 1:
-        \\ st %%o0, [%%o2]
-        \\ st %%o1, [%%o2 + 4]
-        \\ clr %%o0
-        \\ 2:
+        \\1:
+        \\ st %%o0, [%%g3+0]
+        \\ st %%o1, [%%g3+4]
+        \\2:
         : [ret] "={o0}" (-> usize)
-        : [number] "{$2}" (@enumToInt(SYS.pipe))
-        : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
+        : [number] "{g1}" (@enumToInt(SYS.pipe)),
+          [arg] "r" (fd)
+        : "memory", "g3"
     );
 }
 
@@ -107,7 +108,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg2] "{o1}" (arg2),
           [arg3] "{o2}" (arg3),
           [arg4] "{o3}" (arg4),
-          [arg5] "{o4}" (arg5),
+          [arg5] "{o4}" (arg5)
         : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
@@ -134,7 +135,7 @@ pub fn syscall6(
           [arg3] "{o2}" (arg3),
           [arg4] "{o3}" (arg4),
           [arg5] "{o4}" (arg5),
-          [arg6] "{o5}" (arg6),
+          [arg6] "{o5}" (arg6)
         : "memory", "xcc", "o1", "o2", "o3", "o4", "o5", "o7"
     );
 }
