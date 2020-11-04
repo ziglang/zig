@@ -5636,7 +5636,7 @@ pub const PrctlError = error{
     PermissionDenied,
 } || UnexpectedError;
 
-pub fn prctl(option: i32, args: anytype) PrctlError!u31 {
+pub fn prctl(option: PR, args: anytype) PrctlError!u31 {
     if (@typeInfo(@TypeOf(args)) != .Struct)
         @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
     if (args.len > 4)
@@ -5648,7 +5648,7 @@ pub fn prctl(option: i32, args: anytype) PrctlError!u31 {
         inline while (i < args.len) : (i += 1) buf[i] = args[i];
     }
 
-    const rc = system.prctl(option, buf[0], buf[1], buf[2], buf[3]);
+    const rc = system.prctl(@enumToInt(option), buf[0], buf[1], buf[2], buf[3]);
     switch (errno(rc)) {
         0 => return @intCast(u31, rc),
         EACCES => return error.AccessDenied,

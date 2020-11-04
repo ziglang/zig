@@ -4,6 +4,88 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 
+pub const PR = extern enum(i32) {
+    SET_PDEATHSIG = 1,
+    GET_PDEATHSIG = 2,
+
+    GET_DUMPABLE = 3,
+    SET_DUMPABLE = 4,
+
+    GET_UNALIGN = 5,
+    SET_UNALIGN = 6,
+
+    GET_KEEPCAPS = 7,
+    SET_KEEPCAPS = 8,
+
+    GET_FPEMU = 9,
+    SET_FPEMU = 10,
+
+    GET_FPEXC = 11,
+    SET_FPEXC = 12,
+
+    GET_TIMING = 13,
+    SET_TIMING = 14,
+
+    SET_NAME = 15,
+    GET_NAME = 16,
+
+    GET_ENDIAN = 19,
+    SET_ENDIAN = 20,
+
+    GET_SECCOMP = 21,
+    SET_SECCOMP = 22,
+
+    CAPBSET_READ = 23,
+    CAPBSET_DROP = 24,
+
+    GET_TSC = 25,
+    SET_TSC = 26,
+
+    GET_SECUREBITS = 27,
+    SET_SECUREBITS = 28,
+
+    SET_TIMERSLACK = 29,
+    GET_TIMERSLACK = 30,
+
+    TASK_PERF_EVENTS_DISABLE = 31,
+    TASK_PERF_EVENTS_ENABLE = 32,
+
+    MCE_KILL = 33,
+
+    MCE_KILL_GET = 34,
+
+    SET_MM = 35,
+
+    SET_PTRACER = 0x59616d61,
+
+    SET_CHILD_SUBREAPER = 36,
+    GET_CHILD_SUBREAPER = 37,
+
+    SET_NO_NEW_PRIVS = 38,
+    GET_NO_NEW_PRIVS = 39,
+
+    GET_TID_ADDRESS = 40,
+
+    SET_THP_DISABLE = 41,
+    GET_THP_DISABLE = 42,
+
+    MPX_ENABLE_MANAGEMENT = 43,
+    MPX_DISABLE_MANAGEMENT = 44,
+
+    SET_FP_MODE = 45,
+    GET_FP_MODE = 46,
+
+    CAP_AMBIENT = 47,
+
+    SVE_SET_VL = 50,
+    SVE_GET_VL = 51,
+
+    GET_SPECULATION_CTRL = 52,
+    SET_SPECULATION_CTRL = 53,
+
+    _,
+};
+
 pub const PR_SET_PDEATHSIG = 1;
 pub const PR_GET_PDEATHSIG = 2;
 
