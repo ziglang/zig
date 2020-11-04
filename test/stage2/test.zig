@@ -830,7 +830,7 @@ pub fn addCases(ctx: *TestContext) !void {
         // Character literals and multiline strings.
         case.addCompareOutput(
             \\export fn _start() noreturn {
-            \\    const ignore = 
+            \\    const ignore =
             \\        \\ cool thx
             \\        \\
             \\    ;
@@ -1112,6 +1112,14 @@ pub fn addCases(ctx: *TestContext) !void {
         \\fn entry() void {}
         \\fn entry() void {}
     , &[_][]const u8{":2:4: error: redefinition of 'entry'"});
+
+    ctx.compileError("local variable shadowing", linux_x64,
+        \\export fn _start() noreturn {
+        \\    var i: u32 = 10;
+        \\    var i: u32 = 10;
+        \\    unreachable;
+        \\}
+    , &[_][]const u8{":3:9: error: redeclaration of variable 'i'"});
 
     {
         var case = ctx.obj("extern variable has no type", linux_x64);
