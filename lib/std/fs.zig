@@ -660,6 +660,7 @@ pub const Dir = struct {
         InvalidUtf8,
         BadPathName,
         DeviceBusy,
+        ArgumentsInvalid,
     } || os.UnexpectedError;
 
     pub fn close(self: *Dir) void {
