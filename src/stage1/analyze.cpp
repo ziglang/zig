@@ -3178,6 +3178,22 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
                 return ErrorSemanticAnalyzeFail;
             }
+            if (tag_int_type->id == ZigTypeIdInt) {
+                BigInt bi;
+                bigint_init_unsigned(&bi, field_count - 1);
+                if (!bigint_fits_in_bits(&bi,
+                            tag_int_type->data.integral.bit_count,
+                            tag_int_type->data.integral.is_signed))
+                {
+                    ErrorMsg *msg = add_node_error(g, enum_type_node,
+                            buf_sprintf("specified integer tag type cannot represent every field"));
+                    add_error_note(g, msg, enum_type_node,
+                            buf_sprintf("type %s cannot fit values in range 0...%" PRIu32,
+                                buf_ptr(&tag_int_type->name), field_count - 1));
+                    union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+                    return ErrorSemanticAnalyzeFail;
+                }
+            }
         } else {
             tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
         }
