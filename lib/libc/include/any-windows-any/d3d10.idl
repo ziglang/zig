@@ -660,8 +660,14 @@ typedef enum D3D10_RTV_DIMENSION {
 } D3D10_RTV_DIMENSION;
 
 typedef struct D3D10_BUFFER_RTV {
-    UINT ElementOffset;
-    UINT ElementWidth;
+    union {
+        UINT FirstElement;
+        UINT ElementOffset;
+    };
+    union {
+        UINT NumElements;
+        UINT ElementWidth;
+    };
 } D3D10_BUFFER_RTV;
 
 typedef struct D3D10_TEX1D_RTV {
@@ -717,8 +723,14 @@ typedef struct D3D10_RENDER_TARGET_VIEW_DESC {
 typedef D3D_SRV_DIMENSION D3D10_SRV_DIMENSION;
 
 typedef struct D3D10_BUFFER_SRV {
-    UINT ElementOffset;
-    UINT ElementWidth;
+    union {
+        UINT FirstElement;
+        UINT ElementOffset;
+    };
+    union {
+        UINT NumElements;
+        UINT ElementWidth;
+    };
 } D3D10_BUFFER_SRV;
 
 typedef struct D3D10_TEX1D_SRV {
@@ -972,7 +984,9 @@ typedef enum D3D10_CREATE_DEVICE_FLAG {
     D3D10_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS = 0x8,
     D3D10_CREATE_DEVICE_ALLOW_NULL_FROM_MAP                      = 0x10,
     D3D10_CREATE_DEVICE_BGRA_SUPPORT                             = 0x20,
-    D3D10_CREATE_DEVICE_STRICT_VALIDATION                        = 0x0200
+    D3D10_CREATE_DEVICE_PREVENT_ALTERING_LAYER_SETTINGS_FROM_REGISTRY = 0x80,
+    D3D10_CREATE_DEVICE_STRICT_VALIDATION                             = 0x200,
+    D3D10_CREATE_DEVICE_DEBUGGABLE                                    = 0x400,
 } D3D10_CREATE_DEVICE_FLAG;
 
 /* Core */

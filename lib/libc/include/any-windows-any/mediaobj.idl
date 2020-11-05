@@ -21,9 +21,6 @@ import "unknwn.idl";
 import "objidl.idl";
 import "strmif.idl";
 
-interface IDMOQualityControl;
-interface IDMOVideoOutputOptimizations;
-
 typedef struct _DMOMediaType
 {
     GUID majortype;
@@ -89,6 +86,23 @@ interface IMediaBuffer : IUnknown
        [out] DWORD *pcbLength
     );
 }
+
+enum _DMO_INPUT_STATUS_FLAGS
+{
+    DMO_INPUT_STATUSF_ACCEPT_DATA = 0x00000001,
+};
+
+enum _DMO_INPUT_DATA_BUFFER_FLAGS
+{
+    DMO_INPUT_DATA_BUFFERF_SYNCPOINT    = 0x00000001,
+    DMO_INPUT_DATA_BUFFERF_TIME         = 0x00000002,
+    DMO_INPUT_DATA_BUFFERF_TIMELENGTH   = 0x00000004,
+};
+
+enum _DMO_PROCESS_OUTPUT_FLAGS
+{
+    DMO_PROCESS_OUTPUT_DISCARD_WHEN_NO_BUFFER = 0x00000001,
+};
 
 typedef struct _DMO_OUTPUT_DATA_BUFFER {
     IMediaBuffer *pBuffer;
@@ -251,4 +265,39 @@ interface IMediaObjectInPlace : IUnknown {
     HRESULT GetLatency(
         [out] REFERENCE_TIME *pLatencyTime
     );
+}
+
+enum _DMO_QUALITY_STATUS_FLAGS
+{
+    DMO_QUALITY_STATUS_ENABLED = 0x00000001,
+};
+
+[
+    object,
+    uuid(65abea96-cf36-453f-af8a-705e98f16260),
+    local
+]
+interface IDMOQualityControl : IUnknown
+{
+    HRESULT SetNow([in] REFERENCE_TIME now);
+    HRESULT SetStatus([in] DWORD flags);
+    HRESULT GetStatus([out] DWORD *flags);
+}
+
+enum _DMO_VIDEO_OUTPUT_STREAM_FLAGS
+{
+    DMO_VOSF_NEEDS_PREVIOUS_SAMPLE = 0x00000001,
+};
+
+[
+    object,
+    uuid(be8f4f4e-5b16-4d29-b350-7f6b5d9298ac),
+    local
+]
+interface IDMOVideoOutputOptimizations : IUnknown
+{
+    HRESULT QueryOperationModePreferences(ULONG index, DWORD *flags);
+    HRESULT SetOperationMode(ULONG index, DWORD flags);
+    HRESULT GetCurrentOperationMode(ULONG index, DWORD *flags);
+    HRESULT GetCurrentSampleRequirements(ULONG index, DWORD *flags);
 }

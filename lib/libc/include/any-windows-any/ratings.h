@@ -33,9 +33,9 @@ STDAPI RatingAddToApprovedSites (HWND hDlg, DWORD cbPasswordBlob, BYTE *pbPasswo
 STDAPI RatingClickedOnPRFInternal (HWND hWndOwner, HINSTANCE, LPSTR lpszFileName, int nShow);
 STDAPI RatingClickedOnRATInternal (HWND hWndOwner, HINSTANCE, LPSTR lpszFileName, int nShow);
 
-STDAPI RatingEnabledQuery();
-STDAPI RatingInit();
-STDAPI_(void) RatingTerm();
+STDAPI RatingEnabledQuery(void);
+STDAPI RatingInit(void);
+STDAPI_(void) RatingTerm(void);
 
 static inline WINBOOL IS_RATINGS_ENABLED() {
   TCHAR sz[200];

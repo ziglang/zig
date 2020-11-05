@@ -76,7 +76,6 @@ extern "C" {
   SHSTDAPI_(HINSTANCE) ShellExecuteW (HWND hwnd, LPCWSTR lpOperation, LPCWSTR lpFile, LPCWSTR lpParameters, LPCWSTR lpDirectory, INT nShowCmd);
   SHSTDAPI_(HINSTANCE) FindExecutableA (LPCSTR lpFile, LPCSTR lpDirectory, LPSTR lpResult);
   SHSTDAPI_(HINSTANCE) FindExecutableW (LPCWSTR lpFile, LPCWSTR lpDirectory, LPWSTR lpResult);
-  SHSTDAPI_(LPWSTR *) CommandLineToArgvW (LPCWSTR lpCmdLine, int *pNumArgs);
   SHSTDAPI_(INT) ShellAboutA (HWND hWnd, LPCSTR szApp, LPCSTR szOtherStuff, HICON hIcon);
   SHSTDAPI_(INT) ShellAboutW (HWND hWnd, LPCWSTR szApp, LPCWSTR szOtherStuff, HICON hIcon);
   SHSTDAPI_(HICON) DuplicateIcon (HINSTANCE hInst, HICON hIcon);
@@ -862,6 +861,10 @@ extern "C" {
   typedef HRESULT (STDMETHODCALLTYPE *PFNSHOWSHAREFOLDERUIW) (HWND hwndParent, PCWSTR pszPath);
 
 #endif
+#endif /* WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP) */
+
+#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
+  SHSTDAPI_(LPWSTR *) CommandLineToArgvW (LPCWSTR lpCmdLine, int *pNumArgs);
 #endif
 
 #ifdef __cplusplus

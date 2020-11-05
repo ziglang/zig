@@ -320,11 +320,6 @@ extern "C" {
 /*****************************************************************************
  * Enumerations
  */
-/* typedef definitions */
-typedef enum enumDMUS_VARIATIONT_TYPES DMUS_VARIATIONT_TYPES;
-typedef enum enumDMUS_EMBELLISHT_TYPES DMUS_EMBELLISHT_TYPES;
-typedef enum enumDMUS_PATTERNT_TYPES   DMUS_PATTERNT_TYPES;
-
 /* actual enumerations */
 enum enumDMUS_VARIATIONT_TYPES {
 	DMUS_VARIATIONT_SEQUENTIAL   = 0x0,
@@ -352,6 +347,10 @@ enum enumDMUS_PATTERNT_TYPES {
 	DMUS_PATTERNT_NO_REPEAT    = 0x4,
 	DMUS_PATTERNT_RANDOM_ROW   = 0x5
 };
+
+typedef enum enumDMUS_VARIATIONT_TYPES DMUS_VARIATIONT_TYPES;
+typedef enum enumDMUS_EMBELLISHT_TYPES DMUS_EMBELLISHT_TYPES;
+typedef enum enumDMUS_PATTERNT_TYPES   DMUS_PATTERNT_TYPES;
 
 
 /*****************************************************************************

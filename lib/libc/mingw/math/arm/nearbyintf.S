@@ -11,15 +11,8 @@
 	.globl __MINGW_USYMBOL(nearbyintf)
 	.def	__MINGW_USYMBOL(nearbyintf);	.scl	2;	.type	32;	.endef
 __MINGW_USYMBOL(nearbyintf):
-	vmov	r2, r3, d0
-	lsr		r3, r3, #20
-	bic		r3, r3, #0x800
-	movw	r2, #0x7ff
-	cmp		r2, r3 /* Check for INF/NAN, just return the input in those cases */
-	it		eq
-	bxeq	lr
-	vmrs	r1, fpscr
-	vcvtr.s32.f32	s0, s0
-	vcvt.f32.s32	s0, s0
-	vmsr	fpscr, r1
-	bx	lr
+	push	{r4, lr}
+	vmrs	r4, fpscr
+	bl	rintf
+	vmsr	fpscr, r4
+	pop	{r4, pc}

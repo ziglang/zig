@@ -20,6 +20,14 @@ import "oaidl.idl";
 import "ocidl.idl";
 import "d3d11.idl";
 
+const UINT D3D11_DEBUG_FEATURE_FLUSH_PER_RENDER_OP = 0x1;
+const UINT D3D11_DEBUG_FEATURE_FINISH_PER_RENDER_OP = 0x2;
+const UINT D3D11_DEBUG_FEATURE_PRESENT_PER_RENDER_OP = 0x4;
+const UINT D3D11_DEBUG_FEATURE_ALWAYS_DISCARD_OFFERED_RESOURCE = 0x8;
+const UINT D3D11_DEBUG_FEATURE_NEVER_DISCARD_OFFERED_RESOURCE = 0x10;
+const UINT D3D11_DEBUG_FEATURE_AVOID_BEHAVIOR_CHANGING_DEBUG_AIDS = 0x40;
+const UINT D3D11_DEBUG_FEATURE_DISABLE_TILED_RESOURCE_MAPPING_TRACKING_AND_VALIDATION = 0x80;
+
 typedef enum D3D11_MESSAGE_CATEGORY {
     D3D11_MESSAGE_CATEGORY_APPLICATION_DEFINED,
     D3D11_MESSAGE_CATEGORY_MISCELLANEOUS,
@@ -1229,6 +1237,19 @@ interface ID3D11Debug : IUnknown {
     HRESULT ValidateContext(ID3D11DeviceContext *pContext);
     HRESULT ReportLiveDeviceObjects(D3D11_RLDO_FLAGS Flags);
     HRESULT ValidateContextForDispatch(ID3D11DeviceContext *pContext);
+}
+
+[
+    object,
+    uuid(1ef337e3-58e7-4f83-a692-db221f5ed47e),
+    local,
+    pointer_default(unique)
+]
+interface ID3D11SwitchToRef : IUnknown {
+    BOOL SetUseRef(
+        [in] BOOL useref
+    );
+    BOOL GetUseRef();
 }
 
 [

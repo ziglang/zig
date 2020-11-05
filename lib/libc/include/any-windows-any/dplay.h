@@ -333,6 +333,19 @@ typedef struct tagDPSECURITYDESC
 
 typedef const DPSECURITYDESC *LPCDPSECURITYDESC;
 
+typedef struct
+{
+    DWORD dwSize;
+    DWORD dwFlags;
+    union
+    {
+        LPWSTR  lpszAccountID;
+        LPSTR   lpszAccountIDA;
+    } DUMMYUNIONNAME;
+} DPACCOUNTDESC, *LPDPACCOUNTDESC;
+
+typedef const DPACCOUNTDESC *LPCDPACCOUNTDESC;
+
 typedef struct tagDPCREDENTIALS
 {
     DWORD dwSize;               /* Size of structure */

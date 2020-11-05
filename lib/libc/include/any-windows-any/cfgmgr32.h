@@ -16,6 +16,13 @@
 extern "C" {
 #endif
 
+  typedef DWORD RETURN_TYPE;
+  typedef RETURN_TYPE CONFIGRET;
+  typedef CHAR *DEVNODEID_A,*DEVINSTID_A;
+  typedef WCHAR *DEVNODEID_W,*DEVINSTID_W;
+
+#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
+
   typedef CONST VOID *PCVOID;
 
 #define MAX_DEVICE_ID_LEN 200
@@ -40,12 +47,8 @@ extern "C" {
   typedef DWORDLONG *PDWORDLONG;
 #endif
 
-  typedef DWORD RETURN_TYPE;
-  typedef RETURN_TYPE CONFIGRET;
   typedef DWORD DEVNODE,DEVINST;
   typedef DEVNODE *PDEVNODE,*PDEVINST;
-  typedef CHAR *DEVNODEID_A,*DEVINSTID_A;
-  typedef WCHAR *DEVNODEID_W,*DEVINSTID_W;
 
   __MINGW_TYPEDEF_UAW(DEVNODEID)
   __MINGW_TYPEDEF_UAW(DEVINSTID)
@@ -132,6 +135,9 @@ extern "C" {
 #define fMD_NonCacheable (0x0)
 #define fMD_Cacheable (0x20)
 
+#define fMD_WINDOW_DECODE (0x40)
+#define fMD_MEMORY_BAR (0x80)
+
   typedef struct Mem_Range_s {
     DWORDLONG MR_Align;
     ULONG MR_nBytes;
@@ -157,6 +163,31 @@ extern "C" {
 
 #define MType_Range sizeof(struct Mem_Range_s)
 
+  typedef struct Mem_Large_Range_s {
+    DWORDLONG MLR_Align;
+    ULONGLONG MLR_nBytes;
+    DWORDLONG MLR_Min;
+    DWORDLONG MLR_Max;
+    DWORD MLR_Flags;
+    DWORD MLR_Reserved;
+  } MEM_LARGE_RANGE, *PMEM_LARGE_RANGE;
+
+  typedef struct Mem_Large_Des_s {
+    DWORD MLD_Count;
+    DWORD MLD_Type;
+    DWORDLONG MLD_Alloc_Base;
+    DWORDLONG MLD_Alloc_End;
+    DWORD MLD_Flags;
+    DWORD MLD_Reserved;
+  } MEM_LARGE_DES, *PMEM_LARGE_DES;
+
+  typedef struct Mem_Large_Resource_s {
+   MEM_LARGE_DES MEM_LARGE_Header;
+   MEM_LARGE_RANGE MEM_LARGE_Data[ANYSIZE_ARRAY];
+  } MEM_LARGE_RESOURCE, *PMEM_LARGE_RESOURCE;
+
+#define MLType_Range sizeof(struct Mem_Large_Range_s)
+
 #define fIOD_PortType (0x1)
 #define fIOD_Memory (0x0)
 #define fIOD_IO (0x1)
@@ -167,6 +198,7 @@ extern "C" {
 #define fIOD_POSITIVE_DECODE (0x0020)
 #define fIOD_PASSIVE_DECODE (0x0040)
 #define fIOD_WINDOW_DECODE (0x0080)
+#define fIOD_PORT_BAR (0x0100)
 
 #define IO_ALIAS_10_BIT_DECODE (0x00000004)
 #define IO_ALIAS_12_BIT_DECODE (0x00000010)
@@ -249,13 +281,23 @@ extern "C" {
   typedef struct IRQ_Range_s {
     ULONG IRQR_Min;
     ULONG IRQR_Max;
+#ifdef NT_PROCESSOR_GROUPS
+    USHORT IRQR_Flags;
+    USHORT IRQR_Rsvdz;
+#else
     ULONG IRQR_Flags;
+#endif
   } IRQ_RANGE,*PIRQ_RANGE;
 
   typedef struct IRQ_Des_32_s {
     DWORD IRQD_Count;
     DWORD IRQD_Type;
+#ifdef NT_PROCESSOR_GROUPS
+    USHORT IRQD_Flags;
+    USHORT IRQD_Group;
+#else
     DWORD IRQD_Flags;
+#endif
     ULONG IRQD_Alloc_Num;
     ULONG32 IRQD_Affinity;
   } IRQ_DES_32,*PIRQ_DES_32;
@@ -263,7 +305,12 @@ extern "C" {
   typedef struct IRQ_Des_64_s {
     DWORD IRQD_Count;
     DWORD IRQD_Type;
+#if defined(NT_PROCESSOR_GROUPS)
+    USHORT IRQD_Flags;
+    USHORT IRQD_Group;
+#else
     DWORD IRQD_Flags;
+#endif
     ULONG IRQD_Alloc_Num;
     ULONG64 IRQD_Affinity;
   } IRQ_DES_64,*PIRQ_DES_64;
@@ -296,10 +343,12 @@ extern "C" {
 
 #define IRQType_Range sizeof(struct IRQ_Range_s)
 
+#if WINVER >= _WIN32_WINNT_WINXP
 #define CM_RESDES_WIDTH_DEFAULT (0x00000000)
 #define CM_RESDES_WIDTH_32 (0x00000001)
 #define CM_RESDES_WIDTH_64 (0x00000002)
 #define CM_RESDES_WIDTH_BITS (0x00000003)
+#endif
 
   typedef struct DevPrivate_Range_s {
     DWORD PR_Data1;
@@ -353,6 +402,7 @@ extern "C" {
 #define fPCD_MEM_WS_TWO (0x200)
 #define fPCD_MEM_WS_THREE (0x300)
 
+#if WINVER >= _WIN32_WINNT_WINXP
 #define fPCD_MEM_A (0x4)
 
 #define fPCD_ATTRIBUTES_PER_WINDOW (0x8000)
@@ -381,6 +431,7 @@ extern "C" {
 
 #define PCD_MAX_MEMORY 2
 #define PCD_MAX_IO 2
+#endif
 
   typedef struct PcCard_Des_s {
     DWORD PCD_Count;
@@ -390,9 +441,11 @@ extern "C" {
     BYTE PCD_Reserved[3];
     DWORD PCD_MemoryCardBase1;
     DWORD PCD_MemoryCardBase2;
+#if WINVER >= _WIN32_WINNT_WINXP
     DWORD PCD_MemoryCardBase[PCD_MAX_MEMORY];
     WORD PCD_MemoryFlags[PCD_MAX_MEMORY];
     BYTE PCD_IoFlags[PCD_MAX_IO];
+#endif
   } PCCARD_DES,*PPCCARD_DES;
 
   typedef struct PcCard_Resource_s {
@@ -438,6 +491,24 @@ extern "C" {
 
 #define BusNumberType_Range sizeof(struct BusNumber_Range_s)
 
+#if WINVER >= _WIN32_WINNT_WIN8
+
+ typedef struct Connection_Des_s {
+    DWORD COND_Type;
+    DWORD COND_Flags;
+    BYTE COND_Class;
+    BYTE COND_ClassType;
+    BYTE COND_Reserved1;
+    BYTE COND_Reserved2;
+    LARGE_INTEGER COND_Id;
+ } CONNECTION_DES, *PCONNECTION_DES;
+
+  typedef struct Connection_Resource_s {
+    CONNECTION_DES Connection_Header;
+  } CONNECTION_RESOURCE, *PCONNECTION_RESOURCE;
+
+#endif
+
 #define CM_HWPI_NOT_DOCKABLE (0x00000000)
 #define CM_HWPI_UNDOCKED (0x00000001)
 #define CM_HWPI_DOCKED (0x00000002)
@@ -467,13 +538,18 @@ extern "C" {
 #define ResType_IRQ (0x00000004)
 #define ResType_DoNotUse (0x00000005)
 #define ResType_BusNumber (0x00000006)
-#define ResType_MAX (0x00000006)
+#define ResType_MemLarge (0x00000007)
+#define ResType_MAX (0x00000007)
+
 #define ResType_Ignored_Bit (0x00008000)
 #define ResType_ClassSpecific (0x0000FFFF)
 #define ResType_Reserved (0x00008000)
 #define ResType_DevicePrivate (0x00008001)
 #define ResType_PcCardConfig (0x00008002)
 #define ResType_MfCardConfig (0x00008003)
+#if WINVER >= _WIN32_WINNT_WIN8
+#define ResType_Connection (0x00008004)
+#endif
 
 #define CM_ADD_RANGE_ADDIFCONFLICT (0x00000000)
 #define CM_ADD_RANGE_DONOTADDIFCONFLICT (0x00000001)
@@ -516,7 +592,16 @@ extern "C" {
 
 #define CM_DELETE_CLASS_ONLY (0x00000000)
 #define CM_DELETE_CLASS_SUBKEYS (0x00000001)
-#define CM_DELETE_CLASS_BITS (0x00000001)
+#if WINVER >= _WIN32_WINNT_LONGHORN
+#define CM_DELETE_CLASS_INTERFACE (0x00000002)
+#endif
+#define CM_DELETE_CLASS_BITS (0x00000003)
+
+#if WINVER >= _WIN32_WINNT_WIN8
+#define CM_ENUMERATE_CLASSES_INSTALLER (0x00000000)
+#define CM_ENUMERATE_CLASSES_INTERFACE (0x00000001)
+#define CM_ENUMERATE_CLASSES_BITS (0x00000001)
+#endif
 
 #define CM_DETECT_NEW_PROFILE (0x00000001)
 #define CM_DETECT_CRASHED (0x00000002)
@@ -528,6 +613,7 @@ extern "C" {
 #define CM_DISABLE_ABSOLUTE (0x00000001)
 #define CM_DISABLE_HARDWARE (0x00000002)
 #define CM_DISABLE_UI_NOT_OK (0x00000004)
+#define CM_DISABLE_PERSIST (0x00000008)
 #define CM_DISABLE_BITS (0x00000007)
 
 #define CM_GETIDLIST_FILTER_NONE (0x00000000)
@@ -538,7 +624,15 @@ extern "C" {
 #define CM_GETIDLIST_FILTER_POWERRELATIONS (0x00000010)
 #define CM_GETIDLIST_FILTER_BUSRELATIONS (0x00000020)
 #define CM_GETIDLIST_DONOTGENERATE (0x10000040)
+#if WINVER <= _WIN32_WINNT_LONGHORN
 #define CM_GETIDLIST_FILTER_BITS (0x1000007F)
+#endif
+#if WINVER >= _WIN32_WINNT_WIN7
+#define CM_GETIDLIST_FILTER_TRANSPORTRELATIONS (0x00000080)
+#define CM_GETIDLIST_FILTER_PRESENT (0x00000100)
+#define CM_GETIDLIST_FILTER_CLASS (0x00000200)
+#define CM_GETIDLIST_FILTER_BITS (0x100003FF)
+#endif
 
 #define CM_GET_DEVICE_INTERFACE_LIST_PRESENT (0x00000000)
 #define CM_GET_DEVICE_INTERFACE_LIST_ALL_DEVICES (0x00000001)
@@ -562,7 +656,13 @@ extern "C" {
 #define CM_DRP_CAPABILITIES (0x00000010)
 #define CM_DRP_UI_NUMBER (0x00000011)
 #define CM_DRP_UPPERFILTERS (0x00000012)
+#if WINVER >= _WIN32_WINNT_LONGHORN
+#define CM_CRP_UPPERFILTERS CM_DRP_UPPERFILTERS
+#endif
 #define CM_DRP_LOWERFILTERS (0x00000013)
+#if WINVER >= _WIN32_WINNT_LONGHORN
+#define CM_CRP_LOWERFILTERS CM_DRP_LOWERFILTERS
+#endif
 #define CM_DRP_BUSTYPEGUID (0x00000014)
 #define CM_DRP_LEGACYBUSTYPE (0x00000015)
 #define CM_DRP_BUSNUMBER (0x00000016)
@@ -579,11 +679,19 @@ extern "C" {
 #define CM_CRP_CHARACTERISTICS CM_DRP_CHARACTERISTICS
 #define CM_DRP_ADDRESS (0x0000001D)
 #define CM_DRP_UI_NUMBER_DESC_FORMAT (0x0000001E)
+#if WINVER >= _WIN32_WINNT_WINXP
 #define CM_DRP_DEVICE_POWER_DATA (0x0000001F)
 #define CM_DRP_REMOVAL_POLICY (0x00000020)
 #define CM_DRP_REMOVAL_POLICY_HW_DEFAULT (0x00000021)
 #define CM_DRP_REMOVAL_POLICY_OVERRIDE (0x00000022)
 #define CM_DRP_INSTALL_STATE (0x00000023)
+#endif
+#if WINVER >= _WIN32_WINNT_WS03
+#define CM_DRP_LOCATION_PATHS (0x00000024)
+#endif
+#if WINVER >= _WIN32_WINNT_WIN7
+#define CM_DRP_BASE_CONTAINERID (0x00000025)
+#endif
 
 #define CM_DRP_MIN (0x00000001)
 #define CM_CRP_MIN CM_DRP_MIN
@@ -600,7 +708,9 @@ extern "C" {
 #define CM_DEVCAP_SURPRISEREMOVALOK (0x00000080)
 #define CM_DEVCAP_HARDWAREDISABLED (0x00000100)
 #define CM_DEVCAP_NONDYNAMIC (0x00000200)
+#define CM_DEVCAP_SECUREDEVICE (0x00000400)
 
+#if WINVER >= _WIN32_WINNT_WINXP
 #define CM_REMOVAL_POLICY_EXPECT_NO_REMOVAL 1
 #define CM_REMOVAL_POLICY_EXPECT_ORDERLY_REMOVAL 2
 #define CM_REMOVAL_POLICY_EXPECT_SURPRISE_REMOVAL 3
@@ -609,6 +719,7 @@ extern "C" {
 #define CM_INSTALL_STATE_NEEDS_REINSTALL 1
 #define CM_INSTALL_STATE_FAILED_INSTALL 2
 #define CM_INSTALL_STATE_FINISH_INSTALL 3
+#endif
 
 #define CM_LOCATE_DEVNODE_NORMAL 0x00000000
 #define CM_LOCATE_DEVNODE_PHANTOM 0x00000001
@@ -637,8 +748,10 @@ extern "C" {
 
 #define CM_REENUMERATE_NORMAL 0x00000000
 #define CM_REENUMERATE_SYNCHRONOUS 0x00000001
+#if WINVER >= _WIN32_WINNT_WINXP
 #define CM_REENUMERATE_RETRY_INSTALLATION 0x00000002
 #define CM_REENUMERATE_ASYNCHRONOUS 0x00000004
+#endif
 #define CM_REENUMERATE_BITS 0x00000007
 
 #define CM_REGISTER_DEVICE_DRIVER_STATIC (0x00000000)
@@ -668,16 +781,113 @@ extern "C" {
 #define CM_SETUP_DOWNLOAD (0x00000001)
 #define CM_SETUP_WRITE_LOG_CONFS (0x00000002)
 #define CM_SETUP_PROP_CHANGE (0x00000003)
+#if WINVER >= _WIN32_WINNT_WINXP
 #define CM_SETUP_DEVNODE_RESET (0x00000004)
 #define CM_SETUP_DEVINST_RESET CM_SETUP_DEVNODE_RESET
+#endif
+#if WINVER >= _WIN32_WINNT_WIN8
+#define CM_SETUP_DEVNODE_CONFIG (0x00000005)
+#define CM_SETUP_DEVINST_CONFIG CM_SETUP_DEVNODE_CONFIG
+#define CM_SETUP_DEVNODE_CONFIG_CLASS (0x00000006)
+#define CM_SETUP_DEVINST_CONFIG_CLASS CM_SETUP_DEVNODE_CONFIG_CLASS
+#endif
+#if WINVER >= _WIN32_WINNT_WINBLUE
+#define CM_SETUP_DEVNODE_CONFIG_EXTENSIONS (0x00000007)
+#define CM_SETUP_DEVINST_CONFIG_EXTENSIONS CM_SETUP_DEVNODE_CONFIG_EXTENSIONS
+#endif
+#if WINVER >= _WIN32_WINNT_WINTHRESHOLD
+#define CM_SETUP_DEVNODE_CONFIG_RESET (0x00000008)
+#define CM_SETUP_DEVINST_CONFIG_RESET CM_SETUP_DEVNODE_CONFIG_RESET
+#endif
 #define CM_SETUP_BITS (0x00000007)
 
 #define CM_QUERY_ARBITRATOR_RAW (0x00000000)
 #define CM_QUERY_ARBITRATOR_TRANSLATED (0x00000001)
 #define CM_QUERY_ARBITRATOR_BITS (0x00000001)
 
+#if WINVER >= _WIN32_WINNT_WINXP
 #define CM_CUSTOMDEVPROP_MERGE_MULTISZ (0x00000001)
 #define CM_CUSTOMDEVPROP_BITS (0x00000001)
+#endif
+#define CM_NAME_ATTRIBUTE_NAME_RETRIEVED_FROM_DEVICE (0x1)
+#define CM_NAME_ATTRIBUTE_USER_ASSIGNED_NAME (0x2)
+
+#if WINVER >= _WIN32_WINNT_LONGHORN
+#define CM_CLASS_PROPERTY_INSTALLER (0x00000000)
+#define CM_CLASS_PROPERTY_INTERFACE (0x00000001)
+#define CM_CLASS_PROPERTY_BITS (0x00000001)
+#endif
+
+#if WINVER >= _WIN32_WINNT_WIN8
+DECLARE_HANDLE(HCMNOTIFICATION);
+typedef HCMNOTIFICATION *PHCMNOTIFICATION;
+
+#define CM_NOTIFY_FILTER_FLAG_ALL_INTERFACE_CLASSES 0x00000001
+#define CM_NOTIFY_FILTER_FLAG_ALL_DEVICE_INSTANCES 0x00000002
+#define CM_NOTIFY_FILTER_VALID_FLAGS (CM_NOTIFY_FILTER_FLAG_ALL_INTERFACE_CLASSES | CM_NOTIFY_FILTER_FLAG_ALL_DEVICE_INSTANCES)
+
+  typedef enum _CM_NOTIFY_FILTER_TYPE {
+    CM_NOTIFY_FILTER_TYPE_DEVICEINTERFACE = 0,
+    CM_NOTIFY_FILTER_TYPE_DEVICEHANDLE,
+    CM_NOTIFY_FILTER_TYPE_DEVICEINSTANCE,
+    CM_NOTIFY_FILTER_TYPE_MAX
+  } CM_NOTIFY_FILTER_TYPE, *PCM_NOTIFY_FILTER_TYPE;
+
+  typedef struct _CM_NOTIFY_FILTER {
+    DWORD cbSize;
+    DWORD Flags;
+    CM_NOTIFY_FILTER_TYPE FilterType;
+    DWORD Reserved;
+    union {
+      struct {
+        GUID ClassGuid;
+      } DeviceInterface;
+      struct {
+        HANDLE  hTarget;
+      } DeviceHandle;
+      struct {
+        WCHAR InstanceId[MAX_DEVICE_ID_LEN];
+      } DeviceInstance;
+    } u;
+  } CM_NOTIFY_FILTER, *PCM_NOTIFY_FILTER;
+
+  typedef enum _CM_NOTIFY_ACTION {
+    CM_NOTIFY_ACTION_DEVICEINTERFACEARRIVAL = 0,
+    CM_NOTIFY_ACTION_DEVICEINTERFACEREMOVAL,
+    CM_NOTIFY_ACTION_DEVICEQUERYREMOVE,
+    CM_NOTIFY_ACTION_DEVICEQUERYREMOVEFAILED,
+    CM_NOTIFY_ACTION_DEVICEREMOVEPENDING,
+    CM_NOTIFY_ACTION_DEVICEREMOVECOMPLETE,
+    CM_NOTIFY_ACTION_DEVICECUSTOMEVENT,
+    CM_NOTIFY_ACTION_DEVICEINSTANCEENUMERATED,
+    CM_NOTIFY_ACTION_DEVICEINSTANCESTARTED,
+    CM_NOTIFY_ACTION_DEVICEINSTANCEREMOVED,
+    CM_NOTIFY_ACTION_MAX
+  } CM_NOTIFY_ACTION, *PCM_NOTIFY_ACTION;
+
+  typedef struct _CM_NOTIFY_EVENT_DATA {
+    CM_NOTIFY_FILTER_TYPE FilterType;
+    DWORD Reserved;
+    union {
+      struct {
+        GUID ClassGuid;
+        WCHAR SymbolicLink[ANYSIZE_ARRAY];
+      } DeviceInterface;
+      struct {
+        GUID EventGuid;
+        LONG NameOffset;
+        DWORD DataSize;
+        BYTE Data[ANYSIZE_ARRAY];
+      } DeviceHandle;
+      struct {
+        WCHAR InstanceId[ANYSIZE_ARRAY];
+      } DeviceInstance;
+    } u;
+  } CM_NOTIFY_EVENT_DATA, *PCM_NOTIFY_EVENT_DATA;
+
+typedef DWORD (CALLBACK *PCM_NOTIFY_CALLBACK)(HCMNOTIFICATION hNotify, PVOID Context, CM_NOTIFY_ACTION Action, PCM_NOTIFY_EVENT_DATA EventData, DWORD EventDataSize);
+
+#endif /* WINVER >= _WIN32_WINNT_WIN8 */
 
 #define CM_Add_ID __MINGW_NAME_AW(CM_Add_ID)
 #define CM_Add_ID_Ex __MINGW_NAME_AW(CM_Add_ID_Ex)
@@ -712,9 +922,7 @@ extern "C" {
 #define CM_Get_HW_Prof_Flags_Ex __MINGW_NAME_AW(CM_Get_HW_Prof_Flags_Ex)
 #define CM_Get_Device_Interface_Alias __MINGW_NAME_AW(CM_Get_Device_Interface_Alias)
 #define CM_Get_Device_Interface_Alias_Ex __MINGW_NAME_AW(CM_Get_Device_Interface_Alias_Ex)
-#define CM_Get_Device_Interface_List __MINGW_NAME_AW(CM_Get_Device_Interface_List)
 #define CM_Get_Device_Interface_List_Ex __MINGW_NAME_AW(CM_Get_Device_Interface_List_Ex)
-#define CM_Get_Device_Interface_List_Size __MINGW_NAME_AW(CM_Get_Device_Interface_List_Size)
 #define CM_Get_Device_Interface_List_Size_Ex __MINGW_NAME_AW(CM_Get_Device_Interface_List_Size_Ex)
 #define CM_Locate_DevNode __MINGW_NAME_AW(CM_Locate_DevNode)
 #define CM_Locate_DevInst __MINGW_NAME_AW(CM_Locate_DevNode)
@@ -860,12 +1068,8 @@ extern "C" {
   CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_AliasW(LPCWSTR pszDeviceInterface,LPGUID AliasInterfaceGuid,LPWSTR pszAliasDeviceInterface,PULONG pulLength,ULONG ulFlags);
   CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_Alias_ExA(LPCSTR pszDeviceInterface,LPGUID AliasInterfaceGuid,LPSTR pszAliasDeviceInterface,PULONG pulLength,ULONG ulFlags,HMACHINE hMachine);
   CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_Alias_ExW(LPCWSTR pszDeviceInterface,LPGUID AliasInterfaceGuid,LPWSTR pszAliasDeviceInterface,PULONG pulLength,ULONG ulFlags,HMACHINE hMachine);
-  CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_ListA(LPGUID InterfaceClassGuid,DEVINSTID_A pDeviceID,PCHAR Buffer,ULONG BufferLen,ULONG ulFlags);
-  CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_ListW(LPGUID InterfaceClassGuid,DEVINSTID_W pDeviceID,PWCHAR Buffer,ULONG BufferLen,ULONG ulFlags);
   CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_List_ExA(LPGUID InterfaceClassGuid,DEVINSTID_A pDeviceID,PCHAR Buffer,ULONG BufferLen,ULONG ulFlags,HMACHINE hMachine);
   CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_List_ExW(LPGUID InterfaceClassGuid,DEVINSTID_W pDeviceID,PWCHAR Buffer,ULONG BufferLen,ULONG ulFlags,HMACHINE hMachine);
-  CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_List_SizeA(PULONG pulLen,LPGUID InterfaceClassGuid,DEVINSTID_A pDeviceID,ULONG ulFlags);
-  CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_List_SizeW(PULONG pulLen,LPGUID InterfaceClassGuid,DEVINSTID_W pDeviceID,ULONG ulFlags);
   CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_List_Size_ExA(PULONG pulLen,LPGUID InterfaceClassGuid,DEVINSTID_A pDeviceID,ULONG ulFlags,HMACHINE hMachine);
   CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_List_Size_ExW(PULONG pulLen,LPGUID InterfaceClassGuid,DEVINSTID_W pDeviceID,ULONG ulFlags,HMACHINE hMachine);
   CMAPI CONFIGRET WINAPI CM_Get_Log_Conf_Priority(LOG_CONF lcLogConf,PPRIORITY pPriority,ULONG ulFlags);
@@ -1052,6 +1256,18 @@ extern "C" {
 #define CR_INVALID_INDEX (0x0000003A)
 #define CR_INVALID_STRUCTURE_SIZE (0x0000003B)
 #define NUM_CR_RESULTS (0x0000003C)
+
+#endif /* WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP) */
+
+#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
+#define CM_Get_Device_Interface_List __MINGW_NAME_AW(CM_Get_Device_Interface_List)
+#define CM_Get_Device_Interface_List_Size __MINGW_NAME_AW(CM_Get_Device_Interface_List_Size)
+
+  CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_ListA(LPGUID InterfaceClassGuid,DEVINSTID_A pDeviceID,PCHAR Buffer,ULONG BufferLen,ULONG ulFlags);
+  CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_ListW(LPGUID InterfaceClassGuid,DEVINSTID_W pDeviceID,PWCHAR Buffer,ULONG BufferLen,ULONG ulFlags);
+  CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_List_SizeA(PULONG pulLen,LPGUID InterfaceClassGuid,DEVINSTID_A pDeviceID,ULONG ulFlags);
+  CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_List_SizeW(PULONG pulLen,LPGUID InterfaceClassGuid,DEVINSTID_W pDeviceID,ULONG ulFlags);
+#endif
 
 #ifdef __cplusplus
 }

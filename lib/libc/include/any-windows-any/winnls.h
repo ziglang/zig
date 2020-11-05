@@ -901,9 +901,20 @@ extern "C" {
   WINBASEAPI WINBOOL WINAPI IsValidCodePage (UINT CodePage);
 #endif
 
-#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP) || defined(WINSTORECOMPAT)
+#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
   WINBASEAPI UINT WINAPI GetACP (void);
+  WINBASEAPI WINBOOL WINAPI IsDBCSLeadByte (BYTE TestChar);
   WINBASEAPI WINBOOL WINAPI IsDBCSLeadByteEx (UINT CodePage, BYTE TestChar);
+  WINBASEAPI WINBOOL WINAPI IsNLSDefinedString (NLS_FUNCTION Function, DWORD dwFlags, LPNLSVERSIONINFO lpVersionInformation, LPCWSTR lpString, INT cchStr);
+  WINBASEAPI int WINAPI GetLocaleInfoW (LCID Locale, LCTYPE LCType, LPWSTR lpLCData, int cchData);
+  WINBASEAPI int WINAPI GetLocaleInfoA (LCID Locale, LCTYPE LCType, LPSTR lpLCData, int cchData);
+
+#ifndef UNICODE
+#define GetLocaleInfo GetLocaleInfoA
+#else
+#define GetLocaleInfo GetLocaleInfoW
+#endif
+
 #endif
 
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
@@ -911,9 +922,6 @@ extern "C" {
   WINBASEAPI int WINAPI CompareStringA (LCID Locale, DWORD dwCmpFlags, PCNZCH lpString1, int cchCount1, PCNZCH lpString2, int cchCount2);
   WINBASEAPI int WINAPI LCMapStringW (LCID Locale, DWORD dwMapFlags, LPCWSTR lpSrcStr, int cchSrc, LPWSTR lpDestStr, int cchDest);
   WINBASEAPI int WINAPI LCMapStringA (LCID Locale, DWORD dwMapFlags, LPCSTR lpSrcStr, int cchSrc, LPSTR lpDestStr, int cchDest);
-  WINBASEAPI int WINAPI GetLocaleInfoW (LCID Locale, LCTYPE LCType, LPWSTR lpLCData, int cchData);
-  WINBASEAPI int WINAPI GetLocaleInfoA (LCID Locale, LCTYPE LCType, LPSTR lpLCData, int cchData);
-  WINBASEAPI WINBOOL WINAPI IsDBCSLeadByte (BYTE TestChar);
   WINBASEAPI int WINAPI GetNumberFormatA (LCID Locale, DWORD dwFlags, LPCSTR lpValue, CONST NUMBERFMTA *lpFormat, LPSTR lpNumberStr, int cchNumber);
   WINBASEAPI int WINAPI GetNumberFormatW (LCID Locale, DWORD dwFlags, LPCWSTR lpValue, CONST NUMBERFMTW *lpFormat, LPWSTR lpNumberStr, int cchNumber);
   WINBASEAPI int WINAPI GetCurrencyFormatA (LCID Locale, DWORD dwFlags, LPCSTR lpValue, CONST CURRENCYFMTA *lpFormat, LPSTR lpCurrencyStr, int cchCurrency);
@@ -930,7 +938,6 @@ extern "C" {
   WINBASEAPI WINBOOL WINAPI EnumDateFormatsExW (DATEFMT_ENUMPROCEXW lpDateFmtEnumProcEx, LCID Locale, DWORD dwFlags);
   WINBASEAPI WINBOOL WINAPI IsValidLanguageGroup (LGRPID LanguageGroup, DWORD dwFlags);
   WINBASEAPI WINBOOL WINAPI GetNLSVersion (NLS_FUNCTION Function, LCID Locale, LPNLSVERSIONINFO lpVersionInformation);
-  WINBASEAPI WINBOOL WINAPI IsNLSDefinedString (NLS_FUNCTION Function, DWORD dwFlags, LPNLSVERSIONINFO lpVersionInformation, LPCWSTR lpString, INT cchStr);
   WINBASEAPI WINBOOL WINAPI IsValidLocale (LCID Locale, DWORD dwFlags);
   WINBASEAPI WINBOOL WINAPI SetLocaleInfoA (LCID Locale, LCTYPE LCType, LPCSTR lpLCData);
   WINBASEAPI WINBOOL WINAPI SetLocaleInfoW (LCID Locale, LCTYPE LCType, LPCWSTR lpLCData);
@@ -961,10 +968,8 @@ extern "C" {
 #ifndef UNICODE
 #define CompareString CompareStringA
 #define LCMapString LCMapStringA
-#define GetLocaleInfo GetLocaleInfoA
 #else
 #define LCMapString LCMapStringW
-#define GetLocaleInfo GetLocaleInfoW
 #endif
 
 #define GetNumberFormat __MINGW_NAME_AW(GetNumberFormat)
@@ -1002,13 +1007,10 @@ extern "C" {
   WINBASEAPI LCID WINAPI GetThreadLocale (void);
   WINBASEAPI WINBOOL WINAPI SetThreadLocale (LCID Locale);
   WINBASEAPI LANGID WINAPI GetSystemDefaultUILanguage (void);
-  WINBASEAPI LANGID WINAPI GetUserDefaultUILanguage (void);
   WINBASEAPI LANGID WINAPI GetSystemDefaultLangID (void);
-  WINBASEAPI LANGID WINAPI GetUserDefaultLangID (void);
   WINBASEAPI LCID WINAPI GetSystemDefaultLCID (void);
   WINBASEAPI LCID WINAPI GetUserDefaultLCID (void);
   WINBASEAPI LANGID WINAPI SetThreadUILanguage (LANGID LangId);
-  WINBASEAPI WINBOOL WINAPI GetStringTypeExA (LCID Locale, DWORD dwInfoType, LPCSTR lpSrcStr, int cchSrc, LPWORD lpCharType);
   WINBASEAPI WINBOOL WINAPI GetStringTypeA (LCID Locale, DWORD dwInfoType, LPCSTR lpSrcStr, int cchSrc, LPWORD lpCharType);
   WINBASEAPI int WINAPI FoldStringA (DWORD dwMapFlags, LPCSTR lpSrcStr, int cchSrc, LPSTR lpDestStr, int cchDest);
   WINBASEAPI WINBOOL WINAPI EnumSystemLocalesA (LOCALE_ENUMPROCA lpLocaleEnumProc, DWORD dwFlags);
@@ -1017,8 +1019,6 @@ extern "C" {
   WINBASEAPI WINBOOL WINAPI EnumSystemLanguageGroupsW (LANGUAGEGROUP_ENUMPROCW lpLanguageGroupEnumProc, DWORD dwFlags, LONG_PTR lParam);
   WINBASEAPI WINBOOL WINAPI EnumLanguageGroupLocalesA (LANGGROUPLOCALE_ENUMPROCA lpLangGroupLocaleEnumProc, LGRPID LanguageGroup, DWORD dwFlags, LONG_PTR lParam);
   WINBASEAPI WINBOOL WINAPI EnumLanguageGroupLocalesW (LANGGROUPLOCALE_ENUMPROCW lpLangGroupLocaleEnumProc, LGRPID LanguageGroup, DWORD dwFlags, LONG_PTR lParam);
-  WINBASEAPI WINBOOL WINAPI EnumUILanguagesA (UILANGUAGE_ENUMPROCA lpUILanguageEnumProc, DWORD dwFlags, LONG_PTR lParam);
-  WINBASEAPI WINBOOL WINAPI EnumUILanguagesW (UILANGUAGE_ENUMPROCW lpUILanguageEnumProc, DWORD dwFlags, LONG_PTR lParam);
 #if WINVER >= 0x0600
   WINBASEAPI LANGID WINAPI GetThreadUILanguage (void);
   WINBASEAPI WINBOOL WINAPI GetProcessPreferredUILanguages (DWORD dwFlags, PULONG pulNumLanguages, PZZWSTR pwszLanguagesBuffer, PULONG pcchLanguagesBuffer);
@@ -1035,7 +1035,6 @@ extern "C" {
 
 #ifndef UNICODE
 #define FoldString FoldStringA
-#define GetStringTypeEx GetStringTypeExA
 #endif
 
 #define EnumSystemLocales __MINGW_NAME_AW(EnumSystemLocales)
@@ -1046,8 +1045,17 @@ extern "C" {
 #endif
 
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
+  WINBASEAPI WINBOOL WINAPI GetStringTypeExA (LCID Locale, DWORD dwInfoType, LPCSTR lpSrcStr, int cchSrc, LPWORD lpCharType);
+  WINBASEAPI LANGID WINAPI GetUserDefaultUILanguage (void);
+  WINBASEAPI WINBOOL WINAPI EnumUILanguagesA (UILANGUAGE_ENUMPROCA lpUILanguageEnumProc, DWORD dwFlags, LONG_PTR lParam);
+  WINBASEAPI WINBOOL WINAPI EnumUILanguagesW (UILANGUAGE_ENUMPROCW lpUILanguageEnumProc, DWORD dwFlags, LONG_PTR lParam);
   WINBASEAPI WINBOOL WINAPI EnumSystemCodePagesA (CODEPAGE_ENUMPROCA lpCodePageEnumProc, DWORD dwFlags);
   WINBASEAPI WINBOOL WINAPI EnumSystemCodePagesW (CODEPAGE_ENUMPROCW lpCodePageEnumProc, DWORD dwFlags);
+  WINBASEAPI LANGID WINAPI GetUserDefaultLangID (void);
+
+#ifndef UNICODE
+#define GetStringTypeEx GetStringTypeExA
+#endif
 
 #define EnumSystemCodePages __MINGW_NAME_AW(EnumSystemCodePages)
 

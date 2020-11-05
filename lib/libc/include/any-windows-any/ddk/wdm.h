@@ -1366,9 +1366,8 @@ typedef enum _LOCK_OPERATION {
 
 #define KTIMER_ACTUAL_LENGTH (FIELD_OFFSET(KTIMER, Period) + sizeof(LONG))
 
-typedef BOOLEAN
-(NTAPI *PKSYNCHRONIZE_ROUTINE)(
-  IN PVOID SynchronizeContext);
+typedef BOOLEAN (NTAPI KSYNCHRONIZE_ROUTINE)(PVOID SynchronizeContext);
+typedef KSYNCHRONIZE_ROUTINE *PKSYNCHRONIZE_ROUTINE;
 
 typedef enum _POOL_TYPE {
   NonPagedPool,
@@ -2665,6 +2664,56 @@ NTSTATUS
   IN ULONG ValueLength,
   IN OUT PVOID Context OPTIONAL);
 typedef POWER_SETTING_CALLBACK *PPOWER_SETTING_CALLBACK;
+
+DECLARE_HANDLE(POHANDLE);
+
+#define PO_FX_VERSION_V1 1
+#define PO_FX_VERSION_V2 2
+#define PO_FX_VERSION PO_FX_VERSION_V2
+
+typedef void (NTAPI PO_FX_COMPONENT_ACTIVE_CONDITION_CALLBACK)(void *context, ULONG component);
+typedef PO_FX_COMPONENT_ACTIVE_CONDITION_CALLBACK *PPO_FX_COMPONENT_ACTIVE_CONDITION_CALLBACK;
+
+typedef void (NTAPI PO_FX_COMPONENT_IDLE_CONDITION_CALLBACK)(void *context, ULONG component);
+typedef PO_FX_COMPONENT_IDLE_CONDITION_CALLBACK *PPO_FX_COMPONENT_IDLE_CONDITION_CALLBACK;
+
+typedef void (NTAPI PO_FX_COMPONENT_IDLE_STATE_CALLBACK)(void *context, ULONG component, ULONG state);
+typedef PO_FX_COMPONENT_IDLE_STATE_CALLBACK *PPO_FX_COMPONENT_IDLE_STATE_CALLBACK;
+
+typedef NTSTATUS (NTAPI PO_FX_POWER_CONTROL_CALLBACK)(void *context, const GUID *code, void *in, SIZE_T in_size, void *out, SIZE_T out_size, SIZE_T *ret_size);
+typedef PO_FX_POWER_CONTROL_CALLBACK *PPO_FX_POWER_CONTROL_CALLBACK;
+
+typedef struct _PO_FX_COMPONENT_IDLE_STATE
+{
+    ULONGLONG TransitionLatency;
+    ULONGLONG ResidencyRequirement;
+    ULONG NominalPower;
+} PO_FX_COMPONENT_IDLE_STATE, *PPO_FX_COMPONENT_IDLE_STATE;
+
+typedef struct _PO_FX_COMPONENT_V1
+{
+    GUID Id;
+    ULONG IdleStateCount;
+    ULONG DeepestWakeableIdleState;
+    PO_FX_COMPONENT_IDLE_STATE *IdleStates;
+} PO_FX_COMPONENT_V1, *PPO_FX_COMPONENT_V1;
+
+typedef struct _PO_FX_COMPONENT_V2
+{
+    GUID Id;
+    ULONGLONG Flags;
+    ULONG DeepestWakeableIdleState;
+    ULONG IdleStateCount;
+    PO_FX_COMPONENT_IDLE_STATE *IdleStates;
+    ULONG ProviderCount;
+    ULONG *Providers;
+} PO_FX_COMPONENT_V2, *PPO_FX_COMPONENT_V2;
+
+#if PO_FX_VERSION == PO_FX_VERSION_V1
+typedef PO_FX_COMPONENT_V1 PO_FX_COMPONENT, *PPO_FX_COMPONENT;
+#else
+typedef PO_FX_COMPONENT_V2 PO_FX_COMPONENT, *PPO_FX_COMPONENT;
+#endif
 
 /******************************************************************************
  *                            Configuration Manager Types                     *
@@ -5770,6 +5819,14 @@ typedef struct _DMA_ADAPTER {
   USHORT Size;
   struct _DMA_OPERATIONS* DmaOperations;
 } DMA_ADAPTER, *PDMA_ADAPTER;
+
+typedef enum
+{
+    DmaComplete,
+    DmaAborted,
+    DmaError,
+    DmaCancelled,
+} DMA_COMPLETION_STATUS;
 
 typedef VOID
 (NTAPI *PPUT_DMA_ADAPTER)(
@@ -13396,8 +13453,26 @@ ExInitializeFastMutex(
   return;
 }
 
+typedef void *PEXT_CANCEL_PARAMETERS;
+
+typedef void (NTAPI EXT_DELETE_CALLBACK)(void *context);
+typedef EXT_DELETE_CALLBACK *PEXT_DELETE_CALLBACK;
+
+typedef struct _EXT_DELETE_PARAMETERS
+{
+    ULONG Version;
+    ULONG Reserved;
+    PEXT_DELETE_CALLBACK DeleteCallback;
+    void *DeleteContext;
+} EXT_DELETE_PARAMETERS, *PEXT_DELETE_PARAMETERS;
 
 #if (NTDDI_VERSION >= NTDDI_WIN2K)
+
+typedef struct _EX_TIMER *PEX_TIMER;
+
+typedef void (NTAPI EXT_CALLBACK)(PEX_TIMER, PVOID);
+typedef EXT_CALLBACK *PEXT_CALLBACK;
+
 NTKERNELAPI
 VOID
 FASTCALL
@@ -14013,6 +14088,13 @@ ExFreeToLookasideListEx(
 
 #if (NTDDI_VERSION >= NTDDI_WIN7)
 
+typedef struct _EXT_SET_PARAMETERS_V0
+{
+    ULONG Version;
+    ULONG Reserved;
+    LONGLONG NoWakeTolerance;
+} EXT_SET_PARAMETERS, *PEXT_SET_PARAMETERS, KT2_SET_PARAMETERS, *PKT2_SET_PARAMETERS;
+
 NTKERNELAPI
 VOID
 NTAPI
@@ -14024,6 +14106,30 @@ ExSetResourceOwnerPointerEx(
 #define FLAG_OWNER_POINTER_IS_THREAD 0x1
 
 #endif /* (NTDDI_VERSION >= NTDDI_WIN7) */
+
+#if NTDDI_VERSION >= NTDDI_WINBLUE
+
+#define EX_TIMER_HIGH_RESOLUTION 4
+#define EX_TIMER_NO_WAKE 8
+#define EX_TIMER_UNLIMITED_TOLERANCE ((LONGLONG)-1)
+#define EX_TIMER_NOTIFICATION (1ul << 31)
+
+NTKERNELAPI PEX_TIMER NTAPI ExAllocateTimer(PEXT_CALLBACK callback, void *context, ULONG attr);
+NTKERNELAPI BOOLEAN NTAPI ExCancelTimer(PEX_TIMER timer, PEXT_CANCEL_PARAMETERS params);
+NTKERNELAPI BOOLEAN NTAPI ExDeleteTimer(PEX_TIMER timer, BOOLEAN cancel, BOOLEAN wait, PEXT_DELETE_PARAMETERS params);
+NTKERNELAPI BOOLEAN NTAPI ExSetTimer(PEX_TIMER timer, LONGLONG due, LONGLONG period, EXT_SET_PARAMETERS *params);
+
+FORCEINLINE void KeInitializeTimer2SetParameters(KT2_SET_PARAMETERS *params)
+{
+    memset(params, 0, sizeof(*params));
+}
+
+FORCEINLINE void ExInitializeSetTimerParameters(EXT_SET_PARAMETERS *params)
+{
+    KeInitializeTimer2SetParameters(params);
+}
+
+#endif
 
 static __inline PVOID
 ExAllocateFromNPagedLookasideList(

@@ -5,21 +5,9 @@
 ;
 LIBRARY "GDI32.dll"
 EXPORTS
-ord_1000 @1000
-ord_1001 @1001
-ord_1002 @1002
-ord_1003 @1003
-ord_1004 @1004
-ord_1005 @1005
-ord_1006 @1006
-ord_1007 @1007
-ord_1008 @1008
-ord_1009 @1009
-ord_1010 @1010
 AbortDoc
 AbortPath
-ord_1013 @1013
-ord_1014 @1014
+DwmCreatedBitmapRemotingOutput
 AddFontMemResourceEx
 AddFontResourceA
 AddFontResourceExA
@@ -74,6 +62,7 @@ CreateDIBPatternBrush
 CreateDIBPatternBrushPt
 CreateDIBSection
 CreateDIBitmap
+CreateDPIScaledDIBSection
 CreateDiscardableBitmap
 CreateEllipticRgn
 CreateEllipticRgnIndirect
@@ -91,6 +80,7 @@ CreateICA
 CreateICW
 CreateMetaFileA
 CreateMetaFileW
+CreateOPMProtectedOutput
 CreateOPMProtectedOutputs
 CreatePalette
 CreatePatternBrush
@@ -103,14 +93,22 @@ CreateRectRgnIndirect
 CreateRoundRectRgn
 CreateScalableFontResourceA
 CreateScalableFontResourceW
+CreateScaledCompatibleBitmap
 CreateSessionMappedDIBSection
 CreateSolidBrush
+D3DKMTAbandonSwapChain
 D3DKMTAcquireKeyedMutex
 D3DKMTAcquireKeyedMutex2
+D3DKMTAcquireSwapChain
+D3DKMTAddSurfaceToSwapChain
+D3DKMTAdjustFullscreenGamma
 D3DKMTCacheHybridQueryValue
+D3DKMTChangeVideoMemoryReservation
 D3DKMTCheckExclusiveOwnership
 D3DKMTCheckMonitorPowerState
 D3DKMTCheckMultiPlaneOverlaySupport
+D3DKMTCheckMultiPlaneOverlaySupport2
+D3DKMTCheckMultiPlaneOverlaySupport3
 D3DKMTCheckOcclusion
 D3DKMTCheckSharedResourceAccess
 D3DKMTCheckVidPnExclusiveOwnership
@@ -118,103 +116,208 @@ D3DKMTCloseAdapter
 D3DKMTConfigureSharedResource
 D3DKMTCreateAllocation
 D3DKMTCreateAllocation2
+D3DKMTCreateBundleObject
 D3DKMTCreateContext
+D3DKMTCreateContextVirtual
 D3DKMTCreateDCFromMemory
 D3DKMTCreateDevice
+D3DKMTCreateHwContext
+D3DKMTCreateHwQueue
 D3DKMTCreateKeyedMutex
 D3DKMTCreateKeyedMutex2
 D3DKMTCreateOutputDupl
 D3DKMTCreateOverlay
+D3DKMTCreatePagingQueue
+D3DKMTCreateProtectedSession
+D3DKMTCreateSwapChain
 D3DKMTCreateSynchronizationObject
 D3DKMTCreateSynchronizationObject2
+D3DKMTCreateTrackedWorkload
+D3DKMTDDisplayEnum
 D3DKMTDestroyAllocation
+D3DKMTDestroyAllocation2
 D3DKMTDestroyContext
 D3DKMTDestroyDCFromMemory
 D3DKMTDestroyDevice
+D3DKMTDestroyHwContext
+D3DKMTDestroyHwQueue
 D3DKMTDestroyKeyedMutex
 D3DKMTDestroyOutputDupl
 D3DKMTDestroyOverlay
+D3DKMTDestroyPagingQueue
+D3DKMTDestroyProtectedSession
 D3DKMTDestroySynchronizationObject
+D3DKMTDestroyTrackedWorkload
+D3DKMTDispMgrCreate
+D3DKMTDispMgrOperation
+D3DKMTDispMgrSourceOperation
+D3DKMTDispMgrTargetOperation
+D3DKMTDisplayPortOperation
+D3DKMTDuplicateHandle
 D3DKMTEnumAdapters
+D3DKMTEnumAdapters2
+D3DKMTEnumAdapters3
 D3DKMTEscape
+D3DKMTEvict
+D3DKMTExtractBundleObject
 D3DKMTFlipOverlay
+D3DKMTFlushHeapTransitions
+D3DKMTFreeGpuVirtualAddress
+D3DKMTGetAllocationPriority
+D3DKMTGetAvailableTrackedWorkloadIndex
 D3DKMTGetCachedHybridQueryValue
 D3DKMTGetContextInProcessSchedulingPriority
 D3DKMTGetContextSchedulingPriority
+D3DKMTGetDWMVerticalBlankEvent
 D3DKMTGetDeviceState
 D3DKMTGetDisplayModeList
+D3DKMTGetMemoryBudgetTarget
+D3DKMTGetMultiPlaneOverlayCaps
 D3DKMTGetMultisampleMethodList
 D3DKMTGetOverlayState
+D3DKMTGetPostCompositionCaps
 D3DKMTGetPresentHistory
 D3DKMTGetPresentQueueEvent
+D3DKMTGetProcessDeviceRemovalSupport
+D3DKMTGetProcessList
+D3DKMTGetProcessSchedulingPriorityBand
 D3DKMTGetProcessSchedulingPriorityClass
+D3DKMTGetResourcePresentPrivateDriverData
 D3DKMTGetRuntimeData
 D3DKMTGetScanLine
+D3DKMTGetSetSwapChainMetadata
 D3DKMTGetSharedPrimaryHandle
 D3DKMTGetSharedResourceAdapterLuid
+D3DKMTGetTrackedWorkloadStatistics
+D3DKMTGetYieldPercentage
 D3DKMTInvalidateActiveVidPn
+D3DKMTInvalidateCache
 D3DKMTLock
+D3DKMTLock2
+D3DKMTMakeResident
+D3DKMTMapGpuVirtualAddress
+D3DKMTMarkDeviceAsError
 D3DKMTNetDispGetNextChunkInfo
 D3DKMTNetDispQueryMiracastDisplayDeviceStatus
 D3DKMTNetDispQueryMiracastDisplayDeviceSupport
 D3DKMTNetDispStartMiracastDisplayDevice
 D3DKMTNetDispStartMiracastDisplayDevice2
+D3DKMTNetDispStartMiracastDisplayDeviceEx
 D3DKMTNetDispStopMiracastDisplayDevice
 D3DKMTOfferAllocations
 D3DKMTOpenAdapterFromDeviceName
 D3DKMTOpenAdapterFromGdiDisplayName
 D3DKMTOpenAdapterFromHdc
 D3DKMTOpenAdapterFromLuid
+D3DKMTOpenBundleObjectNtHandleFromName
 D3DKMTOpenKeyedMutex
 D3DKMTOpenKeyedMutex2
+D3DKMTOpenKeyedMutexFromNtHandle
 D3DKMTOpenNtHandleFromName
+D3DKMTOpenProtectedSessionFromNtHandle
 D3DKMTOpenResource
 D3DKMTOpenResource2
 D3DKMTOpenResourceFromNtHandle
+D3DKMTOpenSwapChain
 D3DKMTOpenSyncObjectFromNtHandle
+D3DKMTOpenSyncObjectFromNtHandle2
+D3DKMTOpenSyncObjectNtHandleFromName
 D3DKMTOpenSynchronizationObject
 D3DKMTOutputDuplGetFrameInfo
 D3DKMTOutputDuplGetMetaData
 D3DKMTOutputDuplGetPointerShapeData
 D3DKMTOutputDuplPresent
+D3DKMTOutputDuplPresentToHwQueue
 D3DKMTOutputDuplReleaseFrame
 D3DKMTPinDirectFlipResources
+D3DKMTPinResources
 D3DKMTPollDisplayChildren
 D3DKMTPresent
 D3DKMTPresentMultiPlaneOverlay
+D3DKMTPresentMultiPlaneOverlay2
+D3DKMTPresentMultiPlaneOverlay3
+D3DKMTPresentRedirected
 D3DKMTQueryAdapterInfo
 D3DKMTQueryAllocationResidency
+D3DKMTQueryClockCalibration
+D3DKMTQueryFSEBlock
+D3DKMTQueryProcessOfferInfo
+D3DKMTQueryProtectedSessionInfoFromNtHandle
+D3DKMTQueryProtectedSessionStatus
 D3DKMTQueryRemoteVidPnSourceFromGdiDisplayName
 D3DKMTQueryResourceInfo
 D3DKMTQueryResourceInfoFromNtHandle
 D3DKMTQueryStatistics
+D3DKMTQueryVidPnExclusiveOwnership
+D3DKMTQueryVideoMemoryInfo
 D3DKMTReclaimAllocations
+D3DKMTReclaimAllocations2
+D3DKMTRegisterTrimNotification
+D3DKMTRegisterVailProcess
 D3DKMTReleaseKeyedMutex
 D3DKMTReleaseKeyedMutex2
 D3DKMTReleaseProcessVidPnSourceOwners
+D3DKMTReleaseSwapChain
+D3DKMTRemoveSurfaceFromSwapChain
 D3DKMTRender
+D3DKMTReserveGpuVirtualAddress
+D3DKMTResetTrackedWorkloadStatistics
 D3DKMTSetAllocationPriority
 D3DKMTSetContextInProcessSchedulingPriority
 D3DKMTSetContextSchedulingPriority
 D3DKMTSetDisplayMode
 D3DKMTSetDisplayPrivateDriverFormat
+D3DKMTSetDodIndirectSwapchain
+D3DKMTSetFSEBlock
 D3DKMTSetGammaRamp
+D3DKMTSetHwProtectionTeardownRecovery
+D3DKMTSetMemoryBudgetTarget
+D3DKMTSetMonitorColorSpaceTransform
+D3DKMTSetProcessDeviceRemovalSupport
+D3DKMTSetProcessSchedulingPriorityBand
 D3DKMTSetProcessSchedulingPriorityClass
 D3DKMTSetQueuedLimit
+D3DKMTSetStablePowerState
 D3DKMTSetStereoEnabled
+D3DKMTSetSyncRefreshCountWaitTarget
+D3DKMTSetVidPnSourceHwProtection
 D3DKMTSetVidPnSourceOwner
 D3DKMTSetVidPnSourceOwner1
+D3DKMTSetVidPnSourceOwner2
+D3DKMTSetYieldPercentage
 D3DKMTShareObjects
 D3DKMTSharedPrimaryLockNotification
 D3DKMTSharedPrimaryUnLockNotification
 D3DKMTSignalSynchronizationObject
 D3DKMTSignalSynchronizationObject2
+D3DKMTSignalSynchronizationObjectFromCpu
+D3DKMTSignalSynchronizationObjectFromGpu
+D3DKMTSignalSynchronizationObjectFromGpu2
+D3DKMTSubmitCommand
+D3DKMTSubmitCommandToHwQueue
+D3DKMTSubmitPresentBltToHwQueue
+D3DKMTSubmitPresentToHwQueue
+D3DKMTSubmitSignalSyncObjectsToHwQueue
+D3DKMTSubmitWaitForSyncObjectsToHwQueue
+D3DKMTTrimProcessCommitment
+D3DKMTUnOrderedPresentSwapChain
 D3DKMTUnlock
+D3DKMTUnlock2
 D3DKMTUnpinDirectFlipResources
+D3DKMTUnpinResources
+D3DKMTUnregisterTrimNotification
+D3DKMTUpdateAllocationProperty
+D3DKMTUpdateGpuVirtualAddress
 D3DKMTUpdateOverlay
+D3DKMTUpdateTrackedWorkload
+D3DKMTVailConnect
+D3DKMTVailDisconnect
+D3DKMTVailPromoteCompositionSurface
 D3DKMTWaitForIdle
 D3DKMTWaitForSynchronizationObject
 D3DKMTWaitForSynchronizationObject2
+D3DKMTWaitForSynchronizationObjectFromCpu
+D3DKMTWaitForSynchronizationObjectFromGpu
 D3DKMTWaitForVerticalBlankEvent
 D3DKMTWaitForVerticalBlankEvent2
 DDCCIGetCapabilitiesString
@@ -296,6 +399,7 @@ DestroyPhysicalMonitorInternal
 DeviceCapabilitiesExA
 DeviceCapabilitiesExW
 DrawEscape
+DxTrimNotificationListHead DATA
 Ellipse
 EnableEUDC
 EndDoc
@@ -387,11 +491,14 @@ FlattenPath
 FloodFill
 FontIsLinked
 FrameRgn
+Gdi32DllInitialize
 GdiAddFontResourceW
 GdiAddGlsBounds
 GdiAddGlsRecord
+GdiAddInitialFonts
 GdiAlphaBlend
 GdiArtificialDecrementDriver
+GdiBatchLimit DATA
 GdiCleanCacheDC
 GdiClearStockObjectCache
 GdiComment
@@ -409,6 +516,7 @@ GdiConvertRegion
 GdiConvertToDevmodeW
 GdiCreateLocalEnhMetaFile
 GdiCreateLocalMetaFilePict
+GdiCurrentProcessSplWow64
 GdiDeleteLocalDC
 GdiDeleteSpoolFileHandle
 GdiDescribePixelFormat
@@ -441,6 +549,7 @@ GdiGetCharDimensions
 GdiGetCodePage
 GdiGetDC
 GdiGetDevmodeForPage
+GdiGetEntry
 GdiGetLocalBrush
 GdiGetLocalDC
 GdiGetLocalFont
@@ -448,6 +557,7 @@ GdiGetPageCount
 GdiGetPageHandle
 GdiGetSpoolFileHandle
 GdiGetSpoolMessage
+GdiGetVariationStoreDelta
 GdiGradientFill
 GdiInitSpool
 GdiInitializeLanguagePack
@@ -455,6 +565,7 @@ GdiIsMetaFileDC
 GdiIsMetaPrintDC
 GdiIsPlayMetafileDC
 GdiIsScreenDC
+GdiIsTrackingEnabled
 GdiIsUMPDSandboxingEnabled
 GdiLoadType1Fonts
 GdiPlayDCScript
@@ -478,7 +589,10 @@ GdiSetPixelFormat
 GdiSetServerAttr
 GdiStartDocEMF
 GdiStartPageEMF
+GdiSupportsFontChangeEvent
 GdiSwapBuffers
+GdiTrackHCreate
+GdiTrackHDelete
 GdiTransparentBlt
 GdiValidateHandle
 GetArcDirection
@@ -486,6 +600,7 @@ GetAspectRatioFilterEx
 GetBitmapAttributes
 GetBitmapBits
 GetBitmapDimensionEx
+GetBitmapDpiScaleValue
 GetBkColor
 GetBkMode
 GetBoundsRect
@@ -493,9 +608,12 @@ GetBrushAttributes
 GetBrushOrgEx
 GetCOPPCompatibleOPMInformation
 GetCertificate
+GetCertificateByHandle
 GetCertificateSize
+GetCertificateSizeByHandle
 GetCharABCWidthsA
 GetCharABCWidthsFloatA
+GetCharABCWidthsFloatI
 GetCharABCWidthsFloatW
 GetCharABCWidthsI
 GetCharABCWidthsW
@@ -517,6 +635,7 @@ GetCurrentDpiInfo
 GetCurrentObject
 GetCurrentPositionEx
 GetDCBrushColor
+GetDCDpiScaleValue
 GetDCOrgEx
 GetDCPenColor
 GetDIBColorTable
@@ -581,6 +700,7 @@ GetPhysicalMonitors
 GetPixel
 GetPixelFormat
 GetPolyFillMode
+GetProcessSessionFonts
 GetROP2
 GetRandomRgn
 GetRasterizerCaps
@@ -622,6 +742,8 @@ GetWindowOrgEx
 GetWorldTransform
 HT_Get8BPPFormatPalette
 HT_Get8BPPMaskPalette
+InternalDeleteDC
+InternalDeleteObject
 IntersectClipRect
 InvertRgn
 IsValidEnhMetaRecord
@@ -633,14 +755,20 @@ LpkDrawTextEx
 LpkEditControl DATA
 LpkExtTextOut
 LpkGetCharacterPlacement
+LpkGetEditControl
 LpkGetTextExtentExPoint
 LpkInitialize
 LpkPSMTextOut
 LpkPresent
 LpkTabbedTextOut
 LpkUseGDIWidthCache
+LpkpEditControlSize DATA
+LpkpInitializeEditControl
 MaskBlt
 MirrorRgn
+ModerncoreCreateICW
+ModerncoreDeleteDC
+ModerncoreGdiInit
 ModifyWorldTransform
 MoveToEx
 NamedEscape
@@ -697,6 +825,8 @@ STROBJ_bGetAdvanceWidths
 STROBJ_dwGetCodePage
 STROBJ_vEnumStart
 SaveDC
+ScaleRgn
+ScaleValues
 ScaleViewportExtEx
 ScaleWindowExtEx
 ScriptApplyDigitSubstitution
@@ -826,9 +956,23 @@ XLATEOBJ_cGetPalette
 XLATEOBJ_hGetColorTransform
 XLATEOBJ_iXlate
 XLATEOBJ_piVector
+bCreateDCW
+bDeleteLDC
 bInitSystemAndFontsDirectoriesW
 bMakePathNameW
 cGetTTFFromFOT
+fpClosePrinter DATA
 ftsWordBreak
+gMaxGdiHandleCount DATA
+gW32PID DATA
+g_systemCallFilterId DATA
 gdiPlaySpoolStream
-ord_2000 @2000
+ghICM DATA
+hGetPEBHandle
+pGdiDevCaps DATA
+pGdiSharedHandleTable DATA
+pGdiSharedMemory DATA
+pldcGet
+semDxTrimNotification DATA
+vSetPldc
+CreateDCExW

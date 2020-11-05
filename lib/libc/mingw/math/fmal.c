@@ -24,68 +24,33 @@ long double fmal(long double x, long double y, long double z){
 
 #include <math.h>
 #include <stdint.h>
-#include <limits.h>
-#include <stdbool.h>
 
-/* https://en.wikipedia.org/wiki/Extended_precision#x86_extended_precision_format */
+/* See <https://en.wikipedia.org/wiki/Extended_precision#x86_extended_precision_format>.
+ * Note the higher half of the mantissa has fewer significant bits than the lower
+ * half, which reduces rounding errors in the more significant position but increases
+ * them in the other end.
+ */
 typedef union x87reg_ {
   struct __attribute__((__packed__)) {
-    union {
-      uint64_t f64;
-      struct {
-        uint32_t flo;
-        uint32_t fhi;
-      };
-    };
+    uint64_t mlo : 33;
+    uint64_t mhi : 31;
     uint16_t exp : 15;
     uint16_t sgn :  1;
   };
   long double f;
 } x87reg;
 
-static inline void break_down(x87reg *restrict lo, x87reg *restrict hi, long double x){
+static inline void break_down(x87reg *restrict lo, x87reg *restrict hi, long double x) {
   hi->f = x;
-  const uint32_t flo = hi->flo;
-  const long     exp = hi->exp;
-  const bool     sgn = hi->sgn;
-  /* Erase low-order significant bits. `hi->f` now has only 32 significant bits. */
-  hi->flo = 0;
-
-  if(flo == 0){
-    /* If the low-order significant bits are all zeroes, return zero in `lo->f`. */
-    lo->f64 = 0;
-    lo->exp = 0;
-  } else {
-    /* How many bits should we shift to normalize the floating point value? */
-    const long shn = __builtin_clzl(flo) - (sizeof(long) - sizeof(uint32_t)) * CHAR_BIT + 32;
-#if 0 /* Naive implementation */
-    if(shn < exp){
-      /* `x` can be normalized, normalize it. */
-      lo->f64 = (uint64_t)flo << shn;
-      lo->exp = (exp - shn) & 0x7FFF;
-    } else {
-      /* Otherwise, go with a denormal number. */
-      if(exp > 0){
-        /* Denormalize the source normal number. */
-        lo->f64 = (uint64_t)flo << (exp - 1);
-      } else {
-        /* Leave the source denormal number as is. */
-        lo->f64 = flo;
-      }
-      lo->exp = 0;
-    }
-#else /* Optimal implementation */
-    const long mask = (shn - exp) >> 31; /* mask = (shn < exp) ? -1 : 0 */
-    long expm1 = exp - 1;
-    expm1 &= ~(expm1 >> 31);             /* expm1 = (exp - 1 >= 0) ? (exp - 1) : 0 */
-    lo->f64 = (uint64_t)flo << (((shn ^ expm1) & mask) ^ expm1);
-                                         /* f64  = flo << ((shn < exp) ? shn : expm1) */
-    lo->exp = (exp - shn) & mask;        /* exp  = (shn < exp) ? (exp - shn) : 0 */
-#endif
-  }
-  lo->sgn = sgn;
+  /* Erase low-order significant bits. `hi->f` now has only 31 significant bits. */
+  hi->mlo = 0;
+  /* Store the low-order half. It will be normalized by the hardware. */
+  lo->f = x - hi->f;
+  /* Preserve signness in case of zero. */
+  lo->sgn = hi->sgn;
 }
-static inline long double fpu_fma(long double x, long double y, long double z){
+
+long double fmal(long double x, long double y, long double z) {
   /*
     POSIX-2013:
     1. If x or y are NaN, a NaN shall be returned.
@@ -99,30 +64,12 @@ static inline long double fpu_fma(long double x, long double y, long double z){
        shall be returned and a domain error may occur.
     5. If x* y is not 0*Inf nor Inf*0 and z is a NaN, a NaN shall be returned.
   */
-  if(__fpclassifyl(x) == FP_NAN){
-    return x; /* Handle case 1. */
-  }
-  if(__fpclassifyl(y) == FP_NAN){
-    return y; /* Handle case 1. */
-  }
-  /* Handle case 2, 3 and 4 universally. Thanks to x87 a NaN is generated
-     if an INF is multiplied with zero, saving us a huge amount of work. */
-  const long double xy = x * y;
-  if(__fpclassifyl(xy) == FP_NAN){
-    return xy; /* Handle case 2, 3 and 4. */
-  }
-  if(__fpclassifyl(z) == FP_NAN){
-    return z; /* Handle case 5. */
-  }
   /* Check whether the result is finite. */
-  const long double xyz = xy + z;
-  const int cxyz = __fpclassifyl(xyz);
-  if((cxyz == FP_NAN) || (cxyz == FP_INFINITE)){
-    return xyz; /* If this naive check doesn't yield a finite value, the FMA isn't
+  long double ret = x * y + z;
+  if(!isfinite(ret)) {
+    return ret; /* If this naive check doesn't yield a finite value, the FMA isn't
                    likely to return one either. Forward the value as is. */
   }
-
-  long double ret;
   x87reg xlo, xhi, ylo, yhi;
   break_down(&xlo, &xhi, x);
   break_down(&ylo, &yhi, y);
@@ -132,10 +79,6 @@ static inline long double fpu_fma(long double x, long double y, long double z){
   ret += xhi.f * ylo.f + xlo.f * yhi.f; /* They are equally significant. */
   ret += xlo.f * ylo.f;                 /* The least significant item comes last. */
   return ret;
-}
-
-long double fmal(long double x, long double y, long double z){
-  return fpu_fma(x, y, z);
 }
 
 #else

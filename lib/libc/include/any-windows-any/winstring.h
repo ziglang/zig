@@ -53,7 +53,9 @@ PCWSTR WINAPI WindowsGetStringRawBuffer(HSTRING string, UINT32 *length);
 
 typedef HRESULT (WINAPI *PINSPECT_HSTRING_CALLBACK)(void *context, UINT_PTR readAddress, UINT32 length, BYTE *buffer);
 
+#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
 HRESULT WINAPI WindowsInspectString(UINT_PTR targetHString, USHORT machine, PINSPECT_HSTRING_CALLBACK callback, void *context, UINT32 *length, UINT_PTR *targetStringAddress);
+#endif
 
 BOOL WINAPI WindowsIsStringEmpty(HSTRING string);
 

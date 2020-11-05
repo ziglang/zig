@@ -13,6 +13,7 @@
 extern "C" {
 #endif
 
+/* defines from verrsrc.h file */
 #define VS_FILE_INFO RT_VERSION
 #define VS_VERSION_INFO 1
 #define VS_USER_DEFINED 100
@@ -110,6 +111,10 @@ extern "C" {
 
 #ifndef RC_INVOKED
 
+#define FILE_VER_GET_LOCALISED 0x01
+#define FILE_VER_GET_NEUTRAL 0x02
+#define FILE_VER_GET_PREFETCHED 0x04
+
   typedef struct tagVS_FIXEDFILEINFO
   {
     DWORD dwSignature;
@@ -130,22 +135,33 @@ extern "C" {
 #define VerFindFile __MINGW_NAME_AW(VerFindFile)
 #define VerInstallFile __MINGW_NAME_AW(VerInstallFile)
 #define GetFileVersionInfoSize __MINGW_NAME_AW(GetFileVersionInfoSize)
+#define GetFileVersionInfoSizeEx __MINGW_NAME_AW(GetFileVersionInfoSizeEx)
 #define GetFileVersionInfo __MINGW_NAME_AW(GetFileVersionInfo)
+#define GetFileVersionInfoEx __MINGW_NAME_AW(GetFileVersionInfoEx)
 #define VerLanguageName __MINGW_NAME_AW(VerLanguageName)
 #define VerQueryValue __MINGW_NAME_AW(VerQueryValue)
 
+#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
   DWORD WINAPI VerFindFileA(DWORD uFlags,LPSTR szFileName,LPSTR szWinDir,LPSTR szAppDir,LPSTR szCurDir,PUINT lpuCurDirLen,LPSTR szDestDir,PUINT lpuDestDirLen);
   DWORD WINAPI VerFindFileW(DWORD uFlags,LPWSTR szFileName,LPWSTR szWinDir,LPWSTR szAppDir,LPWSTR szCurDir,PUINT lpuCurDirLen,LPWSTR szDestDir,PUINT lpuDestDirLen);
   DWORD WINAPI VerInstallFileA(DWORD uFlags,LPSTR szSrcFileName,LPSTR szDestFileName,LPSTR szSrcDir,LPSTR szDestDir,LPSTR szCurDir,LPSTR szTmpFile,PUINT lpuTmpFileLen);
   DWORD WINAPI VerInstallFileW(DWORD uFlags,LPWSTR szSrcFileName,LPWSTR szDestFileName,LPWSTR szSrcDir,LPWSTR szDestDir,LPWSTR szCurDir,LPWSTR szTmpFile,PUINT lpuTmpFileLen);
   DWORD WINAPI GetFileVersionInfoSizeA(LPCSTR lptstrFilename,LPDWORD lpdwHandle);
   DWORD WINAPI GetFileVersionInfoSizeW(LPCWSTR lptstrFilename,LPDWORD lpdwHandle);
+  DWORD WINAPI GetFileVersionInfoSizeExA(DWORD dwFlags, LPCSTR lpwstrFilename, LPDWORD lpdwHandle);
+  DWORD WINAPI GetFileVersionInfoSizeExW(DWORD dwFlags, LPCWSTR lpwstrFilename, LPDWORD lpdwHandle);
   WINBOOL WINAPI GetFileVersionInfoA(LPCSTR lptstrFilename,DWORD dwHandle,DWORD dwLen,LPVOID lpData);
   WINBOOL WINAPI GetFileVersionInfoW(LPCWSTR lptstrFilename,DWORD dwHandle,DWORD dwLen,LPVOID lpData);
+  WINBOOL WINAPI GetFileVersionInfoExA(DWORD dwFlags, LPCSTR lpwstrFilename, DWORD dwHandle, DWORD dwLen, LPVOID lpData);
+  WINBOOL WINAPI GetFileVersionInfoExW(DWORD dwFlags, LPCWSTR lpwstrFilename, DWORD dwHandle, DWORD dwLen, LPVOID lpData);
+#endif
+
+#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
   DWORD WINAPI VerLanguageNameA(DWORD wLang,LPSTR szLang,DWORD nSize);
   DWORD WINAPI VerLanguageNameW(DWORD wLang,LPWSTR szLang,DWORD nSize);
   WINBOOL WINAPI VerQueryValueA(LPCVOID pBlock,LPCSTR lpSubBlock,LPVOID *lplpBuffer,PUINT puLen);
   WINBOOL WINAPI VerQueryValueW(LPCVOID pBlock,LPCWSTR lpSubBlock,LPVOID *lplpBuffer,PUINT puLen);
+#endif
 #endif
 
 #ifdef __cplusplus
