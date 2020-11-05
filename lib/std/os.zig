@@ -1020,6 +1020,12 @@ pub const OpenError = error{
 
     BadPathName,
     InvalidUtf8,
+
+    // The final component ("basename") of the path is invalid, or
+    // the underlying filesystem does not support the O_DIRECT flag, or
+    // O_TMPFILE was specified without O_WRONLY or O_RDWR, or
+    // there is an invalid value in flags:
+    ArgumentsInvalid,
 } || UnexpectedError;
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
