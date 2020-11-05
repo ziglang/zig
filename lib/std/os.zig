@@ -1183,7 +1183,7 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t)
             EINTR => continue,
 
             EFAULT => unreachable,
-            EINVAL => unreachable,
+            EINVAL => return error.ArgumentsInvalid,
             EACCES => return error.AccessDenied,
             EFBIG => return error.FileTooBig,
             EOVERFLOW => return error.FileTooBig,
