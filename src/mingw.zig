@@ -524,7 +524,6 @@ const mingw32_lib_deps = [_][]const u8{
     "udllargc.c",
     "xthdloc.c",
     "CRT_fp10.c",
-    "mingw_custom.c",
     "mingw_helpers.c",
     "pseudo-reloc.c",
     "udll_argv.c",
@@ -598,6 +597,7 @@ const msvcrt_common_src = [_][]const u8{
 const msvcrt_i386_src = [_][]const u8{
     "misc" ++ path.sep_str ++ "lc_locale_func.c",
     "misc" ++ path.sep_str ++ "___mb_cur_max_func.c",
+    "misc" ++ path.sep_str ++ "wassert.c",
 };
 
 const msvcrt_other_src = [_][]const u8{
@@ -751,7 +751,6 @@ const mingwex_generic_src = [_][]const u8{
     "math" ++ path.sep_str ++ "powi.c",
     "math" ++ path.sep_str ++ "powif.c",
     "math" ++ path.sep_str ++ "powil.c",
-    "math" ++ path.sep_str ++ "rint.c",
     "math" ++ path.sep_str ++ "round.c",
     "math" ++ path.sep_str ++ "roundf.c",
     "math" ++ path.sep_str ++ "roundl.c",
@@ -829,7 +828,6 @@ const mingwex_generic_src = [_][]const u8{
     "misc" ++ path.sep_str ++ "uchar_c32rtomb.c",
     "misc" ++ path.sep_str ++ "uchar_mbrtoc16.c",
     "misc" ++ path.sep_str ++ "uchar_mbrtoc32.c",
-    "misc" ++ path.sep_str ++ "wassert.c",
     "misc" ++ path.sep_str ++ "wcrtomb.c",
     "misc" ++ path.sep_str ++ "wcsnlen.c",
     "misc" ++ path.sep_str ++ "wcstof.c",

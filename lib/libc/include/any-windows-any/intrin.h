@@ -50,7 +50,7 @@
  * On GCC 4.9 we may always include those headers. On older GCCs, we may do it only if CPU
  * features used by them are enabled, so we need to check macros like __SSE__ or __MMX__ first.
  */
-#if __MINGW_GNUC_PREREQ(4, 9)
+#if __MINGW_GNUC_PREREQ(4, 9) || defined(__clang__)
 #define __MINGW_FORCE_SYS_INTRINS
 #endif
 
