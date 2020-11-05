@@ -2,6 +2,37 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("union with too small explicit signed tag type",
+        \\const U = union(enum(i2)) {
+        \\    A: u8,
+        \\    B: u8,
+        \\    C: u8,
+        \\    D: u8,
+        \\};
+        \\export fn entry() void {
+        \\    _ = U{ .D = 1 };
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:1:22: error: specified integer tag type cannot represent every field",
+        "tmp.zig:1:22: note: type i2 cannot fit values in range 0...3",
+    });
+
+    cases.add("union with too small explicit unsigned tag type",
+        \\const U = union(enum(u2)) {
+        \\    A: u8,
+        \\    B: u8,
+        \\    C: u8,
+        \\    D: u8,
+        \\    E: u8,
+        \\};
+        \\export fn entry() void {
+        \\    _ = U{ .E = 1 };
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:1:22: error: specified integer tag type cannot represent every field",
+        "tmp.zig:1:22: note: type u2 cannot fit values in range 0...4",
+    });
+
     cases.add("unreachable executed at comptime",
         \\fn foo(comptime x: i32) i32 {
         \\    comptime {
