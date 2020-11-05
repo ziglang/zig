@@ -505,13 +505,24 @@ add_dependencies(zig zig_build_zig1)
 
 install(TARGETS zig DESTINATION bin)
 
-set(ZIG_INSTALL_ARGS "build"
-    --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
-    "-Dlib-files-only"
-    --prefix "${CMAKE_INSTALL_PREFIX}"
-    "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
-    install
-)
+if(NOT SYSTEM_LINKER_HACK)
+  set(ZIG_INSTALL_ARGS "build"
+      --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
+      "-Dlib-files-only"
+      --prefix "${CMAKE_INSTALL_PREFIX}"
+      "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
+      install
+  )
+else()
+  set(ZIG_INSTALL_ARGS "build"
+      --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
+      "-Dlib-files-only"
+      --prefix "${CMAKE_INSTALL_PREFIX}"
+      "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
+      --system-linker-hack
+      install
+  )
+endif()
 
 # CODE has no effect with Visual Studio build system generator, therefore
 # when using Visual Studio build system generator we resort to running

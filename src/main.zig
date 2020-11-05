@@ -317,6 +317,7 @@ const usage_build_generic =
     \\  --image-base [addr]            Set base address for executable image
     \\  -framework [name]              (darwin) link against framework
     \\  -F[dir]                        (darwin) add search path for frameworks
+    \\  --system-linker-hack           Use system linker LD instead of LLD (requires LLVM enabled)
     \\
     \\Test Options:
     \\  --test-filter [text]           Skip tests that do not match filter
@@ -474,6 +475,7 @@ fn buildOutputType(
     var image_base_override: ?u64 = null;
     var use_llvm: ?bool = null;
     var use_lld: ?bool = null;
+    var system_linker_hack = false;
     var use_clang: ?bool = null;
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
@@ -915,6 +917,8 @@ fn buildOutputType(
                         mem.startsWith(u8, arg, "-I"))
                     {
                         try clang_argv.append(arg);
+                    } else if (mem.startsWith(u8, arg, "--system-linker-hack")) {
+                        system_linker_hack = true;
                     } else {
                         fatal("unrecognized parameter: '{}'", .{arg});
                     }
@@ -1639,6 +1643,7 @@ fn buildOutputType(
         .want_valgrind = want_valgrind,
         .use_llvm = use_llvm,
         .use_lld = use_lld,
+        .system_linker_hack = system_linker_hack,
         .use_clang = use_clang,
         .rdynamic = rdynamic,
         .linker_script = linker_script,
@@ -2160,6 +2165,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         var override_global_cache_dir: ?[]const u8 = null;
         var override_local_cache_dir: ?[]const u8 = null;
         var child_argv = std.ArrayList([]const u8).init(arena);
+        var system_linker_hack = false;
 
         const argv_index_exe = child_argv.items.len;
         _ = try child_argv.addOne();
@@ -2199,6 +2205,10 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
                         i += 1;
                         override_global_cache_dir = args[i];
                         try child_argv.appendSlice(&[_][]const u8{ arg, args[i] });
+                        continue;
+                    } else if (mem.eql(u8, arg, "--system-linker-hack")) {
+                        system_linker_hack = true;
+                        try child_argv.append(arg);
                         continue;
                     }
                 }
@@ -2335,6 +2345,7 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             .optimize_mode = .Debug,
             .self_exe_path = self_exe_path,
             .rand = &default_prng.random,
+            .system_linker_hack = system_linker_hack,
         }) catch |err| {
             fatal("unable to create compilation: {}", .{@errorName(err)});
         };

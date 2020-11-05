@@ -348,6 +348,8 @@ pub const InitOptions = struct {
     want_valgrind: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+    /// When set, this option will overwrite LLD with the system linker LD.
+    system_linker_hack: bool = false,
     use_clang: ?bool = null,
     rdynamic: bool = false,
     strip: bool = false,
@@ -775,6 +777,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .optimize_mode = options.optimize_mode,
             .use_lld = use_lld,
             .use_llvm = use_llvm,
+            .system_linker_hack = options.system_linker_hack,
             .link_libc = link_libc,
             .link_libcpp = options.link_libcpp,
             .objects = options.link_objects,
