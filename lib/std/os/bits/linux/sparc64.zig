@@ -523,38 +523,41 @@ pub const libc_stat = extern struct {
 };
 
 pub const kernel_stat = extern struct {
-    dev: u32,
-    ino: ino_t,
-    mode: mode_t,
-    nlink: i16,
+    dev: u64,
+    ino: u64,
+    nlink: u64,
 
+    mode: u32,
     uid: u32,
     gid: u32,
-    rdev: u32,
+    __pad0: u32,
 
-    size: off_t,
-    atim: isize,
-    mtim: isize,
-    ctim: isize,
+    rdev: u64,
+    size: i64,
+    blksize: i64,
+    blocks: i64,
 
-    blksize: off_t,
-    blocks: off_t,
+    atim: u64,
+    atim_nsec: u64,
+    mtim: u64,
+    mtim_nsec: u64,
+    ctim: u64,
+    ctim_nsec: u64,
 
-    __unused4: [2]isize,
+    __unused4: [3]i64,
 
     // Hack to make the stdlib not complain about atime
     // and friends not being a method.
-    // TODO what should tv_nsec be filled with?
     pub fn atime(self: kernel_stat) timespec {
-        return timespec{.tv_sec=self.atim, .tv_nsec=0};
+        return timespec{.tv_sec=@bitCast(isize, self.atim), .tv_nsec=@bitCast(isize, self.atim_nsec)};
     }
 
     pub fn mtime(self: kernel_stat) timespec {
-        return timespec{.tv_sec=self.mtim, .tv_nsec=0};
+        return timespec{.tv_sec=@bitCast(isize, self.mtim), .tv_nsec=@bitCast(isize, self.mtim_nsec)};
     }
 
     pub fn ctime(self: kernel_stat) timespec {
-        return timespec{.tv_sec=self.ctim, .tv_nsec=0};
+        return timespec{.tv_sec=@bitCast(isize, self.ctim), .tv_nsec=@bitCast(isize, self.ctim_nsec)};
     }
 };
 
