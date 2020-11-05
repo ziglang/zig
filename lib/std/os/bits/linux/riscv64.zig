@@ -381,13 +381,8 @@ pub const Flock = extern struct {
     __unused: [4]u8,
 };
 
-/// Renamed to Stat to not conflict with the stat function.
-/// atime, mtime, and ctime have functions to return `timespec`,
-/// because although this is a POSIX API, the layout and names of
-/// the structs are inconsistent across operating systems, and
-/// in C, macros are used to hide the differences. Here we use
-/// methods to accomplish this.
-pub const Stat = extern struct {
+// The `stat` definition used by the Linux kernel.
+pub const kernel_stat = extern struct {
     dev: dev_t,
     ino: ino_t,
     mode: mode_t,
@@ -405,17 +400,20 @@ pub const Stat = extern struct {
     ctim: timespec,
     __unused: [2]u32,
 
-    pub fn atime(self: Stat) timespec {
+    pub fn atime(self: @This()) timespec {
         return self.atim;
     }
 
-    pub fn mtime(self: Stat) timespec {
+    pub fn mtime(self: @This()) timespec {
         return self.mtim;
     }
 
-    pub fn ctime(self: Stat) timespec {
+    pub fn ctime(self: @This()) timespec {
         return self.ctim;
     }
 };
+
+// The `stat64` definition used by the libc.
+pub const libc_stat = kernel_stat;
 
 pub const Elf_Symndx = u32;

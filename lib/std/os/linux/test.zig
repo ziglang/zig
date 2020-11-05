@@ -86,7 +86,7 @@ test "statx" {
         else => unreachable,
     }
 
-    var stat_buf: linux.Stat = undefined;
+    var stat_buf: linux.kernel_stat = undefined;
     switch (linux.getErrno(linux.fstatat(file.handle, "", &stat_buf, linux.AT_EMPTY_PATH))) {
         0 => {},
         else => unreachable,

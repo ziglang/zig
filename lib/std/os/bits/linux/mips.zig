@@ -536,41 +536,74 @@ pub const Flock = extern struct {
 
 pub const blksize_t = i32;
 pub const nlink_t = u32;
-pub const time_t = isize;
+pub const time_t = i32;
 pub const mode_t = u32;
 pub const off_t = i64;
 pub const ino_t = u64;
-pub const dev_t = usize;
+pub const dev_t = u64;
 pub const blkcnt_t = i64;
 
-pub const Stat = extern struct {
+// The `stat` definition used by the Linux kernel.
+pub const kernel_stat = extern struct {
     dev: u32,
-    __pad0: [3]u32,
+    __pad0: [3]u32, // Reserved for st_dev expansion
     ino: ino_t,
     mode: mode_t,
     nlink: nlink_t,
     uid: uid_t,
     gid: gid_t,
-    rdev: dev_t,
+    rdev: u32,
     __pad1: [3]u32,
     size: off_t,
     atim: timespec,
     mtim: timespec,
     ctim: timespec,
     blksize: blksize_t,
-    __pad3: [1]u32,
+    __pad3: u32,
     blocks: blkcnt_t,
     __pad4: [14]usize,
 
-    pub fn atime(self: Stat) timespec {
+    pub fn atime(self: @This()) timespec {
         return self.atim;
     }
 
-    pub fn mtime(self: Stat) timespec {
+    pub fn mtime(self: @This()) timespec {
         return self.mtim;
     }
 
-    pub fn ctime(self: Stat) timespec {
+    pub fn ctime(self: @This()) timespec {
+        return self.ctim;
+    }
+};
+
+pub const libc_stat = extern struct {
+    dev: dev_t,
+    __pad0: [2]u32,
+    ino: ino_t,
+    mode: mode_t,
+    nlink: nlink_t,
+    uid: uid_t,
+    gid: gid_t,
+    rdev: dev_t,
+    __pad1: [2]u32,
+    size: off_t,
+    atim: timespec,
+    mtim: timespec,
+    ctim: timespec,
+    blksize: blksize_t,
+    __pad3: u32,
+    blocks: blkcnt_t,
+    __pad4: [14]u32,
+
+    pub fn atime(self: @This()) timespec {
+        return self.atim;
+    }
+
+    pub fn mtime(self: @This()) timespec {
+        return self.mtim;
+    }
+
+    pub fn ctime(self: @This()) timespec {
         return self.ctim;
     }
 };

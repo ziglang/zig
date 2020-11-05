@@ -1071,7 +1071,7 @@ pub fn accept4(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t, flag
     return syscall4(.accept4, @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len), flags);
 }
 
-pub fn fstat(fd: i32, stat_buf: *Stat) usize {
+pub fn fstat(fd: i32, stat_buf: *kernel_stat) usize {
     if (@hasField(SYS, "fstat64")) {
         return syscall2(.fstat64, @bitCast(usize, @as(isize, fd)), @ptrToInt(stat_buf));
     } else {
@@ -1079,7 +1079,7 @@ pub fn fstat(fd: i32, stat_buf: *Stat) usize {
     }
 }
 
-pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
+pub fn stat(pathname: [*:0]const u8, statbuf: *kernel_stat) usize {
     if (@hasField(SYS, "stat64")) {
         return syscall2(.stat64, @ptrToInt(pathname), @ptrToInt(statbuf));
     } else {
@@ -1087,7 +1087,7 @@ pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
     }
 }
 
-pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
+pub fn lstat(pathname: [*:0]const u8, statbuf: *kernel_stat) usize {
     if (@hasField(SYS, "lstat64")) {
         return syscall2(.lstat64, @ptrToInt(pathname), @ptrToInt(statbuf));
     } else {
@@ -1095,7 +1095,7 @@ pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
     }
 }
 
-pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usize {
+pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *kernel_stat, flags: u32) usize {
     if (@hasField(SYS, "fstatat64")) {
         return syscall4(.fstatat64, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), @ptrToInt(stat_buf), flags);
     } else {

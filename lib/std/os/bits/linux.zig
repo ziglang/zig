@@ -1152,11 +1152,19 @@ pub const SS_ONSTACK = 1;
 pub const SS_DISABLE = 2;
 pub const SS_AUTODISARM = 1 << 31;
 
-pub const stack_t = extern struct {
-    ss_sp: [*]u8,
-    ss_flags: i32,
-    ss_size: isize,
-};
+pub const stack_t = if (is_mips)
+    // IRIX compatible stack_t
+    extern struct {
+        ss_sp: [*]u8,
+        ss_size: usize,
+        ss_flags: i32,
+    }
+else
+    extern struct {
+        ss_sp: [*]u8,
+        ss_flags: i32,
+        ss_size: usize,
+    };
 
 pub const sigval = extern union {
     int: i32,
@@ -1322,7 +1330,7 @@ pub const io_uring_sqe = extern struct {
     buf_index: u16,
     personality: u16,
     splice_fd_in: i32,
-    __pad2: [2]u64
+    __pad2: [2]u64,
 };
 
 pub const IOSQE_BIT = extern enum(u8) {
@@ -1332,7 +1340,7 @@ pub const IOSQE_BIT = extern enum(u8) {
     IO_HARDLINK,
     ASYNC,
     BUFFER_SELECT,
-    
+
     _,
 };
 

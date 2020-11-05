@@ -31,7 +31,7 @@ pub const timespec = struct {
     }
 };
 
-pub const Stat = struct {
+pub const kernel_stat = struct {
     dev: device_t,
     ino: inode_t,
     mode: mode_t,
