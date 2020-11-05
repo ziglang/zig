@@ -1,0 +1,681 @@
+/**
+ * This file has no copyright assigned and is placed in the Public Domain.
+ * This file is part of the mingw-w64 runtime package.
+ * No warranty is given; refer to the file DISCLAIMER.PD within this package.
+ */
+
+import "mfobjects.idl";
+
+cpp_quote("#include <mftransform.h>") // FIXME: import "mftransform.idl";
+
+cpp_quote("#include <windef.h>")
+
+typedef enum MFSESSION_SETTOPOLOGY_FLAGS {
+    MFSESSION_SETTOPOLOGY_IMMEDIATE     = 0x1,
+    MFSESSION_SETTOPOLOGY_NORESOLUTION  = 0x2,
+    MFSESSION_SETTOPOLOGY_CLEAR_CURRENT = 0x4
+} MFSESSION_SETTOPOLOGY_FLAGS;
+
+typedef enum MFSESSION_GETFULLTOPOLOGY_FLAGS {
+    MFSESSION_GETFULLTOPOLOGY_CURRENT
+} MFSESSION_GETFULLTOPOLOGY_FLAGS;
+
+typedef enum MFPMPSESSION_CREATION_FLAGS {
+    MFPMPSESSION_UNPROTECTED_PROCESS = 0x1
+} MFPMPSESSION_CREATION_FLAGS;
+
+typedef unsigned __int64 TOPOID;
+
+typedef enum MF_TOPOLOGY_TYPE {
+    MF_TOPOLOGY_OUTPUT_NODE,
+    MF_TOPOLOGY_SOURCESTREAM_NODE,
+    MF_TOPOLOGY_TRANSFORM_NODE,
+    MF_TOPOLOGY_TEE_NODE,
+    MF_TOPOLOGY_MAX = 0xffffffff
+} MF_TOPOLOGY_TYPE;
+
+[
+    object,
+    uuid(83cf873a-f6da-4bc8-823f-bacfd55dc430),
+]
+interface IMFTopologyNode : IMFAttributes
+{
+    HRESULT SetObject([in] IUnknown *pObject);
+    HRESULT GetObject([out] IUnknown **ppObject);
+    HRESULT GetNodeType([out] MF_TOPOLOGY_TYPE *pType);
+    HRESULT GetTopoNodeID([out] TOPOID *pID);
+    HRESULT SetTopoNodeID([in] TOPOID ullTopoID);
+    HRESULT GetInputCount([out] DWORD *pcInputs);
+    HRESULT GetOutputCount([out] DWORD *pcOutputs);
+
+    [local]
+    HRESULT ConnectOutput([in] DWORD dwOutputIndex, [in] IMFTopologyNode* pDownstreamNode,
+            [in] DWORD dwInputIndexOnDownstreamNode);
+    [local] HRESULT DisconnectOutput([in] DWORD dwOutputIndex);
+    HRESULT GetInput([in] DWORD dwInputIndex, [out] IMFTopologyNode** ppUpstreamNode,
+            [out] DWORD *pdwOutputIndexOnUpstreamNode);
+    HRESULT GetOutput([in] DWORD dwOutputIndex, [out] IMFTopologyNode** ppDownstreamNode,
+            [out] DWORD* pdwInputIndexOnDownstreamNode);
+    [local] HRESULT SetOutputPrefType([in] DWORD dwOutputIndex, [in] IMFMediaType *pType);
+
+    [local] HRESULT GetOutputPrefType([in] DWORD dwOutputIndex, [out] IMFMediaType **ppType);
+    [call_as(GetOutputPrefType)] HRESULT RemoteGetOutputPrefType([in] DWORD dwOutputIndex,
+                                         [out] DWORD *pcbData, [out, size_is(,*pcbData)] BYTE **ppbData);
+
+    [local] HRESULT SetInputPrefType([in] DWORD dwInputIndex, [in] IMFMediaType *pType);
+
+    [local] HRESULT GetInputPrefType([in] DWORD dwInputIndex, [out] IMFMediaType **ppType);
+    [call_as(GetInputPrefType)] HRESULT RemoteGetInputPrefType( [in] DWORD dwInputIndex,
+                                        [out] DWORD *pcbData, [out, size_is(,*pcbData)] BYTE **ppbData);
+
+    HRESULT CloneFrom([in] IMFTopologyNode *pNode);
+}
+
+[
+    object,
+    uuid(83cf873a-f6da-4bc8-823f-bacfd55dc433),
+]
+interface IMFTopology : IMFAttributes
+{
+    HRESULT GetTopologyID([out] TOPOID *pID);
+    [local] HRESULT AddNode([in] IMFTopologyNode *pNode);
+    [local] HRESULT RemoveNode([in] IMFTopologyNode *pNode);
+    HRESULT GetNodeCount([out] WORD *pwNodes);
+    HRESULT GetNode([in] WORD wIndex, [out] IMFTopologyNode **ppNode);
+    [local] HRESULT Clear();
+    HRESULT CloneFrom([in] IMFTopology *pTopology);
+    HRESULT GetNodeByID([in] TOPOID qwTopoNodeID, [out] IMFTopologyNode **ppNode);
+    HRESULT GetSourceNodeCollection([out] IMFCollection **ppCollection);
+    HRESULT GetOutputNodeCollection([out] IMFCollection **ppCollection);
+}
+
+typedef LONGLONG MFTIME;
+
+typedef enum _MF_CLOCK_STATE {
+    MFCLOCK_STATE_INVALID,
+    MFCLOCK_STATE_RUNNING,
+    MFCLOCK_STATE_STOPPED,
+    MFCLOCK_STATE_PAUSED
+} MF_CLOCK_STATE, MFCLOCK_STATE;
+
+typedef struct _MFCLOCK_PROPERTIES {
+    unsigned __int64 qwCorrelationRate;
+    GUID             guidClockId;
+    DWORD            dwClockFlags;
+    unsigned __int64 qwClockFrequency;
+    DWORD            dwClockTolerance;
+    DWORD            dwClockJitter;
+} MFCLOCK_PROPERTIES;
+
+[
+    object,
+    uuid(2eb1e945-18b8-4139-9b1a-d5d584818530),
+]
+interface IMFClock : IUnknown
+{
+    HRESULT GetClockCharacteristics([out] DWORD *pdwCharacteristics);
+    HRESULT GetCorrelatedTime([in] DWORD dwReserved, [out] LONGLONG *pllClockTime, [out] MFTIME *phnsSystemTime);
+    HRESULT GetContinuityKey([out] DWORD *pdwContinuityKey);
+    HRESULT GetState([in] DWORD dwReserved, [out] MFCLOCK_STATE *peClockState);
+    HRESULT GetProperties([out] MFCLOCK_PROPERTIES *pClockProperties);
+}
+
+cpp_quote("#define SHA_HASH_LEN 20")
+cpp_quote("#define STR_HASH_LEN (SHA_HASH_LEN*2+3)")
+
+cpp_quote("typedef struct _MFRR_COMPONENT_HASH_INFO {")
+cpp_quote("  DWORD ulReason;")
+cpp_quote("  WCHAR rgHeaderHash[STR_HASH_LEN];")
+cpp_quote("  WCHAR rgPublicKeyHash[STR_HASH_LEN];")
+cpp_quote("  WCHAR wszName[MAX_PATH];")
+cpp_quote("} MFRR_COMPONENT_HASH_INFO, *PMFRR_COMPONENT_HASH_INFO;")
+
+cpp_quote("EXTERN_GUID(MF_PD_DURATION, 0x6c990d33,0xbb8e,0x477a,0x85,0x98,0xd,0x5d,0x96,0xfc,0xd8,0x8a);")
+
+typedef enum _MF_CONNECT_METHOD {
+    MF_CONNECT_DIRECT                            = 0x00000000,
+    MF_CONNECT_ALLOW_CONVERTER                   = 0x00000001,
+    MF_CONNECT_ALLOW_DECODER                     = 0x00000003,
+    MF_CONNECT_RESOLVE_INDEPENDENT_OUTPUTTYPES   = 0x00000004,
+    MF_CONNECT_AS_OPTIONAL                       = 0x00010000,
+    MF_CONNECT_AS_OPTIONAL_BRANCH                = 0x00020000
+} MF_CONNECT_METHOD;
+
+[
+    object,
+    uuid(90377834-21d0-4dee-8214-ba2e3e6c1127),
+]
+interface IMFMediaSession : IMFMediaEventGenerator
+{
+    HRESULT SetTopology([in] DWORD dwSetTopologyFlags, [in] IMFTopology *pTopology);
+    HRESULT ClearTopologies();
+    HRESULT Start([in, unique] const GUID *pguidTimeFormat, [in, unique] const PROPVARIANT *pvarStartPosition);
+    HRESULT Pause();
+    HRESULT Stop();
+    HRESULT Close();
+    HRESULT Shutdown();
+    HRESULT GetClock([out] IMFClock **ppClock);
+    HRESULT GetSessionCapabilities([out] DWORD *pdwCaps);
+    HRESULT GetFullTopology([in] DWORD dwGetFullTopologyFlags, [in] TOPOID TopoId, [out] IMFTopology **ppFullTopology);
+}
+
+[
+    object,
+    uuid(e93dcf6c-4b07-4e1e-8123-aa16ed6eadf5),
+]
+interface IMFMediaTypeHandler : IUnknown
+{
+    [local] HRESULT IsMediaTypeSupported([in] IMFMediaType *pMediaType, [out] IMFMediaType **ppMediaType);
+    [local] HRESULT GetMediaTypeCount([out] DWORD *pdwTypeCount);
+    [local] HRESULT GetMediaTypeByIndex([in] DWORD dwIndex, [out] IMFMediaType **ppType);
+    [local] HRESULT SetCurrentMediaType([in] IMFMediaType *pMediaType);
+
+    [local]
+    HRESULT GetCurrentMediaType([out] IMFMediaType **ppMediaType);
+    [call_as(GetCurrentMediaType)]
+    HRESULT RemoteGetCurrentMediaType([out, size_is(,*pcbData)] BYTE **ppbData, [out] DWORD *pcbData);
+
+    HRESULT GetMajorType([out] GUID *pguidMajorType);
+}
+
+[
+    object,
+    uuid(56c03d9c-9dbb-45f5-ab4b-d80f47c05938),
+]
+interface IMFStreamDescriptor : IMFAttributes
+{
+    HRESULT GetStreamIdentifier([out] DWORD *pdwStreamIdentifier);
+    HRESULT GetMediaTypeHandler([out] IMFMediaTypeHandler **ppMediaTypeHandler);
+}
+
+[
+    object,
+    uuid(03cb2711-24d7-4db6-a17f-f3a7a479a536),
+]
+interface IMFPresentationDescriptor : IMFAttributes
+{
+    HRESULT GetStreamDescriptorCount([out] DWORD *pdwDescriptorCount);
+    HRESULT GetStreamDescriptorByIndex([in] DWORD dwIndex, [out] BOOL *pfSelected, [out] IMFStreamDescriptor **ppDescriptor);
+    HRESULT SelectStream([in] DWORD dwDescriptorIndex);
+    HRESULT DeselectStream([in] DWORD dwDescriptorIndex);
+    HRESULT Clone([out] IMFPresentationDescriptor **ppPresentationDescriptor);
+}
+
+[
+    object,
+    uuid(279a808d-aec7-40c8-9c6b-a6b492c78a66),
+]
+interface IMFMediaSource : IMFMediaEventGenerator
+{
+    HRESULT GetCharacteristics([out] DWORD *pdwCharacteristics);
+
+    [local]
+    HRESULT CreatePresentationDescriptor([out] IMFPresentationDescriptor **ppPresentationDescriptor);
+    [call_as(CreatePresentationDescriptor)]
+    HRESULT RemoteCreatePresentationDescriptor(
+            [out] DWORD *pcbPD,
+            [out, size_is(,*pcbPD)] BYTE **pbPD,
+            [out] IMFPresentationDescriptor **ppRemotePD);
+
+    HRESULT Start(
+            [in] IMFPresentationDescriptor *pPresentationDescriptor,
+            [in, unique] const GUID *pguidTimeFormat,
+            [in, unique] const PROPVARIANT *pvarStartPosition);
+
+    HRESULT Stop();
+    HRESULT Pause();
+    HRESULT Shutdown();
+}
+
+typedef [public] struct _MF_LEAKY_BUCKET_PAIR {
+    DWORD dwBitrate;
+    DWORD msBufferWindow;
+} MF_LEAKY_BUCKET_PAIR;
+
+typedef [public] struct _MFBYTESTREAM_BUFFERING_PARAMS {
+    QWORD                cbTotalFileSize;
+    QWORD                cbPlayableDataSize;
+    MF_LEAKY_BUCKET_PAIR *prgBuckets;
+    DWORD                cBuckets;
+    QWORD                qwNetBufferingTime;
+    QWORD                qwExtraBufferingTimeDuringSeek;
+    QWORD                qwPlayDuration;
+    float                dRate;
+} MFBYTESTREAM_BUFFERING_PARAMS;
+
+[
+    object,
+    uuid(6d66d782-1d4f-4db7-8c63-cb8c77f1ef5e),
+    local
+]
+interface IMFByteStreamBuffering : IUnknown
+{
+    HRESULT SetBufferingParams([in] MFBYTESTREAM_BUFFERING_PARAMS *pParams);
+    HRESULT EnableBuffering([in] BOOL fEnable);
+    HRESULT StopBuffering();
+}
+
+[
+    object,
+    uuid(F6696E82-74F7-4f3d-A178-8A5E09C3659F),
+]
+interface IMFClockStateSink : IUnknown
+{
+    HRESULT OnClockStart([in] MFTIME hnsSystemTime,[in] LONGLONG llClockStartOffset);
+    HRESULT OnClockStop([in] MFTIME hnsSystemTime);
+    HRESULT OnClockPause([in] MFTIME hnsSystemTime);
+    HRESULT OnClockRestart([in] MFTIME hnsSystemTime);
+    HRESULT OnClockSetRate([in] MFTIME hnsSystemTime, [in] float flRate);
+}
+
+cpp_quote("HRESULT WINAPI MFRequireProtectedEnvironment(IMFPresentationDescriptor *pPresentationDescriptor);")
+cpp_quote("HRESULT WINAPI MFSerializePresentationDescriptor(IMFPresentationDescriptor *pPD,DWORD *pcbData,BYTE **ppbData);")
+
+typedef DWORD MFSequencerElementId;
+
+typedef enum _MFCLOCK_CHARACTERISTICS_FLAGS
+{
+    MFCLOCK_CHARACTERISTICS_FLAG_FREQUENCY_10MHZ   = 0x2,
+    MFCLOCK_CHARACTERISTICS_FLAG_ALWAYS_RUNNING    = 0x4,
+    MFCLOCK_CHARACTERISTICS_FLAG_IS_SYSTEM_CLOCK   = 0x8
+} MFCLOCK_CHARACTERISTICS_FLAGS;
+
+cpp_quote("#if (WINVER >= 0x0601)")
+
+typedef enum _MF_QUALITY_ADVISE_FLAGS
+{
+    MF_QUALITY_CANNOT_KEEP_UP = 0x1
+} MF_QUALITY_ADVISE_FLAGS;
+
+cpp_quote("#endif /*(WINVER >= 0x0601)*/")
+
+typedef enum _MF_QUALITY_DROP_MODE
+{
+    MF_DROP_MODE_NONE = 0x0,
+    MF_DROP_MODE_1    = 0x1,
+    MF_DROP_MODE_2    = 0x2,
+    MF_DROP_MODE_3    = 0x3,
+    MF_DROP_MODE_4    = 0x4,
+    MF_DROP_MODE_5    = 0x5,
+    MF_NUM_DROP_MODES = 0x6
+} MF_QUALITY_DROP_MODE;
+
+typedef enum _MF_QUALITY_LEVEL
+{
+    MF_QUALITY_NORMAL         = 0x0,
+    MF_QUALITY_NORMAL_MINUS_1 = 0x1,
+    MF_QUALITY_NORMAL_MINUS_2 = 0x2,
+    MF_QUALITY_NORMAL_MINUS_3 = 0x3,
+    MF_QUALITY_NORMAL_MINUS_4 = 0x4,
+    MF_QUALITY_NORMAL_MINUS_5 = 0x5,
+    MF_NUM_QUALITY_LEVELS     = 0x6
+} MF_QUALITY_LEVEL;
+
+typedef enum _MF_TOPOLOGY_RESOLUTION_STATUS_FLAGS
+{
+    MF_TOPOLOGY_RESOLUTION_SUCCEEDED            = 0x00000000,
+    MF_OPTIONAL_NODE_REJECTED_MEDIA_TYPE        = 0x00000001,
+    MF_OPTIONAL_NODE_REJECTED_PROTECTED_PROCESS = 0x00000002
+} MF_TOPOLOGY_RESOLUTION_STATUS_FLAGS;
+
+typedef enum _MF_TOPONODE_DRAIN_MODE
+{
+    MF_TOPONODE_DRAIN_DEFAULT,
+    MF_TOPONODE_DRAIN_ALWAYS,
+    MF_TOPONODE_DRAIN_NEVER
+} MF_TOPONODE_DRAIN_MODE;
+
+typedef enum _MF_TOPONODE_FLUSH_MODE
+{
+    MF_TOPONODE_FLUSH_ALWAYS,
+    MF_TOPONODE_FLUSH_SEEK,
+    MF_TOPONODE_FLUSH_NEVER
+} MF_TOPONODE_FLUSH_MODE;
+
+cpp_quote("#if (WINVER >= 0x0601)")
+
+typedef enum _MF_TRANSCODE_TOPOLOGY_MODE_FLAGS
+{
+  MF_TRANSCODE_TOPOLOGYMODE_SOFTWARE_ONLY    = 0,
+  MF_TRANSCODE_TOPOLOGYMODE_HARDWARE_ALLOWED = 1
+} MF_TRANSCODE_TOPOLOGYMODE_FLAGS;
+
+cpp_quote("#endif")
+
+typedef enum
+{
+    MF_LICENSE_URL_UNTRUSTED,
+    MF_LICENSE_URL_TRUSTED,
+    MF_LICENSE_URL_TAMPERED
+} MF_URL_TRUST_STATUS;
+
+typedef enum _MFCLOCK_RELATIONAL_FLAGS
+{
+    MFCLOCK_RELATIONAL_FLAG_JITTER_NEVER_AHEAD = 0x1
+} MFCLOCK_RELATIONAL_FLAGS;
+
+typedef enum _MFMEDIASOURCE_CHARACTERISTICS
+{
+    MFMEDIASOURCE_IS_LIVE                    = 0x1,
+    MFMEDIASOURCE_CAN_SEEK                   = 0x2,
+    MFMEDIASOURCE_CAN_PAUSE                  = 0x4,
+    MFMEDIASOURCE_HAS_SLOW_SEEK              = 0x8,
+    MFMEDIASOURCE_HAS_MULTIPLE_PRESENTATIONS = 0x10,
+    MFMEDIASOURCE_CAN_SKIPFORWARD            = 0x20,
+    MFMEDIASOURCE_CAN_SKIPBACKWARD           = 0x40
+} MFMEDIASOURCE_CHARACTERISTICS;
+
+typedef enum _MFNET_PROXYSETTINGS
+{
+    MFNET_PROXYSETTING_NONE    = 0,
+    MFNET_PROXYSETTING_MANUAL  = 1,
+    MFNET_PROXYSETTING_AUTO    = 2,
+    MFNET_PROXYSETTING_BROWSER = 3
+} MFNET_PROXYSETTINGS;
+
+typedef enum _MFNetAuthenticationFlags
+{
+    MFNET_AUTHENTICATION_PROXY          = 0x00000001,
+    MFNET_AUTHENTICATION_CLEAR_TEXT     = 0x00000002,
+    MFNET_AUTHENTICATION_LOGGED_ON_USER = 0x00000004
+} MFNetAuthenticationFlags;
+
+typedef enum _MFNetCredentialOptions
+{
+    MFNET_CREDENTIAL_SAVE             = 0x00000001,
+    MFNET_CREDENTIAL_DONT_CACHE       = 0x00000002,
+    MFNET_CREDENTIAL_ALLOW_CLEAR_TEXT = 0x00000004
+} MFNetCredentialOptions;
+
+typedef enum _MFNetCredentialRequirements {
+    REQUIRE_PROMPT        = 0x00000001,
+    REQUIRE_SAVE_SELECTED = 0x00000002
+} MFNetCredentialRequirements;
+
+typedef enum _MFNETSOURCE_CACHE_STATE
+{
+    MFNETSOURCE_CACHE_UNAVAILABLE,
+    MFNETSOURCE_CACHE_ACTIVE_WRITING,
+    MFNETSOURCE_CACHE_ACTIVE_COMPLETE
+} MFNETSOURCE_CACHE_STATE;
+
+typedef enum _MFNETSOURCE_PROTOCOL_TYPE
+{
+    MFNETSOURCE_UNDEFINED = 0x0,
+    MFNETSOURCE_HTTP      = 0x1,
+    MFNETSOURCE_RTSP      = 0x2,
+    MFNETSOURCE_FILE      = 0x3,
+    MFNETSOURCE_MULTICAST = 0x4
+} MFNETSOURCE_PROTOCOL_TYPE;
+
+typedef enum _MFNETSOURCE_STATISTICS_IDS
+{
+    MFNETSOURCE_RECVPACKETS_ID = 0,
+    MFNETSOURCE_LOSTPACKETS_ID,
+    MFNETSOURCE_RESENDSREQUESTED_ID,
+    MFNETSOURCE_RESENDSRECEIVED_ID,
+    MFNETSOURCE_RECOVEREDBYECCPACKETS_ID,
+    MFNETSOURCE_RECOVEREDBYRTXPACKETS_ID,
+    MFNETSOURCE_OUTPACKETS_ID,
+    MFNETSOURCE_RECVRATE_ID,
+    MFNETSOURCE_AVGBANDWIDTHBPS_ID,
+    MFNETSOURCE_BYTESRECEIVED_ID,
+    MFNETSOURCE_PROTOCOL_ID,
+    MFNETSOURCE_TRANSPORT_ID,
+    MFNETSOURCE_CACHE_STATE_ID,
+    MFNETSOURCE_LINKBANDWIDTH_ID,
+    MFNETSOURCE_CONTENTBITRATE_ID,
+    MFNETSOURCE_SPEEDFACTOR_ID,
+    MFNETSOURCE_BUFFERSIZE_ID,
+    MFNETSOURCE_BUFFERPROGRESS_ID,
+    MFNETSOURCE_LASTBWSWITCHTS_ID,
+    MFNETSOURCE_SEEKRANGESTART_ID,
+    MFNETSOURCE_SEEKRANGEEND_ID,
+    MFNETSOURCE_BUFFERINGCOUNT_ID,
+    MFNETSOURCE_INCORRECTLYSIGNEDPACKETS_ID,
+    MFNETSOURCE_SIGNEDSESSION_ID,
+    MFNETSOURCE_MAXBITRATE_ID,
+    MFNETSOURCE_RECEPTION_QUALITY_ID,
+    MFNETSOURCE_RECOVEREDPACKETS_ID,
+    MFNETSOURCE_VBR_ID,
+    MFNETSOURCE_DOWNLOADPROGRESS_ID
+} MFNETSOURCE_STATISTICS_IDS;
+
+typedef enum _MFNETSOURCE_TRANSPORT_TYPE
+{
+    MFNETSOURCE_UDP,
+    MFNETSOURCE_TCP
+} MFNETSOURCE_TRANSPORT_TYPE;
+
+typedef enum MF_OBJECT_TYPE
+{
+    MF_OBJECT_MEDIASOURCE,
+    MF_OBJECT_BYTESTREAM,
+    MF_OBJECT_INVALID
+} MF_OBJECT_TYPE;
+
+typedef enum _MFPOLICYMANAGER_ACTION
+{
+    PEACTION_NO        = 0,
+    PEACTION_PLAY      = 1,
+    PEACTION_COPY      = 2,
+    PEACTION_EXPORT    = 3,
+    PEACTION_EXTRACT   = 4,
+    PEACTION_RESERVED1 = 5,
+    PEACTION_RESERVED2 = 6,
+    PEACTION_RESERVED3 = 7,
+    PEACTION_LAST      = 7
+} MFPOLICYMANAGER_ACTION;
+
+typedef enum _MFRATE_DIRECTION
+{
+    MFRATE_FORWARD,
+    MFRATE_REVERSE
+} MFRATE_DIRECTION;
+
+typedef enum _MFSequencerTopologyFlags
+{
+    SequencerTopologyFlags_Last = 0x00000001
+} MFSequencerTopologyFlags;
+
+typedef enum _MFSHUTDOWN_STATUS
+{
+    MFSHUTDOWN_INITIATED,
+    MFSHUTDOWN_COMPLETED
+} MFSHUTDOWN_STATUS;
+
+typedef enum MFSTREAMSINK_MARKER_TYPE
+{
+    MFSTREAMSINK_MARKER_DEFAULT,
+    MFSTREAMSINK_MARKER_ENDOFSEGMENT,
+    MFSTREAMSINK_MARKER_TICK,
+    MFSTREAMSINK_MARKER_EVENT
+} MFSTREAMSINK_MARKER_TYPE;
+
+typedef enum MFTIMER_FLAGS
+{
+    MFTIMER_RELATIVE = 0x00000001
+} MFTIMER_FLAGS;
+
+cpp_quote("#if (WINVER >= 0x0601)")
+
+typedef enum MFTOPOLOGY_DXVA_MODE
+{
+    MFTOPOLOGY_DXVA_DEFAULT = 0,
+    MFTOPOLOGY_DXVA_NONE    = 1,
+    MFTOPOLOGY_DXVA_FULL    = 2
+} MFTOPOLOGY_DXVA_MODE;
+
+typedef enum MFTOPOLOGY_HARDWARE_MODE
+{
+    MFTOPOLOGY_HWMODE_SOFTWARE_ONLY = 0,
+    MFTOPOLOGY_HWMODE_USE_HARDWARE  = 1
+} MFTOPOLOGY_HARDWARE_MODE;
+
+typedef struct _MFT_REGISTRATION_INFO
+{
+    CLSID clsid;
+    GUID guidCategory;
+    UINT32 uiFlags;
+    LPCWSTR pszName;
+    DWORD cInTypes;
+    [size_is(cInTypes)] MFT_REGISTER_TYPE_INFO *pInTypes;
+    DWORD cOutTypes;
+    [size_is(cOutTypes)] MFT_REGISTER_TYPE_INFO *pOutTypes;
+} MFT_REGISTRATION_INFO;
+
+cpp_quote("#endif /*(WINVER >= 0x0601)*/")
+
+cpp_quote("typedef struct _ASFFlatPicture {")
+cpp_quote("  BYTE  bPictureType;")
+cpp_quote("  DWORD dwDataLen;")
+cpp_quote("} ASF_FLAT_PICTURE;")
+cpp_quote("")
+cpp_quote("typedef struct _ASFFlatSynchronisedLyrics {")
+cpp_quote("  BYTE  bTimeStampFormat;")
+cpp_quote("  BYTE  bContentType;")
+cpp_quote("  DWORD dwLyricsLen;")
+cpp_quote("} ASF_FLAT_SYNCHRONISED_LYRICS;")
+
+typedef enum SAMPLE_PROTECTION_VERSION
+{
+    SAMPLE_PROTECTION_VERSION_NO         = 0,
+    SAMPLE_PROTECTION_VERSION_BASIC_LOKI = 1,
+    SAMPLE_PROTECTION_VERSION_SCATTER    = 2,
+    SAMPLE_PROTECTION_VERSION_RC4        = 3
+} SAMPLE_PROTECTION_VERSION;
+
+typedef struct _MFINPUTTRUSTAUTHORITY_ACTION
+{
+    MFPOLICYMANAGER_ACTION Action;
+    BYTE                   *pbTicket;
+    DWORD                  cbTicket;
+} MFINPUTTRUSTAUTHORITY_ACCESS_ACTION;
+
+typedef struct _MFINPUTTRUSTAUTHORITY_ACCESS_PARAMS
+{
+    DWORD                               dwSize;
+    DWORD                               dwVer;
+    DWORD                               cbSignatureOffset;
+    DWORD                               cbSignatureSize;
+    DWORD                               cbExtensionOffset;
+    DWORD                               cbExtensionSize;
+    DWORD                               cActions;
+    MFINPUTTRUSTAUTHORITY_ACCESS_ACTION rgOutputActions[1];
+} MFINPUTTRUSTAUTHORITY_ACCESS_PARAMS;
+
+typedef struct _MFNetCredentialManagerGetParam
+{
+    HRESULT hrOp;
+    WINBOOL fAllowLoggedOnUser;
+    WINBOOL fClearTextPackage;
+    LPCWSTR pszUrl;
+    LPCWSTR pszSite;
+    LPCWSTR pszRealm;
+    LPCWSTR pszPackage;
+    LONG    nRetries;
+} MFNetCredentialManagerGetParam;
+
+cpp_quote("#define MEDIASINK_FIXED_STREAMS                 0x00000001")
+cpp_quote("#define MEDIASINK_CANNOT_MATCH_CLOCK            0x00000002")
+cpp_quote("#define MEDIASINK_RATELESS                      0x00000004")
+cpp_quote("#define MEDIASINK_CLOCK_REQUIRED                0x00000008")
+cpp_quote("#define MEDIASINK_CAN_PREROLL                   0x00000010")
+cpp_quote("#define MEDIASINK_REQUIRE_REFERENCE_MEDIATYPE   0x00000020")
+
+enum
+{
+    MF_RESOLUTION_MEDIASOURCE                                           = 0x00000001,
+    MF_RESOLUTION_BYTESTREAM                                            = 0x00000002,
+    MF_RESOLUTION_CONTENT_DOES_NOT_HAVE_TO_MATCH_EXTENSION_OR_MIME_TYPE = 0x00000010,
+    MF_RESOLUTION_KEEP_BYTE_STREAM_ALIVE_ON_FAIL                        = 0x00000020,
+    MF_RESOLUTION_READ                                                  = 0x00010000,
+    MF_RESOLUTION_WRITE                                                 = 0x00020000
+};
+
+/* FIXME: Properly declare followinf interfaces: */
+interface IMFMediaSink;
+interface IMFASFContentInfo;
+interface IMFASFIndexer;
+interface IMFASFMultiplexer;
+interface IMFASFProfile;
+interface IMFASFSplitter;
+interface IMFPMPServer;
+interface IMFPresentationClock;
+interface IMFNetProxyLocator;
+interface IMFRemoteDesktopPlugin;
+interface IMFTransform;
+interface IMFSampleGrabberSinkCallback;
+interface IMFSequencerSource;
+interface IMFQualityManager;
+interface IMFSourceResolver;
+interface IMFPresentationTimeSource;
+interface IMFTopoLoader;
+interface IMFTranscodeProfile;
+
+cpp_quote("HRESULT MFCreate3GPMediaSink(IMFByteStream *pIByteStream,IMFMediaType *pVideoMediaType,IMFMediaType *pAudioMediaType,IMFMediaSink **ppIMediaSink);")
+cpp_quote("HRESULT MFCreateAggregateSource(IMFCollection *pSourceCollection,IMFMediaSource **ppAggSource);")
+cpp_quote("")
+cpp_quote("HRESULT WINAPI MFCreateAlignedMemoryBuffer(DWORD cbMaxLength,DWORD fAlignmentFlags,IMFMediaBuffer **ppBuffer);")
+cpp_quote("HRESULT WINAPI MFCreateASFContentInfo(IMFASFContentInfo **ppIContentInfo);")
+cpp_quote("HRESULT WINAPI MFCreateASFIndexer(IMFASFIndexer **ppIIndexer);")
+cpp_quote("HRESULT WINAPI MFCreateASFIndexerByteStream(IMFByteStream *pIContentByteStream,QWORD cbIndexStartOffset,IMFByteStream **pIIndexByteStream);")
+cpp_quote("HRESULT WINAPI MFCreateASFMediaSink(IMFByteStream *pIByteStream,IMFMediaSink **ppIMediaSink);")
+cpp_quote("HRESULT WINAPI MFCreateASFMediaSinkActivate(LPCWSTR pwszFileName,IMFASFContentInfo *pContentInfo,IMFActivate **ppIActivate);")
+cpp_quote("HRESULT WINAPI MFCreateASFMultiplexer(IMFASFMultiplexer **ppIMultiplexer);")
+cpp_quote("HRESULT WINAPI MFCreateASFProfile(IMFASFProfile **ppIProfile);")
+cpp_quote("HRESULT WINAPI MFCreateASFProfileFromPresentationDescriptor(IMFPresentationDescriptor *pIPD,IMFASFProfile **ppIProfile);")
+cpp_quote("HRESULT WINAPI MFCreateASFSplitter(IMFASFSplitter **ppISplitter);")
+cpp_quote("HRESULT WINAPI MFCreateMediaSession(IMFAttributes *pConfiguration,IMFMediaSession **ppMS);")
+cpp_quote("HRESULT WINAPI MFCreateMP3MediaSink(IMFByteStream *pTargetByteStream,IMFMediaSink **ppMediaSink);")
+cpp_quote("HRESULT WINAPI MFCreateMPEG4MediaSink(IMFByteStream *pIByteStream,IMFMediaType *pVideoMediaType,IMFMediaType *pAudioMediaType,IMFMediaSink **ppIMediaSink);")
+cpp_quote("HRESULT WINAPI MFCreateNetSchemePlugin(REFIID riid,LPVOID *ppvHandler);")
+cpp_quote("HRESULT WINAPI MFCreatePMPServer(DWORD dwCreationFlags,IMFPMPServer **ppPMPServer);")
+cpp_quote("HRESULT WINAPI MFCreatePMPMediaSession(DWORD dwCreationFlags,IMFAttributes *pConfiguration,IMFMediaSession **ppMediaSession,IMFActivate **ppEnablerActivate);")
+cpp_quote("HRESULT WINAPI MFCreatePathFromURL(LPCWSTR pwszFileURL,LPWSTR *ppwszFilePath);")
+cpp_quote("HRESULT WINAPI MFCreatePresentationClock(IMFPresentationClock **ppPresentationClock);")
+cpp_quote("HRESULT WINAPI MFCreatePresentationDescriptor(DWORD cStreamDescriptors,IMFStreamDescriptor **apStreamDescriptors,IMFPresentationDescriptor **ppPresentationDescriptor);")
+cpp_quote("HRESULT WINAPI MFCreatePresentationDescriptorFromASFProfile(IMFASFProfile *pIProfile,IMFPresentationDescriptor **ppIPD);")
+cpp_quote("HRESULT WINAPI MFCreateProxyLocator(LPCWSTR pszProtocol,IPropertyStore *pProxyConfig,IMFNetProxyLocator **ppProxyLocator);")
+cpp_quote("HRESULT WINAPI MFCreateRemoteDesktopPlugin(IMFRemoteDesktopPlugin **ppPlugin);")
+cpp_quote("HRESULT WINAPI MFCreateSample(IMFSample **ppIMFSample);")
+cpp_quote("HRESULT WINAPI MFCreateSampleCopierMFT(IMFTransform **ppCopierMFT);")
+cpp_quote("HRESULT WINAPI MFCreateSampleGrabberSinkActivate(IMFMediaType *pIMFMediaType,IMFSampleGrabberSinkCallback *pIMFSampleGrabberSinkCallback,IMFActivate **ppIActivate);")
+cpp_quote("HRESULT WINAPI MFCreateSequencerSource(IUnknown *pReserved,IMFSequencerSource **ppSequencerSource);")
+cpp_quote("HRESULT WINAPI MFCreateSimpleTypeHandler(IMFMediaTypeHandler **ppHandler);")
+cpp_quote("HRESULT WINAPI MFCreateStandardQualityManager(IMFQualityManager **ppQualityManager);")
+cpp_quote("HRESULT WINAPI MFCreateStreamDescriptor(DWORD dwStreamIdentifier,DWORD cMediaTypes,IMFMediaType **apMediaTypes,IMFStreamDescriptor **ppDescriptor);")
+cpp_quote("HRESULT WINAPI MFCreateSourceResolver(IMFSourceResolver **ppISourceResolver);")
+cpp_quote("HRESULT WINAPI MFCreateSystemTimeSource(IMFPresentationTimeSource **ppSystemTimeSource);")
+cpp_quote("HRESULT WINAPI MFCreateTopoLoader(IMFTopoLoader **ppObj);")
+cpp_quote("HRESULT WINAPI MFCreateTopology(IMFTopology **ppTopo);")
+cpp_quote("HRESULT WINAPI MFCreateTopologyNode(MF_TOPOLOGY_TYPE NodeType,IMFTopologyNode **ppNode);")
+cpp_quote("HRESULT WINAPI MFCreateVideoRenderer(REFIID riidRenderer,void **ppVideoRenderer);")
+cpp_quote("HRESULT WINAPI MFCreateVideoRendererActivate(HWND hwndVideo,IMFActivate **ppActivate);")
+cpp_quote("HRESULT WINAPI MFGetService(IUnknown *punkObject,REFGUID guidService,REFIID riid,LPVOID *ppvObject);")
+cpp_quote("HRESULT WINAPI MFGetSupportedMimeTypes(PROPVARIANT *pPropVarMimeTypeArray);")
+cpp_quote("HRESULT WINAPI MFGetSupportedSchemes(PROPVARIANT *pPropVarSchemeArray);")
+cpp_quote("MFTIME WINAPI MFGetSystemTime(void);")
+cpp_quote("HRESULT WINAPI MFShutdownObject(IUnknown *pUnk);")
+cpp_quote("HRESULT WINAPI CreateNamedPropertyStore(INamedPropertyStore **ppStore);")
+cpp_quote("HRESULT WINAPI CreatePropertyStore(IPropertyStore **ppStore);")
+cpp_quote("#if (WINVER >= 0x0601)")
+cpp_quote("")
+cpp_quote("HRESULT WINAPI MFCreateTranscodeProfile(IMFTranscodeProfile **ppTranscodeProfile);")
+cpp_quote("HRESULT WINAPI MFCreateTranscodeSinkActivate(IMFActivate **ppActivate);")
+cpp_quote("HRESULT WINAPI MFCreateTranscodeTopology(IMFMediaSource *pSrc,LPCWSTR pwszOutputFilePath,IMFTranscodeProfile *pProfile,IMFTopology **ppTranscodeTopo);")
+cpp_quote("HRESULT WINAPI MFEnumDeviceSources(IMFAttributes *pAttributes,IMFActivate ***pppSourceActivate,UINT32 *pcSourceActivate);")
+cpp_quote("HRESULT WINAPI MFGetTopoNodeCurrentType(IMFTopologyNode *pNode,DWORD dwStreamIndex,WINBOOL fOutput,IMFMediaType **ppType);")
+cpp_quote("HRESULT WINAPI MFTranscodeGetAudioOutputAvailableTypes(REFGUID guidSubType,DWORD dwMFTFlags,IMFAttributes *pCodecConfig,IMFCollection **ppAvailableTypes);")
+cpp_quote("#endif")
+
+cpp_quote("EXTERN_GUID(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, 0x60d0e559,0x52f8,0x4fa2,0xbb,0xce,0xac,0xdb,0x34,0xa8,0xec,0x1);")
+cpp_quote("EXTERN_GUID(MF_DEVSOURCE_ATTRIBUTE_MEDIA_TYPE, 0x56a819ca,0xc78,0x4de4,0xa0,0xa7,0x3d,0xda,0xba,0xf,0x24,0xd4);")
+cpp_quote("EXTERN_GUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_AUDCAP_ENDPOINT_ID, 0x30da9258,0xfeb9,0x47a7,0xa4,0x53,0x76,0x3a,0x7a,0x8e,0x1c,0x5f);")
+cpp_quote("EXTERN_GUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_AUDCAP_ROLE, 0xbc9d118e,0x8c67,0x4a18,0x85,0xd4,0x12,0xd3,0x0,0x40,0x5,0x52);")
+cpp_quote("EXTERN_GUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_CATEGORY, 0x77f0ae69,0xc3bd,0x4509,0x94,0x1d,0x46,0x7e,0x4d,0x24,0x89,0x9e);")
+cpp_quote("EXTERN_GUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_HW_SOURCE, 0xde7046ba,0x54d6,0x4487,0xa2,0xa4,0xec,0x7c,0xd,0x1b,0xd1,0x63);")
+cpp_quote("EXTERN_GUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_MAX_BUFFERS, 0x7dd9b730,0x4f2d,0x41d5,0x8f,0x95,0xc,0xc9,0xa9,0x12,0xba,0x26);")
+cpp_quote("EXTERN_GUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, 0x58f0aad8,0x22bf,0x4f8a,0xbb,0x3d,0xd2,0xc4,0x97,0x8c,0x6e,0x2f);")
+cpp_quote("EXTERN_GUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, 0xc60ac5fe,0x252a,0x478f,0xa0,0xef,0xbc,0x8f,0xa5,0xf7,0xca,0xd3);")
+cpp_quote("EXTERN_GUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID, 0x8ac3587a,0x4ae7,0x42d8,0x99,0xe0,0x0a,0x60,0x13,0xee,0xf9,0x0f);")

@@ -7,6 +7,8 @@
 #ifndef SAL_HXX
 #define SAL_HXX
 
+#include <concurrencysal.h>
+
 #ifdef __GNUC__
 #  define __inner_checkReturn __attribute__((warn_unused_result))
 #elif defined(_MSC_VER)
@@ -158,8 +160,6 @@
 #define _Notliteral_
 #define _Deref_ret_range_(l,u)
 #define _Unchanged_(e)
-#define _Pre_satisfies_(c)
-#define _Post_satisfies_(c)
 
 /* Optional pointer parameters */
 #define __in_opt
@@ -173,8 +173,6 @@
 #define _Deref_in_range_(low, hi)
 #define _Deref_out_range_(low, hi)
 #define _Deref_inout_range_(low, hi)
-#define _Pre_equal_to_(expr)
-#define _Post_equal_to_(expr)
 #define _Struct_size_bytes_(size)
 
 /* Function annotations */
@@ -202,14 +200,6 @@
 #define _Writable_elements_(s)
 #define _Null_terminated_
 #define _NullNull_terminated_
-#define _Pre_readable_size_(s)
-#define _Pre_writable_size_(s)
-#define _Pre_readable_byte_size_(s)
-#define _Pre_writable_byte_size_(s)
-#define _Post_readable_size_(s)
-#define _Post_writable_size_(s)
-#define _Post_readable_byte_size_(s)
-#define _Post_writable_byte_size_(s)
 
 /* Field properties */
 #define _Field_size_(s)
@@ -243,8 +233,27 @@
 #define _Scanf_s_format_string_params_(x)
 
 /* Analysis */
+#define _Analysis_mode_(x)
 #define _Analysis_assume_(expr)
 #define _Analysis_assume_nullterminated_(expr)
+
+#define _Post_
+#define _Post_equal_to_(expr)
+#define _Post_readable_byte_size_(s)
+#define _Post_readable_size_(s)
+#define _Post_satisfies_(c)
+#define _Post_writable_byte_size_(s)
+#define _Post_writable_size_(s)
+
+#define _Pre_equal_to_(expr)
+#define _Pre_notnull_
+#define _Pre_readable_byte_size_(s)
+#define _Pre_readable_size_(s)
+#define _Pre_satisfies_(c)
+#define _Pre_writable_byte_size_(s)
+#define _Pre_writable_size_(s)
+
+#define _Strict_type_match_
 
 /* FIXME: __in macro conflicts with argument names in libstdc++. For this reason,
  * we disable it for C++. This should be fixed in libstdc++ so we can uncomment
@@ -291,7 +300,14 @@
 #define __inout_ecount_full(size)
 #define __inout_ecount_part(size, length)
 
+#define __deref
+#define __deref_opt_out
+#define __deref_opt_out_bcount(x)
+#define __deref_out
 #define __deref_out_ecount(size)
+#define __deref_out_opt
+
+#define __range(x,y)
 
 #endif
 

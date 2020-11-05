@@ -78,7 +78,7 @@ interface IVMRImagePresenter9 : IUnknown
     HRESULT StartPresenting([in] DWORD_PTR id);
     HRESULT StopPresenting([in] DWORD_PTR id);
     HRESULT PresentImage([in] DWORD_PTR id, [in] VMR9PresentationInfo *info);
-};
+}
 
 typedef enum _VMR9SurfaceAllocationFlags
 {
@@ -116,7 +116,7 @@ interface IVMRSurfaceAllocator9 : IUnknown
     HRESULT TerminateDevice([in] DWORD_PTR id);
     HRESULT GetSurface([in] DWORD_PTR id, [in] DWORD surfaceindex, [in] DWORD flags, [out] IDirect3DSurface9 **surface);
     HRESULT AdviseNotify([in] IVMRSurfaceAllocatorNotify9 *allocnotify);
-};
+}
 
 [
     local,
@@ -128,7 +128,7 @@ interface IVMRSurfaceAllocator9 : IUnknown
 interface IVMRSurfaceAllocatorEx9 : IVMRSurfaceAllocator9
 {
     HRESULT GetSurfaceEx([in] DWORD_PTR id, [in] DWORD surfaceindex, [in] DWORD flags, [out] IDirect3DSurface9 **surface, [out] RECT *dest);
-};
+}
 
 [
     local,
@@ -144,7 +144,7 @@ interface IVMRSurfaceAllocatorNotify9 : IUnknown
     HRESULT ChangeD3DDevice([in] IDirect3DDevice9 *device, [in] HMONITOR monitor);
     HRESULT AllocateSurfaceHelper([in] VMR9AllocationInfo *allocinfo, [in, out] DWORD *numbuffers, [out] IDirect3DSurface9 **surface);
     HRESULT NotifyEvent([in] LONG code, [in] LONG_PTR param1, [in] LONG_PTR param2);
-};
+}
 
 typedef enum _VMR9AspectRatioMode
 {
@@ -174,7 +174,7 @@ interface IVMRWindowlessControl9 : IUnknown
     HRESULT GetCurrentImage([out] BYTE **dib);
     HRESULT SetBorderColor([in] COLORREF color);
     HRESULT GetBorderColor([out] COLORREF *color);
-};
+}
 
 typedef enum _VMR9MixerPrefs
 {
@@ -264,7 +264,7 @@ interface IVMRMixerControl9 : IUnknown
     HRESULT SetProcAmpControl([in] DWORD streamid, [in] VMR9ProcAmpControl *control);
     HRESULT GetProcAmpControl([in] DWORD streamid, [in, out] VMR9ProcAmpControl *control);
     HRESULT GetProcAmpControlRange([in] DWORD streamid, [in, out] VMR9ProcAmpControlRange *controlrange);
-};
+}
 
 typedef struct _VMR9AlphaBitmap
 {
@@ -272,7 +272,7 @@ typedef struct _VMR9AlphaBitmap
     HDC hdc;
     IDirect3DSurface9 *pDDS;
     RECT rSrc;
-    VMR9NormalizedRect *rDest;
+    VMR9NormalizedRect rDest;
     FLOAT fAlpha;
     COLORREF clrSrcKey;
     DWORD dwFilterMode;
@@ -300,7 +300,7 @@ interface IVMRMixerBitmap9 : IUnknown
     HRESULT SetAlphaBitmap([in] const VMR9AlphaBitmap *bitmap);
     HRESULT UpdateAlphaBitmapParameters([in] const VMR9AlphaBitmap *bitmap);
     HRESULT GetAlphaBitmapParameters([out] VMR9AlphaBitmap *bitmap);
-};
+}
 
 [
     local,
@@ -315,7 +315,7 @@ interface IVMRSurface9 : IUnknown
     HRESULT LockSurface([out] BYTE **surface);
     HRESULT UnlockSurface();
     HRESULT GetSurface([out] IDirect3DSurface9 **surface);
-};
+}
 
 typedef enum _VMR9RenderPrefs
 {
@@ -334,7 +334,7 @@ interface IVMRImagePresenterConfig9 : IUnknown
 {
     HRESULT SetRenderingPrefs([in] DWORD renderflags);
     HRESULT GetRenderingPrefs([out] DWORD *renderflags);
-};
+}
 
 [
     local,
@@ -347,7 +347,7 @@ interface IVMRVideoStreamControl9: IUnknown
 {
     HRESULT SetStreamActiveState([in] BOOL active);
     HRESULT GetStreamActiveState([out] BOOL *active);
-};
+}
 
 typedef enum _VMR9Mode
 {
@@ -373,7 +373,7 @@ interface IVMRFilterConfig9 : IUnknown
     HRESULT GetRenderingPrefs([out] DWORD *renderflags);
     HRESULT SetRenderingMode([in] DWORD mode);
     HRESULT GetRenderingMode([out] DWORD *mode);
-};
+}
 
 [
     local,
@@ -420,7 +420,7 @@ interface IVMRMonitorConfig9 : IUnknown
     HRESULT SetDefaultMonitor([in] UINT uDev);
     HRESULT GetDefaultMonitor([out] UINT *uDev);
     HRESULT GetAvailableMonitors([out, size_is(arraysize)] VMR9MonitorInfo *info, [in] DWORD arraysize, [out] DWORD *numdev);
-};
+}
 
 typedef enum _VMR9DeinterlacePrefs
 {
@@ -493,7 +493,7 @@ interface IVMRDeinterlaceControl9 : IUnknown
     HRESULT GetDeinterlacePrefs([out] DWORD *prefs);
     HRESULT SetDeinterlacePrefs([in] DWORD prefs);
     HRESULT GetActualDeinterlaceMode([in] DWORD streamid, [out] GUID *mode);
-};
+}
 
 typedef struct _VMR9VideoStreamInfo {
     IDirect3DSurface9 *pddsVideoSurface;
@@ -518,7 +518,8 @@ interface IVMRImageCompositor9 : IUnknown
 {
     HRESULT InitCompositionDevice([in] IUnknown *d3ddev);
     HRESULT TermCompositionDevice([in] IUnknown *d3ddev);
+    HRESULT SetStreamMediaType([in] DWORD stream, [in] AM_MEDIA_TYPE *mt, [in] BOOL texture);
     HRESULT CompositeImage([in] IUnknown *d3ddev, [in] IDirect3DSurface9 *d3dtarget, [in] AM_MEDIA_TYPE *mttarget,
                            [in] REFERENCE_TIME start, [in] REFERENCE_TIME stop, D3DCOLOR back,
                            [in] VMR9VideoStreamInfo *info, [in] UINT streams);
-};
+}

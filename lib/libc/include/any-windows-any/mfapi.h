@@ -147,6 +147,22 @@ extern "C" {
 #endif
 
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
+
+  #define MF_1_BYTE_ALIGNMENT     0x00000000
+  #define MF_2_BYTE_ALIGNMENT     0x00000001
+  #define MF_4_BYTE_ALIGNMENT     0x00000003
+  #define MF_8_BYTE_ALIGNMENT     0x00000007
+  #define MF_16_BYTE_ALIGNMENT    0x0000000F
+  #define MF_32_BYTE_ALIGNMENT    0x0000001F
+  #define MF_64_BYTE_ALIGNMENT    0x0000003F
+  #define MF_128_BYTE_ALIGNMENT   0x0000007F
+  #define MF_256_BYTE_ALIGNMENT   0x000000FF
+  #define MF_512_BYTE_ALIGNMENT   0x000001FF
+  #define MF_1024_BYTE_ALIGNMENT  0x000003FF
+  #define MF_2048_BYTE_ALIGNMENT  0x000007FF
+  #define MF_4096_BYTE_ALIGNMENT  0x00000FFF
+  #define MF_8192_BYTE_ALIGNMENT  0x00001FFF
+
   STDAPI MFLockDXGIDeviceManager (UINT *pResetToken, IMFDXGIDeviceManager **ppManager);
   STDAPI MFUnlockDXGIDeviceManager (void);
   STDAPI MFCreateDXGISurfaceBuffer (REFIID riid, IUnknown *punkSurface, UINT uSubresourceIndex, WINBOOL fBottomUpWhenLinear, IMFMediaBuffer **ppBuffer);

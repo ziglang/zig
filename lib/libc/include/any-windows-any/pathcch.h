@@ -12,7 +12,7 @@
 extern "C" {
 #endif
 
-#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
+#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
 
 #define VOLUME_PREFIX L"\\\\?\\Volume"
 #define VOLUME_PREFIX_LEN (ARRAYSIZE (VOLUME_PREFIX) - 1)
@@ -110,7 +110,7 @@ extern "C" {
 
 #ifdef __cplusplus
 
-#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
+#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
   __CRT_INLINE WINBOOL PathIsUNCEx (PWSTR path, PWSTR *pserver) {
     return PathIsUNCEx (const_cast<PCWSTR> (path), const_cast<PCWSTR *> (pserver));
   }

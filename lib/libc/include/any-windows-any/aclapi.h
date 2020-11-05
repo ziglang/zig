@@ -7,8 +7,6 @@
 
 #include <winapifamily.h>
 
-#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
-
 #include <_mingw_unicode.h>
 #include <windows.h>
 #include <accctrl.h>
@@ -17,14 +15,12 @@
 extern "C" {
 #endif
 
+#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
+
   typedef VOID (*FN_PROGRESS) (LPWSTR pObjectName, DWORD Status, PPROG_INVOKE_SETTING pInvokeSetting, PVOID Args, WINBOOL SecuritySet);
 
-#define SetEntriesInAcl __MINGW_NAME_AW(SetEntriesInAcl)
-#define GetExplicitEntriesFromAcl __MINGW_NAME_AW(GetExplicitEntriesFromAcl)
 #define GetEffectiveRightsFromAcl __MINGW_NAME_AW(GetEffectiveRightsFromAcl)
 #define GetAuditedPermissionsFromAcl __MINGW_NAME_AW(GetAuditedPermissionsFromAcl)
-#define GetNamedSecurityInfo __MINGW_NAME_AW(GetNamedSecurityInfo)
-#define SetNamedSecurityInfo __MINGW_NAME_AW(SetNamedSecurityInfo)
 #define GetInheritanceSource __MINGW_NAME_AW(GetInheritanceSource)
 #define TreeResetNamedSecurityInfo __MINGW_NAME_AW(TreeResetNamedSecurityInfo)
 #define BuildSecurityDescriptor __MINGW_NAME_AW(BuildSecurityDescriptor)
@@ -47,20 +43,10 @@ extern "C" {
 
 #define AccProvInit(err)
 
-  WINADVAPI DWORD WINAPI SetEntriesInAclA (ULONG cCountOfExplicitEntries, PEXPLICIT_ACCESS_A pListOfExplicitEntries, PACL OldAcl, PACL *NewAcl);
-  WINADVAPI DWORD WINAPI SetEntriesInAclW (ULONG cCountOfExplicitEntries, PEXPLICIT_ACCESS_W pListOfExplicitEntries, PACL OldAcl, PACL *NewAcl);
-  WINADVAPI DWORD WINAPI GetExplicitEntriesFromAclA (PACL pacl, PULONG pcCountOfExplicitEntries, PEXPLICIT_ACCESS_A *pListOfExplicitEntries);
-  WINADVAPI DWORD WINAPI GetExplicitEntriesFromAclW (PACL pacl, PULONG pcCountOfExplicitEntries, PEXPLICIT_ACCESS_W *pListOfExplicitEntries);
   WINADVAPI DWORD WINAPI GetEffectiveRightsFromAclA (PACL pacl, PTRUSTEE_A pTrustee, PACCESS_MASK pAccessRights);
   WINADVAPI DWORD WINAPI GetEffectiveRightsFromAclW (PACL pacl, PTRUSTEE_W pTrustee, PACCESS_MASK pAccessRights);
   WINADVAPI DWORD WINAPI GetAuditedPermissionsFromAclA (PACL pacl, PTRUSTEE_A pTrustee, PACCESS_MASK pSuccessfulAuditedRights, PACCESS_MASK pFailedAuditRights);
   WINADVAPI DWORD WINAPI GetAuditedPermissionsFromAclW (PACL pacl, PTRUSTEE_W pTrustee, PACCESS_MASK pSuccessfulAuditedRights, PACCESS_MASK pFailedAuditRights);
-  WINADVAPI DWORD WINAPI GetNamedSecurityInfoA (LPCSTR pObjectName, SE_OBJECT_TYPE ObjectType, SECURITY_INFORMATION SecurityInfo, PSID *ppsidOwner, PSID *ppsidGroup, PACL *ppDacl, PACL *ppSacl, PSECURITY_DESCRIPTOR *ppSecurityDescriptor);
-  WINADVAPI DWORD WINAPI GetNamedSecurityInfoW (LPCWSTR pObjectName, SE_OBJECT_TYPE ObjectType, SECURITY_INFORMATION SecurityInfo, PSID *ppsidOwner, PSID *ppsidGroup, PACL *ppDacl, PACL *ppSacl, PSECURITY_DESCRIPTOR *ppSecurityDescriptor);
-  WINADVAPI DWORD WINAPI GetSecurityInfo (HANDLE handle, SE_OBJECT_TYPE ObjectType, SECURITY_INFORMATION SecurityInfo, PSID *ppsidOwner, PSID *ppsidGroup, PACL *ppDacl, PACL *ppSacl, PSECURITY_DESCRIPTOR *ppSecurityDescriptor);
-  WINADVAPI DWORD WINAPI SetNamedSecurityInfoA (LPSTR pObjectName, SE_OBJECT_TYPE ObjectType, SECURITY_INFORMATION SecurityInfo, PSID psidOwner, PSID psidGroup, PACL pDacl, PACL pSacl);
-  WINADVAPI DWORD WINAPI SetNamedSecurityInfoW (LPWSTR pObjectName, SE_OBJECT_TYPE ObjectType, SECURITY_INFORMATION SecurityInfo, PSID psidOwner, PSID psidGroup, PACL pDacl, PACL pSacl);
-  WINADVAPI DWORD WINAPI SetSecurityInfo (HANDLE handle, SE_OBJECT_TYPE ObjectType, SECURITY_INFORMATION SecurityInfo, PSID psidOwner, PSID psidGroup, PACL pDacl, PACL pSacl);
   WINADVAPI DWORD WINAPI GetInheritanceSourceA (LPSTR pObjectName, SE_OBJECT_TYPE ObjectType, SECURITY_INFORMATION SecurityInfo, WINBOOL Container, GUID **pObjectClassGuids, DWORD GuidCount, PACL pAcl, PFN_OBJECT_MGR_FUNCTS pfnArray, PGENERIC_MAPPING pGenericMapping, PINHERITED_FROMA pInheritArray);
   WINADVAPI DWORD WINAPI GetInheritanceSourceW (LPWSTR pObjectName, SE_OBJECT_TYPE ObjectType, SECURITY_INFORMATION SecurityInfo, WINBOOL Container, GUID **pObjectClassGuids, DWORD GuidCount, PACL pAcl, PFN_OBJECT_MGR_FUNCTS pfnArray, PGENERIC_MAPPING pGenericMapping, PINHERITED_FROMW pInheritArray);
   WINADVAPI DWORD WINAPI FreeInheritedFromArray (PINHERITED_FROMW pInheritArray, USHORT AceCnt, PFN_OBJECT_MGR_FUNCTS pfnArray);
@@ -100,8 +86,27 @@ extern "C" {
   WINADVAPI DWORD WINAPI TreeSetNamedSecurityInfoW (LPWSTR pObjectName, SE_OBJECT_TYPE ObjectType, SECURITY_INFORMATION SecurityInfo, PSID pOwner, PSID pGroup, PACL pDacl, PACL pSacl, DWORD dwAction, FN_PROGRESS fnProgress, PROG_INVOKE_SETTING ProgressInvokeSetting, PVOID Args);
 #endif
 
+#endif /* WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP) */
+
+#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
+#define SetEntriesInAcl __MINGW_NAME_AW(SetEntriesInAcl)
+#define GetExplicitEntriesFromAcl __MINGW_NAME_AW(GetExplicitEntriesFromAcl)
+#define GetNamedSecurityInfo __MINGW_NAME_AW(GetNamedSecurityInfo)
+#define SetNamedSecurityInfo __MINGW_NAME_AW(SetNamedSecurityInfo)
+
+  WINADVAPI DWORD WINAPI SetEntriesInAclA (ULONG cCountOfExplicitEntries, PEXPLICIT_ACCESS_A pListOfExplicitEntries, PACL OldAcl, PACL *NewAcl);
+  WINADVAPI DWORD WINAPI SetEntriesInAclW (ULONG cCountOfExplicitEntries, PEXPLICIT_ACCESS_W pListOfExplicitEntries, PACL OldAcl, PACL *NewAcl);
+  WINADVAPI DWORD WINAPI GetExplicitEntriesFromAclA (PACL pacl, PULONG pcCountOfExplicitEntries, PEXPLICIT_ACCESS_A *pListOfExplicitEntries);
+  WINADVAPI DWORD WINAPI GetExplicitEntriesFromAclW (PACL pacl, PULONG pcCountOfExplicitEntries, PEXPLICIT_ACCESS_W *pListOfExplicitEntries);
+  WINADVAPI DWORD WINAPI GetNamedSecurityInfoA (LPCSTR pObjectName, SE_OBJECT_TYPE ObjectType, SECURITY_INFORMATION SecurityInfo, PSID *ppsidOwner, PSID *ppsidGroup, PACL *ppDacl, PACL *ppSacl, PSECURITY_DESCRIPTOR *ppSecurityDescriptor);
+  WINADVAPI DWORD WINAPI GetNamedSecurityInfoW (LPCWSTR pObjectName, SE_OBJECT_TYPE ObjectType, SECURITY_INFORMATION SecurityInfo, PSID *ppsidOwner, PSID *ppsidGroup, PACL *ppDacl, PACL *ppSacl, PSECURITY_DESCRIPTOR *ppSecurityDescriptor);
+  WINADVAPI DWORD WINAPI GetSecurityInfo (HANDLE handle, SE_OBJECT_TYPE ObjectType, SECURITY_INFORMATION SecurityInfo, PSID *ppsidOwner, PSID *ppsidGroup, PACL *ppDacl, PACL *ppSacl, PSECURITY_DESCRIPTOR *ppSecurityDescriptor);
+  WINADVAPI DWORD WINAPI SetNamedSecurityInfoA (LPSTR pObjectName, SE_OBJECT_TYPE ObjectType, SECURITY_INFORMATION SecurityInfo, PSID psidOwner, PSID psidGroup, PACL pDacl, PACL pSacl);
+  WINADVAPI DWORD WINAPI SetNamedSecurityInfoW (LPWSTR pObjectName, SE_OBJECT_TYPE ObjectType, SECURITY_INFORMATION SecurityInfo, PSID psidOwner, PSID psidGroup, PACL pDacl, PACL pSacl);
+  WINADVAPI DWORD WINAPI SetSecurityInfo (HANDLE handle, SE_OBJECT_TYPE ObjectType, SECURITY_INFORMATION SecurityInfo, PSID psidOwner, PSID psidGroup, PACL pDacl, PACL pSacl);
+#endif /* WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP) */
+
 #ifdef __cplusplus
 }
 #endif
-#endif
-#endif
+#endif /* __ACCESS_CONTROL_API__ */

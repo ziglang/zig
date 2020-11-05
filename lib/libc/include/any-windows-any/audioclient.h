@@ -138,11 +138,18 @@ enum _AUDCLNT_BUFFERFLAGS {
     AUDCLNT_BUFFERFLAGS_SILENT = 0x2,
     AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR = 0x4
 };
+typedef enum AUDCLNT_STREAMOPTIONS {
+    AUDCLNT_STREAMOPTIONS_NONE = 0x0,
+    AUDCLNT_STREAMOPTIONS_RAW = 0x1,
+    AUDCLNT_STREAMOPTIONS_MATCH_FORMAT = 0x2,
+    AUDCLNT_STREAMOPTIONS_AMBISONICS = 0x4
+} AUDCLNT_STREAMOPTIONS;
 
 typedef struct AudioClientProperties {
     UINT32 cbSize;
     WINBOOL bIsOffload;
     AUDIO_STREAM_CATEGORY eCategory;
+    AUDCLNT_STREAMOPTIONS Options;
 } AudioClientProperties;
 
 /*****************************************************************************

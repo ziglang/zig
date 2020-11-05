@@ -51,6 +51,10 @@ THIS SOFTWARE.
 #define _4 0
 #endif
 
+/* This is specific to the x86 80 bit long doubles. */
+#if defined(_AMD64_) || defined(__x86_64__) || \
+  defined(_X86_) || defined(__i386__)
+
 typedef union lD {
 	UShort L[5];
 	long double D;
@@ -123,3 +127,4 @@ long double __cdecl
 __mingw_strtold (const char * __restrict__ src, char ** __restrict__ endptr)
   __attribute__((alias("__strtold")));
 
+#endif

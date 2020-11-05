@@ -107,7 +107,9 @@ void * __mingw_aligned_realloc (void *_Memory, size_t _Size, size_t _Offset);
 
 #define _MAX_WAIT_MALLOC_CRT 60000
 
+#ifdef _CRT_USE_WINAPI_FAMILY_DESKTOP_APP
   _CRTIMP int __cdecl _resetstkoflw (void);
+#endif /* _CRT_USE_WINAPI_FAMILY_DESKTOP_APP */
   _CRTIMP unsigned long __cdecl _set_malloc_crt_max_wait(unsigned long _NewValue);
 
   _CRTIMP void *__cdecl _expand(void *_Memory,size_t _NewSize);

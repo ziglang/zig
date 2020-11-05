@@ -7,7 +7,6 @@
 #ifndef _DDRAWGDI_H_
 #define _DDRAWGDI_H_
 
-#if defined(MINGW_HAS_DDRAW_H) && defined(MINGW_DDRAW_VERSION) && (MINGW_DDRAW_VERSION + 0) >= 7
 #include <ddraw.h>
 
 #define DdCreateDirectDrawObject GdiEntry1
@@ -52,7 +51,5 @@ ULONG WINAPI DdQueryDisplaySettingsUniqueness(VOID);
 HANDLE WINAPI DdGetDxHandle(LPDDRAWI_DIRECTDRAW_LCL pDDraw,LPDDRAWI_DDRAWSURFACE_LCL pSurface,WINBOOL bRelease);
 WINBOOL WINAPI DdSetGammaRamp(LPDDRAWI_DIRECTDRAW_LCL pDDraw,HDC hdc,LPVOID lpGammaRamp);
 DWORD WINAPI DdSwapTextureHandles(LPDDRAWI_DIRECTDRAW_LCL pDDraw,LPDDRAWI_DDRAWSURFACE_LCL pDDSLcl1,LPDDRAWI_DDRAWSURFACE_LCL pDDSLcl2);
-
-#endif /* defined(MINGW_HAS_DDRAW_H) && defined(MINGW_DDRAW_VERSION) && MINGW_DDRAW_VERSION > 7  */
 
 #endif /*  _DDRAWGDI_H_ */

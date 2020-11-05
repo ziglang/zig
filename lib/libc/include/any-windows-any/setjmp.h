@@ -217,7 +217,7 @@ void * __cdecl __attribute__ ((__nothrow__)) mingw_getsp (void);
 #      define _setjmp __intrinsic_setjmp
 #    endif
 #  elif defined(__aarch64__)
-     // ARM64 msvcrt.dll lacks _setjmp, only has _setjmpex.
+     /* ARM64 msvcrt.dll lacks _setjmp, only has _setjmpex. */
 #    define _setjmp _setjmpex
 #  endif
 #  ifndef _INC_SETJMPEX

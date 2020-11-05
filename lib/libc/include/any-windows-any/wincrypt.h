@@ -777,8 +777,10 @@ extern "C" {
   WINIMPM WINBOOL WINAPI CryptAcquireContextA (HCRYPTPROV *phProv, LPCSTR szContainer, LPCSTR szProvider, DWORD dwProvType, DWORD dwFlags);
   WINIMPM WINBOOL WINAPI CryptAcquireContextW (HCRYPTPROV *phProv, LPCWSTR szContainer, LPCWSTR szProvider, DWORD dwProvType, DWORD dwFlags);
 #define CryptAcquireContext __MINGW_NAME_AW(CryptAcquireContext)
-  WINIMPM WINBOOL WINAPI CryptReleaseContext (HCRYPTPROV hProv, DWORD dwFlags);
   WINIMPM WINBOOL WINAPI CryptGenRandom (HCRYPTPROV hProv, DWORD dwLen, BYTE *pbBuffer);
+#endif
+#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
+  WINIMPM WINBOOL WINAPI CryptReleaseContext (HCRYPTPROV hProv, DWORD dwFlags);
 #endif
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
   typedef struct _CMS_DH_KEY_INFO {
@@ -5588,7 +5590,7 @@ WINIMPM HCERTSTORE WINAPI CertOpenStore (LPCSTR lpszStoreProvider, DWORD dwEncod
     DWORD dwErrorLevel;
     DWORD dwErrorCategory;
     DWORD dwReserved;
-    WCHAR wszErrorText[SSL_F12_ERROR_TEXT_LENGTH];  // Localized
+    WCHAR wszErrorText[SSL_F12_ERROR_TEXT_LENGTH];  /* Localized  */
   } SSL_F12_EXTRA_CERT_CHAIN_POLICY_STATUS, *PSSL_F12_EXTRA_CERT_CHAIN_POLICY_STATUS;
 
 #define CERT_CHAIN_POLICY_SSL_F12_SUCCESS_LEVEL 0

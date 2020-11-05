@@ -289,6 +289,106 @@ STDAPI DCompositionCreateDevice(IDXGIDevice *dxgiDevice, REFIID iid, void **dcom
 
 STDAPI DCompositionCreateDevice2(IUnknown *renderingDevice, REFIID iid, void **dcompositionDevice);
 
+#undef INTERFACE
+#define INTERFACE IDCompositionVisual2
+DECLARE_INTERFACE_IID_(IDCompositionVisual2, IDCompositionVisual, "E8DE1639-4331-4B26-BC5F-6A321D347A85")
+{
+    STDMETHOD(SetOpacityMode)(THIS_ DCOMPOSITION_OPACITY_MODE) PURE;
+    STDMETHOD(SetBackFaceVisibility)(THIS_ DCOMPOSITION_BACKFACE_VISIBILITY) PURE;
+};
+
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDCompositionVisual2,0xe8de1639,0x4331,0x4b26,0xbc,0x5f,0x6a,0x32,0x1d,0x34,0x7a,0x85);
+#endif
+
+
+#undef INTERFACE
+#define INTERFACE IDCompositionSurfaceFactory
+DECLARE_INTERFACE_IID_(IDCompositionSurfaceFactory, IUnknown, "E334BC12-3937-4E02-85EB-FCF4EB30D2C8")
+{
+    STDMETHOD(CreateSurface)(THIS_ UINT,UINT, DXGI_FORMAT, DXGI_ALPHA_MODE, IDCompositionSurface**) PURE;
+    STDMETHOD(CreateVirtualSurface)(THIS_ UINT, UINT, DXGI_FORMAT , DXGI_ALPHA_MODE, IDCompositionVirtualSurface**) PURE;
+};
+
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDCompositionSurfaceFactory,0xe334bc12,0x3937,0x4e02,0x85,0xeb,0xfc,0xf4,0xeb,0x30,0xd2,0xc8);
+#endif
+
+
+#undef INTERFACE
+#define INTERFACE IDCompositionDevice2
+DECLARE_INTERFACE_IID_(IDCompositionDevice2, IUnknown, "75F6468D-1B8E-447C-9BC6-75FEA80B5B25")
+{
+    STDMETHOD(Commit)(THIS) PURE;
+    STDMETHOD(WaitForCommitCompletion)(THIS) PURE;
+    STDMETHOD(GetFrameStatistics)(THIS_ DCOMPOSITION_FRAME_STATISTICS*) PURE;
+    STDMETHOD(CreateVisual)(THIS_ IDCompositionVisual2**) PURE;
+    STDMETHOD(CreateSurfaceFactory)(THIS_ IUnknown*, IDCompositionSurfaceFactory**) PURE;
+    STDMETHOD(CreateSurface)(THIS_ UINT, UINT, DXGI_FORMAT, DXGI_ALPHA_MODE, IDCompositionSurface**) PURE;
+    STDMETHOD(CreateVirtualSurface)(THIS_ UINT, UINT, DXGI_FORMAT, DXGI_ALPHA_MODE, IDCompositionVirtualSurface**) PURE;
+    STDMETHOD(CreateTranslateTransform)(THIS_ IDCompositionTranslateTransform**) PURE;
+    STDMETHOD(CreateScaleTransform)(THIS_ IDCompositionScaleTransform**) PURE;
+    STDMETHOD(CreateRotateTransform)(THIS_ IDCompositionRotateTransform**) PURE;
+    STDMETHOD(CreateSkewTransform)(THIS_ IDCompositionSkewTransform**) PURE;
+    STDMETHOD(CreateMatrixTransform)(THIS_ IDCompositionMatrixTransform**) PURE;
+    STDMETHOD(CreateTransformGroup)(THIS_ IDCompositionTransform**, UINT, IDCompositionTransform**) PURE;
+    STDMETHOD(CreateTranslateTransform3D)(THIS_ IDCompositionTranslateTransform3D**) PURE;
+    STDMETHOD(CreateScaleTransform3D)(THIS_ IDCompositionScaleTransform3D**) PURE;
+    STDMETHOD(CreateRotateTransform3D)(THIS_ IDCompositionRotateTransform3D**) PURE;
+    STDMETHOD(CreateMatrixTransform3D)(THIS_ IDCompositionMatrixTransform3D**) PURE;
+    STDMETHOD(CreateTransform3DGroup)(THIS_ IDCompositionTransform3D**, UINT, IDCompositionTransform3D**) PURE;
+    STDMETHOD(CreateEffectGroup)(THIS_ IDCompositionEffectGroup**) PURE;
+    STDMETHOD(CreateRectangleClip)(THIS_ IDCompositionRectangleClip**) PURE;
+    STDMETHOD(CreateAnimation)(THIS_ IDCompositionAnimation**) PURE;
+};
+
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDCompositionDevice2,0x75f6468d,0x1b8e,0x447c,0x9b,0xc6,0x75,0xfe,0xa8,0x0b,0x5b,0x25);
+#endif
+
+
+#undef INTERFACE
+#define INTERFACE IDCompositionDesktopDevice
+DECLARE_INTERFACE_IID_(IDCompositionDesktopDevice, IDCompositionDevice2, "5F4633FE-1E08-4CB8-8C75-CE24333F5602")
+{
+    STDMETHOD(CreateTargetForHwnd)(THIS_ HWND, BOOL, IDCompositionTarget**) PURE;
+    STDMETHOD(CreateSurfaceFromHandle)(THIS_ HANDLE, IUnknown**) PURE;
+    STDMETHOD(CreateSurfaceFromHwnd)(THIS_ HWND, IUnknown**) PURE;
+};
+
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDCompositionDesktopDevice,0x5f4633fe,0x1e08,0x4cb8,0x8c,0x75,0xce,0x24,0x33,0x3f,0x56,0x02);
+#endif
+
+
+#undef INTERFACE
+#define INTERFACE IDCompositionDeviceDebug
+DECLARE_INTERFACE_IID_(IDCompositionDeviceDebug, IUnknown, "A1A3C64A-224F-4A81-9773-4F03A89D3C6C")
+{
+    STDMETHOD(EnableDebugCounters)(THIS_) PURE;
+    STDMETHOD(DisableDebugCounters)(THIS_) PURE;
+};
+
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDCompositionDeviceDebug,0xa1a3c64a,0x224f,0x4a81,0x97,0x73,0x4f,0x03,0xa8,0x9d,0x3c,0x6c);
+#endif
+
+
+#undef INTERFACE
+#define INTERFACE IDCompositionVisualDebug
+DECLARE_INTERFACE_IID_(IDCompositionVisualDebug, IDCompositionVisual2, "FED2B808-5EB4-43A0-AEA3-35F65280F91B")
+{
+    STDMETHOD(EnableHeatMap)(THIS_ const D2D1_COLOR_F &color) PURE;
+    STDMETHOD(DisableHeatMap)(THIS_) PURE;
+    STDMETHOD(EnableRedrawRegions)(THIS_) PURE;
+    STDMETHOD(DisableRedrawRegions)(THIS_) PURE;
+};
+
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDCompositionVisualDebug,0xfed2b808,0x5eb4,0x43a0,0xae,0xa3,0x35,0xf6,0x52,0x80,0xf9,0x1b);
+#endif
+
+
 #endif
 
 #if (_WIN32_WINNT >= 0x0A00)

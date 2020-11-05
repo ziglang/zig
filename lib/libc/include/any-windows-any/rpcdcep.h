@@ -186,7 +186,7 @@ extern "C" {
   RPCRTAPI void RPC_ENTRY I_RpcSsDontSerializeContext(void);
   RPCRTAPI RPC_STATUS RPC_ENTRY I_RpcLaunchDatagramReceiveThread(void *pAddress);
   RPCRTAPI RPC_STATUS RPC_ENTRY I_RpcServerRegisterForwardFunction(RPC_FORWARD_FUNCTION *pForwardFunction);
-  RPC_ADDRESS_CHANGE_FN *RPC_ENTRY I_RpcServerInqAddressChangeFn();
+  RPC_ADDRESS_CHANGE_FN *RPC_ENTRY I_RpcServerInqAddressChangeFn(void);
   RPC_STATUS RPC_ENTRY I_RpcServerSetAddressChangeFn(RPC_ADDRESS_CHANGE_FN *pAddressChangeFn);
 
 #define RPC_P_ADDR_FORMAT_TCP_IPV4 1
@@ -203,7 +203,7 @@ extern "C" {
 
 #ifndef WINNT
   RPCRTAPI RPC_STATUS RPC_ENTRY I_RpcServerStartListening(void *hWnd);
-  RPCRTAPI RPC_STATUS RPC_ENTRY I_RpcServerStopListening();
+  RPCRTAPI RPC_STATUS RPC_ENTRY I_RpcServerStopListening(void);
 
   typedef RPC_STATUS (*RPC_BLOCKING_FN)(void *hWnd,void *Context,void *hSyncEvent);
 

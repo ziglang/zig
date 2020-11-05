@@ -345,7 +345,7 @@ getopt_internal(int nargc, char * const *nargv, const char *options,
 	 *                 optreset != 0 for GNU compatibility.
 	 */
 	if (posixly_correct == -1 || optreset != 0)
-		posixly_correct = (getenv("POSIXLY_CORRECT") != NULL);
+		posixly_correct = (GetEnvironmentVariableW(L"POSIXLY_CORRECT", NULL, 0) != 0);
 	if (*options == '-')
 		flags |= FLAG_ALLARGS;
 	else if (posixly_correct || *options == '+')

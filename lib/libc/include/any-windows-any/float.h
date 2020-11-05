@@ -118,6 +118,13 @@
 	/* ??? This is supposed to change with calls to fesetround in <fenv.h>.  */
 	#undef FLT_ROUNDS
 	#define FLT_ROUNDS 1
+
+	#undef FLT_EPSILON
+	#undef DBL_EPSILON
+	#undef LDBL_EPSILON
+	#define FLT_EPSILON __FLT_EPSILON__
+	#define DBL_EPSILON __DBL_EPSILON__
+	#define LDBL_EPSILON __LDBL_EPSILON__
     
 	#define _FLOAT_H___
 #endif

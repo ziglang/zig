@@ -30,6 +30,13 @@
 #define NEGOSSP_NAME __MINGW_NAME_UAW(NEGOSSP_NAME)
 #endif
 
+#ifndef CLOUDAP_NAME
+#define CLOUDAP_NAME_W L"CloudAP"
+#define ClOUDAP_NAME_A "CloudAP"
+
+#define CLOUDAP_NAME __MINGW_NAME_UAW(CLOUDAP_NAME)
+#endif
+
 #include <sspi.h>
 
 #if defined (SECURITY_WIN32) || defined (SECURITY_KERNEL)
@@ -39,4 +46,5 @@
 #if ISSP_LEVEL == 16
 #include <issper16.h>
 #endif
-#endif
+
+#endif /* WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP) */

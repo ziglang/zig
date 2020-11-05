@@ -13,7 +13,6 @@
 
 #include <intrin.h>
 #include <assert.h>
-#include <ivec.h>
 #include <crtdefs.h>
 
 #if defined(_ENABLE_VEC_DEBUG)
@@ -249,5 +248,8 @@ inline int F32vec1ToInt(const F32vec1 &a)
 
 #endif /* #ifdef __SSE__ */
 #pragma pack(pop)
+
+#include <ivec.h>
+
 #endif
 #endif

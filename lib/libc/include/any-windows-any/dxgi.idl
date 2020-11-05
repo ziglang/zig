@@ -33,6 +33,12 @@ typedef struct _LUID {
 } LUID, *PLUID;
 cpp_quote("#endif")
 
+const UINT DXGI_CPU_ACCESS_NONE                     = 0;
+const UINT DXGI_CPU_ACCESS_DYNAMIC                  = 1;
+const UINT DXGI_CPU_ACCESS_READ_WRITE               = 2;
+const UINT DXGI_CPU_ACCESS_SCRATCH                  = 3;
+const UINT DXGI_CPU_ACCESS_FIELD                    = 15;
+
 typedef UINT DXGI_USAGE;
 const DXGI_USAGE DXGI_USAGE_SHADER_INPUT            = 0x10L;
 const DXGI_USAGE DXGI_USAGE_RENDER_TARGET_OUTPUT    = 0x20L;
@@ -113,7 +119,7 @@ typedef enum DXGI_SWAP_CHAIN_FLAG
     DXGI_SWAP_CHAIN_FLAG_NONPREROTATED                          = 0x0001,
     DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH                      = 0x0002,
     DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE                         = 0x0004,
-    DXGI_SWAP_CHAIN_FLAG_RESTRICTED_CONTEXT                     = 0x0008,
+    DXGI_SWAP_CHAIN_FLAG_RESTRICTED_CONTENT                     = 0x0008,
     DXGI_SWAP_CHAIN_FLAG_RESTRICT_SHARED_RESOURCE_DRIVER        = 0x0010,
     DXGI_SWAP_CHAIN_FLAG_DISPLAY_ONLY                           = 0x0020,
     DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT          = 0x0040,
@@ -439,6 +445,7 @@ interface IDXGIDevice : IDXGIObject
 typedef enum DXGI_ADAPTER_FLAG {
     DXGI_ADAPTER_FLAG_NONE         = 0,
     DXGI_ADAPTER_FLAG_REMOTE       = 1,
+    DXGI_ADAPTER_FLAG_SOFTWARE     = 2,
     DXGI_ADAPTER_FLAG_FORCE_DWORD  = 0xFFFFFFFF
 } DXGI_ADAPTER_FLAG;
 
@@ -454,6 +461,11 @@ typedef struct DXGI_ADAPTER_DESC1 {
     LUID   AdapterLuid;
     UINT   Flags;
 } DXGI_ADAPTER_DESC1;
+
+typedef struct DXGI_DISPLAY_COLOR_SPACE {
+    FLOAT PrimaryCoordinates[8][2];
+    FLOAT WhitePoints[16][2];
+} DXGI_DISPLAY_COLOR_SPACE;
 
 [
     object,

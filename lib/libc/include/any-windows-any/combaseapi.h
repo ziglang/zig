@@ -193,8 +193,6 @@ WINOLEAPI CoGetCallerTID (LPDWORD lpdwTID);
 WINOLEAPI CoGetDefaultContext (APTTYPE aptType, REFIID riid, void **ppv);
 #if NTDDI_VERSION >= 0x06020000
 WINOLEAPI CoDecodeProxy (DWORD dwClientPid, UINT64 ui64ProxyAddress, PServerInformation pServerInformation);
-WINOLEAPI CoIncrementMTAUsage (CO_MTA_USAGE_COOKIE *pCookie);
-WINOLEAPI CoDecrementMTAUsage (CO_MTA_USAGE_COOKIE Cookie);
 WINOLEAPI CoWaitForMultipleObjects (DWORD dwFlags, DWORD dwTimeout, ULONG cHandles, const HANDLE *pHandles, LPDWORD lpdwindex);
 WINOLEAPI CoAllowUnmarshalerCLSID (REFCLSID clsid);
 #endif
@@ -211,6 +209,10 @@ WINOLEAPI CoGetStdMarshalEx (LPUNKNOWN pUnkOuter, DWORD smexflags, LPUNKNOWN *pp
 #endif
 
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
+#if NTDDI_VERSION >= 0x06020000
+WINOLEAPI CoIncrementMTAUsage (CO_MTA_USAGE_COOKIE *pCookie);
+WINOLEAPI CoDecrementMTAUsage (CO_MTA_USAGE_COOKIE Cookie);
+#endif
 typedef enum tagSTDMSHLFLAGS {
   SMEXF_SERVER = 0x01,
   SMEXF_HANDLER = 0x02

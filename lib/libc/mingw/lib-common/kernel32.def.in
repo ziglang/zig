@@ -1568,10 +1568,14 @@ WaitForThreadpoolWaitCallbacks
 WaitForThreadpoolWorkCallbacks
 WaitNamedPipeA
 WaitNamedPipeW
-WaitOnAddress
 WakeAllConditionVariable
-WakeByAddressSingle
-WakeByAddressAll
+; MSDN says it's in Kernel32.dll but it's not.
+; Link with libsynchronization.a instead.
+; Commented out for compatibility with older 
+; versions of Windows.
+;WaitOnAddress
+;WakeByAddressSingle
+;WakeByAddressAll
 WakeConditionVariable
 WerGetFlags
 WerGetFlagsWorker
@@ -1646,7 +1650,9 @@ ZombifyActCtx
 ZombifyActCtxWorker
 F_X64(__C_specific_handler)
 F_ARM32(__C_specific_handler)
-F_ARM32(__chkstk)
+; This isn't always available and shouldn't be linked from here, but should
+; be statically linked from the compiler support library.
+;F_ARM32(__chkstk)
 F_X64(__misaligned_access)
 _hread
 _hwrite

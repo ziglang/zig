@@ -24,6 +24,9 @@ typedef enum DXGI_ADAPTER_FLAG3
     DXGI_ADAPTER_FLAG3_REMOTE = 0x1,
     DXGI_ADAPTER_FLAG3_SOFTWARE = 0x2,
     DXGI_ADAPTER_FLAG3_ACG_COMPATIBLE = 0x4,
+    DXGI_ADAPTER_FLAG3_SUPPORT_MONITORED_FENCES = 0x8,
+    DXGI_ADAPTER_FLAG3_SUPPORT_NON_MONITORED_FENCES = 0x10,
+    DXGI_ADAPTER_FLAG3_KEYED_MUTEX_CONFORMANCE = 0x20,
     DXGI_ADAPTER_FLAG3_FORCE_DWORD = 0xffffffff,
 } DXGI_ADAPTER_FLAG3;
 
@@ -33,6 +36,13 @@ typedef enum DXGI_HARDWARE_COMPOSITION_SUPPORT_FLAGS
     DXGI_HARDWARE_COMPOSITION_SUPPORT_FLAG_WINDOWED = 0x2,
     DXGI_HARDWARE_COMPOSITION_SUPPORT_FLAG_CURSOR_STRETCHED = 0x4,
 } DXGI_HARDWARE_COMPOSITION_SUPPORT_FLAGS;
+
+typedef enum DXGI_GPU_PREFERENCE
+{
+    DXGI_GPU_PREFERENCE_UNSPECIFIED = 0x0,
+    DXGI_GPU_PREFERENCE_MINIMUM_POWER = 0x1,
+    DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE = 0x2,
+} DXGI_GPU_PREFERENCE;
 
 typedef struct DXGI_ADAPTER_DESC3
 {
@@ -94,5 +104,38 @@ interface IDXGIOutput6 : IDXGIOutput5
     );
     HRESULT CheckHardwareCompositionSupport(
         [out] UINT *flags
+    );
+}
+
+[
+    object,
+    uuid(c1b6694f-ff09-44a9-b03c-77900a0a1d17),
+    local,
+    pointer_default(unique)
+]
+interface IDXGIFactory6 : IDXGIFactory5
+{
+    HRESULT EnumAdapterByGpuPreference(
+        [in] UINT adapter_idx,
+        [in] DXGI_GPU_PREFERENCE gpu_preference,
+        [in] REFIID iid,
+        [out] void **adapter
+    );
+}
+
+[
+    object,
+    uuid(a4966eed-76db-44da-84c1-ee9a7afb20a8),
+    local,
+    pointer_default(unique)
+]
+interface IDXGIFactory7 : IDXGIFactory6
+{
+    HRESULT RegisterAdaptersChangedEvent(
+        [in] HANDLE event,
+        [out] DWORD *cookie
+    );
+    HRESULT UnregisterAdaptersChangedEvent(
+        [in] DWORD cookie
     );
 }

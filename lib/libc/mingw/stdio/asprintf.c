@@ -12,7 +12,7 @@ int asprintf(char ** __restrict__ ret,
   int len;
   va_start(ap,format);
   /* Get Length */
-  len = _vsnprintf(NULL,0,format,ap);
+  len = _vscprintf(format,ap);
   if (len < 0) goto _end;
   /* +1 for \0 terminator. */
   *ret = malloc(len + 1);

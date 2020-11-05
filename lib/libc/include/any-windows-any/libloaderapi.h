@@ -91,12 +91,7 @@ extern "C" {
   WINBASEAPI WINBOOL WINAPI EnumResourceNamesW(HMODULE hModule, LPCWSTR lpType, ENUMRESNAMEPROCW lpEnumFunc, LONG_PTR lParam);
   WINBASEAPI HRSRC WINAPI FindResourceW(HMODULE hModule, LPCWSTR lpName, LPCWSTR lpType);
   WINBASEAPI HRSRC WINAPI FindResourceExW (HMODULE hModule, LPCWSTR lpType, LPCWSTR lpName, WORD wLanguage);
-  WINBASEAPI DECLSPEC_NORETURN VOID WINAPI FreeLibraryAndExitThread (HMODULE hLibModule, DWORD dwExitCode);
   WINBASEAPI WINBOOL WINAPI FreeResource (HGLOBAL hResData);
-  WINBASEAPI HMODULE WINAPI GetModuleHandleA (LPCSTR lpModuleName);
-  WINBASEAPI HMODULE WINAPI GetModuleHandleW (LPCWSTR lpModuleName);
-  WINBASEAPI HMODULE WINAPI LoadLibraryA(LPCSTR lpLibFileName);
-  WINBASEAPI HMODULE WINAPI LoadLibraryW(LPCWSTR lpLibFileName);
   WINBASEAPI HMODULE WINAPI LoadLibraryExA (LPCSTR lpLibFileName, HANDLE hFile, DWORD dwFlags);
   WINBASEAPI HMODULE WINAPI LoadLibraryExW (LPCWSTR lpLibFileName, HANDLE hFile, DWORD dwFlags);
   WINBASEAPI HGLOBAL WINAPI LoadResource (HMODULE hModule, HRSRC hResInfo);
@@ -118,9 +113,7 @@ extern "C" {
 
 #define PGET_MODULE_HANDLE_EX __MINGW_NAME_AW(PGET_MODULE_HANDLE_EX)
 #define LoadString __MINGW_NAME_AW(LoadString)
-#define GetModuleHandle __MINGW_NAME_AW(GetModuleHandle)
 #define GetModuleHandleEx __MINGW_NAME_AW(GetModuleHandleEx)
-#define LoadLibrary __MINGW_NAME_AW(LoadLibrary)
 #define LoadLibraryEx __MINGW_NAME_AW(LoadLibraryEx)
 
 #define EnumResourceLanguages __MINGW_NAME_AW(EnumResourceLanguages)
@@ -141,13 +134,18 @@ extern "C" {
 #define EnumResourceNamesEx __MINGW_NAME_AW(EnumResourceNamesEx)
 #define EnumResourceTypesEx __MINGW_NAME_AW(EnumResourceTypesEx)
 #endif
-#elif defined(WINSTORECOMPAT)
+#endif
+#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP) || defined(WINSTORECOMPAT)
 WINBASEAPI HMODULE WINAPI GetModuleHandleA (LPCSTR lpModuleName);
 WINBASEAPI HMODULE WINAPI GetModuleHandleW (LPCWSTR lpModuleName);
+WINBASEAPI HMODULE WINAPI LoadLibraryA(LPCSTR lpLibFileName);
+WINBASEAPI HMODULE WINAPI LoadLibraryW(LPCWSTR lpLibFileName);
 #define GetModuleHandle __MINGW_NAME_AW(GetModuleHandle)
+#define LoadLibrary __MINGW_NAME_AW(LoadLibrary)
 #endif
 
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
+  WINBASEAPI DECLSPEC_NORETURN VOID WINAPI FreeLibraryAndExitThread (HMODULE hLibModule, DWORD dwExitCode);
   WINBASEAPI WINBOOL WINAPI DisableThreadLibraryCalls (HMODULE hLibModule);
   WINBASEAPI WINBOOL WINAPI FreeLibrary (HMODULE hLibModule);
   WINBASEAPI FARPROC WINAPI GetProcAddress (HMODULE hModule, LPCSTR lpProcName);

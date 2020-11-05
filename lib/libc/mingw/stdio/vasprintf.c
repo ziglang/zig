@@ -10,7 +10,7 @@ int vasprintf(char ** __restrict__ ret,
                       va_list ap) {
   int len;
   /* Get Length */
-  len = _vsnprintf(NULL,0,format,ap);
+  len = _vscprintf(format,ap);
   if (len < 0) return -1;
   /* +1 for \0 terminator. */
   *ret = malloc(len + 1);
