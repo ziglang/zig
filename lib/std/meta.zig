@@ -413,6 +413,47 @@ test "std.meta.fieldInfo" {
     testing.expect(comptime uf.field_type == u8);
 }
 
+pub fn fieldNames(comptime T: type) *const [fields(T).len][]const u8 {
+    comptime {
+        const fieldInfos = fields(T);
+        var names: [fieldInfos.len][]const u8 = undefined;
+        for (fieldInfos) |field, i| {
+            names[i] = field.name;
+        }
+        return &names;
+    }
+}
+
+test "std.meta.fieldNames" {
+    const E1 = enum {
+        A, B
+    };
+    const E2 = error{A};
+    const S1 = struct {
+        a: u8,
+    };
+    const U1 = union {
+        a: u8,
+        b: void,
+    };
+
+    const e1names = fieldNames(E1);
+    const e2names = fieldNames(E2);
+    const s1names = fieldNames(S1);
+    const u1names = fieldNames(U1);
+
+    testing.expect(e1names.len == 2);
+    testing.expectEqualSlices(u8, e1names[0], "A");
+    testing.expectEqualSlices(u8, e1names[1], "B");
+    testing.expect(e2names.len == 1);
+    testing.expectEqualSlices(u8, e2names[0], "A");
+    testing.expect(s1names.len == 1);
+    testing.expectEqualSlices(u8, s1names[0], "a");
+    testing.expect(u1names.len == 2);
+    testing.expectEqualSlices(u8, u1names[0], "a");
+    testing.expectEqualSlices(u8, u1names[1], "b");
+}
+
 pub fn TagType(comptime T: type) type {
     return switch (@typeInfo(T)) {
         .Enum => |info| info.tag_type,
