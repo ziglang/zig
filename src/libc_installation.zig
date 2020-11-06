@@ -14,8 +14,6 @@ const log = std.log.scoped(.libc_installation);
 
 usingnamespace @import("windows_sdk.zig");
 
-// TODO https://github.com/ziglang/zig/issues/6345
-
 /// See the render function implementation for documentation of the fields.
 pub const LibCInstallation = struct {
     include_dir: ?[]const u8 = null,
