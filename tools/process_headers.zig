@@ -249,7 +249,7 @@ const Contents = struct {
 };
 
 const HashToContents = std.StringHashMap(Contents);
-const TargetToHash = std.HashMap(DestTarget, []const u8, DestTarget.hash, DestTarget.eql, true);
+const TargetToHash = std.ArrayHashMap(DestTarget, []const u8, DestTarget.hash, DestTarget.eql, true);
 const PathTable = std.StringHashMap(*TargetToHash);
 
 const LibCVendor = enum {
