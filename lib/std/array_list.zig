@@ -59,13 +59,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             self.allocator.free(self.allocatedSlice());
         }
 
-        /// Deprecated: use `items` field directly.
-        /// Return contents as a slice. Only valid while the list
-        /// doesn't change size.
-        pub fn span(self: anytype) @TypeOf(self.items) {
-            return self.items;
-        }
-
+        pub const span = @compileError("deprecated: use `items` field directly");
         pub const toSlice = @compileError("deprecated: use `items` field directly");
         pub const toSliceConst = @compileError("deprecated: use `items` field directly");
         pub const at = @compileError("deprecated: use `list.items[i]`");
