@@ -745,8 +745,14 @@ ZigType *get_error_union_type(CodeGen *g, ZigType *err_set_type, ZigType *payloa
         return existing_entry->value;
     }
 
+    Error err;
+    if ((err = type_resolve(g, err_set_type, ResolveStatusSizeKnown)))
+        return g->builtin_types.entry_invalid;
+
+    if ((err = type_resolve(g, payload_type, ResolveStatusSizeKnown)))
+        return g->builtin_types.entry_invalid;
+
     ZigType *entry = new_type_table_entry(ZigTypeIdErrorUnion);
-    assert(type_is_resolved(payload_type, ResolveStatusSizeKnown));
 
     buf_resize(&entry->name, 0);
     buf_appendf(&entry->name, "%s!%s", buf_ptr(&err_set_type->name), buf_ptr(&payload_type->name));
