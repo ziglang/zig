@@ -5437,9 +5437,8 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
     defer fn_params.deinit();
 
     while (true) {
-        if (m.next().? != .Identifier) {
-            return m.fail(c, "unable to translate C expr: expected identifier", .{});
-        }
+        if (m.peek().? != .Identifier) break;
+        _ = m.next();
 
         const mangled_name = try block_scope.makeMangledName(c, m.slice());
         const param_name_tok = try appendIdentifier(c, mangled_name);
@@ -5459,8 +5458,7 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
             .param_type = .{ .any_type = &any_type.base },
         };
 
-        if (m.peek().? != .Comma)
-            break;
+        if (m.peek().? != .Comma) break;
         _ = m.next();
         _ = try appendToken(c, .Comma, ",");
     }
