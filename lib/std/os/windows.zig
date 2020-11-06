@@ -555,6 +555,33 @@ pub fn WriteFile(
     }
 }
 
+pub const SetCurrentDirectoryError = error{
+    PathNotFound,
+    InvalidName,
+    InvalidUtf8,
+    NameTooLong,
+    NotDir,
+    Unexpected,
+};
+
+pub fn SetCurrentDirectory(path_name: []const u8) SetCurrentDirectoryError!void {
+    // PATH_MAX_WIDE - 1 as we need to ensure there is space for the null terminator
+    if (path_name.len >= PATH_MAX_WIDE - 1) return error.NameTooLong;
+    
+    var utf16le_buf: [PATH_MAX_WIDE]u16 = undefined;
+    const end = try std.unicode.utf8ToUtf16Le(utf16le_buf[0..], path_name);
+    utf16le_buf[end] = 0;
+    
+    if (kernel32.SetCurrentDirectoryW(@ptrCast([*:0]const u16, &utf16le_buf)) == 0) {
+        switch (kernel32.GetLastError()) {
+            .PATH_NOT_FOUND, .FILE_NOT_FOUND => return error.PathNotFound,
+            .DIRECTORY => return error.NotDir,
+            .INVALID_NAME => return error.InvalidName,
+            else => |err| return unexpectedError(err),
+        }
+    }
+}
+
 pub const GetCurrentDirectoryError = error{
     NameTooLong,
     Unexpected,
