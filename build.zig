@@ -396,8 +396,8 @@ fn configureStage2(b: *Builder, exe: anytype, ctx: Context, need_cpp_includes: b
                 try addCxxKnownPath(b, ctx, exe, "libstdc++.a", null, need_cpp_includes);
                 exe.linkSystemLibrary("pthread");
                 // TODO LLD cannot perform this link.
+                // Set ZIG_SYSTEM_LINKER_HACK env var to use system linker ld instead.
                 // See https://github.com/ziglang/zig/issues/1535
-                exe.enableSystemLinkerHack();
             } else |err| switch (err) {
                 error.RequiredLibraryNotFound => {
                     // System compiler, not gcc.

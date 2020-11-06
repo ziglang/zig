@@ -534,7 +534,9 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         defer argv.deinit();
 
         // TODO https://github.com/ziglang/zig/issues/6971
-        if (self.base.options.is_native_os and self.base.options.system_linker_hack) {
+        // Note that there is no need to check if running natively since we do that already
+        // when setting `system_linker_hack` in Compilation struct.
+        if (self.base.options.system_linker_hack) {
             try argv.append("ld");
         } else {
             // Even though we're calling LLD as a library it thinks the first argument is its own exe name.
@@ -710,7 +712,9 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         }
 
         // TODO https://github.com/ziglang/zig/issues/6971
-        if (self.base.options.is_native_os and self.base.options.system_linker_hack) {
+        // Note that there is no need to check if running natively since we do that already
+        // when setting `system_linker_hack` in Compilation struct.
+        if (self.base.options.system_linker_hack) {
             const result = try std.ChildProcess.exec(.{ .allocator = self.base.allocator, .argv = argv.items });
             defer {
                 self.base.allocator.free(result.stdout);

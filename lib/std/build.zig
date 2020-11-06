@@ -67,7 +67,6 @@ pub const Builder = struct {
     vcpkg_root: VcpkgRoot,
     pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
     args: ?[][]const u8 = null,
-    system_linker_hack: bool,
 
     const PkgConfigError = error{
         PkgConfigCrashed,
@@ -174,7 +173,6 @@ pub const Builder = struct {
             .install_path = undefined,
             .vcpkg_root = VcpkgRoot{ .Unattempted = {} },
             .args = null,
-            .system_linker_hack = false,
         };
         try self.top_level_steps.append(&self.install_tls);
         try self.top_level_steps.append(&self.uninstall_tls);
@@ -1239,7 +1237,6 @@ pub const LibExeObjStep = struct {
     packages: ArrayList(Pkg),
     build_options_contents: std.ArrayList(u8),
     build_options_artifact_args: std.ArrayList(BuildOptionArtifactArg),
-    system_linker_hack: bool = false,
 
     object_src: []const u8,
 
@@ -1900,10 +1897,6 @@ pub const LibExeObjStep = struct {
         self.exec_cmd_args = args;
     }
 
-    pub fn enableSystemLinkerHack(self: *LibExeObjStep) void {
-        self.system_linker_hack = true;
-    }
-
     fn linkLibraryOrObject(self: *LibExeObjStep, other: *LibExeObjStep) void {
         self.step.dependOn(&other.step);
         self.link_objects.append(LinkObject{ .OtherStep = other }) catch unreachable;
@@ -2076,7 +2069,6 @@ pub const LibExeObjStep = struct {
         if (builder.verbose_link or self.verbose_link) zig_args.append("--verbose-link") catch unreachable;
         if (builder.verbose_cc or self.verbose_cc) zig_args.append("--verbose-cc") catch unreachable;
         if (builder.verbose_llvm_cpu_features) zig_args.append("--verbose-llvm-cpu-features") catch unreachable;
-        if (builder.system_linker_hack or self.system_linker_hack) zig_args.append("--system-linker-hack") catch unreachable;
 
         if (self.emit_llvm_ir) try zig_args.append("-femit-llvm-ir");
         if (self.emit_asm) try zig_args.append("-femit-asm");

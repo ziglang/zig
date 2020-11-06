@@ -112,8 +112,6 @@ pub fn main() !void {
                 builder.verbose_cc = true;
             } else if (mem.eql(u8, arg, "--verbose-llvm-cpu-features")) {
                 builder.verbose_llvm_cpu_features = true;
-            } else if (mem.eql(u8, arg, "--system-linker-hack")) {
-                builder.system_linker_hack = true;
             } else if (mem.eql(u8, arg, "--")) {
                 builder.args = argsRest(args, arg_idx);
                 break;
@@ -215,7 +213,6 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
         \\  --verbose-cimport           Enable compiler debug output for C imports
         \\  --verbose-cc                Enable compiler debug output for C compilation
         \\  --verbose-llvm-cpu-features Enable compiler debug output for LLVM CPU features
-        \\  --system-linker-hack        Use system linker LD instead of LLD (requires LLVM enabled)
         \\
     );
 }
