@@ -1152,7 +1152,7 @@ test "CSPRNG" {
     const a = csprng.random.int(u64);
     const b = csprng.random.int(u64);
     const c = csprng.random.int(u64);
-    assert(a ^ b ^ c != 0);
+    expect(a ^ b ^ c != 0);
 }
 
 test "" {

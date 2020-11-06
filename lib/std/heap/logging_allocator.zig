@@ -93,7 +93,7 @@ test "LoggingAllocator" {
 
     var a = try allocator.alloc(u8, 10);
     a = allocator.shrink(a, 5);
-    std.debug.assert(a.len == 5);
+    std.testing.expect(a.len == 5);
     std.testing.expectError(error.OutOfMemory, allocator.resize(a, 20));
     allocator.free(a);
 

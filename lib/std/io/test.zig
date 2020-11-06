@@ -40,11 +40,7 @@ test "write a file, read it, then delete it" {
 
     {
         // Make sure the exclusive flag is honored.
-        if (tmp.dir.createFile(tmp_file_name, .{ .exclusive = true })) |file| {
-            unreachable;
-        } else |err| {
-            std.debug.assert(err == File.OpenError.PathAlreadyExists);
-        }
+        expectError(File.OpenError.PathAlreadyExists, tmp.dir.createFile(tmp_file_name, .{ .exclusive = true }));
     }
 
     {
