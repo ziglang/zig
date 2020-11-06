@@ -2305,8 +2305,12 @@ pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
     if (builtin.os.tag == .wasi) {
         @compileError("chdir is not supported in WASI");
     } else if (builtin.os.tag == .windows) {
-        const dir_path_w = try windows.sliceToPrefixedFileW(dir_path);
-        @compileError("TODO implement chdir for Windows");
+        windows.SetCurrentDirectory(dir_path) catch |err| switch (err) {
+            error.PathNotFound, error.InvalidName, error.InvalidUtf8 => return error.FileNotFound,
+            error.NameTooLong => return error.NameTooLong,
+            error.NotDir => return error.NotDir,
+            error.Unexpected => return error.Unexpected,
+        };
     } else {
         const dir_path_c = try toPosixPath(dir_path);
         return chdirZ(&dir_path_c);
@@ -2318,8 +2322,7 @@ pub const chdirC = @compileError("deprecated: renamed to chdirZ");
 /// Same as `chdir` except the parameter is null-terminated.
 pub fn chdirZ(dir_path: [*:0]const u8) ChangeCurDirError!void {
     if (builtin.os.tag == .windows) {
-        const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
-        @compileError("TODO implement chdir for Windows");
+        return chdir(mem.spanZ(dir_path));
     }
     switch (errno(system.chdir(dir_path))) {
         0 => return,
