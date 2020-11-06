@@ -1,5 +1,6 @@
 const std = @import("std");
 const DW = std.dwarf;
+const assert = std.debug.assert;
 const testing = std.testing;
 
 // zig fmt: off
@@ -202,16 +203,33 @@ pub const Instruction = union(enum) {
         opc: u2 = 0b10,
         sf: u1,
     },
-    SupervisorCall: packed struct {
-        fixed_1: u5 = 0b00001,
+    ExceptionGeneration: packed struct {
+        ll: u2,
+        op2: u3,
         imm16: u16,
-        fixed_2: u11 = 0b11010100000,
+        opc: u3,
+        fixed: u8 = 0b1101_0100,
+    },
+    UnconditionalBranchRegister: packed struct {
+        op4: u5,
+        rn: u5,
+        op3: u6,
+        op2: u5,
+        opc: u4,
+        fixed: u7 = 0b1101_011,
+    },
+    UnconditionalBranchImmediate: packed struct {
+        imm26: u26,
+        fixed: u5 = 0b00101,
+        op: u1,
     },
 
     pub fn toU32(self: Instruction) u32 {
         return switch (self) {
             .MoveWideWithZero => |v| @bitCast(u32, v),
-            .SupervisorCall => |v| @bitCast(u32, v),
+            .ExceptionGeneration => |v| @bitCast(u32, v),
+            .UnconditionalBranchRegister => |v| @bitCast(u32, v),
+            .UnconditionalBranchImmediate => |v| @bitCast(u32, v),
         };
     }
 
@@ -243,10 +261,48 @@ pub const Instruction = union(enum) {
         }
     }
 
-    fn supervisorCall(imm16: u16) Instruction {
+    fn exceptionGeneration(
+        opc: u3,
+        op2: u3,
+        ll: u2,
+        imm16: u16,
+    ) Instruction {
         return Instruction{
-            .SupervisorCall = .{
+            .ExceptionGeneration = .{
+                .ll = ll,
+                .op2 = op2,
                 .imm16 = imm16,
+                .opc = opc,
+            },
+        };
+    }
+
+    fn unconditionalBranchRegister(
+        opc: u4,
+        op2: u5,
+        op3: u6,
+        rn: Register,
+        op4: u5,
+    ) Instruction {
+        return Instruction{
+            .UnconditionalBranchRegister = .{
+                .op4 = op4,
+                .rn = rn.id(),
+                .op3 = op3,
+                .op2 = op2,
+                .opc = opc,
+            },
+        };
+    }
+
+    fn unconditionalBranchImmediate(
+        op: u1,
+        offset: i28,
+    ) Instruction {
+        return Instruction{
+            .UnconditionalBranchImmediate = .{
+                .imm26 = @bitCast(u26, @intCast(i26, imm26 >> 2)),
+                .op = op,
             },
         };
     }
@@ -257,10 +313,51 @@ pub const Instruction = union(enum) {
         return moveWideWithZero(rd, imm16, shift);
     }
 
-    // Supervisor Call
+    // Exception generation
 
     pub fn svc(imm16: u16) Instruction {
-        return supervisorCall(imm16);
+        return exceptionGeneration(0b000, 0b000, 0b01, imm16);
+    }
+
+    pub fn hvc(imm16: u16) Instruction {
+        return exceptionGeneration(0b000, 0b000, 0b10, imm16);
+    }
+
+    pub fn smc(imm16: u16) Instruction {
+        return exceptionGeneration(0b000, 0b000, 0b11, imm16);
+    }
+
+    pub fn brk(imm16: u16) Instruction {
+        return exceptionGeneration(0b001, 0b000, 0b00, imm16);
+    }
+
+    pub fn hlt(imm16: u16) Instruction {
+        return exceptionGeneration(0b010, 0b000, 0b00, imm16);
+    }
+
+    // Unconditional branch (register)
+
+    pub fn br(rn: Register) Instruction {
+        assert(rn.size() == 64);
+        return unconditionalBranchRegister(0b0000, 0b11111, 0b000000, rn, 0b00000);
+    }
+
+    pub fn blr(rn: Register) Instruction {
+        return unconditionalBranchRegister(0b0001, 0b11111, 0b000000, rn, 0b00000);
+    }
+
+    pub fn ret(rn: ?Register) Instruction {
+        return unconditionalBranchRegister(0b0010, 0b11111, 0b000000, rn orelse .x30, 0b00000);
+    }
+
+    // Unconditional branch (immediate)
+
+    pub fn b(offset: i28) Instruction {
+        return unconditionalBranchImmediate(0, offset);
+    }
+
+    pub fn bl(offset: i28) Instruction {
+        return unconditionalBranchImmediate(1, offset);
     }
 };
 
