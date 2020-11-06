@@ -2501,7 +2501,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
     defer fmt.seen.deinit();
     defer fmt.out_buffer.deinit();
 
-    for (input_files.span()) |file_path| {
+    for (input_files.items) |file_path| {
         // Get the real path here to avoid Windows failing on relative file paths with . or .. in them.
         const real_path = fs.realpathAlloc(gpa, file_path) catch |err| {
             fatal("unable to open '{}': {}", .{ file_path, err });
@@ -2681,7 +2681,7 @@ fn printErrMsgToFile(
     defer text_buf.deinit();
     const out_stream = text_buf.outStream();
     try parse_error.render(tree.token_ids, out_stream);
-    const text = text_buf.span();
+    const text = text_buf.items;
 
     const stream = file.outStream();
     try stream.print("{}:{}:{}: error: {}\n", .{ path, start_loc.line + 1, start_loc.column + 1, text });
@@ -2830,7 +2830,7 @@ pub const ClangArgIterator = struct {
             defer resp_arg_list.deinit();
             {
                 errdefer {
-                    for (resp_arg_list.span()) |item| {
+                    for (resp_arg_list.items) |item| {
                         allocator.free(mem.span(item));
                     }
                 }

@@ -128,7 +128,7 @@ pub const NativePaths = struct {
     }
 
     fn deinitArray(array: *ArrayList([:0]u8)) void {
-        for (array.span()) |item| {
+        for (array.items) |item| {
             array.allocator.free(item);
         }
         array.deinit();

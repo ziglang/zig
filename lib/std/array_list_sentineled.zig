@@ -147,7 +147,7 @@ pub fn ArrayListSentineled(comptime T: type, comptime sentinel: T) type {
 
         pub fn replaceContents(self: *Self, m: []const T) !void {
             try self.resize(m.len);
-            mem.copy(T, self.list.span(), m);
+            mem.copy(T, self.list.items, m);
         }
 
         /// Initializes an OutStream which will append to the list.

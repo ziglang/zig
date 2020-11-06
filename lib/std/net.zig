@@ -796,7 +796,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
             result.canon_name = canon.toOwnedSlice();
         }
 
-        for (lookup_addrs.span()) |lookup_addr, i| {
+        for (lookup_addrs.items) |lookup_addr, i| {
             result.addrs[i] = lookup_addr.addr;
             assert(result.addrs[i].getPort() == port);
         }
@@ -849,7 +849,7 @@ fn linuxLookupName(
     // No further processing is needed if there are fewer than 2
     // results or if there are only IPv4 results.
     if (addrs.items.len == 1 or family == os.AF_INET) return;
-    const all_ip4 = for (addrs.span()) |addr| {
+    const all_ip4 = for (addrs.items) |addr| {
         if (addr.addr.any.family != os.AF_INET) break false;
     } else true;
     if (all_ip4) return;
@@ -861,7 +861,7 @@ fn linuxLookupName(
     // So far the label/precedence table cannot be customized.
     // This implementation is ported from musl libc.
     // A more idiomatic "ziggy" implementation would be welcome.
-    for (addrs.span()) |*addr, i| {
+    for (addrs.items) |*addr, i| {
         var key: i32 = 0;
         var sa6: os.sockaddr_in6 = undefined;
         @memset(@ptrCast([*]u8, &sa6), 0, @sizeOf(os.sockaddr_in6));
@@ -926,7 +926,7 @@ fn linuxLookupName(
         key |= (MAXADDRS - @intCast(i32, i)) << DAS_ORDER_SHIFT;
         addr.sortkey = key;
     }
-    std.sort.sort(LookupAddr, addrs.span(), {}, addrCmpLessThan);
+    std.sort.sort(LookupAddr, addrs.items, {}, addrCmpLessThan);
 }
 
 const Policy = struct {
@@ -1361,9 +1361,9 @@ fn resMSendRc(
     defer ns_list.deinit();
 
     try ns_list.resize(rc.ns.items.len);
-    const ns = ns_list.span();
+    const ns = ns_list.items;
 
-    for (rc.ns.span()) |iplit, i| {
+    for (rc.ns.items) |iplit, i| {
         ns[i] = iplit.addr;
         assert(ns[i].getPort() == 53);
         if (iplit.addr.any.family != os.AF_INET) {

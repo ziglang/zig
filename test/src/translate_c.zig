@@ -105,20 +105,20 @@ pub const TranslateCContext = struct {
         }
 
         const write_src = b.addWriteFiles();
-        for (case.sources.span()) |src_file| {
+        for (case.sources.items) |src_file| {
             write_src.add(src_file.filename, src_file.source);
         }
 
         const translate_c = b.addTranslateC(.{
             .write_file = .{
                 .step = write_src,
-                .basename = case.sources.span()[0].filename,
+                .basename = case.sources.items[0].filename,
             },
         });
         translate_c.step.name = annotated_case_name;
         translate_c.setTarget(case.target);
 
-        const check_file = translate_c.addCheckFile(case.expected_lines.span());
+        const check_file = translate_c.addCheckFile(case.expected_lines.items);
 
         self.step.dependOn(&check_file.step);
     }

@@ -1061,7 +1061,7 @@ test "std.ArrayList(u8) implements outStream" {
     const y: i32 = 1234;
     try buffer.outStream().print("x: {}\ny: {}\n", .{ x, y });
 
-    testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", buffer.span());
+    testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", buffer.items);
 }
 
 test "std.ArrayList/ArrayListUnmanaged.shrink still sets length on error.OutOfMemory" {

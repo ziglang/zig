@@ -325,7 +325,7 @@ pub fn main() !void {
             },
             .os = .linux,
         };
-        search: for (search_paths.span()) |search_path| {
+        search: for (search_paths.items) |search_path| {
             var sub_path: []const []const u8 = undefined;
             switch (vendor) {
                 .musl => {
@@ -416,7 +416,7 @@ pub fn main() !void {
                 try contents_list.append(contents);
             }
         }
-        std.sort.sort(*Contents, contents_list.span(), {}, Contents.hitCountLessThan);
+        std.sort.sort(*Contents, contents_list.items, {}, Contents.hitCountLessThan);
         const best_contents = contents_list.popOrNull().?;
         if (best_contents.hit_count > 1) {
             // worth it to make it generic

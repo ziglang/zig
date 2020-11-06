@@ -216,7 +216,7 @@ pub const Coff = struct {
         blk: while (i < debug_dir_entry_count) : (i += 1) {
             const debug_dir_entry = try in.readStruct(DebugDirectoryEntry);
             if (debug_dir_entry.type == IMAGE_DEBUG_TYPE_CODEVIEW) {
-                for (self.sections.span()) |*section| {
+                for (self.sections.items) |*section| {
                     const section_start = section.header.virtual_address;
                     const section_size = section.header.misc.virtual_size;
                     const rva = debug_dir_entry.address_of_raw_data;
@@ -282,7 +282,7 @@ pub const Coff = struct {
     }
 
     pub fn getSection(self: *Coff, comptime name: []const u8) ?*Section {
-        for (self.sections.span()) |*sec| {
+        for (self.sections.items) |*sec| {
             if (mem.eql(u8, sec.header.name[0..name.len], name)) {
                 return sec;
             }

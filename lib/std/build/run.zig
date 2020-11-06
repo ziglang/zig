@@ -159,7 +159,7 @@ pub const RunStep = struct {
         const cwd = if (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else self.builder.build_root;
 
         var argv_list = ArrayList([]const u8).init(self.builder.allocator);
-        for (self.argv.span()) |arg| {
+        for (self.argv.items) |arg| {
             switch (arg) {
                 Arg.Bytes => |bytes| try argv_list.append(bytes),
                 Arg.WriteFile => |file| {
@@ -176,7 +176,7 @@ pub const RunStep = struct {
             }
         }
 
-        const argv = argv_list.span();
+        const argv = argv_list.items;
 
         const child = std.ChildProcess.init(argv, self.builder.allocator) catch unreachable;
         defer child.deinit();
@@ -312,7 +312,7 @@ pub const RunStep = struct {
     }
 
     fn addPathForDynLibs(self: *RunStep, artifact: *LibExeObjStep) void {
-        for (artifact.link_objects.span()) |link_object| {
+        for (artifact.link_objects.items) |link_object| {
             switch (link_object) {
                 .OtherStep => |other| {
                     if (other.target.isWindows() and other.isDynamicLibrary()) {
