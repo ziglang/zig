@@ -726,7 +726,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
             if (result.stderr.len != 0) {
                 std.log.warn("unexpected LD stderr: {}", .{result.stderr});
             }
-            if (result.term.Exited != 0) {
+            if (result.term != .Exited or result.term.Exited != 0) {
                 // TODO parse this output and surface with the Compilation API rather than
                 // directly outputting to stderr here.
                 std.debug.print("{}", .{result.stderr});
