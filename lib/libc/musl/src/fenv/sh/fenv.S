@@ -12,6 +12,8 @@ fegetround:
 .type   __fesetround, @function
 __fesetround:
 	sts fpscr, r0
+	mov #-4, r1
+	and r1, r0
 	or  r4, r0
 	lds r0, fpscr
 	rts

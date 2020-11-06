@@ -35,6 +35,6 @@ double cosh(double x)
 
 	/* |x| > log(DBL_MAX) or nan */
 	/* note: the result is stored to handle overflow */
-	t = __expo2(x);
+	t = __expo2(x, 1.0);
 	return t;
 }

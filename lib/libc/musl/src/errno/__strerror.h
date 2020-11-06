@@ -1,8 +1,9 @@
-/* This file is sorted such that 'errors' which represent exceptional
- * conditions under which a correct program may fail come first, followed
- * by messages that indicate an incorrect program or system failure. The
- * macro E() along with double-inclusion is used to ensure that ordering
- * of the strings remains synchronized. */
+/* The first entry is a catch-all for codes not enumerated here.
+ * This file is included multiple times to declare and define a structure
+ * with these messages, and then to define a lookup table translating
+ * error codes to offsets of corresponding fields in the structure. */
+
+E(0,            "No error information")
 
 E(EILSEQ,       "Illegal byte sequence")
 E(EDOM,         "Domain error")
@@ -101,5 +102,3 @@ E(EDQUOT,       "Quota exceeded")
 E(ENOMEDIUM,    "No medium found")
 E(EMEDIUMTYPE,  "Wrong medium type")
 E(EMULTIHOP,    "Multihop attempted")
-
-E(0,            "No error information")

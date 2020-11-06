@@ -315,4 +315,19 @@ static inline int a_clz_64(uint64_t x)
 }
 #endif
 
+#ifndef a_clz_32
+#define a_clz_32 a_clz_32
+static inline int a_clz_32(uint32_t x)
+{
+	x >>= 1;
+	x |= x >> 1;
+	x |= x >> 2;
+	x |= x >> 4;
+	x |= x >> 8;
+	x |= x >> 16;
+	x++;
+	return 31-a_ctz_32(x);
+}
+#endif
+
 #endif

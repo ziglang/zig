@@ -149,6 +149,7 @@ static int name_from_dns(struct address buf[static MAXADDRS], char canon[static 
 				0, 0, 0, qbuf[nq], sizeof *qbuf);
 			if (qlens[nq] == -1)
 				return EAI_NONAME;
+			qbuf[nq][3] = 0; /* don't need AD flag */
 			nq++;
 		}
 	}
@@ -156,14 +157,17 @@ static int name_from_dns(struct address buf[static MAXADDRS], char canon[static 
 	if (__res_msend_rc(nq, qp, qlens, ap, alens, sizeof *abuf, conf) < 0)
 		return EAI_SYSTEM;
 
+	for (i=0; i<nq; i++) {
+		if (alens[i] < 4 || (abuf[i][3] & 15) == 2) return EAI_AGAIN;
+		if ((abuf[i][3] & 15) == 3) return 0;
+		if ((abuf[i][3] & 15) != 0) return EAI_FAIL;
+	}
+
 	for (i=0; i<nq; i++)
 		__dns_parse(abuf[i], alens[i], dns_parse_callback, &ctx);
 
 	if (ctx.cnt) return ctx.cnt;
-	if (alens[0] < 4 || (abuf[0][3] & 15) == 2) return EAI_AGAIN;
-	if ((abuf[0][3] & 15) == 0) return EAI_NONAME;
-	if ((abuf[0][3] & 15) == 3) return 0;
-	return EAI_FAIL;
+	return EAI_NONAME;
 }
 
 static int name_from_dns_search(struct address buf[static MAXADDRS], char canon[static 256], const char *name, int family)

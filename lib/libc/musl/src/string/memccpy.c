@@ -29,6 +29,6 @@ void *memccpy(void *restrict dest, const void *restrict src, int c, size_t n)
 #endif
 	for (; n && (*d=*s)!=c; n--, s++, d++);
 tail:
-	if (n && *s==c) return d+1;
+	if (n) return d+1;
 	return 0;
 }

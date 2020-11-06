@@ -1,30 +1,41 @@
 #include <errno.h>
+#include <stddef.h>
 #include <string.h>
 #include "locale_impl.h"
 
-#define E(a,b) ((unsigned char)a),
-static const unsigned char errid[] = {
+/* mips has one error code outside of the 8-bit range due to a
+ * historical typo, so we just remap it. */
+#if EDQUOT==1133
+#define EDQUOT_ORIG 1133
+#undef  EDQUOT
+#define EDQUOT 109
+#endif
+
+static const struct errmsgstr_t {
+#define E(n, s) char str##n[sizeof(s)];
 #include "__strerror.h"
+#undef E
+} errmsgstr = {
+#define E(n, s) s,
+#include "__strerror.h"
+#undef E
 };
 
-#undef E
-#define E(a,b) b "\0"
-static const char errmsg[] =
+static const unsigned short errmsgidx[] = {
+#define E(n, s) [n] = offsetof(struct errmsgstr_t, str##n),
 #include "__strerror.h"
-;
+#undef E
+};
 
 char *__strerror_l(int e, locale_t loc)
 {
 	const char *s;
-	int i;
-	/* mips has one error code outside of the 8-bit range due to a
-	 * historical typo, so we just remap it. */
-	if (EDQUOT==1133) {
-		if (e==109) e=-1;
-		else if (e==EDQUOT) e=109;
-	}
-	for (i=0; errid[i] && errid[i] != e; i++);
-	for (s=errmsg; i; s++, i--) for (; *s; s++);
+#ifdef EDQUOT_ORIG
+	if (e==EDQUOT) e=0;
+	else if (e==EDQUOT_ORIG) e=EDQUOT;
+#endif
+	if (e >= sizeof errmsgidx / sizeof *errmsgidx) e = 0;
+	s = (char *)&errmsgstr + errmsgidx[e];
 	return (char *)LCTRANS(s, LC_MESSAGES, loc);
 }
 

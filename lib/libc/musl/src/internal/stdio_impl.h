@@ -60,8 +60,6 @@ hidden size_t __stdout_write(FILE *, const unsigned char *, size_t);
 hidden off_t __stdio_seek(FILE *, off_t, int);
 hidden int __stdio_close(FILE *);
 
-hidden size_t __string_read(FILE *, unsigned char *, size_t);
-
 hidden int __toread(FILE *);
 hidden int __towrite(FILE *);
 

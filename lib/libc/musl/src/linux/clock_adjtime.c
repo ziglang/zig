@@ -38,55 +38,52 @@ int clock_adjtime (clockid_t clock_id, struct timex *utx)
 {
 	int r = -ENOSYS;
 #ifdef SYS_clock_adjtime64
-	if (SYS_clock_adjtime == SYS_clock_adjtime64 ||
-	    (utx->modes & ADJ_SETOFFSET) && !IS32BIT(utx->time.tv_sec)) {
-		struct ktimex64 ktx = {
-			.modes = utx->modes,
-			.offset = utx->offset,
-			.freq = utx->freq,
-			.maxerror = utx->maxerror,
-			.esterror = utx->esterror,
-			.status = utx->status,
-			.constant = utx->constant,
-			.precision = utx->precision,
-			.tolerance = utx->tolerance,
-			.time_sec = utx->time.tv_sec,
-			.time_usec = utx->time.tv_usec,
-			.tick = utx->tick,
-			.ppsfreq = utx->ppsfreq,
-			.jitter = utx->jitter,
-			.shift = utx->shift,
-			.stabil = utx->stabil,
-			.jitcnt = utx->jitcnt,
-			.calcnt = utx->calcnt,
-			.errcnt = utx->errcnt,
-			.stbcnt = utx->stbcnt,
-			.tai = utx->tai,
-		};
-		r = __syscall(SYS_clock_adjtime, clock_id, &ktx);
-		if (r>=0) {
-			utx->modes = ktx.modes;
-			utx->offset = ktx.offset;
-			utx->freq = ktx.freq;
-			utx->maxerror = ktx.maxerror;
-			utx->esterror = ktx.esterror;
-			utx->status = ktx.status;
-			utx->constant = ktx.constant;
-			utx->precision = ktx.precision;
-			utx->tolerance = ktx.tolerance;
-			utx->time.tv_sec = ktx.time_sec;
-			utx->time.tv_usec = ktx.time_usec;
-			utx->tick = ktx.tick;
-			utx->ppsfreq = ktx.ppsfreq;
-			utx->jitter = ktx.jitter;
-			utx->shift = ktx.shift;
-			utx->stabil = ktx.stabil;
-			utx->jitcnt = ktx.jitcnt;
-			utx->calcnt = ktx.calcnt;
-			utx->errcnt = ktx.errcnt;
-			utx->stbcnt = ktx.stbcnt;
-			utx->tai = ktx.tai;
-		}
+	struct ktimex64 ktx = {
+		.modes = utx->modes,
+		.offset = utx->offset,
+		.freq = utx->freq,
+		.maxerror = utx->maxerror,
+		.esterror = utx->esterror,
+		.status = utx->status,
+		.constant = utx->constant,
+		.precision = utx->precision,
+		.tolerance = utx->tolerance,
+		.time_sec = utx->time.tv_sec,
+		.time_usec = utx->time.tv_usec,
+		.tick = utx->tick,
+		.ppsfreq = utx->ppsfreq,
+		.jitter = utx->jitter,
+		.shift = utx->shift,
+		.stabil = utx->stabil,
+		.jitcnt = utx->jitcnt,
+		.calcnt = utx->calcnt,
+		.errcnt = utx->errcnt,
+		.stbcnt = utx->stbcnt,
+		.tai = utx->tai,
+	};
+	r = __syscall(SYS_clock_adjtime64, clock_id, &ktx);
+	if (r>=0) {
+		utx->modes = ktx.modes;
+		utx->offset = ktx.offset;
+		utx->freq = ktx.freq;
+		utx->maxerror = ktx.maxerror;
+		utx->esterror = ktx.esterror;
+		utx->status = ktx.status;
+		utx->constant = ktx.constant;
+		utx->precision = ktx.precision;
+		utx->tolerance = ktx.tolerance;
+		utx->time.tv_sec = ktx.time_sec;
+		utx->time.tv_usec = ktx.time_usec;
+		utx->tick = ktx.tick;
+		utx->ppsfreq = ktx.ppsfreq;
+		utx->jitter = ktx.jitter;
+		utx->shift = ktx.shift;
+		utx->stabil = ktx.stabil;
+		utx->jitcnt = ktx.jitcnt;
+		utx->calcnt = ktx.calcnt;
+		utx->errcnt = ktx.errcnt;
+		utx->stbcnt = ktx.stbcnt;
+		utx->tai = ktx.tai;
 	}
 	if (SYS_clock_adjtime == SYS_clock_adjtime64 || r!=-ENOSYS)
 		return __syscall_ret(r);

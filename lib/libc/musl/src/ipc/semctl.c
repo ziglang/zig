@@ -28,6 +28,14 @@ int semctl(int id, int num, int cmd, ...)
 		arg = va_arg(ap, union semun);
 		va_end(ap);
 	}
+#if IPC_TIME64
+	struct semid_ds out, *orig;
+	if (cmd&IPC_TIME64) {
+		out = (struct semid_ds){0};
+		orig = arg.buf;
+		arg.buf = &out;
+	}
+#endif
 #ifdef SYSCALL_IPC_BROKEN_MODE
 	struct semid_ds tmp;
 	if (cmd == IPC_SET) {
@@ -51,6 +59,8 @@ int semctl(int id, int num, int cmd, ...)
 #endif
 #if IPC_TIME64
 	if (r >= 0 && (cmd&IPC_TIME64)) {
+		arg.buf = orig;
+		*arg.buf = out;
 		IPC_HILO(arg.buf, sem_otime);
 		IPC_HILO(arg.buf, sem_ctime);
 	}

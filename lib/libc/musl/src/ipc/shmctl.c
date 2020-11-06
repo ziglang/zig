@@ -9,6 +9,14 @@
 
 int shmctl(int id, int cmd, struct shmid_ds *buf)
 {
+#if IPC_TIME64
+	struct shmid_ds out, *orig;
+	if (cmd&IPC_TIME64) {
+		out = (struct shmid_ds){0};
+		orig = buf;
+		buf = &out;
+	}
+#endif
 #ifdef SYSCALL_IPC_BROKEN_MODE
 	struct shmid_ds tmp;
 	if (cmd == IPC_SET) {
@@ -32,6 +40,8 @@ int shmctl(int id, int cmd, struct shmid_ds *buf)
 #endif
 #if IPC_TIME64
 	if (r >= 0 && (cmd&IPC_TIME64)) {
+		buf = orig;
+		*buf = out;
 		IPC_HILO(buf, shm_atime);
 		IPC_HILO(buf, shm_dtime);
 		IPC_HILO(buf, shm_ctime);

@@ -12,8 +12,8 @@ static char *twobyte_memmem(const unsigned char *h, size_t k, const unsigned cha
 
 static char *threebyte_memmem(const unsigned char *h, size_t k, const unsigned char *n)
 {
-	uint32_t nw = n[0]<<24 | n[1]<<16 | n[2]<<8;
-	uint32_t hw = h[0]<<24 | h[1]<<16 | h[2]<<8;
+	uint32_t nw = (uint32_t)n[0]<<24 | n[1]<<16 | n[2]<<8;
+	uint32_t hw = (uint32_t)h[0]<<24 | h[1]<<16 | h[2]<<8;
 	for (h+=3, k-=3; k; k--, hw = (hw|*h++)<<8)
 		if (hw == nw) return (char *)h-3;
 	return hw == nw ? (char *)h-3 : 0;
@@ -21,8 +21,8 @@ static char *threebyte_memmem(const unsigned char *h, size_t k, const unsigned c
 
 static char *fourbyte_memmem(const unsigned char *h, size_t k, const unsigned char *n)
 {
-	uint32_t nw = n[0]<<24 | n[1]<<16 | n[2]<<8 | n[3];
-	uint32_t hw = h[0]<<24 | h[1]<<16 | h[2]<<8 | h[3];
+	uint32_t nw = (uint32_t)n[0]<<24 | n[1]<<16 | n[2]<<8 | n[3];
+	uint32_t hw = (uint32_t)h[0]<<24 | h[1]<<16 | h[2]<<8 | h[3];
 	for (h+=4, k-=4; k; k--, hw = hw<<8 | *h++)
 		if (hw == nw) return (char *)h-4;
 	return hw == nw ? (char *)h-4 : 0;

@@ -6,7 +6,7 @@
 
 int getentropy(void *buffer, size_t len)
 {
-	int cs, ret;
+	int cs, ret = 0;
 	char *pos = buffer;
 
 	if (len > 256) {

@@ -158,6 +158,7 @@ int getnameinfo(const struct sockaddr *restrict sa, socklen_t sl,
 			unsigned char query[18+PTR_MAX], reply[512];
 			int qlen = __res_mkquery(0, ptr, 1, RR_PTR,
 				0, 0, 0, query, sizeof query);
+			query[3] = 0; /* don't need AD flag */
 			int rlen = __res_send(query, qlen, reply, sizeof reply);
 			buf[0] = 0;
 			if (rlen > 0)
