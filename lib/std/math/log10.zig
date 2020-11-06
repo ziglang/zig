@@ -187,23 +187,23 @@ test "math.log10" {
 test "math.log10_32" {
     const epsilon = 0.000001;
 
-    testing.expect(math.approxEq(f32, log10_32(0.2), -0.698970, epsilon));
-    testing.expect(math.approxEq(f32, log10_32(0.8923), -0.049489, epsilon));
-    testing.expect(math.approxEq(f32, log10_32(1.5), 0.176091, epsilon));
-    testing.expect(math.approxEq(f32, log10_32(37.45), 1.573452, epsilon));
-    testing.expect(math.approxEq(f32, log10_32(89.123), 1.94999, epsilon));
-    testing.expect(math.approxEq(f32, log10_32(123123.234375), 5.09034, epsilon));
+    testing.expect(math.approxEqAbs(f32, log10_32(0.2), -0.698970, epsilon));
+    testing.expect(math.approxEqAbs(f32, log10_32(0.8923), -0.049489, epsilon));
+    testing.expect(math.approxEqAbs(f32, log10_32(1.5), 0.176091, epsilon));
+    testing.expect(math.approxEqAbs(f32, log10_32(37.45), 1.573452, epsilon));
+    testing.expect(math.approxEqAbs(f32, log10_32(89.123), 1.94999, epsilon));
+    testing.expect(math.approxEqAbs(f32, log10_32(123123.234375), 5.09034, epsilon));
 }
 
 test "math.log10_64" {
     const epsilon = 0.000001;
 
-    testing.expect(math.approxEq(f64, log10_64(0.2), -0.698970, epsilon));
-    testing.expect(math.approxEq(f64, log10_64(0.8923), -0.049489, epsilon));
-    testing.expect(math.approxEq(f64, log10_64(1.5), 0.176091, epsilon));
-    testing.expect(math.approxEq(f64, log10_64(37.45), 1.573452, epsilon));
-    testing.expect(math.approxEq(f64, log10_64(89.123), 1.94999, epsilon));
-    testing.expect(math.approxEq(f64, log10_64(123123.234375), 5.09034, epsilon));
+    testing.expect(math.approxEqAbs(f64, log10_64(0.2), -0.698970, epsilon));
+    testing.expect(math.approxEqAbs(f64, log10_64(0.8923), -0.049489, epsilon));
+    testing.expect(math.approxEqAbs(f64, log10_64(1.5), 0.176091, epsilon));
+    testing.expect(math.approxEqAbs(f64, log10_64(37.45), 1.573452, epsilon));
+    testing.expect(math.approxEqAbs(f64, log10_64(89.123), 1.94999, epsilon));
+    testing.expect(math.approxEqAbs(f64, log10_64(123123.234375), 5.09034, epsilon));
 }
 
 test "math.log10_32.special" {

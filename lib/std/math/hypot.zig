@@ -133,25 +133,25 @@ test "math.hypot" {
 test "math.hypot32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, hypot32(0.0, -1.2), 1.2, epsilon));
-    expect(math.approxEq(f32, hypot32(0.2, -0.34), 0.394462, epsilon));
-    expect(math.approxEq(f32, hypot32(0.8923, 2.636890), 2.783772, epsilon));
-    expect(math.approxEq(f32, hypot32(1.5, 5.25), 5.460083, epsilon));
-    expect(math.approxEq(f32, hypot32(37.45, 159.835), 164.163742, epsilon));
-    expect(math.approxEq(f32, hypot32(89.123, 382.028905), 392.286865, epsilon));
-    expect(math.approxEq(f32, hypot32(123123.234375, 529428.707813), 543556.875, epsilon));
+    expect(math.approxEqAbs(f32, hypot32(0.0, -1.2), 1.2, epsilon));
+    expect(math.approxEqAbs(f32, hypot32(0.2, -0.34), 0.394462, epsilon));
+    expect(math.approxEqAbs(f32, hypot32(0.8923, 2.636890), 2.783772, epsilon));
+    expect(math.approxEqAbs(f32, hypot32(1.5, 5.25), 5.460083, epsilon));
+    expect(math.approxEqAbs(f32, hypot32(37.45, 159.835), 164.163742, epsilon));
+    expect(math.approxEqAbs(f32, hypot32(89.123, 382.028905), 392.286865, epsilon));
+    expect(math.approxEqAbs(f32, hypot32(123123.234375, 529428.707813), 543556.875, epsilon));
 }
 
 test "math.hypot64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f64, hypot64(0.0, -1.2), 1.2, epsilon));
-    expect(math.approxEq(f64, hypot64(0.2, -0.34), 0.394462, epsilon));
-    expect(math.approxEq(f64, hypot64(0.8923, 2.636890), 2.783772, epsilon));
-    expect(math.approxEq(f64, hypot64(1.5, 5.25), 5.460082, epsilon));
-    expect(math.approxEq(f64, hypot64(37.45, 159.835), 164.163728, epsilon));
-    expect(math.approxEq(f64, hypot64(89.123, 382.028905), 392.286876, epsilon));
-    expect(math.approxEq(f64, hypot64(123123.234375, 529428.707813), 543556.885247, epsilon));
+    expect(math.approxEqAbs(f64, hypot64(0.0, -1.2), 1.2, epsilon));
+    expect(math.approxEqAbs(f64, hypot64(0.2, -0.34), 0.394462, epsilon));
+    expect(math.approxEqAbs(f64, hypot64(0.8923, 2.636890), 2.783772, epsilon));
+    expect(math.approxEqAbs(f64, hypot64(1.5, 5.25), 5.460082, epsilon));
+    expect(math.approxEqAbs(f64, hypot64(37.45, 159.835), 164.163728, epsilon));
+    expect(math.approxEqAbs(f64, hypot64(89.123, 382.028905), 392.286876, epsilon));
+    expect(math.approxEqAbs(f64, hypot64(123123.234375, 529428.707813), 543556.885247, epsilon));
 }
 
 test "math.hypot32.special" {

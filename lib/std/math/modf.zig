@@ -143,24 +143,24 @@ test "math.modf32" {
     var r: modf32_result = undefined;
 
     r = modf32(1.0);
-    expect(math.approxEq(f32, r.ipart, 1.0, epsilon));
-    expect(math.approxEq(f32, r.fpart, 0.0, epsilon));
+    expect(math.approxEqAbs(f32, r.ipart, 1.0, epsilon));
+    expect(math.approxEqAbs(f32, r.fpart, 0.0, epsilon));
 
     r = modf32(2.545);
-    expect(math.approxEq(f32, r.ipart, 2.0, epsilon));
-    expect(math.approxEq(f32, r.fpart, 0.545, epsilon));
+    expect(math.approxEqAbs(f32, r.ipart, 2.0, epsilon));
+    expect(math.approxEqAbs(f32, r.fpart, 0.545, epsilon));
 
     r = modf32(3.978123);
-    expect(math.approxEq(f32, r.ipart, 3.0, epsilon));
-    expect(math.approxEq(f32, r.fpart, 0.978123, epsilon));
+    expect(math.approxEqAbs(f32, r.ipart, 3.0, epsilon));
+    expect(math.approxEqAbs(f32, r.fpart, 0.978123, epsilon));
 
     r = modf32(43874.3);
-    expect(math.approxEq(f32, r.ipart, 43874, epsilon));
-    expect(math.approxEq(f32, r.fpart, 0.300781, epsilon));
+    expect(math.approxEqAbs(f32, r.ipart, 43874, epsilon));
+    expect(math.approxEqAbs(f32, r.fpart, 0.300781, epsilon));
 
     r = modf32(1234.340780);
-    expect(math.approxEq(f32, r.ipart, 1234, epsilon));
-    expect(math.approxEq(f32, r.fpart, 0.340820, epsilon));
+    expect(math.approxEqAbs(f32, r.ipart, 1234, epsilon));
+    expect(math.approxEqAbs(f32, r.fpart, 0.340820, epsilon));
 }
 
 test "math.modf64" {
@@ -168,24 +168,24 @@ test "math.modf64" {
     var r: modf64_result = undefined;
 
     r = modf64(1.0);
-    expect(math.approxEq(f64, r.ipart, 1.0, epsilon));
-    expect(math.approxEq(f64, r.fpart, 0.0, epsilon));
+    expect(math.approxEqAbs(f64, r.ipart, 1.0, epsilon));
+    expect(math.approxEqAbs(f64, r.fpart, 0.0, epsilon));
 
     r = modf64(2.545);
-    expect(math.approxEq(f64, r.ipart, 2.0, epsilon));
-    expect(math.approxEq(f64, r.fpart, 0.545, epsilon));
+    expect(math.approxEqAbs(f64, r.ipart, 2.0, epsilon));
+    expect(math.approxEqAbs(f64, r.fpart, 0.545, epsilon));
 
     r = modf64(3.978123);
-    expect(math.approxEq(f64, r.ipart, 3.0, epsilon));
-    expect(math.approxEq(f64, r.fpart, 0.978123, epsilon));
+    expect(math.approxEqAbs(f64, r.ipart, 3.0, epsilon));
+    expect(math.approxEqAbs(f64, r.fpart, 0.978123, epsilon));
 
     r = modf64(43874.3);
-    expect(math.approxEq(f64, r.ipart, 43874, epsilon));
-    expect(math.approxEq(f64, r.fpart, 0.3, epsilon));
+    expect(math.approxEqAbs(f64, r.ipart, 43874, epsilon));
+    expect(math.approxEqAbs(f64, r.fpart, 0.3, epsilon));
 
     r = modf64(1234.340780);
-    expect(math.approxEq(f64, r.ipart, 1234, epsilon));
-    expect(math.approxEq(f64, r.fpart, 0.340780, epsilon));
+    expect(math.approxEqAbs(f64, r.ipart, 1234, epsilon));
+    expect(math.approxEqAbs(f64, r.fpart, 0.340780, epsilon));
 }
 
 test "math.modf32.special" {

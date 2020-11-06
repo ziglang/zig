@@ -28,6 +28,6 @@ test "complex.casin" {
     const a = Complex(f32).new(5, 3);
     const c = asin(a);
 
-    testing.expect(math.approxEq(f32, c.re, 1.023822, epsilon));
-    testing.expect(math.approxEq(f32, c.im, 2.452914, epsilon));
+    testing.expect(math.approxEqAbs(f32, c.re, 1.023822, epsilon));
+    testing.expect(math.approxEqAbs(f32, c.im, 2.452914, epsilon));
 }

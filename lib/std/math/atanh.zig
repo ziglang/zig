@@ -96,17 +96,17 @@ test "math.atanh" {
 test "math.atanh_32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, atanh_32(0.0), 0.0, epsilon));
-    expect(math.approxEq(f32, atanh_32(0.2), 0.202733, epsilon));
-    expect(math.approxEq(f32, atanh_32(0.8923), 1.433099, epsilon));
+    expect(math.approxEqAbs(f32, atanh_32(0.0), 0.0, epsilon));
+    expect(math.approxEqAbs(f32, atanh_32(0.2), 0.202733, epsilon));
+    expect(math.approxEqAbs(f32, atanh_32(0.8923), 1.433099, epsilon));
 }
 
 test "math.atanh_64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f64, atanh_64(0.0), 0.0, epsilon));
-    expect(math.approxEq(f64, atanh_64(0.2), 0.202733, epsilon));
-    expect(math.approxEq(f64, atanh_64(0.8923), 1.433099, epsilon));
+    expect(math.approxEqAbs(f64, atanh_64(0.0), 0.0, epsilon));
+    expect(math.approxEqAbs(f64, atanh_64(0.2), 0.202733, epsilon));
+    expect(math.approxEqAbs(f64, atanh_64(0.8923), 1.433099, epsilon));
 }
 
 test "math.atanh32.special" {

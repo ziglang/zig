@@ -100,27 +100,27 @@ test "math.cosh" {
 test "math.cosh32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, cosh32(0.0), 1.0, epsilon));
-    expect(math.approxEq(f32, cosh32(0.2), 1.020067, epsilon));
-    expect(math.approxEq(f32, cosh32(0.8923), 1.425225, epsilon));
-    expect(math.approxEq(f32, cosh32(1.5), 2.352410, epsilon));
-    expect(math.approxEq(f32, cosh32(-0.0), 1.0, epsilon));
-    expect(math.approxEq(f32, cosh32(-0.2), 1.020067, epsilon));
-    expect(math.approxEq(f32, cosh32(-0.8923), 1.425225, epsilon));
-    expect(math.approxEq(f32, cosh32(-1.5), 2.352410, epsilon));
+    expect(math.approxEqAbs(f32, cosh32(0.0), 1.0, epsilon));
+    expect(math.approxEqAbs(f32, cosh32(0.2), 1.020067, epsilon));
+    expect(math.approxEqAbs(f32, cosh32(0.8923), 1.425225, epsilon));
+    expect(math.approxEqAbs(f32, cosh32(1.5), 2.352410, epsilon));
+    expect(math.approxEqAbs(f32, cosh32(-0.0), 1.0, epsilon));
+    expect(math.approxEqAbs(f32, cosh32(-0.2), 1.020067, epsilon));
+    expect(math.approxEqAbs(f32, cosh32(-0.8923), 1.425225, epsilon));
+    expect(math.approxEqAbs(f32, cosh32(-1.5), 2.352410, epsilon));
 }
 
 test "math.cosh64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f64, cosh64(0.0), 1.0, epsilon));
-    expect(math.approxEq(f64, cosh64(0.2), 1.020067, epsilon));
-    expect(math.approxEq(f64, cosh64(0.8923), 1.425225, epsilon));
-    expect(math.approxEq(f64, cosh64(1.5), 2.352410, epsilon));
-    expect(math.approxEq(f64, cosh64(-0.0), 1.0, epsilon));
-    expect(math.approxEq(f64, cosh64(-0.2), 1.020067, epsilon));
-    expect(math.approxEq(f64, cosh64(-0.8923), 1.425225, epsilon));
-    expect(math.approxEq(f64, cosh64(-1.5), 2.352410, epsilon));
+    expect(math.approxEqAbs(f64, cosh64(0.0), 1.0, epsilon));
+    expect(math.approxEqAbs(f64, cosh64(0.2), 1.020067, epsilon));
+    expect(math.approxEqAbs(f64, cosh64(0.8923), 1.425225, epsilon));
+    expect(math.approxEqAbs(f64, cosh64(1.5), 2.352410, epsilon));
+    expect(math.approxEqAbs(f64, cosh64(-0.0), 1.0, epsilon));
+    expect(math.approxEqAbs(f64, cosh64(-0.2), 1.020067, epsilon));
+    expect(math.approxEqAbs(f64, cosh64(-0.8923), 1.425225, epsilon));
+    expect(math.approxEqAbs(f64, cosh64(-1.5), 2.352410, epsilon));
 }
 
 test "math.cosh32.special" {

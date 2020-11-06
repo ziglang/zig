@@ -22,6 +22,6 @@ test "complex.ccos" {
     const a = Complex(f32).new(5, 3);
     const c = cos(a);
 
-    testing.expect(math.approxEq(f32, c.re, 2.855815, epsilon));
-    testing.expect(math.approxEq(f32, c.im, 9.606383, epsilon));
+    testing.expect(math.approxEqAbs(f32, c.re, 2.855815, epsilon));
+    testing.expect(math.approxEqAbs(f32, c.im, 9.606383, epsilon));
 }

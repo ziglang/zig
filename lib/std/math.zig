@@ -64,6 +64,8 @@ pub const f16_max = 65504;
 pub const f16_epsilon = 0.0009765625; // 2**-10
 pub const f16_toint = 1.0 / f16_epsilon;
 
+pub const epsilon = @import("math/epsilon.zig").epsilon;
+
 pub const nan_u16 = @as(u16, 0x7C01);
 pub const nan_f16 = @bitCast(f16, nan_u16);
 
@@ -104,9 +106,92 @@ pub const nan = @import("math/nan.zig").nan;
 pub const snan = @import("math/nan.zig").snan;
 pub const inf = @import("math/inf.zig").inf;
 
-pub fn approxEq(comptime T: type, x: T, y: T, epsilon: T) bool {
+/// Performs an approximate comparison of two floating point values `x` and `y`.
+/// Returns true if the absolute difference between them is less or equal than
+/// the specified tolerance.
+///
+/// The `tolerance` parameter is the absolute tolerance used when determining if
+/// the two numbers are close enough, a good value for this parameter is a small
+/// multiple of `epsilon(T)`.
+///
+/// Note that this function is recommended for for comparing small numbers
+/// around zero, using `approxEqRel` is suggested otherwise.
+///
+/// NaN values are never considered equal to any value.
+pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
     assert(@typeInfo(T) == .Float);
-    return fabs(x - y) < epsilon;
+    assert(tolerance >= 0);
+
+    // Fast path for equal values (and signed zeros and infinites).
+    if (x == y)
+        return true;
+
+    if (isNan(x) or isNan(y))
+        return false;
+
+    return fabs(x - y) <= tolerance;
+}
+
+/// Performs an approximate comparison of two floating point values `x` and `y`.
+/// Returns true if the absolute difference between them is less or equal than
+/// `max(|x|, |y|) * tolerance`, where `tolerance` is a positive number greater
+/// than zero.
+///
+/// The `tolerance` parameter is the relative tolerance used when determining if
+/// the two numbers are close enough, a good value for this parameter is usually
+/// `sqrt(epsilon(T))`, meaning that the two numbers are considered equal if at
+/// least half of the digits are equal.
+///
+/// Note that for comparisons of small numbers around zero this function won't
+/// give meaningful results, use `approxEqAbs` instead.
+///
+/// NaN values are never considered equal to any value.
+pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
+    assert(@typeInfo(T) == .Float);
+    assert(tolerance > 0);
+
+    // Fast path for equal values (and signed zeros and infinites).
+    if (x == y)
+        return true;
+
+    if (isNan(x) or isNan(y))
+        return false;
+
+    return fabs(x - y) <= max(fabs(x), fabs(y)) * tolerance;
+}
+
+/// Deprecated, use `approxEqAbs` or `approxEqRel`.
+pub const approxEq = approxEqAbs;
+
+test "approxEqAbs and approxEqRel" {
+    inline for ([_]type{ f16, f32, f64, f128 }) |T| {
+        const eps_value = comptime epsilon(T);
+        const sqrt_eps_value = comptime sqrt(eps_value);
+        const nan_value = comptime nan(T);
+        const inf_value = comptime inf(T);
+        const min_value: T = switch (T) {
+            f16 => f16_min,
+            f32 => f32_min,
+            f64 => f64_min,
+            f128 => f128_min,
+            else => unreachable,
+        };
+
+        testing.expect(approxEqAbs(T, 0.0, 0.0, eps_value));
+        testing.expect(approxEqAbs(T, -0.0, -0.0, eps_value));
+        testing.expect(approxEqAbs(T, 0.0, -0.0, eps_value));
+        testing.expect(approxEqRel(T, 1.0, 1.0, sqrt_eps_value));
+        testing.expect(!approxEqRel(T, 1.0, 0.0, sqrt_eps_value));
+        testing.expect(!approxEqAbs(T, 1.0 + 2 * epsilon(T), 1.0, eps_value));
+        testing.expect(approxEqAbs(T, 1.0 + 1 * epsilon(T), 1.0, eps_value));
+        testing.expect(!approxEqRel(T, 1.0, nan_value, sqrt_eps_value));
+        testing.expect(!approxEqRel(T, nan_value, nan_value, sqrt_eps_value));
+        testing.expect(approxEqRel(T, inf_value, inf_value, sqrt_eps_value));
+        testing.expect(approxEqRel(T, min_value, min_value, sqrt_eps_value));
+        testing.expect(approxEqRel(T, -min_value, -min_value, sqrt_eps_value));
+        testing.expect(approxEqAbs(T, min_value, 0.0, eps_value * 2));
+        testing.expect(approxEqAbs(T, -min_value, 0.0, eps_value * 2));
+    }
 }
 
 pub fn doNotOptimizeAway(value: anytype) void {

@@ -224,21 +224,21 @@ test "math.atan" {
 test "math.atan32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, atan32(0.2), 0.197396, epsilon));
-    expect(math.approxEq(f32, atan32(-0.2), -0.197396, epsilon));
-    expect(math.approxEq(f32, atan32(0.3434), 0.330783, epsilon));
-    expect(math.approxEq(f32, atan32(0.8923), 0.728545, epsilon));
-    expect(math.approxEq(f32, atan32(1.5), 0.982794, epsilon));
+    expect(math.approxEqAbs(f32, atan32(0.2), 0.197396, epsilon));
+    expect(math.approxEqAbs(f32, atan32(-0.2), -0.197396, epsilon));
+    expect(math.approxEqAbs(f32, atan32(0.3434), 0.330783, epsilon));
+    expect(math.approxEqAbs(f32, atan32(0.8923), 0.728545, epsilon));
+    expect(math.approxEqAbs(f32, atan32(1.5), 0.982794, epsilon));
 }
 
 test "math.atan64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f64, atan64(0.2), 0.197396, epsilon));
-    expect(math.approxEq(f64, atan64(-0.2), -0.197396, epsilon));
-    expect(math.approxEq(f64, atan64(0.3434), 0.330783, epsilon));
-    expect(math.approxEq(f64, atan64(0.8923), 0.728545, epsilon));
-    expect(math.approxEq(f64, atan64(1.5), 0.982794, epsilon));
+    expect(math.approxEqAbs(f64, atan64(0.2), 0.197396, epsilon));
+    expect(math.approxEqAbs(f64, atan64(-0.2), -0.197396, epsilon));
+    expect(math.approxEqAbs(f64, atan64(0.3434), 0.330783, epsilon));
+    expect(math.approxEqAbs(f64, atan64(0.8923), 0.728545, epsilon));
+    expect(math.approxEqAbs(f64, atan64(1.5), 0.982794, epsilon));
 }
 
 test "math.atan32.special" {
@@ -246,8 +246,8 @@ test "math.atan32.special" {
 
     expect(atan32(0.0) == 0.0);
     expect(atan32(-0.0) == -0.0);
-    expect(math.approxEq(f32, atan32(math.inf(f32)), math.pi / 2.0, epsilon));
-    expect(math.approxEq(f32, atan32(-math.inf(f32)), -math.pi / 2.0, epsilon));
+    expect(math.approxEqAbs(f32, atan32(math.inf(f32)), math.pi / 2.0, epsilon));
+    expect(math.approxEqAbs(f32, atan32(-math.inf(f32)), -math.pi / 2.0, epsilon));
 }
 
 test "math.atan64.special" {
@@ -255,6 +255,6 @@ test "math.atan64.special" {
 
     expect(atan64(0.0) == 0.0);
     expect(atan64(-0.0) == -0.0);
-    expect(math.approxEq(f64, atan64(math.inf(f64)), math.pi / 2.0, epsilon));
-    expect(math.approxEq(f64, atan64(-math.inf(f64)), -math.pi / 2.0, epsilon));
+    expect(math.approxEqAbs(f64, atan64(math.inf(f64)), math.pi / 2.0, epsilon));
+    expect(math.approxEqAbs(f64, atan64(-math.inf(f64)), -math.pi / 2.0, epsilon));
 }

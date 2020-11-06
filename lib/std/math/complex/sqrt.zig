@@ -138,14 +138,14 @@ test "complex.csqrt32" {
     const a = Complex(f32).new(5, 3);
     const c = sqrt(a);
 
-    testing.expect(math.approxEq(f32, c.re, 2.327117, epsilon));
-    testing.expect(math.approxEq(f32, c.im, 0.644574, epsilon));
+    testing.expect(math.approxEqAbs(f32, c.re, 2.327117, epsilon));
+    testing.expect(math.approxEqAbs(f32, c.im, 0.644574, epsilon));
 }
 
 test "complex.csqrt64" {
     const a = Complex(f64).new(5, 3);
     const c = sqrt(a);
 
-    testing.expect(math.approxEq(f64, c.re, 2.3271175190399496, epsilon));
-    testing.expect(math.approxEq(f64, c.im, 0.6445742373246469, epsilon));
+    testing.expect(math.approxEqAbs(f64, c.re, 2.3271175190399496, epsilon));
+    testing.expect(math.approxEqAbs(f64, c.im, 0.6445742373246469, epsilon));
 }

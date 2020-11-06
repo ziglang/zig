@@ -133,22 +133,22 @@ test "math.cbrt32" {
     const epsilon = 0.000001;
 
     expect(cbrt32(0.0) == 0.0);
-    expect(math.approxEq(f32, cbrt32(0.2), 0.584804, epsilon));
-    expect(math.approxEq(f32, cbrt32(0.8923), 0.962728, epsilon));
-    expect(math.approxEq(f32, cbrt32(1.5), 1.144714, epsilon));
-    expect(math.approxEq(f32, cbrt32(37.45), 3.345676, epsilon));
-    expect(math.approxEq(f32, cbrt32(123123.234375), 49.748501, epsilon));
+    expect(math.approxEqAbs(f32, cbrt32(0.2), 0.584804, epsilon));
+    expect(math.approxEqAbs(f32, cbrt32(0.8923), 0.962728, epsilon));
+    expect(math.approxEqAbs(f32, cbrt32(1.5), 1.144714, epsilon));
+    expect(math.approxEqAbs(f32, cbrt32(37.45), 3.345676, epsilon));
+    expect(math.approxEqAbs(f32, cbrt32(123123.234375), 49.748501, epsilon));
 }
 
 test "math.cbrt64" {
     const epsilon = 0.000001;
 
     expect(cbrt64(0.0) == 0.0);
-    expect(math.approxEq(f64, cbrt64(0.2), 0.584804, epsilon));
-    expect(math.approxEq(f64, cbrt64(0.8923), 0.962728, epsilon));
-    expect(math.approxEq(f64, cbrt64(1.5), 1.144714, epsilon));
-    expect(math.approxEq(f64, cbrt64(37.45), 3.345676, epsilon));
-    expect(math.approxEq(f64, cbrt64(123123.234375), 49.748501, epsilon));
+    expect(math.approxEqAbs(f64, cbrt64(0.2), 0.584804, epsilon));
+    expect(math.approxEqAbs(f64, cbrt64(0.8923), 0.962728, epsilon));
+    expect(math.approxEqAbs(f64, cbrt64(1.5), 1.144714, epsilon));
+    expect(math.approxEqAbs(f64, cbrt64(37.45), 3.345676, epsilon));
+    expect(math.approxEqAbs(f64, cbrt64(123123.234375), 49.748501, epsilon));
 }
 
 test "math.cbrt.special" {

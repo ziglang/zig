@@ -73,19 +73,19 @@ test "math.acosh" {
 test "math.acosh32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, acosh32(1.5), 0.962424, epsilon));
-    expect(math.approxEq(f32, acosh32(37.45), 4.315976, epsilon));
-    expect(math.approxEq(f32, acosh32(89.123), 5.183133, epsilon));
-    expect(math.approxEq(f32, acosh32(123123.234375), 12.414088, epsilon));
+    expect(math.approxEqAbs(f32, acosh32(1.5), 0.962424, epsilon));
+    expect(math.approxEqAbs(f32, acosh32(37.45), 4.315976, epsilon));
+    expect(math.approxEqAbs(f32, acosh32(89.123), 5.183133, epsilon));
+    expect(math.approxEqAbs(f32, acosh32(123123.234375), 12.414088, epsilon));
 }
 
 test "math.acosh64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f64, acosh64(1.5), 0.962424, epsilon));
-    expect(math.approxEq(f64, acosh64(37.45), 4.315976, epsilon));
-    expect(math.approxEq(f64, acosh64(89.123), 5.183133, epsilon));
-    expect(math.approxEq(f64, acosh64(123123.234375), 12.414088, epsilon));
+    expect(math.approxEqAbs(f64, acosh64(1.5), 0.962424, epsilon));
+    expect(math.approxEqAbs(f64, acosh64(37.45), 4.315976, epsilon));
+    expect(math.approxEqAbs(f64, acosh64(89.123), 5.183133, epsilon));
+    expect(math.approxEqAbs(f64, acosh64(123123.234375), 12.414088, epsilon));
 }
 
 test "math.acosh32.special" {

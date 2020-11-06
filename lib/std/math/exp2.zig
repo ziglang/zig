@@ -434,19 +434,19 @@ test "math.exp2_32" {
     const epsilon = 0.000001;
 
     expect(exp2_32(0.0) == 1.0);
-    expect(math.approxEq(f32, exp2_32(0.2), 1.148698, epsilon));
-    expect(math.approxEq(f32, exp2_32(0.8923), 1.856133, epsilon));
-    expect(math.approxEq(f32, exp2_32(1.5), 2.828427, epsilon));
-    expect(math.approxEq(f32, exp2_32(37.45), 187747237888, epsilon));
+    expect(math.approxEqAbs(f32, exp2_32(0.2), 1.148698, epsilon));
+    expect(math.approxEqAbs(f32, exp2_32(0.8923), 1.856133, epsilon));
+    expect(math.approxEqAbs(f32, exp2_32(1.5), 2.828427, epsilon));
+    expect(math.approxEqAbs(f32, exp2_32(37.45), 187747237888, epsilon));
 }
 
 test "math.exp2_64" {
     const epsilon = 0.000001;
 
     expect(exp2_64(0.0) == 1.0);
-    expect(math.approxEq(f64, exp2_64(0.2), 1.148698, epsilon));
-    expect(math.approxEq(f64, exp2_64(0.8923), 1.856133, epsilon));
-    expect(math.approxEq(f64, exp2_64(1.5), 2.828427, epsilon));
+    expect(math.approxEqAbs(f64, exp2_64(0.2), 1.148698, epsilon));
+    expect(math.approxEqAbs(f64, exp2_64(0.8923), 1.856133, epsilon));
+    expect(math.approxEqAbs(f64, exp2_64(1.5), 2.828427, epsilon));
 }
 
 test "math.exp2_32.special" {

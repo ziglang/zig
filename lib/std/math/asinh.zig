@@ -101,25 +101,25 @@ test "math.asinh" {
 test "math.asinh32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, asinh32(0.0), 0.0, epsilon));
-    expect(math.approxEq(f32, asinh32(0.2), 0.198690, epsilon));
-    expect(math.approxEq(f32, asinh32(0.8923), 0.803133, epsilon));
-    expect(math.approxEq(f32, asinh32(1.5), 1.194763, epsilon));
-    expect(math.approxEq(f32, asinh32(37.45), 4.316332, epsilon));
-    expect(math.approxEq(f32, asinh32(89.123), 5.183196, epsilon));
-    expect(math.approxEq(f32, asinh32(123123.234375), 12.414088, epsilon));
+    expect(math.approxEqAbs(f32, asinh32(0.0), 0.0, epsilon));
+    expect(math.approxEqAbs(f32, asinh32(0.2), 0.198690, epsilon));
+    expect(math.approxEqAbs(f32, asinh32(0.8923), 0.803133, epsilon));
+    expect(math.approxEqAbs(f32, asinh32(1.5), 1.194763, epsilon));
+    expect(math.approxEqAbs(f32, asinh32(37.45), 4.316332, epsilon));
+    expect(math.approxEqAbs(f32, asinh32(89.123), 5.183196, epsilon));
+    expect(math.approxEqAbs(f32, asinh32(123123.234375), 12.414088, epsilon));
 }
 
 test "math.asinh64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f64, asinh64(0.0), 0.0, epsilon));
-    expect(math.approxEq(f64, asinh64(0.2), 0.198690, epsilon));
-    expect(math.approxEq(f64, asinh64(0.8923), 0.803133, epsilon));
-    expect(math.approxEq(f64, asinh64(1.5), 1.194763, epsilon));
-    expect(math.approxEq(f64, asinh64(37.45), 4.316332, epsilon));
-    expect(math.approxEq(f64, asinh64(89.123), 5.183196, epsilon));
-    expect(math.approxEq(f64, asinh64(123123.234375), 12.414088, epsilon));
+    expect(math.approxEqAbs(f64, asinh64(0.0), 0.0, epsilon));
+    expect(math.approxEqAbs(f64, asinh64(0.2), 0.198690, epsilon));
+    expect(math.approxEqAbs(f64, asinh64(0.8923), 0.803133, epsilon));
+    expect(math.approxEqAbs(f64, asinh64(1.5), 1.194763, epsilon));
+    expect(math.approxEqAbs(f64, asinh64(37.45), 4.316332, epsilon));
+    expect(math.approxEqAbs(f64, asinh64(89.123), 5.183196, epsilon));
+    expect(math.approxEqAbs(f64, asinh64(123123.234375), 12.414088, epsilon));
 }
 
 test "math.asinh32.special" {
