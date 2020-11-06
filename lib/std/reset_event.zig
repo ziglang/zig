@@ -359,7 +359,12 @@ const AtomicEvent = struct {
     };
 };
 
-test "std.ResetEvent" {
+test "ResetEvent" {
+    if (std.Target.current.os.tag == .macos) {
+        // https://github.com/ziglang/zig/issues/7009
+        return error.SkipZigTest;
+    }
+
     var event = ResetEvent.init();
     defer event.deinit();
 
