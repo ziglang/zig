@@ -1237,7 +1237,6 @@ pub const LibExeObjStep = struct {
     packages: ArrayList(Pkg),
     build_options_contents: std.ArrayList(u8),
     build_options_artifact_args: std.ArrayList(BuildOptionArtifactArg),
-    system_linker_hack: bool = false,
 
     object_src: []const u8,
 
@@ -1898,10 +1897,6 @@ pub const LibExeObjStep = struct {
         self.exec_cmd_args = args;
     }
 
-    pub fn enableSystemLinkerHack(self: *LibExeObjStep) void {
-        self.system_linker_hack = true;
-    }
-
     fn linkLibraryOrObject(self: *LibExeObjStep, other: *LibExeObjStep) void {
         self.step.dependOn(&other.step);
         self.link_objects.append(LinkObject{ .OtherStep = other }) catch unreachable;
@@ -2281,10 +2276,6 @@ pub const LibExeObjStep = struct {
                 zig_args.append("-framework") catch unreachable;
                 zig_args.append(entry.key) catch unreachable;
             }
-        }
-
-        if (self.system_linker_hack) {
-            try zig_args.append("--system-linker-hack");
         }
 
         if (self.valgrind_support) |valgrind_support| {
