@@ -1589,6 +1589,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\extern int c;
         \\#define BASIC(c) (c*2)
         \\#define FOO(L,b) (L + b)
+        \\#define BAR() (c*c)
     , &[_][]const u8{
         \\pub extern var c: c_int;
         ,
@@ -1598,6 +1599,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         ,
         \\pub inline fn FOO(L: anytype, b: anytype) @TypeOf(L + b) {
         \\    return L + b;
+        \\}
+        ,
+        \\pub inline fn BAR() @TypeOf(c * c) {
+        \\    return c * c;
         \\}
     });
 
