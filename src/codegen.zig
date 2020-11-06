@@ -2489,6 +2489,25 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     },
                     else => return self.fail(src, "TODO implement getSetReg for arm {}", .{mcv}),
                 },
+                .aarch64 => switch (mcv) {
+                    .dead => unreachable,
+                    .ptr_stack_offset => unreachable,
+                    .ptr_embedded_in_code => unreachable,
+                    .unreach, .none => return, // Nothing to do.
+                    .undef => {
+                        if (!self.wantSafety())
+                            return; // The already existing value will do just fine.
+                        // Write the debug undefined value.
+                        switch (reg.size()) {
+                            32 => return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaa }),
+                            64 => return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
+                            else => unreachable, // unexpected register size
+                        }
+                    },
+                    .immediate => return self.fail(src, "TODO implement genSetReg for aarch64 {}", .{mcv}),
+                    .register => return self.fail(src, "TODO implement genSetReg for aarch64 {}", .{mcv}),
+                    else => return self.fail(src, "TODO implement genSetReg for aarch64 {}", .{mcv}),
+                },
                 .riscv64 => switch (mcv) {
                     .dead => unreachable,
                     .ptr_stack_offset => unreachable,
