@@ -231,7 +231,12 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 const start_ptr = @ptrCast([*]u8, bucket) + bucketStackFramesStart(size_class);
                 const addr = start_ptr + one_trace_size * traces_per_slot * slot_index +
                     @enumToInt(trace_kind) * @as(usize, one_trace_size);
-                return @ptrCast(*[stack_n]usize, @alignCast(@alignOf(usize), addr));
+                if (stack_n > 0) {
+                    return @ptrCast(*[stack_n]usize, @alignCast(@alignOf(usize), addr));
+                } else {
+                    comptime var ret = [0]usize {};
+                    return &ret;
+                }
             }
 
             fn captureStackTrace(

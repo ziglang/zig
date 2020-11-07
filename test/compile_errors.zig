@@ -1237,14 +1237,37 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:11: error: use of undefined value here causes undefined behavior",
     });
 
-    cases.add("comptime ptrcast of zero-sized type",
-        \\fn foo() void {
-        \\    const node: struct {} = undefined;
-        \\    const vla_ptr = @ptrCast([*]const u8, &node);
+    cases.add("ptrcast pointers with different bit sizes",
+        \\var num: i32 = 10;
+        \\var empty: void = {};
+        \\var normal_sized_ptr: *i32 = &num;
+        \\var zero_sized_ptr: *void = &empty;
+        \\var one_bit_ptr: ?*void = &empty;
+        \\export fn normalToZero() void {
+        \\    var x = @ptrCast(*void, normal_sized_ptr);
         \\}
-        \\comptime { foo(); }
+        \\export fn normalToOne() void {
+        \\    var x = @ptrCast(?*void, normal_sized_ptr);
+        \\}
+        \\export fn zeroToNormal() void {
+        \\    var x = @ptrCast(*i32, zero_sized_ptr);
+        \\}
+        \\export fn zeroToOne() void {
+        \\    var x = @ptrCast(?*void, zero_sized_ptr);
+        \\}
+        \\export fn oneToNormal() void {
+        \\    var x = @ptrCast(*i32, one_bit_ptr);
+        \\}
+        \\export fn oneToZero() void {
+        \\    var x = @ptrCast(*void, one_bit_ptr);
+        \\}
     , &[_][]const u8{
-        "tmp.zig:3:21: error: '*const struct:2:17' and '[*]const u8' do not have the same in-memory representation",
+        "tmp.zig:7:13: error: '*i32' and '*void' do not have the same in-memory representation",
+        "tmp.zig:10:13: error: '*i32' and '?*void' do not have the same in-memory representation",
+        "tmp.zig:13:13: error: '*void' and '*i32' do not have the same in-memory representation",
+        "tmp.zig:16:13: error: '*void' and '?*void' do not have the same in-memory representation",
+        "tmp.zig:19:13: error: '?*void' and '*i32' do not have the same in-memory representation",
+        "tmp.zig:22:13: error: '?*void' and '*void' do not have the same in-memory representation",
     });
 
     cases.add("slice sentinel mismatch",
@@ -3145,8 +3168,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     , &[_][]const u8{
         "tmp.zig:3:15: error: '*u0' and '?*u0' do not have the same in-memory representation",
-        "tmp.zig:3:31: note: '*u0' has no in-memory bits",
-        "tmp.zig:3:24: note: '?*u0' has in-memory bits",
+        "tmp.zig:3:31: note: '*u0' has a pointer size of 0 bits",
+        "tmp.zig:3:24: note: '?*u0' has a pointer size of 1 bit",
     });
 
     cases.add("comparing a non-optional pointer against null",

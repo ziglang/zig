@@ -29850,23 +29850,28 @@ static IrInstGen *ir_analyze_ptr_cast(IrAnalyze *ira, IrInst* source_instr, IrIn
             return ira->codegen->invalid_inst_gen;
     }
 
-    if ((err = type_resolve(ira->codegen, dest_type, ResolveStatusZeroBitsKnown)))
+    if ((err = type_resolve(ira->codegen, dest_type, ResolveStatusSizeKnown)))
         return ira->codegen->invalid_inst_gen;
 
-    if ((err = type_resolve(ira->codegen, src_type, ResolveStatusZeroBitsKnown)))
+    if ((err = type_resolve(ira->codegen, src_type, ResolveStatusSizeKnown)))
         return ira->codegen->invalid_inst_gen;
 
-    if (safety_check_on &&
-        type_has_bits(ira->codegen, dest_type) &&
-        !type_has_bits(ira->codegen, if_slice_ptr_type))
-    {
+    size_t src_size = type_size_bits(ira->codegen, if_slice_ptr_type);
+    size_t dest_size = type_size_bits(ira->codegen, dest_type);
+    if (safety_check_on && src_size != dest_size) {
         ErrorMsg *msg = ir_add_error(ira, source_instr,
             buf_sprintf("'%s' and '%s' do not have the same in-memory representation",
                 buf_ptr(&src_type->name), buf_ptr(&dest_type->name)));
         add_error_note(ira->codegen, msg, ptr_src->source_node,
-                buf_sprintf("'%s' has no in-memory bits", buf_ptr(&src_type->name)));
+                buf_sprintf("'%s' has a pointer size of %zu %s",
+                            buf_ptr(&src_type->name),
+                            src_size,
+                            src_size == 1? "bit" : "bits"));
         add_error_note(ira->codegen, msg, dest_type_src->source_node,
-                buf_sprintf("'%s' has in-memory bits", buf_ptr(&dest_type->name)));
+                buf_sprintf("'%s' has a pointer size of %zu %s",
+                            buf_ptr(&dest_type->name),
+                            dest_size,
+                            dest_size == 1? "bit" : "bits"));
         return ira->codegen->invalid_inst_gen;
     }
 
