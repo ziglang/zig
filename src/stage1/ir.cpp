@@ -22713,6 +22713,16 @@ static IrInstGen *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name
                 if (type_is_invalid(union_val->type))
                     return ira->codegen->invalid_inst_gen;
 
+                // Reject undefined values unless we're intializing the union:
+                // a undefined union means also the tag is undefined, accessing
+                // its payload slot is UB.
+                const UndefAllowed allow_undef = initializing ? UndefOk : UndefBad;
+                if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec,
+                                source_instr->source_node, union_val, allow_undef)))
+                {
+                    return ira->codegen->invalid_inst_gen;
+                }
+
                 if (initializing) {
                     ZigValue *payload_val = ira->codegen->pass1_arena->create<ZigValue>();
                     payload_val->special = ConstValSpecialUndef;
@@ -22737,6 +22747,7 @@ static IrInstGen *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name
                 }
 
                 ZigValue *payload_val = union_val->data.x_union.payload;
+                assert(payload_val);
 
                 IrInstGen *result;
                 if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
