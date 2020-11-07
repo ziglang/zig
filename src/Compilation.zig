@@ -959,11 +959,13 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
                 try comp.work_queue.writeItem(.{ .libcompiler_rt = {} });
             }
         }
-        if (needs_libc and !comp.bin_file.options.link_libc and build_options.is_stage1) {
-            try comp.work_queue.writeItem(.{ .zig_libc = {} });
+        if (needs_libc and build_options.is_stage1) {
             // MinGW provides no libssp, use our own implementation.
             if (comp.getTarget().isMinGW()) {
                 try comp.work_queue.writeItem(.{ .libssp = {} });
+            }
+            if (!comp.bin_file.options.link_libc) {
+                try comp.work_queue.writeItem(.{ .zig_libc = {} });
             }
         }
     }
