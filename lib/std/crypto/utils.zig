@@ -26,12 +26,7 @@ pub fn timingSafeEql(comptime T: type, a: T, b: T) bool {
             if (@typeInfo(C) != .Int) {
                 @compileError("Elements to be compared must be integers");
             }
-            const z = a ^ b;
-            var acc = @as(C, 0);
-            var i: usize = 0;
-            while (i < info.len) : (i += 1) {
-                acc |= z[i];
-            }
+            const acc = @reduce(.Or, a ^ b);
             comptime const s = @typeInfo(C).Int.bits;
             comptime const Cu = std.meta.Int(.unsigned, s);
             comptime const Cext = std.meta.Int(.unsigned, s + 1);
