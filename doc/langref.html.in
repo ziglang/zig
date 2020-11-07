@@ -8215,8 +8215,7 @@ test "vector @splat" {
       <pre>{#syntax#}@reduce(comptime op: builtin.ReduceOp, value: anytype) std.meta.Child(value){#endsyntax#}</pre>
       <p>
       Transforms a {#link|vector|Vectors#} into a scalar value by performing a
-      sequential horizontal reduction of its elements using the specified
-      specified operator {#syntax#}op{#endsyntax#}.
+      sequential horizontal reduction of its elements using the specified operator {#syntax#}op{#endsyntax#}.
       </p>
       <p>
       Not every operator is available for every vector element type:
