@@ -954,8 +954,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
 
         if (needs_compiler_rt) {
             if (is_static_lib) {
-                // @TODO
-                std.debug.print("ADDED COMPILER RT OBJ TO QUEUE\n", .{});
                 try comp.work_queue.writeItem(.{ .compiler_rt_obj = {} });
             } else {
                 try comp.work_queue.writeItem(.{ .libcompiler_rt = {} });
