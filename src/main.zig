@@ -1217,7 +1217,7 @@ fn buildOutputType(
                 .link => {
                     output_mode = if (is_shared_lib) .Lib else .Exe;
                     emit_bin = .{ .yes = out_path orelse "a.out" };
-                    enable_cache = true;
+                    enable_cache = false;
                 },
                 .object => {
                     output_mode = .Obj;
