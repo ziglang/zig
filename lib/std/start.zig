@@ -354,13 +354,14 @@ pub fn callMain() u8 {
 }
 
 pub fn call_wWinMain() std.os.windows.INT {
-    const hInstance = @ptrCast(std.os.windows.HINSTANCE, std.os.windows.kernel32.GetModuleHandleW(null).?);
-    const hPrevInstance: ?std.os.windows.HINSTANCE = null; // MSDN: "This parameter is always NULL"
+    const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).Fn.args[0].arg_type.?;
+    const hInstance = @ptrCast(MAIN_HINSTANCE, std.os.windows.kernel32.GetModuleHandleW(null).?);
     const lpCmdLine = std.os.windows.kernel32.GetCommandLineW();
 
     // There's no (documented) way to get the nCmdShow parameter, so we're
     // using this fairly standard default.
     const nCmdShow = std.os.windows.user32.SW_SHOW;
 
-    return root.wWinMain(hInstance, hPrevInstance, lpCmdLine, nCmdShow);
+    // second parameter hPrevInstance, MSDN: "This parameter is always NULL"
+    return root.wWinMain(hInstance, null, lpCmdLine, nCmdShow);
 }
