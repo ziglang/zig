@@ -4592,20 +4592,20 @@ ZigType *get_src_ptr_type(ZigType *type) {
 Error get_codegen_ptr_type(CodeGen *g, ZigType *type, ZigType **result) {
     Error err;
 
-    ZigType *ty = get_src_ptr_type(type);
-    if (ty == nullptr) {
+    ZigType *ptr_type = get_src_ptr_type(type);
+    if (ptr_type == nullptr) {
         *result = nullptr;
         return ErrorNone;
     }
 
     bool has_bits;
-    if ((err = type_has_bits2(g, ty, &has_bits))) return err;
+    if ((err = type_has_bits2(g, type, &has_bits))) return err;
     if (!has_bits) {
         *result = nullptr;
         return ErrorNone;
     }
 
-    *result = ty;
+    *result = ptr_type;
     return ErrorNone;
 }
 

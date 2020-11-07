@@ -537,6 +537,19 @@ test "equality compare fn ptrs" {
     expect(a == a);
 }
 
+test "equality compare optional zero-sized pointers" {
+    var x: u0 = 0;
+    var y: u0 = 0;
+
+    var x_opt_ptr: ?*u0 = &x;
+    var y_ptr: *u0 = &y;
+    var null_u0_ptr: ?*u0 = null;
+
+    expect(x_opt_ptr == y_ptr);
+    expect(!(x_opt_ptr != y_ptr));
+    expect(x_opt_ptr != null_u0_ptr and y_ptr != null_u0_ptr);
+}
+
 test "self reference through fn ptr field" {
     const S = struct {
         const A = struct {
