@@ -736,7 +736,7 @@ test "WasmPageAllocator internals" {
     if (comptime std.Target.current.isWasm()) {
         const conventional_memsize = WasmPageAllocator.conventional.totalPages() * mem.page_size;
         const initial = try page_allocator.alloc(u8, mem.page_size);
-        std.debug.assert(@ptrToInt(initial.ptr) < conventional_memsize); // If this isn't conventional, the rest of these tests don't make sense. Also we have a serious memory leak in the test suite.
+        testing.expect(@ptrToInt(initial.ptr) < conventional_memsize); // If this isn't conventional, the rest of these tests don't make sense. Also we have a serious memory leak in the test suite.
 
         var inplace = try page_allocator.realloc(initial, 1);
         testing.expectEqual(initial.ptr, inplace.ptr);
