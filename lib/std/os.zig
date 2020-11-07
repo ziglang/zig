@@ -2309,13 +2309,8 @@ pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
         @compileError("chdir is not supported in WASI");
     } else if (builtin.os.tag == .windows) {
         windows.SetCurrentDirectory(dir_path) catch |err| switch (err) {
-            error.InvalidUtf8 => return error.InvalidUtf8,
-            error.NameTooLong => return error.NameTooLong,
-            error.FileNotFound => return error.FileNotFound,
-            error.NotDir => return error.NotDir,
             error.NoDevice => return error.FileSystem,
-            error.AccessDenied => return error.AccessDenied,
-            error.Unexpected => return error.Unexpected,
+            else => |e| return e,
         };
     } else {
         const dir_path_c = try toPosixPath(dir_path);
