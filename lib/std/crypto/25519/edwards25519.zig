@@ -4,7 +4,9 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 const std = @import("std");
+const debug = std.debug;
 const fmt = std.fmt;
+const mem = std.mem;
 
 /// Group operations over Edwards25519.
 pub const Edwards25519 = struct {
@@ -250,7 +252,149 @@ pub const Edwards25519 = struct {
         scalar.clamp(&t);
         return mul(p, t);
     }
+
+    // montgomery -- recover y = sqrt(x^3 + A*x^2 + x)
+    fn xmontToYmont(x: Fe) !Fe {
+        var x2 = x.sq();
+        const x3 = x.mul(x2);
+        x2 = x2.mul32(Fe.edwards25519a_32);
+        return x.add(x2).add(x3).sqrt();
+    }
+
+    // montgomery affine coordinates to edwards extended coordinates
+    fn montToEd(x: Fe, y: Fe) Edwards25519 {
+        const x_plus_one = x.add(Fe.one);
+        const x_minus_one = x.sub(Fe.one);
+        const x_plus_one_y_inv = x_plus_one.mul(y).invert(); // 1/((x+1)*y)
+
+        // xed = sqrt(-A-2)*x/y
+        const xed = x.mul(Fe.edwards25519sqrtam2).mul(x_plus_one_y_inv).mul(x_plus_one);
+
+        // yed = (x-1)/(x+1) or 1 if the denominator is 0
+        var yed = x_plus_one_y_inv.mul(y).mul(x_minus_one);
+        yed.cMov(Fe.one, @boolToInt(x_plus_one_y_inv.isZero()));
+
+        return Edwards25519{
+            .x = xed,
+            .y = yed,
+            .z = Fe.one,
+            .t = xed.mul(yed),
+        };
+    }
+
+    /// Elligator2 map - Returns Montgomery affine coordinates
+    pub fn elligator2(r: Fe) struct { x: Fe, y: Fe, not_square: bool } {
+        const rr2 = r.sq2().add(Fe.one).invert();
+        var x = rr2.mul32(Fe.edwards25519a_32).neg(); // x=x1
+        var x2 = x.sq();
+        const x3 = x2.mul(x);
+        x2 = x2.mul32(Fe.edwards25519a_32); // x2 = A*x1^2
+        const gx1 = x3.add(x).add(x2); // gx1 = x1^3 + A*x1^2 + x1
+        const not_square = !gx1.isSquare();
+
+        // gx1 not a square => x = -x1-A
+        x.cMov(x.neg(), @boolToInt(not_square));
+        x2 = Fe.zero;
+        x2.cMov(Fe.edwards25519a, @boolToInt(not_square));
+        x = x.sub(x2);
+
+        // We have y = sqrt(gx1) or sqrt(gx2) with gx2 = gx1*(A+x1)/(-x1)
+        // but it is about as fast to just recompute y from the curve equation.
+        const y = xmontToYmont(x) catch unreachable;
+        return .{ .x = x, .y = y, .not_square = not_square };
+    }
+
+    /// Map a 64-bit hash into an Edwards25519 point
+    pub fn fromHash(h: [64]u8) Edwards25519 {
+        const fe_f = Fe.fromBytes64(h);
+        var elr = elligator2(fe_f);
+
+        const y_sign = elr.not_square;
+        const y_neg = elr.y.neg();
+        elr.y.cMov(y_neg, @boolToInt(elr.y.isNegative()) ^ @boolToInt(y_sign));
+        return montToEd(elr.x, elr.y).clearCofactor();
+    }
+
+    fn stringToPoints(comptime n: usize, ctx: []const u8, s: []const u8) [n]Edwards25519 {
+        debug.assert(n <= 2);
+        const H = std.crypto.hash.sha2.Sha512;
+        const h_l: usize = 48;
+        var xctx = ctx;
+        var hctx: [H.digest_length]u8 = undefined;
+        if (ctx.len > 0xff) {
+            var st = H.init(.{});
+            st.update("H2C-OVERSIZE-DST-");
+            st.update(ctx);
+            st.final(&hctx);
+            xctx = hctx[0..];
+        }
+        const empty_block = [_]u8{0} ** H.block_length;
+        var t = [3]u8{ 0, n * h_l, 0 };
+        var xctx_len_u8 = [1]u8{@intCast(u8, xctx.len)};
+        var st = H.init(.{});
+        st.update(empty_block[0..]);
+        st.update(s);
+        st.update(t[0..]);
+        st.update(xctx);
+        st.update(xctx_len_u8[0..]);
+        var u_0: [H.digest_length]u8 = undefined;
+        st.final(&u_0);
+        var u: [n * H.digest_length]u8 = undefined;
+        var i: usize = 0;
+        while (i < n * H.digest_length) : (i += H.digest_length) {
+            mem.copy(u8, u[i..][0..H.digest_length], u_0[0..]);
+            var j: usize = 0;
+            while (i > 0 and j < H.digest_length) : (j += 1) {
+                u[i + j] ^= u[i + j - H.digest_length];
+            }
+            t[2] += 1;
+            st = H.init(.{});
+            st.update(u[i..][0..H.digest_length]);
+            st.update(t[2..3]);
+            st.update(xctx);
+            st.update(xctx_len_u8[0..]);
+            st.final(u[i..][0..H.digest_length]);
+        }
+        var px: [n]Edwards25519 = undefined;
+        i = 0;
+        while (i < n) : (i += 1) {
+            mem.set(u8, u_0[0 .. H.digest_length - h_l], 0);
+            mem.copy(u8, u_0[H.digest_length - h_l ..][0..h_l], u[i * h_l ..][0..h_l]);
+            px[i] = fromHash(u_0);
+        }
+        return px;
+    }
+
+    /// Hash a context `ctx` and a string `s` into an Edwards25519 point
+    ///
+    /// This function implements the edwards25519_XMD:SHA-512_ELL2_RO_ and edwards25519_XMD:SHA-512_ELL2_NU_
+    /// methods from the "Hashing to Elliptic Curves" standard document.
+    ///
+    /// Although not strictly required by the standard, it is recommended to avoid NUL characters in
+    /// the context in order to be compatible with other implementations.
+    pub fn fromString(comptime random_oracle: bool, ctx: []const u8, s: []const u8) Edwards25519 {
+        if (random_oracle) {
+            const px = stringToPoints(2, ctx, s);
+            return px[0].add(px[1]);
+        } else {
+            return stringToPoints(1, ctx, s)[0];
+        }
+    }
+
+    /// Map a 32 bit uniform bit string into an edwards25519 point
+    pub fn fromUniform(r: [32]u8) Edwards25519 {
+        var s = r;
+        const x_sign = s[31] >> 7;
+        s[31] &= 0x7f;
+        const elr = elligator2(Fe.fromBytes(s));
+        var p = montToEd(elr.x, elr.y);
+        const p_neg = p.neg();
+        p.cMov(p_neg, @boolToInt(p.x.isNegative()) ^ x_sign);
+        return p.clearCofactor();
+    }
 };
+
+const htest = @import("../test.zig");
 
 test "edwards25519 packing/unpacking" {
     const s = [_]u8{170} ++ [_]u8{0} ** 31;
@@ -300,4 +444,23 @@ test "edwards25519 point addition/substraction" {
     std.testing.expectError(error.IdentityElement, r.sub(p).rejectIdentity());
     std.testing.expectError(error.IdentityElement, p.sub(p).rejectIdentity());
     std.testing.expectError(error.IdentityElement, p.sub(q).add(q).sub(p).rejectIdentity());
+}
+
+test "edwards25519 uniform-to-point" {
+    var r = [32]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 };
+    var p = Edwards25519.fromUniform(r);
+    htest.assertEqual("0691eee3cf70a0056df6bfa03120635636581b5c4ea571dfc680f78c7e0b4137", p.toBytes()[0..]);
+
+    r[31] = 0xff;
+    p = Edwards25519.fromUniform(r);
+    htest.assertEqual("f70718e68ef42d90ca1d936bb2d7e159be6c01d8095d39bd70487c82fe5c973a", p.toBytes()[0..]);
+}
+
+// Test vectors from draft-irtf-cfrg-hash-to-curve-10
+test "edwards25519 hash-to-curve operation" {
+    var p = Edwards25519.fromString(true, "QUUX-V01-CS02-with-edwards25519_XMD:SHA-512_ELL2_RO_", "abc");
+    htest.assertEqual("31558a26887f23fb8218f143e69d5f0af2e7831130bd5b432ef23883b895831a", p.toBytes()[0..]);
+
+    p = Edwards25519.fromString(false, "QUUX-V01-CS02-with-edwards25519_XMD:SHA-512_ELL2_NU_", "abc");
+    htest.assertEqual("42fa27c8f5a1ae0aa38bb59d5938e5145622ba5dedd11d11736fa2f9502d73e7", p.toBytes()[0..]);
 }
