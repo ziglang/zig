@@ -666,7 +666,7 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
             .macos,
             .windows,
             => return DebugInfo.init(allocator),
-            else => @compileError("openSelfDebugInfo unsupported for this platform"),
+            else => return error.UnsupportedDebugInfo,
         }
     }
 }
