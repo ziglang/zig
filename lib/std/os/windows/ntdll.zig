@@ -111,3 +111,7 @@ pub extern "NtDll" fn NtWaitForKeyedEvent(
     Alertable: BOOLEAN,
     Timeout: ?*LARGE_INTEGER,
 ) callconv(.Stdcall) NTSTATUS;
+
+pub extern "NtDll" fn RtlSetCurrentDirectory_U(
+    PathName: *UNICODE_STRING
+) callconv(.Stdcall) NTSTATUS;

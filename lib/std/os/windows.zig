@@ -556,29 +556,42 @@ pub fn WriteFile(
 }
 
 pub const SetCurrentDirectoryError = error{
-    PathNotFound,
-    InvalidName,
-    InvalidUtf8,
     NameTooLong,
+    InvalidUtf8,
+    FileNotFound,
     NotDir,
+    AccessDenied,
+    NoDevice,
     Unexpected,
 };
 
 pub fn SetCurrentDirectory(path_name: []const u8) SetCurrentDirectoryError!void {
-    // PATH_MAX_WIDE - 1 as we need to ensure there is space for the null terminator
-    if (path_name.len >= PATH_MAX_WIDE - 1) return error.NameTooLong;
+    var path_space: PathSpace = undefined;
+    path_space.len = try std.unicode.utf8ToUtf16Le(path_space.data[0..], path_name);
+    if (path_space.len > path_space.data.len) return error.NameTooLong;
     
-    var utf16le_buf: [PATH_MAX_WIDE]u16 = undefined;
-    const end = try std.unicode.utf8ToUtf16Le(utf16le_buf[0..], path_name);
-    utf16le_buf[end] = 0;
+    const path_len_bytes = math.cast(u16, path_space.len * 2) catch |err| switch (err) {
+        error.Overflow => return error.NameTooLong,
+    };
     
-    if (kernel32.SetCurrentDirectoryW(@ptrCast([*:0]const u16, &utf16le_buf)) == 0) {
-        switch (kernel32.GetLastError()) {
-            .PATH_NOT_FOUND, .FILE_NOT_FOUND => return error.PathNotFound,
-            .DIRECTORY => return error.NotDir,
-            .INVALID_NAME => return error.InvalidName,
-            else => |err| return unexpectedError(err),
-        }
+    var nt_name = UNICODE_STRING{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        .Buffer = @intToPtr([*]u16, @ptrToInt(&path_space.data)),
+    };
+    
+    const rc = ntdll.RtlSetCurrentDirectory_U(&nt_name);
+    switch (rc) {
+        .SUCCESS => {},
+        .OBJECT_NAME_INVALID => unreachable,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .NO_MEDIA_IN_DEVICE => return error.NoDevice,
+        .INVALID_PARAMETER => unreachable,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .OBJECT_PATH_SYNTAX_BAD => unreachable,
+        .NOT_A_DIRECTORY => return error.NotDir,
+        else => return unexpectedStatus(rc),
     }
 }
 
