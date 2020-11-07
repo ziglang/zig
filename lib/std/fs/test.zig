@@ -716,6 +716,11 @@ test "open file with exclusive lock twice, make sure it waits" {
         return error.SkipZigTest;
     }
 
+    if (std.Target.current.os.tag == .windows) {
+        // https://github.com/ziglang/zig/issues/7010
+        return error.SkipZigTest;
+    }
+
     const filename = "file_lock_test.txt";
 
     var tmp = tmpDir(.{});
