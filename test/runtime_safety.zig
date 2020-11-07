@@ -89,7 +89,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const std = @import("std");
         \\const V = @import("std").meta.Vector;
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
-        \\    if (std.mem.eql(u8, message, "attempt to cast negative value to unsigned integer")) {
+        \\    if (std.mem.eql(u8, message, "integer cast truncated bits")) {
         \\        std.process.exit(126); // good
         \\    }
         \\    std.process.exit(0); // test failed
