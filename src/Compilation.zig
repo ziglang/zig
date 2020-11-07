@@ -952,14 +952,14 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             (comp.getTarget().isWasm() and comp.bin_file.options.output_mode != .Obj);
         const needs_compiler_rt = options.bundle_compiler_rt or needs_libc;
 
-        if (needs_compiler_rt) {
+        if (needs_compiler_rt and build_options.is_stage1) {
             if (is_static_lib) {
                 try comp.work_queue.writeItem(.{ .compiler_rt_obj = {} });
             } else {
                 try comp.work_queue.writeItem(.{ .libcompiler_rt = {} });
             }
         }
-        if (needs_libc and !comp.bin_file.options.link_libc) {
+        if (needs_libc and !comp.bin_file.options.link_libc and build_options.is_stage1) {
             try comp.work_queue.writeItem(.{ .zig_libc = {} });
             // MinGW provides no libssp, use our own implementation.
             if (comp.getTarget().isMinGW()) {
