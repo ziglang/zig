@@ -315,6 +315,7 @@ const usage_build_generic =
     \\  --subsystem [subsystem]        (windows) /SUBSYSTEM:<subsystem> to the linker\n"
     \\  --stack [size]                 Override default stack size
     \\  --image-base [addr]            Set base address for executable image
+    \\  --bundle-compiler-rt           Always include compiler-rt symbols in output
     \\  -framework [name]              (darwin) link against framework
     \\  -F[dir]                        (darwin) add search path for frameworks
     \\
@@ -472,6 +473,7 @@ fn buildOutputType(
     var test_evented_io = false;
     var stack_size_override: ?u64 = null;
     var image_base_override: ?u64 = null;
+    var bundle_compiler_rt = false;
     var use_llvm: ?bool = null;
     var use_lld: ?bool = null;
     var use_clang: ?bool = null;
@@ -774,6 +776,8 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
                         override_lib_dir = args[i];
+                    } else if (mem.eql(u8, arg, "--bundle-compiler-rt")) {
+                        bundle_compiler_rt = true;
                     } else if (mem.eql(u8, arg, "-feach-lib-rpath")) {
                         each_lib_rpath = true;
                     } else if (mem.eql(u8, arg, "-fno-each-lib-rpath")) {
@@ -1654,6 +1658,7 @@ fn buildOutputType(
         .link_emit_relocs = link_emit_relocs,
         .stack_size_override = stack_size_override,
         .image_base_override = image_base_override,
+        .bundle_compiler_rt = bundle_compiler_rt,
         .strip = strip,
         .single_threaded = single_threaded,
         .function_sections = function_sections,

@@ -46,6 +46,7 @@ pub const Options = struct {
     entry_addr: ?u64 = null,
     stack_size_override: ?u64,
     image_base_override: ?u64,
+    bundle_compiler_rt: bool,
     /// Set to `true` to omit debug info.
     strip: bool,
     /// If this is true then this link code is responsible for outputting an object
@@ -492,7 +493,8 @@ pub const File = struct {
         var object_files = std.ArrayList([*:0]const u8).init(base.allocator);
         defer object_files.deinit();
 
-        try object_files.ensureCapacity(base.options.objects.len + comp.c_object_table.items().len + 1);
+        try object_files.ensureCapacity(base.options.objects.len + comp.c_object_table.items().len +
+            1 + @boolToInt(base.options.bundle_compiler_rt));
         for (base.options.objects) |obj_path| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, obj_path));
         }
@@ -501,6 +503,9 @@ pub const File = struct {
         }
         if (module_obj_path) |p| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));
+        }
+        if (base.options.bundle_compiler_rt) {
+            object_files.appendAssumeCapacity(try arena.dupeZ(u8, comp.compiler_rt_obj.?.full_object_path));
         }
 
         const full_out_path = try directory.join(arena, &[_][]const u8{base.options.emit.?.sub_path});
