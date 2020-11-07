@@ -89,7 +89,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const std = @import("std");
         \\const V = @import("std").meta.Vector;
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
-        \\    if (std.mem.eql(u8, message, "attempt to cast negative value to unsigned integer")) {
+        \\    if (std.mem.eql(u8, message, "integer cast truncated bits")) {
         \\        std.process.exit(126); // good
         \\    }
         \\    std.process.exit(0); // test failed
@@ -97,6 +97,21 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    var x = @splat(4, @as(u32, 0x80000000));
         \\    var y = @intCast(V(4, i32), x);
+        \\}
+    );
+
+    cases.addRuntimeSafety("signed-unsigned vector cast",
+        \\const std = @import("std");
+        \\const V = @import("std").meta.Vector;
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    if (std.mem.eql(u8, message, "attempt to cast negative value to unsigned integer")) {
+        \\        std.process.exit(126); // good
+        \\    }
+        \\    std.process.exit(0); // test failed
+        \\}
+        \\pub fn main() void {
+        \\    var x = @splat(4, @as(i32, -2147483647));
+        \\    var y = @intCast(V(4, u32), x);
         \\}
     );
 
