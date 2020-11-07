@@ -93,6 +93,9 @@ libc_static_lib: ?CRTFile = null,
 /// Populated when we build the libcompiler_rt static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 compiler_rt_static_lib: ?CRTFile = null,
+/// Populated when we build the compiler_rt_obj object. A Job to build this is placed in the queue
+/// and resolved before calling linker.flush().
+compiler_rt_obj: ?CRTFile = null,
 
 glibc_so_files: ?glibc.BuiltSharedObjects = null,
 
@@ -166,6 +169,8 @@ const Job = union(enum) {
     libssp: void,
     /// needed when producing a dynamic library or executable
     libcompiler_rt: void,
+    /// needed when producing a static library with bundle-compiler-rt
+    compiler_rt_obj: void,
     /// needed when not linking libc and using LLVM for code generation because it generates
     /// calls to, for example, memcpy and memset.
     zig_libc: void,
@@ -387,6 +392,7 @@ pub const InitOptions = struct {
     parent_compilation_link_libc: bool = false,
     stack_size_override: ?u64 = null,
     image_base_override: ?u64 = null,
+    bundle_compiler_rt: bool = false,
     self_exe_path: ?[]const u8 = null,
     version: ?std.builtin.Version = null,
     libc_installation: ?*const LibCInstallation = null,
@@ -403,6 +409,10 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
     const is_dyn_lib = switch (options.output_mode) {
         .Obj, .Exe => false,
         .Lib => (options.link_mode orelse .Static) == .Dynamic,
+    };
+    const is_static_lib = switch (options.output_mode) {
+        .Obj, .Exe => false,
+        .Lib => (options.link_mode orelse .Static) == .Static,
     };
     const is_exe_or_dyn_lib = switch (options.output_mode) {
         .Obj => false,
@@ -821,6 +831,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .z_defs = options.linker_z_defs,
             .stack_size_override = options.stack_size_override,
             .image_base_override = options.image_base_override,
+            .bundle_compiler_rt = options.bundle_compiler_rt,
             .linker_script = options.linker_script,
             .version_script = options.version_script,
             .gc_sections = options.linker_gc_sections,
@@ -967,10 +978,18 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             try comp.work_queue.writeItem(.libcxxabi);
         }
 
-        const needs_compiler_rt_and_c = is_exe_or_dyn_lib or
+        const needs_libc = is_exe_or_dyn_lib or
             (comp.getTarget().isWasm() and comp.bin_file.options.output_mode != .Obj);
-        if (needs_compiler_rt_and_c and build_options.is_stage1) {
-            try comp.work_queue.writeItem(.{ .libcompiler_rt = {} });
+        const needs_compiler_rt = options.bundle_compiler_rt or needs_libc;
+
+        if (needs_compiler_rt and build_options.is_stage1) {
+            if (is_static_lib) {
+                try comp.work_queue.writeItem(.{ .compiler_rt_obj = {} });
+            } else {
+                try comp.work_queue.writeItem(.{ .libcompiler_rt = {} });
+            }
+        }
+        if (needs_libc and build_options.is_stage1) {
             // MinGW provides no libssp, use our own implementation.
             if (comp.getTarget().isMinGW()) {
                 try comp.work_queue.writeItem(.{ .libssp = {} });
@@ -1376,6 +1395,12 @@ pub fn performAllTheWork(self: *Compilation) error{ TimerUnsupported, OutOfMemor
         },
         .libcompiler_rt => {
             self.buildStaticLibFromZig("compiler_rt.zig", &self.compiler_rt_static_lib) catch |err| {
+                // TODO Expose this as a normal compile error rather than crashing here.
+                fatal("unable to build compiler_rt: {}", .{@errorName(err)});
+            };
+        },
+        .compiler_rt_obj => {
+            self.buildOutputFromZig("compiler_rt.zig", .Obj, &self.compiler_rt_obj) catch |err| {
                 // TODO Expose this as a normal compile error rather than crashing here.
                 fatal("unable to build compiler_rt: {}", .{@errorName(err)});
             };
@@ -2551,10 +2576,16 @@ pub fn updateSubCompilation(sub_compilation: *Compilation) !void {
     }
 }
 
-fn buildStaticLibFromZig(comp: *Compilation, src_basename: []const u8, out: *?CRTFile) !void {
+fn buildOutputFromZig(
+    comp: *Compilation,
+    src_basename: []const u8,
+    output_mode: std.builtin.OutputMode,
+    out: *?CRTFile,
+) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    std.debug.assert(output_mode != .Exe);
     const special_sub = "std" ++ std.fs.path.sep_str ++ "special";
     const special_path = try comp.zig_lib_directory.join(comp.gpa, &[_][]const u8{special_sub});
     defer comp.gpa.free(special_path);
@@ -2571,11 +2602,11 @@ fn buildStaticLibFromZig(comp: *Compilation, src_basename: []const u8, out: *?CR
     };
     const root_name = mem.split(src_basename, ".").next().?;
     const target = comp.getTarget();
-    const output_mode: std.builtin.OutputMode = if (target.cpu.arch.isWasm()) .Obj else .Lib;
+    const fixed_output_mode = if (target.cpu.arch.isWasm()) .Obj else output_mode;
     const bin_basename = try std.zig.binNameAlloc(comp.gpa, .{
         .root_name = root_name,
         .target = target,
-        .output_mode = output_mode,
+        .output_mode = fixed_output_mode,
     });
     defer comp.gpa.free(bin_basename);
 
@@ -2598,7 +2629,7 @@ fn buildStaticLibFromZig(comp: *Compilation, src_basename: []const u8, out: *?CR
         .target = target,
         .root_name = root_name,
         .root_pkg = &root_pkg,
-        .output_mode = output_mode,
+        .output_mode = fixed_output_mode,
         .rand = comp.rand,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
@@ -2637,6 +2668,10 @@ fn buildStaticLibFromZig(comp: *Compilation, src_basename: []const u8, out: *?CR
         }),
         .lock = sub_compilation.bin_file.toOwnedLock(),
     };
+}
+
+fn buildStaticLibFromZig(comp: *Compilation, src_basename: []const u8, out: *?CRTFile) !void {
+    return buildOutputFromZig(comp, src_basename, .Lib, out);
 }
 
 fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node) !void {

@@ -314,6 +314,8 @@ const usage_build_generic =
     \\  -fno-soname                    (Linux) Disable emitting a SONAME
     \\  -fLLD                          Force using LLD as the linker
     \\  -fno-LLD                       Prevent using LLD as the linker
+    \\  -fcompiler-rt                  Always including compiler-rt symbols in output
+    \\  -fno-compiler-rt               Prevent including compiler-rt symbols in output
     \\  -rdynamic                      Add all symbols to the dynamic symbol table
     \\  -rpath [path]                  Add directory to the runtime library search path
     \\  -feach-lib-rpath               Ensure adding rpath for each used dynamic library
@@ -490,6 +492,7 @@ fn buildOutputType(
     var test_evented_io = false;
     var stack_size_override: ?u64 = null;
     var image_base_override: ?u64 = null;
+    var bundle_compiler_rt = false;
     var use_llvm: ?bool = null;
     var use_lld: ?bool = null;
     var use_clang: ?bool = null;
@@ -794,6 +797,8 @@ fn buildOutputType(
                         if (i + 1 >= args.len) fatal("expected parameter after {}", .{arg});
                         i += 1;
                         override_lib_dir = args[i];
+                    } else if (mem.eql(u8, arg, "--bundle-compiler-rt")) {
+                        bundle_compiler_rt = true;
                     } else if (mem.eql(u8, arg, "-feach-lib-rpath")) {
                         each_lib_rpath = true;
                     } else if (mem.eql(u8, arg, "-fno-each-lib-rpath")) {
@@ -1705,6 +1710,7 @@ fn buildOutputType(
         .link_emit_relocs = link_emit_relocs,
         .stack_size_override = stack_size_override,
         .image_base_override = image_base_override,
+        .bundle_compiler_rt = bundle_compiler_rt,
         .strip = strip,
         .single_threaded = single_threaded,
         .function_sections = function_sections,
