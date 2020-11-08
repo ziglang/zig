@@ -2297,6 +2297,7 @@ pub const ChangeCurDirError = error{
     FileNotFound,
     SystemResources,
     NotDir,
+    BadPathName,
     
     /// On Windows, file paths must be valid Unicode.
     InvalidUtf8,
@@ -2308,7 +2309,11 @@ pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
     if (builtin.os.tag == .wasi) {
         @compileError("chdir is not supported in WASI");
     } else if (builtin.os.tag == .windows) {
-        windows.SetCurrentDirectory(dir_path) catch |err| switch (err) {
+        var utf16_dir_path: [windows.PATH_MAX_WIDE]u16 = undefined;
+        const len = try std.unicode.utf8ToUtf16Le(utf16_dir_path[0..], dir_path);
+        if (len > utf16_dir_path.len) return error.NameTooLong;
+        
+        windows.SetCurrentDirectory(utf16_dir_path[0..len]) catch |err| switch (err) {
             error.NoDevice => return error.FileSystem,
             else => |e| return e,
         };
