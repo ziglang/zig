@@ -2078,7 +2078,7 @@ pub fn cmdInit(
         while (i < args.len) : (i += 1) {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
-                if (mem.eql(u8, arg, "--help")) {
+                if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                     try io.getStdOut().writeAll(usage_init);
                     return cleanExit();
                 } else {
