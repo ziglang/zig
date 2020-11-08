@@ -195,12 +195,12 @@ test "FloatingPointRegister.toX" {
 
 /// Represents an instruction in the AArch64 instruction set
 pub const Instruction = union(enum) {
-    MoveWideWithZero: packed struct {
+    MoveWideImmediate: packed struct {
         rd: u5,
         imm16: u16,
         hw: u2,
         fixed: u6 = 0b100101,
-        opc: u2 = 0b10,
+        opc: u2,
         sf: u1,
     },
     ExceptionGeneration: packed struct {
@@ -226,7 +226,7 @@ pub const Instruction = union(enum) {
 
     pub fn toU32(self: Instruction) u32 {
         return switch (self) {
-            .MoveWideWithZero => |v| @bitCast(u32, v),
+            .MoveWideImmediate => |v| @bitCast(u32, v),
             .ExceptionGeneration => |v| @bitCast(u32, v),
             .UnconditionalBranchRegister => |v| @bitCast(u32, v),
             .UnconditionalBranchImmediate => |v| @bitCast(u32, v),
@@ -235,24 +235,33 @@ pub const Instruction = union(enum) {
 
     // Helper functions for assembly syntax functions
 
-    fn moveWideWithZero(rd: Register, imm16: u16, shift: u2) Instruction {
+    fn moveWideImmediate(
+        opc: u2,
+        rd: Register,
+        imm16: u16,
+        shift: u6,
+    ) Instruction {
         switch (rd.size()) {
             32 => {
+                assert(shift % 16 == 0 and shift <= 16);
                 return Instruction{
-                    .MoveWideWithZero = .{
+                    .MoveWideImmediate = .{
                         .rd = rd.id(),
                         .imm16 = imm16,
-                        .hw = 0b01 & shift, // TODO shift should be an enum
+                        .hw = @intCast(u2, shift / 16),
+                        .opc = opc,
                         .sf = 0,
                     },
                 };
             },
             64 => {
+                assert(shift % 16 == 0 and shift <= 48);
                 return Instruction{
-                    .MoveWideWithZero = .{
+                    .MoveWideImmediate = .{
                         .rd = rd.id(),
                         .imm16 = imm16,
-                        .hw = shift,
+                        .hw = @intCast(u2, shift / 16),
+                        .opc = opc,
                         .sf = 1,
                     },
                 };
@@ -284,6 +293,8 @@ pub const Instruction = union(enum) {
         rn: Register,
         op4: u5,
     ) Instruction {
+        assert(rn.size() == 64);
+
         return Instruction{
             .UnconditionalBranchRegister = .{
                 .op4 = op4,
@@ -301,16 +312,24 @@ pub const Instruction = union(enum) {
     ) Instruction {
         return Instruction{
             .UnconditionalBranchImmediate = .{
-                .imm26 = @bitCast(u26, @intCast(i26, imm26 >> 2)),
+                .imm26 = @bitCast(u26, @intCast(i26, offset >> 2)),
                 .op = op,
             },
         };
     }
 
-    // movz
+    // Move wide (immediate)
 
-    pub fn movz(rd: Register, imm16: u16, shift: u2) Instruction {
-        return moveWideWithZero(rd, imm16, shift);
+    pub fn movn(rd: Register, imm16: u16, shift: u6) Instruction {
+        return moveWideImmediate(0b00, rd, imm16, shift);
+    }
+
+    pub fn movz(rd: Register, imm16: u16, shift: u6) Instruction {
+        return moveWideImmediate(0b10, rd, imm16, shift);
+    }
+
+    pub fn movk(rd: Register, imm16: u16, shift: u6) Instruction {
+        return moveWideImmediate(0b11, rd, imm16, shift);
     }
 
     // Exception generation
@@ -338,7 +357,6 @@ pub const Instruction = union(enum) {
     // Unconditional branch (register)
 
     pub fn br(rn: Register) Instruction {
-        assert(rn.size() == 64);
         return unconditionalBranchRegister(0b0000, 0b11111, 0b000000, rn, 0b00000);
     }
 
@@ -368,6 +386,30 @@ test "serialize instructions" {
     };
 
     const testcases = [_]Testcase{
+        .{ // movz x1 #4
+            .inst = Instruction.movz(.x1, 4, 0),
+            .expected = 0b1_10_100101_00_0000000000000100_00001,
+        },
+        .{ // movz x1, #4, lsl 16
+            .inst = Instruction.movz(.x1, 4, 16),
+            .expected = 0b1_10_100101_01_0000000000000100_00001,
+        },
+        .{ // movz x1, #4, lsl 32
+            .inst = Instruction.movz(.x1, 4, 32),
+            .expected = 0b1_10_100101_10_0000000000000100_00001,
+        },
+        .{ // movz x1, #4, lsl 48
+            .inst = Instruction.movz(.x1, 4, 48),
+            .expected = 0b1_10_100101_11_0000000000000100_00001,
+        },
+        .{ // movz w1, #4
+            .inst = Instruction.movz(.w1, 4, 0),
+            .expected = 0b0_10_100101_00_0000000000000100_00001,
+        },
+        .{ // movz w1, #4, lsl 16
+            .inst = Instruction.movz(.w1, 4, 16),
+            .expected = 0b0_10_100101_01_0000000000000100_00001,
+        },
         .{ // svc #0
             .inst = Instruction.svc(0),
             .expected = 0b1101_0100_000_0000000000000000_00001,
@@ -376,29 +418,13 @@ test "serialize instructions" {
             .inst = Instruction.svc(0x80),
             .expected = 0b1101_0100_000_0000000010000000_00001,
         },
-        .{ // movz x1 #4
-            .inst = Instruction.movz(.x1, 4, 0),
-            .expected = 0b1_10_100101_00_0000000000000100_00001,
+        .{ // ret
+            .inst = Instruction.ret(null),
+            .expected = 0b1101_011_00_10_11111_0000_00_11110_00000,
         },
-        .{ // movz x1, #4, lsl 16
-            .inst = Instruction.movz(.x1, 4, 1),
-            .expected = 0b1_10_100101_01_0000000000000100_00001,
-        },
-        .{ // movz x1, #4, lsl 32
-            .inst = Instruction.movz(.x1, 4, 2),
-            .expected = 0b1_10_100101_10_0000000000000100_00001,
-        },
-        .{ // movz x1, #4, lsl 48
-            .inst = Instruction.movz(.x1, 4, 3),
-            .expected = 0b1_10_100101_11_0000000000000100_00001,
-        },
-        .{ // movz w1, #4
-            .inst = Instruction.movz(.w1, 4, 0),
-            .expected = 0b0_10_100101_00_0000000000000100_00001,
-        },
-        .{ // movz w1, #4, lsl 16
-            .inst = Instruction.movz(.w1, 4, 1),
-            .expected = 0b0_10_100101_01_0000000000000100_00001,
+        .{ // bl #0x10
+            .inst = Instruction.bl(0x10),
+            .expected = 0b1_00101_00_0000_0000_0000_0000_0000_0100,
         },
     };
 
