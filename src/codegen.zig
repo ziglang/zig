@@ -2504,7 +2504,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             else => unreachable, // unexpected register size
                         }
                     },
-                    .immediate => return self.fail(src, "TODO implement genSetReg for aarch64 {}", .{mcv}),
+                    .immediate => |x| {
+                        if (x <= math.maxInt(u16)) {
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movz(reg, @intCast(u16, x), 0).toU32());
+                        } else {
+                            return self.fail(src, "TODO genSetReg with 32,48,64bit immediates", .{});
+                        }
+                    },
                     .register => return self.fail(src, "TODO implement genSetReg for aarch64 {}", .{mcv}),
                     else => return self.fail(src, "TODO implement genSetReg for aarch64 {}", .{mcv}),
                 },

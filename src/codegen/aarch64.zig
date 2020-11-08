@@ -193,6 +193,15 @@ test "FloatingPointRegister.toX" {
 
 /// Represents an instruction in the AArch64 instruction set
 pub const Instruction = union(enum) {
+    MoveWideWithZero: packed struct {
+        rd: u5,
+        imm16: u16,
+        hw: u2,
+        fixed: u6 = 0b100101,
+        opc: u2 = 0b10,
+        sf: u1,
+    },
+
     SupervisorCall: packed struct {
         fixed_1: u5 = 0b00001,
         imm16: u16,
@@ -201,11 +210,38 @@ pub const Instruction = union(enum) {
 
     pub fn toU32(self: Instruction) u32 {
         return switch (self) {
+            .MoveWideWithZero => |v| @bitCast(u32, v),
             .SupervisorCall => |v| @bitCast(u32, v),
         };
     }
 
     // Helper functions for assembly syntax functions
+
+    fn moveWideWithZero(rd: Register, imm16: u16, shift: u2) Instruction {
+        switch (rd.size()) {
+            32 => {
+                return Instruction{
+                    .MoveWideWithZero = .{
+                        .rd = rd.id(),
+                        .imm16 = imm16,
+                        .hw = 0b01 & shift, // TODO shift should be an enum
+                        .sf = 0,
+                    },
+                };
+            },
+            64 => {
+                return Instruction{
+                    .MoveWideWithZero = .{
+                        .rd = rd.id(),
+                        .imm16 = imm16,
+                        .hw = shift,
+                        .sf = 1,
+                    },
+                };
+            },
+            else => unreachable, // unexpected register size
+        }
+    }
 
     fn supervisorCall(imm16: u16) Instruction {
         return Instruction{
@@ -213,6 +249,12 @@ pub const Instruction = union(enum) {
                 .imm16 = imm16,
             },
         };
+    }
+
+    // movz
+
+    pub fn movz(rd: Register, imm16: u16, shift: u2) Instruction {
+        return moveWideWithZero(rd, imm16, shift);
     }
 
     // Supervisor Call
@@ -236,6 +278,30 @@ test "serialize instructions" {
         .{ // svc #0x80 ; typical on Darwin
             .inst = Instruction.svc(0x80),
             .expected = 0b1101_0100_000_0000000010000000_00001,
+        },
+        .{ // movz x1 #4
+            .inst = Instruction.movz(.x1, 4, 0),
+            .expected = 0b1_10_100101_00_0000000000000100_00001,
+        },
+        .{ // movz x1, #4, lsl 16
+            .inst = Instruction.movz(.x1, 4, 1),
+            .expected = 0b1_10_100101_01_0000000000000100_00001,
+        },
+        .{ // movz x1, #4, lsl 32
+            .inst = Instruction.movz(.x1, 4, 2),
+            .expected = 0b1_10_100101_10_0000000000000100_00001,
+        },
+        .{ // movz x1, #4, lsl 48
+            .inst = Instruction.movz(.x1, 4, 3),
+            .expected = 0b1_10_100101_11_0000000000000100_00001,
+        },
+        .{ // movz w1, #4
+            .inst = Instruction.movz(.w1, 4, 0),
+            .expected = 0b0_10_100101_00_0000000000000100_00001,
+        },
+        .{ // movz w1, #4, lsl 16
+            .inst = Instruction.movz(.w1, 4, 1),
+            .expected = 0b0_10_100101_01_0000000000000100_00001,
         },
     };
 
