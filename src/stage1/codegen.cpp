@@ -6878,9 +6878,12 @@ static LLVMValueRef gen_parent_ptr(CodeGen *g, ZigValue *val, ConstParent *paren
             render_const_val(g, val, "");
             render_const_val_global(g, val, "");
             return val->llvm_global;
-        case ConstParentIdStruct:
-            return gen_const_ptr_struct_recursive(g, parent->data.p_struct.struct_val,
-                    parent->data.p_struct.field_index);
+        case ConstParentIdStruct: {
+            ZigValue *struct_val = parent->data.p_struct.struct_val;
+            size_t src_field_index = parent->data.p_struct.field_index;
+            size_t gen_field_index = struct_val->type->data.structure.fields[src_field_index]->gen_index;
+            return gen_const_ptr_struct_recursive(g, struct_val, gen_field_index);
+        }
         case ConstParentIdErrUnionCode:
             return gen_const_ptr_err_union_code_recursive(g, parent->data.p_err_union_code.err_union_val);
         case ConstParentIdErrUnionPayload:
