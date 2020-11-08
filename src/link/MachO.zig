@@ -256,7 +256,10 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
     errdefer file.close();
 
     const self = try createEmpty(allocator, options);
-    errdefer self.base.destroy();
+    errdefer {
+        self.base.file = null;
+        self.base.destroy();
+    }
 
     self.base.file = file;
 
