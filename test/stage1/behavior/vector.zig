@@ -149,15 +149,33 @@ test "vector casts of sizes not divisable by 8" {
 
 test "vector @splat" {
     const S = struct {
+        fn testForT(comptime N: comptime_int, v: anytype) void {
+            const T = @TypeOf(v);
+            var vec = @splat(N, v);
+            expectEqual(Vector(N, T), @TypeOf(vec));
+            var as_array = @as([N]T, vec);
+            for (as_array) |elem| expectEqual(v, elem);
+        }
         fn doTheTest() void {
-            var v: u32 = 5;
-            var x = @splat(4, v);
-            expect(@TypeOf(x) == Vector(4, u32));
-            var array_x: [4]u32 = x;
-            expect(array_x[0] == 5);
-            expect(array_x[1] == 5);
-            expect(array_x[2] == 5);
-            expect(array_x[3] == 5);
+            // Splats with multiple-of-8 bit types that fill a 128bit vector.
+            testForT(16, @as(u8, 0xEE));
+            testForT(8, @as(u16, 0xBEEF));
+            testForT(4, @as(u32, 0xDEADBEEF));
+            testForT(2, @as(u64, 0xCAFEF00DDEADBEEF));
+
+            testForT(8, @as(f16, 3.1415));
+            testForT(4, @as(f32, 3.1415));
+            testForT(2, @as(f64, 3.1415));
+
+            // Same but fill more than 128 bits.
+            testForT(16 * 2, @as(u8, 0xEE));
+            testForT(8 * 2, @as(u16, 0xBEEF));
+            testForT(4 * 2, @as(u32, 0xDEADBEEF));
+            testForT(2 * 2, @as(u64, 0xCAFEF00DDEADBEEF));
+
+            testForT(8 * 2, @as(f16, 3.1415));
+            testForT(4 * 2, @as(f32, 3.1415));
+            testForT(2 * 2, @as(f64, 3.1415));
         }
     };
     S.doTheTest();
