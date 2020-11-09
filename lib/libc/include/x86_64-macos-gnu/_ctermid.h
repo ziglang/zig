@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2002-2006, 2008-2010, 2012 Apple Inc. All rights reserved.
+ * Copyright (c) 2000, 2002-2006, 2008-2010, 2012, 2020 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
  *
@@ -23,5 +23,13 @@
 
 #ifndef _CTERMID_H_
 #define _CTERMID_H_
+
+#include <sys/cdefs.h>
+
+__BEGIN_DECLS
+
 char    *ctermid(char *);
+
+__END_DECLS
+
 #endif

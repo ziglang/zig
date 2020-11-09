@@ -2147,9 +2147,7 @@ fn detectLibCIncludeDirs(
         return detectLibCFromLibCInstallation(arena, target, lci);
     }
 
-    if (target_util.canBuildLibC(target)) outer: {
-        if (is_native_os and target.isDarwin()) break :outer; // If we're on Darwin, we want to use native since we only have headers.
-
+    if (target_util.canBuildLibC(target)) {
         const generic_name = target_util.libCGenericName(target);
         // Some architectures are handled by the same set of headers.
         const arch_name = if (target.abi.isMusl()) target_util.archMuslName(target.cpu.arch) else @tagName(target.cpu.arch);

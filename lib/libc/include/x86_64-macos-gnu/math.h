@@ -547,6 +547,7 @@ extern long double fmal(long double, long double, long double);
 #define islessgreater(x, y) __builtin_islessgreater((x),(y))
 #define isunordered(x, y) __builtin_isunordered((x),(y))
 
+#if defined __i386__ || defined __x86_64__
 /* Deprecated functions; use the INFINITY and NAN macros instead.             */
 extern float __inff(void)
 __API_DEPRECATED("use `(float)INFINITY` instead", macos(10.0, 10.9)) __API_UNAVAILABLE(ios, watchos, tvos);
@@ -556,6 +557,7 @@ extern long double __infl(void)
 __API_DEPRECATED("use `(long double)INFINITY` instead", macos(10.0, 10.9)) __API_UNAVAILABLE(ios, watchos, tvos);
 extern float __nan(void)
 __API_DEPRECATED("use `NAN` instead", macos(10.0, 10.14)) __API_UNAVAILABLE(ios, watchos, tvos);
+#endif
 
 /******************************************************************************
  *  Reentrant variants of lgamma[fl]                                          *
@@ -736,6 +738,7 @@ extern int signgam;
 #define	TLOSS		5
 #define	PLOSS		6
 
+#if defined __i386__ || defined __x86_64__
 /* Legacy BSD API; use the C99 `lrint( )` function instead.                   */
 extern long int rinttol(double)
 __API_DEPRECATED_WITH_REPLACEMENT("lrint", macos(10.0, 10.9)) __API_UNAVAILABLE(ios, watchos, tvos);
@@ -754,6 +757,7 @@ __API_DEPRECATED_WITH_REPLACEMENT("tgamma", macos(10.0, 10.9)) __API_UNAVAILABLE
 /* Legacy BSD API; use `2*frexp( )` or `scalbn(x, -ilogb(x))` instead.        */
 extern double significand(double)
 __API_DEPRECATED("Use `2*frexp( )` or `scalbn(x, -ilogb(x))` instead.", macos(10.0, 10.9)) __API_UNAVAILABLE(ios, watchos, tvos);
+#endif
 
 #if !defined __cplusplus
 struct exception {

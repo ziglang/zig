@@ -3,15 +3,6 @@
  * All rights reserved.
  */
 
-/*
- * Note from the Zig project:
- *
- * Apple released their libc as a whole under the APSL 2.0 license [1], which
- * includes this file. Therefore, this file is governed by the APSL 2.0 license.
- *
- * [1]: https://opensource.apple.com/source/Libc/Libc-1353.100.2/
- */
-
 #ifndef _STDINT_H_
 #define _STDINT_H_
 

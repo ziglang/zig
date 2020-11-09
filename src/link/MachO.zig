@@ -548,7 +548,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
 
         try argv.append("-demangle");
 
-        if (self.base.options.rdynamic) {
+        if (self.base.options.rdynamic and !self.base.options.system_linker_hack) {
             try argv.append("--export-dynamic");
         }
 

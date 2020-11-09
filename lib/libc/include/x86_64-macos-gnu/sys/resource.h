@@ -188,7 +188,13 @@ struct  rusage {
 #define RUSAGE_INFO_V2  2
 #define RUSAGE_INFO_V3  3
 #define RUSAGE_INFO_V4  4
-#define RUSAGE_INFO_CURRENT     RUSAGE_INFO_V4
+#define RUSAGE_INFO_V5  5
+#define RUSAGE_INFO_CURRENT     RUSAGE_INFO_V5
+
+/*
+ * Flags for RUSAGE_INFO_V5
+ */
+#define RU_PROC_RUNS_RESLIDE    0x00000001      /* proc has reslid shared cache */
 
 typedef void *rusage_info_t;
 
@@ -318,7 +324,47 @@ struct rusage_info_v4 {
 	uint64_t ri_runnable_time;
 };
 
-typedef struct rusage_info_v4 rusage_info_current;
+struct rusage_info_v5 {
+	uint8_t  ri_uuid[16];
+	uint64_t ri_user_time;
+	uint64_t ri_system_time;
+	uint64_t ri_pkg_idle_wkups;
+	uint64_t ri_interrupt_wkups;
+	uint64_t ri_pageins;
+	uint64_t ri_wired_size;
+	uint64_t ri_resident_size;
+	uint64_t ri_phys_footprint;
+	uint64_t ri_proc_start_abstime;
+	uint64_t ri_proc_exit_abstime;
+	uint64_t ri_child_user_time;
+	uint64_t ri_child_system_time;
+	uint64_t ri_child_pkg_idle_wkups;
+	uint64_t ri_child_interrupt_wkups;
+	uint64_t ri_child_pageins;
+	uint64_t ri_child_elapsed_abstime;
+	uint64_t ri_diskio_bytesread;
+	uint64_t ri_diskio_byteswritten;
+	uint64_t ri_cpu_time_qos_default;
+	uint64_t ri_cpu_time_qos_maintenance;
+	uint64_t ri_cpu_time_qos_background;
+	uint64_t ri_cpu_time_qos_utility;
+	uint64_t ri_cpu_time_qos_legacy;
+	uint64_t ri_cpu_time_qos_user_initiated;
+	uint64_t ri_cpu_time_qos_user_interactive;
+	uint64_t ri_billed_system_time;
+	uint64_t ri_serviced_system_time;
+	uint64_t ri_logical_writes;
+	uint64_t ri_lifetime_max_phys_footprint;
+	uint64_t ri_instructions;
+	uint64_t ri_cycles;
+	uint64_t ri_billed_energy;
+	uint64_t ri_serviced_energy;
+	uint64_t ri_interval_max_phys_footprint;
+	uint64_t ri_runnable_time;
+	uint64_t ri_flags;
+};
+
+typedef struct rusage_info_v5 rusage_info_current;
 
 #endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
 
@@ -409,6 +455,8 @@ struct proc_rlimit_control_wakeupmon {
 #define IOPOL_TYPE_VFS_ATIME_UPDATES 2
 #define IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES 3
 #define IOPOL_TYPE_VFS_STATFS_NO_DATA_VOLUME 4
+#define IOPOL_TYPE_VFS_TRIGGER_RESOLVE 5
+#define IOPOL_TYPE_VFS_IGNORE_CONTENT_PROTECTION 6
 
 /* scope */
 #define IOPOL_SCOPE_PROCESS   0
@@ -437,6 +485,12 @@ struct proc_rlimit_control_wakeupmon {
 
 #define IOPOL_VFS_STATFS_NO_DATA_VOLUME_DEFAULT 0
 #define IOPOL_VFS_STATFS_FORCE_NO_DATA_VOLUME   1
+
+#define IOPOL_VFS_TRIGGER_RESOLVE_DEFAULT 0
+#define IOPOL_VFS_TRIGGER_RESOLVE_OFF     1
+
+#define IOPOL_VFS_CONTENT_PROTECTION_DEFAULT 0
+#define IOPOL_VFS_CONTENT_PROTECTION_IGNORE  1
 
 #endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
 

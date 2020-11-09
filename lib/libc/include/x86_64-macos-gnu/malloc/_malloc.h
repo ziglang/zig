@@ -44,9 +44,9 @@ void	*realloc(void *__ptr, size_t __size) __result_use_check __alloc_size(2);
 #if !defined(_ANSI_SOURCE) && (!defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE))
 void	*valloc(size_t) __alloc_size(1);
 #endif // !defined(_ANSI_SOURCE) && (!defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE))
-#if (__DARWIN_C_LEVEL >= __DARWIN_C_FULL) && \
-        ((defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L) || \
-         (defined(__cplusplus) && __cplusplus >= 201703L))
+#if (__DARWIN_C_LEVEL >= __DARWIN_C_FULL) || \
+    (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L) || \
+    (defined(__cplusplus) && __cplusplus >= 201703L)
 void    *aligned_alloc(size_t __alignment, size_t __size) __result_use_check __alloc_size(2) __OSX_AVAILABLE(10.15) __IOS_AVAILABLE(13.0) __TVOS_AVAILABLE(13.0) __WATCHOS_AVAILABLE(6.0);
 #endif
 int 	 posix_memalign(void **__memptr, size_t __alignment, size_t __size) __OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_3_0);

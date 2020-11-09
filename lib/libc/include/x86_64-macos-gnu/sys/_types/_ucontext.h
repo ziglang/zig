@@ -38,6 +38,7 @@
 #include <machine/types.h> /* __darwin_size_t */
 #include <machine/_mcontext.h> /* _STRUCT_MCONTEXT */
 #include <sys/_types.h> /* __darwin_sigset_t */
+#include <sys/_types/_sigaltstack.h> /* _STRUCT_SIGALTSTACK */
 
 _STRUCT_UCONTEXT
 {
