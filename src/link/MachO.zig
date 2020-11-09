@@ -405,7 +405,9 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
     defer arena_allocator.deinit();
     const arena = &arena_allocator.allocator;
 
-    const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
+    // Just aliases to make it shorter to type.
+    const directory = self.base.options.emit.?.directory;
+    const sub_path = self.base.options.emit.?.sub_path;
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
@@ -443,6 +445,11 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
     var digest: [Cache.hex_digest_len]u8 = undefined;
 
     if (!self.base.options.disable_lld_caching) {
+        // Make sure sure the sub_path fits in the symlink metadata
+        if (sub_path.len > 255 - digest.len) {
+            log.emerg("Linking output basename '{}' too long to fit in lld.id symlink", .{sub_path});
+            std.os.exit(1);
+        }
         man = comp.cache_parent.obtain();
 
         // We are about to obtain this lock, so here we give other processes a chance first.
@@ -478,17 +485,44 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         _ = try man.hit();
         digest = man.final();
 
-        var prev_digest_buf: [digest.len]u8 = undefined;
-        const prev_digest: []u8 = Cache.readSmallFile(
+        var prev_id_data_buf: [255]u8 = undefined;
+        const prev_id_data = Cache.readSmallFile(
             directory.handle,
             id_symlink_basename,
-            &prev_digest_buf,
+            &prev_id_data_buf,
         ) catch |err| blk: {
             log.debug("MachO LLD new_digest={} error: {}", .{ digest, @errorName(err) });
             // Handle this as a cache miss.
-            break :blk prev_digest_buf[0..0];
+            break :blk prev_id_data_buf[0..0];
         };
-        if (mem.eql(u8, prev_digest, &digest)) {
+        const prev_digest = if (prev_id_data.len == 0)
+            prev_id_data
+        else
+            prev_id_data[0..digest.len];
+
+        if (mem.eql(u8, prev_digest, &digest)) blk: {
+            if (!mem.eql(u8, prev_id_data[digest.len..], sub_path)) {
+                // Rename the output to the new basename
+                directory.handle.rename(prev_id_data[digest.len..], sub_path) catch |err| {
+                    // If the rename fails, handle this as a cache miss.
+                    log.debug("Error renaming MachO linking output: {}", .{@errorName(err)});
+                    break :blk;
+                };
+                // Update the id to include the new basename
+                directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
+                    error.FileNotFound => {},
+                    else => |e| return e,
+                };
+                mem.copy(u8, prev_id_data_buf[digest.len..], sub_path);
+                Cache.writeSmallFile(
+                    directory.handle,
+                    id_symlink_basename,
+                    prev_id_data_buf[0 .. digest.len + sub_path.len],
+                ) catch |err| switch (err) {
+                    error.PathAlreadyExists => {},
+                    else => std.log.warn("failed to save linking hash digest file: {}", .{@errorName(err)}),
+                };
+            }
             log.debug("MachO LLD digest={} match - skipping invocation", .{digest});
             // Hot diggity dog! The output binary is already there.
             self.base.lock = man.toOwnedLock();
@@ -503,7 +537,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         };
     }
 
-    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
+    const full_out_path = try directory.join(arena, &[_][]const u8{sub_path});
 
     if (self.base.options.output_mode == .Obj) {
         // LLD's MachO driver does not support the equvialent of `-r` so we do a simple file copy
@@ -774,9 +808,16 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
     }
 
     if (!self.base.options.disable_lld_caching) {
-        // Update the file with the digest. If it fails we can continue; it only
+        // Update the file with the digest and output basename. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
-        Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
+        var id_data: [255]u8 = undefined;
+        mem.copy(u8, &id_data, &digest);
+        mem.copy(u8, id_data[digest.len..], sub_path);
+        Cache.writeSmallFile(
+            directory.handle,
+            id_symlink_basename,
+            id_data[0 .. digest.len + sub_path.len],
+        ) catch |err| {
             std.log.warn("failed to save linking hash digest file: {}", .{@errorName(err)});
         };
         // Again failure here only means an unnecessary cache miss.
