@@ -332,13 +332,24 @@ struct au_evclass_map {
 };
 typedef struct au_evclass_map   au_evclass_map_t;
 
+
+#if !defined(_KERNEL) && !defined(KERNEL)
+#include <Availability.h>
+#define __AUDIT_API_DEPRECATED __API_DEPRECATED("audit is deprecated", macos(10.4, 11.0))
+#else
+#define __AUDIT_API_DEPRECATED
+#endif
+
 /*
  * Audit system calls.
  */
 #if !defined(_KERNEL) && !defined(KERNEL)
-int     audit(const void *, int);
-int     auditon(int, void *, int);
-int     auditctl(const char *);
+int     audit(const void *, int)
+__AUDIT_API_DEPRECATED;
+int     auditon(int, void *, int)
+__AUDIT_API_DEPRECATED;
+int     auditctl(const char *)
+__AUDIT_API_DEPRECATED;
 int     getauid(au_id_t *);
 int     setauid(const au_id_t *);
 int     getaudit_addr(struct auditinfo_addr *, int);
@@ -360,8 +371,10 @@ __OSX_AVAILABLE_BUT_DEPRECATED(__MAC_10_0, __MAC_10_8,
     __IPHONE_2_0, __IPHONE_6_0);
 #else
 
-int     getaudit(struct auditinfo *);
-int     setaudit(const struct auditinfo *);
+int     getaudit(struct auditinfo *)
+__AUDIT_API_DEPRECATED;
+int     setaudit(const struct auditinfo *)
+__AUDIT_API_DEPRECATED;
 #endif /* !__APPLE__ */
 
 #ifdef __APPLE_API_PRIVATE

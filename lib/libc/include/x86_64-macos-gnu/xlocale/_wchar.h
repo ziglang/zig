@@ -27,6 +27,8 @@
 #include <_stdio.h>
 #include <_xlocale.h>
 #include <sys/_types/_mbstate_t.h>
+#include <sys/_types/_wint_t.h>
+#include <stddef.h> /* wchar_t */
 
 /* Initially added in Issue 4 */
 __BEGIN_DECLS

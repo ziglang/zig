@@ -36,8 +36,13 @@
 #ifndef _SYS__SELECT_H_
 #define _SYS__SELECT_H_
 
+#include <sys/cdefs.h> /* __DARWIN_EXTSN_C, __DARWIN_1050, __DARWIN_ALIAS_C */
+#include <sys/_types/_fd_def.h> /* fd_set */
+#include <sys/_types/_timeval.h> /* struct timeval */
+
 int      select(int, fd_set * __restrict, fd_set * __restrict,
     fd_set * __restrict, struct timeval * __restrict)
+
 #if defined(_DARWIN_C_SOURCE) || defined(_DARWIN_UNLIMITED_SELECT)
 __DARWIN_EXTSN_C(select)
 #else /* !_DARWIN_C_SOURCE && !_DARWIN_UNLIMITED_SELECT */

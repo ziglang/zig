@@ -31,6 +31,8 @@
 
 #if defined (__i386__) || defined(__x86_64__)
 #include "mach/i386/exception.h"
+#elif defined (__arm__) || defined (__arm64__)
+#include "mach/arm/exception.h"
 #else
 #error architecture not supported
 #endif

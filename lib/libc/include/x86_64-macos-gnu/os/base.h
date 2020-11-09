@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008-2013 Apple Inc. All rights reserved.
+ * Copyright (c) 2008-2020 Apple Inc. All rights reserved.
  *
  * @APPLE_APACHE_LICENSE_HEADER_START@
  *
@@ -22,6 +22,7 @@
 #define __OS_BASE__
 
 #include <sys/cdefs.h>
+
 
 #ifndef __has_builtin
 #define __has_builtin(x) 0
@@ -73,7 +74,7 @@
 #define OS_ALWAYS_INLINE __attribute__((__always_inline__))
 #define OS_TRANSPARENT_UNION __attribute__((__transparent_union__))
 #define OS_ALIGNED(n) __attribute__((__aligned__((n))))
-#define OS_FORMAT_PRINTF(x,y) __attribute__((__format__(printf,x,y)))
+#define OS_FORMAT_PRINTF(x, y) __attribute__((__format__(printf,x,y)))
 #define OS_EXPORT extern __attribute__((__visibility__("default")))
 #define OS_INLINE static __inline__
 #define OS_EXPECT(x, v) __builtin_expect((x), (v))
@@ -110,7 +111,7 @@
 #define OS_ALWAYS_INLINE
 #define OS_TRANSPARENT_UNION
 #define OS_ALIGNED(n)
-#define OS_FORMAT_PRINTF(x,y)
+#define OS_FORMAT_PRINTF(x, y)
 #define OS_EXPORT extern
 #define OS_INLINE static inline
 #define OS_EXPECT(x, v) (x)
@@ -124,6 +125,8 @@
 
 #if defined(__cplusplus) && defined(__clang__)
 #define OS_FALLTHROUGH [[clang::fallthrough]]
+#elif __has_attribute(fallthrough)
+#define OS_FALLTHROUGH __attribute__((__fallthrough__))
 #else
 #define OS_FALLTHROUGH
 #endif
@@ -164,30 +167,21 @@
  * -Wassign-enum prevents you from assigning illegal values to a variable of the
  * enum type.
  */
-#ifndef __OPEN_SOURCE__
-/*!
- * @internal
- * <rdar://problem/37799789>
- */
-#endif // __OPEN_SOURCE__
 #define __OS_OPTIONS_ATTR __attribute__((flag_enum))
 #else
 #define __OS_OPTIONS_ATTR
 #endif // __has_attribute(flag_enum)
 
 #if __has_feature(objc_fixed_enum) || __has_extension(cxx_fixed_enum) || \
-		__has_extension(cxx_strong_enums)
+        __has_extension(cxx_strong_enums)
 #define OS_ENUM(_name, _type, ...) \
-		typedef enum : _type { __VA_ARGS__ } _name##_t
+	typedef enum : _type { __VA_ARGS__ } _name##_t
 #define OS_CLOSED_ENUM(_name, _type, ...) \
-		typedef enum : _type { __VA_ARGS__ } \
-			__OS_ENUM_ATTR_CLOSED _name##_t
+	typedef enum : _type { __VA_ARGS__ } __OS_ENUM_ATTR_CLOSED _name##_t
 #define OS_OPTIONS(_name, _type, ...) \
-		typedef enum : _type { __VA_ARGS__ } \
-			__OS_ENUM_ATTR __OS_OPTIONS_ATTR _name##_t
+	typedef enum : _type { __VA_ARGS__ } __OS_ENUM_ATTR __OS_OPTIONS_ATTR _name##_t
 #define OS_CLOSED_OPTIONS(_name, _type, ...) \
-		typedef enum : _type { __VA_ARGS__ } \
-			__OS_ENUM_ATTR_CLOSED __OS_OPTIONS_ATTR _name##_t
+	typedef enum : _type { __VA_ARGS__ } __OS_ENUM_ATTR_CLOSED __OS_OPTIONS_ATTR _name##_t
 #else
 /*!
  * There is unfortunately no good way in plain C to have both fixed-type enums
@@ -220,25 +214,25 @@
  * When compiling in ObjC or C++, both of the above assignments are illegal.
  */
 #define __OS_ENUM_C_FALLBACK(_name, _type, ...) \
-		typedef _type _name##_t; enum _name { __VA_ARGS__ }
+	typedef _type _name##_t; enum _name { __VA_ARGS__ }
 
 #define OS_ENUM(_name, _type, ...) \
-		typedef _type _name##_t; enum { __VA_ARGS__ }
+	typedef _type _name##_t; enum { __VA_ARGS__ }
 #define OS_CLOSED_ENUM(_name, _type, ...) \
-		__OS_ENUM_C_FALLBACK(_name, _type, ## __VA_ARGS__) \
-		__OS_ENUM_ATTR_CLOSED
+	__OS_ENUM_C_FALLBACK(_name, _type, ## __VA_ARGS__) \
+	__OS_ENUM_ATTR_CLOSED
 #define OS_OPTIONS(_name, _type, ...) \
-		__OS_ENUM_C_FALLBACK(_name, _type, ## __VA_ARGS__) \
-		__OS_ENUM_ATTR __OS_OPTIONS_ATTR
+	__OS_ENUM_C_FALLBACK(_name, _type, ## __VA_ARGS__) \
+	__OS_ENUM_ATTR __OS_OPTIONS_ATTR
 #define OS_CLOSED_OPTIONS(_name, _type, ...) \
-		__OS_ENUM_C_FALLBACK(_name, _type, ## __VA_ARGS__) \
-		__OS_ENUM_ATTR_CLOSED __OS_OPTIONS_ATTR
+	__OS_ENUM_C_FALLBACK(_name, _type, ## __VA_ARGS__) \
+	__OS_ENUM_ATTR_CLOSED __OS_OPTIONS_ATTR
 #endif // __has_feature(objc_fixed_enum) || __has_extension(cxx_strong_enums)
 
 #if __has_feature(attribute_availability_swift)
 // equivalent to __SWIFT_UNAVAILABLE from Availability.h
 #define OS_SWIFT_UNAVAILABLE(_msg) \
-		__attribute__((__availability__(swift, unavailable, message=_msg)))
+	__attribute__((__availability__(swift, unavailable, message=_msg)))
 #else
 #define OS_SWIFT_UNAVAILABLE(_msg)
 #endif
@@ -262,12 +256,12 @@
 
 #ifdef __GNUC__
 #define os_prevent_tail_call_optimization()  __asm__("")
-#define os_is_compile_time_constant(expr)  __builtin_constant_p(expr)
-#define os_compiler_barrier()  __asm__ __volatile__("" ::: "memory")
+#define os_is_compile_time_constant(expr)    __builtin_constant_p(expr)
+#define os_compiler_barrier()                __asm__ __volatile__("" ::: "memory")
 #else
 #define os_prevent_tail_call_optimization()  do { } while (0)
-#define os_is_compile_time_constant(expr)  0
-#define os_compiler_barrier()  do { } while (0)
+#define os_is_compile_time_constant(expr)    0
+#define os_compiler_barrier()                do { } while (0)
 #endif
 
 #if __has_attribute(not_tail_called)
@@ -275,6 +269,7 @@
 #else
 #define OS_NOT_TAIL_CALLED
 #endif
+
 
 typedef void (*os_function_t)(void *_Nullable);
 
@@ -321,5 +316,7 @@ typedef void (*os_function_t)(void *_Nullable);
  */
 typedef void (^os_block_t)(void);
 #endif
+
+
 
 #endif // __OS_BASE__

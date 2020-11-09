@@ -94,4 +94,7 @@ typedef natural_t       thread_state_data_t[THREAD_STATE_MAX];
 typedef int                     thread_state_flavor_t;
 typedef thread_state_flavor_t   *thread_state_flavor_array_t;
 
+#define THREAD_CONVERT_THREAD_STATE_TO_SELF   1
+#define THREAD_CONVERT_THREAD_STATE_FROM_SELF 2
+
 #endif  /* _MACH_THREAD_STATUS_H_ */

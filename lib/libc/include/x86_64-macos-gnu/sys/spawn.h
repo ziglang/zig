@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 2006-2020 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -60,6 +60,8 @@
 #define POSIX_SPAWN_START_SUSPENDED     0x0080
 #define POSIX_SPAWN_SETSID              0x0400
 #define POSIX_SPAWN_CLOEXEC_DEFAULT     0x4000
+
+#define _POSIX_SPAWN_RESLIDE            0x0800
 
 /*
  * Possible values to be set for the process control actions on resource starvation.

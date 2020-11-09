@@ -228,6 +228,7 @@ typedef unsigned int mach_msg_priority_t;
 
 #define MACH_MSG_PRIORITY_UNSPECIFIED (mach_msg_priority_t) 0
 
+
 typedef unsigned int mach_msg_type_name_t;
 
 #define MACH_MSG_TYPE_MOVE_RECEIVE      16      /* Must hold receive right */
@@ -499,6 +500,9 @@ typedef struct{
 	mach_port_name_t sender;
 } msg_labels_t;
 
+typedef int mach_msg_filter_id;
+#define MACH_MSG_FILTER_POLICY_ALLOW (mach_msg_filter_id)0
+
 /*
  *  Trailer type to pass MAC policy label info as a mach message trailer.
  *
@@ -511,7 +515,7 @@ typedef struct{
 	security_token_t              msgh_sender;
 	audit_token_t                 msgh_audit;
 	mach_port_context_t           msgh_context;
-	int                           msgh_ad;
+	mach_msg_filter_id            msgh_ad;
 	msg_labels_t                  msgh_labels;
 } mach_msg_mac_trailer_t;
 
@@ -799,6 +803,8 @@ typedef kern_return_t mach_msg_return_t;
 /* compatibility: no longer a returned error */
 #define MACH_SEND_NO_GRANT_DEST         0x10000016
 /* The destination port doesn't accept ports in body */
+#define MACH_SEND_MSG_FILTERED          0x10000017
+/* Message send was rejected by message filter */
 
 #define MACH_RCV_IN_PROGRESS            0x10004001
 /* Thread is waiting for receive.  (Internal use only.) */

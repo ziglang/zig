@@ -26,6 +26,7 @@
 
 #include <sys/cdefs.h>
 #include <stdint.h>
+#include <stddef.h> /* wchar_t */
 #include <_xlocale.h>
 
 __BEGIN_DECLS

@@ -109,7 +109,11 @@ typedef unsigned short  shmatt_t;
  *		headers at this time, to avoid the resulting namespace
  *		pollution, which is why we discourages its use.
  */
+#if __arm64__
+#define SHMLBA      (16*1024)   /* [XSI] Segment low boundary address multiple*/
+#else /* __arm64__ */
 #define SHMLBA      4096        /* [XSI] Segment low boundary address multiple*/
+#endif /* __arm64__ */
 
 /* "official" access mode definitions; somewhat braindead since you have
  *  to specify (SHM_* >> 3) for group and (SHM_* >> 6) for world permissions */

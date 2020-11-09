@@ -226,7 +226,7 @@ extern
 #endif	/* mig_external */
 kern_return_t mach_port_get_set_status
 (
-	ipc_space_inspect_t task,
+	ipc_space_read_t task,
 	mach_port_name_t name,
 	mach_port_name_array_t *members,
 	mach_msg_type_number_t *membersCnt
@@ -312,7 +312,7 @@ extern
 #endif	/* mig_external */
 kern_return_t mach_port_get_attributes
 (
-	ipc_space_inspect_t task,
+	ipc_space_read_t task,
 	mach_port_name_t name,
 	mach_port_flavor_t flavor,
 	mach_port_info_t port_info_out,
@@ -398,7 +398,7 @@ extern
 #endif	/* mig_external */
 kern_return_t mach_port_space_info
 (
-	ipc_space_inspect_t task,
+	ipc_space_read_t space,
 	ipc_info_space_t *space_info,
 	ipc_info_name_array_t *table_info,
 	mach_msg_type_number_t *table_infoCnt,
@@ -428,7 +428,7 @@ extern
 #endif	/* mig_external */
 kern_return_t mach_port_kernel_object
 (
-	ipc_space_inspect_t task,
+	ipc_space_read_t task,
 	mach_port_name_t name,
 	unsigned *object_type,
 	unsigned *object_addr
@@ -468,7 +468,7 @@ extern
 #endif	/* mig_external */
 kern_return_t mach_port_get_context
 (
-	ipc_space_inspect_t task,
+	ipc_space_read_t task,
 	mach_port_name_t name,
 	mach_port_context_t *context
 );
@@ -494,7 +494,7 @@ extern
 #endif	/* mig_external */
 kern_return_t mach_port_kobject
 (
-	ipc_space_inspect_t task,
+	ipc_space_read_t task,
 	mach_port_name_t name,
 	natural_t *object_type,
 	mach_vm_address_t *object_addr
@@ -603,7 +603,7 @@ extern
 #endif	/* mig_external */
 kern_return_t mach_port_kobject_description
 (
-	ipc_space_inspect_t task,
+	ipc_space_read_t task,
 	mach_port_name_t name,
 	natural_t *object_type,
 	mach_vm_address_t *object_addr,

@@ -67,8 +67,11 @@
 #ifndef _MACH_THREAD_SPECIAL_PORTS_H_
 #define _MACH_THREAD_SPECIAL_PORTS_H_
 
-#define THREAD_KERNEL_PORT      1       /* Represents the thread to the outside
-	                                 *  world.*/
+#define THREAD_KERNEL_PORT      1       /* The full thread port for thread. */
+
+#define THREAD_INSPECT_PORT     2       /* The inspect port for thread. */
+
+#define THREAD_READ_PORT        3       /* The read port for thread. */
 
 /*
  *	Definitions for ease of use

@@ -149,4 +149,5 @@ typedef int             vm_prot_t;
 #define VM_PROT_STRIP_READ              ((vm_prot_t) 0x80)
 #define VM_PROT_EXECUTE_ONLY    (VM_PROT_EXECUTE|VM_PROT_STRIP_READ)
 
+
 #endif  /* _MACH_VM_PROT_H_ */

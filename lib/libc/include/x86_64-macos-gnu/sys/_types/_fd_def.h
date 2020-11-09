@@ -51,12 +51,16 @@ typedef struct fd_set {
 	__int32_t       fds_bits[__DARWIN_howmany(__DARWIN_FD_SETSIZE, __DARWIN_NFDBITS)];
 } fd_set;
 
-int __darwin_check_fd_set_overflow(int, const void *, int) __attribute__((__weak_import__));
+int __darwin_check_fd_set_overflow(int, const void *, int) __API_AVAILABLE(macosx(11.0), ios(14.0), tvos(14.0), watchos(7.0));
 __END_DECLS
 
 __header_always_inline int
 __darwin_check_fd_set(int _a, const void *_b)
 {
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
+#endif
 	if ((uintptr_t)&__darwin_check_fd_set_overflow != (uintptr_t) 0) {
 #if defined(_DARWIN_UNLIMITED_SELECT) || defined(_DARWIN_C_SOURCE)
 		return __darwin_check_fd_set_overflow(_a, _b, 1);
@@ -66,6 +70,9 @@ __darwin_check_fd_set(int _a, const void *_b)
 	} else {
 		return 1;
 	}
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 }
 
 /* This inline avoids argument side-effect issues with FD_ISSET() */

@@ -70,7 +70,6 @@
 #ifndef ASSEMBLER
 
 #include <i386/_types.h>
-#include <mach/i386/vm_param.h>
 #include <stdint.h>
 
 /*

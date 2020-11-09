@@ -69,18 +69,19 @@
 
 typedef int     task_special_port_t;
 
-#define TASK_KERNEL_PORT        1       /* Represents task to the outside
-	                                 *  world.*/
+#define TASK_KERNEL_PORT        1       /* The full task port for task. */
 
 #define TASK_HOST_PORT          2       /* The host (priv) port for task.  */
 
-#define TASK_NAME_PORT          3       /* the name (unpriv) port for task */
+#define TASK_NAME_PORT          3       /* The name port for task. */
 
 #define TASK_BOOTSTRAP_PORT     4       /* Bootstrap environment for task. */
 
-/*
- * Evolving and likely to change.
- */
+#define TASK_INSPECT_PORT       5       /* The inspect port for task. */
+
+#define TASK_READ_PORT          6       /* The read port for task. */
+
+
 
 #define TASK_SEATBELT_PORT      7       /* Seatbelt compiler/DEM port for task. */
 

@@ -108,16 +108,11 @@ int	sigvec(int, struct sigvec *, struct sigvec *);
 __END_DECLS
 
 /* List definitions after function declarations, or Reiser cpp gets upset. */
-#if defined(__i386__) || defined(__x86_64__)
-/* The left shift operator on intel is modulo 32 */
 __header_always_inline int
 __sigbits(int __signo)
 {
     return __signo > __DARWIN_NSIG ? 0 : (1 << (__signo - 1));
 }
-#else /* !__i386__ && !__x86_64__ */
-#define __sigbits(signo)	(1 << ((signo) - 1))
-#endif /* __i386__ || __x86_64__ */
 
 #define	sigaddset(set, signo)	(*(set) |= __sigbits(signo), 0)
 #define	sigdelset(set, signo)	(*(set) &= ~__sigbits(signo), 0)

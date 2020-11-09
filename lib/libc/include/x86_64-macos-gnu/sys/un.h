@@ -90,6 +90,7 @@ struct  sockaddr_un {
 #define LOCAL_PEEREPID          0x003           /* retrieve eff. peer pid */
 #define LOCAL_PEERUUID          0x004           /* retrieve peer UUID */
 #define LOCAL_PEEREUUID         0x005           /* retrieve eff. peer UUID */
+#define LOCAL_PEERTOKEN         0x006           /* retrieve peer audit token */
 
 #endif  /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
 

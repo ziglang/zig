@@ -117,12 +117,17 @@
  */
 typedef mach_port_t             task_t;
 typedef mach_port_t             task_name_t;
+typedef mach_port_t             task_policy_set_t;
+typedef mach_port_t             task_policy_get_t;
 typedef mach_port_t             task_inspect_t;
+typedef mach_port_t             task_read_t;
 typedef mach_port_t             task_suspension_token_t;
 typedef mach_port_t             thread_t;
 typedef mach_port_t             thread_act_t;
 typedef mach_port_t             thread_inspect_t;
+typedef mach_port_t             thread_read_t;
 typedef mach_port_t             ipc_space_t;
+typedef mach_port_t             ipc_space_read_t;
 typedef mach_port_t             ipc_space_inspect_t;
 typedef mach_port_t             coalition_t;
 typedef mach_port_t             host_t;
@@ -138,6 +143,8 @@ typedef mach_port_t             alarm_t;
 typedef mach_port_t             clock_serv_t;
 typedef mach_port_t             clock_ctrl_t;
 typedef mach_port_t             arcade_register_t;
+typedef mach_port_t             ipc_eventlink_t;
+typedef mach_port_t             eventlink_port_pair_t[2];
 typedef mach_port_t             suid_cred_t;
 
 
@@ -159,6 +166,7 @@ typedef exception_handler_t     *exception_handler_array_t;
 typedef mach_port_t             vm_task_entry_t;
 typedef mach_port_t             io_master_t;
 typedef mach_port_t             UNDServerRef;
+typedef mach_port_t             mach_eventlink_t;
 
 /*
  * Mig doesn't translate the components of an array.
@@ -212,12 +220,15 @@ typedef uint32_t suid_cred_uid_t;
 
 #define TASK_NULL               ((task_t) 0)
 #define TASK_NAME_NULL          ((task_name_t) 0)
-#define TASK_INSPECT_NULL               ((task_inspect_t) 0)
+#define TASK_INSPECT_NULL       ((task_inspect_t) 0)
+#define TASK_READ_NULL          ((task_read_t) 0)
 #define THREAD_NULL             ((thread_t) 0)
 #define THREAD_INSPECT_NULL     ((thread_inspect_t) 0)
+#define THREAD_READ_NULL        ((thread_read_t) 0)
 #define TID_NULL                ((uint64_t) 0)
 #define THR_ACT_NULL            ((thread_act_t) 0)
 #define IPC_SPACE_NULL          ((ipc_space_t) 0)
+#define IPC_SPACE_READ_NULL     ((ipc_space_read_t) 0)
 #define IPC_SPACE_INSPECT_NULL  ((ipc_space_inspect_t) 0)
 #define COALITION_NULL          ((coalition_t) 0)
 #define HOST_NULL               ((host_t) 0)
@@ -232,7 +243,25 @@ typedef uint32_t suid_cred_uid_t;
 #define CLOCK_NULL              ((clock_t) 0)
 #define UND_SERVER_NULL         ((UNDServerRef) 0)
 #define ARCADE_REG_NULL         ((arcade_register_t) 0)
-#define SUID_CRED_NULL         ((suid_cred_t) 0)
+#define MACH_EVENTLINK_NULL     ((mach_eventlink_t) 0)
+#define IPC_EVENTLINK_NULL      ((ipc_eventlink_t) 0)
+#define SUID_CRED_NULL          ((suid_cred_t) 0)
+
+/* capability strictly _DECREASING_.
+ * not ordered the other way around because we want TASK_FLAVOR_CONTROL
+ * to be closest to the itk_lock. see task.h.
+ */
+typedef unsigned int            mach_task_flavor_t;
+#define TASK_FLAVOR_CONTROL        0    /* a task_t */
+#define TASK_FLAVOR_READ        1    /* a task_read_t */
+#define TASK_FLAVOR_INSPECT     2    /* a task_inspect_t */
+#define TASK_FLAVOR_NAME        3    /* a task_name_t */
+
+/* capability strictly _DECREASING_ */
+typedef unsigned int            mach_thread_flavor_t;
+#define THREAD_FLAVOR_CONTROL    0    /* a thread_t */
+#define THREAD_FLAVOR_READ      1    /* a thread_read_t */
+#define THREAD_FLAVOR_INSPECT   2    /* a thread_inspect_t */
 
 /* DEPRECATED */
 typedef natural_t       ledger_item_t;

@@ -323,6 +323,10 @@
 /* The provided buffer is of insufficient size for the requested data.
  */
 
+#define KERN_DENIED                     53
+/* Denied by security policy
+ */
+
 #define KERN_RETURN_MAX                 0x100
 /* Maximum return value allowable
  */

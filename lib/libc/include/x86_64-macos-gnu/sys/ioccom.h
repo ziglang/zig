@@ -83,7 +83,7 @@
 #define IOC_OUT         (__uint32_t)0x40000000
 /* copy parameters in */
 #define IOC_IN          (__uint32_t)0x80000000
-/* copy paramters in and out */
+/* copy parameters in and out */
 #define IOC_INOUT       (IOC_IN|IOC_OUT)
 /* mask for IN/OUT/VOID */
 #define IOC_DIRMASK     (__uint32_t)0xe0000000

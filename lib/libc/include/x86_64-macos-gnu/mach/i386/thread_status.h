@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2006 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 2000-2020 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -121,6 +121,8 @@
 #define x86_AVX512_STATE                (x86_AVX512_STATE32 + 2)
 #define x86_PAGEIN_STATE                22
 #define x86_THREAD_FULL_STATE64         23
+#define x86_INSTRUCTION_STATE           24
+#define x86_LAST_BRANCH_STATE           25
 
 /*
  * Largest state on this machine:
@@ -155,6 +157,8 @@
 	  (x == x86_AVX512_STATE64)		|| \
 	  (x == x86_AVX512_STATE)		|| \
 	  (x == x86_PAGEIN_STATE)		|| \
+	  (x == x86_INSTRUCTION_STATE)		|| \
+	  (x == x86_LAST_BRANCH_STATE)		|| \
 	  (x == THREAD_STATE_NONE))
 
 struct x86_state_hdr {
@@ -258,6 +262,19 @@ typedef _STRUCT_X86_PAGEIN_STATE x86_pagein_state_t;
     ((mach_msg_type_number_t)(sizeof(x86_pagein_state_t) / sizeof(int)))
 
 #define X86_PAGEIN_STATE_COUNT x86_PAGEIN_STATE_COUNT
+
+typedef _STRUCT_X86_INSTRUCTION_STATE x86_instruction_state_t;
+#define x86_INSTRUCTION_STATE_COUNT \
+    ((mach_msg_type_number_t)(sizeof(x86_instruction_state_t) / sizeof(int)))
+
+#define X86_INSTRUCTION_STATE_COUNT x86_INSTRUCTION_STATE_COUNT
+
+typedef _STRUCT_LAST_BRANCH_STATE last_branch_state_t;
+#define x86_LAST_BRANCH_STATE_COUNT \
+    ((mach_msg_type_number_t)(sizeof(last_branch_state_t) / sizeof(int)))
+
+#define X86_LAST_BRANCH_STATE_COUNT x86_LAST_BRANCH_STATE_COUNT
+
 
 /*
  * Combined thread, float and exception states

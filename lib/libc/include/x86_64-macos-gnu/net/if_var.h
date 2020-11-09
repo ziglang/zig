@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2019 Apple Inc. All rights reserved.
+ * Copyright (c) 2000-2020 Apple Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -70,6 +70,7 @@
 #include <sys/time.h>
 #include <sys/queue.h>          /* get TAILQ macros */
 #ifdef BSD_KERN_PRIVATE
+#include <net/pktsched/pktsched.h>
 #include <sys/eventhandler.h>
 #endif
 
