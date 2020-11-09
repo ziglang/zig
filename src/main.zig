@@ -2228,7 +2228,7 @@ pub const usage_build =
 pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !void {
     // We want to release all the locks before executing the child process, so we make a nice
     // big block here to ensure the cleanup gets run when we extract out our argv.
-    const lock_and_argv = lock_and_argv: {
+    const child_argv = argv: {
         const self_exe_path = try fs.selfExePathAlloc(arena);
 
         var build_file: ?[]const u8 = null;
@@ -2424,15 +2424,8 @@ pub fn cmdBuild(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
             &[_][]const u8{exe_basename},
         );
 
-        break :lock_and_argv .{
-            .child_argv = child_argv.items,
-            .lock = comp.bin_file.toOwnedLock(),
-        };
+        break :argv child_argv.items;
     };
-    const child_argv = lock_and_argv.child_argv;
-    var lock = lock_and_argv.lock;
-    defer lock.release();
-
     const child = try std.ChildProcess.init(child_argv, gpa);
     defer child.deinit();
 
