@@ -1586,6 +1586,60 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
                         }
                     },
+                    .aarch64 => {
+                        for (info.args) |mc_arg, arg_i| {
+                            const arg = inst.args[arg_i];
+                            const arg_mcv = try self.resolveInst(inst.args[arg_i]);
+
+                            switch (mc_arg) {
+                                .none => continue,
+                                .undef => unreachable,
+                                .immediate => unreachable,
+                                .unreach => unreachable,
+                                .dead => unreachable,
+                                .embedded_in_code => unreachable,
+                                .memory => unreachable,
+                                .compare_flags_signed => unreachable,
+                                .compare_flags_unsigned => unreachable,
+                                .register => |reg| {
+                                    try self.genSetReg(arg.src, reg, arg_mcv);
+                                    // TODO interact with the register allocator to mark the instruction as moved.
+                                },
+                                .stack_offset => {
+                                    return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
+                                },
+                                .ptr_stack_offset => {
+                                    return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_stack_offset arg", .{});
+                                },
+                                .ptr_embedded_in_code => {
+                                    return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
+                                },
+                            }
+                        }
+
+                        if (inst.func.cast(ir.Inst.Constant)) |func_inst| {
+                            if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
+                                const func = func_val.func;
+                                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+                                const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+                                const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
+                                    const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
+                                    break :blk @intCast(u32, got.p_vaddr + func.owner_decl.link.elf.offset_table_index * ptr_bytes);
+                                } else if (self.bin_file.cast(link.File.Coff)) |coff_file|
+                                    coff_file.offset_table_virtual_address + func.owner_decl.link.coff.offset_table_index * ptr_bytes
+                                else
+                                    unreachable;
+
+                                try self.genSetReg(inst.base.src, .x30, .{ .memory = got_addr });
+
+                                writeInt(u32, try self.code.addManyAsArray(4), Instruction.blr(.x30).toU32());
+                            } else {
+                                return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
+                            }
+                        } else {
+                            return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
+                        }
+                    },
                     else => return self.fail(inst.base.src, "TODO implement call for {}", .{self.target.cpu.arch}),
                 }
             } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
@@ -1701,6 +1755,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // Just add space for an instruction, patch this later
                     try self.code.resize(self.code.items.len + 4);
                     try self.exitlude_jump_relocs.append(self.gpa, self.code.items.len - 4);
+                },
+                .aarch64 => {
+                    // TODO: relocations
+                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.ret(null).toU32());
                 },
                 else => return self.fail(src, "TODO implement return for {}", .{self.target.cpu.arch}),
             }
@@ -2510,8 +2568,18 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .immediate => |x| {
                         if (x <= math.maxInt(u16)) {
                             mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movz(reg, @intCast(u16, x), 0).toU32());
+                        } else if (x <= math.maxInt(u32)) {
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movz(reg, @truncate(u16, x), 0).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @intCast(u16, x >> 16), 16).toU32());
+                        } else if (x <= math.maxInt(u32)) {
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movz(reg, @intCast(u16, x), 0).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @intCast(u16, x >> 16), 16).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @intCast(u16, x >> 32), 32).toU32());
                         } else {
-                            return self.fail(src, "TODO genSetReg with 32,48,64bit immediates", .{});
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movz(reg, @intCast(u16, x), 0).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @intCast(u16, x >> 16), 16).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @intCast(u16, x >> 32), 32).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @intCast(u16, x >> 48), 48).toU32());
                         }
                     },
                     .register => return self.fail(src, "TODO implement genSetReg for aarch64 {}", .{mcv}),
