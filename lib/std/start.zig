@@ -54,7 +54,7 @@ fn _DllMainCRTStartup(
     fdwReason: std.os.windows.DWORD,
     lpReserved: std.os.windows.LPVOID,
 ) callconv(.Stdcall) std.os.windows.BOOL {
-    if (!builtin.single_threaded) {
+    if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("start_windows_tls.zig");
     }
 
