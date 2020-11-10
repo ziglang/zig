@@ -491,6 +491,16 @@ pub const Thread = struct {
         if (std.Target.current.os.tag == .windows) {
             return os.windows.peb().NumberOfProcessors;
         }
+        if (std.Target.current.os.tag == .openbsd) {
+            var count: c_int = undefined;
+            var count_size: usize = @sizeOf(c_int);
+            const mib = [_]c_int{ os.CTL_HW, os.HW_NCPUONLINE };
+            os.sysctl(&mib, &count, &count_size, null, 0) catch |err| switch (err) {
+                error.NameTooLong, error.UnknownName => unreachable,
+                else => |e| return e,
+            };
+            return @intCast(usize, count);
+        }
         var count: c_int = undefined;
         var count_len: usize = @sizeOf(c_int);
         const name = if (comptime std.Target.current.isDarwin()) "hw.logicalcpu" else "hw.ncpu";

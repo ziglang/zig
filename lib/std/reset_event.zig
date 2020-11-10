@@ -109,9 +109,12 @@ const PosixEvent = struct {
     }
 
     fn deinit(self: *PosixEvent) void {
-        // on dragonfly, *destroy() functions can return EINVAL
+        // on dragonfly or openbsd, *destroy() functions can return EINVAL
         // for statically initialized pthread structures
-        const err = if (builtin.os.tag == .dragonfly) os.EINVAL else 0;
+        const err = if (builtin.os.tag == .dragonfly or builtin.os.tag == .openbsd)
+            os.EINVAL
+        else
+            0;
 
         const retm = c.pthread_mutex_destroy(&self.mutex);
         assert(retm == 0 or retm == err);
@@ -447,7 +450,7 @@ test "ResetEvent" {
         fn timedWaiter(self: *Self) !void {
             self.in.wait();
             testing.expectError(error.TimedOut, self.out.timedWait(time.ns_per_us));
-            try self.out.timedWait(time.ns_per_ms * 10);
+            try self.out.timedWait(time.ns_per_ms * 100);
             testing.expect(self.value == 5);
         }
     };

@@ -32,6 +32,24 @@ pub const Kevent = extern struct {
     udata: usize,
 };
 
+// Modes and flags for dlopen()
+// include/dlfcn.h
+
+/// Bind function calls lazily.
+pub const RTLD_LAZY = 1;
+
+/// Bind function calls immediately.
+pub const RTLD_NOW = 2;
+
+/// Make symbols globally available.
+pub const RTLD_GLOBAL = 0x100;
+
+/// Opposite of RTLD_GLOBAL, and the default.
+pub const RTLD_LOCAL = 0x000;
+
+/// Trace loaded objects and exit.
+pub const RTLD_TRACE = 0x200;
+
 pub const dl_phdr_info = extern struct {
     dlpi_addr: std.elf.Addr,
     dlpi_name: ?[*:0]const u8,
@@ -185,7 +203,17 @@ pub const libc_stat = extern struct {
 
 pub const timespec = extern struct {
     tv_sec: time_t,
-    tv_nsec: isize,
+    tv_nsec: c_long,
+};
+
+pub const timeval = extern struct {
+    tv_sec: time_t,
+    tv_usec: c_long,
+};
+
+pub const timezone = extern struct {
+    tz_minuteswest: c_int,
+    tz_dsttime: c_int,
 };
 
 pub const MAXNAMLEN = 255;
@@ -264,9 +292,12 @@ pub const AI_ADDRCONFIG = 64;
 
 pub const CTL_KERN = 1;
 pub const CTL_DEBUG = 5;
+pub const CTL_HW = 6;
 
 pub const KERN_PROC_ARGS = 55;
 pub const KERN_PROC_ARGV = 1;
+
+pub const HW_NCPUONLINE = 25;
 
 pub const PATH_MAX = 1024;
 
@@ -449,6 +480,36 @@ pub const SOCK_SEQPACKET = 5;
 
 pub const SOCK_CLOEXEC = 0x8000;
 pub const SOCK_NONBLOCK = 0x4000;
+
+pub const SO_DEBUG = 0x0001;
+pub const SO_ACCEPTCONN = 0x0002;
+pub const SO_REUSEADDR = 0x0004;
+pub const SO_KEEPALIVE = 0x0008;
+pub const SO_DONTROUTE = 0x0010;
+pub const SO_BROADCAST = 0x0020;
+pub const SO_USELOOPBACK = 0x0040;
+pub const SO_LINGER = 0x0080;
+pub const SO_OOBINLINE = 0x0100;
+pub const SO_REUSEPORT = 0x0200;
+pub const SO_TIMESTAMP = 0x0800;
+pub const SO_BINDANY = 0x1000;
+pub const SO_ZEROIZE = 0x2000;
+pub const SO_SNDBUF = 0x1001;
+pub const SO_RCVBUF = 0x1002;
+pub const SO_SNDLOWAT = 0x1003;
+pub const SO_RCVLOWAT = 0x1004;
+pub const SO_SNDTIMEO = 0x1005;
+pub const SO_RCVTIMEO = 0x1006;
+pub const SO_ERROR = 0x1007;
+pub const SO_TYPE = 0x1008;
+pub const SO_NETPROC = 0x1020;
+pub const SO_RTABLE = 0x1021;
+pub const SO_PEERCRED = 0x1022;
+pub const SO_SPLICE = 0x1023;
+pub const SO_DOMAIN = 0x1024;
+pub const SO_PROTOCOL = 0x1025;
+
+pub const SOL_SOCKET = 0xffff;
 
 pub const PF_UNSPEC = AF_UNSPEC;
 pub const PF_LOCAL = AF_LOCAL;
