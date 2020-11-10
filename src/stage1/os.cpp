@@ -682,19 +682,6 @@ static Error copy_open_files(FILE *src_f, FILE *dest_f) {
     }
 }
 
-#if defined(ZIG_OS_WINDOWS)
-static void windows_filetime_to_os_timestamp(FILETIME *ft, OsTimeStamp *mtime) {
-    mtime->sec = (((ULONGLONG) ft->dwHighDateTime) << 32) + ft->dwLowDateTime;
-    mtime->nsec = 0;
-}
-static FILETIME windows_os_timestamp_to_filetime(OsTimeStamp mtime) {
-    FILETIME result;
-    result.dwHighDateTime = mtime.sec >> 32;
-    result.dwLowDateTime = mtime.sec;
-    return result;
-}
-#endif
-
 Error os_copy_file(Buf *src_path, Buf *dest_path) {
 #if defined(ZIG_OS_WINDOWS)
     PathSpace src_path_space = slice_to_prefixed_file_w(buf_to_slice(src_path));
