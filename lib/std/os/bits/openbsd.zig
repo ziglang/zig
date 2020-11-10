@@ -203,7 +203,17 @@ pub const libc_stat = extern struct {
 
 pub const timespec = extern struct {
     tv_sec: time_t,
-    tv_nsec: isize,
+    tv_nsec: c_long,
+};
+
+pub const timeval = extern struct {
+    tv_sec: time_t,
+    tv_usec: c_long,
+};
+
+pub const timezone = extern struct {
+    tz_minuteswest: c_int,
+    tz_dsttime: c_int,
 };
 
 pub const MAXNAMLEN = 255;
