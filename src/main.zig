@@ -1707,7 +1707,10 @@ fn buildOutputType(
         }
     };
 
-    try updateModule(gpa, comp, zir_out_path, hook);
+    updateModule(gpa, comp, zir_out_path, hook) catch |err| switch (err) {
+        error.SemanticAnalyzeFail => process.exit(1),
+        else => |e| return e,
+    };
 
     if (build_options.is_stage1 and comp.stage1_lock != null and watch) {
         warn("--watch is not recommended with the stage1 backend; it leaks memory and is not capable of incremental compilation", .{});
@@ -1819,7 +1822,10 @@ fn buildOutputType(
                 if (output_mode == .Exe) {
                     try comp.makeBinFileWritable();
                 }
-                try updateModule(gpa, comp, zir_out_path, hook);
+                updateModule(gpa, comp, zir_out_path, hook) catch |err| switch (err) {
+                    error.SemanticAnalyzeFail => continue,
+                    else => |e| return e,
+                };
             } else if (mem.eql(u8, actual_line, "exit")) {
                 break;
             } else if (mem.eql(u8, actual_line, "help")) {
@@ -1849,6 +1855,7 @@ fn updateModule(gpa: *Allocator, comp: *Compilation, zir_out_path: ?[]const u8, 
         for (errors.list) |full_err_msg| {
             full_err_msg.renderToStdErr();
         }
+        return error.SemanticAnalyzeFail;
     } else switch (hook) {
         .none => {},
         .print => |bin_path| try io.getStdOut().writer().print("{s}\n", .{bin_path}),
