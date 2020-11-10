@@ -2572,17 +2572,23 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movz(reg, @truncate(u16, x), 0).toU32());
                             mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @intCast(u16, x >> 16), 16).toU32());
                         } else if (x <= math.maxInt(u32)) {
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movz(reg, @intCast(u16, x), 0).toU32());
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @intCast(u16, x >> 16), 16).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movz(reg, @truncate(u16, x), 0).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @truncate(u16, x >> 16), 16).toU32());
                             mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @intCast(u16, x >> 32), 32).toU32());
                         } else {
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movz(reg, @intCast(u16, x), 0).toU32());
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @intCast(u16, x >> 16), 16).toU32());
-                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @intCast(u16, x >> 32), 32).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movz(reg, @truncate(u16, x), 0).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @truncate(u16, x >> 16), 16).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @truncate(u16, x >> 32), 32).toU32());
                             mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @intCast(u16, x >> 48), 48).toU32());
                         }
                     },
                     .register => return self.fail(src, "TODO implement genSetReg for aarch64 {}", .{mcv}),
+                    .memory => |addr| {
+                        // The value is in memory at a hard-coded address.
+                        // If the type is a pointer, it means the pointer address is at this memory location.
+                        try self.genSetReg(src, reg, .{ .immediate = addr });
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(reg, .{ .rn = reg }).toU32());
+                    },
                     else => return self.fail(src, "TODO implement genSetReg for aarch64 {}", .{mcv}),
                 },
                 .riscv64 => switch (mcv) {
