@@ -292,9 +292,12 @@ pub const AI_ADDRCONFIG = 64;
 
 pub const CTL_KERN = 1;
 pub const CTL_DEBUG = 5;
+pub const CTL_HW = 6;
 
 pub const KERN_PROC_ARGS = 55;
 pub const KERN_PROC_ARGV = 1;
+
+pub const HW_NCPUONLINE = 25;
 
 pub const PATH_MAX = 1024;
 
