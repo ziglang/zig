@@ -613,6 +613,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         cache.hash.addBytes(options.target.cpu.model.name);
         cache.hash.add(options.target.cpu.features.ints);
         cache.hash.add(options.target.os.tag);
+        cache.hash.add(options.target.os.getVersionRange());
         cache.hash.add(options.is_native_os);
         cache.hash.add(options.target.abi);
         cache.hash.add(ofmt);
@@ -642,7 +643,6 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             hash.addOptionalBytes(root_pkg.root_src_directory.path);
             hash.add(valgrind);
             hash.add(single_threaded);
-            hash.add(options.target.os.getVersionRange());
             hash.add(dll_export_fns);
             hash.add(options.is_test);
             hash.add(options.is_compiler_rt_or_libc);
@@ -1619,7 +1619,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
         const out_dep_path: ?[]const u8 = if (comp.disable_c_depfile or !ext.clangSupportsDepFile())
             null
         else
-            try std.fmt.allocPrint(arena, "{}.d", .{out_obj_path});
+            try std.fmt.allocPrint(arena, "{s}.d", .{out_obj_path});
         try comp.addCCArgs(arena, &argv, ext, out_dep_path);
 
         try argv.ensureCapacity(argv.items.len + 3);
@@ -1849,10 +1849,39 @@ pub fn addCCArgs(
                 try argv.append(try std.fmt.allocPrint(arena, "-mcmodel={}", .{@tagName(mcmodel)}));
             }
 
-            // windows.h has files such as pshpack1.h which do #pragma packing, triggering a clang warning.
-            // So for this target, we disable this warning.
-            if (target.os.tag == .windows and target.abi.isGnu()) {
-                try argv.append("-Wno-pragma-pack");
+            switch (target.os.tag) {
+                .windows => {
+                    // windows.h has files such as pshpack1.h which do #pragma packing,
+                    // triggering a clang warning. So for this target, we disable this warning.
+                    if (target.abi.isGnu()) {
+                        try argv.append("-Wno-pragma-pack");
+                    }
+                },
+                .macos => {
+                    // Pass the proper -m<os>-version-min argument for darwin.
+                    const ver = target.os.version_range.semver.min;
+                    try argv.append(try std.fmt.allocPrint(arena, "-mmacos-version-min={d}.{d}.{d}", .{
+                        ver.major, ver.minor, ver.patch,
+                    }));
+                },
+                .ios, .tvos, .watchos => switch (target.cpu.arch) {
+                    // Pass the proper -m<os>-version-min argument for darwin.
+                    .i386, .x86_64 => {
+                        const ver = target.os.version_range.semver.min;
+                        try argv.append(try std.fmt.allocPrint(
+                            arena,
+                            "-m{s}-simulator-version-min={d}.{d}.{d}",
+                            .{ @tagName(target.os.tag), ver.major, ver.minor, ver.patch },
+                        ));
+                    },
+                    else => {
+                        const ver = target.os.version_range.semver.min;
+                        try argv.append(try std.fmt.allocPrint(arena, "-m{s}-version-min={d}.{d}.{d}", .{
+                            @tagName(target.os.tag), ver.major, ver.minor, ver.patch,
+                        }));
+                    },
+                },
+                else => {},
             }
 
             if (!comp.bin_file.options.strip) {
