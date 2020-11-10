@@ -203,6 +203,21 @@ pub const Instruction = union(enum) {
         opc: u2,
         sf: u1,
     },
+    LoadRegister: packed struct {
+        rt: u5,
+        rn: u5,
+        offset: u12,
+        opc: u2 = 0b01,
+        op1: u2,
+        fixed: u4 = 0b111_0,
+        size: u2,
+    },
+    LoadLiteral: packed struct {
+        rt: u5,
+        imm19: u19,
+        fixed: u6 = 0b011_0_00,
+        opc: u2,
+    },
     ExceptionGeneration: packed struct {
         ll: u2,
         op2: u3,
@@ -227,11 +242,130 @@ pub const Instruction = union(enum) {
     pub fn toU32(self: Instruction) u32 {
         return switch (self) {
             .MoveWideImmediate => |v| @bitCast(u32, v),
+            .LoadRegister => |v| @bitCast(u32, v),
+            .LoadLiteral => |v| @bitCast(u32, v),
             .ExceptionGeneration => |v| @bitCast(u32, v),
             .UnconditionalBranchRegister => |v| @bitCast(u32, v),
             .UnconditionalBranchImmediate => |v| @bitCast(u32, v),
         };
     }
+
+    /// Represents the offset operand of a load or store instruction.
+    /// Data can be loaded from memory with either an immediate offset
+    /// or an offset that is stored in some register.
+    pub const Offset = union(enum) {
+        Immediate: union(enum) {
+            PostIndex: i9,
+            PreIndex: i9,
+            Unsigned: u12,
+        },
+        Register: struct {
+            rm: u5,
+            shift: union(enum) {
+                Uxtw: u2,
+                Lsl: u2,
+                Sxtw: u2,
+                Sxtx: u2,
+            },
+        },
+
+        pub const none = Offset{
+            .Immediate = .{ .Unsigned = 0 },
+        };
+
+        pub fn toU12(self: Offset) u12 {
+            return switch (self) {
+                .Immediate => |imm_type| switch (imm_type) {
+                    .PostIndex => |v| @intCast(u12, @bitCast(u9, v)) << 2 + 1,
+                    .PreIndex => |v| @intCast(u12, @bitCast(u9, v)) << 2 + 3,
+                    .Unsigned => |v| v,
+                },
+                .Register => |r| switch (r.shift) {
+                    .Uxtw => |v| (@intCast(u12, r.rm) << 6) + (@intCast(u12, v) << 2) + 16 + 2050,
+                    .Lsl => |v| (@intCast(u12, r.rm) << 6) + (@intCast(u12, v) << 2) + 24 + 2050,
+                    .Sxtw => |v| (@intCast(u12, r.rm) << 6) + (@intCast(u12, v) << 2) + 48 + 2050,
+                    .Sxtx => |v| (@intCast(u12, r.rm) << 6) + (@intCast(u12, v) << 2) + 56 + 2050,
+                },
+            };
+        }
+
+        pub fn imm(offset: u12) Offset {
+            return Offset{
+                .Immediate = .{ .Unsigned = offset },
+            };
+        }
+
+        pub fn imm_post_index(offset: i9) Offset {
+            return Offset{
+                .Immediate = .{ .PostIndex = offset },
+            };
+        }
+
+        pub fn imm_pre_index(offset: i9) Offset {
+            return Offset{
+                .Immediate = .{ .PreIndex = offset },
+            };
+        }
+
+        pub fn reg(rm: Register) Offset {
+            return Offset{
+                .Register = .{
+                    .rm = rm.id(),
+                    .shift = .{
+                        .Lsl = 0,
+                    },
+                },
+            };
+        }
+
+        pub fn reg_uxtw(rm: Register, shift: u2) Offset {
+            assert(rm.size() == 32 and (shift == 0 or shift == 2));
+            return Offset{
+                .Register = .{
+                    .rm = rm.id(),
+                    .shift = .{
+                        .Uxtw = shift,
+                    },
+                },
+            };
+        }
+
+        pub fn reg_lsl(rm: Register, shift: u2) Offset {
+            assert(rm.size() == 64 and (shift == 0 or shift == 3));
+            return Offset{
+                .Register = .{
+                    .rm = rm.id(),
+                    .shift = .{
+                        .Lsl = shift,
+                    },
+                },
+            };
+        }
+
+        pub fn reg_sxtw(rm: Register, shift: u2) Offset {
+            assert(rm.size() == 32 and (shift == 0 or shift == 2));
+            return Offset{
+                .Register = .{
+                    .rm = rm.id(),
+                    .shift = .{
+                        .Sxtw = shift,
+                    },
+                },
+            };
+        }
+
+        pub fn reg_sxtx(rm: Register, shift: u2) Offset {
+            assert(rm.size() == 64 and (shift == 0 or shift == 3));
+            return Offset{
+                .Register = .{
+                    .rm = rm.id(),
+                    .shift = .{
+                        .Sxtx = shift,
+                    },
+                },
+            };
+        }
+    };
 
     // Helper functions for assembly syntax functions
 
@@ -263,6 +397,69 @@ pub const Instruction = union(enum) {
                         .hw = @intCast(u2, shift / 16),
                         .opc = opc,
                         .sf = 1,
+                    },
+                };
+            },
+            else => unreachable, // unexpected register size
+        }
+    }
+
+    fn loadRegister(rt: Register, rn: Register, offset: Offset) Instruction {
+        const off = offset.toU12();
+        const op1: u2 = blk: {
+            switch (offset) {
+                .Immediate => |imm| switch (imm) {
+                    .Unsigned => break :blk 0b01,
+                    else => {},
+                },
+                else => {},
+            }
+            break :blk 0b00;
+        };
+        switch (rt.size()) {
+            32 => {
+                return Instruction{
+                    .LoadRegister = .{
+                        .rt = rt.id(),
+                        .rn = rn.id(),
+                        .offset = offset.toU12(),
+                        .op1 = op1,
+                        .size = 0b10,
+                    },
+                };
+            },
+            64 => {
+                return Instruction{
+                    .LoadRegister = .{
+                        .rt = rt.id(),
+                        .rn = rn.id(),
+                        .offset = offset.toU12(),
+                        .op1 = op1,
+                        .size = 0b11,
+                    },
+                };
+            },
+            else => unreachable, // unexpected register size
+        }
+    }
+
+    fn loadLiteral(rt: Register, imm19: u19) Instruction {
+        switch (rt.size()) {
+            32 => {
+                return Instruction{
+                    .LoadLiteral = .{
+                        .rt = rt.id(),
+                        .imm19 = imm19,
+                        .opc = 0b00,
+                    },
+                };
+            },
+            64 => {
+                return Instruction{
+                    .LoadLiteral = .{
+                        .rt = rt.id(),
+                        .imm19 = imm19,
+                        .opc = 0b01,
                     },
                 };
             },
@@ -332,6 +529,21 @@ pub const Instruction = union(enum) {
         return moveWideImmediate(0b11, rd, imm16, shift);
     }
 
+    // Load register
+
+    pub const LdrArgs = struct {
+        rn: ?Register = null,
+        offset: Offset = Offset.none,
+        literal: ?u19 = null,
+    };
+    pub fn ldr(rt: Register, args: LdrArgs) Instruction {
+        if (args.rn) |rn| {
+            return loadRegister(rt, rn, args.offset);
+        } else {
+            return loadLiteral(rt, args.literal.?);
+        }
+    }
+
     // Exception generation
 
     pub fn svc(imm16: u16) Instruction {
@@ -379,6 +591,10 @@ pub const Instruction = union(enum) {
     }
 };
 
+test "" {
+    testing.refAllDecls(@This());
+}
+
 test "serialize instructions" {
     const Testcase = struct {
         inst: Instruction,
@@ -425,6 +641,18 @@ test "serialize instructions" {
         .{ // bl #0x10
             .inst = Instruction.bl(0x10),
             .expected = 0b1_00101_00_0000_0000_0000_0000_0000_0100,
+        },
+        .{ // ldr x2, [x1]
+            .inst = Instruction.ldr(.x2, .{ .rn = .x1 }),
+            .expected = 0b11_111_0_01_01_000000000000_00001_00010,
+        },
+        .{ // ldr x2, [x1], (x3)
+            .inst = Instruction.ldr(.x2, .{ .rn = .x1, .offset = Instruction.Offset.reg(.x3) }),
+            .expected = 0b11_111_0_00_01_1_00011_011_0_10_00001_00010,
+        },
+        .{ // ldr x2, label
+            .inst = Instruction.ldr(.x2, .{ .literal = 0x1 }),
+            .expected = 0b01_011_0_00_0000000000000000001_00010,
         },
     };
 
