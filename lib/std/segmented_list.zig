@@ -96,7 +96,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             }
         };
 
-        prealloc_segment: [prealloc_item_count]T,
+        prealloc_segment: if (prealloc_item_count == 0) void else [prealloc_item_count]T,
         dynamic_segments: [][*]T,
         allocator: *Allocator,
         len: usize,
@@ -223,12 +223,14 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             assert(end <= self.len);
 
             var i = start;
-            if (end <= prealloc_item_count) {
-                std.mem.copy(T, dest[i - start ..], self.prealloc_segment[i..end]);
-                return;
-            } else if (i < prealloc_item_count) {
-                std.mem.copy(T, dest[i - start ..], self.prealloc_segment[i..]);
-                i = prealloc_item_count;
+            if (prealloc_item_count != 0) {
+                if (end <= prealloc_item_count) {
+                    std.mem.copy(T, dest[i - start ..], self.prealloc_segment[i..end]);
+                    return;
+                } else if (i < prealloc_item_count) {
+                    std.mem.copy(T, dest[i - start ..], self.prealloc_segment[i..]);
+                    i = prealloc_item_count;
+                }
             }
 
             while (i < end) {
