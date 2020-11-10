@@ -1062,6 +1062,7 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
         case ZigLLVM_UnknownObjectFormat:
         case ZigLLVM_XCOFF:
             assert(false); // unreachable
+            break;
 
         case ZigLLVM_COFF:
             return lld::coff::link(array_ref_args, false, diag_stdout, diag_stderr);
@@ -1074,6 +1075,9 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
 
         case ZigLLVM_Wasm:
             return lld::wasm::link(array_ref_args, false, diag_stdout, diag_stderr);
+
+        default:
+            break;
     }
     assert(false); // unreachable
     abort();
