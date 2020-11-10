@@ -1272,6 +1272,16 @@ fn buildOutputType(
         fatal("`zig run` expects at least one positional argument", .{});
     }
 
+    if (link_objects.items.len == 0 and root_src_file == null and
+        c_source_files.items.len == 0 and arg_mode == .build)
+    {
+        if (output_mode == .Exe)
+            fatal("`zig build-exe` expects at least one file argument", .{});
+
+        if (output_mode == .Obj and show_builtin == false)
+            fatal("`zig build-obj` expects at least one file argument", .{});
+    }
+
     const root_name = if (provided_name) |n| n else blk: {
         if (arg_mode == .zig_test) {
             break :blk "test";
