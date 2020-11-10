@@ -32,6 +32,24 @@ pub const Kevent = extern struct {
     udata: usize,
 };
 
+// Modes and flags for dlopen()
+// include/dlfcn.h
+
+/// Bind function calls lazily.
+pub const RTLD_LAZY = 1;
+
+/// Bind function calls immediately.
+pub const RTLD_NOW = 2;
+
+/// Make symbols globally available.
+pub const RTLD_GLOBAL = 0x100;
+
+/// Opposite of RTLD_GLOBAL, and the default.
+pub const RTLD_LOCAL = 0x000;
+
+/// Trace loaded objects and exit.
+pub const RTLD_TRACE = 0x200;
+
 pub const dl_phdr_info = extern struct {
     dlpi_addr: std.elf.Addr,
     dlpi_name: ?[*:0]const u8,
