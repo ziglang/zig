@@ -7079,8 +7079,6 @@ bool const_values_equal(CodeGen *g, ZigValue *a, ZigValue *b) {
             if (bigint_cmp(&union1->tag, &union2->tag) == CmpEQ) {
                 TypeUnionField *field = find_union_field_by_tag(a->type, &union1->tag);
                 assert(field != nullptr);
-                if (!type_has_bits(g, field->type_entry))
-                    return true;
                 assert(find_union_field_by_tag(a->type, &union2->tag) != nullptr);
                 return const_values_equal(g, union1->payload, union2->payload);
             }
