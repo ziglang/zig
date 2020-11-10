@@ -450,7 +450,7 @@ test "ResetEvent" {
         fn timedWaiter(self: *Self) !void {
             self.in.wait();
             testing.expectError(error.TimedOut, self.out.timedWait(time.ns_per_us));
-            try self.out.timedWait(time.ns_per_ms * 10);
+            try self.out.timedWait(time.ns_per_ms * 100);
             testing.expect(self.value == 5);
         }
     };
