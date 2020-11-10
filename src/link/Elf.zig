@@ -1226,7 +1226,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     defer arena_allocator.deinit();
     const arena = &arena_allocator.allocator;
 
-    // Just aliases to make it shorter to type.
+    // Just aliases to make them shorter to type.
     const directory = self.base.options.emit.?.directory;
     const sub_path = self.base.options.emit.?.sub_path;
 

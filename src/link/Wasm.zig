@@ -259,7 +259,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
     defer arena_allocator.deinit();
     const arena = &arena_allocator.allocator;
 
-    // Just aliases to make it shorter to type.
+    // Just aliases to make them shorter to type.
     const directory = self.base.options.emit.?.directory;
     const sub_path = self.base.options.emit.?.sub_path;
 
@@ -336,7 +336,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation) !void {
                 // Rename the output to the new basename
                 directory.handle.rename(prev_id_data[digest.len..], sub_path) catch |err| {
                     // If the rename fails, handle this as a cache miss.
-                    log.debug("Error renaming MachO linking output: {}", .{@errorName(err)});
+                    log.debug("Error renaming WASM linking output: {}", .{@errorName(err)});
                     break :blk;
                 };
                 // Update the id to include the new basename
