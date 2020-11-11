@@ -496,13 +496,13 @@ else()
 endif()
 
 # cmake won't let us configure an executable without C sources.
-add_executable(zig "${CMAKE_SOURCE_DIR}/src/stage1/empty.cpp")
+add_executable(zig "${CMAKE_SOURCE_DIR}/src/stage1/empty.cpp" "${ZIG1_OBJECT}")
 
 set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-target_link_libraries(zig "${ZIG1_OBJECT}" zigstage1)
+target_link_libraries(zig zigstage1)
 if(MSVC)
   target_link_libraries(zig ntdll.lib)
 elseif(MINGW)
