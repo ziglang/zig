@@ -428,7 +428,7 @@ pub fn HashMapUnmanaged(
             if (self.metadata) |_| {
                 self.initMetadatas();
                 self.size = 0;
-                self.available = 0;
+                self.available = @truncate(u32, (self.capacity() * MaxLoadPercentage) / 100);
             }
         }
 
@@ -861,6 +861,11 @@ test "std.hash_map clearRetainingCapacity" {
     map.clearRetainingCapacity();
 
     try map.put(1, 1);
+    expectEqual(map.get(1).?, 1);
+    expectEqual(map.count(), 1);
+
+    map.clearRetainingCapacity();
+    map.putAssumeCapacity(1, 1);
     expectEqual(map.get(1).?, 1);
     expectEqual(map.count(), 1);
 
