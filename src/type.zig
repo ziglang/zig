@@ -261,10 +261,48 @@ pub const Type = extern union {
                 var buf_b: Payload.ElemType = undefined;
                 return a.optionalChild(&buf_a).eql(b.optionalChild(&buf_b));
             },
+            .ErrorSet => {
+                // anyerror == anyerror
+                if (a.tag() == .anyerror and b.tag() == .anyerror) {
+                    return true;
+                }
+
+                if (a.tag() == .error_set_single and b.tag() == .error_set_single) {
+                    return std.mem.eql(u8, a.cast(Payload.ErrorSetSingle).?.name, b.cast(Payload.ErrorSetSingle).?.name);
+                }
+                if (a.tag() == .error_set_single and b.tag() == .error_set) {
+                    var b_fields = b.cast(Payload.ErrorSet).?.decl.typed_value.most_recent.typed_value.val.cast(Value.Payload.ErrorSet).?.fields;
+                    return b_fields.contains(a.cast(Payload.ErrorSetSingle).?.name);
+                }
+                if (b.tag() == .error_set_single and a.tag() == .error_set) {
+                    var a_fields = a.cast(Payload.ErrorSet).?.decl.typed_value.most_recent.typed_value.val.cast(Value.Payload.ErrorSet).?.fields;
+                    return a_fields.contains(b.cast(Payload.ErrorSetSingle).?.name);
+                }
+                if (a.tag() == .error_set and b.tag() == .error_set) {
+                    // they both have to be >=1 size error sets
+                    var a_fields = a.cast(Payload.ErrorSet).?.decl.typed_value.most_recent.typed_value.val.cast(Value.Payload.ErrorSet).?.fields;
+                    var b_fields = b.cast(Payload.ErrorSet).?.decl.typed_value.most_recent.typed_value.val.cast(Value.Payload.ErrorSet).?.fields;
+                    if (a_fields.size != b_fields.size)
+                        return false;
+                    var a_fields_iter = a_fields.iterator();
+                    while (a_fields_iter.next()) |entry| {
+                        if (!b_fields.contains(entry.key)) {
+                            return false;
+                        }
+                    }
+                    var b_fields_iter = b_fields.iterator();
+                    while (b_fields_iter.next()) |entry| {
+                        if (!a_fields.contains(entry.key)) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+                return false;
+            },
             .Float,
             .Struct,
             .ErrorUnion,
-            .ErrorSet,
             .Enum,
             .Union,
             .BoundFn,
