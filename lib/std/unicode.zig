@@ -3,7 +3,7 @@
 // This file is part of [zig](https://ziglang.org/), which is MIT licensed.
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
-const std = @import("./std.zig");
+const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -23,11 +23,12 @@ pub fn utf8CodepointSequenceLength(c: u21) !u3 {
 /// returns a number 1-4 indicating the total length of the codepoint in bytes.
 /// If this byte does not match the form of a UTF-8 start byte, returns Utf8InvalidStartByte.
 pub fn utf8ByteSequenceLength(first_byte: u8) !u3 {
-    return switch (@clz(u8, ~first_byte)) {
-        0 => 1,
-        2 => 2,
-        3 => 3,
-        4 => 4,
+    // The switch is optimized much better than a "smart" approach using @clz
+    return switch (first_byte) {
+        0b0000_0000...0b0111_1111 => 1,
+        0b1100_0000...0b1101_1111 => 2,
+        0b1110_0000...0b1110_1111 => 3,
+        0b1111_0000...0b1111_0111 => 4,
         else => error.Utf8InvalidStartByte,
     };
 }
@@ -151,6 +152,50 @@ pub fn utf8Decode4(bytes: []const u8) Utf8Decode4Error!u21 {
     if (value > 0x10FFFF) return error.Utf8CodepointTooLarge;
 
     return value;
+}
+
+/// Returns true if the given unicode codepoint can be encoded in UTF-8.
+pub fn utf8ValidCodepoint(value: u21) bool {
+    return switch (value) {
+        0xD800...0xDFFF => false, // Surrogates range
+        0x110000...0x1FFFFF => false, // Above the maximum codepoint value
+        else => true,
+    };
+}
+
+/// Returns the length of a supplied UTF-8 string literal in terms of unicode
+/// codepoints.
+/// Asserts that the data is valid UTF-8.
+pub fn utf8CountCodepoints(s: []const u8) !usize {
+    var len: usize = 0;
+
+    const N = @sizeOf(usize);
+    const MASK = 0x80 * (std.math.maxInt(usize) / 0xff);
+
+    var i: usize = 0;
+    while (i < s.len) {
+        // Fast path for ASCII sequences
+        while (i + N <= s.len) : (i += N) {
+            const v = mem.readIntNative(usize, s[i..][0..N]);
+            if (v & MASK != 0) break;
+            len += N;
+        }
+
+        if (i < s.len) {
+            const n = try utf8ByteSequenceLength(s[i]);
+            if (i + n > s.len) return error.TruncatedInput;
+
+            switch (n) {
+                1 => {}, // ASCII, no validation needed
+                else => _ = try utf8Decode(s[i .. i + n]),
+            }
+
+            i += n;
+            len += 1;
+        }
+    }
+
+    return len;
 }
 
 pub fn utf8ValidateSlice(s: []const u8) bool {
@@ -756,4 +801,32 @@ test "utf8ToUtf16LeStringLiteral" {
         testing.expectEqualSlices(u16, &bytes, utf16);
         testing.expect(utf16[2] == 0);
     }
+}
+
+fn testUtf8CountCodepoints() !void {
+    testing.expectEqual(@as(usize, 10), try utf8CountCodepoints("abcdefghij"));
+    testing.expectEqual(@as(usize, 10), try utf8CountCodepoints("äåéëþüúíóö"));
+    testing.expectEqual(@as(usize, 5), try utf8CountCodepoints("こんにちは"));
+    // testing.expectError(error.Utf8EncodesSurrogateHalf, utf8CountCodepoints("\xED\xA0\x80"));
+}
+
+test "utf8 count codepoints" {
+    try testUtf8CountCodepoints();
+    comptime testUtf8CountCodepoints() catch unreachable;
+}
+
+fn testUtf8ValidCodepoint() !void {
+    testing.expect(utf8ValidCodepoint('e'));
+    testing.expect(utf8ValidCodepoint('ë'));
+    testing.expect(utf8ValidCodepoint('は'));
+    testing.expect(utf8ValidCodepoint(0xe000));
+    testing.expect(utf8ValidCodepoint(0x10ffff));
+    testing.expect(!utf8ValidCodepoint(0xd800));
+    testing.expect(!utf8ValidCodepoint(0xdfff));
+    testing.expect(!utf8ValidCodepoint(0x110000));
+}
+
+test "utf8 valid codepoint" {
+    try testUtf8ValidCodepoint();
+    comptime testUtf8ValidCodepoint() catch unreachable;
 }

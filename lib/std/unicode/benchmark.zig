@@ -1,0 +1,122 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2020 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
+const std = @import("std");
+const builtin = std.builtin;
+const time = std.time;
+const unicode = std.unicode;
+
+const Timer = time.Timer;
+
+const N = 1_000_000;
+
+const KiB = 1024;
+const MiB = 1024 * KiB;
+const GiB = 1024 * MiB;
+
+const ResultCount = struct {
+    count: usize,
+    throughput: u64,
+};
+
+const boxes = @embedFile("boxes.txt");
+const glasses = @embedFile("glasses.txt");
+const quickbrown = @embedFile("quickbrown.txt");
+const utf8demo = @embedFile("UTF-8-demo.txt");
+
+fn benchmarkCodepointCount(buf: []const u8) !ResultCount {
+    var timer = try Timer.start();
+
+    const bytes = N * buf.len;
+
+    const start = timer.lap();
+    var i: usize = 0;
+    var r: usize = undefined;
+    while (i < N) : (i += 1) {
+        r = try @call(
+            .{ .modifier = .never_inline },
+            unicode.utf8CountCodepoints,
+            .{buf},
+        );
+    }
+    const end = timer.read();
+
+    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
+    const throughput = @floatToInt(u64, @intToFloat(f64, bytes) / elapsed_s);
+
+    return ResultCount{ .count = r, .throughput = throughput };
+}
+
+pub fn main() !void {
+    const stdout = std.io.getStdOut().writer();
+    const allocator = std.heap.page_allocator;
+
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+
+    if (args.len > 1) {
+        var i: usize = 1;
+        while (i < args.len) : (i += 1) {
+            const s = args[i];
+            try stdout.print("Benchmark '{}' string\n", .{s});
+            const result = try benchmarkCodepointCount(s);
+            try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
+        }
+    }
+
+    try stdout.print("Benchmark short ASCII strings\n", .{});
+    {
+        const result = try benchmarkCodepointCount("abc");
+        try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
+    }
+
+    try stdout.print("Benchmark short Unicode strings\n", .{});
+    {
+        const result = try benchmarkCodepointCount("ŌŌŌ");
+        try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
+    }
+
+    try stdout.print("Benchmark pure ASCII strings\n", .{});
+    {
+        const result = try benchmarkCodepointCount("hello" ** 16);
+        try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
+    }
+
+    try stdout.print("Benchmark pure Unicode strings\n", .{});
+    {
+        const result = try benchmarkCodepointCount("こんにちは" ** 16);
+        try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
+    }
+
+    try stdout.print("Benchmark mixed ASCII/Unicode strings\n", .{});
+    {
+        const result = try benchmarkCodepointCount("Hyvää huomenta" ** 16);
+        try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
+    }
+
+    try stdout.print("Benchmark 'boxes.txt'\n", .{});
+    {
+        const result = try benchmarkCodepointCount(boxes);
+        try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
+    }
+
+    try stdout.print("Benchmark 'glasses.txt'\n", .{});
+    {
+        const result = try benchmarkCodepointCount(glasses);
+        try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
+    }
+
+    try stdout.print("Benchmark 'quickbrown.txt'\n", .{});
+    {
+        const result = try benchmarkCodepointCount(quickbrown);
+        try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
+    }
+
+    try stdout.print("Benchmark 'UTF-8-demo.txt'\n", .{});
+    {
+        const result = try benchmarkCodepointCount(utf8demo);
+        try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
+    }
+}
