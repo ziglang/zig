@@ -2,6 +2,15 @@ const tests = @import("tests.zig");
 const std = @import("std");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("@Type() union payload is undefined",
+        \\const Foo = @Type(@import("std").builtin.TypeInfo{
+        \\    .Struct = undefined,
+        \\});
+        \\comptime { _ = Foo; }
+    , &[_][]const u8{
+        "tmp.zig:1:50: error: use of undefined value here causes undefined behavior",
+    });
+
     cases.add("union with too small explicit signed tag type",
         \\const U = union(enum(i2)) {
         \\    A: u8,
