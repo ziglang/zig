@@ -428,7 +428,7 @@ pub fn HashMapUnmanaged(
             if (self.metadata) |_| {
                 self.initMetadatas();
                 self.size = 0;
-                self.available = 0;
+                self.available = @truncate(u32, (self.capacity() * MaxLoadPercentage) / 100);
             }
         }
 
@@ -468,41 +468,12 @@ pub fn HashMapUnmanaged(
             self.putAssumeCapacityNoClobber(key, value);
         }
 
+        /// Asserts there is enough capacity to store the new key-value pair.
+        /// Clobbers any existing data. To detect if a put would clobber
+        /// existing data, see `getOrPutAssumeCapacity`.
         pub fn putAssumeCapacity(self: *Self, key: K, value: V) void {
-            const hash = hashFn(key);
-            const mask = self.capacity() - 1;
-            const fingerprint = Metadata.takeFingerprint(hash);
-            var idx = @truncate(usize, hash & mask);
-
-            var first_tombstone_idx: usize = self.capacity(); // invalid index
-            var metadata = self.metadata.? + idx;
-            while (metadata[0].isUsed() or metadata[0].isTombstone()) {
-                if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
-                    const entry = &self.entries()[idx];
-                    if (eqlFn(entry.key, key)) {
-                        return;
-                    }
-                } else if (first_tombstone_idx == self.capacity() and metadata[0].isTombstone()) {
-                    first_tombstone_idx = idx;
-                }
-
-                idx = (idx + 1) & mask;
-                metadata = self.metadata.? + idx;
-            }
-
-            if (first_tombstone_idx < self.capacity()) {
-                // Cheap try to lower probing lengths after deletions. Recycle a tombstone.
-                idx = first_tombstone_idx;
-                metadata = self.metadata.? + idx;
-            } else {
-                // We're using a slot previously free.
-                self.available -= 1;
-            }
-
-            metadata[0].fill(fingerprint);
-            const entry = &self.entries()[idx];
-            entry.* = .{ .key = key, .value = undefined };
-            self.size += 1;
+            const gop = self.getOrPutAssumeCapacity(key);
+            gop.entry.value = value;
         }
 
         /// Insert an entry in the map. Assumes it is not already present,
@@ -893,6 +864,11 @@ test "std.hash_map clearRetainingCapacity" {
     expectEqual(map.get(1).?, 1);
     expectEqual(map.count(), 1);
 
+    map.clearRetainingCapacity();
+    map.putAssumeCapacity(1, 1);
+    expectEqual(map.get(1).?, 1);
+    expectEqual(map.count(), 1);
+
     const cap = map.capacity();
     expect(cap > 0);
 
@@ -1146,6 +1122,36 @@ test "std.hash_map put" {
     while (i < 16) : (i += 1) {
         expectEqual(map.get(i).?, i * 16 + 1);
     }
+}
+
+test "std.hash_map putAssumeCapacity" {
+    var map = AutoHashMap(u32, u32).init(std.testing.allocator);
+    defer map.deinit();
+    
+    try map.ensureCapacity(20);
+    var i: u32 = 0;
+    while (i < 20) : (i += 1) {
+        map.putAssumeCapacityNoClobber(i, i);
+    }
+
+    i = 0;
+    var sum = i;
+    while (i < 20) : (i += 1) {
+        sum += map.get(i).?;
+    }
+    expectEqual(sum, 190);
+
+    i = 0;
+    while (i < 20) : (i += 1) {
+        map.putAssumeCapacity(i, 1);
+    }
+
+    i = 0;
+    sum = i;
+    while (i < 20) : (i += 1) {
+        sum += map.get(i).?;
+    }
+    expectEqual(sum, 20);
 }
 
 test "std.hash_map getOrPut" {
