@@ -221,6 +221,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     PMBuilder->DisableUnrollLoops = is_debug;
     PMBuilder->SLPVectorize = !is_debug;
     PMBuilder->LoopVectorize = !is_debug;
+    PMBuilder->LoopsInterleaved = !PMBuilder->DisableUnrollLoops;
     PMBuilder->RerollLoops = !is_debug;
     // Leaving NewGVN as default (off) because when on it caused issue #673
     //PMBuilder->NewGVN = !is_debug;
