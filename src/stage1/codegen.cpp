@@ -83,7 +83,7 @@ static void render_const_val_global(CodeGen *g, ZigValue *const_val, const char 
 static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *name);
 static void generate_error_name_table(CodeGen *g);
 static bool value_is_all_undef(CodeGen *g, ZigValue *const_val);
-static void gen_undef_init(CodeGen *g, uint32_t ptr_align_bytes, ZigType *value_type, LLVMValueRef ptr);
+static void gen_undef_init(CodeGen *g, ZigType *ptr_type, ZigType *value_type, LLVMValueRef ptr);
 static LLVMValueRef build_alloca(CodeGen *g, ZigType *type_entry, const char *name, uint32_t alignment);
 static LLVMValueRef gen_await_early_return(CodeGen *g, IrInstGen *source_instr,
         LLVMValueRef target_frame_ptr, ZigType *result_type, ZigType *ptr_result_type,
@@ -3308,7 +3308,7 @@ static LLVMValueRef ir_render_ptr_of_array_to_slice(CodeGen *g, IrExecutableGen 
         gen_store_untyped(g, slice_start_ptr, ptr_field_ptr, 0, false);
     } else if (ir_want_runtime_safety(g, &instruction->base)) {
         LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, result_loc, ptr_index, "");
-        gen_undef_init(g, slice_ptr_type->abi_align, slice_ptr_type, ptr_field_ptr);
+        gen_undef_init(g, slice_ptr_type, slice_ptr_type, ptr_field_ptr);
     }
 
     LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, result_loc, len_index, "");
@@ -3773,22 +3773,35 @@ static void gen_valgrind_undef(CodeGen *g, LLVMValueRef dest_ptr, LLVMValueRef b
     gen_valgrind_client_request(g, zero, req, ptr_as_usize, byte_count, zero, zero, zero);
 }
 
-static void gen_undef_init(CodeGen *g, uint32_t ptr_align_bytes, ZigType *value_type, LLVMValueRef ptr) {
+static void gen_undef_init(CodeGen *g, ZigType *ptr_type, ZigType *value_type, LLVMValueRef ptr) {
     assert(type_has_bits(g, value_type));
+
+    uint64_t ptr_align_bytes = get_ptr_align(g, ptr_type);
+    assert(ptr_align_bytes > 0);
     uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, get_llvm_type(g, value_type));
     assert(size_bytes > 0);
-    assert(ptr_align_bytes > 0);
-    // memset uninitialized memory to 0xaa
-    LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
-    LLVMValueRef fill_char = LLVMConstInt(LLVMInt8Type(), 0xaa, false);
-    LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, ptr, ptr_u8, "");
-    ZigType *usize = g->builtin_types.entry_usize;
-    LLVMValueRef byte_count = LLVMConstInt(usize->llvm_type, size_bytes, false);
-    ZigLLVMBuildMemSet(g->builder, dest_ptr, fill_char, byte_count, ptr_align_bytes, false);
-    // then tell valgrind that the memory is undefined even though we just memset it
-    if (g->valgrind_enabled) {
-        gen_valgrind_undef(g, dest_ptr, byte_count);
+
+    if (ptr_type->data.pointer.host_int_bytes == 0) {
+        // memset uninitialized memory to 0xaa
+        LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
+        LLVMValueRef fill_char = LLVMConstInt(LLVMInt8Type(), 0xaa, false);
+        LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, ptr, ptr_u8, "");
+        ZigType *usize = g->builtin_types.entry_usize;
+        LLVMValueRef byte_count = LLVMConstInt(usize->llvm_type, size_bytes, false);
+        ZigLLVMBuildMemSet(g->builder, dest_ptr, fill_char, byte_count, ptr_align_bytes, false);
+        // then tell valgrind that the memory is undefined even though we just memset it
+        if (g->valgrind_enabled) {
+            gen_valgrind_undef(g, dest_ptr, byte_count);
+        }
+        return;
     }
+
+    // This is a pointer into a packed struct, we can't use memset here.
+    // The jury is still out on what pattern should be written here so clear the
+    // old value and call it a day. Generating a 0xAA...AA mask for this n-bit
+    // value is left as an exercise for the (bored) reader.
+    LLVMValueRef zero = LLVMConstNull(get_llvm_type(g, value_type));
+    gen_assign_raw(g, ptr, ptr_type, zero);
 }
 
 static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutableGen *executable, IrInstGenStorePtr *instruction) {
@@ -3817,7 +3830,7 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutableGen *executable,
         LLVMValueRef value = ir_llvm_value(g, instruction->value);
         gen_assign_raw(g, ptr, ptr_type, value);
     } else if (ir_want_runtime_safety(g, &instruction->base)) {
-        gen_undef_init(g, get_ptr_align(g, ptr_type), instruction->value->value->type,
+        gen_undef_init(g, ptr_type, instruction->value->value->type,
             ir_llvm_value(g, instruction->ptr));
     }
     return nullptr;
@@ -5817,7 +5830,7 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutableGen *executable, IrI
         if (slice_start_ptr != nullptr) {
             gen_store_untyped(g, slice_start_ptr, ptr_field_ptr, 0, false);
         } else if (want_runtime_safety) {
-            gen_undef_init(g, slice_ptr_type->abi_align, slice_ptr_type, ptr_field_ptr);
+            gen_undef_init(g, slice_ptr_type, slice_ptr_type, ptr_field_ptr);
         } else {
             gen_store_untyped(g, LLVMGetUndef(get_llvm_type(g, slice_ptr_type)), ptr_field_ptr, 0, false);
         }

@@ -884,3 +884,28 @@ test "type coercion of anon struct literal to struct" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "packed struct with undefined initializers" {
+    const S = struct {
+        const P = packed struct {
+            a: u3,
+            _a: u3 = undefined,
+            b: u3,
+            _b: u3 = undefined,
+            c: u3,
+            _c: u3 = undefined,
+        };
+
+        fn doTheTest() void {
+            var p: P = undefined;
+            p = P{ .a = 2, .b = 4, .c = 6 };
+            // Make sure the compiler doesn't touch the unprefixed fields.
+            expectEqual(@as(u3, 2), p.a);
+            expectEqual(@as(u3, 4), p.b);
+            expectEqual(@as(u3, 6), p.c);
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
