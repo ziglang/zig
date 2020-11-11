@@ -107,6 +107,7 @@ const Utf8Decode3Error = error{
     Utf8OverlongEncoding,
     Utf8EncodesSurrogateHalf,
 };
+
 pub fn utf8Decode3(bytes: []const u8) Utf8Decode3Error!u21 {
     assert(bytes.len == 3);
     assert(bytes[0] & 0b11110000 == 0b11100000);
@@ -155,7 +156,7 @@ pub fn utf8Decode4(bytes: []const u8) Utf8Decode4Error!u21 {
 }
 
 /// Returns true if the given unicode codepoint can be encoded in UTF-8.
-pub fn utf8ValidCodepoint(value: u21) bool {
+pub fn isValidCodepoint(value: u21) bool {
     return switch (value) {
         0xD800...0xDFFF => false, // Surrogates range
         0x110000...0x1FFFFF => false, // Above the maximum codepoint value
@@ -165,7 +166,7 @@ pub fn utf8ValidCodepoint(value: u21) bool {
 
 /// Returns the length of a supplied UTF-8 string literal in terms of unicode
 /// codepoints.
-/// Asserts that the data is valid UTF-8.
+/// Errors: if this string cannot be decoded.
 pub fn utf8CountCodepoints(s: []const u8) !usize {
     var len: usize = 0;
 
@@ -815,18 +816,18 @@ test "utf8 count codepoints" {
     comptime testUtf8CountCodepoints() catch unreachable;
 }
 
-fn testUtf8ValidCodepoint() !void {
-    testing.expect(utf8ValidCodepoint('e'));
-    testing.expect(utf8ValidCodepoint('ë'));
-    testing.expect(utf8ValidCodepoint('は'));
-    testing.expect(utf8ValidCodepoint(0xe000));
-    testing.expect(utf8ValidCodepoint(0x10ffff));
-    testing.expect(!utf8ValidCodepoint(0xd800));
-    testing.expect(!utf8ValidCodepoint(0xdfff));
-    testing.expect(!utf8ValidCodepoint(0x110000));
+fn testisValidCodepoint() !void {
+    testing.expect(isValidCodepoint('e'));
+    testing.expect(isValidCodepoint('ë'));
+    testing.expect(isValidCodepoint('は'));
+    testing.expect(isValidCodepoint(0xe000));
+    testing.expect(isValidCodepoint(0x10ffff));
+    testing.expect(!isValidCodepoint(0xd800));
+    testing.expect(!isValidCodepoint(0xdfff));
+    testing.expect(!isValidCodepoint(0x110000));
 }
 
 test "utf8 valid codepoint" {
-    try testUtf8ValidCodepoint();
-    comptime testUtf8ValidCodepoint() catch unreachable;
+    try testisValidCodepoint();
+    comptime testisValidCodepoint() catch unreachable;
 }
