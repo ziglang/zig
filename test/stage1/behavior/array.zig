@@ -413,3 +413,21 @@ test "sentinel element count towards the ABI size calculation" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "zero-sized array with recursive type definition" {
+    const U = struct {
+        fn foo(comptime T: type, comptime n: usize) type {
+            return struct {
+                s: [n]T,
+                x: usize = n,
+            };
+        }
+    };
+
+    const S = struct {
+        list: U.foo(@This(), 0),
+    };
+
+    var t: S = .{ .list = .{ .s = undefined } };
+    expectEqual(@as(usize, 0), t.list.x);
+}
