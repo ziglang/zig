@@ -26022,6 +26022,32 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
             return ira->codegen->builtin_types.entry_bool;
         case ZigTypeIdUnreachable:
             return ira->codegen->builtin_types.entry_unreachable;
+        case ZigTypeIdComptimeFloat:
+            return ira->codegen->builtin_types.entry_num_lit_float;
+        case ZigTypeIdComptimeInt:
+            return ira->codegen->builtin_types.entry_num_lit_int;
+        case ZigTypeIdUndefined:
+            return ira->codegen->builtin_types.entry_undef;
+        case ZigTypeIdNull:
+            return ira->codegen->builtin_types.entry_null;
+        case ZigTypeIdEnumLiteral:
+            return ira->codegen->builtin_types.entry_enum_literal;
+        default:
+            if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec, source_instr->source_node, payload, UndefBad)))
+                return ira->codegen->invalid_inst_gen->value->type;
+    }
+    switch (tagTypeId) {
+        case ZigTypeIdInvalid:
+        case ZigTypeIdMetaType:
+        case ZigTypeIdVoid:
+        case ZigTypeIdBool:
+        case ZigTypeIdUnreachable:
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdUndefined:
+        case ZigTypeIdNull:
+        case ZigTypeIdEnumLiteral:
+            zig_unreachable();
         case ZigTypeIdInt: {
             assert(payload->special == ConstValSpecialStatic);
             assert(payload->type == ir_type_info_get_type(ira, "Int", nullptr));
@@ -26131,14 +26157,6 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
                 return ira->codegen->invalid_inst_gen->value->type;
             return get_array_type(ira->codegen, elem_type, bigint_as_u64(bi), sentinel);
         }
-        case ZigTypeIdComptimeFloat:
-            return ira->codegen->builtin_types.entry_num_lit_float;
-        case ZigTypeIdComptimeInt:
-            return ira->codegen->builtin_types.entry_num_lit_int;
-        case ZigTypeIdUndefined:
-            return ira->codegen->builtin_types.entry_undef;
-        case ZigTypeIdNull:
-            return ira->codegen->builtin_types.entry_null;
         case ZigTypeIdOptional: {
             assert(payload->special == ConstValSpecialStatic);
             assert(payload->type == ir_type_info_get_type(ira, "Optional", nullptr));
@@ -26204,8 +26222,6 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInst *source_instr, ZigTypeI
 
             return get_any_frame_type(ira->codegen, child_type);
         }
-        case ZigTypeIdEnumLiteral:
-            return ira->codegen->builtin_types.entry_enum_literal;
         case ZigTypeIdFnFrame: {
             assert(payload->special == ConstValSpecialStatic);
             assert(payload->type == ir_type_info_get_type(ira, "Frame", nullptr));
