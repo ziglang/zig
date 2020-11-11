@@ -1,0 +1,22 @@
+@unnamed$0 = str("_start")
+@unnamed$1 = export(@unnamed$0, "_start")
+@unnamed$2 = str("{rax}")
+@unnamed$3 = str("{rdi}")
+@unnamed$4 = primitive(usize)
+@unnamed$5 = int(231)
+@unnamed$6 = as(@unnamed$4, @unnamed$5)
+@unnamed$7 = str("syscall")
+@unnamed$8 = primitive(void)
+@unnamed$9 = primitive(noreturn)
+@unnamed$10 = fntype([@unnamed$4], @unnamed$9, cc=Unspecified)
+@exit = fn(@unnamed$10, {
+  %0 = arg("x") ; deaths=0b0 0x7fe7a9d28fd0
+  %1 = dbg_stmt() ; deaths=0b1000000000000000 0x7fe7a9d5c818
+  %2 = asm(@unnamed$7, @unnamed$8, volatile=1, inputs=[@unnamed$2, @unnamed$3], clobbers=[], args=[@unnamed$6, %0]) ; deaths=0b1000000000000011 0x7fe7a9d5e8c0
+  %3 = dbg_stmt() ; deaths=0b1000000000000000 0x7fe7a9d5e958
+  %4 = breakpoint() ; deaths=0b1000000000000000 0x7fe7a9d5e970
+  %5 = unreach_nocheck() ; deaths=0b1000000000000000 0x7fe7a9d5e988
+})
+@exit__anon_0 = str("{rax}")
+@exit__anon_1 = str("{rdi}")
+@exit__anon_2 = str("syscall")
