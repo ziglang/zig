@@ -218,7 +218,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     PMBuilder->SizeLevel = is_small ? 2 : 0;
 
     PMBuilder->DisableTailCalls = is_debug;
-    PMBuilder->DisableUnrollLoops = is_debug;
+    PMBuilder->DisableUnrollLoops = is_small | is_debug;
     PMBuilder->SLPVectorize = !is_debug;
     PMBuilder->LoopVectorize = !is_debug;
     PMBuilder->RerollLoops = !is_debug;
