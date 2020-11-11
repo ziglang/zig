@@ -32970,8 +32970,13 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
                     break;
             }
 
-            if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusSizeKnown)))
-                return err;
+            // Avoid resolving the type if the total length is zero.
+            // Matches the logic in get_array_type and in the lazy alignment
+            // resolution routine.
+            if (lazy_array_type->length + (lazy_array_type->sentinel != nullptr) != 0) {
+                if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusSizeKnown)))
+                    return err;
+            }
 
             ZigValue *sentinel_val = nullptr;
             if (lazy_array_type->sentinel != nullptr) {
