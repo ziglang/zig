@@ -1267,9 +1267,17 @@ fn buildOutputType(
     }
 
     if (link_objects.items.len == 0 and root_src_file == null and
-        c_source_files.items.len == 0 and arg_mode == .run)
+        c_source_files.items.len == 0 and !show_builtin)
     {
-        fatal("`zig run` expects at least one positional argument", .{});
+        switch (arg_mode) {
+            .run => fatal("`zig run` expects at least one positional argument", .{}),
+            .build => |build_type| switch (build_type) {
+                .Exe => fatal("`zig build-exe` expects at least one positional argument", .{}),
+                .Lib => fatal("`zig build-lib` expects at least one positional argument", .{}),
+                .Obj => fatal("`zig build-obj` expects at least one positional argument", .{}),
+            },
+            else => {},
+        }
     }
 
     const root_name = if (provided_name) |n| n else blk: {
