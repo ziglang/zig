@@ -299,6 +299,11 @@ set(ZIG_CPP_SOURCES
     # https://github.com/ziglang/zig/issues/6363
     "${CMAKE_SOURCE_DIR}/src/windows_sdk.cpp"
 )
+# Needed because we use cmake, not the zig build system, to build zig1.o.
+set(ZIG_STAGE2_SOURCES
+    "${CMAKE_SOURCE_DIR}/src/main.zig"
+    "${CMAKE_SOURCE_DIR}/src/Module.zig"
+)
 
 if(MSVC)
     set(MSVC_DIA_SDK_DIR "$ENV{VSINSTALLDIR}DIA SDK")
@@ -468,10 +473,10 @@ set(BUILD_ZIG1_ARGS
 )
 
 if("${ZIG_EXECUTABLE}" STREQUAL "")
-  add_custom_target(zig_build_zig1 ALL
+  add_custom_command(
+      OUTPUT "${ZIG1_OBJECT}"
       COMMAND zig0 ${BUILD_ZIG1_ARGS}
-      DEPENDS zig0
-      BYPRODUCTS "${ZIG1_OBJECT}"
+      DEPENDS zig0 "${ZIG_STAGE2_SOURCES}"
       COMMENT STATUS "Building self-hosted component ${ZIG1_OBJECT}"
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
   )
@@ -480,28 +485,29 @@ if("${ZIG_EXECUTABLE}" STREQUAL "")
     set(ZIG_EXECUTABLE "${ZIG_EXECUTABLE}.exe")
   endif()
 else()
-  add_custom_target(zig_build_zig1 ALL
-      COMMAND "${ZIG_EXECUTABLE}" "build-obj" ${BUILD_ZIG1_ARGS}
+  add_custom_command(
+      OUTPUT "${ZIG1_OBJECT}"
       BYPRODUCTS "${ZIG1_OBJECT}"
+      COMMAND "${ZIG_EXECUTABLE}" "build-obj" ${BUILD_ZIG1_ARGS}
+      DEPENDS ${ZIG_STAGE2_SOURCES}
       COMMENT STATUS "Building self-hosted component ${ZIG1_OBJECT}"
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
   )
 endif()
 
 # cmake won't let us configure an executable without C sources.
-add_executable(zig "${CMAKE_SOURCE_DIR}/src/stage1/empty.cpp")
+add_executable(zig "${CMAKE_SOURCE_DIR}/src/stage1/empty.cpp" "${ZIG1_OBJECT}")
 
 set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-target_link_libraries(zig "${ZIG1_OBJECT}" zigstage1)
+target_link_libraries(zig zigstage1)
 if(MSVC)
   target_link_libraries(zig ntdll.lib)
 elseif(MINGW)
   target_link_libraries(zig ntdll)
 endif()
-add_dependencies(zig zig_build_zig1)
 
 install(TARGETS zig DESTINATION bin)
 
