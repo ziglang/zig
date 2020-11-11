@@ -2131,7 +2131,7 @@ pub const LibExeObjStep = struct {
         }
 
         if (self.code_model != .default) {
-            try zig_args.append("-code-model");
+            try zig_args.append("-mcmodel");
             try zig_args.append(@tagName(self.code_model));
         }
 
