@@ -34,6 +34,7 @@ const LoadCommand = union(enum) {
     Dylib: macho.dylib_command,
     EntryPoint: macho.entry_point_command,
     MinVersion: macho.version_min_command,
+    SourceVersion: macho.source_version_command,
 
     pub fn cmdsize(self: LoadCommand) u32 {
         return switch (self) {
@@ -46,6 +47,7 @@ const LoadCommand = union(enum) {
             .Dylib => |x| x.cmdsize,
             .EntryPoint => |x| x.cmdsize,
             .MinVersion => |x| x.cmdsize,
+            .SourceVersion => |x| x.cmdsize,
         };
     }
 
@@ -60,6 +62,7 @@ const LoadCommand = union(enum) {
             .Dylib => |cmd| writeGeneric(cmd, file, offset),
             .EntryPoint => |cmd| writeGeneric(cmd, file, offset),
             .MinVersion => |cmd| writeGeneric(cmd, file, offset),
+            .SourceVersion => |cmd| writeGeneric(cmd, file, offset),
         };
     }
 
@@ -101,6 +104,8 @@ function_starts_cmd_index: ?u16 = null,
 main_cmd_index: ?u16 = null,
 /// Minimum OS version
 version_min_cmd_index: ?u16 = null,
+/// Source version
+source_version_cmd_index: ?u16 = null,
 
 /// Table of all sections
 sections: std.ArrayListUnmanaged(macho.section_64) = .{},
@@ -1374,6 +1379,16 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .cmdsize = @sizeOf(macho.version_min_command),
                 .version = 0xB0001, // 11.0.1 BigSur
                 .sdk = 0xB0001, // 11.0.1 BigSur
+            },
+        });
+    }
+    if (self.source_version_cmd_index == null) {
+        self.source_version_cmd_index = @intCast(u16, self.load_commands.items.len);
+        try self.load_commands.append(self.base.allocator, .{
+            .SourceVersion = .{
+                .cmd = macho.LC_SOURCE_VERSION,
+                .cmdsize = @sizeOf(macho.source_version_command),
+                .version = 0x0,
             },
         });
     }
