@@ -4838,6 +4838,29 @@ static LLVMValueRef ir_render_asm_gen(CodeGen *g, IrExecutableGen *executable, I
         }
     }
 
+    // Add some architecture-specific clobbers.
+    const char *arch_clobbers = nullptr;
+    switch (g->zig_target->arch) {
+        case ZigLLVM_x86:
+        case ZigLLVM_x86_64:
+            arch_clobbers = "~{dirflag},~{fpsr},~{flags}";
+            break;
+        case ZigLLVM_mips:
+        case ZigLLVM_mipsel:
+        case ZigLLVM_mips64:
+        case ZigLLVM_mips64el:
+            arch_clobbers = "~{$1}";
+            break;
+        default:
+            break;
+    }
+
+    if (arch_clobbers != nullptr) {
+        if (buf_len(&constraint_buf))
+            buf_append_char(&constraint_buf, ',');
+        buf_append_str(&constraint_buf, arch_clobbers);
+    }
+
     LLVMTypeRef ret_type;
     if (instruction->return_count == 0) {
         ret_type = LLVMVoidType();
