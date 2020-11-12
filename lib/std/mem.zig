@@ -7,7 +7,7 @@ const std = @import("std.zig");
 const debug = std.debug;
 const assert = debug.assert;
 const math = std.math;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const mem = @This();
 const meta = std.meta;
 const trait = meta.trait;
@@ -1937,25 +1937,31 @@ pub fn nativeToBig(comptime T: type, x: T) T {
     };
 }
 
+fn CopyPtrAttrs(comptime source: type, size: builtin.TypeInfo.Pointer.Size, child: type) type {
+    const info = @typeInfo(source).Pointer;
+    return @Type(.{
+        .Pointer = .{
+            .size = size,
+            .is_const = info.is_const,
+            .is_volatile = info.is_volatile,
+            .is_allowzero = info.is_allowzero,
+            .alignment = info.alignment,
+            .child = child,
+            .sentinel = null,
+        },
+    });
+}
+
 fn AsBytesReturnType(comptime P: type) type {
     if (!trait.isSingleItemPtr(P))
         @compileError("expected single item pointer, passed " ++ @typeName(P));
 
     const size = @sizeOf(meta.Child(P));
-    const alignment = meta.alignment(P);
 
-    if (alignment == 0) {
-        if (trait.isConstPtr(P))
-            return *const [size]u8;
-        return *[size]u8;
-    }
-
-    if (trait.isConstPtr(P))
-        return *align(alignment) const [size]u8;
-    return *align(alignment) [size]u8;
+    return CopyPtrAttrs(P, .One, [size]u8);
 }
 
-/// Given a pointer to a single item, returns a slice of the underlying bytes, preserving constness.
+/// Given a pointer to a single item, returns a slice of the underlying bytes, preserving pointer attributes.
 pub fn asBytes(ptr: anytype) AsBytesReturnType(@TypeOf(ptr)) {
     const P = @TypeOf(ptr);
     return @ptrCast(AsBytesReturnType(P), ptr);
@@ -1995,6 +2001,20 @@ test "asBytes" {
     testing.expect(eql(u8, asBytes(&zero), ""));
 }
 
+test "asBytes preserves qualifiers" {
+    const inArr: u32 align(16) = 0xDEADBEEF;
+    const inPtr = @ptrCast(*align(16) const volatile u32, &inArr);
+    const outSlice = asBytes(inPtr);
+
+    const in = @typeInfo(@TypeOf(inPtr)).Pointer;
+    const out = @typeInfo(@TypeOf(outSlice)).Pointer;
+
+    testing.expectEqual(in.is_const, out.is_const);
+    testing.expectEqual(in.is_volatile, out.is_volatile);
+    testing.expectEqual(in.is_allowzero, out.is_allowzero);
+    testing.expectEqual(in.alignment, out.alignment);
+}
+
 /// Given any value, returns a copy of its bytes in an array.
 pub fn toBytes(value: anytype) [@sizeOf(@TypeOf(value))]u8 {
     return asBytes(&value).*;
@@ -2024,13 +2044,11 @@ fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
         @compileError(std.fmt.bufPrint(&buf, "expected *[{}]u8, passed " ++ @typeName(B), .{size}) catch unreachable);
     }
 
-    const alignment = comptime meta.alignment(B);
-
-    return if (comptime trait.isConstPtr(B)) *align(alignment) const T else *align(alignment) T;
+    return CopyPtrAttrs(B, .One, T);
 }
 
 /// Given a pointer to an array of bytes, returns a pointer to a value of the specified type
-/// backed by those bytes, preserving constness.
+/// backed by those bytes, preserving pointer attributes.
 pub fn bytesAsValue(comptime T: type, bytes: anytype) BytesAsValueReturnType(T, @TypeOf(bytes)) {
     return @ptrCast(BytesAsValueReturnType(T, @TypeOf(bytes)), bytes);
 }
@@ -2072,6 +2090,20 @@ test "bytesAsValue" {
     testing.expect(meta.eql(inst, inst2.*));
 }
 
+test "bytesAsValue preserves qualifiers" {
+    const inArr align(16) = [4]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
+    const inSlice = @ptrCast(*align(16) const volatile [4]u8, &inArr)[0..];
+    const outPtr = bytesAsValue(u32, inSlice);
+
+    const in = @typeInfo(@TypeOf(inSlice)).Pointer;
+    const out = @typeInfo(@TypeOf(outPtr)).Pointer;
+
+    testing.expectEqual(in.is_const, out.is_const);
+    testing.expectEqual(in.is_volatile, out.is_volatile);
+    testing.expectEqual(in.is_allowzero, out.is_allowzero);
+    testing.expectEqual(in.alignment, out.alignment);
+}
+
 /// Given a pointer to an array of bytes, returns a value of the specified type backed by a
 /// copy of those bytes.
 pub fn bytesToValue(comptime T: type, bytes: anytype) T {
@@ -2087,9 +2119,8 @@ test "bytesToValue" {
     testing.expect(deadbeef == @as(u32, 0xDEADBEEF));
 }
 
-//TODO copy also is_volatile, etc. I tried to use @typeInfo, modify child type, use @Type, but ran into issues.
 fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type) type {
-    if (!(trait.isSlice(bytesType) and meta.Child(bytesType) == u8) and !(trait.isPtrTo(.Array)(bytesType) and meta.Child(meta.Child(bytesType)) == u8)) {
+    if (!(trait.isSlice(bytesType) or trait.isPtrTo(.Array)(bytesType)) or meta.Elem(bytesType) != u8) {
         @compileError("expected []u8 or *[_]u8, passed " ++ @typeName(bytesType));
     }
 
@@ -2097,11 +2128,11 @@ fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type) type {
         @compileError("number of bytes in " ++ @typeName(bytesType) ++ " is not divisible by size of " ++ @typeName(T));
     }
 
-    const alignment = meta.alignment(bytesType);
-
-    return if (trait.isConstPtr(bytesType)) []align(alignment) const T else []align(alignment) T;
+    return CopyPtrAttrs(bytesType, .Slice, T);
 }
 
+/// Given a slice of bytes, returns a slice of the specified type
+/// backed by those bytes, preserving pointer attributes.
 pub fn bytesAsSlice(comptime T: type, bytes: anytype) BytesAsSliceReturnType(T, @TypeOf(bytes)) {
     // let's not give an undefined pointer to @ptrCast
     // it may be equal to zero and fail a null check
@@ -2109,10 +2140,7 @@ pub fn bytesAsSlice(comptime T: type, bytes: anytype) BytesAsSliceReturnType(T, 
         return &[0]T{};
     }
 
-    const Bytes = @TypeOf(bytes);
-    const alignment = comptime meta.alignment(Bytes);
-
-    const cast_target = if (comptime trait.isConstPtr(Bytes)) [*]align(alignment) const T else [*]align(alignment) T;
+    const cast_target = CopyPtrAttrs(@TypeOf(bytes), .Many, T);
 
     return @ptrCast(cast_target, bytes)[0..@divExact(bytes.len, @sizeOf(T))];
 }
@@ -2170,17 +2198,29 @@ test "bytesAsSlice with specified alignment" {
     testing.expect(slice[0] == 0x33333333);
 }
 
-//TODO copy also is_volatile, etc. I tried to use @typeInfo, modify child type, use @Type, but ran into issues.
+test "bytesAsSlice preserves qualifiers" {
+    const inArr align(16) = [4]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
+    const inSlice = @ptrCast(*align(16) const volatile [4]u8, &inArr)[0..];
+    const outSlice = bytesAsSlice(u16, inSlice);
+
+    const in = @typeInfo(@TypeOf(inSlice)).Pointer;
+    const out = @typeInfo(@TypeOf(outSlice)).Pointer;
+
+    testing.expectEqual(in.is_const, out.is_const);
+    testing.expectEqual(in.is_volatile, out.is_volatile);
+    testing.expectEqual(in.is_allowzero, out.is_allowzero);
+    testing.expectEqual(in.alignment, out.alignment);
+}
+
 fn SliceAsBytesReturnType(comptime sliceType: type) type {
     if (!trait.isSlice(sliceType) and !trait.isPtrTo(.Array)(sliceType)) {
         @compileError("expected []T or *[_]T, passed " ++ @typeName(sliceType));
     }
 
-    const alignment = meta.alignment(sliceType);
-
-    return if (trait.isConstPtr(sliceType)) []align(alignment) const u8 else []align(alignment) u8;
+    return CopyPtrAttrs(sliceType, .Slice, u8);
 }
 
+/// Given a slice, returns a slice of the underlying bytes, preserving pointer attributes.
 pub fn sliceAsBytes(slice: anytype) SliceAsBytesReturnType(@TypeOf(slice)) {
     const Slice = @TypeOf(slice);
 
@@ -2190,9 +2230,7 @@ pub fn sliceAsBytes(slice: anytype) SliceAsBytesReturnType(@TypeOf(slice)) {
         return &[0]u8{};
     }
 
-    const alignment = comptime meta.alignment(Slice);
-
-    const cast_target = if (comptime trait.isConstPtr(Slice)) [*]align(alignment) const u8 else [*]align(alignment) u8;
+    const cast_target = CopyPtrAttrs(Slice, .Many, u8);
 
     return @ptrCast(cast_target, slice)[0 .. slice.len * @sizeOf(meta.Elem(Slice))];
 }
@@ -2262,6 +2300,20 @@ test "sliceAsBytes and bytesAsSlice back" {
     testing.expect(bytes[9] == math.maxInt(u8));
     testing.expect(bytes[10] == math.maxInt(u8));
     testing.expect(bytes[11] == math.maxInt(u8));
+}
+
+test "sliceAsBytes preserves qualifiers" {
+    const inArr align(16) = [2]u16{ 0xDEAD, 0xBEEF };
+    const inSlice = @ptrCast(*align(16) const volatile [2]u16, &inArr)[0..];
+    const outSlice = sliceAsBytes(inSlice);
+
+    const in = @typeInfo(@TypeOf(inSlice)).Pointer;
+    const out = @typeInfo(@TypeOf(outSlice)).Pointer;
+
+    testing.expectEqual(in.is_const, out.is_const);
+    testing.expectEqual(in.is_volatile, out.is_volatile);
+    testing.expectEqual(in.is_allowzero, out.is_allowzero);
+    testing.expectEqual(in.alignment, out.alignment);
 }
 
 /// Round an address up to the nearest aligned address
