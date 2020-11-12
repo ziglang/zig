@@ -931,7 +931,57 @@ fn analyzeInstErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) In
 }
 
 fn analyzeInstMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
-    return mod.fail(scope, inst.base.src, "TODO implement merge_error_sets", .{});
+    const rhs_fields = (try resolveType(mod, scope, inst.positionals.rhs)).getErrs();
+    const lhs_fields = (try resolveType(mod, scope, inst.positionals.rhs)).getErrs();
+    // The declarations arena will store the hashmap.
+    var new_decl_arena = std.heap.ArenaAllocator.init(mod.gpa);
+    errdefer new_decl_arena.deinit();
+
+    const payload = try scope.arena().create(Value.Payload.ErrorSet);
+    payload.* = .{
+        .fields = .{},
+        .decl = undefined, // populated below
+    };
+    try payload.fields.ensureCapacity(&new_decl_arena.allocator, @intCast(u32, switch (rhs_fields) {
+        .err_single => 1,
+        .multiple => |mul| mul.size,
+    } + switch (rhs_fields) {
+        .err_single => 1,
+        .multiple => |mul| mul.size,
+    })); // TODO should we do this? only true when no overlapping
+
+    switch (rhs_fields) {
+        .err_single => |name| {
+            const entry = try mod.getErrorValue(name);
+            payload.fields.putAssumeCapacity(entry.key, entry.value);
+        },
+        .multiple => |multiple| {
+            var it = multiple.iterator();
+            while (it.next()) |name| {
+                const entry = try mod.getErrorValue(name.key);
+                payload.fields.putAssumeCapacity(entry.key, entry.value);
+            }
+        },
+    }
+    switch (lhs_fields) {
+        .err_single => |name| {
+            const entry = try mod.getErrorValue(name);
+            payload.fields.putAssumeCapacity(entry.key, entry.value);
+        },
+        .multiple => |multiple| {
+            var it = multiple.iterator();
+            while (it.next()) |name| {
+                const entry = try mod.getErrorValue(name.key);
+                payload.fields.putAssumeCapacity(entry.key, entry.value);
+            }
+        },
+    }
+    const new_decl = try mod.createAnonymousDecl(scope, &new_decl_arena, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initPayload(&payload.base),
+    });
+    payload.decl = new_decl;
+    return mod.analyzeDeclRef(scope, inst.base.src, new_decl);
 }
 
 fn analyzeInstEnumLiteral(mod: *Module, scope: *Scope, inst: *zir.Inst.EnumLiteral) InnerError!*Inst {
@@ -1783,7 +1833,15 @@ fn analyzeInstCmp(
         if (!is_equality_cmp) {
             return mod.fail(scope, inst.base.src, "{} operator not allowed for errors", .{@tagName(op)});
         }
-        return mod.fail(scope, inst.base.src, "TODO implement equality comparison between errors", .{});
+        const lhs_comptime = lhs.ty.cast(Type.Payload.ErrorSetSingle);
+        const rhs_comptime = rhs.ty.cast(Type.Payload.ErrorSetSingle);
+        if (lhs_comptime != null and rhs_comptime != null) {
+            if (op == .eq)
+                return mod.constBool(scope, inst.base.src, !std.mem.eql(u8, lhs_comptime.?.name, rhs_comptime.?.name))
+            else
+                return mod.constBool(scope, inst.base.src, std.mem.eql(u8, lhs_comptime.?.name, rhs_comptime.?.name));
+        }
+        return mod.fail(scope, inst.base.src, "TODO runtime error comparison", .{});
     } else if (lhs.ty.isNumeric() and rhs.ty.isNumeric()) {
         // This operation allows any combination of integer and float types, regardless of the
         // signed-ness, comptime-ness, and bit-width. So peer type resolution is incorrect for
@@ -1795,7 +1853,7 @@ fn analyzeInstCmp(
         }
         return mod.constBool(scope, inst.base.src, lhs.value().?.eql(rhs.value().?) == (op == .eq));
     }
-    return mod.fail(scope, inst.base.src, "TODO implement more cmp analysis", .{});
+    return mod.fail(scope, inst.base.src, "TODO implement more cmp analysis for type {} and {}", .{ @tagName(lhs_ty_tag), @tagName(rhs_ty_tag) });
 }
 
 fn analyzeInstTypeOf(mod: *Module, scope: *Scope, inst: *zir.Inst.UnOp) InnerError!*Inst {

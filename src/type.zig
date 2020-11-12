@@ -262,36 +262,35 @@ pub const Type = extern union {
                 return a.optionalChild(&buf_a).eql(b.optionalChild(&buf_b));
             },
             .ErrorSet => {
-                // anyerror == anyerror
-                if (a.tag() == .anyerror and b.tag() == .anyerror) {
-                    return true;
-                }
-
                 if (a.tag() == .error_set_single and b.tag() == .error_set_single) {
-                    return std.mem.eql(u8, a.cast(Payload.ErrorSetSingle).?.name, b.cast(Payload.ErrorSetSingle).?.name);
+                    return std.mem.eql(u8, a.getErrs().err_single, b.getErrs().err_single);
                 }
                 if (a.tag() == .error_set_single and b.tag() == .error_set) {
-                    var b_fields = b.cast(Payload.ErrorSet).?.decl.typed_value.most_recent.typed_value.val.cast(Value.Payload.ErrorSet).?.fields;
-                    return b_fields.contains(a.cast(Payload.ErrorSetSingle).?.name);
+                    var b_fields = b.getErrs().multiple;
+                    if (b_fields.size != 1) return false;
+                    return b_fields.contains(a.getErrs().err_single);
                 }
+
                 if (b.tag() == .error_set_single and a.tag() == .error_set) {
-                    var a_fields = a.cast(Payload.ErrorSet).?.decl.typed_value.most_recent.typed_value.val.cast(Value.Payload.ErrorSet).?.fields;
-                    return a_fields.contains(b.cast(Payload.ErrorSetSingle).?.name);
+                    var a_fields = a.getErrs().multiple;
+                    if (a_fields.size != 1) return false;
+                    return a_fields.contains(b.getErrs().err_single);
                 }
+
                 if (a.tag() == .error_set and b.tag() == .error_set) {
                     // they both have to be >=1 size error sets
-                    var a_fields = a.cast(Payload.ErrorSet).?.decl.typed_value.most_recent.typed_value.val.cast(Value.Payload.ErrorSet).?.fields;
-                    var b_fields = b.cast(Payload.ErrorSet).?.decl.typed_value.most_recent.typed_value.val.cast(Value.Payload.ErrorSet).?.fields;
+                    var a_fields = a.getErrs().multiple;
+                    var b_fields = b.getErrs().multiple;
                     if (a_fields.size != b_fields.size)
                         return false;
-                    var a_fields_iter = a_fields.iterator();
-                    while (a_fields_iter.next()) |entry| {
+                    var a_fields_it = a_fields.iterator();
+                    while (a_fields_it.next()) |entry| {
                         if (!b_fields.contains(entry.key)) {
                             return false;
                         }
                     }
-                    var b_fields_iter = b_fields.iterator();
-                    while (b_fields_iter.next()) |entry| {
+                    var b_fields_it = b_fields.iterator();
+                    while (b_fields_it.next()) |entry| {
                         if (!a_fields.contains(entry.key)) {
                             return false;
                         }
@@ -300,9 +299,13 @@ pub const Type = extern union {
                 }
                 return false;
             },
+            .ErrorUnion => {
+                const a_casted = a.cast(Payload.ErrorUnion).?;
+                const b_casted = b.cast(Payload.ErrorUnion).?;
+                return a_casted.error_set.eql(b_casted.error_set) and a_casted.payload.eql(b_casted.payload);
+            },
             .Float,
             .Struct,
-            .ErrorUnion,
             .Enum,
             .Union,
             .BoundFn,
@@ -1634,6 +1637,79 @@ pub const Type = extern union {
         };
     }
 
+    /// Asserts the type is error_set or error_set_single and that if it is error_set, it's decl has been analyzed
+    /// If it is error_set_single, it will return the []const u8, otherwise a pointer to the map with the error_set
+    pub fn getErrs(self: Type) union(enum) { err_single: []const u8, multiple: *std.StringHashMapUnmanaged(u16) } {
+        return switch (self.tag()) {
+            .u8,
+            .i8,
+            .u16,
+            .i16,
+            .u32,
+            .i32,
+            .u64,
+            .i64,
+            .usize,
+            .isize,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .f16,
+            .f32,
+            .f64,
+            .f128,
+            .c_void,
+            .bool,
+            .void,
+            .type,
+            .anyerror,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .@"null",
+            .@"undefined",
+            .fn_noreturn_no_args,
+            .fn_void_no_args,
+            .fn_naked_noreturn_no_args,
+            .fn_ccc_void_no_args,
+            .function,
+            .int_unsigned,
+            .int_signed,
+            .optional,
+            .optional_single_const_pointer,
+            .optional_single_mut_pointer,
+            .enum_literal,
+            .error_union,
+            .@"anyframe",
+            .anyframe_T,
+            .anyerror_void_error_union,
+            .empty_struct,
+            .array,
+            .array_sentinel,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            .array_u8,
+            .array_u8_sentinel_0,
+            .const_slice_u8,
+            .single_const_pointer_to_comptime_int,
+            .pointer,
+            => unreachable,
+            .error_set_single => return .{ .err_single = self.cast(Payload.ErrorSetSingle).?.name },
+            .error_set => return .{ .multiple = &self.cast(Payload.ErrorSet).?.decl.typed_value.most_recent.typed_value.val.cast(Value.Payload.ErrorSet).?.fields },
+        };
+    }
     /// Asserts the type is a pointer or array type.
     pub fn elemType(self: Type) Type {
         return switch (self.tag()) {

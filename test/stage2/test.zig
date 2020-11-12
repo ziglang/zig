@@ -318,6 +318,49 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
+        var case = ctx.exe("comptime type equality", linux_x64);
+        case.addCompareOutput(
+            \\export fn _start() noreturn {
+            \\    const b1 = error{ T, V, E } == error{ V, T, E };
+            \\    const b2 = u32 == u8;
+            \\    if (b2) {
+            \\        condPrint();
+            \\    }
+            \\
+            \\    if (b1) {
+            \\        condPrint();
+            \\    }
+            \\
+            \\    exit();
+            \\}
+            \\
+            \\fn condPrint() void {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (1),
+            \\          [arg1] "{rdi}" (1),
+            \\          [arg2] "{rsi}" (@ptrToInt("The Types Were Equal\n")),
+            \\          [arg3] "{rdx}" (21)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    return;
+            \\}
+            \\
+            \\fn exit() noreturn {
+            \\    asm volatile ("syscall"
+            \\        :
+            \\        : [number] "{rax}" (231),
+            \\          [arg1] "{rdi}" (0)
+            \\        : "rcx", "r11", "memory"
+            \\    );
+            \\    unreachable;
+            \\}
+        ,
+            \\The Types Were Equal
+            \\
+        );
+    }
+    {
         var case = ctx.exe("adding numbers at runtime", linux_x64);
         case.addCompareOutput(
             \\export fn _start() noreturn {
