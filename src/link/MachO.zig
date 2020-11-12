@@ -33,6 +33,7 @@ const LoadCommand = union(enum) {
     Dylinker: macho.dylinker_command,
     Dylib: macho.dylib_command,
     EntryPoint: macho.entry_point_command,
+    MinVersion: macho.version_min_command,
 
     pub fn cmdsize(self: LoadCommand) u32 {
         return switch (self) {
@@ -44,6 +45,7 @@ const LoadCommand = union(enum) {
             .Dylinker => |x| x.cmdsize,
             .Dylib => |x| x.cmdsize,
             .EntryPoint => |x| x.cmdsize,
+            .MinVersion => |x| x.cmdsize,
         };
     }
 
@@ -57,6 +59,7 @@ const LoadCommand = union(enum) {
             .Dylinker => |cmd| writeGeneric(cmd, file, offset),
             .Dylib => |cmd| writeGeneric(cmd, file, offset),
             .EntryPoint => |cmd| writeGeneric(cmd, file, offset),
+            .MinVersion => |cmd| writeGeneric(cmd, file, offset),
         };
     }
 
@@ -96,6 +99,8 @@ function_starts_cmd_index: ?u16 = null,
 /// Specifies offset wrt __TEXT segment start address to the main entry point
 /// of the binary.
 main_cmd_index: ?u16 = null,
+/// Minimum OS version
+version_min_cmd_index: ?u16 = null,
 
 /// Table of all sections
 sections: std.ArrayListUnmanaged(macho.section_64) = .{},
@@ -317,8 +322,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     try self.writeAllGlobalSymbols();
     try self.writeAllUndefSymbols();
 
-    try self.writeStringTable();
-
     switch (self.base.options.output_mode) {
         .Exe => {
             // Write export trie.
@@ -379,7 +382,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         const nundefs = @intCast(u32, self.undef_symbols.items.len);
         const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
         symtab.nsyms = nlocals + nglobals + nundefs;
+        symtab.stroff = symtab.symoff + symtab.nsyms * @sizeOf(macho.nlist_64);
     }
+
+    try self.writeStringTable();
 
     if (self.cmd_table_dirty) {
         try self.writeCmdHeaders();
@@ -1329,8 +1335,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         self.libsystem_cmd_index = @intCast(u16, self.load_commands.items.len);
         const cmdsize = mem.alignForwardGeneric(u64, @sizeOf(macho.dylib_command) + mem.lenZ(LIB_SYSTEM_PATH), @sizeOf(u64));
         // TODO Find a way to work out runtime version from the OS version triple stored in std.Target.
-        // In the meantime, we're gonna hardcode to the minimum compatibility version of 1.0.0.
-        const min_version = 0x10000;
+        // In the meantime, we're gonna hardcode to the minimum compatibility version of 0.0.0.
+        const min_version = 0x0;
         const dylib = .{
             .name = @sizeOf(macho.dylib_command),
             .timestamp = 2, // not sure why not simply 0; this is reverse engineered from Mach-O files
@@ -1358,6 +1364,18 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             },
         });
         self.cmd_table_dirty = true;
+    }
+    if (self.version_min_cmd_index == null) {
+        self.version_min_cmd_index = @intCast(u16, self.load_commands.items.len);
+        try self.load_commands.append(self.base.allocator, .{
+            // TODO allow for different targets and different versions
+            .MinVersion = .{
+                .cmd = macho.LC_VERSION_MIN_MACOSX,
+                .cmdsize = @sizeOf(macho.version_min_command),
+                .version = 0xB0001, // 11.0.1 BigSur
+                .sdk = 0xB0001, // 11.0.1 BigSur
+            },
+        });
     }
     {
         const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;

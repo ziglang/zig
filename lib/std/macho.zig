@@ -705,6 +705,23 @@ pub const relocation_info = packed struct {
     r_type: u4,
 };
 
+/// The version_min_command contains the min OS version on which this 
+/// binary was built to run.
+pub const version_min_command = extern struct {
+    /// LC_VERSION_MIN_MACOSX or LC_VERSION_MIN_IPHONEOS or LC_VERSION_MIN_WATCHOS
+    /// or LC_VERSION_MIN_TVOS
+    cmd: u32,
+
+    /// sizeof(struct min_version_command)
+    cmdsize: u32,
+
+    /// X.Y.Z is encoded in nibbles xxxx.yy.zz
+    version: u32,
+
+    /// X.Y.Z is encoded in nibbles xxxx.yy.zz
+    sdk: u32,
+};
+
 /// After MacOS X 10.1 when a new load command is added that is required to be
 /// understood by the dynamic linker for the image to execute properly the
 /// LC_REQ_DYLD bit will be or'ed into the load command constant.  If the dynamic
