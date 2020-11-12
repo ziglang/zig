@@ -484,6 +484,12 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         addLLVMFnAttrInt(llvm_fn, "alignstack", fn->alignstack_value);
     }
 
+    if (g->build_mode == BuildModeSmallRelease) {
+        // Optimize for small code size.
+        addLLVMFnAttr(llvm_fn, "minsize");
+        addLLVMFnAttr(llvm_fn, "optsize");
+    }
+
     addLLVMFnAttr(llvm_fn, "nounwind");
     add_uwtable_attr(g, llvm_fn);
     addLLVMFnAttr(llvm_fn, "nobuiltin");
