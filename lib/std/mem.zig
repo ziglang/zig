@@ -13,7 +13,8 @@ const meta = std.meta;
 const trait = meta.trait;
 const testing = std.testing;
 
-/// https://github.com/ziglang/zig/issues/2564
+/// Compile time known minimum page size.
+/// https://github.com/ziglang/zig/issues/4082
 pub const page_size = switch (builtin.arch) {
     .wasm32, .wasm64 => 64 * 1024,
     .aarch64 => switch (builtin.os.tag) {
@@ -139,7 +140,7 @@ test "mem.Allocator basics" {
 
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
-/// dest.ptr must be <= src.ptr.
+/// If the slices overlap, dest.ptr must be <= src.ptr.
 pub fn copy(comptime T: type, dest: []T, source: []const T) void {
     // TODO instead of manually doing this check for the whole array
     // and turning off runtime safety, the compiler should detect loops like
@@ -152,7 +153,7 @@ pub fn copy(comptime T: type, dest: []T, source: []const T) void {
 
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
-/// dest.ptr must be >= src.ptr.
+/// If the slices overlap, dest.ptr must be >= src.ptr.
 pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
     // TODO instead of manually doing this check for the whole array
     // and turning off runtime safety, the compiler should detect loops like
