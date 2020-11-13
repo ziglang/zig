@@ -1222,8 +1222,8 @@ test "extension" {
     testExtension(".a", null);
     testExtension(".file", null);
     testExtension(".gitignore", null);
-    testExtension("file.gitignore", "gitignore");
-    testExtension("a.gitignore", "gitignore");
+    testExtension("file.ext", "ext");
+    testExtension("very-long-file.bruh", "bruh");
     testExtension("a.b.c", "c");
 
     testExtension("/", null);
@@ -1233,8 +1233,8 @@ test "extension" {
     testExtension("/.a", null);
     testExtension("/.file", null);
     testExtension("/.gitignore", null);
-    testExtension("/file.gitignore", "gitignore");
-    testExtension("/a.gitignore", "gitignore");
+    testExtension("/file.ext", "ext");
+    testExtension("/very-long-file.bruh", "bruh");
     testExtension("/a.b.c", "c");
 
     testExtension("/foo/bar/bam/", null);
@@ -1244,7 +1244,7 @@ test "extension" {
     testExtension("/foo/bar/bam/.a", null);
     testExtension("/foo/bar/bam/.file", null);
     testExtension("/foo/bar/bam/.gitignore", null);
-    testExtension("/foo/bar/bam/file.gitignore", "gitignore");
-    testExtension("/foo/bar/bam/a.gitignore", "gitignore");
+    testExtension("/foo/bar/bam/file.ext", "ext");
+    testExtension("/foo/bar/bam/very-long-file.bruh", "bruh");
     testExtension("/foo/bar/bam/a.b.c", "c");
 }
