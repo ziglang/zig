@@ -388,6 +388,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
         symtab.nsyms = nlocals + nglobals + nundefs;
         symtab.stroff = symtab.symoff + symtab.nsyms * @sizeOf(macho.nlist_64);
+
+        // Extend dynamic linker info until start of symbol table
+        const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfo;
+        dyld_info.export_size = symtab.symoff - dyld_info.export_off;
     }
 
     try self.writeStringTable();
@@ -1243,7 +1247,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     if (self.linkedit_segment_cmd_index == null) {
         self.linkedit_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        const prot = macho.VM_PROT_READ | macho.VM_PROT_WRITE | macho.VM_PROT_EXECUTE;
+        const maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE | macho.VM_PROT_EXECUTE;
+        const initprot = macho.VM_PROT_READ;
         try self.load_commands.append(self.base.allocator, .{
             .Segment = .{
                 .cmd = macho.LC_SEGMENT_64,
@@ -1253,8 +1258,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .vmsize = 0,
                 .fileoff = 0,
                 .filesize = 0,
-                .maxprot = prot,
-                .initprot = prot,
+                .maxprot = maxprot,
+                .initprot = initprot,
                 .nsects = 0,
                 .flags = 0,
             },
@@ -1840,8 +1845,15 @@ fn writeMachOHeader(self: *MachO) !void {
 
     hdr.sizeofcmds = sizeofcmds;
 
-    // TODO should these be set to something else?
-    hdr.flags = 0;
+    switch (self.base.options.output_mode) {
+        .Exe => {
+            hdr.flags = macho.MH_NOUNDEFS | macho.MH_DYLDLINK | macho.MH_PIE;
+        },
+        else => {
+            hdr.flags = 0;
+        },
+    }
+    hdr.reserved = 0;
     hdr.reserved = 0;
 
     log.debug("writing Mach-O header {}\n", .{hdr});
