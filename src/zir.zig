@@ -126,6 +126,12 @@ pub const Inst = struct {
         condbr,
         /// Special case, has no textual representation.
         @"const",
+        /// Container field with just the name.
+        container_field_named,
+        /// Container field with a type and a name,
+        container_field_typed,
+        /// Container field with all the bells and whistles.
+        container_field,
         /// Declares the beginning of a statement. Used for debug info.
         dbg_stmt,
         /// Represents a pointer to a global decl by name.
@@ -245,6 +251,8 @@ pub const Inst = struct {
         store,
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
         str,
+        /// Create a struct type.
+        struct_type,
         /// Arithmetic subtraction. Asserts no integer overflow.
         sub,
         /// Twos complement wrapping integer subtraction.
@@ -262,6 +270,8 @@ pub const Inst = struct {
         xor,
         /// Create an optional type '?T'
         optional_type,
+        /// Create a union type.
+        union_type,
         /// Unwraps an optional value 'lhs.?'
         unwrap_optional_safe,
         /// Same as previous, but without safety checks. Used for orelse, if and while
@@ -274,8 +284,10 @@ pub const Inst = struct {
         unwrap_err_code,
         /// Takes a *E!T and raises a compiler error if T != void
         ensure_err_payload_void,
-        /// Enum literal
+        /// Create a enum literal,
         enum_literal,
+        /// Create an enum type.
+        enum_type,
         /// A switch expression.
         switchbr,
         /// A range in a switch case, `lhs...rhs`.
@@ -403,6 +415,12 @@ pub const Inst = struct {
                 .error_set => ErrorSet,
                 .slice => Slice,
                 .switchbr => SwitchBr,
+                .container_field_named => ContainerFieldNamed,
+                .container_field_typed => ContainerFieldTyped,
+                .container_field => ContainerField,
+                .enum_type => EnumType,
+                .union_type => UnionType,
+                .struct_type => StructType,
             };
         }
 
@@ -510,6 +528,9 @@ pub const Inst = struct {
                 .slice_start,
                 .import,
                 .switch_range,
+                .enum_type,
+                .union_type,
+                .struct_type,
                 => false,
 
                 .@"break",
@@ -522,6 +543,9 @@ pub const Inst = struct {
                 .@"unreachable",
                 .loop,
                 .switchbr,
+                .container_field_named,
+                .container_field_typed,
+                .container_field,
                 => true,
             };
         }
@@ -1031,6 +1055,83 @@ pub const Inst = struct {
             item: *Inst,
             body: Module.Body,
         };
+    };
+
+    pub const ContainerFieldNamed = struct {
+        pub const base_tag = Tag.container_field_named;
+        base: Inst,
+
+        positionals: struct {
+            bytes: []const u8,
+        },
+        kw_args: struct {},
+    };
+
+    pub const ContainerFieldTyped = struct {
+        pub const base_tag = Tag.container_field_typed;
+        base: Inst,
+
+        positionals: struct {
+            bytes: []const u8,
+            ty: *Inst,
+        },
+        kw_args: struct {},
+    };
+
+    pub const ContainerField = struct {
+        pub const base_tag = Tag.container_field;
+        base: Inst,
+
+        positionals: struct {
+            bytes: []const u8,
+            ty: ?*Inst,
+            init: ?*Inst,
+            alignment: ?*Inst,
+            is_comptime: bool,
+        },
+        kw_args: struct {},
+    };
+
+    pub const EnumType = struct {
+        pub const base_tag = Tag.enum_type;
+        base: Inst,
+
+        positionals: struct {
+            fields: []*Inst,
+        },
+        kw_args: struct {
+            tag_type: ?*Inst = null,
+            layout: std.builtin.TypeInfo.ContainerLayout = .Auto,
+        },
+    };
+
+    pub const StructType = struct {
+        pub const base_tag = Tag.struct_type;
+        base: Inst,
+
+        positionals: struct {
+            fields: []*Inst,
+        },
+        kw_args: struct {
+            layout: std.builtin.TypeInfo.ContainerLayout = .Auto,
+        },
+    };
+
+    pub const UnionType = struct {
+        pub const base_tag = Tag.union_type;
+        base: Inst,
+
+        positionals: struct {
+            fields: []*Inst,
+        },
+        kw_args: struct {
+            init_expr: union(enum) {
+                enum_type: ?*Inst,
+                tag_type: *Inst,
+                none,
+            },
+            layout: std.builtin.TypeInfo.ContainerLayout = .Auto,
+        },
     };
 };
 
