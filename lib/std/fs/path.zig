@@ -1185,11 +1185,17 @@ fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []cons
 
 /// Returns the extension of the file name (if any).
 /// This function will search for the file extension (separated by a `.`) and will return the text after the `.`.
-/// Files that end with `.` are considered to have no extension.
+/// Files that end with `.` are considered to have no extension, files that start with `.`
+/// Examples:
+/// - `"main.zig"`     ⇒ `"zig"`
+/// - `"src/main.zig"` ⇒ `"zig"`
+/// - `".gitignore"`   ⇒ `null`
+/// - `"keep."`        ⇒ `null`
+/// - `"src.keep.me"`  ⇒ `"me"`
 pub fn extension(path: []const u8) ?[]const u8 {
     const filename = basename(path);
     return if (std.mem.lastIndexOf(u8, filename, ".")) |index|
-        if (index == filename.len - 1)
+        if (index == 0 or index == filename.len - 1)
             null
         else
             filename[index + 1 ..]
@@ -1213,29 +1219,32 @@ test "extension" {
     testExtension(".", null);
     testExtension("a.", null);
     testExtension("abc.", null);
-    testExtension(".a", "a");
-    testExtension(".file", "file");
-    testExtension(".gitignore", "gitignore");
+    testExtension(".a", null);
+    testExtension(".file", null);
+    testExtension(".gitignore", null);
     testExtension("file.gitignore", "gitignore");
     testExtension("a.gitignore", "gitignore");
+    testExtension("a.b.c", "c");
 
     testExtension("/", null);
     testExtension("/.", null);
     testExtension("/a.", null);
     testExtension("/abc.", null);
-    testExtension("/.a", "a");
-    testExtension("/.file", "file");
-    testExtension("/.gitignore", "gitignore");
+    testExtension("/.a", null);
+    testExtension("/.file", null);
+    testExtension("/.gitignore", null);
     testExtension("/file.gitignore", "gitignore");
     testExtension("/a.gitignore", "gitignore");
+    testExtension("/a.b.c", "c");
 
     testExtension("/foo/bar/bam/", null);
     testExtension("/foo/bar/bam/.", null);
     testExtension("/foo/bar/bam/a.", null);
     testExtension("/foo/bar/bam/abc.", null);
-    testExtension("/foo/bar/bam/.a", "a");
-    testExtension("/foo/bar/bam/.file", "file");
-    testExtension("/foo/bar/bam/.gitignore", "gitignore");
+    testExtension("/foo/bar/bam/.a", null);
+    testExtension("/foo/bar/bam/.file", null);
+    testExtension("/foo/bar/bam/.gitignore", null);
     testExtension("/foo/bar/bam/file.gitignore", "gitignore");
     testExtension("/foo/bar/bam/a.gitignore", "gitignore");
+    testExtension("/foo/bar/bam/a.b.c", "c");
 }
