@@ -1142,7 +1142,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     }
     if (self.text_segment_cmd_index == null) {
         self.text_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const prot = macho.VM_PROT_READ | macho.VM_PROT_EXECUTE;
+        const maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE | macho.VM_PROT_EXECUTE;
+        const initprot = macho.VM_PROT_READ | macho.VM_PROT_EXECUTE;
         try self.load_commands.append(self.base.allocator, .{
             .Segment = .{
                 .cmd = macho.LC_SEGMENT_64,
@@ -1152,8 +1153,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .vmsize = 0,
                 .fileoff = 0,
                 .filesize = 0,
-                .maxprot = prot,
-                .initprot = prot,
+                .maxprot = maxprot,
+                .initprot = initprot,
                 .nsects = 0,
                 .flags = 0,
             },
@@ -1194,7 +1195,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     if (self.data_segment_cmd_index == null) {
         self.data_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-        const prot = macho.VM_PROT_READ | macho.VM_PROT_WRITE;
+        const maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE | macho.VM_PROT_EXECUTE;
+        const initprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE;
         try self.load_commands.append(self.base.allocator, .{
             .Segment = .{
                 .cmd = macho.LC_SEGMENT_64,
@@ -1204,8 +1206,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .vmsize = 0,
                 .fileoff = 0,
                 .filesize = 0,
-                .maxprot = prot,
-                .initprot = prot,
+                .maxprot = maxprot,
+                .initprot = initprot,
                 .nsects = 0,
                 .flags = 0,
             },
