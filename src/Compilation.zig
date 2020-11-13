@@ -1818,6 +1818,9 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
             };
         }
 
+        // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
+        if (comp.disable_c_depfile) _ = try man.hit();
+
         // Rename into place.
         const digest = man.final();
         const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
