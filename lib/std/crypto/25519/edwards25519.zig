@@ -144,98 +144,147 @@ pub const Edwards25519 = struct {
         p.t.cMov(a.t, c);
     }
 
-    inline fn pcSelect(pc: [16]Edwards25519, b: u8) Edwards25519 {
+    inline fn pcSelect(comptime n: usize, pc: [n]Edwards25519, b: u8) Edwards25519 {
         var t = Edwards25519.identityElement;
-        comptime var i: u8 = 0;
-        inline while (i < 16) : (i += 1) {
+        comptime var i: u8 = 1;
+        inline while (i < pc.len) : (i += 1) {
             t.cMov(pc[i], ((@as(usize, b ^ i) -% 1) >> 8) & 1);
         }
         return t;
     }
 
-    fn pcMul(pc: [16]Edwards25519, s: [32]u8, comptime vartime: bool) !Edwards25519 {
+    fn nonAdjacentForm(s: [32]u8) [2 * 32]i8 {
+        var e: [2 * 32]i8 = undefined;
+        for (s) |x, i| {
+            e[i * 2 + 0] = @as(i8, @truncate(u4, x));
+            e[i * 2 + 1] = @as(i8, @truncate(u4, x >> 4));
+        }
+        // Now, e[0..63] is between 0 and 15, e[63] is between 0 and 7
+        var carry: i8 = 0;
+        for (e[0..63]) |*x| {
+            x.* += carry;
+            carry = (x.* + 8) >> 4;
+            x.* -= carry * 16;
+        }
+        e[63] += carry;
+        // Now, e[*] is between -8 and 8, including e[63]
+        return e;
+    }
+
+    // Scalar multiplication with a 4-bit window and the first 8 multiples.
+    // This requires the scalar to be converted to non-adjacent form.
+    // Based on real-world benchmarks, we only use this for multi-scalar multiplication.
+    // NAF could be useful to half the size of precomputation tables, but we intentionally
+    // avoid these to keep the standard library lightweight.
+    fn pcMul(pc: [9]Edwards25519, s: [32]u8, comptime vartime: bool) !Edwards25519 {
+        std.debug.assert(vartime);
+        const e = nonAdjacentForm(s);
         var q = Edwards25519.identityElement;
-        var pos: usize = 252;
-        while (true) : (pos -= 4) {
-            q = q.dbl().dbl().dbl().dbl();
-            const bit = (s[pos >> 3] >> @truncate(u3, pos)) & 0xf;
-            if (vartime) {
-                if (bit != 0) {
-                    q = q.add(pc[bit]);
-                }
-            } else {
-                q = q.add(pcSelect(pc, bit));
+        var pos: usize = 2 * 32 - 1;
+        while (true) : (pos -= 1) {
+            const slot = e[pos];
+            if (slot > 0) {
+                q = q.add(pc[@intCast(usize, slot)]);
+            } else if (slot < 0) {
+                q = q.sub(pc[@intCast(usize, -slot)]);
             }
             if (pos == 0) break;
+            q = q.dbl().dbl().dbl().dbl();
         }
         try q.rejectIdentity();
         return q;
     }
 
-    fn precompute(p: Edwards25519) [16]Edwards25519 {
-        var pc: [16]Edwards25519 = undefined;
+    // Scalar multiplication with a 4-bit window and the first 15 multiples.
+    fn pcMul16(pc: [16]Edwards25519, s: [32]u8, comptime vartime: bool) !Edwards25519 {
+        var q = Edwards25519.identityElement;
+        var pos: usize = 252;
+        while (true) : (pos -= 4) {
+            const slot = @truncate(u4, (s[pos >> 3] >> @truncate(u3, pos)));
+            if (vartime) {
+                if (slot != 0) {
+                    q = q.add(pc[slot]);
+                }
+            } else {
+                q = q.add(pcSelect(16, pc, slot));
+            }
+            if (pos == 0) break;
+            q = q.dbl().dbl().dbl().dbl();
+        }
+        try q.rejectIdentity();
+        return q;
+    }
+
+    fn precompute(p: Edwards25519, comptime count: usize) [1 + count]Edwards25519 {
+        var pc: [1 + count]Edwards25519 = undefined;
         pc[0] = Edwards25519.identityElement;
         pc[1] = p;
         var i: usize = 2;
-        while (i < 16) : (i += 1) {
+        while (i <= count) : (i += 1) {
             pc[i] = pc[i - 1].add(p);
         }
         return pc;
     }
 
+    const basePointPc = comptime pc: {
+        @setEvalBranchQuota(10000);
+        break :pc precompute(Edwards25519.basePoint, 15);
+    };
+
     /// Multiply an Edwards25519 point by a scalar without clamping it.
     /// Return error.WeakPublicKey if the resulting point is
     /// the identity element.
     pub fn mul(p: Edwards25519, s: [32]u8) !Edwards25519 {
-        var pc: [16]Edwards25519 = undefined;
-        if (p.is_base) {
-            @setEvalBranchQuota(10000);
-            pc = comptime precompute(Edwards25519.basePoint);
-        } else {
-            pc = precompute(p);
-            pc[4].rejectIdentity() catch |_| return error.WeakPublicKey;
-        }
-        return pcMul(pc, s, false);
+        const pc = if (p.is_base) basePointPc else pc: {
+            const xpc = precompute(p, 15);
+            xpc[4].rejectIdentity() catch |_| return error.WeakPublicKey;
+            break :pc xpc;
+        };
+        return pcMul16(pc, s, false);
     }
 
     /// Multiply an Edwards25519 point by a *PUBLIC* scalar *IN VARIABLE TIME*
     /// This can be used for signature verification.
     pub fn mulPublic(p: Edwards25519, s: [32]u8) !Edwards25519 {
-        var pc: [16]Edwards25519 = undefined;
         if (p.is_base) {
-            @setEvalBranchQuota(10000);
-            pc = comptime precompute(Edwards25519.basePoint);
+            return pcMul16(basePointPc, s, true);
         } else {
-            pc = precompute(p);
+            const pc = precompute(p, 8);
             pc[4].rejectIdentity() catch |_| return error.WeakPublicKey;
+            return pcMul(pc, s, true);
         }
-        return pcMul(pc, s, true);
     }
 
     /// Multiscalar multiplication *IN VARIABLE TIME* for public data
     /// Computes ps0*ss0 + ps1*ss1 + ps2*ss2... faster than doing many of these operations individually
     pub fn mulMulti(comptime count: usize, ps: [count]Edwards25519, ss: [count][32]u8) !Edwards25519 {
-        var pcs: [count][16]Edwards25519 = undefined;
+        var pcs: [count][9]Edwards25519 = undefined;
         for (ps) |p, i| {
             if (p.is_base) {
                 @setEvalBranchQuota(10000);
-                pcs[i] = comptime precompute(Edwards25519.basePoint);
+                pcs[i] = comptime precompute(Edwards25519.basePoint, 8);
             } else {
-                pcs[i] = precompute(p);
+                pcs[i] = precompute(p, 8);
                 pcs[i][4].rejectIdentity() catch |_| return error.WeakPublicKey;
             }
         }
+        var es: [count][2 * 32]i8 = undefined;
+        for (ss) |s, i| {
+            es[i] = nonAdjacentForm(s);
+        }
         var q = Edwards25519.identityElement;
-        var pos: usize = 252;
-        while (true) : (pos -= 4) {
-            q = q.dbl().dbl().dbl().dbl();
-            for (ss) |s, i| {
-                const bit = (s[pos >> 3] >> @truncate(u3, pos)) & 0xf;
-                if (bit != 0) {
-                    q = q.add(pcs[i][bit]);
+        var pos: usize = 2 * 32 - 1;
+        while (true) : (pos -= 1) {
+            for (es) |e, i| {
+                const slot = e[pos];
+                if (slot > 0) {
+                    q = q.add(pcs[i][@intCast(usize, slot)]);
+                } else if (slot < 0) {
+                    q = q.sub(pcs[i][@intCast(usize, -slot)]);
                 }
             }
             if (pos == 0) break;
+            q = q.dbl().dbl().dbl().dbl();
         }
         try q.rejectIdentity();
         return q;
