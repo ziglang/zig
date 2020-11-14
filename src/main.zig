@@ -462,7 +462,7 @@ fn buildOutputType(
     var rdynamic: bool = false;
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
-    var disable_c_depfile = false;
+    var explicit_c_depfile: ?[]const u8 = null;
     var override_soname: ?[]const u8 = null;
     var linker_gc_sections: ?bool = null;
     var linker_allow_shlib_undefined: ?bool = null;
@@ -1073,7 +1073,7 @@ fn buildOutputType(
                     .lib_dir => try lib_dirs.append(it.only_arg),
                     .mcpu => target_mcpu = it.only_arg,
                     .dep_file => {
-                        disable_c_depfile = true;
+                        explicit_c_depfile = it.only_arg;
                         try clang_argv.appendSlice(it.other_args);
                     },
                     .framework_dir => try framework_dirs.append(it.only_arg),
@@ -1640,7 +1640,7 @@ fn buildOutputType(
         .rdynamic = rdynamic,
         .linker_script = linker_script,
         .version_script = version_script,
-        .disable_c_depfile = disable_c_depfile,
+        .explicit_c_depfile = explicit_c_depfile,
         .override_soname = override_soname,
         .linker_gc_sections = linker_gc_sections,
         .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
@@ -1904,8 +1904,10 @@ fn cmdTranslateC(comp: *Compilation, arena: *Allocator, enable_cache: bool) !voi
 
         const ext = Compilation.classifyFileExt(c_source_file.src_path);
         const out_dep_path: ?[]const u8 = blk: {
-            if (comp.disable_c_depfile or !ext.clangSupportsDepFile())
+            if (!ext.clangSupportsDepFile())
                 break :blk null;
+            if (comp.explicit_c_depfile) |depfile|
+                break :blk depfile;
 
             const c_src_basename = fs.path.basename(c_source_file.src_path);
             const dep_basename = try std.fmt.allocPrint(arena, "{}.d", .{c_src_basename});
@@ -1955,7 +1957,12 @@ fn cmdTranslateC(comp: *Compilation, arena: *Allocator, enable_cache: bool) !voi
         };
         defer tree.deinit();
 
-        if (out_dep_path) |dep_file_path| {
+        if (comp.explicit_c_depfile) |dep_file_path| {
+            // The dependency file was explicitly requested by the user and can
+            // be located anywhere in the filesystem.
+            // Add the files depended on to the cache system.
+            try man.addDepFilePost(std.fs.cwd(), dep_file_path);
+        } else if (out_dep_path) |dep_file_path| {
             const dep_basename = std.fs.path.basename(dep_file_path);
             // Add the files depended on to the cache system.
             try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);

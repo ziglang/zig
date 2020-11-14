@@ -60,7 +60,7 @@ verbose_ir: bool,
 verbose_llvm_ir: bool,
 verbose_cimport: bool,
 verbose_llvm_cpu_features: bool,
-disable_c_depfile: bool,
+explicit_c_depfile: ?[]const u8,
 time_report: bool,
 stack_report: bool,
 
@@ -365,7 +365,7 @@ pub const InitOptions = struct {
     linker_allow_shlib_undefined: ?bool = null,
     linker_bind_global_refs_locally: ?bool = null,
     each_lib_rpath: ?bool = null,
-    disable_c_depfile: bool = false,
+    explicit_c_depfile: ?[]const u8 = null,
     linker_z_nodelete: bool = false,
     linker_z_defs: bool = false,
     clang_passthrough_mode: bool = false,
@@ -861,7 +861,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .verbose_llvm_ir = options.verbose_llvm_ir,
             .verbose_cimport = options.verbose_cimport,
             .verbose_llvm_cpu_features = options.verbose_llvm_cpu_features,
-            .disable_c_depfile = options.disable_c_depfile,
+            .explicit_c_depfile = options.explicit_c_depfile,
             .owned_link_dir = owned_link_dir,
             .color = options.color,
             .time_report = options.time_report,
@@ -1604,7 +1604,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
         mem.split(c_source_basename, ".").next().?;
     const o_basename = try std.fmt.allocPrint(arena, "{s}{s}", .{ o_basename_noext, comp.getTarget().oFileExt() });
 
-    const digest = if (!comp.disable_c_depfile and try man.hit()) man.final() else blk: {
+    const digest = if (try man.hit()) man.final() else blk: {
         var argv = std.ArrayList([]const u8).init(comp.gpa);
         defer argv.deinit();
 
@@ -1616,8 +1616,10 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
         try argv.appendSlice(&[_][]const u8{ self_exe_path, "clang" });
 
         const ext = classifyFileExt(c_object.src.src_path);
-        const out_dep_path: ?[]const u8 = if (comp.disable_c_depfile or !ext.clangSupportsDepFile())
+        const out_dep_path: ?[]const u8 = if (!ext.clangSupportsDepFile())
             null
+        else if (comp.explicit_c_depfile) |depfile|
+            depfile
         else
             try std.fmt.allocPrint(arena, "{s}.d", .{out_obj_path});
         try comp.addCCArgs(arena, &argv, ext, out_dep_path);
@@ -1692,7 +1694,12 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
             }
         }
 
-        if (out_dep_path) |dep_file_path| {
+        if (comp.explicit_c_depfile) |dep_file_path| {
+            // The dependency file was explicitly requested by the user and can
+            // be located anywhere in the filesystem.
+            // Add the files depended on to the cache system.
+            try man.addDepFilePost(std.fs.cwd(), dep_file_path);
+        } else if (out_dep_path) |dep_file_path| {
             const dep_basename = std.fs.path.basename(dep_file_path);
             // Add the files depended on to the cache system.
             try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
@@ -1701,9 +1708,6 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_comp_progress_node: *
                 log.warn("failed to delete '{}': {}", .{ dep_file_path, @errorName(err) });
             };
         }
-
-        // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
-        if (comp.disable_c_depfile) _ = try man.hit();
 
         // Rename into place.
         const digest = man.final();
