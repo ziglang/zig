@@ -4384,8 +4384,10 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
             arg_calc = arg_calc_start;
             for (size_t arg_i = 0; arg_i < gen_param_values.length; arg_i += 1) {
                 CalcLLVMFieldIndex prev = arg_calc;
+                // Use the declared argument type and not the value one to be
+                // consistent with the assignment operation below.
                 calc_llvm_field_index_add(g, &arg_calc, gen_param_types.at(arg_i));
-                field_types[arg_calc.field_index - 1] = LLVMTypeOf(gen_param_values.at(arg_i));
+                field_types[arg_calc.field_index - 1] = get_llvm_type(g, gen_param_types.at(arg_i));
                 if (arg_calc.field_index - prev.field_index > 1) {
                     // Padding field
                     uint32_t pad_bytes = arg_calc.offset - prev.offset - gen_param_types.at(arg_i)->abi_size;
