@@ -1187,18 +1187,18 @@ fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []cons
 /// This function will search for the file extension (separated by a `.`) and will return the text after the `.`.
 /// Files that end with `.` are considered to have no extension, files that start with `.`
 /// Examples:
-/// - `"main.zig"`     ⇒ `"zig"`
-/// - `"src/main.zig"` ⇒ `"zig"`
+/// - `"main.zig"`     ⇒ `".zig"`
+/// - `"src/main.zig"` ⇒ `".zig"`
 /// - `".gitignore"`   ⇒ `null`
 /// - `"keep."`        ⇒ `null`
-/// - `"src.keep.me"`  ⇒ `"me"`
+/// - `"src.keep.me"`  ⇒ `".me"`
 pub fn extension(path: []const u8) ?[]const u8 {
     const filename = basename(path);
     return if (std.mem.lastIndexOf(u8, filename, ".")) |index|
         if (index == 0 or index == filename.len - 1)
             null
         else
-            filename[index + 1 ..]
+            filename[index..]
     else
         null;
 }
@@ -1222,9 +1222,9 @@ test "extension" {
     testExtension(".a", null);
     testExtension(".file", null);
     testExtension(".gitignore", null);
-    testExtension("file.ext", "ext");
-    testExtension("very-long-file.bruh", "bruh");
-    testExtension("a.b.c", "c");
+    testExtension("file.ext", ".ext");
+    testExtension("very-long-file.bruh", ".bruh");
+    testExtension("a.b.c", ".c");
 
     testExtension("/", null);
     testExtension("/.", null);
@@ -1233,9 +1233,9 @@ test "extension" {
     testExtension("/.a", null);
     testExtension("/.file", null);
     testExtension("/.gitignore", null);
-    testExtension("/file.ext", "ext");
-    testExtension("/very-long-file.bruh", "bruh");
-    testExtension("/a.b.c", "c");
+    testExtension("/file.ext", ".ext");
+    testExtension("/very-long-file.bruh", ".bruh");
+    testExtension("/a.b.c", ".c");
 
     testExtension("/foo/bar/bam/", null);
     testExtension("/foo/bar/bam/.", null);
@@ -1244,7 +1244,7 @@ test "extension" {
     testExtension("/foo/bar/bam/.a", null);
     testExtension("/foo/bar/bam/.file", null);
     testExtension("/foo/bar/bam/.gitignore", null);
-    testExtension("/foo/bar/bam/file.ext", "ext");
-    testExtension("/foo/bar/bam/very-long-file.bruh", "bruh");
-    testExtension("/foo/bar/bam/a.b.c", "c");
+    testExtension("/foo/bar/bam/file.ext", ".ext");
+    testExtension("/foo/bar/bam/very-long-file.bruh", ".bruh");
+    testExtension("/foo/bar/bam/a.b.c", ".c");
 }
