@@ -2415,19 +2415,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         try self.genSetReg(inst.base.src, reg, arg);
                     }
 
-                    // TODO move this to lib/std/{elf, macho}.zig, etc.
-                    const is_syscall_inst = switch (self.bin_file.tag) {
-                        .macho => mem.eql(u8, inst.asm_source, "svc #0x80"),
-                        .elf => mem.eql(u8, inst.asm_source, "svc #0"),
-                        else => |tag| return self.fail(inst.base.src, "TODO implement aarch64 support for other syscall instructions for file format: '{}'", .{tag}),
-                    };
-                    if (is_syscall_inst) {
-                        const imm16: u16 = switch (self.bin_file.tag) {
-                            .macho => 0x80,
-                            .elf => 0,
-                            else => unreachable,
-                        };
-                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.svc(imm16).toU32());
+                    if (mem.eql(u8, inst.asm_source, "svc #0")) {
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.svc(0x0).toU32());
+                    } else if (mem.eql(u8, inst.asm_source, "svc #0x80")) {
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.svc(0x80).toU32());
                     } else {
                         return self.fail(inst.base.src, "TODO implement support for more aarch64 assembly instructions", .{});
                     }
@@ -2876,8 +2867,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 // mov r, x0
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(
                                     reg,
+                                    .xzr,
                                     .x0,
-                                    Instruction.RegisterShift.none(),
+                                    Instruction.Shift.none,
                                 ).toU32());
                                 // ldr x28, [sp], #16
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(.x28, .{
@@ -2908,8 +2900,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 // mov r, x0
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.orr(
                                     reg,
+                                    .xzr,
                                     .x0,
-                                    Instruction.RegisterShift.none(),
+                                    Instruction.Shift.none,
                                 ).toU32());
                                 // ldp x0, x28, [sp, #16]
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldp(
