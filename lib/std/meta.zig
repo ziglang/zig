@@ -675,8 +675,7 @@ pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const De
     }
 }
 
-/// Deprecated: use Int
-pub const IntType = Int;
+pub const IntType = @compileError("replaced by std.meta.Int");
 
 pub const Signedness = enum {
     unsigned,
