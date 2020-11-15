@@ -428,7 +428,7 @@ pub const Scope = struct {
         };
     }
 
-    /// Asserts the scope has a parent which is a ZIRModule, Contaienr or File and
+    /// Asserts the scope has a parent which is a ZIRModule, Container or File and
     /// returns the sub_file_path field.
     pub fn subFilePath(base: *Scope) []const u8 {
         switch (base.tag) {
@@ -1515,6 +1515,7 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
     // an incremental update. This code handles both cases.
     const tree = try self.getAstTree(container_scope);
     const decls = tree.root_node.decls();
+    // const decls = container_scope.root_node.decls();
 
     try self.comp.work_queue.ensureUnusedCapacity(decls.len);
     try container_scope.decls.ensureCapacity(self.gpa, decls.len);
@@ -2270,6 +2271,33 @@ pub fn createAnonymousDecl(
     }
 
     return new_decl;
+}
+
+fn createContainerDecl(self: *Module, scope: *Scope, container_node: *std.zig.ast.Node.ContainerDecl) !*Decl {
+    const name = try self.getAnonTypeName(scope, container_node.kind_token);
+    defer self.gpa.free(name);
+    const name_hash = scope.namespace().fullyQualifiedNameHash(name);
+    const src_hash: std.zig.SrcHash = undefined;
+    const new_decl = try self.createNewDecl(scope, name, scope_decl.src_index, name_hash, src_hash);
+    const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
+
+    decl_arena_state.* = decl_arena.state;
+    new_decl.generation = self.generation;
+
+    return new_decl;
+}
+
+fn getAnonTypeName(self: *Module, scope: *Scope, base_token: std.zig.ast.TokenIndex) ![]u8 {
+    const container = scope.getContainer();
+    const tree = self.getAstTree(container);
+    const base_name = switch (tree.token_ids[base_token]) {
+        .Keyword_struct => "struct",
+        .Keyword_enum => "enum",
+        .Keyword_union => "union",
+        else => unreachable,
+    };
+    const loc = tree.tokenLocationLoc(0, tree.token_locs[base_token]);
+    return std.fmt.allocPrint(self.gpa, "{}:{}:{}", .{ base_name, loc.line, loc.column });
 }
 
 fn getNextAnonNameIndex(self: *Module) usize {

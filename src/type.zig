@@ -90,7 +90,9 @@ pub const Type = extern union {
 
             .anyframe_T, .@"anyframe" => return .AnyFrame,
 
-            .empty_struct => return .Struct,
+            .@"struct", .empty_struct => return .Struct,
+            .@"enum" => return .Enum,
+            .@"union" => return .Union,
         }
     }
 
@@ -442,6 +444,11 @@ pub const Type = extern union {
             .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
             .error_set_single => return self.copyPayloadShallow(allocator, Payload.ErrorSetSingle),
             .empty_struct => return self.copyPayloadShallow(allocator, Payload.EmptyStruct),
+
+            // memory managed by the decl
+            .@"enum" => return self,
+            .@"struct" => return self,
+            .@"union" => return self,
         }
     }
 
@@ -673,6 +680,10 @@ pub const Type = extern union {
                     const payload = @fieldParentPtr(Payload.ErrorSetSingle, "base", ty.ptr_otherwise);
                     return out_stream.print("error{{{}}}", .{payload.name});
                 },
+                // TODO improve
+                .@"enum" => return out_stream.writeAll("enum {}"),
+                .@"struct" => return out_stream.writeAll("struct {}"),
+                .@"union" => return out_stream.writeAll("union {}"),
             }
             unreachable;
         }
@@ -783,6 +794,10 @@ pub const Type = extern union {
                 const payload = self.cast(Payload.ErrorUnion).?;
                 return payload.error_set.hasCodeGenBits() or payload.payload.hasCodeGenBits();
             },
+
+            .@"enum" => @panic("TODO"),
+            .@"struct" => @panic("TODO"),
+            .@"union" => @panic("TODO"),
 
             .c_void,
             .void,
@@ -907,6 +922,10 @@ pub const Type = extern union {
                 }
                 @panic("TODO abiAlignment error union");
             },
+
+            .@"enum" => self.cast(Payload.Enum).?.abiAlignment(),
+            .@"struct" => @panic("TODO"),
+            .@"union" => @panic("TODO"),
 
             .c_void,
             .void,
@@ -1050,6 +1069,10 @@ pub const Type = extern union {
                 }
                 @panic("TODO abiSize error union");
             },
+
+            .@"enum" => @panic("TODO"),
+            .@"struct" => @panic("TODO"),
+            .@"union" => @panic("TODO"),
         };
     }
 
@@ -1117,6 +1140,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => false,
 
             .single_const_pointer,
@@ -1192,6 +1218,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => false,
 
             .const_slice,
@@ -1264,6 +1293,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => false,
 
             .single_const_pointer,
@@ -1345,6 +1377,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => false,
 
             .pointer => {
@@ -1421,6 +1456,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => false,
 
             .pointer => {
@@ -1539,6 +1577,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => unreachable,
 
             .array => self.cast(Payload.Array).?.elem_type,
@@ -1667,6 +1708,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => unreachable,
 
             .array => self.cast(Payload.Array).?.len,
@@ -1733,6 +1777,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => unreachable,
 
             .single_const_pointer,
@@ -1816,6 +1863,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => false,
 
             .int_signed,
@@ -1891,6 +1941,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => false,
 
             .int_unsigned,
@@ -1956,6 +2009,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => unreachable,
 
             .int_unsigned => .{ .signed = false, .bits = self.cast(Payload.IntUnsigned).?.bits },
@@ -2039,6 +2095,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => false,
 
             .usize,
@@ -2151,6 +2210,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => unreachable,
         };
     }
@@ -2229,6 +2291,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => unreachable,
         }
     }
@@ -2306,6 +2371,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => unreachable,
         }
     }
@@ -2383,6 +2451,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => unreachable,
         };
     }
@@ -2457,6 +2528,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => unreachable,
         };
     }
@@ -2531,6 +2605,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => unreachable,
         };
     }
@@ -2605,6 +2682,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => false,
         };
     }
@@ -2663,6 +2743,10 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             => return null,
+
+            .@"enum" => @panic("TODO onePossibleValue enum"),
+            .@"struct" => @panic("TODO onePossibleValue struct"),
+            .@"union" => @panic("TODO onePossibleValue union"),
 
             .empty_struct => return Value.initTag(.empty_struct_value),
             .void => return Value.initTag(.void_value),
@@ -2773,6 +2857,9 @@ pub const Type = extern union {
             .error_set,
             .error_set_single,
             .empty_struct,
+            .@"enum",
+            .@"struct",
+            .@"union",
             => return false,
 
             .c_const_pointer,
@@ -2861,6 +2948,9 @@ pub const Type = extern union {
             => unreachable,
 
             .empty_struct => self.cast(Type.Payload.EmptyStruct).?.scope,
+            .@"enum" => &self.cast(Type.Payload.Enum).?.scope,
+            .@"struct" => &self.cast(Type.Payload.Struct).?.scope,
+            .@"union" => &self.cast(Type.Payload.Union).?.scope,
         };
     }
 
@@ -3012,6 +3102,9 @@ pub const Type = extern union {
         error_set,
         error_set_single,
         empty_struct,
+        @"enum",
+        @"struct",
+        @"union",
 
         pub const last_no_payload_tag = Tag.const_slice_u8;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -3127,6 +3220,10 @@ pub const Type = extern union {
 
             scope: *Module.Scope.Container,
         };
+
+        pub const Enum = @import("value/Enum.zig");
+        pub const Struct = @import("value/Struct.zig");
+        pub const Union = @import("value/Union.zig");
     };
 };
 

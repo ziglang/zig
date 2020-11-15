@@ -252,7 +252,7 @@ pub const Value = extern union {
             .@"error" => return self.copyPayloadShallow(allocator, Payload.Error),
 
             // memory is managed by the declaration
-            .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
+            .error_set => return self,
         }
     }
 
@@ -1865,6 +1865,7 @@ pub const Value = extern union {
             val: f128,
         };
 
+        // TODO move to type.zig
         pub const ErrorSet = struct {
             base: Payload = .{ .tag = .error_set },
 
