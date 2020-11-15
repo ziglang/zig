@@ -144,7 +144,7 @@ pub const Edwards25519 = struct {
 
     inline fn pcSelect(pc: [16]Edwards25519, b: u8) Edwards25519 {
         var t = Edwards25519.identityElement;
-        comptime var i: u8 = 0;
+        comptime var i: u8 = 1;
         inline while (i < 16) : (i += 1) {
             t.cMov(pc[i], ((@as(usize, b ^ i) -% 1) >> 8) & 1);
         }
@@ -155,7 +155,6 @@ pub const Edwards25519 = struct {
         var q = Edwards25519.identityElement;
         var pos: usize = 252;
         while (true) : (pos -= 4) {
-            q = q.dbl().dbl().dbl().dbl();
             const bit = (s[pos >> 3] >> @truncate(u3, pos)) & 0xf;
             if (vartime) {
                 if (bit != 0) {
@@ -165,6 +164,7 @@ pub const Edwards25519 = struct {
                 q = q.add(pcSelect(pc, bit));
             }
             if (pos == 0) break;
+            q = q.dbl().dbl().dbl().dbl();
         }
         try q.rejectIdentity();
         return q;
@@ -181,32 +181,31 @@ pub const Edwards25519 = struct {
         return pc;
     }
 
+    const basePointPc = comptime pc: {
+        @setEvalBranchQuota(10000);
+        break :pc precompute(Edwards25519.basePoint);
+    };
+
     /// Multiply an Edwards25519 point by a scalar without clamping it.
     /// Return error.WeakPublicKey if the resulting point is
     /// the identity element.
     pub fn mul(p: Edwards25519, s: [32]u8) !Edwards25519 {
-        var pc: [16]Edwards25519 = undefined;
-        if (p.is_base) {
-            @setEvalBranchQuota(10000);
-            pc = comptime precompute(Edwards25519.basePoint);
-        } else {
-            pc = precompute(p);
-            pc[4].rejectIdentity() catch |_| return error.WeakPublicKey;
-        }
+        const pc = if (p.is_base) basePointPc else pc: {
+            const xpc = precompute(p);
+            xpc[4].rejectIdentity() catch |_| return error.WeakPublicKey;
+            break :pc xpc;
+        };
         return pcMul(pc, s, false);
     }
 
     /// Multiply an Edwards25519 point by a *PUBLIC* scalar *IN VARIABLE TIME*
     /// This can be used for signature verification.
     pub fn mulPublic(p: Edwards25519, s: [32]u8) !Edwards25519 {
-        var pc: [16]Edwards25519 = undefined;
-        if (p.is_base) {
-            @setEvalBranchQuota(10000);
-            pc = comptime precompute(Edwards25519.basePoint);
-        } else {
-            pc = precompute(p);
-            pc[4].rejectIdentity() catch |_| return error.WeakPublicKey;
-        }
+        const pc = if (p.is_base) basePointPc else pc: {
+            const xpc = precompute(p);
+            xpc[4].rejectIdentity() catch |_| return error.WeakPublicKey;
+            break :pc xpc;
+        };
         return pcMul(pc, s, true);
     }
 
@@ -215,18 +214,15 @@ pub const Edwards25519 = struct {
     pub fn mulMulti(comptime count: usize, ps: [count]Edwards25519, ss: [count][32]u8) !Edwards25519 {
         var pcs: [count][16]Edwards25519 = undefined;
         for (ps) |p, i| {
-            if (p.is_base) {
-                @setEvalBranchQuota(10000);
-                pcs[i] = comptime precompute(Edwards25519.basePoint);
-            } else {
-                pcs[i] = precompute(p);
-                pcs[i][4].rejectIdentity() catch |_| return error.WeakPublicKey;
-            }
+            pcs[i] = if (p.is_base) basePointPc else pc: {
+                const xpc = precompute(p);
+                xpc[4].rejectIdentity() catch |_| return error.WeakPublicKey;
+                break :pc xpc;
+            };
         }
         var q = Edwards25519.identityElement;
         var pos: usize = 252;
         while (true) : (pos -= 4) {
-            q = q.dbl().dbl().dbl().dbl();
             for (ss) |s, i| {
                 const bit = (s[pos >> 3] >> @truncate(u3, pos)) & 0xf;
                 if (bit != 0) {
@@ -234,6 +230,7 @@ pub const Edwards25519 = struct {
                 }
             }
             if (pos == 0) break;
+            q = q.dbl().dbl().dbl().dbl();
         }
         try q.rejectIdentity();
         return q;
