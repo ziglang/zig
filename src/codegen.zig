@@ -987,6 +987,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .x86_64 => {
                     return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 0, 0x00);
                 },
+                .arm, .armeb => return try self.genArmBinArith(inst, .add),
                 else => return self.fail(inst.base.src, "TODO implement add for {}", .{self.target.cpu.arch}),
             }
         }
@@ -1144,7 +1145,96 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .x86_64 => {
                     return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 5, 0x28);
                 },
+                .arm, .armeb => return try self.genArmBinArith(inst, .sub),
                 else => return self.fail(inst.base.src, "TODO implement sub for {}", .{self.target.cpu.arch}),
+            }
+        }
+
+        fn genArmBinArith(self: *Self, inst: *ir.Inst.BinOp, op: ir.Inst.Tag) !MCValue {
+            const lhs = try self.resolveInst(inst.lhs);
+            const rhs = try self.resolveInst(inst.rhs);
+
+            // Destination must be a register
+            // Source may be register, memory or an immediate
+            //
+            // So there are two options: (lhs is src and rhs is dest)
+            // or (rhs is src and lhs is dest)
+            const lhs_is_dest = blk: {
+                if (self.reuseOperand(&inst.base, 0, lhs)) {
+                    break :blk true;
+                } else if (self.reuseOperand(&inst.base, 1, rhs)) {
+                    break :blk false;
+                } else {
+                    break :blk lhs == .register;
+                }
+            };
+
+            var dst_mcv: MCValue = undefined;
+            var src_mcv: MCValue = undefined;
+            var src_inst: *ir.Inst = undefined;
+            if (lhs_is_dest) {
+                // LHS is the destination
+                // RHS is the source
+                src_inst = inst.rhs;
+                src_mcv = rhs;
+                dst_mcv = if (lhs != .register) try self.copyToNewRegister(&inst.base, lhs) else lhs;
+            } else {
+                // RHS is the destination
+                // LHS is the source
+                src_inst = inst.lhs;
+                src_mcv = lhs;
+                dst_mcv = if (rhs != .register) try self.copyToNewRegister(&inst.base, rhs) else rhs;
+            }
+
+            try self.genArmBinArithCode(inst.base.src, dst_mcv.register, src_mcv, lhs_is_dest, op);
+            return dst_mcv;
+        }
+
+        fn genArmBinArithCode(
+            self: *Self,
+            src: usize,
+            dst_reg: Register,
+            src_mcv: MCValue,
+            lhs_is_dest: bool,
+            op: ir.Inst.Tag,
+        ) !void {
+            const operand = switch (src_mcv) {
+                .none => unreachable,
+                .undef => unreachable,
+                .dead, .unreach => unreachable,
+                .compare_flags_unsigned => unreachable,
+                .compare_flags_signed => unreachable,
+                .ptr_stack_offset => unreachable,
+                .ptr_embedded_in_code => unreachable,
+                .immediate => |imm| blk: {
+                    if (imm > std.math.maxInt(u32)) return self.fail(src, "TODO ARM binary arithmetic immediate larger than u32", .{});
+
+                    // Load immediate into register if it doesn't fit
+                    // as an operand
+                    break :blk Instruction.Operand.fromU32(@intCast(u32, imm)) orelse
+                        Instruction.Operand.reg(try self.copyToTmpRegister(src, src_mcv), Instruction.Operand.Shift.none);
+                },
+                .register => |src_reg| Instruction.Operand.reg(src_reg, Instruction.Operand.Shift.none),
+                .stack_offset,
+                .embedded_in_code,
+                .memory,
+                => Instruction.Operand.reg(try self.copyToTmpRegister(src, src_mcv), Instruction.Operand.Shift.none),
+            };
+
+            switch (op) {
+                .add => {
+                    // TODO runtime safety checks (overflow)
+                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.add(.al, dst_reg, dst_reg, operand).toU32());
+                },
+                .sub => {
+                    // TODO runtime safety checks (underflow)
+                    if (lhs_is_dest) {
+                        writeInt(u32, try self.code.addManyAsArray(4), Instruction.sub(.al, dst_reg, dst_reg, operand).toU32());
+                    } else {
+                        writeInt(u32, try self.code.addManyAsArray(4), Instruction.rsb(.al, dst_reg, dst_reg, operand).toU32());
+                    }
+                },
+                else => unreachable, // not a binary arithmetic instruction
             }
         }
 
@@ -2106,7 +2196,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // lhs OR rhs
                     return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 1, 0x08);
                 },
-                else => return self.fail(inst.base.src, "TODO implement sub for {}", .{self.target.cpu.arch}),
+                else => return self.fail(inst.base.src, "TODO implement boolean operations for {}", .{self.target.cpu.arch}),
             }
         }
 
