@@ -1161,7 +1161,9 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         text_segment.cmdsize += @sizeOf(macho.section_64);
         text_segment.nsects += 1;
 
-        const file_size = mem.alignForwardGeneric(u64, self.base.options.program_code_size_hint, 0x1000);
+        // const program_code_size_hint = self.base.options.program_code_size_hint;
+        const program_code_size_hint = 128;
+        const file_size = mem.alignForwardGeneric(u64, program_code_size_hint, 0x1000);
         const off = @intCast(u32, self.findFreeSpace(file_size, 0x1000)); // TODO maybe findFreeSpace should return u32 directly?
         const flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS;
 
