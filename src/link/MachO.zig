@@ -387,7 +387,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
         const file_size = symtab.stroff + symtab.strsize - linkedit.fileoff;
         linkedit.filesize = file_size;
-        linkedit.vmsize = mem.alignForwardGeneric(u64, file_size, 0x1000);
+        linkedit.vmsize = mem.alignForwardGeneric(u64, file_size, 0x4000);
     }
 
     if (self.cmd_table_dirty) {
@@ -1163,8 +1163,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         // const program_code_size_hint = self.base.options.program_code_size_hint;
         const program_code_size_hint = 128;
-        const file_size = mem.alignForwardGeneric(u64, program_code_size_hint, 0x1000);
-        const off = @intCast(u32, self.findFreeSpace(file_size, 0x1000)); // TODO maybe findFreeSpace should return u32 directly?
+        const file_size = mem.alignForwardGeneric(u64, program_code_size_hint, 0x4000);
+        const off = @intCast(u32, self.findFreeSpace(file_size, 0x4000)); // TODO maybe findFreeSpace should return u32 directly?
         const flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS;
 
         log.debug("found __text section free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
@@ -1237,7 +1237,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .reserved3 = 0,
         });
 
-        const segment_size = mem.alignForwardGeneric(u64, file_size, 0x1000);
+        const segment_size = mem.alignForwardGeneric(u64, file_size, 0x4000);
         data_segment.vmsize = segment_size;
         data_segment.filesize = segment_size;
         data_segment.fileoff = off;
