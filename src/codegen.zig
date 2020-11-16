@@ -83,9 +83,9 @@ pub fn generateSymbol(
                 .wasm64 => unreachable, // has its own code path
                 .arm => return Function(.arm).generateSymbol(bin_file, src, typed_value, code, debug_output),
                 .armeb => return Function(.armeb).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.aarch64 => return Function(.aarch64).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.aarch64_be => return Function(.aarch64_be).generateSymbol(bin_file, src, typed_value, code, debug_output),
-                //.aarch64_32 => return Function(.aarch64_32).generateSymbol(bin_file, src, typed_value, code, debug_output),
+                .aarch64 => return Function(.aarch64).generateSymbol(bin_file, src, typed_value, code, debug_output),
+                .aarch64_be => return Function(.aarch64_be).generateSymbol(bin_file, src, typed_value, code, debug_output),
+                .aarch64_32 => return Function(.aarch64_32).generateSymbol(bin_file, src, typed_value, code, debug_output),
                 //.arc => return Function(.arc).generateSymbol(bin_file, src, typed_value, code, debug_output),
                 //.avr => return Function(.avr).generateSymbol(bin_file, src, typed_value, code, debug_output),
                 //.bpfel => return Function(.bpfel).generateSymbol(bin_file, src, typed_value, code, debug_output),
@@ -1380,6 +1380,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .arm, .armeb => {
                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.bkpt(0).toU32());
                 },
+                .aarch64 => {
+                    mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.brk(1).toU32());
+                },
                 else => return self.fail(src, "TODO implement @breakpoint() for {}", .{self.target.cpu.arch}),
             }
             return .none;
@@ -1583,33 +1586,13 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
                         }
                     },
-                    else => return self.fail(inst.base.src, "TODO implement call for {}", .{self.target.cpu.arch}),
-                }
-            } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                switch (arch) {
-                    .x86_64 => {
+                    .aarch64 => {
                         for (info.args) |mc_arg, arg_i| {
                             const arg = inst.args[arg_i];
                             const arg_mcv = try self.resolveInst(inst.args[arg_i]);
-                            // Here we do not use setRegOrMem even though the logic is similar, because
-                            // the function call will move the stack pointer, so the offsets are different.
+
                             switch (mc_arg) {
                                 .none => continue,
-                                .register => |reg| {
-                                    try self.genSetReg(arg.src, reg, arg_mcv);
-                                    // TODO interact with the register allocator to mark the instruction as moved.
-                                },
-                                .stack_offset => {
-                                    // Here we need to emit instructions like this:
-                                    // mov     qword ptr [rsp + stack_offset], x
-                                    return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
-                                },
-                                .ptr_stack_offset => {
-                                    return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_stack_offset arg", .{});
-                                },
-                                .ptr_embedded_in_code => {
-                                    return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
-                                },
                                 .undef => unreachable,
                                 .immediate => unreachable,
                                 .unreach => unreachable,
@@ -1618,20 +1601,38 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 .memory => unreachable,
                                 .compare_flags_signed => unreachable,
                                 .compare_flags_unsigned => unreachable,
+                                .register => |reg| {
+                                    try self.genSetReg(arg.src, reg, arg_mcv);
+                                    // TODO interact with the register allocator to mark the instruction as moved.
+                                },
+                                .stack_offset => {
+                                    return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
+                                },
+                                .ptr_stack_offset => {
+                                    return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_stack_offset arg", .{});
+                                },
+                                .ptr_embedded_in_code => {
+                                    return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
+                                },
                             }
                         }
 
                         if (inst.func.cast(ir.Inst.Constant)) |func_inst| {
                             if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
                                 const func = func_val.func;
-                                const got = &macho_file.sections.items[macho_file.got_section_index.?];
-                                const got_addr = got.addr + func.owner_decl.link.macho.offset_table_index * @sizeOf(u64);
-                                // Here, we store the got address in %rax, and then call %rax
-                                // movabsq [addr], %rax
-                                try self.genSetReg(inst.base.src, .rax, .{ .memory = got_addr });
-                                // callq *%rax
-                                try self.code.ensureCapacity(self.code.items.len + 2);
-                                self.code.appendSliceAssumeCapacity(&[2]u8{ 0xff, 0xd0 });
+                                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+                                const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+                                const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
+                                    const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
+                                    break :blk @intCast(u32, got.p_vaddr + func.owner_decl.link.elf.offset_table_index * ptr_bytes);
+                                } else if (self.bin_file.cast(link.File.Coff)) |coff_file|
+                                    coff_file.offset_table_virtual_address + func.owner_decl.link.coff.offset_table_index * ptr_bytes
+                                else
+                                    unreachable;
+
+                                try self.genSetReg(inst.base.src, .x30, .{ .memory = got_addr });
+
+                                writeInt(u32, try self.code.addManyAsArray(4), Instruction.blr(.x30).toU32());
                             } else {
                                 return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
                             }
@@ -1639,8 +1640,67 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
                         }
                     },
-                    .aarch64 => return self.fail(inst.base.src, "TODO implement codegen for call when linking with MachO for aarch64 arch", .{}),
-                    else => unreachable,
+                    else => return self.fail(inst.base.src, "TODO implement call for {}", .{self.target.cpu.arch}),
+                }
+            } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                for (info.args) |mc_arg, arg_i| {
+                    const arg = inst.args[arg_i];
+                    const arg_mcv = try self.resolveInst(inst.args[arg_i]);
+                    // Here we do not use setRegOrMem even though the logic is similar, because
+                    // the function call will move the stack pointer, so the offsets are different.
+                    switch (mc_arg) {
+                        .none => continue,
+                        .register => |reg| {
+                            try self.genSetReg(arg.src, reg, arg_mcv);
+                            // TODO interact with the register allocator to mark the instruction as moved.
+                        },
+                        .stack_offset => {
+                            // Here we need to emit instructions like this:
+                            // mov     qword ptr [rsp + stack_offset], x
+                            return self.fail(inst.base.src, "TODO implement calling with parameters in memory", .{});
+                        },
+                        .ptr_stack_offset => {
+                            return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_stack_offset arg", .{});
+                        },
+                        .ptr_embedded_in_code => {
+                            return self.fail(inst.base.src, "TODO implement calling with MCValue.ptr_embedded_in_code arg", .{});
+                        },
+                        .undef => unreachable,
+                        .immediate => unreachable,
+                        .unreach => unreachable,
+                        .dead => unreachable,
+                        .embedded_in_code => unreachable,
+                        .memory => unreachable,
+                        .compare_flags_signed => unreachable,
+                        .compare_flags_unsigned => unreachable,
+                    }
+                }
+
+                if (inst.func.cast(ir.Inst.Constant)) |func_inst| {
+                    if (func_inst.val.cast(Value.Payload.Function)) |func_val| {
+                        const func = func_val.func;
+                        const got = &macho_file.sections.items[macho_file.got_section_index.?];
+                        const got_addr = got.addr + func.owner_decl.link.macho.offset_table_index * @sizeOf(u64);
+                        switch (arch) {
+                            .x86_64 => {
+                                // Here, we store the got address in %rax, and then call %rax
+                                // movabsq [addr], %rax
+                                try self.genSetReg(inst.base.src, .rax, .{ .memory = got_addr });
+                                // callq *%rax
+                                try self.code.ensureCapacity(self.code.items.len + 2);
+                                self.code.appendSliceAssumeCapacity(&[2]u8{ 0xff, 0xd0 });
+                            },
+                            .aarch64 => {
+                                try self.genSetReg(inst.base.src, .x30, .{ .memory = got_addr });
+                                writeInt(u32, try self.code.addManyAsArray(4), Instruction.blr(.x30).toU32());
+                            },
+                            else => unreachable, // unsupported architecture on MachO
+                        }
+                    } else {
+                        return self.fail(inst.base.src, "TODO implement calling bitcasted functions", .{});
+                    }
+                } else {
+                    return self.fail(inst.base.src, "TODO implement calling runtime known function pointer", .{});
                 }
             } else {
                 unreachable;
@@ -1698,6 +1758,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     // Just add space for an instruction, patch this later
                     try self.code.resize(self.code.items.len + 4);
                     try self.exitlude_jump_relocs.append(self.gpa, self.code.items.len - 4);
+                },
+                .aarch64 => {
+                    // TODO: relocations
+                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.ret(null).toU32());
                 },
                 else => return self.fail(src, "TODO implement return for {}", .{self.target.cpu.arch}),
             }
@@ -2114,6 +2178,47 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return MCValue.none;
                     }
                 },
+                .aarch64 => {
+                    for (inst.inputs) |input, i| {
+                        if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
+                            return self.fail(inst.base.src, "unrecognized asm input constraint: '{}'", .{input});
+                        }
+                        const reg_name = input[1 .. input.len - 1];
+                        const reg = parseRegName(reg_name) orelse
+                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                        const arg = try self.resolveInst(inst.args[i]);
+                        try self.genSetReg(inst.base.src, reg, arg);
+                    }
+
+                    // TODO move this to lib/std/{elf, macho}.zig, etc.
+                    const is_syscall_inst = switch (self.bin_file.tag) {
+                        .macho => mem.eql(u8, inst.asm_source, "svc #0x80"),
+                        .elf => mem.eql(u8, inst.asm_source, "svc #0"),
+                        else => |tag| return self.fail(inst.base.src, "TODO implement aarch64 support for other syscall instructions for file format: '{}'", .{tag}),
+                    };
+                    if (is_syscall_inst) {
+                        const imm16: u16 = switch (self.bin_file.tag) {
+                            .macho => 0x80,
+                            .elf => 0,
+                            else => unreachable,
+                        };
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.svc(imm16).toU32());
+                    } else {
+                        return self.fail(inst.base.src, "TODO implement support for more aarch64 assembly instructions", .{});
+                    }
+
+                    if (inst.output) |output| {
+                        if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
+                            return self.fail(inst.base.src, "unrecognized asm output constraint: '{}'", .{output});
+                        }
+                        const reg_name = output[2 .. output.len - 1];
+                        const reg = parseRegName(reg_name) orelse
+                            return self.fail(inst.base.src, "unrecognized register: '{}'", .{reg_name});
+                        return MCValue{ .register = reg };
+                    } else {
+                        return MCValue.none;
+                    }
+                },
                 .riscv64 => {
                     for (inst.inputs) |input, i| {
                         if (input.len < 3 or input[0] != '{' or input[input.len - 1] != '}') {
@@ -2447,6 +2552,47 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         }
                     },
                     else => return self.fail(src, "TODO implement getSetReg for arm {}", .{mcv}),
+                },
+                .aarch64 => switch (mcv) {
+                    .dead => unreachable,
+                    .ptr_stack_offset => unreachable,
+                    .ptr_embedded_in_code => unreachable,
+                    .unreach, .none => return, // Nothing to do.
+                    .undef => {
+                        if (!self.wantSafety())
+                            return; // The already existing value will do just fine.
+                        // Write the debug undefined value.
+                        switch (reg.size()) {
+                            32 => return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaa }),
+                            64 => return self.genSetReg(src, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa }),
+                            else => unreachable, // unexpected register size
+                        }
+                    },
+                    .immediate => |x| {
+                        if (x <= math.maxInt(u16)) {
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movz(reg, @intCast(u16, x), 0).toU32());
+                        } else if (x <= math.maxInt(u32)) {
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movz(reg, @truncate(u16, x), 0).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @intCast(u16, x >> 16), 16).toU32());
+                        } else if (x <= math.maxInt(u32)) {
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movz(reg, @truncate(u16, x), 0).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @truncate(u16, x >> 16), 16).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @intCast(u16, x >> 32), 32).toU32());
+                        } else {
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movz(reg, @truncate(u16, x), 0).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @truncate(u16, x >> 16), 16).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @truncate(u16, x >> 32), 32).toU32());
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.movk(reg, @intCast(u16, x >> 48), 48).toU32());
+                        }
+                    },
+                    .register => return self.fail(src, "TODO implement genSetReg for aarch64 {}", .{mcv}),
+                    .memory => |addr| {
+                        // The value is in memory at a hard-coded address.
+                        // If the type is a pointer, it means the pointer address is at this memory location.
+                        try self.genSetReg(src, reg, .{ .immediate = addr });
+                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(reg, .{ .rn = reg }).toU32());
+                    },
+                    else => return self.fail(src, "TODO implement genSetReg for aarch64 {}", .{mcv}),
                 },
                 .riscv64 => switch (mcv) {
                     .dead => unreachable,
@@ -3007,6 +3153,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             .riscv64 => @import("codegen/riscv64.zig"),
             .spu_2 => @import("codegen/spu-mk2.zig"),
             .arm, .armeb => @import("codegen/arm.zig"),
+            .aarch64, .aarch64_be, .aarch64_32 => @import("codegen/aarch64.zig"),
             else => struct {
                 pub const Register = enum {
                     dummy,

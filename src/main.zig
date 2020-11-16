@@ -1266,20 +1266,6 @@ fn buildOutputType(
         fatal("`zig test` expects a zig source file argument", .{});
     }
 
-    if (link_objects.items.len == 0 and root_src_file == null and
-        c_source_files.items.len == 0 and !show_builtin)
-    {
-        switch (arg_mode) {
-            .run => fatal("`zig run` expects at least one positional argument", .{}),
-            .build => |build_type| switch (build_type) {
-                .Exe => fatal("`zig build-exe` expects at least one positional argument", .{}),
-                .Lib => fatal("`zig build-lib` expects at least one positional argument", .{}),
-                .Obj => fatal("`zig build-obj` expects at least one positional argument", .{}),
-            },
-            else => {},
-        }
-    }
-
     const root_name = if (provided_name) |n| n else blk: {
         if (arg_mode == .zig_test) {
             break :blk "test";
@@ -1298,9 +1284,12 @@ fn buildOutputType(
         } else if (show_builtin) {
             break :blk "builtin";
         } else if (arg_mode == .run) {
-            break :blk "run";
+            fatal("`zig run` expects at least one positional argument", .{});
+            // TODO once the attempt to unwrap error: LinkingWithoutZigSourceUnimplemented
+            // is solved, remove the above fatal() and uncomment the `break` below.
+            //break :blk "run";
         } else {
-            fatal("--name [name] not provided and unable to infer", .{});
+            fatal("expected a positional argument, -femit-bin=[path], --show-builtin, or --name [name]", .{});
         }
     };
 

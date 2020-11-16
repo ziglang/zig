@@ -380,9 +380,36 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
     LLVMTypeRef fn_llvm_type = fn->raw_type_ref;
     LLVMValueRef llvm_fn = nullptr;
     if (fn->body_node == nullptr) {
+        assert(fn->proto_node->type == NodeTypeFnProto);
+        AstNodeFnProto *fn_proto = &fn->proto_node->data.fn_proto;
+
         const unsigned fn_addrspace = ZigLLVMDataLayoutGetProgramAddressSpace(g->target_data_ref);
+
+        // The compiler tries to deduplicate extern definitions by looking up
+        // their name, this was introduced to allow the declaration of the same
+        // extern function with differing prototypes.
+        // When Wasm is targeted this check becomes a problem as the user may
+        // declare two (or more) extern functions sharing the same name but
+        // imported from different modules!
+        // To overcome this problem we generate a mangled identifier out of the
+        // import and the function name, this name is only visible within the
+        // compiler as we're telling LLVM (using 'wasm-import-name' and
+        // 'wasm-import-name') what the real function name is and where to find
+        // it.
+        const bool use_mangled_name = target_is_wasm(g->zig_target) &&
+                fn_proto->is_extern && fn_proto->lib_name != nullptr;
+        // Pick a weird name to avoid collisions...
+        // This whole function should be burned to the ground.
+        Buf *mangled_symbol_buf = use_mangled_name ?
+                buf_sprintf("%s|%s", unmangled_name, buf_ptr(fn_proto->lib_name)) :
+                nullptr;
+        symbol_name = use_mangled_name ?
+                buf_ptr(mangled_symbol_buf) : unmangled_name;
+
         LLVMValueRef existing_llvm_fn = LLVMGetNamedFunction(g->module, symbol_name);
+
         if (existing_llvm_fn) {
+            if (mangled_symbol_buf) buf_destroy(mangled_symbol_buf);
             return LLVMConstBitCast(existing_llvm_fn, LLVMPointerType(fn_llvm_type, fn_addrspace));
         } else {
             Buf *buf_symbol_name = buf_create_from_str(symbol_name);
@@ -392,12 +419,9 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
             if (entry == nullptr) {
                 llvm_fn = LLVMAddFunction(g->module, symbol_name, fn_llvm_type);
 
-                if (target_is_wasm(g->zig_target)) {
-                    assert(fn->proto_node->type == NodeTypeFnProto);
-                    AstNodeFnProto *fn_proto = &fn->proto_node->data.fn_proto;
-                    if (fn_proto-> is_extern && fn_proto->lib_name != nullptr ) {
-                        addLLVMFnAttrStr(llvm_fn, "wasm-import-module", buf_ptr(fn_proto->lib_name));
-                    }
+                if (use_mangled_name) {
+                    addLLVMFnAttrStr(llvm_fn, "wasm-import-name", unmangled_name);
+                    addLLVMFnAttrStr(llvm_fn, "wasm-import-module", buf_ptr(fn_proto->lib_name));
                 }
             } else {
                 assert(entry->value->id == TldIdFn);
@@ -407,8 +431,11 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
                 tld_fn->fn_entry->llvm_value = LLVMAddFunction(g->module, symbol_name,
                         tld_fn->fn_entry->raw_type_ref);
                 llvm_fn = LLVMConstBitCast(tld_fn->fn_entry->llvm_value, LLVMPointerType(fn_llvm_type, fn_addrspace));
+                if (mangled_symbol_buf) buf_destroy(mangled_symbol_buf);
                 return llvm_fn;
             }
+
+            if (mangled_symbol_buf) buf_destroy(mangled_symbol_buf);
         }
     } else {
         if (llvm_fn == nullptr) {
@@ -482,6 +509,12 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
 
     if (fn->alignstack_value != 0) {
         addLLVMFnAttrInt(llvm_fn, "alignstack", fn->alignstack_value);
+    }
+
+    if (g->build_mode == BuildModeSmallRelease) {
+        // Optimize for small code size.
+        addLLVMFnAttr(llvm_fn, "minsize");
+        addLLVMFnAttr(llvm_fn, "optsize");
     }
 
     addLLVMFnAttr(llvm_fn, "nounwind");
@@ -4378,8 +4411,10 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
             arg_calc = arg_calc_start;
             for (size_t arg_i = 0; arg_i < gen_param_values.length; arg_i += 1) {
                 CalcLLVMFieldIndex prev = arg_calc;
+                // Use the declared argument type and not the value one to be
+                // consistent with the assignment operation below.
                 calc_llvm_field_index_add(g, &arg_calc, gen_param_types.at(arg_i));
-                field_types[arg_calc.field_index - 1] = LLVMTypeOf(gen_param_values.at(arg_i));
+                field_types[arg_calc.field_index - 1] = get_llvm_type(g, gen_param_types.at(arg_i));
                 if (arg_calc.field_index - prev.field_index > 1) {
                     // Padding field
                     uint32_t pad_bytes = arg_calc.offset - prev.offset - gen_param_types.at(arg_i)->abi_size;
