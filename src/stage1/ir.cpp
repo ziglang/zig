@@ -29544,6 +29544,23 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
                     }
                 }
             }
+        } else {
+            if (!type_is_global_error_set(switch_type)) {
+                bool needs_else = false;
+                for (uint32_t i = 0; i < switch_type->data.error_set.err_count; i += 1) {
+                    ErrorTableEntry *err_entry = switch_type->data.error_set.errors[i];
+
+                    AstNode *prev_node = field_prev_uses[err_entry->value];
+                    if (prev_node == nullptr) {
+                      needs_else = true;
+                    }
+                }
+                if (!needs_else) {
+                    ir_add_error_node(ira, instruction->else_prong,
+                        buf_sprintf("unreachable else prong, all cases already handled"));
+                    return ira->codegen->invalid_inst_gen;
+                }
+            }
         }
 
         heap::c_allocator.deallocate(field_prev_uses, field_prev_uses_count);
