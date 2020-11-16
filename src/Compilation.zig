@@ -399,6 +399,50 @@ pub const InitOptions = struct {
     subsystem: ?std.Target.SubSystem = null,
 };
 
+fn addPackageTableToCacheHash(
+    hash: *Cache.HashHelper,
+    arena: *std.heap.ArenaAllocator,
+    pkg_table: Package.Table,
+    hash_type: union(enum) { path_bytes, files: *Cache.Manifest },
+) (error{OutOfMemory} || std.os.GetCwdError)!void {
+    const allocator = &arena.allocator;
+
+    const packages = try allocator.alloc(Package.Table.Entry, pkg_table.count());
+    {
+        // Copy over the hashmap entries to our slice
+        var table_it = pkg_table.iterator();
+        var idx: usize = 0;
+        while (table_it.next()) |entry| : (idx += 1) {
+            packages[idx] = entry.*;
+        }
+    }
+    // Sort the slice by package name
+    std.sort.sort(Package.Table.Entry, packages, {}, struct {
+        fn lessThan(_: void, lhs: Package.Table.Entry, rhs: Package.Table.Entry) bool {
+            return std.mem.lessThan(u8, lhs.key, rhs.key);
+        }
+    }.lessThan);
+
+    for (packages) |pkg| {
+        // Finally insert the package name and path to the cache hash.
+        hash.addBytes(pkg.key);
+        switch (hash_type) {
+            .path_bytes => {
+                hash.addBytes(pkg.value.root_src_path);
+                hash.addOptionalBytes(pkg.value.root_src_directory.path);
+            },
+            .files => |man| {
+                const pkg_zig_file = try pkg.value.root_src_directory.join(allocator, &[_][]const u8{
+                    pkg.value.root_src_path,
+                });
+                _ = try man.addFile(pkg_zig_file, null);
+            },
+        }
+        // Recurse to handle the package's dependencies
+        try addPackageTableToCacheHash(hash, arena, pkg.value.table, hash_type);
+    }
+}
+
 pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
     const is_dyn_lib = switch (options.output_mode) {
         .Obj, .Exe => false,
@@ -662,6 +706,11 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             // would be likely to cause cache hits.
             hash.addBytes(root_pkg.root_src_path);
             hash.addOptionalBytes(root_pkg.root_src_directory.path);
+            {
+                var local_arena = std.heap.ArenaAllocator.init(gpa);
+                defer local_arena.deinit();
+                try addPackageTableToCacheHash(&hash, &local_arena, root_pkg.table, .path_bytes);
+            }
             hash.add(valgrind);
             hash.add(single_threaded);
             hash.add(dll_export_fns);
@@ -2704,6 +2753,11 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     defer man.deinit();
 
     _ = try man.addFile(main_zig_file, null);
+    {
+        var local_arena = std.heap.ArenaAllocator.init(comp.gpa);
+        defer local_arena.deinit();
+        try addPackageTableToCacheHash(&man.hash, &local_arena, mod.root_pkg.table, .{ .files = &man });
+    }
     man.hash.add(comp.bin_file.options.valgrind);
     man.hash.add(comp.bin_file.options.single_threaded);
     man.hash.add(target.os.getVersionRange());
