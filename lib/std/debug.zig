@@ -1663,7 +1663,6 @@ pub const ModuleDebugInfo = switch (builtin.os.tag) {
                     .symbol_name = nosuspend self.dwarf.getSymbolName(relocated_address) orelse "???",
                     .compile_unit_name = compile_unit.die.getAttrString(&self.dwarf, DW.AT_name) catch |err| switch (err) {
                         error.MissingDebugInfo, error.InvalidDebugInfo => "???",
-                        else => return err,
                     },
                     .line_info = nosuspend self.dwarf.getLineNumberInfo(compile_unit.*, relocated_address) catch |err| switch (err) {
                         error.MissingDebugInfo, error.InvalidDebugInfo => null,

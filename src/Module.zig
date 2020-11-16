@@ -1960,16 +1960,6 @@ pub fn analyzeExport(self: *Module, scope: *Scope, src: usize, borrowed_symbol_n
     try self.symbol_exports.putNoClobber(self.gpa, symbol_name, new_export);
     self.comp.bin_file.updateDeclExports(self, exported_decl, de_gop.entry.value) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        else => {
-            try self.failed_exports.ensureCapacity(self.gpa, self.failed_exports.items().len + 1);
-            self.failed_exports.putAssumeCapacityNoClobber(new_export, try Compilation.ErrorMsg.create(
-                self.gpa,
-                src,
-                "unable to export: {}",
-                .{@errorName(err)},
-            ));
-            new_export.status = .failed_retryable;
-        },
     };
 }
 

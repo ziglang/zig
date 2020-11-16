@@ -6362,7 +6362,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
     BuiltinFnEntry *builtin_fn = entry->value;
     size_t actual_param_count = node->data.fn_call_expr.params.length;
 
-    if (builtin_fn->param_count != SIZE_MAX && builtin_fn->param_count != actual_param_count) { 
+    if (builtin_fn->param_count != SIZE_MAX && builtin_fn->param_count != actual_param_count) {
         add_node_error(irb->codegen, node,
                 buf_sprintf("expected %" ZIG_PRI_usize " argument(s), found %" ZIG_PRI_usize,
                     builtin_fn->param_count, actual_param_count));
@@ -8576,7 +8576,7 @@ static IrInstSrc *ir_gen_for_expr(IrBuilderSrc *irb, Scope *parent_scope, AstNod
 
     if (is_duplicate_label(irb->codegen, child_scope, node, node->data.for_expr.name))
         return irb->codegen->invalid_inst_src;
-    
+
     ZigList<IrInstSrc *> incoming_values = {0};
     ZigList<IrBasicBlockSrc *> incoming_blocks = {0};
     ScopeLoop *loop_scope = create_loop_scope(irb->codegen, node, child_scope);
@@ -20854,7 +20854,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
                     expected_return_type->id != ZigTypeIdErrorUnion && expected_return_type->id != ZigTypeIdErrorSet)
                 {
                     if (call_result_loc->id == ResultLocIdReturn) {
-                        add_error_note(ira->codegen, ira->new_irb.exec->first_err_trace_msg, 
+                        add_error_note(ira->codegen, ira->new_irb.exec->first_err_trace_msg,
                             ira->explicit_return_type_source_node, buf_sprintf("function cannot return an error"));
                     } else {
                         add_error_note(ira->codegen, ira->new_irb.exec->first_err_trace_msg, result_loc->base.source_node,
@@ -29479,7 +29479,7 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
                 }
             }
         } else if(!switch_type->data.enumeration.non_exhaustive && switch_type->data.enumeration.src_field_count == instruction->range_count) {
-            ir_add_error_node(ira, instruction->else_prong, 
+            ir_add_error_node(ira, instruction->else_prong,
                 buf_sprintf("unreachable else prong, all cases already handled"));
             return ira->codegen->invalid_inst_gen;
         }
@@ -29617,7 +29617,7 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
                 ir_add_error(ira, &instruction->base.base, buf_sprintf("switch must handle all possibilities"));
                 return ira->codegen->invalid_inst_gen;
         } else if(handles_all_cases && instruction->else_prong != nullptr) {
-            ir_add_error_node(ira, instruction->else_prong, 
+            ir_add_error_node(ira, instruction->else_prong,
                 buf_sprintf("unreachable else prong, all cases already handled"));
             return ira->codegen->invalid_inst_gen;
             }
@@ -29656,7 +29656,7 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
         }
 
         if(seenTrue == 1 && seenFalse == 1 && instruction->else_prong != nullptr) {
-            ir_add_error_node(ira, instruction->else_prong, 
+            ir_add_error_node(ira, instruction->else_prong,
                 buf_sprintf("unreachable else prong, all cases already handled"));
             return ira->codegen->invalid_inst_gen;
         }
@@ -29694,7 +29694,7 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
             }
         }
         prevs.deinit();
-    } 
+    }
     return ir_const_void(ira, &instruction->base.base);
 }
 
