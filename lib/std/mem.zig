@@ -1937,7 +1937,7 @@ pub fn nativeToBig(comptime T: type, x: T) T {
     };
 }
 
-fn CopyPtrAttrs(comptime source: type, size: builtin.TypeInfo.Pointer.Size, child: type) type {
+fn CopyPtrAttrs(comptime source: type, comptime size: builtin.TypeInfo.Pointer.Size, comptime child: type) type {
     const info = @typeInfo(source).Pointer;
     return @Type(.{
         .Pointer = .{
@@ -2001,7 +2001,7 @@ test "asBytes" {
     testing.expect(eql(u8, asBytes(&zero), ""));
 }
 
-test "asBytes preserves qualifiers" {
+test "asBytes preserves pointer attributes" {
     const inArr: u32 align(16) = 0xDEADBEEF;
     const inPtr = @ptrCast(*align(16) const volatile u32, &inArr);
     const outSlice = asBytes(inPtr);
@@ -2090,7 +2090,7 @@ test "bytesAsValue" {
     testing.expect(meta.eql(inst, inst2.*));
 }
 
-test "bytesAsValue preserves qualifiers" {
+test "bytesAsValue preserves pointer attributes" {
     const inArr align(16) = [4]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
     const inSlice = @ptrCast(*align(16) const volatile [4]u8, &inArr)[0..];
     const outPtr = bytesAsValue(u32, inSlice);
@@ -2198,7 +2198,7 @@ test "bytesAsSlice with specified alignment" {
     testing.expect(slice[0] == 0x33333333);
 }
 
-test "bytesAsSlice preserves qualifiers" {
+test "bytesAsSlice preserves pointer attributes" {
     const inArr align(16) = [4]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
     const inSlice = @ptrCast(*align(16) const volatile [4]u8, &inArr)[0..];
     const outSlice = bytesAsSlice(u16, inSlice);
@@ -2302,7 +2302,7 @@ test "sliceAsBytes and bytesAsSlice back" {
     testing.expect(bytes[11] == math.maxInt(u8));
 }
 
-test "sliceAsBytes preserves qualifiers" {
+test "sliceAsBytes preserves pointer attributes" {
     const inArr align(16) = [2]u16{ 0xDEAD, 0xBEEF };
     const inSlice = @ptrCast(*align(16) const volatile [2]u16, &inArr)[0..];
     const outSlice = sliceAsBytes(inSlice);
