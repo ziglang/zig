@@ -109,7 +109,12 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
             0,
         );
         switch (rc) {
-            .SUCCESS => return result,
+            .SUCCESS => {
+                if (options.io_mode == .evented) {
+                    _ = CreateIoCompletionPort(result, std.event.Loop.instance.?.os_data.io_port, undefined, undefined) catch undefined;
+                }
+                return result;
+            },
             .OBJECT_NAME_INVALID => unreachable,
             .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
             .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
@@ -418,8 +423,6 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
                 },
             },
         };
-        // TODO only call create io completion port once per fd
-        _ = CreateIoCompletionPort(in_hFile, loop.os_data.io_port, undefined, undefined) catch undefined;
         loop.beginOneEvent();
         suspend {
             // TODO handle buffer bigger than DWORD can hold
@@ -500,8 +503,6 @@ pub fn WriteFile(
                 },
             },
         };
-        // TODO only call create io completion port once per fd
-        _ = CreateIoCompletionPort(handle, loop.os_data.io_port, undefined, undefined) catch undefined;
         loop.beginOneEvent();
         suspend {
             const adjusted_len = math.cast(DWORD, bytes.len) catch maxInt(DWORD);

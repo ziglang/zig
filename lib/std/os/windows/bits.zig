@@ -813,7 +813,8 @@ pub const FILE_NOTIFY_INFORMATION = extern struct {
     NextEntryOffset: DWORD,
     Action: DWORD,
     FileNameLength: DWORD,
-    FileName: [1]WCHAR,
+    // Flexible array member
+    // FileName: [1]WCHAR,
 };
 
 pub const FILE_ACTION_ADDED = 0x00000001;
