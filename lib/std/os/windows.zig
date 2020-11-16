@@ -442,33 +442,30 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
         }
         return @as(usize, bytes_transferred);
     } else {
-        var index: usize = 0;
-        while (index < buffer.len) {
-            const want_read_count = @intCast(DWORD, math.min(@as(DWORD, maxInt(DWORD)), buffer.len - index));
+        while (true) {
+            const want_read_count = @intCast(DWORD, math.min(@as(DWORD, maxInt(DWORD)), buffer.len));
             var amt_read: DWORD = undefined;
             var overlapped_data: OVERLAPPED = undefined;
             const overlapped: ?*OVERLAPPED = if (offset) |off| blk: {
                 overlapped_data = .{
                     .Internal = 0,
                     .InternalHigh = 0,
-                    .Offset = @truncate(u32, off + index),
-                    .OffsetHigh = @truncate(u32, (off + index) >> 32),
+                    .Offset = @truncate(u32, off),
+                    .OffsetHigh = @truncate(u32, off >> 32),
                     .hEvent = null,
                 };
                 break :blk &overlapped_data;
             } else null;
-            if (kernel32.ReadFile(in_hFile, buffer.ptr + index, want_read_count, &amt_read, overlapped) == 0) {
+            if (kernel32.ReadFile(in_hFile, buffer.ptr, want_read_count, &amt_read, overlapped) == 0) {
                 switch (kernel32.GetLastError()) {
                     .OPERATION_ABORTED => continue,
-                    .BROKEN_PIPE => return index,
-                    .HANDLE_EOF => return index,
+                    .BROKEN_PIPE => return 0,
+                    .HANDLE_EOF => return 0,
                     else => |err| return unexpectedError(err),
                 }
             }
-            if (amt_read == 0) return index;
-            index += amt_read;
+            return amt_read;
         }
-        return index;
     }
 }
 
