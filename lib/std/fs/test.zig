@@ -49,6 +49,36 @@ fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !vo
     testing.expect(mem.eql(u8, target_path, given));
 }
 
+test "accessAbsolute" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const base_path = blk: {
+        const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
+    };
+
+    try fs.accessAbsolute(base_path, .{});
+}
+
+test "openDirAbsolute" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makeDir("subdir");
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const base_path = blk: {
+        const relative_path = try fs.path.join(&arena.allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..], "subdir" });
+        break :blk try fs.realpathAlloc(&arena.allocator, relative_path);
+    };
+
+    var dir = try fs.openDirAbsolute(base_path, .{});
+    defer dir.close();
+}
+
 test "readLinkAbsolute" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 

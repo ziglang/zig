@@ -1883,6 +1883,27 @@ pub fn cwd() Dir {
     }
 }
 
+/// Opens a directory at the given path. The directory is a system resource that remains
+/// open until `close` is called on the result.
+/// See `openDirAbsoluteZ` for a function that accepts a null-terminated path.
+///
+/// Asserts that the path parameter has no null bytes.
+pub fn openDirAbsolute(absolute_path: []const u8, flags: Dir.OpenDirOptions) File.OpenError!Dir {
+    assert(path.isAbsolute(absolute_path));
+    return cwd().openDir(absolute_path, flags);
+}
+
+/// Same as `openDirAbsolute` but the path parameter is null-terminated.
+pub fn openDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: Dir.OpenDirOptions) File.OpenError!Dir {
+    assert(path.isAbsoluteZ(absolute_path_c));
+    return cwd().openDirZ(absolute_path_c, flags);
+}
+/// Same as `openDirAbsolute` but the path parameter is null-terminated.
+pub fn openDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenDirOptions) File.OpenError!Dir {
+    assert(path.isAbsoluteWindowsW(absolute_path_c));
+    return cwd().openDirW(absolute_path_c, flags);
+}
+
 /// Opens a file for reading or writing, without attempting to create a new file, based on an absolute path.
 /// Call `File.close` to release the resource.
 /// Asserts that the path is absolute. See `Dir.openFile` for a function that
@@ -1892,21 +1913,6 @@ pub fn cwd() Dir {
 pub fn openFileAbsolute(absolute_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
     assert(path.isAbsolute(absolute_path));
     return cwd().openFile(absolute_path, flags);
-}
-/// Opens a directory at the given path. The directory is a system resource that remains
-/// open until `close` is called on the result.
-/// See `openDirAbsoluteZ` for a function that accepts a null-terminated path.
-///
-/// Asserts that the path parameter has no null bytes.
-pub fn openDirAbsolute(absolute_path: [*:0]const u8, flags: File.OpenFlags) File.OpenError!File {
-    assert(path.isAbsolute(absolute_path));
-    return cwd().openDir(absolute_path, flags);
-}
-
-/// Same as `openDirAbsolute` but the path parameter is null-terminated.
-pub fn openDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: File.OpenFlags) File.OpenError!File {
-    assert(path.isAbsoluteZ(absolute_path_c));
-    return cwd().openDirZ(absolute_path_c, flags);
 }
 
 pub const openFileAbsoluteC = @compileError("deprecated: renamed to openFileAbsoluteZ");
@@ -1923,6 +1929,27 @@ pub fn openFileAbsoluteW(absolute_path_w: []const u16, flags: File.OpenFlags) Fi
     return cwd().openFileW(absolute_path_w, flags);
 }
 
+/// Test accessing `path`.
+/// `path` is UTF8-encoded.
+/// Be careful of Time-Of-Check-Time-Of-Use race conditions when using this function.
+/// For example, instead of testing if a file exists and then opening it, just
+/// open it and handle the error for file not found.
+/// See `accessAbsoluteZ` for a function that accepts a null-terminated path.
+pub fn accessAbsolute(absolute_path: []const u8, flags: File.OpenFlags) Dir.AccessError!void {
+    assert(path.isAbsolute(absolute_path));
+    try cwd().access(absolute_path, flags);
+}
+/// Same as `accessAbsolute` but the path parameter is null-terminated.
+pub fn accessAbsoluteZ(absolute_path: [*:0]const u8, flags: File.OpenFlags) Dir.AccessError!void {
+    assert(path.isAbsoluteZ(absolute_path));
+    try cwd().accessZ(absolute_path, flags);
+}
+/// Same as `accessAbsolute` but the path parameter is WTF-16 encoded.
+pub fn accessAbsoluteW(absolute_path: [*:0]const 16, flags: File.OpenFlags) Dir.AccessError!void {
+    assert(path.isAbsoluteWindowsW(absolute_path));
+    try cwd().accessW(absolute_path, flags);
+}
+
 /// Creates, opens, or overwrites a file with write access, based on an absolute path.
 /// Call `File.close` to release the resource.
 /// Asserts that the path is absolute. See `Dir.createFile` for a function that
@@ -1932,22 +1959,6 @@ pub fn openFileAbsoluteW(absolute_path_w: []const u16, flags: File.OpenFlags) Fi
 pub fn createFileAbsolute(absolute_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
     assert(path.isAbsolute(absolute_path));
     return cwd().createFile(absolute_path, flags);
-}
-
-/// Test accessing `path`.
-/// `path` is UTF8-encoded.
-/// Be careful of Time-Of-Check-Time-Of-Use race conditions when using this function.
-/// For example, instead of testing if a file exists and then opening it, just
-/// open it and handle the error for file not found.
-/// See `accessAbsoluteZ` for a function that accepts a null-terminated path.
-pub fn accessAbsolute(absolute_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
-    assert(path.isAbsolute(absolute_path));
-    return cwd().access(absolute_path, flags);
-}
-/// Same as `accessAbsolute` but the path parameter is null-terminated.
-pub fn accessAbsoluteZ(absolute_path: [*:0]const u8, flags: File.CreateFlags) File.OpenError!File {
-    assert(path.isAbsolute(absolute_path));
-    return cwd().accessZ(absolute_path, flags);
 }
 
 pub const createFileAbsoluteC = @compileError("deprecated: renamed to createFileAbsoluteZ");
