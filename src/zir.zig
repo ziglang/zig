@@ -1084,12 +1084,13 @@ pub const Inst = struct {
 
         positionals: struct {
             bytes: []const u8,
-            ty: ?*Inst,
-            init: ?*Inst,
-            alignment: ?*Inst,
-            is_comptime: bool,
         },
-        kw_args: struct {},
+        kw_args: struct {
+            ty: ?*Inst = null,
+            init: ?*Inst = null,
+            alignment: ?*Inst = null,
+            is_comptime: bool = false,
+        },
     };
 
     pub const EnumType = struct {
@@ -1125,13 +1126,17 @@ pub const Inst = struct {
             fields: []*Inst,
         },
         kw_args: struct {
-            init_expr: union(enum) {
-                enum_type: ?*Inst,
-                tag_type: *Inst,
-                none,
-            },
+            init_inst: ?*Inst = null,
+            init_kind: InitKind = .none,
             layout: std.builtin.TypeInfo.ContainerLayout = .Auto,
         },
+
+        // TODO error: values of type '(enum literal)' must be comptime known
+        pub const InitKind = enum {
+            enum_type,
+            tag_type,
+            none,
+        };
     };
 };
 

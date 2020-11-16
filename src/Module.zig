@@ -469,12 +469,12 @@ pub const Scope = struct {
         }
     }
 
-    pub fn getOwnerPkg(base: *Scope) *Package {
+    pub fn getFileScope(base: *Scope) *Scope.File {
         var cur = base;
         while (true) {
             cur = switch (cur.tag) {
-                .container => return @fieldParentPtr(Container, "base", cur).file_scope.pkg,
-                .file => return @fieldParentPtr(File, "base", cur).pkg,
+                .container => return @fieldParentPtr(Container, "base", cur).file_scope,
+                .file => return @fieldParentPtr(File, "base", cur),
                 .zir_module => unreachable, // TODO are zir modules allowed to import packages?
                 .gen_zir => @fieldParentPtr(GenZIR, "base", cur).parent,
                 .local_val => @fieldParentPtr(LocalVal, "base", cur).parent,
@@ -550,7 +550,7 @@ pub const Scope = struct {
         file_scope: *Scope.File,
 
         /// Direct children of the file.
-        decls: std.AutoArrayHashMapUnmanaged(*Decl, void),
+        decls: std.AutoArrayHashMapUnmanaged(*Decl, void) = .{},
         ty: Type,
 
         pub fn deinit(self: *Container, gpa: *Allocator) void {
@@ -2273,8 +2273,15 @@ pub fn createAnonymousDecl(
     return new_decl;
 }
 
-fn createContainerDecl(self: *Module, scope: *Scope, container_node: *std.zig.ast.Node.ContainerDecl) !*Decl {
-    const name = try self.getAnonTypeName(scope, container_node.kind_token);
+pub fn createContainerDecl(
+    self: *Module,
+    scope: *Scope,
+    base_token: std.zig.ast.TokenIndex,
+    decl_arena: *std.heap.ArenaAllocator,
+    typed_value: TypedValue,
+) !*Decl {
+    const scope_decl = scope.decl().?;
+    const name = try self.getAnonTypeName(scope, base_token);
     defer self.gpa.free(name);
     const name_hash = scope.namespace().fullyQualifiedNameHash(name);
     const src_hash: std.zig.SrcHash = undefined;
@@ -2282,18 +2289,25 @@ fn createContainerDecl(self: *Module, scope: *Scope, container_node: *std.zig.as
     const decl_arena_state = try decl_arena.allocator.create(std.heap.ArenaAllocator.State);
 
     decl_arena_state.* = decl_arena.state;
+    new_decl.typed_value = .{
+        .most_recent = .{
+            .typed_value = typed_value,
+            .arena = decl_arena_state,
+        },
+    };
+    new_decl.analysis = .complete;
     new_decl.generation = self.generation;
 
     return new_decl;
 }
 
 fn getAnonTypeName(self: *Module, scope: *Scope, base_token: std.zig.ast.TokenIndex) ![]u8 {
-    const container = scope.getContainer();
-    const tree = self.getAstTree(container);
+    const tree = scope.tree();
     const base_name = switch (tree.token_ids[base_token]) {
         .Keyword_struct => "struct",
         .Keyword_enum => "enum",
         .Keyword_union => "union",
+        .Keyword_opaque => "opaque",
         else => unreachable,
     };
     const loc = tree.tokenLocationLoc(0, tree.token_locs[base_token]);
@@ -2487,7 +2501,7 @@ pub fn analyzeSlice(self: *Module, scope: *Scope, src: usize, array_ptr: *Inst, 
 }
 
 pub fn analyzeImport(self: *Module, scope: *Scope, src: usize, target_string: []const u8) !*Scope.File {
-    const cur_pkg = scope.getOwnerPkg();
+    const cur_pkg = scope.getFileScope().pkg;
     const cur_pkg_dir_path = cur_pkg.root_src_directory.path orelse ".";
     const found_pkg = cur_pkg.table.get(target_string);
 

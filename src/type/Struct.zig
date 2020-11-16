@@ -1,8 +1,10 @@
 const std = @import("std");
+const zir = @import("../zir.zig");
 const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
 const Module = @import("../Module.zig");
 const Scope = Module.Scope;
+const Struct = @This();
 
 base: Type.Payload = .{ .tag = .@"struct" },
 
@@ -11,7 +13,7 @@ analysis: union(enum) {
     zero_bits_in_progress,
     zero_bits: Zero,
     in_progress,
-    alignment: Align,
+    // alignment: Align,
     resolved: Size,
     failed,
 },
@@ -24,7 +26,6 @@ pub const Field = struct {
 pub const Zir = struct {
     body: zir.Module.Body,
     inst: *zir.Inst,
-    arena: std.heap.ArenaAllocator.State,
 };
 
 pub const Zero = struct {
@@ -39,11 +40,11 @@ pub const Size = struct {
     fields: std.AutoArrayHashMap([]const u8, Field),
 };
 
-pub fn resolveZeroBits(self: *Enum, mod: *Module, scope: *Scope) !void {
+pub fn resolveZeroBits(self: *Struct, mod: *Module, scope: *Scope) !void {
     const zir = switch (self.analysis) {
         .failed => return error.AnalysisFail,
         .zero_bits_in_progress => {
-            return mod.fail(scope, src, "union '{}' depends on itself", .{});
+            return mod.fail(scope, src, "struct '{}' depends on itself", .{});
         },
         .queued => |zir| zir,
         else => return,
@@ -53,5 +54,3 @@ pub fn resolveZeroBits(self: *Enum, mod: *Module, scope: *Scope) !void {
 
     // TODO
 }
-
-pub fn resolveSize(self: *Enum,)

@@ -281,6 +281,7 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .Comptime => return comptimeKeyword(mod, scope, rl, node.castTag(.Comptime).?),
         .OrElse => return orelseExpr(mod, scope, rl, node.castTag(.OrElse).?),
         .Switch => return switchExpr(mod, scope, rl, node.castTag(.Switch).?),
+        .ContainerDecl => return containerDecl(mod, scope, rl, node.castTag(.ContainerDecl).?),
 
         .Defer => return mod.failNode(scope, node, "TODO implement astgen.expr for .Defer", .{}),
         .Await => return mod.failNode(scope, node, "TODO implement astgen.expr for .Await", .{}),
@@ -294,7 +295,6 @@ pub fn expr(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node) InnerEr
         .Continue => return mod.failNode(scope, node, "TODO implement astgen.expr for .Continue", .{}),
         .AnyType => return mod.failNode(scope, node, "TODO implement astgen.expr for .AnyType", .{}),
         .FnProto => return mod.failNode(scope, node, "TODO implement astgen.expr for .FnProto", .{}),
-        .ContainerDecl => return mod.failNode(scope, node, "TODO implement astgen.expr for .ContainerDecl", .{}),
         .Nosuspend => return mod.failNode(scope, node, "TODO implement astgen.expr for .Nosuspend", .{}),
     }
 }
@@ -763,6 +763,168 @@ fn unwrapOptional(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Si
 
     const operand = try expr(mod, scope, .ref, node.lhs);
     return rlWrapPtr(mod, scope, rl, try addZIRUnOp(mod, scope, src, .unwrap_optional_safe, operand));
+}
+
+fn containerField(mod: *Module, scope: *Scope, node: *ast.Node.ContainerField) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.firstToken()].start;
+    const name = try identifierTokenString(mod, scope, node.name_token);
+
+    if (node.comptime_token == null and node.value_expr == null and node.align_expr == null) {
+        if (node.type_expr) |some| {
+            const ty = try typeExpr(mod, scope, some);
+            return addZIRInst(mod, scope, src, zir.Inst.ContainerFieldTyped, .{
+                .bytes = name,
+                .ty = ty,
+            }, .{});
+        } else {
+            return addZIRInst(mod, scope, src, zir.Inst.ContainerFieldNamed, .{
+                .bytes = name,
+            }, .{});
+        }
+    }
+
+    const ty = if (node.type_expr) |some| try typeExpr(mod, scope, some) else null;
+    const alignment = if (node.align_expr) |some| try expr(mod, scope, .none, some) else null;
+    const init = if (node.value_expr) |some| try expr(mod, scope, .none, some) else null;
+
+    return addZIRInst(mod, scope, src, zir.Inst.ContainerField, .{
+        .bytes = name,
+    }, .{
+        .ty = ty,
+        .init = init,
+        .alignment = alignment,
+        .is_comptime = node.comptime_token != null,
+    });
+}
+
+fn containerDecl(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.ContainerDecl) InnerError!*zir.Inst {
+    const tree = scope.tree();
+    const src = tree.token_locs[node.kind_token].start;
+
+    var gen_scope: Scope.GenZIR = .{
+        .parent = scope,
+        .decl = scope.decl().?,
+        .arena = scope.arena(),
+        .instructions = .{},
+    };
+    defer gen_scope.instructions.deinit(mod.gpa);
+
+    var fields = std.ArrayList(*zir.Inst).init(mod.gpa);
+    defer fields.deinit();
+
+    for (node.fieldsAndDecls()) |fd| {
+        if (fd.castTag(.ContainerField)) |f| {
+            try fields.append(try containerField(mod, &gen_scope.base, f));
+        }
+    }
+
+    var decl_arena = std.heap.ArenaAllocator.init(mod.gpa);
+    errdefer decl_arena.deinit();
+    const arena = &decl_arena.allocator;
+
+    var layout: std.builtin.TypeInfo.ContainerLayout = .Auto;
+    if (node.layout_token) |some| switch (tree.token_ids[some]) {
+        .Keyword_extern => layout = .Extern,
+        .Keyword_packed => layout = .Packed,
+        else => unreachable,
+    };
+
+    const container_type = switch (tree.token_ids[node.kind_token]) {
+        .Keyword_enum => blk: {
+            const tag_type: ?*zir.Inst = switch (node.init_arg_expr) {
+                .Type => |t| try typeExpr(mod, &gen_scope.base, t),
+                .None => null,
+                .Enum => unreachable,
+            };
+            const inst = try addZIRInst(mod, &gen_scope.base, src, zir.Inst.EnumType, .{
+                .fields = try arena.dupe(*zir.Inst, fields.items),
+            }, .{
+                .layout = layout,
+                .tag_type = tag_type,
+            });
+            const enum_type = try arena.create(Type.Payload.Enum);
+            enum_type.* = .{
+                .analysis = .{
+                    .queued = .{
+                        .body = .{ .instructions = try arena.dupe(*zir.Inst, gen_scope.instructions.items) },
+                        .inst = inst,
+                    },
+                },
+                .scope = .{
+                    .file_scope = scope.getFileScope(),
+                    .ty = Type.initPayload(&enum_type.base),
+                },
+            };
+            break :blk Type.initPayload(&enum_type.base);
+        },
+        .Keyword_struct => blk: {
+            assert(node.init_arg_expr == .None);
+            const inst = try addZIRInst(mod, &gen_scope.base, src, zir.Inst.StructType, .{
+                .fields = try arena.dupe(*zir.Inst, fields.items),
+            }, .{
+                .layout = layout,
+            });
+            const struct_type = try arena.create(Type.Payload.Struct);
+            struct_type.* = .{
+                .analysis = .{
+                    .queued = .{
+                        .body = .{ .instructions = try arena.dupe(*zir.Inst, gen_scope.instructions.items) },
+                        .inst = inst,
+                    },
+                },
+                .scope = .{
+                    .file_scope = scope.getFileScope(),
+                    .ty = Type.initPayload(&struct_type.base),
+                },
+            };
+            break :blk Type.initPayload(&struct_type.base);
+        },
+        .Keyword_union => blk: {
+            const init_inst = switch (node.init_arg_expr) {
+                .Enum => |e| if (e) |t| try typeExpr(mod, &gen_scope.base, t) else null,
+                .None => null,
+                .Type => |t| try typeExpr(mod, &gen_scope.base, t),
+            };
+            const init_kind: zir.Inst.UnionType.InitKind = switch (node.init_arg_expr) {
+                .Enum => .enum_type,
+                .None => .none,
+                .Type => .tag_type,
+            };
+            const inst = try addZIRInst(mod, &gen_scope.base, src, zir.Inst.UnionType, .{
+                .fields = try arena.dupe(*zir.Inst, fields.items),
+            }, .{
+                .layout = layout,
+                .init_kind = init_kind,
+                .init_inst = init_inst,
+            });
+            const union_type = try arena.create(Type.Payload.Union);
+            union_type.* = .{
+                .analysis = .{
+                    .queued = .{
+                        .body = .{ .instructions = try arena.dupe(*zir.Inst, gen_scope.instructions.items) },
+                        .inst = inst,
+                    },
+                },
+                .scope = .{
+                    .file_scope = scope.getFileScope(),
+                    .ty = Type.initPayload(&union_type.base),
+                },
+            };
+            break :blk Type.initPayload(&union_type.base);
+        },
+        .Keyword_opaque => return mod.fail(scope, src, "TODO opaque containers", .{}),
+        else => unreachable,
+    };
+    const type_payload = try arena.create(Value.Payload.Ty);
+    type_payload.* = .{
+        .ty = container_type,
+    };
+    const decl = try mod.createContainerDecl(scope, node.kind_token, &decl_arena, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initPayload(&type_payload.base),
+    });
+    return rlWrapPtr(mod, scope, rl, try addZIRInst(mod, scope, src, zir.Inst.DeclValInModule, .{ .decl = decl }, .{}));
 }
 
 fn errorSetDecl(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.ErrorSetDecl) InnerError!*zir.Inst {

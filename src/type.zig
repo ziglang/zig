@@ -923,7 +923,7 @@ pub const Type = extern union {
                 @panic("TODO abiAlignment error union");
             },
 
-            .@"enum" => self.cast(Payload.Enum).?.abiAlignment(),
+            .@"enum" => self.cast(Payload.Enum).?.abiAlignment(target),
             .@"struct" => @panic("TODO"),
             .@"union" => @panic("TODO"),
 
@@ -3221,9 +3221,9 @@ pub const Type = extern union {
             scope: *Module.Scope.Container,
         };
 
-        pub const Enum = @import("value/Enum.zig");
-        pub const Struct = @import("value/Struct.zig");
-        pub const Union = @import("value/Union.zig");
+        pub const Enum = @import("type/Enum.zig");
+        pub const Struct = @import("type/Struct.zig");
+        pub const Union = @import("type/Union.zig");
     };
 };
 

@@ -1,8 +1,10 @@
 const std = @import("std");
+const zir = @import("../zir.zig");
 const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
 const Module = @import("../Module.zig");
 const Scope = Module.Scope;
+const Enum = @This();
 
 base: Type.Payload = .{ .tag = .@"enum" },
 
@@ -12,6 +14,7 @@ analysis: union(enum) {
     resolved: Size,
     failed,
 },
+scope: Scope.Container,
 
 pub const Field = struct {
     value: Value,
@@ -20,13 +23,10 @@ pub const Field = struct {
 pub const Zir = struct {
     body: zir.Module.Body,
     inst: *zir.Inst,
-    arena: std.heap.ArenaAllocator.State,
 };
 
 pub const Size = struct {
-    is_zero_bits: bool,
-    alignment: u32,
-    size: u32,
+    tag_type: Type,
     fields: std.AutoArrayHashMap([]const u8, Field),
 };
 
@@ -45,11 +45,11 @@ pub fn resolve(self: *Enum, mod: *Module, scope: *Scope) !void {
 }
 
 // TODO should this resolve the type or assert that it has already been resolved?
-pub fn abiAlignment(self: *Enum) u32 {
+pub fn abiAlignment(self: *Enum, target: std.Target) u32 {
     switch (self.analysis) {
         .queued => unreachable, // alignment has not been resolved
         .in_progress => unreachable, // alignment has not been resolved
         .failed => unreachable, // type resolution failed
-        .resolved => |r| return r.tag_type.abiAlignment(),
+        .resolved => |r| return r.tag_type.abiAlignment(target),
     }
 }
