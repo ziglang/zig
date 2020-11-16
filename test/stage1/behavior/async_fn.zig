@@ -1589,3 +1589,22 @@ test "@asyncCall with pass-by-value arguments" {
         F2,
     });
 }
+
+test "@asyncCall with arguments having non-standard alignment" {
+    const F0: u64 = 0xbeefbeef;
+    const F1: u64 = 0xf00df00df00df00d;
+
+    const S = struct {
+        pub fn f(_fill0: u32, s: struct { x: u64 align(16) }, _fill1: u64) callconv(.Async) void {
+            // The compiler inserts extra alignment for s, check that the
+            // generated code picks the right slot for fill1.
+            expectEqual(F0, _fill0);
+            expectEqual(F1, _fill1);
+        }
+    };
+
+    var buffer: [1024]u8 align(@alignOf(@Frame(S.f))) = undefined;
+    // The function pointer must not be comptime-known.
+    var t = S.f;
+    var frame_ptr = @asyncCall(&buffer, {}, t, .{ F0, undefined, F1 });
+}

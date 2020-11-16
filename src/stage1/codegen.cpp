@@ -242,14 +242,24 @@ struct CalcLLVMFieldIndex {
 static void calc_llvm_field_index_add(CodeGen *g, CalcLLVMFieldIndex *calc, ZigType *ty) {
     if (!type_has_bits(g, ty)) return;
     uint32_t ty_align = get_abi_alignment(g, ty);
+
     if (calc->offset % ty_align != 0) {
         uint32_t llvm_align = LLVMABIAlignmentOfType(g->target_data_ref, get_llvm_type(g, ty));
-        if (llvm_align >= ty_align) {
-            ty_align = llvm_align; // llvm's padding is sufficient
-        } else if (calc->offset) {
-            calc->field_index += 1; // zig will insert an extra padding field here
-        }
-        calc->offset += ty_align - (calc->offset % ty_align); // padding bytes
+
+        // Alignment according to Zig.
+        uint32_t adj_offset = calc->offset + (ty_align - (calc->offset % ty_align));
+        // Alignment according to LLVM.
+        uint32_t adj_llvm_offset = (calc->offset % llvm_align) ?
+                calc->offset + (llvm_align - (calc->offset % llvm_align)) :
+                calc->offset;
+        // Cannot under-align structure fields.
+        assert(adj_offset >= adj_llvm_offset);
+
+        // Zig will insert an extra padding field here.
+        if (adj_offset != adj_llvm_offset)
+            calc->field_index += 1;
+
+        calc->offset = adj_offset;
     }
     calc->offset += ty->abi_size;
     calc->field_index += 1;
