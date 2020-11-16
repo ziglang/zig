@@ -50,6 +50,8 @@ fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !vo
 }
 
 test "accessAbsolute" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -64,6 +66,8 @@ test "accessAbsolute" {
 }
 
 test "openDirAbsolute" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
