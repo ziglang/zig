@@ -29,6 +29,8 @@ pub const load_command = extern struct {
     cmdsize: u32,
 };
 
+/// The uuid load command contains a single 128-bit unique random number that
+/// identifies an object produced by the static link editor.
 pub const uuid_command = extern struct {
     /// LC_UUID
     cmd: u32,
@@ -40,11 +42,41 @@ pub const uuid_command = extern struct {
     uuid: [16]u8,
 };
 
+
+/// The version_min_command contains the min OS version on which this
+/// binary was built to run.
+pub const version_min_command = extern struct {
+    /// LC_VERSION_MIN_MACOSX or LC_VERSION_MIN_IPHONEOS or LC_VERSION_MIN_WATCHOS or LC_VERSION_MIN_TVOS
+    cmd: u32,
+
+    /// sizeof(struct version_min_command)
+    cmdsize: u32,
+
+    /// X.Y.Z is encoded in nibbles xxxx.yy.zz
+    version: u32,
+
+    /// X.Y.Z is encoded in nibbles xxxx.yy.zz
+    sdk: u32,
+};
+
+/// The source_version_command is an optional load command containing
+/// the version of the sources used to build the binary.
+pub const source_version_command = extern struct {
+    /// LC_SOURCE_VERSION
+    cmd: u32,
+
+    /// sizeof(source_version_command)
+    cmdsize: u32,
+
+    /// A.B.C.D.E packed as a24.b10.c10.d10.e10
+    version: u64,
+};
+
 /// The entry_point_command is a replacement for thread_command.
 /// It is used for main executables to specify the location (file offset)
 /// of main(). If -stack_size was used at link time, the stacksize
 /// field will contain the stack size needed for the main thread.
-pub const entry_point_command = struct {
+pub const entry_point_command = extern struct {
     /// LC_MAIN only used in MH_EXECUTE filetypes
     cmd: u32,
 
@@ -1301,3 +1333,161 @@ pub const N_WEAK_DEF: u16 = 0x80;
 /// be called to get the address of the real function to use.
 /// This bit is only available in .o files (MH_OBJECT filetype)
 pub const N_SYMBOL_RESOLVER: u16 = 0x100;
+
+// Codesign consts and structs taken from:
+// https://opensource.apple.com/source/xnu/xnu-6153.81.5/osfmk/kern/cs_blobs.h.auto.html
+
+/// Single Requirement blob
+pub const CSMAGIC_REQUIREMENT: u32 = 0xfade0c00;
+/// Requirements vector (internal requirements)
+pub const CSMAGIC_REQUIREMENTS: u32 = 0xfade0c01;
+/// CodeDirectory blob
+pub const CSMAGIC_CODEDIRECTORY: u32 = 0xfade0c02;
+/// embedded form of signature data
+pub const CSMAGIC_EMBEDDED_SIGNATURE: u32 = 0xfade0cc0;
+/// XXX
+pub const CSMAGIC_EMBEDDED_SIGNATURE_OLD: u32 = 0xfade0b02;
+/// Embedded entitlements
+pub const CSMAGIC_EMBEDDED_ENTITLEMENTS: u32 = 0xfade7171;
+/// Multi-arch collection of embedded signatures
+pub const CSMAGIC_DETACHED_SIGNATURE: u32 = 0xfade0cc1;
+/// CMS Signature, among other things
+pub const CSMAGIC_BLOBWRAPPER: u32 = 0xfade0b01;
+
+pub const CS_SUPPORTSSCATTER: u32 = 0x20100;
+pub const CS_SUPPORTSTEAMID: u32 = 0x20200;
+pub const CS_SUPPORTSCODELIMIT64: u32 = 0x20300;
+pub const CS_SUPPORTSEXECSEG: u32 = 0x20400;
+
+/// Slot index for CodeDirectory
+pub const CSSLOT_CODEDIRECTORY: u32 = 0;
+pub const CSSLOT_INFOSLOT: u32 = 1;
+pub const CSSLOT_REQUIREMENTS: u32 = 2;
+pub const CSSLOT_RESOURCEDIR: u32 = 3;
+pub const CSSLOT_APPLICATION: u32 = 4;
+pub const CSSLOT_ENTITLEMENTS: u32 = 5;
+
+/// first alternate CodeDirectory, if any
+pub const CSSLOT_ALTERNATE_CODEDIRECTORIES: u32 = 0x1000;
+/// Max number of alternate CD slots
+pub const CSSLOT_ALTERNATE_CODEDIRECTORY_MAX: u32 = 5;
+/// One past the last
+pub const CSSLOT_ALTERNATE_CODEDIRECTORY_LIMIT: u32 = CSSLOT_ALTERNATE_CODEDIRECTORIES + CSSLOT_ALTERNATE_CODEDIRECTORY_MAX;
+
+/// CMS Signature
+pub const CSSLOT_SIGNATURESLOT: u32 = 0x10000;
+pub const CSSLOT_IDENTIFICATIONSLOT: u32 = 0x10001;
+pub const CSSLOT_TICKETSLOT: u32 = 0x10002;
+
+/// Compat with amfi
+pub const CSTYPE_INDEX_REQUIREMENTS: u32 = 0x00000002;
+/// Compat with amfi
+pub const CSTYPE_INDEX_ENTITLEMENTS: u32 = 0x00000005;
+
+pub const CS_HASHTYPE_SHA1: u32 = 1;
+pub const CS_HASHTYPE_SHA256: u32 = 2;
+pub const CS_HASHTYPE_SHA256_TRUNCATED: u32 = 3;
+pub const CS_HASHTYPE_SHA384: u32 = 4;
+
+pub const CS_SHA1_LEN: u32 = 20;
+pub const CS_SHA256_LEN: u32 = 32;
+pub const CS_SHA256_TRUNCATED_LEN: u32 = 20;
+
+/// Always - larger hashes are truncated
+pub const CS_CDHASH_LEN: u32 = 20;
+/// Max size of the hash we'll support
+pub const CS_HASH_MAX_SIZE: u32 = 48;
+
+pub const CS_SIGNER_TYPE_UNKNOWN: u32 = 0;
+pub const CS_SIGNER_TYPE_LEGACYVPN: u32 = 5;
+pub const CS_SIGNER_TYPE_MAC_APP_STORE: u32 = 6;
+
+/// This CodeDirectory is tailored specfically at version 0x20400.
+pub const CodeDirectory = extern struct {
+    /// Magic number (CSMAGIC_CODEDIRECTORY)
+    magic: u32,
+
+    /// Total length of CodeDirectory blob
+    length: u32,
+
+    /// Compatibility version
+    version: u32,
+
+    /// Setup and mode flags
+    flags: u32,
+
+    /// Offset of hash slot element at index zero
+    hashOffset: u32,
+
+    /// Offset of identifier string
+    identOffset: u32,
+
+    /// Number of special hash slots
+    nSpecialSlots: u32,
+
+    /// Number of ordinary (code) hash slots
+    nCodeSlots: u32,
+
+    /// Limit to main image signature range
+    codeLimit: u32,
+
+    /// Size of each hash in bytes
+    hashSize: u8,
+
+    /// Type of hash (cdHashType* constants)
+    hashType: u8,
+
+    /// Platform identifier; zero if not platform binary
+    platform: u8,
+
+    /// log2(page size in bytes); 0 => infinite
+    pageSize: u8,
+
+    /// Unused (must be zero)
+    spare2: u32,
+
+    /// Offset of executable segment
+    execSegBase: u64,
+
+    /// Limit of executable segment
+    execSegLimit: u64,
+
+    /// Executable segment flags
+    execSegFlags,
+
+    // end_withExecSeg: [*]u8,
+};
+
+/// Structure of an embedded-signature SuperBlob
+pub const BlobIndex = extern struct {
+    /// Type of entry
+    @"type": u32,
+
+    /// Offset of entry
+    offset: u32,
+};
+
+/// This structure is followed by GenericBlobs in no particular
+/// order as indicated by offsets in index
+pub const SuperBlob = extern struct {
+    /// Magic number
+    magic: u32,
+
+    /// Total length of SuperBlob
+    length: u32,
+
+    /// Number of index BlobIndex entries following this struct
+    count: u32,
+
+    // index: []const BlobIndex,
+};
+
+pub const GenericBlob = extern struct {
+    /// Magic number
+    magic: u32,
+
+    /// Total length of blob
+    length: u32,
+
+    // data: []const u8,
+};
