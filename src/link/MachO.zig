@@ -1,5 +1,4 @@
 const MachO = @This();
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -374,6 +373,12 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     // mixing local, global and undefined symbols within a symbol table.
     try self.writeSymbolTable();
     try self.writeStringTable();
+
+    {
+        // Seal __DATA,__got section size
+        const got = &self.sections.items[self.got_section_index.?];
+        got.size = @intCast(u32, self.offset_table.items.len * @sizeOf(u64));
+    }
 
     {
         // TODO rework how we preallocate space for the entire __LINKEDIT segment instead of
@@ -947,7 +952,8 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         },
     };
 
-    const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
+    // const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
+    const required_alignment = 4;
     assert(decl.link.macho.local_sym_index != 0); // Caller forgot to call allocateDeclIndexes()
     const symbol = &self.local_symbols.items[decl.link.macho.local_sym_index];
 
@@ -997,7 +1003,6 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     const text_section = self.sections.items[self.text_section_index.?];
     const section_offset = symbol.n_value - text_section.addr;
     const file_offset = text_section.offset + section_offset;
-
     try self.base.file.?.pwriteAll(code, file_offset);
 
     // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
@@ -1168,7 +1173,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .addr = text_segment.vmaddr + off,
             .size = file_size,
             .offset = off,
-            .@"align" = 12, // 2^12 = 4096
+            .@"align" = 2, // 2^12 = 4096
             .reloff = 0,
             .nreloc = 0,
             .flags = flags,
@@ -1193,7 +1198,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .segname = makeStaticString("__DATA"),
                 .vmaddr = text_segment.vmaddr + text_segment.vmsize,
                 .vmsize = 0,
-                .fileoff = 0,
+                .fileoff = text_segment.fileoff + text_segment.filesize,
                 .filesize = 0,
                 .maxprot = maxprot,
                 .initprot = initprot,
@@ -1210,7 +1215,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         data_segment.nsects += 1;
 
         const file_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
-        const off = @intCast(u32, self.findFreeSpace(file_size, 0x1000));
+        // const off = @intCast(u32, self.findFreeSpace(file_size, 0x1000));
+        const off = @intCast(u32, data_segment.fileoff);
 
         log.debug("found __got section free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
 
