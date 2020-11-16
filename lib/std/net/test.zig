@@ -166,7 +166,7 @@ test "listen on a port, send bytes, receive bytes" {
 
     var client = try server.accept();
     var buf: [16]u8 = undefined;
-    const n = try client.file.reader().read(&buf);
+    const n = try client.stream.reader().read(&buf);
 
     testing.expectEqual(@as(usize, 12), n);
     testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
@@ -249,6 +249,6 @@ fn testServer(server: *net.StreamServer) anyerror!void {
 
     var client = try server.accept();
 
-    const stream = client.file.writer();
+    const stream = client.stream.writer();
     try stream.print("hello from server\n", .{});
 }
