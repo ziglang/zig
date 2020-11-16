@@ -22,8 +22,6 @@ const maxInt = std.math.maxInt;
 const File = std.fs.File;
 const windows = std.os.windows;
 
-pub const leb = @import("debug/leb128.zig");
-
 pub const runtime_safety = switch (builtin.mode) {
     .Debug, .ReleaseSafe => true,
     .ReleaseFast, .ReleaseSmall => false,
@@ -1842,9 +1840,4 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
         : [argc] "={rsp}" (-> usize)
     );
     std.debug.warn("{} sp = 0x{x}\n", .{ prefix, sp });
-}
-
-// Reference everything so it gets tested.
-test "" {
-    _ = leb;
 }

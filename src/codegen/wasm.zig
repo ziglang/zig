@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
-const leb = std.debug.leb;
+const leb = std.leb;
 const mem = std.mem;
 
 const Module = @import("../Module.zig");

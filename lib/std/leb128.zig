@@ -55,25 +55,6 @@ pub fn writeULEB128(writer: anytype, uint_value: anytype) !void {
     }
 }
 
-/// Read a single unsigned integer from the given memory as type T.
-/// The provided slice reference will be updated to point to the byte after the last byte read.
-pub fn readULEB128Mem(comptime T: type, ptr: *[]const u8) !T {
-    var buf = std.io.fixedBufferStream(ptr.*);
-    const value = try readULEB128(T, buf.reader());
-    ptr.*.ptr += buf.pos;
-    return value;
-}
-
-/// Write a single unsigned LEB128 integer to the given memory as unsigned LEB128,
-/// returning the number of bytes written.
-pub fn writeULEB128Mem(ptr: []u8, uint_value: anytype) !usize {
-    const T = @TypeOf(uint_value);
-    const max_group = (@typeInfo(T).Int.bits + 6) / 7;
-    var buf = std.io.fixedBufferStream(ptr);
-    try writeULEB128(buf.writer(), uint_value);
-    return buf.pos;
-}
-
 /// Read a single signed LEB128 value from the given reader as type T,
 /// or error.Overflow if the value cannot fit.
 pub fn readILEB128(comptime T: type, reader: anytype) !T {
@@ -146,24 +127,6 @@ pub fn writeILEB128(writer: anytype, int_value: anytype) !void {
     }
 }
 
-/// Read a single singed LEB128 integer from the given memory as type T.
-/// The provided slice reference will be updated to point to the byte after the last byte read.
-pub fn readILEB128Mem(comptime T: type, ptr: *[]const u8) !T {
-    var buf = std.io.fixedBufferStream(ptr.*);
-    const value = try readILEB128(T, buf.reader());
-    ptr.*.ptr += buf.pos;
-    return value;
-}
-
-/// Write a single signed LEB128 integer to the given memory as unsigned LEB128,
-/// returning the number of bytes written.
-pub fn writeILEB128Mem(ptr: []u8, int_value: anytype) !usize {
-    const T = @TypeOf(int_value);
-    var buf = std.io.fixedBufferStream(ptr);
-    try writeILEB128(buf.writer(), int_value);
-    return buf.pos;
-}
-
 /// This is an "advanced" function. It allows one to use a fixed amount of memory to store a
 /// ULEB128. This defeats the entire purpose of using this data encoding; it will no longer use
 /// fewer bytes to store smaller numbers. The advantage of using a fixed width is that it makes
@@ -222,40 +185,28 @@ fn test_read_stream_uleb128(comptime T: type, encoded: []const u8) !T {
 fn test_read_ileb128(comptime T: type, encoded: []const u8) !T {
     var reader = std.io.fixedBufferStream(encoded);
     const v1 = try readILEB128(T, reader.reader());
-    var in_ptr = encoded;
-    const v2 = try readILEB128Mem(T, &in_ptr);
-    testing.expectEqual(v1, v2);
     return v1;
 }
 
 fn test_read_uleb128(comptime T: type, encoded: []const u8) !T {
     var reader = std.io.fixedBufferStream(encoded);
     const v1 = try readULEB128(T, reader.reader());
-    var in_ptr = encoded;
-    const v2 = try readULEB128Mem(T, &in_ptr);
-    testing.expectEqual(v1, v2);
     return v1;
 }
 
 fn test_read_ileb128_seq(comptime T: type, comptime N: usize, encoded: []const u8) !void {
     var reader = std.io.fixedBufferStream(encoded);
-    var in_ptr = encoded;
     var i: usize = 0;
     while (i < N) : (i += 1) {
         const v1 = try readILEB128(T, reader.reader());
-        const v2 = try readILEB128Mem(T, &in_ptr);
-        testing.expectEqual(v1, v2);
     }
 }
 
 fn test_read_uleb128_seq(comptime T: type, comptime N: usize, encoded: []const u8) !void {
     var reader = std.io.fixedBufferStream(encoded);
-    var in_ptr = encoded;
     var i: usize = 0;
     while (i < N) : (i += 1) {
         const v1 = try readULEB128(T, reader.reader());
-        const v2 = try readULEB128Mem(T, &in_ptr);
-        testing.expectEqual(v1, v2);
     }
 }
 
@@ -350,9 +301,7 @@ fn test_write_leb128(value: anytype) !void {
     const signedness = if (t_signed) .signed else .unsigned;
 
     const writeStream = if (t_signed) writeILEB128 else writeULEB128;
-    const writeMem = if (t_signed) writeILEB128Mem else writeULEB128Mem;
     const readStream = if (t_signed) readILEB128 else readULEB128;
-    const readMem = if (t_signed) readILEB128Mem else readULEB128Mem;
 
     // decode to a larger bit size too, to ensure sign extension
     // is working as expected
@@ -390,22 +339,6 @@ fn test_write_leb128(value: anytype) !void {
     const bsr = try readStream(B, fbs.reader());
     testing.expect(fbs.pos == w1_pos);
     testing.expect(bsr == value);
-
-    // mem write
-    const w2_pos = try writeMem(&buf, value);
-    testing.expect(w2_pos == w1_pos);
-
-    // mem read
-    var buf_ref: []u8 = buf[0..];
-    const mr = try readMem(T, &buf_ref);
-    testing.expect(@ptrToInt(buf_ref.ptr) - @ptrToInt(&buf) == w2_pos);
-    testing.expect(mr == value);
-
-    // bigger type mem read
-    buf_ref = buf[0..];
-    const bmr = try readMem(T, &buf_ref);
-    testing.expect(@ptrToInt(buf_ref.ptr) - @ptrToInt(&buf) == w2_pos);
-    testing.expect(bmr == value);
 }
 
 test "serialize unsigned LEB128" {

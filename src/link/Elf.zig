@@ -8,7 +8,7 @@ const fs = std.fs;
 const elf = std.elf;
 const log = std.log.scoped(.link);
 const DW = std.dwarf;
-const leb128 = std.debug.leb;
+const leb128 = std.leb;
 
 const ir = @import("../ir.zig");
 const Module = @import("../Module.zig");
