@@ -1710,6 +1710,14 @@ test "tokenizer - multiline string literal with literal tab" {
     });
 }
 
+test "tokenizer - multiline string literal with CRLF line ending" {
+    testTokenize(
+        "\\\\foo bar" ++ [1]u8 { 0x0D } ++ "\n"
+    , &[_]Token.Id{
+        .MultilineStringLiteralLine,
+    });
+}
+
 test "tokenizer - comments with literal tab" {
     testTokenize(
         \\//foo	bar
