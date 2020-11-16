@@ -4453,11 +4453,11 @@ pub fn sched_getaffinity(pid: pid_t) SchedGetAffinityError!cpu_set_t {
 
 /// Used to convert a slice to a null terminated slice on the stack.
 /// TODO https://github.com/ziglang/zig/issues/287
-pub fn toPosixPath(file_path: []const u8) ![PATH_MAX - 1:0]u8 {
+pub fn toPosixPath(file_path: []const u8) ![MAX_PATH_BYTES - 1:0]u8 {
     if (std.debug.runtime_safety) assert(std.mem.indexOfScalar(u8, file_path, 0) == null);
-    var path_with_null: [PATH_MAX - 1:0]u8 = undefined;
+    var path_with_null: [MAX_PATH_BYTES - 1:0]u8 = undefined;
     // >= rather than > to make room for the null byte
-    if (file_path.len >= PATH_MAX) return error.NameTooLong;
+    if (file_path.len >= MAX_PATH_BYTES) return error.NameTooLong;
     mem.copy(u8, &path_with_null, file_path);
     path_with_null[file_path.len] = 0;
     return path_with_null;
