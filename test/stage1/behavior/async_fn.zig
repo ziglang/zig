@@ -1559,3 +1559,33 @@ test "avoid forcing frame alignment resolution implicit cast to *c_void" {
     resume @ptrCast(anyframe->bool, @alignCast(@alignOf(@Frame(S.foo)), S.x));
     expect(nosuspend await frame);
 }
+
+test "@asyncCall with pass-by-value arguments" {
+    const F0: u64 = 0xbeefbeefbeefbeef;
+    const F1: u64 = 0xf00df00df00df00d;
+    const F2: u64 = 0xcafecafecafecafe;
+
+    const S = struct {
+        pub const ST = struct { f0: usize, f1: usize };
+        pub const AT = [5]u8;
+
+        pub fn f(_fill0: u64, s: ST, _fill1: u64, a: AT, _fill2: u64) callconv(.Async) void {
+            // Check that the array and struct arguments passed by value don't
+            // end up overflowing the adjacent fields in the frame structure.
+            expectEqual(F0, _fill0);
+            expectEqual(F1, _fill1);
+            expectEqual(F2, _fill2);
+        }
+    };
+
+    var buffer: [1024]u8 align(@alignOf(@Frame(S.f))) = undefined;
+    // The function pointer must not be comptime-known.
+    var t = S.f;
+    var frame_ptr = @asyncCall(&buffer, {}, t, .{
+        F0,
+        .{ .f0 = 1, .f1 = 2 },
+        F1,
+        [_]u8{ 1, 2, 3, 4, 5 },
+        F2,
+    });
+}
