@@ -1946,7 +1946,7 @@ pub fn openFileAbsoluteW(absolute_path_w: []const u16, flags: File.OpenFlags) Fi
 /// See `accessAbsoluteZ` for a function that accepts a null-terminated path.
 pub fn accessAbsolute(absolute_path: []const u8, flags: File.OpenFlags) Dir.AccessError!void {
     if (builtin.os.tag == .wasi) {
-        @compileError("WASI doesn't have the concept of an absolute path; use openDir instead for WASI.");
+        @compileError("WASI doesn't have the concept of an absolute path; use access instead for WASI.");
     }
     assert(path.isAbsolute(absolute_path));
     try cwd().access(absolute_path, flags);
@@ -1954,7 +1954,7 @@ pub fn accessAbsolute(absolute_path: []const u8, flags: File.OpenFlags) Dir.Acce
 /// Same as `accessAbsolute` but the path parameter is null-terminated.
 pub fn accessAbsoluteZ(absolute_path: [*:0]const u8, flags: File.OpenFlags) Dir.AccessError!void {
     if (builtin.os.tag == .wasi) {
-        @compileError("WASI doesn't have the concept of an absolute path; use openDir instead for WASI.");
+        @compileError("WASI doesn't have the concept of an absolute path; use access instead for WASI.");
     }
     assert(path.isAbsoluteZ(absolute_path));
     try cwd().accessZ(absolute_path, flags);
@@ -1962,7 +1962,7 @@ pub fn accessAbsoluteZ(absolute_path: [*:0]const u8, flags: File.OpenFlags) Dir.
 /// Same as `accessAbsolute` but the path parameter is WTF-16 encoded.
 pub fn accessAbsoluteW(absolute_path: [*:0]const 16, flags: File.OpenFlags) Dir.AccessError!void {
     if (builtin.os.tag == .wasi) {
-        @compileError("WASI doesn't have the concept of an absolute path; use openDir instead for WASI.");
+        @compileError("WASI doesn't have the concept of an absolute path; use access instead for WASI.");
     }
     assert(path.isAbsoluteWindowsW(absolute_path));
     try cwd().accessW(absolute_path, flags);
