@@ -841,7 +841,7 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
-                    '\t' => {},
+                    '\t', '\r' => {},
                     else => self.checkLiteralCharacter(),
                 },
 
