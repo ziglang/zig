@@ -238,6 +238,9 @@ pub const Instruction = union(enum) {
         fixed: u5 = 0b00101,
         op: u1,
     },
+    NoOperation: packed struct {
+        fixed: u32 = 0b1101010100_0_00_011_0010_0000_000_11111,
+    },
 
     pub fn toU32(self: Instruction) u32 {
         return switch (self) {
@@ -247,6 +250,7 @@ pub const Instruction = union(enum) {
             .ExceptionGeneration => |v| @bitCast(u32, v),
             .UnconditionalBranchRegister => |v| @bitCast(u32, v),
             .UnconditionalBranchImmediate => |v| @bitCast(u32, v),
+            .NoOperation => |v| @bitCast(u32, v),
         };
     }
 
@@ -598,6 +602,12 @@ pub const Instruction = union(enum) {
 
     pub fn bl(offset: i28) Instruction {
         return unconditionalBranchImmediate(1, offset);
+    }
+
+    // Nop
+
+    pub fn nop() Instruction {
+        return Instruction{ .NoOperation = {} };
     }
 };
 
