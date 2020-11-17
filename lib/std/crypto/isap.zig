@@ -142,7 +142,7 @@ pub const IsapA128A = struct {
         while (j < out_len) : (j += 8) {
             mem.writeIntBig(u64, out[j..][0..8], isap.block[j / 8]);
         }
-        mem.secureZero(u64, &isap.block);
+        std.crypto.utils.secureZero(u64, &isap.block);
         return out;
     }
 
@@ -173,7 +173,7 @@ pub const IsapA128A = struct {
         var tag: [16]u8 = undefined;
         mem.writeIntBig(u64, tag[0..8], isap.block[0]);
         mem.writeIntBig(u64, tag[8..16], isap.block[1]);
-        mem.secureZero(u64, &isap.block);
+        std.crypto.utils.secureZero(u64, &isap.block);
         return tag;
     }
 
@@ -209,7 +209,7 @@ pub const IsapA128A = struct {
                 break;
             }
         }
-        mem.secureZero(u64, &isap.block);
+        std.crypto.utils.secureZero(u64, &isap.block);
     }
 
     pub fn encrypt(c: []u8, tag: *[tag_length]u8, m: []const u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) void {
@@ -223,7 +223,7 @@ pub const IsapA128A = struct {
         for (computed_tag) |_, j| {
             acc |= (computed_tag[j] ^ tag[j]);
         }
-        mem.secureZero(u8, &computed_tag);
+        std.crypto.utils.secureZero(u8, &computed_tag);
         if (acc != 0) {
             return error.AuthenticationFailed;
         }
