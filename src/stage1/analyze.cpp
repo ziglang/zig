@@ -4447,6 +4447,48 @@ ZigVar *find_variable(CodeGen *g, Scope *scope, Buf *name, ScopeFnDef **crossed_
     return nullptr;
 }
 
+// Unholy abomination that merges find_variable and find_decl.
+bool find_decl_or_variable(CodeGen *g, Scope *scope, Buf *name, ScopeFnDef **crossed_fndef_scope, ZigVar **var_out, Tld **tld_out) {
+    ScopeFnDef *my_crossed_fndef_scope = nullptr;
+
+    *var_out = nullptr;
+    *tld_out = nullptr;
+
+    while (scope) {
+        if (scope->id == ScopeIdVarDecl) {
+            ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
+            if (buf_eql_str(name, var_scope->var->name)) {
+                if (crossed_fndef_scope != nullptr)
+                    *crossed_fndef_scope = my_crossed_fndef_scope;
+                *var_out = var_scope->var;
+                return true;
+            }
+        } else if (scope->id == ScopeIdDecls) {
+            ScopeDecls *decls_scope = (ScopeDecls *)scope;
+
+            Tld *tld = find_container_decl(g, decls_scope, name);
+            if (tld != nullptr) {
+                if (tld->id == TldIdVar) {
+                    TldVar *tld_var = (TldVar *)tld;
+                    if (tld_var->var) {
+                        if (crossed_fndef_scope != nullptr)
+                            *crossed_fndef_scope = nullptr;
+                        *var_out = tld_var->var;
+                        return true;
+                    }
+                }
+                *tld_out = tld;
+                return true;
+            }
+        } else if (scope->id == ScopeIdFnDef) {
+            my_crossed_fndef_scope = (ScopeFnDef *)scope;
+        }
+        scope = scope->parent;
+    }
+
+    return false;
+}
+
 ZigFn *scope_fn_entry(Scope *scope) {
     while (scope) {
         if (scope->id == ScopeIdFnDef) {

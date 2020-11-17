@@ -6104,24 +6104,28 @@ static IrInstSrc *ir_gen_symbol(IrBuilderSrc *irb, Scope *scope, AstNode *node, 
     }
 
     ScopeFnDef *crossed_fndef_scope;
-    ZigVar *var = find_variable(irb->codegen, scope, variable_name, &crossed_fndef_scope);
-    if (var) {
-        IrInstSrc *var_ptr = ir_build_var_ptr_x(irb, scope, node, var, crossed_fndef_scope);
-        if (lval == LValPtr || lval == LValAssign) {
-            return var_ptr;
-        } else {
-            return ir_expr_wrap(irb, scope, ir_build_load_ptr(irb, scope, node, var_ptr), result_loc);
+    ZigVar *var;
+    Tld *tld;
+    if (find_decl_or_variable(irb->codegen, scope, variable_name, &crossed_fndef_scope, &var, &tld)) {
+        if (var != nullptr) {
+            IrInstSrc *var_ptr = ir_build_var_ptr_x(irb, scope, node, var, crossed_fndef_scope);
+            if (lval == LValPtr || lval == LValAssign) {
+                return var_ptr;
+            } else {
+                return ir_expr_wrap(irb, scope, ir_build_load_ptr(irb, scope, node, var_ptr), result_loc);
+            }
         }
-    }
 
-    Tld *tld = find_decl(irb->codegen, scope, variable_name);
-    if (tld) {
-        IrInstSrc *decl_ref = ir_build_decl_ref(irb, scope, node, tld, lval);
-        if (lval == LValPtr || lval == LValAssign) {
-            return decl_ref;
-        } else {
-            return ir_expr_wrap(irb, scope, decl_ref, result_loc);
+        if (tld != nullptr) {
+            IrInstSrc *decl_ref = ir_build_decl_ref(irb, scope, node, tld, lval);
+            if (lval == LValPtr || lval == LValAssign) {
+                return decl_ref;
+            } else {
+                return ir_expr_wrap(irb, scope, decl_ref, result_loc);
+            }
         }
+
+        zig_unreachable();
     }
 
     if (get_container_scope(node->owner)->any_imports_failed) {

@@ -75,6 +75,7 @@ enum SourceKind {
 ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *abs_full_path, Buf *source_code,
         SourceKind source_kind);
 
+bool find_decl_or_variable(CodeGen *g, Scope *scope, Buf *name, ScopeFnDef **crossed_fndef_scope, ZigVar **var_out, Tld **tld_out);
 ZigVar *find_variable(CodeGen *g, Scope *orig_context, Buf *name, ScopeFnDef **crossed_fndef_scope);
 Tld *find_decl(CodeGen *g, Scope *scope, Buf *name);
 Tld *find_container_decl(CodeGen *g, ScopeDecls *decls_scope, Buf *name);
