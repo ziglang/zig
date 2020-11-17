@@ -956,8 +956,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         },
     };
 
-    // const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
-    const required_alignment = 4;
+    const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
     assert(decl.link.macho.local_sym_index != 0); // Caller forgot to call allocateDeclIndexes()
     const symbol = &self.local_symbols.items[decl.link.macho.local_sym_index];
 
