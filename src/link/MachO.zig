@@ -326,7 +326,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-
     switch (self.base.options.output_mode) {
         .Exe => {
             if (self.entry_addr) |addr| {
@@ -361,7 +360,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 try self.base.file.?.pwriteAll(mem.spanZ(LIB_SYSTEM_PATH), off);
                 self.libsystem_cmd_dirty = false;
             }
-        
+
             // Write export trie.
             try self.writeExportTrie();
             const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
@@ -1166,8 +1165,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         text_segment.cmdsize += @sizeOf(macho.section_64);
         text_segment.nsects += 1;
 
-        // const program_code_size_hint = self.base.options.program_code_size_hint;
-        const program_code_size_hint = 128;
+        const program_code_size_hint = self.base.options.program_code_size_hint;
+        // const program_code_size_hint = 128;
         const file_size = mem.alignForwardGeneric(u64, program_code_size_hint, self.page_size);
         const off = @intCast(u32, self.findFreeSpace(file_size, self.page_size)); // TODO maybe findFreeSpace should return u32 directly?
         const flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS;
@@ -1180,7 +1179,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .addr = text_segment.vmaddr + off,
             .size = file_size,
             .offset = off,
-            .@"align" = 2, // 2^12 = 4096
+            .@"align" = if (self.base.options.target.cpu.arch == .aarch64) 2 else 1, // 2^2 for aarch64, 2^1 for x86_64
             .reloff = 0,
             .nreloc = 0,
             .flags = flags,
@@ -1650,7 +1649,7 @@ fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
 fn writeSymbolTable(self: *MachO) !void {
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
     const locals_off = symtab.symoff;
-    
+
     var locals = try self.base.allocator.alloc(macho.nlist_64, self.local_symbols.items.len - 1);
     defer self.base.allocator.free(locals);
 
@@ -1752,7 +1751,7 @@ fn writeStringTable(self: *MachO) !void {
     //     symtab.stroff = @intCast(u32, self.findFreeSpace(needed_size, 1));
     // }
     symtab.strsize = mem.alignForwardGeneric(u32, @intCast(u32, needed_size), @sizeOf(u64));
-    try self.base.file.?.pwriteAll(&[_]u8{ 0 }, symtab.stroff + symtab.strsize - 1);
+    try self.base.file.?.pwriteAll(&[_]u8{0}, symtab.stroff + symtab.strsize - 1);
     log.debug("writing string table from 0x{x} to 0x{x}\n", .{ symtab.stroff, symtab.stroff + needed_size });
     try self.base.file.?.pwriteAll(self.string_table.items, symtab.stroff);
 }
