@@ -41,11 +41,11 @@ const usage =
     \\  build            Build project from build.zig
     \\  build-exe        Create executable from source or object files
     \\  build-lib        Create library from source or object files
-    \\  build-obj        Create object from source or assembly
+    \\  build-obj        Create object from source or object files
     \\  cc               Use Zig as a drop-in C compiler
     \\  c++              Use Zig as a drop-in C++ compiler
-    \\  env              Print lib path, std path, compiler id and version
-    \\  fmt              Parse file and render in canonical zig format
+    \\  env              Print lib path, std path, cache directory, and version
+    \\  fmt              Reformat Zig source into canonical form
     \\  init-exe         Initialize a `zig build` application in the cwd
     \\  init-lib         Initialize a `zig build` library in the cwd
     \\  libc             Display native libc paths file or validate one
@@ -54,11 +54,11 @@ const usage =
     \\  targets          List available compilation targets
     \\  test             Create and run a test build
     \\  version          Print version number and exit
-    \\  zen              Print zen of zig and exit
+    \\  zen              Print Zen of Zig and exit
     \\
     \\General Options:
     \\
-    \\  --help           Print command-specific usage
+    \\  -h, --help       Print command-specific usage
     \\
 ;
 
@@ -2017,7 +2017,7 @@ pub fn cmdLibC(gpa: *Allocator, args: []const []const u8) !void {
         while (i < args.len) : (i += 1) {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
-                if (mem.eql(u8, arg, "--help")) {
+                if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                     const stdout = io.getStdOut().writer();
                     try stdout.writeAll(usage_libc);
                     return cleanExit();
@@ -2059,7 +2059,7 @@ pub const usage_init =
     \\   directory.
     \\
     \\Options:
-    \\   --help                 Print this help and exit
+    \\   -h, --help             Print this help and exit
     \\
     \\
 ;
@@ -2148,7 +2148,7 @@ pub const usage_build =
     \\   Build a project from build.zig.
     \\
     \\Options:
-    \\   --help                 Print this help and exit
+    \\   -h, --help             Print this help and exit
     \\
     \\
 ;
@@ -2400,7 +2400,7 @@ pub const usage_fmt =
     \\   recursively.
     \\
     \\Options:
-    \\   --help                 Print this help and exit
+    \\   -h, --help             Print this help and exit
     \\   --color [auto|off|on]  Enable or disable colored error messages
     \\   --stdin                Format code from stdin; output to stdout
     \\   --check                List non-conforming files and exit with an error
@@ -2432,7 +2432,7 @@ pub fn cmdFmt(gpa: *Allocator, args: []const []const u8) !void {
         while (i < args.len) : (i += 1) {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
-                if (mem.eql(u8, arg, "--help")) {
+                if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                     const stdout = io.getStdOut().outStream();
                     try stdout.writeAll(usage_fmt);
                     return cleanExit();
