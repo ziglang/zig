@@ -28,6 +28,7 @@ pub const delimiter_windows = ';';
 pub const delimiter_posix = ':';
 pub const delimiter = if (builtin.os.tag == .windows) delimiter_windows else delimiter_posix;
 
+/// Returns if the given byte is a valid path separator
 pub fn isSep(byte: u8) bool {
     if (builtin.os.tag == .windows) {
         return byte == '/' or byte == '\\';
@@ -1189,62 +1190,63 @@ fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []cons
 /// Examples:
 /// - `"main.zig"`     ⇒ `".zig"`
 /// - `"src/main.zig"` ⇒ `".zig"`
-/// - `".gitignore"`   ⇒ `null`
-/// - `"keep."`        ⇒ `null`
+/// - `".gitignore"`   ⇒ `""`
+/// - `"keep."`        ⇒ `""`
 /// - `"src.keep.me"`  ⇒ `".me"`
-pub fn extension(path: []const u8) ?[]const u8 {
+/// - `"/src/keep.me"`  ⇒ `".me"`
+/// - `"/src/keep.me/"`  ⇒ `".me"`
+pub fn extension(path: []const u8) []const u8 {
     const filename = basename(path);
     return if (std.mem.lastIndexOf(u8, filename, ".")) |index|
         if (index == 0 or index == filename.len - 1)
-            null
+            ""
         else
             filename[index..]
     else
-        null;
+        "";
 }
 
-fn testExtension(path: []const u8, expected: ?[]const u8) void {
-    const actual = extension(path);
-
-    if (expected) |must_be| {
-        std.testing.expect(actual != null);
-        std.testing.expectEqualStrings(must_be, actual.?);
-    } else {
-        std.testing.expectEqual(expected, actual);
-    }
+fn testExtension(path: []const u8, expected: []const u8) void {
+    std.testing.expectEqualStrings(expected, extension(path));
 }
 
 test "extension" {
-    testExtension("", null);
-    testExtension(".", null);
-    testExtension("a.", null);
-    testExtension("abc.", null);
-    testExtension(".a", null);
-    testExtension(".file", null);
-    testExtension(".gitignore", null);
+    testExtension("", "");
+    testExtension(".", "");
+    testExtension("a.", "");
+    testExtension("abc.", "");
+    testExtension(".a", "");
+    testExtension(".file", "");
+    testExtension(".gitignore", "");
     testExtension("file.ext", ".ext");
+    testExtension("file.ext.", "");
     testExtension("very-long-file.bruh", ".bruh");
     testExtension("a.b.c", ".c");
+    testExtension("a.b.c/", ".c");
 
-    testExtension("/", null);
-    testExtension("/.", null);
-    testExtension("/a.", null);
-    testExtension("/abc.", null);
-    testExtension("/.a", null);
-    testExtension("/.file", null);
-    testExtension("/.gitignore", null);
+    testExtension("/", "");
+    testExtension("/.", "");
+    testExtension("/a.", "");
+    testExtension("/abc.", "");
+    testExtension("/.a", "");
+    testExtension("/.file", "");
+    testExtension("/.gitignore", "");
     testExtension("/file.ext", ".ext");
+    testExtension("/file.ext.", "");
     testExtension("/very-long-file.bruh", ".bruh");
     testExtension("/a.b.c", ".c");
+    testExtension("/a.b.c/", ".c");
 
-    testExtension("/foo/bar/bam/", null);
-    testExtension("/foo/bar/bam/.", null);
-    testExtension("/foo/bar/bam/a.", null);
-    testExtension("/foo/bar/bam/abc.", null);
-    testExtension("/foo/bar/bam/.a", null);
-    testExtension("/foo/bar/bam/.file", null);
-    testExtension("/foo/bar/bam/.gitignore", null);
+    testExtension("/foo/bar/bam/", "");
+    testExtension("/foo/bar/bam/.", "");
+    testExtension("/foo/bar/bam/a.", "");
+    testExtension("/foo/bar/bam/abc.", "");
+    testExtension("/foo/bar/bam/.a", "");
+    testExtension("/foo/bar/bam/.file", "");
+    testExtension("/foo/bar/bam/.gitignore", "");
     testExtension("/foo/bar/bam/file.ext", ".ext");
+    testExtension("/foo/bar/bam/file.ext.", "");
     testExtension("/foo/bar/bam/very-long-file.bruh", ".bruh");
     testExtension("/foo/bar/bam/a.b.c", ".c");
+    testExtension("/foo/bar/bam/a.b.c/", ".c");
 }
