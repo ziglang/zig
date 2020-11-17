@@ -3809,7 +3809,7 @@ pub fn faccessatW(dirfd: fd_t, sub_path_w: [*:0]const u16, mode: u32, flags: u32
         .SUCCESS => return,
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_NAME_INVALID => return error.BadPathName,
+        .OBJECT_NAME_INVALID => unreachable,
         .INVALID_PARAMETER => unreachable,
         .ACCESS_DENIED => return error.PermissionDenied,
         .OBJECT_PATH_SYNTAX_BAD => unreachable,
