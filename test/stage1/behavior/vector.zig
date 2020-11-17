@@ -529,6 +529,8 @@ test "vector reduce operation" {
             doTheTestReduce(.Min, [4]i32{ 1234567, -386, 0, 3 }, @as(i32, -386));
             doTheTestReduce(.Min, [4]u32{ 99, 9999, 9, 99999 }, @as(u32, 9));
 
+            // LLVM 11 ERROR: Cannot select type
+            // https://github.com/ziglang/zig/issues/7138
             if (std.builtin.arch != .aarch64) {
                doTheTestReduce(.Min, [4]i64{ 1234567, -386, 0, 3 }, @as(i64, -386));
                doTheTestReduce(.Min, [4]u64{ 99, 9999, 9, 99999 }, @as(u64, 9));
@@ -545,6 +547,8 @@ test "vector reduce operation" {
             doTheTestReduce(.Max, [4]i32{ 1234567, -386, 0, 3 }, @as(i32, 1234567));
             doTheTestReduce(.Max, [4]u32{ 99, 9999, 9, 99999 }, @as(u32, 99999));
 
+            // LLVM 11 ERROR: Cannot select type
+            // https://github.com/ziglang/zig/issues/7138
             if (std.builtin.arch != .aarch64) {
                doTheTestReduce(.Max, [4]i64{ 1234567, -386, 0, 3 }, @as(i64, 1234567));
                doTheTestReduce(.Max, [4]u64{ 99, 9999, 9, 99999 }, @as(u64, 99999));
@@ -591,6 +595,8 @@ test "vector reduce operation" {
             doTheTestReduce(.Add, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
             doTheTestReduce(.Add, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
 
+            // LLVM 11 ERROR: Cannot select type
+            // https://github.com/ziglang/zig/issues/7138
             if (false) {
                 doTheTestReduce(.Min, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
                 doTheTestReduce(.Min, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
