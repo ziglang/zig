@@ -1,4 +1,5 @@
 const MachO = @This();
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -1172,7 +1173,6 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         text_segment.nsects += 1;
 
         const program_code_size_hint = self.base.options.program_code_size_hint;
-        // const program_code_size_hint = 128;
         const file_size = mem.alignForwardGeneric(u64, program_code_size_hint, self.page_size);
         const off = @intCast(u32, self.findFreeSpace(file_size, self.page_size)); // TODO maybe findFreeSpace should return u32 directly?
         const flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS;
@@ -1294,22 +1294,6 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         });
         self.cmd_table_dirty = true;
     }
-    {
-        const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
-        const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfo;
-        if (dyld_info.export_off == 0) {
-            const nsyms = self.base.options.symbol_count_hint;
-            const file_size = @sizeOf(u64) * nsyms;
-            const off = @intCast(u32, self.findFreeSpace(file_size, self.page_size));
-            log.debug("found export trie free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
-            dyld_info.export_off = off;
-            dyld_info.export_size = @intCast(u32, file_size);
-
-            const segment_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
-            linkedit.vmsize += segment_size;
-            linkedit.fileoff = off;
-        }
-    }
     if (self.symtab_cmd_index == null) {
         self.symtab_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
@@ -1351,35 +1335,6 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             },
         });
         self.cmd_table_dirty = true;
-    }
-    {
-        const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
-        const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
-        if (symtab.symoff == 0) {
-            const nsyms = self.base.options.symbol_count_hint;
-            const file_size = @sizeOf(macho.nlist_64) * nsyms;
-            const off = @intCast(u32, self.findFreeSpace(file_size, self.page_size));
-            log.debug("found symbol table free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
-            symtab.symoff = off;
-            symtab.nsyms = @intCast(u32, nsyms);
-
-            const segment_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
-            linkedit.vmsize += segment_size;
-            // TODO this is needed to please codesign_allocate
-            const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfo;
-            dyld_info.export_size = off - dyld_info.export_off;
-        }
-        if (symtab.stroff == 0) {
-            try self.string_table.append(self.base.allocator, 0);
-            const file_size = @intCast(u32, self.string_table.items.len);
-            const off = @intCast(u32, self.findFreeSpace(file_size, self.page_size));
-            log.debug("found string table free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
-            symtab.stroff = off;
-            symtab.strsize = file_size;
-
-            const segment_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
-            linkedit.vmsize += segment_size;
-        }
     }
     if (self.dylinker_cmd_index == null) {
         self.dylinker_cmd_index = @intCast(u16, self.load_commands.items.len);
@@ -1457,6 +1412,51 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .version = 0x0,
             },
         });
+    }
+    {
+        const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+        const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfo;
+        if (dyld_info.export_off == 0) {
+            const nsyms = self.base.options.symbol_count_hint;
+            const file_size = @sizeOf(u64) * nsyms;
+            const off = @intCast(u32, self.findFreeSpace(file_size, self.page_size));
+            log.debug("found export trie free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+            dyld_info.export_off = off;
+            dyld_info.export_size = @intCast(u32, file_size);
+
+            const segment_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
+            linkedit.vmsize += segment_size;
+            linkedit.fileoff = off;
+        }
+    }
+    {
+        const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+        const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
+        if (symtab.symoff == 0) {
+            const nsyms = self.base.options.symbol_count_hint;
+            const file_size = @sizeOf(macho.nlist_64) * nsyms;
+            const off = @intCast(u32, self.findFreeSpace(file_size, self.page_size));
+            log.debug("found symbol table free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+            symtab.symoff = off;
+            symtab.nsyms = @intCast(u32, nsyms);
+
+            const segment_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
+            linkedit.vmsize += segment_size;
+            // TODO this is needed to please codesign_allocate
+            const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfo;
+            dyld_info.export_size = off - dyld_info.export_off;
+        }
+        if (symtab.stroff == 0) {
+            try self.string_table.append(self.base.allocator, 0);
+            const file_size = @intCast(u32, self.string_table.items.len);
+            const off = @intCast(u32, self.findFreeSpace(file_size, self.page_size));
+            log.debug("found string table free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+            symtab.stroff = off;
+            symtab.strsize = file_size;
+
+            const segment_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
+            linkedit.vmsize += segment_size;
+        }
     }
     if (self.dyld_stub_binder_index == null) {
         self.dyld_stub_binder_index = @intCast(u16, self.undef_symbols.items.len);
@@ -1759,7 +1759,9 @@ fn writeStringTable(self: *MachO) !void {
         symtab.stroff = @intCast(u32, self.findFreeSpace(needed_size, 1));
     }
     symtab.strsize = @intCast(u32, needed_size);
-    log.debug("writing string table from 0x{x} to 0x{x}\n", .{ symtab.stroff, symtab.stroff + needed_size });
+
+    log.debug("writing string table from 0x{x} to 0x{x}\n", .{ symtab.stroff, symtab.stroff + symtab.strsize });
+
     try self.base.file.?.pwriteAll(self.string_table.items, symtab.stroff);
 
     // TODO rework how we preallocate space for the entire __LINKEDIT segment instead of
@@ -1870,7 +1872,6 @@ fn writeMachOHeader(self: *MachO) !void {
             hdr.flags = 0;
         },
     }
-    hdr.reserved = 0;
     hdr.reserved = 0;
 
     log.debug("writing Mach-O header {}\n", .{hdr});
