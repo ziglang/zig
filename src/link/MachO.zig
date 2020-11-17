@@ -1379,13 +1379,21 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     }
     if (self.version_min_cmd_index == null) {
         self.version_min_cmd_index = @intCast(u16, self.load_commands.items.len);
+        const cmd: u32 = switch (self.base.options.target.os.tag) {
+            .macos => macho.LC_VERSION_MIN_MACOSX,
+            .ios => macho.LC_VERSION_MIN_IPHONEOS,
+            .tvos => macho.LC_VERSION_MIN_TVOS,
+            .watchos => macho.LC_VERSION_MIN_WATCHOS,
+            else => unreachable, // wrong OS
+        };
+        const ver = self.base.options.target.os.version_range.semver.min;
+        const version = ver.major << 16 | ver.minor << 8 | ver.patch;
         try self.load_commands.append(self.base.allocator, .{
-            // TODO allow for different targets and different versions
             .MinVersion = .{
-                .cmd = macho.LC_VERSION_MIN_MACOSX,
+                .cmd = cmd,
                 .cmdsize = @sizeOf(macho.version_min_command),
-                .version = 0xB0001, // 11.0.1 BigSur
-                .sdk = 0xB0001, // 11.0.1 BigSur
+                .version = version,
+                .sdk = version,
             },
         });
     }
