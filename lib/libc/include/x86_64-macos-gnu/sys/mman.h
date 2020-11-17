@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2020 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 2000-2019 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -89,10 +89,6 @@
 #include <sys/_types/_off_t.h>
 #include <sys/_types/_size_t.h>
 
-#if __DARWIN_C_LEVEL >= 200809L
-#include <Availability.h>
-#endif /* __DARWIN_C_LEVEL */
-
 /*
  * Protections are chosen from these bits, or-ed together
  */
@@ -149,17 +145,9 @@
 #define MAP_RESILIENT_CODESIGN  0x2000 /* no code-signing failures */
 #define MAP_RESILIENT_MEDIA     0x4000 /* no backing-store failures */
 
-#if defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500
-#define MAP_32BIT       0x8000          /* Return virtual addresses <4G only */
-#endif /* defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500 */
-
-
-/*
- * Flags used to support translated processes.
- */
-#define MAP_TRANSLATED_ALLOW_EXECUTE 0x20000 /* allow execute in translated processes */
-
-#define MAP_UNIX03       0x40000 /* UNIX03 compliance */
+#if !defined(CONFIG_EMBEDDED)
+#define MAP_32BIT       0x8000          /* Return virtual addresses <4G only: Requires entitlement */
+#endif  /* !defined(CONFIG_EMBEDDED) */
 
 #endif  /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
 
@@ -222,7 +210,6 @@
 #define MINCORE_COPIED          0x40     /* Page has been copied */
 #define MINCORE_ANONYMOUS       0x80     /* Page belongs to an anonymous object */
 #endif  /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
-
 
 
 

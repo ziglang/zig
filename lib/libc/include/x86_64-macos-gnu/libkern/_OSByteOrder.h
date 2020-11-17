@@ -41,14 +41,14 @@
 
 /* Macros for swapping constant values in the preprocessing stage. */
 #define __DARWIN_OSSwapConstInt16(x) \
-    ((__uint16_t)((((__uint16_t)(x) & 0xff00U) >> 8) | \
-	        (((__uint16_t)(x) & 0x00ffU) << 8)))
+    ((__uint16_t)((((__uint16_t)(x) & 0xff00) >> 8) | \
+	        (((__uint16_t)(x) & 0x00ff) << 8)))
 
 #define __DARWIN_OSSwapConstInt32(x) \
-    ((__uint32_t)((((__uint32_t)(x) & 0xff000000U) >> 24) | \
-	        (((__uint32_t)(x) & 0x00ff0000U) >>  8) | \
-	        (((__uint32_t)(x) & 0x0000ff00U) <<  8) | \
-	        (((__uint32_t)(x) & 0x000000ffU) << 24)))
+    ((__uint32_t)((((__uint32_t)(x) & 0xff000000) >> 24) | \
+	        (((__uint32_t)(x) & 0x00ff0000) >>  8) | \
+	        (((__uint32_t)(x) & 0x0000ff00) <<  8) | \
+	        (((__uint32_t)(x) & 0x000000ff) << 24)))
 
 #define __DARWIN_OSSwapConstInt64(x) \
     ((__uint64_t)((((__uint64_t)(x) & 0xff00000000000000ULL) >> 56) | \
@@ -62,23 +62,10 @@
 
 #if defined(__GNUC__)
 
-#if !defined(__DARWIN_OS_INLINE)
-# if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
-#        define __DARWIN_OS_INLINE static inline
-# elif defined(__MWERKS__) || defined(__cplusplus)
-#        define __DARWIN_OS_INLINE static inline
-# else
-#        define __DARWIN_OS_INLINE static __inline__
-# endif
-#endif
-
 #if defined(__i386__) || defined(__x86_64__)
 #include <libkern/i386/_OSByteOrder.h>
 #endif
 
-#if defined (__arm__) || defined(__arm64__)
-#include <libkern/arm/OSByteOrder.h>
-#endif
 
 
 #define __DARWIN_OSSwapInt16(x) \
@@ -93,6 +80,16 @@
 #else /* ! __GNUC__ */
 
 #if defined(__i386__) || defined(__x86_64__)
+
+#if !defined(__DARWIN_OS_INLINE)
+# if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
+#        define __DARWIN_OS_INLINE static inline
+# elif defined(__MWERKS__) || defined(__cplusplus)
+#        define __DARWIN_OS_INLINE static inline
+# else
+#        define __DARWIN_OS_INLINE static __inline__
+# endif
+#endif
 
 __DARWIN_OS_INLINE
 uint16_t

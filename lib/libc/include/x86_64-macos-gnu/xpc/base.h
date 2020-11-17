@@ -29,8 +29,6 @@ __BEGIN_DECLS
 #include <Availability.h>
 #endif // __has_include(<xpc/availability.h>)
 
-#include <os/availability.h>
-
 #ifndef __XPC_INDIRECT__
 #error "Please #include <xpc/xpc.h> instead of this file directly."
 #endif // __XPC_INDIRECT__ 

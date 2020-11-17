@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2019 Apple Inc. All rights reserved.
+ * Copyright (c) 2000-2008 Apple Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -64,10 +64,8 @@
 #ifndef _SYS_UIO_H_
 #define _SYS_UIO_H_
 
-#include <Availability.h>
 #include <sys/cdefs.h>
 #include <sys/_types.h>
-#include <sys/_types/_off_t.h>
 
 /*
  * [XSI] The ssize_t and size_t types shall be defined as described
@@ -78,7 +76,7 @@
 
 /*
  * [XSI] Structure whose address is passed as the second parameter to the
- * readv(), preadv(), writev() and pwritev() functions.
+ * readv() and writev() functions.
  */
 #include <sys/_types/_iovec_t.h>
 
@@ -97,15 +95,6 @@ enum uio_rw { UIO_READ, UIO_WRITE };
 __BEGIN_DECLS
 ssize_t readv(int, const struct iovec *, int) __DARWIN_ALIAS_C(readv);
 ssize_t writev(int, const struct iovec *, int) __DARWIN_ALIAS_C(writev);
-
-#if (!defined(_POSIX_C_SOURCE) && !defined(_XOPEN_SOURCE)) || defined(_DARWIN_C_SOURCE)
-
-ssize_t preadv(int, const struct iovec *, int, off_t) __DARWIN_NOCANCEL(preadv) __API_AVAILABLE(macos(11.0), ios(14.0), watchos(7.0), tvos(14.0));
-ssize_t pwritev(int, const struct iovec *, int, off_t) __DARWIN_NOCANCEL(pwritev) __API_AVAILABLE(macos(11.0), ios(14.0), watchos(7.0), tvos(14.0));
-
-#endif /* #if (!defined(_POSIX_C_SOURCE) && !defined(_XOPEN_SOURCE)) || defined(_DARWIN_C_SOURCE) */
-
 __END_DECLS
-
 
 #endif /* !_SYS_UIO_H_ */

@@ -1,4 +1,4 @@
-// Copyright (c) 2009-2020 Apple Inc. All rights reserved. 
+// Copyright (c) 2009-2011 Apple Inc. All rights reserved. 
 
 #ifndef __XPC_H__
 #define __XPC_H__
@@ -37,7 +37,7 @@ __BEGIN_DECLS
 #define __OSX_AVAILABLE_STARTING(x, y)
 #endif // __OSX_AVAILABLE_STARTING
 
-#define XPC_API_VERSION 20200610
+#define XPC_API_VERSION 20121012
 
 /*!
  * @typedef xpc_type_t
@@ -76,7 +76,8 @@ OS_OBJECT_DECL(xpc_object);
 XPC_INLINE XPC_NONNULL_ALL
 void
 _xpc_object_validate(xpc_object_t object) {
-	(void)*(unsigned long volatile *)(OS_OBJECT_BRIDGE void *)object;
+	void *isa = *(void * volatile *)(OS_OBJECT_BRIDGE void *)object;
+	(void)isa;
 }
 #else // OS_OBJECT_USE_OBJC
 typedef void * xpc_object_t;
@@ -1169,23 +1170,6 @@ xpc_object_t
 xpc_array_create(const xpc_object_t _Nonnull * _Nullable objects, size_t count);
 
 /*!
- * @function xpc_array_create_empty
- *
- * @abstract
- * Creates an XPC object representing an array of XPC objects.
- *
- * @result
- * A new array object.
- *
- * @see
- * xpc_array_create
- */
-API_AVAILABLE(macos(11.0), ios(14.0), tvos(14.0), watchos(7.0))
-XPC_EXPORT XPC_MALLOC XPC_RETURNS_RETAINED XPC_WARN_RESULT
-xpc_object_t
-xpc_array_create_empty(void);
-
-/*!
  * @function xpc_array_set_value
  *
  * @abstract
@@ -1913,24 +1897,6 @@ XPC_EXPORT XPC_MALLOC XPC_RETURNS_RETAINED XPC_WARN_RESULT
 xpc_object_t
 xpc_dictionary_create(const char * _Nonnull const * _Nullable keys,
 	const xpc_object_t _Nullable * _Nullable values, size_t count);
-
-/*!
- * @function xpc_dictionary_create_empty
- *
- * @abstract
- * Creates an XPC object representing a dictionary of XPC objects keyed to
- * C-strings.
- *
- * @result
- * The new dictionary object.
- *
- * @see
- * xpc_dictionary_create
- */
-API_AVAILABLE(macos(11.0), ios(14.0), tvos(14.0), watchos(7.0))
-XPC_EXPORT XPC_MALLOC XPC_RETURNS_RETAINED XPC_WARN_RESULT
-xpc_object_t
-xpc_dictionary_create_empty(void);
 
 /*!
  * @function xpc_dictionary_create_reply
@@ -2682,10 +2648,6 @@ xpc_transaction_end(void);
  * @discussion
  * Multiple calls to this function for the same event stream will result in
  * undefined behavior.
- *
- * There is no API to pause delivery of XPC events. If a process that
- * has set an XPC event handler exits, events may be dropped due to races
- * between the event handler running and the process exiting.
  */
 #if __BLOCKS__
 __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_5_0)

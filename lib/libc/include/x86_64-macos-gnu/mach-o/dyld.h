@@ -112,15 +112,6 @@ extern void _tlv_atexit(void (*termFunc)(void* objAddr), void* objAddr)      __O
  */
 extern void _tlv_bootstrap(void)                                             __OSX_AVAILABLE_STARTING(__MAC_10_10, __IPHONE_8_0) DYLD_DRIVERKIT_UNAVAILABLE ;
 
-
-/*
- * Dylibs that are incorporated into the dyld cache are removed from disk. That means code
- * cannot stat() the file to see if it "exists".  This function is like a stat() call that checks if a
- * path is to a dylib that was removed from disk and is incorporated into the active dyld cache.
- */
-extern bool _dyld_shared_cache_contains_path(const char* path)               __API_AVAILABLE(macos(11.0), ios(14.0), watchos(7.0), tvos(14.0)) DYLD_DRIVERKIT_UNAVAILABLE;
-
-
 /*
  * The following dyld API's are deprecated as of Mac OS X 10.5.  They are either  
  * no longer necessary or are superceeded by dlopen and friends in <dlfcn.h>.

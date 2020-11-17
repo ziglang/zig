@@ -53,6 +53,9 @@
 #define _PTHREAD_H
 
 #include <_types.h>
+#ifndef __POSIX_LIB__
+#include <pthread/pthread_impl.h>
+#endif
 #include <pthread/sched.h>
 #include <time.h>
 #include <sys/_pthread/_pthread_types.h>
@@ -555,33 +558,6 @@ int pthread_sigmask(int, const sigset_t * _Nullable, sigset_t * _Nullable)
 
 __API_AVAILABLE(macos(10.4), ios(2.0))
 void pthread_yield_np(void);
-
-__API_AVAILABLE(macos(11.0))
-__API_UNAVAILABLE(ios, tvos, watchos)
-void pthread_jit_write_protect_np(int enabled);
-
-__API_AVAILABLE(macos(11.0))
-__API_UNAVAILABLE(ios, tvos, watchos)
-int pthread_jit_write_protect_supported_np(void);
-
-/*!
- * @function pthread_cpu_number_np
- *
- * @param cpu_number_out
- * The CPU number that the thread was running on at the time of query.
- * This cpu number is in the interval [0, ncpus) (from sysctlbyname("hw.ncpu"))
- *
- * @result
- * This function returns 0 or the value of errno if an error occurred.
- *
- * @note
- * Optimizations of per-CPU datastructures based on the result of this function
- * still require synchronization since it is not guaranteed that the thread will
- * still be on the same CPU by the time the function returns.
- */
-__API_AVAILABLE(macos(11.0), ios(14.2), tvos(14.2), watchos(7.1))
-int
-pthread_cpu_number_np(size_t *cpu_number_out);
 
 #endif /* (!_POSIX_C_SOURCE && !_XOPEN_SOURCE) || _DARWIN_C_SOURCE || __cplusplus */
 __END_DECLS

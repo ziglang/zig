@@ -131,6 +131,12 @@ extern kern_return_t _kernelrpc_mach_port_allocate_trap(
 	mach_port_name_t *name
 	);
 
+
+extern kern_return_t _kernelrpc_mach_port_destroy_trap(
+	mach_port_name_t target,
+	mach_port_name_t name
+	);
+
 extern kern_return_t _kernelrpc_mach_port_deallocate_trap(
 	mach_port_name_t target,
 	mach_port_name_t name

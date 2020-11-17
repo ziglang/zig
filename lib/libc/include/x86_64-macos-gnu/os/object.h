@@ -98,15 +98,6 @@
 #endif // __swift__
 #endif // OS_OBJECT_SWIFT3
 
-#if __has_feature(assume_nonnull)
-#define OS_OBJECT_ASSUME_NONNULL_BEGIN _Pragma("clang assume_nonnull begin")
-#define OS_OBJECT_ASSUME_NONNULL_END   _Pragma("clang assume_nonnull end")
-#else
-#define OS_OBJECT_ASSUME_NONNULL_BEGIN
-#define OS_OBJECT_ASSUME_NONNULL_END
-#endif
-#define OS_OBJECT_WARN_UNUSED_RESULT __attribute__((__warn_unused_result__))
-
 #if OS_OBJECT_USE_OBJC
 #import <objc/NSObject.h>
 #if __has_attribute(objc_independent_class)
@@ -125,9 +116,9 @@
 #define OS_OBJECT_CLASS_IMPLEMENTS_PROTOCOL(name, proto) \
 		OS_OBJECT_CLASS_IMPLEMENTS_PROTOCOL_IMPL( \
 				OS_OBJECT_CLASS(name), OS_OBJECT_CLASS(proto))
-#define OS_OBJECT_DECL_IMPL(name, adhere, ...) \
+#define OS_OBJECT_DECL_IMPL(name, ...) \
 		OS_OBJECT_DECL_PROTOCOL(name, __VA_ARGS__) \
-		typedef adhere<OS_OBJECT_CLASS(name)> \
+		typedef NSObject<OS_OBJECT_CLASS(name)> \
 				* OS_OBJC_INDEPENDENT_CLASS name##_t
 #define OS_OBJECT_DECL_BASE(name, ...) \
 		@interface OS_OBJECT_CLASS(name) : __VA_ARGS__ \
@@ -138,9 +129,9 @@
 		typedef OS_OBJECT_CLASS(name) \
 				* OS_OBJC_INDEPENDENT_CLASS name##_t
 #define OS_OBJECT_DECL(name, ...) \
-		OS_OBJECT_DECL_IMPL(name, NSObject, <NSObject>)
+		OS_OBJECT_DECL_IMPL(name, <NSObject>)
 #define OS_OBJECT_DECL_SUBCLASS(name, super) \
-		OS_OBJECT_DECL_IMPL(name, NSObject, <OS_OBJECT_CLASS(super)>)
+		OS_OBJECT_DECL_IMPL(name, <OS_OBJECT_CLASS(super)>)
 #if __has_attribute(ns_returns_retained)
 #define OS_OBJECT_RETURNS_RETAINED __attribute__((__ns_returns_retained__))
 #else
@@ -158,8 +149,6 @@
 #define OS_OBJECT_BRIDGE
 #define OS_WARN_RESULT_NEEDS_RELEASE OS_WARN_RESULT
 #endif
-
-
 #if __has_attribute(objc_runtime_visible) && \
 		((defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && \
 		__MAC_OS_X_VERSION_MIN_REQUIRED < __MAC_10_12) || \
@@ -174,7 +163,7 @@
 /*
  * To provide backward deployment of ObjC objects in Swift on pre-10.12
  * SDKs, OS_object classes can be marked as OS_OBJECT_OBJC_RUNTIME_VISIBLE.
- * When compiling with a deployment target earlier than OS X 10.12 (iOS 10.0,
+ * When compiling with a deployment target earlier than OS X 10.12 (iOS 10.0, 
  * tvOS 10.0, watchOS 3.0) the Swift compiler will only refer to this type at
  * runtime (using the ObjC runtime).
  */
@@ -198,9 +187,9 @@
 #define OS_OBJECT_DECL_SUBCLASS_SWIFT(name, super) \
 		OS_EXPORT OS_OBJECT_OBJC_RUNTIME_VISIBLE \
 		OS_OBJECT_DECL_IMPL_CLASS(name, OS_OBJECT_CLASS(super))
-#endif // OS_OBJECT_SWIFT3
 OS_EXPORT OS_OBJECT_OBJC_RUNTIME_VISIBLE
 OS_OBJECT_DECL_BASE(object, NSObject);
+#endif // OS_OBJECT_SWIFT3
 #else
 /*! @parseOnly */
 #define OS_OBJECT_RETURNS_RETAINED
@@ -224,27 +213,6 @@ OS_OBJECT_DECL_BASE(object, NSObject);
 #else
 #define OS_OBJECT_DECL_CLASS(name) \
 		typedef struct name##_s *name##_t
-#endif
-
-#if OS_OBJECT_USE_OBJC
-/* Declares a class of the specific name and exposes the interface and typedefs
- * name##_t to the pointer to the class */
-#define OS_OBJECT_SHOW_CLASS(name, ...) \
-		OS_EXPORT OS_OBJECT_OBJC_RUNTIME_VISIBLE \
-		OS_OBJECT_DECL_IMPL_CLASS(name, ## __VA_ARGS__ )
-/* Declares a subclass of the same name, and
- * subclass adheres to protocol specified. Typedefs baseclass<proto> * to subclass##_t */
-#define OS_OBJECT_SHOW_SUBCLASS(subclass_name, super, proto_name) \
-		OS_EXPORT OS_OBJECT_OBJC_RUNTIME_VISIBLE \
-		OS_OBJECT_DECL_BASE(subclass_name, OS_OBJECT_CLASS(super)<OS_OBJECT_CLASS(proto_name)>); \
-		typedef OS_OBJECT_CLASS(super)<OS_OBJECT_CLASS(proto_name)> \
-				* OS_OBJC_INDEPENDENT_CLASS subclass_name##_t
-#else /* Plain C */
-#define OS_OBJECT_DECL_PROTOCOL(name, ...)
-#define OS_OBJECT_SHOW_CLASS(name, ...) \
-		typedef struct name##_s *name##_t
-#define OS_OBJECT_SHOW_SUBCLASS(name, super, ...) \
-		typedef super##_t name##_t
 #endif
 
 #define OS_OBJECT_GLOBAL_OBJECT(type, object) ((OS_OBJECT_BRIDGE type)&(object))

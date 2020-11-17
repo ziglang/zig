@@ -115,14 +115,11 @@ struct mach_header_64 {
 #define	MH_DYLIB	0x6		/* dynamically bound shared library */
 #define	MH_DYLINKER	0x7		/* dynamic link editor */
 #define	MH_BUNDLE	0x8		/* dynamically bound bundle file */
-#define	MH_DYLIB_STUB	0x9		/* shared library stub for static
-					   linking only, no section contents */
-#define	MH_DSYM		0xa		/* companion file with only debug
-					   sections */
+#define	MH_DYLIB_STUB	0x9		/* shared library stub for static */
+					/*  linking only, no section contents */
+#define	MH_DSYM		0xa		/* companion file with only debug */
+					/*  sections */
 #define	MH_KEXT_BUNDLE	0xb		/* x86_64 kexts */
-#define MH_FILESET	0xc		/* a file composed of other Mach-Os to
-					   be run in the same userspace sharing
-					   a single linkedit. */
 
 /* Constants for the flags field of the mach_header */
 #define	MH_NOUNDEFS	0x1		/* the object file has no undefined
@@ -325,7 +322,6 @@ struct load_command {
 #define LC_BUILD_VERSION 0x32 /* build for platform min OS version */
 #define LC_DYLD_EXPORTS_TRIE (0x33 | LC_REQ_DYLD) /* used with linkedit_data_command, payload is trie */
 #define LC_DYLD_CHAINED_FIXUPS (0x34 | LC_REQ_DYLD) /* used with linkedit_data_command */
-#define LC_FILESET_ENTRY (0x35 | LC_REQ_DYLD) /* used with fileset_entry_command */
 
 /*
  * A variable length string in a load command is represented by an lc_str
@@ -1269,6 +1265,9 @@ struct build_tool_version {
 #define PLATFORM_WATCHOS 4
 #define PLATFORM_BRIDGEOS 5
 #define PLATFORM_MACCATALYST 6
+#if (!defined(PLATFORM_MACCATALYST))
+#define PLATFORM_MACCATALYST 6
+#endif
 #define PLATFORM_IOSSIMULATOR 7
 #define PLATFORM_TVOSSIMULATOR 8
 #define PLATFORM_WATCHOSSIMULATOR 9
@@ -1574,28 +1573,5 @@ struct note_command {
     uint64_t	offset;		/* file offset of this data */
     uint64_t	size;		/* length of data region */
 };
-
-/*
- * LC_FILESET_ENTRY commands describe constituent Mach-O files that are part
- * of a fileset. In one implementation, entries are dylibs with individual
- * mach headers and repositionable text and data segments. Each entry is
- * further described by its own mach header.
- */
-struct fileset_entry_command {
-    uint32_t     cmd;        /* LC_FILESET_ENTRY */
-    uint32_t     cmdsize;    /* includes entry_id string */
-    uint64_t     vmaddr;     /* memory address of the entry */
-    uint64_t     fileoff;    /* file offset of the entry */
-    union lc_str entry_id;   /* contained entry id */
-    uint32_t     reserved;   /* reserved */
-};
-
-/*
- * These deprecated values may still be used within Apple but are mechanically
- * removed from public API. The mechanical process may produce unusual results.
- */
-#if (!defined(PLATFORM_MACCATALYST))
-#define PLATFORM_MACCATALYST PLATFORM_MACCATALYST
-#endif
 
 #endif /* _MACHO_LOADER_H_ */

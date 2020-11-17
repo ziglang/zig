@@ -628,7 +628,7 @@ extern "C" {
 
 static inline SIMD_CFUNC simd_bool simd_any(simd_char2 x) {
 #if defined __SSE2__
-  return (_mm_movemask_epi8((__m128i)simd_make_char16_undef(x)) & 0x3);
+  return (_mm_movemask_epi8(simd_make_char16_undef(x)) & 0x3);
 #elif defined __arm64__
   return simd_any(x.xyxy);
 #else
@@ -638,7 +638,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_char2 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_any(simd_char3 x) {
 #if defined __SSE2__
-  return (_mm_movemask_epi8((__m128i)simd_make_char16_undef(x)) & 0x7);
+  return (_mm_movemask_epi8(simd_make_char16_undef(x)) & 0x7);
 #elif defined __arm64__
   return simd_any(x.xyzz);
 #else
@@ -648,7 +648,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_char3 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_any(simd_char4 x) {
 #if defined __SSE2__
-  return (_mm_movemask_epi8((__m128i)simd_make_char16_undef(x)) & 0xf);
+  return (_mm_movemask_epi8(simd_make_char16_undef(x)) & 0xf);
 #elif defined __arm64__
   return simd_any(x.xyzwxyzw);
 #else
@@ -658,7 +658,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_char4 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_any(simd_char8 x) {
 #if defined __SSE2__
-  return (_mm_movemask_epi8((__m128i)simd_make_char16_undef(x)) & 0xff);
+  return (_mm_movemask_epi8(simd_make_char16_undef(x)) & 0xff);
 #elif defined __arm64__
   return vmaxv_u8(x) & 0x80;
 #else
@@ -668,7 +668,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_char8 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_any(simd_char16 x) {
 #if defined __SSE2__
-  return _mm_movemask_epi8((__m128i)x);
+  return _mm_movemask_epi8(x);
 #elif defined __arm64__
   return vmaxvq_u8(x) & 0x80;
 #else
@@ -708,7 +708,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_uchar64 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_any(simd_short2 x) {
 #if defined __SSE2__
-  return (_mm_movemask_epi8((__m128i)simd_make_short8_undef(x)) & 0xa);
+  return (_mm_movemask_epi8(simd_make_short8_undef(x)) & 0xa);
 #elif defined __arm64__
   return simd_any(x.xyxy);
 #else
@@ -718,7 +718,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_short2 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_any(simd_short3 x) {
 #if defined __SSE2__
-  return (_mm_movemask_epi8((__m128i)simd_make_short8_undef(x)) & 0x2a);
+  return (_mm_movemask_epi8(simd_make_short8_undef(x)) & 0x2a);
 #elif defined __arm64__
   return simd_any(x.xyzz);
 #else
@@ -728,7 +728,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_short3 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_any(simd_short4 x) {
 #if defined __SSE2__
-  return (_mm_movemask_epi8((__m128i)simd_make_short8_undef(x)) & 0xaa);
+  return (_mm_movemask_epi8(simd_make_short8_undef(x)) & 0xaa);
 #elif defined __arm64__
   return vmaxv_u16(x) & 0x8000;
 #else
@@ -738,7 +738,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_short4 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_any(simd_short8 x) {
 #if defined __SSE2__
-  return (_mm_movemask_epi8((__m128i)x) & 0xaaaa);
+  return (_mm_movemask_epi8(x) & 0xaaaa);
 #elif defined __arm64__
   return vmaxvq_u16(x) & 0x8000;
 #else
@@ -775,7 +775,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_ushort32 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_any(simd_int2 x) {
 #if defined __SSE2__
-  return (_mm_movemask_ps((__m128)simd_make_int4_undef(x)) & 0x3);
+  return (_mm_movemask_ps(simd_make_int4_undef(x)) & 0x3);
 #elif defined __arm64__
   return vmaxv_u32(x) & 0x80000000;
 #else
@@ -785,7 +785,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_int2 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_any(simd_int3 x) {
 #if defined __SSE2__
-  return (_mm_movemask_ps((__m128)simd_make_int4_undef(x)) & 0x7);
+  return (_mm_movemask_ps(simd_make_int4_undef(x)) & 0x7);
 #elif defined __arm64__
   return simd_any(x.xyzz);
 #else
@@ -794,7 +794,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_int3 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_any(simd_int4 x) {
 #if defined __SSE2__
-  return _mm_movemask_ps((__m128)x);
+  return _mm_movemask_ps(x);
 #elif defined __arm64__
   return vmaxvq_u32(x) & 0x80000000;
 #else
@@ -828,7 +828,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_uint16 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_any(simd_long2 x) {
 #if defined __SSE2__
-  return _mm_movemask_pd((__m128d)x);
+  return _mm_movemask_pd(x);
 #elif defined __arm64__
   return (x.x | x.y) & 0x8000000000000000U;
 #else
@@ -867,7 +867,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_ulong8 x) {
   
 static inline SIMD_CFUNC simd_bool simd_all(simd_char2 x) {
 #if defined __SSE2__
-  return (_mm_movemask_epi8((__m128i)simd_make_char16_undef(x)) & 0x3) == 0x3;
+  return (_mm_movemask_epi8(simd_make_char16_undef(x)) & 0x3) == 0x3;
 #elif defined __arm64__
   return simd_all(x.xyxy);
 #else
@@ -877,7 +877,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_char2 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_all(simd_char3 x) {
 #if defined __SSE2__
-  return (_mm_movemask_epi8((__m128i)simd_make_char16_undef(x)) & 0x7) == 0x7;
+  return (_mm_movemask_epi8(simd_make_char16_undef(x)) & 0x7) == 0x7;
 #elif defined __arm64__
   return simd_all(x.xyzz);
 #else
@@ -887,7 +887,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_char3 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_all(simd_char4 x) {
 #if defined __SSE2__
-  return (_mm_movemask_epi8((__m128i)simd_make_char16_undef(x)) & 0xf) == 0xf;
+  return (_mm_movemask_epi8(simd_make_char16_undef(x)) & 0xf) == 0xf;
 #elif defined __arm64__
   return simd_all(x.xyzwxyzw);
 #else
@@ -897,7 +897,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_char4 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_all(simd_char8 x) {
 #if defined __SSE2__
-  return (_mm_movemask_epi8((__m128i)simd_make_char16_undef(x)) & 0xff) == 0xff;
+  return (_mm_movemask_epi8(simd_make_char16_undef(x)) & 0xff) == 0xff;
 #elif defined __arm64__
   return vminv_u8(x) & 0x80;
 #else
@@ -907,7 +907,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_char8 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_all(simd_char16 x) {
 #if defined __SSE2__
-  return _mm_movemask_epi8((__m128i)x) == 0xffff;
+  return _mm_movemask_epi8(x) == 0xffff;
 #elif defined __arm64__
   return vminvq_u8(x) & 0x80;
 #else
@@ -947,7 +947,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_uchar64 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_all(simd_short2 x) {
 #if defined __SSE2__
-  return (_mm_movemask_epi8((__m128i)simd_make_short8_undef(x)) & 0xa) == 0xa;
+  return (_mm_movemask_epi8(simd_make_short8_undef(x)) & 0xa) == 0xa;
 #elif defined __arm64__
   return simd_all(x.xyxy);
 #else
@@ -957,7 +957,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_short2 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_all(simd_short3 x) {
 #if defined __SSE2__
-  return (_mm_movemask_epi8((__m128i)simd_make_short8_undef(x)) & 0x2a) == 0x2a;
+  return (_mm_movemask_epi8(simd_make_short8_undef(x)) & 0x2a) == 0x2a;
 #elif defined __arm64__
   return simd_all(x.xyzz);
 #else
@@ -967,7 +967,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_short3 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_all(simd_short4 x) {
 #if defined __SSE2__
-  return (_mm_movemask_epi8((__m128i)simd_make_short8_undef(x)) & 0xaa) == 0xaa;
+  return (_mm_movemask_epi8(simd_make_short8_undef(x)) & 0xaa) == 0xaa;
 #elif defined __arm64__
   return vminv_u16(x) & 0x8000;
 #else
@@ -977,7 +977,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_short4 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_all(simd_short8 x) {
 #if defined __SSE2__
-  return (_mm_movemask_epi8((__m128i)x) & 0xaaaa) == 0xaaaa;
+  return (_mm_movemask_epi8(x) & 0xaaaa) == 0xaaaa;
 #elif defined __arm64__
   return vminvq_u16(x) & 0x8000;
 #else
@@ -1014,7 +1014,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_ushort32 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_all(simd_int2 x) {
 #if defined __SSE2__
-  return (_mm_movemask_ps((__m128)simd_make_int4_undef(x)) & 0x3) == 0x3;
+  return (_mm_movemask_ps(simd_make_int4_undef(x)) & 0x3) == 0x3;
 #elif defined __arm64__
   return vminv_u32(x) & 0x80000000;
 #else
@@ -1024,7 +1024,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_int2 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_all(simd_int3 x) {
 #if defined __SSE2__
-  return (_mm_movemask_ps((__m128)simd_make_int4_undef(x)) & 0x7) == 0x7;
+  return (_mm_movemask_ps(simd_make_int4_undef(x)) & 0x7) == 0x7;
 #elif defined __arm64__
   return simd_all(x.xyzz);
 #else
@@ -1033,7 +1033,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_int3 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_all(simd_int4 x) {
 #if defined __SSE2__
-  return _mm_movemask_ps((__m128)x) == 0xf;
+  return _mm_movemask_ps(x) == 0xf;
 #elif defined __arm64__
   return vminvq_u32(x) & 0x80000000;
 #else
@@ -1067,7 +1067,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_uint16 x) {
 }
 static inline SIMD_CFUNC simd_bool simd_all(simd_long2 x) {
 #if defined __SSE2__
-  return _mm_movemask_pd((__m128d)x) == 0x3;
+  return _mm_movemask_pd(x) == 0x3;
 #elif defined __arm64__
   return (x.x & x.y) & 0x8000000000000000U;
 #else
@@ -1112,7 +1112,7 @@ static inline SIMD_CFUNC simd_float3 simd_select(simd_float3 x, simd_float3 y, s
 }
 static inline SIMD_CFUNC simd_float4 simd_select(simd_float4 x, simd_float4 y, simd_int4 mask) {
 #if defined __SSE4_1__
-  return _mm_blendv_ps(x, y, (__m128)mask);
+  return _mm_blendv_ps(x, y, mask);
 #else
   return simd_bitselect(x, y, mask >> 31);
 #endif
@@ -1129,7 +1129,7 @@ static inline SIMD_CFUNC simd_float16 simd_select(simd_float16 x, simd_float16 y
 }
 static inline SIMD_CFUNC simd_double2 simd_select(simd_double2 x, simd_double2 y, simd_long2 mask) {
 #if defined __SSE4_1__
-  return _mm_blendv_pd(x, y, (__m128d)mask);
+  return _mm_blendv_pd(x, y, mask);
 #else
   return simd_bitselect(x, y, mask >> 63);
 #endif

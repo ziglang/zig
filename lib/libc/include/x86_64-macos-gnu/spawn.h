@@ -135,17 +135,11 @@ __BEGIN_DECLS
 int     posix_spawnattr_getbinpref_np(const posix_spawnattr_t * __restrict,
     size_t, cpu_type_t *__restrict, size_t *__restrict) __API_AVAILABLE(macos(10.5), ios(2.0)) __API_UNAVAILABLE(watchos, tvos);
 
-int     posix_spawnattr_getarchpref_np(const posix_spawnattr_t * __restrict,
-    size_t, cpu_type_t *__restrict, cpu_subtype_t *__restrict, size_t *__restrict) __API_AVAILABLE(macos(11.0), ios(14.0)) __API_UNAVAILABLE(watchos, tvos);
-
 int     posix_spawnattr_setauditsessionport_np(posix_spawnattr_t * __restrict,
     mach_port_t) __API_AVAILABLE(macos(10.6), ios(3.2));
 
 int     posix_spawnattr_setbinpref_np(posix_spawnattr_t * __restrict,
     size_t, cpu_type_t *__restrict, size_t *__restrict) __API_AVAILABLE(macos(10.5), ios(2.0)) __API_UNAVAILABLE(watchos, tvos);
-
-int     posix_spawnattr_setarchpref_np(posix_spawnattr_t * __restrict,
-    size_t, cpu_type_t *__restrict, cpu_subtype_t *__restrict, size_t *__restrict) __API_AVAILABLE(macos(11.0), ios(14.0)) __API_UNAVAILABLE(watchos, tvos);
 
 int     posix_spawnattr_setexceptionports_np(posix_spawnattr_t * __restrict,
     exception_mask_t, mach_port_t,
@@ -155,22 +149,6 @@ int     posix_spawnattr_setspecialport_np(posix_spawnattr_t * __restrict,
     mach_port_t, int) __API_AVAILABLE(macos(10.5), ios(2.0)) __API_UNAVAILABLE(watchos, tvos);
 
 int     posix_spawnattr_setsuidcredport_np(posix_spawnattr_t * __restrict, mach_port_t) __API_UNAVAILABLE(ios, macos);
-
-int     posix_spawnattr_setnosmt_np(const posix_spawnattr_t * __restrict attr) __API_AVAILABLE(macos(11.0));
-
-/*
- * Set CPU Security Mitigation on the spawned process
- * This attribute affects all threads and is inherited on fork and exec
- */
-int     posix_spawnattr_set_csm_np(const posix_spawnattr_t * __restrict attr, uint32_t flags) __API_AVAILABLE(macos(11.0));
-/*
- * flags for CPU Security Mitigation attribute
- * POSIX_SPAWN_NP_CSM_ALL should be used in most cases,
- * the individual flags are provided only for performance evaluation etc
- */
-#define POSIX_SPAWN_NP_CSM_ALL         0x0001
-#define POSIX_SPAWN_NP_CSM_NOSMT       0x0002
-#define POSIX_SPAWN_NP_CSM_TECS        0x0004
 
 int     posix_spawn_file_actions_addinherit_np(posix_spawn_file_actions_t *,
     int) __API_AVAILABLE(macos(10.7), ios(4.3)) __API_UNAVAILABLE(watchos, tvos);

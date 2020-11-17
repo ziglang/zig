@@ -178,7 +178,7 @@ unsigned long long
 	 strtoull(const char *__str, char **__endptr, int __base);
 #endif /* !__DARWIN_NO_LONG_LONG */
 
-#if TARGET_OS_IPHONE
+#if TARGET_OS_EMBEDDED
 #define __swift_unavailable_on(osx_msg, ios_msg) __swift_unavailable(ios_msg)
 #else
 #define __swift_unavailable_on(osx_msg, ios_msg) __swift_unavailable(osx_msg)
@@ -347,9 +347,6 @@ int	 sradixsort(const unsigned char **__base, int __nel, const unsigned char *__
 void	 sranddev(void);
 void	 srandomdev(void);
 void	*reallocf(void *__ptr, size_t __size) __alloc_size(2);
-long long
-	strtonum(const char *__numstr, long long __minval, long long __maxval, const char **__errstrp)
-	__API_AVAILABLE(macos(11.0), ios(14.0), tvos(14.0), watchos(7.0));
 #if !__DARWIN_NO_LONG_LONG
 long long
 	 strtoq(const char *__str, char **__endptr, int __base);

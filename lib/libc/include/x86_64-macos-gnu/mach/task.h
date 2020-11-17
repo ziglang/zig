@@ -279,7 +279,7 @@ __WATCHOS_PROHIBITED
 __TVOS_PROHIBITED
 kern_return_t task_get_exception_ports
 (
-	task_t task,
+	task_inspect_t task,
 	exception_mask_t exception_mask,
 	exception_mask_array_t masks,
 	mach_msg_type_number_t *masksCnt,
@@ -372,7 +372,7 @@ __WATCHOS_PROHIBITED
 __TVOS_PROHIBITED
 kern_return_t task_policy_set
 (
-	task_policy_set_t task,
+	task_t task,
 	task_policy_flavor_t flavor,
 	task_policy_t policy_info,
 	mach_msg_type_number_t policy_infoCnt
@@ -388,7 +388,7 @@ __WATCHOS_PROHIBITED
 __TVOS_PROHIBITED
 kern_return_t task_policy_get
 (
-	task_policy_get_t task,
+	task_t task,
 	task_policy_flavor_t flavor,
 	task_policy_t policy_info,
 	mach_msg_type_number_t *policy_infoCnt,
@@ -487,7 +487,7 @@ __WATCHOS_PROHIBITED
 __TVOS_PROHIBITED
 kern_return_t task_zone_info
 (
-	task_inspect_t target_task,
+	task_t target_task,
 	mach_zone_name_array_t *names,
 	mach_msg_type_number_t *namesCnt,
 	task_zone_info_array_t *info,
@@ -527,7 +527,7 @@ extern
 #endif	/* mig_external */
 kern_return_t task_get_assignment
 (
-	task_inspect_t task,
+	task_t task,
 	processor_set_name_t *assigned_set
 );
 
@@ -559,7 +559,7 @@ __WATCHOS_PROHIBITED
 __TVOS_PROHIBITED
 kern_return_t task_get_state
 (
-	task_read_t task,
+	task_t task,
 	thread_state_flavor_t flavor,
 	thread_state_t old_state,
 	mach_msg_type_number_t *old_stateCnt
@@ -631,7 +631,7 @@ extern
 #endif	/* mig_external */
 kern_return_t task_purgable_info
 (
-	task_inspect_t task,
+	task_t task,
 	task_purgable_info_t *stats
 );
 
@@ -645,7 +645,7 @@ __WATCHOS_PROHIBITED
 __TVOS_PROHIBITED
 kern_return_t task_get_mach_voucher
 (
-	task_read_t task,
+	task_t task,
 	mach_voucher_selector_t which,
 	ipc_voucher_t *voucher
 );
@@ -700,7 +700,7 @@ extern
 kern_return_t task_map_corpse_info
 (
 	task_t task,
-	task_read_t corspe_task,
+	task_t corspe_task,
 	vm_address_t *kcd_addr_begin,
 	uint32_t *kcd_size
 );
@@ -739,7 +739,7 @@ extern
 #endif	/* mig_external */
 kern_return_t task_get_dyld_image_infos
 (
-	task_read_t task,
+	task_inspect_t task,
 	dyld_kernel_image_info_array_t *dyld_images,
 	mach_msg_type_number_t *dyld_imagesCnt
 );
@@ -791,7 +791,7 @@ extern
 kern_return_t task_map_corpse_info_64
 (
 	task_t task,
-	task_read_t corspe_task,
+	task_t corspe_task,
 	mach_vm_address_t *kcd_addr_begin,
 	mach_vm_size_t *kcd_size
 );
@@ -1022,7 +1022,7 @@ __END_DECLS
 		NDR_record_t NDR;
 		thread_state_flavor_t flavor;
 		mach_msg_type_number_t new_stateCnt;
-		natural_t new_state[1296];
+		natural_t new_state[614];
 	} __Request__thread_create_running_t __attribute__((unused));
 #ifdef  __MigPackStructs
 #pragma pack(pop)
@@ -1331,7 +1331,7 @@ __END_DECLS
 		NDR_record_t NDR;
 		thread_state_flavor_t flavor;
 		mach_msg_type_number_t new_stateCnt;
-		natural_t new_state[1296];
+		natural_t new_state[614];
 	} __Request__task_set_state_t __attribute__((unused));
 #ifdef  __MigPackStructs
 #pragma pack(pop)
@@ -2111,7 +2111,7 @@ union __RequestUnion__task_subsystem {
 		NDR_record_t NDR;
 		kern_return_t RetCode;
 		mach_msg_type_number_t old_stateCnt;
-		natural_t old_state[1296];
+		natural_t old_state[614];
 	} __Reply__task_get_state_t __attribute__((unused));
 #ifdef  __MigPackStructs
 #pragma pack(pop)

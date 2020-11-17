@@ -339,9 +339,6 @@ typedef struct mach_port_qos {
 #define MPO_STRICT              0x20    /* Apply strict guarding for port */
 #define MPO_DENAP_RECEIVER      0x40    /* Mark the port as App de-nap receiver */
 #define MPO_IMMOVABLE_RECEIVE   0x80    /* Mark the port as immovable; protected by the guard context */
-#define MPO_FILTER_MSG          0x100   /* Allow message filtering */
-#define MPO_TG_BLOCK_TRACKING   0x200   /* Track blocking relationship for thread group during sync IPC */
-
 /*
  * Structure to define optional attributes for a newly
  * constructed port.
@@ -349,10 +346,7 @@ typedef struct mach_port_qos {
 typedef struct mach_port_options {
 	uint32_t                flags;          /* Flags defining attributes for port */
 	mach_port_limits_t      mpl;            /* Message queue limit for port */
-	union {
-		uint64_t                reserved[2];           /* Reserved */
-		mach_port_name_t        work_interval_port;    /* Work interval port */
-	};
+	uint64_t                reserved[2];    /* Reserved */
 }mach_port_options_t;
 
 typedef mach_port_options_t *mach_port_options_ptr_t;
@@ -373,7 +367,6 @@ enum mach_port_guard_exception_codes {
 	kGUARD_EXC_INCORRECT_GUARD           = 1u << 4,
 	kGUARD_EXC_IMMOVABLE                 = 1u << 5,
 	kGUARD_EXC_STRICT_REPLY              = 1u << 6,
-	kGUARD_EXC_MSG_FILTERED              = 1u << 7,
 	/* start of [optionally] non-fatal guards */
 	kGUARD_EXC_INVALID_RIGHT         = 1u << 8,
 	kGUARD_EXC_INVALID_NAME          = 1u << 9,

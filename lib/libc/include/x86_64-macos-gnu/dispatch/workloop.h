@@ -129,33 +129,6 @@ void
 dispatch_workloop_set_autorelease_frequency(dispatch_workloop_t workloop,
 		dispatch_autorelease_frequency_t frequency);
 
-/*!
-  * @function dispatch_workloop_set_os_workgroup
-  *
-  * @abstract
-  * Associates an os_workgroup_t with the specified dispatch workloop.
-  *
-  * The worker thread will be a member of the specified os_workgroup_t while executing
-  * work items submitted to the workloop.
-  *
-  * @param workloop
-  * The dispatch workloop to modify.
-  *
-  * This workloop must be inactive, passing an activated object is undefined
-  * and will cause the process to be terminated.
-  *
-  * @param workgroup
-  * The workgroup to associate with this workloop.
-  *
-  * The workgroup specified is retained and the previously associated workgroup
-  * (if any) is released.
-  */
-API_AVAILABLE(macos(11.0), ios(14.0), tvos(14.0), watchos(7.0))
-DISPATCH_EXPORT DISPATCH_NONNULL_ALL DISPATCH_NOTHROW
-void
-dispatch_workloop_set_os_workgroup(dispatch_workloop_t workloop,
-		os_workgroup_t workgroup);
-
 __END_DECLS
 
 DISPATCH_ASSUME_NONNULL_END

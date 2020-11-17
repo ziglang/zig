@@ -61,7 +61,7 @@ API_AVAILABLE(macos(10.6), ios(4.0))
 DISPATCH_EXPORT DISPATCH_MALLOC DISPATCH_RETURNS_RETAINED DISPATCH_WARN_RESULT
 DISPATCH_NOTHROW
 dispatch_semaphore_t
-dispatch_semaphore_create(intptr_t value);
+dispatch_semaphore_create(long value);
 
 /*!
  * @function dispatch_semaphore_wait
@@ -85,7 +85,7 @@ dispatch_semaphore_create(intptr_t value);
  */
 API_AVAILABLE(macos(10.6), ios(4.0))
 DISPATCH_EXPORT DISPATCH_NONNULL_ALL DISPATCH_NOTHROW
-intptr_t
+long
 dispatch_semaphore_wait(dispatch_semaphore_t dsema, dispatch_time_t timeout);
 
 /*!
@@ -107,7 +107,7 @@ dispatch_semaphore_wait(dispatch_semaphore_t dsema, dispatch_time_t timeout);
  */
 API_AVAILABLE(macos(10.6), ios(4.0))
 DISPATCH_EXPORT DISPATCH_NONNULL_ALL DISPATCH_NOTHROW
-intptr_t
+long
 dispatch_semaphore_signal(dispatch_semaphore_t dsema);
 
 __END_DECLS

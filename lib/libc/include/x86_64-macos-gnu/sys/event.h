@@ -262,7 +262,7 @@ enum {
 #define NOTE_EXEC               0x20000000      /* process exec'd */
 #define NOTE_REAP               ((unsigned int)eNoteReapDeprecated /* 0x10000000 */ )   /* process reaped */
 #define NOTE_SIGNAL             0x08000000      /* shared with EVFILT_SIGNAL */
-#define NOTE_EXITSTATUS         0x04000000      /* exit status to be returned, valid for child process or when allowed to signal target pid */
+#define NOTE_EXITSTATUS         0x04000000      /* exit status to be returned, valid for child process only */
 #define NOTE_EXIT_DETAIL        0x02000000      /* provide details on reasons for exit */
 
 #define NOTE_PDATAMASK  0x000fffff              /* mask for signal & exit status */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2020 Apple Inc. All rights reserved.
+ * Copyright (c) 2000-2019 Apple Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -66,12 +66,8 @@
 #ifndef _MACH_VM_STATISTICS_H_
 #define _MACH_VM_STATISTICS_H_
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <mach/machine/vm_types.h>
-#include <mach/machine/kern_return.h>
+
 
 /*
  * vm_statistics
@@ -170,8 +166,6 @@ struct vm_statistics64 {
 
 typedef struct vm_statistics64  *vm_statistics64_t;
 typedef struct vm_statistics64  vm_statistics64_data_t;
-
-kern_return_t vm_stats(void *info, unsigned int *count);
 
 /*
  * VM_STATISTICS_TRUNCATE_TO_32_BIT
@@ -358,7 +352,6 @@ enum virtual_memory_guard_exception_codes {
 
 #define VM_MEMORY_MALLOC_NANO 11
 #define VM_MEMORY_MALLOC_MEDIUM 12
-#define VM_MEMORY_MALLOC_PGUARD 13
 
 #define VM_MEMORY_MACH_MSG 20
 #define VM_MEMORY_IOKIT 21
@@ -519,22 +512,6 @@ enum virtual_memory_guard_exception_codes {
 /* memory allocated by CoreMedia for global image registration of frames */
 #define VM_MEMORY_CM_REGWARP 101
 
-/* memory allocated by EmbeddedAcousticRecognition for speech decoder */
-#define VM_MEMORY_EAR_DECODER 102
-
-/* CoreUI cached image data */
-#define VM_MEMORY_COREUI_CACHED_IMAGE_DATA 103
-
-/* Reserve 230-239 for Rosetta */
-#define VM_MEMORY_ROSETTA 230
-#define VM_MEMORY_ROSETTA_THREAD_CONTEXT 231
-#define VM_MEMORY_ROSETTA_INDIRECT_BRANCH_MAP 232
-#define VM_MEMORY_ROSETTA_RETURN_STACK 233
-#define VM_MEMORY_ROSETTA_EXECUTABLE_HEAP 234
-#define VM_MEMORY_ROSETTA_USER_LDT 235
-#define VM_MEMORY_ROSETTA_ARENA 236
-#define VM_MEMORY_ROSETTA_10 239
-
 /* Reserve 240-255 for application */
 #define VM_MEMORY_APPLICATION_SPECIFIC_1 240
 #define VM_MEMORY_APPLICATION_SPECIFIC_16 255
@@ -542,9 +519,5 @@ enum virtual_memory_guard_exception_codes {
 #define VM_MAKE_TAG(tag) ((tag) << 24)
 
 
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif  /* _MACH_VM_STATISTICS_H_ */

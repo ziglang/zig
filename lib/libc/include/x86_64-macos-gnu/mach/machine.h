@@ -118,9 +118,6 @@ typedef integer_t       cpu_threadtype_t;
 #define CPU_TYPE_POWERPC                ((cpu_type_t) 18)
 #define CPU_TYPE_POWERPC64              (CPU_TYPE_POWERPC | CPU_ARCH_ABI64)
 /* skip				((cpu_type_t) 19)	*/
-/* skip				((cpu_type_t) 20 */
-/* skip				((cpu_type_t) 21 */
-/* skip				((cpu_type_t) 22 */
 
 /*
  *	Machine subtypes (these are defined here, instead of in a machine
@@ -133,14 +130,7 @@ typedef integer_t       cpu_threadtype_t;
  */
 #define CPU_SUBTYPE_MASK        0xff000000      /* mask for feature flags */
 #define CPU_SUBTYPE_LIB64       0x80000000      /* 64 bit libraries */
-#define CPU_SUBTYPE_PTRAUTH_ABI 0x80000000      /* pointer authentication with versioned ABI */
 
-/*
- *      When selecting a slice, ANY will pick the slice with the best
- *      grading for the selected cpu_type_t, unlike the "ALL" subtypes,
- *      which are the slices that can run on any hardware for that cpu type.
- */
-#define CPU_SUBTYPE_ANY         ((cpu_subtype_t) -1)
 
 /*
  *	Object files that are hand-crafted to run on any
@@ -375,7 +365,9 @@ typedef integer_t       cpu_threadtype_t;
 #define CPUFAMILY_INTEL_BROADWELL       0x582ed09c
 #define CPUFAMILY_INTEL_SKYLAKE         0x37fc219f
 #define CPUFAMILY_INTEL_KABYLAKE        0x0f817246
+#if !defined(RC_HIDE_XNU_ICELAKE)
 #define CPUFAMILY_INTEL_ICELAKE         0x38435547
+#endif /* not RC_HIDE_XNU_ICELAKE */
 #if !defined(RC_HIDE_XNU_COMETLAKE)
 #define CPUFAMILY_INTEL_COMETLAKE       0x1cf8a03e
 #endif /* not RC_HIDE_XNU_COMETLAKE */
@@ -394,14 +386,6 @@ typedef integer_t       cpu_threadtype_t;
 #define CPUFAMILY_ARM_MONSOON_MISTRAL   0xe81e7ef6
 #define CPUFAMILY_ARM_VORTEX_TEMPEST    0x07d34b9f
 #define CPUFAMILY_ARM_LIGHTNING_THUNDER 0x462504d2
-#define CPUFAMILY_ARM_FIRESTORM_ICESTORM 0x1b588bb3
-
-#define CPUSUBFAMILY_UNKNOWN            0
-#define CPUSUBFAMILY_ARM_HP             1
-#define CPUSUBFAMILY_ARM_HG             2
-#define CPUSUBFAMILY_ARM_M              3
-#define CPUSUBFAMILY_ARM_HS             4
-#define CPUSUBFAMILY_ARM_HC_HD          5
 
 /* The following synonyms are deprecated: */
 #define CPUFAMILY_INTEL_6_23    CPUFAMILY_INTEL_PENRYN

@@ -1766,6 +1766,43 @@ OBJC_EXPORT void objc_setHook_getClass(objc_hook_getClass _Nonnull newValue,
 #endif
 
 /**
+ * Function type for a hook that assists objc_setAssociatedObject().
+ *
+ * @param object The source object for the association.
+ * @param key The key for the association.
+ * @param value The value to associate with the key key for object. Pass nil to clear an existing association.
+ * @param policy The policy for the association. For possible values, see “Associative Object Behaviors.”
+ *
+ * @see objc_setAssociatedObject
+ * @see objc_setHook_setAssociatedObject
+ */
+typedef void (*objc_hook_setAssociatedObject)(id _Nonnull object, const void * _Nonnull key,
+                                              id _Nullable value, objc_AssociationPolicy policy);
+
+/**
+ * Install a hook for objc_setAssociatedObject().
+ *
+ * @param newValue The hook function to install.
+ * @param outOldValue The address of a function pointer variable. On return,
+ *  the old hook function is stored in the variable.
+ *
+ * @note The store to *outOldValue is thread-safe: the variable will be
+ *  updated before objc_setAssociatedObject() calls your new hook to read it,
+ *  even if your new hook is called from another thread before this
+ *  setter completes.
+ * @note Your hook should always call the previous hook.
+ *
+ * @see objc_setAssociatedObject
+ * @see objc_hook_setAssociatedObject
+ */
+#if !(TARGET_OS_OSX && __i386__)
+#define OBJC_SETASSOCIATEDOBJECTHOOK_DEFINED 1
+OBJC_EXPORT void objc_setHook_setAssociatedObject(objc_hook_setAssociatedObject _Nonnull newValue,
+                                       objc_hook_setAssociatedObject _Nullable * _Nonnull outOldValue)
+    OBJC_AVAILABLE(10.15, 13.0, 13.0, 6.0, 4.0);
+#endif
+
+/**
  * Function type for a function that is called when an image is loaded.
  *
  * @param header The newly loaded header.
@@ -1792,39 +1829,7 @@ typedef void (*objc_func_loadImage)(const struct mach_header * _Nonnull header);
 OBJC_EXPORT void objc_addLoadImageFunc(objc_func_loadImage _Nonnull func)
     OBJC_AVAILABLE(10.15, 13.0, 13.0, 6.0, 4.0);
 
-/**
- * Function type for a hook that provides a name for lazily named classes.
- *
- * @param cls The class to generate a name for.
- * @return The name of the class, or NULL if the name isn't known or can't me generated.
- *
- * @see objc_setHook_lazyClassNamer
- */
-typedef const char * _Nullable (*objc_hook_lazyClassNamer)(_Nonnull Class cls);
-
-/**
- * Install a hook to provide a name for lazily-named classes.
- *
- * @param newValue The hook function to install.
- * @param outOldValue The address of a function pointer variable. On return,
- *  the old hook function is stored in the variable.
- *
- * @note The store to *outOldValue is thread-safe: the variable will be
- *  updated before objc_getClass() calls your new hook to read it,
- *  even if your new hook is called from another thread before this
- *  setter completes.
- * @note Your hook must call the previous hook for class names
- *  that you do not recognize.
- */
-#if !(TARGET_OS_OSX && __i386__)
-#define OBJC_SETHOOK_LAZYCLASSNAMER_DEFINED 1
-OBJC_EXPORT
-void objc_setHook_lazyClassNamer(_Nonnull objc_hook_lazyClassNamer newValue,
-                                  _Nonnull objc_hook_lazyClassNamer * _Nonnull oldOutValue)
-    OBJC_AVAILABLE(11.0, 14.0, 14.0, 7.0, 5.0);
-#endif
-
-/**
+/** 
  * Callback from Objective-C to Swift to perform Swift class initialization.
  */
 #if !(TARGET_OS_OSX && __i386__)

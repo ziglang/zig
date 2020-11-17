@@ -174,15 +174,6 @@
 #define __cold
 #endif
 
-/* __exported denotes symbols that should be exported even when symbols
- * are hidden by default.
- * __exported_push/_exported_pop are pragmas used to delimit a range of
- *  symbols that should be exported even when symbols are hidden by default.
- */
-#define __exported                      __attribute__((__visibility__("default")))
-#define __exported_push         _Pragma("GCC visibility push(default)")
-#define __exported_pop          _Pragma("GCC visibility pop")
-
 /* __deprecated causes the compiler to produce a warning when encountering
  * code using the deprecated functionality.
  * __deprecated_msg() does the same, and compilers that support it will print
@@ -211,17 +202,9 @@
 #define __kpi_deprecated(_msg)
 
 /* __unavailable causes the compiler to error out when encountering
- * code using the tagged function
+ * code using the tagged function of variable.
  */
-#if __has_attribute(unavailable)
-#define __unavailable __attribute__((__unavailable__))
-#else
-#define __unavailable
-#endif
-
-#define __kpi_unavailable
-
-#define __kpi_deprecated_arm64_macos_unavailable
+#define __unavailable   __attribute__((__unavailable__))
 
 /* Delete pseudo-keywords wherever they are not available or needed. */
 #ifndef __dead
@@ -488,19 +471,9 @@
 
 /* These settings are particular to each product. */
 /* Platform: MacOSX */
-#if defined(__i386__)
 #define __DARWIN_ONLY_64_BIT_INO_T      0
-#define __DARWIN_ONLY_UNIX_CONFORMANCE  0
+/* #undef __DARWIN_ONLY_UNIX_CONFORMANCE (automatically set for 64-bit) */
 #define __DARWIN_ONLY_VERS_1050         0
-#elif defined(__x86_64__)
-#define __DARWIN_ONLY_64_BIT_INO_T      0
-#define __DARWIN_ONLY_UNIX_CONFORMANCE  1
-#define __DARWIN_ONLY_VERS_1050         0
-#else
-#define __DARWIN_ONLY_64_BIT_INO_T      1
-#define __DARWIN_ONLY_UNIX_CONFORMANCE  1
-#define __DARWIN_ONLY_VERS_1050         1
-#endif
 
 /*
  * The __DARWIN_ALIAS macros are used to do symbol renaming; they allow
@@ -520,6 +493,14 @@
  * pre-10.5, and it is the default compilation environment, revert the
  * compilation environment to pre-__DARWIN_UNIX03.
  */
+#if !defined(__DARWIN_ONLY_UNIX_CONFORMANCE)
+#  if defined(__LP64__)
+#    define __DARWIN_ONLY_UNIX_CONFORMANCE 1
+#  else /* !__LP64__ */
+#    define __DARWIN_ONLY_UNIX_CONFORMANCE 0
+#  endif /* __LP64__ */
+#endif /* !__DARWIN_ONLY_UNIX_CONFORMANCE */
+
 #if !defined(__DARWIN_UNIX03)
 #  if   __DARWIN_ONLY_UNIX_CONFORMANCE
 #    if defined(_NONSTD_SOURCE)
@@ -822,8 +803,6 @@
  */
 #if !defined(__sys_cdefs_arch_unknown__) && defined(__i386__)
 #elif !defined(__sys_cdefs_arch_unknown__) && defined(__x86_64__)
-#elif !defined(__sys_cdefs_arch_unknown__) && defined(__arm__)
-#elif !defined(__sys_cdefs_arch_unknown__) && defined(__arm64__)
 #else
 #error Unsupported architecture
 #endif

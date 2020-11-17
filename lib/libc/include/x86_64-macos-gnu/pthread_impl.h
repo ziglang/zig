@@ -21,24 +21,46 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-#ifndef _SCHED_H_
-#define _SCHED_H_
-
-#include <sys/cdefs.h>
-#include <pthread_impl.h>
-
-__BEGIN_DECLS
+#ifndef _PTHREAD_IMPL_H_
+#define _PTHREAD_IMPL_H_
 /*
- * Scheduling paramters
+ * Internal implementation details
  */
-#ifndef __POSIX_LIB__
-struct sched_param { int sched_priority;  char __opaque[__SCHED_PARAM_SIZE__]; };
+
+/* This whole header file will disappear, so don't depend on it... */
+
+#if __has_feature(assume_nonnull)
+_Pragma("clang assume_nonnull begin")
 #endif
 
-extern int sched_yield(void);
-extern int sched_get_priority_min(int);
-extern int sched_get_priority_max(int);
-__END_DECLS
+#ifndef __POSIX_LIB__
 
-#endif /* _SCHED_H_ */
+/*
+ * [Internal] data structure signatures
+ */
+#define _PTHREAD_MUTEX_SIG_init		0x32AAABA7
 
+#define _PTHREAD_ERRORCHECK_MUTEX_SIG_init      0x32AAABA1
+#define _PTHREAD_RECURSIVE_MUTEX_SIG_init       0x32AAABA2
+#define _PTHREAD_FIRSTFIT_MUTEX_SIG_init       0x32AAABA3
+
+#define _PTHREAD_COND_SIG_init		0x3CB0B1BB
+#define _PTHREAD_ONCE_SIG_init		0x30B1BCBA
+#define _PTHREAD_RWLOCK_SIG_init    0x2DA8B3B4
+
+/*
+ * POSIX scheduling policies
+ */
+#define SCHED_OTHER                1
+#define SCHED_FIFO                 4
+#define SCHED_RR                   2
+
+#define __SCHED_PARAM_SIZE__       4
+
+#endif /* __POSIX_LIB__ */
+
+#if __has_feature(assume_nonnull)
+_Pragma("clang assume_nonnull end")
+#endif
+
+#endif /* _PTHREAD_IMPL_H_ */

@@ -160,7 +160,7 @@ dispatch_group_async_f(dispatch_group_t group,
  */
 API_AVAILABLE(macos(10.6), ios(4.0))
 DISPATCH_EXPORT DISPATCH_NONNULL_ALL DISPATCH_NOTHROW
-intptr_t
+long
 dispatch_group_wait(dispatch_group_t group, dispatch_time_t timeout);
 
 /*!

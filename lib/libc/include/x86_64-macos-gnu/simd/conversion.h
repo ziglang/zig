@@ -559,11 +559,6 @@ static simd_int2  SIMD_CFUNC simd_int_sat(simd_ulong2   __x);
 static simd_int3  SIMD_CFUNC simd_int_sat(simd_ulong3   __x);
 static simd_int4  SIMD_CFUNC simd_int_sat(simd_ulong4   __x);
 static simd_int8  SIMD_CFUNC simd_int_sat(simd_ulong8   __x);
-static simd_int2  SIMD_CFUNC simd_int_rte(simd_float2   __x);
-static simd_int3  SIMD_CFUNC simd_int_rte(simd_float3   __x);
-static simd_int4  SIMD_CFUNC simd_int_rte(simd_float4   __x);
-static simd_int8  SIMD_CFUNC simd_int_rte(simd_float8   __x);
-static simd_int16 SIMD_CFUNC simd_int_rte(simd_float16  __x);
 #define vector_int simd_int
 #define vector_int_sat simd_int_sat
 
@@ -793,10 +788,6 @@ static simd_long2  SIMD_CFUNC simd_long_sat(simd_ulong2   __x);
 static simd_long3  SIMD_CFUNC simd_long_sat(simd_ulong3   __x);
 static simd_long4  SIMD_CFUNC simd_long_sat(simd_ulong4   __x);
 static simd_long8  SIMD_CFUNC simd_long_sat(simd_ulong8   __x);
-static simd_long2  SIMD_CFUNC simd_long_rte(simd_double2  __x);
-static simd_long3  SIMD_CFUNC simd_long_rte(simd_double3  __x);
-static simd_long4  SIMD_CFUNC simd_long_rte(simd_double4  __x);
-static simd_long8  SIMD_CFUNC simd_long_rte(simd_double8  __x);
 #define vector_long simd_long
 #define vector_long_sat simd_long_sat
 
@@ -1120,7 +1111,6 @@ static simd_char2  SIMD_CFUNC simd_char_sat(simd_ulong2   __x) { return simd_cha
 static simd_char3  SIMD_CFUNC simd_char_sat(simd_ulong3   __x) { return simd_char(simd_min(__x,0x7f)); }
 static simd_char4  SIMD_CFUNC simd_char_sat(simd_ulong4   __x) { return simd_char(simd_min(__x,0x7f)); }
 static simd_char8  SIMD_CFUNC simd_char_sat(simd_ulong8   __x) { return simd_char(simd_min(__x,0x7f)); }
-    
 
 static simd_uchar2  SIMD_CFUNC simd_uchar(simd_char2    __x) { return (simd_uchar2)__x; }
 static simd_uchar3  SIMD_CFUNC simd_uchar(simd_char3    __x) { return (simd_uchar3)__x; }
@@ -1225,7 +1215,6 @@ static simd_uchar2  SIMD_CFUNC simd_uchar_sat(simd_ulong2   __x) { return simd_u
 static simd_uchar3  SIMD_CFUNC simd_uchar_sat(simd_ulong3   __x) { return simd_uchar(simd_min(__x,0xff)); }
 static simd_uchar4  SIMD_CFUNC simd_uchar_sat(simd_ulong4   __x) { return simd_uchar(simd_min(__x,0xff)); }
 static simd_uchar8  SIMD_CFUNC simd_uchar_sat(simd_ulong8   __x) { return simd_uchar(simd_min(__x,0xff)); }
-    
 
 static simd_short2  SIMD_CFUNC simd_short(simd_char2    __x) { return __builtin_convertvector(__x, simd_short2); }
 static simd_short3  SIMD_CFUNC simd_short(simd_char3    __x) { return __builtin_convertvector(__x, simd_short3); }
@@ -1330,7 +1319,6 @@ static simd_short2  SIMD_CFUNC simd_short_sat(simd_ulong2   __x) { return simd_s
 static simd_short3  SIMD_CFUNC simd_short_sat(simd_ulong3   __x) { return simd_short(simd_min(__x,0x7fff)); }
 static simd_short4  SIMD_CFUNC simd_short_sat(simd_ulong4   __x) { return simd_short(simd_min(__x,0x7fff)); }
 static simd_short8  SIMD_CFUNC simd_short_sat(simd_ulong8   __x) { return simd_short(simd_min(__x,0x7fff)); }
-    
 
 static simd_ushort2  SIMD_CFUNC simd_ushort(simd_char2    __x) { return simd_ushort(simd_short(__x)); }
 static simd_ushort3  SIMD_CFUNC simd_ushort(simd_char3    __x) { return simd_ushort(simd_short(__x)); }
@@ -1435,7 +1423,6 @@ static simd_ushort2  SIMD_CFUNC simd_ushort_sat(simd_ulong2   __x) { return simd
 static simd_ushort3  SIMD_CFUNC simd_ushort_sat(simd_ulong3   __x) { return simd_ushort(simd_min(__x, 0xffff)); }
 static simd_ushort4  SIMD_CFUNC simd_ushort_sat(simd_ulong4   __x) { return simd_ushort(simd_min(__x, 0xffff)); }
 static simd_ushort8  SIMD_CFUNC simd_ushort_sat(simd_ulong8   __x) { return simd_ushort(simd_min(__x, 0xffff)); }
-    
 
 static simd_int2  SIMD_CFUNC simd_int(simd_char2    __x) { return __builtin_convertvector(__x, simd_int2); }
 static simd_int3  SIMD_CFUNC simd_int(simd_char3    __x) { return __builtin_convertvector(__x, simd_int3); }
@@ -1532,46 +1519,6 @@ static simd_int2  SIMD_CFUNC simd_int_sat(simd_ulong2   __x) { return simd_int(s
 static simd_int3  SIMD_CFUNC simd_int_sat(simd_ulong3   __x) { return simd_int(simd_min(__x,0x7fffffff)); }
 static simd_int4  SIMD_CFUNC simd_int_sat(simd_ulong4   __x) { return simd_int(simd_min(__x,0x7fffffff)); }
 static simd_int8  SIMD_CFUNC simd_int_sat(simd_ulong8   __x) { return simd_int(simd_min(__x,0x7fffffff)); }
-    
-static simd_int2  SIMD_CFUNC simd_int_rte(simd_float2   __x) {
-#if defined __arm64__
-  return vcvtn_s32_f32(__x);
-#else
-  return simd_make_int2(simd_int_rte(simd_make_float4_undef(__x)));
-#endif
-}
-
-static simd_int3  SIMD_CFUNC simd_int_rte(simd_float3   __x) {
-  return simd_make_int3(simd_int_rte(simd_make_float4_undef(__x)));
-}
-
-static simd_int4  SIMD_CFUNC simd_int_rte(simd_float4   __x) {
-#if defined __SSE2__
-  return _mm_cvtps_epi32(__x);
-#elif defined __arm64__
-  return vcvtnq_s32_f32(__x);
-#else
-  simd_float4 magic = __tg_copysign(0x1.0p23, __x);
-  simd_int4 x_is_small = __tg_fabs(__x) < 0x1.0p23;
-  return __builtin_convertvector(simd_bitselect(__x, (__x + magic) - magic, x_is_small & 0x7fffffff), simd_int4);
-#endif
-}
-
-static simd_int8  SIMD_CFUNC simd_int_rte(simd_float8   __x) {
-#if defined __AVX__
-  return _mm256_cvtps_epi32(__x);
-#else
-  return simd_make_int8(simd_int_rte(__x.lo), simd_int_rte(__x.hi));
-#endif
-}
-
-static simd_int16 SIMD_CFUNC simd_int_rte(simd_float16  __x) {
-#if defined __AVX512F__
-  return _mm512_cvt_roundps_epi32(__x, _MM_FROUND_RINT);
-#else
-  return simd_make_int16(simd_int_rte(__x.lo), simd_int_rte(__x.hi));
-#endif
-}
 
 static simd_uint2  SIMD_CFUNC simd_uint(simd_char2    __x) { return simd_uint(simd_int(__x)); }
 static simd_uint3  SIMD_CFUNC simd_uint(simd_char3    __x) { return simd_uint(simd_int(__x)); }
@@ -1668,7 +1615,6 @@ static simd_uint2  SIMD_CFUNC simd_uint_sat(simd_ulong2   __x) { return simd_uin
 static simd_uint3  SIMD_CFUNC simd_uint_sat(simd_ulong3   __x) { return simd_uint(simd_clamp(__x,0,0xffffffff)); }
 static simd_uint4  SIMD_CFUNC simd_uint_sat(simd_ulong4   __x) { return simd_uint(simd_clamp(__x,0,0xffffffff)); }
 static simd_uint8  SIMD_CFUNC simd_uint_sat(simd_ulong8   __x) { return simd_uint(simd_clamp(__x,0,0xffffffff)); }
-    
 
 static simd_float2  SIMD_CFUNC simd_float(simd_char2    __x) { return (simd_float2)(simd_int(__x) + 0x4b400000) - 0x1.8p23f; }
 static simd_float3  SIMD_CFUNC simd_float(simd_char3    __x) { return (simd_float3)(simd_int(__x) + 0x4b400000) - 0x1.8p23f; }
@@ -1717,7 +1663,6 @@ static simd_float2  SIMD_CFUNC simd_float(simd_double2  __x) { return __builtin_
 static simd_float3  SIMD_CFUNC simd_float(simd_double3  __x) { return __builtin_convertvector(__x,simd_float3); }
 static simd_float4  SIMD_CFUNC simd_float(simd_double4  __x) { return __builtin_convertvector(__x,simd_float4); }
 static simd_float8  SIMD_CFUNC simd_float(simd_double8  __x) { return __builtin_convertvector(__x,simd_float8); }
-    
 
 static simd_long2  SIMD_CFUNC simd_long(simd_char2    __x) { return __builtin_convertvector(__x,simd_long2); }
 static simd_long3  SIMD_CFUNC simd_long(simd_char3    __x) { return __builtin_convertvector(__x,simd_long3); }
@@ -1800,39 +1745,6 @@ static simd_long2  SIMD_CFUNC simd_long_sat(simd_ulong2   __x) { return simd_lon
 static simd_long3  SIMD_CFUNC simd_long_sat(simd_ulong3   __x) { return simd_long(simd_min(__x,0x7fffffffffffffff)); }
 static simd_long4  SIMD_CFUNC simd_long_sat(simd_ulong4   __x) { return simd_long(simd_min(__x,0x7fffffffffffffff)); }
 static simd_long8  SIMD_CFUNC simd_long_sat(simd_ulong8   __x) { return simd_long(simd_min(__x,0x7fffffffffffffff)); }
-    
-static simd_long2  SIMD_CFUNC simd_long_rte(simd_double2  __x) {
-#if defined __AVX512F__
-  return _mm_cvtpd_epi64(__x);
-#elif defined __arm64__
-  return vcvtnq_s64_f64(__x);
-#else
-  simd_double2 magic = __tg_copysign(0x1.0p52, __x);
-  simd_long2 x_is_small = __tg_fabs(__x) < 0x1.0p52;
-  return __builtin_convertvector(simd_bitselect(__x, (__x + magic) - magic, x_is_small & 0x7fffffffffffffff), simd_long2);
-#endif
-}
-
-static simd_long3  SIMD_CFUNC simd_long_rte(simd_double3  __x) {
-  return simd_make_long3(simd_long_rte(simd_make_double4_undef(__x)));
-}
-
-static simd_long4  SIMD_CFUNC simd_long_rte(simd_double4  __x) {
-#if defined __AVX512F__
-  return _mm256_cvtpd_epi64(__x);
-#else
-  return simd_make_long4(simd_long_rte(__x.lo), simd_long_rte(__x.hi));
-#endif
-}
-
-static simd_long8  SIMD_CFUNC simd_long_rte(simd_double8  __x) {
-#if defined __AVX512F__
-  return _mm512_cvt_roundpd_epi64(__x, _MM_FROUND_RINT);
-#else
-  return simd_make_long8(simd_long_rte(__x.lo), simd_long_rte(__x.hi));
-#endif
-}
-
 
 static simd_ulong2  SIMD_CFUNC simd_ulong(simd_char2    __x) { return simd_ulong(simd_long(__x)); }
 static simd_ulong3  SIMD_CFUNC simd_ulong(simd_char3    __x) { return simd_ulong(simd_long(__x)); }
@@ -1915,7 +1827,6 @@ static simd_ulong2  SIMD_CFUNC simd_ulong_sat(simd_ulong2   __x) { return __x; }
 static simd_ulong3  SIMD_CFUNC simd_ulong_sat(simd_ulong3   __x) { return __x; }
 static simd_ulong4  SIMD_CFUNC simd_ulong_sat(simd_ulong4   __x) { return __x; }
 static simd_ulong8  SIMD_CFUNC simd_ulong_sat(simd_ulong8   __x) { return __x; }
-    
 
 static simd_double2  SIMD_CFUNC simd_double(simd_char2    __x) { return simd_double(simd_int(__x)); }
 static simd_double3  SIMD_CFUNC simd_double(simd_char3    __x) { return simd_double(simd_int(__x)); }
@@ -1957,11 +1868,9 @@ static simd_double2  SIMD_CFUNC simd_double(simd_double2  __x) { return __builti
 static simd_double3  SIMD_CFUNC simd_double(simd_double3  __x) { return __builtin_convertvector(__x, simd_double3); }
 static simd_double4  SIMD_CFUNC simd_double(simd_double4  __x) { return __builtin_convertvector(__x, simd_double4); }
 static simd_double8  SIMD_CFUNC simd_double(simd_double8  __x) { return __builtin_convertvector(__x, simd_double8); }
-    
 
 #ifdef __cplusplus
 }
 #endif
 #endif // SIMD_COMPILER_HAS_REQUIRED_FEATURES
 #endif // __SIMD_CONVERSION_HEADER__
-

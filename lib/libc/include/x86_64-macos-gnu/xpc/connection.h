@@ -542,11 +542,10 @@ xpc_connection_send_message_with_reply(xpc_connection_t connection,
  * You are responsible for releasing the returned object.
  *
  * @discussion
- * This API supports priority inversion avoidance, and should be used instead of
- * combining xpc_connection_send_message_with_reply() with a semaphore.
- *
- * Invoking this API from a queue that is a part of the target queue hierarchy
- * results in deadlocks under certain conditions.
+ * This API is primarily for transitional purposes. Its implementation is
+ * conceptually equivalent to calling xpc_connection_send_message_with_reply()
+ * and then immediately blocking the calling thread on a semaphore and
+ * signaling the semaphore from the reply block.
  *
  * Be judicious about your use of this API. It can block indefinitely, so if you
  * are using it to implement an API that can be called from the main thread, you

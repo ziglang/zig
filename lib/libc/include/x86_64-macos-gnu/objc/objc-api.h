@@ -96,12 +96,6 @@
 #   define NS_ENFORCE_NSOBJECT_DESIGNATED_INITIALIZER 1
 #endif
 
-/* The arm64 ABI requires proper casting to ensure arguments are passed
- *  * correctly.  */
-#if defined(__arm64__) && !__swift__
-#   undef OBJC_OLD_DISPATCH_PROTOTYPES
-#   define OBJC_OLD_DISPATCH_PROTOTYPES 0
-#endif
 
 /* OBJC_OLD_DISPATCH_PROTOTYPES == 0 enforces the rule that the dispatch 
  * functions must be cast to an appropriate function pointer type. */

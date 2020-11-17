@@ -38,10 +38,7 @@
 #include <sys/appleapiopts.h>
 #include <sys/cdefs.h>
 #include <mach/boolean.h>
-#include <machine/types.h>      /* u_int8_t, etc. */
 #include <sys/_types.h>         /* __offsetof() */
-#include <sys/_types/_uid_t.h>  /* uid_t */
-#include <sys/_types/_gid_t.h>     /* gid_t */
 #include <sys/syslimits.h>      /* NGROUPS_MAX */
 
 #ifdef __APPLE_API_EVOLVING

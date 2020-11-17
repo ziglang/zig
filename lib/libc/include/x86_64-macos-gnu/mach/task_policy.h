@@ -110,7 +110,8 @@ typedef integer_t       *task_policy_t;
 #define TASK_BASE_LATENCY_QOS_POLICY    10
 #define TASK_BASE_THROUGHPUT_QOS_POLICY 11
 
-typedef enum task_role {
+
+enum task_role {
 	TASK_RENICED                    = -1,
 	TASK_UNSPECIFIED                = 0,
 	TASK_FOREGROUND_APPLICATION     = 1,
@@ -121,7 +122,9 @@ typedef enum task_role {
 	TASK_NONUI_APPLICATION          = 6,
 	TASK_DEFAULT_APPLICATION        = 7,
 	TASK_DARWINBG_APPLICATION       = 8,
-} task_role_t;
+};
+
+typedef integer_t       task_role_t;
 
 struct task_category_policy {
 	task_role_t             role;

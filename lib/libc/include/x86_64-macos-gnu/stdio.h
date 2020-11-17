@@ -217,7 +217,7 @@ __END_DECLS
 /* Additional functionality provided by:
  * POSIX.2-1992 C Language Binding Option
  */
-#if TARGET_OS_IPHONE
+#if TARGET_OS_EMBEDDED
 #define __swift_unavailable_on(osx_msg, ios_msg) __swift_unavailable(ios_msg)
 #else
 #define __swift_unavailable_on(osx_msg, ios_msg) __swift_unavailable(osx_msg)
