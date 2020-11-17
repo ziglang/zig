@@ -49,7 +49,7 @@ pub const Type = extern union {
             .f128,
             => return .Float,
 
-            .c_void => return .Opaque,
+            .c_void, .@"opaque" => return .Opaque,
             .bool => return .Bool,
             .void => return .Void,
             .type => return .Type,
@@ -449,6 +449,7 @@ pub const Type = extern union {
             .@"enum" => return self,
             .@"struct" => return self,
             .@"union" => return self,
+            .@"opaque" => return self,
         }
     }
 
@@ -680,10 +681,11 @@ pub const Type = extern union {
                     const payload = @fieldParentPtr(Payload.ErrorSetSingle, "base", ty.ptr_otherwise);
                     return out_stream.print("error{{{}}}", .{payload.name});
                 },
-                // TODO improve
+                // TODO use declaration name
                 .@"enum" => return out_stream.writeAll("enum {}"),
                 .@"struct" => return out_stream.writeAll("struct {}"),
                 .@"union" => return out_stream.writeAll("union {}"),
+                .@"opaque" => return out_stream.writeAll("opaque {}"),
             }
             unreachable;
         }
@@ -809,6 +811,7 @@ pub const Type = extern union {
             .@"undefined",
             .enum_literal,
             .empty_struct,
+            .@"opaque",
             => false,
         };
     }
@@ -937,6 +940,7 @@ pub const Type = extern union {
             .@"undefined",
             .enum_literal,
             .empty_struct,
+            .@"opaque",
             => unreachable,
         };
     }
@@ -960,6 +964,7 @@ pub const Type = extern union {
             .enum_literal => unreachable,
             .single_const_pointer_to_comptime_int => unreachable,
             .empty_struct => unreachable,
+            .@"opaque" => unreachable,
 
             .u8,
             .i8,
@@ -1143,6 +1148,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => false,
 
             .single_const_pointer,
@@ -1221,6 +1227,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => false,
 
             .const_slice,
@@ -1296,6 +1303,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => false,
 
             .single_const_pointer,
@@ -1380,6 +1388,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => false,
 
             .pointer => {
@@ -1459,6 +1468,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => false,
 
             .pointer => {
@@ -1580,6 +1590,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => unreachable,
 
             .array => self.cast(Payload.Array).?.elem_type,
@@ -1711,6 +1722,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => unreachable,
 
             .array => self.cast(Payload.Array).?.len,
@@ -1780,6 +1792,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => unreachable,
 
             .single_const_pointer,
@@ -1866,6 +1879,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => false,
 
             .int_signed,
@@ -1944,6 +1958,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => false,
 
             .int_unsigned,
@@ -2012,6 +2027,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => unreachable,
 
             .int_unsigned => .{ .signed = false, .bits = self.cast(Payload.IntUnsigned).?.bits },
@@ -2098,6 +2114,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => false,
 
             .usize,
@@ -2213,6 +2230,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => unreachable,
         };
     }
@@ -2294,6 +2312,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => unreachable,
         }
     }
@@ -2374,6 +2393,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => unreachable,
         }
     }
@@ -2454,6 +2474,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => unreachable,
         };
     }
@@ -2531,6 +2552,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => unreachable,
         };
     }
@@ -2608,6 +2630,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => unreachable,
         };
     }
@@ -2685,6 +2708,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => false,
         };
     }
@@ -2742,6 +2766,7 @@ pub const Type = extern union {
             .error_union,
             .error_set,
             .error_set_single,
+            .@"opaque",
             => return null,
 
             .@"enum" => @panic("TODO onePossibleValue enum"),
@@ -2860,6 +2885,7 @@ pub const Type = extern union {
             .@"enum",
             .@"struct",
             .@"union",
+            .@"opaque",
             => return false,
 
             .c_const_pointer,
@@ -2951,6 +2977,7 @@ pub const Type = extern union {
             .@"enum" => &self.cast(Type.Payload.Enum).?.scope,
             .@"struct" => &self.cast(Type.Payload.Struct).?.scope,
             .@"union" => &self.cast(Type.Payload.Union).?.scope,
+            .@"opaque" => &self.cast(Type.Payload.Union).?.scope,
         };
     }
 
@@ -3105,6 +3132,7 @@ pub const Type = extern union {
         @"enum",
         @"struct",
         @"union",
+        @"opaque",
 
         pub const last_no_payload_tag = Tag.const_slice_u8;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -3219,6 +3247,12 @@ pub const Type = extern union {
             base: Payload = .{ .tag = .empty_struct },
 
             scope: *Module.Scope.Container,
+        };
+
+        pub const Opaque = struct {
+            base: Payload = .{ .tag = .@"opaque" },
+
+            scope: Module.Scope.Container,
         };
 
         pub const Enum = @import("type/Enum.zig");

@@ -1515,7 +1515,6 @@ pub fn analyzeContainer(self: *Module, container_scope: *Scope.Container) !void 
     // an incremental update. This code handles both cases.
     const tree = try self.getAstTree(container_scope);
     const decls = tree.root_node.decls();
-    // const decls = container_scope.root_node.decls();
 
     try self.comp.work_queue.ensureUnusedCapacity(decls.len);
     try container_scope.decls.ensureCapacity(self.gpa, decls.len);
@@ -2302,6 +2301,7 @@ pub fn createContainerDecl(
 }
 
 fn getAnonTypeName(self: *Module, scope: *Scope, base_token: std.zig.ast.TokenIndex) ![]u8 {
+    // TODO add namespaces, generic function signatrues
     const tree = scope.tree();
     const base_name = switch (tree.token_ids[base_token]) {
         .Keyword_struct => "struct",

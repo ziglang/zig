@@ -913,7 +913,19 @@ fn containerDecl(mod: *Module, scope: *Scope, rl: ResultLoc, node: *ast.Node.Con
             };
             break :blk Type.initPayload(&union_type.base);
         },
-        .Keyword_opaque => return mod.fail(scope, src, "TODO opaque containers", .{}),
+        .Keyword_opaque => blk: {
+            if (fields.items.len > 0) {
+                return mod.fail(scope, fields.items[0].src, "opaque types cannot have fields", .{});
+            }
+            const opaque_type = try arena.create(Type.Payload.Opaque);
+            opaque_type.* = .{
+                .scope = .{
+                    .file_scope = scope.getFileScope(),
+                    .ty = Type.initPayload(&opaque_type.base),
+                },
+            };
+            break :blk Type.initPayload(&opaque_type.base);
+        },
         else => unreachable,
     };
     const type_payload = try arena.create(Value.Payload.Ty);
