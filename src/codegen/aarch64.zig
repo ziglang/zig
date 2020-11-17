@@ -203,6 +203,13 @@ pub const Instruction = union(enum) {
         opc: u2,
         sf: u1,
     },
+    PCRelativeAddress: packed struct {
+        rd: u5,
+        immhi: u19,
+        fixed: u5 = 0b10000,
+        immlo: u2,
+        op: u1,
+    },
     LoadStoreRegister: packed struct {
         rt: u5,
         rn: u5,
@@ -245,6 +252,7 @@ pub const Instruction = union(enum) {
     pub fn toU32(self: Instruction) u32 {
         return switch (self) {
             .MoveWideImmediate => |v| @bitCast(u32, v),
+            .PCRelativeAddress => |v| @bitCast(u32, v),
             .LoadStoreRegister => |v| @bitCast(u32, v),
             .LoadLiteral => |v| @bitCast(u32, v),
             .ExceptionGeneration => |v| @bitCast(u32, v),
@@ -408,6 +416,18 @@ pub const Instruction = union(enum) {
         }
     }
 
+    fn pcRelativeAddress(rd: Register, imm21: i21, op: u1) Instruction {
+        const imm21_u = @bitCast(u21, imm21);
+        return Instruction{
+            .PCRelativeAddress = .{
+                .rd = rd.id(),
+                .immlo = @truncate(u2, imm21_u),
+                .immhi = @truncate(u19, imm21_u >> 2),
+                .op = op,
+            },
+        };
+    }
+
     fn loadStoreRegister(rt: Register, rn: Register, offset: Offset, load: bool) Instruction {
         const off = offset.toU12();
         const op1: u2 = blk: {
@@ -534,6 +554,16 @@ pub const Instruction = union(enum) {
 
     pub fn movk(rd: Register, imm16: u16, shift: u6) Instruction {
         return moveWideImmediate(0b11, rd, imm16, shift);
+    }
+
+    // PC relative address
+
+    pub fn adr(rd: Register, imm21: i21) Instruction {
+        return pcRelativeAddress(rd, imm21, 0b0);
+    }
+
+    pub fn adrp(rd: Register, imm21: i21) Instruction {
+        return pcRelativeAddress(rd, imm21, 0b1);
     }
 
     // Load or store register
@@ -689,6 +719,22 @@ test "serialize instructions" {
         .{ // str x2, [x1], (x3)
             .inst = Instruction.str(.x2, .x1, .{ .offset = Instruction.Offset.reg(.x3) }),
             .expected = 0b11_111_0_00_00_1_00011_011_0_10_00001_00010,
+        },
+        .{ // adr x2, #0x8
+            .inst = Instruction.adr(.x2, 0x8),
+            .expected = 0b0_00_10000_0000000000000000010_00010,
+        },
+        .{ // adr x2, -#0x8
+            .inst = Instruction.adr(.x2, -0x8),
+            .expected = 0b0_00_10000_1111111111111111110_00010,
+        },
+        .{ // adrp x2, #0x8
+            .inst = Instruction.adrp(.x2, 0x8),
+            .expected = 0b1_00_10000_0000000000000000010_00010,
+        },
+        .{ // adrp x2, -#0x8
+            .inst = Instruction.adrp(.x2, -0x8),
+            .expected = 0b1_00_10000_1111111111111111110_00010,
         },
     };
 
