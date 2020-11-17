@@ -135,7 +135,7 @@ pub const Murmur2_64 = struct {
         return @call(.{ .modifier = .always_inline }, Self.hashUint32WithSeed, .{ v, default_seed });
     }
 
-    pub fn hashUint32WithSeed(v: u32, seed: u32) u64 {
+    pub fn hashUint32WithSeed(v: u32, seed: u64) u64 {
         const m: u64 = 0xc6a4a7935bd1e995;
         const len: u64 = 4;
         var h1: u64 = seed ^ (len *% m);
@@ -152,7 +152,7 @@ pub const Murmur2_64 = struct {
         return @call(.{ .modifier = .always_inline }, Self.hashUint64WithSeed, .{ v, default_seed });
     }
 
-    pub fn hashUint64WithSeed(v: u64, seed: u32) u64 {
+    pub fn hashUint64WithSeed(v: u64, seed: u64) u64 {
         const m: u64 = 0xc6a4a7935bd1e995;
         const len: u64 = 8;
         var h1: u64 = seed ^ (len *% m);
