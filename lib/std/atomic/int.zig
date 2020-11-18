@@ -4,7 +4,9 @@
 // The MIT license requires this copyright notice to be included in all copies
 // and substantial portions of the software.
 
-const builtin = @import("std").builtin;
+const std = @import("std");
+const builtin = std.builtin;
+const testing = std.testing;
 
 /// Thread-safe, lock-free integer
 pub fn Int(comptime T: type) type {
@@ -60,4 +62,16 @@ pub fn Int(comptime T: type) type {
             return self.rmw(.Add, op, .SeqCst);
         }
     };
+}
+
+test "std.atomic.Int" {
+    var a = Int(u8).init(0);
+    testing.expectEqual(@as(u8, 0), a.incr());
+    testing.expectEqual(@as(u8, 1), a.load(.SeqCst));
+    a.store(42, .SeqCst);
+    testing.expectEqual(@as(u8, 42), a.decr());
+    testing.expectEqual(@as(u8, 41), a.xchg(100));
+    testing.expectEqual(@as(u8, 100), a.fetchAdd(5));
+    testing.expectEqual(@as(u8, 105), a.get());
+    a.set(200);
 }
