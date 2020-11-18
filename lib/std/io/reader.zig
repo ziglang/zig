@@ -62,7 +62,7 @@ pub fn Reader(
             var start_index: usize = original_len;
             while (true) {
                 array_list.expandToCapacity();
-                const dest_slice = array_list.span()[start_index..];
+                const dest_slice = array_list.items[start_index..];
                 const bytes_read = try self.readAll(dest_slice);
                 start_index += bytes_read;
 

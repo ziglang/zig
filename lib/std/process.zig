@@ -519,8 +519,8 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![][:0]u8 {
         try slice_list.append(arg.len);
     }
 
-    const contents_slice = contents.span();
-    const slice_sizes = slice_list.span();
+    const contents_slice = contents.items;
+    const slice_sizes = slice_list.items;
     const contents_size_bytes = try math.add(usize, contents_slice.len, slice_sizes.len);
     const slice_list_bytes = try math.mul(usize, @sizeOf([]u8), slice_sizes.len);
     const total_bytes = try math.add(usize, slice_list_bytes, contents_size_bytes);

@@ -2138,7 +2138,7 @@ pub const Walker = struct {
         while (true) {
             if (self.stack.items.len == 0) return null;
             // `top` becomes invalid after appending to `self.stack`.
-            const top = &self.stack.span()[self.stack.items.len - 1];
+            const top = &self.stack.items[self.stack.items.len - 1];
             const dirname_len = top.dirname_len;
             if (try top.dir_it.next()) |base| {
                 self.name_buffer.shrink(dirname_len);
@@ -2159,8 +2159,8 @@ pub const Walker = struct {
                 }
                 return Entry{
                     .dir = top.dir_it.dir,
-                    .basename = self.name_buffer.span()[dirname_len + 1 ..],
-                    .path = self.name_buffer.span(),
+                    .basename = self.name_buffer.items[dirname_len + 1 ..],
+                    .path = self.name_buffer.items,
                     .kind = base.kind,
                 };
             } else {

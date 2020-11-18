@@ -654,7 +654,7 @@ const MsfStream = struct {
         while (true) {
             const byte = try self.reader().readByte();
             if (byte == 0) {
-                return list.span();
+                return list.items;
             }
             try list.append(byte);
         }

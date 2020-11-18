@@ -6564,7 +6564,7 @@ fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!*ast.Nod
 
 fn tokenSlice(c: *Context, token: ast.TokenIndex) []u8 {
     const tok = c.token_locs.items[token];
-    const slice = c.source_buffer.span()[tok.start..tok.end];
+    const slice = c.source_buffer.items[tok.start..tok.end];
     return if (mem.startsWith(u8, slice, "@\""))
         slice[2 .. slice.len - 1]
     else

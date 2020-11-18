@@ -64,7 +64,7 @@ pub const WriteFileStep = struct {
         // new random bytes when WriteFileStep implementation is modified
         // in a non-backwards-compatible way.
         hash.update("eagVR1dYXoE7ARDP");
-        for (self.files.span()) |file| {
+        for (self.files.items) |file| {
             hash.update(file.basename);
             hash.update(file.bytes);
             hash.update("|");
@@ -85,7 +85,7 @@ pub const WriteFileStep = struct {
         };
         var dir = try fs.cwd().openDir(self.output_dir, .{});
         defer dir.close();
-        for (self.files.span()) |file| {
+        for (self.files.items) |file| {
             dir.writeFile(file.basename, file.bytes) catch |err| {
                 warn("unable to write {} into {}: {}\n", .{
                     file.basename,

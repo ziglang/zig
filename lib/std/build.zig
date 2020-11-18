@@ -386,7 +386,7 @@ pub const Builder = struct {
             }
         }
 
-        for (wanted_steps.span()) |s| {
+        for (wanted_steps.items) |s| {
             try self.makeOneStep(s);
         }
     }
@@ -403,7 +403,7 @@ pub const Builder = struct {
         const uninstall_tls = @fieldParentPtr(TopLevelStep, "step", uninstall_step);
         const self = @fieldParentPtr(Builder, "uninstall_tls", uninstall_tls);
 
-        for (self.installed_files.span()) |installed_file| {
+        for (self.installed_files.items) |installed_file| {
             const full_path = self.getInstallPath(installed_file.dir, installed_file.path);
             if (self.verbose) {
                 warn("rm {}\n", .{full_path});
@@ -421,7 +421,7 @@ pub const Builder = struct {
         }
         s.loop_flag = true;
 
-        for (s.dependencies.span()) |dep| {
+        for (s.dependencies.items) |dep| {
             self.makeOneStep(dep) catch |err| {
                 if (err == error.DependencyLoopDetected) {
                     warn("  {}\n", .{s.name});
@@ -436,7 +436,7 @@ pub const Builder = struct {
     }
 
     fn getTopLevelStepByName(self: *Builder, name: []const u8) !*Step {
-        for (self.top_level_steps.span()) |top_level_step| {
+        for (self.top_level_steps.items) |top_level_step| {
             if (mem.eql(u8, top_level_step.step.name, name)) {
                 return &top_level_step.step;
             }
@@ -550,7 +550,7 @@ pub const Builder = struct {
                 .Scalar => |s| {
                     return self.allocator.dupe([]const u8, &[_][]const u8{s}) catch unreachable;
                 },
-                .List => |lst| return lst.span(),
+                .List => |lst| return lst.items,
             },
         }
     }
@@ -951,7 +951,7 @@ pub const Builder = struct {
     pub fn findProgram(self: *Builder, names: []const []const u8, paths: []const []const u8) ![]const u8 {
         // TODO report error for ambiguous situations
         const exe_extension = @as(CrossTarget, .{}).exeFileExt();
-        for (self.search_prefixes.span()) |search_prefix| {
+        for (self.search_prefixes.items) |search_prefix| {
             for (names) |name| {
                 if (fs.path.isAbsolute(name)) {
                     return name;
@@ -1096,7 +1096,7 @@ pub const Builder = struct {
                 .desc = tok_it.rest(),
             });
         }
-        return list.span();
+        return list.items;
     }
 
     fn getPkgConfigList(self: *Builder) ![]const PkgConfigPkg {
@@ -1504,7 +1504,7 @@ pub const LibExeObjStep = struct {
         if (isLibCLibrary(name)) {
             return self.is_linking_libc;
         }
-        for (self.link_objects.span()) |link_object| {
+        for (self.link_objects.items) |link_object| {
             switch (link_object) {
                 LinkObject.SystemLib => |n| if (mem.eql(u8, n, name)) return true,
                 else => continue,
@@ -1903,7 +1903,7 @@ pub const LibExeObjStep = struct {
         self.include_dirs.append(IncludeDir{ .OtherStep = other }) catch unreachable;
 
         // Inherit dependency on system libraries
-        for (other.link_objects.span()) |link_object| {
+        for (other.link_objects.items) |link_object| {
             switch (link_object) {
                 .SystemLib => |name| self.linkSystemLibrary(name),
                 else => continue,
@@ -1965,7 +1965,7 @@ pub const LibExeObjStep = struct {
         if (self.root_src) |root_src| try zig_args.append(root_src.getPath(builder));
 
         var prev_has_extra_flags = false;
-        for (self.link_objects.span()) |link_object| {
+        for (self.link_objects.items) |link_object| {
             switch (link_object) {
                 .StaticPath => |static_path| {
                     try zig_args.append(builder.pathFromRoot(static_path));
@@ -2035,7 +2035,7 @@ pub const LibExeObjStep = struct {
                 &[_][]const u8{ builder.cache_root, builder.fmt("{}_build_options.zig", .{self.name}) },
             );
             const path_from_root = builder.pathFromRoot(build_options_file);
-            try fs.cwd().writeFile(path_from_root, self.build_options_contents.span());
+            try fs.cwd().writeFile(path_from_root, self.build_options_contents.items);
             try zig_args.append("--pkg-begin");
             try zig_args.append("build_options");
             try zig_args.append(path_from_root);
@@ -2233,11 +2233,11 @@ pub const LibExeObjStep = struct {
             },
         }
 
-        for (self.packages.span()) |pkg| {
+        for (self.packages.items) |pkg| {
             try self.makePackageCmd(pkg, &zig_args);
         }
 
-        for (self.include_dirs.span()) |include_dir| {
+        for (self.include_dirs.items) |include_dir| {
             switch (include_dir) {
                 .RawPath => |include_path| {
                     try zig_args.append("-I");
@@ -2255,18 +2255,18 @@ pub const LibExeObjStep = struct {
             }
         }
 
-        for (self.lib_paths.span()) |lib_path| {
+        for (self.lib_paths.items) |lib_path| {
             try zig_args.append("-L");
             try zig_args.append(lib_path);
         }
 
-        for (self.c_macros.span()) |c_macro| {
+        for (self.c_macros.items) |c_macro| {
             try zig_args.append("-D");
             try zig_args.append(c_macro);
         }
 
         if (self.target.isDarwin()) {
-            for (self.framework_dirs.span()) |dir| {
+            for (self.framework_dirs.items) |dir| {
                 try zig_args.append("-F");
                 try zig_args.append(dir);
             }
@@ -2322,11 +2322,11 @@ pub const LibExeObjStep = struct {
         }
 
         if (self.kind == Kind.Test) {
-            try builder.spawnChild(zig_args.span());
+            try builder.spawnChild(zig_args.items);
         } else {
             try zig_args.append("--enable-cache");
 
-            const output_dir_nl = try builder.execFromStep(zig_args.span(), &self.step);
+            const output_dir_nl = try builder.execFromStep(zig_args.items, &self.step);
             const build_output_dir = mem.trimRight(u8, output_dir_nl, "\r\n");
 
             if (self.output_dir) |output_dir| {

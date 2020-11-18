@@ -79,7 +79,7 @@ const BinaryElfOutput = struct {
                 newSegment.binaryOffset = 0;
                 newSegment.firstSection = null;
 
-                for (self.sections.span()) |section| {
+                for (self.sections.items) |section| {
                     if (sectionWithinSegment(section, phdr)) {
                         if (section.segment) |sectionSegment| {
                             if (sectionSegment.elfOffset > newSegment.elfOffset) {
@@ -99,7 +99,7 @@ const BinaryElfOutput = struct {
             }
         }
 
-        sort.sort(*BinaryElfSegment, self.segments.span(), {}, segmentSortCompare);
+        sort.sort(*BinaryElfSegment, self.segments.items, {}, segmentSortCompare);
 
         if (self.segments.items.len > 0) {
             const firstSegment = self.segments.items[0];
@@ -112,19 +112,19 @@ const BinaryElfOutput = struct {
 
                 const basePhysicalAddress = firstSegment.physicalAddress;
 
-                for (self.segments.span()) |segment| {
+                for (self.segments.items) |segment| {
                     segment.binaryOffset = segment.physicalAddress - basePhysicalAddress;
                 }
             }
         }
 
-        for (self.sections.span()) |section| {
+        for (self.sections.items) |section| {
             if (section.segment) |segment| {
                 section.binaryOffset = segment.binaryOffset + (section.elfOffset - segment.elfOffset);
             }
         }
 
-        sort.sort(*BinaryElfSection, self.sections.span(), {}, sectionSortCompare);
+        sort.sort(*BinaryElfSection, self.sections.items, {}, sectionSortCompare);
 
         return self;
     }
@@ -172,7 +172,7 @@ fn emitRaw(allocator: *Allocator, elf_path: []const u8, raw_path: []const u8) !v
     var binary_elf_output = try BinaryElfOutput.parse(allocator, elf_file);
     defer binary_elf_output.deinit();
 
-    for (binary_elf_output.sections.span()) |section| {
+    for (binary_elf_output.sections.items) |section| {
         try writeBinaryElfSection(elf_file, out_file, section);
     }
 }
