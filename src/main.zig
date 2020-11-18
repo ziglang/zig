@@ -46,6 +46,7 @@ const usage =
     \\  c++              Use Zig as a drop-in C++ compiler
     \\  env              Print lib path, std path, cache directory, and version
     \\  fmt              Reformat Zig source into canonical form
+    \\  help             Print this help and exit
     \\  init-exe         Initialize a `zig build` application in the cwd
     \\  init-lib         Initialize a `zig build` library in the cwd
     \\  libc             Display native libc paths file or validate one
@@ -195,7 +196,7 @@ pub fn mainArgs(gpa: *Allocator, arena: *Allocator, args: []const []const u8) !v
         try @import("print_env.zig").cmdEnv(arena, cmd_args, io.getStdOut().outStream());
     } else if (mem.eql(u8, cmd, "zen")) {
         try io.getStdOut().writeAll(info_zen);
-    } else if (mem.eql(u8, cmd, "help")) {
+    } else if (mem.eql(u8, cmd, "help") or mem.eql(u8, cmd, "-h") or mem.eql(u8, cmd, "--help")) {
         try io.getStdOut().writeAll(usage);
     } else {
         std.log.info("{}", .{usage});

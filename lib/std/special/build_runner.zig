@@ -69,7 +69,7 @@ pub fn main() !void {
         } else if (mem.startsWith(u8, arg, "-")) {
             if (mem.eql(u8, arg, "--verbose")) {
                 builder.verbose = true;
-            } else if (mem.eql(u8, arg, "--help")) {
+            } else if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                 return usage(builder, false, stdout_stream);
             } else if (mem.eql(u8, arg, "--prefix")) {
                 builder.install_prefix = nextArg(args, &arg_idx) orelse {
@@ -176,7 +176,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
     try out_stream.writeAll(
         \\
         \\General Options:
-        \\  --help                      Print this help and exit
+        \\  -h, --help                  Print this help and exit
         \\  --verbose                   Print commands before executing them
         \\  --prefix [path]             Override default install prefix
         \\  --search-prefix [path]      Add a path to look for binaries, libraries, headers
