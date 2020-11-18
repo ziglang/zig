@@ -8,7 +8,7 @@ const builtin = @import("std").builtin;
 
 /// Thread-safe, lock-free integer
 pub fn Int(comptime T: type) type {
-    return struct {
+    return extern struct {
         unprotected_value: T,
 
         pub const Self = @This();
