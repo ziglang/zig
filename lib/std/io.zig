@@ -141,6 +141,9 @@ pub const COutStream = CWriter;
 /// Deprecated: use `cWriter`
 pub const cOutStream = cWriter;
 
+pub const EarlyEOFReader = @import("io/early_eof_reader.zig").EarlyEOFReader;
+pub const earlyEOFReader = @import("io/early_eof_reader.zig").earlyEOFReader;
+
 pub const CountingWriter = @import("io/counting_writer.zig").CountingWriter;
 pub const countingWriter = @import("io/counting_writer.zig").countingWriter;
 /// Deprecated: use `CountingWriter`
