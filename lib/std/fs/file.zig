@@ -724,14 +724,12 @@ pub const File = struct {
 
         try in_file.reader().skipBytes(args.in_offset, .{ .buf_size = 4096 });
 
-        var buffer: [4096]u8 = undefined;
-        const in_len = args.in_len orelse math.maxInt(u64);
-        var index: usize = 0;
-        while (index < in_len) {
-            const ask = math.min(buffer.len, in_len - index);
-            const amt = try in_file.read(buffer[0..ask]);
-            if (amt == 0) break;
-            index += try self.write(buffer[0..amt]);
+        var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
+        if (args.in_len) |len| {
+            var stream = std.io.earlyEOFReader(in_file.reader(), len);
+            try fifo.pump(stream.reader(), self.writer());
+        } else {
+            try fifo.pump(in_file.reader(), self.writer());
         }
 
         try self.writevAll(trailers);
