@@ -2312,11 +2312,7 @@ pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
         var utf16_dir_path: [windows.PATH_MAX_WIDE]u16 = undefined;
         const len = try std.unicode.utf8ToUtf16Le(utf16_dir_path[0..], dir_path);
         if (len > utf16_dir_path.len) return error.NameTooLong;
-        
-        windows.SetCurrentDirectory(utf16_dir_path[0..len]) catch |err| switch (err) {
-            error.NoDevice => return error.FileSystem,
-            else => |e| return e,
-        };
+        return chdirW(utf16_dir_path[0..len]);
     } else {
         const dir_path_c = try toPosixPath(dir_path);
         return chdirZ(&dir_path_c);
@@ -2328,7 +2324,10 @@ pub const chdirC = @compileError("deprecated: renamed to chdirZ");
 /// Same as `chdir` except the parameter is null-terminated.
 pub fn chdirZ(dir_path: [*:0]const u8) ChangeCurDirError!void {
     if (builtin.os.tag == .windows) {
-        return chdir(mem.spanZ(dir_path));
+        var utf16_dir_path: [windows.PATH_MAX_WIDE]u16 = undefined;
+        const len = try std.unicode.utf8ToUtf16Le(utf16_dir_path[0..], dir_path);
+        if (len > utf16_dir_path.len) return error.NameTooLong;
+        return chdirW(utf16_dir_path[0..len]);
     }
     switch (errno(system.chdir(dir_path))) {
         0 => return,
@@ -2342,6 +2341,14 @@ pub fn chdirZ(dir_path: [*:0]const u8) ChangeCurDirError!void {
         ENOTDIR => return error.NotDir,
         else => |err| return unexpectedErrno(err),
     }
+}
+
+/// Windows-only. Same as `chdir` except the paramter is WTF16 encoded.
+pub fn chdirW(dir_path: []const u16) ChangeCurDirError!void {
+    windows.SetCurrentDirectory(dir_path) catch |err| switch (err) {
+        error.NoDevice => return error.FileSystem,
+        else => |e| return e,
+    };
 }
 
 pub const FchdirError = error{

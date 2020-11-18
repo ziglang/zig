@@ -25,6 +25,30 @@ const tmpDir = std.testing.tmpDir;
 const Dir = std.fs.Dir;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
+test "chdir smoke test" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    // Get current working directory path
+    var old_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const old_cwd = try os.getcwd(old_cwd_buf[0..]);
+
+    {
+        // Firstly, changing to itself should have no effect
+        try os.chdir(old_cwd);
+        var new_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        const new_cwd = try os.getcwd(new_cwd_buf[0..]);
+        expect(mem.eql(u8, old_cwd, new_cwd));
+    }
+    {
+        // Next, change current working directory to one level above
+        const parent = fs.path.dirname(old_cwd) orelse unreachable; // old_cwd should be absolute
+        try os.chdir(parent);
+        var new_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        const new_cwd = try os.getcwd(new_cwd_buf[0..]);
+        expect(mem.eql(u8, parent, new_cwd));
+    }
+}
+
 test "open smoke test" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
