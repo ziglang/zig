@@ -690,7 +690,7 @@ pub const File = struct {
         header_count: usize = 0,
     };
 
-    pub const WriteFileError = ReadError || WriteError;
+    pub const WriteFileError = ReadError || error{EndOfStream} || WriteError;
 
     pub fn writeFileAll(self: File, in_file: File, args: WriteFileOptions) WriteFileError!void {
         return self.writeFileAllSendfile(in_file, args) catch |err| switch (err) {
@@ -712,16 +712,9 @@ pub const File = struct {
 
         try self.writevAll(headers);
 
+        try in_file.reader().skipBytes(args.in_offset, .{ .buf_size = 4096 });
+
         var buffer: [4096]u8 = undefined;
-        {
-            var index: usize = 0;
-            // Skip in_offset bytes.
-            while (index < args.in_offset) {
-                const ask = math.min(buffer.len, args.in_offset - index);
-                const amt = try in_file.read(buffer[0..ask]);
-                index += amt;
-            }
-        }
         const in_len = args.in_len orelse math.maxInt(u64);
         var index: usize = 0;
         while (index < in_len) {
