@@ -363,7 +363,8 @@ const AtomicEvent = struct {
 };
 
 test "ResetEvent" {
-    if (std.Target.current.os.tag == .macos or std.Target.current.os.tag == .windows) {
+    if (false) {
+        // I have now observed this fail on macOS, Windows, and Linux.
         // https://github.com/ziglang/zig/issues/7009
         return error.SkipZigTest;
     }
