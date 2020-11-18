@@ -417,6 +417,7 @@ pub const Instruction = union(enum) {
     }
 
     fn pcRelativeAddress(rd: Register, imm21: i21, op: u1) Instruction {
+        assert(rd.size() == 64);
         const imm21_u = @bitCast(u21, imm21);
         return Instruction{
             .PCRelativeAddress = .{
