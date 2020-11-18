@@ -125,6 +125,9 @@ pub const fixedBufferStream = @import("io/fixed_buffer_stream.zig").fixedBufferS
 pub const CWriter = @import("io/c_writer.zig").CWriter;
 pub const cWriter = @import("io/c_writer.zig").cWriter;
 
+pub const EarlyEOFReader = @import("io/early_eof_reader.zig").EarlyEOFReader;
+pub const earlyEOFReader = @import("io/early_eof_reader.zig").earlyEOFReader;
+
 pub const CountingWriter = @import("io/counting_writer.zig").CountingWriter;
 pub const countingWriter = @import("io/counting_writer.zig").countingWriter;
 pub const CountingReader = @import("io/counting_reader.zig").CountingReader;
