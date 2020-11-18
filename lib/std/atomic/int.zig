@@ -30,11 +30,13 @@ pub fn Int(comptime T: type) type {
             @atomicStore(T, &self.unprotected_value, value, ordering);
         }
 
+        /// Twos complement wraparound increment
         /// Returns previous value
         pub fn incr(self: *Self) T {
             return self.rmw(.Add, 1, .SeqCst);
         }
 
+        /// Twos complement wraparound decrement
         /// Returns previous value
         pub fn decr(self: *Self) T {
             return self.rmw(.Sub, 1, .SeqCst);
@@ -52,6 +54,8 @@ pub fn Int(comptime T: type) type {
             return self.rmw(.Xchg, new_value, .SeqCst);
         }
 
+        /// Twos complement wraparound add
+        /// Returns previous value
         pub fn fetchAdd(self: *Self, op: T) T {
             return self.rmw(.Add, op, .SeqCst);
         }
