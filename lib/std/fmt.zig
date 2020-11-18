@@ -1949,3 +1949,8 @@ test "null" {
     const inst = null;
     try testFmt("null", "{}", .{inst});
 }
+
+pub const scan = @import("fmt/scan.zig").scan;
+test "scan" {
+    _ = @import("fmt/scan.zig");
+}
