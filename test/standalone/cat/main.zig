@@ -3,12 +3,17 @@ const io = std.io;
 const process = std.process;
 const fs = std.fs;
 const mem = std.mem;
-const warn = std.debug.warn;
-const allocator = std.testing.allocator;
+const warn = std.log.warn;
+
+var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+const allocator = &general_purpose_allocator.allocator;
 
 pub fn main() !void {
+    defer _ = general_purpose_allocator.deinit();
+
     var args_it = process.args();
     const exe = try unwrapArg(args_it.next(allocator).?);
+    defer allocator.free(exe);
     var catted_anything = false;
     const stdout_file = io.getStdOut();
 
@@ -16,6 +21,7 @@ pub fn main() !void {
 
     while (args_it.next(allocator)) |arg_or_err| {
         const arg = try unwrapArg(arg_or_err);
+        defer allocator.free(arg);
         if (mem.eql(u8, arg, "-")) {
             catted_anything = true;
             try cat_file(stdout_file, io.getStdIn());
@@ -44,23 +50,12 @@ fn usage(exe: []const u8) !void {
 
 // TODO use copy_file_range
 fn cat_file(stdout: fs.File, file: fs.File) !void {
-    var buf: [1024 * 4]u8 = undefined;
+    var fifo = std.fifo.LinearFifo(u8, .{ .Static = 1024 * 4 }).init();
 
-    while (true) {
-        const bytes_read = file.read(buf[0..]) catch |err| {
-            warn("Unable to read from stream: {}\n", .{@errorName(err)});
-            return err;
-        };
-
-        if (bytes_read == 0) {
-            break;
-        }
-
-        stdout.writeAll(buf[0..bytes_read]) catch |err| {
-            warn("Unable to write to stdout: {}\n", .{@errorName(err)});
-            return err;
-        };
-    }
+    fifo.pump(file.reader(), stdout.writer()) catch |err| {
+        warn("Unable to read from stream or write to stdout: {}\n", .{@errorName(err)});
+        return err;
+    };
 }
 
 fn unwrapArg(arg: anyerror![]u8) ![]u8 {

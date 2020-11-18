@@ -375,6 +375,25 @@ pub fn LinearFifo(
             }
             return self.buf[index];
         }
+
+        /// Pump data from a reader into a writer
+        /// stops when reader returns 0 bytes (EOF)
+        /// Buffer size must be set before calling; a buffer length of 0 is invalid.
+        pub fn pump(self: *Self, src_reader: anytype, dest_writer: anytype) !void {
+            assert(self.buf.len > 0);
+            while (true) {
+                if (self.writableLength() > 0) {
+                    const n = try src_reader.read(self.writableSlice(0));
+                    if (n == 0) break; // EOF
+                    self.update(n);
+                }
+                self.discard(try dest_writer.write(self.readableSlice(0)));
+            }
+            // flush remaining data
+            while (self.readableLength() > 0) {
+                self.discard(try dest_writer.write(self.readableSlice(0)));
+            }
+        }
     };
 }
 
@@ -460,6 +479,15 @@ test "LinearFifo(u8, .Dynamic)" {
         testing.expectEqualSlices(u8, "is", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);
         testing.expectEqualSlices(u8, "a", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);
         testing.expectEqualSlices(u8, "test", (try fifo.reader().readUntilDelimiterOrEof(&result, ' ')).?);
+    }
+
+    {
+        try fifo.ensureCapacity(1);
+        var in_fbs = std.io.fixedBufferStream("pump test");
+        var out_buf: [50]u8 = undefined;
+        var out_fbs = std.io.fixedBufferStream(&out_buf);
+        try fifo.pump(in_fbs.reader(), out_fbs.writer());
+        testing.expectEqualSlices(u8, in_fbs.buffer, out_fbs.getWritten());
     }
 }
 
