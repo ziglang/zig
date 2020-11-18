@@ -19,7 +19,7 @@ pub fn Int(comptime T: type) type {
 
         /// Read, Modify, Write
         pub fn rmw(self: *Self, comptime op: builtin.AtomicRmwOp, operand: T, comptime ordering: builtin.AtomicOrder) T {
-            return @atomicRmw(T, &self.unprotected_value, operand, ordering);
+            return @atomicRmw(T, &self.unprotected_value, op, operand, ordering);
         }
 
         pub fn load(self: *Self, comptime ordering: builtin.AtomicOrder) T {
