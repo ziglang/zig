@@ -518,7 +518,7 @@ pub fn formatType(
                     return formatType(mem.span(value), fmt, options, writer, max_depth);
                 }
                 if (ptr_info.child == u8) {
-                    if (fmt.len > 0 and comptime mem.indexOfScalar(u8, "sxXzZ", fmt[0]) != null) {
+                    if (fmt.len > 0 and comptime mem.indexOfScalar(u8, "sxXeEzZ", fmt[0]) != null) {
                         return formatText(mem.span(value), fmt, options, writer);
                     }
                 }
@@ -526,21 +526,21 @@ pub fn formatType(
             },
             .Slice => {
                 if (max_depth == 0) {
-                    return writer.writeAll("[ ... ]");
+                    return writer.writeAll("{ ... }");
                 }
                 if (ptr_info.child == u8) {
-                    if (fmt.len == 0 or comptime mem.indexOfScalar(u8, "sxXzZ", fmt[0]) != null) {
+                    if (fmt.len == 0 or comptime mem.indexOfScalar(u8, "sxXeEzZ", fmt[0]) != null) {
                         return formatText(value, fmt, options, writer);
                     }
                 }
-                try writer.writeAll("[");
+                try writer.writeAll("{ ");
                 for (value) |elem, i| {
                     try formatType(elem, fmt, options, writer, max_depth);
                     if (i != value.len - 1) {
                         try writer.writeAll(", ");
                     }
                 }
-                try writer.writeAll("]");
+                try writer.writeAll(" }");
             },
         },
         .Array => |info| {
@@ -1593,10 +1593,10 @@ test "slice" {
     {
         var int_slice = [_]u32{ 1, 4096, 391891, 1111111111 };
         var runtime_zero: usize = 0;
-        try testFmt("int: [1, 4096, 391891, 1111111111]", "int: {}", .{int_slice[runtime_zero..]});
-        try testFmt("int: [1, 4096, 391891, 1111111111]", "int: {d}", .{int_slice[runtime_zero..]});
-        try testFmt("int: [1, 1000, 5fad3, 423a35c7]", "int: {x}", .{int_slice[runtime_zero..]});
-        try testFmt("int: [00001, 01000, 5fad3, 423a35c7]", "int: {x:0>5}", .{int_slice[runtime_zero..]});
+        try testFmt("int: { 1, 4096, 391891, 1111111111 }", "int: {}", .{int_slice[runtime_zero..]});
+        try testFmt("int: { 1, 4096, 391891, 1111111111 }", "int: {d}", .{int_slice[runtime_zero..]});
+        try testFmt("int: { 1, 1000, 5fad3, 423a35c7 }", "int: {x}", .{int_slice[runtime_zero..]});
+        try testFmt("int: { 00001, 01000, 5fad3, 423a35c7 }", "int: {x:0>5}", .{int_slice[runtime_zero..]});
     }
 }
 
