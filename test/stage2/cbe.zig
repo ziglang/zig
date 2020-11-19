@@ -19,6 +19,12 @@ pub fn addCases(ctx: *TestContext) !void {
         \\}
         \\
     );
+    ctx.h("Simple header", linux_x64,
+        \\export fn start() void{}
+    ,
+        \\void start(void);
+        \\
+    );
     ctx.c("less empty start function", linux_x64,
         \\fn main() noreturn {
         \\    unreachable;
