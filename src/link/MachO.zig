@@ -1754,6 +1754,57 @@ fn writeAllUndefSymbols(self: *MachO) !void {
 fn codeSign(self: *MachO) !void {
     const code_sig_cmd = &self.load_commands.items[self.code_signature_cmd_index.?].LinkeditData;
     // TODO add actual code signing mechanism
+    var buffer: std.ArrayListUnmanaged(u8) = .{};
+    defer buffer.deinit(self.base.allocator);
+    // var super_blob = macho.SuperBlob{
+    //     .magic = macho.CSMAGIC_EMBEDDED_SIGNATURE,
+    //     .length = 0,
+    //     .count = 2,
+    // };
+    const length: u32 = @sizeOf(u32) * 12;
+    try buffer.ensureCapacity(self.base.allocator, length);
+    var buf: [@sizeOf(u32)]u8 = undefined;
+    mem.writeIntBig(u32, &buf, macho.CSMAGIC_EMBEDDED_SIGNATURE);
+    buffer.appendSliceAssumeCapacity(buf[0..]);
+    mem.writeIntBig(u32, &buf, length);
+    buffer.appendSliceAssumeCapacity(buf[0..]);
+    mem.writeIntBig(u32, &buf, 2);
+    buffer.appendSliceAssumeCapacity(buf[0..]);
+    // macho.BlobIndex{
+    //     .type = macho.CSSLOT_REQUIREMENTS,
+    //     .offset = offset,
+    // };
+    mem.writeIntBig(u32, &buf, macho.CSSLOT_REQUIREMENTS);
+    buffer.appendSliceAssumeCapacity(buf[0..]);
+    mem.writeIntBig(u32, &buf, 28);
+    buffer.appendSliceAssumeCapacity(buf[0..]);
+    // macho.BlobIndex{
+    //     .type = macho.CSSLOT_SIGNATURESLOT,
+    //     .offset = offset,
+    // };
+    mem.writeIntBig(u32, &buf, macho.CSSLOT_SIGNATURESLOT);
+    buffer.appendSliceAssumeCapacity(buf[0..]);
+    mem.writeIntBig(u32, &buf, 40);
+    buffer.appendSliceAssumeCapacity(buf[0..]);
+    // const requirements_blob = macho.GenericBlob{
+    //     .magic = macho.CSMAGIC_REQUIREMENTS,
+    //     .length = 0,
+    // };
+    mem.writeIntBig(u32, &buf, macho.CSMAGIC_REQUIREMENTS);
+    buffer.appendSliceAssumeCapacity(buf[0..]);
+    mem.writeIntBig(u32, &buf, @sizeOf(u32) * 3);
+    buffer.appendSliceAssumeCapacity(buf[0..]);
+    mem.writeIntBig(u32, &buf, 0);
+    buffer.appendSliceAssumeCapacity(buf[0..]);
+    // const signature_blob = macho.GenericBlob{
+    //     .magic = macho.CSSLOT_SIGNATURESLOT,
+    //     .length = 0,
+    // };
+    mem.writeIntBig(u32, &buf, macho.CSMAGIC_BLOBWRAPPER);
+    buffer.appendSliceAssumeCapacity(buf[0..]);
+    mem.writeIntBig(u32, &buf, @sizeOf(u32) * 2);
+    buffer.appendSliceAssumeCapacity(buf[0..]);
+    try self.base.file.?.pwriteAll(buffer.items[0..], code_sig_cmd.dataoff);
     try self.base.file.?.pwriteAll(&[_]u8{ 0 }, code_sig_cmd.dataoff + code_sig_cmd.datasize - 1);
 }
 
