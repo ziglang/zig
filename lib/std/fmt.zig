@@ -654,17 +654,14 @@ pub fn formatUnicodeCodepoint(
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    if (unicode.utf8ValidCodepoint(c)) {
-        var buf: [4]u8 = undefined;
-        // The codepoint is surely valid, hence the use of unreachable
-        const len = std.unicode.utf8Encode(c, &buf) catch |err| switch (err) {
-            error.Utf8CannotEncodeSurrogateHalf, error.CodepointTooLarge => unreachable,
-        };
-        return formatBuf(buf[0..len], options, writer);
-    }
-
-    // In case of error output the replacement char U+FFFD
-    return formatBuf(&[_]u8{ 0xef, 0xbf, 0xbd }, options, writer);
+    var buf: [4]u8 = undefined;
+    const len = std.unicode.utf8Encode(c, &buf) catch |err| switch (err) {
+        error.Utf8CannotEncodeSurrogateHalf, error.CodepointTooLarge => {
+            // In case of error output the replacement char U+FFFD
+            return formatBuf(&[_]u8{ 0xef, 0xbf, 0xbd }, options, writer);
+        },
+    };
+    return formatBuf(buf[0..len], options, writer);
 }
 
 pub fn formatBuf(
