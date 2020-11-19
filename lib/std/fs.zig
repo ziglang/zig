@@ -399,7 +399,14 @@ pub const Dir = struct {
 
                     const name = @ptrCast([*]u8, &bsd_entry.d_name)[0..bsd_entry.d_namlen];
 
-                    if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
+                    const skip_zero_fileno = switch (builtin.os.tag) {
+                        // d_fileno=0 is used to mark invalid entries or deleted files.
+                        .openbsd, .netbsd => true,
+                        else => false,
+                    };
+                    if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or
+                            (skip_zero_fileno and bsd_entry.d_fileno == 0))
+                    {
                         continue :start_over;
                     }
 
