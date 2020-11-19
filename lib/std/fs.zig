@@ -393,17 +393,17 @@ pub const Dir = struct {
                         self.index = 0;
                         self.end_index = @intCast(usize, rc);
                     }
-                    const freebsd_entry = @ptrCast(*align(1) os.dirent, &self.buf[self.index]);
-                    const next_index = self.index + freebsd_entry.reclen();
+                    const bsd_entry = @ptrCast(*align(1) os.dirent, &self.buf[self.index]);
+                    const next_index = self.index + bsd_entry.reclen();
                     self.index = next_index;
 
-                    const name = @ptrCast([*]u8, &freebsd_entry.d_name)[0..freebsd_entry.d_namlen];
+                    const name = @ptrCast([*]u8, &bsd_entry.d_name)[0..bsd_entry.d_namlen];
 
                     if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
                         continue :start_over;
                     }
 
-                    const entry_kind = switch (freebsd_entry.d_type) {
+                    const entry_kind = switch (bsd_entry.d_type) {
                         os.DT_BLK => Entry.Kind.BlockDevice,
                         os.DT_CHR => Entry.Kind.CharacterDevice,
                         os.DT_DIR => Entry.Kind.Directory,
