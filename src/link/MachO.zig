@@ -110,6 +110,8 @@ main_cmd_index: ?u16 = null,
 version_min_cmd_index: ?u16 = null,
 /// Source version
 source_version_cmd_index: ?u16 = null,
+/// Code signature
+code_signature_cmd_index: ?u16 = null,
 
 /// Table of all sections
 sections: std.ArrayListUnmanaged(macho.section_64) = .{},
@@ -401,6 +403,15 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
 
     // TODO remove when we add our own codesigning mechanism
     try self.writeStringTable();
+    try self.codeSign();
+
+    {
+        // TODO rework how we preallocate space for the entire __LINKEDIT segment instead of
+        // doing dynamic updates like this.
+        const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+        const code_sig = &self.load_commands.items[self.code_signature_cmd_index.?].LinkeditData;
+        linkedit.filesize = code_sig.dataoff + code_sig.datasize - linkedit.fileoff;
+    }
 
     if (self.cmd_table_dirty) {
         try self.writeCmdHeaders();
@@ -1413,6 +1424,17 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             },
         });
     }
+    if (self.code_signature_cmd_index == null) {
+        self.code_signature_cmd_index = @intCast(u16, self.load_commands.items.len);
+        try self.load_commands.append(self.base.allocator, .{
+            .LinkeditData = .{
+                .cmd = macho.LC_CODE_SIGNATURE,
+                .cmdsize = @sizeOf(macho.linkedit_data_command),
+                .dataoff = 0,
+                .datasize = 0,
+            },
+        });
+    }
     {
         const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
         const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfo;
@@ -1456,6 +1478,17 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
             const segment_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
             linkedit.vmsize += segment_size;
+        }
+    }
+    {
+        const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+        const code_sig = &self.load_commands.items[self.code_signature_cmd_index.?].LinkeditData;
+        if (code_sig.dataoff == 0) {
+            const file_size = 0x1000; // TODO what is a good guesstimate for initial code signature?
+            const off = @intCast(u32, self.findFreeSpace(file_size, self.page_size));
+            log.debug("found code signature free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
+            code_sig.dataoff = off;
+            code_sig.datasize = file_size;
         }
     }
     if (self.dyld_stub_binder_index == null) {
@@ -1722,6 +1755,16 @@ fn writeAllUndefSymbols(self: *MachO) !void {
     try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.undef_symbols.items), off);
 }
 
+fn codeSign(self: *MachO) !void {
+    const code_sig_cmd = &self.load_commands.items[self.code_signature_cmd_index.?].LinkeditData;
+    const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
+    const off = mem.alignForwardGeneric(u32, symtab.stroff + symtab.strsize, @sizeOf(u64));
+    symtab.strsize = off - symtab.stroff;
+    code_sig_cmd.dataoff = off;
+    // TODO add actual code signing mechanism
+    try self.base.file.?.pwriteAll(&[_]u8{ 0 }, code_sig_cmd.dataoff + code_sig_cmd.datasize - 1);
+}
+
 fn writeExportTrie(self: *MachO) !void {
     if (self.global_symbols.items.len == 0) return; // No exports, nothing to do.
 
@@ -1763,11 +1806,6 @@ fn writeStringTable(self: *MachO) !void {
     log.debug("writing string table from 0x{x} to 0x{x}\n", .{ symtab.stroff, symtab.stroff + symtab.strsize });
 
     try self.base.file.?.pwriteAll(self.string_table.items, symtab.stroff);
-
-    // TODO rework how we preallocate space for the entire __LINKEDIT segment instead of
-    // doing dynamic updates like this.
-    const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
-    linkedit.filesize = symtab.stroff + symtab.strsize - linkedit.fileoff;
 }
 
 fn writeCmdHeaders(self: *MachO) !void {
