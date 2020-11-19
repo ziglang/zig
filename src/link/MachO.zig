@@ -542,7 +542,7 @@ fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
         if (self.base.options.system_linker_hack) {
             try argv.append("ld");
         } else {
-            // The first argument is ignored as LLD is calles as a library, set
+            // The first argument is ignored as LLD is called as a library, set
             // it anyway to the correct LLD driver name for this target so that
             // it's correctly printed when `verbose_link` is true. This is
             // needed for some tools such as CMake when Zig is used as C
