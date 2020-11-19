@@ -971,9 +971,9 @@ const char *calling_convention_name(CallingConvention cc) {
         case CallingConventionFastcall: return "Fastcall";
         case CallingConventionVectorcall: return "Vectorcall";
         case CallingConventionThiscall: return "Thiscall";
-        case CallingConventionAPCS: return "Apcs";
-        case CallingConventionAAPCS: return "Aapcs";
-        case CallingConventionAAPCSVFP: return "Aapcsvfp";
+        case CallingConventionAPCS: return "APCS";
+        case CallingConventionAAPCS: return "AAPCS";
+        case CallingConventionAAPCSVFP: return "AAPCSVFP";
     }
     zig_unreachable();
 }
@@ -2066,7 +2066,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         fn_entry->align_bytes = fn_type_id.alignment;
     }
 
-    if ((err = emit_error_unless_callconv_allowed_for_target(g, proto_node, cc)))
+    if ((err = emit_error_unless_callconv_allowed_for_target(g, proto_node->data.fn_proto.callconv_expr, cc)))
         return g->builtin_types.entry_invalid;
 
     if (fn_proto->return_anytype_token != nullptr) {

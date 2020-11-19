@@ -57,6 +57,84 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:1:22: note: type u2 cannot fit values in range 0...4",
     });
 
+    cases.addCase(x: {
+        var tc = cases.create("callconv(.Interrupt) on unsupported platform",
+            \\export fn entry() callconv(.Interrupt) void {}
+        , &[_][]const u8{
+            "tmp.zig:1:28: error: callconv 'Interrupt' is only available on x86, x86_64, AVR, and MSP430, not aarch64",
+        });
+        tc.target = std.zig.CrossTarget{
+            .cpu_arch = .aarch64,
+            .os_tag = .linux,
+            .abi = .none,
+        };
+        break :x tc;
+    });
+
+    cases.addCase(x: {
+        var tc = cases.create("callconv(.Signal) on unsupported platform",
+            \\export fn entry() callconv(.Signal) void {}
+        , &[_][]const u8{
+            "tmp.zig:1:28: error: callconv 'Signal' is only available on AVR, not x86_64",
+        });
+        tc.target = std.zig.CrossTarget{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .none,
+        };
+        break :x tc;
+    });
+
+    cases.addCase(x: {
+        var tc = cases.create("callconv(.Stdcall, .Fastcall, .Thiscall) on unsupported platform",
+            \\export fn entry1() callconv(.Stdcall) void {}
+            \\export fn entry2() callconv(.Fastcall) void {}
+            \\export fn entry3() callconv(.Thiscall) void {}
+        , &[_][]const u8{
+            "tmp.zig:1:29: error: callconv 'Stdcall' is only available on x86, not x86_64",
+            "tmp.zig:2:29: error: callconv 'Fastcall' is only available on x86, not x86_64",
+            "tmp.zig:3:29: error: callconv 'Thiscall' is only available on x86, not x86_64",
+        });
+        tc.target = std.zig.CrossTarget{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .none,
+        };
+        break :x tc;
+    });
+
+    cases.addCase(x: {
+        var tc = cases.create("callconv(.Vectorcall) on unsupported platform",
+            \\export fn entry() callconv(.Vectorcall) void {}
+        , &[_][]const u8{
+            "tmp.zig:1:28: error: callconv 'Vectorcall' is only available on x86 and AArch64, not x86_64",
+        });
+        tc.target = std.zig.CrossTarget{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .none,
+        };
+        break :x tc;
+    });
+
+    cases.addCase(x: {
+        var tc = cases.create("callconv(.APCS, .AAPCS, .AAPCSVFP) on unsupported platform",
+            \\export fn entry1() callconv(.APCS) void {}
+            \\export fn entry2() callconv(.AAPCS) void {}
+            \\export fn entry3() callconv(.AAPCSVFP) void {}
+        , &[_][]const u8{
+            "tmp.zig:1:29: error: callconv 'APCS' is only available on ARM, not x86_64",
+            "tmp.zig:2:29: error: callconv 'AAPCS' is only available on ARM, not x86_64",
+            "tmp.zig:3:29: error: callconv 'AAPCSVFP' is only available on ARM, not x86_64",
+        });
+        tc.target = std.zig.CrossTarget{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .none,
+        };
+        break :x tc;
+    });
+
     cases.add("unreachable executed at comptime",
         \\fn foo(comptime x: i32) i32 {
         \\    comptime {
