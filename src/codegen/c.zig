@@ -26,15 +26,19 @@ fn renderType(ctx: *Context, header: *C.Header, writer: std.ArrayList(u8).Writer
             try writer.writeAll("zig_noreturn void");
         },
         .Void => try writer.writeAll("void"),
+        .Bool => try writer.writeAll("bool"),
         .Int => {
             if (T.tag() == .u8) {
                 header.need_stdint = true;
                 try writer.writeAll("uint8_t");
+            } else if (T.tag() == .u32) {
+                header.need_stdint = true;
+                try writer.writeAll("uint32_t");
             } else if (T.tag() == .usize) {
                 header.need_stddef = true;
                 try writer.writeAll("size_t");
             } else {
-                return ctx.fail(ctx.decl.src(), "TODO implement int types", .{});
+                return ctx.fail(ctx.decl.src(), "TODO implement int type {}", .{T});
             }
         },
         else => |e| return ctx.fail(ctx.decl.src(), "TODO implement type {}", .{e}),
