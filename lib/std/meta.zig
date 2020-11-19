@@ -261,7 +261,8 @@ pub fn declarations(comptime T: type) []const TypeInfo.Declaration {
         .Struct => |info| info.decls,
         .Enum => |info| info.decls,
         .Union => |info| info.decls,
-        else => @compileError("Expected struct, enum or union type, found '" ++ @typeName(T) ++ "'"),
+        .Opaque => |info| info.decls,
+        else => @compileError("Expected struct, enum, union, or opaque type, found '" ++ @typeName(T) ++ "'"),
     };
 }
 
