@@ -17,10 +17,12 @@ pub const Header = struct {
     buf: std.ArrayList(u8),
     need_stddef: bool = false,
     need_stdint: bool = false,
+    emit_loc: ?Compilation.EmitLoc,
 
-    pub fn init(allocator: *Allocator) Header {
+    pub fn init(allocator: *Allocator, emit_loc: ?Compilation.EmitLoc) Header {
         return .{
             .buf = std.ArrayList(u8).init(allocator),
+            .emit_loc = emit_loc,
         };
     }
 
@@ -81,7 +83,7 @@ pub fn openPath(allocator: *Allocator, sub_path: []const u8, options: link.Optio
             .allocator = allocator,
         },
         .main = std.ArrayList(u8).init(allocator),
-        .header = Header.init(allocator),
+        .header = Header.init(allocator, null),
         .constants = std.ArrayList(u8).init(allocator),
         .called = std.StringHashMap(void).init(allocator),
     };
