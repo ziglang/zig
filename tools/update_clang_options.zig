@@ -214,7 +214,11 @@ const known_options = [_]KnownOpt{
     },
     .{
         .name = "###",
-        .ident = "verbose_cmds",
+        .ident = "dry_run",
+    },
+    .{
+        .name = "v",
+        .ident = "verbose",
     },
     .{
         .name = "L",
