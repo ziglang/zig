@@ -363,7 +363,7 @@ const AtomicEvent = struct {
 };
 
 test "ResetEvent" {
-    if (false) {
+    if (true) {
         // I have now observed this fail on macOS, Windows, and Linux.
         // https://github.com/ziglang/zig/issues/7009
         return error.SkipZigTest;
