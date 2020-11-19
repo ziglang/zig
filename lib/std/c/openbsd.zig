@@ -32,3 +32,6 @@ pub const pthread_spinlock_t = extern struct {
 pub const pthread_attr_t = extern struct {
     inner: ?*c_void = null,
 };
+
+pub extern "c" fn posix_memalign(memptr: *?*c_void, alignment: usize, size: usize) c_int;
+pub extern "c" fn malloc_usable_size(?*const c_void) usize;

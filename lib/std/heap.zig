@@ -21,67 +21,138 @@ pub const GeneralPurposeAllocator = @import("heap/general_purpose_allocator.zig"
 
 const Allocator = mem.Allocator;
 
-usingnamespace if (comptime @hasDecl(c, "malloc_size"))
-    struct {
-        pub const supports_malloc_size = true;
-        pub const malloc_size = c.malloc_size;
+const CAllocator = struct {
+    comptime {
+        if (!builtin.link_libc) {
+            @compileError("C allocator is only available when linking against libc");
+        }
     }
-else if (comptime @hasDecl(c, "malloc_usable_size"))
-    struct {
-        pub const supports_malloc_size = true;
-        pub const malloc_size = c.malloc_usable_size;
+
+    usingnamespace if (comptime @hasDecl(c, "malloc_size"))
+        struct {
+            pub const supports_malloc_size = true;
+            pub const malloc_size = c.malloc_size;
+        }
+    else if (comptime @hasDecl(c, "malloc_usable_size"))
+        struct {
+            pub const supports_malloc_size = true;
+            pub const malloc_size = c.malloc_usable_size;
+        }
+    else if (comptime @hasDecl(c, "_msize"))
+        struct {
+            pub const supports_malloc_size = true;
+            pub const malloc_size = c._msize;
+        }
+    else
+        struct {
+            pub const supports_malloc_size = false;
+        };
+
+    pub const supports_posix_memalign = @hasDecl(c, "posix_memalign");
+
+    fn getHeader(ptr: [*]u8) *[*]u8 {
+        return @intToPtr(*[*]u8, @ptrToInt(ptr) - @sizeOf(usize));
     }
-else
-    struct {
-        pub const supports_malloc_size = false;
-    };
+
+    fn alignedAlloc(len: usize, alignment: usize) ?[*]u8 {
+        if (supports_posix_memalign) {
+            // The posix_memalign only accepts alignment values that are a
+            // multiple of the pointer size
+            const eff_alignment = std.math.max(alignment, @sizeOf(usize));
+
+            var aligned_ptr: ?*c_void = undefined;
+            if (c.posix_memalign(&aligned_ptr, eff_alignment, len) != 0)
+                return null;
+
+            return @ptrCast([*]u8, aligned_ptr);
+        }
+
+        // Thin wrapper around regular malloc, overallocate to account for
+        // alignment padding and store the orignal malloc()'ed pointer before
+        // the aligned address.
+        var unaligned_ptr = @ptrCast([*]u8, c.malloc(len + alignment - 1 + @sizeOf(usize)) orelse return null);
+        const unaligned_addr = @ptrToInt(unaligned_ptr);
+        const aligned_addr = mem.alignForward(unaligned_addr + @sizeOf(usize), alignment);
+        var aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
+        getHeader(aligned_ptr).* = unaligned_ptr;
+
+        return aligned_ptr;
+    }
+
+    fn alignedFree(ptr: [*]u8) void {
+        if (supports_posix_memalign) {
+            return c.free(ptr);
+        }
+
+        const unaligned_ptr = getHeader(ptr).*;
+        c.free(unaligned_ptr);
+    }
+
+    fn alignedAllocSize(ptr: [*]u8) usize {
+        if (supports_posix_memalign) {
+            return malloc_size(ptr);
+        }
+
+        const unaligned_ptr = getHeader(ptr).*;
+        const delta = @ptrToInt(ptr) - @ptrToInt(unaligned_ptr);
+        return malloc_size(unaligned_ptr) - delta;
+    }
+
+    fn alloc(
+        allocator: *Allocator,
+        len: usize,
+        alignment: u29,
+        len_align: u29,
+        return_address: usize,
+    ) error{OutOfMemory}![]u8 {
+        assert(len > 0);
+        assert(std.math.isPowerOfTwo(alignment));
+
+        var ptr = alignedAlloc(len, alignment) orelse return error.OutOfMemory;
+        if (len_align == 0) {
+            return ptr[0..len];
+        }
+        const full_len = init: {
+            if (supports_malloc_size) {
+                const s = alignedAllocSize(ptr);
+                assert(s >= len);
+                break :init s;
+            }
+            break :init len;
+        };
+        return ptr[0..mem.alignBackwardAnyAlign(full_len, len_align)];
+    }
+
+    fn resize(
+        allocator: *Allocator,
+        buf: []u8,
+        buf_align: u29,
+        new_len: usize,
+        len_align: u29,
+        return_address: usize,
+    ) Allocator.Error!usize {
+        if (new_len == 0) {
+            alignedFree(buf.ptr);
+            return 0;
+        }
+        if (new_len <= buf.len) {
+            return mem.alignAllocLen(buf.len, new_len, len_align);
+        }
+        if (supports_malloc_size) {
+            const full_len = alignedAllocSize(buf.ptr);
+            if (new_len <= full_len) {
+                return mem.alignAllocLen(full_len, new_len, len_align);
+            }
+        }
+        return error.OutOfMemory;
+    }
+};
 
 pub const c_allocator = &c_allocator_state;
 var c_allocator_state = Allocator{
-    .allocFn = cAlloc,
-    .resizeFn = cResize,
+    .allocFn = CAllocator.alloc,
+    .resizeFn = CAllocator.resize,
 };
-
-fn cAlloc(self: *Allocator, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) Allocator.Error![]u8 {
-    assert(ptr_align <= @alignOf(c_longdouble));
-    const ptr = @ptrCast([*]u8, c.malloc(len) orelse return error.OutOfMemory);
-    if (len_align == 0) {
-        return ptr[0..len];
-    }
-    const full_len = init: {
-        if (supports_malloc_size) {
-            const s = malloc_size(ptr);
-            assert(s >= len);
-            break :init s;
-        }
-        break :init len;
-    };
-    return ptr[0..mem.alignBackwardAnyAlign(full_len, len_align)];
-}
-
-fn cResize(
-    self: *Allocator,
-    buf: []u8,
-    old_align: u29,
-    new_len: usize,
-    len_align: u29,
-    ret_addr: usize,
-) Allocator.Error!usize {
-    if (new_len == 0) {
-        c.free(buf.ptr);
-        return 0;
-    }
-    if (new_len <= buf.len) {
-        return mem.alignAllocLen(buf.len, new_len, len_align);
-    }
-    if (supports_malloc_size) {
-        const full_len = malloc_size(buf.ptr);
-        if (new_len <= full_len) {
-            return mem.alignAllocLen(full_len, new_len, len_align);
-        }
-    }
-    return error.OutOfMemory;
-}
 
 /// This allocator makes a syscall directly for every allocation and free.
 /// Thread-safe and lock-free.
@@ -726,9 +797,10 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
 
 test "c_allocator" {
     if (builtin.link_libc) {
-        var slice = try c_allocator.alloc(u8, 50);
-        defer c_allocator.free(slice);
-        slice = try c_allocator.realloc(slice, 100);
+        try testAllocator(c_allocator);
+        try testAllocatorAligned(c_allocator);
+        try testAllocatorLargeAlignment(c_allocator);
+        try testAllocatorAlignedShrink(c_allocator);
     }
 }
 
@@ -772,7 +844,7 @@ test "WasmPageAllocator internals" {
 test "PageAllocator" {
     const allocator = page_allocator;
     try testAllocator(allocator);
-    try testAllocatorAligned(allocator, 16);
+    try testAllocatorAligned(allocator);
     if (!std.Target.current.isWasm()) {
         try testAllocatorLargeAlignment(allocator);
         try testAllocatorAlignedShrink(allocator);
@@ -802,7 +874,7 @@ test "HeapAllocator" {
 
         const allocator = &heap_allocator.allocator;
         try testAllocator(allocator);
-        try testAllocatorAligned(allocator, 16);
+        try testAllocatorAligned(allocator);
         try testAllocatorLargeAlignment(allocator);
         try testAllocatorAlignedShrink(allocator);
     }
@@ -813,7 +885,7 @@ test "ArenaAllocator" {
     defer arena_allocator.deinit();
 
     try testAllocator(&arena_allocator.allocator);
-    try testAllocatorAligned(&arena_allocator.allocator, 16);
+    try testAllocatorAligned(&arena_allocator.allocator);
     try testAllocatorLargeAlignment(&arena_allocator.allocator);
     try testAllocatorAlignedShrink(&arena_allocator.allocator);
 }
@@ -823,7 +895,7 @@ test "FixedBufferAllocator" {
     var fixed_buffer_allocator = mem.validationWrap(FixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]));
 
     try testAllocator(&fixed_buffer_allocator.allocator);
-    try testAllocatorAligned(&fixed_buffer_allocator.allocator, 16);
+    try testAllocatorAligned(&fixed_buffer_allocator.allocator);
     try testAllocatorLargeAlignment(&fixed_buffer_allocator.allocator);
     try testAllocatorAlignedShrink(&fixed_buffer_allocator.allocator);
 }
@@ -881,7 +953,7 @@ test "ThreadSafeFixedBufferAllocator" {
     var fixed_buffer_allocator = ThreadSafeFixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]);
 
     try testAllocator(&fixed_buffer_allocator.allocator);
-    try testAllocatorAligned(&fixed_buffer_allocator.allocator, 16);
+    try testAllocatorAligned(&fixed_buffer_allocator.allocator);
     try testAllocatorLargeAlignment(&fixed_buffer_allocator.allocator);
     try testAllocatorAlignedShrink(&fixed_buffer_allocator.allocator);
 }
@@ -916,6 +988,10 @@ pub fn testAllocator(base_allocator: *mem.Allocator) !void {
 
     allocator.free(slice);
 
+    // Zero-length allocation
+    var empty = try allocator.alloc(u8, 0);
+    allocator.free(empty);
+    // Allocation with zero-sized types
     const zero_bit_ptr = try allocator.create(u0);
     zero_bit_ptr.* = 0;
     allocator.destroy(zero_bit_ptr);
@@ -928,31 +1004,34 @@ pub fn testAllocator(base_allocator: *mem.Allocator) !void {
     allocator.free(oversize);
 }
 
-pub fn testAllocatorAligned(base_allocator: *mem.Allocator, comptime alignment: u29) !void {
+pub fn testAllocatorAligned(base_allocator: *mem.Allocator) !void {
     var validationAllocator = mem.validationWrap(base_allocator);
     const allocator = &validationAllocator.allocator;
 
-    // initial
-    var slice = try allocator.alignedAlloc(u8, alignment, 10);
-    testing.expect(slice.len == 10);
-    // grow
-    slice = try allocator.realloc(slice, 100);
-    testing.expect(slice.len == 100);
-    // shrink
-    slice = allocator.shrink(slice, 10);
-    testing.expect(slice.len == 10);
-    // go to zero
-    slice = allocator.shrink(slice, 0);
-    testing.expect(slice.len == 0);
-    // realloc from zero
-    slice = try allocator.realloc(slice, 100);
-    testing.expect(slice.len == 100);
-    // shrink with shrink
-    slice = allocator.shrink(slice, 10);
-    testing.expect(slice.len == 10);
-    // shrink to zero
-    slice = allocator.shrink(slice, 0);
-    testing.expect(slice.len == 0);
+    // Test a few alignment values, smaller and bigger than the type's one
+    inline for ([_]u29{ 1, 2, 4, 8, 16, 32, 64 }) |alignment| {
+        // initial
+        var slice = try allocator.alignedAlloc(u8, alignment, 10);
+        testing.expect(slice.len == 10);
+        // grow
+        slice = try allocator.realloc(slice, 100);
+        testing.expect(slice.len == 100);
+        // shrink
+        slice = allocator.shrink(slice, 10);
+        testing.expect(slice.len == 10);
+        // go to zero
+        slice = allocator.shrink(slice, 0);
+        testing.expect(slice.len == 0);
+        // realloc from zero
+        slice = try allocator.realloc(slice, 100);
+        testing.expect(slice.len == 100);
+        // shrink with shrink
+        slice = allocator.shrink(slice, 10);
+        testing.expect(slice.len == 10);
+        // shrink to zero
+        slice = allocator.shrink(slice, 0);
+        testing.expect(slice.len == 0);
+    }
 }
 
 pub fn testAllocatorLargeAlignment(base_allocator: *mem.Allocator) mem.Allocator.Error!void {
