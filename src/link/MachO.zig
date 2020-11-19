@@ -334,8 +334,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     try self.writeAllGlobalSymbols();
     try self.writeAllUndefSymbols();
 
-    // TODO uncomment when we add our own codesigning mechanim
-    // try self.writeStringTable();
+    try self.writeStringTable();
 
     switch (self.base.options.output_mode) {
         .Exe => {
@@ -385,6 +384,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 try self.base.file.?.pwriteAll(mem.spanZ(LIB_SYSTEM_PATH), off);
                 self.libsystem_cmd_dirty = false;
             }
+
+            try self.codeSign();
         },
         .Obj => {},
         .Lib => return error.TODOImplementWritingLibFiles,
@@ -397,20 +398,18 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
         const nundefs = @intCast(u32, self.undef_symbols.items.len);
         const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
         symtab.nsyms = nlocals + nglobals + nundefs;
-        // TODO could we drop this when we add our own codesigning mechanims?
-        symtab.stroff = symtab.symoff + symtab.nsyms * @sizeOf(macho.nlist_64);
     }
 
-    // TODO remove when we add our own codesigning mechanism
-    try self.writeStringTable();
-    try self.codeSign();
-
-    {
-        // TODO rework how we preallocate space for the entire __LINKEDIT segment instead of
-        // doing dynamic updates like this.
+    // TODO rework how we preallocate space for the entire __LINKEDIT segment instead of
+    // doing dynamic updates like this.
+    if (self.code_signature_cmd_index) |i| {
         const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
         const code_sig = &self.load_commands.items[self.code_signature_cmd_index.?].LinkeditData;
         linkedit.filesize = code_sig.dataoff + code_sig.datasize - linkedit.fileoff;
+    } else {
+        const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+        const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
+        linkedit.filesize = symtab.stroff + symtab.strsize - linkedit.fileoff;
     }
 
     if (self.cmd_table_dirty) {
@@ -1464,9 +1463,6 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
             const segment_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
             linkedit.vmsize += segment_size;
-            // TODO this is needed to please codesign_allocate
-            const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfo;
-            dyld_info.export_size = off - dyld_info.export_off;
         }
         if (symtab.stroff == 0) {
             try self.string_table.append(self.base.allocator, 0);
@@ -1757,10 +1753,6 @@ fn writeAllUndefSymbols(self: *MachO) !void {
 
 fn codeSign(self: *MachO) !void {
     const code_sig_cmd = &self.load_commands.items[self.code_signature_cmd_index.?].LinkeditData;
-    const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
-    const off = mem.alignForwardGeneric(u32, symtab.stroff + symtab.strsize, @sizeOf(u64));
-    symtab.strsize = off - symtab.stroff;
-    code_sig_cmd.dataoff = off;
     // TODO add actual code signing mechanism
     try self.base.file.?.pwriteAll(&[_]u8{ 0 }, code_sig_cmd.dataoff + code_sig_cmd.datasize - 1);
 }
