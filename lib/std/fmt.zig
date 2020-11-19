@@ -38,6 +38,46 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
     return false;
 }
 
+const ArgSetType = u32;
+fn ArgState(args_len: usize) type {
+    return struct {
+        next_arg: usize = 0,
+        used_args: ArgSetType = 0,
+        args_len: usize = args_len,
+
+        fn hasUnusedArgs(comptime self: *@This()) bool {
+            return (@popCount(ArgSetType, self.used_args) != self.args_len);
+        }
+
+        fn nextArg(comptime self: *@This(), comptime pos_arg: ?comptime_int) comptime_int {
+            const next_idx = pos_arg orelse blk: {
+                const arg = self.next_arg;
+                self.next_arg += 1;
+                break :blk arg;
+            };
+
+            if (next_idx >= self.args_len) {
+                @compileError("Too few arguments");
+            }
+
+            // Mark this argument as used
+            self.used_args |= 1 << next_idx;
+
+            return next_idx;
+        }
+    };
+}
+
+const State = enum {
+    Start,
+    Positional,
+    CloseBrace,
+    Specifier,
+    FormatFillAndAlign,
+    FormatWidth,
+    FormatPrecision,
+};
+
 /// Renders fmt string with args, calling output with slices of bytes.
 /// If `output` returns an error, the error is returned from `format` and
 /// `output` is not called again.
@@ -93,7 +133,6 @@ pub fn format(
     comptime fmt: []const u8,
     args: anytype,
 ) !void {
-    const ArgSetType = u32;
     if (@typeInfo(@TypeOf(args)) != .Struct) {
         @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
     }
@@ -101,48 +140,13 @@ pub fn format(
         @compileError("32 arguments max are supported per format call");
     }
 
-    const State = enum {
-        Start,
-        Positional,
-        CloseBrace,
-        Specifier,
-        FormatFillAndAlign,
-        FormatWidth,
-        FormatPrecision,
-    };
-
     comptime var start_index = 0;
     comptime var state = State.Start;
     comptime var maybe_pos_arg: ?comptime_int = null;
     comptime var specifier_start = 0;
     comptime var specifier_end = 0;
     comptime var options = FormatOptions{};
-    comptime var arg_state: struct {
-        next_arg: usize = 0,
-        used_args: ArgSetType = 0,
-        args_len: usize = args.len,
-
-        fn hasUnusedArgs(comptime self: *@This()) bool {
-            return (@popCount(ArgSetType, self.used_args) != self.args_len);
-        }
-
-        fn nextArg(comptime self: *@This(), comptime pos_arg: ?comptime_int) comptime_int {
-            const next_idx = pos_arg orelse blk: {
-                const arg = self.next_arg;
-                self.next_arg += 1;
-                break :blk arg;
-            };
-
-            if (next_idx >= self.args_len) {
-                @compileError("Too few arguments");
-            }
-
-            // Mark this argument as used
-            self.used_args |= 1 << next_idx;
-
-            return next_idx;
-        }
-    } = .{};
+    comptime var arg_state: ArgState(args.len) = .{};
 
     inline for (fmt) |c, i| {
         switch (state) {
