@@ -352,7 +352,7 @@ pub const Dir = struct {
 
                     const name = @ptrCast([*]u8, &darwin_entry.d_name)[0..darwin_entry.d_namlen];
 
-                    if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
+                    if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or (darwin_entry.d_ino == 0)) {
                         continue :start_over;
                     }
 
