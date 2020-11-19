@@ -1121,14 +1121,14 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    var i: u32 = 10;
             \\    unreachable;
             \\}
-        , &[_][]const u8{":3:9: error: redeclaration of variable 'i'"});
+        , &[_][]const u8{":3:9: error: redefinition of 'i'"});
         case.addError(
             \\var testing: i64 = 10;
             \\export fn _start() noreturn {
             \\    var testing: i64 = 20;
             \\    unreachable;
             \\}
-        , &[_][]const u8{":3:9: error: redeclaration of variable 'testing'"});
+        , &[_][]const u8{":3:9: error: redefinition of 'testing'"});
     }
 
     {
