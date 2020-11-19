@@ -97,7 +97,7 @@ pub const TestContext = struct {
             /// This is a slice containing the expected message.
             Execution: []const u8,
             /// A header update compiles the input with the equivalent of
-            /// `-Demit_h=true` and tests the produced header against the
+            /// `-femit-h` and tests the produced header against the
             /// expected result
             Header: []const u8,
         },
