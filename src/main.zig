@@ -103,7 +103,7 @@ pub fn log(
 var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
 
 pub fn main() anyerror!void {
-    const gpa = if (std.builtin.link_libc) std.heap.c_allocator else &general_purpose_allocator.allocator;
+    const gpa = if (std.builtin.link_libc) std.heap.raw_c_allocator else &general_purpose_allocator.allocator;
     defer if (!std.builtin.link_libc) {
         _ = general_purpose_allocator.deinit();
     };

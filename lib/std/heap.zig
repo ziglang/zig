@@ -148,11 +148,55 @@ const CAllocator = struct {
     }
 };
 
+/// Supports the full Allocator interface, including alignment, and exploiting
+/// `malloc_usable_size` if available. For an allocator that directly calls
+/// `malloc`/`free`, see `raw_c_allocator`.
 pub const c_allocator = &c_allocator_state;
 var c_allocator_state = Allocator{
     .allocFn = CAllocator.alloc,
     .resizeFn = CAllocator.resize,
 };
+
+/// Asserts allocations are within `@alignOf(std.c.max_align_t)` and directly calls
+/// `malloc`/`free`. Does not attempt to utilize `malloc_usable_size`.
+/// This allocator is safe to use as the backing allocator with
+/// `ArenaAllocator` and `GeneralPurposeAllocator`, and is more optimal in these cases
+/// than to using `c_allocator`.
+pub const raw_c_allocator = &raw_c_allocator_state;
+var raw_c_allocator_state = Allocator{
+    .allocFn = rawCAlloc,
+    .resizeFn = rawCResize,
+};
+
+fn rawCAlloc(
+    self: *Allocator,
+    len: usize,
+    ptr_align: u29,
+    len_align: u29,
+    ret_addr: usize,
+) Allocator.Error![]u8 {
+    assert(ptr_align <= @alignOf(std.c.max_align_t));
+    const ptr = @ptrCast([*]u8, c.malloc(len) orelse return error.OutOfMemory);
+    return ptr[0..len];
+}
+
+fn rawCResize(
+    self: *Allocator,
+    buf: []u8,
+    old_align: u29,
+    new_len: usize,
+    len_align: u29,
+    ret_addr: usize,
+) Allocator.Error!usize {
+    if (new_len == 0) {
+        c.free(buf.ptr);
+        return 0;
+    }
+    if (new_len <= buf.len) {
+        return mem.alignAllocLen(buf.len, new_len, len_align);
+    }
+    return error.OutOfMemory;
+}
 
 /// This allocator makes a syscall directly for every allocation and free.
 /// Thread-safe and lock-free.
@@ -804,6 +848,12 @@ test "c_allocator" {
     }
 }
 
+test "raw_c_allocator" {
+    if (builtin.link_libc) {
+        try testAllocator(raw_c_allocator);
+    }
+}
+
 test "WasmPageAllocator internals" {
     if (comptime std.Target.current.isWasm()) {
         const conventional_memsize = WasmPageAllocator.conventional.totalPages() * mem.page_size;
@@ -958,6 +1008,7 @@ test "ThreadSafeFixedBufferAllocator" {
     try testAllocatorAlignedShrink(&fixed_buffer_allocator.allocator);
 }
 
+/// This one should not try alignments that exceed what C malloc can handle.
 pub fn testAllocator(base_allocator: *mem.Allocator) !void {
     var validationAllocator = mem.validationWrap(base_allocator);
     const allocator = &validationAllocator.allocator;
