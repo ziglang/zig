@@ -44,7 +44,7 @@ pub const Header = struct {
             try writer.writeByte('\n');
         }
         if (self.buf.items.len > 0) {
-            try writer.print("{}\n", .{self.buf.items});
+            try writer.print("{}", .{self.buf.items});
         }
     }
 
@@ -122,6 +122,9 @@ pub fn flushModule(self: *C, comp: *Compilation) !void {
 
     const writer = self.base.file.?.writer();
     try self.header.flush(writer);
+    if (self.header.buf.items.len > 0) {
+        try writer.writeByte('\n');
+    }
     if (self.constants.items.len > 0) {
         try writer.print("{}\n", .{self.constants.items});
     }
