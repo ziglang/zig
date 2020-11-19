@@ -38,13 +38,13 @@ pub extern "gdi32" fn SetPixelFormat(
     hdc: ?HDC,
     format: i32,
     ppfd: ?*const PIXELFORMATDESCRIPTOR,
-) callconv(.Stdcall) bool;
+) callconv(WINAPI) bool;
 
 pub extern "gdi32" fn ChoosePixelFormat(
     hdc: ?HDC,
     ppfd: ?*const PIXELFORMATDESCRIPTOR,
-) callconv(.Stdcall) i32;
+) callconv(WINAPI) i32;
 
-pub extern "gdi32" fn SwapBuffers(hdc: ?HDC) callconv(.Stdcall) bool;
-pub extern "gdi32" fn wglCreateContext(hdc: ?HDC) callconv(.Stdcall) ?HGLRC;
-pub extern "gdi32" fn wglMakeCurrent(hdc: ?HDC, hglrc: ?HGLRC) callconv(.Stdcall) bool;
+pub extern "gdi32" fn SwapBuffers(hdc: ?HDC) callconv(WINAPI) bool;
+pub extern "gdi32" fn wglCreateContext(hdc: ?HDC) callconv(WINAPI) ?HGLRC;
+pub extern "gdi32" fn wglMakeCurrent(hdc: ?HDC, hglrc: ?HGLRC) callconv(WINAPI) bool;
