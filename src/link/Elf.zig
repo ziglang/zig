@@ -1353,8 +1353,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     // Create an LLD command line and invoke it.
     var argv = std.ArrayList([]const u8).init(self.base.allocator);
     defer argv.deinit();
-    // Even though we're calling LLD as a library it thinks the first argument is its own exe name.
-    try argv.append("lld");
+    // The first argument is ignored as LLD is calles as a library, set it
+    // anyway to the correct LLD driver name for this target so that it's
+    // correctly printed when `verbose_link` is true. This is needed for some
+    // tools such as CMake when Zig is used as C compiler.
+    try argv.append("ld.lld");
     if (is_obj) {
         try argv.append("-r");
     }

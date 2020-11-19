@@ -1065,6 +1065,10 @@ fn buildOutputType(
                     .verbose_cmds => {
                         verbose_cc = true;
                         verbose_link = true;
+                        // Have Clang print more infos, some tools such as CMake
+                        // parse this to discover any implicit include and
+                        // library dir to look-up into.
+                        try clang_argv.append("-v");
                     },
                     .for_linker => try linker_args.append(it.only_arg),
                     .linker_input_z => {
