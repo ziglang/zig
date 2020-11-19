@@ -1505,13 +1505,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     }
 
     if (is_dyn_lib) {
-        const soname = self.base.options.override_soname orelse if (self.base.options.version) |ver|
-            try std.fmt.allocPrint(arena, "lib{}.so.{}", .{ self.base.options.root_name, ver.major })
-        else
-            try std.fmt.allocPrint(arena, "lib{}.so", .{self.base.options.root_name});
-        try argv.append("-soname");
-        try argv.append(soname);
-
+        if (self.base.options.override_soname) |soname| {
+            try argv.append("-soname");
+            try argv.append(soname);
+        }
         if (self.base.options.version_script) |version_script| {
             try argv.append("-version-script");
             try argv.append(version_script);
