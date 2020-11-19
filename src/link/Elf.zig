@@ -1314,7 +1314,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
             }
         }
         if (is_dyn_lib) {
-            man.hash.addOptionalBytes(self.base.options.override_soname);
+            man.hash.addOptionalBytes(self.base.options.soname);
             man.hash.addOptional(self.base.options.version);
         }
         man.hash.addStringSet(self.base.options.system_libs);
@@ -1505,7 +1505,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
     }
 
     if (is_dyn_lib) {
-        if (self.base.options.override_soname) |soname| {
+        if (self.base.options.soname) |soname| {
             try argv.append("-soname");
             try argv.append(soname);
         }

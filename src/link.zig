@@ -87,7 +87,7 @@ pub const Options = struct {
     subsystem: ?std.Target.SubSystem,
     linker_script: ?[]const u8,
     version_script: ?[]const u8,
-    override_soname: ?[]const u8,
+    soname: ?[]const u8,
     llvm_cpu_features: ?[*:0]const u8,
     /// Extra args passed directly to LLD. Ignored when not linking with LLD.
     extra_lld_args: []const []const u8,

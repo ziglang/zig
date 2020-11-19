@@ -464,7 +464,7 @@ fn buildOutputType(
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
     var disable_c_depfile = false;
-    var override_soname: ?[]const u8 = null;
+    var soname: ?[]const u8 = null;
     var linker_gc_sections: ?bool = null;
     var linker_allow_shlib_undefined: ?bool = null;
     var linker_bind_global_refs_locally: ?bool = null;
@@ -1091,33 +1091,33 @@ fn buildOutputType(
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{}'", .{arg});
                     }
-                    const soname = linker_args.items[i];
-                    override_soname = soname;
+                    const name = linker_args.items[i];
+                    soname = name;
                     // Use it as --name.
                     // Example: libsoundio.so.2
                     var prefix: usize = 0;
-                    if (mem.startsWith(u8, soname, "lib")) {
+                    if (mem.startsWith(u8, name, "lib")) {
                         prefix = 3;
                     }
-                    var end: usize = soname.len;
-                    if (mem.endsWith(u8, soname, ".so")) {
+                    var end: usize = name.len;
+                    if (mem.endsWith(u8, name, ".so")) {
                         end -= 3;
                     } else {
                         var found_digit = false;
-                        while (end > 0 and std.ascii.isDigit(soname[end - 1])) {
+                        while (end > 0 and std.ascii.isDigit(name[end - 1])) {
                             found_digit = true;
                             end -= 1;
                         }
-                        if (found_digit and end > 0 and soname[end - 1] == '.') {
+                        if (found_digit and end > 0 and name[end - 1] == '.') {
                             end -= 1;
                         } else {
-                            end = soname.len;
+                            end = name.len;
                         }
-                        if (mem.endsWith(u8, soname[prefix..end], ".so")) {
+                        if (mem.endsWith(u8, name[prefix..end], ".so")) {
                             end -= 3;
                         }
                     }
-                    provided_name = soname[prefix..end];
+                    provided_name = name[prefix..end];
                 } else if (mem.eql(u8, arg, "-rpath")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
@@ -1642,7 +1642,7 @@ fn buildOutputType(
         .linker_script = linker_script,
         .version_script = version_script,
         .disable_c_depfile = disable_c_depfile,
-        .override_soname = override_soname,
+        .soname = soname,
         .linker_gc_sections = linker_gc_sections,
         .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
         .linker_bind_global_refs_locally = linker_bind_global_refs_locally,
