@@ -591,16 +591,14 @@ fn buildOutputType(
                 },
                 else => unreachable,
             }
-            // TODO finish self-hosted and add support for emitting C header files
-            emit_h = .no;
-            //switch (arg_mode) {
-            //    .build => switch (output_mode) {
-            //        .Exe => emit_h = .no,
-            //        .Obj, .Lib => emit_h = .yes_default_path,
-            //    },
-            //    .translate_c, .zig_test, .run => emit_h = .no,
-            //    else => unreachable,
-            //}
+            switch (arg_mode) {
+                .build => switch (output_mode) {
+                    .Exe => emit_h = .no,
+                    .Obj, .Lib => emit_h = .yes_default_path,
+                },
+                .translate_c, .zig_test, .run => emit_h = .no,
+                else => unreachable,
+            }
 
             soname = .yes_default_value;
             const args = all_args[2..];
