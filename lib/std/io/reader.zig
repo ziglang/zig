@@ -271,8 +271,9 @@ pub fn Reader(
             buf_size: usize = 512,
         };
 
+        // `num_bytes` is a `u64` to match `off_t`
         /// Reads `num_bytes` bytes from the stream and discards them
-        pub fn skipBytes(self: Self, num_bytes: usize, comptime options: SkipBytesOptions) !void {
+        pub fn skipBytes(self: Self, num_bytes: u64, comptime options: SkipBytesOptions) !void {
             var buf: [options.buf_size]u8 = undefined;
             var remaining = num_bytes;
 
