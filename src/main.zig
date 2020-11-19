@@ -1062,13 +1062,17 @@ fn buildOutputType(
                         }
                     },
                     .linker_script => linker_script = it.only_arg,
-                    .verbose_cmds => {
-                        verbose_cc = true;
+                    .verbose => {
                         verbose_link = true;
                         // Have Clang print more infos, some tools such as CMake
                         // parse this to discover any implicit include and
                         // library dir to look-up into.
                         try clang_argv.append("-v");
+                    },
+                    .dry_run => {
+                        verbose_link = true;
+                        try clang_argv.append("-###");
+                        // XXX: Don't execute anything!
                     },
                     .for_linker => try linker_args.append(it.only_arg),
                     .linker_input_z => {
@@ -2780,7 +2784,8 @@ pub const ClangArgIterator = struct {
         debug,
         sanitize,
         linker_script,
-        verbose_cmds,
+        dry_run,
+        verbose,
         for_linker,
         linker_input_z,
         lib_dir,
