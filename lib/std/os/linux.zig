@@ -278,7 +278,7 @@ pub fn poll(fds: [*]pollfd, n: nfds_t, timeout: i32) usize {
     if (@hasField(SYS, "poll")) {
         return syscall3(.poll, @ptrToInt(fds), n, @bitCast(u32, timeout));
     } else {
-        return syscall6(
+        return syscall5(
             .ppoll,
             @ptrToInt(fds),
             n,
@@ -290,10 +290,13 @@ pub fn poll(fds: [*]pollfd, n: nfds_t, timeout: i32) usize {
             else
                 null),
             0,
-            0,
             NSIG / 8,
         );
     }
+}
+
+pub fn ppoll(fds: [*]pollfd, n: nfds_t, timeout: ?*timespec, sigmask: ?*const sigset_t) usize {
+    return syscall5(.ppoll, @ptrToInt(fds), n, @ptrToInt(timeout), @ptrToInt(sigmask), NSIG / 8);
 }
 
 pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
@@ -1192,7 +1195,7 @@ pub fn epoll_wait(epoll_fd: i32, events: [*]epoll_event, maxevents: u32, timeout
     return epoll_pwait(epoll_fd, events, maxevents, timeout, null);
 }
 
-pub fn epoll_pwait(epoll_fd: i32, events: [*]epoll_event, maxevents: u32, timeout: i32, sigmask: ?*sigset_t) usize {
+pub fn epoll_pwait(epoll_fd: i32, events: [*]epoll_event, maxevents: u32, timeout: i32, sigmask: ?*const sigset_t) usize {
     return syscall6(
         .epoll_pwait,
         @bitCast(usize, @as(isize, epoll_fd)),

@@ -295,6 +295,7 @@ pub extern "c" fn getnameinfo(
 pub extern "c" fn gai_strerror(errcode: EAI) [*:0]const u8;
 
 pub extern "c" fn poll(fds: [*]pollfd, nfds: nfds_t, timeout: c_int) c_int;
+pub extern "c" fn ppoll(fds: [*]pollfd, nfds: nfds_t, timeout: ?*const timespec, sigmask: ?*const sigset_t) c_int;
 
 pub extern "c" fn dn_expand(
     msg: [*:0]const u8,
