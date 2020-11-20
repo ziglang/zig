@@ -6,4 +6,5 @@ pub fn main() !void {
     var x: u8 = 10;
     var b: i32 = -10;
     var c: i32 = b + x;
+    expect(c == 0);
 }
