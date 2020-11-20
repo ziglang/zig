@@ -1380,6 +1380,8 @@ pub const Value = extern union {
                 const a_name = a.castTag(.enum_literal).?.data;
                 const b_name = b.castTag(.enum_literal).?.data;
                 return std.mem.eql(u8, a_name, b_name);
+            } else if (a.tag() == .@"error" and b.tag() == .@"error") {
+                return std.mem.eql(u8, a.cast(Payload.Error).?.name, b.cast(Payload.Error).?.name);
             }
         }
         if (a.isType() and b.isType()) {

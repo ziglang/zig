@@ -1637,9 +1637,9 @@ pub const Type = extern union {
         };
     }
 
-    /// Asserts the type is error_set or error_set_single and that if it is error_set, it's decl has been analyzed
-    /// If it is error_set_single, it will return the []const u8, otherwise a pointer to the map with the error_set
-    pub fn getErrs(self: Type) union(enum) { err_single: []const u8, multiple: *std.StringHashMapUnmanaged(u16) } {
+    /// Asserts the type is error_set or error_set_single or anyerror and that if it is error_set, it's decl has been analyzed
+    /// If it is error_set_single, it will return the []const u8, otherwise a pointer to the map with the error_set or void for anyerror
+    pub fn getErrs(self: Type) union(enum) { err_single: []const u8, multiple: *std.StringHashMapUnmanaged(u16), anyerror: void } {
         return switch (self.tag()) {
             .u8,
             .i8,
@@ -1668,7 +1668,6 @@ pub const Type = extern union {
             .bool,
             .void,
             .type,
-            .anyerror,
             .comptime_int,
             .comptime_float,
             .noreturn,
@@ -1706,6 +1705,7 @@ pub const Type = extern union {
             .single_const_pointer_to_comptime_int,
             .pointer,
             => unreachable,
+            .anyerror => return .{ .anyerror = {} },
             .error_set_single => return .{ .err_single = self.cast(Payload.ErrorSetSingle).?.name },
             .error_set => return .{ .multiple = &self.cast(Payload.ErrorSet).?.decl.typed_value.most_recent.typed_value.val.cast(Value.Payload.ErrorSet).?.fields },
         };

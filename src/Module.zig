@@ -2867,6 +2867,70 @@ pub fn coerce(self: *Module, scope: *Scope, dest_type: Type, inst: *Inst) !*Inst
     if (try self.coerceNum(scope, dest_type, inst)) |some|
         return some;
 
+    // error set widening
+    if (inst.ty.zigTypeTag() == .ErrorSet and dest_type.zigTypeTag() == .ErrorSet) {
+        const gotten_err_set = inst.ty.getErrs();
+        switch (dest_type.tag()) {
+            .error_set => {
+                switch (gotten_err_set) {
+                    .multiple => |fields| {
+                        const dt_e = dest_type.getErrs().multiple;
+                        // we can do > because if they were equal then Type.eql wouldn't have let control flow get this far
+                        if (dt_e.size > fields.size) blk: {
+                            var it = fields.iterator();
+                            while (it.next()) |entry| {
+                                if (dt_e.get(entry.key) == null) break :blk; // the smaller set has a key not in the larger set
+                            }
+                            var it_dest = dt_e.iterator();
+                            while (it_dest.next()) |entry| {
+                                try fields.put(self.gpa, entry.key, entry.value);
+                            }
+                        }
+                        return inst;
+                    },
+                    .err_single => |name| blk: { // dont have to deinit anything because it is a slice
+                        const dt_e = dest_type.getErrs().multiple;
+                        if (dt_e.get(name) == null) break :blk; // the smaller set has a key not in the larger set
+                        var new_decl_arena = std.heap.ArenaAllocator.init(self.gpa);
+                        errdefer new_decl_arena.deinit();
+                        const payload_val = try scope.arena().create(Value.Payload.ErrorSet);
+                        payload_val.* = .{
+                            .fields = .{},
+                            .decl = undefined, // populated below
+                        };
+                        payload_val.fields = try dt_e.clone(&new_decl_arena.allocator);
+                        // TODO create name in format "error:line:column"
+                        const new_decl = try self.createAnonymousDecl(scope, &new_decl_arena, .{
+                            .ty = Type.initTag(.type),
+                            .val = Value.initPayload(&payload_val.base),
+                        });
+                        payload_val.decl = new_decl;
+                        const payload_ty = try scope.arena().create(Type.Payload.ErrorSet);
+                        payload_ty.* = .{ .decl = new_decl };
+                        inst.ty = Type.initPayload(&payload_ty.base);
+                        return inst;
+                    },
+                    else => unreachable,
+                }
+            },
+            .error_set_single => {}, // we do nothing, because if they were equal Type.eql would have caught and if not, then not coercible
+            .anyerror => {
+                switch (gotten_err_set) {
+                    .multiple => |fields| {
+                        fields.deinit(self.gpa); // deinit the hashmap
+                        inst.ty = Type.initTag(.anyerror);
+                        return inst;
+                    },
+                    .err_single => |_| { // dont have to deinit anything because it is a slice
+                        inst.ty = Type.initTag(.anyerror);
+                        return inst;
+                    },
+                    else => unreachable,
+                }
+            },
+            else => unreachable,
+        }
+    }
     // integer widening
     if (inst.ty.zigTypeTag() == .Int and dest_type.zigTypeTag() == .Int) {
         assert(inst.value() == null); // handled above

@@ -945,9 +945,11 @@ fn analyzeInstMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp)
     try payload.fields.ensureCapacity(&new_decl_arena.allocator, @intCast(u32, switch (rhs_fields) {
         .err_single => 1,
         .multiple => |mul| mul.size,
+        else => unreachable,
     } + switch (rhs_fields) {
         .err_single => 1,
         .multiple => |mul| mul.size,
+        else => unreachable,
     })); // TODO should we do this? only true when no overlapping
 
     switch (rhs_fields) {
@@ -962,6 +964,7 @@ fn analyzeInstMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp)
                 payload.fields.putAssumeCapacity(entry.key, entry.value);
             }
         },
+        else => unreachable,
     }
     switch (lhs_fields) {
         .err_single => |name| {
@@ -975,6 +978,7 @@ fn analyzeInstMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp)
                 payload.fields.putAssumeCapacity(entry.key, entry.value);
             }
         },
+        else => unreachable,
     }
     const new_decl = try mod.createAnonymousDecl(scope, &new_decl_arena, .{
         .ty = Type.initTag(.type),
@@ -1436,8 +1440,37 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
     // validate for duplicate items/missing else prong
     switch (target.ty.zigTypeTag()) {
         .Enum => return mod.fail(scope, inst.base.src, "TODO validateSwitch .Enum", .{}),
-        .ErrorSet => return mod.fail(scope, inst.base.src, "TODO validateSwitch .ErrorSet", .{}),
         .Union => return mod.fail(scope, inst.base.src, "TODO validateSwitch .Union", .{}),
+        .ErrorSet => {
+            const gotten_err_set = target.ty.getErrs();
+            const is_anyerror = gotten_err_set == .anyerror;
+            var is_single = gotten_err_set == .err_single;
+            if (is_anyerror and !(inst.kw_args.special_prong == .@"else")) {
+                return mod.fail(scope, inst.base.src, "else prong required when switching on type 'anyerror'", .{});
+            }
+            var seen_values = std.HashMap(Value, usize, Value.hash, Value.eql, std.hash_map.DefaultMaxLoadPercentage).init(mod.gpa);
+            defer seen_values.deinit();
+            for (inst.positionals.items) |item| {
+                const resolved = try resolveInst(mod, scope, item);
+                const casted = try mod.coerce(scope, target.ty, resolved);
+                const val = try mod.resolveConstValue(scope, casted);
+                const err_name = val.cast(Value.Payload.Error).?.name;
+                if (try seen_values.fetchPut(val, item.src)) |prev| {
+                    return mod.fail(scope, item.src, "duplicate switch value", .{});
+                }
+                if (is_anyerror) {
+                    continue;
+                } else if (is_single and !mem.eql(u8, gotten_err_set.err_single, err_name)) {
+                    return mod.fail(scope, item.src, "expected type '{}', found '{}'", .{ gotten_err_set.err_single, gotten_err_set.err_single });
+                } else if (gotten_err_set == .multiple) { // we know it is an actual error set
+                    if (gotten_err_set.multiple.get(err_name)) |_| {} else {
+                        return mod.fail(scope, item.src, "'{}' not a member of destination error set {}", .{ err_name, gotten_err_set });
+                    }
+                }
+            }
+            if (!is_single and !is_anyerror and gotten_err_set.multiple.size > inst.positionals.items.len and !(inst.kw_args.special_prong == .@"else"))
+                return mod.fail(scope, inst.base.src, "switch must handle all possibilities", .{});
+        },
         .Int, .ComptimeInt => {
             var range_set = @import("RangeSet.zig").init(mod.gpa);
             defer range_set.deinit();
@@ -1448,7 +1481,6 @@ fn validateSwitch(mod: *Module, scope: *Scope, target: *Inst, inst: *zir.Inst.Sw
                     const start_casted = try mod.coerce(scope, target.ty, start_resolved);
                     const end_resolved = try resolveInst(mod, scope, range.positionals.rhs);
                     const end_casted = try mod.coerce(scope, target.ty, end_resolved);
-
                     break :blk try range_set.add(
                         try mod.resolveConstValue(scope, start_casted),
                         try mod.resolveConstValue(scope, end_casted),
