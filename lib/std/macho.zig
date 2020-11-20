@@ -1446,6 +1446,18 @@ pub const CodeDirectory = extern struct {
     /// Unused (must be zero)
     spare2: u32,
 
+    ///
+    scatterOffset: u32,
+
+    ///
+    teamOffset: u32,
+
+    ///
+    spare3: u32,
+
+    ///
+    codeLimit64: u64,
+
     /// Offset of executable segment
     execSegBase: u64,
 
@@ -1453,9 +1465,7 @@ pub const CodeDirectory = extern struct {
     execSegLimit: u64,
 
     /// Executable segment flags
-    execSegFlags,
-
-    // end_withExecSeg: [*]u8,
+    execSegFlags: u64,
 };
 
 /// Structure of an embedded-signature SuperBlob
