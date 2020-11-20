@@ -19,6 +19,7 @@ const iovec = linux.iovec;
 const iovec_const = linux.iovec_const;
 
 pub const mode_t = usize;
+pub const time_t = isize;
 
 pub const SYS = extern enum(usize) {
     read = 0,
