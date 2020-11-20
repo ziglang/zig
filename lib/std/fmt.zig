@@ -1954,7 +1954,519 @@ test "null" {
     try testFmt("null", "{}", .{inst});
 }
 
-pub const scan = @import("fmt/scan.zig").scan;
 test "scan" {
     _ = @import("fmt/scan.zig");
+}
+
+// TODO replace ScanError, want to create a ScanReturnErrors() and pass it @TypeOf(reader).Error
+//   for return types. not sure why getting this error:
+// error: type 'type' does not support field access
+// ) @TypeOf(reader).Error!void {
+
+const ScanError = error{
+    EndOfStream,
+    OutOfMemory,
+    InvalidCharacter,
+    InputMatchFailure,
+    NegationOfUnsignedInteger,
+    ConversionFailure,
+};
+
+// TODO remove commented out debug.prints in scan functions
+// TODO remove scan_debug
+const scan_debug = false; // temporary for dev
+
+// TODO handle precision
+
+inline fn readByte(reader: anytype) !u8 {
+    var bytes: [1]u8 = undefined;
+    _ = try reader.read(bytes[0..]);
+    // if(scan_debug) std.debug.print("readByte '{c}'\n", .{ bytes[0] });
+    return bytes[0];
+}
+
+inline fn matchByte(reader: anytype, comptime byte: u8) !bool {
+    const matcher = struct {
+        fn f(c: u8) bool {
+            if (scan_debug) std.debug.print("matcher returnint c '{c}' == byte '{c}' {}\n", .{ c, byte, c == byte });
+            return c == byte;
+        }
+    }.f;
+    return if (try matchByteFn(reader, matcher, true)) |_| true else false;
+}
+
+inline fn matchByteFn(reader: anytype, comptime matchFn: fn (u8) bool, comptime should_match: bool) !?u8 {
+    const byte = try readByte(reader);
+    if (scan_debug) std.debug.print("matchByteFn '{c}' {}\n", .{ byte, byte });
+    if (should_match == matchFn(byte)) return byte;
+    if (scan_debug) std.debug.print("matchByteFn putting back byte '{c}'\n", .{byte});
+    try reader.putBackByte(byte);
+    return null;
+}
+
+inline fn matchBytes(reader: anytype, comptime bytes: []const u8) !bool {
+    inline for (bytes) |byte, i| {
+        if (!try matchByte(reader, byte)) {
+            if (i > 0) {
+                if (scan_debug) std.debug.print("matchBytes putting back bytes '{}'\n", .{bytes[0..i]});
+                try reader.putBack(bytes[0..i]);
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
+// TODO not sure about naming
+pub fn scan(input: []const u8, comptime fmt: []const u8, args: anytype) ScanError!void {
+    if (scan_debug) std.debug.print("scan input '{}' fmt '{}'\n", .{ input, fmt });
+    var fbs = std.io.fixedBufferStream(input);
+    return scanReader(fbs.reader(), fmt, args);
+}
+
+// TODO not sure about naming
+pub fn scanReader(backing_reader: anytype, comptime fmt: []const u8, args: anytype) ScanError!void {
+    if (@typeInfo(@TypeOf(args)) != .Struct) {
+        @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
+    }
+    if (args.len > @typeInfo(std.fmt.ArgSetType).Int.bits) {
+        @compileError("32 arguments max are supported per format call");
+    }
+
+    comptime var start_index = 0;
+    comptime var state = State.Start;
+    comptime var maybe_pos_arg: ?comptime_int = null;
+    comptime var specifier_start = 0;
+    comptime var specifier_end = 0;
+    comptime var options = std.fmt.FormatOptions{};
+    comptime var arg_state: std.fmt.ArgState(args.len) = .{};
+
+    var reader = std.io.peekStream(16, backing_reader);
+    var scan_error: ?ScanError = null;
+
+    inline for (fmt) |c, i| {
+        // if(scan_debug) std.debug.print("state {} fmtc '{c}'\n", .{ state, c });
+        if (scan_error != null) return scan_error.?;
+        switch (state) {
+            .Start => switch (c) {
+                '{' => {
+                    if (start_index < i) {
+                        //try writer.writeAll(fmt[start_index..i]);
+                        // TODO not sure what to do here
+                    }
+
+                    start_index = i;
+                    specifier_start = i + 1;
+                    specifier_end = i + 1;
+                    maybe_pos_arg = null;
+                    state = .Positional;
+                    options = FormatOptions{};
+                },
+                '}' => {
+                    if (start_index < i) {
+                        const byte = try readByte(&reader);
+                        if (byte != c)
+                            scan_error = error.InputMatchFailure;
+                    }
+                    state = .CloseBrace;
+                },
+                else => {
+                    if (comptime std.ascii.isSpace(c)) {
+                        // removing in an attempt to stop spinning in non-safe modes
+                        // TODO add this back
+                        // while (try matchByteFn(&reader, comptime std.ascii.isSpace, true)) |_| {}
+                    } else {
+                        const byte = try readByte(&reader);
+                        if (byte != c)
+                            scan_error = error.InputMatchFailure;
+                    }
+                },
+            },
+            .Positional => switch (c) {
+                '{' => {
+                    state = .Start;
+                    start_index = i;
+                    const byte = try readByte(&reader);
+                    if (byte != c)
+                        scan_error = error.InputMatchFailure;
+                },
+                ':' => {
+                    state = if (comptime peekIsAlign(fmt[i..])) State.FormatFillAndAlign else State.FormatWidth;
+                    specifier_end = i;
+                },
+                '0'...'9' => {
+                    if (maybe_pos_arg == null) {
+                        maybe_pos_arg = 0;
+                    }
+
+                    maybe_pos_arg.? *= 10;
+                    maybe_pos_arg.? += c - '0';
+                    specifier_start = i + 1;
+
+                    if (maybe_pos_arg.? >= args.len) {
+                        @compileError("Positional value refers to non-existent argument");
+                    }
+                },
+                '}' => {
+                    const arg_to_print = comptime arg_state.nextArg(maybe_pos_arg);
+                    try scanType(
+                        args[arg_to_print],
+                        fmt[0..0],
+                        options,
+                        &reader,
+                        default_max_depth,
+                    );
+
+                    state = .Start;
+                    start_index = i + 1;
+                },
+                else => {
+                    state = .Specifier;
+                    specifier_start = i;
+                },
+            },
+            .CloseBrace => switch (c) {
+                '}' => {
+                    state = .Start;
+                    start_index = i;
+                },
+                else => @compileError("Single '}' encountered in format string"),
+            },
+            .Specifier => switch (c) {
+                ':' => {
+                    specifier_end = i;
+                    state = if (comptime peekIsAlign(fmt[i..])) State.FormatFillAndAlign else State.FormatWidth;
+                },
+                '}' => {
+                    const arg_to_print = comptime arg_state.nextArg(maybe_pos_arg);
+
+                    try scanType(
+                        args[arg_to_print],
+                        fmt[specifier_start..i],
+                        options,
+                        &reader,
+                        default_max_depth,
+                    );
+                    state = .Start;
+                    start_index = i + 1;
+                },
+                else => {},
+            },
+            .FormatFillAndAlign => @compileError("fill and align are not supported in scan"),
+            .FormatWidth => switch (c) {
+                '0'...'9' => {
+                    if (options.width == null) {
+                        options.width = 0;
+                    }
+
+                    options.width.? *= 10;
+                    options.width.? += c - '0';
+                },
+                '.' => {
+                    state = .FormatPrecision;
+                },
+                '}' => {
+                    const arg_to_print = comptime arg_state.nextArg(maybe_pos_arg);
+
+                    try scanType(
+                        args[arg_to_print],
+                        fmt[specifier_start..specifier_end],
+                        options,
+                        &reader,
+                        default_max_depth,
+                    );
+                    state = .Start;
+                    start_index = i + 1;
+                },
+                else => {
+                    @compileError("Unexpected character in width value: " ++ [_]u8{c});
+                },
+            },
+            .FormatPrecision => switch (c) {
+                '0'...'9' => {
+                    if (options.precision == null) {
+                        options.precision = 0;
+                    }
+
+                    options.precision.? *= 10;
+                    options.precision.? += c - '0';
+                },
+                '}' => {
+                    const arg_to_print = comptime arg_state.nextArg(maybe_pos_arg);
+
+                    try scanType(
+                        args[arg_to_print],
+                        fmt[specifier_start..specifier_end],
+                        options,
+                        &reader,
+                        default_max_depth,
+                    );
+                    state = .Start;
+                    start_index = i + 1;
+                },
+                else => {
+                    @compileError("Unexpected character in precision value: " ++ [_]u8{c});
+                },
+            },
+        }
+    }
+    comptime {
+        if (comptime arg_state.hasUnusedArgs()) {
+            @compileError("Unused arguments");
+        }
+        if (state != State.Start) {
+            @compileError("Incomplete format string: " ++ fmt);
+        }
+    }
+    if (start_index < fmt.len) {
+        // try writer.writeAll(fmt[start_index..]);
+        // TODO not sure what to do here. maybe match?
+    }
+    if (scan_error != null) return scan_error.?;
+}
+
+pub fn scanType(
+    value: anytype,
+    comptime fmt: []const u8,
+    options: FormatOptions,
+    reader: anytype,
+    max_depth: usize,
+) ScanError!void {
+    // if(scan_debug) std.debug.print("scanType {}, {}, {}\n", .{ value, fmt, options });
+    const T = @TypeOf(value);
+    const ti = @typeInfo(T);
+    if (ti != .Pointer) @compileError("unable to scan non pointer type " ++ @typeName(T));
+    const Child = std.meta.Child(T);
+
+    switch (ti.Pointer.size) {
+        // TODO maybe handle other types of slices than just u8
+        .Slice => return try scanText(value, fmt, options, reader),
+        else => {},
+    }
+
+    switch (@typeInfo(Child)) {
+        .Int, .Float => {
+            return scanValue(value, fmt, options, reader);
+        },
+        .Bool => {
+            value.* = if (try matchBytes(reader, "true")) true
+            //
+            else if (try matchBytes(reader, "false")) false
+            //
+            else return error.InputMatchFailure;
+        },
+        .Pointer => |ptr_info| switch (ptr_info.size) {
+            .Slice => {
+                if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
+                    return scanText(value, fmt, options, reader);
+                }
+                if (ptr_info.child == u8) {
+                    return scanText(value, fmt, options, reader);
+                }
+                // return scanReader(reader, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value.ptr) });
+            },
+            else => @compileError("pointer size not supported: " ++ @typeName(T)),
+        },
+        else => @compileError("Unable to scan type '" ++ @typeName(T) ++ "'"),
+    }
+}
+
+fn scanValue(
+    value: anytype,
+    comptime fmt: []const u8,
+    options: FormatOptions,
+    reader: anytype,
+) ScanError!void {
+    const T = @TypeOf(value);
+    if (@typeInfo(T) != .Pointer) @compileError("unable to scan non pointer type " ++ @typeName(T));
+    const Child = std.meta.Child(T);
+    switch (@typeInfo(Child)) {
+        .Float, .ComptimeFloat => return scanFloatValue(value, fmt, options, reader),
+        .Int, .ComptimeInt => return scanIntValue(value, fmt, options, reader),
+        .Bool => return if (try matchBytes(reader, "true")) true else if (try matchBytes(reader, "false")) false else error.InputMatchFailure,
+        else => comptime unreachable,
+    }
+}
+
+pub fn scanIntValue(
+    value: anytype,
+    comptime fmt: []const u8,
+    options: FormatOptions,
+    reader: anytype,
+) ScanError!void {
+    comptime var radix = 10;
+    comptime var uppercase = false;
+    // if(scan_debug) std.debug.print("scanIntValue '{}' value {}\n", .{ fmt, value });
+
+    const Child = std.meta.Child(@TypeOf(value));
+
+    const is_negative = neg: {
+        const byte = try readByte(reader);
+        break :neg if (byte == '-')
+            true
+        else if (byte == '+') false else blk: {
+            try reader.putBackByte(byte);
+            break :blk false;
+        };
+    };
+
+    if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "d")) {
+        radix = 10;
+        uppercase = false;
+    } else if (comptime std.mem.eql(u8, fmt, "c")) {
+        if (@typeInfo(std.meta.Child(@TypeOf(value))).Int.bits <= 8) {
+            // TODO handle width here?
+            const byte = try readByte(reader);
+            value.* = byte;
+            return;
+        } else {
+            @compileError("Cannot scan integer that is larger than 8 bits as a ascii");
+        }
+    } else if (comptime std.mem.eql(u8, fmt, "b")) {
+        _ = try matchBytes(reader, "0b");
+        radix = 2;
+        uppercase = false;
+    } else if (comptime std.mem.eql(u8, fmt, "x")) {
+        if (!try matchBytes(reader, "0x"))
+            _ = try matchBytes(reader, "0X");
+
+        radix = 16;
+        uppercase = false;
+    } else if (comptime std.mem.eql(u8, fmt, "X")) {
+        if (!try matchBytes(reader, "0x"))
+            _ = try matchBytes(reader, "0X");
+        radix = 16;
+        uppercase = true;
+    } else if (comptime std.mem.eql(u8, fmt, "o")) {
+        _ = try matchBytes(reader, "0o");
+        radix = 8;
+        uppercase = false;
+    } else {
+        @compileError("Unknown format string: '" ++ fmt ++ "'");
+    }
+
+    return scanInt(value, radix, uppercase, options, reader, is_negative);
+}
+
+pub fn scanInt(
+    value: anytype,
+    base: u8,
+    uppercase: bool,
+    options: FormatOptions,
+    reader: anytype,
+    is_negative: bool,
+) ScanError!void {
+    assert(base >= 2);
+    const Child = std.meta.Child(@TypeOf(value));
+    const value_info = @typeInfo(Child).Int;
+    const base_as_child_type = @intCast(Child, base);
+    var valid_bytes: u16 = 0;
+    if (scan_debug) std.debug.print("scanInt base {} {}\n", .{ base, options });
+
+    value.* = 0;
+    while (true) : (valid_bytes += 1) {
+        if (options.width) |w| if (valid_bytes >= w) break;
+        const byte = try readByte(reader);
+        if (scan_debug) std.debug.print("byte '{c}' base {} value {}\n", .{ byte, base, value.* });
+        const digit = charToDigit(byte, base) catch {
+            try reader.putBackByte(byte);
+            break;
+        };
+        // if(scan_debug) std.debug.print("byte '{c}' base {} digit {} value {}\n", .{ byte, base, digit, value.* });
+        value.* = value.* * base_as_child_type + @intCast(Child, digit);
+    }
+
+    if (is_negative) {
+        if (value_info.is_signed) {
+            value.* = -value.*;
+        } else return error.NegationOfUnsignedInteger;
+    }
+    if (valid_bytes == 0) return error.ConversionFailure;
+}
+
+fn scanFloatValue(
+    value: anytype,
+    comptime fmt: []const u8,
+    options: FormatOptions,
+    reader: anytype,
+) ScanError!void {
+    // this buffer should be enough to display all decimal places of a decimal f64 number.
+    var buf: [512]u8 = undefined;
+    if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
+        try scanFloatScientific(value, options, reader, &buf);
+        // TODO formatFloatDecimal
+        // } else if (comptime std.mem.eql(u8, fmt, "d")) {
+        //     formatFloatDecimal(value, options, buf_stream.writer()) catch |err| switch (err) {
+        //         error.NoSpaceLeft => unreachable,
+        //         else => |e| return e,
+        //     };
+    } else {
+        @compileError("Unknown format string: '" ++ fmt ++ "'");
+    }
+}
+
+fn isValidFloatIdentifier(c: u8) bool {
+    return switch (c) {
+        '0'...'9', 'e', 'E', '-', '+', '.' => true,
+        else => false,
+    };
+}
+
+pub fn scanFloatScientific(
+    value: anytype,
+    options: FormatOptions,
+    reader: anytype,
+    buf: *[512]u8,
+) ScanError!void {
+    const Child = std.meta.Child(@TypeOf(value));
+    var buf_len: u16 = 0;
+    const is_negative = if (try matchByte(reader, '-')) true else false;
+    defer {
+        if (is_negative) value.* = -value.*;
+    }
+
+    if (try matchBytes(reader, "nan")) {
+        value.* = std.math.nan(Child);
+        return;
+    } else if (try matchBytes(reader, "NaN")) {
+        value.* = std.math.nan(Child);
+        return;
+    } else if ((try matchBytes(reader, "inf")) or (try matchBytes(reader, "INF"))) {
+        value.* = std.math.inf(Child);
+        return;
+    } else if (try matchBytes(reader, "infinite")) {
+        value.* = std.math.inf(Child);
+        return;
+    }
+
+    // TODO handle precision
+    while (true) {
+        const byte = matchByteFn(reader, isValidFloatIdentifier, true) catch break;
+        buf[buf_len] = byte orelse break;
+        buf_len += 1;
+        if (options.width) |w| if (buf_len >= w) break;
+        if (buf_len > buf.len) break;
+    }
+    // if(scan_debug) std.debug.print("buf '{}'\n", .{buf[0..buf_len]});
+    if (buf_len == 0) return error.ConversionFailure;
+    value.* = try parseFloat(Child, buf[0..buf_len]);
+}
+
+pub fn scanText(
+    value: *[]u8,
+    comptime fmt: []const u8,
+    options: FormatOptions,
+    reader: anytype,
+) !void {
+    // if(scan_debug) std.debug.print("scanText fmt {} value {}\n", .{ fmt, value });
+    const orig_len = value.len;
+    value.len = 0;
+    if (comptime std.mem.eql(u8, fmt, "s") or (fmt.len == 0)) {
+        while (try matchByteFn(reader, comptime std.ascii.isSpace, false)) |byte| {
+            value.len += 1;
+            value.*[value.len - 1] = byte;
+            if (value.len >= orig_len) break;
+            if (options.width) |w| if (value.len >= w) break;
+        }
+    }
 }
