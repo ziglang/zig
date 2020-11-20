@@ -1774,6 +1774,8 @@ fn writeCodeSignature(self: *MachO) !void {
 
     code_sig.write(buffer);
 
+    log.debug("writing code signature from 0x{x} to 0x{x}\n", .{ code_sig_cmd.dataoff, code_sig_cmd.dataoff + buffer.len });
+
     try self.base.file.?.pwriteAll(buffer, code_sig_cmd.dataoff);
 }
 

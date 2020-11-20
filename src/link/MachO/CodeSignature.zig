@@ -102,7 +102,6 @@ pub fn calcAdhocSignature(self: *CodeSignature, bin_file: *const MachO) !void {
     };
 
     const total_pages = mem.alignForward(file_size, page_size) / page_size;
-    log.debug("Total file size: {}; total number of pages: {}\n", .{ file_size, total_pages });
 
     var hash: [hash_size]u8 = undefined;
     var buffer = try bin_file.base.allocator.alloc(u8, page_size);
@@ -129,7 +128,6 @@ pub fn calcAdhocSignature(self: *CodeSignature, bin_file: *const MachO) !void {
         assert(fsize <= len);
 
         Sha256.hash(buffer[0..fsize], &hash, .{});
-        log.debug("Calculated hash for page 0x{x}-0x{x}: 0x{x}\n", .{ fstart, fstart + fsize, hash[0..] });
 
         cdir.data.appendSliceAssumeCapacity(hash[0..]);
         cdir.inner.nCodeSlots += 1;
