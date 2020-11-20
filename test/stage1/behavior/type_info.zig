@@ -460,3 +460,17 @@ test "StructField.is_comptime" {
     expect(!info.fields[0].is_comptime);
     expect(info.fields[1].is_comptime);
 }
+
+test "typeInfo resolves usingnamespace declarations" {
+    const A = struct {
+        pub const f1 = 42;
+    };
+
+    const B = struct {
+        const f0 = 42;
+        usingnamespace A;
+    };
+
+    expect(@typeInfo(B).Struct.decls.len == 2);
+    //a
+}

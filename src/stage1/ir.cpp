@@ -24909,6 +24909,8 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
     if ((err = type_resolve(ira->codegen, type_info_fn_decl_inline_type, ResolveStatusSizeKnown)))
         return err;
 
+    resolve_container_usingnamespace_decls(ira->codegen, decls_scope);
+
     // The unresolved declarations are collected in a separate queue to avoid
     // modifying decl_table while iterating over it
     ZigList<Tld*> resolve_decl_queue{};
