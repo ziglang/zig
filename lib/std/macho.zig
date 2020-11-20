@@ -1384,10 +1384,10 @@ pub const CSTYPE_INDEX_REQUIREMENTS: u32 = 0x00000002;
 /// Compat with amfi
 pub const CSTYPE_INDEX_ENTITLEMENTS: u32 = 0x00000005;
 
-pub const CS_HASHTYPE_SHA1: u32 = 1;
-pub const CS_HASHTYPE_SHA256: u32 = 2;
-pub const CS_HASHTYPE_SHA256_TRUNCATED: u32 = 3;
-pub const CS_HASHTYPE_SHA384: u32 = 4;
+pub const CS_HASHTYPE_SHA1: u8 = 1;
+pub const CS_HASHTYPE_SHA256: u8 = 2;
+pub const CS_HASHTYPE_SHA256_TRUNCATED: u8 = 3;
+pub const CS_HASHTYPE_SHA384: u8 = 4;
 
 pub const CS_SHA1_LEN: u32 = 20;
 pub const CS_SHA256_LEN: u32 = 32;

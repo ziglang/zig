@@ -385,8 +385,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 try self.base.file.?.pwriteAll(mem.spanZ(LIB_SYSTEM_PATH), off);
                 self.libsystem_cmd_dirty = false;
             }
-
-            try self.writecodeSignature();
         },
         .Obj => {},
         .Lib => return error.TODOImplementWritingLibFiles,
@@ -430,6 +428,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     assert(!self.cmd_table_dirty);
     assert(!self.dylinker_cmd_dirty);
     assert(!self.libsystem_cmd_dirty);
+
+    switch (self.base.options.output_mode) {
+        .Exe, .Lib => try self.writeCodeSignature(), // code signing always comes last
+        else => {},
+    }
 }
 
 fn linkWithLLD(self: *MachO, comp: *Compilation) !void {
@@ -1486,6 +1489,9 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             log.debug("found code signature free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
             code_sig.dataoff = off;
             code_sig.datasize = file_size;
+
+            const segment_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
+            linkedit.vmsize += segment_size;
         }
     }
     if (self.dyld_stub_binder_index == null) {
@@ -1752,7 +1758,7 @@ fn writeAllUndefSymbols(self: *MachO) !void {
     try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.undef_symbols.items), off);
 }
 
-fn writecodeSignature(self: *MachO) !void {
+fn writeCodeSignature(self: *MachO) !void {
     const code_sig_cmd = &self.load_commands.items[self.code_signature_cmd_index.?].LinkeditData;
 
     var code_sig = CodeSignature.init(self.base.allocator);
@@ -1766,7 +1772,7 @@ fn writecodeSignature(self: *MachO) !void {
     code_sig.write(buffer);
 
     try self.base.file.?.pwriteAll(buffer, code_sig_cmd.dataoff);
-    try self.base.file.?.pwriteAll(&[_]u8{ 0 }, code_sig_cmd.dataoff + code_sig_cmd.datasize - 1);
+    try self.base.file.?.pwriteAll(&[_]u8{0}, code_sig_cmd.dataoff + code_sig_cmd.datasize - 1);
 }
 
 fn writeExportTrie(self: *MachO) !void {
