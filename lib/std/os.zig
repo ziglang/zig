@@ -2298,7 +2298,7 @@ pub const ChangeCurDirError = error{
     SystemResources,
     NotDir,
     BadPathName,
-    
+
     /// On Windows, file paths must be valid Unicode.
     InvalidUtf8,
 } || UnexpectedError;
@@ -5250,6 +5250,32 @@ pub fn poll(fds: []pollfd, timeout: i32) PollError!usize {
     }
 }
 
+pub const PPollError = error{
+    /// The operation was interrupted by a delivery of a signal before it could complete.
+    SignalInterrupt,
+
+    /// The kernel had no space to allocate file descriptor tables.
+    SystemResources,
+} || UnexpectedError;
+
+pub fn ppoll(fds: []pollfd, timeout: ?*const timespec, mask: ?*const sigset_t) PPollError!usize {
+    var ts: timespec = undefined;
+    var ts_ptr: ?*timespec = null;
+    if (timeout) |timeout_ns| {
+        ts_ptr = &ts;
+        ts = timeout_ns.*;
+    }
+    const rc = system.ppoll(fds.ptr, fds.len, ts_ptr, mask);
+    switch (errno(rc)) {
+        0 => return @intCast(usize, rc),
+        EFAULT => unreachable,
+        EINTR => return error.SignalInterrupt,
+        EINVAL => unreachable,
+        ENOMEM => return error.SystemResources,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
 pub const RecvFromError = error{
     /// The socket is marked nonblocking and the requested operation would block, and
     /// there is no global event loop configured.
@@ -5565,7 +5591,7 @@ pub fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) !fd_t {
         EMFILE => return error.ProcessResources,
         ENODEV => return error.InodeMountFail,
         ENOSYS => return error.SystemOutdated,
-        else => |err| return std.os.unexpectedErrno(err),
+        else => |err| return unexpectedErrno(err),
     }
 }
 
@@ -5590,7 +5616,7 @@ pub fn syncfs(fd: fd_t) SyncError!void {
         EIO => return error.InputOutput,
         ENOSPC => return error.NoSpaceLeft,
         EDQUOT => return error.DiskQuota,
-        else => |err| return std.os.unexpectedErrno(err),
+        else => |err| return unexpectedErrno(err),
     }
 }
 
@@ -5614,7 +5640,7 @@ pub fn fsync(fd: fd_t) SyncError!void {
         EIO => return error.InputOutput,
         ENOSPC => return error.NoSpaceLeft,
         EDQUOT => return error.DiskQuota,
-        else => |err| return std.os.unexpectedErrno(err),
+        else => |err| return unexpectedErrno(err),
     }
 }
 
@@ -5633,7 +5659,7 @@ pub fn fdatasync(fd: fd_t) SyncError!void {
         EIO => return error.InputOutput,
         ENOSPC => return error.NoSpaceLeft,
         EDQUOT => return error.DiskQuota,
-        else => |err| return std.os.unexpectedErrno(err),
+        else => |err| return unexpectedErrno(err),
     }
 }
 
@@ -5675,7 +5701,7 @@ pub fn prctl(option: PR, args: anytype) PrctlError!u31 {
         EOPNOTSUPP => return error.OperationNotSupported,
         EPERM, EBUSY => return error.PermissionDenied,
         ERANGE => unreachable,
-        else => |err| return std.os.unexpectedErrno(err),
+        else => |err| return unexpectedErrno(err),
     }
 }
 
@@ -5688,7 +5714,7 @@ pub fn getrlimit(resource: rlimit_resource) GetrlimitError!rlimit {
         0 => return limits,
         EFAULT => unreachable, // bogus pointer
         EINVAL => unreachable,
-        else => |err| return std.os.unexpectedErrno(err),
+        else => |err| return unexpectedErrno(err),
     }
 }
 
@@ -5701,6 +5727,6 @@ pub fn setrlimit(resource: rlimit_resource, limits: rlimit) SetrlimitError!void 
         EFAULT => unreachable, // bogus pointer
         EINVAL => unreachable,
         EPERM => return error.PermissionDenied,
-        else => |err| return std.os.unexpectedErrno(err),
+        else => |err| return unexpectedErrno(err),
     }
 }
