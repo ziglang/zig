@@ -1402,6 +1402,10 @@ pub const CS_SIGNER_TYPE_UNKNOWN: u32 = 0;
 pub const CS_SIGNER_TYPE_LEGACYVPN: u32 = 5;
 pub const CS_SIGNER_TYPE_MAC_APP_STORE: u32 = 6;
 
+pub const CS_ADHOC: u32 = 0x2;
+
+pub const CS_EXECSEG_MAIN_BINARY: u32 = 0x1;
+
 /// This CodeDirectory is tailored specfically at version 0x20400.
 pub const CodeDirectory = extern struct {
     /// Magic number (CSMAGIC_CODEDIRECTORY)
@@ -1488,8 +1492,6 @@ pub const SuperBlob = extern struct {
 
     /// Number of index BlobIndex entries following this struct
     count: u32,
-
-    // index: []const BlobIndex,
 };
 
 pub const GenericBlob = extern struct {
@@ -1498,6 +1500,4 @@ pub const GenericBlob = extern struct {
 
     /// Total length of blob
     length: u32,
-
-    // data: []const u8,
 };

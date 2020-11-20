@@ -1758,7 +1758,7 @@ fn writecodeSignature(self: *MachO) !void {
     var code_sig = CodeSignature.init(self.base.allocator);
     defer code_sig.deinit();
 
-    try code_sig.calcAdhocSignature();
+    try code_sig.calcAdhocSignature(self);
 
     var buffer = try self.base.allocator.alloc(u8, code_sig.size());
     defer self.base.allocator.free(buffer);

@@ -8,6 +8,8 @@ const mem = std.mem;
 const testing = std.testing;
 const Allocator = mem.Allocator;
 
+const MachO = @import("../MachO.zig");
+
 const Blob = struct {
     inner: macho.CodeDirectory,
     data: std.ArrayListUnmanaged(u8) = .{},
@@ -56,13 +58,17 @@ pub fn init(alloc: *Allocator) CodeSignature {
     };
 }
 
-pub fn calcAdhocSignature(self: *CodeSignature) !void {
+pub fn calcAdhocSignature(self: *CodeSignature, bin_file: *const MachO) !void {
+    const text_segment = bin_file.load_commands.items[bin_file.text_segment_cmd_index.?].Segment;
+    const execSegBase: u64 = text_segment.fileoff;
+    const execSegLimit: u64 = text_segment.filesize;
+    const execSegFlags: u64 = text_segment.flags;
     var blob = Blob{
         .inner = .{
             .magic = macho.CSMAGIC_CODEDIRECTORY,
             .length = @sizeOf(macho.CodeDirectory),
-            .version = 0x20400,
-            .flags = 0,
+            .version = macho.CS_SUPPORTSEXECSEG,
+            .flags = macho.CS_ADHOC,
             .hashOffset = 0,
             .identOffset = 0,
             .nSpecialSlots = 0,
@@ -77,9 +83,9 @@ pub fn calcAdhocSignature(self: *CodeSignature) !void {
             .teamOffset = 0,
             .spare3 = 0,
             .codeLimit64 = 0,
-            .execSegBase = 0,
-            .execSegLimit = 0,
-            .execSegFlags = 0,
+            .execSegBase = execSegBase,
+            .execSegLimit = execSegLimit,
+            .execSegFlags = execSegFlags,
         },
     };
     self.inner.length += @sizeOf(macho.BlobIndex) + blob.size();
