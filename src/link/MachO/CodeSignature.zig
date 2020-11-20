@@ -69,11 +69,12 @@ pub fn calcAdhocSignature(self: *CodeSignature, bin_file: *const MachO) !void {
     const text_segment = bin_file.load_commands.items[bin_file.text_segment_cmd_index.?].Segment;
     const data_segment = bin_file.load_commands.items[bin_file.data_segment_cmd_index.?].Segment;
     const linkedit_segment = bin_file.load_commands.items[bin_file.linkedit_segment_cmd_index.?].Segment;
-    const symtab = bin_file.load_commands.items[bin_file.symtab_cmd_index.?].Symtab;
+    const code_sig_cmd = bin_file.load_commands.items[bin_file.code_signature_cmd_index.?].LinkeditData;
 
     const execSegBase: u64 = text_segment.fileoff;
     const execSegLimit: u64 = text_segment.filesize;
     const execSegFlags: u64 = if (bin_file.base.options.output_mode == .Exe) macho.CS_EXECSEG_MAIN_BINARY else 0;
+    const file_size = code_sig_cmd.dataoff;
     var cdir = CodeDirectory{
         .inner = .{
             .magic = macho.CSMAGIC_CODEDIRECTORY,
@@ -84,7 +85,7 @@ pub fn calcAdhocSignature(self: *CodeSignature, bin_file: *const MachO) !void {
             .identOffset = 0,
             .nSpecialSlots = 0,
             .nCodeSlots = 0,
-            .codeLimit = 0,
+            .codeLimit = @intCast(u32, file_size),
             .hashSize = hash_size,
             .hashType = macho.CS_HASHTYPE_SHA256,
             .platform = 0,
@@ -100,7 +101,6 @@ pub fn calcAdhocSignature(self: *CodeSignature, bin_file: *const MachO) !void {
         },
     };
 
-    const file_size = symtab.stroff + symtab.strsize;
     const total_pages = mem.alignForward(file_size, page_size) / page_size;
     log.debug("Total file size: {}; total number of pages: {}\n", .{ file_size, total_pages });
 

@@ -1760,6 +1760,9 @@ fn writeAllUndefSymbols(self: *MachO) !void {
 
 fn writeCodeSignature(self: *MachO) !void {
     const code_sig_cmd = &self.load_commands.items[self.code_signature_cmd_index.?].LinkeditData;
+    // Pad out the space. We need to do this to calculate valid hashes for everything in the file
+    // except for code signature data.
+    try self.base.file.?.pwriteAll(&[_]u8{0}, code_sig_cmd.dataoff + code_sig_cmd.datasize - 1);
 
     var code_sig = CodeSignature.init(self.base.allocator);
     defer code_sig.deinit();
@@ -1772,7 +1775,6 @@ fn writeCodeSignature(self: *MachO) !void {
     code_sig.write(buffer);
 
     try self.base.file.?.pwriteAll(buffer, code_sig_cmd.dataoff);
-    try self.base.file.?.pwriteAll(&[_]u8{0}, code_sig_cmd.dataoff + code_sig_cmd.datasize - 1);
 }
 
 fn writeExportTrie(self: *MachO) !void {
