@@ -12642,12 +12642,15 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             continue;
         }
 
-        if (prev_type->id == ZigTypeIdInt &&
-                   cur_type->id == ZigTypeIdInt &&
-                   prev_type->data.integral.is_signed == cur_type->data.integral.is_signed)
-        {
+        if (prev_type->id == ZigTypeIdInt && cur_type->id == ZigTypeIdInt) {
             if (cur_type->data.integral.bit_count > prev_type->data.integral.bit_count) {
-                prev_inst = cur_inst;
+                  if (prev_type->data.integral.is_signed == cur_type->data.integral.is_signed) {
+                    prev_inst = cur_inst;
+                  } else if (!cur_type->data.integral.is_signed && cur_type->data.integral.bit_count > 2 * prev_type->data.integral.bit_count) {
+                    prev_inst = cur_inst;
+                  } else if (!prev_type->data.integral.is_signed && prev_type->data.integral.bit_count > floor(cur_type->data.integral.bit_count / 2)) {
+                    prev_inst = cur_inst;
+                  }
             }
             continue;
         }
