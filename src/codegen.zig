@@ -2189,12 +2189,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             if (inst.base.isUnused())
                 return MCValue.dead;
             switch (arch) {
-                .x86_64 => if (inst.base.tag == .booland) {
+                .x86_64 => switch (inst.base.tag) {
                     // lhs AND rhs
-                    return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 4, 0x20);
-                } else {
+                    .booland => return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 4, 0x20),
                     // lhs OR rhs
-                    return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 1, 0x08);
+                    .boolor => return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 1, 0x08),
+                    else => unreachable,
                 },
                 else => return self.fail(inst.base.src, "TODO implement boolean operations for {}", .{self.target.cpu.arch}),
             }
