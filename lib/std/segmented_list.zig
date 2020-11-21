@@ -81,6 +81,108 @@ const Allocator = std.mem.Allocator;
 /// size is small. `prealloc_item_count` must be 0, or a power of 2.
 pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type {
     return struct {
+        unmanaged: Unmanaged,
+        allocator: *Allocator,
+        
+        const Self = @This();
+        const Unmanaged = SegmentedListUnmanaged(T, prealloc_item_count);
+        const Iterator = Unmanaged.Iterator;
+        const ShelfIndex = Unmanaged.ShelfIndex;
+        const AtType = Unmanaged.AtType;
+        
+        pub const prealloc_count = prealloc_item_count;
+        
+        pub fn init(allocator: *Allocator) Self {
+            return .{
+                .unmanaged = Unmanaged.init(),
+                .allocator = allocator,
+            };
+        }
+        
+        pub fn deinit(self: *Self) void {
+            self.unmanaged.deinit(self.allocator);
+            self.* = undefined;
+        }
+        
+        pub fn at(self: anytype, i: usize) AtType(@TypeOf(self)) {
+            return self.unmanaged.at(i);
+        }
+
+        pub fn count(self: Self) usize {
+            return self.unmanaged.len;
+        }
+
+        pub fn push(self: *Self, item: T) !void {
+            return self.unmanaged.push(self.allocator, item);
+        }
+
+        pub fn pushMany(self: *Self, items: []const T) !void {
+            return self.unmanaged.pushMany(self.allocator, items);
+        }
+
+        pub fn pop(self: *Self) ?T {
+            return self.unmanaged.pop();
+        }
+
+        pub fn addOne(self: *Self) !*T {
+            return self.unmanaged.addOne(self.allocator);
+        }
+
+        /// Grows or shrinks capacity to match usage.
+        pub fn setCapacity(self: *Self, new_capacity: usize) !void {
+            return self.unmanaged.setCapacity(self.allocator, new_capacity);
+        }
+
+        /// Only grows capacity, or retains current capacity
+        pub fn growCapacity(self: *Self, new_capacity: usize) !void {
+            return self.unmanaged.growCapacity(self.allocator, new_capacity);
+        }
+
+        /// Only shrinks capacity or retains current capacity
+        pub fn shrinkCapacity(self: *Self, new_capacity: usize) void {
+            return self.unmanaged.shrinkCapacity(self.allocator, new_capacity);
+        }
+
+        pub fn shrink(self: *Self, new_len: usize) void {
+            return self.unmanaged.shrink(new_len);
+        }
+
+        pub fn writeToSlice(self: *Self, dest: []T, start: usize) void {
+            return self.unmanaged.writeToSlice(dest, start);
+        }
+
+        pub fn uncheckedAt(self: anytype, index: usize) AtType(@TypeOf(self)) {
+            return self.unmanaged.uncheckedAt(index);
+        }
+
+        fn shelfCount(box_count: usize) ShelfIndex {
+            return Unmanaged.shelfCount(box_count);
+        }
+
+        fn shelfSize(shelf_index: ShelfIndex) usize {
+            return Unmanaged.shelfSize(shelf_index);
+        }
+
+        fn shelfIndex(list_index: usize) ShelfIndex {
+            return Unmanaged.shelfIndex(list_index);
+        }
+
+        fn boxIndex(list_index: usize, shelf_index: ShelfIndex) usize {
+            return Unmanaged.boxIndex(list_index, shelf_index);
+        }
+
+        fn freeShelves(self: *Self, from_count: ShelfIndex, to_count: ShelfIndex) void {
+            self.unmanaged.freeShelves(self.allocator, from_count, to_count);
+        }
+
+        pub fn iterator(self: *Self, start_index: usize) Iterator {
+            return self.unmanaged.iterator(start_index);
+        }
+    };
+}
+
+pub fn SegmentedListUnmanaged(comptime T: type, comptime prealloc_item_count: usize) type {
+    return struct {
         const Self = @This();
         const ShelfIndex = std.math.Log2Int(usize);
 
@@ -98,7 +200,6 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
         prealloc_segment: [prealloc_item_count]T,
         dynamic_segments: [][*]T,
-        allocator: *Allocator,
         len: usize,
 
         pub const prealloc_count = prealloc_item_count;
@@ -112,18 +213,17 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         }
 
         /// Deinitialize with `deinit`
-        pub fn init(allocator: *Allocator) Self {
+        pub fn init() Self {
             return Self{
-                .allocator = allocator,
                 .len = 0,
                 .prealloc_segment = undefined,
                 .dynamic_segments = &[_][*]T{},
             };
         }
 
-        pub fn deinit(self: *Self) void {
-            self.freeShelves(@intCast(ShelfIndex, self.dynamic_segments.len), 0);
-            self.allocator.free(self.dynamic_segments);
+        pub fn deinit(self: *Self, allocator: *Allocator) void {
+            self.freeShelves(allocator, @intCast(ShelfIndex, self.dynamic_segments.len), 0);
+            allocator.free(self.dynamic_segments);
             self.* = undefined;
         }
 
@@ -136,14 +236,14 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             return self.len;
         }
 
-        pub fn push(self: *Self, item: T) !void {
-            const new_item_ptr = try self.addOne();
+        pub fn push(self: *Self, allocator: *Allocator, item: T) !void {
+            const new_item_ptr = try self.addOne(allocator);
             new_item_ptr.* = item;
         }
 
-        pub fn pushMany(self: *Self, items: []const T) !void {
+        pub fn pushMany(self: *Self, allocator: *Allocator, items: []const T) !void {
             for (items) |item| {
-                try self.push(item);
+                try self.push(allocator, item);
             }
         }
 
@@ -156,47 +256,47 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             return result;
         }
 
-        pub fn addOne(self: *Self) !*T {
+        pub fn addOne(self: *Self, allocator: *Allocator) !*T {
             const new_length = self.len + 1;
-            try self.growCapacity(new_length);
+            try self.growCapacity(allocator, new_length);
             const result = uncheckedAt(self, self.len);
             self.len = new_length;
             return result;
         }
 
         /// Grows or shrinks capacity to match usage.
-        pub fn setCapacity(self: *Self, new_capacity: usize) !void {
+        pub fn setCapacity(self: *Self, allocator: *Allocator, new_capacity: usize) !void {
             if (prealloc_item_count != 0) {
                 if (new_capacity <= @as(usize, 1) << (prealloc_exp + @intCast(ShelfIndex, self.dynamic_segments.len))) {
-                    return self.shrinkCapacity(new_capacity);
+                    return self.shrinkCapacity(allocator, new_capacity);
                 }
             }
-            return self.growCapacity(new_capacity);
+            return self.growCapacity(allocator, new_capacity);
         }
 
         /// Only grows capacity, or retains current capacity
-        pub fn growCapacity(self: *Self, new_capacity: usize) !void {
+        pub fn growCapacity(self: *Self, allocator: *Allocator, new_capacity: usize) !void {
             const new_cap_shelf_count = shelfCount(new_capacity);
             const old_shelf_count = @intCast(ShelfIndex, self.dynamic_segments.len);
             if (new_cap_shelf_count > old_shelf_count) {
-                self.dynamic_segments = try self.allocator.realloc(self.dynamic_segments, new_cap_shelf_count);
+                self.dynamic_segments = try allocator.realloc(self.dynamic_segments, new_cap_shelf_count);
                 var i = old_shelf_count;
                 errdefer {
-                    self.freeShelves(i, old_shelf_count);
-                    self.dynamic_segments = self.allocator.shrink(self.dynamic_segments, old_shelf_count);
+                    self.freeShelves(allocator, i, old_shelf_count);
+                    self.dynamic_segments = allocator.shrink(self.dynamic_segments, old_shelf_count);
                 }
                 while (i < new_cap_shelf_count) : (i += 1) {
-                    self.dynamic_segments[i] = (try self.allocator.alloc(T, shelfSize(i))).ptr;
+                    self.dynamic_segments[i] = (try allocator.alloc(T, shelfSize(i))).ptr;
                 }
             }
         }
 
         /// Only shrinks capacity or retains current capacity
-        pub fn shrinkCapacity(self: *Self, new_capacity: usize) void {
+        pub fn shrinkCapacity(self: *Self, allocator: *Allocator, new_capacity: usize) void {
             if (new_capacity <= prealloc_item_count) {
                 const len = @intCast(ShelfIndex, self.dynamic_segments.len);
-                self.freeShelves(len, 0);
-                self.allocator.free(self.dynamic_segments);
+                self.freeShelves(allocator, len, 0);
+                allocator.free(self.dynamic_segments);
                 self.dynamic_segments = &[_][*]T{};
                 return;
             }
@@ -208,8 +308,8 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
                 return;
             }
 
-            self.freeShelves(old_shelf_count, new_cap_shelf_count);
-            self.dynamic_segments = self.allocator.shrink(self.dynamic_segments, new_cap_shelf_count);
+            self.freeShelves(allocator, old_shelf_count, new_cap_shelf_count);
+            self.dynamic_segments = allocator.shrink(self.dynamic_segments, new_cap_shelf_count);
         }
 
         pub fn shrink(self: *Self, new_len: usize) void {
@@ -283,11 +383,11 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             return list_index + prealloc_item_count - (@as(usize, 1) << ((prealloc_exp + 1) + shelf_index));
         }
 
-        fn freeShelves(self: *Self, from_count: ShelfIndex, to_count: ShelfIndex) void {
+        fn freeShelves(self: *Self, allocator: *Allocator, from_count: ShelfIndex, to_count: ShelfIndex) void {
             var i = from_count;
             while (i != to_count) {
                 i -= 1;
-                self.allocator.free(self.dynamic_segments[i][0..shelfSize(i)]);
+                allocator.free(self.dynamic_segments[i][0..shelfSize(i)]);
             }
         }
 
@@ -390,7 +490,7 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
         var i: usize = 0;
         while (i < 100) : (i += 1) {
             try list.push(@intCast(i32, i + 1));
-            testing.expect(list.len == i + 1);
+            testing.expect(list.unmanaged.len == i + 1);
         }
     }
 
@@ -416,23 +516,23 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
     }
 
     testing.expect(list.pop().? == 100);
-    testing.expect(list.len == 99);
+    testing.expect(list.unmanaged.len == 99);
 
     try list.pushMany(&[_]i32{ 1, 2, 3 });
-    testing.expect(list.len == 102);
+    testing.expect(list.unmanaged.len == 102);
     testing.expect(list.pop().? == 3);
     testing.expect(list.pop().? == 2);
     testing.expect(list.pop().? == 1);
-    testing.expect(list.len == 99);
+    testing.expect(list.unmanaged.len == 99);
 
     try list.pushMany(&[_]i32{});
-    testing.expect(list.len == 99);
+    testing.expect(list.unmanaged.len == 99);
 
     {
         var i: i32 = 99;
         while (list.pop()) |item| : (i -= 1) {
             testing.expect(item == i);
-            list.shrinkCapacity(list.len);
+            list.shrinkCapacity(list.unmanaged.len);
         }
     }
 
