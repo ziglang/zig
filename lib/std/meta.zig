@@ -280,11 +280,15 @@ test "std.meta.declarations" {
 
         fn a() void {}
     };
+    const O1 = opaque {
+        fn a() void {}
+    };
 
     const decls = comptime [_][]const TypeInfo.Declaration{
         declarations(E1),
         declarations(S1),
         declarations(U1),
+        declarations(O1),
     };
 
     inline for (decls) |decl| {
