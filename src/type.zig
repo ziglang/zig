@@ -262,6 +262,12 @@ pub const Type = extern union {
                 return a.optionalChild(&buf_a).eql(b.optionalChild(&buf_b));
             },
             .ErrorSet => {
+                if (a.tag() == .anyerror) {
+                    if (b.tag() == .anyerror)
+                        return true;
+                    return false;
+                }
+
                 if (a.tag() == .error_set_single and b.tag() == .error_set_single) {
                     return std.mem.eql(u8, a.getErrs().err_single, b.getErrs().err_single);
                 }
