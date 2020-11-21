@@ -932,7 +932,12 @@ fn analyzeInstErrorSet(mod: *Module, scope: *Scope, inst: *zir.Inst.ErrorSet) In
 
 fn analyzeInstMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp) InnerError!*Inst {
     const rhs_fields = (try resolveType(mod, scope, inst.positionals.rhs)).getErrs();
-    const lhs_fields = (try resolveType(mod, scope, inst.positionals.rhs)).getErrs();
+    const lhs_fields = (try resolveType(mod, scope, inst.positionals.lhs)).getErrs();
+    if (lhs_fields == .anyerror or rhs_fields == .anyerror)
+        return mod.constInst(scope, inst.base.src, .{
+            .ty = Type.initTag(.type),
+            .val = Value.initTag(.anyerror_type),
+        });
     // The declarations arena will store the hashmap.
     var new_decl_arena = std.heap.ArenaAllocator.init(mod.gpa);
     errdefer new_decl_arena.deinit();
@@ -952,7 +957,7 @@ fn analyzeInstMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp)
         else => unreachable,
     })); // TODO should we do this? only true when no overlapping
 
-    switch (rhs_fields) {
+    switch (lhs_fields) {
         .err_single => |name| {
             const entry = try mod.getErrorValue(name);
             payload.fields.putAssumeCapacity(entry.key, entry.value);
@@ -966,7 +971,8 @@ fn analyzeInstMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp)
         },
         else => unreachable,
     }
-    switch (lhs_fields) {
+
+    switch (rhs_fields) {
         .err_single => |name| {
             const entry = try mod.getErrorValue(name);
             payload.fields.putAssumeCapacity(entry.key, entry.value);
@@ -985,7 +991,11 @@ fn analyzeInstMergeErrorSets(mod: *Module, scope: *Scope, inst: *zir.Inst.BinOp)
         .val = Value.initPayload(&payload.base),
     });
     payload.decl = new_decl;
-    return mod.analyzeDeclRef(scope, inst.base.src, new_decl);
+
+    return mod.constInst(scope, inst.base.src, .{
+        .ty = Type.initTag(.type),
+        .val = Value.initPayload(&payload.base),
+    });
 }
 
 fn analyzeInstEnumLiteral(mod: *Module, scope: *Scope, inst: *zir.Inst.EnumLiteral) InnerError!*Inst {
