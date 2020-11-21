@@ -643,6 +643,15 @@ pub const ExportOptions = struct {
     section: ?[]const u8 = null,
 };
 
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const ExternOptions = struct {
+    name: []const u8,
+    library_name: ?[]const u8 = null,
+    linkage: GlobalLinkage = .Strong,
+    is_thread_local: bool = false,
+};
+
 /// This function type is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const TestFn = struct {

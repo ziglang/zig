@@ -6389,6 +6389,30 @@ static LLVMValueRef ir_render_bswap(CodeGen *g, IrExecutableGen *executable, IrI
     return LLVMBuildTrunc(g->builder, shifted, get_llvm_type(g, expr_type), "");
 }
 
+static LLVMValueRef ir_render_extern(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenExtern *instruction)
+{
+    ZigType *expr_type = instruction->base.value->type;
+    assert(get_src_ptr_type(expr_type));
+
+    const char *symbol_name = buf_ptr(instruction->name);
+    const LLVMLinkage linkage = to_llvm_linkage(instruction->linkage, true);
+
+    LLVMValueRef global_value = LLVMGetNamedGlobal(g->module, symbol_name);
+    if (global_value == nullptr) {
+        global_value = LLVMAddGlobal(g->module, get_llvm_type(g, expr_type), symbol_name);
+        LLVMSetLinkage(global_value, linkage);
+        LLVMSetGlobalConstant(global_value, true);
+        if (instruction->is_thread_local)
+            LLVMSetThreadLocalMode(global_value, LLVMGeneralDynamicTLSModel);
+    } else if (LLVMGetLinkage(global_value) != linkage) {
+        // XXX: Handle this case better!
+        zig_panic("duplicate extern symbol");
+    }
+
+    return LLVMBuildBitCast(g->builder, global_value, get_llvm_type(g, expr_type), "");
+}
+
 static LLVMValueRef ir_render_bit_reverse(CodeGen *g, IrExecutableGen *executable, IrInstGenBitReverse *instruction) {
     LLVMValueRef op = ir_llvm_value(g, instruction->op);
     ZigType *int_type = instruction->base.value->type;
@@ -6902,6 +6926,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutableGen *executabl
             return ir_render_wasm_memory_size(g, executable, (IrInstGenWasmMemorySize *) instruction);
         case IrInstGenIdWasmMemoryGrow:
             return ir_render_wasm_memory_grow(g, executable, (IrInstGenWasmMemoryGrow *) instruction);
+        case IrInstGenIdExtern:
+            return ir_render_extern(g, executable, (IrInstGenExtern *) instruction);
     }
     zig_unreachable();
 }
@@ -8800,6 +8826,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdAlignCast, "alignCast", 2);
     create_builtin_fn(g, BuiltinFnIdSetAlignStack, "setAlignStack", 1);
     create_builtin_fn(g, BuiltinFnIdExport, "export", 2);
+    create_builtin_fn(g, BuiltinFnIdExtern, "extern", 2);
     create_builtin_fn(g, BuiltinFnIdErrorReturnTrace, "errorReturnTrace", 0);
     create_builtin_fn(g, BuiltinFnIdAtomicRmw, "atomicRmw", 5);
     create_builtin_fn(g, BuiltinFnIdAtomicLoad, "atomicLoad", 3);

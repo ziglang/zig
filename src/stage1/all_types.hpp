@@ -1808,6 +1808,7 @@ enum BuiltinFnId {
     BuiltinFnIdThis,
     BuiltinFnIdSetAlignStack,
     BuiltinFnIdExport,
+    BuiltinFnIdExtern,
     BuiltinFnIdErrorReturnTrace,
     BuiltinFnIdAtomicRmw,
     BuiltinFnIdAtomicLoad,
@@ -2619,6 +2620,7 @@ enum IrInstSrcId {
     IrInstSrcIdSetAlignStack,
     IrInstSrcIdArgType,
     IrInstSrcIdExport,
+    IrInstSrcIdExtern,
     IrInstSrcIdErrorReturnTrace,
     IrInstSrcIdErrorUnion,
     IrInstSrcIdAtomicRmw,
@@ -2736,6 +2738,7 @@ enum IrInstGenId {
     IrInstGenIdConst,
     IrInstGenIdWasmMemorySize,
     IrInstGenIdWasmMemoryGrow,
+    IrInstGenIdExtern,
 };
 
 // Common fields between IrInstSrc and IrInstGen. This allows future passes
@@ -4144,6 +4147,21 @@ struct IrInstSrcExport {
 
     IrInstSrc *target;
     IrInstSrc *options;
+};
+
+struct IrInstSrcExtern {
+    IrInstSrc base;
+
+    IrInstSrc *type;
+    IrInstSrc *options;
+};
+
+struct IrInstGenExtern {
+    IrInstGen base;
+
+    Buf *name;
+    GlobalLinkageId linkage;
+    bool is_thread_local;
 };
 
 enum IrInstErrorReturnTraceOptional {
