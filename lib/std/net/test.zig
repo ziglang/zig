@@ -165,6 +165,7 @@ test "listen on a port, send bytes, receive bytes" {
     defer t.wait();
 
     var client = try server.accept();
+    defer client.stream.close();
     var buf: [16]u8 = undefined;
     const n = try client.stream.reader().read(&buf);
 
@@ -251,4 +252,38 @@ fn testServer(server: *net.StreamServer) anyerror!void {
 
     const stream = client.stream.writer();
     try stream.print("hello from server\n", .{});
+}
+
+test "listen on a unix socket, send bytes, receive bytes" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+    if (!net.has_unix_sockets) return error.SkipZigTest;
+
+    var server = net.StreamServer.init(.{});
+    defer server.deinit();
+
+    const socket_path = "socket.unix";
+
+    var socket_addr = try net.Address.initUnix(socket_path);
+    defer std.fs.cwd().deleteFile(socket_path) catch {};
+    try server.listen(socket_addr);
+
+    const S = struct {
+        fn clientFn(_: void) !void {
+            const socket = try net.connectUnixSocket(socket_path);
+            defer socket.close();
+
+            _ = try socket.writer().writeAll("Hello world!");
+        }
+    };
+
+    const t = try std.Thread.spawn({}, S.clientFn);
+    defer t.wait();
+
+    var client = try server.accept();
+    defer client.stream.close();
+    var buf: [16]u8 = undefined;
+    const n = try client.stream.reader().read(&buf);
+
+    testing.expectEqual(@as(usize, 12), n);
+    testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
 }
