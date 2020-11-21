@@ -386,6 +386,11 @@ fn clone() callconv(.Naked) void {
             );
         },
         .arm => {
+            // __clone(func, stack, flags, arg, ptid, tls, ctid)
+            //           r0,    r1,    r2,  r3,   +0,  +4,   +8
+
+            // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+            //                r7     r0,    r1,   r2,  r3,   r4
             asm volatile (
                 \\    stmfd sp!,{r4,r5,r6,r7}
                 \\    mov r7,#120
@@ -445,6 +450,11 @@ fn clone() callconv(.Naked) void {
             );
         },
         .mips, .mipsel => {
+            // __clone(func, stack, flags, arg, ptid, tls, ctid)
+            //            3,     4,     5,   6,    7,   8,    9
+
+            // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+            //                 2      4,     5,    6,   7,    8
             asm volatile (
                 \\  # Save function pointer and argument pointer on new thread stack
                 \\  and $5, $5, -8
@@ -465,12 +475,14 @@ fn clone() callconv(.Naked) void {
                 \\  addu $sp, $sp, 16
                 \\  jr $ra
                 \\  subu $2, $0, $2
-                \\1:  beq $2, $0, 1f
+                \\1:
+                \\  beq $2, $0, 1f
                 \\  nop
                 \\  addu $sp, $sp, 16
                 \\  jr $ra
                 \\  nop
-                \\1:  lw $25, 0($sp)
+                \\1:
+                \\  lw $25, 0($sp)
                 \\  lw $4, 4($sp)
                 \\  jalr $25
                 \\  nop
@@ -480,51 +492,48 @@ fn clone() callconv(.Naked) void {
             );
         },
         .powerpc64, .powerpc64le => {
+            // __clone(func, stack, flags, arg, ptid, tls, ctid)
+            //            3,     4,     5,   6,    7,   8,    9
+
+            // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+            //                 0      3,     4,    5,   6,    7
             asm volatile (
-                \\  # store non-volatile regs r30, r31 on stack in order to put our
-                \\  # start func and its arg there
-                \\  stwu 30, -16(1)
-                \\  stw 31, 4(1)
-                \\  # save r3 (func) into r30, and r6(arg) into r31
-                \\  mr 30, 3
-                \\  mr 31, 6
                 \\  # create initial stack frame for new thread
-                \\  clrrwi 4, 4, 4
-                \\  li 0, 0
-                \\  stwu 0, -16(4)
-                \\  #move c into first arg
-                \\  mr 3, 5
-                \\  mr 5, 7
-                \\  mr 6, 8
-                \\  mr 7, 9
-                \\  # move syscall number into r0
-                \\  li 0, 120
+                \\  clrrdi 4, 4, 4
+                \\  li     0, 0
+                \\  stdu   0,-32(4)
+                \\
+                \\  # save fn and arg to child stack
+                \\  std    3,  8(4)
+                \\  std    6, 16(4)
+                \\
+                \\  # shuffle args into correct registers and call SYS_clone
+                \\  mr    3, 5
+                \\  #mr   4, 4
+                \\  mr    5, 7
+                \\  mr    6, 8
+                \\  mr    7, 9
+                \\  li    0, 120  # SYS_clone = 120
                 \\  sc
-                \\  # check for syscall error
-                \\  bns+ 1f # jump to label 1 if no summary overflow.
-                \\  #else
-                \\  neg 3, 3 #negate the result (errno)
+                \\
+                \\  # if error, negate return (errno)
+                \\  bns+  1f
+                \\  neg   3, 3
+                \\
                 \\1:
-                \\  # compare sc result with 0
+                \\  # if we're the parent, return
                 \\  cmpwi cr7, 3, 0
-                \\  # if not 0, jump to end
-                \\  bne cr7, 2f
-                \\  #else: we're the child
-                \\  #call funcptr: move arg (d) into r3
-                \\  mr 3, 31
-                \\  #move r30 (funcptr) into CTR reg
-                \\  mtctr 30
-                \\  # call CTR reg
+                \\  bnelr cr7
+                \\
+                \\  # we're the child. call fn(arg)
+                \\  ld     3, 16(1)
+                \\  ld    12,  8(1)
+                \\  mtctr 12
                 \\  bctrl
-                \\  # mov SYS_exit into r0 (the exit param is already in r3)
-                \\  li 0, 1
+                \\
+                \\  # call SYS_exit. exit code is already in r3 from fn return value
+                \\  li    0, 1    # SYS_exit = 1
                 \\  sc
-                \\2:
-                \\  # restore stack
-                \\  lwz 30, 0(1)
-                \\  lwz 31, 4(1)
-                \\  addi 1, 1, 16
-                \\  blr
             );
         },
         .sparcv9 => {
