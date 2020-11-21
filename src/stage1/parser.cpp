@@ -1652,18 +1652,21 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
     // TODO: This is not in line with the grammar.
     //       Because the prev stage 1 tokenizer does not parse
     //       @[a-zA-Z_][a-zA-Z0-9_] as one token, it has to do a
-    //       hack, where it accepts '@' (IDENTIFIER / KEYWORD_export).
+    //       hack, where it accepts '@' (IDENTIFIER / KEYWORD_export /
+    //       KEYWORD_extern).
     //       I'd say that it's better if '@' is part of the builtin
     //       identifier token.
     Token *at_sign = eat_token_if(pc, TokenIdAtSign);
     if (at_sign != nullptr) {
         Buf *name;
-        Token *token = eat_token_if(pc, TokenIdKeywordExport);
-        if (token == nullptr) {
+        Token *token;
+        if ((token = eat_token_if(pc, TokenIdKeywordExport)) != nullptr) {
+            name = buf_create_from_str("export");
+        } else if ((token = eat_token_if(pc, TokenIdKeywordExtern)) != nullptr) {
+            name = buf_create_from_str("extern");
+        } else {
             token = expect_token(pc, TokenIdSymbol);
             name = token_buf(token);
-        } else {
-            name = buf_create_from_str("export");
         }
 
         AstNode *res = ast_expect(pc, ast_parse_fn_call_arguments);
