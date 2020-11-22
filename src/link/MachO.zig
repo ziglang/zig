@@ -125,6 +125,9 @@ got_section_index: ?u16 = null,
 
 entry_addr: ?u64 = null,
 
+// TODO move this into each Segment aggregator
+linkedit_segment_next_offset: ?u32 = null,
+
 /// Table of all local symbols
 /// Internally references string table for names (which are optional).
 local_symbols: std.ArrayListUnmanaged(macho.nlist_64) = .{},
@@ -330,34 +333,13 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    // Unfortunately these have to be buffered and done at the end because MachO does not allow
-    // mixing local, global and undefined symbols within a symbol table.
-    try self.writeAllGlobalSymbols();
-    try self.writeAllUndefSymbols();
-
-    try self.writeStringTable();
-
     switch (self.base.options.output_mode) {
         .Exe => {
-            // Write export trie.
-            try self.writeExportTrie();
             if (self.entry_addr) |addr| {
                 // Update LC_MAIN with entry offset.
                 const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].Segment;
                 const main_cmd = &self.load_commands.items[self.main_cmd_index.?].EntryPoint;
                 main_cmd.entryoff = addr - text_segment.vmaddr;
-            }
-            {
-                // Update dynamic symbol table.
-                const nlocals = @intCast(u32, self.local_symbols.items.len);
-                const nglobals = @intCast(u32, self.global_symbols.items.len);
-                const nundefs = @intCast(u32, self.undef_symbols.items.len);
-                const dysymtab = &self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
-                dysymtab.nlocalsym = nlocals;
-                dysymtab.iextdefsym = nlocals;
-                dysymtab.nextdefsym = nglobals;
-                dysymtab.iundefsym = nlocals + nglobals;
-                dysymtab.nundefsym = nundefs;
             }
             if (self.dylinker_cmd_dirty) {
                 // Write path to dyld loader.
@@ -385,30 +367,20 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                 try self.base.file.?.pwriteAll(mem.spanZ(LIB_SYSTEM_PATH), off);
                 self.libsystem_cmd_dirty = false;
             }
+
+            try self.writeExportTrie();
+            try self.writeSymbolTable();
+            try self.writeStringTable();
+
+            // Preallocate space for the code signature.
+            // We need to do this at this stage so that we have the load commands with proper values
+            // written out to the file.
+            // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
+            // where the code signature goes into.
+            try self.writeCodeSignaturePadding();
         },
         .Obj => {},
         .Lib => return error.TODOImplementWritingLibFiles,
-    }
-
-    {
-        // Update symbol table.
-        const nlocals = @intCast(u32, self.local_symbols.items.len);
-        const nglobals = @intCast(u32, self.global_symbols.items.len);
-        const nundefs = @intCast(u32, self.undef_symbols.items.len);
-        const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
-        symtab.nsyms = nlocals + nglobals + nundefs;
-    }
-
-    // TODO rework how we preallocate space for the entire __LINKEDIT segment instead of
-    // doing dynamic updates like this.
-    if (self.code_signature_cmd_index) |i| {
-        const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
-        const code_sig = &self.load_commands.items[self.code_signature_cmd_index.?].LinkeditData;
-        linkedit.filesize = code_sig.dataoff + code_sig.datasize - linkedit.fileoff;
-    } else {
-        const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
-        const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
-        linkedit.filesize = symtab.stroff + symtab.strsize - linkedit.fileoff;
     }
 
     if (self.cmd_table_dirty) {
@@ -1003,8 +975,6 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         symbol.n_type = macho.N_SECT;
         symbol.n_sect = @intCast(u8, self.text_section_index.?) + 1;
         symbol.n_desc = 0;
-        // TODO this write could be avoided if no fields of the symbol were changed.
-        try self.writeSymbol(decl.link.macho.local_sym_index);
     } else {
         const decl_name = mem.spanZ(decl.name);
         const name_str_index = try self.makeString(decl_name);
@@ -1020,8 +990,6 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             .n_value = addr,
         };
         self.offset_table.items[decl.link.macho.offset_table_index] = addr;
-
-        try self.writeSymbol(decl.link.macho.local_sym_index);
         try self.writeOffsetTableEntry(decl.link.macho.offset_table_index);
     }
 
@@ -1241,7 +1209,9 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         data_segment.nsects += 1;
 
         const file_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
-        const off = @intCast(u32, self.findFreeSpace(file_size, self.page_size));
+        // TODO looking for free space should be done *within* a segment it belongs to
+        // const off = @intCast(u32, self.findFreeSpace(file_size, self.page_size));
+        const off = @intCast(u32, data_segment.fileoff);
 
         log.debug("found __got section free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
 
@@ -1263,7 +1233,6 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         const segment_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
         data_segment.vmsize = segment_size;
         data_segment.filesize = segment_size;
-        data_segment.fileoff = off;
         self.cmd_table_dirty = true;
     }
     if (self.linkedit_segment_cmd_index == null) {
@@ -1271,6 +1240,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
         const maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE | macho.VM_PROT_EXECUTE;
         const initprot = macho.VM_PROT_READ;
+        const off = data_segment.fileoff + data_segment.filesize;
         try self.load_commands.append(self.base.allocator, .{
             .Segment = .{
                 .cmd = macho.LC_SEGMENT_64,
@@ -1278,7 +1248,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .segname = makeStaticString("__LINKEDIT"),
                 .vmaddr = data_segment.vmaddr + data_segment.vmsize,
                 .vmsize = 0,
-                .fileoff = 0,
+                .fileoff = off,
                 .filesize = 0,
                 .maxprot = maxprot,
                 .initprot = initprot,
@@ -1286,6 +1256,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .flags = 0,
             },
         });
+        self.linkedit_segment_next_offset = @intCast(u32, off);
         self.cmd_table_dirty = true;
     }
     if (self.dyld_info_cmd_index == null) {
@@ -1437,62 +1408,6 @@ pub fn populateMissingMetadata(self: *MachO) !void {
                 .datasize = 0,
             },
         });
-    }
-    {
-        const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
-        const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfo;
-        if (dyld_info.export_off == 0) {
-            const nsyms = self.base.options.symbol_count_hint;
-            const file_size = @sizeOf(u64) * nsyms;
-            const off = @intCast(u32, self.findFreeSpace(file_size, self.page_size));
-            log.debug("found export trie free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
-            dyld_info.export_off = off;
-            dyld_info.export_size = @intCast(u32, file_size);
-
-            const segment_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
-            linkedit.vmsize += segment_size;
-            linkedit.fileoff = off;
-        }
-    }
-    {
-        const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
-        const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
-        if (symtab.symoff == 0) {
-            const nsyms = self.base.options.symbol_count_hint;
-            const file_size = @sizeOf(macho.nlist_64) * nsyms;
-            const off = @intCast(u32, self.findFreeSpace(file_size, self.page_size));
-            log.debug("found symbol table free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
-            symtab.symoff = off;
-            symtab.nsyms = @intCast(u32, nsyms);
-
-            const segment_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
-            linkedit.vmsize += segment_size;
-        }
-        if (symtab.stroff == 0) {
-            try self.string_table.append(self.base.allocator, 0);
-            const file_size = @intCast(u32, self.string_table.items.len);
-            const off = @intCast(u32, self.findFreeSpace(file_size, self.page_size));
-            log.debug("found string table free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
-            symtab.stroff = off;
-            symtab.strsize = file_size;
-
-            const segment_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
-            linkedit.vmsize += segment_size;
-        }
-    }
-    {
-        const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
-        const code_sig = &self.load_commands.items[self.code_signature_cmd_index.?].LinkeditData;
-        if (code_sig.dataoff == 0) {
-            const file_size = 0x1000; // TODO what is a good guesstimate for initial code signature?
-            const off = @intCast(u32, self.findFreeSpace(file_size, self.page_size));
-            log.debug("found code signature free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
-            code_sig.dataoff = off;
-            code_sig.datasize = file_size;
-
-            const segment_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
-            linkedit.vmsize += segment_size;
-        }
     }
     if (self.dyld_stub_binder_index == null) {
         self.dyld_stub_binder_index = @intCast(u16, self.undef_symbols.items.len);
@@ -1719,17 +1634,6 @@ fn findFreeSpace(self: *MachO, object_size: u64, min_alignment: u16) u64 {
     return start;
 }
 
-fn writeSymbol(self: *MachO, index: usize) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
-    const sym = [1]macho.nlist_64{self.local_symbols.items[index]};
-    const off = symtab.symoff + @sizeOf(macho.nlist_64) * index;
-    log.debug("writing symbol {} at 0x{x}\n", .{ sym[0], off });
-    try self.base.file.?.pwriteAll(mem.sliceAsBytes(sym[0..1]), off);
-}
-
 fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
     const sect = &self.sections.items[self.got_section_index.?];
     const endian = self.base.options.target.cpu.arch.endian();
@@ -1740,30 +1644,72 @@ fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
     try self.base.file.?.pwriteAll(&buf, off);
 }
 
-fn writeAllGlobalSymbols(self: *MachO) !void {
+fn writeSymbolTable(self: *MachO) !void {
+    // TODO workout how we can cache these so that we only overwrite symbols that were updated
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
-    const off = symtab.symoff + self.local_symbols.items.len * @sizeOf(macho.nlist_64);
-    const file_size = self.global_symbols.items.len * @sizeOf(macho.nlist_64);
-    log.debug("writing global symbols from 0x{x} to 0x{x}\n", .{ off, file_size + off });
-    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.global_symbols.items), off);
+
+    const locals_off = self.linkedit_segment_next_offset.?;
+    const locals_size = self.local_symbols.items.len * @sizeOf(macho.nlist_64);
+    log.debug("writing local symbols from 0x{x} to 0x{x}\n", .{ locals_off, locals_size + locals_off });
+    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.local_symbols.items), locals_off);
+
+    const globals_off = locals_off + locals_size;
+    const globals_size = self.global_symbols.items.len * @sizeOf(macho.nlist_64);
+    log.debug("writing global symbols from 0x{x} to 0x{x}\n", .{ globals_off, globals_size + globals_off });
+    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.global_symbols.items), globals_off);
+
+    const undefs_off = globals_off + globals_size;
+    const undefs_size = self.undef_symbols.items.len * @sizeOf(macho.nlist_64);
+    log.debug("writing undef symbols from 0x{x} to 0x{x}\n", .{ undefs_off, undefs_size + undefs_off });
+    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.undef_symbols.items), undefs_off);
+
+    // Update symbol table.
+    const nlocals = @intCast(u32, self.local_symbols.items.len);
+    const nglobals = @intCast(u32, self.global_symbols.items.len);
+    const nundefs = @intCast(u32, self.undef_symbols.items.len);
+    symtab.symoff = self.linkedit_segment_next_offset.?;
+    symtab.nsyms = nlocals + nglobals + nundefs;
+    self.linkedit_segment_next_offset = symtab.symoff + symtab.nsyms * @sizeOf(macho.nlist_64);
+
+    // Update dynamic symbol table.
+    const dysymtab = &self.load_commands.items[self.dysymtab_cmd_index.?].Dysymtab;
+    dysymtab.nlocalsym = nlocals;
+    dysymtab.iextdefsym = nlocals;
+    dysymtab.nextdefsym = nglobals;
+    dysymtab.iundefsym = nlocals + nglobals;
+    dysymtab.nundefsym = nundefs;
+
+    // Advance size of __LINKEDIT segment
+    const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    linkedit.filesize += symtab.nsyms * @sizeOf(macho.nlist_64);
+    if (linkedit.vmsize < linkedit.filesize) {
+        linkedit.vmsize = mem.alignForwardGeneric(u64, linkedit.filesize, self.page_size);
+    }
+    self.cmd_table_dirty = true;
 }
 
-fn writeAllUndefSymbols(self: *MachO) !void {
-    const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
-    const nlocals = self.local_symbols.items.len;
-    const nglobals = self.global_symbols.items.len;
-    const off = symtab.symoff + (nlocals + nglobals) * @sizeOf(macho.nlist_64);
-    const file_size = self.undef_symbols.items.len * @sizeOf(macho.nlist_64);
-    log.debug("writing undef symbols from 0x{x} to 0x{x}\n", .{ off, file_size + off });
-    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.undef_symbols.items), off);
+fn writeCodeSignaturePadding(self: *MachO) !void {
+    const code_sig_cmd = &self.load_commands.items[self.code_signature_cmd_index.?].LinkeditData;
+    const fileoff = self.linkedit_segment_next_offset.?;
+    const datasize: u32 = 0x1000; // TODO Calculate the expected size of the signature.
+    code_sig_cmd.dataoff = fileoff;
+    code_sig_cmd.datasize = datasize;
+
+    self.linkedit_segment_next_offset = fileoff + datasize;
+    // Advance size of __LINKEDIT segment
+    const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    linkedit.filesize += datasize;
+    if (linkedit.vmsize < linkedit.filesize) {
+        linkedit.vmsize = mem.alignForwardGeneric(u64, linkedit.filesize, self.page_size);
+    }
+    log.debug("writing code signature padding from 0x{x} to 0x{x}\n", .{ fileoff, fileoff + datasize });
+    // Pad out the space. We need to do this to calculate valid hashes for everything in the file
+    // except for code signature data.
+    try self.base.file.?.pwriteAll(&[_]u8{0}, fileoff + datasize - 1);
 }
 
 fn writeCodeSignature(self: *MachO) !void {
     const code_sig_cmd = &self.load_commands.items[self.code_signature_cmd_index.?].LinkeditData;
-    // Pad out the space. We need to do this to calculate valid hashes for everything in the file
-    // except for code signature data.
-    try self.base.file.?.pwriteAll(&[_]u8{0}, code_sig_cmd.dataoff + code_sig_cmd.datasize - 1);
-
     var code_sig = CodeSignature.init(self.base.allocator);
     defer code_sig.deinit();
 
@@ -1780,7 +1726,7 @@ fn writeCodeSignature(self: *MachO) !void {
 }
 
 fn writeExportTrie(self: *MachO) !void {
-    if (self.global_symbols.items.len == 0) return; // No exports, nothing to do.
+    assert(self.global_symbols.items.len > 0);
 
     var trie: Trie = .{};
     defer trie.deinit(self.base.allocator);
@@ -1803,23 +1749,51 @@ fn writeExportTrie(self: *MachO) !void {
     try trie.writeULEB128Mem(self.base.allocator, &buffer);
 
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].DyldInfo;
+    const export_size = @intCast(u32, mem.alignForward(buffer.items.len, @sizeOf(u64)));
+    dyld_info.export_off = self.linkedit_segment_next_offset.?;
+    dyld_info.export_size = export_size;
+
+    log.debug("writing export trie from 0x{x} to 0x{x}\n", .{ dyld_info.export_off, dyld_info.export_off + export_size });
+
+    if (export_size > buffer.items.len) {
+        // Pad out to align(8).
+        try self.base.file.?.pwriteAll(&[_]u8{ 0 }, dyld_info.export_off + export_size);
+    }
     try self.base.file.?.pwriteAll(buffer.items, dyld_info.export_off);
+
+    self.linkedit_segment_next_offset = dyld_info.export_off + dyld_info.export_size;
+    // Advance size of __LINKEDIT segment
+    const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    linkedit.filesize += dyld_info.export_size;
+    if (linkedit.vmsize < linkedit.filesize) {
+        linkedit.vmsize = mem.alignForwardGeneric(u64, linkedit.filesize, self.page_size);
+    }
+    self.cmd_table_dirty = true;
 }
 
 fn writeStringTable(self: *MachO) !void {
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].Symtab;
-    const allocated_size = self.allocatedSize(symtab.stroff);
     const needed_size = self.string_table.items.len;
 
-    if (needed_size > allocated_size) {
-        symtab.strsize = 0;
-        symtab.stroff = @intCast(u32, self.findFreeSpace(needed_size, 1));
-    }
-    symtab.strsize = @intCast(u32, needed_size);
+    symtab.stroff = self.linkedit_segment_next_offset.?;
+    symtab.strsize = @intCast(u32, mem.alignForward(needed_size, @sizeOf(u64)));
 
     log.debug("writing string table from 0x{x} to 0x{x}\n", .{ symtab.stroff, symtab.stroff + symtab.strsize });
 
+    if (symtab.strsize > needed_size) {
+        // Pad out to align(8);
+        try self.base.file.?.pwriteAll(&[_]u8{ 0 }, symtab.stroff + symtab.strsize);
+    }
     try self.base.file.?.pwriteAll(self.string_table.items, symtab.stroff);
+
+    self.linkedit_segment_next_offset = symtab.stroff + symtab.strsize;
+    // Advance size of __LINKEDIT segment
+    const linkedit = &self.load_commands.items[self.linkedit_segment_cmd_index.?].Segment;
+    linkedit.filesize += symtab.strsize;
+    if (linkedit.vmsize < linkedit.filesize) {
+        linkedit.vmsize = mem.alignForwardGeneric(u64, linkedit.filesize, self.page_size);
+    }
+    self.cmd_table_dirty = true;
 }
 
 fn writeCmdHeaders(self: *MachO) !void {
