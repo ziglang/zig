@@ -490,7 +490,7 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
         var i: usize = 0;
         while (i < 100) : (i += 1) {
             try list.push(@intCast(i32, i + 1));
-            testing.expect(list.unmanaged.len == i + 1);
+            testing.expect(list.count() == i + 1);
         }
     }
 
@@ -516,23 +516,23 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
     }
 
     testing.expect(list.pop().? == 100);
-    testing.expect(list.unmanaged.len == 99);
+    testing.expect(list.count() == 99);
 
     try list.pushMany(&[_]i32{ 1, 2, 3 });
-    testing.expect(list.unmanaged.len == 102);
+    testing.expect(list.count() == 102);
     testing.expect(list.pop().? == 3);
     testing.expect(list.pop().? == 2);
     testing.expect(list.pop().? == 1);
-    testing.expect(list.unmanaged.len == 99);
+    testing.expect(list.count() == 99);
 
     try list.pushMany(&[_]i32{});
-    testing.expect(list.unmanaged.len == 99);
+    testing.expect(list.count() == 99);
 
     {
         var i: i32 = 99;
         while (list.pop()) |item| : (i -= 1) {
             testing.expect(item == i);
-            list.shrinkCapacity(list.unmanaged.len);
+            list.shrinkCapacity(list.count());
         }
     }
 
