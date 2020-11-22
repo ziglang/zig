@@ -490,7 +490,7 @@ fn buildOutputType(
     var target_dynamic_linker: ?[]const u8 = null;
     var target_ofmt: ?[]const u8 = null;
     var output_mode: std.builtin.OutputMode = undefined;
-    var emit_h: Emit = undefined;
+    var emit_h: Emit = .no;
     var soname: SOName = undefined;
     var ensure_libc_on_non_freestanding = false;
     var ensure_libcpp_on_non_freestanding = false;
@@ -589,14 +589,6 @@ fn buildOutputType(
                 .zig_test, .run => {
                     output_mode = .Exe;
                 },
-                else => unreachable,
-            }
-            switch (arg_mode) {
-                .build => switch (output_mode) {
-                    .Exe => emit_h = .no,
-                    .Obj, .Lib => emit_h = .yes_default_path,
-                },
-                .translate_c, .zig_test, .run => emit_h = .no,
                 else => unreachable,
             }
 
