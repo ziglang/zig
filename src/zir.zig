@@ -127,9 +127,8 @@ pub const Inst = struct {
         coerce_to_ptr_elem,
         /// Emit an error message and fail compilation.
         compileerror,
-        /// Changes the maximum number of backwards branches that compile-time
-        /// code execution can use before giving up and making a compile error.
-        set_eval_branch_quota,
+        /// Log compile time variables and emit an error message.
+        compilelog,
         /// Conditional branch. Splits control flow based on a boolean condition value.
         condbr,
         /// Special case, has no textual representation.
@@ -223,6 +222,9 @@ pub const Inst = struct {
         @"return",
         /// Same as `return` but there is no operand; the operand is implicitly the void value.
         returnvoid,
+        /// Changes the maximum number of backwards branches that compile-time
+        /// code execution can use before giving up and making a compile error.
+        set_eval_branch_quota,
         /// Integer shift-left. Zeroes are shifted in from the right hand side.
         shl,
         /// Integer shift-right. Arithmetic or logical depending on the signedness of the integer type.
@@ -407,6 +409,7 @@ pub const Inst = struct {
                 .declval => DeclVal,
                 .declval_in_module => DeclValInModule,
                 .coerce_result_block_ptr => CoerceResultBlockPtr,
+                .compilelog => CompileLog,
                 .loop => Loop,
                 .@"const" => Const,
                 .str => Str,
@@ -540,6 +543,7 @@ pub const Inst = struct {
                 .typeof_peer,
                 .resolve_inferred_alloc,
                 .set_eval_branch_quota,
+                .compilelog,
                 => false,
 
                 .@"break",
@@ -721,6 +725,19 @@ pub const Inst = struct {
             block: *Block,
         },
         kw_args: struct {},
+    };
+
+    pub const CompileLog = struct {
+        pub const base_tag = Tag.compilelog;
+        base: Inst,
+
+        positionals: struct {
+            to_log: []*Inst,
+        },
+        kw_args: struct {
+            /// If we have seen it already so don't make another error
+            seen: bool = false,
+        },
     };
 
     pub const Const = struct {

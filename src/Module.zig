@@ -61,6 +61,8 @@ failed_decls: std.AutoArrayHashMapUnmanaged(*Decl, *Compilation.ErrorMsg) = .{},
 /// emit-h failing for that Decl. This table is also how we tell if a Decl has
 /// failed emit-h or succeeded.
 emit_h_failed_decls: std.AutoArrayHashMapUnmanaged(*Decl, *Compilation.ErrorMsg) = .{},
+/// A Decl can have multiple compileLogs, but only one error, so we map a Decl to a the src locs of all the compileLogs
+compile_log_decls: std.AutoArrayHashMapUnmanaged(*Decl, ArrayListUnmanaged(usize)) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `Scope`, using Module's general purpose allocator.
 failed_files: std.AutoArrayHashMapUnmanaged(*Scope, *Compilation.ErrorMsg) = .{},
@@ -935,6 +937,11 @@ pub fn deinit(self: *Module) void {
         entry.value.destroy(gpa);
     }
     self.failed_exports.deinit(gpa);
+
+    for (self.compile_log_decls.items()) |*entry| {
+        entry.value.deinit(gpa);
+    }
+    self.compile_log_decls.deinit(gpa);
 
     for (self.decl_exports.items()) |entry| {
         const export_list = entry.value;
@@ -1881,6 +1888,9 @@ pub fn deleteDecl(self: *Module, decl: *Decl) !void {
     if (self.emit_h_failed_decls.remove(decl)) |entry| {
         entry.value.destroy(self.gpa);
     }
+    if (self.compile_log_decls.remove(decl)) |*entry| {
+        entry.value.deinit(self.gpa);
+    }
     self.deleteDeclExports(decl);
     self.comp.bin_file.freeDecl(decl);
 
@@ -1970,6 +1980,9 @@ fn markOutdatedDecl(self: *Module, decl: *Decl) !void {
     }
     if (self.emit_h_failed_decls.remove(decl)) |entry| {
         entry.value.destroy(self.gpa);
+    }
+    if (self.compile_log_decls.remove(decl)) |*entry| {
+        entry.value.deinit(self.gpa);
     }
     decl.analysis = .outdated;
 }
@@ -3149,6 +3162,44 @@ pub fn failNode(
     @setCold(true);
     const src = scope.tree().token_locs[ast_node.firstToken()].start;
     return self.fail(scope, src, format, args);
+}
+
+fn addCompileLog(self: *Module, decl: *Decl, src: usize) error{OutOfMemory}!void {
+    const entry = try self.compile_log_decls.getOrPutValue(self.gpa, decl, .{});
+    try entry.value.append(self.gpa, src);
+}
+
+pub fn failCompileLog(
+    self: *Module,
+    scope: *Scope,
+    src: usize,
+) InnerError!void {
+    switch (scope.tag) {
+        .decl => {
+            const decl = scope.cast(Scope.DeclAnalysis).?.decl;
+            try self.addCompileLog(decl, src);
+        },
+        .block => {
+            const block = scope.cast(Scope.Block).?;
+            try self.addCompileLog(block.decl, src);
+        },
+        .gen_zir => {
+            const gen_zir = scope.cast(Scope.GenZIR).?;
+            try self.addCompileLog(gen_zir.decl, src);
+        },
+        .local_val => {
+            const gen_zir = scope.cast(Scope.LocalVal).?.gen_zir;
+            try self.addCompileLog(gen_zir.decl, src);
+        },
+        .local_ptr => {
+            const gen_zir = scope.cast(Scope.LocalPtr).?.gen_zir;
+            try self.addCompileLog(gen_zir.decl, src);
+        },
+        .zir_module,
+        .file,
+        .container,
+        => unreachable,
+    }
 }
 
 fn failWithOwnedErrorMsg(self: *Module, scope: *Scope, src: usize, err_msg: *Compilation.ErrorMsg) InnerError {

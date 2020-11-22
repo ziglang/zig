@@ -1243,6 +1243,24 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &[_][]const u8{":3:9: error: redefinition of 'testing'"});
     }
+    ctx.compileError("compileLog", linux_x64,
+        \\export fn _start() noreturn {
+        \\  const b = true;
+        \\  var f: u32 = 1;
+        \\  @compileLog(b, 20, f, x);
+        \\  @compileLog(1000);
+        \\  var bruh: usize = true;
+        \\  unreachable;
+        \\}
+        \\fn x() void {}
+    , &[_][]const u8{
+        ":4:3: error: found compile log statement",
+        ":5:3: error: found compile log statement",
+        ":6:21: error: expected usize, found bool",
+    });
+    // TODO if this is here it invalidates the compile error checker:
+    // "| true, 20, (runtime value), (function)"
+    // "| 1000"
 
     {
         var case = ctx.obj("extern variable has no type", linux_x64);
