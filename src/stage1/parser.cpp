@@ -2530,8 +2530,8 @@ static AstNode *ast_parse_bitwise_op(ParseContext *pc) {
 
     BinOpType op = table[peek_token(pc)->id];
     if (op != BinOpTypeInvalid) {
-        if (op == BinOpTypeBinOr && peek_token_i(pc, 1)->id == TokenIdLBrace) {
-            return nullptr; // Cannot have | { in a Bitwise or
+        if (op != BinOpTypeUnwrapOptional && peek_token_i(pc, 1)->id == TokenIdLBrace) {
+            return nullptr; // Bin op with block is invalid
         }
         Token *op_token = eat_token(pc);
         AstNode *res = ast_create_node(pc, NodeTypeBinOpExpr, op_token);
