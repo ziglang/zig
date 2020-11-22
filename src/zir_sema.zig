@@ -501,7 +501,11 @@ fn analyzeInstCompileLog(mod: *Module, scope: *Scope, inst: *zir.Inst.CompileLog
         if (i != inst.positionals.to_log.len - 1) std.debug.print(", ", .{});
     }
     std.debug.print("\n", .{});
-    return mod.fail(scope, inst.base.src, "found compile log statement", .{});
+    switch (mod.fail(scope, inst.base.src, "found compile log statement", .{})) {
+        error.AnalysisFail => {},
+        else => |e| return e,
+    }
+    return mod.constVoid(scope, inst.base.src);
 }
 
 fn analyzeInstArg(mod: *Module, scope: *Scope, inst: *zir.Inst.Arg) InnerError!*Inst {
