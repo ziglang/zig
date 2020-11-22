@@ -115,6 +115,7 @@ pub extern "kernel32" fn GetModuleFileNameW(hModule: ?HMODULE, lpFilename: [*]u1
 pub extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*:0]const WCHAR) callconv(WINAPI) ?HMODULE;
 
 pub extern "kernel32" fn GetLastError() callconv(WINAPI) Win32Error;
+pub extern "kernel32" fn SetLastError(dwErrCode: Win32Error) callconv(WINAPI) void;
 
 pub extern "kernel32" fn GetFileInformationByHandle(
     hFile: HANDLE,

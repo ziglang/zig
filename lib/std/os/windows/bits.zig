@@ -37,6 +37,7 @@ pub const UCHAR = u8;
 pub const FLOAT = f32;
 pub const HANDLE = *c_void;
 pub const HCRYPTPROV = ULONG_PTR;
+pub const ATOM = u16;
 pub const HBRUSH = *opaque {};
 pub const HCURSOR = *opaque {};
 pub const HICON = *opaque {};
@@ -770,11 +771,23 @@ pub const FILE_FLAG_SESSION_AWARE = 0x00800000;
 pub const FILE_FLAG_SEQUENTIAL_SCAN = 0x08000000;
 pub const FILE_FLAG_WRITE_THROUGH = 0x80000000;
 
+pub const RECT = extern struct {
+    left: LONG,
+    top: LONG,
+    right: LONG,
+    bottom: LONG,
+};
+
 pub const SMALL_RECT = extern struct {
     Left: SHORT,
     Top: SHORT,
     Right: SHORT,
     Bottom: SHORT,
+};
+
+pub const POINT = extern struct {
+    x: LONG,
+    y: LONG,
 };
 
 pub const COORD = extern struct {
