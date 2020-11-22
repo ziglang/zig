@@ -145,7 +145,7 @@ test "listen on a port, send bytes, receive bytes" {
 
     // Try only the IPv4 variant as some CI builders have no IPv6 localhost
     // configured.
-    const localhost = try net.Address.parseIp("127.0.0.1", 8080);
+    const localhost = try net.Address.parseIp("127.0.0.1", 0);
 
     var server = net.StreamServer.init(.{});
     defer server.deinit();
