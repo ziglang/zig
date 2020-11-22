@@ -295,7 +295,7 @@ pub fn unregisterClassA(lpClassName: [*:0]const u8, hInstance: HINSTANCE) !void 
     }
 }
 
-pub extern "user32" fn UnregisterClassW(lpClassName: [*:0]const u16, hInstance: HINSTANCE) callconv(.Stdcall) BOOL;
+pub extern "user32" fn UnregisterClassW(lpClassName: [*:0]const u16, hInstance: HINSTANCE) callconv(WINAPI) BOOL;
 pub var pfnUnregisterClassW: @TypeOf(UnregisterClassW) = undefined;
 pub fn unregisterClassW(lpClassName: [*:0]const u16, hInstance: HINSTANCE) !void {
     const function = selectSymbol(UnregisterClassW, pfnUnregisterClassW, .win2k);
