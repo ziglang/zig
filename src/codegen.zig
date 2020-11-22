@@ -975,6 +975,18 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     };
                     return try self.genX8664BinMath(&inst.base, inst.operand, &imm.base, 6, 0x30);
                 },
+                .arm, .armeb => {
+                    var imm = ir.Inst.Constant{
+                        .base = .{
+                            .tag = .constant,
+                            .deaths = 0,
+                            .ty = inst.operand.ty,
+                            .src = inst.operand.src,
+                        },
+                        .val = Value.initTag(.bool_true),
+                    };
+                    return try self.genArmBinOp(&inst.base, inst.operand, &imm.base, .not);
+                },
                 else => return self.fail(inst.base.src, "TODO implement NOT for {}", .{self.target.cpu.arch}),
             }
         }
@@ -987,7 +999,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .x86_64 => {
                     return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 0, 0x00);
                 },
-                .arm, .armeb => return try self.genArmBinArith(inst, .add),
+                .arm, .armeb => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .add),
                 else => return self.fail(inst.base.src, "TODO implement add for {}", .{self.target.cpu.arch}),
             }
         }
@@ -1145,14 +1157,14 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                 .x86_64 => {
                     return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 5, 0x28);
                 },
-                .arm, .armeb => return try self.genArmBinArith(inst, .sub),
+                .arm, .armeb => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .sub),
                 else => return self.fail(inst.base.src, "TODO implement sub for {}", .{self.target.cpu.arch}),
             }
         }
 
-        fn genArmBinArith(self: *Self, inst: *ir.Inst.BinOp, op: ir.Inst.Tag) !MCValue {
-            const lhs = try self.resolveInst(inst.lhs);
-            const rhs = try self.resolveInst(inst.rhs);
+        fn genArmBinOp(self: *Self, inst: *ir.Inst, op_lhs: *ir.Inst, op_rhs: *ir.Inst, op: ir.Inst.Tag) !MCValue {
+            const lhs = try self.resolveInst(op_lhs);
+            const rhs = try self.resolveInst(op_rhs);
 
             // Destination must be a register
             // Source may be register, memory or an immediate
@@ -1160,9 +1172,9 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             // So there are two options: (lhs is src and rhs is dest)
             // or (rhs is src and lhs is dest)
             const lhs_is_dest = blk: {
-                if (self.reuseOperand(&inst.base, 0, lhs)) {
+                if (self.reuseOperand(inst, 0, lhs)) {
                     break :blk true;
-                } else if (self.reuseOperand(&inst.base, 1, rhs)) {
+                } else if (self.reuseOperand(inst, 1, rhs)) {
                     break :blk false;
                 } else {
                     break :blk lhs == .register;
@@ -1175,22 +1187,22 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
             if (lhs_is_dest) {
                 // LHS is the destination
                 // RHS is the source
-                src_inst = inst.rhs;
+                src_inst = op_rhs;
                 src_mcv = rhs;
-                dst_mcv = if (lhs != .register) try self.copyToNewRegister(&inst.base, lhs) else lhs;
+                dst_mcv = if (lhs != .register) try self.copyToNewRegister(inst, lhs) else lhs;
             } else {
                 // RHS is the destination
                 // LHS is the source
-                src_inst = inst.lhs;
+                src_inst = op_lhs;
                 src_mcv = lhs;
-                dst_mcv = if (rhs != .register) try self.copyToNewRegister(&inst.base, rhs) else rhs;
+                dst_mcv = if (rhs != .register) try self.copyToNewRegister(inst, rhs) else rhs;
             }
 
-            try self.genArmBinArithCode(inst.base.src, dst_mcv.register, src_mcv, lhs_is_dest, op);
+            try self.genArmBinOpCode(inst.src, dst_mcv.register, src_mcv, lhs_is_dest, op);
             return dst_mcv;
         }
 
-        fn genArmBinArithCode(
+        fn genArmBinOpCode(
             self: *Self,
             src: usize,
             dst_reg: Register,
@@ -1234,7 +1246,10 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.rsb(.al, dst_reg, dst_reg, operand).toU32());
                     }
                 },
-                else => unreachable, // not a binary arithmetic instruction
+                .not => {
+                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.eor(.al, dst_reg, dst_reg, operand).toU32());
+                },
+                else => unreachable, // not a binary instruction
             }
         }
 
