@@ -488,7 +488,7 @@ const Parser = struct {
         return &node.base;
     }
 
-    /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (Keyword_anytype / TypeExpr)
+    /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? CallConv? EXCLAMATIONMARK? (Keyword_anytype / TypeExpr)
     fn parseFnProto(p: *Parser, level: enum { top_level, as_type }, fields: struct {
         doc_comments: ?*Node.DocComment = null,
         visib_token: ?TokenIndex = null,
@@ -1023,7 +1023,7 @@ const Parser = struct {
         return p.parseBinOpExpr(parseAssignOp, parseExpr, .Once);
     }
 
-    /// Expr <- KEYWORD_try* BoolOrExpr
+    /// Expr <- BoolOrExpr
     fn parseExpr(p: *Parser) Error!?*Node {
         return p.parsePrefixOpExpr(parseTry, parseBoolOrExpr);
     }
@@ -2758,7 +2758,7 @@ const Parser = struct {
         rparen: TokenIndex,
     };
 
-    /// ArrayTypeStart <- LBRACKET Expr? RBRACKET
+    /// ArrayTypeStart <- LBRACKET Expr? (COLON Expr)? RBRACKET
     fn parseArrayTypeStart(p: *Parser) !?*Node {
         const lbracket = p.eatToken(.LBracket) orelse return null;
         const expr = try p.parseExpr();
@@ -2803,8 +2803,7 @@ const Parser = struct {
     /// PtrTypeStart
     ///     <- ASTERISK
     ///      / ASTERISK2
-    ///      / PTRUNKNOWN
-    ///      / PTRC
+    ///      / LBRACKET ASTERISK (LETTERC / COLON Expr)? RBRACKET
     fn parsePtrTypeStart(p: *Parser) !?*Node {
         if (p.eatToken(.Asterisk)) |asterisk| {
             const sentinel = if (p.eatToken(.Colon)) |_|
