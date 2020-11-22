@@ -196,7 +196,7 @@ pub const Ip4Address = extern struct {
                 .addr = undefined,
             },
         };
-        const out_ptr = mem.sliceAsBytes(@as(*[1]u32, &result.sa.addr)[0..]);
+        const out_ptr = mem.asBytes(&result.sa.addr);
 
         var x: u8 = 0;
         var index: u8 = 0;
