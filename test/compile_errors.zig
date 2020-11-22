@@ -8354,4 +8354,44 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         "tmp.zig:2:30: error: `.*` can't be followed by `*`. Are you missing a space?",
     });
+
+    cases.add("Issue #7186: don't let bitwise or capture optional payload",
+        \\fn getOptional(name: []const u8) ?[]const u8 {
+        \\    return if (name.len == 0) null else name;
+        \\}
+        \\fn getResult() []const u8 {
+        \\  if (getOptional("value") |name| {
+        \\     return name;
+        \\  }
+        \\  return "";
+        \\}
+
+    , &[_][]const u8{
+        "tmp.zig:5:33: error: expected token ')', found '|'",
+    });
+
+    cases.add("Issue #7186: don't let bitwise or capture for payload",
+        \\fn getResult() void {
+        \\  for ("value" |c| {
+        \\     break;
+        \\  }
+        \\}
+
+    , &[_][]const u8{
+        "tmp.zig:2:18: error: expected token ')', found '|'",
+    });
+
+    cases.add("Issue #7186: don't let bitwise or capture while payload",
+        \\fn getResult() void {
+        \\  var it = std.mem.split("1,2,3", ",");
+        \\  while (it.next() |value| {
+        \\     break;
+        \\  }
+        \\}
+
+    , &[_][]const u8{
+        "tmp.zig:3:26: error: expected token ')', found '|'",
+    });
+
+
 }
