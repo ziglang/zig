@@ -12,7 +12,7 @@ const unexpectedError = windows.unexpectedError;
 const GetLastError = windows.kernel32.GetLastError;
 const SetLastError = windows.kernel32.SetLastError;
 
-fn selectSymbol(comptime function_static: anytype, function_dynamic: anytype, comptime os: std.Target.Os.WindowsVersion) @TypeOf(function_static) {
+fn selectSymbol(comptime function_static: anytype, function_dynamic: @TypeOf(function_static), comptime os: std.Target.Os.WindowsVersion) @TypeOf(function_static) {
     comptime {
         const sym_ok = builtin.Target.current.os.isAtLeast(.windows, os);
         if (sym_ok == true) return function_static;
