@@ -86,7 +86,8 @@ pub const WM_SYSKEYDOWN = 0x0104;
 pub const WM_SYSKEYUP = 0x0105;
 pub const WM_SYSCHAR = 0x0106;
 pub const WM_SYSDEADCHAR = 0x0107;
-pub const WM_KEYLAST = 0x0108;
+pub const WM_UNICHAR = 0x0109;
+pub const WM_KEYLAST = 0x0109;
 pub const WM_INITDIALOG = 0x0110;
 pub const WM_COMMAND = 0x0111;
 pub const WM_SYSCOMMAND = 0x0112;
@@ -128,11 +129,11 @@ pub fn getMessageA(lpMsg: *MSG, hWnd: ?HWND, wMsgFilterMin: u32, wMsgFilterMax: 
     const r = GetMessageA(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax);
     if (r == 0) return error.Quit;
     if (r != -1) return;
-    return switch (GetLastError()) {
+    switch (GetLastError()) {
         .INVALID_WINDOW_HANDLE => unreachable,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
+    }
 }
 
 pub extern "user32" fn GetMessageW(lpMsg: *MSG, hWnd: ?HWND, wMsgFilterMin: UINT, wMsgFilterMax: UINT) callconv(WINAPI) BOOL;
@@ -143,11 +144,11 @@ pub fn getMessageW(lpMsg: *MSG, hWnd: ?HWND, wMsgFilterMin: u32, wMsgFilterMax: 
     const r = function(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax);
     if (r == 0) return error.Quit;
     if (r != -1) return;
-    return switch (GetLastError()) {
+    switch (GetLastError()) {
         .INVALID_WINDOW_HANDLE => unreachable,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
+    }
 }
 
 pub const PM_NOREMOVE = 0x0000;
@@ -159,11 +160,11 @@ pub fn peekMessageA(lpMsg: *MSG, hWnd: ?HWND, wMsgFilterMin: u32, wMsgFilterMax:
     const r = PeekMessageA(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, wRemoveMsg);
     if (r == 0) return false;
     if (r != -1) return true;
-    return switch (GetLastError()) {
+    switch (GetLastError()) {
         .INVALID_WINDOW_HANDLE => unreachable,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
+    }
 }
 
 pub extern "user32" fn PeekMessageW(lpMsg: *MSG, hWnd: ?HWND, wMsgFilterMin: UINT, wMsgFilterMax: UINT, wRemoveMsg: UINT) callconv(WINAPI) BOOL;
@@ -174,11 +175,11 @@ pub fn peekMessageW(lpMsg: *MSG, hWnd: ?HWND, wMsgFilterMin: u32, wMsgFilterMax:
     const r = function(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, wRemoveMsg);
     if (r == 0) return false;
     if (r != -1) return true;
-    return switch (GetLastError()) {
+    switch (GetLastError()) {
         .INVALID_WINDOW_HANDLE => unreachable,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
+    }
 }
 
 pub extern "user32" fn TranslateMessage(lpMsg: *const MSG) callconv(WINAPI) BOOL;
@@ -263,46 +264,46 @@ pub extern "user32" fn RegisterClassExA(*const WNDCLASSEXA) callconv(WINAPI) ATO
 pub fn registerClassExA(window_class: *const WNDCLASSEXA) !ATOM {
     const atom = RegisterClassExA(window_class);
     if (atom != 0) return atom;
-    return switch (GetLastError()) {
-        .CLASS_ALREADY_EXISTS => error.AlreadyExists,
+    switch (GetLastError()) {
+        .CLASS_ALREADY_EXISTS => return error.AlreadyExists,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
+    }
 }
 
 pub extern "user32" fn RegisterClassExW(*const WNDCLASSEXW) callconv(WINAPI) ATOM;
 pub var pfnRegisterClassExW: @TypeOf(RegisterClassExW) = undefined;
-pub fn registerClassExW(window_class: *const WNDCLASSEXA) !ATOM {
+pub fn registerClassExW(window_class: *const WNDCLASSEXW) !ATOM {
     const function = selectSymbol(RegisterClassExW, pfnRegisterClassExW, .win2k);
     const atom = function(window_class);
     if (atom != 0) return atom;
-    return switch (GetLastError()) {
-        .CLASS_ALREADY_EXISTS => error.AlreadyExists,
+    switch (GetLastError()) {
+        .CLASS_ALREADY_EXISTS => return error.AlreadyExists,
         .CALL_NOT_IMPLEMENTED => unreachable,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
-}
-
-pub extern "user32" fn UnregisterClassA(lpClassName: LPCSTR, hInstance: HINSTANCE) callconv(.Stdcall) BOOL;
-pub fn unregisterClassA(lpClassName: [*:0]const u8, hInstance: HINSTANCE) !void {
-    if (UnregisterClassA(lpClassName, hInstance) == 0) {
-        return switch (GetLastError()) {
-            .CLASS_DOES_NOT_EXIST => error.ClassDoesNotExist,
-            else => |err| return windows.unexpectedError(err),
-        };
     }
 }
 
-pub extern "user32" fn UnregisterClassW(lpClassName: LPCWSTR, hInstance: HINSTANCE) callconv(.Stdcall) BOOL;
+pub extern "user32" fn UnregisterClassA(lpClassName: [*:0]const u8, hInstance: HINSTANCE) callconv(WINAPI) BOOL;
+pub fn unregisterClassA(lpClassName: [*:0]const u8, hInstance: HINSTANCE) !void {
+    if (UnregisterClassA(lpClassName, hInstance) == 0) {
+        switch (GetLastError()) {
+            .CLASS_DOES_NOT_EXIST => return error.ClassDoesNotExist,
+            else => |err| return windows.unexpectedError(err),
+        }
+    }
+}
+
+pub extern "user32" fn UnregisterClassW(lpClassName: [*:0]const u16, hInstance: HINSTANCE) callconv(.Stdcall) BOOL;
 pub var pfnUnregisterClassW: @TypeOf(UnregisterClassW) = undefined;
 pub fn unregisterClassW(lpClassName: [*:0]const u16, hInstance: HINSTANCE) !void {
     const function = selectSymbol(UnregisterClassW, pfnUnregisterClassW, .win2k);
     if (function(lpClassName, hInstance) == 0) {
-        return switch (GetLastError()) {
-            .CLASS_DOES_NOT_EXIST => error.ClassDoesNotExist,
+        switch (GetLastError()) {
+            .CLASS_DOES_NOT_EXIST => return error.ClassDoesNotExist,
             else => |err| return windows.unexpectedError(err),
-        };
+        }
     }
 }
 
@@ -354,8 +355,8 @@ pub const WS_EX_CONTROLPARENT = 0x00010000;
 pub const WS_EX_STATICEDGE = 0x00020000;
 pub const WS_EX_APPWINDOW = 0x00040000;
 pub const WS_EX_LAYERED = 0x00080000;
-pub const WS_EX_OVERLAPPEDWINDOW = (WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE);
-pub const WS_EX_PALETTEWINDOW = (WS_EX_WINDOWEDGE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST);
+pub const WS_EX_OVERLAPPEDWINDOW = WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE;
+pub const WS_EX_PALETTEWINDOW = WS_EX_WINDOWEDGE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST;
 
 pub const CW_USEDEFAULT = @bitCast(i32, @as(u32, 0x80000000));
 
@@ -364,11 +365,11 @@ pub fn createWindowExA(dwExStyle: u32, lpClassName: [*:0]const u8, lpWindowName:
     const window = CreateWindowExA(dwExStyle, lpClassName, lpWindowName, dwStyle, X, Y, nWidth, nHeight, hWindParent, hMenu, hInstance, lpParam);
     if (window) |win| return win;
 
-    return switch (GetLastError()) {
-        .CLASS_DOES_NOT_EXIST => error.ClassDoesNotExist,
+    switch (GetLastError()) {
+        .CLASS_DOES_NOT_EXIST => return error.ClassDoesNotExist,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
+    }
 }
 
 pub extern "user32" fn CreateWindowExW(dwExStyle: DWORD, lpClassName: [*:0]const u16, lpWindowName: [*:0]const u16, dwStyle: DWORD, X: i32, Y: i32, nWidth: i32, nHeight: i32, hWindParent: ?HWND, hMenu: ?HMENU, hInstance: HINSTANCE, lpParam: ?LPVOID) callconv(WINAPI) ?HWND;
@@ -378,21 +379,21 @@ pub fn createWindowExW(dwExStyle: u32, lpClassName: [*:0]const u16, lpWindowName
     const window = function(dwExStyle, lpClassName, lpWindowName, dwStyle, X, Y, nWidth, nHeight, hWindParent, hMenu, hInstance, lpParam);
     if (window) |win| return win;
 
-    return switch (GetLastError()) {
-        .CLASS_DOES_NOT_EXIST => error.ClassDoesNotExist,
+    switch (GetLastError()) {
+        .CLASS_DOES_NOT_EXIST => return error.ClassDoesNotExist,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
+    }
 }
 
 pub extern "user32" fn DestroyWindow(hWnd: HWND) callconv(WINAPI) BOOL;
 pub fn destroyWindow(hWnd: HWND) !void {
     if (DestroyWindow(hWnd) == 0) {
-        return switch (GetLastError()) {
+        switch (GetLastError()) {
             .INVALID_WINDOW_HANDLE => unreachable,
             .INVALID_PARAMETER => unreachable,
             else => |err| return windows.unexpectedError(err),
-        };
+        }
     }
 }
 
@@ -420,11 +421,11 @@ pub fn showWindow(hWnd: HWND, nCmdShow: i32) bool {
 pub extern "user32" fn UpdateWindow(hWnd: HWND) callconv(WINAPI) BOOL;
 pub fn updateWindow(hWnd: HWND) !void {
     if (ShowWindow(hWnd, nCmdShow) == 0) {
-        return switch (GetLastError()) {
+        switch (GetLastError()) {
             .INVALID_WINDOW_HANDLE => unreachable,
             .INVALID_PARAMETER => unreachable,
             else => |err| return windows.unexpectedError(err),
-        };
+        }
     }
 }
 
@@ -433,10 +434,10 @@ pub fn adjustWindowRectEx(lpRect: *RECT, dwStyle: u32, bMenu: bool, dwExStyle: u
     assert(dwStyle & WS_OVERLAPPED == 0);
 
     if (AdjustWindowRectEx(lpRect, dwStyle, bMenu, dwExStyle) == 0) {
-        return switch (GetLastError()) {
+        switch (GetLastError()) {
             .INVALID_PARAMETER => unreachable,
             else => |err| return windows.unexpectedError(err),
-        };
+        }
     }
 }
 
@@ -453,12 +454,12 @@ pub fn getWindowLongA(hWnd: HWND, nIndex: i32) !i32 {
     const value = GetWindowLongA(hWnd, nIndex);
     if (value != 0) return value;
 
-    return switch (GetLastError()) {
-        .SUCCESS => 0,
+    switch (GetLastError()) {
+        .SUCCESS => return 0,
         .INVALID_WINDOW_HANDLE => unreachable,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
+    }
 }
 
 pub extern "user32" fn GetWindowLongW(hWnd: HWND, nIndex: i32) callconv(WINAPI) LONG;
@@ -469,12 +470,12 @@ pub fn getWindowLongW(hWnd: HWND, nIndex: i32) !i32 {
     const value = function(hWnd, nIndex);
     if (value != 0) return value;
 
-    return switch (GetLastError()) {
-        .SUCCESS => 0,
+    switch (GetLastError()) {
+        .SUCCESS => return 0,
         .INVALID_WINDOW_HANDLE => unreachable,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
+    }
 }
 
 pub extern "user32" fn GetWindowLongPtrA(hWnd: HWND, nIndex: i32) callconv(WINAPI) LONG_PTR;
@@ -486,12 +487,12 @@ pub fn getWindowLongPtrA(hWnd: HWND, nIndex: i32) !isize {
     const value = GetWindowLongPtrA(hWnd, nIndex);
     if (value != 0) return value;
 
-    return switch (GetLastError()) {
-        .SUCCESS => 0,
+    switch (GetLastError()) {
+        .SUCCESS => return 0,
         .INVALID_WINDOW_HANDLE => unreachable,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
+    }
 }
 
 pub extern "user32" fn GetWindowLongPtrW(hWnd: HWND, nIndex: i32) callconv(WINAPI) LONG_PTR;
@@ -503,12 +504,12 @@ pub fn getWindowLongPtrW(hWnd: HWND, nIndex: i32) !isize {
     const value = function(hWnd, nIndex);
     if (value != 0) return value;
 
-    return switch (GetLastError()) {
-        .SUCCESS => 0,
+    switch (GetLastError()) {
+        .SUCCESS => return 0,
         .INVALID_WINDOW_HANDLE => unreachable,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
+    }
 }
 
 pub extern "user32" fn SetWindowLongA(hWnd: HWND, nIndex: i32, dwNewLong: LONG) callconv(WINAPI) LONG;
@@ -520,12 +521,12 @@ pub fn setWindowLongA(hWnd: HWND, nIndex: i32, dwNewLong: i32) !i32 {
     const value = SetWindowLongA(hWnd, nIndex, dwNewLong);
     if (value != 0) return value;
 
-    return switch (GetLastError()) {
-        .SUCCESS => 0,
+    switch (GetLastError()) {
+        .SUCCESS => return 0,
         .INVALID_WINDOW_HANDLE => unreachable,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
+    }
 }
 
 pub extern "user32" fn SetWindowLongW(hWnd: HWND, nIndex: i32, dwNewLong: LONG) callconv(WINAPI) LONG;
@@ -537,12 +538,12 @@ pub fn setWindowLongW(hWnd: HWND, nIndex: i32, dwNewLong: i32) !i32 {
     const value = function(hWnd, nIndex, dwNewLong);
     if (value != 0) return value;
 
-    return switch (GetLastError()) {
-        .SUCCESS => 0,
+    switch (GetLastError()) {
+        .SUCCESS => return 0,
         .INVALID_WINDOW_HANDLE => unreachable,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
+    }
 }
 
 pub extern "user32" fn SetWindowLongPtrA(hWnd: HWND, nIndex: i32, dwNewLong: LONG_PTR) callconv(WINAPI) LONG_PTR;
@@ -555,12 +556,12 @@ pub fn setWindowLongPtrA(hWnd: HWND, nIndex: i32, dwNewLong: isize) !isize {
     const value = SetWindowLongPtrA(hWnd, nIndex, dwNewLong);
     if (value != 0) return value;
 
-    return switch (GetLastError()) {
-        .SUCCESS => 0,
+    switch (GetLastError()) {
+        .SUCCESS => return 0,
         .INVALID_WINDOW_HANDLE => unreachable,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
+    }
 }
 
 pub extern "user32" fn SetWindowLongPtrW(hWnd: HWND, nIndex: i32, dwNewLong: LONG_PTR) callconv(WINAPI) LONG_PTR;
@@ -573,12 +574,12 @@ pub fn setWindowLongPtrW(hWnd: HWND, nIndex: i32, dwNewLong: isize) !isize {
     const value = function(hWnd, nIndex, dwNewLong);
     if (value != 0) return value;
 
-    return switch (GetLastError()) {
-        .SUCCESS => 0,
+    switch (GetLastError()) {
+        .SUCCESS => return 0,
         .INVALID_WINDOW_HANDLE => unreachable,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
+    }
 }
 
 pub extern "user32" fn GetDC(hWnd: ?HWND) callconv(WINAPI) ?HDC;
@@ -586,11 +587,11 @@ pub fn getDC(hWnd: ?HWND) !HDC {
     const hdc = GetDC(hWnd);
     if (hdc) |h| return h;
 
-    return switch (GetLastError()) {
+    switch (GetLastError()) {
         .INVALID_WINDOW_HANDLE => unreachable,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
+    }
 }
 
 pub extern "user32" fn ReleaseDC(hWnd: ?HWND, hDC: HDC) callconv(WINAPI) i32;
@@ -652,11 +653,11 @@ pub extern "user32" fn MessageBoxA(hWnd: ?HWND, lpText: [*:0]const u8, lpCaption
 pub fn messageBoxA(hWnd: ?HWND, lpText: [*:0]const u8, lpCaption: [*:0]const u8, uType: u32) !i32 {
     const value = MessageBoxA(hWnd, lpText, lpCaption, uType);
     if (value != 0) return value;
-    return switch (GetLastError()) {
+    switch (GetLastError()) {
         .INVALID_WINDOW_HANDLE => unreachable,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
+    }
 }
 
 pub extern "user32" fn MessageBoxW(hWnd: ?HWND, lpText: [*:0]const u16, lpCaption: ?[*:0]const u16, uType: UINT) callconv(WINAPI) i32;
@@ -665,9 +666,9 @@ pub fn messageBoxW(hWnd: ?HWND, lpText: [*:0]const u16, lpCaption: [*:0]const u1
     const function = selectSymbol(pfnMessageBoxW, MessageBoxW, .win2k);
     const value = function(hWnd, lpText, lpCaption, uType);
     if (value != 0) return value;
-    return switch (GetLastError()) {
+    switch (GetLastError()) {
         .INVALID_WINDOW_HANDLE => unreachable,
         .INVALID_PARAMETER => unreachable,
         else => |err| return windows.unexpectedError(err),
-    };
+    }
 }
