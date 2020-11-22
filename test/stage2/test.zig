@@ -830,7 +830,7 @@ pub fn addCases(ctx: *TestContext) !void {
         // Character literals and multiline strings.
         case.addCompareOutput(
             \\export fn _start() noreturn {
-            \\    const ignore = 
+            \\    const ignore =
             \\        \\ cool thx
             \\        \\
             \\    ;
@@ -1112,6 +1112,17 @@ pub fn addCases(ctx: *TestContext) !void {
         \\fn entry() void {}
         \\fn entry() void {}
     , &[_][]const u8{":2:4: error: redefinition of 'entry'"});
+
+    ctx.compileError("compileLog", linux_x64,
+        \\export fn _start() noreturn {
+        \\  const b = true;
+        \\  var f: u32 = 1;
+        \\  @compileLog(b, 20, f, x);
+        \\  unreachable;
+        \\}
+        \\fn x() void {}
+    , &[_][]const u8{":4:3: error: found compile log statement"});
+    // "| true, 20, (runtime value), (function)" // TODO if this is here it invalidates the compile error checker. Need a way to check though.
 
     {
         var case = ctx.obj("extern variable has no type", linux_x64);

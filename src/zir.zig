@@ -122,6 +122,8 @@ pub const Inst = struct {
         coerce_to_ptr_elem,
         /// Emit an error message and fail compilation.
         compileerror,
+        /// Log compile time variables and emit an error message.
+        compilelog,
         /// Conditional branch. Splits control flow based on a boolean condition value.
         condbr,
         /// Special case, has no textual representation.
@@ -384,6 +386,7 @@ pub const Inst = struct {
                 .declval_in_module => DeclValInModule,
                 .coerce_result_block_ptr => CoerceResultBlockPtr,
                 .compileerror => CompileError,
+                .compilelog => CompileLog,
                 .loop => Loop,
                 .@"const" => Const,
                 .str => Str,
@@ -516,6 +519,7 @@ pub const Inst = struct {
                 .breakvoid,
                 .condbr,
                 .compileerror,
+                .compilelog,
                 .@"return",
                 .returnvoid,
                 .unreach_nocheck,
@@ -699,6 +703,16 @@ pub const Inst = struct {
 
         positionals: struct {
             msg: []const u8,
+        },
+        kw_args: struct {},
+    };
+
+    pub const CompileLog = struct {
+        pub const base_tag = Tag.compilelog;
+        base: Inst,
+
+        positionals: struct {
+            to_log: []*Inst,
         },
         kw_args: struct {},
     };
