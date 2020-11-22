@@ -12,7 +12,11 @@ const os = std.os;
 const fs = std.fs;
 const io = std.io;
 
-pub const has_unix_sockets = @hasDecl(os, "sockaddr_un");
+// Windows 10 added support for unix sockets in build 17063, redstone 4 is the
+// first release to support them.
+pub const has_unix_sockets = @hasDecl(os, "sockaddr_un") and
+    (builtin.os.tag != .windows or
+    std.Target.current.os.version_range.windows.isAtLeast(.win10_rs4) orelse false);
 
 pub const Address = extern union {
     any: os.sockaddr,

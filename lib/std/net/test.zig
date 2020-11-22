@@ -258,6 +258,15 @@ test "listen on a unix socket, send bytes, receive bytes" {
     if (builtin.single_threaded) return error.SkipZigTest;
     if (!net.has_unix_sockets) return error.SkipZigTest;
 
+    if (std.builtin.os.tag == .windows) {
+        _ = try std.os.windows.WSAStartup(2, 2);
+    }
+    defer {
+        if (std.builtin.os.tag == .windows) {
+            std.os.windows.WSACleanup() catch unreachable;
+        }
+    }
+
     var server = net.StreamServer.init(.{});
     defer server.deinit();
 
