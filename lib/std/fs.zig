@@ -405,7 +405,7 @@ pub const Dir = struct {
                         else => false,
                     };
                     if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or
-                            (skip_zero_fileno and bsd_entry.d_fileno == 0))
+                        (skip_zero_fileno and bsd_entry.d_fileno == 0))
                     {
                         continue :start_over;
                     }
@@ -863,8 +863,8 @@ pub const Dir = struct {
             0;
         const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
             .None => @as(u32, 0),
-            .Shared => os.O_SHLOCK,
-            .Exclusive => os.O_EXLOCK,
+            .Shared => os.O_SHLOCK | nonblocking_lock_flag,
+            .Exclusive => os.O_EXLOCK | nonblocking_lock_flag,
         } else 0;
 
         const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
@@ -1178,6 +1178,7 @@ pub const Dir = struct {
             error.NoSpaceLeft => unreachable, // not providing O_CREAT
             error.PathAlreadyExists => unreachable, // not providing O_CREAT
             error.FileLocksNotSupported => unreachable, // locking folders is not supported
+            error.WouldBlock => unreachable, // can't happen for directories
             else => |e| return e,
         };
         return Dir{ .fd = fd };
@@ -1221,6 +1222,7 @@ pub const Dir = struct {
             error.NoSpaceLeft => unreachable, // not providing O_CREAT
             error.PathAlreadyExists => unreachable, // not providing O_CREAT
             error.FileLocksNotSupported => unreachable, // locking folders is not supported
+            error.WouldBlock => unreachable, // can't happen for directories
             else => |e| return e,
         };
         return Dir{ .fd = fd };
