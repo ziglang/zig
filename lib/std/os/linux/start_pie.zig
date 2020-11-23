@@ -111,10 +111,10 @@ pub fn apply_relocations() void {
         var i: usize = 0;
         while (dynv[i].d_tag != elf.DT_NULL) : (i += 1) {
             switch (dynv[i].d_tag) {
-                elf.DT_REL => rel_addr = base_addr + dynv[i].d_un.d_ptr,
-                elf.DT_RELA => rela_addr = base_addr + dynv[i].d_un.d_ptr,
-                elf.DT_RELSZ => rel_size = dynv[i].d_un.d_val,
-                elf.DT_RELASZ => rela_size = dynv[i].d_un.d_val,
+                elf.DT_REL => rel_addr = base_addr + dynv[i].d_val,
+                elf.DT_RELA => rela_addr = base_addr + dynv[i].d_val,
+                elf.DT_RELSZ => rel_size = dynv[i].d_val,
+                elf.DT_RELASZ => rela_size = dynv[i].d_val,
                 else => {},
             }
         }
@@ -122,14 +122,14 @@ pub fn apply_relocations() void {
 
     // Perform the relocations
     if (rel_addr != 0) {
-        const rel = @bytesToSlice(elf.Rel, @intToPtr([*]u8, rel_addr)[0..rel_size]);
+        const rel = std.mem.bytesAsSlice(elf.Rel, @intToPtr([*]u8, rel_addr)[0..rel_size]);
         for (rel) |r| {
             if (r.r_type() != ARCH_RELATIVE_RELOC) continue;
             @intToPtr(*usize, base_addr + r.r_offset).* += base_addr;
         }
     }
     if (rela_addr != 0) {
-        const rela = @bytesToSlice(elf.Rela, @intToPtr([*]u8, rela_addr)[0..rela_size]);
+        const rela = std.mem.bytesAsSlice(elf.Rela, @intToPtr([*]u8, rela_addr)[0..rela_size]);
         for (rela) |r| {
             if (r.r_type() != ARCH_RELATIVE_RELOC) continue;
             @intToPtr(*usize, base_addr + r.r_offset).* += base_addr + @bitCast(usize, r.r_addend);

@@ -104,6 +104,7 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .want_stack_check = false,
         .want_valgrind = false,
         .want_pic = comp.bin_file.options.pic,
+        .want_pie = comp.bin_file.options.pie,
         .emit_h = null,
         .strip = comp.bin_file.options.strip,
         .is_native_os = comp.bin_file.options.is_native_os,

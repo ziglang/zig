@@ -1425,7 +1425,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
         try argv.append("-shared");
     }
 
-    if (target_util.requiresPIE(target) and self.base.options.output_mode == .Exe) {
+    if (self.base.options.pie and self.base.options.output_mode == .Exe) {
         try argv.append("-pie");
     }
 
@@ -1444,7 +1444,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
                     break :o "crtbegin_static.o";
                 }
             } else if (self.base.options.link_mode == .Static) {
-                break :o "crt1.o";
+                if (self.base.options.pie) {
+                    break :o "rcrt1.o";
+                } else {
+                    break :o "crt1.o";
+                }
             } else {
                 break :o "Scrt1.o";
             }

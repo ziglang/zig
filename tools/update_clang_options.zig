@@ -55,6 +55,14 @@ const known_options = [_]KnownOpt{
         .ident = "no_pic",
     },
     .{
+        .name = "fPIE",
+        .ident = "pie",
+    },
+    .{
+        .name = "fno-PIE",
+        .ident = "no_pie",
+    },
+    .{
         .name = "nolibc",
         .ident = "nostdlib",
     },

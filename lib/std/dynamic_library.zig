@@ -63,7 +63,7 @@ const RDebug = extern struct {
 extern var _DYNAMIC: [128]elf.Dyn;
 
 comptime {
-    if (builtin.os == .linux) {
+    if (std.Target.current.os.tag == .linux) {
         asm (
             \\ .weak _DYNAMIC
             \\ .hidden _DYNAMIC

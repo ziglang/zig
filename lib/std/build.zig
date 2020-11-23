@@ -1286,6 +1286,9 @@ pub const LibExeObjStep = struct {
     /// Position Independent Code
     force_pic: ?bool = null,
 
+    /// Position Independent Executable
+    pie: ?bool = null,
+
     subsystem: ?builtin.SubSystem = null,
 
     const LinkObject = union(enum) {
@@ -2304,6 +2307,14 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("-fPIC");
             } else {
                 try zig_args.append("-fno-PIC");
+            }
+        }
+
+        if (self.pie) |pie| {
+            if (pie) {
+                try zig_args.append("-fPIE");
+            } else {
+                try zig_args.append("-fno-PIE");
             }
         }
 

@@ -2177,6 +2177,7 @@ struct CodeGen {
     bool is_test_build;
     bool is_single_threaded;
     bool have_pic;
+    bool have_pie;
     bool link_mode_dynamic;
     bool dll_export_fns;
     bool have_stack_probing;
