@@ -86,27 +86,27 @@ pub const PR = extern enum(i32) {
     _,
 };
 
-pub const PR_SET_PDEATHSIG = @enumToInt(PR.PR_SET_PDEATHSIG);
-pub const PR_GET_PDEATHSIG = @enumToInt(PR.PR_GET_PDEATHSIG);
+pub const PR_SET_PDEATHSIG = @enumToInt(PR.SET_PDEATHSIG);
+pub const PR_GET_PDEATHSIG = @enumToInt(PR.GET_PDEATHSIG);
 
-pub const PR_GET_DUMPABLE = @enumToInt(PR.PR_GET_DUMPABLE);
-pub const PR_SET_DUMPABLE = @enumToInt(PR.PR_SET_DUMPABLE);
+pub const PR_GET_DUMPABLE = @enumToInt(PR.GET_DUMPABLE);
+pub const PR_SET_DUMPABLE = @enumToInt(PR.SET_DUMPABLE);
 
-pub const PR_GET_UNALIGN = @enumToInt(PR.PR_GET_UNALIGN);
-pub const PR_SET_UNALIGN = @enumToInt(PR.PR_SET_UNALIGN);
+pub const PR_GET_UNALIGN = @enumToInt(PR.GET_UNALIGN);
+pub const PR_SET_UNALIGN = @enumToInt(PR.SET_UNALIGN);
 pub const PR_UNALIGN_NOPRINT = 1;
 pub const PR_UNALIGN_SIGBUS = 2;
 
-pub const PR_GET_KEEPCAPS = @enumToInt(PR.PR_GET_KEEPCAPS);
-pub const PR_SET_KEEPCAPS = @enumToInt(PR.PR_SET_KEEPCAPS);
+pub const PR_GET_KEEPCAPS = @enumToInt(PR.GET_KEEPCAPS);
+pub const PR_SET_KEEPCAPS = @enumToInt(PR.SET_KEEPCAPS);
 
-pub const PR_GET_FPEMU = @enumToInt(PR.PR_GET_FPEMU);
-pub const PR_SET_FPEMU = @enumToInt(PR.PR_SET_FPEMU);
+pub const PR_GET_FPEMU = @enumToInt(PR.GET_FPEMU);
+pub const PR_SET_FPEMU = @enumToInt(PR.SET_FPEMU);
 pub const PR_FPEMU_NOPRINT = 1;
 pub const PR_FPEMU_SIGFPE = 2;
 
-pub const PR_GET_FPEXC = @enumToInt(PR.PR_GET_FPEXC);
-pub const PR_SET_FPEXC = @enumToInt(PR.PR_SET_FPEXC);
+pub const PR_GET_FPEXC = @enumToInt(PR.GET_FPEXC);
+pub const PR_SET_FPEXC = @enumToInt(PR.SET_FPEXC);
 pub const PR_FP_EXC_SW_ENABLE = 0x80;
 pub const PR_FP_EXC_DIV = 0x010000;
 pub const PR_FP_EXC_OVF = 0x020000;
@@ -118,41 +118,41 @@ pub const PR_FP_EXC_NONRECOV = 1;
 pub const PR_FP_EXC_ASYNC = 2;
 pub const PR_FP_EXC_PRECISE = 3;
 
-pub const PR_GET_TIMING = @enumToInt(PR.PR_GET_TIMING);
-pub const PR_SET_TIMING = @enumToInt(PR.PR_SET_TIMING);
+pub const PR_GET_TIMING = @enumToInt(PR.GET_TIMING);
+pub const PR_SET_TIMING = @enumToInt(PR.SET_TIMING);
 pub const PR_TIMING_STATISTICAL = 0;
 pub const PR_TIMING_TIMESTAMP = 1;
 
-pub const PR_SET_NAME = @enumToInt(PR.PR_SET_NAME);
-pub const PR_GET_NAME = @enumToInt(PR.PR_GET_NAME);
+pub const PR_SET_NAME = @enumToInt(PR.SET_NAME);
+pub const PR_GET_NAME = @enumToInt(PR.GET_NAME);
 
-pub const PR_GET_ENDIAN = @enumToInt(PR.PR_GET_ENDIAN);
-pub const PR_SET_ENDIAN = @enumToInt(PR.PR_SET_ENDIAN);
+pub const PR_GET_ENDIAN = @enumToInt(PR.GET_ENDIAN);
+pub const PR_SET_ENDIAN = @enumToInt(PR.SET_ENDIAN);
 pub const PR_ENDIAN_BIG = 0;
 pub const PR_ENDIAN_LITTLE = 1;
 pub const PR_ENDIAN_PPC_LITTLE = 2;
 
-pub const PR_GET_SECCOMP = @enumToInt(PR.PR_GET_SECCOMP);
-pub const PR_SET_SECCOMP = @enumToInt(PR.PR_SET_SECCOMP);
+pub const PR_GET_SECCOMP = @enumToInt(PR.GET_SECCOMP);
+pub const PR_SET_SECCOMP = @enumToInt(PR.SET_SECCOMP);
 
-pub const PR_CAPBSET_READ = @enumToInt(PR.PR_CAPBSET_READ);
-pub const PR_CAPBSET_DROP = @enumToInt(PR.PR_CAPBSET_DROP);
+pub const PR_CAPBSET_READ = @enumToInt(PR.CAPBSET_READ);
+pub const PR_CAPBSET_DROP = @enumToInt(PR.CAPBSET_DROP);
 
-pub const PR_GET_TSC = @enumToInt(PR.PR_GET_TSC);
-pub const PR_SET_TSC = @enumToInt(PR.PR_SET_TSC);
+pub const PR_GET_TSC = @enumToInt(PR.GET_TSC);
+pub const PR_SET_TSC = @enumToInt(PR.SET_TSC);
 pub const PR_TSC_ENABLE = 1;
 pub const PR_TSC_SIGSEGV = 2;
 
-pub const PR_GET_SECUREBITS = @enumToInt(PR.PR_GET_SECUREBITS);
-pub const PR_SET_SECUREBITS = @enumToInt(PR.PR_SET_SECUREBITS);
+pub const PR_GET_SECUREBITS = @enumToInt(PR.GET_SECUREBITS);
+pub const PR_SET_SECUREBITS = @enumToInt(PR.SET_SECUREBITS);
 
-pub const PR_SET_TIMERSLACK = @enumToInt(PR.PR_SET_TIMERSLACK);
-pub const PR_GET_TIMERSLACK = @enumToInt(PR.PR_GET_TIMERSLACK);
+pub const PR_SET_TIMERSLACK = @enumToInt(PR.SET_TIMERSLACK);
+pub const PR_GET_TIMERSLACK = @enumToInt(PR.GET_TIMERSLACK);
 
-pub const PR_TASK_PERF_EVENTS_DISABLE = @enumToInt(PR.PR_TASK_PERF_EVENTS_DISABLE);
-pub const PR_TASK_PERF_EVENTS_ENABLE = @enumToInt(PR.PR_TASK_PERF_EVENTS_ENABLE);
+pub const PR_TASK_PERF_EVENTS_DISABLE = @enumToInt(PR.TASK_PERF_EVENTS_DISABLE);
+pub const PR_TASK_PERF_EVENTS_ENABLE = @enumToInt(PR.TASK_PERF_EVENTS_ENABLE);
 
-pub const PR_MCE_KILL = @enumToInt(PR.PR_MCE_KILL);
+pub const PR_MCE_KILL = @enumToInt(PR.MCE_KILL);
 pub const PR_MCE_KILL_CLEAR = 0;
 pub const PR_MCE_KILL_SET = 1;
 
@@ -160,9 +160,9 @@ pub const PR_MCE_KILL_LATE = 0;
 pub const PR_MCE_KILL_EARLY = 1;
 pub const PR_MCE_KILL_DEFAULT = 2;
 
-pub const PR_MCE_KILL_GET = @enumToInt(PR.PR_MCE_KILL_GET);
+pub const PR_MCE_KILL_GET = @enumToInt(PR.MCE_KILL_GET);
 
-pub const PR_SET_MM = @enumToInt(PR.PR_SET_MM);
+pub const PR_SET_MM = @enumToInt(PR.SET_MM);
 pub const PR_SET_MM_START_CODE = 1;
 pub const PR_SET_MM_END_CODE = 2;
 pub const PR_SET_MM_START_DATA = 3;
@@ -196,42 +196,42 @@ pub const prctl_mm_map = extern struct {
     exe_fd: u32,
 };
 
-pub const PR_SET_PTRACER = @enumToInt(PR.PR_SET_PTRACER);
+pub const PR_SET_PTRACER = @enumToInt(PR.SET_PTRACER);
 pub const PR_SET_PTRACER_ANY = std.math.maxInt(c_ulong);
 
-pub const PR_SET_CHILD_SUBREAPER = @enumToInt(PR.PR_SET_CHILD_SUBREAPER);
-pub const PR_GET_CHILD_SUBREAPER = @enumToInt(PR.PR_GET_CHILD_SUBREAPER);
+pub const PR_SET_CHILD_SUBREAPER = @enumToInt(PR.SET_CHILD_SUBREAPER);
+pub const PR_GET_CHILD_SUBREAPER = @enumToInt(PR.GET_CHILD_SUBREAPER);
 
-pub const PR_SET_NO_NEW_PRIVS = @enumToInt(PR.PR_SET_NO_NEW_PRIVS);
-pub const PR_GET_NO_NEW_PRIVS = @enumToInt(PR.PR_GET_NO_NEW_PRIVS);
+pub const PR_SET_NO_NEW_PRIVS = @enumToInt(PR.SET_NO_NEW_PRIVS);
+pub const PR_GET_NO_NEW_PRIVS = @enumToInt(PR.GET_NO_NEW_PRIVS);
 
-pub const PR_GET_TID_ADDRESS = @enumToInt(PR.PR_GET_TID_ADDRESS);
+pub const PR_GET_TID_ADDRESS = @enumToInt(PR.GET_TID_ADDRESS);
 
-pub const PR_SET_THP_DISABLE = @enumToInt(PR.PR_SET_THP_DISABLE);
-pub const PR_GET_THP_DISABLE = @enumToInt(PR.PR_GET_THP_DISABLE);
+pub const PR_SET_THP_DISABLE = @enumToInt(PR.SET_THP_DISABLE);
+pub const PR_GET_THP_DISABLE = @enumToInt(PR.GET_THP_DISABLE);
 
-pub const PR_MPX_ENABLE_MANAGEMENT = @enumToInt(PR.PR_MPX_ENABLE_MANAGEMENT);
-pub const PR_MPX_DISABLE_MANAGEMENT = @enumToInt(PR.PR_MPX_DISABLE_MANAGEMENT);
+pub const PR_MPX_ENABLE_MANAGEMENT = @enumToInt(PR.MPX_ENABLE_MANAGEMENT);
+pub const PR_MPX_DISABLE_MANAGEMENT = @enumToInt(PR.MPX_DISABLE_MANAGEMENT);
 
-pub const PR_SET_FP_MODE = @enumToInt(PR.PR_SET_FP_MODE);
-pub const PR_GET_FP_MODE = @enumToInt(PR.PR_GET_FP_MODE);
+pub const PR_SET_FP_MODE = @enumToInt(PR.SET_FP_MODE);
+pub const PR_GET_FP_MODE = @enumToInt(PR.GET_FP_MODE);
 pub const PR_FP_MODE_FR = 1 << 0;
 pub const PR_FP_MODE_FRE = 1 << 1;
 
-pub const PR_CAP_AMBIENT = @enumToInt(PR.PR_CAP_AMBIENT);
+pub const PR_CAP_AMBIENT = @enumToInt(PR.CAP_AMBIENT);
 pub const PR_CAP_AMBIENT_IS_SET = 1;
 pub const PR_CAP_AMBIENT_RAISE = 2;
 pub const PR_CAP_AMBIENT_LOWER = 3;
 pub const PR_CAP_AMBIENT_CLEAR_ALL = 4;
 
-pub const PR_SVE_SET_VL = @enumToInt(PR.PR_SVE_SET_VL);
+pub const PR_SVE_SET_VL = @enumToInt(PR.SVE_SET_VL);
 pub const PR_SVE_SET_VL_ONEXEC = 1 << 18;
-pub const PR_SVE_GET_VL = @enumToInt(PR.PR_SVE_GET_VL);
+pub const PR_SVE_GET_VL = @enumToInt(PR.SVE_GET_VL);
 pub const PR_SVE_VL_LEN_MASK = 0xffff;
 pub const PR_SVE_VL_INHERIT = 1 << 17;
 
-pub const PR_GET_SPECULATION_CTRL = @enumToInt(PR.PR_GET_SPECULATION_CTRL);
-pub const PR_SET_SPECULATION_CTRL = @enumToInt(PR.PR_SET_SPECULATION_CTRL);
+pub const PR_GET_SPECULATION_CTRL = @enumToInt(PR.GET_SPECULATION_CTRL);
+pub const PR_SET_SPECULATION_CTRL = @enumToInt(PR.SET_SPECULATION_CTRL);
 pub const PR_SPEC_STORE_BYPASS = 0;
 pub const PR_SPEC_NOT_AFFECTED = 0;
 pub const PR_SPEC_PRCTL = 1 << 0;
