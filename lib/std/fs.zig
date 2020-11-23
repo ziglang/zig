@@ -733,10 +733,10 @@ pub const Dir = struct {
         // (Or if it's darwin, as darwin's `open` doesn't support the O_SYNC flag)
         const has_flock_open_flags = @hasDecl(os, "O_EXLOCK") and !is_darwin;
         if (has_flock_open_flags) {
-            const nonblocking_lock_flag = if (flags.lock_nonblocking)
+            const nonblocking_lock_flag: u32 = if (flags.lock_nonblocking)
                 os.O_NONBLOCK | os.O_SYNC
             else
-                @as(u32, 0);
+                0;
             os_flags |= switch (flags.lock) {
                 .None => @as(u32, 0),
                 .Shared => os.O_SHLOCK | nonblocking_lock_flag,
@@ -769,6 +769,22 @@ pub const Dir = struct {
                 .Shared => os.LOCK_SH | lock_nonblocking,
                 .Exclusive => os.LOCK_EX | lock_nonblocking,
             });
+        }
+
+        if (has_flock_open_flags and flags.lock_nonblocking) {
+            var fl_flags = os.fcntl(fd, os.F_GETFL, 0) catch |err| switch (err) {
+                error.FileBusy => unreachable,
+                error.Locked => unreachable,
+                error.PermissionDenied => unreachable,
+                else => |e| return e,
+            };
+            fl_flags &= ~@as(usize, os.O_NONBLOCK);
+            _ = os.fcntl(fd, os.F_SETFL, fl_flags) catch |err| switch (err) {
+                error.FileBusy => unreachable,
+                error.Locked => unreachable,
+                error.PermissionDenied => unreachable,
+                else => |e| return e,
+            };
         }
 
         return File{
@@ -885,6 +901,22 @@ pub const Dir = struct {
                 .Shared => os.LOCK_SH | lock_nonblocking,
                 .Exclusive => os.LOCK_EX | lock_nonblocking,
             });
+        }
+
+        if (has_flock_open_flags and flags.lock_nonblocking) {
+            var fl_flags = os.fcntl(fd, os.F_GETFL, 0) catch |err| switch (err) {
+                error.FileBusy => unreachable,
+                error.Locked => unreachable,
+                error.PermissionDenied => unreachable,
+                else => |e| return e,
+            };
+            fl_flags &= ~@as(usize, os.O_NONBLOCK);
+            _ = os.fcntl(fd, os.F_SETFL, fl_flags) catch |err| switch (err) {
+                error.FileBusy => unreachable,
+                error.Locked => unreachable,
+                error.PermissionDenied => unreachable,
+                else => |e| return e,
+            };
         }
 
         return File{
