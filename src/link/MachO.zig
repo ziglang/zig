@@ -214,9 +214,20 @@ pub const TextBlock = struct {
     /// Unlike in Elf, we need to store the size of this symbol as part of
     /// the TextBlock since macho.nlist_64 lacks this information.
     size: u64,
+    /// List of RIP-relative positions in the code
+    /// This is a table of all RIP-relative positions that will need fixups
+    /// after codegen when linker assigns addresses to GOT entries.
+    /// TODO handle freeing, shrinking and re-allocs
+    rip_positions: std.ArrayListUnmanaged(RipPosition) = .{},
     /// Points to the previous and next neighbours
     prev: ?*TextBlock,
     next: ?*TextBlock,
+
+    pub const RipPosition = struct {
+        address: u64,
+        start: usize,
+        len: usize,
+    };
 
     pub const empty = TextBlock{
         .local_sym_index = 0,
@@ -225,6 +236,15 @@ pub const TextBlock = struct {
         .prev = null,
         .next = null,
     };
+
+    pub fn addRipPosition(self: *TextBlock, alloc: *Allocator, rip: RipPosition) !void {
+        std.debug.print("text_block={}, rip={}\n", .{ self.local_sym_index, rip });
+        return self.rip_positions.append(alloc, rip);
+    }
+
+    fn deinit(self: *TextBlock, alloc: *Allocator) void {
+        self.rip_positions.deinit(alloc);
+    }
 
     /// Returns how much room there is to grow in virtual address space.
     /// File offset relocation happens transparently, so it is not included in
@@ -991,6 +1011,20 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         };
         self.offset_table.items[decl.link.macho.offset_table_index] = addr;
         try self.writeOffsetTableEntry(decl.link.macho.offset_table_index);
+    }
+
+    // Perform RIP-relative fixups (if any)
+    const got_section = self.sections.items[self.got_section_index.?];
+    for (decl.link.macho.rip_positions.items) |rip| {
+        std.debug.print("rip={}\n", .{rip});
+        const target_addr = rip.address;
+        // const got_addr = got_section.addr + decl.link.macho.offset_table_index * @sizeOf(u64);
+        const this_addr = symbol.n_value + rip.start;
+        std.debug.print("target_addr=0x{x},this_addr=0x{x}\n", .{target_addr, this_addr});
+        const displacement = @intCast(u32, target_addr - this_addr + rip.len);
+        std.debug.print("displacement=0x{x}\n", .{displacement});
+        var placeholder = code_buffer.items[rip.start + rip.len - @sizeOf(u32) ..][0..@sizeOf(u32)];
+        mem.writeIntSliceLittle(u32, placeholder, displacement);
     }
 
     const text_section = self.sections.items[self.text_section_index.?];

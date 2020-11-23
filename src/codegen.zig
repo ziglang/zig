@@ -1683,11 +1683,8 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         const got_addr = got.addr + func.owner_decl.link.macho.offset_table_index * @sizeOf(u64);
                         switch (arch) {
                             .x86_64 => {
-                                // Here, we store the got address in %rax, and then call %rax
-                                // movabsq [addr], %rax
                                 try self.genSetReg(inst.base.src, .rax, .{ .memory = got_addr });
                                 // callq *%rax
-                                try self.code.ensureCapacity(self.code.items.len + 2);
                                 self.code.appendSliceAssumeCapacity(&[2]u8{ 0xff, 0xd0 });
                             },
                             .aarch64 => {
@@ -2766,7 +2763,29 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         self.code.appendSliceAssumeCapacity(&[_]u8{ 0x8B, R });
                     },
                     .memory => |x| {
-                        if (x <= math.maxInt(u32)) {
+                        if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                            // For MachO, the binary, with the exception of object files, has to be a PIE.
+                            // Therefore, we cannot load an absolute address.
+                            assert(x > math.maxInt(u32)); // 32bit direct addressing is not supported by MachO.
+                            // The plan here is to use RIP-relative addressing, but leaving the actual displacement
+                            // information empty (0-padded) and fixing it up later in the linker.
+                            try self.mod_fn.owner_decl.link.macho.addRipPosition(self.bin_file.allocator, .{
+                                .address = x,
+                                .start = self.code.items.len,
+                                .len = 7,
+                            });
+                            try self.code.ensureCapacity(self.code.items.len + 9);
+                            // leaq %r, [rip + disp]
+                            self.code.appendSliceAssumeCapacity(&[_]u8{
+                                0x48,
+                                0x8d,
+                                0x05 | (@as(u8, reg.id() & 0b111) << 3), // R
+                                0x0,
+                                0x0,
+                                0x0,
+                                0x0,
+                            });
+                        } else if (x <= math.maxInt(u32)) {
                             // Moving from memory to a register is a variant of `8B /r`.
                             // Since we're using 64-bit moves, we require a REX.
                             // This variant also requires a SIB, as it would otherwise be RIP-relative.
