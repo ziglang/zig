@@ -386,8 +386,6 @@ fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
 test "dl_iterate_phdr" {
     if (builtin.os.tag == .windows or builtin.os.tag == .wasi or builtin.os.tag == .macos)
         return error.SkipZigTest;
-    if (builtin.position_independent_executable)
-        return error.SkipZigTest;
 
     var counter: usize = 0;
     try os.dl_iterate_phdr(&counter, IterFnError, iter_fn);
