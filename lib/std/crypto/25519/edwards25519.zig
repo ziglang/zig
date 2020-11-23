@@ -221,7 +221,7 @@ pub const Edwards25519 = struct {
         pc[1] = p;
         var i: usize = 2;
         while (i <= count) : (i += 1) {
-            pc[i] = pc[i - 1].add(p);
+            pc[i] = if (i % 2 == 0) pc[i / 2].dbl() else pc[i - 1].add(p);
         }
         return pc;
     }
