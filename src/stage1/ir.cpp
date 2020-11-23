@@ -15955,38 +15955,46 @@ static IrInstGen *ir_analyze_cast(IrAnalyze *ira, IrInst *source_instr,
             anon_type->data.structure.special == StructSpecialInferredTuple;
         const uint32_t field_count = anon_type->data.structure.src_field_count;
 
-        if (wanted_type->id == ZigTypeIdPointer) {
+        if (wanted_type->id == ZigTypeIdPointer &&
+            (!actual_type->data.pointer.is_volatile || wanted_type->data.pointer.is_volatile))
+        {
             ZigType *wanted_child = wanted_type->data.pointer.child_type;
+            bool const_ok = (!actual_type->data.pointer.is_const || wanted_type->data.pointer.is_const);
             if (wanted_child->id == ZigTypeIdArray && (is_array_init || field_count == 0) &&
-                wanted_child->data.array.len == field_count)
+                wanted_child->data.array.len == field_count && (const_ok || field_count == 0))
             {
                 IrInstGen *res = ir_analyze_struct_literal_to_array(ira, source_instr, value, anon_type, wanted_child);
                 if (res->value->type->id == ZigTypeIdPointer)
                     return res;
-                return ir_get_ref(ira, source_instr, res, wanted_type->data.pointer.is_const, wanted_type->data.pointer.is_volatile);
+                return ir_get_ref(ira, source_instr, res, actual_type->data.pointer.is_const, actual_type->data.pointer.is_volatile);
             } else if (wanted_child->id == ZigTypeIdStruct && !is_slice(wanted_type) &&
-                    (!is_array_init || field_count == 0))
+                    (!is_array_init || field_count == 0) && const_ok)
             {
                 IrInstGen *res = ir_analyze_struct_literal_to_struct(ira, source_instr, value, anon_type, wanted_child);
                 if (res->value->type->id == ZigTypeIdPointer)
                     return res;
-                return ir_get_ref(ira, source_instr, res, wanted_type->data.pointer.is_const, wanted_type->data.pointer.is_volatile);
-            } else if (wanted_child->id == ZigTypeIdUnion && !is_array_init && field_count == 1) {
+                return ir_get_ref(ira, source_instr, res, actual_type->data.pointer.is_const, actual_type->data.pointer.is_volatile);
+            } else if (wanted_child->id == ZigTypeIdUnion && !is_array_init && field_count == 1 && const_ok) {
                 IrInstGen *res =  ir_analyze_struct_literal_to_union(ira, source_instr, value, anon_type, wanted_child);
                 if (res->value->type->id == ZigTypeIdPointer)
                     return res;
-                return ir_get_ref(ira, source_instr, res, wanted_type->data.pointer.is_const, wanted_type->data.pointer.is_volatile);
+                return ir_get_ref(ira, source_instr, res, actual_type->data.pointer.is_const, actual_type->data.pointer.is_volatile);
             }
         } else if (is_slice(wanted_type) && (is_array_init || field_count == 0)) {
-            ZigType *slice_child_type = wanted_type->data.structure.fields[slice_ptr_index]->type_entry->data.pointer.child_type;
-            ZigType *slice_array_type = get_array_type(ira->codegen, slice_child_type, field_count, nullptr);
-            IrInstGen *res = ir_analyze_struct_literal_to_array(ira, source_instr, value, anon_type, slice_array_type);
-            if (type_is_invalid(res->value->type))
-                return ira->codegen->invalid_inst_gen;
-            if (res->value->type->id != ZigTypeIdPointer)
-                res = ir_get_ref(ira, source_instr, res, wanted_type->data.pointer.is_const, wanted_type->data.pointer.is_volatile);
+            ZigType *slice_type = wanted_type->data.structure.fields[slice_ptr_index]->type_entry;
+            if ((!actual_type->data.pointer.is_const || slice_type->data.pointer.is_const || field_count == 0) &&
+                (!actual_type->data.pointer.is_volatile || slice_type->data.pointer.is_volatile))
+            {
+                ZigType *slice_child_type = slice_type->data.pointer.child_type;
+                ZigType *slice_array_type = get_array_type(ira->codegen, slice_child_type, field_count, nullptr);
+                IrInstGen *res = ir_analyze_struct_literal_to_array(ira, source_instr, value, anon_type, slice_array_type);
+                if (type_is_invalid(res->value->type))
+                    return ira->codegen->invalid_inst_gen;
+                if (res->value->type->id != ZigTypeIdPointer)
+                    res = ir_get_ref(ira, source_instr, res, actual_type->data.pointer.is_const, actual_type->data.pointer.is_volatile);
 
-            return ir_resolve_ptr_of_array_to_slice(ira, source_instr, res, wanted_type, nullptr);
+                return ir_resolve_ptr_of_array_to_slice(ira, source_instr, res, wanted_type, nullptr);
+            }
         }
     }
 
