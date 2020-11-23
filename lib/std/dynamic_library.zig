@@ -59,24 +59,12 @@ const RDebug = extern struct {
     r_ldbase: usize,
 };
 
-// TODO: This should be weak (#1917)
-extern var _DYNAMIC: [128]elf.Dyn;
-
-comptime {
-    if (std.Target.current.os.tag == .linux) {
-        asm (
-            \\ .weak _DYNAMIC
-            \\ .hidden _DYNAMIC
-        );
-    }
-}
-
 pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
-    if (@ptrToInt(&_DYNAMIC[0]) == 0) {
+    const _DYNAMIC = @extern([*]elf.Dyn, .{ .name = "_DYNAMIC", .linkage = .Weak }) orelse {
         // No PT_DYNAMIC means this is either a statically-linked program or a
-        // badly corrupted one
+        // badly corrupted dynamically-linked one.
         return LinkMap.Iterator{ .current = null };
-    }
+    };
 
     const link_map_ptr = init: {
         var i: usize = 0;
