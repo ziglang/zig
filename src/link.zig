@@ -71,6 +71,7 @@ pub const Options = struct {
     bind_global_refs_locally: bool,
     is_native_os: bool,
     pic: bool,
+    pie: bool,
     valgrind: bool,
     stack_check: bool,
     single_threaded: bool,

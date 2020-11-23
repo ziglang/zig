@@ -270,6 +270,8 @@ const usage_build_generic =
     \\  --main-pkg-path           Set the directory of the root package
     \\  -fPIC                     Force-enable Position Independent Code
     \\  -fno-PIC                  Force-disable Position Independent Code
+    \\  -fPIE                     Force-enable Position Independent Executable
+    \\  -fno-PIE                  Force-disable Position Independent Executable
     \\  -fstack-check             Enable stack probing in unsafe builds
     \\  -fno-stack-check          Disable stack probing in safe builds
     \\  -fsanitize-c              Enable C undefined behavior detection in unsafe builds
@@ -457,6 +459,7 @@ fn buildOutputType(
     var want_native_include_dirs = false;
     var enable_cache: ?bool = null;
     var want_pic: ?bool = null;
+    var want_pie: ?bool = null;
     var want_sanitize_c: ?bool = null;
     var want_stack_check: ?bool = null;
     var want_valgrind: ?bool = null;
@@ -795,6 +798,10 @@ fn buildOutputType(
                         want_pic = true;
                     } else if (mem.eql(u8, arg, "-fno-PIC")) {
                         want_pic = false;
+                    } else if (mem.eql(u8, arg, "-fPIE")) {
+                        want_pie = true;
+                    } else if (mem.eql(u8, arg, "-fno-PIE")) {
+                        want_pie = false;
                     } else if (mem.eql(u8, arg, "-fstack-check")) {
                         want_stack_check = true;
                     } else if (mem.eql(u8, arg, "-fno-stack-check")) {
@@ -1006,6 +1013,8 @@ fn buildOutputType(
                     },
                     .pic => want_pic = true,
                     .no_pic => want_pic = false,
+                    .pie => want_pie = true,
+                    .no_pie => want_pie = false,
                     .nostdlib => ensure_libc_on_non_freestanding = false,
                     .nostdlib_cpp => ensure_libcpp_on_non_freestanding = false,
                     .shared => {
@@ -1640,6 +1649,7 @@ fn buildOutputType(
         .link_libc = link_libc,
         .link_libcpp = link_libcpp,
         .want_pic = want_pic,
+        .want_pie = want_pie,
         .want_sanitize_c = want_sanitize_c,
         .want_stack_check = want_stack_check,
         .want_valgrind = want_valgrind,
@@ -2773,6 +2783,8 @@ pub const ClangArgIterator = struct {
         driver_punt,
         pic,
         no_pic,
+        pie,
+        no_pie,
         nostdlib,
         nostdlib_cpp,
         shared,

@@ -855,6 +855,14 @@ void ZigLLVMAddModuleCodeViewFlag(LLVMModuleRef module) {
     unwrap(module)->addModuleFlag(Module::Warning, "CodeView", 1);
 }
 
+void ZigLLVMSetModulePICLevel(LLVMModuleRef module) {
+    unwrap(module)->setPICLevel(PICLevel::Level::BigPIC);
+}
+
+void ZigLLVMSetModulePIELevel(LLVMModuleRef module) {
+    unwrap(module)->setPIELevel(PIELevel::Level::Large);
+}
+
 static AtomicOrdering mapFromLLVMOrdering(LLVMAtomicOrdering Ordering) {
     switch (Ordering) {
         case LLVMAtomicOrderingNotAtomic: return AtomicOrdering::NotAtomic;

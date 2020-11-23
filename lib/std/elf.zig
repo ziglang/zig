@@ -719,20 +719,48 @@ pub const Elf64_Syminfo = extern struct {
 pub const Elf32_Rel = extern struct {
     r_offset: Elf32_Addr,
     r_info: Elf32_Word,
+
+    pub inline fn r_sym(self: @This()) u24 {
+        return @truncate(u24, self.r_info >> 8);
+    }
+    pub inline fn r_type(self: @This()) u8 {
+        return @truncate(u8, self.r_info & 0xff);
+    }
 };
 pub const Elf64_Rel = extern struct {
     r_offset: Elf64_Addr,
     r_info: Elf64_Xword,
+
+    pub inline fn r_sym(self: @This()) u32 {
+        return @truncate(u32, self.r_info >> 32);
+    }
+    pub inline fn r_type(self: @This()) u32 {
+        return @truncate(u32, self.r_info & 0xffffffff);
+    }
 };
 pub const Elf32_Rela = extern struct {
     r_offset: Elf32_Addr,
     r_info: Elf32_Word,
     r_addend: Elf32_Sword,
+
+    pub inline fn r_sym(self: @This()) u24 {
+        return @truncate(u24, self.r_info >> 8);
+    }
+    pub inline fn r_type(self: @This()) u8 {
+        return @truncate(u8, self.r_info & 0xff);
+    }
 };
 pub const Elf64_Rela = extern struct {
     r_offset: Elf64_Addr,
     r_info: Elf64_Xword,
     r_addend: Elf64_Sxword,
+
+    pub inline fn r_sym(self: @This()) u32 {
+        return @truncate(u32, self.r_info >> 32);
+    }
+    pub inline fn r_type(self: @This()) u32 {
+        return @truncate(u32, self.r_info & 0xffffffff);
+    }
 };
 pub const Elf32_Dyn = extern struct {
     d_tag: Elf32_Sword,
@@ -915,6 +943,16 @@ pub const Phdr = switch (@sizeOf(usize)) {
 pub const Dyn = switch (@sizeOf(usize)) {
     4 => Elf32_Dyn,
     8 => Elf64_Dyn,
+    else => @compileError("expected pointer size of 32 or 64"),
+};
+pub const Rel = switch (@sizeOf(usize)) {
+    4 => Elf32_Rel,
+    8 => Elf64_Rel,
+    else => @compileError("expected pointer size of 32 or 64"),
+};
+pub const Rela = switch (@sizeOf(usize)) {
+    4 => Elf32_Rela,
+    8 => Elf64_Rela,
     else => @compileError("expected pointer size of 32 or 64"),
 };
 pub const Shdr = switch (@sizeOf(usize)) {

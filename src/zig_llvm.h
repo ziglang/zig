@@ -206,6 +206,8 @@ ZIG_EXTERN_C struct ZigLLVMDIBuilder *ZigLLVMCreateDIBuilder(LLVMModuleRef modul
 ZIG_EXTERN_C void ZigLLVMDisposeDIBuilder(struct ZigLLVMDIBuilder *dbuilder);
 ZIG_EXTERN_C void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module);
 ZIG_EXTERN_C void ZigLLVMAddModuleCodeViewFlag(LLVMModuleRef module);
+ZIG_EXTERN_C void ZigLLVMSetModulePICLevel(LLVMModuleRef module);
+ZIG_EXTERN_C void ZigLLVMSetModulePIELevel(LLVMModuleRef module);
 
 ZIG_EXTERN_C void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column,
         struct ZigLLVMDIScope *scope);

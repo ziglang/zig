@@ -343,6 +343,10 @@ pub const InitOptions = struct {
     link_libc: bool = false,
     link_libcpp: bool = false,
     want_pic: ?bool = null,
+    /// This means that if the output mode is an executable it will be a
+    /// Position Independent Executable. If the output mode is not an
+    /// executable this field is ignored.
+    want_pie: ?bool = null,
     want_sanitize_c: ?bool = null,
     want_stack_check: ?bool = null,
     want_valgrind: ?bool = null,
@@ -527,17 +531,30 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             options.libc_installation,
         );
 
+        const must_pie = target_util.requiresPIE(options.target);
+        const pie = if (options.want_pie) |explicit| pie: {
+            if (!explicit and must_pie) {
+                return error.TargetRequiresPIE;
+            }
+            break :pie explicit;
+        } else must_pie;
+
         const must_pic: bool = b: {
             if (target_util.requiresPIC(options.target, link_libc))
                 break :b true;
             break :b link_mode == .Dynamic;
         };
         const pic = if (options.want_pic) |explicit| pic: {
-            if (!explicit and must_pic) {
-                return error.TargetRequiresPIC;
+            if (!explicit) {
+                if (must_pic) {
+                    return error.TargetRequiresPIC;
+                }
+                if (pie) {
+                    return error.PIERequiresPIC;
+                }
             }
             break :pic explicit;
-        } else must_pic;
+        } else pie or must_pic;
 
         // Make a decision on whether to use Clang for translate-c and compiling C files.
         const use_clang = if (options.use_clang) |explicit| explicit else blk: {
@@ -618,6 +635,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(options.target.abi);
         cache.hash.add(ofmt);
         cache.hash.add(pic);
+        cache.hash.add(pie);
         cache.hash.add(stack_check);
         cache.hash.add(link_mode);
         cache.hash.add(options.function_sections);
@@ -814,6 +832,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             .version = options.version,
             .libc_installation = libc_dirs.libc_installation,
             .pic = pic,
+            .pie = pie,
             .valgrind = valgrind,
             .stack_check = stack_check,
             .single_threaded = single_threaded,
@@ -898,7 +917,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             try comp.addBuildingGLibCJobs();
         }
         if (comp.wantBuildMuslFromSource()) {
-            try comp.work_queue.ensureUnusedCapacity(5);
+            try comp.work_queue.ensureUnusedCapacity(6);
             if (target_util.libc_needs_crti_crtn(comp.getTarget())) {
                 comp.work_queue.writeAssumeCapacity(&[_]Job{
                     .{ .musl_crt_file = .crti_o },
@@ -908,6 +927,7 @@ pub fn create(gpa: *Allocator, options: InitOptions) !*Compilation {
             comp.work_queue.writeAssumeCapacity(&[_]Job{
                 .{ .musl_crt_file = .crt1_o },
                 .{ .musl_crt_file = .scrt1_o },
+                .{ .musl_crt_file = .rcrt1_o },
                 .{ .musl_crt_file = .libc_a },
             });
         }
@@ -2473,6 +2493,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         \\pub const have_error_return_tracing = {};
         \\pub const valgrind_support = {};
         \\pub const position_independent_code = {};
+        \\pub const position_independent_executable = {};
         \\pub const strip_debug_info = {};
         \\pub const code_model = CodeModel.{};
         \\
@@ -2484,6 +2505,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: *Allocator) ![]u8
         comp.bin_file.options.error_return_tracing,
         comp.bin_file.options.valgrind,
         comp.bin_file.options.pic,
+        comp.bin_file.options.pie,
         comp.bin_file.options.strip,
         @tagName(comp.bin_file.options.machine_code_model),
     });
@@ -2587,6 +2609,7 @@ fn buildStaticLibFromZig(comp: *Compilation, src_basename: []const u8, out: *?CR
         .want_stack_check = false,
         .want_valgrind = false,
         .want_pic = comp.bin_file.options.pic,
+        .want_pie = comp.bin_file.options.pie,
         .emit_h = null,
         .strip = comp.bin_file.options.strip,
         .is_native_os = comp.bin_file.options.is_native_os,
@@ -2795,6 +2818,7 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         .subsystem = subsystem,
         .err_color = @enumToInt(comp.color),
         .pic = comp.bin_file.options.pic,
+        .pie = comp.bin_file.options.pie,
         .link_libc = comp.bin_file.options.link_libc,
         .link_libcpp = comp.bin_file.options.link_libcpp,
         .strip = comp.bin_file.options.strip,
@@ -2950,6 +2974,7 @@ pub fn build_crt_file(
         .want_stack_check = false,
         .want_valgrind = false,
         .want_pic = comp.bin_file.options.pic,
+        .want_pie = comp.bin_file.options.pie,
         .emit_h = null,
         .strip = comp.bin_file.options.strip,
         .is_native_os = comp.bin_file.options.is_native_os,

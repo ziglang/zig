@@ -202,6 +202,12 @@ fn posixCallMainAndExit() noreturn {
         // Find the beginning of the auxiliary vector
         const auxv = @ptrCast([*]std.elf.Auxv, @alignCast(@alignOf(usize), envp.ptr + envp_count + 1));
         std.os.linux.elf_aux_maybe = auxv;
+
+        // Do this as early as possible, the aux vector is needed
+        if (builtin.position_independent_executable) {
+            @import("os/linux/start_pie.zig").apply_relocations();
+        }
+
         // Initialize the TLS area
         std.os.linux.tls.initStaticTLS();
 

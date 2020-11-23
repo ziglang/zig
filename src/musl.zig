@@ -12,6 +12,7 @@ pub const CRTFile = enum {
     crti_o,
     crtn_o,
     crt1_o,
+    rcrt1_o,
     scrt1_o,
     libc_a,
 };
@@ -63,6 +64,23 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", "musl", "crt", "crt1.c",
+                    }),
+                    .extra_flags = args.items,
+                },
+            });
+        },
+        .rcrt1_o => {
+            var args = std.ArrayList([]const u8).init(arena);
+            try add_cc_args(comp, arena, &args, false);
+            try args.appendSlice(&[_][]const u8{
+                "-fPIC",
+                "-fno-stack-protector",
+                "-DCRT",
+            });
+            return comp.build_crt_file("rcrt1", .Obj, &[1]Compilation.CSourceFile{
+                .{
+                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        "libc", "musl", "crt", "rcrt1.c",
                     }),
                     .extra_flags = args.items,
                 },
