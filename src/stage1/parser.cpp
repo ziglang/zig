@@ -2530,7 +2530,9 @@ static AstNode *ast_parse_bitwise_op(ParseContext *pc) {
 
     BinOpType op = table[peek_token(pc)->id];
     if (op != BinOpTypeInvalid) {
-        if (op != BinOpTypeUnwrapOptional && peek_token_i(pc, 1)->id == TokenIdLBrace) {
+        if (op != BinOpTypeUnwrapOptional
+                && peek_token_i(pc, 1)->id == TokenIdLBrace
+                && peek_token_i(pc, 2)->id != TokenIdRBrace) {
             return nullptr; // Bin op with block is invalid
         }
         Token *op_token = eat_token(pc);
