@@ -56,12 +56,13 @@ fn getDynamicSymbol() [*]elf.Dyn {
             : [ret] "=r" (-> usize)
         ),
         .riscv64 => asm volatile (
+            \\ .weak _DYNAMIC
+            \\ .hidden _DYNAMIC
             \\ lla %[ret], _DYNAMIC
             : [ret] "=r" (-> usize)
         ),
         else => @compileError("???"),
     };
-    if (addr == 0) unreachable;
     return @intToPtr([*]elf.Dyn, addr);
 }
 
