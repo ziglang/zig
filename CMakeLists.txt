@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8.5)
+cmake_minimum_required(VERSION 2.8.12)
 
 # Use ccache if possible
 FIND_PROGRAM(CCACHE_PROGRAM ccache)
