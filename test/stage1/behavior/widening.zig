@@ -18,6 +18,18 @@ test "implicit unsigned integer to signed integer" {
     expect(b == 250);
 }
 
+test "widening in peer type resolution" {
+    var a: u8 = 117;
+    var b: i9 = a;
+    expect(a == b);
+
+    var c = a + b;
+    expect(c == b + a);
+    comptime {
+        expect(@TypeOf(c) == i9);
+    }
+}
+
 test "float widening" {
     var a: f16 = 12.34;
     var b: f32 = a;
