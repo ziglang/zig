@@ -902,8 +902,8 @@ test "type coercion of pointer to anon struct literal to pointer to struct" {
             var y: u32 = 42;
             const t0 = &.{ .A = 123, .B = "foo", .C = {} };
             const t1 = &.{ .A = y, .B = "foo", .C = {} };
-            const y0: *S2 = t0;
-            var y1: *S2 = t1;
+            const y0: *const S2 = t0;
+            var y1: *const S2 = t1;
             expect(y0.A == 123);
             expect(std.mem.eql(u8, y0.B, "foo"));
             expect(y0.C == {});

@@ -680,10 +680,10 @@ test "cast from pointer to anonymous struct to pointer to union" {
             const t1 = &.{ .B = "foo" };
             const t2 = &.{ .C = {} };
             const t3 = &.{ .A = y };
-            const x0: *U = t0;
-            var x1: *U = t1;
-            const x2: *U = t2;
-            var x3: *U = t3;
+            const x0: *const U = t0;
+            var x1: *const U = t1;
+            const x2: *const U = t2;
+            var x3: *const U = t3;
             expect(x0.A == 123);
             expect(std.mem.eql(u8, x1.B, "foo"));
             expect(x2.* == .C);
