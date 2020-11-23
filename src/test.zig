@@ -564,10 +564,13 @@ pub const TestContext = struct {
             .directory = emit_directory,
             .basename = bin_name,
         };
-        const emit_h: Compilation.EmitLoc = .{
-            .directory = emit_directory,
-            .basename = "test_case.h",
-        };
+        const emit_h: ?Compilation.EmitLoc = if (case.cbe)
+            .{
+                .directory = emit_directory,
+                .basename = "test_case.h",
+            }
+        else
+            null;
         const comp = try Compilation.create(allocator, .{
             .local_cache_directory = zig_cache_directory,
             .global_cache_directory = zig_cache_directory,
