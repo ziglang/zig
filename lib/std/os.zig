@@ -4340,7 +4340,7 @@ pub fn dl_iterate_phdr(
 
     const elf_base = std.process.getBaseAddress();
     const ehdr = @intToPtr(*elf.Ehdr, elf_base);
-    // Make sure the base address points to an ELF image
+    // Make sure the base address points to an ELF image.
     assert(mem.eql(u8, ehdr.e_ident[0..4], "\x7fELF"));
     const n_phdr = ehdr.e_phnum;
     const phdrs = (@intToPtr([*]elf.Phdr, elf_base + ehdr.e_phoff))[0..n_phdr];
@@ -4348,10 +4348,21 @@ pub fn dl_iterate_phdr(
     var it = dl.linkmap_iterator(phdrs) catch unreachable;
 
     // The executable has no dynamic link segment, create a single entry for
-    // the whole ELF image
+    // the whole ELF image.
     if (it.end()) {
+        // Find the base address for the ELF image, if this is a PIE the value
+        // is non-zero.
+        const base_address = for (phdrs) |*phdr| {
+            if (phdr.p_type == elf.PT_PHDR) {
+                break @ptrToInt(phdrs.ptr) - phdr.p_vaddr;
+                // We could try computing the difference between _DYNAMIC and
+                // the p_vaddr of the PT_DYNAMIC section, but using the phdr is
+                // good enough (Is it?).
+            }
+        } else unreachable;
+
         var info = dl_phdr_info{
-            .dlpi_addr = 0,
+            .dlpi_addr = base_address,
             .dlpi_name = "/proc/self/exe",
             .dlpi_phdr = phdrs.ptr,
             .dlpi_phnum = ehdr.e_phnum,
@@ -4360,7 +4371,7 @@ pub fn dl_iterate_phdr(
         return callback(&info, @sizeOf(dl_phdr_info), context);
     }
 
-    // Last return value from the callback function
+    // Last return value from the callback function.
     while (it.next()) |entry| {
         var dlpi_phdr: [*]elf.Phdr = undefined;
         var dlpi_phnum: u16 = undefined;

@@ -686,8 +686,6 @@ pub fn getBaseAddress() usize {
             if (base != 0) {
                 return base;
             }
-            // XXX: Wrong for PIE executables, it should look at the difference
-            // between _DYNAMIC and the PT_DYNAMIC phdr instead.
             const phdr = os.system.getauxval(std.elf.AT_PHDR);
             return phdr - @sizeOf(std.elf.Ehdr);
         },
