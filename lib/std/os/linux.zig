@@ -274,6 +274,22 @@ pub fn munmap(address: [*]const u8, length: usize) usize {
     return syscall2(.munmap, @ptrToInt(address), length);
 }
 
+pub fn shmget(key: key_t, size: usize, shmflg: u32) usize {
+    return syscall3(.shmget, @bitCast(u32, key), size, shmflg);
+}
+
+pub fn shmat(shmid: i32, shmaddr: ?[*]align(std.mem.page_size) u8, shmflg: u32) usize {
+    return syscall3(.shmat, @bitCast(u32, shmid), @ptrToInt(shmaddr), shmflg);
+}
+
+pub fn shmctl(shmid: i32, cmd: i32, buf: [*]u8) usize {
+    return syscall3(.shmctl, @bitCast(u32, shmid), @bitCast(u32, cmd), @ptrToInt(buf));
+}
+
+pub fn shmdt(shmaddr: [*]u8) usize {
+    return syscall1(.shmdt, @ptrToInt(shmaddr));
+}
+
 pub fn poll(fds: [*]pollfd, n: nfds_t, timeout: i32) usize {
     if (@hasField(SYS, "poll")) {
         return syscall3(.poll, @ptrToInt(fds), n, @bitCast(u32, timeout));

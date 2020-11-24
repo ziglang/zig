@@ -186,6 +186,72 @@ pub const MAP_FIXED_NOREPLACE = 0x100000;
 /// For anonymous mmap, memory could be uninitialized
 pub const MAP_UNINITIALIZED = 0x4000000;
 
+pub const key_t = i32;
+
+/// create key if key does not exist
+pub const IPC_CREAT = 0x200;
+
+/// fail if key exists
+pub const IPC_EXCL = 0x400;
+
+/// return error on wait
+pub const IPC_NOWAIT = 0x800;
+
+/// segment will be destroyed on last detach
+pub const SHM_DEST = 0x200;
+
+/// segment will not be swapped
+pub const SHM_LOCKED = 0x400;
+
+/// segment will use huge TLB pages
+pub const SHM_HUGETLB = 0x800;
+
+pub const SHM_HUGE_SHIFT = 26;
+pub const SHM_HUGE_2MB = 21 << SHM_HUGE_SHIFT;
+pub const SHM_HUGE_1GB = 30 << SHM_HUGE_SHIFT;
+
+/// don't check for reservations
+pub const SHM_NORESERVE = 0x1000;
+
+/// attach read-only else read-write
+pub const SHM_RDONLY = 0x1000;
+
+/// round attach address to SHMLBA
+pub const SHM_RND = 0x2000;
+
+/// take-over region on attach
+pub const SHM_REMAP = 0x4000;
+
+/// execution access
+pub const SHM_EXEC = 0x8000;
+
+/// remove identifier
+pub const IPC_RMID = 0;
+
+/// set 'ipc_perm' options
+pub const IPC_SET = 1;
+
+/// get 'ipc_perm' options
+pub const IPC_STAT = 2;
+
+/// get info about shared memory limits and parameters
+pub const IPC_INFO = 3;
+
+/// lock segment
+pub const SHM_LOCK = 11;
+
+/// unlock segment
+pub const SHM_UNLOCK = 12;
+
+/// get 'ipc_perm' options from kernel index
+pub const SHM_STAT = 13;
+
+/// get info about about system resources consumed by shared memory
+pub const SHM_INFO = 14;
+
+/// get 'ipc_perm' options from kernel index without checking read access
+pub const SHM_STAT_ANY = 15;
+
 pub const FD_CLOEXEC = 1;
 
 pub const F_OK = 0;
