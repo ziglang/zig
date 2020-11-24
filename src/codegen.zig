@@ -1246,6 +1246,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.rsb(.al, dst_reg, dst_reg, operand).toU32());
                     }
                 },
+                .booland => {
+                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.@"and"(.al, dst_reg, dst_reg, operand).toU32());
+                },
+                .boolor => {
+                    writeInt(u32, try self.code.addManyAsArray(4), Instruction.orr(.al, dst_reg, dst_reg, operand).toU32());
+                },
                 .not => {
                     writeInt(u32, try self.code.addManyAsArray(4), Instruction.eor(.al, dst_reg, dst_reg, operand).toU32());
                 },
@@ -2209,7 +2215,12 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     .booland => return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 4, 0x20),
                     // lhs OR rhs
                     .boolor => return try self.genX8664BinMath(&inst.base, inst.lhs, inst.rhs, 1, 0x08),
-                    else => unreachable,
+                    else => unreachable, // Not a boolean operation
+                },
+                .arm, .armeb => switch (inst.base.tag) {
+                    .booland => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .booland),
+                    .boolor => return try self.genArmBinOp(&inst.base, inst.lhs, inst.rhs, .boolor),
+                    else => unreachable, // Not a boolean operation
                 },
                 else => return self.fail(inst.base.src, "TODO implement boolean operations for {}", .{self.target.cpu.arch}),
             }
@@ -2464,14 +2475,23 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         return self.fail(src, "TODO implement set stack variable from embedded_in_code", .{});
                     },
                     .register => |reg| {
-                        // TODO: strb, strh
-                        if (stack_offset <= math.maxInt(u12)) {
-                            writeInt(u32, try self.code.addManyAsArray(4), Instruction.str(.al, reg, .fp, .{
-                                .offset = Instruction.Offset.imm(@intCast(u12, stack_offset)),
+                        // TODO: strh
+                        const offset = if (stack_offset <= math.maxInt(u12)) blk: {
+                            break :blk Instruction.Offset.imm(@intCast(u12, stack_offset));
+                        } else Instruction.Offset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = stack_offset }), 0);
+
+                        const abi_size = ty.abiSize(self.target.*);
+                        switch (abi_size) {
+                            1 => writeInt(u32, try self.code.addManyAsArray(4), Instruction.strb(.al, reg, .fp, .{
+                                .offset = offset,
                                 .positive = false,
-                            }).toU32());
-                        } else {
-                            return self.fail(src, "TODO genSetStack with larger offsets", .{});
+                            }).toU32()),
+                            2 => return self.fail(src, "TODO implement strh", .{}),
+                            4 => writeInt(u32, try self.code.addManyAsArray(4), Instruction.str(.al, reg, .fp, .{
+                                .offset = offset,
+                                .positive = false,
+                            }).toU32()),
+                            else => return self.fail(src, "TODO a type of size {} is not allowed in a register", .{abi_size}),
                         }
                     },
                     .memory => |vaddr| {
@@ -2642,15 +2662,26 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                         writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldr(.al, reg, reg, .{ .offset = Instruction.Offset.none }).toU32());
                     },
                     .stack_offset => |unadjusted_off| {
-                        // TODO: ldrb, ldrh
+                        // TODO: ldrh
                         // TODO: maybe addressing from sp instead of fp
-                        if (unadjusted_off <= math.maxInt(u12)) {
-                            writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldr(.al, reg, .fp, .{
-                                .offset = Instruction.Offset.imm(@intCast(u12, unadjusted_off)),
+                        const offset = if (unadjusted_off <= math.maxInt(u12)) blk: {
+                            break :blk Instruction.Offset.imm(@intCast(u12, unadjusted_off));
+                        } else Instruction.Offset.reg(try self.copyToTmpRegister(src, MCValue{ .immediate = unadjusted_off }), 0);
+
+                        // TODO: supply type information to genSetReg as we do to genSetStack
+                        // const abi_size = ty.abiSize(self.target.*);
+                        const abi_size = 4;
+                        switch (abi_size) {
+                            1 => writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldrb(.al, reg, .fp, .{
+                                .offset = offset,
                                 .positive = false,
-                            }).toU32());
-                        } else {
-                            return self.fail(src, "TODO genSetReg with larger stack offset", .{});
+                            }).toU32()),
+                            2 => return self.fail(src, "TODO implement strh", .{}),
+                            4 => writeInt(u32, try self.code.addManyAsArray(4), Instruction.ldr(.al, reg, .fp, .{
+                                .offset = offset,
+                                .positive = false,
+                            }).toU32()),
+                            else => return self.fail(src, "TODO a type of size {} is not allowed in a register", .{abi_size}),
                         }
                     },
                     else => return self.fail(src, "TODO implement getSetReg for arm {}", .{mcv}),
