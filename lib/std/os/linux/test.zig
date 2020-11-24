@@ -24,7 +24,7 @@ test "fallocate" {
         0 => {},
         linux.ENOSYS => return error.SkipZigTest,
         linux.EOPNOTSUPP => return error.SkipZigTest,
-        else => |errno| std.debug.panic("unhandled errno: {}", .{ errno }),
+        else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
 
     expect((try file.stat()).size == len);
@@ -98,4 +98,20 @@ test "statx" {
     expect(@bitCast(u64, @as(i64, stat_buf.size)) == statx_buf.size);
     expect(@bitCast(u64, @as(i64, stat_buf.blksize)) == statx_buf.blksize);
     expect(@bitCast(u64, @as(i64, stat_buf.blocks)) == statx_buf.blocks);
+}
+
+test "shm" {
+    const segment = linux.shmget(linux.IPC_PRIVATE, mem.page_size, linux.IPC_CREAT);
+    expect(linux.getErrno(segment) == 0);
+    defer {
+        const r = linux.shmctl(@intCast(i32, segment), linux.IPC_RMID, null);
+        expect(linux.getErrno(r) == 0);
+    }
+
+    const addr = std.os.linux.shmat(@intCast(i32, segment), null, 0);
+    expect(linux.getErrno(addr) == 0);
+    defer {
+        const r = std.os.linux.shmdt(@intToPtr([*]u8, addr));
+        expect(linux.getErrno(r) == 0);
+    }
 }

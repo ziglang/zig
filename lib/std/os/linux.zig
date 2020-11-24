@@ -282,7 +282,7 @@ pub fn shmat(shmid: i32, shmaddr: ?[*]align(std.mem.page_size) u8, shmflg: u32) 
     return syscall3(.shmat, @bitCast(u32, shmid), @ptrToInt(shmaddr), shmflg);
 }
 
-pub fn shmctl(shmid: i32, cmd: i32, buf: [*]u8) usize {
+pub fn shmctl(shmid: i32, cmd: i32, buf: ?[*]u8) usize {
     return syscall3(.shmctl, @bitCast(u32, shmid), @bitCast(u32, cmd), @ptrToInt(buf));
 }
 
