@@ -7038,7 +7038,14 @@ static LLVMValueRef gen_const_ptr_struct_recursive(CodeGen *g, ZigValue *struct_
         LLVMConstNull(get_llvm_type(g, u32)),
         LLVMConstInt(get_llvm_type(g, u32), field_index, false),
     };
-    return LLVMConstInBoundsGEP(base_ptr, indices, 2);
+
+    // The structure pointed by base_ptr may include trailing padding for
+    // alignment purposes and have the following LLVM type: <{ %T, [N x i8] }>.
+    // Add an extra bitcast as we're only interested in the %T part.
+    assert(handle_is_ptr(g, struct_const_val->type));
+    LLVMValueRef casted_base_ptr = LLVMConstBitCast(base_ptr,
+            LLVMPointerType(get_llvm_type(g, struct_const_val->type), 0));
+    return LLVMConstInBoundsGEP(casted_base_ptr, indices, 2);
 }
 
 static LLVMValueRef gen_const_ptr_err_union_code_recursive(CodeGen *g, ZigValue *err_union_const_val) {
