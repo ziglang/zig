@@ -101,7 +101,7 @@ test "statx" {
 }
 
 test "shm" {
-    const segment = linux.shmget(linux.IPC_PRIVATE, mem.page_size, linux.IPC_CREAT);
+    const segment = linux.shmget(linux.IPC_PRIVATE, mem.page_size, linux.IPC_CREAT + 0o666);
     expect(linux.getErrno(segment) == 0);
     defer {
         const r = linux.shmctl(@intCast(i32, segment), linux.IPC_RMID, null);
