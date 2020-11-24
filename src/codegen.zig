@@ -2773,7 +2773,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             // later in the linker.
                             if (reg.id() == 0) { // %rax is special-cased
                                 try self.code.ensureCapacity(self.code.items.len + 5);
-                                try self.mod_fn.owner_decl.link.macho.addRipPosition(self.bin_file.allocator, .{
+                                try self.mod_fn.owner_decl.link.macho.addPieFixup(self.bin_file.allocator, .{
                                     .address = x,
                                     .start = self.code.items.len,
                                     .len = 5,
@@ -2790,7 +2790,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 try self.code.ensureCapacity(self.code.items.len + 10);
                                 // push %rax
                                 self.code.appendSliceAssumeCapacity(&[_]u8{0x50});
-                                try self.mod_fn.owner_decl.link.macho.addRipPosition(self.bin_file.allocator, .{
+                                try self.mod_fn.owner_decl.link.macho.addPieFixup(self.bin_file.allocator, .{
                                     .address = x,
                                     .start = self.code.items.len,
                                     .len = 5,

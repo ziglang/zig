@@ -214,16 +214,15 @@ pub const TextBlock = struct {
     /// Unlike in Elf, we need to store the size of this symbol as part of
     /// the TextBlock since macho.nlist_64 lacks this information.
     size: u64,
-    /// List of RIP-relative positions in the code
-    /// This is a table of all RIP-relative positions that will need fixups
+    /// List of PIE fixups in the code.
+    /// This is a table of all position-relative positions that will need fixups
     /// after codegen when linker assigns addresses to GOT entries.
-    /// TODO handle freeing, shrinking and re-allocs
-    rip_positions: std.ArrayListUnmanaged(RipPosition) = .{},
+    pie_fixups: std.ArrayListUnmanaged(PieFixup) = .{},
     /// Points to the previous and next neighbours
     prev: ?*TextBlock,
     next: ?*TextBlock,
 
-    pub const RipPosition = struct {
+    pub const PieFixup = struct {
         address: u64,
         start: usize,
         len: usize,
@@ -237,13 +236,12 @@ pub const TextBlock = struct {
         .next = null,
     };
 
-    pub fn addRipPosition(self: *TextBlock, alloc: *Allocator, rip: RipPosition) !void {
-        std.debug.print("text_block={}, rip={}\n", .{ self.local_sym_index, rip });
-        return self.rip_positions.append(alloc, rip);
+    pub fn addPieFixup(self: *TextBlock, alloc: *Allocator, fixup: PieFixup) !void {
+        return self.pie_fixups.append(alloc, fixup);
     }
 
     fn deinit(self: *TextBlock, alloc: *Allocator) void {
-        self.rip_positions.deinit(alloc);
+        self.pie_fixups.deinit(alloc);
     }
 
     /// Returns how much room there is to grow in virtual address space.
@@ -850,6 +848,9 @@ fn darwinArchString(arch: std.Target.Cpu.Arch) []const u8 {
 }
 
 pub fn deinit(self: *MachO) void {
+    for (self.text_block_free_list.items) |tb| {
+        tb.deinit(self.base.allocator);
+    }
     self.text_block_free_list.deinit(self.base.allocator);
     self.offset_table.deinit(self.base.allocator);
     self.offset_table_free_list.deinit(self.base.allocator);
@@ -892,7 +893,9 @@ fn freeTextBlock(self: *MachO, text_block: *TextBlock) void {
         if (!already_have_free_list_node and prev.freeListEligible(self.*)) {
             // The free list is heuristics, it doesn't have to be perfect, so we can ignore
             // the OOM here.
-            self.text_block_free_list.append(self.base.allocator, prev) catch {};
+            self.text_block_free_list.append(self.base.allocator, prev) catch {
+                prev.deinit(self.base.allocator);
+            };
         }
     } else {
         text_block.prev = null;
@@ -982,7 +985,6 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
             log.debug("growing {} from 0x{x} to 0x{x}\n", .{ decl.name, symbol.n_value, vaddr });
             if (vaddr != symbol.n_value) {
                 symbol.n_value = vaddr;
-
                 log.debug(" (writing new offset table entry)\n", .{});
                 self.offset_table.items[decl.link.macho.offset_table_index] = vaddr;
                 try self.writeOffsetTableEntry(decl.link.macho.offset_table_index);
@@ -1013,17 +1015,13 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         try self.writeOffsetTableEntry(decl.link.macho.offset_table_index);
     }
 
-    // Perform RIP-relative fixups (if any)
+    // Perform PIE fixups (if any)
     const got_section = self.sections.items[self.got_section_index.?];
-    for (decl.link.macho.rip_positions.items) |rip| {
-        std.debug.print("rip={}\n", .{rip});
-        const target_addr = rip.address;
-        // const got_addr = got_section.addr + decl.link.macho.offset_table_index * @sizeOf(u64);
-        const this_addr = symbol.n_value + rip.start;
-        std.debug.print("target_addr=0x{x},this_addr=0x{x}\n", .{ target_addr, this_addr });
-        const displacement = @intCast(u32, target_addr - this_addr - rip.len);
-        std.debug.print("displacement=0x{x}\n", .{displacement});
-        var placeholder = code_buffer.items[rip.start + rip.len - @sizeOf(u32) ..][0..@sizeOf(u32)];
+    while (decl.link.macho.pie_fixups.popOrNull()) |fixup| {
+        const target_addr = fixup.address;
+        const this_addr = symbol.n_value + fixup.start;
+        const displacement = @intCast(u32, target_addr - this_addr - fixup.len);
+        var placeholder = code_buffer.items[fixup.start + fixup.len - @sizeOf(u32) ..][0..@sizeOf(u32)];
         mem.writeIntSliceLittle(u32, placeholder, displacement);
     }
 
@@ -1185,8 +1183,6 @@ pub fn populateMissingMetadata(self: *MachO) !void {
     if (self.text_section_index == null) {
         self.text_section_index = @intCast(u16, self.sections.items.len);
         const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-        text_segment.cmdsize += @sizeOf(macho.section_64);
-        text_segment.nsects += 1;
 
         const program_code_size_hint = self.base.options.program_code_size_hint;
         const file_size = mem.alignForwardGeneric(u64, program_code_size_hint, self.page_size);
@@ -1212,11 +1208,13 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
         text_segment.vmsize = file_size + off; // We add off here since __TEXT segment includes everything prior to __text section.
         text_segment.filesize = file_size + off;
+        text_segment.cmdsize += @sizeOf(macho.section_64);
+        text_segment.nsects += 1;
         self.cmd_table_dirty = true;
     }
     if (self.got_section_index == null) {
-        const text_section = &self.sections.items[self.text_section_index.?];
         self.got_section_index = @intCast(u16, self.sections.items.len);
+        const text_section = &self.sections.items[self.text_section_index.?];
 
         const file_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
         // TODO looking for free space should be done *within* a segment it belongs to
@@ -1225,7 +1223,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         log.debug("found __got section free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
 
         try self.sections.append(self.base.allocator, .{
-            .sectname = makeStaticString("__ziggot"),
+            .sectname = makeStaticString("__got"),
             .segname = makeStaticString("__TEXT"),
             .addr = text_section.addr + text_section.size,
             .size = file_size,
@@ -1239,8 +1237,8 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .reserved3 = 0,
         });
 
-        const added_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
         const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+        const added_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
         text_segment.vmsize += added_size;
         text_segment.filesize += added_size;
         text_segment.cmdsize += @sizeOf(macho.section_64);
@@ -1653,18 +1651,17 @@ fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
     const off = sect.offset + @sizeOf(u64) * index;
     const vmaddr = sect.addr + @sizeOf(u64) * index;
     const pos_symbol_off = @truncate(u31, vmaddr - self.offset_table.items[index] + 7);
-    const symbol_off = @intCast(i32, pos_symbol_off) * -1;
-    std.debug.print("vmaddr=0x{x},item=0x{x}\n", .{vmaddr, self.offset_table.items[index]});
-    std.debug.print("posSymbolOff=0x{x},symbolOff=0x{x}\n", .{pos_symbol_off, @bitCast(u32, symbol_off)});
+    const symbol_off = @bitCast(u32, @intCast(i32, pos_symbol_off) * -1);
 
     var code: [8]u8 = undefined;
     // lea %rax, [rip - disp]
     code[0] = 0x48;
     code[1] = 0x8D;
     code[2] = 0x5;
-    mem.writeInt(u32, code[3..7], @bitCast(u32, symbol_off), endian);
+    mem.writeInt(u32, code[3..7], symbol_off, endian);
     // ret
     code[7] = 0xC3;
+
     log.debug("writing offset table entry 0x{x} at 0x{x}\n", .{ self.offset_table.items[index], off });
     try self.base.file.?.pwriteAll(&code, off);
 }
@@ -1846,14 +1843,11 @@ fn writeCmdHeaders(self: *MachO) !void {
             // only one, noname segment to append this section header to.
             return error.TODOImplementWritingObjFiles;
         };
-        // write __text section header
-        const id1 = self.text_section_index.?;
-        log.debug("writing text section header at 0x{x}\n", .{off});
-        try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.sections.items[id1 .. id1 + 1]), off);
-        // write __ziggot section header
-        const id2 = self.got_section_index.?;
-        log.debug("writing got section header at 0x{x}\n", .{off + @sizeOf(macho.section_64)});
-        try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.sections.items[id2 .. id2 + 1]), off + @sizeOf(macho.section_64));
+        // write sections belonging to __TEXT segment
+        // TODO section indices should belong to each Segment, and we should iterate dynamically.
+        const id = self.text_section_index.?;
+        log.debug("writing __TEXT section headers at 0x{x}\n", .{off});
+        try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.sections.items[id .. id + 2]), off);
     }
 }
 
