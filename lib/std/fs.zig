@@ -729,12 +729,14 @@ pub const Dir = struct {
         }
 
         var os_flags: u32 = os.O_CLOEXEC;
-        // Use the O_ locking flags if the os supports them
-        // (Or if it's darwin, as darwin's `open` doesn't support the O_SYNC flag)
-        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK") and !is_darwin;
+        // Use the O_ locking flags if the os supports them to acquire the lock
+        // atomically.
+        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK");
         if (has_flock_open_flags) {
+            // Note that the O_NONBLOCK flag is removed after the openat() call
+            // is successful.
             const nonblocking_lock_flag: u32 = if (flags.lock_nonblocking)
-                os.O_NONBLOCK | os.O_SYNC
+                os.O_NONBLOCK
             else
                 0;
             os_flags |= switch (flags.lock) {
@@ -870,11 +872,13 @@ pub const Dir = struct {
             return self.createFileW(path_w.span(), flags);
         }
 
-        // Use the O_ locking flags if the os supports them
-        // (Or if it's darwin, as darwin's `open` doesn't support the O_SYNC flag)
-        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK") and !is_darwin;
+        // Use the O_ locking flags if the os supports them to acquire the lock
+        // atomically.
+        const has_flock_open_flags = @hasDecl(os, "O_EXLOCK");
+        // Note that the O_NONBLOCK flag is removed after the openat() call
+        // is successful.
         const nonblocking_lock_flag: u32 = if (has_flock_open_flags and flags.lock_nonblocking)
-            os.O_NONBLOCK | os.O_SYNC
+            os.O_NONBLOCK
         else
             0;
         const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
