@@ -67,8 +67,6 @@ pub fn init(alloc: *Allocator) CodeSignature {
 
 pub fn calcAdhocSignature(self: *CodeSignature, bin_file: *const MachO) !void {
     const text_segment = bin_file.load_commands.items[bin_file.text_segment_cmd_index.?].Segment;
-    const data_segment = bin_file.load_commands.items[bin_file.data_segment_cmd_index.?].Segment;
-    const linkedit_segment = bin_file.load_commands.items[bin_file.linkedit_segment_cmd_index.?].Segment;
     const code_sig_cmd = bin_file.load_commands.items[bin_file.code_signature_cmd_index.?].LinkeditData;
 
     const execSegBase: u64 = text_segment.fileoff;

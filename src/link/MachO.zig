@@ -1020,8 +1020,8 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
         const target_addr = rip.address;
         // const got_addr = got_section.addr + decl.link.macho.offset_table_index * @sizeOf(u64);
         const this_addr = symbol.n_value + rip.start;
-        std.debug.print("target_addr=0x{x},this_addr=0x{x}\n", .{target_addr, this_addr});
-        const displacement = @intCast(u32, target_addr - this_addr + rip.len);
+        std.debug.print("target_addr=0x{x},this_addr=0x{x}\n", .{ target_addr, this_addr });
+        const displacement = @intCast(u32, target_addr - this_addr - rip.len);
         std.debug.print("displacement=0x{x}\n", .{displacement});
         var placeholder = code_buffer.items[rip.start + rip.len - @sizeOf(u32) ..][0..@sizeOf(u32)];
         mem.writeIntSliceLittle(u32, placeholder, displacement);
@@ -1201,7 +1201,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .addr = text_segment.vmaddr + off,
             .size = file_size,
             .offset = off,
-            .@"align" = if (self.base.options.target.cpu.arch == .aarch64) 2 else 1, // 2^2 for aarch64, 2^1 for x86_64
+            .@"align" = if (self.base.options.target.cpu.arch == .aarch64) 2 else 0, // 2^2 for aarch64, 2^0 for x86_64
             .reloff = 0,
             .nreloc = 0,
             .flags = flags,
@@ -1214,48 +1214,23 @@ pub fn populateMissingMetadata(self: *MachO) !void {
         text_segment.filesize = file_size + off;
         self.cmd_table_dirty = true;
     }
-    if (self.data_segment_cmd_index == null) {
-        self.data_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
-        const maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE | macho.VM_PROT_EXECUTE;
-        const initprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE;
-        try self.load_commands.append(self.base.allocator, .{
-            .Segment = .{
-                .cmd = macho.LC_SEGMENT_64,
-                .cmdsize = @sizeOf(macho.segment_command_64),
-                .segname = makeStaticString("__DATA"),
-                .vmaddr = text_segment.vmaddr + text_segment.vmsize,
-                .vmsize = 0,
-                .fileoff = text_segment.fileoff + text_segment.filesize,
-                .filesize = 0,
-                .maxprot = maxprot,
-                .initprot = initprot,
-                .nsects = 0,
-                .flags = 0,
-            },
-        });
-        self.cmd_table_dirty = true;
-    }
     if (self.got_section_index == null) {
+        const text_section = &self.sections.items[self.text_section_index.?];
         self.got_section_index = @intCast(u16, self.sections.items.len);
-        const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
-        data_segment.cmdsize += @sizeOf(macho.section_64);
-        data_segment.nsects += 1;
 
         const file_size = @sizeOf(u64) * self.base.options.symbol_count_hint;
         // TODO looking for free space should be done *within* a segment it belongs to
-        // const off = @intCast(u32, self.findFreeSpace(file_size, self.page_size));
-        const off = @intCast(u32, data_segment.fileoff);
+        const off = @intCast(u32, text_section.offset + text_section.size);
 
         log.debug("found __got section free space 0x{x} to 0x{x}\n", .{ off, off + file_size });
 
         try self.sections.append(self.base.allocator, .{
-            .sectname = makeStaticString("__got"),
-            .segname = makeStaticString("__DATA"),
-            .addr = data_segment.vmaddr,
+            .sectname = makeStaticString("__ziggot"),
+            .segname = makeStaticString("__TEXT"),
+            .addr = text_section.addr + text_section.size,
             .size = file_size,
             .offset = off,
-            .@"align" = 3, // 2^3 = 8
+            .@"align" = if (self.base.options.target.cpu.arch == .aarch64) 2 else 0,
             .reloff = 0,
             .nreloc = 0,
             .flags = macho.S_REGULAR,
@@ -1264,23 +1239,26 @@ pub fn populateMissingMetadata(self: *MachO) !void {
             .reserved3 = 0,
         });
 
-        const segment_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
-        data_segment.vmsize = segment_size;
-        data_segment.filesize = segment_size;
+        const added_size = mem.alignForwardGeneric(u64, file_size, self.page_size);
+        const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
+        text_segment.vmsize += added_size;
+        text_segment.filesize += added_size;
+        text_segment.cmdsize += @sizeOf(macho.section_64);
+        text_segment.nsects += 1;
         self.cmd_table_dirty = true;
     }
     if (self.linkedit_segment_cmd_index == null) {
         self.linkedit_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
-        const data_segment = &self.load_commands.items[self.data_segment_cmd_index.?].Segment;
+        const text_segment = &self.load_commands.items[self.text_segment_cmd_index.?].Segment;
         const maxprot = macho.VM_PROT_READ | macho.VM_PROT_WRITE | macho.VM_PROT_EXECUTE;
         const initprot = macho.VM_PROT_READ;
-        const off = data_segment.fileoff + data_segment.filesize;
+        const off = text_segment.fileoff + text_segment.filesize;
         try self.load_commands.append(self.base.allocator, .{
             .Segment = .{
                 .cmd = macho.LC_SEGMENT_64,
                 .cmdsize = @sizeOf(macho.segment_command_64),
                 .segname = makeStaticString("__LINKEDIT"),
-                .vmaddr = data_segment.vmaddr + data_segment.vmsize,
+                .vmaddr = text_segment.vmaddr + text_segment.vmsize,
                 .vmsize = 0,
                 .fileoff = off,
                 .filesize = 0,
@@ -1671,11 +1649,24 @@ fn findFreeSpace(self: *MachO, object_size: u64, min_alignment: u16) u64 {
 fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
     const sect = &self.sections.items[self.got_section_index.?];
     const endian = self.base.options.target.cpu.arch.endian();
-    var buf: [@sizeOf(u64)]u8 = undefined;
-    mem.writeInt(u64, &buf, self.offset_table.items[index], endian);
+
     const off = sect.offset + @sizeOf(u64) * index;
+    const vmaddr = sect.addr + @sizeOf(u64) * index;
+    const pos_symbol_off = @truncate(u31, vmaddr - self.offset_table.items[index] + 7);
+    const symbol_off = @intCast(i32, pos_symbol_off) * -1;
+    std.debug.print("vmaddr=0x{x},item=0x{x}\n", .{vmaddr, self.offset_table.items[index]});
+    std.debug.print("posSymbolOff=0x{x},symbolOff=0x{x}\n", .{pos_symbol_off, @bitCast(u32, symbol_off)});
+
+    var code: [8]u8 = undefined;
+    // lea %rax, [rip - disp]
+    code[0] = 0x48;
+    code[1] = 0x8D;
+    code[2] = 0x5;
+    mem.writeInt(u32, code[3..7], @bitCast(u32, symbol_off), endian);
+    // ret
+    code[7] = 0xC3;
     log.debug("writing offset table entry 0x{x} at 0x{x}\n", .{ self.offset_table.items[index], off });
-    try self.base.file.?.pwriteAll(&buf, off);
+    try self.base.file.?.pwriteAll(&code, off);
 }
 
 fn writeSymbolTable(self: *MachO) !void {
@@ -1791,7 +1782,7 @@ fn writeExportTrie(self: *MachO) !void {
 
     if (export_size > buffer.items.len) {
         // Pad out to align(8).
-        try self.base.file.?.pwriteAll(&[_]u8{ 0 }, dyld_info.export_off + export_size);
+        try self.base.file.?.pwriteAll(&[_]u8{0}, dyld_info.export_off + export_size);
     }
     try self.base.file.?.pwriteAll(buffer.items, dyld_info.export_off);
 
@@ -1816,7 +1807,7 @@ fn writeStringTable(self: *MachO) !void {
 
     if (symtab.strsize > needed_size) {
         // Pad out to align(8);
-        try self.base.file.?.pwriteAll(&[_]u8{ 0 }, symtab.stroff + symtab.strsize);
+        try self.base.file.?.pwriteAll(&[_]u8{0}, symtab.stroff + symtab.strsize);
     }
     try self.base.file.?.pwriteAll(self.string_table.items, symtab.stroff);
 
@@ -1843,7 +1834,6 @@ fn writeCmdHeaders(self: *MachO) !void {
         last_cmd_offset += cmd.cmdsize();
     }
     {
-        // write __text section header
         const off = if (self.text_segment_cmd_index) |text_segment_index| blk: {
             var i: usize = 0;
             var cmdsize: usize = @sizeOf(macho.mach_header_64) + @sizeOf(macho.segment_command_64);
@@ -1856,27 +1846,14 @@ fn writeCmdHeaders(self: *MachO) !void {
             // only one, noname segment to append this section header to.
             return error.TODOImplementWritingObjFiles;
         };
-        const idx = self.text_section_index.?;
+        // write __text section header
+        const id1 = self.text_section_index.?;
         log.debug("writing text section header at 0x{x}\n", .{off});
-        try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.sections.items[idx .. idx + 1]), off);
-    }
-    {
-        // write __got section header
-        const off = if (self.data_segment_cmd_index) |data_segment_index| blk: {
-            var i: usize = 0;
-            var cmdsize: usize = @sizeOf(macho.mach_header_64) + @sizeOf(macho.segment_command_64);
-            while (i < data_segment_index) : (i += 1) {
-                cmdsize += self.load_commands.items[i].cmdsize();
-            }
-            break :blk cmdsize;
-        } else {
-            // If we've landed in here, we are building a MachO object file, so we have
-            // only one, noname segment to append this section header to.
-            return error.TODOImplementWritingObjFiles;
-        };
-        const idx = self.got_section_index.?;
-        log.debug("writing got section header at 0x{x}\n", .{off});
-        try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.sections.items[idx .. idx + 1]), off);
+        try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.sections.items[id1 .. id1 + 1]), off);
+        // write __ziggot section header
+        const id2 = self.got_section_index.?;
+        log.debug("writing got section header at 0x{x}\n", .{off + @sizeOf(macho.section_64)});
+        try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.sections.items[id2 .. id2 + 1]), off + @sizeOf(macho.section_64));
     }
 }
 

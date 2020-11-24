@@ -2767,24 +2767,51 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             // For MachO, the binary, with the exception of object files, has to be a PIE.
                             // Therefore, we cannot load an absolute address.
                             assert(x > math.maxInt(u32)); // 32bit direct addressing is not supported by MachO.
-                            // The plan here is to use RIP-relative addressing, but leaving the actual displacement
-                            // information empty (0-padded) and fixing it up later in the linker.
-                            try self.mod_fn.owner_decl.link.macho.addRipPosition(self.bin_file.allocator, .{
-                                .address = x,
-                                .start = self.code.items.len,
-                                .len = 7,
-                            });
-                            try self.code.ensureCapacity(self.code.items.len + 9);
-                            // leaq %r, [rip + disp]
-                            self.code.appendSliceAssumeCapacity(&[_]u8{
-                                0x48,
-                                0x8d,
-                                0x05 | (@as(u8, reg.id() & 0b111) << 3), // R
-                                0x0,
-                                0x0,
-                                0x0,
-                                0x0,
-                            });
+                            // The plan here is to use unconditional relative jump to GOT entry, where we store
+                            // pre-calculated and stored effective address to load into the target register.
+                            // We leave the actual displacement information empty (0-padded) and fixing it up
+                            // later in the linker.
+                            if (reg.id() == 0) { // %rax is special-cased
+                                try self.code.ensureCapacity(self.code.items.len + 5);
+                                try self.mod_fn.owner_decl.link.macho.addRipPosition(self.bin_file.allocator, .{
+                                    .address = x,
+                                    .start = self.code.items.len,
+                                    .len = 5,
+                                });
+                                // call [label]
+                                self.code.appendSliceAssumeCapacity(&[_]u8{
+                                    0xE8,
+                                    0x0,
+                                    0x0,
+                                    0x0,
+                                    0x0,
+                                });
+                            } else {
+                                try self.code.ensureCapacity(self.code.items.len + 10);
+                                // push %rax
+                                self.code.appendSliceAssumeCapacity(&[_]u8{0x50});
+                                try self.mod_fn.owner_decl.link.macho.addRipPosition(self.bin_file.allocator, .{
+                                    .address = x,
+                                    .start = self.code.items.len,
+                                    .len = 5,
+                                });
+                                // call [label]
+                                self.code.appendSliceAssumeCapacity(&[_]u8{
+                                    0xE8,
+                                    0x0,
+                                    0x0,
+                                    0x0,
+                                    0x0,
+                                });
+                                // mov %r, %rax
+                                self.code.appendSliceAssumeCapacity(&[_]u8{
+                                    0x48,
+                                    0x89,
+                                    0xC0 | @as(u8, reg.id()),
+                                });
+                                // pop %rax
+                                self.code.appendSliceAssumeCapacity(&[_]u8{0x58});
+                            }
                         } else if (x <= math.maxInt(u32)) {
                             // Moving from memory to a register is a variant of `8B /r`.
                             // Since we're using 64-bit moves, we require a REX.
