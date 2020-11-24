@@ -187,6 +187,7 @@ pub const MAP_FIXED_NOREPLACE = 0x100000;
 pub const MAP_UNINITIALIZED = 0x4000000;
 
 pub const key_t = i32;
+pub const IPC_PRIVATE = 0;
 
 /// create key if key does not exist
 pub const IPC_CREAT = 0x200;
