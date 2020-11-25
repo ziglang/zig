@@ -7,6 +7,7 @@ const fs = std.fs;
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const codegen = @import("../codegen.zig");
+const aarch64 = @import("../codegen/aarch64.zig");
 const math = std.math;
 const mem = std.mem;
 
@@ -1020,9 +1021,15 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
     while (decl.link.macho.pie_fixups.popOrNull()) |fixup| {
         const target_addr = fixup.address;
         const this_addr = symbol.n_value + fixup.start;
-        const displacement = @intCast(u32, target_addr - this_addr - fixup.len);
-        var placeholder = code_buffer.items[fixup.start + fixup.len - @sizeOf(u32) ..][0..@sizeOf(u32)];
-        mem.writeIntSliceLittle(u32, placeholder, displacement);
+        if (self.base.options.target.cpu.arch == .x86_64) {
+            const displacement = @intCast(u32, target_addr - this_addr - fixup.len);
+            var placeholder = code_buffer.items[fixup.start + fixup.len - @sizeOf(u32) ..][0..@sizeOf(u32)];
+            mem.writeIntSliceLittle(u32, placeholder, displacement);
+        } else {
+            const displacement = @intCast(u27, target_addr - this_addr);
+            var placeholder = code_buffer.items[fixup.start..][0..fixup.len];
+            mem.writeIntSliceLittle(u32, placeholder, aarch64.Instruction.bl(@intCast(i28, displacement)).toU32());
+        }
     }
 
     const text_section = self.sections.items[self.text_section_index.?];
@@ -1646,22 +1653,28 @@ fn findFreeSpace(self: *MachO, object_size: u64, min_alignment: u16) u64 {
 
 fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
     const sect = &self.sections.items[self.got_section_index.?];
-    const endian = self.base.options.target.cpu.arch.endian();
-
     const off = sect.offset + @sizeOf(u64) * index;
     const vmaddr = sect.addr + @sizeOf(u64) * index;
-    const pos_symbol_off = @truncate(u31, vmaddr - self.offset_table.items[index] + 7);
-    const symbol_off = @bitCast(u32, @intCast(i32, pos_symbol_off) * -1);
 
     var code: [8]u8 = undefined;
-    // lea %rax, [rip - disp]
-    code[0] = 0x48;
-    code[1] = 0x8D;
-    code[2] = 0x5;
-    mem.writeInt(u32, code[3..7], symbol_off, endian);
-    // ret
-    code[7] = 0xC3;
-
+    if (self.base.options.target.cpu.arch == .x86_64) {
+        const pos_symbol_off = @intCast(u31, vmaddr - self.offset_table.items[index] + 7);
+        const symbol_off = @bitCast(u32, @intCast(i32, pos_symbol_off) * -1);
+        // lea %rax, [rip - disp]
+        code[0] = 0x48;
+        code[1] = 0x8D;
+        code[2] = 0x5;
+        mem.writeIntLittle(u32, code[3..7], symbol_off);
+        // ret
+        code[7] = 0xC3;
+    } else {
+        const pos_symbol_off = @intCast(u20, vmaddr - self.offset_table.items[index]);
+        const symbol_off = @intCast(i21, pos_symbol_off) * -1;
+        // adr .x0 [-disp]
+        mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.adr(.x1, symbol_off).toU32());
+        // ret
+        mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.ret(null).toU32());
+    }
     log.debug("writing offset table entry 0x{x} at 0x{x}\n", .{ self.offset_table.items[index], off });
     try self.base.file.?.pwriteAll(&code, off);
 }

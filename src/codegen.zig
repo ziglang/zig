@@ -1689,6 +1689,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             },
                             .aarch64 => {
                                 try self.genSetReg(inst.base.src, .x30, .{ .memory = got_addr });
+                                // blr x30
                                 writeInt(u32, try self.code.addManyAsArray(4), Instruction.blr(.x30).toU32());
                             },
                             else => unreachable, // unsupported architecture on MachO
@@ -2583,10 +2584,27 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                     },
                     .register => return self.fail(src, "TODO implement genSetReg for aarch64 {}", .{mcv}),
                     .memory => |addr| {
-                        // The value is in memory at a hard-coded address.
-                        // If the type is a pointer, it means the pointer address is at this memory location.
-                        try self.genSetReg(src, reg, .{ .immediate = addr });
-                        mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(reg, .{ .rn = reg }).toU32());
+                        if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                            // For MachO, the binary, with the exception of object files, has to be a PIE.
+                            // Therefore we cannot load an absolute address.
+                            // Instead, we need to make use of PC-relative addressing.
+                            // if (reg.id() == 0) { // x0 is special-cased
+                                try self.mod_fn.owner_decl.link.macho.addPieFixup(self.bin_file.allocator, .{
+                                    .address = addr,
+                                    .start = self.code.items.len,
+                                    .len = 4,
+                                });
+                                // bl [label]
+                                mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.bl(0).toU32());
+                            // } else {
+                            //     unreachable; // TODO
+                            // }
+                        } else {
+                            // The value is in memory at a hard-coded address.
+                            // If the type is a pointer, it means the pointer address is at this memory location.
+                            try self.genSetReg(src, reg, .{ .immediate = addr });
+                            mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.ldr(reg, .{ .rn = reg }).toU32());
+                        }
                     },
                     else => return self.fail(src, "TODO implement genSetReg for aarch64 {}", .{mcv}),
                 },
