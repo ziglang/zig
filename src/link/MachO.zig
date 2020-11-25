@@ -175,6 +175,22 @@ libsystem_cmd_dirty: bool = false,
 text_block_free_list: std.ArrayListUnmanaged(*TextBlock) = .{},
 /// Pointer to the last allocated text block
 last_text_block: ?*TextBlock = null,
+/// A list of all PIE fixups required for this run of the linker.
+/// Warning, this is currently NOT thread-safe. See the TODO below.
+/// TODO Move this list inside `updateDecl` where it should be allocated
+/// prior to calling `generateSymbol`, and then immediately deallocated
+/// rather than sitting in the global scope.
+pie_fixups: std.ArrayListUnmanaged(PieFixup) = .{},
+
+pub const PieFixup = struct {
+    /// Target address we wanted to address in absolute terms.
+    address: u64,
+    /// Where in the byte stream we should perform the fixup.
+    start: usize,
+    /// The length of the byte stream. For x86_64, this will be
+    /// variable. For aarch64, it will be fixed at 4 bytes.
+    len: usize,
+};
 
 /// `alloc_num / alloc_den` is the factor of padding when allocating.
 const alloc_num = 4;
@@ -215,19 +231,9 @@ pub const TextBlock = struct {
     /// Unlike in Elf, we need to store the size of this symbol as part of
     /// the TextBlock since macho.nlist_64 lacks this information.
     size: u64,
-    /// List of PIE fixups in the code.
-    /// This is a table of all position-relative positions that will need fixups
-    /// after codegen when linker assigns addresses to GOT entries.
-    pie_fixups: std.ArrayListUnmanaged(PieFixup) = .{},
     /// Points to the previous and next neighbours
     prev: ?*TextBlock,
     next: ?*TextBlock,
-
-    pub const PieFixup = struct {
-        address: u64,
-        start: usize,
-        len: usize,
-    };
 
     pub const empty = TextBlock{
         .local_sym_index = 0,
@@ -236,14 +242,6 @@ pub const TextBlock = struct {
         .prev = null,
         .next = null,
     };
-
-    pub fn addPieFixup(self: *TextBlock, alloc: *Allocator, fixup: PieFixup) !void {
-        return self.pie_fixups.append(alloc, fixup);
-    }
-
-    fn deinit(self: *TextBlock, alloc: *Allocator) void {
-        self.pie_fixups.deinit(alloc);
-    }
 
     /// Returns how much room there is to grow in virtual address space.
     /// File offset relocation happens transparently, so it is not included in
@@ -849,9 +847,7 @@ fn darwinArchString(arch: std.Target.Cpu.Arch) []const u8 {
 }
 
 pub fn deinit(self: *MachO) void {
-    for (self.text_block_free_list.items) |tb| {
-        tb.deinit(self.base.allocator);
-    }
+    self.pie_fixups.deinit(self.base.allocator);
     self.text_block_free_list.deinit(self.base.allocator);
     self.offset_table.deinit(self.base.allocator);
     self.offset_table_free_list.deinit(self.base.allocator);
@@ -894,9 +890,7 @@ fn freeTextBlock(self: *MachO, text_block: *TextBlock) void {
         if (!already_have_free_list_node and prev.freeListEligible(self.*)) {
             // The free list is heuristics, it doesn't have to be perfect, so we can ignore
             // the OOM here.
-            self.text_block_free_list.append(self.base.allocator, prev) catch {
-                prev.deinit(self.base.allocator);
-            };
+            self.text_block_free_list.append(self.base.allocator, prev) catch {};
         }
     } else {
         text_block.prev = null;
@@ -1018,7 +1012,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl: *Module.Decl) !void {
 
     // Perform PIE fixups (if any)
     const got_section = self.sections.items[self.got_section_index.?];
-    while (decl.link.macho.pie_fixups.popOrNull()) |fixup| {
+    while (self.pie_fixups.popOrNull()) |fixup| {
         const target_addr = fixup.address;
         const this_addr = symbol.n_value + fixup.start;
         if (self.base.options.target.cpu.arch == .x86_64) {
@@ -1761,7 +1755,7 @@ fn writeCodeSignature(self: *MachO) !void {
 }
 
 fn writeExportTrie(self: *MachO) !void {
-    assert(self.global_symbols.items.len > 0);
+    if (self.global_symbols.items.len == 0) return;
 
     var trie: Trie = .{};
     defer trie.deinit(self.base.allocator);

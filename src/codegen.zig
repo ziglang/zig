@@ -2601,7 +2601,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 }).toU32());
                                 // adr x28, #8
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.adr(.x28, 8).toU32());
-                                try self.mod_fn.owner_decl.link.macho.addPieFixup(self.bin_file.allocator, .{
+                                try macho_file.pie_fixups.append(self.bin_file.allocator, .{
                                     .address = addr,
                                     .start = self.code.items.len,
                                     .len = 4,
@@ -2626,7 +2626,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 }).toU32());
                                 // adr x28, #8
                                 mem.writeIntLittle(u32, try self.code.addManyAsArray(4), Instruction.adr(.x28, 8).toU32());
-                                try self.mod_fn.owner_decl.link.macho.addPieFixup(self.bin_file.allocator, .{
+                                try macho_file.pie_fixups.append(self.bin_file.allocator, .{
                                     .address = addr,
                                     .start = self.code.items.len,
                                     .len = 4,
@@ -2838,7 +2838,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                             // later in the linker.
                             if (reg.id() == 0) { // %rax is special-cased
                                 try self.code.ensureCapacity(self.code.items.len + 5);
-                                try self.mod_fn.owner_decl.link.macho.addPieFixup(self.bin_file.allocator, .{
+                                try macho_file.pie_fixups.append(self.bin_file.allocator, .{
                                     .address = x,
                                     .start = self.code.items.len,
                                     .len = 5,
@@ -2855,7 +2855,7 @@ fn Function(comptime arch: std.Target.Cpu.Arch) type {
                                 try self.code.ensureCapacity(self.code.items.len + 10);
                                 // push %rax
                                 self.code.appendSliceAssumeCapacity(&[_]u8{0x50});
-                                try self.mod_fn.owner_decl.link.macho.addPieFixup(self.bin_file.allocator, .{
+                                try macho_file.pie_fixups.append(self.bin_file.allocator, .{
                                     .address = x,
                                     .start = self.code.items.len,
                                     .len = 5,
