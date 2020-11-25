@@ -3484,7 +3484,29 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
         union_type->abi_size = SIZE_MAX;
         union_type->size_in_bits = SIZE_MAX;
     }
-    union_type->data.unionation.resolve_status = zero_bits ? ResolveStatusSizeKnown : ResolveStatusZeroBitsKnown;
+
+    if (zero_bits) {
+        // Don't forget to resolve the types for each union member even though
+        // the type is zero sized.
+        // XXX: Do it in a nicer way in stage2.
+        union_type->data.unionation.resolve_loop_flag_other = true;
+
+        for (uint32_t i = 0; i < field_count; i += 1) {
+            TypeUnionField *union_field = &union_type->data.unionation.fields[i];
+            ZigType *field_type = resolve_union_field_type(g, union_field);
+            if (field_type == nullptr) {
+                union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
+            }
+        }
+
+        union_type->data.unionation.resolve_loop_flag_other = false;
+        union_type->data.unionation.resolve_status = ResolveStatusSizeKnown;
+
+        return ErrorNone;
+    }
+
+    union_type->data.unionation.resolve_status = ResolveStatusZeroBitsKnown;
 
     return ErrorNone;
 }
