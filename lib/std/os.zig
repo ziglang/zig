@@ -1557,7 +1557,7 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
         break :blk errno(system.getcwd(out_buffer.ptr, out_buffer.len));
     };
     switch (err) {
-        0 => return mem.spanZ(@ptrCast([*:0]u8, out_buffer.ptr)),
+        0 => return mem.spanZ(std.meta.assumeSentinel(out_buffer.ptr, 0)),
         EFAULT => unreachable,
         EINVAL => unreachable,
         ENOENT => return error.CurrentWorkingDirectoryUnlinked,
@@ -4282,7 +4282,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             var procfs_buf: ["/proc/self/fd/-2147483648".len:0]u8 = undefined;
             const proc_path = std.fmt.bufPrint(procfs_buf[0..], "/proc/self/fd/{}\x00", .{fd}) catch unreachable;
 
-            const target = readlinkZ(@ptrCast([*:0]const u8, proc_path.ptr), out_buffer) catch |err| {
+            const target = readlinkZ(std.meta.assumeSentinel(proc_path.ptr, 0), out_buffer) catch |err| {
                 switch (err) {
                     error.UnsupportedReparsePointType => unreachable, // Windows only,
                     else => |e| return e,
@@ -4606,7 +4606,7 @@ pub const GetHostNameError = error{PermissionDenied} || UnexpectedError;
 pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
     if (builtin.link_libc) {
         switch (errno(system.gethostname(name_buffer, name_buffer.len))) {
-            0 => return mem.spanZ(@ptrCast([*:0]u8, name_buffer)),
+            0 => return mem.spanZ(std.meta.assumeSentinel(name_buffer, 0)),
             EFAULT => unreachable,
             ENAMETOOLONG => unreachable, // HOST_NAME_MAX prevents this
             EPERM => return error.PermissionDenied,
@@ -4615,7 +4615,7 @@ pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
     }
     if (builtin.os.tag == .linux) {
         const uts = uname();
-        const hostname = mem.spanZ(@ptrCast([*:0]const u8, &uts.nodename));
+        const hostname = mem.spanZ(std.meta.assumeSentinel(&uts.nodename, 0));
         mem.copy(u8, name_buffer, hostname);
         return name_buffer[0..hostname.len];
     }

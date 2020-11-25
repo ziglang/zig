@@ -161,6 +161,13 @@ pub fn Elem(comptime T: type) type {
             },
             .Many, .C, .Slice => return info.child,
         },
+        .Optional => |info| switch (@typeInfo(info.child)) {
+            .Pointer => |ptr_info| switch (ptr_info.size) {
+                .Many => return ptr_info.child,
+                else => {},
+            },
+            else => {},
+        },
         else => {},
     }
     @compileError("Expected pointer, slice, array or vector type, found '" ++ @typeName(T) ++ "'");
@@ -173,6 +180,7 @@ test "std.meta.Elem" {
     testing.expect(Elem(*[10]u8) == u8);
     testing.expect(Elem(Vector(2, u8)) == u8);
     testing.expect(Elem(*Vector(2, u8)) == u8);
+    testing.expect(Elem(?[*]u8) == u8);
 }
 
 /// Given a type which can have a sentinel e.g. `[:0]u8`, returns the sentinel value,
@@ -211,6 +219,94 @@ fn testSentinel() void {
     testing.expect(sentinel([*]u8) == null);
     testing.expect(sentinel([5]u8) == null);
     testing.expect(sentinel(*const [5]u8) == null);
+}
+
+/// Given a "memory span" type, returns the same type except with the given sentinel value.
+pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
+    switch (@typeInfo(T)) {
+        .Pointer => |info| switch (info.size) {
+            .One => switch (@typeInfo(info.child)) {
+                .Array => |array_info| return @Type(.{ .Pointer = .{
+                    .size = info.size,
+                    .is_const = info.is_const,
+                    .is_volatile = info.is_volatile,
+                    .alignment = info.alignment,
+                    .child = @Type(.{ .Array = .{
+                        .len = array_info.len,
+                        .child = array_info.child,
+                        .sentinel = sentinel_val,
+                    }}),
+                    .is_allowzero = info.is_allowzero,
+                    .sentinel = info.sentinel,
+                }}),
+                else => {},
+            },
+            .Many, .Slice => return @Type(.{ .Pointer = .{
+                .size = info.size,
+                .is_const = info.is_const,
+                .is_volatile = info.is_volatile,
+                .alignment = info.alignment,
+                .child = info.child,
+                .is_allowzero = info.is_allowzero,
+                .sentinel = sentinel_val,
+            }}),
+            else => {},
+        },
+        .Optional => |info| switch (@typeInfo(info.child)) {
+            .Pointer => |ptr_info| switch (ptr_info.size) {
+                .Many => return @Type(.{ .Optional = .{ .child = @Type(.{ .Pointer = .{
+                    .size = ptr_info.size,
+                    .is_const = ptr_info.is_const,
+                    .is_volatile = ptr_info.is_volatile,
+                    .alignment = ptr_info.alignment,
+                    .child = ptr_info.child,
+                    .is_allowzero = ptr_info.is_allowzero,
+                    .sentinel = sentinel_val,
+                }})}}),
+                else => {},
+            },
+            else => {},
+        },
+        else => {},
+    }
+    @compileError("Unable to derive a sentinel pointer type from " ++ @typeName(T));
+}
+
+/// Takes a Slice or Many Pointer and returns it with the Type modified to have the given sentinel value.
+/// This function assumes the caller has verified the memory contains the sentinel value.
+pub fn assumeSentinel(p: anytype, comptime sentinel_val: Elem(@TypeOf(p))) Sentinel(@TypeOf(p), sentinel_val) {
+    const T = @TypeOf(p);
+    const ReturnType = Sentinel(T, sentinel_val);
+    switch (@typeInfo(T)) {
+        .Pointer => |info| switch (info.size) {
+            .Slice => return @bitCast(ReturnType, p),
+            .Many, .One => return @ptrCast(ReturnType, p),
+            .C => {},
+        },
+        .Optional => |info| switch (@typeInfo(info.child)) {
+            .Pointer => |ptr_info| switch (ptr_info.size) {
+                .Many => return @ptrCast(ReturnType, p),
+                else => {},
+            },
+            else => {},
+        },
+        else => {},
+    }
+    @compileError("Unable to derive a sentinel pointer type from " ++ @typeName(T));
+}
+
+test "std.meta.assumeSentinel" {
+    testing.expect([*:0]u8        == @TypeOf(assumeSentinel(@as([*]u8      , undefined), 0)));
+    testing.expect([:0]u8         == @TypeOf(assumeSentinel(@as([]u8       , undefined), 0)));
+    testing.expect([*:0]const u8  == @TypeOf(assumeSentinel(@as([*]const u8, undefined), 0)));
+    testing.expect([:0]const u8   == @TypeOf(assumeSentinel(@as([]const u8 , undefined), 0)));
+    testing.expect([*:0]u16       == @TypeOf(assumeSentinel(@as([*]u16     , undefined), 0)));
+    testing.expect([:0]const u16  == @TypeOf(assumeSentinel(@as([]const u16, undefined), 0)));
+    testing.expect([*:3]u8        == @TypeOf(assumeSentinel(@as([*:1]u8    , undefined), 3)));
+    testing.expect([:null]?[*]u8  == @TypeOf(assumeSentinel(@as([]?[*]u8   , undefined), null)));
+    testing.expect([*:null]?[*]u8 == @TypeOf(assumeSentinel(@as([*]?[*]u8  , undefined), null)));
+    testing.expect(*[10:0]u8      == @TypeOf(assumeSentinel(@as(*[10]u8    , undefined), 0)));
+    testing.expect(?[*:0]u8       == @TypeOf(assumeSentinel(@as(?[*]u8     , undefined), 0)));
 }
 
 pub fn containerLayout(comptime T: type) TypeInfo.ContainerLayout {

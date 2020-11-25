@@ -178,7 +178,7 @@ pub const Address = extern union {
                     unreachable;
                 }
 
-                const path_len = std.mem.len(@ptrCast([*:0]const u8, &self.un.path));
+                const path_len = std.mem.len(std.meta.assumeSentinel(&self.un.path, 0));
                 return @intCast(os.socklen_t, @sizeOf(os.sockaddr_un) - self.un.path.len + path_len);
             },
             else => unreachable,
@@ -721,7 +721,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
             .next = null,
         };
         var res: *os.addrinfo = undefined;
-        const rc = sys.getaddrinfo(name_c.ptr, @ptrCast([*:0]const u8, port_c.ptr), &hints, &res);
+        const rc = sys.getaddrinfo(name_c.ptr, std.meta.assumeSentinel(port_c.ptr, 0), &hints, &res);
         if (builtin.os.tag == .windows) switch (@intToEnum(os.windows.ws2_32.WinsockError, @intCast(u16, rc))) {
             @intToEnum(os.windows.ws2_32.WinsockError, 0) => {},
             .WSATRY_AGAIN => return error.TemporaryNameServerFailure,
@@ -1556,7 +1556,7 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
             var tmp: [256]u8 = undefined;
             // Returns len of compressed name. strlen to get canon name.
             _ = try os.dn_expand(packet, data, &tmp);
-            const canon_name = mem.spanZ(@ptrCast([*:0]const u8, &tmp));
+            const canon_name = mem.spanZ(std.meta.assumeSentinel(&tmp, 0));
             if (isValidHostName(canon_name)) {
                 try ctx.canon.replaceContents(canon_name);
             }
